@@ -27,7 +27,8 @@ export interface VoiceDetector {
 export interface Recognizer {
   /**
    * The words in one stretch of speech, said on the stream named. `words` are those the speech may
-   * hold (the names in the call, #1031), for an engine that can be told them.
+   * hold (the names in the call, #1031), for an engine that can be told them: a final reading is
+   * told them, a partial one, soon replaced, is not.
    */
   decode(samples: Float32Array, stream: string, words: readonly string[]): Promise<string>;
 }
@@ -249,7 +250,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
           start: speech.start,
           samples: slice(stream, speech.start),
           final: false,
-          words: stream.words,
+          words: [],
         });
       }
     } else {

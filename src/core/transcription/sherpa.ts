@@ -8,7 +8,7 @@
 import type { TranscriptionModelFiles } from "../adapters";
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import { engineModule, exportsOf } from "../engineModules";
-import { contextWords, echoes, hotwordsOf } from "./context";
+import { contextWords, echoes, hotwordsOf, withToldWords } from "./context";
 import type { SpeechEngine, VoiceDetector } from "./speech";
 import { textOfResult, wordsOnly } from "./speechText";
 import { writtenNumbers } from "./spokenNumbers";
@@ -147,13 +147,16 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
     recognizer: {
       async decode(samples, _stream, given) {
         const words = contextWords(given);
-        const text = await read(samples, words);
-        if (words.length === 0 || !echoes(text, words)) return text;
-        // The process has no logger of its own: its output goes to the app's log. No words in it.
-        console.warn(
-          "The speech model wrote the words it was told; the stretch is read without them.",
-        );
-        return read(samples, []);
+        const plain = await read(samples, []);
+        if (words.length === 0) return plain;
+        const told = await read(samples, words);
+        if (echoes(told, words)) {
+          // The process has no logger of its own: its output goes to the app's log. No words in it.
+          console.warn(
+            "The speech model wrote the words it was told; the stretch keeps its plain reading.",
+          );
+        }
+        return withToldWords(plain, told, words);
       },
     },
     // The recognizer and detectors are freed with the process; nothing holds them here.

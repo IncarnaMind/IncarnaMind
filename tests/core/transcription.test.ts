@@ -114,8 +114,9 @@ describe("Live text from VAD segments, decoded again as speech goes on", () => {
     await vi.waitFor(() => expect(segments.map((each) => each.stream)).toEqual(["b", "b"]));
   });
 
-  test("each stream's stretches, partial and final, are decoded with the words told for that stream (#1031)", async () => {
+  test("a stream's final readings are told the words told for that stream; partial ones and other streams' are not (#1031)", async () => {
     const decoded: { stream: string; words: readonly string[] }[] = [];
+    const segments: SpeechSegment[] = [];
     const host = createSpeechHost(
       {
         detector: () => scriptedDetector([[0, 4]]),
@@ -127,7 +128,7 @@ describe("Live text from VAD segments, decoded again as speech goes on", () => {
         },
         close() {},
       },
-      { segment: () => {}, progress: () => {}, failed: () => {} },
+      { segment: (segment) => segments.push(segment), progress: () => {}, failed: () => {} },
     );
     host.words("a:microphone", ["Priya Raman", "星河科技"]);
     for (let at = 0; at < 50; at++) {
@@ -136,12 +137,15 @@ describe("Live text from VAD segments, decoded again as speech goes on", () => {
       await new Promise((resolve) => setImmediate(resolve));
     }
     await Promise.all([host.finish("a:microphone"), host.finish("a:system")]);
-    const told = decoded.filter((each) => each.stream === "a:microphone");
-    expect(told.length).toBeGreaterThanOrEqual(2);
-    expect(told.every((each) => each.words.join() === "Priya Raman,星河科技")).toBe(true);
-    const untold = decoded.filter((each) => each.stream === "a:system");
-    expect(untold.length).toBeGreaterThanOrEqual(1);
-    expect(untold.every((each) => each.words.length === 0)).toBe(true);
+    const mine = decoded.filter((each) => each.stream === "a:microphone");
+    const partials = segments.filter((each) => each.stream === "a:microphone" && !each.final);
+    expect(partials.length).toBeGreaterThanOrEqual(1);
+    expect(mine.length).toBe(partials.length + 1);
+    expect(mine.at(-1)?.words).toEqual(["Priya Raman", "星河科技"]);
+    expect(mine.slice(0, -1).every((each) => each.words.length === 0)).toBe(true);
+    const theirs = decoded.filter((each) => each.stream === "a:system");
+    expect(theirs.length).toBeGreaterThanOrEqual(1);
+    expect(theirs.every((each) => each.words.length === 0)).toBe(true);
   });
 
   test("a stretch the engine can't read loses its text, and the stream goes on", async () => {

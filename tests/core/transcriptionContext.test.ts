@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { contextWords, echoes, hotwordsOf } from "../../src/core/transcription/context";
+import {
+  contextWords,
+  echoes,
+  hotwordsOf,
+  withToldWords,
+} from "../../src/core/transcription/context";
 
 describe("The words the transcriber on this computer is told (#1031)", () => {
   test("each word once whatever its case, on one line, with no comma to split it", () => {
@@ -41,5 +46,68 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
     expect(echoes("Rotterdam.", ["Rotterdam"])).toBe(false);
     expect(echoes("Rotterdam, Daniel.", ["Rotterdam", "Daniel"])).toBe(true);
     expect(echoes("Rotterdam can handle that.", ["Rotterdam", "Daniel"])).toBe(false);
+  });
+
+  describe("the told reading gives only its names to the first one", () => {
+    const english = ["Marcus", "Priya Raman", "Lumen Foods", "Harbor Logistics", "Sofia Lindqvist"];
+    const chinese = ["陈经理", "星河科技", "王丽", "王总", "李明"];
+
+    test("a misheard name takes the told reading's, in English and Chinese, a name's own parts too", () => {
+      expect(
+        withToldWords(
+          "This is Priyaman from Lumin Food. I want to go over the Arbor Logistics renewal.",
+          "This is Priya Raman from Lumen Foods. I want to go over the Harbor Logistics renewal.",
+          english,
+        ),
+      ).toBe(
+        "This is Priya Raman from Lumen Foods. I want to go over the Harbor Logistics renewal.",
+      );
+      expect(
+        withToldWords(
+          "Our operations lead, Sophia Lindvist will send it. Thanks, Creer.",
+          "Our operations lead, Sofia Lindqvist. We'll send it. Thanks, Priya.",
+          english,
+        ),
+      ).toBe("Our operations lead, Sofia Lindqvist will send it. Thanks, Priya.");
+      expect(
+        withToldWords(
+          "陈经理，你好，我是新和科技的王力。项目经理云会把施工图发给你。",
+          "陈经理，你好，我是星河科技的王丽。项目经理李明会把施工图发给你。",
+          chinese,
+        ),
+      ).toBe("陈经理，你好，我是星河科技的王丽。项目经理李明会把施工图发给你。");
+    });
+
+    test("everything else stays as first read: words the told reading dropped or changed", () => {
+      expect(
+        withToldWords(
+          "但是我发现，她这生活类的段子嘛，假科普的现象很严重。",
+          "但是我发现她。假科普的现象很严重。",
+          ["段子", "主播"],
+        ),
+      ).toBe("但是我发现，她这生活类的段子嘛，假科普的现象很严重。");
+      expect(
+        withToldWords(
+          "So the action items are: Sophia sends the plan.",
+          "Sophia's items are: Sofia sends the plan.",
+          ["Sofia Lindqvist"],
+        ),
+      ).toBe("So the action items are: Sofia sends the plan.");
+    });
+
+    test("a told name goes nowhere the first reading heard nothing, or something far longer or shorter", () => {
+      expect(withToldWords("对，我也看过。", "李明对，我也看过。", chinese)).toBe("对，我也看过。");
+      expect(withToldWords("Okay, sounds good.", "Okay, sounds good, Marcus.", english)).toBe(
+        "Okay, sounds good.",
+      );
+      expect(
+        withToldWords("Thanks, and see you then.", "Thanks, Harbor Logistics then.", english),
+      ).toBe("Thanks, and see you then.");
+      // An echo of the list is no reading of the speech at all.
+      expect(withToldWords("神经理，你好。", "陈经理，星河科技，王丽，王总，李明。", chinese)).toBe(
+        "神经理，你好。",
+      );
+      expect(withToldWords("神经理，你好。", "陈经理，你好。", chinese)).toBe("陈经理，你好。");
+    });
   });
 });
