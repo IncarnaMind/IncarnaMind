@@ -101,6 +101,15 @@ export const withoutNames = (text: string) =>
     .join("\n")
     .replace(/\\¶(?=\S)/g, "¶");
 
+/**
+ * For a passage shown with its paragraphs' names (#2356): the shared instructions and how a reply
+ * names its own. Apart from them, as a model told of names in a passage shown none writes some.
+ */
+export const EDIT_INSTRUCTIONS_NAMED = [
+  EDIT_INSTRUCTIONS,
+  "- Each paragraph of the passage starts with its name, such as ¶1 or ¶2. Write only the paragraphs you change or add, and those the task names to go, each starting with a name: one you rewrite with the name of the passage's paragraph it replaces, as in ¶3 - The new words; one that goes with its name and then its words, word for word, between <removed> and </removed>, as in ¶4 <removed>- The item</removed>; a new one with ¶+, right after the paragraph it follows, which you write too, as it is. Name a paragraph once at most. A paragraph you don't write stays as it is. Write nothing else: no line on what you did, didn't do or got wrong. If nothing needs to change, give the passage back as it is. A backslash before ¶ makes it words of the passage: keep the backslash.",
+].join("\n");
+
 /** For "explain": a few sentences to go under the passage. */
 export const EXPLAIN_INSTRUCTIONS = [
   "You explain a passage of the User's own notes. The passage is between <passage> and </passage>.",
@@ -113,23 +122,8 @@ export const EXPLAIN_INSTRUCTIONS = [
 export const QUOTE_WHAT_GOES =
   "If that names text to go, write each paragraph that goes between <removed> and </removed>, word for word, where it stood: leaving it out doesn't take it out.";
 
-/**
- * Said after that when the passage shows its paragraphs' names (#2356): the task's own words, not
- * the instructions every edit shares, as a model shown no names would write some.
- */
-export const NAME_WHAT_YOU_WRITE = [
-  "Each paragraph of the passage starts with its name: ¶1, ¶2 and so on.",
-  "Write only the paragraphs you change or add, and those it asks to go, each starting with a name: one you rewrite with the name of the passage's paragraph it replaces, as in ¶3 - The new words; a new one with ¶+, right after the paragraph it follows, which you write too, as it is; one that goes with its name, then its words between <removed> and </removed>, as in ¶4 <removed>- The item</removed>.",
-  "Name a paragraph once at most, and only one the passage has. A paragraph you don't write stays as it is.",
-  "Write nothing else, no note on what you did or didn't change: if nothing needs to change, write only <why>.",
-  "A backslash before ¶ makes it words of the passage: keep the backslash.",
-].join(" ");
-
-/**
- * What each action asks for; `instruction` is the language, the User's words or the unsupported
- * part; `cited`, what the passage's markers quote; `named`, the passage shows its paragraphs' names.
- */
-function taskFor(action: EditAction, instruction: string, cited: string, named: boolean): string {
+/** What each action asks for; `instruction` is the language, the User's words or the unsupported part; `cited`, what the passage's markers quote. */
+function taskFor(action: EditAction, instruction: string, cited: string): string {
   switch (action) {
     case "improve":
       return "Improve the writing: make it clearer, smoother and correct, with the same meaning and tone. Leave what is fine as it is.";
@@ -140,9 +134,7 @@ function taskFor(action: EditAction, instruction: string, cited: string, named: 
     case "explain":
       return "Explain what the passage says.";
     case "instruction":
-      return [`Do what the User asks: ${instruction}`, QUOTE_WHAT_GOES]
-        .concat(named ? [NAME_WHAT_YOU_WRITE] : [])
-        .join("\n");
+      return `Do what the User asks: ${instruction}\n${QUOTE_WHAT_GOES}`;
     case "follow-citation":
       return [
         ...(cited ? [`Its markers' Documents now say only this: ${cited}.`] : []),
@@ -169,8 +161,6 @@ export function editPrompt(input: {
   after?: string;
   /** What each Citation marker quotes: marker n is `quotes[n - 1]`. */
   quotes?: readonly string[];
-  /** The passage shows its paragraphs' names (`NAMES_SHOWN`). */
-  named?: boolean;
 }): string {
   const near = (tag: "before" | "after", words: string | undefined) =>
     words ? [`<${tag}>`, words, `</${tag}>`, ""] : [];
@@ -190,7 +180,7 @@ export function editPrompt(input: {
     "</passage>",
     "",
     ...near("after", input.after),
-    `<task action="${input.action}">${taskFor(input.action, input.instruction, cited, input.named ?? false)}</task>`,
+    `<task action="${input.action}">${taskFor(input.action, input.instruction, cited)}</task>`,
   ].join("\n");
 }
 

@@ -33,7 +33,7 @@ const asked = ({ options }: ModelCall): string => {
 };
 
 const editPassage = (call: ModelCall): string | null =>
-  call.system === EDIT_INSTRUCTIONS
+  call.system.startsWith(EDIT_INSTRUCTIONS)
     ? (/<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? null)
     : null;
 

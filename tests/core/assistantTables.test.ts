@@ -71,7 +71,7 @@ function citation(tides: Document): JSONContent {
 
 /** Edit with AI's request, and the passage it asks to rewrite; null for any other request. */
 const editPassage = (call: ModelCall): string | null =>
-  call.system === EDIT_INSTRUCTIONS
+  call.system.startsWith(EDIT_INSTRUCTIONS)
     ? (/<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? null)
     : null;
 

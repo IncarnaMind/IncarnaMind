@@ -4925,7 +4925,7 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     expect(shownWithChanges(client)).toEqual(lines);
   });
 
-  // protects=only a request in the User's words shows the passage's names, and the rule for them is said in its task, so a fixed action such as Shorten is shown no name and told of none; fails_when=the shared instructions or Shorten's prompt mention names, or the request in words isn't told; no_claim=how a model reads the rule.
+  // protects=only a request in the User's words shows the passage's names and is told how to name its own, in its instructions, so a fixed action such as Shorten is shown no name and told of none; fails_when=Shorten's instructions or prompt mention names, or the request in words isn't told; no_claim=how a model reads the rule.
   test("the names and their rule go to a request in the User's words, not to Shorten", async () => {
     const lines = ["Rent is very high.", "Water is really cheap."];
     const { core, mind, client, calls } = await noteOf(plain(lines), ({ passage }) => passage);
@@ -4946,8 +4946,8 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     expect(shorten?.passage).toBe(lines.join("\n\n"));
     expect(`${shorten?.system}${shorten?.prompt}`).not.toContain("¶");
     expect(asked?.passage).toBe(`¶1 ${lines[0]}\n\n¶2 ${lines[1]}`);
-    expect(asked?.prompt).toContain("each starting with a name");
-    expect(asked?.system).not.toContain("¶");
+    expect(asked?.system).toContain("each starting with a name");
+    expect(asked?.prompt).not.toContain("each starting with a name");
   });
 
   // protects=a name alone on its line names the words after it, on the next line or after a blank one, so a model that breaks the line after a name isn't refused; fails_when=it is refused or the words are added beside; no_claim=none beyond protects.

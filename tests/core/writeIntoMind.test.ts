@@ -563,7 +563,7 @@ describe("Use all after Reject all of a later rewrite (#1950)", { timeout: 60_00
   async function rewritten(how: "content" | "instruction") {
     let later = false;
     const model = scriptedModel((call): ScriptedReply => {
-      if (call.system === EDIT_INSTRUCTIONS) {
+      if (call.system.startsWith(EDIT_INSTRUCTIONS)) {
         const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? "";
         return { text: `${passage} Both are due on the first.\n<why>Longer.</why>` };
       }

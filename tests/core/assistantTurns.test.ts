@@ -44,7 +44,7 @@ const asked = ({ options }: ModelCall): string => {
 const called = (call: ModelCall, tool: string) => call.results.some((each) => each.tool === tool);
 
 const editPassage = (call: ModelCall): string | null =>
-  call.system === EDIT_INSTRUCTIONS
+  call.system.startsWith(EDIT_INSTRUCTIONS)
     ? (/<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? null)
     : null;
 

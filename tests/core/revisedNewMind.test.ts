@@ -328,7 +328,7 @@ describe("A Mind that was there, its waiting text revised by a later Answer", {
   async function revised(times: 1 | 2, how: "content" | "instruction" = "content") {
     let revising = false;
     const core = await setUp((call) => {
-      if (call.system === EDIT_INSTRUCTIONS) {
+      if (call.system.startsWith(EDIT_INSTRUCTIONS)) {
         const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? "";
         return { text: `${passage} ${LONGER_RISK}\n<why>Longer.</why>` };
       }

@@ -362,7 +362,7 @@ describe("A model no list names, or one in a flow no list admits it to", {
       const retried = scriptedModel(
         (call: ModelCall): ScriptedReply => {
           const passage =
-            call.system === EDIT_INSTRUCTIONS
+            call.system.startsWith(EDIT_INSTRUCTIONS)
               ? /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1]
               : undefined;
           if (passage !== undefined) return { text: passage.replace("visted", "visited") };

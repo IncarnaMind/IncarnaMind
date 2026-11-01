@@ -96,6 +96,7 @@ import { inFlow } from "../timing/flows";
 import { waitsForUser } from "./applies";
 import {
   EDIT_INSTRUCTIONS,
+  EDIT_INSTRUCTIONS_NAMED,
   EXPLAIN_INSTRUCTIONS,
   editPrompt,
   NAMES_SHOWN,
@@ -385,16 +386,19 @@ function editCall(
   },
 ): EditCall | null {
   const explain = ask.action === "explain";
-  const instructions = explain ? EXPLAIN_INSTRUCTIONS : EDIT_INSTRUCTIONS;
   const passage =
     selection.named === undefined
       ? selection.text
       : passageFor(ask.action, { text: selection.text, named: selection.named });
+  const instructions = explain
+    ? EXPLAIN_INSTRUCTIONS
+    : passage === selection.text
+      ? EDIT_INSTRUCTIONS
+      : EDIT_INSTRUCTIONS_NAMED;
   const prompt = editPrompt({
     action: ask.action,
     instruction: ask.instruction,
     passage,
-    named: passage !== selection.text,
     context: selection.context,
     // Explain writes under the passage, not into it: the words around it don't matter.
     ...(!explain && { before: selection.before, after: selection.after }),
