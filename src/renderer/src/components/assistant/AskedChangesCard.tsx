@@ -125,32 +125,21 @@ function AskedRow({
   name: string;
 }) {
   const t = useT();
-  const answerArrivingNow = useArrivingAnswers().has(answerId);
   const facts = useAskedFacts(answerId, row.mindId) ?? row;
   const accepted = useAcceptedChanges(answerId, row.mindId);
   const settled =
     typeof waiting?.count === "number" ? appliedWaiting(waiting.pending, accepted) : null;
   const held = outcome === "held";
-  const heldLeft = leftText(t, row, waiting?.count ?? null);
-  const appliedLeft =
-    outcome !== "undone" && settled !== null && settled.count > 0
-      ? leftText(t, row, settled.count)
-      : null;
-  // The count keeps its room from the first frame of the applied row; it shows once the Mind's copy
-  // has the apply, so it neither shows what was taken nor moves anything when it appears (#1325).
-  const shown = held || settled === null || settled.settled;
+  // Once the apply takes the changes they stop waiting, but the hidden waiting row keeps the count
+  // it had, and with it the room of the state that was on show (#400).
+  const heldLeft = leftText(
+    t,
+    row,
+    accepted === undefined ? waiting?.count : accepted.length + (settled?.count ?? 0),
+  );
   const kept = keptText(t, row);
-  const total = useWaitingBesidesApplied(row.mindId, arriving);
-  // The Note's copy can still hold the changes this apply took for a frame after the Answer stops
-  // arriving: they are not waiting, so the Note's count leaves them out too (#1325). While the
-  // Answer is arriving, the count already leaves them out; subtracting again would hide others.
-  const takenHere =
-    answerArrivingNow || outcome !== "applied" || !settled || !waiting
-      ? 0
-      : waiting.pending.length - settled.count;
-  const noteTotal = typeof total === "number" ? Math.max(0, total - takenHere) : total;
+  const noteTotal = useWaitingBesidesApplied(row.mindId, arriving);
   const heldInNote = inNoteText(t, noteTotal, ownWaiting(waiting));
-  const appliedInNote = outcome === "undone" ? null : inNoteText(t, noteTotal, settled?.count ?? 0);
   // Only the row on show carries the test's hooks; the other is hidden from sight and from the
   // accessibility tree, as a person would never reach it.
   const id = (live: boolean, testId: string) => (live ? testId : undefined);
@@ -209,55 +198,128 @@ function AskedRow({
             {t("mindChanges.review")}
           </button>
         </p>
-        <p
-          className="mind-changes-line"
-          data-shown={held ? "false" : "true"}
-          aria-hidden={held ? true : undefined}
-        >
-          <span data-testid={id(!held, "mind-changes-title")} className="mind-changes-title">
-            {appliedFact(t, facts, name)}
-          </span>
-          {appliedLeft && (
-            <>
-              {" "}
-              <span
-                data-testid={id(!held, "mind-changes-left")}
-                className={`mind-changes-count whitespace-nowrap${shown ? "" : " invisible"}`}
-              >
-                {appliedLeft}
-              </span>
-            </>
-          )}
-          {appliedInNote && (
-            <>
-              {" "}
-              <span
-                data-testid={id(!held, "mind-changes-in-note")}
-                className="mind-changes-count whitespace-nowrap"
-              >
-                {appliedInNote}
-              </span>
-              <Dot />
-              <button
-                type="button"
-                data-testid={id(!held, "mind-changes-note-review")}
-                onClick={() => showNoteWaiting(row)}
-                className="mind-changes-review"
-              >
-                {t("mindChanges.review")}
-              </button>
-            </>
-          )}
-          {kept && (
-            <span data-testid={id(!held, "mind-changes-kept")} className="mind-changes-count">
-              {" "}
-              {kept}
-            </span>
-          )}
-          <AppliedActions answerId={answerId} row={row} name={name} live={!held} />
-        </p>
+        <AppliedLine
+          answerId={answerId}
+          row={row}
+          name={name}
+          outcome={outcome}
+          waiting={waiting}
+          arriving={arriving}
+          shown={!held}
+        />
       </div>
     </div>
+  );
+}
+
+/**
+ * The applied row of an Answer's changes in one Mind, and the room it holds while the waiting row
+ * shows: the two rows share one cell and the card takes the taller of the two at this width, so
+ * nothing under it moves when the waiting row becomes the applied one (#400, DESIGN.md's feel rules).
+ */
+export function AppliedLine({
+  answerId,
+  row,
+  name,
+  outcome,
+  waiting,
+  arriving,
+  shown,
+}: {
+  answerId: string;
+  row: ChangedMind;
+  name: string;
+  outcome: AskedOutcome | undefined;
+  waiting: WaitingRow | undefined;
+  arriving: ArrivingInMind | undefined;
+  /** This row is the one on show: it draws, and only it carries the card's hooks. */
+  shown: boolean;
+}) {
+  const t = useT();
+  const answerArrivingNow = useArrivingAnswers().has(answerId);
+  const facts = useAskedFacts(answerId, row.mindId) ?? row;
+  const accepted = useAcceptedChanges(answerId, row.mindId);
+  const settled =
+    typeof waiting?.count === "number" ? appliedWaiting(waiting.pending, accepted) : null;
+  const appliedLeft =
+    outcome !== "undone" && settled !== null && settled.count > 0
+      ? leftText(t, row, settled.count)
+      : null;
+  // The count keeps its room from the first frame of the applied row; it shows once the Mind's copy
+  // has the apply, so it neither shows what was taken nor moves anything when it appears (#1325).
+  const countShown = settled === null || settled.settled;
+  // What waited before the apply took its changes: the waiting row's count, which the room keeps
+  // after they stop waiting (#400).
+  const countRoom =
+    accepted === undefined || outcome === "undone"
+      ? null
+      : leftText(t, row, accepted.length + (settled?.count ?? 0));
+  const kept = keptText(t, row);
+  const total = useWaitingBesidesApplied(row.mindId, arriving);
+  // The Note's copy can still hold the changes this apply took for a frame after the Answer stops
+  // arriving: they are not waiting, so the Note's count leaves them out too (#1325). While the
+  // Answer is arriving, the count already leaves them out; subtracting again would hide others.
+  const takenHere =
+    answerArrivingNow || outcome !== "applied" || !settled || !waiting
+      ? 0
+      : waiting.pending.length - settled.count;
+  const noteTotal = typeof total === "number" ? Math.max(0, total - takenHere) : total;
+  const appliedInNote = outcome === "undone" ? null : inNoteText(t, noteTotal, settled?.count ?? 0);
+  const id = (testId: string) => (shown ? testId : undefined);
+  return (
+    <p
+      className="mind-changes-line"
+      data-shown={shown ? "true" : "false"}
+      aria-hidden={shown ? undefined : true}
+    >
+      <span data-testid={id("mind-changes-title")} className="mind-changes-title">
+        {appliedFact(t, facts, name)}
+      </span>
+      {appliedLeft && (
+        <>
+          {" "}
+          <span
+            data-testid={id("mind-changes-left")}
+            className={`mind-changes-count whitespace-nowrap${countShown ? "" : " invisible"}`}
+          >
+            {appliedLeft}
+          </span>
+        </>
+      )}
+      {!appliedLeft && countRoom && (
+        <span className="mind-changes-count whitespace-nowrap invisible" aria-hidden="true">
+          {" "}
+          {countRoom}
+        </span>
+      )}
+      {appliedInNote && (
+        <>
+          {" "}
+          <span
+            data-testid={id("mind-changes-in-note")}
+            className="mind-changes-count whitespace-nowrap"
+          >
+            {appliedInNote}
+          </span>
+          <Dot />
+          <button
+            type="button"
+            data-testid={id("mind-changes-note-review")}
+            onClick={() => showNoteWaiting(row)}
+            className="mind-changes-review"
+          >
+            {t("mindChanges.review")}
+          </button>
+        </>
+      )}
+      {kept && (
+        <span data-testid={id("mind-changes-kept")} className="mind-changes-count">
+          {" "}
+          {kept}
+        </span>
+      )}
+      <AppliedActions answerId={answerId} row={row} name={name} live={shown} />
+    </p>
   );
 }
 
@@ -330,19 +392,22 @@ function AppliedActions({
       >
         {t("edit.applied.undo")}
       </button>
-      {reviewable && (
-        <>
-          <Dot />
-          <button
-            type="button"
-            data-testid={id("mind-changes-review")}
-            onClick={() => reviewAsked(answerId, mindId)}
-            className="mind-changes-review"
-          >
-            {t("edit.applied.review")}
-          </button>
-        </>
-      )}
+      {/* Review changes holds its room before the Mind can offer it, so the row keeps its height
+          when it appears (#400). */}
+      <span
+        className={reviewable ? undefined : "invisible"}
+        aria-hidden={reviewable ? undefined : true}
+      >
+        <Dot />
+        <button
+          type="button"
+          data-testid={reviewable ? id("mind-changes-review") : undefined}
+          onClick={() => reviewAsked(answerId, mindId)}
+          className="mind-changes-review"
+        >
+          {t("edit.applied.review")}
+        </button>
+      </span>
     </>
   );
 }
