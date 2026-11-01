@@ -8,9 +8,9 @@
  */
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { CALCULATION_CASES } from "./cases.ts";
-import { type CalculationsReport, summaryLines, writeCalculationsReport } from "./report.ts";
-import { scoreCase } from "./score.ts";
+import { CALCULATION_CASES } from "./cases";
+import { type CalculationsReport, summaryLines, writeCalculationsReport } from "./report";
+import { scoreCase } from "./score";
 
 const path = process.argv[2];
 if (!path) throw new Error("Give the report.json to score again.");

@@ -40,7 +40,9 @@ Per model, Tool arm and language, apart:
 - **Tool coverage**: derived results given as calculated figures, of the derived results given.
 - **Stated kept**: stated results given as stated.
 - **Refused rightly**: Questions that must be refused that were, giving no amount the Documents don't state.
-- **False checked**: calculated figures whose value or inputs are wrong. Each is listed, and it must be zero.
+- **False checked**: calculated figures whose value or inputs are wrong, including one of a result's kind standing where a result is missing. Each is listed, and it must be zero.
+- **Hedged**: a trap's value given beside the right one (the restated and the reported 2024 revenue). Listed, not counted wrong: an Answer may set them side by side on purpose. The scorer reads values, not prose, so an Answer that wrote many numbers of a result's kind would be read generously; none has.
+- **Refusals**: a Question to refuse is refused rightly when the Answer says it can't, gives no amount the Documents in scope don't state (within 1%), no multiple of one amount by the other, and no sentence saying which is larger.
 - **Speed**: seconds per Answer and per request to the model.
 
 Each Question is asked in a new conversation, with its scope when it has one. With `INCARNAMIND_EVAL_CALC_RUNS` above 1, every run's results are kept and reported, a failed one beside those that went right.
@@ -59,6 +61,7 @@ For each cloud model, in each language, on the calculation Questions with the To
 - **A chat model:** set `INCARNAMIND_EVAL_CHAT_KIND`, `_MODEL` and `_KEY` (see `eval/README.md`); setting them is the consent to send the Questions and Passages to it. Searches rerank with the built-in model, as in the app, with embeddings off. Each Question is asked with the `calculate` Tool offered and again with it withheld: the run sets the model's catalog fact for each arm, in its own process only.
 - `INCARNAMIND_EVAL_CALC_ARMS=on` or `off` runs one arm; `INCARNAMIND_EVAL_CALC_CASES=en-01,zh-05` only those Questions; `INCARNAMIND_EVAL_CALC_RUNS=3` each Question three times.
 - A real model skips the Analysis Questions, since no Analysis runtime runs outside the app; `INCARNAMIND_EVAL_CALC_ANALYSIS=on` asks them anyway.
+- `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs eval/calculations/rescore.ts <report.json>` scores a report again from the Answers it kept, with no model asked.
 - The report goes into `eval/results/<start time>-calculations/`: `report.md` with the table, the usage and spend the core's meter recorded, the bars and every Answer's results, and `report.json` with every Answer's text and figures.
 
 ## Results
