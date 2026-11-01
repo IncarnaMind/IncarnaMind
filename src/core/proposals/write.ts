@@ -497,6 +497,14 @@ function withEmphasis(
   return out;
 }
 
+/** The words of these Blocks' paragraphs and headings, a line each, as the Mind holds them once `request`'s changes are accepted. */
+export const acceptedText = (elements: readonly Y.XmlElement[], request: string): string =>
+  elements
+    .flatMap((block) =>
+      textBlocksOf(block).flatMap(({ element }) => viewOf(element, request, true) ?? []),
+    )
+    .join("\n");
+
 /** A text Block's words as the Mind holds them without `request`'s changes, or once they are accepted; null for a Block that isn't there in that view. */
 function viewOf(element: Y.XmlElement, request: string, accepted: boolean): string | null {
   // A list item taken out whole has its Proposal on the item, not on its paragraph (#2180).

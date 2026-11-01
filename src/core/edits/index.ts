@@ -75,6 +75,7 @@ import {
   waitingIn,
 } from "../proposals/ownWaiting";
 import {
+  acceptedText,
   createRewriteStream,
   layout,
   proposeAfter,
@@ -910,6 +911,12 @@ export function createEdits(options: EditsOptions) {
       const { selection } = read;
       if (selection.text === "") return nothing({ kind: "unchanged" });
       if (selection.characters > MAX_SELECTION_CHARACTERS) return nothing({ kind: "too-long" });
+      // Its length is told from its Blocks: a reply that names its paragraphs may write only some.
+      const stretch = () => {
+        const top = topLevelBlocks(blocks);
+        return top.slice(bounds.before, top.length - bounds.after);
+      };
+      const before = acceptedText(stretch(), "");
       const call = editCall(input.prepared, askOf(input), selection);
       if (!call) return nothing({ kind: "too-long" });
       let streamed: { raw: string; failure: unknown };
@@ -937,15 +944,13 @@ export function createEdits(options: EditsOptions) {
         resolveProposals(blocks, (each) => each.request === request, "accept");
         return rewritten;
       });
+      const after = acceptedText(stretch(), request);
       if (written.unmadeTable) return nothing({ kind: "no-table", text: textOf(reply, named) });
       if (written.misnamed) return nothing({ kind: "misnamed" });
       if (written.unplaced) return nothing({ kind: "unplaced", quotes: written.unplaced });
       if (written.proposals.length === 0) return nothing({ kind: "unchanged" });
       const { droppedCitations, notes } = written;
-      const top = topLevelBlocks(blocks);
-      const revised = top
-        .slice(bounds.before, top.length - bounds.after)
-        .map((element) => element.clone());
+      const revised = stretch().map((element) => element.clone());
       const made: ProposalRequest = {
         source: "answer-added",
         providerId: input.prepared.provider.id,
@@ -980,7 +985,7 @@ export function createEdits(options: EditsOptions) {
           ...someNotes(notes),
           stateVector: content.stateVector(input.mindId),
         },
-        length: { before: selection.text, after: textOf(reply, named) },
+        length: { before, after },
         reason: reasonOf(streamed.raw),
         revised: { blockIds },
       };
