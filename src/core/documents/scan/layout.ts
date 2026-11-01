@@ -66,7 +66,8 @@ export function unsureSpansIn(unit: {
   const merged: [number, number][] = [];
   for (const span of spans) {
     const last = merged.at(-1);
-    if (last && span[0] <= last[1]) last[1] = Math.max(last[1], span[1]);
+    // Two words that touch are two words (each Chinese character is one); only an overlap is one word.
+    if (last && span[0] < last[1]) last[1] = Math.max(last[1], span[1]);
     else merged.push(span);
   }
   return merged;
