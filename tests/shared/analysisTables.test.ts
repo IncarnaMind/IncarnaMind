@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { withAnalysisResults } from "../../src/core/analysis/markers";
+import { markdownToBlocks } from "../../src/core/answers/markdown";
 import type { AnswerAnalysis, Citation } from "../../src/core/api";
 import { type AnalysisTable, noAnalysisOutput } from "../../src/shared/analysis";
 import { countCitations, withAnalysisTableCitations } from "../../src/shared/analysisTables";
@@ -124,5 +126,27 @@ describe("an Analysis's table with its Citations (#2378)", () => {
     );
     expect(charted[0] && headingCitations(charted[0])).toBe(1);
     expect(charted[1] && headingCitations(charted[1])).toBe(0);
+  });
+
+  test("a table matches as it reads in Chinese too", () => {
+    const rows = [
+      ["North", 2590.7],
+      ["South", 80],
+    ];
+    const made = analysis([
+      {
+        kind: "table",
+        name: "by_region",
+        label: "Revenue by region",
+        unit: null,
+        table: table(rows),
+      },
+    ]);
+    const text = withAnalysisResults("各地区收入：\n\n[=table 1]", [made], "zh-CN");
+    const blocks = markdownToBlocks(text);
+    const cited = withAnalysisTableCitations(blocks, [made]);
+    const tableBlock = cited.find((block) => block.type === "table");
+    if (!tableBlock) throw new Error("No table.");
+    expect(headingCitations(tableBlock)).toBe(1);
   });
 });
