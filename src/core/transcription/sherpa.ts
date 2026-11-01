@@ -26,6 +26,13 @@ const WINDOW = 512;
 const STRETCH_MIN_SPEECH = WINDOW / MEETING_SAMPLE_RATE;
 const TURN_MIN_SPEECH = 0.25;
 
+/**
+ * A stretch is read again, told its words (#1031), only where its first reading took at most this
+ * share of its length: a second reading doubles the time, and on a slower computer live text fell
+ * behind the call. There the Transcript is as it was without the words.
+ */
+const READ_AGAIN_WITHIN = 0.4;
+
 /** The engine id the model definitions use (./model). */
 export const QWEN3_ASR = "qwen3-asr";
 
@@ -157,8 +164,11 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
     recognizer: {
       async decode(samples, _stream, given) {
         const words = contextWords(given);
+        const started = performance.now();
         const plain = await read(samples, []);
         if (words.length === 0) return plain;
+        const took = (performance.now() - started) / 1000;
+        if (took > (samples.length / MEETING_SAMPLE_RATE) * READ_AGAIN_WITHIN) return plain;
         const told = await read(samples, words);
         if (echoes(told, words)) {
           // The process has no logger of its own: its output goes to the app's log. No words in it.
