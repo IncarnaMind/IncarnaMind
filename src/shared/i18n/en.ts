@@ -261,6 +261,8 @@ export const en = {
   "command.palette.open": "Search…",
   "command.settings.page": "Settings: {page}",
   "command.settings.addProvider": "Add a model provider…",
+  "command.settings.meetingWords.keywords":
+    "names hotwords vocabulary transcription spelling meetings",
   "command.settings.localMode.keywords": "local offline private cloud off settings privacy",
   "palette.label": "Search",
   "palette.placeholder": "Search notes, conversations, Documents, Folders, Tags and actions…",
@@ -796,10 +798,80 @@ export const en = {
   "figures.inline.analysisNote":
     "These are the inputs and steps saved with this figure. Keeping the record doesn’t run the Analysis again.",
   "figures.inline.analysis": "Saved Analysis: {title}",
+  "figures.analysisRows.worked.one": "{how} of {label} in {count} row of {input}: {rows}",
+  "figures.analysisRows.worked.other": "{how} of {label} in {count} rows of {input}: {rows}",
+  "figures.analysisRows.how.sum": "Sum",
+  "figures.analysisRows.how.mean": "Average",
+  "figures.analysisRows.how.min": "Lowest value",
+  "figures.analysisRows.how.max": "Highest value",
+  "figures.analysisRows.how.count": "Count",
+  "figures.analysisRows.recalculated":
+    "When the Analysis ran, IncarnaMind worked this out again from these cells and got the same number.",
+  "figures.analysisRows.used.one": "Worked out from {count} row of {input}: {rows}, using {names}",
+  "figures.analysisRows.used.other":
+    "Worked out from {count} rows of {input}: {rows}, using {names}",
+  "figures.analysisRows.list.one": "row {runs}",
+  "figures.analysisRows.list.other": "rows {runs}",
+  "figures.analysisRows.separator": ", ",
   "figures.inline.code": "Show saved code",
   "figures.inline.literal": "{value}, written in the formula",
   "figures.inline.raw": "Cell’s stored value: {value}",
   "figures.inline.original": "Original input",
+  "figures.workbook.workedOut": "Worked out again from the workbook’s formulas",
+  "figures.workbook.savedValue": "The workbook’s saved value",
+  "figures.workbook.formulas": "{count} formulas worked out in all",
+  "figures.workbook.change": "Changed {input} ({cell}) from {from} to {to}",
+  "figures.workbook.inWorkbook": "In the workbook as it is: {value}",
+  "figures.workbook.whatIfFormula":
+    "What-if: {cell} = {formula}, with {input} at {to} ({from} in the workbook)",
+  "figures.workbook.whatIfInput": "Changed for the what-if",
+  "figures.workbook.whatIfLabel": "{label} (what-if: {input} at {value})",
+  "figures.workbook.moreInputs": "{count} more inputs not listed",
+  "figures.workbook.keptNote":
+    "This is the value the workbook saved: IncarnaMind couldn’t work it out again, for the reason above. Each input is cited to its cell.",
+  "figures.workbook.note":
+    "IncarnaMind worked this out again from the workbook’s own formulas, in memory: the file is unchanged. Each input is cited to its cell. This doesn’t show that the workbook’s assumptions are right.",
+  "figures.workbook.kept.volatile":
+    "{cell} uses {name}, which gives a new value each time, so its saved value is used",
+  "figures.workbook.kept.finds-cells":
+    "{cell} uses {name} to find its cells as it runs, so its saved value is used",
+  "figures.workbook.kept.function":
+    "IncarnaMind can’t work out {name} in {cell} (a macro’s, perhaps), so its saved value is used",
+  "figures.workbook.kept.add-in":
+    "{cell} uses {name}, an add-in’s function, so its saved value is used",
+  "figures.workbook.kept.data-table": "{cell} is part of a data table, so its saved value is used",
+  "figures.workbook.kept.external": "{cell} links to another workbook, so its saved value is used",
+  "figures.workbook.kept.table":
+    "{cell} refers to a table by its column names, so its saved value is used",
+  "figures.workbook.kept.three-d":
+    "{cell} reads the same cells across several sheets, so its saved value is used",
+  "figures.workbook.kept.unreadable":
+    "IncarnaMind can’t read the formula in {cell}, so its saved value is used",
+  "figures.workbook.kept.circular": "{cell} is in a circular reference, so its saved value is used",
+  "figures.workbook.kept.iterative":
+    "{cell} is in a circular reference that Excel works out by iterating, so its saved value is used",
+  "figures.workbook.kept.not-read":
+    "{cell} reads “{name}”, which wasn’t read (hidden, or past the reading limit), so its saved value is used",
+  "figures.workbook.kept.array":
+    "{cell} is an array formula over several cells, so its saved value is used",
+  "figures.workbook.kept.no-saved-value":
+    "The workbook saved no result for {cell}: perhaps it was written by a program and not opened in Excel since",
+  "figures.workbook.kept.differs":
+    "IncarnaMind’s result for {cell} differs from the value the workbook saved, so the saved value is used. The workbook may not have been recalculated since an input changed: open it in Excel and save it",
+  "figures.workbook.kept.too-many":
+    "{cell} depends on more than {name} formulas, more than IncarnaMind works out at once, so its saved value is used",
+  "figures.workbook.kept.unsorted":
+    "{cell} looks a value up approximately in a range that isn’t sorted, where Excel’s answer can’t be told, so its saved value is used",
+  "figures.workbook.kept.early-date":
+    "{cell} uses a date before 1 March 1900, where Excel counts a 29 February 1900 that never was, so its saved value is used",
+  "figures.workbook.kept.criterion":
+    "{cell} uses a condition IncarnaMind can’t read the way Excel does, such as a time, so its saved value is used",
+  "figures.workbook.kept.date-text":
+    "{cell} reads a date or time written as text, which Excel reads by the computer’s date settings, so its saved value is used",
+  "figures.workbook.kept.text-order":
+    "{cell} orders text Excel’s rules leave unclear (punctuation, letters outside A to Z, or a space against a digit), so its saved value is used",
+  "figures.workbook.kept.too-large":
+    "{cell} reads a block too large to work out here, so its saved value is used",
   "figures.card.source": "{figure}: the source gives {value} ({source})",
   "figures.inline.openInput": "Open",
   "figures.export.sheet": "Schedule",
@@ -815,6 +887,7 @@ export const en = {
   "figures.export.documentPlace": "Document and location",
   "figures.export.recordHeading": "Figures",
   "figures.unitQuote": "Unit statement",
+  "figures.unitFrom": "{currency} stated on {quote}",
   "figures.command": "Tie out figures",
   "figures.title": "Figure schedule",
   "figures.tab": "Figure schedule – {name}",
@@ -958,6 +1031,12 @@ export const en = {
   "claim.useFigure.done": "Changed to {figure}",
   "claim.useFigure.moved":
     "Nothing was changed: the sentence isn’t where its check marked it. Check it again.",
+  "claim.correction": "Change to {wording}",
+  "claim.correction.command": "Change to the Document’s wording",
+  "claim.correction.doneMany": "Corrected {count} from the Documents",
+  "claim.correction.badge": "Correct {count} from the Documents",
+  "claim.correction.conflict":
+    "The newer {newerDocument} says {newerWording}; the {olderDocument} says {olderWording}.",
   "claim.unsupported.notFound": "I didn’t find this in “{scope}”.",
   "claim.unsupported.notFound.more": "I didn’t find this in “{scope}” or {count} more.",
   "claim.readAll.notFound": "I read all of “{scope}” and didn’t find this.",
@@ -1082,6 +1161,22 @@ export const en = {
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.read-budget": "Stopped after {spent}; this read may spend up to {most}.",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
+  "claim.reason.workbook-differs":
+    "The value Excel saved differs from what the workbook’s formulas give, so this figure can’t be checked. Open the workbook in Excel and save it.",
+  "claim.reason.workbook-external":
+    "It uses a link to another file, which IncarnaMind can’t read, so this figure can’t be checked.",
+  "claim.reason.workbook-volatile":
+    "It uses a value that changes each time the workbook is worked out, so this figure can’t be checked.",
+  "claim.reason.workbook-circular":
+    "Its formulas refer to each other, so this figure can’t be checked.",
+  "claim.reason.workbook-not-read":
+    "It uses a hidden sheet, or rows, that weren’t read, so this figure can’t be checked.",
+  "claim.reason.workbook-no-saved-value":
+    "A formula it uses has no value saved by Excel, so this figure can’t be checked.",
+  "claim.reason.workbook-unsupported":
+    "It uses a formula IncarnaMind can’t work out, so this figure can’t be checked.",
+  "claim.reason.workbook-changed":
+    "The workbook’s cells no longer give this figure. Ask again to work it out from the workbook as it is now.",
   "claim.readBudget.continue": "Continue",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
@@ -1326,6 +1421,10 @@ export const en = {
   "edit.problem.retry": "Try again",
   "edit.problem.cant-regenerate": "Can’t be made again: reject it, then edit the text with AI.",
   "edit.problem.no-table": "The AI’s table wasn’t complete, so nothing changed. Try again.",
+  "edit.problem.cut-short":
+    "The AI’s reply ran too long, so nothing changed. Select less text and try again.",
+  "edit.problem.unplaced":
+    "The AI marked text to remove that doesn’t match the selection word for word in one place, so nothing changed. Try again.",
   "edit.problem.late": "This edit arrived too late to apply. Accept or reject its changes.",
   "edit.problem.busy": "Another edit is still running. Wait for it, or stop it.",
   "composer.edit.placeholder": "Say what to change…",
@@ -3171,15 +3270,17 @@ export const en = {
   "meetings.route.local": "On this computer",
   "meetings.route.openai": "OpenAI",
   "meetings.route.soniox": "Soniox",
+  "meetings.route.qwen": "Qwen",
   "meetings.route.here": "Transcribe on this computer",
   "meetings.route.hereLine": "Private and free",
   "meetings.route.otherWays": "Other ways…",
-  "meetings.route.wayRow": "{service} · your key",
-  "meetings.route.use": "Use {service}",
+  "meetings.route.wayRow": "{provider} · your key",
+  "meetings.route.use": "Use {provider}",
   "meetings.route.waysNote":
     "Choosing one sends the meeting’s audio to that service while you record. Change it in Settings › Meetings.",
-  "meetings.route.cloudOn": "Transcribe with {service}",
-  "meetings.route.cloudLine": "Audio goes to {service} while you record",
+  "meetings.route.cloudOn": "Transcribe with {provider}",
+  "meetings.route.cloudLine": "Audio goes to {provider} while you record.",
+  "meetings.route.agreement": "Agreement",
   "meetings.route.useHere": "Use this computer",
   "meetings.route.slow":
     "This computer may not keep up live; a cloud service keeps live text smooth.",
@@ -3187,12 +3288,14 @@ export const en = {
   "meetings.route.settingsLink": "Settings › Meetings",
   "meetings.route.consent": "A cloud service gets the meeting’s audio while you record.",
   "meetings.route.paused": "Paused: “Keep everything on this computer” is on.",
+  "meetings.route.chooseAgain":
+    "Audio now stays on this computer. Choose {provider} again to send it to {region}.",
   "meetings.route.perHour": "about {price} an hour",
   "meetings.route.perHourFirst": "About {price} an hour",
-  "meetings.route.providerKey": "uses your {service} key",
-  "meetings.route.ownKey": "your {service} key",
+  "meetings.route.providerKey": "uses your {provider} key",
+  "meetings.route.ownKey": "your {provider} key",
   "meetings.route.speakers": "names speakers live",
-  "meetings.key.title": "{service} key",
+  "meetings.key.title": "{provider} key",
   "meetings.key.line": "Kept on this computer and never shown again.",
   "meetings.key.get": "Get a key",
   "meetings.key.placeholder": "Paste the key",
@@ -3697,7 +3800,7 @@ export const en = {
 
   "citation.label": "Citation {number}: {document}. {badge}",
   "citation.inFootnote.label": "Citation: {document}. {badge}",
-  "citation.badge.checking": "checking…",
+  "citation.badge.checking": "Checking…",
   "citation.badge.found.on": "Quote found on {location}",
   "citation.badge.found.in": "Quote found in {location}",
   "citation.badge.found.document": "Quote found in {document}",
@@ -3707,6 +3810,7 @@ export const en = {
   "citation.badge.found.transcript": "Quote found in the transcript at {location}",
   "citation.badge.notFound.transcript": "Quote not found in the transcript at {location}",
   "citation.badge.cantCheck": "Can’t check",
+  "citation.badge.notChecked": "Not checked",
   "citation.badge.unsupported": "Unsupported by your Documents",
   "citation.badge.contradicted": "Contradicted",
   "citation.reason.quote-not-on-pages": "The quote isn’t in the text of the place it cites.",
@@ -3718,7 +3822,14 @@ export const en = {
   "citation.reason.document-removed": "The Document has been deleted.",
   "citation.reason.kept-inside": "Kept inside {folder}",
   "citation.reason.quoted-words-not-on-pages": "The quoted words aren’t in the cited place.",
-  "citation.reason.checking": "The quote is checked when the Answer is finished.",
+  "citation.reason.checking": "Checking the quote, and whether it supports this sentence.",
+  "citation.reason.answer-limit":
+    "Not checked: this Answer’s {limit} checking limit was reached before this sentence.",
+  "citation.reason.monthly-limit":
+    "Not checked: your monthly limit of {cap} was reached before this sentence.",
+  "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
+  "citation.reason.small-model":
+    "This model on this computer is too small to judge whether the quote supports the sentence.",
   "citation.where": "{document}, {location}",
   "citation.scan": "Text read from a scan",
   "citation.scan.unsure.one": "Text read from a scan · 1 word may be misread",
@@ -3930,7 +4041,7 @@ export const en = {
   "scripts.settings.body": "No sandbox: scripts run here and ask before each run.",
   "scripts.settings.bodySandboxed": "Scripts run in a sandbox and ask before each run.",
   "scripts.settings.bodySandboxed.details":
-    "They can’t open your home folder or IncarnaMind’s data, can only write in their own working folder, and have no internet. Unless you chose “Always run” for a Skill, each run asks first.",
+    "They can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in their own working folder, and have no internet. Unless you chose “Always run” for a Skill, each run asks first.",
   "scripts.settings.timeout": "Stop a script that runs longer than",
   "scripts.settings.seconds": "seconds",
 
@@ -3962,7 +4073,7 @@ export const en = {
     "No sandbox: it can read, change or delete your files and use the internet.",
   "scripts.card.sandboxed": "Runs in a sandbox: no internet, no home folder.",
   "scripts.card.sandboxed.details":
-    "It can’t open your home folder or IncarnaMind’s data, can only write in its own working folder, and has no internet.",
+    "It can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in its own working folder, and has no internet.",
   "scripts.card.allowOnce": "Allow once",
   "scripts.card.alwaysRun": "Always run",
   "scripts.card.alwaysRunHint": "Run {skill}’s scripts without asking from now on",
@@ -3971,9 +4082,9 @@ export const en = {
   "scripts.alwaysRun.body":
     "From now on, {skill}’s scripts run without asking. With no sandbox, they can delete your files and send your data online.",
   "scripts.alwaysRun.bodySandboxed":
-    "From now on, {skill}’s scripts run without asking. They run in a sandbox, but can still read files on other drives.",
+    "From now on, {skill}’s scripts run without asking. They run in a sandbox, but can still read some files on this computer.",
   "scripts.alwaysRun.bodySandboxed.details":
-    "They can’t open your home folder or IncarnaMind’s data, can only write in their own working folder, and have no internet.",
+    "They can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in their own working folder, and have no internet.",
   "scripts.alwaysRun.trust": "Only for a Skill you trust. Reset in Settings › Approvals.",
   "scripts.alwaysRun.confirm": "Always run {skill}’s scripts",
   "scripts.alwaysRun.cancel": "Cancel",
@@ -4078,9 +4189,6 @@ export const en = {
   "export.commentFailedChecks.hint":
     "Contradicted, Unsupported, Not found, Quote not found or Needs re-check",
   "export.commentFailedChecks.hint.others": "Comments quote your Documents and name them",
-  "export.unreadNames": "Name the files",
-  "export.unreadNames.hint":
-    "The section about what couldn’t be read lists the files by name. Off, it says how many.",
   "aiStatement.command": "Export AI use statement",
   "aiStatement.keywords": "AI use disclosure declaration thesis dissertation paper record",
   "aiStatement.title": "AI use statement: {name}",
@@ -4144,12 +4252,8 @@ export const en = {
     "Each sentence checked, cut after its first {count} words, with the latest result of its check:",
   "aiStatement.sentences.column.sentence": "Sentence",
   "aiStatement.sentences.column.checked": "Checked",
-  "aiStatement.unread.one":
-    "When these sentences were checked, 1 file they were checked against couldn’t be read, so the checks didn’t search it:",
   "aiStatement.unread.one.fullStop":
     "When these sentences were checked, 1 file they were checked against couldn’t be read, so the checks didn’t search it.",
-  "aiStatement.unread":
-    "When these sentences were checked, {count} files they were checked against couldn’t be read, so the checks didn’t search them:",
   "aiStatement.unread.fullStop":
     "When these sentences were checked, {count} files they were checked against couldn’t be read, so the checks didn’t search them.",
   "aiStatement.note":
@@ -4385,6 +4489,10 @@ export const en = {
   "export.citation.accessed": "accessed {date}",
   "export.figure.calculated": "Calculated: {formula} = {figure}.",
   "export.figure.analysis": "Calculated by the Analysis “{title}”: {figure}.",
+  "export.figure.workbook":
+    "Worked out from the workbook’s formulas ({cell} = {formula}): {figure}.",
+  "export.figure.whatIf":
+    "Worked out from the workbook’s formulas ({cell} = {formula}) with {input} changed to {value}: {figure}.",
   "export.figure.inputs": "{inputs}: {source}.",
   "export.figure.cluster": "calculated from {cluster}",
   "export.figure.cluster.note": "Calculated from {cluster}",
@@ -4518,8 +4626,6 @@ export const en = {
   "error.document.nameEmpty": "A Document’s name can’t be empty.",
   "error.document.nameTooLong": "A Document’s name can’t be longer than {max} characters.",
   "error.document.notCitedChoice": "Whether a Document is cited must be true or false.",
-  "error.mind.unreadFileNames":
-    "Whether an export names the files it couldn’t read must be true or false.",
   "error.document.fileMissing": "The Document’s file is missing.",
   "error.verify.request": "That isn’t a request to verify a document that IncarnaMind can read.",
   "error.verify.notVerifying": "This note doesn’t verify a document.",
@@ -5469,15 +5575,15 @@ export const en = {
   "examples.chip": "Example",
   "firstOpen.title": "Welcome to IncarnaMind",
   "firstOpen.step.citation.title": "Check a Citation",
-  "firstOpen.step.citation.done": "Checked a Citation",
-  "firstOpen.step.citation.body": "Click a ✓ under an Answer: it opens the quote in its file.",
+  "firstOpen.step.citation.done": "Opened a checked Citation",
+  "firstOpen.step.citation.body":
+    "Click a Citation: its card says whether its quote was checked, and its Open button shows it in the file.",
   "firstOpen.step.citation.example": "or see it on the example",
   "firstOpen.step.question.title": "Ask",
   "firstOpen.step.question.done": "Asked a question",
-  "firstOpen.step.question.body":
-    "Ask your files anything, or the question below. Every quote is checked.",
+  "firstOpen.step.question.body": "Ask your files anything, or the question below.",
   "firstOpen.step.question.ready": "Ask: “{question}”",
-  "firstOpen.step.question.own": "or press {shortcut} to type your own",
+  "firstOpen.step.question.own": "or {shortcut} to type your own",
   "firstOpen.step.question.ownOnly": "Press {shortcut} to ask your own Question.",
   "firstOpen.step.question.reading": "Reading “{document}”…",
   "firstOpen.step.question.stop": "Stop",
@@ -5493,6 +5599,9 @@ export const en = {
   "firstOpen.next.meeting": "Record a meeting",
   "firstOpen.next.export": "Export to Word",
   "firstOpen.hide": "Hide this",
+  "firstOpen.hideSteps": "Hide the getting-started steps",
+  "firstOpen.hideKeywords": "welcome steps getting started",
+  "firstOpen.hidden": "Hid the getting-started steps",
   "assistant.pill": "Ask anything",
   "sidebar.examples": "Examples",
   "sidebar.documents": "Documents",
@@ -5580,9 +5689,14 @@ export const en = {
   "meetings.line.systemSilent": "No sound from the call for a minute: recording may be blocked.",
   "meetings.line.systemEnded": "The computer’s sound stopped. Your microphone is still recorded.",
   "meetings.line.systemUnavailable": "This computer records only your microphone.",
-  "meetings.line.cloudDropped": "Transcribing on this computer ({service} dropped at {time})",
+  "meetings.line.cloudDropped": "Transcribing on this computer ({provider} dropped at {time})",
   "meetings.line.cloudCap": "Transcribing on this computer (the monthly cap was reached at {time})",
-  "meetings.line.cloudRefused": "{service} didn’t accept the key. Transcribing on this computer.",
+  "meetings.line.cloudRefused": "{provider} didn’t accept the key. Transcribing on this computer.",
+  "meetings.line.cloudRefusedRegion":
+    "{provider} refused the key (wrong, expired or for another region). Check the key and its region in Settings › Models. Transcribing on this computer.",
+  "meetings.line.cloudMoved":
+    "Transcribing on this computer: your {provider} key is for another region now. Choose {provider} again to send the audio there.",
+  "meetings.line.chooseAgain": "Choose again",
   "meetings.line.cloudLocalMode":
     "Transcribing on this computer: “Keep everything on this computer” is on.",
   "meetings.line.openSettings.mac": "Open System Settings",
@@ -5763,6 +5877,22 @@ export const en = {
   "meetings.settings.route": "Transcribe on",
   "meetings.settings.whatBoth": "Your microphone and the other people (the computer’s sound).",
   "meetings.settings.whatMe": "Only your microphone.",
+  "meetings.words.title": "Words to know",
+  "meetings.words.body":
+    "Names and terms that transcription on this computer writes as you do: people, companies, products. Each meeting adds the names in its note and its folder.",
+  "meetings.words.field": "Add a word to know",
+  "meetings.words.placeholder": "A name or a term",
+  "meetings.words.add": "Add",
+  "meetings.words.rename": "Rename “{word}”",
+  "meetings.words.remove": "Remove “{word}”",
+  "meetings.words.removed": "Removed “{word}” from Words to know",
+  "meetings.words.renamed": "Renamed “{from}” to “{to}”",
+  "meetings.words.known": "“{word}” is in the list already.",
+  "meetings.words.full": "The list holds {count} words. Remove one to add another.",
+  "meetings.script.title": "Chinese in transcripts",
+  "meetings.script.body": "Written in this script, whichever the speech model wrote.",
+  "meetings.script.simplified": "Simplified",
+  "meetings.script.traditional": "Traditional",
 
   "sources.title": "Find sources",
   "sources.intro":
@@ -6220,6 +6350,17 @@ export const en = {
   "steps.check.allFound": "all found",
   "steps.check.found": "found",
   "steps.check.notFound": "{count} not found",
+  "steps.check.needALook": "{count} need a look",
+  "steps.check.needALook.one": "1 needs a look",
+  "steps.check.answerLimit":
+    "{checked} of {total} sentences checked · This Answer’s {limit} checking limit reached",
+  "steps.check.monthlyLimit":
+    "{checked} of {total} sentences checked · Your monthly limit of {cap} reached",
+  "steps.check.checkTheRest": "Check the rest",
+  "steps.check.checkTheRest.go": "Check",
+  "steps.check.checkTheRest.cancel": "Cancel",
+  "steps.check.settings": "Settings",
+  "steps.check.notChecked": "{count} not checked",
   "steps.askedAgain.calculate":
     "Asked again: the reply said figures were calculated, and no calculation had run",
   "steps.askedAgain.search": "Asked again: the reply said a search ran, and none had",
@@ -6369,6 +6510,8 @@ export const en = {
     "Couldn’t change “{mind}”: only the assistant’s own text can be rewritten",
   "mindCall.failed.stopped": "Stopped before “{mind}” changed",
   "mindCall.failed.noTable": "Couldn’t make the table, so nothing was added to “{mind}”",
+  "mindCall.failed.unplaced":
+    "The text marked to remove doesn’t match “{mind}” word for word in one place, so nothing changed",
   "mindCall.failed.uncited": "Didn’t add to “{mind}”: its sources weren’t cited",
   "mindCall.failed.noChart.noTable": "No chart: “{mind}” has no table",
   "mindCall.failed.noChart.several":

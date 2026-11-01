@@ -12,6 +12,8 @@ const engines = vi.hoisted(() => ({
   answers: new Map<string, Answer>(),
   forks: [] as { path: string; args: string[]; serviceName: string }[],
   pythonEnd: { kind: "done" } as AnalysisEnd,
+  pictures: 1,
+  withoutGlyphs: [] as string[],
   exits: [] as number[],
 }));
 
@@ -46,7 +48,19 @@ vi.mock("../../src/main/platform", () => ({
   seccompHelper: () => undefined,
   analysisRuntime: () => ({
     languages: [],
-    run: async () => ({ end: engines.pythonEnd, output: {}, ms: 1 }),
+    run: async () => ({
+      end: engines.pythonEnd,
+      output: {
+        withoutGlyphs: engines.withoutGlyphs,
+        pictures: Array.from({ length: engines.pictures }, () => ({
+          title: "",
+          png: "iVBORw0KGgo",
+          width: 640,
+          height: 480,
+        })),
+      },
+      ms: 1,
+    }),
     close: () => undefined,
   }),
 }));
@@ -61,6 +75,8 @@ beforeEach(() => {
   engines.forks.length = 0;
   engines.exits.length = 0;
   engines.pythonEnd = { kind: "done" };
+  engines.pictures = 1;
+  engines.withoutGlyphs = [];
   engines.answers.set("embedder.js", { found: [loaded("onnxruntime-node")] });
   engines.answers.set("transcriber.js", { found: [loaded("sherpa-onnx-node")] });
 });
@@ -91,7 +107,11 @@ describe("The engine check", () => {
           module: null,
           problem: "stopped before it answered (exit code 1)",
         },
-        { process: "Analyses window", module: "Pyodide, numpy and pandas", problem: null },
+        {
+          process: "Analyses window",
+          module: "Pyodide, numpy, pandas, scipy, statsmodels, scikit-learn and matplotlib",
+          problem: null,
+        },
       ]),
     );
   });
@@ -115,6 +135,26 @@ describe("The engine check", () => {
     const checks = await checkEngines(log);
     expect(checks.find((each) => each.process === "Analyses window")?.problem).toBe(
       "ModuleNotFoundError: No module named 'pandas'",
+    );
+  });
+
+  it("says so when the models ran but matplotlib drew no picture", async () => {
+    engines.pictures = 0;
+    const checks = await checkEngines(log);
+    expect(checks.find((each) => each.process === "Analyses window")?.problem).toBe(
+      "matplotlib drew no picture",
+    );
+    engines.pictures = 1;
+    const again = await checkEngines(log);
+    expect(again.find((each) => each.process === "Analyses window")?.problem).toBeNull();
+  });
+
+  it("says so when a plot's Chinese couldn't be drawn with the bundled font", async () => {
+    engines.pictures = 0;
+    engines.withoutGlyphs = ["各地区收入"];
+    const checks = await checkEngines(log);
+    expect(checks.find((each) => each.process === "Analyses window")?.problem).toBe(
+      "matplotlib couldn't draw a plot's Chinese title with the bundled font",
     );
   });
 });

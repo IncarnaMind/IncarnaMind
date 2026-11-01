@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { locateQuote } from "../../src/core/answers/citations";
+import { checkReply, isCheckRun } from "../helpers/checks";
 import {
   answerEnded,
   citeFeedback,
@@ -78,6 +79,7 @@ for (const language of ["en", "zh-CN"] as const) {
   test(`one ambiguity request lets the model give a uniquely placed quote, ${language}`, async () => {
     let repairs = 0;
     const model = scriptedModel((call) => {
+      if (isCheckRun(call)) return checkReply(call, {});
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search) return { calls: [{ tool: "search_documents", input: { query: "Revisions" } }] };
       const cited = call.results.filter((result) => result.tool === "cite");

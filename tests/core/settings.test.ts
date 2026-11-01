@@ -77,6 +77,8 @@ describe("Settings", () => {
         taskNotifications: true,
         recentCitationStyles: [],
         newMindStyle: { font: "default", size: "default" },
+        meetingWords: [],
+        transcriptScript: null,
       },
       device: {
         sidebarWidth: 248,
@@ -113,6 +115,7 @@ describe("Settings", () => {
       // No capture in these tests: Meetings can't record.
       meetingAudio: "none",
       author: "Priya Raman",
+      chineseScript: "simplified",
     });
   });
 
@@ -189,6 +192,8 @@ describe("Settings", () => {
       taskNotifications: true,
       recentCitationStyles: [],
       newMindStyle: { font: "default", size: "default" },
+      meetingWords: [],
+      transcriptScript: null,
     });
     expect(settings.device).toEqual({
       sidebarWidth: 320,
@@ -497,6 +502,8 @@ describe("Settings", () => {
         webSearch: true,
         keepWebPageLook: true,
         newMindStyle: { font: { family: "Georgia" }, size: "large" },
+        meetingWords: ["Priya Raman", "星河科技"],
+        transcriptScript: "traditional",
       },
       device,
     });
@@ -521,12 +528,15 @@ describe("Settings", () => {
         taskNotifications: true,
         recentCitationStyles: [],
         newMindStyle: { font: { family: "Georgia" }, size: "large" },
+        meetingWords: ["Priya Raman", "星河科技"],
+        transcriptScript: "traditional",
       },
       device,
       language: "zh-CN",
       scriptSandbox: "none",
       meetingAudio: "none",
       author: "P. Raman",
+      chineseScript: "traditional",
     });
   });
 
@@ -564,6 +574,14 @@ describe("Settings", () => {
       patch: { device: { skillScriptTimeoutSeconds: 1.5 } },
     },
     { name: "an unknown motion choice", patch: { device: { motion: "slow" } } },
+    { name: "Words to know that aren't a list", patch: { user: { meetingWords: "Priya" } } },
+    { name: "a blank word to know", patch: { user: { meetingWords: ["Priya", " "] } } },
+    { name: "a word to know twice", patch: { user: { meetingWords: ["Lumen", "lumen"] } } },
+    {
+      name: "a word to know longer than a name",
+      patch: { user: { meetingWords: ["x".repeat(61)] } },
+    },
+    { name: "a script that isn't one", patch: { user: { transcriptScript: "pinyin" } } },
     {
       name: "Task notifications that aren't on or off",
       patch: { user: { taskNotifications: "sometimes" } },

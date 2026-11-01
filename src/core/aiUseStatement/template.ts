@@ -7,7 +7,7 @@
 import { SENTENCE_RESULT_LABELS } from "../../shared/claimChecks";
 import { formatDate } from "../../shared/dates";
 import { type MessageKey, translate } from "../../shared/i18n";
-import { unreadFileText, unreadPartsCounts } from "../../shared/unreadFiles";
+import { unreadPartsCounts } from "../../shared/unreadFiles";
 import type { NodeJSON } from "../answers/blocks";
 import type { Language } from "../language";
 import {
@@ -61,11 +61,6 @@ const heading = (value: string): NodeJSON => ({
   content: [text(value)],
 });
 
-const bulletList = (items: readonly string[]): NodeJSON => ({
-  type: "bulletList",
-  content: items.map((item) => ({ type: "listItem", content: [paragraph(item)] })),
-});
-
 /** A table of text, its first row the heading row; the columns from `numbers` on hold counts, set right. */
 function table(head: string[], rows: string[][], numbers: number): NodeJSON {
   const row = (cells: string[], type: "tableHeader" | "tableCell"): NodeJSON => ({
@@ -91,7 +86,7 @@ export function statementBlocks(
   const t = (key: MessageKey, params?: Record<string, string | number>) =>
     translate(language, key, params);
   const number = new Intl.NumberFormat(language === "zh-CN" ? "zh-CN" : "en").format;
-  const { uses, sections, removed, citations, sentences, checked, unread, unreadNames } = figures;
+  const { uses, sections, removed, citations, sentences, checked, unread } = figures;
   const citationTotal = totalCitations(citations);
   const sentenceTotal = totalSentences(sentences);
   const intro = paragraph(t("aiStatement.intro", { date: formatDate(date, language) }));
@@ -183,14 +178,10 @@ export function statementBlocks(
       : [
           paragraph(
             unread.length === 1
-              ? t(unreadNames ? "aiStatement.unread.one" : "aiStatement.unread.one.fullStop")
-              : t(unreadNames ? "aiStatement.unread" : "aiStatement.unread.fullStop", {
-                  count: number(unread.length),
-                }),
+              ? t("aiStatement.unread.one.fullStop")
+              : t("aiStatement.unread.fullStop", { count: number(unread.length) }),
           ),
-          ...(unreadNames
-            ? [bulletList(unread.map((file) => unreadFileText(file, t, true)))]
-            : unreadPartsCounts(unread, t).map(paragraph)),
+          ...unreadPartsCounts(unread, t).map(paragraph),
         ];
   const checksPart =
     citationTotal === 0 && sentenceTotal === 0

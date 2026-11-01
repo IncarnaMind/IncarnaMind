@@ -53,8 +53,9 @@ extraResources:
     to: citation-styles
     filter:
       - "**/*"
-  # What Analyses run with (ADR-0023): Pyodide's files, unmodified, and the wheels of numpy, pandas
-  # and what they depend on, which the build fetches into resources/python
+  # What Analyses run with (ADR-0023, ADR-0025): Pyodide's files, unmodified, and the wheels of
+  # numpy, pandas, scipy, statsmodels, scikit-learn, matplotlib and what they depend on, which the
+  # build fetches into resources/python
   # (scripts/pythonRuntime.ts), each checked against Pyodide's lock file. Their licences are in
   # notices/python.txt.
   - from: resources/python

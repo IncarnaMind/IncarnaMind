@@ -45,14 +45,25 @@ function startWorker(): Promise<Started> {
   });
 }
 
-/** Runs one job in `worker`, then ends it, whatever the job did. */
+/**
+ * Runs one job in `worker`, then ends it, whatever the job did. Its time runs
+ * from when the Worker has loaded the packages its code uses and starts it.
+ */
 function runIn(worker: Worker, request: AnalysisRequest): void {
+  let started = false;
   const done = (reply: { result: string } | { failure: string }) => {
     worker.terminate();
     bridge.done({ id: request.id, ...reply });
   };
   worker.addEventListener("message", ({ data }: MessageEvent<unknown>) => {
-    if (!isRecord(data) || data.kind !== "done" || data.id !== request.id) return;
+    if (!isRecord(data) || data.id !== request.id) return;
+    // Once only: the code could post "started" again to put its time limit off.
+    if (data.kind === "started" && !started) {
+      started = true;
+      bridge.started(request.id);
+      return;
+    }
+    if (data.kind !== "done") return;
     if (typeof data.result === "string" && data.result.length <= MAX_REPLY_CHARACTERS) {
       done({ result: data.result });
     } else if (typeof data.failure === "string") {
@@ -65,7 +76,6 @@ function runIn(worker: Worker, request: AnalysisRequest): void {
     done({ failure: event.message || "The analysis worker stopped." }),
   );
   worker.postMessage(request);
-  bridge.started(request.id);
 }
 
 let spare = startWorker();

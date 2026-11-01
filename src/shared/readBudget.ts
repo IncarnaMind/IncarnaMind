@@ -51,7 +51,8 @@ export interface BudgetStop {
   judgesAbsence?: boolean;
 }
 
-const moneyOf = (value: unknown): Money | null => {
+/** A Money read back from what was stored or sent; null when it isn't one. */
+export const moneyOf = (value: unknown): Money | null => {
   const { amount, currency } = (value ?? {}) as Partial<Money>;
   return typeof amount === "number" && (currency === "USD" || currency === "CNY")
     ? { amount, currency }

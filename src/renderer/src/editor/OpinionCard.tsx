@@ -76,7 +76,11 @@ export function OpinionCard({
         dismiss();
       }}
     >
-      <div ref={card} className="citation-card citation-card--cant-check" contentEditable={false}>
+      <div
+        ref={card}
+        className="citation-card citation-card--cant-check claim-card"
+        contentEditable={false}
+      >
         <p className="claim-card-sentence" data-testid="claim-sentence">
           {t("claim.sentence", { sentence: opinion.text })}
         </p>

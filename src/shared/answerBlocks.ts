@@ -18,6 +18,7 @@ import {
   type MarkedCitation,
 } from "../core/api";
 import { asGenerated } from "./aiText";
+import { withAnalysisPictures } from "./analysisPictures";
 import { citationNode, type NodeJSON, withCitations } from "./blockJson";
 import { calculatedFigureNode, figureShownText } from "./calculatedFigures";
 import { withFigures } from "./figureMarkers";
@@ -44,7 +45,11 @@ export function answerBlocks(
   });
   return asGenerated(
     closeUpCitations(
-      withCalculatedFigures(blocks, (marker) => figures.get(marker) ?? null, answer),
+      withCalculatedFigures(
+        withAnalysisPictures(blocks, answer.analyses),
+        (marker) => figures.get(marker) ?? null,
+        answer,
+      ),
     ),
   );
 }
@@ -79,10 +84,38 @@ export function withCalculatedFigures(
  */
 export const pageBlocks = (
   answer: Pick<ConversationAnswer, "text" | "citations" | "figures"> &
-    Partial<Pick<ConversationAnswer, "id" | "analyses">>,
+    Partial<Pick<ConversationAnswer, "id" | "analyses" | "status">>,
   question: string,
 ): NodeJSON[] =>
-  withoutFraming(answerBlocks({ ...answer, text: forPage(answer.text, question), status: "done" }));
+  asQuoteChecked(
+    withoutFraming(
+      answerBlocks({ ...answer, text: forPage(answer.text, question), status: "done" }),
+    ),
+    answer.status ?? "done",
+  );
+
+/**
+ * An ended Answer's blocks as a Note takes them (#2311). A Citation whose sentence the
+ * conversation still judges, or couldn't judge, had its quote found: in a Note it is that, and the
+ * Note's own checks judge the sentence. A stopped Answer's Citation still checking may never have
+ * had its quote checked.
+ */
+export function asQuoteChecked(
+  blocks: readonly NodeJSON[],
+  status: ConversationAnswer["status"],
+): NodeJSON[] {
+  const settled = (node: NodeJSON): NodeJSON => {
+    const check = node.type === CITATION_NODE ? node.attrs?.check : undefined;
+    const found = check === "not-checked" || (check === "checking" && status === "done");
+    const kept = Object.entries(node.attrs ?? {}).filter(([name]) => name !== "checkReason");
+    return {
+      ...node,
+      ...(found && { attrs: { ...Object.fromEntries(kept), check: "found" } }),
+      ...(node.content && { content: node.content.map(settled) }),
+    };
+  };
+  return blocks.map(settled);
+}
 
 /** The Citation markers an Answer's text shows, in order, one for each place: a marker used twice is two. */
 export function markersIn(text: string): number[] {

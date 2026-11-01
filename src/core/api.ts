@@ -13,6 +13,7 @@ import type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+import type { Localized } from "./providers/catalog/types";
 import type { UiUsageEvent } from "./usageEvents";
 
 export type {
@@ -51,6 +52,7 @@ import type {
   AnalysisEnd,
   AnalysisLanguage,
   AnalysisOutput,
+  AnalysisRecalculation,
   AnalysisUnavailableReason,
   AnalysisValue,
   AnalysisVersions,
@@ -63,6 +65,7 @@ import type { FigureFooting } from "../shared/figureFooting";
 import type { Figure } from "../shared/figures";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
 import type { HelpKeys, MeetingHelpKind, MeetingHelpTemplate } from "../shared/meetingHelp";
+import type { ChineseScript } from "../shared/meetingWords";
 import type { MindStyle } from "../shared/mindStyle";
 import type { TagColour } from "../shared/tagColours";
 import type { Anchor, UnitKind, UnitLabel } from "../shared/units";
@@ -286,8 +289,25 @@ export interface CreateMindInput {
  *   so it opens these Notes read-only. Older content is version 43 content as
  *   it is: a chart drawn before holds no figure, and its values read as
  *   quoted until Update draws it again from its table.
+ * - 44: a confirmed contradiction's correction (#1481): `correction` on a
+ *   contradicted part of a `claimCheck` mark (and on its figure or remainder)
+ *   holds the exact old words and up to two Document wordings with their
+ *   Citations, which an older editor would strip. Older content is version 44
+ *   content as it is.
+ * - 45: a calculated figure worked out from a workbook's own formulas keeps
+ *   `workbook` (#2347): its cell, formula chain, saved value and a what-if's
+ *   changed input, with no formula of its own. An older version's reader
+ *   refuses a figure with no formula and no Analysis, so it opens these
+ *   Notes read-only. Older content is version 45 content as it is.
+ * - 46: an Analysis figure's kept value names the rows of the input it was
+ *   worked out from (`of` on a value of the Note's Analysis records, #2346):
+ *   which rows and columns, and for `figure()` how IncarnaMind worked it out
+ *   again. An older version would keep the record again without it, so it
+ *   opens these Notes read-only.
+ *   Older content is version 46 content as it is: a figure kept before names
+ *   no rows.
  */
-export const CONTENT_SCHEMA_VERSION = 43;
+export const CONTENT_SCHEMA_VERSION = 46;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1229,7 +1249,8 @@ export interface AnalysisCall {
  * (someone else's, or the User's own requests), `count` of them in the Mind;
  * "mixed": its own waiting text sits beside the User's there. "model": the
  * model failed, as `message` says. "no-table": a table it wrote couldn't be
- * made, so none of its text went in (#961).
+ * made, so none of its text went in (#961). "unplaced": text it marked to take
+ * out isn't in the Mind word for word, so none of its text went in (#2180).
  */
 export type MindProblem =
   | { kind: "waiting"; mindId: string; count: number; mixed: boolean }
@@ -1249,6 +1270,7 @@ export type MindProblem =
         | "content-not-own"
         | "stopped"
         | "no-table"
+        | "unplaced"
         | "uncited"
         // Only in Answers written before #1559.
         | "new-mind";
@@ -1933,17 +1955,24 @@ export interface WordExportReport {
  * sections, blocks of rows or of lines; see src/shared/units.ts), once, when
  * the Answer finishes. "found" means the quote is there, not that it supports
  * the sentence.
- * - "checking": the Answer is still being written.
+ * - "checking": the Answer is still being written, or, once it ends, its sentence is judged.
  * - "found", "not-found": see `checkReason` for why it wasn't found.
  * - "cant-check": there is no text to look in (see `checkReason`).
+ * - "not-checked": an Answer's sentence whose judgement couldn't run (no model the chat flow may
+ *   use now, no verdict, an error) or was stopped (#2311): its Citation shows neither found nor a
+ *   problem until Check again judges it.
  * - "unsupported", "contradicted": the verdict of checking the claim itself against
- *   the Documents, not only its quote (`verdict` says what the evidence says).
+ *   the Documents, not only its quote (`verdict` says what the evidence says). An Answer in the
+ *   assistant has each cited sentence judged so after it ends, on the chat flow, its tables' rows
+ *   too (#2311): "found" then also means supported. A sentence showing a Calculated figure is
+ *   judged by the figure's Calculation check instead, so its "found" means the quote is there.
  */
 export type CitationCheck =
   | "checking"
   | "found"
   | "not-found"
   | "cant-check"
+  | "not-checked"
   | "unsupported"
   | "contradicted";
 
@@ -1966,7 +1995,16 @@ export type CitationCheckReason =
   /** Can't check from this Note: the Document stays inside a walled Folder. */
   | "kept-inside"
   /** Can't check: the Document was deleted. */
-  | "document-removed";
+  | "document-removed"
+  /** Not checked: judging the Answer's sentences reached its own limit before this one's (#2311). */
+  | "answer-limit"
+  /** Not checked: judging the Answer's sentences reached the monthly cap before this one's (#2311). */
+  | "monthly-limit"
+  /**
+   * Not checked: the model that wrote the Answer runs on this computer and is too small to judge
+   * its sentences, so their check never ran (#2375).
+   */
+  | "small-model";
 
 /**
  * What to re-check a Citation with against its Document's current version
@@ -2243,6 +2281,8 @@ export interface Citation {
   check: CitationCheck;
   checkReason: CitationCheckReason | null;
   quotedWords?: QuotedWords;
+  /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
+  verdict?: string | null;
 }
 
 /**
@@ -2280,6 +2320,87 @@ export interface CalculatedFigure {
   written: string | null;
   /** Given by an Analysis of the Answer, not worked out from a formula (#447). */
   analysis?: FigureFromAnalysis;
+  /** Worked out from a workbook's own formulas (#2347): its `formula` is empty. */
+  workbook?: FigureFromWorkbook;
+}
+
+/** Why a workbook's cell keeps the value the workbook saved rather than one worked out again (#2347). */
+export type WorkbookKeptReason =
+  | "volatile"
+  | "finds-cells"
+  | "function"
+  | "add-in"
+  | "data-table"
+  | "external"
+  | "table"
+  | "three-d"
+  | "unreadable"
+  | "circular"
+  | "iterative"
+  | "not-read"
+  | "array"
+  | "no-saved-value"
+  | "differs"
+  | "too-large"
+  | "too-many"
+  | "unsorted"
+  | "early-date"
+  | "criterion"
+  | "text-order"
+  | "date-text";
+
+export interface WorkbookKeptCell {
+  sheet: string;
+  /** "C5"; null for a whole sheet that wasn't read. */
+  ref: string | null;
+  reason: WorkbookKeptReason;
+  /** The function it uses (NOW, OFFSET), the sheet it reads that wasn't read, or the most formulas worked out at once. */
+  name: string | null;
+}
+
+/** A cell of a workbook as a figure's formula chain shows it (#2347). */
+export interface WorkbookFigureStep {
+  sheet: string;
+  /** "E5". */
+  ref: string;
+  /** Its row's heading and its column's, as the sheet writes them: "EBITDA 2027". */
+  label: string;
+  /** As the workbook writes it, without "=". */
+  formula: string;
+  /** As worked out, a number, text or TRUE or FALSE; null when empty. */
+  value: number | string | boolean | null;
+}
+
+/**
+ * A figure worked out from a workbook's own formulas (#2347): a cell of it, or
+ * that cell worked out again with one input changed (what-if), in memory,
+ * never in the User's file. Its inputs are the cells holding numbers that
+ * drive it, each cited to its cell.
+ */
+export interface FigureFromWorkbook {
+  /**
+   * The figure's cell, with its formula and the number it shows read as an input is, cited to
+   * the cell: a Check reads it again there.
+   */
+  cell: WorkbookFigureStep & { input: FigureInput };
+  /** The formulas it is worked out through, nearest first, its own excluded. */
+  steps: WorkbookFigureStep[];
+  /** How many formula cells were worked out for it, and its inputs past those listed. */
+  formulaCells: number;
+  moreInputs: number;
+  /** The value the workbook saved for the cell, which IncarnaMind's own result matched. */
+  saved: number;
+  /** That value as the cell shows it: "254.7". */
+  savedShown: string;
+  /** A what-if's one changed input: its name among the inputs, and the value it was given. */
+  change: { input: string; value: number; shown: string } | null;
+  /**
+   * The cells it depends on that can't be worked out here, so they and it keep the values the
+   * workbook saved, the first few; empty when every formula was worked out again.
+   */
+  kept: WorkbookKeptCell[];
+  /** The rules it was worked out by (`WORKBOOK_ENGINE_VERSION`). */
+  engine: number;
 }
 
 /** How a calculated figure's result was shown (see `showResult` in src/shared/formula.ts). */
@@ -2361,13 +2482,19 @@ export interface AnswerAnalysis {
   ranAt: string;
   /**
    * The markers the Answer writes its results with: each figure's "[=3]", and
-   * each table's and chart's number, "[=table 1]", "[=chart 1]", counted across the Answer.
+   * each table's, chart's and picture's number, "[=table 1]", "[=chart 1]",
+   * "[=picture 1]", counted across the Answer. A `figure()` figure has one only
+   * when IncarnaMind worked it out again to the same number. `pictures` is
+   * absent in an Analysis run before pictures came back (#2346).
    */
   markers: {
     figures: { result: string; marker: number }[];
     tables: { result: string; marker: number }[];
     charts: number[];
+    pictures?: number[];
   };
+  /** What IncarnaMind made of each `figure()` figure, by its result's name (ADR-0025). */
+  recalculations?: { result: string; check: AnalysisRecalculation }[];
 }
 
 /** A successful run kept once by a Note, with only the results its figures still use (ADR-0021). */
@@ -2397,14 +2524,16 @@ export interface FigureInput {
   cell: { sheet: string | null; ref: string; stored: number | null } | null;
   /**
    * The line of the same Passage that states the number's scale or currency
-   * ("单位：万元"), given as `unitQuote` when the number has none of its own;
-   * null when none was needed.
+   * ("单位：万元", or "Sale price £385,000.00" above bare figures), given as
+   * `unitQuote` when the number has none of its own; null when none was needed.
    */
   unitStatement: {
     citation: Citation;
     scale: number;
     scaleWord: string | null;
     currency: string | null;
+    /** The currency's characters as the line writes them ("£", "US$") when it writes them on a figure; absent for a heading's. */
+    currencyChars?: string | null;
   } | null;
 }
 
@@ -2547,6 +2676,13 @@ export interface UserSettings {
    * Mind's Style. Minds already made keep theirs.
    */
   newMindStyle: MindStyle;
+  /**
+   * Words to know (#1031): names and terms the User wants Meetings' Transcripts to get right,
+   * newest first. The transcriber on this computer is told them at each Meeting's start.
+   */
+  meetingWords: string[];
+  /** The script Transcripts write Chinese in; null follows the interface (#1031). */
+  transcriptScript: ChineseScript | null;
 }
 
 /**
@@ -2646,10 +2782,10 @@ export interface DeviceSettings {
 
 /**
  * Where a Meeting's audio is turned into text: on this computer, or by a cloud service with the
- * User's own key (#141): OpenAI with the key of the OpenAI provider in Settings › Models, Soniox
- * with a key of its own. #463 adds Qwen.
+ * User's own key (#141): OpenAI and Qwen (Alibaba Cloud Model Studio, for mainland China) with
+ * the key of their provider in Settings › Models, Soniox with a key of its own.
  */
-export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox"] as const;
+export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox", "qwen"] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];
 export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 
@@ -2657,13 +2793,23 @@ export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 export interface TranscriptionServiceStatus {
   route: CloudTranscriptionRoute;
   name: string;
+  /** Who gets the audio, as the consent line names it ("Alibaba Cloud" for Qwen). */
+  recipient: Localized;
   model: string;
   perHour: Money;
+  /** The region the key is for, named as in Settings › Models. */
+  region: Localized | null;
+  dataUse: { summary: Localized; url: Localized } | null;
   /** "provider": it uses the key of the chat provider of the same name in Settings › Models. */
   key: "provider" | "own";
   hasKey: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
+  /**
+   * It was chosen, and set back to this computer when its key began to send the audio somewhere
+   * the User hadn't chosen (a Qwen key for another region): choosing it again sends it there.
+   */
+  chooseAgain: boolean;
 }
 
 /**
@@ -2723,6 +2869,8 @@ export interface Settings {
    * (#107): `UserSettings.authorName`, or the name the computer knows them by.
    */
   author: string;
+  /** The script Transcripts write Chinese in: `UserSettings.transcriptScript`, or the interface's. */
+  chineseScript: ChineseScript;
 }
 
 export interface SettingsPatch {
@@ -5693,6 +5841,11 @@ export type EditWithAiResult =
    * (#961): nothing was written. `text`: the passage's new text, as it wrote it.
    */
   | { kind: "no-table"; text: string }
+  /**
+   * The model marked text to take out that the passage doesn't have word for word in one
+   * place (#2180): nothing was written. `quotes`: that text, as it wrote it.
+   */
+  | { kind: "unplaced"; quotes: string[] }
   /** The model failed, or gave nothing back. */
   | { kind: "failed"; error: ProviderError };
 
@@ -5738,6 +5891,13 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "read-budget": a whole read reached the most it may spend before this part was judged, so
  *   nothing more was sent (`detail`: that most and what it had spent, as JSON of
  *   `{ most: Money; spent: Money }`).
+ * - "workbook-changed": a figure worked out from a workbook's formulas (#2347) no longer reads the
+ *   same from its cells, or no longer works out the same from them.
+ * - "workbook-differs", "-external", "-volatile", "-circular", "-not-read", "-no-saved-value" and
+ *   "-unsupported": a figure the workbook gives depends on a cell IncarnaMind can't work out (its
+ *   saved value differs from its formulas, it links to another file, it changes each time, its
+ *   formulas refer to each other, it reads a sheet or rows that weren't read, Excel saved no value
+ *   for it, or any other formula IncarnaMind can't work out), so its cell's number backs nothing.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -5758,7 +5918,15 @@ export type ClaimCheckFailure =
   | "absence-unconfirmed"
   | "kept-inside"
   | "cut-short"
-  | "read-budget";
+  | "read-budget"
+  | "workbook-changed"
+  | "workbook-differs"
+  | "workbook-external"
+  | "workbook-volatile"
+  | "workbook-circular"
+  | "workbook-not-read"
+  | "workbook-no-saved-value"
+  | "workbook-unsupported";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -5828,6 +5996,18 @@ export interface ClaimCalculation {
   agrees: boolean;
 }
 
+/** One Document's wording that can replace the contradicted part of a sentence. */
+export interface ClaimCorrectionChoice {
+  wording: string;
+  evidence: CitationAttributes;
+}
+
+/** A confirmed contradiction's exact old substring and the Document wording choices for it. */
+export interface ClaimCorrection {
+  from: string;
+  choices: ClaimCorrectionChoice[];
+}
+
 /** UTF-16 offsets into the checked sentence; end is exclusive. */
 export interface ClaimPartSpan {
   start: number;
@@ -5877,6 +6057,11 @@ export interface ClaimCheckPart extends ClaimPartPlan {
    * and where it is (#2226).
    */
   currencyClause?: string;
+  /**
+   * For "contradicted": the Document's wording for the part, `from` occurring exactly once in the
+   * part's own words.
+   */
+  correction?: ClaimCorrection;
 }
 
 export type ClaimPartJudgment = (
@@ -5970,6 +6155,8 @@ export type ClaimJudgment =
        * Documents say something different" (#770).
        */
       evidence: Citation | null;
+      /** A finally confirmed contradiction's exact replacement choices; absent for every other result. */
+      correction?: ClaimCorrection;
       /** For "supported" and "contradicted": what the Document says, in one plain sentence. */
       says: string | null;
       /** For "unsupported": why. Null for the other verdicts. */
@@ -6195,6 +6382,8 @@ export interface ClaimCheckBasis {
   text: string;
   /** "supported" and "contradicted": the Passage that decides it, as a Citation found. */
   evidence: CitationAttributes | null;
+  /** A confirmed contradiction's correction; absent for every other result. */
+  correction?: ClaimCorrection;
   /** "supported" and "contradicted": what the Document says, in one plain sentence. */
   says: string | null;
   /** "unsupported": why. */
@@ -6642,7 +6831,8 @@ export interface AnswerDelta extends AnswerPlace {
  * is loading the local model; "searching", the User's Documents are being
  * searched; "writing", the model is at work; "checking-quotes", a local model
  * that answered with structured output is asked once more for the quotes of
- * its Citations that the check didn't find (ADR-0007); "checking-figures", it
+ * its Citations that the check didn't find (ADR-0007), or an Answer in the
+ * assistant checks its sentences against what they cite (#2311); "checking-figures", it
  * is asked once more for the calculated figures it gave that couldn't be
  * worked out (ADR-0021); "checking-claims", the quick model is checking the
  * reply's claims of changes against what the Tools did.
@@ -9293,10 +9483,6 @@ export interface MindExportPreview {
   fromWord: boolean;
   /** Someone's changes from that Word file still waiting (#734), shown or accepted as `theirChanges` says. */
   theirChanges: number;
-  /** The files in the Mind's Search scope that couldn't be read (#740); 0 when everything in it was read. */
-  unreadFiles: number;
-  /** Whether the export names those files, or only counts them: the Mind's choice, off until the User ticks it. */
-  unreadFileNames: boolean;
   /**
    * Where the file puts its Citations, for the Saved line (#1945): footnotes or a list at the end,
    * for a Numbered Mind with Citations that Word or PDF writes. Null when nothing placed them.
@@ -9932,12 +10118,13 @@ export interface MeetingTranscript {
    * This computer took over from the cloud service the User chose, during this stretch of
    * recording: where, in the Meeting's time, and why. "dropped": the connection was lost;
    * "refused": the service didn't accept the key; "cap": the month reached the cap;
-   * "local-mode": “Keep everything on this computer” is on. Null otherwise.
+   * "local-mode": “Keep everything on this computer” is on; "moved": the key now sends the
+   * audio somewhere the User hasn't chosen (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
    */
   fellBack: {
     route: CloudTranscriptionRoute;
     atMs: number;
-    reason: "dropped" | "refused" | "cap" | "local-mode";
+    reason: "dropped" | "refused" | "cap" | "local-mode" | "moved";
   } | null;
   /** Its own file in the data folder, once saved: kept for the Library, never shown as a path (#763). */
   savedPath: string | null;
@@ -10486,8 +10673,21 @@ export interface CoreApi {
    * scope of none (null), every Document's. 0: the scope holds none (#748).
    */
   countScopeDocuments(scope?: SearchScope | null): Promise<number>;
-  /** Stops an Answer of a conversation being written, keeping what it has. */
+  /** Stops an Answer of a conversation being written, keeping what it has, or the judgement of its sentences. */
   stopConversationAnswer(input: ConversationAnswerInput): Promise<void>;
+  /**
+   * Judges again the sentences of an ended Answer whose Citations are not checked (#2311), on the
+   * model that wrote it: Check again on such a Citation's card, and Check the rest past a limit.
+   * `limit`: the most it may spend, as `estimateAnswerCheck` gave it; the Answer's own limit when
+   * left out. Resolves once each has a result.
+   */
+  checkAnswerAgain(input: ConversationAnswerInput & { limit?: Money }): Promise<void>;
+  /**
+   * What judging an ended Answer's sentences whose Citations are not checked costs (#2311), about
+   * and at most, for Check the rest to say before it spends; null when nothing is left to judge.
+   * Sends nothing.
+   */
+  estimateAnswerCheck(input: ConversationAnswerInput): Promise<RunEstimate | null>;
   /**
    * How many seconds the model of an Answer of a conversation usually takes
    * before its Answers have words, from its latest ones to a Question of the
@@ -11979,12 +12179,6 @@ export interface CoreApi {
     options?: SetMindCitationStyleOptions,
   ): Promise<MindCitationStyle>;
   /**
-   * Whether this Mind's exports name the files in its Search scope that couldn't be read, or only
-   * count them (#740). Off until the User ticks it in the export options; the export and its
-   * preview ask this.
-   */
-  setMindUnreadFileNames(mindId: string, names: boolean): Promise<void>;
-  /**
    * Every style the app ships but the common ones, for the picker, read from the style pack the
    * first time it is asked for.
    */
@@ -12409,6 +12603,8 @@ const methods: Record<CoreApiMethod, true> = {
   regenerateConversationAnswer: true,
   countScopeDocuments: true,
   stopConversationAnswer: true,
+  checkAnswerAgain: true,
+  estimateAnswerCheck: true,
   usualAnswerWait: true,
   listConversations: true,
   getConversation: true,
@@ -12714,7 +12910,6 @@ const methods: Record<CoreApiMethod, true> = {
   formatCitations: true,
   getMindCitationStyle: true,
   setMindCitationStyle: true,
-  setMindUnreadFileNames: true,
   listCitationStyles: true,
   openCitationStyleLicences: true,
   getMindStyle: true,

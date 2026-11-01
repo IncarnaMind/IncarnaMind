@@ -8,12 +8,14 @@ import type {
   ConversationAskResult,
   ConversationMessage,
   ConversationQuestion,
+  Money,
   ReadyQuestion,
+  RunEstimate,
   SearchScope,
 } from "../../core/api";
 import { conversationName } from "../../shared/naming";
 import { settleAsk, useAnswers } from "./answers";
-import { applyWhatIsAsked, applyWhatWasAsked } from "./askedChanges";
+import { applyNotAsked, applyWhatIsAsked, applyWhatWasAsked } from "./askedChanges";
 import { watchCommands } from "./assistantCommands";
 import { watchMindsMadeBy } from "./assistantMinds";
 import { offeredCommands } from "./assistantWindow";
@@ -297,16 +299,16 @@ export async function askInAssistant(
     applyWhatIsAsked(result.answerId);
     watchCommands(result.answerId);
     const id = result.conversation.id;
+    if (move === moves && useConversations.getState().openId !== id) {
+      // A new conversation shows only with its messages read: an Answer write arriving before
+      // them would be drawn above the Question still on its way (#1741). Each write after the
+      // read comes as an event.
+      const { messages } = await core.getConversation(id);
+      if (move === moves) useConversations.setState({ openId: id, messages });
+    }
+    // After the read, so a Stop pressed while it was on its way is not lost.
     if (useConversations.getState().stopWanted) {
       core.stopConversationAnswer({ conversationId: id, answerId: result.answerId }).catch(report);
-    }
-    if (move === moves && useConversations.getState().openId !== id) {
-      // A new conversation: its messages as they are now; each write after this comes as an event.
-      useConversations.setState({ openId: id, messages: [] });
-      const { messages } = await core.getConversation(id);
-      if (move === moves && useConversations.getState().openId === id) {
-        useConversations.setState({ messages });
-      }
     }
     return true;
   } catch (error) {
@@ -397,9 +399,13 @@ export async function regenerateAnswer(
       commands: offeredCommands(askedFrom(answerId)),
       clientId,
     });
+    // A core that refuses to start (no model, or a forced Skill off) writes nothing, so nothing
+    // of the Answer is on its way; its asked changes wait, and the Note's count must say so (#1325).
+    if (!result.asked) applyNotAsked(answerId);
     settleAsk(answerId, result);
     sayLeftOut(result);
   } catch (error) {
+    applyNotAsked(answerId);
     settleAsk(answerId, null, error);
   }
 }
@@ -420,6 +426,33 @@ function askedFrom(answerId: string): string | null {
 export function stopAnswer(answerId: string): void {
   const conversationId = useConversations.getState().openId;
   if (conversationId) core.stopConversationAnswer({ conversationId, answerId }).catch(report);
+}
+
+/** What judging the rest of an Answer's sentences costs, past its checking limit (#2311). */
+export function estimateCheckTheRest(answer: {
+  id: string;
+  conversationId: string;
+}): Promise<RunEstimate | null> {
+  return core
+    .estimateAnswerCheck({ conversationId: answer.conversationId, answerId: answer.id })
+    .catch((error: unknown) => {
+      report(error);
+      return null;
+    });
+}
+
+/** Judges the rest of an Answer's sentences, spending at most `most` (#2311). */
+export function checkTheRest(
+  answer: { id: string; conversationId: string },
+  most: Money | null,
+): void {
+  core
+    .checkAnswerAgain({
+      conversationId: answer.conversationId,
+      answerId: answer.id,
+      ...(most && { limit: most }),
+    })
+    .catch(report);
 }
 
 /**

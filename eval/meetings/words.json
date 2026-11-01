@@ -1,0 +1,277 @@
+{
+  "format": 1,
+  "words": {
+    "en-online-EN2002a": {
+      "said": [
+        "Characterisation",
+        "Disfluencies",
+        "Summarisation"
+      ],
+      "notSaid": [
+        "主播",
+        "举报",
+        "抖音",
+        "博主",
+        "Colours",
+        "Euros",
+        "Controlling"
+      ],
+      "told": [
+        "Characterisation",
+        "主播",
+        "Disfluencies",
+        "举报",
+        "Summarisation",
+        "抖音",
+        "博主",
+        "Colours",
+        "Euros",
+        "Controlling"
+      ]
+    },
+    "en-online-IS1009b": {
+      "said": [
+        "Colours",
+        "Euros",
+        "Controlling"
+      ],
+      "notSaid": [
+        "营销",
+        "转正",
+        "门店",
+        "稀缺",
+        "Programming",
+        "Rechargeable",
+        "Hopping"
+      ],
+      "told": [
+        "Colours",
+        "营销",
+        "Euros",
+        "转正",
+        "Controlling",
+        "门店",
+        "稀缺",
+        "Programming",
+        "Rechargeable",
+        "Hopping"
+      ]
+    },
+    "en-room-ES2004b": {
+      "said": [
+        "Programming",
+        "Rechargeable",
+        "Hopping"
+      ],
+      "notSaid": [
+        "比方",
+        "微信",
+        "拖后",
+        "Touchscreen"
+      ],
+      "told": [
+        "Programming",
+        "比方",
+        "Rechargeable",
+        "微信",
+        "Hopping",
+        "拖后",
+        "Touchscreen"
+      ]
+    },
+    "en-room-TS3003b": {
+      "said": [
+        "Teletext",
+        "Touchscreen"
+      ],
+      "notSaid": [
+        "公交",
+        "嘎达",
+        "工位",
+        "保洁",
+        "Characterisation",
+        "Disfluencies",
+        "Summarisation"
+      ],
+      "told": [
+        "Teletext",
+        "公交",
+        "Touchscreen",
+        "嘎达",
+        "工位",
+        "保洁",
+        "Characterisation",
+        "Disfluencies",
+        "Summarisation"
+      ]
+    },
+    "zh-online-R8007_M8011": {
+      "said": [
+        "主播",
+        "举报",
+        "抖音",
+        "博主",
+        "客服",
+        "整改",
+        "段子",
+        "解压",
+        "踩雷",
+        "时长",
+        "比方",
+        "淘宝"
+      ],
+      "notSaid": [
+        "Characterisation",
+        "Disfluencies",
+        "Summarisation",
+        "营销",
+        "转正",
+        "门店",
+        "稀缺"
+      ],
+      "told": [
+        "主播",
+        "Characterisation",
+        "举报",
+        "Disfluencies",
+        "抖音",
+        "Summarisation",
+        "博主",
+        "营销",
+        "客服",
+        "转正",
+        "整改",
+        "门店",
+        "段子",
+        "稀缺",
+        "解压",
+        "踩雷",
+        "时长",
+        "比方",
+        "淘宝"
+      ]
+    },
+    "zh-online-R8008_M8013": {
+      "said": [
+        "营销",
+        "转正",
+        "门店",
+        "稀缺",
+        "营销部",
+        "抖音",
+        "副总"
+      ],
+      "notSaid": [
+        "Colours",
+        "Euros",
+        "Controlling",
+        "比方",
+        "微信",
+        "拖后"
+      ],
+      "told": [
+        "营销",
+        "Colours",
+        "转正",
+        "Euros",
+        "门店",
+        "Controlling",
+        "稀缺",
+        "比方",
+        "营销部",
+        "微信",
+        "抖音",
+        "拖后",
+        "副总"
+      ]
+    },
+    "zh-room-R8003_M8001": {
+      "said": [
+        "比方",
+        "微信",
+        "拖后"
+      ],
+      "notSaid": [
+        "Programming",
+        "Rechargeable",
+        "Hopping",
+        "公交",
+        "嘎达",
+        "工位",
+        "保洁"
+      ],
+      "told": [
+        "比方",
+        "Programming",
+        "微信",
+        "Rechargeable",
+        "拖后",
+        "Hopping",
+        "公交",
+        "嘎达",
+        "工位",
+        "保洁"
+      ]
+    },
+    "zh-room-R8007_M8010": {
+      "said": [
+        "公交",
+        "嘎达",
+        "工位",
+        "保洁",
+        "行行",
+        "仿瓷",
+        "保洁员",
+        "换乘",
+        "新搬",
+        "租房",
+        "辆车"
+      ],
+      "notSaid": [
+        "Teletext",
+        "Touchscreen",
+        "主播",
+        "举报",
+        "抖音",
+        "博主"
+      ],
+      "told": [
+        "公交",
+        "Teletext",
+        "嘎达",
+        "Touchscreen",
+        "工位",
+        "主播",
+        "保洁",
+        "举报",
+        "行行",
+        "抖音",
+        "仿瓷",
+        "博主",
+        "保洁员",
+        "换乘",
+        "新搬",
+        "租房",
+        "辆车"
+      ]
+    },
+    "mixed-conversation-test-1": {
+      "said": [],
+      "notSaid": [
+        "Smartphone"
+      ],
+      "told": [
+        "Smartphone"
+      ]
+    },
+    "mixed-conversation-test-3": {
+      "said": [
+        "Smartphone"
+      ],
+      "notSaid": [],
+      "told": [
+        "Smartphone"
+      ]
+    }
+  }
+}

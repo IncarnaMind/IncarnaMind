@@ -1,10 +1,15 @@
 """What an Analysis's code runs with (ADR-0023), and how each run is made.
 
-The code reads its inputs from `inputs`, reports with `step`, `result` and
-`chart`, and runs in a namespace of its own, with the same seeds every time
-and no clock. Before it runs, the numbers written in it are listed. What it
-gives is cut to the limits each job brings, and goes back as JSON. Each job
-runs in a fresh interpreter (../../main/analysis.ts).
+The code reads its inputs from `inputs`, reports with `step`, `result`,
+`figure` and `chart`, and runs in a namespace of its own, with the same seeds
+every time and no clock. Before it runs, the numbers written in it are
+listed. What it gives is cut to the limits each job brings, and goes back as
+JSON, with each plot matplotlib drew as a PNG. Each job runs in a fresh
+interpreter (../../main/analysis.ts), which loads only the packages its code
+uses (`packages_for`).
+
+An input's rows keep their row number in the sheet as their index, named
+"row", so a figure can say which rows it was worked out from.
 
 The clock is taken away where code reaches it as a matter of course
 (datetime, time, pandas' Timestamp and "today"), so an Analysis doesn't read
@@ -13,8 +18,10 @@ can still find the time.
 """
 
 import ast
+import base64
 import builtins
 import datetime as _datetime
+import functools
 import inspect
 import io
 import json
@@ -38,6 +45,18 @@ WORKING_FOLDER = "/analysis"
 # The numbers code writes for reasons other than data: counting, halves, percentages.
 LEFT_OUT = (0, 1, 2, -1, 100)
 CHART_KINDS = ("bar", "line", "pie", "scatter")
+ROW_INDEX = "row"
+INPUT_ATTRIBUTE = "incarnamind_input"
+FIGURE_HOW = ("sum", "mean", "min", "max", "count")
+SAME_HOW = {"total": "sum", "average": "mean", "avg": "mean", "minimum": "min", "maximum": "max"}
+# Where pandas imports matplotlib or scipy itself, with no import of them in the code.
+PANDAS_PLOTS = {"plot", "hist", "boxplot", "plotting"}
+PANDAS_SCIPY = {"spearman", "kendall"}
+# A plot is drawn at twice its size in points, so it stays sharp on a high-density screen.
+PICTURE_DPI = 200
+# The assistant panel shows a picture about 400 px wide. matplotlib sizes text in points, so a
+# figure wider than this is drawn at this width: its 10-point text is then about 11 px there.
+PICTURE_INCHES = 5.0
 CLOCK_MESSAGE = (
     "An Analysis has no clock, so that it gives the same result every time it runs. "
     "Take the date as an input instead of reading today's."
@@ -191,6 +210,15 @@ def _as_frame(value):
     return value
 
 
+def _whole_input(frame):
+    read = _read.get(frame.attrs.get(INPUT_ATTRIBUTE))
+    return (
+        read is not None
+        and frame.index.name == ROW_INDEX
+        and frame.index.tolist() == read["order"]
+    )
+
+
 def _index_as_columns(frame):
     index = frame.index
     plain = (
@@ -198,8 +226,10 @@ def _index_as_columns(frame):
         and index.start == 0
         and index.step == 1
         and index.name is None
-    )
-    return frame if plain else frame.reset_index(allow_duplicates=True)
+    ) or _whole_input(frame)
+    if plain:
+        return frame.reset_index(drop=True) if index.name == ROW_INDEX else frame
+    return frame.reset_index(allow_duplicates=True)
 
 
 def _table(value, limits, rows_limit):
@@ -257,12 +287,17 @@ class _Run:
         self.results = []
         self.named = {}
         self.charts = []
+        self.pictures = []
+        # Titles of plots left out because their text has characters no bundled font draws.
+        self.without_glyphs = []
         self.merges = []
         self.not_numbers = []
         self.cut = {
             "figures": 0,
             "tables": 0,
             "charts": 0,
+            "pictures": 0,
+            "withoutGlyphs": 0,
             "steps": 0,
             "merges": 0,
             "notNumbers": 0,
@@ -279,6 +314,12 @@ class _Run:
 
 _run = None
 inputs = _Inputs({})
+# Each input's headings and row numbers, by its name, for the figures that name its rows.
+_read = {}
+# Bundled packages a job may load, by the name the code imports them by (`declare_packages`).
+_packages = {}
+# The figures pyplot made while the code ran, in order, closed or not.
+_drawn = []
 
 
 def step(label, data):
@@ -298,41 +339,140 @@ def step(label, data):
     return data
 
 
-def result(name, value, label=None, unit=None):
-    """Gives a figure (a number) or a table (a DataFrame or Series) under `name`.
+def _give(kind, item):
+    # By the name as it is cut for the core, which knows a result by it: two names cut to the same
+    # one are one result, the later.
+    name = item["name"]
+    if name in _run.named:
+        _run.results[_run.named[name]] = item
+        return
+    same = sum(1 for each in _run.results if each["kind"] == item["kind"])
+    if _run.keep(kind, _run.results, item, same):
+        _run.named[name] = len(_run.results) - 1
 
-    For a percent figure, unit="%" takes a fraction: 0.081 shows as 8.1%.
-    """
-    name = _name_of(name, "result()")
+
+def _shown(name, label, unit):
     limits = _run.limits
-    shown = {
+    return {
         "name": _text(name, limits["labelCharacters"]),
         "label": _text(name if label is None else label, limits["labelCharacters"]),
         "unit": None if unit is None else _text(unit, limits["labelCharacters"]),
     }
+
+
+def _number_for(name, value, what):
+    number = float(value)
+    if math.isnan(number) or math.isinf(number):
+        raise ValueError(
+            f"{what} got {number} for {name!r}, which is not a number it can give: "
+            "often a division by zero or an empty selection."
+        )
+    return number
+
+
+def _traced(data, what):
+    """The input `data`'s rows came from, and their row numbers in its sheet, in order."""
+    if not isinstance(data, (pd.DataFrame, pd.Series)):
+        raise TypeError(f"{what} takes rows of an input: a DataFrame, or a column of one such as df['Revenue'].")
+    name = data.attrs.get(INPUT_ATTRIBUTE)
+    if name not in _read or data.index.name != ROW_INDEX:
+        raise ValueError(
+            f"{what} needs rows that still carry their row number from one input, the index named "
+            "'row'. Filter or select the input's rows and columns for it, before a merge, a "
+            "group-by, a concat or reset_index()."
+        )
+    rows = data.index.tolist()
+    known = _read[name]["rows"]
+    if len(set(rows)) != len(rows) or any(row not in known for row in rows):
+        raise ValueError(f"{what} has rows that aren't {name}'s, or a row twice.")
+    if not rows:
+        raise ValueError(f"{what} has no rows.")
+    return name, sorted(rows)
+
+
+def _runs(rows, what):
+    runs = []
+    for row in rows:
+        if runs and row == runs[-1][1] + 1:
+            runs[-1][1] = row
+        else:
+            runs.append([row, row])
+    limit = _run.limits["figureRowRuns"]
+    if len(runs) > limit:
+        raise ValueError(
+            f"{what}'s rows are spread over {len(runs)} separate parts of the sheet, more than the "
+            f"{limit} a figure can name: give this figure with result(name, value, label, unit) alone."
+        )
+    return runs
+
+
+def _rows_of(name, rows, columns, how, what):
+    limits = _run.limits
+    return {
+        "input": name,
+        "columns": [_text(_heading(each), limits["labelCharacters"]) for each in columns[: limits["columns"]]],
+        "rows": _runs(rows, what),
+        "count": len(rows),
+        "how": how,
+    }
+
+
+def result(name, value, label=None, unit=None, of=None):
+    """Gives a figure (a number) or a table (a DataFrame or Series) under `name`.
+
+    For a percent figure, unit="%" takes a fraction: 0.081 shows as 8.1%.
+    `of` names the rows of an input a figure was worked out from, such as those a
+    model was fitted on: a DataFrame or column taken from inputs[...].
+    """
+    name = _name_of(name, "result()")
+    limits = _run.limits
+    shown = _shown(name, label, unit)
     if isinstance(value, (pd.DataFrame, pd.Series)):
-        kind = "tables"
-        item = {"kind": "table", **shown, "table": _table(value, limits, limits["rows"])}
+        if of is not None:
+            raise TypeError("result()'s of= names the rows of a figure; a table shows its own rows.")
+        _give("tables", {"kind": "table", **shown, "table": _table(value, limits, limits["rows"])})
     elif _is_number(value):
-        number = float(value)
-        if math.isnan(number) or math.isinf(number):
-            raise ValueError(
-                f"result() got {number} for {name!r}, which is not a number it can give: "
-                "often a division by zero or an empty selection."
-            )
-        kind = "figures"
-        item = {"kind": "figure", **shown, "value": number}
+        item = {"kind": "figure", **shown, "value": _number_for(name, value, "result()")}
+        if of is not None:
+            source, rows = _traced(of, "result()'s of=")
+            columns = list(of.columns) if isinstance(of, pd.DataFrame) else [of.name]
+            item["of"] = _rows_of(source, rows, columns, None, "result()'s of=")
+        _give("figures", item)
     else:
         raise TypeError(
             f"result() takes a number or a table (a DataFrame or Series), not {type(value).__name__}."
         )
-    if name in _run.named:
-        _run.results[_run.named[name]] = item
-        return value
-    same = sum(1 for each in _run.results if each["kind"] == item["kind"])
-    if _run.keep(kind, _run.results, item, same):
-        _run.named[name] = len(_run.results) - 1
     return value
+
+
+def figure(name, column, how, label=None, unit=None):
+    """Gives a figure IncarnaMind works out again from the cells: the sum, mean, min, max or count of one column of an input's rows, after any filtering."""
+    name = _name_of(name, "figure()")
+    how = SAME_HOW.get(str(how).strip().lower(), str(how).strip().lower())
+    if how not in FIGURE_HOW:
+        raise ValueError(f"figure() works out {', '.join(FIGURE_HOW)}, not {how!r}.")
+    if isinstance(column, str):
+        raise TypeError(f"figure() takes the column itself, as df[{column!r}], not its name.")
+    if not isinstance(column, pd.Series):
+        raise TypeError("figure() takes one column of an input's rows, such as df['Revenue'].")
+    source, rows = _traced(column, "figure()")
+    heading = _heading(column.name)
+    if heading not in _read[source]["columns"]:
+        raise ValueError(
+            f"figure() works a figure out from a column of {source} as its sheet has it, and "
+            f"{heading!r} isn't one. Give a figure from a column the code made with result()."
+        )
+    if how != "count" and not pd.api.types.is_numeric_dtype(column):
+        raise TypeError(f"figure() can't take the {how} of {heading!r}: its cells aren't numbers.")
+    value = column.count() if how == "count" else getattr(column, how)()
+    item = {
+        "kind": "figure",
+        **_shown(name, label, unit),
+        "value": _number_for(name, value, "figure()"),
+        "of": _rows_of(source, rows, [heading], how, "figure()"),
+    }
+    _give("figures", item)
+    return item["value"]
 
 
 def chart(kind, data, x=None, y=None, title=None):
@@ -477,6 +617,13 @@ def _frame(spec):
         data[index] = _column(spec["name"], heading, cells, row_numbers)
     frame = pd.DataFrame(data, index=pd.RangeIndex(len(rows)))
     frame.columns = columns
+    frame.index = pd.Index(list(row_numbers), name=ROW_INDEX, dtype="int64")
+    frame.attrs[INPUT_ATTRIBUTE] = spec["name"]
+    _read[spec["name"]] = {
+        "columns": set(columns),
+        "rows": set(frame.index),
+        "order": frame.index.tolist(),
+    }
     return frame
 
 
@@ -571,13 +718,172 @@ def _error_of(error, limit):
         [frame for frame in summary.stack if frame.filename != __file__]
     )
     text = "".join(summary.format()).strip()
+    if isinstance(error, KeyError) and _read and _is_position(error.args[0] if error.args else None):
+        text += (
+            "\nAn input's rows are indexed by their row number in the sheet, from row "
+            f"{min((min(read['rows']) for read in _read.values() if read['rows']), default=2)}: "
+            "take a row by its position with .iloc."
+        )
+    missing = _not_loaded(error)
+    if missing:
+        module, package = missing
+        text += (
+            f"\n{package} comes with Analyses, but this run didn't load it: import it at the top "
+            f"of the code (import {module}), and run it again."
+        )
     if len(text) > limit:
         text = "…\n" + text[-(limit - 2) :]
     return {"kind": "error", "message": text, "line": line}
 
 
+def _is_position(key):
+    """A whole number no input has as a row: likely a position taken for a row number."""
+    return (
+        isinstance(key, numbers.Integral)
+        and not isinstance(key, bool)
+        and all(key not in read["rows"] for read in _read.values())
+    )
+
+
+def _not_loaded(error):
+    """A bundled package a library imported for the code, which its imports didn't name."""
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, ModuleNotFoundError) and error.name:
+            module = error.name.split(".")[0]
+            if module in _packages:
+                return module, _packages[module]
+        error = error.__cause__ or error.__context__
+    return None
+
+
+def declare_packages(listing):
+    """Says which packages come with Analyses beyond numpy and pandas: {package: [import names]}, as JSON."""
+    _packages.clear()
+    for package, names in json.loads(listing).items():
+        for module in names:
+            _packages[module] = package
+
+
+def packages_for(code):
+    """The bundled packages a job's code uses, which its interpreter loads before it runs, as JSON."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return "[]"
+    modules = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            modules.add(node.module.split(".")[0])
+        elif isinstance(node, ast.Attribute) and node.attr in PANDAS_PLOTS:
+            modules.add("matplotlib")
+        elif isinstance(node, ast.Constant) and node.value in PANDAS_SCIPY:
+            modules.add("scipy")
+    return json.dumps(sorted({_packages[module] for module in modules if module in _packages}))
+
+
+def prepare_plots(font):
+    """Has matplotlib draw into PNGs, with `font` for what its own fonts lack, and keeps each
+    figure pyplot makes while code runs."""
+    import matplotlib
+    from matplotlib import font_manager
+
+    matplotlib.use("Agg")
+    font_manager.fontManager.addfont(font)
+    # After the usual family, so Latin text looks as it always did; matplotlib falls back to it
+    # for each character the first has no glyph for.
+    family = font_manager.FontProperties(fname=font).get_name()
+    matplotlib.rcParams["font.family"] = [*matplotlib.rcParams["font.family"], family]
+    import matplotlib.pyplot as plt
+
+    made = plt.figure
+
+    @functools.wraps(made)
+    def kept(*args, **kwargs):
+        drawn = made(*args, **kwargs)
+        if _run is not None and not any(each is drawn for each in _drawn):
+            _drawn.append(drawn)
+        return drawn
+
+    plt.figure = kept
+
+
+def _png(drawn, dpi):
+    buffer = io.BytesIO()
+    drawn.savefig(buffer, format="png", dpi=dpi, bbox_inches="tight", facecolor="white")
+    data = buffer.getvalue()
+    return data, int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+
+
+def _title_of(drawn):
+    titles = [getattr(drawn, "_suptitle", None), *(axes.title for axes in drawn.axes)]
+    for title in titles:
+        if title is not None and title.get_text().strip():
+            return title.get_text().strip()
+    return ""
+
+
+def _draw_pictures(limits):
+    """Each figure the code drew with pyplot, as a PNG no larger than a Note keeps a picture."""
+    if "matplotlib.pyplot" not in sys.modules:
+        return
+    edge = limits["pictureEdge"]
+    for drawn in _drawn:
+        if not drawn.axes:
+            continue
+        wide, high = drawn.get_size_inches()
+        if wide > PICTURE_INCHES:
+            drawn.set_size_inches(PICTURE_INCHES, high * PICTURE_INCHES / wide)
+        dpi = min(PICTURE_DPI, edge / max(*drawn.get_size_inches(), 0.01))
+        title = _text(_title_of(drawn), limits["labelCharacters"])
+        # A character no font here has (Japanese, Korean, a Chinese one outside GB2312) would be
+        # drawn as a box: such a plot is left out, and the model told why.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("error", message=r"Glyph \d+ .*missing from font")
+            try:
+                data, width, height = _png(drawn, dpi)
+            except UserWarning:
+                if len(_run.without_glyphs) < limits["pictures"]:
+                    _run.without_glyphs.append(title)
+                else:
+                    _run.cut["withoutGlyphs"] += 1
+                continue
+        # A tight box can grow past the figure's size, and a busy plot past the bytes a Note keeps.
+        if max(width, height) > edge or len(data) > limits["pictureBytes"]:
+            heavy = len(data) > limits["pictureBytes"]
+            dpi *= min(1, edge / max(width, height)) * (0.5 if heavy else 0.98)
+            data, width, height = _png(drawn, dpi)
+        if max(width, height) > edge or len(data) > limits["pictureBytes"]:
+            _run.cut["pictures"] += 1
+            continue
+        _run.keep(
+            "pictures",
+            _run.pictures,
+            {
+                "title": title,
+                "png": base64.b64encode(data).decode("ascii"),
+                "width": width,
+                "height": height,
+            },
+        )
+
+
 _home = os.getcwd()
 _environment = dict(os.environ)
+# plt.show() has nothing to show on: every figure comes back as a picture anyway.
+warnings.filterwarnings("ignore", message="FigureCanvasAgg is non-interactive")
+# threadpoolctl, which scikit-learn imports, still calls a Pyodide API Pyodide warns is going.
+warnings.filterwarnings("ignore", message=r"JsProxy\.as_object_map\(\) is deprecated")
+# Pyodide's build of matplotlib's Agg renderer takes the whole numbers matplotlib's own draw_text
+# passes as floats, so every savefig() would warn twice for each text it draws.
+warnings.filterwarnings(
+    "ignore",
+    message=r"The [xy] parameter as float was deprecated in Matplotlib 3\.10",
+    category=DeprecationWarning,
+)
 _warning_filters = list(warnings.filters)
 _numpy_errors = np.geterr()
 _recursion = sys.getrecursionlimit()
@@ -590,7 +896,8 @@ def _clean_up():
     np.seterr(**_numpy_errors)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        # Every option but plotting's, whose reset looks for matplotlib, which isn't bundled.
+        # Every option but plotting's, whose reset looks for matplotlib, which a job loads only
+        # when its code draws.
         pd.reset_option(r"^(?!plotting\.)")
     warnings.filters[:] = _warning_filters
     sys.setrecursionlimit(_recursion)
@@ -602,6 +909,10 @@ def _clean_up():
         shutil.rmtree(folder, ignore_errors=True)
         os.makedirs(folder, exist_ok=True)
     linecache.cache.pop(FILENAME, None)
+    _read.clear()
+    if "matplotlib.pyplot" in sys.modules:
+        sys.modules["matplotlib.pyplot"].close("all")
+    _drawn.clear()
 
 
 def run(job_text):
@@ -639,6 +950,7 @@ def _run_job(job):
                 "inputs": inputs,
                 "step": step,
                 "result": result,
+                "figure": figure,
                 "chart": chart,
                 "incarnamind": module,
                 # Models write pd and np without importing them, as notebooks have them.
@@ -651,6 +963,7 @@ def _run_job(job):
             sys.stdout = sys.stderr = printed
             try:
                 exec(compile(tree, FILENAME, "exec"), namespace)
+                _draw_pictures(limits)
             finally:
                 sys.stdout, sys.stderr = stdout, stderr
             end = {"kind": "done"}
@@ -662,6 +975,8 @@ def _run_job(job):
         "steps": _run.steps,
         "results": _run.results,
         "charts": _run.charts,
+        "pictures": _run.pictures,
+        "withoutGlyphs": _run.without_glyphs,
         "merges": _run.merges,
         "notNumbers": _run.not_numbers,
         "literals": literals,

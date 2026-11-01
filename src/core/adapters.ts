@@ -685,15 +685,18 @@ export interface SpeechSegment {
 
 /**
  * A stream's audio sent to a cloud transcription service instead (#141), with the User's key.
- * OpenAI's live model needs our own voice activity detection: `vad` is Silero's file.
+ * OpenAI's live model needs our own voice activity detection: `vad` is Silero's file. Qwen's
+ * address is the host of the key's region: a key works in no other.
  */
 export type CloudStream =
   | { service: "openai"; model: string; apiKey: string; vad: string }
-  | { service: "soniox"; model: string; apiKey: string };
+  | { service: "soniox"; model: string; apiKey: string }
+  | { service: "qwen"; model: string; apiKey: string; url: string };
 
 /**
  * Why a cloud stream ended before it was finished: the connection was lost ("dropped"), or the
- * service refused the key or the account has no credit left ("refused").
+ * service refused the key (Qwen: one made in the other region too) or the account has no credit
+ * left ("refused").
  */
 export type CloudLoss = "dropped" | "refused";
 
@@ -708,6 +711,11 @@ export type CloudLoss = "dropped" | "refused";
 export interface Transcriber {
   /** Starts the engine with these files, if it isn't running them already. Rejects if it can't start. */
   load(model: TranscriptionModelFiles): Promise<void>;
+  /**
+   * The words a stream's speech may hold (the names in the call, #1031), told to an engine on this
+   * computer that can lean towards them, before the stream's audio. A cloud stream isn't told.
+   */
+  words(stream: string, words: readonly string[]): void;
   /** Audio for a stream, `MEETING_SAMPLE_RATE` mono, signed 16-bit, in order. */
   push(stream: string, samples: Int16Array): void;
   /**
@@ -730,7 +738,8 @@ export interface Transcriber {
 
 export interface TranscriberListener {
   segment(segment: SpeechSegment): void;
-  progress(stream: string, doneMs: number): void;
+  /** `heardMs`: how far a cloud service has answered for (`doneMs` when absent), see `CloudStreamReport`. */
+  progress(stream: string, doneMs: number, heardMs?: number): void;
   /** A stretch of a stream couldn't be decoded: it has no text, and the stream goes on. */
   failed(stream: string, message: string): void;
   /** The engine stopped by itself (it crashed, or ran out of memory): its streams are gone. */

@@ -8,6 +8,7 @@ import type {
   MindRead,
 } from "../../core/api";
 import { markersIn } from "../../shared/answerBlocks";
+import { citedSentences } from "../../shared/citedSentences";
 
 /**
  * An Answer's steps in the assistant (#391), from what its row keeps: its
@@ -28,7 +29,7 @@ export interface StepsInput {
     ConversationAnswer,
     "text" | "citations" | "toolCalls" | "model" | "steps" | "read"
   > &
-    Partial<Pick<ConversationAnswer, "status">>;
+    Partial<Pick<ConversationAnswer, "status" | "figures">>;
   /**
    * The Mind in focus when the Question was asked; null when none was. Its
    * Answer read it (`answer.read`), unless it couldn't: say, an Answer written
@@ -96,7 +97,23 @@ export type StepRow =
   /** The figures the Answer shows, each calculated from its cited inputs. */
   | { kind: "calculated"; count: number }
   /** The Citations checked against their sources, and how many weren't found; `running`: being checked now. */
-  | { kind: "check"; count: number; notFound: number; running?: true };
+  | {
+      kind: "check";
+      count: number;
+      notFound: number;
+      /** Citations whose quote is found and whose sentence it doesn't support (#2311). */
+      needALook?: number;
+      /** Of those, the ones whose sentence the Documents contradict. */
+      contradicted?: number;
+      /** Citations whose sentence's judgement couldn't run. */
+      notChecked?: number;
+      /**
+       * A limit stopped judging its sentences (#2311): which, and how many of the sentences it
+       * judges were checked before it.
+       */
+      stopped?: { by: "answer-limit" | "monthly-limit"; checked: number; total: number };
+      running?: true;
+    };
 
 export type FoldedLine =
   | { kind: "searched"; sources: number; extraScopes: number }
@@ -168,6 +185,33 @@ export function latestReasoning(summary: string | null | undefined): string {
 function shownCitations({ text, citations }: Pick<StepsInput["answer"], "text" | "citations">) {
   const cited = new Map(citations.map((citation) => [citation.marker, citation]));
   return markersIn(text).flatMap((marker) => cited.get(marker) ?? []);
+}
+
+const JUDGED = new Set(["found", "unsupported", "contradicted", "not-checked"]);
+
+/**
+ * The limit that stopped judging an Answer's sentences, if one did (#2311), and how many of the
+ * sentences it judges were checked: those none of whose Citations is left not checked.
+ */
+function stoppedJudgement(
+  answer: StepsInput["answer"],
+): Extract<StepRow, { kind: "check" }>["stopped"] | null {
+  const limits = answer.citations.map((citation) => citation.checkReason);
+  const by = limits.includes("answer-limit")
+    ? "answer-limit"
+    : limits.includes("monthly-limit")
+      ? "monthly-limit"
+      : null;
+  if (!by) return null;
+  const cited = new Map(answer.citations.map((citation) => [citation.marker, citation]));
+  const judged = citedSentences(answer.text, answer.figures ?? [])
+    .filter((sentence) => !sentence.calculated)
+    .map((sentence) => sentence.markers.flatMap((marker) => cited.get(marker) ?? []))
+    .filter((citations) => citations.some((citation) => JUDGED.has(citation.check)));
+  const checked = judged.filter((citations) =>
+    citations.every((citation) => citation.check !== "not-checked"),
+  ).length;
+  return { by, checked, total: judged.length };
 }
 
 /** The first row: the model's reasoning, or the model that answered and how long it took. */
@@ -389,11 +433,24 @@ export function stepRows(
   if (live) {
     const count = live.kind === "checking" ? live.count : checking;
     if (count !== null) rows.push({ kind: "check", count, notFound: 0, running: true });
+  } else if (shown.some((citation) => citation.check === "checking")) {
+    // Its sentences are judged after it ends (#2311): the step says so until each has a result.
+    rows.push({ kind: "check", count: shown.length, notFound: 0, running: true });
   } else if (shown.length > 0) {
+    const needALook = shown.filter(
+      (citation) => citation.check === "unsupported" || citation.check === "contradicted",
+    ).length;
+    const contradicted = shown.filter((citation) => citation.check === "contradicted").length;
+    const notChecked = shown.filter((citation) => citation.check === "not-checked").length;
+    const stopped = stoppedJudgement(answer);
     rows.push({
       kind: "check",
       count: shown.length,
       notFound: shown.filter((citation) => citation.check === "not-found").length,
+      ...(needALook > 0 && { needALook }),
+      ...(contradicted > 0 && { contradicted }),
+      ...(notChecked > 0 && { notChecked }),
+      ...(stopped && { stopped }),
     });
   }
   return rows;

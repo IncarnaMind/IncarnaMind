@@ -1,16 +1,25 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
 import { figureReplyText, readFigureReply } from "../../src/core/answers/checks/figureChecks";
 import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
-import type { ChatProviderKind, CheckFigure } from "../../src/core/api";
+import type {
+  CalculatedFigure,
+  ChatProviderKind,
+  CheckFigure,
+  ClaimCheckResult,
+} from "../../src/core/api";
 import type { CitationSource } from "../../src/core/documents";
+import { extractXlsx } from "../../src/core/documents/formats/xlsx";
 import { resolveCapabilities } from "../../src/core/providers/capabilities";
 import type { PreparedChatModel } from "../../src/core/providers/chat";
+import { workbookTools } from "../../src/core/workbooks/tool";
 import { MAX_CHART_VALUES } from "../../src/shared/charts";
 import { readFigures } from "../../src/shared/figures";
+import { translate } from "../../src/shared/i18n";
 import type { UnitText } from "../../src/shared/units";
+import { unsupportedWorkbook, WorkbookBuilder } from "../helpers/financeWorkbooks";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 
 const claim = "Revenue was £20 and the licence is valid.";
@@ -190,6 +199,8 @@ async function checkWith(options: {
   providerKind?: ChatProviderKind;
   /** It never calls cite: its sources and its calculation's inputs give their quotes inline. */
   neverCites?: boolean;
+  /** Asked once more for its record, it gives this quote, under the markers asked for if any. */
+  recordWhenAsked?: string;
   scope?: { documentIds: string[] | null; excluded: Map<string, "own-file"> };
 }) {
   const body =
@@ -241,6 +252,23 @@ async function checkWith(options: {
     },
     {
       generate(call) {
+        const quote = options.recordWhenAsked;
+        if (quote !== undefined && call.system.startsWith("You checked a sentence")) {
+          const record = { passage: "P1", location: "p. 1", quote };
+          const markers = /Missing Citation markers: (\[[^\]]*\])/.exec(call.prompt)?.[1];
+          return {
+            text: JSON.stringify(
+              markers
+                ? {
+                    citations: (JSON.parse(markers) as number[]).map((marker) => ({
+                      marker,
+                      ...record,
+                    })),
+                  }
+                : record,
+            ),
+          };
+        }
         confirmations.push(call.prompt);
         return { text: options.judgement ?? "conflict" };
       },
@@ -1503,3 +1531,435 @@ test("a quoted heading states the scale and currency the bare digits lack", asyn
   expect(result.figures?.[0]?.sourceInput?.unitStatement).not.toBeNull();
   expect(result.figures?.[0]?.result.verdict).toBe("supported");
 });
+
+/** A plan whose 2027 sales are worked out from its growth assumption (#2347). */
+async function planUnits(growth: number): Promise<UnitText[]> {
+  const book = new WorkbookBuilder();
+  book
+    .sheet("Plan")
+    .text("A1", "Line")
+    .text("B1", "2026")
+    .text("C1", "2027")
+    .text("A2", "Sales")
+    .number("B2", 400)
+    .formula("C2", "B2*(1+B4)", 400 * (1 + growth))
+    .text("A4", "Growth")
+    .number("B4", growth, "percent");
+  return (await extractXlsx(new Uint8Array(book.xlsx()))).units;
+}
+
+/** A workbook's Tools over `units`, read as one Passage, and the figures they record. */
+function workbookPassage(units: UnitText[], language: "en" | "zh-CN") {
+  const source: CitationSource = {
+    passageId: "passage-1",
+    documentId: "document-1",
+    documentName: "Accounts",
+    documentKind: "xlsx",
+    contentHash: "hash-1",
+    text: units.map((unit) => unit.text).join("\n"),
+    pageFrom: 1,
+    pageTo: 1,
+    documentDeleted: false,
+    notCited: false,
+  };
+  const recorded: CalculatedFigure[] = [];
+  const [trace, whatIf] = workbookTools({
+    passage: (id) => (id === "P1" ? { source, units } : null),
+    passageOf: () => source.passageId,
+    figure: (figure) => recorded.push(figure),
+    language,
+  });
+  if (!trace || !whatIf) throw new Error("No workbook Tools.");
+  const context = { toolCallId: "call", signal: new AbortController().signal };
+  return { trace, whatIf, context, recorded };
+}
+
+/** The plan's 2027 sales as `trace_formulas` records it, and with growth at 10% as `what_if` does. */
+async function planFigures(units: UnitText[], language: "en" | "zh-CN") {
+  const { trace, whatIf, context, recorded } = workbookPassage(units, language);
+  await trace.call({ passage: "P1", cell: "Plan!C2", label: "Sales 2027" }, context);
+  await whatIf.call(
+    { passage: "P1", cell: "Plan!C2", label: "Sales 2027", input: "Plan!B4", value: "10%" },
+    context,
+  );
+  const [traced, changed] = recorded;
+  if (!traced || !changed) throw new Error("The workbook's figures weren't recorded.");
+  return { traced, changed };
+}
+
+describe.each([
+  { language: "en" as const, claim: "Sales in 2027 were 420, or 440 at 10% growth." },
+  { language: "zh-CN" as const, claim: "2027 年销售额为 420，增长率为 10% 时为 440。" },
+])("$language: a workbook's figure is checked against its cell (#2347)", ({ language, claim }) => {
+  const saved = (id: string, figure: CalculatedFigure, shown = figure.shown): CheckFigure => ({
+    ...target(id, shown, figure.label, language),
+    calculated: { id, figure, analysisId: null },
+  });
+  const check = async (figures: CheckFigure[], units: UnitText[]) =>
+    checkWith({
+      figures,
+      claim,
+      units,
+      body: units.map((unit) => unit.text).join("\n"),
+      text: reply(figures.map((figure) => ({ ...item(figure.id), source: null }))),
+    });
+
+  test("a figure the workbook gives is Supported by its cell, and a what-if by working it out again", async () => {
+    const units = await planUnits(0.05);
+    const { traced, changed } = await planFigures(units, language);
+    expect([traced.shown, changed.shown]).toEqual(["420", "440"]);
+    const { result } = await check([saved("f1", traced), saved("f2", changed)], units);
+    const [cell, whatIf] = result.figures ?? [];
+    expect(cell?.result.verdict).toBe("supported");
+    expect(cell?.sourceInput).toMatchObject({
+      number: { chars: "420", value: 420 },
+      cell: { sheet: "Plan", ref: "C2" },
+      citation: {
+        check: "found",
+        quote: "Sales\t400\t420",
+        location: { kind: "rows", sheet: "Plan", from: 2, to: 2 },
+      },
+    });
+    expect(whatIf?.result.verdict).toBe("supported");
+    expect(whatIf?.sourceInput).toBeNull();
+    const worked = whatIf?.result.verdict === "supported" ? whatIf.result.calculation : null;
+    expect(worked?.figure.value).toBeCloseTo(440, 9);
+    expect(worked?.figure.workbook?.change).toEqual({
+      input: "Plan_B4",
+      value: 0.1,
+      shown: "10.0%",
+    });
+  });
+
+  test("a figure its cell doesn't give is Contradicted, with the cell's number beside it", async () => {
+    const units = await planUnits(0.05);
+    const { traced } = await planFigures(units, language);
+    const { result } = await check([saved("f1", traced, "425")], units);
+    expect(result.figures?.[0]?.result.verdict).toBe("contradicted");
+    expect(result.figures?.[0]?.sourceInput?.number.chars).toBe("420");
+  });
+
+  test("once the workbook's cells no longer give a figure, it isn't checked, and says why", async () => {
+    const { traced, changed } = await planFigures(await planUnits(0.05), language);
+    const { result } = await check(
+      [saved("f1", traced), saved("f2", changed)],
+      await planUnits(0.06),
+    );
+    expect(result.figures?.map((figure) => figure.result)).toEqual([
+      expect.objectContaining({ verdict: "not-checked", reason: "workbook-changed" }),
+      expect.objectContaining({ verdict: "not-checked", reason: "workbook-changed" }),
+    ]);
+    expect(translate(language, "claim.reason.workbook-changed")).toContain(
+      language === "en" ? "workbook’s cells" : "工作簿现在的单元格",
+    );
+  });
+});
+
+const correctionOf = (result: ClaimCheckResult) =>
+  result.verdict === "not-checked" ? undefined : result.correction;
+
+test.each([
+  { name: "alone", calculated: false, offered: true },
+  { name: "beside a supported calculated figure", calculated: true, offered: false },
+])("a figure's correction is offered $name", async ({ calculated, offered }) => {
+  const sentence = calculated ? "Revenue was £20 and profit was £10." : "Revenue was £20.";
+  const revenue = {
+    ...item("revenue"),
+    verdict: "contradicted",
+    source: { citation: 1, number: "£21" },
+  };
+  const items = calculated
+    ? [revenue, { ...item("profit"), source: null, calculation: 1 }]
+    : [revenue];
+  const { result } = await checkWith({
+    claim: sentence,
+    figures: [
+      target("revenue", "£20", sentence),
+      ...(calculated ? [target("profit", "£10", sentence)] : []),
+    ],
+    body: "Revenue was £21. Costs were £11.",
+    ...(calculated && {
+      calculations: [
+        {
+          marker: 1,
+          label: "Profit",
+          formula: "revenue - costs",
+          stated: "£10",
+          relation: "equals",
+          inputs: [
+            { name: "revenue", label: "Revenue", citation: 1, position: 1 },
+            { name: "costs", label: "Costs", citation: 1, position: 2 },
+          ],
+        },
+      ],
+    }),
+    text: `Verdict: contradicted\nChange 1: £20\nTo 1: £21 [^1]\nFigures: ${JSON.stringify({ items, remainder: null })}`,
+  });
+
+  expect(result.verdict).toBe("contradicted");
+  expect(result.figures?.map((figure) => figure.result.verdict)).toEqual(
+    calculated ? ["contradicted", "supported"] : ["contradicted"],
+  );
+  expect(correctionOf(result)?.choices[0]?.wording).toBe(offered ? "£21" : undefined);
+});
+
+test.each([
+  { name: "its own sentence", table: false, offered: true },
+  { name: "table headings", table: true, offered: false },
+])("a figure's correction is offered with $name as its context", async ({ table, offered }) => {
+  const sentence = "Revenue was £20.";
+  const { result } = await checkWith({
+    claim: sentence,
+    figures: [target("f1", "£20", table ? `Revenue | 2025\n${sentence}` : sentence)],
+    body: "Revenue was £21.",
+    text: `Verdict: contradicted\nChange 1: £20\nTo 1: £21 [^1]\nFigures: ${JSON.stringify({
+      items: [{ ...item(), verdict: "contradicted", source: { citation: 1, number: "£21" } }],
+      remainder: null,
+    })}`,
+  });
+
+  expect(result.verdict).toBe("contradicted");
+  expect(correctionOf(result)?.choices[0]?.wording).toBe(offered ? "£21" : undefined);
+});
+
+const RENT = "The base rent is $15,000 per month.";
+const LEASE = "The Tenant shall pay a base rent of $14,250 per month, in advance.";
+const rentLines = (to: string) =>
+  [
+    "Verdict: contradicted",
+    "Absence: no",
+    "Scope: none, same",
+    "Topic: found",
+    "Roles: none, same",
+    "Change 1: $15,000",
+    `To 1: ${to}`,
+    "The lease sets the base rent at $14,250 per month, not $15,000.",
+    "Evidence: [1]",
+  ].join("\n");
+
+test.each([
+  { name: "the lease's", quote: LEASE, wording: "$14,250" },
+  { name: "another line's", quote: "The Tenant shall pay rent monthly.", wording: undefined },
+])(
+  "a figure's correction is offered from $name quote when the record is given only once asked (#1481)",
+  async ({ quote, wording }) => {
+    const { result } = await checkWith({
+      claim: RENT,
+      figures: [target("f1", "$15,000", RENT)],
+      body: `${LEASE} The Tenant shall pay rent monthly.`,
+      neverCites: true,
+      recordWhenAsked: quote,
+      text: `${rentLines('"a base rent of $14,250 per month"')}\nFigures: ${JSON.stringify({
+        items: [
+          {
+            ...item(),
+            verdict: "contradicted",
+            source: { citation: 1, number: "$14,250", reading: 1, unitQuote: null },
+          },
+        ],
+        remainder: null,
+      })}`,
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionOf(result)?.choices[0]?.wording).toBe(wording);
+  },
+);
+
+const TERM = "Rent is paid 12 times a year.";
+
+test.each([
+  { name: "only names the lease's number", claim: RENT, formula: "rent", wording: "$14,250" },
+  {
+    name: "works a number out",
+    claim: "The base rent is $150,000 a year.",
+    formula: "rent * months",
+    wording: undefined,
+  },
+])("a figure's correction is offered when its calculation $name (#1481)", async (each) => {
+  const stated = each.claim === RENT ? "$15,000" : "$150,000";
+  const { result } = await checkWith({
+    claim: each.claim,
+    figures: [target("f1", stated, each.claim)],
+    body: `${LEASE} ${TERM}`,
+    quotes: [LEASE, TERM],
+    calculations: [
+      {
+        marker: 1,
+        label: "Base rent",
+        formula: each.formula,
+        stated,
+        relation: "equals",
+        as: "currency",
+        inputs: [
+          {
+            name: "rent",
+            label: "Base rent per month",
+            citation: 1,
+            number: "$14,250",
+            reading: 1,
+          },
+          ...(each.formula === "rent"
+            ? []
+            : [{ name: "months", label: "Payments a year", citation: 2, number: "12" }]),
+        ],
+      },
+    ],
+    text: `${rentLines("$14,250 per month").replace("$15,000", stated)}\nFigures: ${JSON.stringify({
+      items: [{ ...item(), verdict: "contradicted", source: null, calculation: 1 }],
+      remainder: null,
+    })}`,
+  });
+
+  expect(result.verdict).toBe("contradicted");
+  expect(result.figures?.[0]?.result.verdict).toBe("contradicted");
+  expect(correctionOf(result)?.choices[0]?.wording).toBe(each.wording);
+});
+
+test.each([
+  { to: "人民币九万八千元（¥98,000）", wording: "人民币九万八千元（¥98,000）" },
+  { to: "人民币九万六千元", wording: undefined },
+])(
+  "a Chinese figure's correction is $to when the Document writes its number twice (#1481)",
+  async ({ to, wording }) => {
+    const sentence = "月租金为人民币九万五千元。";
+    const { result } = await checkWith({
+      claim: sentence,
+      figures: [target("f1", "人民币九万五千元", sentence, "zh-CN")],
+      body: "月租金调整为人民币九万八千元（¥98,000）。",
+      text: `Verdict: contradicted\nChange 1: 人民币九万五千元\nTo 1: ${to}\nEvidence: [1]\nFigures: ${JSON.stringify(
+        {
+          items: [
+            {
+              ...item(),
+              verdict: "contradicted",
+              source: { citation: 1, number: "98,000", reading: null, unitQuote: null },
+            },
+          ],
+          remainder: null,
+        },
+      )}`,
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(result.figures?.[0]?.result.verdict).toBe("contradicted");
+    expect(correctionOf(result)?.choices[0]?.wording).toBe(wording);
+  },
+);
+
+test.each([
+  {
+    claim: "Revenue was $1.5m in the year.",
+    figure: "$1.5m",
+    body: "Revenue was $1.2m ($1,200,000) in the year.",
+    number: "$1.2m",
+    from: "1.5",
+    to: "1,200,000",
+    language: "en" as const,
+    wording: "$1.2m",
+  },
+  {
+    claim: "Revenue was $1.5m in the year.",
+    figure: "$1.5m",
+    body: "Revenue was $1.2m in the year.",
+    number: "$1.2m",
+    from: "1.5",
+    to: "1.2",
+    language: "en" as const,
+    wording: "1.2",
+  },
+  {
+    claim: "营收为1.5亿元。",
+    figure: "1.5亿元",
+    body: "营收为1.2亿元（120,000,000元）。",
+    number: "1.2亿元",
+    from: "1.5",
+    to: "120,000,000元",
+    language: "zh-CN" as const,
+    wording: "1.2亿元",
+  },
+  {
+    claim: "营收为1.5亿元。",
+    figure: "1.5亿元",
+    body: "营收为1.2亿元。",
+    number: "1.2亿元",
+    from: "1.5",
+    to: "1.2",
+    language: "zh-CN" as const,
+    wording: "1.2",
+  },
+])(
+  "a figure's digits changed to $to give $wording: the Document's number, read whole (#1481)",
+  async (each) => {
+    const { result } = await checkWith({
+      claim: each.claim,
+      figures: [target("f1", each.figure, each.claim, each.language)],
+      body: each.body,
+      text: `Verdict: contradicted\nChange 1: ${each.from}\nTo 1: ${each.to} [^1]\nEvidence: [1]\nFigures: ${JSON.stringify(
+        {
+          items: [
+            {
+              ...item(),
+              verdict: "contradicted",
+              source: { citation: 1, number: each.number, reading: null, unitQuote: null },
+            },
+          ],
+          remainder: null,
+        },
+      )}`,
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(result.figures?.[0]?.result.verdict).toBe("contradicted");
+    expect(correctionOf(result)?.choices[0]?.wording).toBe(each.wording);
+  },
+);
+
+// The figure the Check reads its number from is backed only when every formula behind it was
+// worked out here and gave the value Excel saved (#2347).
+describe.each(["en", "zh-CN"] as const)(
+  "%s: a workbook's figure built on a cell IncarnaMind can't work out",
+  (language) => {
+    test.each([
+      { name: "a stale saved value", cell: "Cases!D10", reason: "workbook-differs" },
+      { name: "a link to another file", cell: "Cases!D6", reason: "workbook-external" },
+      { name: "a value that changes each time", cell: "Cases!D2", reason: "workbook-volatile" },
+      { name: "formulas that refer to each other", cell: "Cases!D8", reason: "workbook-circular" },
+      { name: "a hidden sheet not read", cell: "Cases!D11", reason: "workbook-not-read" },
+      {
+        name: "a formula with no saved value",
+        cell: "Cases!D9",
+        reason: "workbook-no-saved-value",
+      },
+      { name: "nothing it can't work out", cell: "Cases!D13", reason: null },
+    ] as const)("$name: is $reason", async ({ cell, reason }) => {
+      const units = (await extractXlsx(new Uint8Array(unsupportedWorkbook().xlsx()))).units;
+      const { trace, context, recorded } = workbookPassage(units, language);
+      await trace.call({ passage: "P1", cell, label: "Figure" }, context);
+      const [figure] = recorded;
+      if (!figure) throw new Error(`${cell} wasn't recorded.`);
+      const claim =
+        language === "en" ? `The figure is ${figure.shown}.` : `该数字为 ${figure.shown}。`;
+      const { result } = await checkWith({
+        figures: [
+          {
+            ...target("f1", figure.shown, "Figure", language),
+            calculated: { id: "f1", figure, analysisId: null },
+          },
+        ],
+        claim,
+        units,
+        body: units.map((unit) => unit.text).join("\n"),
+        text: reply([{ ...item("f1"), source: null }]),
+      });
+      if (reason === null) {
+        expect(result.figures?.[0]?.result.verdict).toBe("supported");
+        expect(result.verdict).toBe("supported");
+        return;
+      }
+      expect(result.figures?.[0]?.result).toMatchObject({ verdict: "not-checked", reason });
+      expect(result.verdict).toBe("not-checked");
+      expect(translate(language, `claim.reason.${reason}`)).not.toBe(`claim.reason.${reason}`);
+    });
+  },
+);

@@ -43,6 +43,9 @@ export function markdownToBlocks(markdown: string, options: MarkdownOptions = {}
 }
 
 const PARTIAL_MARKER = /^[ \t]*(?:[-*+_]{1,2}|\d{1,9}[.)]?|#{1,6}|>|[`~]{1,2}|\$|\\)$/;
+
+/** The level the export writes above a list that starts a level deeper, which its indent alone can't say. */
+const START_LEVEL = /^<!-- start-level: ([1-8]) -->$/;
 const FENCE = /^( {0,3})(`{3,}|~{3,})[ \t]*([^\s`]*)[^`]*$/;
 const MATH_BLOCK = /^ {0,3}(\$\$|\\\[)(.*)$/;
 const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
@@ -120,6 +123,32 @@ function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
     const line = lines[i] as string;
     if (isBlank(line)) {
       i++;
+      continue;
+    }
+    const declared = START_LEVEL.exec(line.trim());
+    if (declared) {
+      // The export indents the list three spaces a level (#1419); only under its comment, so a
+      // model's indented line is never read as a list.
+      const level = Number(declared[1]);
+      const width = 3 * level;
+      let end = i + 1;
+      while (end < lines.length) {
+        if (isBlank(lines[end] as string)) {
+          let next = end;
+          while (next < lines.length && isBlank(lines[next] as string)) next++;
+          if (next < lines.length && indentOf(lines[next] as string) >= width) end = next;
+          else break;
+        } else if (indentOf(lines[end] as string) >= width) end++;
+        else break;
+      }
+      const inner = parseBlocks(
+        lines.slice(i + 1, end).map((each) => dedent(each, width)),
+        open && end >= lines.length,
+      );
+      const [first] = inner;
+      if (first?.type === "orderedList") first.attrs = { ...first.attrs, startLevel: level };
+      blocks.push(...inner);
+      i = end;
       continue;
     }
     const isLast = i === lines.length - 1;
@@ -752,11 +781,18 @@ export interface Look {
 
 const withoutDelimiters = (text: string) => text.replace(/[*_~]/g, "");
 
-/** `\*`, `\_`, `\~` and `\\` as the characters they stand for. */
-export const withoutEmphasisEscapes = (text: string) => text.replace(/\\([\\*_~])/g, "$1");
+/** `\*`, `\_`, `\~`, `\\` and `\<removed>` as the characters they stand for. */
+export const withoutEmphasisEscapes = (text: string) =>
+  text.replace(/\\([\\*_~]|<(?=\/?removed[\s/>]))/gi, "$1");
 
 /** The characters that would read as emphasis or an escape in `text`, each escaped, so they stay as typed. */
 export const escapeEmphasis = (text: string) => text.replace(/[\\*_~]/g, "\\$&");
+
+/**
+ * A typed `<removed>` escaped: unescaped, it is the mark around what a rewrite takes out
+ * (#2180). Apart from `escapeEmphasis` because the words it is made of arrive one at a time.
+ */
+export const escapeRemovedMark = (text: string) => text.replace(/<(?=\/?removed[\s/>])/gi, "\\<");
 
 /**
  * A line as its plain words with the look each character has from the

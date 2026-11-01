@@ -59,11 +59,11 @@ test("over changes it can't revise, the assistant changes nothing, says why, and
 
   const line = refused.getByTestId("answer-waiting-changes");
   await expect(line).toHaveText(
-    /^\d+ changes are waiting in “Q3 review”\. Accept or reject them first\? · Review$/,
+    "1 change is waiting in “Q3 review”. Accept or reject it first? · Review",
   );
   const timeline = await openSteps(window, refused);
   await expect(timeline.getByTestId("answer-mind-call")).toHaveText(
-    /Couldn’t change “Q3 review”: \d+ changes are waiting there/,
+    /Couldn’t change “Q3 review”: 1 change is waiting there/,
   );
   // The line sits under the Answer's text, inside the assistant, once the steps have opened.
   await expect
@@ -78,9 +78,9 @@ test("over changes it can't revise, the assistant changes nothing, says why, and
   await expect(editor).toBeFocused();
 
   await setLanguage(window, "zh-CN");
-  await expect(line).toHaveText(/^“Q3 review”中有 \d+ 处修订待确认。先接受或拒绝它们？· 审阅$/);
+  await expect(line).toHaveText("“Q3 review”中有 1 处修订待确认。先接受或拒绝它？· 审阅");
   await expect(timeline.getByTestId("answer-mind-call")).toHaveText(
-    /无法修改“Q3 review”：其中有 \d+ 处修订待确认/,
+    /无法修改“Q3 review”：其中有 1 处修订待确认/,
   );
 
   await pointAndClick(window, held.getByTestId("applied-discard"));

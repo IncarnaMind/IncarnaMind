@@ -6,6 +6,7 @@ import {
   changedOnMessage,
   changedSourceNote,
   citationAttributesOf,
+  citationCheckRan,
   citationReference,
   citationSource,
   citationState,
@@ -150,10 +151,22 @@ describe("A Citation's badge", () => {
         location: { kind: "section", heading: "Tides" },
       }).zh,
     ).toBe("未在“§ Tides”中找到引文");
-    expect(words({ ...found, check: "checking" }).en).toBe("checking…");
+    expect(words({ ...found, check: "checking" }).en).toBe("Checking…");
+    expect(words({ ...found, check: "checking" }).zh).toBe("正在核对…");
+    expect(words({ ...found, check: "not-checked" }).en).toBe("Not checked");
+    expect(words({ ...found, check: "not-checked" }).zh).toBe("未核对");
     expect(words({ ...found, check: "cant-check", checkReason: "no-text" }).en).toBe("Can’t check");
-    for (const check of ["found", "not-found", "cant-check", "checking"] as const) {
+    for (const check of ["found", "not-found", "cant-check", "checking", "not-checked"] as const) {
       expect(words({ ...found, check }).en).not.toMatch(/verif/i);
+    }
+  });
+
+  test("a check ran only where it gave a result, never while checking or when it couldn't", () => {
+    for (const check of ["found", "not-found", "unsupported", "contradicted"] as const) {
+      expect(citationCheckRan(check), check).toBe(true);
+    }
+    for (const check of ["checking", "cant-check", "not-checked"] as const) {
+      expect(citationCheckRan(check), check).toBe(false);
     }
   });
 
