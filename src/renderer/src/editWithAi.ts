@@ -56,7 +56,6 @@ export const TRANSLATE_LANGUAGES: readonly { id: string; name: string; prompt: s
 export type EditProblem = (
   | {
       kind:
-        | "unchanged"
         | "changed"
         | "has-proposals"
         | "too-long"
@@ -64,10 +63,14 @@ export type EditProblem = (
         | "cant-regenerate"
         | "no-table"
         | "unplaced"
+        | "misnamed"
+        | "typed-tag"
         | "cut-short"
         | "late"
         | "busy";
     }
+  /** `said`: the AI's own words, when it wrote them instead of a change (#2356). */
+  | { kind: "unchanged"; said?: string }
   | { kind: "not-ready"; readiness: Extract<ChatReadiness, { ready: false }> }
   | { kind: "failed"; message: string; retry: () => void }
   | { kind: "consent-revoked"; error: ProviderError }

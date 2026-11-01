@@ -25,7 +25,7 @@ import type { ChatProviderKind, Core } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { proposalRequestOf, resolveProposals } from "../../src/shared/proposals";
-import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
+import { createTempDataFolder, namedSaid, spentBy, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 
@@ -295,6 +295,20 @@ function verdict(each: Language, asked: Case, after: string[]): string | null {
   return after.length >= least && after.length <= most ? null : `${after.length} paragraphs`;
 }
 
+/**
+ * Whether the reply quotes as taken out a paragraph of the Note the request didn't ask to go
+ * (#2356): a line of a quote that is that paragraph, past its name and mark.
+ */
+function quotesUnasked(each: Language, asked: Case, raw: string): boolean {
+  const lines = [...raw.matchAll(/<removed>([\s\S]*?)<\/removed>/gi)].flatMap((quote) =>
+    (quote[1] ?? "")
+      .split("\n")
+      .map((line) => line.replace(/^\s*(?:¶\d+\+?\s+)?(?:#{1,6}\s|[-*]\s|\d+\.\s)?/, "").trim()),
+  );
+  const meant = new Set([...asked.gone, ...(asked.optional ?? [])]);
+  return each.blocks.some(([, text], index) => !meant.has(index) && lines.includes(text));
+}
+
 /** The Note's paragraphs with any words, in order. */
 function textsOf(client: Awaited<ReturnType<typeof connectToMind>>): string[] {
   const texts: string[] = [];
@@ -412,6 +426,9 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
       const misses: string[] = [];
       let strays = 0;
       let claimed = 0;
+      let unasked = 0;
+      /** Each Edit with AI reply, whose passage shows its paragraphs' names. */
+      const said: string[] = [];
       await pooled(jobs, Number(process.env.INCARNAMIND_LIVE_CONCURRENCY ?? 4), (job) =>
         replies.run({ raw: "" }, () => runJob(job)),
       );
@@ -473,6 +490,8 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
           instruction: asked.ask,
         });
         await client.settled();
+        said.push(replies.getStore()?.raw ?? "");
+        if (quotesUnasked(each, asked, replies.getStore()?.raw ?? "")) unasked++;
         let why = "";
         if (result.kind === "proposed") {
           const made = proposalRequestOf(client.doc, result.request);
@@ -511,7 +530,7 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
         }
       }
       report.push(
-        `  all: exact ${exactTotal}/${total}; text other than the passage in the Note ${strays}/${total}; a miss whose ${assistant ? "reply" : "why"} says it removed ${claimed}/${total}`,
+        `  all: exact ${exactTotal}/${total}; text other than the passage in the Note ${strays}/${total}; a miss whose ${assistant ? "reply" : "why"} says it removed ${claimed}/${total}${assistant ? "" : `; a quote of a paragraph nobody asked to go ${unasked}/${total}; ${namedSaid(said)}`}`,
         ...spentBy(dataDir),
         ...misses,
       );
