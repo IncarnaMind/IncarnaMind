@@ -418,6 +418,7 @@ export const en = {
   "undo.examplesShown": "Showed the examples",
   "menu.showExamples": "Show the examples again",
   "undo.folderLinked": "Linked “{name}”",
+  "undo.folderUnlinked": "Unlinked “{name}”",
   "undo.linkedFolder.mergedGone":
     "“{name}”, the Linked folder this link took in, isn’t on the disk any more.",
   "undo.linkedFolderPaused": "Paused reading in “{name}”",
@@ -450,6 +451,8 @@ export const en = {
   "undo.documentsAdded": "Added {count} Documents",
   "undo.documentAdded.one": "Added 1 Document",
   "undo.name.addDocuments": "Add Documents",
+  "undo.documentsRemoved": "Removed {count} Documents",
+  "undo.documentRemoved.one": "Removed 1 Document",
   "object.restored": "Restored “{name}”",
   "object.restoredTo": "Restored “{name}” to {folder}",
   "object.restored.count": "Restored {count} items",

@@ -182,6 +182,13 @@ for (const [language, width] of [
       await expect(line).toContainText("was 1.1x at the end of 2025");
       await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
       await expect(marks.nth(0)).toHaveAttribute("data-claim", earlier ?? "");
+      // ⇧⌘Z does it again, and checks the sentence again as Use did (#2402); ⌘Z takes it back.
+      await window.keyboard.press("ControlOrMeta+Shift+z");
+      await expect(line).toContainText("was 1.31x at the end of 2025");
+      await expect(marks.nth(0)).toHaveAttribute("data-check", "supported", { timeout: 30_000 });
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect(line).toContainText("was 1.1x at the end of 2025");
+      await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
 
       // Keep as my view still works beside it.
       await expect(marks).toHaveCount(3);
