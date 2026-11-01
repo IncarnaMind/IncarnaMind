@@ -47,6 +47,9 @@ export function citationAttributesOf(node: Record<string, unknown>): Partial<Cit
   const count = (value: unknown) => (typeof value === "number" ? value : null);
   const check = CITATION_CHECKS.find((each) => each === node.check);
   const verdict = text(node.verdict);
+  const unsure = Array.isArray(node.unsure)
+    ? node.unsure.filter((word): word is string => typeof word === "string")
+    : null;
   return {
     passageId: text(node.passageId),
     documentId: text(node.documentId),
@@ -61,6 +64,8 @@ export function citationAttributesOf(node: Record<string, unknown>): Partial<Cit
     }),
     quote: text(node.quote),
     ...(check && { check }),
+    ...(node.pageChecked === true && { pageChecked: true }),
+    ...(unsure && unsure.length > 0 && { unsure }),
     ...(verdict !== null && { verdict }),
   };
 }
@@ -88,6 +93,8 @@ export interface CitationState {
    * card can say "the Document changed after this was cited" and offer it.
    */
   changedAfterCited: boolean;
+  /** The User compared the quote with the page and it matched (#535). */
+  pageChecked?: true;
 }
 
 /**
@@ -205,10 +212,20 @@ export function citationState(
   kept: readonly KeptCitationText[] = [],
   keptInside: string | null = null,
 ): CitationState {
-  const check = attributes.check ?? "checking";
-  const reason = attributes.checkReason ?? null;
+  // Matches the page makes it found on the User's word, though a word of it may have been misread (#535).
+  const pageChecked = attributes.pageChecked === true;
+  const check = pageChecked ? "found" : (attributes.check ?? "checking");
+  const reason = pageChecked ? null : (attributes.checkReason ?? null);
   const own = attributes.documentId ?? null;
-  if (documents === null) return { check, reason, documentId: own, changedAfterCited: false };
+  if (documents === null) {
+    return {
+      check,
+      reason,
+      documentId: own,
+      changedAfterCited: false,
+      ...(pageChecked && { pageChecked: true as const }),
+    };
+  }
   const live = liveDocumentOf(attributes, documents);
   const changedAfterCited =
     live !== undefined &&
@@ -219,15 +236,34 @@ export function citationState(
     return { check, reason: null, documentId: live?.id ?? own, changedAfterCited: false };
   }
   if (keptInside) {
-    return { check, reason, documentId: live?.id ?? own, changedAfterCited: false, keptInside };
+    return {
+      check,
+      reason,
+      documentId: live?.id ?? own,
+      changedAfterCited: false,
+      keptInside,
+      ...(pageChecked && { pageChecked: true as const }),
+    };
   }
   if (!live && citedTextKept(attributes, kept)) {
-    return { check, reason, documentId: null, changedAfterCited: false };
+    return {
+      check,
+      reason,
+      documentId: null,
+      changedAfterCited: false,
+      ...(pageChecked && { pageChecked: true as const }),
+    };
   }
   if (!live) {
     return { check: "cant-check", reason: "document-removed", documentId: null, changedAfterCited };
   }
-  return { check, reason, documentId: live.id, changedAfterCited };
+  return {
+    check,
+    reason,
+    documentId: live.id,
+    changedAfterCited,
+    ...(pageChecked && { pageChecked: true as const }),
+  };
 }
 
 /** Where a Citation's quote stands in its Document's current version. */
@@ -505,7 +541,11 @@ export function badgeMessage(
     case "not-found":
       return { key: `citation.badge.notFound.${where}`, params };
     case "cant-check":
-      return { key: "citation.badge.cantCheck" };
+      // Words a scan may have misread: the User looks at the page (#535).
+      return {
+        key:
+          state.reason === "unsure-word" ? "citation.badge.checkPage" : "citation.badge.cantCheck",
+      };
     case "not-checked":
       return { key: "citation.badge.notChecked" };
     case "unsupported":

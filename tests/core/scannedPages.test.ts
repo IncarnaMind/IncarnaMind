@@ -22,6 +22,7 @@ import {
   citingModel,
   onlyCitation,
   setUpWithDocuments,
+  shownPassages,
 } from "../helpers/citations";
 import { createTempDataFolder, NO_MODEL_FILES, queryDatabase, startCore } from "../helpers/core";
 import {
@@ -32,6 +33,8 @@ import {
   waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { promptOf, scriptedModel } from "../helpers/models";
 import { buildPdf, pdfAppearance } from "../helpers/pdf";
 
 const SCANS = join(import.meta.dirname, "../fixtures/scans");
@@ -348,7 +351,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     again.close();
   });
 
-  test("an Answer cites a scanned page, and the Citation check finds its quote", async () => {
+  test("an Answer cites a scanned page, and a quote of a word it may have misread asks for a look at the page (#535)", async () => {
     const quote = "Either party may terminate this Agreement for convenience";
     const model = citingModel({
       query: "terminate for convenience",
@@ -373,11 +376,15 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     );
     const { answerId } = await askAndFinish(core, client, mind.id, "How can it be ended?");
     const citation = onlyCitation(client, answerId);
+    // The quote is in the text the scan gave, but a word of it may be misread: it can't be checked
+    // as found until the User has looked at the page.
     expect(citation).toMatchObject({
       documentId: documents[0]?.id,
       pageFrom: 1,
       quote,
-      check: "found",
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["convenience"],
     });
     // The card says it was read from a scan, and which of its words the reading wasn't sure of.
     expect(
@@ -408,6 +415,187 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
         quote: "The tenant may keep a dog",
       }),
     ).toBeNull();
+  });
+
+  test("a re-check asks for a look at the page for a scan's unsure word, and only for one (#535)", async () => {
+    const { recognizer } = countingRecognizer({
+      pages: { 1: { lines: linesOf("en-clean"), unsure: ["convenience"] } },
+    });
+    const { core, documents } = await setUpWithDocuments(
+      citingModel({ query: "terminate", records: () => [], answer: "Nothing [^1]." }),
+      [{ name: "Agreement.pdf", contents: buildPdf([{ scan: picture("en-clean") }]) }],
+      scanning(recognizer),
+    );
+    const document = documents[0] as Document;
+    const recheck = async (quote: string) =>
+      checkedResult(
+        await core.recheckCitation({
+          mindId: null,
+          documentId: document.id,
+          quote,
+          pageFrom: 1,
+          pageTo: 1,
+        }),
+      );
+    expect(
+      await recheck("Either party may terminate this Agreement for convenience"),
+    ).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["convenience"],
+    });
+    expect(await recheck("Business Days and certify the deletion")).toMatchObject({
+      check: "found",
+      checkReason: null,
+    });
+  });
+
+  test("the model is told which words of a scan may be misread, and a quote copied with their marks is the page's text (#535)", async () => {
+    const model = citingModel({
+      query: "terminate for convenience",
+      records: (passages) => [
+        {
+          marker: 1,
+          passage: passages[0]?.id ?? "",
+          pageFrom: 1,
+          pageTo: 1,
+          quote: "Either party may terminate this Agreement for ⟦convenience⟧",
+        },
+      ],
+      answer: "Either party can end it on 90 days' notice [^1].",
+    });
+    const { recognizer } = countingRecognizer({
+      pages: { 1: { lines: linesOf("en-clean"), unsure: ["convenience"] } },
+    });
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Agreement.pdf", contents: buildPdf([{ scan: picture("en-clean") }]) }],
+      scanning(recognizer),
+    );
+    const { answerId } = await askAndFinish(core, client, mind.id, "How can it be ended?");
+    // The Passage the model read marks the word the reading wasn't sure of, and the prompt says
+    // not to state a figure read from one.
+    const searched = model.doStreamCalls[1];
+    const shown: string[] = [];
+    for (const message of searched?.prompt ?? []) {
+      if (typeof message.content === "string") continue;
+      for (const part of message.content) {
+        if (part.type === "tool-result" && part.output.type === "text") {
+          shown.push(part.output.value);
+        }
+      }
+    }
+    expect(shown.join("\n")).toContain("⟦convenience⟧");
+    expect(promptOf(model, 0)[0]?.text).toContain("marked ⟦like this⟧");
+    // A quote copied with the marks is the page's text, without them.
+    expect(onlyCitation(client, answerId)).toMatchObject({
+      quote: "Either party may terminate this Agreement for convenience",
+      checkReason: "unsure-word",
+    });
+  });
+
+  test("calculate refuses an input read from a scan's unsure word, with one line (#438, #535)", async () => {
+    const line =
+      "Ferry passengers rose to 74,450 between June and August, against 61,200 a year earlier.";
+    const quote = line;
+    let told = "";
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "ferry passengers" } }] };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: shownPassages(searches.at(-1)?.text ?? "")[0]?.id ?? "",
+                    pageFrom: 1,
+                    pageTo: 1,
+                    quote,
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      const calculated = call.results.filter((result) => result.tool === "calculate");
+      if (calculated.length === 0) {
+        return {
+          calls: [
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Growth",
+                    inputs: [
+                      { name: "a", label: "This summer", citation: 1, number: "74,450" },
+                      { name: "b", label: "A year earlier", citation: 1, number: "61,200" },
+                    ],
+                    formula: "a / b - 1",
+                    as: "percent",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      told = calculated.at(-1)?.text ?? "";
+      return { text: "The scan is unclear, so I can't work that figure out [^1]." };
+    });
+    const { recognizer } = countingRecognizer({
+      pages: {
+        1: {
+          lines: linesOf("en-noisy").map((each, index) => (index === 2 ? line : each)),
+          unsure: ["74,450"],
+        },
+      },
+    });
+    const core = startCore(await createTempDataFolder(), {
+      ...scanning(recognizer),
+      createChatModel: () => model,
+      answerPaths: { retrievesFirst: () => false },
+    });
+    // A provider that offers calculate as a Tool, with its use of it allowed.
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Harbour report.pdf",
+        buildPdf([{ scan: picture("en-noisy") }]),
+      ),
+    ]);
+    const mind = await core.createMind({ title: "Harbour" });
+    const client = await connectToMind(core, mind.id);
+    const { answerId } = await askAndFinish(
+      core,
+      client,
+      mind.id,
+      "How much did ferry passengers grow?",
+    );
+    expect(told).toContain(
+      "That number was read from a scan and may be misread; it can't be an input until the User confirms it.",
+    );
+    // The quote of the unsure word still asks the User to look at the page.
+    expect(onlyCitation(client, answerId)).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["74,450"],
+    });
   });
 
   test("pages that couldn't be read are named, and Retry reads only them", async () => {

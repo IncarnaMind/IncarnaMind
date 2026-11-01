@@ -149,6 +149,18 @@ describe("Reading a scanned page's lines (#397)", () => {
     expect(unsureWords(chinese)).toEqual([[1, 2]]);
   });
 
+  test("a number-shaped word mixing digits with letters or stray marks is always unsure, whatever the score (#535)", () => {
+    for (const word of ["2o25", "7a;45o", "1O%", "l2,000", "3S.6"]) {
+      const read = line(word, [0, 0, 100, 10]);
+      expect(unsureWords(read), word).toEqual([[0, word.length]]);
+    }
+    // Codes that mix them as they should follow the recognizer's score: sure here, unsure of at 0.4.
+    for (const word of ["Q3", "A4", "H2O", "FY2025", "No.7"]) {
+      expect(unsureWords(line(word, [0, 0, 100, 10])), word).toEqual([]);
+      expect(unsureWords(line(word, [0, 0, 100, 10], 0.4)), word).toEqual([[0, word.length]]);
+    }
+  });
+
   test("taking a running header off a scanned page keeps its anchors and unsure words in step", () => {
     const page = (number: number, body: string): TextUnit =>
       scannedUnit(

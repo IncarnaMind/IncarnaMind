@@ -5493,6 +5493,10 @@
     white-space: nowrap;
     color: var(--color-ink-meta);
   }
+  /* A scan's Document and place in full: its place is what Open the page leads to (#535). */
+  .citation-card-source--scan {
+    white-space: normal;
+  }
   .citation-card-quote {
     margin: 0;
     padding-left: 22px;
@@ -5551,6 +5555,68 @@
     text-decoration: underline wavy var(--color-attention);
     text-decoration-thickness: 1px;
     text-underline-offset: 3px;
+  }
+  /* The page a scanned Citation quotes (#535): cropped around its quote, the quote washed. */
+  .citation-scan-picture {
+    position: relative;
+    margin-left: 22px;
+    overflow: hidden;
+    border-radius: 6px;
+    background: var(--color-chip);
+  }
+  .citation-scan-picture img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    max-width: none;
+    height: auto;
+  }
+  .citation-scan-marks {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .citation-scan-quote {
+    fill: var(--check-wash);
+    opacity: 0.7;
+  }
+  /* Each word that may be misread, outlined in amber: what the User compares with the picture. */
+  .citation-scan-unsure {
+    fill: none;
+    stroke: var(--color-attention);
+    stroke-width: 1.5;
+    stroke-dasharray: 3 2;
+  }
+  /* A figure read from a scan's unsure word (#535): the quiet unchecked-figure wash, as an unquoted figure. */
+  .unchecked-figure-wash {
+    padding: 1px 2px;
+    border-radius: 3px;
+    background: var(--color-chip);
+  }
+  .unchecked-figure-mark {
+    margin-left: 3px;
+    padding: 0 2px;
+    border: 0;
+    background: none;
+    color: var(--color-ink-meta);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    vertical-align: super;
+    cursor: pointer;
+  }
+  .unchecked-figure-mark:hover,
+  .unchecked-figure-mark:focus-visible {
+    color: var(--color-ink);
+  }
+  .unchecked-figure-card {
+    position: fixed;
+    z-index: 60;
+  }
+  .unchecked-figure-heading {
+    font-weight: 600;
+    color: var(--color-ink-secondary);
   }
   /* A Citation's verdict, the one line a claim check adds. */
   .citation-card-verdict {

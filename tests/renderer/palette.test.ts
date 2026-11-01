@@ -175,7 +175,7 @@ describe("an open card's own actions in ⌘K", () => {
     }
     citationHandle.current = {
       open: run,
-      choices: () => ({ update: null, keepOld: null }),
+      choices: () => ({ update: null, keepOld: null, pageChecked: null }),
       here: () => ({ "citation.signOffRemove": run }),
     };
     try {

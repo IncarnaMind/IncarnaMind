@@ -372,6 +372,10 @@ const CITED_SAYS_ONLY_ITS_QUOTE =
 const FIGURES_AS_STATED =
   '- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: "salary is 54,000" stays "54,000 (currency not stated)" / "54,000（未注明币种）", never "£54,000"; "2 percentage points" never becomes "2%".';
 
+/** A scan's unsure words are marked in its Passages (#535): a figure from one is never stated as fact. */
+const SCANNED_WORDS =
+  "- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact, nor use one in a calculation; say the scan is unclear and cite it.";
+
 /**
  * A premise the Passages don't support, and Passages that disagree (#548):
  * what a careful reader catches. The examples are in English and Chinese, so
@@ -716,6 +720,7 @@ export function documentInstructions(
         notCovered(true, true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
+        SCANNED_WORDS,
         readingRules(true),
         ...(calculate ? ["", CALCULATE] : []),
       ].join("\n");
@@ -742,6 +747,7 @@ export function documentInstructions(
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
+        SCANNED_WORDS,
         readingRules(true),
       ].join("\n");
     case "none":

@@ -883,8 +883,17 @@ export function checkedCitation(citation: CitationAttributes | undefined): Citat
     !citation.contentHash
   )
     return null;
-  const { passageId, documentId, documentName, contentHash, quote, quotedWords, ...rest } =
-    citation;
+  const {
+    passageId,
+    documentId,
+    documentName,
+    contentHash,
+    quote,
+    quotedWords,
+    unsure: _unsure,
+    pageChecked: _pageChecked,
+    ...rest
+  } = citation;
   return {
     ...rest,
     passageId,

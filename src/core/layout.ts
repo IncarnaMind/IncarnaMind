@@ -6,6 +6,7 @@ import {
   type AssistantFloat,
   type AssistantPlace,
   type CitationCheck,
+  type CitationCheckReason,
   DEFAULT_ASSISTANT,
   type DocumentPlace,
   type LayoutChange,
@@ -80,6 +81,21 @@ const CHECKS: readonly CitationCheck[] = [
   "contradicted",
 ];
 
+const REASONS: readonly CitationCheckReason[] = [
+  "quote-not-on-pages",
+  "quoted-words-not-on-pages",
+  "pages-outside-passage",
+  "too-many-pages",
+  "in-several-places",
+  "no-text",
+  "kept-inside",
+  "document-removed",
+  "answer-limit",
+  "monthly-limit",
+  "small-model",
+  "unsure-word",
+];
+
 function parseItem(value: unknown): TabItem {
   if (isRecord(value)) {
     if (value.kind === "mind" && isId(value.mindId)) return { kind: "mind", mindId: value.mindId };
@@ -99,6 +115,10 @@ function parseCitation(value: unknown): TabCitation {
     throw new InvalidInputError("A Citation's place needs its check.");
   }
   const citation: TabCitation = { check: value.check as CitationCheck };
+  // Why it can't be checked: the viewer's mark for a scan's unsure word reads it (#535).
+  if (REASONS.includes(value.checkReason as CitationCheckReason)) {
+    citation.checkReason = value.checkReason as CitationCheckReason;
+  }
   if (value.number !== undefined) {
     if (!isUnit(value.number)) throw new InvalidInputError("A Citation's number counts from 1.");
     citation.number = value.number;

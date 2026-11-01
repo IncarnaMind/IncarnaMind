@@ -98,6 +98,34 @@ export const Citation = Node.create<CitationOptions>({
         renderHTML: (attributes: Record<string, unknown>) => ({ "data-check": attributes.check }),
       },
       checkReason: dataAttribute("checkReason"),
+      // A scan's unsure words the quote covers (#535), as JSON in the HTML.
+      unsure: {
+        default: undefined,
+        parseHTML: (element: HTMLElement) => {
+          const raw = element.getAttribute("data-unsure");
+          if (raw === null) return undefined;
+          try {
+            const words: unknown = JSON.parse(raw);
+            return Array.isArray(words) && words.every((word) => typeof word === "string")
+              ? (words as string[])
+              : undefined;
+          } catch {
+            return undefined;
+          }
+        },
+        renderHTML: (attributes: Record<string, unknown>) =>
+          Array.isArray(attributes.unsure) && attributes.unsure.length > 0
+            ? { "data-unsure": JSON.stringify(attributes.unsure) }
+            : {},
+      },
+      // Only Matches the page sets it (#535).
+      pageChecked: {
+        default: undefined,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-page-checked") === "true" ? true : undefined,
+        renderHTML: (attributes: Record<string, unknown>) =>
+          attributes.pageChecked === true ? { "data-page-checked": "true" } : {},
+      },
       // Only a claim check sets it, so a Citation without one stores nothing.
       verdict: { ...dataAttribute("verdict"), default: undefined },
       // Only an Answer whose quoted words weren't found sets it (#483), as JSON in the HTML.

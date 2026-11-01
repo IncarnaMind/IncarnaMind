@@ -19,6 +19,31 @@ import type { RecognizedLine } from "../../adapters";
 /** A word the recognizer is less sure of than this, at its least sure character, is marked unsure. */
 export const UNSURE_BELOW = 0.8;
 
+/**
+ * Letters a recognizer reads for digits: a for 4, o and O for 0, l, I and i
+ * for 1, S for 5, B for 8, Z for 2, G for 6.
+ */
+const DIGIT_LETTER = /[aAoOlIiSsBbZzGg]/;
+
+/** Marks that never belong in a number: a separator or sign the recognizer made up. */
+const STRAY_MARK = /[;!?=~^&*#@_|\\]/;
+
+/**
+ * Whether a word starts like a number and mixes its digits with a letter a
+ * recognizer reads for one, or with a stray mark: "2o25", "7a;45o", "1O%",
+ * "l2,000", "3S.6". Always unsure, whatever the recognizer's score (#535).
+ * A code's letters come first ("Q3", "A4", "H2O", "FY2025", "No.7"), and an
+ * ordinal's suffix is a word's own ("1st", "2nd"): both follow the score.
+ */
+export function mixedNumberWord(text: string): boolean {
+  const word = text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  if (!/\d/.test(word) || /^\d+(?:st|nd|rd|th)$/iu.test(word)) return false;
+  // A lower-case l or a capital I in front of digits is a 1 the recognizer missed.
+  if (/^[lI]\d/u.test(word)) return true;
+  if (!/^\d/u.test(word)) return false;
+  return DIGIT_LETTER.test(word) || STRAY_MARK.test(word);
+}
+
 /** Lines at least this much longer than tall show the page's slant. */
 const SLANT_LINE_RATIO = 4;
 /** Two lines are in one row when they overlap by at least this share of the shorter's height. */
@@ -155,13 +180,18 @@ export function readingOrder(lines: readonly RecognizedLine[]): RecognizedLine[]
   return ordered.map((row) => row.map((each) => each.line));
 }
 
-/** The spans of a line's words whose least sure character is below `UNSURE_BELOW`, as offsets into its text. */
+/** The spans of a line's words that are unsure: too little sure of, or a number's look (#535), as offsets into its text. */
 export function unsureWords(line: RecognizedLine): [number, number][] {
   const spans: [number, number][] = [];
   let at = 0;
   let word: { start: number; end: number; least: number } | null = null;
   const close = () => {
-    if (word && word.least < UNSURE_BELOW) spans.push([word.start, word.end]);
+    if (
+      word &&
+      (word.least < UNSURE_BELOW || mixedNumberWord(line.text.slice(word.start, word.end)))
+    ) {
+      spans.push([word.start, word.end]);
+    }
     word = null;
   };
   for (const character of line.characters) {

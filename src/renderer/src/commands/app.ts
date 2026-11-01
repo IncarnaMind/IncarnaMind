@@ -287,8 +287,9 @@ const appCommands: readonly Command[] = [
     when: () => citedVersionInUse(useAppStore.getState().layout) !== null,
     run: () => citedVersionInUse(useAppStore.getState().layout)?.openCurrent(),
   },
-  // A Citation that needs re-check (#99), while its card shows or from its menu: the note's ⌘Z takes each back.
-  ...(["update", "keepOld"] as const).map(
+  // A Citation that needs re-check (#99), or a scan's unsure word to look at (#535), while its
+  // card shows or from its menu: the note's ⌘Z takes each back.
+  ...(["update", "keepOld", "pageChecked"] as const).map(
     (choice): Command => ({
       id: `citation.${choice}`,
       label: `citation.${choice}`,
