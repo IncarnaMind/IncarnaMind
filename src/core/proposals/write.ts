@@ -686,6 +686,8 @@ interface NewText {
   unmade?: true;
   /** Written as a heading, list item or quote in a passage of plain paragraphs, though read as one. */
   asOther?: true;
+  /** Its words name a paragraph, as the Note's own text never does (a typed one was shown escaped): the model talking about the passage (#2356). */
+  namesOne?: true;
   notes: Notes;
 }
 
@@ -700,6 +702,7 @@ interface NewTable {
   open?: true;
   unmade?: undefined;
   asOther?: undefined;
+  namesOne?: undefined;
   notes: Notes;
 }
 
@@ -893,8 +896,17 @@ function newParagraphs(
   const unescaped = (paragraph: string) => (named ? unescapeNames(paragraph) : paragraph);
   type Part = { name?: ParagraphName } & (
     | TableText
-    | { marker: ReturnType<typeof readBlockMarker>; paragraph: string; asOther?: boolean }
+    | {
+        marker: ReturnType<typeof readBlockMarker>;
+        paragraph: string;
+        asOther?: boolean;
+        namesOne?: boolean;
+      }
   );
+  // One the User typed in the selection is their words, though the reply drops its escape.
+  const typedNames = new Set(selection.text.match(NAMES_IN_WORDS) ?? []);
+  const namesOne = (words: string) =>
+    named && (words.match(NAMES_IN_WORDS) ?? []).some((each) => !typedNames.has(each));
   const source = named ? tableRowsUnnamed(text) : text;
   const read = tablesApart(source).flatMap((part): Part[] =>
     typeof part !== "string"
@@ -912,6 +924,7 @@ function newParagraphs(
                 marker: null,
                 paragraph: unescaped(first.rest),
                 asOther: readBlockMarker(first.rest) !== null,
+                namesOne: namesOne(first.rest),
               };
             }
             const marker = readBlockMarker(first.rest);
@@ -923,6 +936,7 @@ function newParagraphs(
               ...(second.name !== null && { name: second.name }),
               marker,
               paragraph: unescaped(unescapeMarkers(second.rest, marker !== null)),
+              namesOne: namesOne(second.rest),
             };
           }),
   );
@@ -966,6 +980,7 @@ function newParagraphs(
       ...name,
       ...(unmade(paragraph) && { unmade: true }),
       ...(part.asOther && { asOther: true }),
+      ...(part.namesOne && { namesOne: true }),
       notes,
     };
   });
@@ -2023,6 +2038,9 @@ const typedTagsIn = (tokens: readonly { text?: string }[]) =>
     .join("")
     .match(TYPED_TAG)?.length ?? 0;
 
+/** Paragraphs' names among a line's words, not escaped as the passage shows one the User typed. */
+const NAMES_IN_WORDS = /(?<!\\)¶(?:\d+|\+)/g;
+
 /** A line of plain words, as a model talks: no table, list item, heading or quote. */
 const isPlain = (paragraph: NewParagraph) =>
   !paragraph.table &&
@@ -2464,9 +2482,10 @@ export function createRewriteStream(
 
   /** A paragraph of a text that names the one each replaces (#2356), written where its name says. */
   const takeNamed = (paragraph: NewParagraph) => {
-    // A line with no name is the text's own words ("Changed to:"), never the Note's; a table,
-    // list item or heading with none is new text after the one before it.
-    if (paragraph.name === undefined && isPlain(paragraph)) {
+    // A line with no name, or one whose words name a paragraph ("¶+ after ¶7:"), is the text's own
+    // words, never the Note's; a table, list item or heading with no name is new text after the
+    // one before it.
+    if ((paragraph.name === undefined || paragraph.namesOne) && isPlain(paragraph)) {
       const words = plainWords(paragraph.tokens);
       if (words !== "") aside.push(words);
       return;

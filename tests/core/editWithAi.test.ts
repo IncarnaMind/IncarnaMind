@@ -5557,7 +5557,7 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     expect(await acceptThenUndo(client, before)).toEqual([reply, lines[1], lines[2]]);
   });
 
-  // protects=a reply is read the way its first paragraph that names or reads much like one of the selection's says (#2356): a line like none before a name ("Here is the text:"), or before a removal it names, never goes in, while a reply that starts with a rewrite given no name is paired by its words as #2344 pairs it, its names taken off; English and Chinese; fails_when=a line with no name lands in the Note or over a paragraph, or a name is left in the Note as text; no_claim=how often a model leaves a name out.
+  // protects=a reply is read the way its first paragraph that names or reads much like one of the selection's says (#2356): a line like none before a name ("Here is the text:"), or before a removal it names, and a line whose words name a paragraph ("¶+ after ¶7:", as Claude Sonnet 5.5 wrote one) never go in, while a reply that starts with a rewrite given no name is paired by its words as #2344 pairs it, its names taken off; English and Chinese; fails_when=a line with no name lands in the Note or over a paragraph, or a name is left in the Note as text; no_claim=how often a model leaves a name out.
   test.each([
     {
       reply: "Here is the revised text:\n\n¶1 Rent is 1,250 a month.",
@@ -5574,6 +5574,22 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       lines: ["房租每月1200元。", "水费每月30元。"],
       result: { kind: "proposed" },
       after: ["房租每月1250元。", "水费每月30元。"],
+    },
+    {
+      reply: "¶+ after ¶2:\n\n¶2 Water is 30 a month.\n\n¶+ Internet is 40 a month.",
+      result: { kind: "proposed" },
+      after: ["Rent is 1,200 a month.", "Water is 30 a month.", "Internet is 40 a month."],
+    },
+    {
+      reply: "¶+ 在¶2之后：\n\n¶2 水费每月30元。\n\n¶+ 网费每月40元。",
+      lines: ["房租每月1200元。", "水费每月30元。"],
+      result: { kind: "proposed" },
+      after: ["房租每月1200元。", "水费每月30元。", "网费每月40元。"],
+    },
+    {
+      reply: "¶1 Rent is 1,250 a month, as ¶2 says.",
+      result: { kind: "unchanged", said: "Rent is 1,250 a month, as ¶2 says." },
+      after: ["Rent is 1,200 a month.", "Water is 30 a month."],
     },
     {
       reply:
