@@ -1453,7 +1453,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a check that arrives while its Citation's card is open ticks step 3, in ${language} (#2375)`, async () => {
+  test(`opening a still-checking Citation from its hover card ticks step 3 when its check arrives, in ${language} (#2375)`, async () => {
     const sources = await createDataFolder();
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, {
@@ -1465,11 +1465,17 @@ for (const language of ["en", "zh-CN"] as const) {
       await setWindowSize(app, window, 1440, 900);
       await setLanguage(window, language);
       await enableLocalModel(window, "fake-model-slow-check");
+      // The judgement waits until this test releases it: the card is opened while it is pending.
+      await app.evaluate(() => {
+        (
+          globalThis as unknown as { incarnamindSlowCheck: { hold: boolean } }
+        ).incarnamindSlowCheck.hold = true;
+      });
       await window.getByTestId("add-documents-input").setInputFiles([join(sources, "Tides.pdf")]);
       await expectReadyDocuments(window, 3);
       await markSteps(window, { ...NONE, indexed: true, askedOwn: true });
       // Asked by hand: `askInAssistant` waits for the sentences to be judged, and this test needs
-      // the Citation clicked while that is still running.
+      // the Citation opened while that is still running.
       const answers = assistantAnswers(window);
       const before = await answers.count();
       await window.keyboard.press("ControlOrMeta+j");
@@ -1480,11 +1486,21 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
       const chip = answer.getByTestId("citation-chip").first();
       await expect(chip).toHaveAttribute("data-check", "checking", { timeout: 20_000 });
-      await pointAndClick(window, chip);
-      await expect(window.getByTestId("citation-card")).toBeVisible();
+
+      // Its card, opened by the pointer alone, offers Open; the check is still pending.
+      await chip.hover();
+      const card = window.getByTestId("citation-card");
+      await expect(card).toBeVisible();
+      await pointAndClick(window, card.getByTestId("citation-open"));
+      await expect(card).toBeHidden();
       expect(await gettingStarted(window)).toMatchObject({ citationChecked: false });
 
-      // Its result arrives while the card is open, and the step follows it.
+      // Released, the result arrives after the card closed, and step 3 follows it.
+      await app.evaluate(() => {
+        (
+          globalThis as unknown as { incarnamindSlowCheck: { release(): void } }
+        ).incarnamindSlowCheck.release();
+      });
       await expect(chip).toHaveAttribute("data-check", "found", { timeout: 20_000 });
       await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
       expect(await gettingStarted(window)).toMatchObject({ citationChecked: true });

@@ -16,7 +16,7 @@
  * as a provider refuses a wrong key (HTTP 401); one with "no-credit" in it
  * as a provider refuses an account with nothing left (HTTP 402). A model whose id ends "-no-tools" refuses
  * Tools and structured output, as a small server model does, so its Answers have no Citations; one
- * ending "-slow-check" takes a moment to judge an Answer's sentences.
+ * ending "-slow-check" holds its judgement until a test releases it.
  * A Document whose text says "slowly" takes a moment to tag or organize; one whose text says "unreachable"
  * can't reach the model the first time it is tagged or organized (nor on the retry that follows; one that
  * says "stays unreachable" never can), and one that says
@@ -107,8 +107,18 @@ function generatedText(options: GenerateOptions): string {
   return "OK";
 }
 
-/** How long a model id ending "-slow-check" takes to judge an Answer's sentences. */
-const SLOW_CHECK_MS = 2_500;
+/**
+ * A slow check holds until a test releases it through `incarnamindSlowCheck`, so a window test can
+ * open a Citation whose sentence is still judged without leaning on a time (#2375).
+ */
+const slowCheck = {
+  hold: false,
+  waiting: [] as (() => void)[],
+  release() {
+    for (const go of slowCheck.waiting.splice(0)) go();
+  },
+};
+(globalThis as { incarnamindSlowCheck?: typeof slowCheck }).incarnamindSlowCheck = slowCheck;
 
 export const createFakeChatModel: ChatModelFactory = (spec) =>
   new MockLanguageModelV4({
@@ -178,10 +188,14 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
           warnings: [],
         };
       }
-      // A model id ending "-slow-check" takes its time judging an Answer's sentences, so a test can
-      // open a Citation whose card is still Checking (#2375).
-      if (spec.modelId.endsWith("-slow-check") && fakeSentenceBatch(options) !== null) {
-        await new Promise((resolve) => setTimeout(resolve, SLOW_CHECK_MS));
+      // A model id ending "-slow-check" holds its judgement of an Answer's sentences until a test
+      // releases it, so the test can open a Citation whose card is still Checking (#2375).
+      if (
+        spec.modelId.endsWith("-slow-check") &&
+        slowCheck.hold &&
+        fakeSentenceBatch(options) !== null
+      ) {
+        await new Promise<void>((go) => slowCheck.waiting.push(go));
       }
       return {
         content: [
