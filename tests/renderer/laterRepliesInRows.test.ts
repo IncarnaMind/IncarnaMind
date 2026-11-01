@@ -127,6 +127,7 @@ const pairing = (folderIds: string[]): AgentPairing => ({
   name: "Claude Code",
   folderIds,
   client: null,
+  propose: false,
   lastUsedAt: null,
   createdAt: "2026-10-31T09:00:00.000Z",
 });

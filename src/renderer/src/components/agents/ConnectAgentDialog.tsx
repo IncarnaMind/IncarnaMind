@@ -29,6 +29,7 @@ import {
 } from "../ui";
 import { useModal } from "../useModal";
 import { AgentFolderList, useAgentFolderRows } from "./AgentFolderList";
+import { ProposeChoice } from "./ProposeChoice";
 
 const ALL_UNFILED: ReadonlySet<string> = new Set([NOT_IN_A_FOLDER_ID]);
 const NOTHING: ReadonlySet<string> = new Set();
@@ -39,7 +40,8 @@ const NOTHING: ReadonlySet<string> = new Set();
  * goes (its own AI model, under its service's terms, which may train on it),
  * the Folders it may read (none chosen until the User picks), and, for an
  * agent whose settings file IncarnaMind writes, exactly what it adds there.
- * Open while `client` is set; `onAllow` gets the Folders chosen.
+ * The User may also let it propose changes to the notes there (#352), off
+ * unless they tick it. Open while `client` is set; `onAllow` gets the choices.
  */
 export function ConnectAgentDialog({
   client,
@@ -52,7 +54,7 @@ export function ConnectAgentDialog({
   busy: boolean;
   /** Why the last try to connect failed, shown here, where it happened. */
   problem: string | null;
-  onAllow(folderIds: string[], name: string): void;
+  onAllow(folderIds: string[], name: string, propose: boolean): void;
   onClose(): void;
 }) {
   const t = useT();
@@ -62,6 +64,7 @@ export function ConnectAgentDialog({
   const rows = useAgentFolderRows(client !== null);
   /** The name the User gives "Other agent". */
   const [name, setName] = useState("");
+  const [propose, setPropose] = useState(false);
   const [preview, setPreview] = useState<AgentSetupPreview | null>(null);
   /** Where the agent's key can be kept: with no keyring (Linux), only once the User allows plain text. */
   const [storage, setStorage] = useState<SecretStorageStatus | null>(null);
@@ -73,6 +76,7 @@ export function ConnectAgentDialog({
   useEffect(() => {
     setPicked(null);
     setName("");
+    setPropose(false);
     setPreview(null);
     if (!clientId) return;
     let current = true;
@@ -134,6 +138,7 @@ export function ConnectAgentDialog({
           <legend className={fieldLabelClass}>{t("agents.connect.folders")}</legend>
           <AgentFolderList rows={rows} agent={agent} chosen={chosen} onToggle={toggle} />
         </fieldset>
+        <ProposeChoice checked={propose} onChange={setPropose} />
         {preview && (
           <div data-testid="connect-agent-change" className="flex flex-col gap-1">
             <p className={dialogTextClass}>
@@ -183,7 +188,7 @@ export function ConnectAgentDialog({
             type="button"
             data-testid="connect-agent-allow"
             disabled={allowed.length === 0 || busy || !canKeepKey}
-            onClick={() => onAllow(allowed, name)}
+            onClick={() => onAllow(allowed, name, propose)}
             className={primaryButtonClass}
           >
             {t("agents.connect.allow")}

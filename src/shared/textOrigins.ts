@@ -6,13 +6,19 @@
  * Block is answered by a Run that counts as having read third-party text.
  * Whatever adds third-party text to a Mind records it here: an Answer written
  * after reading some (the core), a .docx imported from someone else (#104),
- * a quote added from a web page (#101). Text pasted from other apps can't be
- * traced, and counts as the User's. Shared by the core, the renderer and the tests.
+ * a quote added from a web page (#101), what an outside agent proposed (#352).
+ * Text pasted from other apps can't be traced, and counts as the User's.
+ * Shared by the core, the renderer and the tests.
  */
 import type * as Y from "yjs";
 import { MIND_TEXT_ORIGINS_FIELD, type ThirdPartySource } from "../core/api";
 
-const SOURCES: readonly ThirdPartySource[] = ["imported", "web-page", "checked-document"];
+const SOURCES: readonly ThirdPartySource[] = [
+  "imported",
+  "web-page",
+  "checked-document",
+  "outside-agent",
+];
 
 /** A stored source, or null for none, or one this version doesn't know. */
 export const parseThirdPartySource = (value: unknown): ThirdPartySource | null =>

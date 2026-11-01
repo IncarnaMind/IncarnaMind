@@ -517,6 +517,31 @@ describe("The AI use statement", () => {
     ]);
   });
 
+  test("a change a connected agent proposed and the User accepted names the agent, never a model (#352)", async () => {
+    for (const [language, row] of [
+      ["en", ["Changes from a connected agent accepted", "Claude Code", "1"]],
+      ["zh-CN", ["接受已连接智能体提出的修订", "Claude Code", "1"]],
+    ] as const) {
+      const { core, mind, client } = await setUp(language);
+      const id = randomUUID();
+      writeMind(client, [aiParagraph(id, "Spring tides happen at new moon.")]);
+      await client.settled();
+      await core.recordAiUse([
+        {
+          mindId: mind.id,
+          kind: "outside-agent-change-accepted",
+          agent: "Claude Code",
+          characters: 32,
+          blockIds: [id],
+        },
+      ]);
+
+      const { parts } = await statementOf(core, mind.id);
+
+      expect(tablesOf(parts)[0]?.slice(1)).toEqual([[...row]]);
+    }
+  });
+
   test("AI text before the first heading is counted under its own name", async () => {
     const { core, mind, client } = await setUp();
     writeMind(client, [aiParagraph(randomUUID(), "Spring tides."), heading(1, "Tides")]);

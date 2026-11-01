@@ -388,6 +388,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
           name: nameFor(client, input.name),
           folderIds: input.folderIds,
           client: client.id,
+          ...(input.propose !== undefined && { propose: input.propose }),
         })
         .catch(async (error: unknown) => {
           if (addedSkill) await removeSkill(client.id, "").catch(options.reportError);

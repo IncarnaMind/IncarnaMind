@@ -79,16 +79,24 @@ function newToken(): string {
 }
 
 export function createAgentCitations(db: Database, now: () => string) {
-  const find = (token: string): AgentCitation | null => {
-    const row = db.get<Row>(
-      `SELECT ${COLUMNS} FROM agent_citations WHERE token = ? AND deleted_at IS NULL`,
-      [token],
-    );
-    return row ? toCitation(row) : null;
-  };
+  const taken = (token: string): boolean =>
+    db.get("SELECT 1 FROM agent_citations WHERE token = ? AND deleted_at IS NULL", [token]) !==
+    undefined;
 
   return {
-    find,
+    /**
+     * The Citation a token stands for, only for the pairing it was minted for (ADR-0026,
+     * decision 3): another agent's token is no token here, so a token seen elsewhere can't be
+     * passed off as checked.
+     */
+    find(pairingId: string, token: string): AgentCitation | null {
+      const row = db.get<Row>(
+        `SELECT ${COLUMNS} FROM agent_citations
+         WHERE token = ? AND pairing_id = ? AND deleted_at IS NULL`,
+        [token, pairingId],
+      );
+      return row ? toCitation(row) : null;
+    },
 
     /**
      * The token of a Citation the check found, for this pairing: the one it
@@ -115,7 +123,7 @@ export function createAgentCitations(db: Database, now: () => string) {
       for (;;) {
         const token = newToken();
         // Rare, but two tokens must never stand for different quotes.
-        if (find(token)) continue;
+        if (taken(token)) continue;
         db.run(
           `INSERT INTO agent_citations (id, ${COLUMNS}, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

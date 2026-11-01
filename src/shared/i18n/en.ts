@@ -1522,6 +1522,8 @@ export const en = {
   "review.comment.label": "Comment, {made}: {text}",
   "proposal.unknownAuthor": "Unknown author",
   "proposal.madeBy": "{author}, {date}",
+  // An outside agent's change waiting in a Note (#352), named after its pairing.
+  "proposal.proposedBy": "Proposed by {agent}",
   "proposal.why": "Why: {reason}",
   "edit.applied": "Changed {count} paragraphs",
   "edit.applied.one": "Changed 1 paragraph",
@@ -4216,6 +4218,7 @@ export const en = {
   "aiStatement.use.answer-added": "Answers added to the note",
   "aiStatement.use.edit-with-ai-accepted": "Changes from Edit with AI accepted",
   "aiStatement.use.assistant-change-accepted": "Changes from the assistant accepted",
+  "aiStatement.use.outside-agent-change-accepted": "Changes from a connected agent accepted",
   "aiStatement.use.comparison-table-accepted": "Comparison tables accepted",
   "aiStatement.use.suggestion-accepted": "Writing suggestions accepted",
   "aiStatement.use.search-documents": "Searches of the author’s own Documents",
@@ -5554,6 +5557,14 @@ export const en = {
     "Asks first: this conversation has text from a web page.",
   "approvals.thirdParty.conversation.checkedDocument":
     "Asks first: this conversation has text from the checked document.",
+  "approvals.thirdParty.read.outsideAgent":
+    "Asks first: this Answer read a note with text from a connected agent.",
+  "approvals.thirdParty.task.outsideAgent":
+    "Asks first: this Task read a note with text from a connected agent.",
+  "approvals.thirdParty.mind.outsideAgent":
+    "Asks first: this note has text from a connected agent.",
+  "approvals.thirdParty.conversation.outsideAgent":
+    "Asks first: this conversation has text from a connected agent.",
   "approvals.call.waiting": "Waiting for your approval: {connector}: {tool}",
   "approvals.call.denied": "Not allowed: {connector}: {tool}",
   "approvals.call.allowed": "Asked {connector} with your approval: {tool}",
@@ -6640,6 +6651,16 @@ export const en = {
   "agents.answer.notFound": "[quote not found]",
   "agents.answer.cantCheck": "[can’t be checked]",
   "agents.mind.outsideCitation": "a Document in a Folder not shared with this agent",
+  "agents.problem.read-only":
+    "This agent may only read. To let it propose changes to your notes, allow it in Settings → Agents.",
+  "agents.problem.changed":
+    "This note changed after the agent read it. Read it again, then propose the changes again.",
+  "agents.problem.waiting":
+    "{paragraph} already has changes waiting in IncarnaMind. Accept or reject them there first.",
+  "agents.problem.busy": "IncarnaMind is writing {paragraph} now. Try again once it’s done.",
+  // Before a paragraph an agent reads by name that it can't change now (#352).
+  "agents.mind.waiting": "(changes waiting)",
+  "agents.mind.busy": "(being written)",
   // Settings → Agents (#351): plain words for people who never edit a settings file.
   "settings.pages.agents": "Agents",
   "agents.settings.experimental": "Experimental",
@@ -6669,6 +6690,7 @@ export const en = {
   "agents.sentence.other": "your agent",
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
+  "agents.pairing.proposes": "May propose changes to their notes, which wait for you",
   "agents.pairing.lastUsed": "Last used {when}",
   "agents.pairing.notUsed": "Not used yet",
   "agents.pairing.renameLabel": "Name of {agent}",
@@ -6695,8 +6717,11 @@ export const en = {
   "agents.activity.list_minds": "Listed your notes",
   "agents.activity.read_mind": "Read the note “{text}”",
   "agents.activity.ask": "Asked “{text}”",
+  "agents.activity.propose_changes": "Proposed changes to “{text}”",
   "agents.activity.count.one": "1 result",
   "agents.activity.count.other": "{count} results",
+  "agents.activity.changes.one": "1 change waiting for you",
+  "agents.activity.changes.other": "{count} changes waiting for you",
   "agents.activity.refused": "Refused: {reason}",
   "agents.activity.failed": "Didn’t work: {reason}",
   "agents.reason.unpaired": "it wasn’t connected",
@@ -6709,6 +6734,9 @@ export const en = {
   "agents.reason.chat-not-ready": "no AI model was ready",
   "agents.reason.invalid": "a request IncarnaMind couldn’t read",
   "agents.reason.failed": "something went wrong",
+  "agents.reason.read-only": "it may only read",
+  "agents.reason.changed": "the note had changed since it read it",
+  "agents.reason.waiting": "a paragraph had changes waiting",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
     "It can read your chosen Folders and the notes in them. What it reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
@@ -6720,6 +6748,9 @@ export const en = {
   "agents.connect.empty.title": "Nothing to read yet",
   "agents.connect.empty.body": "Add Documents for {agent} to read. They appear here.",
   "agents.connect.pickOne": "Choose at least one Folder.",
+  "agents.propose.label": "Let it propose changes to the notes in these Folders",
+  "agents.propose.hint":
+    "Its changes wait for you to accept or reject. It never changes a note itself.",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",

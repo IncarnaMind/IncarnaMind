@@ -7,7 +7,9 @@
  * and it reaches only the Documents in the pairing's Folders and those
  * Folders' Minds, and, if Not in a Folder is one of them, the Documents in no
  * Folder at the time of each call (never a Mind). Nothing here changes the
- * User's Documents or Minds.
+ * User's Documents, and a Mind only through `propose_changes`, which the User
+ * allows per pairing and whose changes wait for them as Proposals (#352,
+ * ./proposals).
  *
  * Only IncarnaMind mints a Citation (./citations): a quote is checked first,
  * by the Citation check Answers use, and gets a token only once found. A
@@ -17,6 +19,8 @@
  * Citations as tokens. Every call is recorded for the pairing's activity list.
  */
 
+import { randomUUID } from "node:crypto";
+import type * as Y from "yjs";
 import { citedLocation, type LiveDocument, withShownName } from "../../shared/citations";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { mindName } from "../../shared/naming";
@@ -39,6 +43,13 @@ import { keywordTerms } from "../documents/keywords";
 import type { WindowedPassage } from "../documents/search";
 import type { SearchToolParameters } from "../documents/searchTool";
 import { type AgentCitation, type AgentCitations, CITATION_TOKEN, citeTag } from "./citations";
+import {
+  type CitedToken,
+  HeldParagraph,
+  type NamedChange,
+  namedNote,
+  proposeNamed,
+} from "./proposals";
 
 // ---------------------------------------------------------------------------
 // The interface
@@ -164,17 +175,51 @@ export interface AgentReadMindInput {
   mindId: string;
   /** Where to go on reading, from an earlier result's `nextOffset`. */
   offset?: number;
+  /** Each paragraph after its name (¶1, ¶2…), each Citation as its token, to propose changes. */
+  named?: boolean;
 }
 
 export interface AgentMindText {
   mindId: string;
   title: string;
   folder: string;
-  /** The Mind as Markdown; each Citation's footnote starts with its token. */
+  /**
+   * The Mind as Markdown, each Citation's footnote starting with its token; or, `named`, a
+   * paragraph to a line after its name, each Citation as its token.
+   */
   markdown: string;
   offset: number;
   /** Where the next part starts; null when this is the end. */
   nextOffset: number | null;
+  /** With `named`: the Note as read, which `propose_changes` names its changes against. */
+  version?: string;
+}
+
+/** One change an agent proposes, for the paragraph `read_mind` named. */
+export interface AgentChange {
+  /** "¶3" rewrites or takes out ¶3; "¶3+" adds after ¶3; "¶+" adds after the change before. */
+  paragraph: string;
+  /** The new text, as Markdown, cited only with IncarnaMind's tokens. */
+  text?: string;
+  /** Take the paragraph out, with "¶n". */
+  remove?: boolean;
+}
+
+export interface AgentProposeInput {
+  mindId: string;
+  /** `version` from `read_mind` with `named`. */
+  version: string;
+  changes: AgentChange[];
+}
+
+export interface AgentProposed {
+  mindId: string;
+  /** How many of its changes wait for the User in the Note: none applies until they accept it. */
+  waiting: number;
+  /** Each token in the text, checked again against its Document as it is now. */
+  citations: AgentCheckedCitation[];
+  /** Sentences of the text with no Citation in them, at most `MAX_UNCITED`. */
+  uncited: string[];
 }
 
 export interface AgentAskInput {
@@ -204,6 +249,8 @@ export interface AgentAccess {
   listMinds(): Promise<AgentMindList>;
   readMind(input: AgentReadMindInput): Promise<AgentMindText>;
   ask(input: AgentAskInput, signal?: AbortSignal): Promise<AgentAnswer>;
+  /** Proposes changes to a Note, which wait for the User (#352); never applied by the agent. */
+  proposeChanges(input: AgentProposeInput): Promise<AgentProposed>;
 }
 
 /** Why a call was refused or failed, in the interface language, for the agent to pass on. */
@@ -238,6 +285,10 @@ export const MIND_PAGE_CHARS = 20_000;
 const MAX_QUERY_CHARS = 1_000;
 const MAX_QUOTE_CHARS = 2_000;
 const MAX_DRAFT_CHARS = 100_000;
+/** The most changes one `propose_changes` call makes. */
+export const MAX_CHANGES = 50;
+/** The longest text of one change, in characters. */
+const MAX_CHANGE_CHARS = 20_000;
 /** The longest summary kept of a call for the activity list. */
 const SUMMARY_CHARS = 300;
 /** The longest quote a ready Citation of a search result has. */
@@ -251,6 +302,8 @@ export interface AdmittedPairing {
   id: string;
   name: string;
   folderIds: string[];
+  /** The User let it propose changes to the Notes in its Folders. */
+  propose: boolean;
 }
 
 export interface AgentAccessDeps {
@@ -287,6 +340,10 @@ export interface AgentAccessDeps {
   minds(): Mind[];
   /** The live Documents' names: what a Citation is shown with, when its Document was renamed since. */
   liveDocuments(): readonly LiveDocument[];
+  /** Reads a Mind's Blocks, leaving it unloaded if it was. */
+  mindBlocks<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
+  /** Changes a Mind's Blocks in one Yjs transaction, stored and sent to its open windows. */
+  editMind<T>(mindId: string, change: (blocks: Y.XmlFragment) => T): T;
   /** A Mind as Markdown, each Citation's footnote as `footnote` words it (see ../exports). */
   mindMarkdown(
     mindId: string,
@@ -301,6 +358,8 @@ export interface AgentAccessDeps {
   say(key: MessageKey, params?: MessageParams): string;
   /** Milliseconds, for how long a call took. */
   clock(): number;
+  /** Now, ISO 8601, UTC. */
+  now(): string;
   reportError(error: unknown): void;
 }
 
@@ -379,6 +438,101 @@ function whole(value: unknown, what: string, min: number, max: number, fallback:
     throw new AgentRefusedError("invalid", `${what} must be a whole number from ${min} to ${max}.`);
   }
   return value;
+}
+
+/**
+ * The sentences of `texts` that make a claim with no Citation `counts`, at most `MAX_UNCITED`,
+ * each without the mark of a list item or quote it is in. Headings and table rows aren't
+ * sentences that make claims of their own.
+ */
+function uncitedIn(texts: readonly string[], counts: (token: string) => boolean): string[] {
+  const CITED = "\u0000";
+  return texts
+    .flatMap((each) =>
+      sentencesOf(
+        each
+          .replace(/^#{1,6}\s.*$/gm, "")
+          .replace(/^\s*\|.*$/gm, "")
+          .replace(/^\s*(?:>\s*)*(?:[-*+]|\d{1,9}[.)])?\s+/gm, "")
+          .replace(CITATION_TOKEN, (_whole, token: string) => (counts(token) ? CITED : "")),
+      ),
+    )
+    .filter((sentence) => !sentence.includes(CITED) && makesAClaim(sentence))
+    .slice(0, MAX_UNCITED)
+    .map((sentence) => clip(sentence, 200));
+}
+
+/** A change as asked, its paragraph's name read but not yet found in the Note. */
+type AskedChange =
+  | { kind: "rewrite"; name: string; n: number; text: string }
+  | { kind: "remove"; name: string; n: number }
+  | { kind: "add"; name: string; n: number | null; text: string };
+
+/** "¶3", "¶3+" or "¶+". */
+const PARAGRAPH_NAME = /^¶(?:(\d{1,5})(\+?)|\+)$/;
+
+function parseChanges(value: unknown): AskedChange[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_CHANGES) {
+    throw new AgentRefusedError("invalid", `changes must list 1 to ${MAX_CHANGES} changes.`);
+  }
+  return value.map((entry): AskedChange => {
+    const change = (typeof entry === "object" && entry !== null ? entry : {}) as Record<
+      string,
+      unknown
+    >;
+    const name = typeof change.paragraph === "string" ? change.paragraph.trim() : "";
+    const read = PARAGRAPH_NAME.exec(name);
+    if (!read) {
+      throw new AgentRefusedError(
+        "invalid",
+        `"${clip(name, 20)}" isn't a paragraph's name: use ¶3 for a paragraph read_mind named, ¶3+ for new paragraphs after it, or ¶+ after the change before.`,
+      );
+    }
+    const n = read[1] === undefined ? null : Number(read[1]);
+    const adds = n === null || read[2] === "+";
+    if (change.remove !== undefined && typeof change.remove !== "boolean") {
+      throw new AgentRefusedError("invalid", "remove must be true or false.");
+    }
+    if (change.remove === true) {
+      if (adds || change.text !== undefined) {
+        throw new AgentRefusedError("invalid", `To take ${name} out, give remove and no text.`);
+      }
+      return { kind: "remove", name, n: n as number };
+    }
+    const written = text(change.text, `The text for ${name}`, MAX_CHANGE_CHARS);
+    return adds
+      ? { kind: "add", name, n, text: written }
+      : { kind: "rewrite", name, n: n as number, text: written };
+  });
+}
+
+/** The changes, each for the named paragraph it is for, in a Note of `count` named paragraphs. */
+function placeChanges(asked: readonly AskedChange[], count: number): NamedChange[] {
+  const named = new Set<number>();
+  let before: number | null = null;
+  return asked.map((change): NamedChange => {
+    const n = change.n ?? (before === null ? null : before + 1);
+    if (n === null) {
+      throw new AgentRefusedError("invalid", "¶+ adds after the change before it: name one first.");
+    }
+    if (n < 1 || n > count) {
+      throw new AgentRefusedError(
+        "invalid",
+        count === 0
+          ? `${change.name} isn't in the Note: it has no paragraphs to name.`
+          : `${change.name} isn't in the Note: its paragraphs are ¶1 to ¶${count}.`,
+      );
+    }
+    before = n - 1;
+    if (change.kind === "add") return { kind: "add", after: n - 1, text: change.text };
+    if (named.has(n)) {
+      throw new AgentRefusedError("invalid", `¶${n} is named twice: change each paragraph once.`);
+    }
+    named.add(n);
+    return change.kind === "remove"
+      ? { kind: "remove", at: n - 1 }
+      : { kind: "rewrite", at: n - 1, text: change.text };
+  });
 }
 
 /** What a call returns, with what its activity row says of it. */
@@ -517,6 +671,136 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       text: excerpt(passage.text, found?.quote ?? null),
     };
   };
+
+  /**
+   * A token in proposed text, looked up for this pairing and checked again against its
+   * Document as it is now: found, Needs re-check once the Document changed, or Quote not found.
+   * One that isn't this agent's, or not of its Folders, cites nothing (`cited` null).
+   */
+  const checkToken = (
+    pairing: AdmittedPairing,
+    inScope: ReadonlySet<string>,
+    live: readonly LiveDocument[],
+    token: string,
+  ): { cited: CitedToken | null; report: AgentCheckedCitation } => {
+    const kept = deps.citations.find(pairing.id, token);
+    if (!kept || !inScope.has(kept.documentId)) {
+      return {
+        cited: null,
+        report: {
+          cite: citeTag(token),
+          check: "unknown",
+          document: null,
+          location: null,
+          quote: null,
+          changed: false,
+        },
+      };
+    }
+    const now = deps.recheck({
+      documentId: kept.documentId,
+      quote: kept.quote,
+      pageFrom: kept.pageFrom,
+      pageTo: kept.pageTo,
+    });
+    const check = now.check === "found" || now.check === "cant-check" ? now.check : "not-found";
+    const changed = now.contentHash !== null && now.contentHash !== kept.contentHash;
+    const asMinted = {
+      passageId: kept.passageId,
+      documentId: kept.documentId,
+      documentName: kept.documentName,
+      contentHash: kept.contentHash,
+      pageFrom: kept.pageFrom,
+      pageTo: kept.pageTo,
+      location: kept.location,
+      quote: kept.quote,
+    };
+    // Found in the Document now: cited as it is now. Not found after the Document changed: the
+    // version it was found in, which the Note shows as needing a check again.
+    const attributes =
+      check === "found" && now.contentHash !== null
+        ? {
+            ...asMinted,
+            passageId: now.passageId ?? kept.passageId,
+            contentHash: now.contentHash,
+            pageFrom: now.pageFrom,
+            pageTo: now.pageTo,
+            location: now.location ?? kept.location,
+            check: "found",
+            checkReason: null,
+          }
+        : changed
+          ? { ...asMinted, check: "found", checkReason: null }
+          : { ...asMinted, check, checkReason: now.checkReason };
+    return {
+      cited: {
+        minted: { documentId: kept.documentId, quote: kept.quote, pageFrom: kept.pageFrom },
+        attributes,
+        citable: !deps.notCited(kept.passageId),
+      },
+      report: {
+        cite: citeTag(token),
+        check,
+        document: withShownName(kept, live).documentName,
+        location: label(now.location ?? kept.location, now.pageFrom, now.pageTo),
+        quote: kept.quote,
+        changed,
+      },
+    };
+  };
+
+  /** A Mind in the pairing's Folders, or a refusal that tells nothing of the others. */
+  const mindInScope = (pairing: AdmittedPairing, mindId: string): Mind => {
+    const mind = deps.minds().find((each) => each.id === mindId);
+    if (
+      !mind ||
+      mind.folderId === null ||
+      !deps.foldersInScope(pairing.folderIds).includes(mind.folderId)
+    ) {
+      throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+    }
+    return mind;
+  };
+
+  /** One page of a Mind's text from `offset`, ending at a paragraph's end where one is near. */
+  const page = (mind: Mind, markdown: string, offset: number): AgentMindText => {
+    let end = Math.min(markdown.length, offset + MIND_PAGE_CHARS);
+    if (end < markdown.length) {
+      // At a paragraph's end, if there is one in the last quarter of the page.
+      const paragraph = markdown.lastIndexOf("\n\n", end);
+      if (paragraph > offset + (MIND_PAGE_CHARS * 3) / 4) end = paragraph;
+    }
+    const folder = deps.folders().find((each) => each.id === mind.folderId);
+    return {
+      mindId: mind.id,
+      title: mind.title || mind.autoTitle || t("mind.untitled"),
+      folder: folder?.name ?? "",
+      markdown: markdown.slice(offset, end),
+      offset,
+      nextOffset: end < markdown.length ? end : null,
+    };
+  };
+
+  /**
+   * How an agent reads a Note by name: each Citation of its Folders that was found as its
+   * token, to keep or cite again, and the others in words. `cited` hears the Documents.
+   */
+  const namedWords = (pairing: AdmittedPairing, inScope: ReadonlySet<string>, cited: string[]) => ({
+    citation: (attributes: Record<string, unknown>) => {
+      const documentId = typeof attributes.documentId === "string" ? attributes.documentId : "";
+      if (!inScope.has(documentId)) return `[${t("agents.mind.outsideCitation")}]`;
+      const citation = citationOf(attributes);
+      if (citation.check !== "found" || citation.passageId === "") {
+        return t(
+          citation.check === "cant-check" ? "agents.answer.cantCheck" : "agents.answer.notFound",
+        );
+      }
+      cited.push(documentId);
+      return citeTag(mint(pairing, citation).token);
+    },
+    waiting: t("agents.mind.waiting"),
+    busy: t("agents.mind.busy"),
+  });
 
   return {
     search(input, signal) {
@@ -662,7 +946,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           const token = match[1] as string;
           if (seen.has(token)) continue;
           seen.add(token);
-          const kept = deps.citations.find(token);
+          const kept = deps.citations.find(pairing.id, token);
           if (!kept || !inScope.has(kept.documentId)) {
             citations.push({
               cite: citeTag(token),
@@ -691,12 +975,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             changed: now.contentHash !== null && now.contentHash !== kept.contentHash,
           });
         }
-        // Headings and table rows aren't sentences that make claims of their own.
-        const prose = draft.replace(/^#{1,6}\s.*$/gm, "").replace(/^\s*\|.*$/gm, "");
-        const uncited = sentencesOf(prose)
-          .filter((sentence) => !sentence.match(CITATION_TOKEN) && makesAClaim(sentence))
-          .slice(0, MAX_UNCITED)
-          .map((sentence) => clip(sentence, 200));
+        const uncited = uncitedIn([draft], () => true);
         return {
           result: { citations, uncited },
           count: citations.length,
@@ -710,7 +989,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       return call("show_citation", given, [READ_DOCUMENTS], (pairing) => {
         const tag = text(input?.cite, "cite", 100);
         const token = [...tag.matchAll(CITATION_TOKEN)][0]?.[1] ?? tag;
-        const kept = deps.citations.find(token);
+        const kept = deps.citations.find(pairing.id, token);
         if (!kept || !scopeOf(pairing, undefined).includes(kept.documentId)) {
           throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
         }
@@ -788,21 +1067,27 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     readMind(input) {
       const mindId = typeof input?.mindId === "string" ? input.mindId : "";
       const effects: Effect[] = [{ action: "read", scope: { kind: "mind", mindId } }];
-      const named = deps.minds().find((mind) => mind.id === mindId);
-      return call("read_mind", named ? mindName(named) : "", effects, (pairing) => {
+      const known = deps.minds().find((mind) => mind.id === mindId);
+      return call("read_mind", known ? mindName(known) : "", effects, (pairing) => {
         const id = text(input?.mindId, "mindId", 200);
         const offset = whole(input?.offset, "offset", 0, Number.MAX_SAFE_INTEGER, 0);
-        const mind = deps.minds().find((each) => each.id === id);
-        if (
-          !mind ||
-          mind.folderId === null ||
-          !deps.foldersInScope(pairing.folderIds).includes(mind.folderId)
-        ) {
-          throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+        if (input?.named !== undefined && typeof input.named !== "boolean") {
+          throw new AgentRefusedError("invalid", "named must be true or false.");
         }
+        const mind = mindInScope(pairing, id);
         const inScope = new Set(scopeOf(pairing, undefined));
         const live = deps.liveDocuments();
         const cited: string[] = [];
+        if (input?.named === true) {
+          const note = deps.mindBlocks(mind.id, (blocks) =>
+            namedNote(blocks, namedWords(pairing, inScope, cited)),
+          );
+          return {
+            result: { ...page(mind, note.text, offset), version: note.version },
+            count: 1,
+            documentIds: cited,
+          };
+        }
         const markdown = deps.mindMarkdown(mind.id, (attributes) => {
           const documentId = typeof attributes.documentId === "string" ? attributes.documentId : "";
           if (!inScope.has(documentId)) {
@@ -820,25 +1105,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             unverified: false,
           };
         });
-        let end = Math.min(markdown.length, offset + MIND_PAGE_CHARS);
-        if (end < markdown.length) {
-          // At a paragraph's end, if there is one in the last quarter of the page.
-          const paragraph = markdown.lastIndexOf("\n\n", end);
-          if (paragraph > offset + (MIND_PAGE_CHARS * 3) / 4) end = paragraph;
-        }
-        const folder = deps.folders().find((each) => each.id === mind.folderId);
-        return {
-          result: {
-            mindId: mind.id,
-            title: mind.title || mind.autoTitle || t("mind.untitled"),
-            folder: folder?.name ?? "",
-            markdown: markdown.slice(offset, end),
-            offset,
-            nextOffset: end < markdown.length ? end : null,
-          },
-          count: 1,
-          documentIds: cited,
-        };
+        return { result: page(mind, markdown, offset), count: 1, documentIds: cited };
       });
     },
 
@@ -923,6 +1190,78 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           count: citations.length,
           documentIds: outcome.citations.map((each) => each.documentId),
           effects,
+        };
+      });
+    },
+
+    proposeChanges(input) {
+      const mindId = typeof input?.mindId === "string" ? input.mindId : "";
+      const effects: Effect[] = [
+        READ_DOCUMENTS,
+        { action: "write", scope: { kind: "mind", mindId } },
+      ];
+      const known = deps.minds().find((mind) => mind.id === mindId);
+      return call("propose_changes", known ? mindName(known) : "", effects, (pairing) => {
+        if (!pairing.propose) {
+          throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+        }
+        const mind = mindInScope(pairing, text(input?.mindId, "mindId", 200));
+        const version = text(input?.version, "version", 100);
+        const asked = parseChanges(input?.changes);
+        const inScope = new Set(scopeOf(pairing, undefined));
+        const live = deps.liveDocuments();
+        const tokens = new Map<
+          string,
+          { cited: CitedToken | null; report: AgentCheckedCitation }
+        >();
+        const texts = asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text]));
+        for (const each of texts) {
+          for (const match of each.matchAll(CITATION_TOKEN)) {
+            const token = match[1] as string;
+            if (!tokens.has(token)) tokens.set(token, checkToken(pairing, inScope, live, token));
+          }
+        }
+        let waiting: number;
+        try {
+          waiting = deps.editMind(mind.id, (blocks) => {
+            const note = namedNote(blocks, namedWords(pairing, inScope, []));
+            if (note.version !== version) {
+              throw new AgentRefusedError("changed", t("agents.problem.changed"));
+            }
+            return proposeNamed(blocks, note, placeChanges(asked, note.paragraphs.length), {
+              request: randomUUID(),
+              made: {
+                source: "outside-agent",
+                agent: pairing.name,
+                pairingId: pairing.id,
+                createdAt: deps.now(),
+              },
+              cited: (token) => tokens.get(token)?.cited ?? null,
+              notFound: t("agents.answer.notFound"),
+              newId: randomUUID,
+            });
+          });
+        } catch (error) {
+          if (!(error instanceof HeldParagraph)) throw error;
+          throw new AgentRefusedError(
+            "waiting",
+            t(error.held === "busy" ? "agents.problem.busy" : "agents.problem.waiting", {
+              paragraph: error.paragraph.name,
+            }),
+          );
+        }
+        const citations = [...tokens.values()].map((each) => each.report);
+        return {
+          result: {
+            mindId: mind.id,
+            waiting,
+            citations,
+            uncited: uncitedIn(texts, (token) => tokens.get(token)?.cited?.citable === true),
+          },
+          count: waiting,
+          documentIds: [...tokens.values()].flatMap((each) =>
+            each.cited ? [each.cited.minted.documentId] : [],
+          ),
         };
       });
     },

@@ -851,6 +851,16 @@ export function theirChange(
   return made?.source === "word-change" ? { author: made.author, date: made.date } : null;
 }
 
+/** The outside agent that proposed a change (#352), by its pairing's name; null for any other change. */
+export function outsideAgentOf(
+  editor: Editor,
+  proposal: Pick<PendingProposal, "request">,
+): string | null {
+  const doc = editorDoc(editor);
+  const made = doc ? proposalRequestOf(doc, proposal.request) : null;
+  return made?.source === "outside-agent" ? made.agent : null;
+}
+
 /** Why the assistant made a change, in the model's few words (#202); null when it didn't say. */
 export function changeReason(
   editor: Editor,

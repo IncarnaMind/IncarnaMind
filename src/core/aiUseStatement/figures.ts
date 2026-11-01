@@ -53,6 +53,7 @@ export const USES: readonly Use[] = [
   "answer-added",
   "edit-with-ai-accepted",
   "assistant-change-accepted",
+  "outside-agent-change-accepted",
   "comparison-table-accepted",
   "suggestion-accepted",
   "search-documents",
@@ -302,7 +303,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
   let removed = 0;
   for (const entry of entries) {
     if (entry.kind === "assistant-change-rejected") continue;
-    use(entry.kind, sources.modelName(entry.providerId, entry.modelId));
+    use(entry.kind, entry.agent ?? sources.modelName(entry.providerId, entry.modelId));
     if (entry.blockIds.length === 0) continue;
     if (entry.outcome === "deleted") {
       removed++;

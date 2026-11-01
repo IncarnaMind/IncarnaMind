@@ -601,7 +601,21 @@ export type ProposalRequest =
     })
   | (ProposalMaker & { source: "comparison-table"; tableId: string })
   | (ProposalMaker & { source: "research"; taskId: string })
+  | OutsideAgentRequest
   | WordChangeRequest;
+
+/**
+ * Changes an outside agent proposed over MCP on its own (#352, ADR-0026 decision 4a): the
+ * agent's name as the User named its pairing, and the pairing. No model is named: IncarnaMind
+ * can't tell which one the agent used.
+ */
+export interface OutsideAgentRequest {
+  source: "outside-agent";
+  agent: string;
+  pairingId: string;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+}
 
 /** The start of the id of someone's tracked change imported from a Word file (`WordChangeRequest`). */
 export const WORD_CHANGE_ID = "word:";
@@ -885,9 +899,10 @@ export const INCLUDE_IN_CONTEXT_ATTRIBUTE = "includeInContext";
  *   carrying their tracked changes (#104);
  * - "web-page": a saved web page (#261): Passages a search found in one, or a
  *   quote added from one (#101);
- * - "checked-document": the document a check reads to check it (#97, #110).
+ * - "checked-document": the document a check reads to check it (#97, #110);
+ * - "outside-agent": text an outside agent proposed for a Note (#352).
  */
-export type ThirdPartySource = "imported" | "web-page" | "checked-document";
+export type ThirdPartySource = "imported" | "web-page" | "checked-document" | "outside-agent";
 
 /**
  * Third-party text a Run reads itself: a saved web page a search found, the
@@ -8423,6 +8438,8 @@ export const aiUseKinds = [
   "edit-with-ai-accepted",
   /** A comparison table from Compare Documents accepted (#98). */
   "comparison-table-accepted",
+  /** A change an outside agent proposed, accepted (#352): recorded with the agent's name. */
+  "outside-agent-change-accepted",
   /** A sentence of the Mind's checked against the Documents (#906). */
   "sentence-checked",
 ] as const;
@@ -8448,6 +8465,8 @@ export interface AiUseEntry {
   /** The model that wrote it; null when it isn't known. */
   providerId: string | null;
   modelId: string | null;
+  /** The outside agent that wrote it, by its name then (#352); null for IncarnaMind's own AI. */
+  agent: string | null;
   /** How much the AI wrote, in characters. */
   characters: number;
   /** The Blocks it made, by their stable ids; none for a rejected proposal, a suggestion or a check. */
@@ -8461,6 +8480,8 @@ export interface RecordAiUseInput {
   kind: AiUseKind;
   providerId?: string | null;
   modelId?: string | null;
+  /** The outside agent that wrote it (`AiUseEntry.agent`). */
+  agent?: string | null;
   characters: number;
   /**
    * The Blocks the insertion made, already in the Mind (send the Mind's update
@@ -10190,6 +10211,11 @@ export interface AgentPairing {
   folderIds: string[];
   /** The agent it was set up in, e.g. "codex"; null for one set up by hand. */
   client: string | null;
+  /**
+   * It may propose changes to the Notes in its Folders (#352), which wait for the User as
+   * Proposals; never applied by the agent. Off unless the User allows it.
+   */
+  propose: boolean;
   /** When it last called IncarnaMind, ISO 8601, UTC; null if it never has. */
   lastUsedAt: string | null;
   createdAt: string;
@@ -10215,11 +10241,14 @@ export interface ConnectAgentInput {
   folderIds?: string[];
   /** The agent it is set up in, e.g. "codex": lower-case letters, digits and hyphens. */
   client?: string;
+  /** It may propose changes to the Notes in its Folders (`AgentPairing.propose`); off by default. */
+  propose?: boolean;
 }
 
 export interface UpdateAgentInput {
   name?: string;
   folderIds?: string[];
+  propose?: boolean;
 }
 
 /** How an agent starts IncarnaMind's server: the command for its MCP settings. */
@@ -10246,6 +10275,7 @@ export const AGENT_TOOLS = [
   "list_minds",
   "read_mind",
   "ask",
+  "propose_changes",
 ] as const;
 
 /**
@@ -10323,6 +10353,8 @@ export interface SetUpAgentInput {
   folderIds: string[];
   /** The name the User gave it ("Other agent" only); otherwise its own name. */
   name?: string;
+  /** It may propose changes to the Notes in its Folders (`AgentPairing.propose`); off by default. */
+  propose?: boolean;
 }
 
 export interface SetUpAgent {
@@ -10347,6 +10379,9 @@ export type AgentToolName = (typeof AGENT_TOOLS)[number];
  * - "outside-scope": what it asked for is outside its Folders;
  * - "not-found": no such Passage, Document, Mind or Citation;
  * - "chat-not-ready": `ask` needs a chat model that is set up and allowed;
+ * - "read-only": it may read but not propose changes (`AgentPairing.propose`);
+ * - "changed": the Note changed since the agent read it, so its paragraphs' names may not hold;
+ * - "waiting": a paragraph it names has changes waiting for the User, or is being written;
  * - "invalid": its arguments make no sense;
  * - "failed": something went wrong in IncarnaMind (the log says what).
  */
@@ -10359,6 +10394,9 @@ export type AgentProblem =
   | "outside-scope"
   | "not-found"
   | "chat-not-ready"
+  | "read-only"
+  | "changed"
+  | "waiting"
   | "invalid"
   | "failed";
 

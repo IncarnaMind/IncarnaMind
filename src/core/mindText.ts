@@ -824,8 +824,9 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
         .toArray()
         .filter((item): item is Y.XmlElement => item instanceof Y.XmlElement)
         .flatMap((item) => {
-          const change = options.review ? changeOf(item, options) : undefined;
-          if (options.review && !change) return [];
+          // An item a Proposal adds isn't the Mind's until it is accepted, read for review or not.
+          const change = changeOf(item, options);
+          if (!change) return [];
           let inside: ReadOptions = options.outerList
             ? { ...options, outerList: undefined }
             : options;
@@ -841,7 +842,7 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
           const attributes: Record<string, unknown> = item.getAttributes();
           const checked = attributes.checked === true;
           const content = readChildren(item.toArray(), inside);
-          return [{ content: change ? withChange(content, change) : content, checked }];
+          return [{ content: withChange(content, change), checked }];
         });
       return [
         {

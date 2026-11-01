@@ -26,6 +26,7 @@ import {
   clearHovered,
   editorDoc,
   keepShownChange,
+  outsideAgentOf,
   type PendingProposal,
   pendingAtSelection,
   pendingIn,
@@ -58,7 +59,8 @@ const spokenText = (text: string) => {
  * - beside the change the pointer or the cursor is on, in the page's right
  *   margin, or, when there is no room, docked at the page's foot, its own bar:
  *   "Change 1 of 3 · Accept · Reject" (⌘↵, ⌘⌫), with who made someone's change and
- *   when, and when it would remove a Citation, that it does, or when a
+ *   when, or "Proposed by {agent}" for an outside agent's (#352), and when it
+ *   would remove a Citation, that it does, or when a
  *   Document it cites has been deleted, "Source removed" (#94); why the
  *   assistant made it, as a tooltip, and as a line under the bar when the
  *   cursor is in it (#202);
@@ -156,14 +158,21 @@ interface Theirs {
   authors: (string | null)[];
 }
 
+/** The outside agents whose changes wait (#352), named when they made all the AI's there. */
+interface Agents {
+  names: string[];
+  only: boolean;
+}
+
 function ProposalsBar({ editor, mindId }: { editor: Editor; mindId: string }) {
   const t = useT();
   const reviewing = useReviewPanes((state) => state.panes[mindId] !== undefined);
-  const { theirs, assistant } = useEditorState({
+  const { theirs, assistant, agents } = useEditorState({
     editor,
-    selector: ({ editor: current }): { theirs: Theirs; assistant: Group } => {
+    selector: ({ editor: current }): { theirs: Theirs; assistant: Group; agents: Agents } => {
       const theirs: Theirs = { count: 0, authors: [] };
       const assistant: Group = { ids: [], stale: false };
+      const agents: Agents = { names: [], only: true };
       const line = appliedLineIn(current.state);
       // An edit held back has its own line.
       const ownLine = line?.kind === "held" ? line.request : null;
@@ -177,8 +186,11 @@ function ProposalsBar({ editor, mindId }: { editor: Editor; mindId: string }) {
         }
         assistant.ids.push(each.id);
         assistant.stale ||= each.outOfDate;
+        const agent = outsideAgentOf(current, each);
+        if (agent === null) agents.only = false;
+        else if (!agents.names.includes(agent)) agents.names.push(agent);
       }
-      return { theirs, assistant };
+      return { theirs, assistant, agents };
     },
   });
   const theirLine = theirs.count > 0 && !reviewing;
@@ -193,7 +205,13 @@ function ProposalsBar({ editor, mindId }: { editor: Editor; mindId: string }) {
     >
       {theirLine && <TheirChangesLine theirs={theirs} mindId={mindId} />}
       {assistant.ids.length > 0 && (
-        <GroupLine group={assistant} every={theirs.count === 0} editor={editor} mindId={mindId} />
+        <GroupLine
+          group={assistant}
+          agents={agents.only ? agents.names : []}
+          every={theirs.count === 0}
+          editor={editor}
+          mindId={mindId}
+        />
       )}
     </div>
   );
@@ -241,16 +259,20 @@ function TheirChangesLine({ theirs, mindId }: { theirs: Theirs; mindId: string }
  */
 function GroupLine({
   group,
+  agents,
   every,
   editor,
   mindId,
 }: {
   group: Group;
+  /** The outside agents that proposed them all; none when the assistant made any. */
+  agents: string[];
   every: boolean;
   editor: Editor;
   mindId: string;
 }) {
   const t = useT();
+  const language = useLanguage();
   const count = group.ids.length;
   const resolveAll = (outcome: "accept" | "reject") => {
     resolveProposalsIn(editor, mindId, every ? "all" : group.ids, outcome);
@@ -261,6 +283,16 @@ function GroupLine({
       <span data-testid="proposals-count" className="min-w-0 truncate">
         {count === 1 ? t("proposal.count.one") : t("proposal.count", { count })}
       </span>
+      {agents.length > 0 && (
+        <>
+          <span aria-hidden="true" className="proposal-dot">
+            ·
+          </span>
+          <span data-testid="proposals-agents" className="min-w-0 truncate">
+            {t("proposal.proposedBy", { agent: namesList(agents, language) })}
+          </span>
+        </>
+      )}
       <span aria-hidden="true" className="proposal-dot">
         ·
       </span>
@@ -310,6 +342,8 @@ interface Shown {
   citations: PendingProposal["citations"];
   /** Who made someone's change, and when; null for the assistant's. */
   made: { author: string | null; date: string | null } | null;
+  /** The outside agent that proposed it (#352); null for anyone else's. */
+  agent: string | null;
   /** Why the assistant made it; null when it didn't say. */
   reason: string | null;
   /** The cursor is in it, not only the pointer on it. */
@@ -485,12 +519,15 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
         dropped: proposal.droppedCitations,
         citations: proposal.citations,
         made: proposal.theirs ? theirChange(current, proposal) : null,
+        agent: proposal.theirs ? null : outsideAgentOf(current, proposal),
         reason: proposal.theirs ? null : changeReason(current, proposal),
         focused: pendingAtSelection(current.state).some((each) => each.id === proposal.id),
       };
     },
   });
-  const madeBy = useMadeBy(shown?.made ?? null);
+  const madeBy =
+    useMadeBy(shown?.made ?? null) ??
+    (shown?.agent ? t("proposal.proposedBy", { agent: shown.agent }) : null);
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
@@ -653,11 +690,10 @@ function Spoken({ editor, mindId }: { editor: Editor; mindId: string }) {
     const proposal = pendingIn(editor.state).find((each) => each.id === focused);
     if (!proposal) return;
     const made = proposal.theirs ? theirChange(editor, proposal) : null;
-    speak(
-      mindId,
-      describe(proposal, t, made ? (made.author ?? t("proposal.unknownAuthor")) : null),
-      proposal.id,
-    );
+    const author = made
+      ? (made.author ?? t("proposal.unknownAuthor"))
+      : outsideAgentOf(editor, proposal);
+    speak(mindId, describe(proposal, t, author), proposal.id);
   }, [focused, editor, mindId, t]);
   const current = spoken?.about === undefined || spoken.about === focused;
   return (

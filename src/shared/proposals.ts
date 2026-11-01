@@ -617,6 +617,11 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
       date: isText(record.date) ? record.date : null,
     };
   }
+  if (source === "outside-agent") {
+    return isText(record.agent) && isText(record.pairingId) && isText(createdAt)
+      ? { source, agent: record.agent, pairingId: record.pairingId, createdAt }
+      : null;
+  }
   if (!isText(providerId) || !isText(modelId) || !isText(createdAt)) return null;
   const made = { providerId, modelId, createdAt };
   if (source === "answer") {
@@ -660,8 +665,9 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
  * (an Answer in a Mind is the AI's as it is), nor does someone's change
  * imported from a Word file (#108). An Answer from the assistant made into a
  * new Mind (#201) is recorded as an Answer added, a comparison table (#98) as
- * one accepted, and a Research Task's draft (#130) as the assistant's change
- * accepted.
+ * one accepted, a Research Task's draft (#130) as the assistant's change
+ * accepted, and an outside agent's change (#352) with the agent's name and no
+ * model, which IncarnaMind can't know.
  */
 export function aiUseOfAccepted(
   doc: Y.Doc,
@@ -675,6 +681,20 @@ export function aiUseOfAccepted(
       const made = proposalRequestOf(doc, proposal.request);
       // An Answer is recorded as it is; someone's change in a Word file isn't the AI's at all.
       if (made?.source === "answer" || made?.source === "word-change") return [];
+      if (made?.source === "outside-agent") {
+        return [
+          {
+            mindId,
+            kind: "outside-agent-change-accepted",
+            providerId: null,
+            modelId: null,
+            agent: made.agent,
+            characters: proposal.characters,
+            blockIds: proposal.blockIds,
+            occurredAt,
+          },
+        ];
+      }
       return [
         {
           mindId,

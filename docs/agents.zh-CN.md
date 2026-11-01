@@ -90,4 +90,4 @@ Google AI Pro 和 Ultra 订阅用户的接入方式。点击“连接”：Incar
 
 IncarnaMind 是一个通过 stdio 运行的 MCP 服务器。命令是以 Node 方式运行的 IncarnaMind 应用本身，加上一个小脚本，它通过本机套接字把所有请求转给正在运行的应用；环境变量中是套接字的位置和这个智能体的密钥。它同时支持当前的 MCP 版本（2026-07-28）和上一版本。每个已连接智能体的“技术细节”可以再次复制它的设置。
 
-工具包括：`search`、`read_passages`、`cite`、`check_citations`、`show_citation`、`list_minds`、`read_mind` 和 `ask`，都是只读的：智能体无法更改你的文档或笔记。
+工具包括：`search`、`read_passages`、`cite`、`check_citations`、`show_citation`、`list_minds`、`read_mind`、`ask` 和 `propose_changes`。除 `propose_changes` 外都是只读的；只有你为这个智能体勾选了“允许它对这些文件夹中的笔记提出修改”，`propose_changes` 才能使用。即便如此，智能体也无法直接更改你的文档或笔记：它先用 `read_mind` 加 `named` 读取笔记，每个段落都有名字（¶1、¶2……），再为每处修改写明对应的段落（¶3 改写 ¶3，加上 `remove` 则删除 ¶3；¶3+ 在 ¶3 之后添加）。它提出的修改会留在笔记中，标有它的名字，等你接受或拒绝；只有 IncarnaMind 给它的 `[cite:…]` 才会成为引用，并且会重新核对。
