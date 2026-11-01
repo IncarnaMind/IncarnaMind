@@ -1337,6 +1337,8 @@ export const en = {
     "The AI’s reply ran too long, so nothing changed. Select less and try again.",
   "edit.problem.unplaced":
     "The AI marked text to remove that doesn’t match the selection word for word in one place, so nothing changed. Try again.",
+  "edit.problem.misnamed":
+    "The AI didn’t say clearly which paragraph each change replaces, so nothing changed. Try again.",
   "edit.problem.late": "This edit arrived too late to apply. Accept or reject its changes.",
   "edit.problem.busy": "Another edit is still running. Wait for it, or stop it.",
   "composer.edit.placeholder": "Say what to change…",
@@ -6408,6 +6410,8 @@ export const en = {
   "mindCall.failed.noTable": "Couldn’t make the table, so nothing was added to “{mind}”",
   "mindCall.failed.unplaced":
     "The text marked to remove doesn’t match “{mind}” word for word in one place, so nothing changed",
+  "mindCall.failed.misnamed":
+    "The rewrite didn’t say clearly which paragraph of “{mind}” each change replaces, so nothing changed",
   "mindCall.failed.uncited": "Didn’t add to “{mind}”: its sources weren’t cited",
   "mindCall.failed.noChart.noTable": "No chart: “{mind}” has no table",
   "mindCall.failed.noChart.several":

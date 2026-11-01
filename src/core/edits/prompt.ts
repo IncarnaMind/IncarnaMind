@@ -32,8 +32,63 @@ export const EDIT_INSTRUCTIONS = [
   "- A source is only ever one of the passage's markers. Never write a Document's name as a source, such as [Report, p. 2] or (Report, p. 2).",
   "- Write in the passage's language, unless the task is to translate it.",
   "- Change only what the task asks for. Keep names, numbers and facts as they are.",
-  "- When the task names text to go, write each paragraph that goes between <removed> and </removed>, word for word, on lines of its own where it stood: a paragraph left out of your reply stays. So to take out the second of three list items, write the first, then <removed>- the second, word for word</removed>, then the third. A heading, a list item and a table each count as a paragraph, and a section is its heading with all the paragraphs under it. Shortening, improving, rewriting or translating text takes none of it out: for those, never write <removed>. A backslash before <removed makes it words of the passage, not the mark: keep the backslash. Never explain a removal outside <why>.",
+  "- When the task names text to go, write each paragraph that goes between <removed> and </removed>, word for word, on lines of its own where it stood: a paragraph left out of your reply stays. So to take out a list item, write <removed>- the item, word for word</removed> where it stood, and only that item. A heading, a list item and a table each count as a paragraph, and a section is its heading with all the paragraphs under it. Shortening, improving, rewriting or translating text takes none of it out: for those, never write <removed>. A backslash before <removed makes it words of the passage, not the mark: keep the backslash. Never explain a removal outside <why>.",
+  "- When each paragraph of the passage starts with a name, such as ¶1 or ¶2: start each paragraph of your reply with the name of the passage's paragraph it replaces, as in ¶3 - The new words, and a new paragraph with ¶+, right after the paragraph it follows, which you write too, as it is. Name a paragraph once at most. A paragraph you don't write stays as it is, so write only those you change or add, and no line of your own besides. A backslash before ¶ makes it words of the passage: keep the backslash.",
 ].join("\n");
+
+/**
+ * A request in the User's words shows each paragraph of the passage with a name, and the reply
+ * names the paragraph each of its own replaces, so no paragraph is paired by guess (#2356).
+ */
+export const NAMES_SHOWN: ReadonlySet<EditAction> = new Set(["instruction"]);
+
+/** A passage paragraph's name, by its place: ¶1 is the first. */
+export const paragraphName = (index: number) => `¶${index + 1}`;
+
+/** Typed text that reads as a name, escaped as Markdown escapes a mark, so it stays words. */
+export const escapeNames = (text: string) => text.replace(/¶(?=\d|\+)/g, "\\¶");
+
+/**
+ * What a reply's paragraph says it is by its name: the passage's paragraph it `replaces` (¶3), or a
+ * new one that `follows` one of them (¶3+) or the reply's paragraph before it (¶+, null).
+ */
+export type ParagraphName = { replaces: number } | { follows: number | null };
+
+/** A name where a reply's paragraph starts, ended by a space or the line's end: "¶3+" is never ¶3. */
+const NAME_HERE = /^¶(?:(\d+)(\+?)|\+)(?=\s|$)\s*/;
+
+/** The name a reply's paragraph starts with, and the rest of it; null for none. */
+export function readName(paragraph: string): { name: ParagraphName | null; rest: string } {
+  const found = NAME_HERE.exec(paragraph);
+  if (!found) return { name: null, rest: paragraph };
+  const [all, number, plus] = found;
+  const name =
+    number === undefined
+      ? { follows: null }
+      : plus
+        ? { follows: Number(number) }
+        : { replaces: Number(number) };
+  return { name, rest: paragraph.slice(all.length) };
+}
+
+/** A name a line of a reply starts with, for telling where its paragraphs start. */
+export const NAME_LINE = String.raw`[ \t]*¶(?:\d+\+?|\+)(?=\s|$)`;
+
+/**
+ * The reply with a name written just before a <removed> mark at a line's start taken off, so the
+ * mark starts its line and quotes paragraphs (`readRemovals`); names inside a quote are read off
+ * with its paragraphs.
+ */
+export const unnameRemovals = (text: string) =>
+  text.replace(/(^|\n)[ \t]*¶(?:\d+\+?|\+)[ \t]*(?=<removed[\s/>])/gi, "$1");
+
+/** A reply's text as it reads, without the names its lines start with, and escaped names made words again. */
+export const withoutNames = (text: string) =>
+  text
+    .split("\n")
+    .map((line) => readName(line.replace(/^[ \t]+(?=¶)/, "")).rest)
+    .join("\n")
+    .replace(/\\¶(?=\d|\+)/g, "¶");
 
 /** For "explain": a few sentences to go under the passage. */
 export const EXPLAIN_INSTRUCTIONS = [
@@ -204,12 +259,17 @@ function tagsOf(text: string): Tag[] {
 /** How many characters beside a tag tell where it is. */
 const BESIDE_TAG = 10;
 
-/** The characters beside a tag on its line, up to the next tag, without spaces or escapes: the nearest `BESIDE_TAG`. */
+/**
+ * The characters beside a tag on its line, up to the next tag, without spaces or escapes: the
+ * nearest `BESIDE_TAG`. A name the line starts with isn't counted: a reply may leave it out.
+ */
 function besideTag(text: string, tags: readonly Tag[], index: number, side: "before" | "after") {
   const tag = tags[index] as Tag;
   const plain = (part: string) => part.replace(/\\([\s\S])/g, "$1").replace(/\s+/g, "");
   if (side === "before") {
-    const from = Math.max(tags[index - 1]?.end ?? 0, text.lastIndexOf("\n", tag.at - 1) + 1);
+    const line = text.lastIndexOf("\n", tag.at - 1) + 1;
+    const name = new RegExp(String.raw`^${NAME_LINE}[ \t]*`).exec(text.slice(line, tag.at));
+    const from = Math.max(tags[index - 1]?.end ?? 0, line + (name?.[0].length ?? 0));
     return plain(text.slice(from, tag.at)).slice(-BESIDE_TAG);
   }
   const line = text.indexOf("\n", tag.end);

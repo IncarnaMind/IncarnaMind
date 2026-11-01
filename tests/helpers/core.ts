@@ -198,6 +198,25 @@ export function spentBy(dataDir: string): string[] {
   );
 }
 
+/**
+ * Whether an edit's reply names the passage paragraph each of its own replaces (#2356): its first
+ * paragraph, past what it quotes as taken out, starts with a name. Null for a reply with no
+ * paragraph of its own.
+ */
+export function namesItsParagraphs(raw: string): boolean | null {
+  const said = raw
+    .replace(/<why>[\s\S]*?(?:<\/why>|$)/gi, "")
+    .replace(/<removed>[\s\S]*?(?:<\/removed>|$)/gi, "")
+    .trim();
+  return said === "" ? null : /^¶(?:\d+|\+)/.test(said);
+}
+
+/** How many of `replies` name their paragraphs, of those with a paragraph of their own, for a live report. */
+export function namedSaid(replies: readonly string[]): string {
+  const read = replies.map(namesItsParagraphs).filter((named) => named !== null);
+  return `replies that name their paragraphs ${read.filter(Boolean).length}/${read.length}`;
+}
+
 export function queryDatabase<Row>(
   dataDir: string,
   sql: string,

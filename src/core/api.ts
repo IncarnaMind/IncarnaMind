@@ -1237,6 +1237,7 @@ export interface AnalysisCall {
  * model failed, as `message` says. "no-table": a table it wrote couldn't be
  * made, so none of its text went in (#961). "unplaced": text it marked to take
  * out isn't in the Mind word for word, so none of its text went in (#2180).
+ * "misnamed": the rewrite named a paragraph wrongly, so none of its text went in (#2356).
  */
 export type MindProblem =
   | { kind: "waiting"; mindId: string; count: number; mixed: boolean }
@@ -1257,6 +1258,7 @@ export type MindProblem =
         | "stopped"
         | "no-table"
         | "unplaced"
+        | "misnamed"
         | "uncited"
         // Only in Answers written before #1559.
         | "new-mind";
@@ -5731,6 +5733,11 @@ export type EditWithAiResult =
    * place (#2180): nothing was written. `quotes`: that text, as it wrote it.
    */
   | { kind: "unplaced"; quotes: string[] }
+  /**
+   * The model named a paragraph the passage hasn't, named one twice, or named one and wrote no
+   * words for it (#2356): which paragraph its text replaces can't be told, so nothing was written.
+   */
+  | { kind: "misnamed" }
   /** The model failed, or gave nothing back. */
   | { kind: "failed"; error: ProviderError };
 

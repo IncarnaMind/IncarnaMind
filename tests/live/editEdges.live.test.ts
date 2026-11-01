@@ -21,7 +21,7 @@ import type { EditAction, EditWithAiResult } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { resolveProposals } from "../../src/shared/proposals";
-import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
+import { createTempDataFolder, namedSaid, spentBy, startCore } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 
@@ -289,6 +289,8 @@ describe("The edges of an edit, live (#2333)", () => {
       const lost = new Map<Case, number>();
       const dropped = new Map<Case, number>();
       const misses: string[] = [];
+      /** The whole replies to requests in the User's words, whose passage shows its paragraphs' names. */
+      const said: string[] = [];
 
       const runJob = async (asked: Case) => {
         const mind = await core.createMind({ title: `${asked.kind} ${crypto.randomUUID()}` });
@@ -325,6 +327,8 @@ describe("The edges of an edit, live (#2333)", () => {
         await client.settled();
         const after = textsOf(client);
         const raw = kept?.raw ?? "";
+        if ((asked.action ?? "instruction") === "instruction" && asked.kind !== "cut")
+          said.push(raw);
         if (asked.kind === "typed" && /(?<!\\)<removed>(?:draft|草稿)/.test(raw)) {
           dropped.set(asked, (dropped.get(asked) ?? 0) + 1);
         }
@@ -363,7 +367,7 @@ describe("The edges of an edit, live (#2333)", () => {
         );
       }
       report.push(
-        `  all: exact ${exactTotal}/${total}; words lost ${lostTotal}/${total}`,
+        `  all: exact ${exactTotal}/${total}; words lost ${lostTotal}/${total}; ${namedSaid(said)}`,
         ...spentBy(dataDir),
         ...misses,
       );

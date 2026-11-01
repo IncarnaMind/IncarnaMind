@@ -64,6 +64,7 @@ export type EditProblem = (
         | "cant-regenerate"
         | "no-table"
         | "unplaced"
+        | "misnamed"
         | "cut-short"
         | "late"
         | "busy";
