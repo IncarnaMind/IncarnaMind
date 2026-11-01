@@ -2,9 +2,9 @@
  * The words a Meeting's speech may hold (#1031), as Qwen3-ASR takes them: a short text at the head
  * of its prompt that it leans towards, so a name it has been told is written as the User writes it.
  * sherpa-onnx puts them in the system part of the model's prompt (its `hotwords` option), separated
- * by spaces. Told them, the model also changes other words, so a stretch is read once without them
- * and once with, and the first reading takes only the told names from the second
- * (`withToldWords`).
+ * by spaces. Told them, the model also changes other words, so a stretch is read once without them,
+ * again with them only where the first reading may hold one of them misheard (`mayMend`), and the
+ * first reading takes only those names from the second (`withToldWords`).
  */
 import { isNameMisheard } from "./sounds";
 
@@ -84,15 +84,43 @@ const fold = (unit: string) => unit.normalize("NFKC").toLowerCase();
 
 type Step = "same" | "changed" | "plainOnly" | "toldOnly";
 
-/** A word never stands in for a space or a mark: that costs more than dropping one and adding the other. */
-const changeCost = (a: string, b: string) =>
-  fold(a) === fold(b) ? 0 : WORDLIKE.test(a) === WORDLIKE.test(b) ? 1 : 3;
+/** How unlike two words are, from 0 to 1: the letters to change, over the longer word's. */
+function unlike(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      current[j] = Math.min(
+        (previous[j - 1] as number) + (a[i - 1] === b[j - 1] ? 0 : 1),
+        (previous[j] as number) + 1,
+        (current[j - 1] as number) + 1,
+      );
+    }
+    previous = current;
+  }
+  return (previous[b.length] as number) / Math.max(a.length, b.length);
+}
+
+/**
+ * Pairing two words costs as much as leaving both out unless they are more than half alike, and
+ * less the more alike they are, so a name pairs with what it was misheard as ("Priyaman" for
+ * Priya) rather than with its neighbour ("is" for "this"). A word never stands in for a space or a
+ * mark.
+ */
+function changeCost(a: string, b: string): number {
+  const x = fold(a);
+  const y = fold(b);
+  if (x === y) return 0;
+  const word = WORDLIKE.test(a);
+  if (word !== WORDLIKE.test(b)) return 3;
+  return word ? Math.min(2, 4 * unlike(x, y)) : 1;
+}
 
 /** How the told text's units line up with the plain text's, fewest edits first. */
 function alignUnits(plain: readonly string[], told: readonly string[]): Step[] {
   const n = plain.length;
   const m = told.length;
-  const cost = new Int32Array((n + 1) * (m + 1));
+  const cost = new Float64Array((n + 1) * (m + 1));
   const at = (i: number, j: number) => i * (m + 1) + j;
   for (let i = 0; i <= n; i++) cost[at(i, 0)] = i;
   for (let j = 0; j <= m; j++) cost[at(0, j)] = j;
@@ -107,22 +135,28 @@ function alignUnits(plain: readonly string[], told: readonly string[]): Step[] {
     }
   }
   const steps: Step[] = [];
+  // Of equally few edits, words are left unpaired rather than paired with other words: else a
+  // text that runs on past the other shifts every word before the end onto its neighbour.
   for (let i = n, j = m; i > 0 || j > 0; ) {
     const here = cost[at(i, j)] as number;
-    if (i > 0 && j > 0) {
-      const change = changeCost(plain[i - 1] as string, told[j - 1] as string);
-      if (here === (cost[at(i - 1, j - 1)] as number) + change) {
-        steps.push(change === 0 ? "same" : "changed");
-        i--;
-        j--;
-        continue;
-      }
-    }
-    if (i > 0 && here === (cost[at(i - 1, j)] as number) + 1) {
+    const change =
+      i > 0 && j > 0
+        ? changeCost(plain[i - 1] as string, told[j - 1] as string)
+        : Number.POSITIVE_INFINITY;
+    const paired = here === (cost[at(i - 1, j - 1)] as number) + change;
+    if (paired && change === 0) {
+      steps.push("same");
+      i--;
+      j--;
+    } else if (i > 0 && here === (cost[at(i - 1, j)] as number) + 1) {
       steps.push("plainOnly");
       i--;
-    } else {
+    } else if (j > 0 && here === (cost[at(i, j - 1)] as number) + 1) {
       steps.push("toldOnly");
+      j--;
+    } else {
+      steps.push("changed");
+      i--;
       j--;
     }
   }
@@ -184,12 +218,54 @@ function namesAndParts(words: readonly string[]): { word: string; capitalised: b
   ];
 }
 
+const partsOf = (word: string) => word.split(/\s+/u).map(fold);
+
+/** The told words and every part of each, case folded: words that are already a told name. */
+function toldKeys(words: readonly string[]): Set<string> {
+  return new Set(words.flatMap((word) => [fold(word), ...partsOf(word)]));
+}
+
+/**
+ * Whether the heard words are `word` misheard, to be written as it: not the word already, whatever
+ * its case, and not another told name or part of one (Sara when Sarah is told too, Daniel when
+ * Danielle West is), which the sound can't tell from a mishearing.
+ */
+function mends(heard: readonly string[], word: string, told: ReadonlySet<string>): boolean {
+  const said = unitsOf(word).filter((unit) => WORDLIKE.test(unit));
+  if (heard.map(fold).join("") === said.map(fold).join("")) return false;
+  const own = new Set(partsOf(word));
+  const isOther = (key: string) => told.has(key) && !own.has(key);
+  if (isOther(heard.map(fold).join(" ")) || heard.some((unit) => isOther(fold(unit)))) {
+    return false;
+  }
+  return isNameMisheard(heard, word);
+}
+
+/**
+ * Whether the plain text holds words a told name could mend, by the same test the merge makes: a
+ * stretch without any is read only once.
+ */
+export function mayMend(plain: string, words: readonly string[]): boolean {
+  if (words.length === 0) return false;
+  const told = toldKeys(words);
+  const heard = unitsOf(plain).filter((unit) => WORDLIKE.test(unit));
+  for (const { word } of namesAndParts(words)) {
+    const longest = word.split(/\s+/u).length + 2;
+    for (let start = 0; start < heard.length; start++) {
+      for (let end = start + 1; end <= Math.min(heard.length, start + longest); end++) {
+        if (mends(heard.slice(start, end), word, told)) return true;
+      }
+    }
+  }
+  return false;
+}
+
 /**
  * The plain text, with the told names the model wrote when it was told them put in their places
  * (#1031): every other word stays as the model heard it without the list, which a told list can
  * change for the worse (on a Chinese call it dropped words mid-sentence). A told name goes in only
- * where the two texts line up and the plain one wrote that name misheard (`isNameMisheard`), never
- * where it heard nothing, another name or a common word.
+ * where the two texts line up and the plain one wrote that name misheard (`mends`), never where it
+ * heard nothing, another name or a common word.
  */
 export function withToldWords(plain: string, told: string, words: readonly string[]): string {
   if (words.length === 0 || echoes(told, words)) return plain;
@@ -203,6 +279,7 @@ export function withToldWords(plain: string, told: string, words: readonly strin
     else if (step === "toldOnly") linedUp.push(-1);
     else linedUp.push(i++);
   }
+  const keys = toldKeys(words);
   const swaps: { from: number; to: number; units: string[] }[] = [];
   for (const { first, last, word } of writtenAt(toldUnits, namesAndParts(words))) {
     const aligned = linedUp
@@ -211,22 +288,10 @@ export function withToldWords(plain: string, told: string, words: readonly strin
     if (aligned.length === 0) continue;
     const from = Math.min(...aligned);
     const to = Math.max(...aligned);
-    const said = unitsOf(word);
-    const was = plainUnits.slice(from, to + 1);
-    const heard = was.filter((unit) => WORDLIKE.test(unit));
-    // A word that is the name already, whatever its case, stays as the engine wrote it.
-    if (
-      heard.map(fold).join("") ===
-      said
-        .filter((unit) => WORDLIKE.test(unit))
-        .map(fold)
-        .join("")
-    ) {
-      continue;
-    }
-    if (!isNameMisheard(heard, word)) continue;
+    const heard = plainUnits.slice(from, to + 1).filter((unit) => WORDLIKE.test(unit));
+    if (!mends(heard, word, keys)) continue;
     if (swaps.some((swap) => swap.from <= to && from <= swap.to)) continue;
-    swaps.push({ from, to, units: said });
+    swaps.push({ from, to, units: unitsOf(word) });
   }
   const out = [...plainUnits];
   for (const swap of swaps.sort((a, b) => b.from - a.from)) {

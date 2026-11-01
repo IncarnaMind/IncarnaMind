@@ -1,9 +1,8 @@
 /**
  * Whether what the engine heard is a told name misheard (#1031): a told name only mends a word
- * that is that name, never another name or another word. Latin letters are compared by a rough
- * sound of their spelling (ph is f, a doubled letter one); Chinese characters by their pinyin.
+ * that is that name, never another name or another word. Letters are compared by a rough sound of
+ * their spelling (ph is f, a doubled letter one).
  */
-import { pinyinOf } from "../../shared/pinyin";
 
 const HAN = /\p{Script=Han}/u;
 
@@ -51,32 +50,23 @@ export function soundsLike(heard: string, name: string): number {
 }
 
 /**
- * How alike a heard Latin name must sound to the told one: "Priyaman" (0.89) is Priya Raman,
- * "Sophie" (0.80) isn't Sofia, nor "Rotherham" (0.86) Rotterdam.
+ * How alike a heard name must sound to the told one, set on the names of the 2026-10-31 walk's
+ * call: "Priyaman" (0.89) is Priya Raman, "Sophie" (0.80) isn't Sofia, nor "Rotherham" (0.86)
+ * Rotterdam.
  */
-const LATIN_ALIKE = 0.88;
-
-const hanOf = (text: string) => [...text].filter((char) => HAN.test(char));
+const ALIKE = 0.88;
 
 /**
- * Whether the heard words are the told name misheard. Chinese: as many characters, each read the
- * same (王力 for 王丽): a syllable heard otherwise may be another person (程 for 陈), which the
- * sound alone can't tell from a mishearing. Latin: words written as names, with capitals, that
- * sound like it: a common word ("will") is never made a name ("Will").
+ * Whether the heard words are the told name misheard: words written as names, with capitals, that
+ * sound like it, so a common word ("will") is never made a name ("Will"). A Chinese name never
+ * is: characters read the same are everyday words as often as names (保洁 for 宝洁, 往里 for
+ * 王丽), and a syllable heard otherwise may be another person (程 for 陈).
  */
 export function isNameMisheard(heard: readonly string[], name: string): boolean {
-  const text = heard.join(" ");
-  const nameHan = hanOf(name);
-  if (nameHan.length > 0) {
-    const heardHan = hanOf(text);
-    return (
-      heardHan.length === nameHan.length &&
-      heardHan.every((char, at) => pinyinOf(char) === pinyinOf(nameHan[at] as string))
-    );
-  }
   return (
+    !HAN.test(name) &&
     heard.length > 0 &&
     heard.every((word) => /^\p{Lu}/u.test(word)) &&
-    soundsLike(text, name) >= LATIN_ALIKE
+    soundsLike(heard.join(" "), name) >= ALIKE
   );
 }

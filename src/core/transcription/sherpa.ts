@@ -8,7 +8,7 @@
 import type { TranscriptionModelFiles } from "../adapters";
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import { engineModule, exportsOf } from "../engineModules";
-import { contextWords, echoes, hotwordsOf, withToldWords } from "./context";
+import { contextWords, echoes, hotwordsOf, mayMend, withToldWords } from "./context";
 import type { SpeechEngine, VoiceDetector } from "./speech";
 import { textOfResult, wordsOnly } from "./speechText";
 import { writtenNumbers } from "./spokenNumbers";
@@ -158,7 +158,7 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
       async decode(samples, _stream, given) {
         const words = contextWords(given);
         const plain = await read(samples, []);
-        if (words.length === 0) return plain;
+        if (!mayMend(plain, words)) return plain;
         let told: string;
         try {
           told = await read(samples, words);

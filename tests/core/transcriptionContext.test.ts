@@ -3,6 +3,7 @@ import {
   contextWords,
   echoes,
   hotwordsOf,
+  mayMend,
   withToldWords,
 } from "../../src/core/transcription/context";
 
@@ -77,10 +78,45 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
           english,
         ),
       ).toBe("Our operations lead, Sofia Lindqvist will send it. Thanks, Priya.");
-      // Chinese: only a name read the same, character for character.
-      expect(withToldWords("我是星河科技的王力。", "我是星河科技的王丽。", chinese)).toBe(
-        "我是星河科技的王丽。",
+      // One reading runs on past the other at both ends.
+      expect(
+        withToldWords(
+          "Hi, this is Priyaman from Lumen Foods, by Friday.",
+          "This is Priya Raman from Lumen Foods.",
+          english,
+        ),
+      ).toBe("Hi, this is Priya Raman from Lumen Foods, by Friday.");
+    });
+
+    test("a word that is already a told name, or part of one, is never another told name", () => {
+      expect(withToldWords("Sara will call.", "Sarah will call.", ["Sara", "Sarah"])).toBe(
+        "Sara will call.",
       );
+      expect(
+        withToldWords("Send it to Daniel.", "Send it to Danielle.", [
+          "Daniel Weiss",
+          "Danielle West",
+        ]),
+      ).toBe("Send it to Daniel.");
+      expect(withToldWords("张伟和张薇都来了。", "张薇和张薇都来了。", ["张伟", "张薇"])).toBe(
+        "张伟和张薇都来了。",
+      );
+      // A part of the very name told still lets the rest of it be mended.
+      expect(withToldWords("This is Priya Ramen.", "This is Priya Raman.", english)).toBe(
+        "This is Priya Raman.",
+      );
+    });
+
+    test("a Chinese told name replaces nothing, everyday words that read the same included", () => {
+      for (const [plain, told, names] of [
+        ["保洁阿姨下午来。", "宝洁阿姨下午来。", ["宝洁"]],
+        ["我们往里走。", "我们王丽走。", chinese],
+        ["黎明的时候出发。", "李明的时候出发。", chinese],
+        ["这事理明白了。", "这事李明白了。", chinese],
+        ["我是星河科技的王力。", "我是星河科技的王丽。", chinese],
+      ] as const) {
+        expect(withToldWords(plain, told, names)).toBe(plain);
+      }
     });
 
     test("a told name never replaces a word that sounds otherwise: another name, or the same name misheard further", () => {
@@ -157,7 +193,42 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
       expect(withToldWords("神经理，你好。", "陈经理，星河科技，王丽，王总，李明。", chinese)).toBe(
         "神经理，你好。",
       );
-      expect(withToldWords("王力，你好。", "王丽，你好。", chinese)).toBe("王丽，你好。");
+      expect(withToldWords("王力，你好。", "王丽，你好。", chinese)).toBe("王力，你好。");
+    });
+
+    test("a stretch is read again only where its first reading holds a told name misheard", () => {
+      expect(mayMend("This is Priyaman from Lumen Foods.", english)).toBe(true);
+      expect(mayMend("Our operations lead, Sophia Lindvist will send it.", english)).toBe(true);
+      expect(mayMend("Thanks, see you on Friday.", english)).toBe(false);
+      expect(mayMend("Sofia Lindqvist will send it, Priya.", english)).toBe(false);
+      expect(mayMend("I will send it. Hope so.", ["Will", "Hope"])).toBe(false);
+      expect(mayMend("Send it to Daniel.", ["Daniel Weiss", "Danielle West"])).toBe(false);
+      expect(mayMend("我们的项目经理李名会把施工图发给你。", chinese)).toBe(false);
+      expect(mayMend("This is Priyaman.", [])).toBe(false);
+    });
+
+    test("every stretch the told names mend is one the first reading said may hold them", () => {
+      for (const [plain, told, names] of [
+        [
+          "This is Priyaman from Lumen Foods. I want to go over the Arbor Logistics renewal.",
+          "This is Priya Raman from Lumen Foods. I want to go over the Harbor Logistics renewal.",
+          english,
+        ],
+        [
+          "Our operations lead, Sophia Lindvist will send it. Thanks, Pria.",
+          "Our operations lead, Sofia Lindqvist. We'll send it. Thanks, Priya.",
+          english,
+        ],
+        [
+          "So the action items are: Sophia sends the plan.",
+          "Sophia's items are: Sofia sends the plan.",
+          ["Sofia Lindqvist"],
+        ],
+        ["This is Priya Ramen.", "This is Priya Raman.", english],
+      ] as const) {
+        expect(withToldWords(plain, told, names)).not.toBe(plain);
+        expect(mayMend(plain, names)).toBe(true);
+      }
     });
   });
 });
