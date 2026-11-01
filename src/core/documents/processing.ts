@@ -60,9 +60,11 @@ import { unreadMessage } from "./unreadMessage";
  * Passage's row; see `NAME_INDEX_CURRENT_SINCE`). 16: #2110 (a PDF line break
  * beside CJK text or full-width punctuation is joined). 17: #2219 (a line the
  * page ended itself, such as a heading, keeps its break). 18: #1709 (explicit
- * deposition layouts keep their printed page and line anchors).
+ * deposition layouts keep their printed page and line anchors). 19: #2347 (a
+ * workbook's rows Units keep each cell's formula beside its saved value, and
+ * its first Unit its defined names and what of it wasn't read).
  */
-export const PROCESSING_VERSION = 18;
+export const PROCESSING_VERSION = 19;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -85,6 +87,8 @@ export const PROCESSING_VERSION = 18;
  * only PDFs' too: a deposition's explicit "Page N" layout over numbered lines
  * gains printed page and line anchors and keeps its "Page N" lines, which
  * cleanup took for running headers; other PDFs' pages come out as they were.
+ * Version 19 only workbooks', whose Units gain their formulas; their text,
+ * Passages and embeddings come out as they were.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 18,
@@ -92,7 +96,7 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   markdown: 5,
   docx: 7,
   pptx: 5,
-  xlsx: 13,
+  xlsx: 19,
   csv: 5,
   web: 7,
   transcript: 7,

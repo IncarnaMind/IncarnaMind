@@ -14,7 +14,7 @@ import {
   NO_MARKS,
   type ReadOptions,
 } from "../mindText";
-import type { ExportLabels, FigureNoteSource } from "./labels";
+import type { ExportLabels, FigureNoteSource, FigureWorked } from "./labels";
 
 export type FigureInline = Extract<Inline, { kind: "figure" }>;
 
@@ -62,8 +62,20 @@ export function figureWithNote(
   const labelOf = new Map(
     figure.figure.inputs.map((input) => [input.name.toLowerCase(), input.label.trim()]),
   );
-  const worked =
-    figure.analysis === null
+  const workbook = figure.figure.workbook;
+  const changed = workbook?.change
+    ? figure.figure.inputs.find((input) => input.name === workbook.change?.input)
+    : undefined;
+  const worked: FigureWorked = workbook
+    ? {
+        cell: `${workbook.cell.sheet}!${workbook.cell.ref}`,
+        workbookFormula: workbook.cell.formula,
+        change:
+          workbook.change && changed
+            ? { input: changed.label, value: workbook.change.shown }
+            : null,
+      }
+    : figure.analysis === null
       ? {
           formula: formulaText(
             figure.figure.formula,

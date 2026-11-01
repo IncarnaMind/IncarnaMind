@@ -783,6 +783,37 @@ export const zhCN = {
   "figures.inline.literal": "{value}，公式中的固定数字",
   "figures.inline.raw": "单元格原始值：{value}",
   "figures.inline.original": "原计算输入",
+  "figures.workbook.workedOut": "已按工作簿中的公式重新计算",
+  "figures.workbook.savedValue": "工作簿保存的值",
+  "figures.workbook.formulas": "共计算了 {count} 个公式",
+  "figures.workbook.change": "已将“{input}”（{cell}）从 {from} 改为 {to}",
+  "figures.workbook.inWorkbook": "工作簿中的原值：{value}",
+  "figures.workbook.moreInputs": "另有 {count} 项所用数据未列出",
+  "figures.workbook.note":
+    "IncarnaMind 已在内存中按工作簿自己的公式重新计算，文件本身没有改动。每项所用数据都引用到所在单元格。这并不说明模型的假设是对的。",
+  "figures.workbook.kept.volatile":
+    "{cell} 使用了易失性函数 {name}，每次计算结果都会变，因此使用其保存的值",
+  "figures.workbook.kept.finds-cells":
+    "{cell} 用 {name} 在计算时才确定引用的单元格，因此使用其保存的值",
+  "figures.workbook.kept.function":
+    "IncarnaMind 无法计算 {cell} 中的函数 {name}（可能来自宏），因此使用其保存的值",
+  "figures.workbook.kept.add-in": "{cell} 使用了加载项函数 {name}，因此使用其保存的值",
+  "figures.workbook.kept.data-table": "{cell} 属于模拟运算表，因此使用其保存的值",
+  "figures.workbook.kept.external": "{cell} 链接到其他工作簿，因此使用其保存的值",
+  "figures.workbook.kept.table": "{cell} 按列名引用表格，因此使用其保存的值",
+  "figures.workbook.kept.three-d": "{cell} 跨多个工作表引用同一区域，因此使用其保存的值",
+  "figures.workbook.kept.unreadable": "IncarnaMind 无法读取 {cell} 中的公式，因此使用其保存的值",
+  "figures.workbook.kept.circular": "{cell} 存在循环引用，因此使用其保存的值",
+  "figures.workbook.kept.iterative":
+    "{cell} 存在循环引用，Excel 用迭代计算求解，因此使用其保存的值",
+  "figures.workbook.kept.not-read":
+    "{cell} 引用的“{name}”未读取（已隐藏或超出读取上限），因此使用其保存的值",
+  "figures.workbook.kept.array": "{cell} 是跨多个单元格的数组公式，因此使用其保存的值",
+  "figures.workbook.kept.no-saved-value":
+    "工作簿没有保存 {cell} 的计算结果：文件由程序生成，之后未在 Excel 中打开",
+  "figures.workbook.kept.differs":
+    "IncarnaMind 对 {cell} 的计算结果与工作簿保存的值不同，因此使用保存的值",
+  "figures.workbook.kept.too-large": "{cell} 引用的区域过大，无法在此计算，因此使用其保存的值",
   "figures.card.source": "{figure}：来源为 {value}（{source}）",
   "figures.inline.openInput": "打开",
   "figures.export.sheet": "核对表",
@@ -4202,6 +4233,9 @@ export const zhCN = {
   "export.citation.accessed": "访问于 {date}",
   "export.figure.calculated": "计算得出：{formula} = {figure}。",
   "export.figure.analysis": "由数据分析“{title}”计算得出：{figure}。",
+  "export.figure.workbook": "按工作簿中的公式计算得出（{cell} = {formula}）：{figure}。",
+  "export.figure.whatIf":
+    "按工作簿中的公式计算得出（{cell} = {formula}），其中“{input}”改为 {value}：{figure}。",
   "export.figure.inputs": "{inputs}：{source}。",
   "export.figure.cluster": "据{cluster}计算",
   "export.figure.cluster.note": "据{cluster}计算",

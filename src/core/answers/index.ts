@@ -185,6 +185,7 @@ import { commandTools } from "../tools/commands/tools";
 import { type MindsForTools, type MindToolsOptions, mindTools } from "../tools/minds/tools";
 import { asksForWeb } from "../tools/web/intent";
 import { type SavedPage, webTools } from "../tools/web/tools";
+import { workbookTools } from "../workbooks/tool";
 import {
   contentHash,
   createElement,
@@ -2576,6 +2577,33 @@ export function createAnswers(options: AnswersOptions) {
         }),
       };
       const runtime = outside ? undefined : options.analysisRuntime;
+      /** A Passage the model was given, by its short id, and its version's Units: what a sheet's Tools read. */
+      const shownPassage = (id: string) => {
+        const named = id.trim().toLowerCase();
+        const shown = session.shownPassages().find((each) => each.id.toLowerCase() === named);
+        const source = shown ? searched.citationSource(shown.passageId) : null;
+        if (!source || source.documentDeleted) return null;
+        return {
+          source,
+          units: searched.pageTexts(source.documentId, source.contentHash, null, null),
+        };
+      };
+      // A workbook's own formulas, traced and worked out again (#2347): offered with calculate.
+      const fromWorkbooks: Tool[] =
+        calculating &&
+        input.toolSet === undefined &&
+        !help &&
+        options.documents.searchableHasSheets(documentIds)
+          ? workbookTools({
+              passage: shownPassage,
+              number: (given) => figures.number(given),
+              passageOf: (documentId, page) =>
+                options.documents.passagesCovering(documentId, page, page, true)[0]?.passageId ??
+                null,
+              figure: (figure) => figures.record(figure),
+              language: answerLanguage(context.question),
+            })
+          : [];
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
         calculating &&
@@ -2585,18 +2613,7 @@ export function createAnswers(options: AnswersOptions) {
           ? [
               analysisTool({
                 runtime,
-                passage: (id) => {
-                  const named = id.trim().toLowerCase();
-                  const shown = session
-                    .shownPassages()
-                    .find((each) => each.id.toLowerCase() === named);
-                  const source = shown ? searched.citationSource(shown.passageId) : null;
-                  if (!source || source.documentDeleted) return null;
-                  return {
-                    source,
-                    units: searched.pageTexts(source.documentId, source.contentHash, null, null),
-                  };
-                },
+                passage: shownPassage,
                 number: (given) => figures.number(given),
                 figure: (figure) => figures.record(figure),
                 language: answerLanguage(context.question),
@@ -2928,6 +2945,7 @@ export function createAnswers(options: AnswersOptions) {
           ...fromWeb,
           ...(mindsTools?.tools ?? []),
           ...fromAnalysis,
+          ...fromWorkbooks,
           ...(commandsOffered?.tools ?? []),
           ...(asking ? [asking] : []),
         ],

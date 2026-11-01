@@ -1,4 +1,10 @@
-import type { CalculatedFigure, Citation, FigureInput, SignOffNow } from "../../../core/api";
+import type {
+  CalculatedFigure,
+  Citation,
+  FigureFromWorkbook,
+  FigureInput,
+  SignOffNow,
+} from "../../../core/api";
 import { badgeMessage, citationState } from "../../../shared/citations";
 import type { ClaimCheckShown } from "../../../shared/claimChecks";
 import type { CalculatedSources } from "../../../shared/figureRuns";
@@ -58,9 +64,19 @@ export function CalculatedFigureCard({
           <> · {t("figures.inline.recalculated")}</>
         ) : figure.analysis ? (
           <> · {t("figures.inline.retained")}</>
+        ) : figure.workbook ? (
+          <>
+            {" · "}
+            {t(
+              figure.workbook.kept.length > 0
+                ? "figures.workbook.savedValue"
+                : "figures.workbook.workedOut",
+            )}
+          </>
         ) : null}
       </p>
-      {!figure.analysis && (
+      {figure.workbook && <WorkbookChain figure={figure} workbook={figure.workbook} />}
+      {!figure.analysis && !figure.workbook && (
         <div className="calculated-figure-formula">
           <p>
             {formulaText(figure.formula, (name) => byName.get(name.toLowerCase())?.label ?? null)}
@@ -98,6 +114,7 @@ export function CalculatedFigureCard({
         </div>
       ))}
       {!figure.analysis &&
+        !figure.workbook &&
         figure.literals.map((literal) => (
           <p key={`${literal.at}:${literal.text}`} className="calculated-figure-note">
             {t("figures.inline.literal", { value: literal.text })}
@@ -116,9 +133,11 @@ export function CalculatedFigureCard({
         {t(
           figure.analysis
             ? "figures.inline.analysisNote"
-            : replayed
-              ? "figures.inline.note"
-              : "figures.inline.savedNote",
+            : figure.workbook
+              ? "figures.workbook.note"
+              : replayed
+                ? "figures.inline.note"
+                : "figures.inline.savedNote",
         )}
       </p>
       <SignOffLine now={signOff} />
@@ -138,6 +157,83 @@ export function CalculatedFigureCard({
           {t("figures.inline.copyFormula")}
         </button>
       </div>
+    </>
+  );
+}
+
+/**
+ * A workbook figure's own formula and the formulas between it and its inputs
+ * (#2347), each by its headings and cell; a what-if's changed input; and the
+ * cells that kept the values the workbook saved.
+ */
+function WorkbookChain({
+  figure,
+  workbook,
+}: {
+  figure: CalculatedFigure;
+  workbook: FigureFromWorkbook;
+}) {
+  const t = useT();
+  const language = useLanguage();
+  const changed = workbook.change
+    ? figure.inputs.find((input) => input.name === workbook.change?.input)
+    : undefined;
+  const cell = (sheet: string, ref: string | null) => (ref ? `${sheet}!${ref}` : sheet);
+  return (
+    <>
+      <div className="calculated-figure-formula">
+        <p>
+          {workbook.cell.label} · {cell(workbook.cell.sheet, workbook.cell.ref)} ={" "}
+          {workbook.cell.formula}
+        </p>
+        {workbook.steps.map((step) => (
+          <p key={`${step.sheet}!${step.ref}`}>
+            {step.label} · {cell(step.sheet, step.ref)} = {step.formula}
+          </p>
+        ))}
+        {workbook.formulaCells > workbook.steps.length + 1 && (
+          <p>
+            {t("figures.workbook.formulas", {
+              count: shownNumber(workbook.formulaCells, language),
+            })}
+          </p>
+        )}
+      </div>
+      {changed && workbook.change && (
+        <p className="calculated-figure-note">
+          {t("figures.workbook.change", {
+            input: changed.label,
+            cell: cell(changed.cell?.sheet ?? "", changed.cell?.ref ?? null),
+            from: changed.number.chars,
+            to: workbook.change.shown,
+          })}
+        </p>
+      )}
+      {workbook.change && (
+        <p className="calculated-figure-note">
+          {t("figures.workbook.inWorkbook", {
+            value: shownNumber(workbook.saved, language),
+          })}
+        </p>
+      )}
+      {workbook.kept.map((kept) => (
+        <p
+          key={`${kept.sheet}!${kept.ref ?? ""}:${kept.reason}`}
+          className="calculated-figure-problem"
+        >
+          {t(`figures.workbook.kept.${kept.reason}`, {
+            cell: cell(kept.sheet, kept.ref),
+            name: kept.name ?? "",
+          })}
+        </p>
+      ))}
+      {workbook.moreInputs > 0 && (
+        <p className="calculated-figure-note">
+          {t("figures.workbook.moreInputs", {
+            count: shownNumber(workbook.moreInputs, language),
+          })}
+        </p>
+      )}
     </>
   );
 }

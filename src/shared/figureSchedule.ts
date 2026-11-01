@@ -479,15 +479,17 @@ export function lineShows(line: ScheduleLine, language: Language): LineShows {
       unchecked || parent.calculated
         ? null
         : (parent.sourceInput?.citation ?? parent.source ?? null),
-    formula: parent.calculated
-      ? formulaText(
-          parent.calculated.figure.formula,
-          (name) =>
-            parent.calculated?.figure.inputs.find(
-              (each) => each.name.toLowerCase() === name.toLowerCase(),
-            )?.label ?? null,
-        )
-      : null,
+    formula: parent.calculated?.figure.workbook
+      ? `${parent.calculated.figure.workbook.cell.sheet}!${parent.calculated.figure.workbook.cell.ref} = ${parent.calculated.figure.workbook.cell.formula}`
+      : parent.calculated
+        ? formulaText(
+            parent.calculated.figure.formula,
+            (name) =>
+              parent.calculated?.figure.inputs.find(
+                (each) => each.name.toLowerCase() === name.toLowerCase(),
+              )?.label ?? null,
+          )
+        : null,
     difference: unchecked ? null : differenceText(parent, language),
     status: {
       glyph,

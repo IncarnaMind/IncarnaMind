@@ -1063,9 +1063,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         problems.push("A figure needs a marker number (1, 2, …) that is in the Answer as [=n].");
         continue;
       }
-      if (recorded.get(marker)?.figure.analysis !== undefined) {
+      const earlierFigure = recorded.get(marker)?.figure;
+      if (earlierFigure?.analysis !== undefined || earlierFigure?.workbook !== undefined) {
         problems.push(
-          `[=${marker}] belongs to an Analysis. Keep that marker for its result; choose a new marker for this calculation.`,
+          `[=${marker}] belongs to ${earlierFigure.analysis ? "an Analysis" : "a workbook's formulas"}. Keep that marker for its result; choose a new marker for this calculation.`,
         );
         continue;
       }

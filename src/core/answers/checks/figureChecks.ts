@@ -324,7 +324,8 @@ export interface FigureCheckOptions {
 
 function replay(target: CheckFigure, calculations: CalculationSession): CalculatedFigure | null {
   const saved = target.calculated?.figure;
-  if (!saved || saved.analysis || saved.inputs.length === 0) return null;
+  // A workbook's figure is worked out from its whole model, which a quote can't carry (#2347).
+  if (!saved || saved.analysis || saved.workbook || saved.inputs.length === 0) return null;
   const inputs: FigureInput[] = [];
   for (const input of saved.inputs) {
     const checked = calculations.recheck(input);

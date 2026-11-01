@@ -800,6 +800,43 @@ export const en = {
   "figures.inline.literal": "{value}, written in the formula",
   "figures.inline.raw": "Cell’s stored value: {value}",
   "figures.inline.original": "Original input",
+  "figures.workbook.workedOut": "Worked out again from the workbook’s formulas",
+  "figures.workbook.savedValue": "The workbook’s saved value",
+  "figures.workbook.formulas": "{count} formulas worked out in all",
+  "figures.workbook.change": "Changed {input} ({cell}) from {from} to {to}",
+  "figures.workbook.inWorkbook": "In the workbook as it is: {value}",
+  "figures.workbook.moreInputs": "{count} more inputs not listed",
+  "figures.workbook.note":
+    "IncarnaMind worked this out again from the workbook’s own formulas, in memory: the file is unchanged. Each input is cited to its cell. This doesn’t show that the model’s assumptions are right.",
+  "figures.workbook.kept.volatile":
+    "{cell} uses {name}, which gives a new value each time, so its saved value is used",
+  "figures.workbook.kept.finds-cells":
+    "{cell} uses {name} to find its cells as it runs, so its saved value is used",
+  "figures.workbook.kept.function":
+    "IncarnaMind can’t work out {name} in {cell} (a macro’s, perhaps), so its saved value is used",
+  "figures.workbook.kept.add-in":
+    "{cell} uses {name}, an add-in’s function, so its saved value is used",
+  "figures.workbook.kept.data-table": "{cell} is part of a data table, so its saved value is used",
+  "figures.workbook.kept.external": "{cell} links to another workbook, so its saved value is used",
+  "figures.workbook.kept.table":
+    "{cell} refers to a table by its column names, so its saved value is used",
+  "figures.workbook.kept.three-d":
+    "{cell} reads the same cells across several sheets, so its saved value is used",
+  "figures.workbook.kept.unreadable":
+    "IncarnaMind can’t read the formula in {cell}, so its saved value is used",
+  "figures.workbook.kept.circular": "{cell} is in a circular reference, so its saved value is used",
+  "figures.workbook.kept.iterative":
+    "{cell} is in a circular reference that Excel works out by iterating, so its saved value is used",
+  "figures.workbook.kept.not-read":
+    "{cell} reads “{name}”, which wasn’t read (hidden, or past the reading limit), so its saved value is used",
+  "figures.workbook.kept.array":
+    "{cell} is an array formula over several cells, so its saved value is used",
+  "figures.workbook.kept.no-saved-value":
+    "The workbook saved no result for {cell}: it was written by a program and not opened in Excel since",
+  "figures.workbook.kept.differs":
+    "IncarnaMind’s result for {cell} differs from the value the workbook saved, so the saved value is used",
+  "figures.workbook.kept.too-large":
+    "{cell} reads a block too large to work out here, so its saved value is used",
   "figures.card.source": "{figure}: the source gives {value} ({source})",
   "figures.inline.openInput": "Open",
   "figures.export.sheet": "Schedule",
@@ -4385,6 +4422,10 @@ export const en = {
   "export.citation.accessed": "accessed {date}",
   "export.figure.calculated": "Calculated: {formula} = {figure}.",
   "export.figure.analysis": "Calculated by the Analysis “{title}”: {figure}.",
+  "export.figure.workbook":
+    "Worked out from the workbook’s formulas ({cell} = {formula}): {figure}.",
+  "export.figure.whatIf":
+    "Worked out from the workbook’s formulas ({cell} = {formula}) with {input} changed to {value}: {figure}.",
   "export.figure.inputs": "{inputs}: {source}.",
   "export.figure.cluster": "calculated from {cluster}",
   "export.figure.cluster.note": "Calculated from {cluster}",
