@@ -47,6 +47,7 @@ import {
   readFigures,
   readStatedUnits,
   type StatedCurrency,
+  unsettledScales,
 } from "../../shared/figures";
 import {
   evaluateFormula,
@@ -479,7 +480,28 @@ function storedAs(reading: Reading, stored: number): number {
 interface Stated {
   statement: string;
   reading: Reading;
+  /**
+   * Why no unitQuote can settle it: the scale is stated only in a running header or footer, which
+   * no Passage quotes, or written in a form that reads more than one way ("in MM").
+   */
+  unquotable?: "header" | "unsettled";
 }
+
+/** Why a number with no unit of its own can't be calculated where its page states a scale. */
+function candidateProblem(chars: string, where: string, candidate: Stated): string {
+  if (candidate.unquotable === "header")
+    return `${chars} has no unit, and a running header or footer at ${where} states a scale ("${candidate.statement}") that no Passage quotes; it can't be calculated without guessing its scale.`;
+  if (candidate.unquotable === "unsettled")
+    return `${chars} has no unit, and ${where} writes "${candidate.statement}", which can be read as more than one scale or unit; it can't be calculated without guessing its scale.`;
+  return `${chars} has no unit, and ${where} says "${candidate.statement}"; give that line as unitQuote.`;
+}
+
+/** A reading of `base` a thousand times over: a stand-in for a scale that can't be settled, to tell whether a result depends on it. */
+const thousandfold = (base: Reading): Reading => ({
+  ...base,
+  value: base.value * 1000,
+  scale: base.scale * 1000,
+});
 
 /** An input as the core read it. */
 interface ReadInput {
@@ -563,24 +585,24 @@ export function createCalculationSession(options: CalculationSessionOptions) {
 
   /**
    * The scale a Document version states anywhere, read once: a line the reader applies
-   * ("in thousands", "单位：万元"), a currency next to a scale token ("£'000"), or a page's
-   * running header kept from before it was stripped. `stale`: a page was read before this
-   * build kept that marker, so a scale it wrote can't be ruled out (#1001).
+   * ("in thousands", "单位：万元"), a currency next to a scale token ("£'000"), a PDF's running
+   * header or a Word header kept beside a page's text, or a form that reads more than one way
+   * ("in MM", #2365). `stale`: a page was read before this build kept that marker, so a scale it
+   * wrote can't be ruled out (#1001).
    */
   const scaleOf = (citation: Citation): { scale: string | null; stale: boolean } => {
     const key = `${citation.documentId}\n${citation.contentHash}`;
     let found = scales.get(key);
     if (!found) {
       const units = documents.pageTexts(citation.documentId, citation.contentHash, null, null);
-      const stated = readStatedUnits(
-        units.map((unit) => unit.text).join("\n"),
-        contextOf(citation),
-      ).find((each) => each.scale !== 1);
+      const all = units.map((unit) => unit.text).join("\n");
+      const stated = readStatedUnits(all, contextOf(citation)).find((each) => each.scale !== 1);
       found = {
         scale:
           units.find((unit) => unit.scaleMarker)?.scaleMarker ??
-          currencyScaleMarker(units.map((unit) => unit.text).join("\n")) ??
+          currencyScaleMarker(all) ??
           stated?.chars ??
+          unsettledScales(all, contextOf(citation))[0] ??
           null,
         stale: units.some((unit) => unit.scaleMarker === null),
       };
@@ -916,6 +938,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     else if (unit && !ownUnit) {
       const row = onLine(unit.citation.quote);
       const statedLine = readStatedUnits(unit.citation.quote, context, true);
+      const [unsure] =
+        row || statedLine.length > 0 ? [] : unsettledScales(unit.citation.quote, context);
+      if (unsure)
+        return `the unitQuote "${unit.citation.quote}" writes "${unsure}", which can be read as more than one scale or unit; ${figure.chars} can't be calculated without guessing its scale.`;
       // A statement may write its currency on its own first figure ("Sale price £385,000.00") instead of in a heading (#1001).
       const onFigure =
         row === null && statedLine.length === 0
@@ -970,7 +996,17 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       }
       if (found.length > 1)
         return `${figure.chars} has no unit, and ${whereOf(quoted)} states more than one (${found.map((each) => `"${each.statement}"`).join(", ")}); give the line that applies to it as unitQuote.`;
-      candidate = found[0] ?? null;
+      const header = quoted.units.find(
+        ({ text, scaleMarker }) => scaleMarker && !text.includes(scaleMarker),
+      )?.scaleMarker;
+      const [unsure] = unsettledScales(page, context);
+      candidate =
+        found[0] ??
+        (header
+          ? { statement: header, reading: thousandfold(base), unquotable: "header" }
+          : unsure
+            ? { statement: unsure, reading: thousandfold(base), unquotable: "unsettled" }
+            : null);
     }
 
     let rate: ReadInput["rate"] = null;
@@ -1113,9 +1149,12 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         plain.ok && scaled.ok ? !sameValue(plain.value, scaled.value) : plain.ok !== scaled.ok;
       if (depends)
         return {
-          problems: affected.map(
-            (read) =>
-              `${lead} ${read.given.name}: ${read.figure.chars} has no unit, and ${read.where} says "${read.candidate?.statement}"; give that line as unitQuote.`,
+          problems: affected.flatMap((read) =>
+            read.candidate
+              ? [
+                  `${lead} ${read.given.name}: ${candidateProblem(read.figure.chars, read.where, read.candidate)}`,
+                ]
+              : [],
           ),
         };
     }
@@ -1279,9 +1318,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       if (typeof read === "string")
         return { problem: read, ...(onUnreadPage(given) && { pageUnread: true as const }) };
       if (read.candidate && !read.unit) {
-        return {
-          problem: `${read.figure.chars} has no unit, and ${read.where} says "${read.candidate.statement}"; give that line as unitQuote.`,
-        };
+        return { problem: candidateProblem(read.figure.chars, read.where, read.candidate) };
       }
       return { input: checkedNumber(read) };
     },

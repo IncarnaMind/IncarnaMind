@@ -188,6 +188,34 @@ describe("Word", () => {
     ]);
   });
 
+  // protects=#2365; fails_when=a scale stated only in a Word header or footer is lost, lands in the Unit's searchable text, or is given to a Unit of another Word section.
+  test("keeps each Word section's header and footer beside its Units' text, the next section keeping the footer it doesn't replace", async () => {
+    const units = await extractUnits(
+      "docx",
+      docxOf(
+        [
+          { text: "Group accounts", heading: 1 },
+          { text: "Revenue 1,200" },
+          {
+            text: "Costs 300",
+            endsSection: { header: "Holdings Ltd (£'000)", footer: "Confidential" },
+          },
+          { text: "子公司", heading: 1 },
+          { text: "收入 1,200" },
+        ],
+        { header: "金额单位：万元" },
+      ),
+    );
+
+    expect(units.map((unit) => [unit.text, unit.runningText])).toEqual([
+      ["Group accounts\nRevenue 1,200\nCosts 300", "Holdings Ltd (£'000)\nConfidential"],
+      ["子公司\n收入 1,200", "金额单位：万元\nConfidential"],
+    ]);
+    expect(
+      (await extractUnits("docx", docxOf([{ text: "No header here." }])))[0],
+    ).not.toHaveProperty("runningText");
+  });
+
   test("reads the comment of a real Word file into its first section", async () => {
     const { units } = await extractDocx(fixture("Field Report.docx"));
 

@@ -7,24 +7,28 @@
  * Read: body paragraphs and tables, in order (a table row is one line, its
  * cells separated by tabs), runs, tabs, breaks, hyperlinks, insertions,
  * content controls, and one branch of `mc:AlternateContent`. Left out:
- * deleted text, field instructions, headers and footers, and list numbers
- * ("1.", "a)"). Headings are found from styles.xml, by name ("heading N") or
- * outline level, so localised style ids work. Ported from the office-formats
- * spike.
+ * deleted text, field instructions and list numbers ("1.", "a)"). Headings
+ * are found from styles.xml, by name ("heading N") or outline level, so
+ * localised style ids work. Ported from the office-formats spike.
+ *
+ * Headers and footers aren't in a Unit's text, which would repeat them in
+ * every section; each Unit keeps those of the Word sections it is in as its
+ * `runningText`, for the scale they may state ("£'000", #2365).
  *
  * Comments (#76) are read into the Unit their reference mark is in, where
  * the viewer shows them beside the pages (where their range starts, for one
  * with no mark), after that Unit's own text: each after a blank line,
  * anchored as "comment" and its id, and named with its author in the Unit's
  * label, so a quote of it is cited at its section, as a comment by its
- * author. Comments anchored only in headers or footers, which aren't read,
- * are left out.
+ * author. Comments anchored only in headers or footers, which aren't in a
+ * Unit's text, are left out.
  */
 import { type TextUnit, UnitBuilder, type UnitComment } from "../../../shared/units";
 import { headingLevelOfStyleName } from "../../../shared/wordStyles";
+import { relationshipsOf } from "./docxPackage";
 import { ExtractionError } from "./errors";
 import { child, elements, local, parseXml, type XmlElement } from "./xml";
-import { openPackage } from "./zip";
+import { openPackage, type ZipArchive } from "./zip";
 
 /** A section longer than this many characters is split into parts at paragraph ends. */
 export const MAX_SECTION_CHARS = 6000;
@@ -62,10 +66,12 @@ interface CommentMarks {
 }
 
 interface Paragraph extends CommentMarks {
-  /** Empty only for a paragraph read for the comments it refers to. */
+  /** Empty only for a paragraph read for the comments it refers to, or for the section it ends. */
   text: string;
   /** 0 for a Title, 1–9 for headings, null for body text. */
   level: number | null;
+  /** The properties of the Word section this paragraph ends, when it ends one. */
+  sectionEnd?: XmlElement;
 }
 
 /** The text of run content; the comments it refers to go into `marks`. */
@@ -142,8 +148,11 @@ function readBlocks(container: XmlElement, styles: Map<string, number>, out: Par
           : outline !== undefined && Number(outline) < 9
             ? Number(outline) + 1
             : null;
-      if (text) out.push({ text, level, ...marks });
-      else if (refersToComments(marks)) out.push({ text, level: null, ...marks });
+      const sectionEnd = pPr && child(pPr, "w:sectPr");
+      const ends = sectionEnd ? { sectionEnd } : {};
+      if (text) out.push({ text, level, ...marks, ...ends });
+      else if (refersToComments(marks) || sectionEnd)
+        out.push({ text, level: null, ...marks, ...ends });
     } else if (element.name === "w:tbl") {
       for (const row of elements(element).filter((each) => each.name === "w:tr")) {
         const marks: CommentMarks = { references: [], starts: [] };
@@ -233,6 +242,45 @@ function addComments(
   return added;
 }
 
+/**
+ * The text of each Word section's headers and footers, in the order the sections run: the last
+ * section's properties are the body's own. A section without a header or footer of a kind (first
+ * page, even pages, the rest) keeps the one before it, as Word shows it.
+ */
+async function runningTexts(
+  zip: ZipArchive,
+  sections: readonly (XmlElement | undefined)[],
+  styles: Map<string, number>,
+): Promise<string[]> {
+  const rels = await relationshipsOf(zip, "word/document.xml");
+  const parts = new Map<string, string>();
+  const textOfPart = async (part: string) => {
+    let text = parts.get(part);
+    if (text === undefined) {
+      const xml = await zip.readText(part);
+      const inner: Paragraph[] = [];
+      if (xml) readBlocks(parseXml(xml), styles, inner);
+      text = textOf(inner, "\n");
+      parts.set(part, text);
+    }
+    return text;
+  };
+  const current = new Map<string, string>();
+  const texts: string[] = [];
+  for (const section of sections) {
+    for (const reference of section ? elements(section) : []) {
+      const kind = local(reference.name);
+      if (kind !== "headerReference" && kind !== "footerReference") continue;
+      const target = rels.get(reference.attrs["r:id"] ?? "");
+      if (target && !target.external)
+        current.set(`${kind} ${reference.attrs["w:type"] ?? "default"}`, target.target);
+    }
+    const written = await Promise.all([...new Set(current.values())].map(textOfPart));
+    texts.push([...new Set(written.filter(Boolean))].join("\n"));
+  }
+  return texts;
+}
+
 /** A heading of the Document, for the viewer's outline. */
 export interface DocxHeading {
   /** From 1. */
@@ -262,6 +310,14 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
   if (body) readBlocks(body, styles, paragraphs);
   const comments = readComments(await zip.readText("word/comments.xml"), styles);
   const anchors = commentAnchors(paragraphs);
+  const running = await runningTexts(
+    zip,
+    [
+      ...paragraphs.flatMap((paragraph) => (paragraph.sectionEnd ? [paragraph.sectionEnd] : [])),
+      body && child(body, "w:sectPr"),
+    ],
+    styles,
+  );
 
   const units: TextUnit[] = [];
   const headings: DocxHeading[] = [];
@@ -273,10 +329,16 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
   let part = 1;
   /** The comments anchored in the Unit being built, added after its text. */
   let pending: string[] = [];
+  /** The Word sections the Unit being built is in. */
+  let inSections = new Set<number>();
+  let section = 0;
   const flush = () => {
     const added = addComments(builder, pending, comments);
     if (!builder.empty) {
       const heading = path.filter(Boolean);
+      const runningText = [...new Set([...inSections].map((each) => running[each] ?? ""))]
+        .filter(Boolean)
+        .join("\n");
       units.push({
         page: units.length + 1,
         kind: "section",
@@ -288,10 +350,12 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
         },
         text: builder.text,
         anchors: builder.anchors,
+        ...(runningText ? { runningText } : {}),
       });
     }
     builder = new UnitBuilder();
     pending = [];
+    inSections = new Set();
   };
 
   let read = 0;
@@ -312,8 +376,10 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
       }
       read++;
       builder.add(paragraph.text, `p${read}`);
+      inSections.add(section);
     }
     pending.push(...commentsAt(paragraph, index, anchors));
+    if (paragraph.sectionEnd) section++;
   });
   flush();
 

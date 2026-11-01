@@ -767,9 +767,11 @@ const CN_SCALES: Readonly<Record<string, number>> = {
   亿: 8,
   万: 4,
   千: 3,
+  // Taiwan's statements write 仟 for 千: "新台幣仟元".
+  仟: 3,
   百: 2,
 };
-const CN_SCALE_AFTER = /万亿|千亿|百亿|十亿|千万|百万|十万|亿|万|千(?![克米瓦帕焦卡])|百(?!分)/y;
+const CN_SCALE_AFTER = /万亿|千亿|百亿|十亿|千万|百万|十万|亿|万|千(?![克米瓦帕焦卡])|仟|百(?!分)/y;
 
 const EN_SCALES: Readonly<Record<string, number>> = {
   trillion: 12,
@@ -1082,34 +1084,61 @@ interface Statement extends Span {
 }
 
 const CN_UNIT_WORDS = `${HAN_CURRENCIES}|元`;
+const CN_STATED_SCALES = "十亿|亿|千万|百万|万|千|仟";
+// Outside a heading, "十亿元" is a figure: 十 is a numeral.
+const CN_SCALES_AFTER_WORDS = "亿|千万|百万|万|千|仟";
+// "伍拾肆万捌仟元" is a figure in financial capitals, not a statement of 仟元.
+const BEFORE_CN_SCALE = `${CN_NUMERAL_CHARS}零壹贰叁肆伍陆柒捌玖拾佰\\d.,百千仟万亿`;
+const STATED_CURRENCY =
+  "US\\$|HK\\$|A\\$|C\\$|S\\$|NT\\$|\\$|€|£|¥|₹|Rs\\.?|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF|INR";
+// "'000", "000s" and "(000)" scale a column in thousands; "1,000s of users", "1 000s",
+// "order 000123", "Room 000" and "(000) 123-4567" are figures or codes.
+const THOUSANDS = "'000(?:'?s)?|000'?s";
 const STATEMENTS: readonly RegExp[] = [
   new RegExp(
-    `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
+    `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
     "dg",
   ),
   new RegExp(`币种[:：]?(?<before>${HAN_CURRENCIES})`, "dg"),
   new RegExp(
-    `[(（](?<before>${HAN_CURRENCIES}|RMB|USD|HK\\$)?(?<scale>十亿|亿|千万|百万|万|千)?(?<unit>${CN_UNIT_WORDS}|股|%)[)）]`,
+    `[(（](?<before>${HAN_CURRENCIES}|RMB|USD|HK\\$)?(?<scale>${CN_STATED_SCALES})?(?<unit>${CN_UNIT_WORDS}|股|%)[)）]`,
     "dg",
   ),
+  // A column head's "金额（万）" or "（港币百万）"; "3（万）" is a figure.
+  new RegExp(`(?<!\\d)[(（](?<before>${HAN_CURRENCIES})?(?<scale>${CN_STATED_SCALES})[)）]`, "dg"),
   new RegExp(
-    `(?<![${CN_NUMERAL_CHARS}\\d.,百千万亿])(?<before>人民币|RMB)?(?<scale>亿|千万|百万|万|千)(?<unit>${CN_UNIT_WORDS})`,
+    `(?<![${BEFORE_CN_SCALE}])(?<before>${HAN_CURRENCIES}|RMB)?(?<scale>${CN_SCALES_AFTER_WORDS})(?<unit>${CN_UNIT_WORDS})`,
+    "dg",
+  ),
+  // "港币百万" with no 元 after it; "人民币千万不要" goes on in a sentence.
+  new RegExp(
+    `(?<![${BEFORE_CN_SCALE}])(?<before>${HAN_CURRENCIES})(?<scale>${CN_SCALES_AFTER_WORDS})(?=$|[\\s)）|,，;；。:：]|计|列)`,
     "dg",
   ),
   /(?<![A-Za-z])in (?<scale>thousands|millions|billions)(?: of (?<cur>U\.?S\.? dollars|US dollars|Hong Kong dollars|HK dollars|dollars|euros|[Rr]enminbi|RMB|yuan|pounds sterling|pounds|yen))?(?![A-Za-z])/dgi,
-  /(?<![\dA-Za-z.,])(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?(?:in )?(?<scale>'000s?|000s|thousands?|millions?|billions?|mn|bn|m|k)(?![A-Za-z0-9])(?![ \u00a0]?[\d(-])/dg,
+  new RegExp(
+    `(?<![\\dA-Za-z.,])(?<cur>${STATED_CURRENCY})[ \\u00a0]?(?:in )?(?<scale>'?000(?:'?s)?|thousands?|millions?|billions?|lakhs?|crores?|MM|mm|mn|Mn|MN|bn|Bn|BN|Mio\\.?|Mrd\\.?|Tsd\\.?|m|M|k|K|b|B)(?![A-Za-z0-9])(?![ \\u00a0]?[\\d(-])(?![.,]\\d)`,
+    "dg",
+  ),
+  // German reports' "TEUR", "T€", "k€", "MEUR" and "Mio. €"; "1,2 M€" is a figure.
+  /(?<![A-Za-z])(?<![\d.,][ \u00a0]?)(?<scale>Mio\.?|Mrd\.?|Tsd\.?|k|K|M)[ \u00a0]?(?<cur>EUR|€|CHF|USD|GBP|£|\$)(?![A-Za-z0-9])(?![ \u00a0]?[\d(-])/dg,
+  /(?<![\dA-Za-z.,])(?<scale>T)(?<cur>EUR|€|CHF|USD)(?![A-Za-z0-9])(?![ \u00a0]?[\d(-])/dg,
+  new RegExp(`(?<![\\dA-Za-z.,'])(?<!\\d[ \\u00a0])(?<scale>${THOUSANDS})(?![\\dA-Za-z'])`, "dg"),
+  /[(（][ \u00a0]?(?:in[ \u00a0])?(?<scale>'?000(?:'?s)?)(?:[ \u00a0]omitted)?[ \u00a0]?[)）](?![ \u00a0-]?\d)/dg,
+  /(?<![\dA-Za-z.,'])(?<scale>'?000(?:'?s)?)[ \u00a0]omitted(?![A-Za-z])/dg,
+  /(?<![A-Za-z])in[ \u00a0](?<scale>000)(?![\dA-Za-z.,'])/dg,
   /[(（][ \u00a0]?(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?[)）]/dg,
-  // A heading's "Unit: million tonnes", "(thousand tonnes)" or a row's "thousand tonnes" cell; in a
-  // sentence, "78 million tonnes" is a figure and "a million people" states nothing.
-  /(?<=(?:^|[\n\t(（|]|\bunits?[ \u00a0]?[:：])[ \u00a0]*)(?<scale>thousands?|millions?|billions?)(?:[ \u00a0]of)?[ \u00a0](?<unit>[a-z]+(?:[ \u00a0][a-z]+)?)(?=[ \u00a0]*(?:$|[\n\t)）|]))/dgi,
+  // A heading's "Unit: million tonnes", "(thousand tonnes)", "(thousands)" or a row's "thousand
+  // tonnes" cell; in a sentence, "78 million tonnes" is a figure and "a million people" states nothing.
+  /(?<=(?:^|[\n\t(（|]|\bunits?[ \u00a0]?[:：])[ \u00a0]*)(?<scale>thousands?|millions?|billions?)(?:(?:[ \u00a0]of)?[ \u00a0](?<unit>[a-z]+(?:[ \u00a0][a-z]+)?))?(?=[ \u00a0]*(?:$|[\n\t)）|]))/dgi,
   /[(（]%[)）]|(?<![A-Za-z])in (?:%|per cent|percent)(?![A-Za-z])/dg,
 ];
 
 /** The power of ten a scale word multiplies by: 8 for "亿", 6 for "million" or "m"; 0 for a word that isn't one. */
 export function scaleExponent(word: string): number {
-  const lower = word.toLowerCase().replace(/s$/, "");
+  const lower = word.toLowerCase().replace(/['’]/g, "").replace(/s$/, "");
   if (CN_SCALES[word] !== undefined) return CN_SCALES[word];
-  if (lower === "'000" || lower === "000") return 3;
+  if (lower === "000") return 3;
   return EN_SCALES[lower] ?? 0;
 }
 
@@ -1150,7 +1179,8 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
       found.push({
         from: match.index,
         to: match.index + match[0].length,
-        exponent: scale ? scaleExponent(scale) : 0,
+        // "TEUR" is German for thousands of euros; a figure's own "T" is never read as a scale.
+        exponent: scale === "T" ? 3 : scale ? scaleExponent(scale) : 0,
         scaleWord: written(at.scale),
         unit,
       });
@@ -1269,6 +1299,43 @@ const CURRENCY_SCALE = new RegExp(
  */
 export function currencyScaleMarker(text: string): string | null {
   return CURRENCY_SCALE.exec(prepare(text).s)?.[0] ?? null;
+}
+
+// "in MM" may be millions, millimetres or months, "in K" thousands or kelvin, "in M" millions or
+// metres; "(K)" and "(M)" are a contract's clauses, and "(mm)" millimetres.
+const UNSURE_SCALE = /(?<![A-Za-z])in[  ](?:MM|K|M)(?![A-Za-z0-9&.'-])|[(]MM[)]/dg;
+const SCALE_TOKEN =
+  "(?:Mio|Mrd|Tsd|[Tt]housands?|[Mm]illions?|[Bb]illions?|MM|mm|mn|Mn|bn|Bn|BN|k|K|m|M|b|B|T|'?000s?|千|仟|万|百万|亿)";
+const CURRENCY_WORD = `(?:(?<![A-Za-z])(?:${CURRENCY_ISO_CODES}|CN¥|JP¥|US\\$|HK\\$|A\\$|C\\$|S\\$|NT\\$)|\\$|[¥€£₹₩₽₺฿₫₱]|${HAN_CURRENCIES})`;
+const CURRENCY_NEXT_TO_SCALE = new RegExp(
+  `${CURRENCY_WORD}[ \\u00a0]?${SCALE_TOKEN}(?![A-Za-z0-9\\u4e00-\\u9fff])|(?<![A-Za-z])${SCALE_TOKEN}\\.?[ \\u00a0]?${CURRENCY_WORD}(?![A-Za-z])`,
+  "dg",
+);
+const BEFORE_NUMBER = new RegExp(
+  `(?:\\d[.,' \\u00a0]?|[${CN_NUMERAL_CHARS}零壹贰叁肆伍陆柒捌玖拾佰])$`,
+);
+
+/**
+ * The scale forms `text` writes that `readStatedUnits` can't settle, as written: "in MM", which
+ * may be millions or millimetres, or a currency next to a scale token it doesn't know ("$T").
+ * A number under one can't be calculated without guessing its scale (#2365).
+ */
+export function unsettledScales(text: string, context: FigureContext = {}): string[] {
+  const prepared = prepare(text);
+  const { s } = prepared;
+  const settled = statementsIn(prepared, text, settle(context));
+  const found: string[] = [];
+  for (const pattern of [UNSURE_SCALE, CURRENCY_NEXT_TO_SCALE]) {
+    for (const match of s.matchAll(pattern)) {
+      const from = match.index;
+      const to = from + match[0].length;
+      if (settled.some((each) => each.from < to && from < each.to)) continue;
+      if (BEFORE_NUMBER.test(s.slice(Math.max(0, from - 2), from))) continue;
+      if (/^[  ]?\d/.test(s.slice(to, to + 2))) continue;
+      found.push(text.slice(prepared.from[from], prepared.to[to - 1]));
+    }
+  }
+  return found;
 }
 
 // Numerals -------------------------------------------------------------------

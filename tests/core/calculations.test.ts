@@ -34,7 +34,7 @@ import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/do
 import { askAndEnd, isAnswer, QWEN35, setUpLocalModel } from "../helpers/localModels";
 import { answerIn, question, writeMind } from "../helpers/minds";
 import { answerRequests, promptOf, scriptedModel, scriptedModels } from "../helpers/models";
-import { xlsxPackage } from "../helpers/office";
+import { docxOf, xlsxOf, xlsxPackage } from "../helpers/office";
 import { type OllamaChatReply, startOllamaServer } from "../helpers/ollama";
 import { buildPdf } from "../helpers/pdf";
 
@@ -1732,6 +1732,396 @@ describe("A currency on a statement's first amount (#1001)", { timeout: 60_000 }
     expect(answer.figures).toEqual([]);
     expect(finished.uncalculated).toBe(2);
   });
+});
+
+/** A scale a Document states in one of the forms #2365 found the reader missing, and what 1,200 − 300 under it is worth. */
+interface ScaleForm {
+  /** A word only this Document has, for its search. */
+  code: string;
+  line: string;
+  value: number;
+}
+
+const ENGLISH_FORMS: readonly ScaleForm[] = [
+  { code: "Alpha", line: "Amounts in £'000", value: 900_000 },
+  { code: "Bravo", line: "All amounts in '000", value: 900_000 },
+  { code: "Charlie", line: "Figures in 000s", value: 900_000 },
+  { code: "Delta", line: "(000 omitted)", value: 900_000 },
+  { code: "Echo", line: "Angaben in TEUR", value: 900_000 },
+  { code: "Foxtrot", line: "Angaben in T€", value: 900_000 },
+  { code: "Golf", line: "Amounts in k€", value: 900_000 },
+  { code: "Hotel", line: "Amounts in $K", value: 900_000 },
+  { code: "India", line: "Amounts in MEUR", value: 900_000_000 },
+  { code: "Juliett", line: "(in $MM)", value: 900_000_000 },
+  { code: "Lima", line: "USD MM", value: 900_000_000 },
+];
+const CHINESE_FORMS: readonly ScaleForm[] = [
+  { code: "Mike", line: "金额（万）", value: 9_000_000 },
+  { code: "November", line: "單位：新台幣仟元", value: 900_000 },
+  { code: "Oscar", line: "單位：港幣百萬", value: 900_000_000 },
+  { code: "Papa", line: "金額（萬）", value: 9_000_000 },
+];
+
+type ScaleFormat = "pdf" | "word" | "word header" | "sheet";
+
+/**
+ * The rows a form's Document writes: its title, then revenue and costs, in its language. An English
+ * "1,200" alone could group thousands or mark decimals, so its amounts have a decimal point.
+ */
+const scaleRows = (form: ScaleForm, chinese: boolean) =>
+  chinese
+    ? { title: `${form.code} 公司账目`, revenue: ["收入", "1,200"], costs: ["成本", "300"] }
+    : {
+        title: `${form.code} Holdings accounts`,
+        revenue: ["Revenue", "1,234.5"],
+        costs: ["Costs", "334.5"],
+      };
+
+/** A Document of `format` stating `form`'s scale: on its page, in its body, only in its header, or in a cell. */
+function scaleDocument(form: ScaleForm, format: ScaleFormat, chinese: boolean) {
+  const { title, revenue, costs } = scaleRows(form, chinese);
+  const line = ([label, number]: string[]) => `${label} ${number}`;
+  const cells = ([label = "", number = ""]: string[]) => [label, Number(number.replace(",", ""))];
+  switch (format) {
+    case "pdf":
+      return {
+        name: `${form.code} accounts.pdf`,
+        contents: buildPdf([
+          chinese
+            ? { chineseLines: [title, form.line, line(revenue), line(costs)] }
+            : { lines: [title, form.line, line(revenue), line(costs)] },
+        ]),
+      };
+    case "word":
+    case "word header":
+      return {
+        name: `${form.code} accounts.docx`,
+        contents: docxOf(
+          [
+            { text: title, heading: 1 },
+            ...(format === "word" ? [{ text: form.line }] : []),
+            { text: line(revenue) },
+            { text: line(costs) },
+          ],
+          format === "word header" ? { header: form.line } : {},
+        ),
+      };
+    case "sheet":
+      return {
+        name: `${form.code} accounts.xlsx`,
+        contents: xlsxOf([
+          {
+            name: form.code,
+            rows: [[title], [form.line], cells(revenue), cells(costs)],
+          },
+        ]),
+      };
+  }
+}
+
+/** Where a form's revenue and costs are quoted from, and their numbers as written. */
+function scaleQuotes(form: ScaleForm, format: ScaleFormat, chinese: boolean) {
+  const { revenue, costs } = scaleRows(form, chinese);
+  const quote = ([label, number]: string[]) =>
+    format === "sheet" ? `${label}\t${number?.replace(",", "")}` : `${label} ${number}`;
+  const number = (written: string | undefined) =>
+    format === "sheet" ? (written ?? "").replace(",", "") : (written ?? "");
+  return {
+    revenue: { quote: quote(revenue), number: number(revenue[1]) },
+    costs: { quote: quote(costs), number: number(costs[1]) },
+  };
+}
+
+/**
+ * A model that searches for every form's Document at once, cites its revenue and costs, works
+ * out revenue − costs for each with no unitQuote, then again, when `withUnitQuote`, with its
+ * scale line as unitQuote.
+ */
+function scaleModel(
+  forms: readonly ScaleForm[],
+  format: ScaleFormat,
+  chinese: boolean,
+  withUnitQuote: boolean,
+) {
+  const figures = (unitQuote: boolean) =>
+    forms.map((form, index) => {
+      const { revenue, costs } = scaleQuotes(form, format, chinese);
+      const scale = unitQuote ? { unitQuote: form.line } : {};
+      return {
+        marker: index + 1,
+        label: `${form.code} margin`,
+        formula: "rev - cost",
+        inputs: [
+          {
+            name: "rev",
+            label: "Revenue",
+            citation: 2 * index + 1,
+            number: revenue.number,
+            ...scale,
+          },
+          { name: "cost", label: "Costs", citation: 2 * index + 2, number: costs.number, ...scale },
+        ],
+      };
+    });
+  const steps: ((passages: ShownPassage[]) => Call[])[] = [
+    (passages) => {
+      const citations = forms.flatMap((form, index) => {
+        const passage = passages.find((each) => each.document.startsWith(`${form.code} accounts`));
+        if (!passage) throw new Error(`No Passage of ${form.code} was shown.`);
+        const location = passage.location ?? "p. 1";
+        const { revenue, costs } = scaleQuotes(form, format, chinese);
+        return [
+          { marker: 2 * index + 1, passage: passage.id, location, quote: revenue.quote },
+          { marker: 2 * index + 2, passage: passage.id, location, quote: costs.quote },
+        ];
+      });
+      return [
+        { tool: "cite", input: { citations } },
+        { tool: "calculate", input: { figures: figures(false) } },
+      ];
+    },
+    ...(withUnitQuote ? [() => [{ tool: "calculate", input: { figures: figures(true) } }]] : []),
+  ];
+  return scriptedModel((call) => {
+    const searches = call.results.filter((result) => result.tool === "search_documents");
+    if (searches.length === 0) {
+      return {
+        calls: forms.map((form) => ({
+          tool: "search_documents",
+          input: {
+            query: `${form.code} ${chinese ? "公司账目 收入 成本" : "Holdings accounts revenue costs"}`,
+          },
+        })),
+      };
+    }
+    const step = steps[call.index - 1];
+    if (step) return { calls: step(searches.flatMap((each) => shownPassages(each.text))) };
+    return { text: forms.map((_, index) => `[=${index + 1}]`).join(" ") };
+  });
+}
+
+/** Runs `scaleModel` over every form's Document of `format`; returns what the model was told and the figures recorded, by marker. */
+async function calculateUnderScales(
+  forms: readonly ScaleForm[],
+  format: ScaleFormat,
+  chinese: boolean,
+  withUnitQuote: boolean,
+) {
+  const model = scaleModel(forms, format, chinese, withUnitQuote);
+  const { core } = await setUpCalculating(
+    model,
+    forms.map((form) => scaleDocument(form, format, chinese)),
+  );
+  const { answer } = await askAndRead(
+    core,
+    chinese ? "各公司的利润是多少？" : "What is each margin?",
+  );
+  core.close();
+  return {
+    told: told(model, "calculate"),
+    recorded: answer.figures.map((figure) => [figure.marker, figure.value]),
+  };
+}
+
+// protects=#2365; fails_when=a figure from a Document whose scale is written as "'000", "000s", "(000 omitted)", "TEUR", "T€", "k€", "$K", "MEUR", "$MM", "USD MM", "金额（万）", "新台幣仟元" or "港幣百萬" is calculated unscaled, 1,000 to 1,000,000 times too small; no_claim=the Answer's wording, which the scripted model writes.
+describe("A scale written in a form the reader didn't know is applied or refused, never left out (#2365)", {
+  timeout: 120_000,
+}, () => {
+  const each = [
+    ...(["pdf", "word", "sheet"] as const).flatMap((format) => [
+      { format, language: "English", forms: ENGLISH_FORMS, chinese: false },
+      { format, language: "Chinese", forms: CHINESE_FORMS, chinese: true },
+    ]),
+  ];
+
+  test.each(each)(
+    "$format, $language: refused with no unitQuote, then worked out at the scale its line states",
+    async ({ format, forms, chinese }) => {
+      const {
+        told: [asked, fixed],
+        recorded,
+      } = await calculateUnderScales(forms, format, chinese, true);
+
+      const number = scaleQuotes(forms[0] as ScaleForm, format, chinese).revenue.number;
+      for (const marker of forms.map((_, index) => index + 1)) {
+        expect(asked).toContain(`[=${marker}] rev: ${number} has no unit, and `);
+        expect(asked).not.toContain(`Recorded [=${marker}]`);
+        expect(fixed).toContain(`Recorded [=${marker}]`);
+      }
+      expect(recorded).toEqual(forms.map((form, index) => [index + 1, form.value]));
+    },
+  );
+
+  // protects=#2365; fails_when=a scale stated only in a Word file's header is never read, so its figures are calculated unscaled.
+  test.each([
+    { language: "English", forms: ENGLISH_FORMS, chinese: false },
+    { language: "Chinese", forms: CHINESE_FORMS, chinese: true },
+  ])(
+    "a scale only in a Word file's header refuses the figure, as no Passage can quote it: $language",
+    async ({ forms, chinese }) => {
+      const {
+        told: [asked],
+        recorded,
+      } = await calculateUnderScales(forms, "word header", chinese, false);
+
+      for (const [index, form] of forms.entries()) {
+        expect(asked).toContain(
+          `[=${index + 1}] rev: ${chinese ? "1,200" : "1,234.5"} has no unit, and a running header or footer at § ${scaleRows(form, chinese).title} states a scale ("`,
+        );
+      }
+      expect(asked).toContain("it can't be calculated without guessing its scale.");
+      expect(recorded).toEqual([]);
+    },
+  );
+});
+
+// protects=#2365; fails_when=a scale form that reads more than one way ("in MM": millions, millimetres or months) is guessed either way, or ordinary text ("order 000123", "1,000s of users", "(000) 123-4567", "一万人", "万一") is read as a scale and changes or refuses a figure from a Document that states none.
+describe("A scale form that reads two ways is refused; text that states no scale changes nothing (#2365)", {
+  timeout: 120_000,
+}, () => {
+  test("“(in MM)” refuses the figure with no unitQuote and with it; Documents with no scale give the plain difference", async () => {
+    const unsure = { code: "Quebec", line: "Revenue (in MM)", value: 0 };
+    const plain: ScaleForm[] = [
+      { code: "Romeo", line: "Customer order 000123", value: 900 },
+      { code: "Sierra", line: "Used by 1,000s of users", value: 900 },
+      { code: "Tango", line: "Call (000) 123-4567", value: 900 },
+      { code: "Uniform", line: "Thousands of people attended.", value: 900 },
+    ];
+    const {
+      told: [asked, fixed],
+      recorded,
+    } = await calculateUnderScales([unsure, ...plain], "pdf", false, true);
+
+    expect(asked).toContain(
+      `[=1] rev: 1,234.5 has no unit, and p. 1 writes "in MM", which can be read as more than one scale or unit; it can't be calculated without guessing its scale.`,
+    );
+    expect(fixed).toContain(
+      `[=1] rev: the unitQuote "Revenue (in MM)" writes "in MM", which can be read as more than one scale or unit; 1,234.5 can't be calculated without guessing its scale.`,
+    );
+    expect(recorded).toEqual([
+      [2, 900],
+      [3, 900],
+      [4, 900],
+      [5, 900],
+    ]);
+  });
+
+  test("Chinese text with 万 in its words, not as a column's unit, leaves the difference as it is", async () => {
+    const plain: ScaleForm[] = [
+      { code: "Victor", line: "万一成本超支，另行通知", value: 900 },
+      { code: "Whiskey", line: "员工一万人", value: 900 },
+    ];
+    const { recorded } = await calculateUnderScales(plain, "pdf", true, false);
+
+    expect(recorded).toEqual([
+      [1, 900],
+      [2, 900],
+    ]);
+  });
+});
+
+// protects=#2365; fails_when=a two-decimal statement's currency is carried to bare fees under a scale written "000s", "(000 omitted)" or "金额（万）", so the User sees an amount a thousand or ten thousand times too small.
+describe("A statement's first-amount currency isn't carried under a scale form the reader now knows (#2365)", {
+  timeout: 60_000,
+}, () => {
+  test.each([
+    { scale: "Figures in 000s", chinese: false },
+    { scale: "(000 omitted)", chinese: false },
+    { scale: "金额（万）", chinese: true },
+  ])("$scale", async ({ scale, chinese }) => {
+    const lines = chinese
+      ? ["成交价 ¥385.00", "减：中介费 （4.62）"]
+      : ["Sale price £385.00", "Less: agent's fee (4.62)"];
+    const document = {
+      name: "Completion statement 14 Mill Lane.pdf",
+      contents: buildPdf([
+        chinese
+          ? { chineseLines: ["房产交易结算表", scale, ...lines] }
+          : { lines: ["Completion statement: 14 Mill Lane", scale, ...lines] },
+      ]),
+    };
+    const numbers = chinese ? ["¥385.00", "（4.62）"] : ["£385.00", "(4.62)"];
+    const model = calculatingModel({
+      queries: [chinese ? "成交价 中介费" : "sale price deductions"],
+      steps: [
+        citeStatement("Completion statement", lines, (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  label: "Net",
+                  formula: "price + agent",
+                  inputs: [
+                    { name: "price", label: "Price", citation: cited[0], number: numbers[0] },
+                    {
+                      name: "agent",
+                      label: "Fee",
+                      citation: cited[1],
+                      number: numbers[1],
+                      unitQuote: lines[0],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [document]);
+
+    const { answer, finished } = await askAndRead(core, "What are the net proceeds?");
+
+    expect(told(model, "calculate")[0]).toContain("but the Document states a scale (");
+    expect(answer.figures).toEqual([]);
+    expect(finished.uncalculated).toBe(1);
+  });
+});
+
+// protects=#2365; fails_when=a Word file read before this build keeps no header scale until it is added again, or re-reading it holds up the start or changes its Passages.
+test("a Word file read before this build is read again in the background, keeps its Passages, and gains its header's scale", {
+  timeout: 60_000,
+}, async () => {
+  const dataDir = await createTempDataFolder();
+  const model = calculatingModel({ queries: [], steps: [], answer: "Nothing." });
+  const { core } = await setUpCalculating(
+    model,
+    [scaleDocument(ENGLISH_FORMS[0] as ScaleForm, "word header", false)],
+    dataDir,
+  );
+  const saved = (await core.listDocuments())[0];
+  if (!saved) throw new Error("Missing Document.");
+  core.close();
+  const passages = () =>
+    queryDatabase<{ id: string; text: string }>(
+      dataDir,
+      "SELECT id, text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY seq",
+      [saved.id],
+    );
+  const before = passages();
+
+  // As the build before left it: the header never read, and the older pipeline's version.
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  db.run("UPDATE document_pages SET scale_marker = '' WHERE document_id = ?", [saved.id]);
+  db.run("UPDATE documents SET processing_version = 19 WHERE id = ?", [saved.id]);
+  db.close();
+
+  const again = startCore(dataDir);
+  // The start doesn't wait for it: the Word file is only queued.
+  expect((await again.listDocuments())[0]).toMatchObject({ id: saved.id, status: "queued" });
+  await waitForProcessing(again, [saved.id]);
+  expect(
+    queryDatabase<{ scale_marker: string }>(
+      dataDir,
+      "SELECT DISTINCT scale_marker FROM document_pages WHERE document_id = ? AND deleted_at IS NULL",
+      [saved.id],
+    ).map((row) => row.scale_marker),
+  ).toEqual(["£'000"]);
+  expect(passages()).toEqual(before);
+  again.close();
 });
 
 describe("Calculated figures with conversations (ADR-0017)", { timeout: 60_000 }, () => {

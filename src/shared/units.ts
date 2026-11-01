@@ -179,6 +179,11 @@ export interface TextUnit {
   text: string;
   /** Stored for slides and sections; worked out from the text for rows (see `anchorsOf`). */
   anchors: Anchor[] | null;
+  /**
+   * A Word section's headers and footers, which aren't in its text: read only for the scale they
+   * may state, never stored or searched (#2365).
+   */
+  runningText?: string;
 }
 
 /**
