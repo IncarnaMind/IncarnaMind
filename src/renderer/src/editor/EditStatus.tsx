@@ -109,10 +109,17 @@ export function editProblemParts(
       };
     case "consent-revoked":
       return { text: providerErrorText(problem.error, t), role: "alert" };
+    case "unchanged":
+      return {
+        text: problem.said
+          ? t("edit.problem.unchanged.said", { said: problem.said })
+          : t("edit.problem.unchanged"),
+        role: "status",
+      };
     default:
       return {
         text: t(`edit.problem.${problem.kind}`),
-        role: problem.kind === "unchanged" ? "status" : "alert",
+        role: "alert",
       };
   }
 }

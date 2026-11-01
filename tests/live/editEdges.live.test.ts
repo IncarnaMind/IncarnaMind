@@ -21,7 +21,7 @@ import type { EditAction, EditWithAiResult } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { resolveProposals } from "../../src/shared/proposals";
-import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
+import { createTempDataFolder, namedSaid, spentBy, startCore } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 
@@ -208,6 +208,16 @@ function textsOf(client: MindClient): string[] {
   return texts;
 }
 
+/**
+ * Whether `text` says `said`: a <removed>…</removed> the User typed is said when its tags and the
+ * word between them stand in order, as a formal rewrite may set the word in quotation marks.
+ */
+function says(text: string, said: string): boolean {
+  const typed = /^<removed>(.+)<\/removed>$/.exec(said)?.[1];
+  if (typed === undefined) return text.includes(said);
+  return new RegExp(`<removed>[^<>\\n]*${typed}[^<>\\n]*<\\/removed>`, "i").test(text);
+}
+
 /** What went wrong, if anything: `lost` when a word of the User's is gone, else `not as asked`. */
 function verdict(asked: Case, before: string[], after: string[], result: EditWithAiResult) {
   const missing = asked.kept.filter((line) => !after.includes(line));
@@ -223,7 +233,7 @@ function verdict(asked: Case, before: string[], after: string[], result: EditWit
   if ((asked.gone ?? []).some((line) => after.includes(line))) return "not as asked: still there";
   const fresh = after.filter((line) => !before.includes(line));
   const joined = after.join("\n").toLowerCase();
-  if (!(asked.says ?? []).every((word) => joined.includes(word.toLowerCase())))
+  if (!(asked.says ?? []).every((word) => says(joined, word.toLowerCase())))
     return `${asked.kind === "typed" ? "lost" : "not as asked"}: doesn't say ${JSON.stringify(asked.says)}`;
   if (asked.added !== undefined && fresh.length !== asked.added)
     return `not as asked: ${fresh.length} new lines`;
@@ -288,7 +298,11 @@ describe("The edges of an edit, live (#2333)", () => {
       const exact = new Map<Case, number>();
       const lost = new Map<Case, number>();
       const dropped = new Map<Case, number>();
+      /** Results other than Proposals, by kind: an exact run may be a refusal that kept the Note. */
+      const notProposed = new Map<Case, Map<string, number>>();
       const misses: string[] = [];
+      /** The whole replies to requests in the User's words, whose passage shows its paragraphs' names. */
+      const said: string[] = [];
 
       const runJob = async (asked: Case) => {
         const mind = await core.createMind({ title: `${asked.kind} ${crypto.randomUUID()}` });
@@ -325,6 +339,13 @@ describe("The edges of an edit, live (#2333)", () => {
         await client.settled();
         const after = textsOf(client);
         const raw = kept?.raw ?? "";
+        if (result.kind !== "proposed") {
+          const kinds = notProposed.get(asked) ?? new Map<string, number>();
+          kinds.set(result.kind, (kinds.get(result.kind) ?? 0) + 1);
+          notProposed.set(asked, kinds);
+        }
+        if ((asked.action ?? "instruction") === "instruction" && asked.kind !== "cut")
+          said.push(raw);
         if (asked.kind === "typed" && /(?<!\\)<removed>(?:draft|草稿)/.test(raw)) {
           dropped.set(asked, (dropped.get(asked) ?? 0) + 1);
         }
@@ -358,12 +379,15 @@ describe("The edges of an edit, live (#2333)", () => {
         exactTotal += exact.get(asked) ?? 0;
         lostTotal += lost.get(asked) ?? 0;
         const escapes = asked.kind === "typed" ? `, escape dropped ${dropped.get(asked) ?? 0}` : "";
+        const others = [...(notProposed.get(asked) ?? [])].map(
+          ([kind, count]) => `${kind} ${count}`,
+        );
         report.push(
-          `  ${asked.language} ${asked.kind} “${asked.ask || asked.action}”: exact ${exact.get(asked) ?? 0}/${ran}, words lost ${lost.get(asked) ?? 0}${escapes}`,
+          `  ${asked.language} ${asked.kind} “${asked.ask || asked.action}”: exact ${exact.get(asked) ?? 0}/${ran}, words lost ${lost.get(asked) ?? 0}${escapes}${others.length > 0 ? `, not proposed: ${others.join(", ")}` : ""}`,
         );
       }
       report.push(
-        `  all: exact ${exactTotal}/${total}; words lost ${lostTotal}/${total}`,
+        `  all: exact ${exactTotal}/${total}; words lost ${lostTotal}/${total}; ${namedSaid(said)}`,
         ...spentBy(dataDir),
         ...misses,
       );

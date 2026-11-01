@@ -911,6 +911,16 @@ function notProposed(
         { kind: "unplaced", mindId },
         `Nothing was proposed in “${name}”: the rewrite marked text to take out that isn't there word for word in one place: ${quotesSaid(result.quotes)}. The text is as it was: don't say it was changed or removed. To try again, name the words exactly as “${name}” has them.`,
       );
+    case "misnamed":
+      return new Refusal(
+        { kind: "misnamed", mindId },
+        `Nothing was proposed in “${name}”: the rewrite didn't say clearly which paragraph each of its own replaces. The text is as it was: don't say it was changed. You may try again once.`,
+      );
+    case "typed-tag":
+      return new Refusal(
+        { kind: "typed-tag", mindId },
+        `Nothing was proposed in “${name}”: the rewrite left out a <removed> tag the User typed there, which would take their words out. The text is as it was: don't say it was changed. You may try again once, keeping each tag the User typed as it is.`,
+      );
     case "proposed":
       return "";
   }

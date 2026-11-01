@@ -11,7 +11,7 @@ interface ShownPassage {
 
 export function passagesIn(result: string): ShownPassage[] {
   const pattern =
-    /<passage id="([^"]+)" document="([^"]*)"(?: (?:date|file-created|file-modified)="[^"]*")?(?: pages="(\d+)(?:-\d+)?")?(?: location="([^"]+)")?>\n([\s\S]*?)\n<\/passage>/g;
+    /<passage id="([^"]+)" document="([^"]*)"(?: (?:date|file-created|file-modified)="[^"]*")?(?: pages="(\d+)(?:-\d+)?")?(?: location="([^"]+)")?(?: formulas="[^"]*")?>\n([\s\S]*?)\n<\/passage>/g;
   return [...result.matchAll(pattern)].map((match) => ({
     id: match[1] as string,
     document: match[2] as string,
