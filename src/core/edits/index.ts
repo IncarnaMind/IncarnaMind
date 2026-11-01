@@ -103,6 +103,7 @@ import {
   readRemovals,
   reasonOf,
   sameText,
+  unclearTypedTags,
 } from "./prompt";
 
 /** The tasks whose reply may take text out by quoting it: the User's words, and a Citation's checks. */
@@ -705,6 +706,12 @@ export function createEdits(options: EditsOptions) {
       return ended(failedEdit(failure));
     }
     const reply = readEditReply(raw, selection.text);
+    // A tag that may be the User's typed one or the model's mark: read either way, it may take their words (#2333).
+    const unclear = explain ? [] : unclearTypedTags(reply, selection.text);
+    if (unclear.length > 0) {
+      takeBackWritten();
+      return ended({ kind: "unplaced", quotes: unclear });
+    }
     // No text back and nothing quoted as taken out: its reason ("I can't do this") is why it failed.
     // A fixed task (Shorten, Improve…) never asks for text to go, so only quotes are no text either.
     const empty = reply === "" || (!QUOTES_TAKE_OUT.has(ask.action) && textOf(reply) === "");
@@ -881,6 +888,8 @@ export function createEdits(options: EditsOptions) {
         return nothing(failedEdit(streamed.failure));
       }
       const reply = readEditReply(streamed.raw, selection.text);
+      const unclear = unclearTypedTags(reply, selection.text);
+      if (unclear.length > 0) return nothing({ kind: "unplaced", quotes: unclear });
       if (sameText(reply, selection.text)) return nothing({ kind: "unchanged" });
       const request = randomUUID();
       const written = fork.transact(() => {
