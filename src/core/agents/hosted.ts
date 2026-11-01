@@ -28,6 +28,8 @@ import {
   type TerminalExitStatus,
   type ToolKind,
 } from "@agentclientprotocol/sdk";
+import { MARKER } from "../../shared/answerSentences";
+import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import type { AgentProcess } from "../adapters";
 
 /** What the User decided on the approval card. */
@@ -93,6 +95,18 @@ class HostedTurnError extends Error {
   ) {
     super(detail);
   }
+}
+
+/**
+ * The agent's text with every Citation marker ("[^2]") and figure marker ("[=1]") it
+ * wrote itself made plain text, so that it can't borrow a checked Citation or figure:
+ * only a token IncarnaMind minted becomes a marker, after this. The backslash keeps
+ * the text as the agent wrote it on screen.
+ */
+export function withoutOurMarkers(text: string): string {
+  return text
+    .replace(MARKER, (_marker, number: string) => `[\\^${number}]`)
+    .replace(FIGURE_MARKER, (_marker, number: string) => `[\\=${number}]`);
 }
 
 /** JSON-RPC's code for a request the client refused. */

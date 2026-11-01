@@ -5,6 +5,10 @@
  * it, and a `.cmd` shim runs on Windows. Each leads its own process group, so
  * Stop and quitting end every process it started.
  *
+ * Unconfined for now: ADR-0026 runs each agent in the OS sandbox (./sandbox),
+ * with IncarnaMind's data folder and the User's Documents unreadable, before
+ * any agent is offered.
+ *
  * No Electron imports: tests run this in Node.
  */
 import { type Readable, Writable } from "node:stream";
