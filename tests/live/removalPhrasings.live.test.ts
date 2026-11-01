@@ -295,15 +295,18 @@ function verdict(each: Language, asked: Case, after: string[]): string | null {
   return after.length >= least && after.length <= most ? null : `${after.length} paragraphs`;
 }
 
-/** Whether the reply quotes as taken out a paragraph of the Note the request didn't ask to go (#2356). */
+/**
+ * Whether the reply quotes as taken out a paragraph of the Note the request didn't ask to go
+ * (#2356): a line of a quote that is that paragraph, past its name and mark.
+ */
 function quotesUnasked(each: Language, asked: Case, raw: string): boolean {
-  const quotes = [...raw.matchAll(/<removed>([\s\S]*?)<\/removed>/gi)].map(
-    (quote) => quote[1] ?? "",
+  const lines = [...raw.matchAll(/<removed>([\s\S]*?)<\/removed>/gi)].flatMap((quote) =>
+    (quote[1] ?? "")
+      .split("\n")
+      .map((line) => line.replace(/^\s*(?:¶\d+\+?\s+)?(?:#{1,6}\s|[-*]\s|\d+\.\s)?/, "").trim()),
   );
   const meant = new Set([...asked.gone, ...(asked.optional ?? [])]);
-  return each.blocks.some(
-    ([, text], index) => !meant.has(index) && quotes.some((quote) => quote.includes(text)),
-  );
+  return each.blocks.some(([, text], index) => !meant.has(index) && lines.includes(text));
 }
 
 /** The Note's paragraphs with any words, in order. */

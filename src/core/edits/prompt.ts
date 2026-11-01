@@ -119,9 +119,9 @@ export const QUOTE_WHAT_GOES =
  */
 export const NAME_WHAT_YOU_WRITE = [
   "Each paragraph of the passage starts with its name: ¶1, ¶2 and so on.",
-  "Start each paragraph you write with the name of the passage's paragraph it is, as in ¶3 - The new words, and a new paragraph with ¶+.",
-  "A paragraph that goes is its name, then its words between <removed> and </removed>, as in ¶4 <removed>- The item</removed>.",
-  "Name a paragraph once at most, and only one the passage has.",
+  "Write only the paragraphs you change or add, and those it asks to go, each starting with a name: one you rewrite with the name of the passage's paragraph it replaces, as in ¶3 - The new words; a new one with ¶+, right after the paragraph it follows, which you write too, as it is; one that goes with its name, then its words between <removed> and </removed>, as in ¶4 <removed>- The item</removed>.",
+  "Name a paragraph once at most, and only one the passage has. A paragraph you don't write stays as it is.",
+  "Write nothing else, no note on what you did or didn't change: if nothing needs to change, write only <why>.",
   "A backslash before ¶ makes it words of the passage: keep the backslash.",
 ].join(" ");
 

@@ -4946,7 +4946,7 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     expect(shorten?.passage).toBe(lines.join("\n\n"));
     expect(`${shorten?.system}${shorten?.prompt}`).not.toContain("¶");
     expect(asked?.passage).toBe(`¶1 ${lines[0]}\n\n¶2 ${lines[1]}`);
-    expect(asked?.prompt).toContain("Start each paragraph you write with the name");
+    expect(asked?.prompt).toContain("each starting with a name");
     expect(asked?.system).not.toContain("¶");
   });
 
@@ -5142,7 +5142,9 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       await resolveChanges(client, "accept");
 
       const kinds: string[] = [];
-      readMind(client).forEach((block) => kinds.push(block.type.name));
+      readMind(client).forEach((block) => {
+        kinds.push(block.type.name);
+      });
       expect(kinds).toEqual(["paragraph", "table", "paragraph"]);
       expect(shownWithChanges(client)).toEqual([
         "Costs",
