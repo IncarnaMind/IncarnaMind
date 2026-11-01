@@ -464,6 +464,13 @@ function scriptedWatcher() {
   };
 }
 
+/**
+ * Not sent and settled: "off", or waiting for a model that isn't ready yet (as when the turn-on's
+ * consent is still being recorded). The request counts decide whether anything went.
+ */
+const unsent = (each: { tagging: string }) =>
+  each.tagging === "off" || each.tagging === "waiting-for-provider";
+
 /** How long the forty-Document test waits for a state at most, on a loaded machine. */
 const FORTY_WAIT_MS = 60_000;
 
@@ -513,7 +520,7 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     const ids = (await core.listDocuments({ linkedFolderId: linked.id })).map((each) => each.id);
     expect(ids).toHaveLength(40);
     await waitForProcessing(core, ids, FORTY_WAIT_MS);
-    await waitForTagging(core, ids, (each) => each.tagging === "off", FORTY_WAIT_MS);
+    await waitForTagging(core, ids, unsent, FORTY_WAIT_MS);
     expect(providers.sent("anthropic")).toBe(0);
 
     await rename(join(folder, "Report 1.txt"), join(folder, "Report one.txt"));
@@ -521,7 +528,7 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     await waitForDocuments(core, (documents) => {
       expect(documentAt(documents, join(folder, "Report one.txt")).status).toBe("ready");
     });
-    await waitForTagging(core, ids, (each) => each.tagging === "off", FORTY_WAIT_MS);
+    await waitForTagging(core, ids, unsent, FORTY_WAIT_MS);
     expect(providers.sent("anthropic")).toBe(0);
 
     await core.createLibraryGroup({ name: "Finance", description: "Reports." });
