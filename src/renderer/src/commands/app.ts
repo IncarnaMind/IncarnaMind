@@ -18,7 +18,7 @@ import { startSkillFromMind } from "../makeSkill";
 import { checkFromAssistant, showCheckCard } from "../mindCheck";
 import { useMindTools } from "../mindTools";
 import { forgetNewMindKeys, holdNewMindKeys } from "../newMindKeys";
-import { citationStepOpen } from "../nudges";
+import { citationStepOpen, stepsShownOf } from "../nudges";
 import { useReferenceImport } from "../referenceImport";
 import { useAppStore } from "../store";
 import { verifyDocument } from "../verify";
@@ -140,6 +140,27 @@ const appCommands: readonly Command[] = [
     reversible: true,
     when: () => citationStepOpen(useAppStore.getState().settings?.device.gettingStarted),
     run: () => goToCitation(),
+  },
+  {
+    // The card's ✕ is on the example's page alone; this hides it from any tab, with Undo (#2376).
+    id: "firstOpen.hide",
+    label: "firstOpen.hideSteps",
+    keywords: ["firstOpen.hideKeywords"],
+    group: "open",
+    reversible: true,
+    assistant: false,
+    when: () => stepsShownOf(useAppStore.getState().settings?.device.gettingStarted),
+    run: () => {
+      const setHidden = (hidden: boolean) =>
+        useAppStore.getState().updateGettingStarted({ hidden });
+      setHidden(true);
+      return {
+        said: (t) => t("firstOpen.hidden"),
+        name: (t) => t("firstOpen.hideSteps"),
+        undo: async () => setHidden(false),
+        redo: async () => setHidden(true),
+      };
+    },
   },
   {
     id: "word.import",

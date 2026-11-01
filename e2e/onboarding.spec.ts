@@ -370,7 +370,7 @@ test("an empty Mind of one's own shows no second start guide, the example's step
   await expect(steps.locator('[data-testid="first-open-step"][data-state="done"]')).toHaveText([
     /Added your Documents/,
     /Asked a question/,
-    /Checked a Citation/,
+    /Opened a checked Citation/,
   ]);
   await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
   await pointAndClick(window, steps.getByTestId("first-open-hide"));

@@ -1990,7 +1990,12 @@ export type CitationCheckReason =
   /** Not checked: judging the Answer's sentences reached its own limit before this one's (#2311). */
   | "answer-limit"
   /** Not checked: judging the Answer's sentences reached the monthly cap before this one's (#2311). */
-  | "monthly-limit";
+  | "monthly-limit"
+  /**
+   * Not checked: the model that wrote the Answer runs on this computer and is too small to judge
+   * its sentences, so their check never ran (#2375).
+   */
+  | "small-model";
 
 /**
  * What to re-check a Citation with against its Document's current version

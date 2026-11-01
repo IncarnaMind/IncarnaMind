@@ -3811,6 +3811,8 @@ export const en = {
   "citation.reason.monthly-limit":
     "Not checked: your monthly limit of {cap} was reached before this sentence.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
+  "citation.reason.small-model":
+    "This model on this computer is too small to judge whether the quote supports the sentence.",
   "citation.where": "{document}, {location}",
   "citation.scan": "Text read from a scan",
   "citation.scan.unsure.one": "Text read from a scan · 1 word may be misread",
@@ -5556,13 +5558,13 @@ export const en = {
   "examples.chip": "Example",
   "firstOpen.title": "Welcome to IncarnaMind",
   "firstOpen.step.citation.title": "Check a Citation",
-  "firstOpen.step.citation.done": "Checked a Citation",
-  "firstOpen.step.citation.body": "Click a ✓ under an Answer: it opens the quote in its file.",
+  "firstOpen.step.citation.done": "Opened a checked Citation",
+  "firstOpen.step.citation.body":
+    "Click a Citation: its card says whether its quote was checked, and its Open button shows it in the file.",
   "firstOpen.step.citation.example": "or see it on the example",
   "firstOpen.step.question.title": "Ask",
   "firstOpen.step.question.done": "Asked a question",
-  "firstOpen.step.question.body":
-    "Ask your files anything, or the question below. Every quote is checked.",
+  "firstOpen.step.question.body": "Ask your files anything, or the question below.",
   "firstOpen.step.question.ready": "Ask: “{question}”",
   "firstOpen.step.question.own": "or {shortcut} to type your own",
   "firstOpen.step.question.ownOnly": "Press {shortcut} to ask your own Question.",
@@ -5580,6 +5582,9 @@ export const en = {
   "firstOpen.next.meeting": "Record a meeting",
   "firstOpen.next.export": "Export to Word",
   "firstOpen.hide": "Hide this",
+  "firstOpen.hideSteps": "Hide the getting-started steps",
+  "firstOpen.hideKeywords": "welcome steps getting started",
+  "firstOpen.hidden": "Hid the getting-started steps",
   "assistant.pill": "Ask anything",
   "sidebar.examples": "Examples",
   "sidebar.documents": "Documents",
