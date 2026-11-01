@@ -203,6 +203,11 @@ const billedOf = (usage: ReportedUsage | undefined): Billed => ({
 
 const PRICE = catalogModel("anthropic", MODEL)?.price;
 
+const MAX_USD = Number(process.env.INCARNAMIND_LIVE_MAX_USD ?? Number.POSITIVE_INFINITY);
+if (Number.isNaN(MAX_USD)) throw new Error("INCARNAMIND_LIVE_MAX_USD must be a number of dollars.");
+if (MAX_USD !== Number.POSITIVE_INFINITY && !PRICE)
+  throw new Error(`INCARNAMIND_LIVE_MAX_USD needs a model the catalog prices; ${MODEL} isn't.`);
+
 /** A request's price at its own prompt's tier (src/core/cost/price.ts). */
 const priced = (each: Billed): number =>
   PRICE
@@ -337,7 +342,7 @@ test.skipIf(KEY === undefined).each([
     const from = billed.length;
     const spent = () => billed.slice(from).reduce((total, each) => total + priced(each), 0);
     for (const expected of asked) {
-      if (spent() > Number(process.env.INCARNAMIND_LIVE_MAX_USD ?? Number.POSITIVE_INFINITY)) {
+      if (spent() > MAX_USD) {
         missed.push(expected.question);
         report.push(
           `### ${expected.question}`,
