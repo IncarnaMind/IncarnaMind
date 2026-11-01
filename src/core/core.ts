@@ -54,7 +54,6 @@ import {
   type ScopeKind,
 } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
-import { setUnreadFileNames } from "../shared/unreadFiles";
 import { readVerification, verificationOf, writeVerification } from "../shared/verification";
 import { wordFileOf } from "../shared/wordFiles";
 import { wordFontsOf, wordLookOf } from "../shared/wordLook";
@@ -5932,13 +5931,6 @@ export function createCore(adapters: CoreAdapters): Core {
         else if (style !== null) library.setCitationStyle(folderId, style);
       }
       return mindCitationStyle(mind.id);
-    },
-    setMindUnreadFileNames: async (mindId, names) => {
-      if (typeof names !== "boolean") {
-        throw new InvalidInputError({ key: "error.mind.unreadFileNames" });
-      }
-      const mind = writableMind(mindId);
-      content.editSettings(mind.id, (mindSettings) => setUnreadFileNames(mindSettings, names));
     },
     listCitationStyles: async () => citationStyles.list(),
     openCitationStyleLicences: async () => {

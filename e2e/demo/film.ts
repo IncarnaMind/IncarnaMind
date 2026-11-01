@@ -7,7 +7,7 @@
  */
 import { spawn } from "node:child_process";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { chromium, type Locator, type Page } from "@playwright/test";
 
 /** The width the captions and the pointer are sized for: the README shows its GIF this wide. */
@@ -59,22 +59,16 @@ const clamp = (value: number, low: number, high: number) => Math.min(Math.max(va
 /** The caption pills as pictures with a clear background, by their text, in the app's own fonts. */
 export async function renderPills(texts: readonly string[], folder: string) {
   await mkdir(folder, { recursive: true });
-  const fonts = resolve(__dirname, "../../node_modules/@fontsource-variable/source-sans-3/files");
   // Sizes are given as they read at the GIF's width: 15px at 880 wide.
   const unit = (FILMED.width * PIXEL_RATIO) / DESIGN_WIDTH;
   const page = `<!doctype html><meta charset="utf-8"><style>
-    @font-face { font-family: "Source Sans 3"; font-weight: 200 900;
-      src: url("file://${fonts}/source-sans-3-latin-wght-normal.woff2") format("woff2");
-      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
-    @font-face { font-family: "Source Sans 3"; font-weight: 200 900;
-      src: url("file://${fonts}/source-sans-3-latin-ext-wght-normal.woff2") format("woff2");
-      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF; }
     body { margin: 0; background: transparent; }
     #frame { display: inline-block; padding: ${14 * unit}px; }
     #pill { display: inline-block; white-space: nowrap; background: #fff; color: #17191c;
       border-radius: 999px; padding: ${6 * unit}px ${16 * unit}px;
-      font: 500 ${15 * unit}px/${22 * unit}px "Source Sans 3", "PingFang SC", "Hiragino Sans GB",
-        "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      font: 500 ${15 * unit}px/${22 * unit}px -apple-system, BlinkMacSystemFont, "SF Pro Text",
+        "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
+        system-ui, sans-serif;
       box-shadow: 0 ${2 * unit}px ${10 * unit}px rgba(23,25,28,.18), 0 0 0 ${unit}px rgba(23,25,28,.08); }
   </style><div id="frame"><div id="pill"></div></div>`;
   const file = join(folder, "pill.html");

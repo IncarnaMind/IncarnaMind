@@ -2930,6 +2930,10 @@ export async function openSteps(window: Page, answer: Locator): Promise<Locator>
  */
 export async function addToNote(window: Page, answer: Locator): Promise<void> {
   await pointAt(window, answer.getByTestId("assistant-answer-text"));
+  // A Citation marker under the pointer opens its card over the Answer's foot: let it close
+  // before aiming at the button, as a person does, or the card takes the click.
+  await window.mouse.move(0, 0);
+  await expect(window.getByTestId("citation-card")).toHaveCount(0);
   await pointAndClick(window, answer.getByTestId("answer-add"));
   await expect(answer.getByTestId("answer-added")).toBeVisible();
   await expect(window.locator(".block-just-added")).toHaveCount(0);
