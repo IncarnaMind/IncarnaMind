@@ -84,7 +84,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.getByTestId("add-documents-input").setInputFiles([file]);
       await markSteps(window, { indexed: true });
       const ready = step(window, "question").getByTestId("first-open-ready");
-      await expect(ready).toHaveAttribute("aria-label", /Harbour times/, { timeout: 30_000 });
+      await expect(ready).toHaveAttribute("title", /Harbour times/, { timeout: 30_000 });
 
       // The empty conversation describes the composer's Question: the Note in focus and its
       // scope, as DESIGN.md has it, not the card's Question beside it.

@@ -7,10 +7,16 @@
  * (Calibri's metrics) for the sans faces, Source Serif 4 for Cambria. Nothing
  * loads from the network (the Content-Security-Policy's font-src is 'self').
  * Latin only: other characters fall through to the next family a page names.
+ *
+ * The families carry a prefix of their own: an @font-face named "Segoe UI"
+ * would be registered for the whole app, and Chromium would then draw every
+ * "Segoe UI" the app names with these two weights, or with Carlito where the
+ * font isn't installed. The viewer maps a Document's font names to these in
+ * `officeFontNames.ts`, so only the Document's own pages use them.
  */
 
 @font-face {
-  font-family: "Calibri";
+  font-family: "IncarnaMind Office Calibri";
   font-style: normal;
   font-weight: 400;
   font-display: block;
@@ -20,7 +26,7 @@
 }
 
 @font-face {
-  font-family: "Calibri";
+  font-family: "IncarnaMind Office Calibri";
   font-style: italic;
   font-weight: 400;
   font-display: block;
@@ -31,7 +37,7 @@
 }
 
 @font-face {
-  font-family: "Calibri";
+  font-family: "IncarnaMind Office Calibri";
   font-style: normal;
   font-weight: 700;
   font-display: block;
@@ -42,7 +48,7 @@
 }
 
 @font-face {
-  font-family: "Calibri";
+  font-family: "IncarnaMind Office Calibri";
   font-style: italic;
   font-weight: 700;
   font-display: block;
@@ -53,7 +59,7 @@
 }
 
 @font-face {
-  font-family: "Calibri Light";
+  font-family: "IncarnaMind Office Calibri Light";
   font-style: normal;
   font-weight: 300;
   font-display: block;
@@ -64,7 +70,7 @@
 }
 
 @font-face {
-  font-family: "Calibri Light";
+  font-family: "IncarnaMind Office Calibri Light";
   font-style: italic;
   font-weight: 300;
   font-display: block;
@@ -75,7 +81,7 @@
 }
 
 @font-face {
-  font-family: "Aptos";
+  font-family: "IncarnaMind Office Aptos";
   font-style: normal;
   font-weight: 400;
   font-display: block;
@@ -85,7 +91,7 @@
 }
 
 @font-face {
-  font-family: "Aptos";
+  font-family: "IncarnaMind Office Aptos";
   font-style: italic;
   font-weight: 400;
   font-display: block;
@@ -96,7 +102,7 @@
 }
 
 @font-face {
-  font-family: "Aptos";
+  font-family: "IncarnaMind Office Aptos";
   font-style: normal;
   font-weight: 700;
   font-display: block;
@@ -107,7 +113,7 @@
 }
 
 @font-face {
-  font-family: "Aptos";
+  font-family: "IncarnaMind Office Aptos";
   font-style: italic;
   font-weight: 700;
   font-display: block;
@@ -118,7 +124,7 @@
 }
 
 @font-face {
-  font-family: "Aptos Narrow";
+  font-family: "IncarnaMind Office Aptos Narrow";
   font-style: normal;
   font-weight: 400;
   font-display: block;
@@ -129,7 +135,7 @@
 }
 
 @font-face {
-  font-family: "Aptos Narrow";
+  font-family: "IncarnaMind Office Aptos Narrow";
   font-style: italic;
   font-weight: 400;
   font-display: block;
@@ -140,7 +146,7 @@
 }
 
 @font-face {
-  font-family: "Aptos Narrow";
+  font-family: "IncarnaMind Office Aptos Narrow";
   font-style: normal;
   font-weight: 700;
   font-display: block;
@@ -151,7 +157,7 @@
 }
 
 @font-face {
-  font-family: "Aptos Narrow";
+  font-family: "IncarnaMind Office Aptos Narrow";
   font-style: italic;
   font-weight: 700;
   font-display: block;
@@ -162,7 +168,7 @@
 }
 
 @font-face {
-  font-family: "Aptos Display";
+  font-family: "IncarnaMind Office Aptos Display";
   font-style: normal;
   font-weight: 400;
   font-display: block;
@@ -173,7 +179,7 @@
 }
 
 @font-face {
-  font-family: "Aptos Display";
+  font-family: "IncarnaMind Office Aptos Display";
   font-style: italic;
   font-weight: 400;
   font-display: block;
@@ -184,7 +190,7 @@
 }
 
 @font-face {
-  font-family: "Aptos Display";
+  font-family: "IncarnaMind Office Aptos Display";
   font-style: normal;
   font-weight: 700;
   font-display: block;
@@ -195,7 +201,7 @@
 }
 
 @font-face {
-  font-family: "Aptos Display";
+  font-family: "IncarnaMind Office Aptos Display";
   font-style: italic;
   font-weight: 700;
   font-display: block;
@@ -206,7 +212,7 @@
 }
 
 @font-face {
-  font-family: "Segoe UI";
+  font-family: "IncarnaMind Office Segoe UI";
   font-style: normal;
   font-weight: 400;
   font-display: block;
@@ -217,7 +223,7 @@
 }
 
 @font-face {
-  font-family: "Segoe UI";
+  font-family: "IncarnaMind Office Segoe UI";
   font-style: italic;
   font-weight: 400;
   font-display: block;
@@ -228,7 +234,7 @@
 }
 
 @font-face {
-  font-family: "Segoe UI";
+  font-family: "IncarnaMind Office Segoe UI";
   font-style: normal;
   font-weight: 700;
   font-display: block;
@@ -239,7 +245,7 @@
 }
 
 @font-face {
-  font-family: "Segoe UI";
+  font-family: "IncarnaMind Office Segoe UI";
   font-style: italic;
   font-weight: 700;
   font-display: block;
@@ -250,7 +256,7 @@
 }
 
 @font-face {
-  font-family: "Cambria";
+  font-family: "IncarnaMind Office Cambria";
   font-style: normal;
   font-weight: 400;
   font-display: block;
@@ -261,7 +267,7 @@
 }
 
 @font-face {
-  font-family: "Cambria";
+  font-family: "IncarnaMind Office Cambria";
   font-style: italic;
   font-weight: 400;
   font-display: block;
@@ -273,7 +279,7 @@
 }
 
 @font-face {
-  font-family: "Cambria";
+  font-family: "IncarnaMind Office Cambria";
   font-style: normal;
   font-weight: 700;
   font-display: block;
@@ -285,7 +291,7 @@
 }
 
 @font-face {
-  font-family: "Cambria";
+  font-family: "IncarnaMind Office Cambria";
   font-style: italic;
   font-weight: 700;
   font-display: block;

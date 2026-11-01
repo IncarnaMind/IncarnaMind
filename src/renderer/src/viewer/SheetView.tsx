@@ -48,6 +48,7 @@ import {
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
 import "./officeFonts.css";
+import { officeFontName } from "./officeFontNames";
 
 /** The header row's height and the row numbers' width, in CSS pixels; rows drawn past the view. */
 const HEADER_HEIGHT = 24;
@@ -322,7 +323,7 @@ let measuring: CanvasRenderingContext2D | null = null;
 /** A font as the canvas takes it: concrete families, as `var()` means nothing there. */
 function canvasFont(font: FontStyle, fallbackPoints: number): string {
   const size = ((font.size ?? fallbackPoints) * 4) / 3;
-  const family = font.name ? `"${font.name.replace(/["\\]/g, "")}", ` : "";
+  const family = font.name ? `"${officeFontName(font.name).replace(/["\\]/g, "")}", ` : "";
   return `${font.italic ? "italic " : ""}${font.bold ? 700 : 400} ${size}px ${family}system-ui, sans-serif`;
 }
 
