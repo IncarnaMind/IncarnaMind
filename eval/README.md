@@ -508,6 +508,7 @@ The check now ignores letter case, reads "[^3]" as "[3]", and finds a quote with
   - `tests/eval/formatSet.test.ts` checks the every-format set against the stored text; `tests/eval/formatScoring.test.ts`, its figures and reports; `tests/eval/formatCitations.test.ts`, the Citation check on every Location kind.
   - `tests/eval/checkSet.test.ts` checks the checks evaluation's labels against the stored text; `tests/eval/checkScoring.test.ts`, its scoring; `tests/eval/checkPipeline.test.ts`, its pipeline through a core with a scripted model.
   - `tests/eval/calculationScoring.test.ts` checks the calculations evaluation's scoring and its set.
+  - `tests/eval/calculationEvidence.test.ts` scores the calculations evaluation's kept Answers again and checks its published results.
   - `tests/eval/skillCases.test.ts` checks the finance and law Skills' case table: six Skills, each in both languages, with its invented Documents.
 
 ## The checks evaluation
