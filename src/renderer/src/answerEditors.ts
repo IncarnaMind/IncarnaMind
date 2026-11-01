@@ -7,7 +7,7 @@
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode, Slice } from "@tiptap/pm/model";
 import { type ConversationAnswer, NOTE_BLOCK_TYPES } from "../../core/api";
-import { pageBlocks } from "../../shared/answerBlocks";
+import { asQuoteChecked, pageBlocks } from "../../shared/answerBlocks";
 import type { NodeJSON } from "../../shared/blockJson";
 import { unrunToolNotes } from "../../shared/unrunTools";
 import { questionOf } from "./conversations";
@@ -124,7 +124,12 @@ export async function copyAnswer(answerId: string): Promise<boolean> {
  * What Add to note puts in from an Answer: what is selected in it, as it is, or all of it as a
  * page holds it, with the lines saying a Tool it claims didn't run (#1796).
  */
-export const notesToAdd = (answer: ConversationAnswer): NodeJSON[] => [
-  ...(selectedNotes(answer.id) ?? pageBlocks(answer, questionOf(answer)?.text ?? "")),
-  ...unrunToolNotes(translateNow, answer.steps),
-];
+export const notesToAdd = (answer: ConversationAnswer): NodeJSON[] => {
+  const selected = selectedNotes(answer.id);
+  return [
+    ...(selected
+      ? asQuoteChecked(selected, answer.status)
+      : pageBlocks(answer, questionOf(answer)?.text ?? "")),
+    ...unrunToolNotes(translateNow, answer.steps),
+  ];
+};

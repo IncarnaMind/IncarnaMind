@@ -395,6 +395,14 @@ function figuresReplied(
   ];
 }
 
+/**
+ * A check reads only what a Document's words say: no date beside its Passages. The one Answers see
+ * (#548) is its file's created or modified day, or the latest year its first page mentions, and a
+ * check read it as the Document's own date: "dated 2026" was backed by a contract's delivery start,
+ * "自 2026 年 11 月起" (#2311).
+ */
+export const NO_DATE = (): null => null;
+
 function citedSources(
   cited: readonly CheckedCitation[],
   scope: EvidenceScope,
@@ -546,7 +554,7 @@ export function checkRunStart(
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
         documents.pageTexts(documentId, contentHash, from, to),
-      documentDate: (documentId) => documents.documentDate(documentId),
+      documentDate: NO_DATE,
     },
     { onRecord: () => undefined },
   );
@@ -640,7 +648,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       citationSource: (passageId) => deps.documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
         deps.documents.pageTexts(documentId, contentHash, from, to),
-      documentDate: (documentId) => deps.documents.documentDate(documentId),
+      documentDate: NO_DATE,
       passagesBetween: (documentId, from, to) =>
         deps.documents.passagesBetween(documentId, from, to),
     };
@@ -1491,8 +1499,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     // is the part the Documents don't cover (DESIGN.md › Checks). Another party, the parties the
     // other way round, or must for may is no support at all: Claude Haiku 5.5 called "must pay"
     // Supported against "may pay", then named the difference (#1668). The reply says each in a
-    // field of its own, so the verdict doesn't rest on the model weighing it.
-    const differs = verdict.roles === "differs";
+    // field of its own, so the verdict doesn't rest on the model weighing it; so is whether a thing
+    // has happened or is still to happen (#2311).
+    const differs = verdict.roles === "differs" || verdict.time === "differs";
     if (verdict.verdict === "supported" && (verdict.scope === "wider" || differs)) {
       const part = await parts(deciding);
       if (signal.aborted) return notChecked("stopped");

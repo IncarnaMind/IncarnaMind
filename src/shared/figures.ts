@@ -881,6 +881,11 @@ const NAMED_CODES = new Map(
     .map(([word, code]) => [word.toLowerCase(), code]),
 );
 
+/** The currency a word after an amount names: "pounds" is GBP, "欧元" EUR; null for any other word. */
+export function currencyNamed(word: string): string | null {
+  return CURRENCY_CODES[word] ?? NAMED_CODES.get(word.toLowerCase()) ?? null;
+}
+
 const CN_CURRENCY_AFTER =
   /(?:新加坡元|瑞士法郎|新台币|澳门元|澳门币|人民币|美元|港元|港币|欧元|日元|英镑|澳元|加元|韩元|卢布|元|圆|円)(?:人民币)?/y;
 const EN_CURRENCY_AFTER =
