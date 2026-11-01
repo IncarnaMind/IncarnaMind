@@ -380,6 +380,21 @@ describe("a table's row label and headings say what a cell measures (#2255)", ()
     ]);
   });
 
+  // protects=a model may name a cell's measure by joining its row label and its table's caption ("生鲜食品 分部收入", as Claude Haiku 5.5 did), each piece the cell's own words (#2255); fails_when=a measure joined from the cell's own label and caption isn't found; no_claim=none beyond protects.
+  test("a cell's measure joined from its row label and its table's caption", async () => {
+    const { figures } = await checkNote(
+      "zh-CN",
+      ZH_DOCUMENT,
+      [paragraph("caption", "2025年分部指标"), table(["指标", "2025年"], [["收入增长", "12%"]])],
+      () => ({
+        quote: "2025年收入增长12%，达到4.82亿元。",
+        number: "12%",
+        measure: { sentence: "收入增长 分部指标", quote: "收入增长", match: "same" },
+      }),
+    );
+    expect(figures).toMatchObject([{ state: "supported" }]);
+  });
+
   // protects=a quote that is a Document's bare table cell names nothing but its number, so its row label, copied from its Passage, says what it measures, and with no words named the check keeps the table's headings to the model's judgement as before, its "differs" included; a row label the Document doesn't hold is never Supported (#2255); fails_when=a bare cell can't be Supported on its row label or on no words, or is Supported on a label its Document lacks or on a measure the model says differs; no_claim=none beyond protects.
   test.each([
     {

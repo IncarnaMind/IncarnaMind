@@ -130,8 +130,11 @@ export function measureFinding(
 ): MeasureFinding {
   if (!measure) return { kind: "unread" };
   const said = measure.sentence;
-  if (!namesSomething(said) || !sentence.some((text) => namedIn(text, said)))
-    return { kind: "unread" };
+  // A table cell's measure may join its row label and its caption ("生鲜食品 分部收入"): each piece
+  // is the sentence's own words when its label, context or paragraph holds it.
+  const pieces = said.split(/\s+/u).filter((piece) => /[\p{L}\p{N}]/u.test(piece));
+  const own = (words: string) => sentence.some((text) => namedIn(text, words));
+  if (!namesSomething(said) || !(own(said) || pieces.every(own))) return { kind: "unread" };
   const bare = !namesSomething(quote);
   const quoted = measure.quote;
   // A table's cell is named by its row label and its column's heading, which a quote of the cell
