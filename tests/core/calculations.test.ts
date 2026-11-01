@@ -16,6 +16,7 @@ import {
   type CoreAdapters,
   DATABASE_FILE,
   type MarkedFigure,
+  type SaveChatProviderInput,
 } from "../../src/core";
 import { migrate, migrations, openDatabase } from "../../src/core/storage";
 import { answerBlocks } from "../../src/shared/answerBlocks";
@@ -193,7 +194,7 @@ async function askAndRead(core: Core, text: string, conversationId?: string) {
 }
 
 /**
- * A core whose chat model is Claude Haiku 5.5, scripted: a model measured to
+ * A core whose chat model is Claude Haiku 5.5 (or `provider`), scripted: a model measured to
  * use calculate, so its Answers are offered it (ADR-0021). Its service is
  * allowed, and the files are added as Documents. Its Answers run the Tool
  * loop from the first call, as the scripts call it, whatever the
@@ -204,17 +205,18 @@ async function setUpCalculating(
   files: readonly { name: string; contents: string | Uint8Array }[],
   dataDir?: string,
   overrides: Partial<CoreAdapters> = {},
+  provider: SaveChatProviderInput = {
+    kind: "anthropic",
+    apiKey: "sk-test",
+    modelId: "claude-haiku-5-5",
+  },
 ) {
   const core = startCore(dataDir ?? (await createTempDataFolder()), {
     createChatModel: scriptedModels(model).createChatModel,
     ...overrides,
     answerPaths: { retrievesFirst: () => false, ...overrides.answerPaths },
   });
-  const saved = await core.saveChatProvider({
-    kind: "anthropic",
-    apiKey: "sk-test",
-    modelId: "claude-haiku-5-5",
-  });
+  const saved = await core.saveChatProvider(provider);
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
   const sources = await createTempDataFolder();
   await addAndProcess(
@@ -3601,6 +3603,103 @@ describe("Structured output, for a model offered calculate", { timeout: 60_000 }
     expect(shown(answerBlocks(answer))).toBe("Revenue grew 20.4%, and gross margin rose.");
     expect(calculateCall(answer)).toMatchObject({ resultCount: 1, uncalculated: 1 });
     expect(translate("zh-CN", "answer.figures.uncalculated.one")).toBe("1 个数字未能计算");
+  });
+});
+
+describe("DeepSeek's own models are offered calculate (#441)", { timeout: 60_000 }, () => {
+  const DEEPSEEK: SaveChatProviderInput = {
+    kind: "deepseek",
+    apiKey: "sk-test",
+    modelId: "deepseek-flash",
+  };
+
+  test("in English: the Tool and its steer are offered, and its figures are recorded and checked as Claude's are", async () => {
+    const model = calculatingModel({
+      queries: ["revenue gross margin"],
+      steps: [citeAndCalculate],
+      answer: "Revenue grew [=1] in 2025[^1]; gross margin rose [=2][^2].",
+    });
+    const { core } = await setUpCalculating(model, [ACME], undefined, {}, DEEPSEEK);
+
+    const { answer } = await askAndRead(
+      core,
+      "How much did Acme's revenue grow in 2025, and its gross margin?",
+    );
+
+    expect(model.doStreamCalls[0]?.tools?.map((tool) => tool.name)).toContain("calculate");
+    expect(promptOf(model)[0]?.text).toMatch(/Never work out a number yourself/);
+    expect(shown(answerBlocks(answer))).toBe(
+      "Revenue grew 20.4% in 2025; gross margin rose 2.3 percentage points.",
+    );
+    expect(
+      answer.figures.map((figure) => figure.inputs.map((input) => input.citation.check)),
+    ).toEqual([
+      ["found", "found"],
+      ["found", "found"],
+    ]);
+  });
+
+  test("in Chinese: 万元 needs its heading as unitQuote, and the amount comes out in 万元", async () => {
+    const input = (name: string, position: number) => ({
+      name,
+      label: name,
+      citation: 1,
+      position,
+      unitQuote: "单位：万元",
+    });
+    const model = calculatingModel({
+      queries: ["营业收入"],
+      steps: [
+        (passages) => [
+          {
+            tool: "cite",
+            input: {
+              citations: [
+                {
+                  marker: 1,
+                  passage: passageOf(passages, "某公司"),
+                  location: "p. 1",
+                  quote: INCOME,
+                },
+              ],
+            },
+          },
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  label: "同比增长",
+                  formula: "y2025 / y2024 - 1",
+                  as: "percent",
+                  decimals: 2,
+                  inputs: [input("y2025", 1), input("y2024", 2)],
+                },
+                {
+                  marker: 2,
+                  label: "增加额",
+                  formula: "y2025 - y2024",
+                  inputs: [input("y2025", 1), input("y2024", 2)],
+                },
+              ],
+            },
+          },
+        ],
+      ],
+      answer: "2025年营业收入同比增长[=1]，比上年增加[=2][^1]。",
+    });
+    const { core } = await setUpCalculating(model, [REPORT], undefined, {}, DEEPSEEK);
+
+    const { answer } = await askAndRead(core, "公司2025年营业收入同比增长多少？比上年增加了多少？");
+
+    expect(shown(answerBlocks(answer))).toBe(
+      "2025年营业收入同比增长24.99%，比上年增加30,457.36万元。",
+    );
+    expect(answer.figures[1]).toMatchObject({
+      unit: { kind: "currency", code: "CNY" },
+      inputs: [{ unitStatement: { citation: { quote: "单位：万元", check: "found" } } }, {}],
+    });
   });
 });
 

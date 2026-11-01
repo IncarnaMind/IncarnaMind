@@ -64,7 +64,15 @@ export const OVERRIDES: CatalogOverrides = {
     google: { temperature: false },
     // DeepSeek takes JSON mode only (its prompt must say "json"), and answers 400 to a forced
     // Tool choice while it thinks, which it does by default; then it ignores the temperature.
-    deepseek: { structuredOutput: "json_object", forcedToolChoice: false, temperature: false },
+    // The evaluation's first runs (#441, #2399): DeepSeek Flash used calculate on 72 Questions in
+    // English and Chinese with no figure wrongly marked checked. DeepSeek's models served by other
+    // providers (OpenRouter, SiliconFlow…) weren't measured and stay off.
+    deepseek: {
+      structuredOutput: "json_object",
+      forcedToolChoice: false,
+      temperature: false,
+      calculates: true,
+    },
     // Qwen thinks by default, and a forced Tool choice fails while it does.
     qwen: { forcedToolChoice: false },
     "qwen/intl": { forcedToolChoice: false },
