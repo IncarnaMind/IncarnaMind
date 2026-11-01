@@ -12,7 +12,6 @@ import { note, paragraph, run, table, wordFile } from "../../tests/helpers/word"
 import type { EvalDocument } from "../lib/evaluationSet";
 
 export interface CalculationDocument {
-  /** The file's name, which is also its Document's name once added. */
   name: string;
   contents: Uint8Array;
 }
@@ -364,7 +363,6 @@ export function calculationDocuments(): CalculationDocument[] {
   ];
 }
 
-/** Writes the Documents into `folder`, for a library to add. */
 export async function writeCalculationDocuments(folder: string): Promise<EvalDocument[]> {
   return Promise.all(
     calculationDocuments().map(async (document) => {

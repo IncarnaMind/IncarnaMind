@@ -32,13 +32,12 @@ export type CaseLanguage = "en" | "zh";
 export type ExpectedUnit = "percent" | "points" | "USD" | "CNY";
 
 export interface ExpectedInput {
-  /** The Document's name. */
+  /** The file's name; its Document's is the same without the extension. */
   document: string;
   /** The page of a PDF or the slide of a deck; null for a Word file or a workbook. */
   unit: number | null;
   /** A line of the Document holding the number, word for word. */
   quote: string;
-  /** The number as the quote writes it. */
   number: string;
   /** Its value with its scale applied: 2,346.8 under "in millions" is 2,346,800,000. */
   value: number;
@@ -57,7 +56,6 @@ export interface ExpectedResult {
   tolerance: number;
   /** "derived": worked out from the inputs; "quoted": stated by a Document, and not to be recalculated. */
   kind: "derived" | "quoted";
-  /** By the names the formula uses. */
   inputs: Readonly<Record<string, ExpectedInput>>;
   /** Other inputs a right working may read instead: the four quarters for a year's total. */
   alsoAccepted?: readonly ExpectedInput[];
