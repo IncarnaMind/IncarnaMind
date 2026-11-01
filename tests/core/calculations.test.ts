@@ -2665,6 +2665,68 @@ describe("An earlier page's whole-Document scale line states the scale when quot
     expect(unit?.citation.pageFrom).toBe(1);
     expect(unit?.citation.check).toBe("found");
   });
+
+  test("a whole-Document line on another page is offered to the model by its whole line", {
+    timeout: 60_000,
+  }, async () => {
+    const rows = ["Hint revenue 1,234.5", "Hint costs 334.5"];
+    const page = (lines: string[]) => ({ lines });
+    const model = calculatingModel({
+      queries: ["hint revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, "Hint accounts", rows[0] as string);
+          const location = passage.location ?? "p. 3";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: rows[0] as string },
+                  { marker: 2, passage: passage.id, location, quote: rows[1] as string },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Difference",
+                    formula: "rev - cost",
+                    inputs: [
+                      { name: "rev", label: "Revenue", citation: 1, number: "1,234.5" },
+                      { name: "cost", label: "Costs", citation: 2, number: "334.5" },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "Hint accounts.pdf",
+        contents: buildPdf([
+          page(["Hint notes", "All amounts in £'000", ...fillerLines(false)]),
+          page(fillerLines(false)),
+          page(["Hint accounts", rows[0] as string, rows[1] as string]),
+        ]),
+      },
+    ]);
+
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+
+    expect(answer.figures).toEqual([]);
+    expect(told(model, "calculate")[0] ?? "").toContain(
+      'p. 1 states a scale ("All amounts in £\'000") in another Passage of the same Document; give that line as unitQuote.',
+    );
+  });
 });
 
 // protects=#2365; fails_when=a row head's bare "(M)" or "(m)" takes the page's scale, so a floor area in metres or a million-scaled amount is multiplied by 1,000.
