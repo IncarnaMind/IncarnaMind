@@ -1102,6 +1102,7 @@ export function createAnswers(options: AnswersOptions) {
             model,
             signal: controller.signal,
             onJudged: judged,
+            onStop: (stop) => judged(null, null, stop),
           }),
         );
       }

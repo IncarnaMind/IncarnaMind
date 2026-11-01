@@ -5574,7 +5574,8 @@
     border-radius: 4px;
     pointer-events: none;
   }
-  .citation-card--parts {
+  /* A claim card fits the room its place measured: a list of record cites in it scrolls in what is left. */
+  .claim-card {
     max-height: min(calc(100vh - 16px), var(--card-room, 100vh));
     overflow-y: auto;
   }

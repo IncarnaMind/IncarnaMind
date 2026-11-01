@@ -50,8 +50,11 @@ export interface SupportResult {
   verdict: string | null;
 }
 
-/** The limit that stopped a judgement before a sentence: the Answer's own, or the monthly cap. */
-export type JudgementStop = "answer-limit" | "monthly-limit";
+/**
+ * Why a judgement stopped before a sentence: the Answer's own limit, the monthly cap, or a model
+ * on this computer too small to judge the sentence at all.
+ */
+export type JudgementStop = "answer-limit" | "monthly-limit" | "small-model";
 
 export interface AnswerCheckInput {
   text: string;
@@ -68,6 +71,8 @@ export interface AnswerCheckInput {
    * couldn't be, with the limit that stopped it, if one did.
    */
   onJudged?(marker: number, result: SupportResult | null, stop: JudgementStop | null): void;
+  /** Why nothing was judged, when no batch was reached: the model can't judge the sentence. */
+  onStop?(stop: JudgementStop): void;
 }
 
 export interface AnswerCheckOptions {
@@ -229,7 +234,11 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     const sentences = sentencesToCheck(input);
     if (sentences.length === 0) return null;
     const prepared = await options.prepare(input.model);
-    if (!prepared || judgesUnreliably(prepared)) return null;
+    if (!prepared) return null;
+    if (judgesUnreliably(prepared)) {
+      input.onStop?.("small-model");
+      return null;
+    }
     const scope = options.scope(input.documentIds);
     if (options.searchableCount(scope.documentIds) === 0) return null;
     const judged = asked(input);
