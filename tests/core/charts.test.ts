@@ -512,7 +512,7 @@ describe("a chart of calculated figures (#2307)", { timeout: 30_000 }, () => {
     );
     expect(chinese).toContain("2 个数值由计算得出。");
     // An older editor would write its figures away: the Note records the version that keeps them.
-    expect(client.doc.getMap(MIND_SETTINGS_FIELD).get(CONTENT_SCHEMA_VERSION_KEY)).toBe(43);
+    expect(client.doc.getMap(MIND_SETTINGS_FIELD).get(CONTENT_SCHEMA_VERSION_KEY)).toBe(44);
   });
 
   test("a chart stored before its values kept figures reads its values as quoted, as it did", () => {

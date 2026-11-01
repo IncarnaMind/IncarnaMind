@@ -430,3 +430,110 @@ test("the shared hover hook holds across marker-to-card focus and clears pending
   });
   expect(container.textContent).toBe("false");
 });
+
+const growth: FigureInput = {
+  ...input,
+  name: "Assumptions_B4",
+  label: "Revenue growth (Growth)",
+  citation: {
+    ...input.citation,
+    location: { kind: "rows", sheet: "Assumptions", from: 4, to: 4 },
+    quote: "Revenue growth\t5.0%",
+  },
+  number: {
+    ...input.number,
+    chars: "5.0%",
+    at: 15,
+    value: 0.05,
+    unit: { kind: "percent" },
+    decimals: 1,
+  },
+  cell: { sheet: "Assumptions", ref: "B4", stored: 0.05 },
+  unitStatement: null,
+};
+const whatIf: CalculatedFigure = {
+  ...formula,
+  label: "EBITDA 2027 at 3% growth",
+  formula: "",
+  inputs: [growth],
+  value: 240.39994,
+  shown: "240.4",
+  literals: [],
+  workbook: {
+    cell: {
+      sheet: "DCF",
+      ref: "E5",
+      label: "EBITDA 2027",
+      formula: "E4*Margin",
+      value: 240.39994,
+      citation: { ...growth.citation, quote: "EBITDA\t231.0\t242.6\t254.7" },
+    },
+    steps: [
+      { sheet: "DCF", ref: "E4", label: "Revenue 2027", formula: "D4*(1+Growth)", value: 1092.727 },
+    ],
+    formulaCells: 5,
+    moreInputs: 0,
+    saved: 254.6775,
+    change: { input: "Assumptions_B4", value: 0.03, shown: "3.0%" },
+    kept: [],
+    engine: 1,
+  },
+};
+const keptValue: CalculatedFigure = {
+  ...whatIf,
+  label: "Figure",
+  value: 5.2,
+  shown: "5.2",
+  workbook: {
+    ...(whatIf.workbook as NonNullable<CalculatedFigure["workbook"]>),
+    change: null,
+    saved: 5.2,
+    kept: [{ sheet: "Cases", ref: "C2", reason: "volatile", name: "RAND" }],
+  },
+};
+
+test.each(["en", "zh-CN"] as const)(
+  "%s: a workbook figure's card shows its formula chain, the input a what-if changed, and the cells that kept saved values",
+  async (language) => {
+    state.language = language;
+    await card({
+      figure: whatIf,
+      shown: { state: "not-checked", reason: "unread" },
+      replayed: false,
+      sources: calculatedSources(attrs(whatIf), null),
+      problem: false,
+      onCopyFormula: () => {},
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain("EBITDA 2027 · DCF!E5 = E4*Margin");
+    expect(text).toContain("Revenue 2027 · DCF!E4 = D4*(1+Growth)");
+    expect(text).toContain(
+      translate(language, "figures.workbook.change", {
+        input: "Revenue growth (Growth)",
+        cell: "Assumptions!B4",
+        from: "5.0%",
+        to: "3.0%",
+      }),
+    );
+    expect(text).toContain(translate(language, "figures.workbook.workedOut"));
+    expect(text).toContain(translate(language, "figures.workbook.note"));
+    expect(text).toContain("Revenue growth\t5.0%");
+    expect(text).not.toContain(translate(language, "figures.workbook.savedValue"));
+    expect(text).not.toContain(translate(language, "figures.inline.recalculated"));
+
+    await card({
+      figure: keptValue,
+      shown: { state: "not-checked", reason: "unread" },
+      replayed: false,
+      sources: calculatedSources(attrs(keptValue), null),
+      problem: false,
+      onCopyFormula: () => {},
+    });
+    const kept = container.textContent ?? "";
+    expect(kept).toContain(
+      translate(language, "figures.workbook.kept.volatile", { cell: "Cases!C2", name: "RAND" }),
+    );
+    expect(kept).toContain(translate(language, "figures.workbook.savedValue"));
+    expect(kept).not.toContain(translate(language, "figures.workbook.workedOut"));
+  },
+);
