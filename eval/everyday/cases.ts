@@ -605,15 +605,31 @@ const SMALLER_SETS: readonly EverydayCase[] = [
   },
 ];
 
+/** 2.1% as a whole figure, in ASCII or full-width digits: never inside 12.1%. */
+const TWO_POINT_ONE = String.raw`(?<![\d.０-９．])[2２][.．][1１]\s?[%％]`;
+
 /**
- * The 10-Q's comparable sales rose 2.1%: an Answer gives 2.1% as a whole figure, not inside 12.1%,
- * and never as a decline ("fell 2.1%", "a 2.1% decrease", "下跌 2.1%"); "growth fell to 2.1%"
- * is the rise, slower.
+ * The 10-Q's comparable sales rose 2.1%: an Answer gives it, and never as a decline ("fell 2.1%",
+ * "were down 2.1%", "a decline of 2.1%", "−2.1%", "a 2.1% decrease", "下降幅度为 2.1%");
+ * "growth fell to 2.1%" is the rise, slower.
  */
-const COMPARABLE_ROSE =
-  /^(?![\s\S]*\b(?:declin\w*|fell|fall\w*|dropp?\w*|decreas\w*|lower)\s+(?:by\s+)?(?:about\s+)?(?<![\d.])2\.1\s?%)(?![\s\S]*(?<![\d.])2\.1\s?%\s+(?:declin|decreas|drop|fall))[\s\S]*(?<![\d.])2\.1\s?%/i;
-const COMPARABLE_ROSE_ZH =
-  /^(?![\s\S]*(?:下降|下跌|减少|降低|下滑)了?\s?(?:约\s?)?(?<![\d.])2\.1\s?%)[\s\S]*(?<![\d.])2\.1\s?%/;
+const COMPARABLE_ROSE = new RegExp(
+  [
+    String.raw`^(?![\s\S]*\b(?:declin\w*|fell|fall\w*|dropp?\w*|decreas\w*|lower|down)\s+(?:by\s+)?(?:about\s+)?${TWO_POINT_ONE})`,
+    String.raw`(?![\s\S]*\b(?:decline|decrease|drop|fall)\s+of\s+(?:about\s+)?${TWO_POINT_ONE})`,
+    String.raw`(?![\s\S]*[-−]${TWO_POINT_ONE})`,
+    String.raw`(?![\s\S]*${TWO_POINT_ONE}\s+(?:declin|decreas|drop|fall))`,
+    String.raw`[\s\S]*${TWO_POINT_ONE}`,
+  ].join(""),
+  "i",
+);
+const COMPARABLE_ROSE_ZH = new RegExp(
+  [
+    String.raw`^(?![\s\S]*(?:下降|下跌|减少|降低|下滑|降幅)[^。！？，,；;\n\d２]{0,6}${TWO_POINT_ONE})`,
+    String.raw`(?![\s\S]*[-−－]${TWO_POINT_ONE})`,
+    String.raw`[\s\S]*${TWO_POINT_ONE}`,
+  ].join(""),
+);
 
 export const CASES: readonly EverydayCase[] = [
   // The owner's own conversation, 2026-10-15.

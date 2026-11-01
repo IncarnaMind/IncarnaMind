@@ -99,9 +99,17 @@ describe("The filing evaluation", () => {
     expect(english?.test("Comparable sales fell by 2.1%.")).toBe(false);
     expect(english?.test("Comparable sales showed a 2.1% decrease.")).toBe(false);
     expect(english?.test("Comparable sales rose 12.1%.")).toBe(false);
+    expect(english?.test("Comparable sales rose ２．１％ [^1].")).toBe(true);
+    expect(english?.test("Comparable sales changed by −2.1%.")).toBe(false);
+    expect(english?.test("Comparable sales were down 2.1%.")).toBe(false);
+    expect(english?.test("Comparable sales showed a decline of 2.1%.")).toBe(false);
     expect(chinese?.test("集团同店销售额增长 2.1%。")).toBe(true);
     expect(chinese?.test("集团同店销售额下降 2.1%。")).toBe(false);
     expect(chinese?.test("集团同店销售额下跌 2.1%。")).toBe(false);
     expect(chinese?.test("集团同店销售额增长 12.1%。")).toBe(false);
+    expect(chinese?.test("集团同店销售额增长２．１％。")).toBe(true);
+    expect(chinese?.test("集团同店销售额下降幅度为 2.1%。")).toBe(false);
+    expect(chinese?.test("集团同店销售额变动 −2.1%。")).toBe(false);
+    expect(chinese?.test("增速较上年同期下降 0.3 个百分点，为 2.1%。")).toBe(true);
   });
 });
