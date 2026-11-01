@@ -3,7 +3,10 @@
  * and 10 in Chinese, each the right figure beside a sentence that gives the same number for a
  * measure the Document never states ("Insurance cost £14.2m" beside "Fuel costs were £14.2m"). A
  * wrong measure must never be Supported, as a figure or as a sentence, or the run fails; how many
- * right figures stay Supported is reported. The measures here are none of the check's own examples.
+ * right figures stay Supported is reported. Beside them, five sentences a language each give two
+ * figures, each the number the Document states for the other's measure (#2187's review found the
+ * check binding each to the other's quote): neither figure, nor the sentence, may be Supported.
+ * The measures here are none of the check's own examples.
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY, so `npx vitest run` makes no request without one.
  *
  * - INCARNAMIND_LIVE_ANTHROPIC_MODEL: the model (Claude Haiku 5.5 when unset).
@@ -33,6 +36,7 @@ type Pair = [right: string, wrong: string];
 interface Pack {
   document: { name: string; text: string };
   pairs: Pair[];
+  swaps: string[];
 }
 
 const PACKS: Record<string, Pack> = {
@@ -91,6 +95,13 @@ const PACKS: Record<string, Pack> = {
         "Felixstowe depot's space occupancy was 94% in 2025.",
       ],
     ],
+    swaps: [
+      "Fuel costs were £38m and capital expenditure was £14.2m in 2025.",
+      "In 2025 freight volumes rose 11% and carbon emissions per tonne fell 7%.",
+      "In 2025 Felixstowe's on-time rate was 89% and Leeds's was 94%.",
+      "An average delivery took 6.5 days, and the final dividend is 2.4p per share.",
+      "Customer complaints fell 11% and carbon emissions per tonne fell 18% in 2025.",
+    ],
   },
   zh: {
     document: {
@@ -135,6 +146,13 @@ const PACKS: Record<string, Pack> = {
       ["2025年资本开支为3,800万元。", "2025年自由现金流为3,800万元。"],
       ["苏州仓库2025年准时率为94%。", "苏州仓库2025年仓位使用率为94%。"],
     ],
+    swaps: [
+      "2025年燃油成本为3,800万元，资本开支为1,420万元。",
+      "2025年货运量增长11%，每吨货物的碳排放下降7%。",
+      "苏州仓库2025年准时率为89%，成都仓库为94%。",
+      "平均每单配送用时0.65天，末期股息为每股2.4元。",
+      "客户投诉下降11%，每吨货物的碳排放下降18%。",
+    ],
   },
 };
 
@@ -170,7 +188,7 @@ for (const language of LANGUAGES) {
       ]);
       const mind = await core.createMind({ title: "Results points" });
       const client = await connectToMind(core, mind.id);
-      writeMind(client, pack.pairs.flat().map(paragraph));
+      writeMind(client, [...pack.pairs.flat(), ...pack.swaps].map(paragraph));
       await client.settled();
       const result = await core.checkMind({ requestId: "measures", mindId: mind.id, mode: "all" });
       await client.settled();
@@ -189,6 +207,7 @@ for (const language of LANGUAGES) {
         seen.get(sentence) ?? { sentence, state: "missing", figures: [], why: null };
       const wrong = pack.pairs.map(([, sentence]) => of(sentence));
       const right = pack.pairs.map(([sentence]) => of(sentence));
+      const swaps = pack.swaps.map(of);
       const supported = (each: Seen) =>
         each.state === "supported" || each.figures.includes("supported");
       const usage = queryDatabase<{
@@ -213,13 +232,15 @@ for (const language of LANGUAGES) {
         result: result.kind,
         wrongSupported: wrong.filter(supported).length,
         rightSupported: right.filter((each) => each.state === "supported").length,
+        swapsSupported: swaps.filter(supported).length,
         wrong,
         right,
+        swaps,
         usage,
       };
       if (process.env.INCARNAMIND_LIVE_REPORT)
         await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${JSON.stringify(report)}\n`);
-      expect(wrong.filter(supported), JSON.stringify(report)).toEqual([]);
+      expect([...wrong, ...swaps].filter(supported), JSON.stringify(report)).toEqual([]);
     },
   );
 }
