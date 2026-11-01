@@ -8,7 +8,8 @@
  * what-if, with the workbook's own result. It runs only when INCARNAMIND_LIVE_ANTHROPIC_KEY is set
  * (INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku by default), so `npx vitest run` makes no request
  * without one; pick a set with `-t`. INCARNAMIND_LIVE_REPORT keeps each Answer, its Tool calls and
- * figures, and every request's tokens and price.
+ * figures, and every request's tokens and price. INCARNAMIND_LIVE_MAX_USD stops asking once a set
+ * has cost that much; the Questions not asked count as missed.
  */
 import { createHash } from "node:crypto";
 import { appendFile, readFile } from "node:fs/promises";
@@ -334,7 +335,17 @@ test.skipIf(KEY === undefined).each([
     });
     const missed: string[] = [];
     const from = billed.length;
+    const spent = () => billed.slice(from).reduce((total, each) => total + priced(each), 0);
     for (const expected of asked) {
+      if (spent() > Number(process.env.INCARNAMIND_LIVE_MAX_USD ?? Number.POSITIVE_INFINITY)) {
+        missed.push(expected.question);
+        report.push(
+          `### ${expected.question}`,
+          "not asked: the set's spending limit was reached",
+          "",
+        );
+        continue;
+      }
       const first = billed.length;
       const { answer } = await ask(core, expected.question);
       const passed =
