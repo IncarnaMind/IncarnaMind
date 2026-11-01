@@ -17,7 +17,7 @@ import {
   NotFoundError,
 } from "../../src/core";
 import { migrate, migrations, openDatabase } from "../../src/core/storage";
-import { citingModel } from "../helpers/citations";
+import { answerJudged, citingModel } from "../helpers/citations";
 import {
   createTempDataFolder,
   manualClock,
@@ -49,19 +49,33 @@ type Asked = Extract<ConversationAskResult, { asked: true }>;
 
 /** Collects every Answer's end, so a test can wait for one it asked for after the fact. */
 function answerEndings(core: Core) {
-  const ended = new Map<string, "finished" | "failed">();
+  const ended = new Map<string, "finished" | "failed" | Error>();
   const waiting = new Map<string, () => void>();
-  const end = (answerId: string, how: "finished" | "failed") => {
+  const end = (answerId: string, how: "finished" | "failed" | Error) => {
     ended.set(answerId, how);
     waiting.get(answerId)?.();
   };
-  core.on("answer.finished", ({ answerId }) => end(answerId, "finished"));
+  // An Answer ends at once; its Citations wait for their sentences' judgement (#2311).
+  core.on("answer.finished", ({ answerId, conversationId }) => {
+    if (!conversationId) end(answerId, "finished");
+    else {
+      answerJudged(core, conversationId, answerId).then(
+        () => end(answerId, "finished"),
+        (error: unknown) =>
+          end(answerId, error instanceof Error ? error : new Error(String(error))),
+      );
+    }
+  });
   core.on("answer.failed", ({ answerId }) => end(answerId, "failed"));
   return (answerId: string) =>
-    new Promise<"finished" | "failed">((resolve) => {
-      const how = ended.get(answerId);
-      if (how) resolve(how);
-      else waiting.set(answerId, () => resolve(ended.get(answerId) ?? "failed"));
+    new Promise<"finished" | "failed">((resolve, reject) => {
+      const settle = () => {
+        const how = ended.get(answerId) ?? "failed";
+        if (how instanceof Error) reject(how);
+        else resolve(how);
+      };
+      if (ended.has(answerId)) settle();
+      else waiting.set(answerId, settle);
     });
 }
 
@@ -1173,6 +1187,39 @@ describe("A conversation's Citations", { timeout: 60_000 }, () => {
         quote: citation.quote,
       }),
     ).toMatchObject({ check: "not-found", contentHash: sha256(V2) });
+  });
+
+  test("one still waiting for its sentence's judgement when IncarnaMind quit is not checked at the next start, and Check again judges it", async () => {
+    const model = citingModel({
+      query: "spring tides",
+      records: (passages) => [
+        { marker: 1, passage: passages[0]?.id, pageFrom: 2, pageTo: 2, quote: SPRING },
+      ],
+      answer: "Spring tides come at new and full moon [^1].",
+    });
+    const { core, dataDir, ended, adapters } = await setUp(model);
+    const sources = await createSourceFolder();
+    await addAndProcess(core, [await writeSourceFile(sources, "Tides.pdf", V1)]);
+    const { conversation, answerId } = await ask(core, ended, { text: "When are spring tides?" });
+    const judged = answerOf(await core.getConversation(conversation.id), answerId);
+    expect(judged.citations).toMatchObject([{ marker: 1, check: "found" }]);
+    // A quit while its sentence was judged: the row is left as it was then.
+    core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    db.run("UPDATE conversation_messages SET citations = ? WHERE id = ?", [
+      JSON.stringify(judged.citations.map((citation) => ({ ...citation, check: "checking" }))),
+      answerId,
+    ]);
+    db.close();
+
+    const later = startCore(dataDir, adapters);
+    const reopened = answerOf(await later.getConversation(conversation.id), answerId);
+    expect(reopened.citations).toMatchObject([{ marker: 1, check: "not-checked" }]);
+
+    await later.checkAnswerAgain({ conversationId: conversation.id, answerId });
+    expect(
+      answerOf(await later.getConversation(conversation.id), answerId).citations,
+    ).toMatchObject([{ marker: 1, check: "found" }]);
   });
 });
 

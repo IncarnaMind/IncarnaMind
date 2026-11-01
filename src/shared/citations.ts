@@ -36,6 +36,7 @@ const CITATION_CHECKS: readonly CitationCheck[] = [
   "found",
   "not-found",
   "cant-check",
+  "not-checked",
   "unsupported",
   "contradicted",
 ];
@@ -497,6 +498,8 @@ export function badgeMessage(
       return { key: `citation.badge.notFound.${where}`, params };
     case "cant-check":
       return { key: "citation.badge.cantCheck" };
+    case "not-checked":
+      return { key: "citation.badge.notChecked" };
     case "unsupported":
       return { key: "citation.badge.unsupported" };
     case "contradicted":

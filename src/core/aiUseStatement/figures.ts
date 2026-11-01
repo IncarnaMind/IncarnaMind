@@ -211,6 +211,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     found: "found",
     "not-found": "notFound",
     "cant-check": "cantCheck",
+    "not-checked": "cantCheck",
     unsupported: "unsupported",
     contradicted: "contradicted",
     checking: "checking",

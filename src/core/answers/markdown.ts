@@ -752,11 +752,18 @@ export interface Look {
 
 const withoutDelimiters = (text: string) => text.replace(/[*_~]/g, "");
 
-/** `\*`, `\_`, `\~` and `\\` as the characters they stand for. */
-export const withoutEmphasisEscapes = (text: string) => text.replace(/\\([\\*_~])/g, "$1");
+/** `\*`, `\_`, `\~`, `\\` and `\<removed>` as the characters they stand for. */
+export const withoutEmphasisEscapes = (text: string) =>
+  text.replace(/\\([\\*_~]|<(?=\/?removed[\s/>]))/gi, "$1");
 
 /** The characters that would read as emphasis or an escape in `text`, each escaped, so they stay as typed. */
 export const escapeEmphasis = (text: string) => text.replace(/[\\*_~]/g, "\\$&");
+
+/**
+ * A typed `<removed>` escaped: unescaped, it is the mark around what a rewrite takes out
+ * (#2180). Apart from `escapeEmphasis` because the words it is made of arrive one at a time.
+ */
+export const escapeRemovedMark = (text: string) => text.replace(/<(?=\/?removed[\s/>])/gi, "\\<");
 
 /**
  * A line as its plain words with the look each character has from the

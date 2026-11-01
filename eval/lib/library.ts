@@ -32,6 +32,7 @@ import type { CorpusPassage } from "./corpus";
 import type { EvalDocument } from "./evaluationSet";
 import type { Log } from "./log";
 import { answerSearchOf, createTimingRecorder, type TimingRecorder } from "./timing";
+import { serveWebPages } from "./webPageServer";
 
 export interface LibraryOptions {
   /** For the temporary folder's name and the log. */
@@ -333,8 +334,10 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     }
 
     const begun = Date.now();
+    const webDocuments = options.documents.filter((document) => document.kind === "web");
+    const files = options.documents.filter((document) => document.kind !== "web");
     const { documents: added, skipped } = await core.addDocuments(
-      options.documents.map((document) => document.path),
+      files.map((document) => document.path),
     );
     if (skipped.length > 0 && options.allowUnprocessed) {
       log(`${skipped.length} files weren't added; going on without them`);
@@ -343,22 +346,36 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     }
     // The Documents come in the order of the files given, without those skipped.
     const skippedPaths = new Set(skipped.map((file) => file.path));
-    const kept: { key: string }[] = options.documents.filter(
-      (document) => !skippedPaths.has(document.path),
-    );
+    const kept: { key: string }[] = files.filter((document) => !skippedPaths.has(document.path));
+    const ids = added.map((document) => document.id);
+    // A Web page is saved by its address, as a User saves one: from a server on this
+    // computer, so nothing outside it is reached.
+    if (webDocuments.length > 0) {
+      const server = await serveWebPages(webDocuments);
+      try {
+        for (const page of webDocuments) {
+          const address = server.addresses.get(page.key);
+          if (!address) throw new Error(`The Web page "${page.key}" has no address.`);
+          const saved = await core.saveWebPage({ address, keepLook: false });
+          if (saved.outcome !== "saved") {
+            throw new Error(`The web page ${address} wasn't saved: ${saved.failure.message}`);
+          }
+          ids.push(saved.document.id);
+          kept.push(page);
+        }
+      } finally {
+        await server.close();
+      }
+    }
     for (const page of options.webPages ?? []) {
       const saved = await core.saveWebPage({ address: page.address, html: page.html });
       if (saved.outcome !== "saved") {
         throw new Error(`The web page ${page.address} wasn't saved: ${saved.failure.message}`);
       }
-      added.push(saved.document);
-      kept.push(page);
+      ids.push(saved.document.id);
+      kept.push({ key: page.key });
     }
-    const done = await processed(
-      core,
-      added.map((document) => document.id),
-      log,
-    );
+    const done = await processed(core, ids, log);
     const processingSeconds = (Date.now() - begun) / 1000;
     const notReady = done.filter((document) => document.status !== "ready");
     if (notReady.length > 0 && options.allowUnprocessed) {

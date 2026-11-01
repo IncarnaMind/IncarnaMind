@@ -218,6 +218,7 @@ const MARKS: Readonly<Record<CitationCard["check"], string>> = {
   unsupported: "!",
   contradicted: "≠",
   "cant-check": "–",
+  "not-checked": "–",
   checking: "–",
 };
 
