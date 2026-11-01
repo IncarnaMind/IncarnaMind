@@ -28,9 +28,9 @@ const TURN_MIN_SPEECH = 0.25;
 
 /**
  * A stretch is read again, told its words (#1031), only where its first reading took at most this
- * share of its length, so that the two take at most half of it and the partial readings keep their
- * time: on a computer that read a stretch in under 40% of its length but not much under, the second
- * reading made live text fall behind the call. There the Transcript is as it was without the words.
+ * share of its length: the two then take at most half of it, and the partial readings keep their
+ * time, so live text keeps up with the call on a slower computer too. There the Transcript is as
+ * it was without the words.
  */
 const READ_AGAIN_WITHIN = 0.25;
 
