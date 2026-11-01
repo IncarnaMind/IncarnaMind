@@ -693,6 +693,17 @@ const plainSentence = (sentence: string) =>
 const TAKEN_OUT_SENTENCES = 6;
 const TAKEN_OUT_CHARACTERS = 110;
 
+/** The text a rewrite marked to take out, as the model is told it: a few, each cut short. */
+const quotesSaid = (quotes: readonly string[]) =>
+  quotes
+    .slice(0, TAKEN_OUT_SENTENCES)
+    .map((quote) =>
+      quote.length > TAKEN_OUT_CHARACTERS
+        ? `“${quote.slice(0, TAKEN_OUT_CHARACTERS)}…”`
+        : `“${quote}”`,
+    )
+    .join(", ");
+
 /**
  * What a rewrite took out, as the model is told so it reports what happened and not what it
  * meant to do: the sentences of the old text the new one doesn't hold. Null when none went.
@@ -723,7 +734,7 @@ function takenOut(before: string, after: string, wrote: string = after): string 
   const now = new Set(sentencesOf(after));
   const written = new Set(sentencesOf(wrote));
   const gone = was.filter((sentence) => !now.has(sentence));
-  // Text the rewrite left out stays unless the request asked to take text out, as a model may
+  // Text the rewrite left out stays unless it quoted it as taken out (#2180), as a model may
   // return only what it changed: said plainly, so its own "removed" is not repeated.
   const stayed = was.filter((sentence) => now.has(sentence) && !written.has(sentence));
   const told = [
@@ -734,7 +745,7 @@ function takenOut(before: string, after: string, wrote: string = after): string 
       : []),
     ...(stayed.length > 0
       ? [
-          `The rewrite left these sentences out, but they are still in the text, as the request didn't ask to take text out: ${quoted(stayed)}. Say they stayed, whatever the rewrite says it removed.`,
+          `The rewrite left these sentences out, but they are still in the text, as it didn't mark them as taken out: ${quoted(stayed)}. Say they stayed, whatever the rewrite says it removed.`,
         ]
       : []),
   ];
@@ -822,7 +833,13 @@ const APPLIES =
 const held = (name: string) =>
   `It would take out most of the User's own text in “${name}”, so it waits there for them to apply or discard; nothing of their text has changed yet. Say that it waits for them, not that it changed.`;
 
-function waitingMessage(name: string, count: number, mixed: boolean, applies: boolean): string {
+function waitingMessage(
+  name: string,
+  count: number,
+  mixed: boolean,
+  applies: boolean,
+  review: string,
+): string {
   const how =
     "Make no other change for this request: don't add the text elsewhere or make a new Note.";
   if (applies || count === 0) {
@@ -833,7 +850,7 @@ function waitingMessage(name: string, count: number, mixed: boolean, applies: bo
   }
   return mixed
     ? `Nothing was changed in “${name}”: the text you named holds the User's text and your own changes still waiting. To revise only your waiting text, call edit_mind again naming its section's heading in part. To change the User's text, the User needs to accept or reject the ${changes(count)} waiting first: if that is what they asked, say so first, in one sentence. ${how}`
-    : `Nothing was changed in “${name}”: ${changes(count)} wait there for the User, and the text you asked to change holds some that you can't revise (the User's own requests, or someone's from a Word file). Say so first, in one sentence: the User needs to accept or reject them first, and Review under your reply shows them. ${how}`;
+    : `Nothing was changed in “${name}”: ${changes(count)} wait there for the User, and the text you asked to change holds some that you can't revise (the User's own requests, or someone's from a Word file). Say so first, in one sentence: the User needs to accept or reject them first, and ${review} under your reply shows them. ${how}`;
 }
 
 /** What `edit_mind`'s model reads of a result that proposed nothing, and what its card says. */
@@ -885,6 +902,11 @@ function notProposed(
       return new Refusal(
         { kind: "no-table", mindId },
         noTableMessage(name, noTableSaid, result.text),
+      );
+    case "unplaced":
+      return new Refusal(
+        { kind: "unplaced", mindId },
+        `Nothing was proposed in “${name}”: the rewrite marked text to take out that isn't there word for word in one place: ${quotesSaid(result.quotes)}. The text is as it was: don't say it was changed or removed. To try again, name the words exactly as “${name}” has them.`,
       );
     case "proposed":
       return "";
@@ -2137,7 +2159,13 @@ export function mindTools(options: MindToolsOptions): {
       waiting.applies || waiting.count === 0
         ? { kind: "content-not-own", mindId: mind.id }
         : { kind: "waiting", mindId: mind.id, ...waiting },
-      waitingMessage(mind.name, waiting.count, waiting.mixed, waiting.applies),
+      waitingMessage(
+        mind.name,
+        waiting.count,
+        waiting.mixed,
+        waiting.applies,
+        translate(options.language, "mindChanges.review"),
+      ),
     );
 
   const edit: Tool = {
@@ -2297,12 +2325,13 @@ export function mindTools(options: MindToolsOptions): {
       }
       options.changed(toolCallId, change);
       // What the Mind holds once the changes are accepted, not the rewrite's words: it keeps what the
-      // reply left out unless the request asked to take it out. A revision replaces its text whole.
+      // reply left out unless it quoted it as taken out. A revision replaces its text whole.
       const around = revised
         ? length
         : minds.read(mind.id, (note) => textAround(note, stretch.from, stretch.to, result.request));
       const gone = around ? takenOut(around.before, around.after, length?.after) : null;
-      const went = length ? ` (${lengths(length.before, length.after)})` : "";
+      const span = around ?? length;
+      const went = span ? ` (${lengths(span.before, span.after)})` : "";
       return [
         revised
           ? revisedText(mind, change, went)

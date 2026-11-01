@@ -111,6 +111,7 @@ describe("Documents", { timeout: 30_000 }, () => {
         failure: null,
         unreadParts: null,
         unreadPartsUnknown: false,
+        readHiddenSheets: false,
         folderId: null,
         tags: [],
         tagging: "pending",

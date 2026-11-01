@@ -160,6 +160,33 @@ function wholeParagraph(
   };
 }
 
+/** Edit with AI over all of the Mind's text, in the User's own words. */
+function wholeMind(client: MindClient, mindId: string, instruction: string): EditWithAiInput {
+  const blocks: { id: string; size: number }[] = [];
+  readMind(client).descendants((node) => {
+    if (!node.isTextblock) return true;
+    blocks.push({ id: String(node.attrs.id), size: node.content.size });
+    return false;
+  });
+  const first = blocks[0] as { id: string };
+  const last = blocks.at(-1) as { id: string; size: number };
+  return {
+    requestId: `edit-${++ids}`,
+    mindId,
+    from: { blockId: first.id, offset: 0 },
+    to: { blockId: last.id, offset: last.size },
+    text: blocks.map((block) => plainOf(client, block.id)).join("\n"),
+    action: "instruction",
+    instruction,
+  };
+}
+
+const headingOf = (words: string): JSONContent & { attrs: { id: string } } => ({
+  type: "heading",
+  attrs: { id: `block-${++ids}`, level: 2 },
+  content: [text(words)],
+});
+
 async function setUp(model: MockLanguageModelV4) {
   const set = await setUpWithDocuments(model, [TIDES]);
   return { ...set, tides: set.documents[0] as Document };
@@ -636,10 +663,12 @@ describe("Edit with AI", () => {
     ]);
   });
 
-  test("Shorten that joins two paragraphs takes the second out; an instruction's new text that leaves one out keeps it, unless it asks for text to go; paragraphs it adds are new Blocks", async () => {
+  test("Shorten that joins two paragraphs takes the second out; an instruction's new text that leaves one out keeps it, unless it quotes it as taken out; paragraphs it adds are new Blocks", async () => {
     const { core, mind, client } = await setUp(
-      editingModel(({ passage }) =>
-        passage.includes("Second") ? "First and second, together." : "One line.\n\nAnother line.",
+      editingModel(({ passage, prompt }) =>
+        passage.includes("Second")
+          ? `First and second, together.${prompt.includes("delete") ? "\n\n<removed>Second paragraph.</removed>" : ""}`
+          : "One line.\n\nAnother line.",
       ),
     );
     const first = paragraph(text("First paragraph."));
@@ -821,16 +850,24 @@ describe("Edit with AI", () => {
     expect(pendingProposals(client.blocks)).toEqual([]);
   });
 
+  // protects=what goes is what the reply quotes between <removed> and </removed>, never what the request's words are read as (#2180); fails_when=a request worded off any list leaves the paragraph, or the quote lands as text; no_claim=that a real model writes the quote (tests/live/removalPhrasings).
   test.each([
     "Remove the whole part about hours (full time, Monday to Friday) and leave the rest",
     "Delete the list item about hours",
+    "Lose this one",
+    "I don't need this any more",
     "删去整个“工作安排”部分（全职、周一至周五、核心工作时间），其他部分保持不变。",
     "删去这一条关于工时的列表项（全职工作，周一至周五）。",
+    "这段不要了",
+    "这句话用不着",
   ])(
-    "a part named in a longer request is removed by a reply of no text but why: %s",
+    "a paragraph the reply quotes as taken out goes, whatever the request's words: %s",
     async (asked) => {
       const { core, mind, client } = await setUp(
-        editingModel(() => "<why>Removed, as asked.</why>"),
+        editingModel(
+          () =>
+            "<removed>Work is full time, Monday to Friday.</removed>\n<why>Removed, as asked.</why>",
+        ),
       );
       const hours = paragraph(text("Work is full time, Monday to Friday."));
       const pay = paragraph(text("Pay is monthly."));
@@ -849,7 +886,8 @@ describe("Edit with AI", () => {
     },
   );
 
-  test("asked to remove a paragraph, a reply of no text but why removes it; any other empty reply fails with its reason", async () => {
+  // protects=a reply with no text and no quote changes nothing, whatever the request asks, and says why it failed (#2180); fails_when=an empty reply to "Remove it" takes the paragraph out, or one to another request is written as text; no_claim=how a real model words its reason.
+  test("a reply of no text but why fails with its reason, whatever the request asks, and nothing is taken out", async () => {
     const { core, mind, client } = await setUp(
       editingModel(({ passage }) =>
         passage.startsWith("Pensions")
@@ -876,8 +914,11 @@ describe("Edit with AI", () => {
       wholeParagraph(client, mind.id, health.attrs.id, "instruction", "Make it more formal"),
     );
 
-    expect(removed).toMatchObject({ kind: "proposed" });
-    expect(silent).toMatchObject({ kind: "failed" });
+    expect(removed).toMatchObject({ kind: "failed", error: { message: "Removed." } });
+    expect(silent).toMatchObject({
+      kind: "failed",
+      error: { message: "The model gave nothing back." },
+    });
     const shortened = await core.editWithAi(
       wholeParagraph(client, mind.id, sick.attrs.id, "instruction", "Cut it down to two sentences"),
     );
@@ -887,13 +928,7 @@ describe("Edit with AI", () => {
     });
     expect(shortened).toMatchObject({ kind: "failed" });
     expect(shownWithChanges(client)).toEqual([
-      "- Pensions match up to 5% of salary.",
-      "Leave is 25 days.",
-      "Health cover starts after three months.",
-      "Sick pay is full for six weeks, then half for six more.",
-    ]);
-    await resolveChanges(client, "accept");
-    expect(shownWithChanges(client)).toEqual([
+      "Pensions match up to 5% of salary.",
       "Leave is 25 days.",
       "Health cover starts after three months.",
       "Sick pay is full for six weeks, then half for six more.",
@@ -1448,6 +1483,7 @@ describe("Edit with AI over Blocks of several kinds", () => {
             "## Findings",
             "- Spring tides are strongest at new moon. [1]",
             "- Neap tides are weakest.",
+            "<removed>Harbours publish the times of high water every year.</removed>",
           ].join("\n\n"),
         calls,
       ),
@@ -1493,6 +1529,7 @@ describe("Edit with AI over Blocks of several kinds", () => {
           "Findings",
           "Spring tides are strongest at new moon. [1]",
           "Neap tides are weakest.",
+          "<removed>Harbours publish the times of high water every year.</removed>",
         ].join("\n\n"),
       ),
     );
@@ -1515,6 +1552,7 @@ describe("Edit with AI over Blocks of several kinds", () => {
           "## Findings",
           "- Spring tides are strongest at new moon. [1]",
           "- Neap tides are weakest.",
+          "<removed>Harbours publish the times of high water every year.</removed>",
         ].join("\n"),
       ),
     );
@@ -1631,7 +1669,7 @@ describe("Edit with AI over Blocks of several kinds", () => {
     ]);
   });
 
-  // protects=a list made into a table becomes a table Block where the list was, out of it, its cell keeping the item's Citation: asking for a table replaces the text it is made from (#961); fails_when=the table is pipe text or lands in the list, the Citation is lost, or the list is kept as left out; no_claim=how a real model lays out a table.
+  // protects=a list made into a table becomes a table Block where the list was, out of it, its cell keeping the item's Citation, when the reply quotes the items the table takes the place of (#961, #2180); fails_when=the table is pipe text or lands in the list, the Citation is lost, or the list is kept as left out; no_claim=how a real model lays out a table.
   test("a list made into a table becomes a table, out of the list, its Citation in its cell", async () => {
     const { core, mind, client, tides } = await setUp(
       editingModel(() =>
@@ -1640,6 +1678,9 @@ describe("Edit with AI over Blocks of several kinds", () => {
           "|:--|--:|",
           "| Spring | At new moon [1] |",
           "| Neap | Weakest \\| smallest |",
+          "",
+          "<removed>- Spring tides are strongest at new moon. [1]",
+          "- Neap tides are weakest.</removed>",
         ].join("\n"),
       ),
     );
@@ -1677,6 +1718,46 @@ describe("Edit with AI over Blocks of several kinds", () => {
       "p Weakest | smallest",
     ]);
   });
+
+  // protects=a table stands in for the list items it is made of only when it says nearly all of their words; one that only names them leaves them, so a summary never deletes the lines it sums up (#2180); fails_when=items a summary table names go without being quoted, or a table with all their words leaves them doubled; no_claim=how a real model lays out a table.
+  test.each([
+    {
+      table: [
+        "| Tide | When |",
+        "|---|---|",
+        "| Spring tides | strongest at new moon |",
+        "| Neap tides | weakest |",
+        "| Storm surge | after gales |",
+      ],
+      leftOut: 0,
+    },
+    { table: ["| Tide |", "|---|", "| Spring |", "| Neap |", "| Storm |"], leftOut: 2 },
+  ])(
+    "a table stands in for list items only when it says nearly all their words: $leftOut left out",
+    async ({ table, leftOut }) => {
+      const { core, mind, client } = await setUp(editingModel(() => table.join("\n")));
+      writeMind(client, [
+        list(
+          "bulletList",
+          [text("Spring tides: strongest at new moon.")],
+          [text("Neap tides: weakest.")],
+          [text("Storm surge: after gales.")],
+        ),
+      ]);
+      await client.settled();
+
+      const result = await core.editWithAi({
+        ...whole(client, mind.id),
+        instruction: "Add a table",
+      });
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      expect(result.kind === "proposed" ? (result.leftOut ?? []).length : -1).toBe(leftOut);
+      await resolveChanges(client, "accept");
+      expect(structure(client).filter((line) => line.startsWith("• "))).toHaveLength(leftOut);
+      expect(structure(client)).toContain("p Tide");
+    },
+  );
 
   // protects=a table written without leading pipes, streamed in a few characters at a time, keeps every row: it isn't written while its next row may still be coming (#961); fails_when=it goes in with only the rows that had arrived when a row's first word did; no_claim=none beyond protects.
   test("a streamed table without leading pipes keeps all its rows", async () => {
@@ -2256,15 +2337,1199 @@ describe("An edit the User asked for (#880)", () => {
     expect(shownWithChanges(client)).toEqual([lines[0], formal, lines[2]]);
   });
 
-  test('an explicit "delete…" takes out what the new text leaves out, and applies', async () => {
-    const { core, client, asked } = await threeParagraphs(() => [FIRST, THIRD].join("\n\n"));
+  // protects=a paragraph goes when the reply quotes it, and stays when the reply only leaves it out, whatever the request says (#2180, #880); fails_when=a "delete" request takes out a paragraph left out unquoted, or a quoted one stays; no_claim=that a real model quotes it.
+  test("a paragraph the reply quotes as taken out goes, and applies; one it only leaves out stays, even when asked to delete", async () => {
+    const quoted = await threeParagraphs(() =>
+      [FIRST, `<removed>${SECOND}</removed>`, THIRD].join("\n\n"),
+    );
+    const result = await quoted.core.editWithAi(quoted.asked("delete the second paragraph"));
+    expect(result).toMatchObject({ kind: "proposed" });
+    expect(result).not.toHaveProperty("held");
+    expect(result).not.toHaveProperty("leftOut");
+    expect(shownWithChanges(quoted.client)).toEqual([FIRST, `- ${SECOND}`, THIRD]);
 
-    const result = await core.editWithAi(asked("delete the second paragraph"));
+    const weekly = THIRD.replace("each week", "weekly");
+    const left = await threeParagraphs(() => [FIRST, weekly].join("\n\n"));
+    const kept = await left.core.editWithAi(left.asked("delete the second paragraph"));
+    expect(kept).toMatchObject({
+      kind: "proposed",
+      leftOut: [expect.objectContaining({ whole: true })],
+    });
+    await resolveChanges(left.client, "accept");
+    expect(shownWithChanges(left.client)).toEqual([FIRST, SECOND, weekly]);
+  });
+
+  // protects=a rewrite that gives back only the paragraph it changed, for a request that isn't a removal, loses none of the others (#2180, #880); fails_when=a paragraph left out goes; no_claim=what a real model returns (tests/live/overRemoval).
+  test.each([
+    "Make it shorter",
+    "Improve the writing",
+    "Make it more formal",
+    "改短一些",
+    "润色一下",
+    "改得更正式",
+  ])("“%s” answered with only the paragraph it changed keeps the other two", async (words) => {
+    const { core, client, asked } = await threeParagraphs(() => FORMAL);
+
+    const result = await core.editWithAi(asked(words));
+
+    expect(result).toMatchObject({
+      kind: "proposed",
+      leftOut: [expect.anything(), expect.anything()],
+    });
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([FIRST, FORMAL, THIRD]);
+  });
+
+  // protects=a reply that rewrites one paragraph past half its words and leaves the rest out is neither held nor allowed to take the rest out: they stay, as left out (#2180); fails_when=the paragraphs left out are proposed for deletion, or the edit waits; no_claim=how far a real model rewrites.
+  test.each([
+    {
+      language: "English",
+      lines: [FIRST, SECOND, THIRD],
+      rewrite: "The harbour office now publishes every tide time online, on Mondays.",
+    },
+    {
+      language: "Chinese",
+      lines: ["每天涨潮两次。", "港口很大，低潮时很多船不出港。", "北区免费停车。"],
+      rewrite: "北区停车需付费，不再免费。",
+    },
+  ])(
+    "only the last paragraph, mostly rewritten, keeps the two left out and applies, $language",
+    async ({ lines, rewrite }) => {
+      const { core, mind, client } = await setUp(editingModel(() => rewrite));
+      const blocks = lines.map((line) => paragraph(text(line)));
+      writeMind(client, blocks);
+      await client.settled();
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Change the last one"));
+
+      expect(result).toMatchObject({
+        kind: "proposed",
+        leftOut: [expect.anything(), expect.anything()],
+      });
+      expect(result).not.toHaveProperty("held");
+      const shown = shownWithChanges(client);
+      expect(shown.slice(0, 2)).toEqual(lines.slice(0, 2));
+      await resolveChanges(client, "accept");
+      expect(shownWithChanges(client)).toEqual([...lines.slice(0, 2), rewrite]);
+    },
+  );
+
+  // protects=a quote takes out the one paragraph it quotes, wherever in the reply it is written, and not the paragraphs left out unchanged beside it; fails_when=it takes a neighbour, or the paragraphs left out after it; no_claim=where a real model writes it.
+  test.each([
+    { where: "last", quote: (rest: string[], mark: string) => [...rest, mark] },
+    { where: "first", quote: (rest: string[], mark: string) => [mark, ...rest] },
+  ])(
+    "a quote written $where takes out the paragraph it quotes; those left out unchanged stay",
+    async ({ quote }) => {
+      const words = [
+        "Alpha opens the day.",
+        "Bravo follows it closely.",
+        "Charlie goes on for a while.",
+        "Delta waits at the gate.",
+        "Echo ends the day.",
+      ];
+      const set = await setUp(
+        editingModel(() =>
+          quote(
+            ["Alpha opens the day well.", "Bravo follows it closely and calmly."],
+            "<removed>Charlie goes on for a while.</removed>",
+          ).join("\n\n"),
+        ),
+      );
+      const blocks = words.map((each) => paragraph(text(each)));
+      writeMind(set.client, blocks);
+      await set.client.settled();
+
+      const result = await set.core.editWithAi({
+        requestId: `run-${++ids}`,
+        mindId: set.mind.id,
+        from: { blockId: blocks[0]?.attrs.id ?? "", offset: 0 },
+        to: { blockId: blocks[4]?.attrs.id ?? "", offset: words[4]?.length ?? 0 },
+        text: words.join("\n"),
+        action: "instruction",
+        instruction: "Take the third one out and tighten the rest",
+      });
+
+      expect(result).toMatchObject({
+        kind: "proposed",
+        leftOut: [expect.anything(), expect.anything()],
+      });
+      const shown = shownWithChanges(set.client);
+      expect(shown.filter((line) => line.startsWith("- "))).toEqual([
+        "- Charlie goes on for a while.",
+      ]);
+      expect(shown).toContain("Delta waits at the gate.");
+      expect(shown).toContain("Echo ends the day.");
+    },
+  );
+
+  // protects=a whole section quoted in one mark goes, heading and all, and nothing of the next section; in Chinese too; fails_when=a paragraph of the section stays or one of the next goes; no_claim=how a real model lays out the quote.
+  test.each([
+    {
+      language: "English",
+      blocks: [
+        ["Role", "The post is a senior analyst position."],
+        ["Hours", "Work is full time, Monday to Friday.", "Core hours are 9:30 to 15:30."],
+        ["Pay", "The salary is set by grade 7."],
+      ],
+      joined: "\n",
+    },
+    {
+      language: "Chinese",
+      blocks: [
+        ["职位", "该岗位是财务团队的高级分析岗位。"],
+        ["工时", "全职，周一至周五上班。", "核心工作时间为9:30至15:30。"],
+        ["薪酬", "薪酬按7级确定，按月发放。"],
+      ],
+      joined: "\n\n",
+    },
+  ])(
+    "a section quoted as taken out goes with its heading, $language",
+    async ({ blocks, joined }) => {
+      const [role, hours, pay] = blocks as [string[], string[], string[]];
+      const { core, mind, client } = await setUp(
+        editingModel(() =>
+          [
+            `<removed>## ${hours[0]}${joined}${hours.slice(1).join(joined)}</removed>`,
+            `<why>${hours[0]}</why>`,
+          ].join("\n"),
+        ),
+      );
+      writeMind(
+        client,
+        [role, hours, pay].flatMap(([title, ...rest]) => [
+          headingOf(title as string),
+          ...rest.map((each) => paragraph(text(each))),
+        ]),
+      );
+      await client.settled();
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Drop the hours"));
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      expect(result).not.toHaveProperty("held");
+      const shown = shownWithChanges(client);
+      expect(shown.filter((line) => line.startsWith("- "))).toEqual(
+        hours.map((each) => `- ${each}`),
+      );
+      expect(shown).toEqual(expect.arrayContaining([...role, ...pay]));
+    },
+  );
+
+  // protects=two headings that read alike are told apart by the words of the section quoted, and a quote like none of the Note takes nothing out; fails_when="Pay" takes "Pay review" with it, or a paraphrase takes a paragraph out; no_claim=how a real model quotes.
+  test.each([
+    {
+      language: "English",
+      alike: ["Pay review", "The pay review is held every March."],
+      named: ["Pay", "The salary is set by grade 7."],
+      paraphrase: "The section about the job's terms",
+    },
+    {
+      language: "Chinese",
+      alike: ["工作安排（试用期）", "试用期为三个月。"],
+      named: ["工作安排", "全职，周一至周五上班。"],
+      paraphrase: "关于上班安排的那一节",
+    },
+  ])(
+    "of two headings that read alike, the one quoted goes, and a paraphrase takes nothing, $language",
+    async ({ alike, named, paraphrase }) => {
+      const [alikeTitle, alikeText, namedTitle, namedText] = [...alike, ...named] as [
+        string,
+        string,
+        string,
+        string,
+      ];
+      const sections = () => [
+        headingOf(alikeTitle),
+        paragraph(text(alikeText)),
+        headingOf(namedTitle),
+        paragraph(text(namedText)),
+      ];
+
+      const first = await setUp(
+        editingModel(() => `<removed>## ${namedTitle}\n\n${namedText}</removed>`),
+      );
+      writeMind(first.client, sections());
+      await first.client.settled();
+      const done = await first.core.editWithAi(wholeMind(first.client, first.mind.id, "Drop it"));
+      expect(done).toMatchObject({ kind: "proposed" });
+      expect(shownWithChanges(first.client)).toEqual([
+        alikeTitle,
+        alikeText,
+        `- ${namedTitle}`,
+        `- ${namedText}`,
+      ]);
+
+      const second = await setUp(
+        editingModel(() => `## ${alikeTitle}\n\n${alikeText}\n\n<removed>${paraphrase}</removed>`),
+      );
+      writeMind(second.client, sections());
+      await second.client.settled();
+      const guess = await second.core.editWithAi(
+        wholeMind(second.client, second.mind.id, "Drop it"),
+      );
+      expect(guess).not.toMatchObject({ kind: "proposed" });
+      expect(shownWithChanges(second.client)).toEqual([
+        alikeTitle,
+        alikeText,
+        namedTitle,
+        namedText,
+      ]);
+    },
+  );
+
+  // protects=a quote of part of a paragraph the reply leaves out takes out exactly those words, never the whole paragraph; in Chinese too (#2180); fails_when=the paragraph's other sentences go, or the quoted ones stay; no_claim=how often a real model quotes this way.
+  test.each([
+    {
+      language: "English",
+      lines: [
+        "Rent is 1,200 a month, due on the first.",
+        "Parking costs 100 a month. The space is in the north garage. Keys are at the front desk.",
+        "Water is billed separately each quarter.",
+      ],
+      quote: "The space is in the north garage.",
+      left: "Parking costs 100 a month. Keys are at the front desk.",
+    },
+    {
+      language: "English, half",
+      lines: [
+        "Rent is 1,200 a month, due on the first.",
+        "Parking costs 100 a month. The space is in the north garage. Keys are at the front desk.",
+        "Water is billed separately each quarter.",
+      ],
+      quote: "Parking costs 100 a month. The space is in the north garage.",
+      left: "Keys are at the front desk.",
+    },
+    {
+      language: "English, at the end",
+      lines: [
+        "Rent is 1,200 a month, due on the first.",
+        "Parking costs 100 a month. The space is in the north garage. Keys are at the front desk.",
+        "Water is billed separately each quarter.",
+      ],
+      quote: "Keys are at the front desk.",
+      left: "Parking costs 100 a month. The space is in the north garage.",
+    },
+    {
+      language: "Chinese",
+      lines: [
+        "租金每月1200元，每月1日支付。",
+        "停车每月100元。车位在北区车库。钥匙在前台。",
+        "水费按季度单独结算。",
+      ],
+      quote: "车位在北区车库。",
+      left: "停车每月100元。钥匙在前台。",
+    },
+  ])(
+    "a quote of part of a paragraph takes out only those words, $language",
+    async ({ lines, quote, left }) => {
+      const { core, mind, client } = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+      writeMind(
+        client,
+        lines.map((line) => paragraph(text(line))),
+      );
+      await client.settled();
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Delete that sentence"));
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      expect(result).not.toHaveProperty("held");
+      await resolveChanges(client, "accept");
+      expect(shownWithChanges(client)).toEqual([lines[0], left, lines[2]]);
+    },
+  );
+
+  // protects=a quote of words a paragraph the reply rewrote no longer has is that rewrite's, and the same words in a paragraph it left out stay; in Chinese too (#2180); fails_when=the left-out paragraph loses them; no_claim=how often a real model quotes this way.
+  test.each([
+    {
+      language: "English",
+      asked: "Drop the TBD from the owner line",
+      lines: ["Budget: TBD.", "Owner: Sam. TBD.", "Water is billed separately each quarter."],
+      reply: "Owner: Sam.\n\n<removed>TBD.</removed>",
+      after: ["Budget: TBD.", "Owner: Sam.", "Water is billed separately each quarter."],
+    },
+    {
+      language: "English, a sentence",
+      asked: "In the parking paragraph, change 100 to 120 and drop the keys sentence",
+      lines: [
+        "Bikes go in the shed. Keys are at the front desk.",
+        "Parking costs 100 a month. Keys are at the front desk.",
+      ],
+      reply: "Parking costs 120 a month.\n\n<removed>Keys are at the front desk.</removed>",
+      after: ["Bikes go in the shed. Keys are at the front desk.", "Parking costs 120 a month."],
+    },
+    {
+      language: "Chinese",
+      asked: "去掉负责人那一行的待定",
+      lines: ["预算：待定。", "负责人：小王。待定。", "水费按季度单独结算。"],
+      reply: "负责人：小王。\n\n<removed>待定。</removed>",
+      after: ["预算：待定。", "负责人：小王。", "水费按季度单独结算。"],
+    },
+  ])(
+    "a quote of words the reply's rewrite took out leaves them in a paragraph it left out, $language",
+    async ({ asked, lines, reply, after }) => {
+      const { core, mind, client } = await setUp(editingModel(() => reply));
+      writeMind(
+        client,
+        lines.map((line) => paragraph(text(line))),
+      );
+      await client.settled();
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, asked));
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      await resolveChanges(client, "accept");
+      expect(shownWithChanges(client)).toEqual(after);
+    },
+  );
+
+  // protects=a quote that is twice in the one paragraph that has it refuses the edit, as it can't say which; in Chinese too (#2180); fails_when=one of the two is taken out; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "English",
+      lines: [
+        "Rent is monthly.",
+        "Keys are at the front desk. Ask first. Keys are at the front desk.",
+        "Water is quarterly.",
+      ],
+      quote: "Keys are at the front desk.",
+    },
+    {
+      language: "Chinese",
+      lines: ["租金按月支付。", "钥匙在前台。先问一声。钥匙在前台。", "水费按季度支付。"],
+      quote: "钥匙在前台。",
+    },
+  ])("a quote twice in one paragraph refuses the edit, $language", async ({ lines, quote }) => {
+    const { core, mind, client } = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+    writeMind(
+      client,
+      lines.map((line) => paragraph(text(line))),
+    );
+    await client.settled();
+
+    const result = await core.editWithAi(wholeMind(client, mind.id, "Delete that sentence"));
+
+    expect(result).toEqual({ kind: "unplaced", quotes: [quote] });
+    expect(shownWithChanges(client)).toEqual(lines);
+  });
+
+  // protects=a part quote whose words a paragraph the reply wrote still holds refuses the edit, so no other paragraph loses them: written back as it was, rewritten around them, or only there; in Chinese too (#2180); fails_when=the words come out of a paragraph nobody named, or the quote is let pass; no_claim=how often a real model quotes this way.
+  test.each([
+    {
+      case: "written back as it was, the same words left out elsewhere",
+      lines: [
+        "Bikes go in the shed. Keys are at the front desk.",
+        "Parking costs 100 a month. Keys are at the front desk.",
+      ],
+      reply:
+        "Bikes go in the shed. Keys are at the front desk.\n\n<removed>Keys are at the front desk.</removed>",
+      asked: "Drop the keys sentence from the bikes paragraph",
+    },
+    {
+      case: "rewritten but keeping them, the same words left out elsewhere",
+      lines: [
+        "Bikes go in the shed. Keys are at the front desk.",
+        "Parking costs 100 a month. Keys are at the front desk.",
+      ],
+      reply:
+        "Parking costs 120 a month. Keys are at the front desk.\n\n<removed>Keys are at the front desk.</removed>",
+      asked: "In the parking paragraph, change 100 to 120 and drop the keys sentence",
+    },
+    {
+      case: "only in paragraphs written back as they were",
+      lines: [
+        "Bikes go in the shed. Keys are at the front desk.",
+        "Parking costs 100 a month. Keys are at the front desk.",
+      ],
+      reply:
+        "Bikes go in the shed. Keys are at the front desk.\n\nParking costs 100 a month. Keys are at the front desk.\n\n<removed>Keys are at the front desk.</removed>",
+      asked: "Drop the keys sentence",
+    },
+    {
+      case: "Chinese, rewritten but keeping them",
+      lines: ["自行车放在棚里。钥匙在前台。", "停车每月100元。钥匙在前台。"],
+      reply: "停车每月120元。钥匙在前台。\n\n<removed>钥匙在前台。</removed>",
+      asked: "停车那段把100改成120，去掉钥匙那句",
+    },
+  ])("a part quote the reply's own text still has refuses the edit: $case", async (each) => {
+    const { core, mind, client } = await setUp(editingModel(() => each.reply));
+    writeMind(
+      client,
+      each.lines.map((line) => paragraph(text(line))),
+    );
+    await client.settled();
+
+    const result = await core.editWithAi(wholeMind(client, mind.id, each.asked));
+
+    expect(result).toMatchObject({ kind: "unplaced" });
+    expect(shownWithChanges(client)).toEqual(each.lines);
+  });
+
+  // protects=a quote is a word only where it stands as a word: "draft" isn't in "drafts" or "drafted", so a one-word removal is neither refused for them nor taken as made by them, and a rewrite that turns the word into "drafts" has taken it out; Chinese has no spaces, so there 草稿 in 草稿箱 is a place (#2180); fails_when=the title's word is refused on every retry, or stays while the edit applies; no_claim=none beyond protects.
+  test.each([
+    {
+      case: "a longer word left out elsewhere",
+      lines: ["Title: Budget draft", "Old drafts go to the archive."],
+      reply: "<removed>draft</removed>",
+      after: ["Title: Budget", "Old drafts go to the archive."],
+    },
+    {
+      case: "a longer word the reply rewrote away",
+      lines: ["Title: Budget draft", "We drafted the plan in May."],
+      reply: "<removed>draft</removed>\n\nWe wrote the plan in May.",
+      after: ["Title: Budget", "We wrote the plan in May."],
+    },
+    {
+      case: "the word rewritten into a longer one is taken out there, and the title keeps it",
+      lines: ["Title: Budget draft", "Save the draft today."],
+      reply: "<removed>draft</removed>\n\nSave the drafts today.",
+      after: ["Title: Budget draft", "Save the drafts today."],
+    },
+  ])("a quoted word is matched only as a word: $case", async ({ lines, reply, after }) => {
+    const { core, mind, client } = await setUp(editingModel(() => reply));
+    writeMind(
+      client,
+      lines.map((line) => paragraph(text(line))),
+    );
+    await client.settled();
+
+    const result = await core.editWithAi(
+      wholeMind(client, mind.id, "Remove the word draft from the title"),
+    );
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual(after);
+  });
+
+  // protects=Chinese has no spaces, so any character boundary counts: a word quoted from inside a run of characters comes out, and 草稿 in 草稿箱 is a second place, so that quote is refused (#2180); fails_when=a Chinese part removal is refused as cutting a word, or the second place is missed; no_claim=none beyond protects.
+  test.each([
+    {
+      case: "a word inside a run of characters comes out",
+      lines: ["标题：预算草稿", "旧文件已归档。"],
+      quote: "草稿",
+      after: ["标题：预算", "旧文件已归档。"],
+    },
+    {
+      case: "a word inside a sentence comes out",
+      lines: ["预算：待定下周确认。", "水费按季度单独结算。"],
+      quote: "待定",
+      after: ["预算：下周确认。", "水费按季度单独结算。"],
+    },
+    {
+      case: "a second place inside another word refuses",
+      lines: ["标题：预算草稿", "旧草稿箱已归档。"],
+      quote: "草稿",
+      after: null,
+    },
+  ])("in Chinese any character boundary counts: $case", async ({ lines, quote, after }) => {
+    const { core, mind, client } = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+    writeMind(
+      client,
+      lines.map((line) => paragraph(text(line))),
+    );
+    await client.settled();
+
+    const result = await core.editWithAi(wholeMind(client, mind.id, `去掉${quote}`));
+
+    if (after === null) {
+      expect(result).toEqual({ kind: "unplaced", quotes: [quote] });
+      expect(shownWithChanges(client)).toEqual(lines);
+      return;
+    }
+    expect(result).toMatchObject({ kind: "proposed" });
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual(after);
+  });
+
+  // protects=a part quote takes out exactly its words: one that starts or ends inside a word of Latin text is refused, a mark that doesn't close a word keeps the space before it, a word joined to the one before it keeps the space after it, and Chinese loses only the quoted characters, with one of two spaces around them (#2180); fails_when=the rest of a word, a space or a neighbouring character goes too; no_claim=none beyond protects.
+  test.each([
+    { line: "Sam TBD's car is red.", quote: "TBD", after: null },
+    { line: "foo TBD.bar baz", quote: "TBD", after: null },
+    { line: "foo TBD.bar", quote: "TBD", after: null },
+    { line: "Price TBD/TBC.", quote: "TBD", after: "Price /TBC." },
+    { line: "Sam TBD&Co", quote: "TBD", after: "Sam &Co" },
+    { line: "预算待定期间 确认。", quote: "待定期", after: "预算间 确认。" },
+    { line: "Ref co-TBD now.", quote: "TBD", after: "Ref co- now." },
+    { line: "小王 待定 ，下周确认。", quote: "待定", after: "小王 ，下周确认。" },
+  ])("a part quote takes out exactly its words: $line", async ({ line, quote, after }) => {
+    const water = "Water is billed separately each quarter.";
+    const { core, mind, client } = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+    writeMind(client, [paragraph(text(line)), paragraph(text(water))]);
+    await client.settled();
+
+    const result = await core.editWithAi(wholeMind(client, mind.id, `Remove ${quote}`));
+
+    if (after === null) {
+      expect(result).toEqual({ kind: "unplaced", quotes: [quote] });
+      expect(shownWithChanges(client)).toEqual([line, water]);
+      return;
+    }
+    expect(result).toMatchObject({ kind: "proposed" });
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([after, water]);
+  });
+
+  // protects=whatever the text around it, a part removal takes out the quoted words and at most one space beside them, or is refused with the Note as it was (#2180); fails_when=any other character goes; no_claim=none beyond protects.
+  test("a part removal takes out only the quote and at most one space, or nothing", async () => {
+    const water = "Water is billed separately each quarter.";
+    const rows: { line: string; quote: string; applies: boolean }[] = [
+      { line: "Sam TBD's car is red.", quote: "TBD", applies: false },
+      { line: "foo TBD.bar baz", quote: "TBD", applies: false },
+      { line: "foo TBD.bar", quote: "TBD", applies: false },
+      { line: "Price TBD/TBC.", quote: "TBD", applies: true },
+      { line: "Sam TBD&Co", quote: "TBD", applies: true },
+      { line: '"Sam TBD"', quote: "TBD", applies: true },
+      { line: "Owner: Sam TBD.", quote: "TBD", applies: true },
+      { line: "Owner: Sam TBD, for now.", quote: "TBD", applies: true },
+      { line: "Owner: Sam TBD later.", quote: "TBD", applies: true },
+      { line: "TBD Sam is the owner.", quote: "TBD", applies: true },
+      {
+        line: "Keys are at the front desk. Ask first.",
+        quote: "Keys are at the front desk.",
+        applies: true,
+      },
+      {
+        line: "Ask first. Keys are at the front desk.",
+        quote: "Keys are at the front desk.",
+        applies: true,
+      },
+      { line: "预算待定期间 确认。", quote: "待定期", applies: true },
+      { line: "预算：待定下周确认。", quote: "待定", applies: true },
+      { line: "预算 待定 下周确认。", quote: "待定", applies: true },
+    ];
+    const onlyTheQuote = (line: string, quote: string, after: string) => {
+      const at = line.indexOf(quote);
+      const head = line.slice(0, at);
+      const tail = line.slice(at + quote.length);
+      const allowed = [head + tail];
+      if (/\s$/.test(head)) allowed.push(head.slice(0, -1) + tail);
+      if (/^\s/.test(tail)) allowed.push(head + tail.slice(1));
+      return allowed.includes(after);
+    };
+    const wrong: string[] = [];
+    for (const { line, quote, applies } of rows) {
+      const { core, mind, client } = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+      writeMind(client, [paragraph(text(line)), paragraph(text(water))]);
+      await client.settled();
+      const result = await core.editWithAi(wholeMind(client, mind.id, `Remove ${quote}`));
+      if (result.kind === "proposed") await resolveChanges(client, "accept");
+      const [after, rest] = shownWithChanges(client);
+      const right =
+        rest === water &&
+        (applies
+          ? result.kind === "proposed" && after !== undefined && onlyTheQuote(line, quote, after)
+          : result.kind === "unplaced" && after === line);
+      if (!right) wrong.push(`${line} -> ${result.kind}: ${after}`);
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  // protects=a footnote is the User's own writing: a quote with a footnote marker right after it is refused, and the footnote and its text stay, while a Citation marker there still goes with the quoted word; in Chinese too (#2180); fails_when=the footnote goes with the quote, or the Citation stays behind; no_claim=none beyond protects.
+  test.each([
+    { language: "English", words: "Owner: Sam TBD", quote: "TBD", rest: ".", after: "Owner: Sam." },
+    {
+      language: "English, before a space",
+      words: "Owner: Sam TBD",
+      quote: "TBD",
+      rest: " later.",
+      after: "Owner: Sam later.",
+    },
+    {
+      language: "Chinese",
+      words: "负责人：小王待定",
+      quote: "待定",
+      rest: "。",
+      after: "负责人：小王。",
+    },
+  ])(
+    "a footnote right after the quote refuses it, a Citation goes with it: $language",
+    async ({ words, quote, rest, after }) => {
+      const water = "Water is billed separately each quarter.";
+      const footnote: JSONContent = {
+        type: "footnote",
+        attrs: { id: "fn-legal" },
+        content: [text("Pending legal sign-off.")],
+      };
+      const noted = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+      writeMind(noted.client, [
+        paragraph(text(words), footnote, text(rest)),
+        paragraph(text(water)),
+      ]);
+      await noted.client.settled();
+      const before = JSON.stringify(noted.client.blocks.toJSON());
+
+      // A footnote reads as one character in the selection's text, its own words left out.
+      const refused = await noted.core.editWithAi({
+        ...wholeMind(noted.client, noted.mind.id, `Remove ${quote}`),
+        text: `${words}\uFFFC${rest}\n${water}`,
+      });
+
+      expect(refused).toEqual({ kind: "unplaced", quotes: [quote] });
+      expect(JSON.stringify(noted.client.blocks.toJSON())).toBe(before);
+      expect(JSON.stringify(noted.client.blocks.toJSON())).toContain("Pending legal sign-off.");
+
+      const cited = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+      writeMind(cited.client, [
+        paragraph(text(words), citation(cited.tides), text(rest)),
+        paragraph(text(water)),
+      ]);
+      await cited.client.settled();
+      expect(
+        await cited.core.editWithAi(wholeMind(cited.client, cited.mind.id, `Remove ${quote}`)),
+      ).toMatchObject({ kind: "proposed", droppedCitations: 1 });
+      await resolveChanges(cited.client, "accept");
+      expect(shownWithChanges(cited.client)).toEqual([after, water]);
+    },
+  );
+
+  // protects=a quote whose words run across a formula or a line break is refused, as the reply's marks can't say whether those go; the Note stays as it was (#2180); fails_when=the formula or the line break is taken out with the words; no_claim=none beyond protects.
+  test.each([
+    {
+      case: "a formula",
+      line: paragraph(
+        text("Cost is "),
+        { type: "inlineMath", attrs: { latex: "x" } },
+        text(" per unit, TBD."),
+      ),
+      quote: "is $x$ per unit",
+    },
+    {
+      case: "a line break",
+      line: paragraph(text("Owner: Sam TBD"), { type: "hardBreak" }, text("later today.")),
+      quote: "TBD\nlater",
+    },
+  ])("a quote across $case is refused", async ({ line, quote }) => {
+    const { core, mind, client } = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+    writeMind(client, [line, paragraph(text("Water is billed separately each quarter."))]);
+    await client.settled();
+    const before = JSON.stringify(client.blocks.toJSON());
+
+    const result = await core.editWithAi(wholeMind(client, mind.id, "Remove those words"));
+
+    expect(result).toMatchObject({ kind: "unplaced" });
+    expect(JSON.stringify(client.blocks.toJSON())).toBe(before);
+  });
+
+  // protects=a quote of a table cell's whole text strikes the text and keeps the cell, so the table keeps its shape; Undo of the accept and a reject give the table back exactly (#2180); fails_when=the cell goes and the row is left short, or the table can't be brought back; no_claim=none beyond protects.
+  test("a whole table cell quoted keeps the cell, and Undo with reject gives it back", async () => {
+    const cell = (words: string): JSONContent => ({
+      type: "tableCell",
+      content: [paragraph(text(words))],
+    });
+    const { core, mind, client } = await setUp(editingModel(() => "<removed>TBD</removed>"));
+    writeMind(client, [
+      paragraph(text("The costs, as agreed so far.")),
+      {
+        type: "table",
+        content: [
+          { type: "tableRow", content: [cell("Item"), cell("Amount")] },
+          { type: "tableRow", content: [cell("Rent"), cell("TBD")] },
+        ],
+      },
+    ]);
+    await client.settled();
+    const before = JSON.stringify(client.blocks.toJSON());
+
+    const result = await core.editWithAi(
+      wholeMind(client, mind.id, "Take TBD out of the rent cell"),
+    );
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    const undo = new Y.UndoManager(client.blocks, { trackedOrigins: new Set(["editor"]) });
+    await resolveChanges(client, "accept");
+    const rows: string[][] = [];
+    readMind(client).descendants((node) => {
+      if (node.type.name !== "tableRow") return true;
+      const cells: string[] = [];
+      node.forEach((each) => {
+        cells.push(each.textContent);
+      });
+      rows.push(cells);
+      return false;
+    });
+    expect(rows).toEqual([
+      ["Item", "Amount"],
+      ["Rent", ""],
+    ]);
+    undo.undo();
+    await client.settled();
+    await resolveChanges(client, "reject");
+    expect(JSON.stringify(client.blocks.toJSON())).toBe(before);
+  });
+
+  // protects=a removal never leaves a table cell with no Block, however deep the quoted text sits: a cell holding a one-item list, or a list item holding a paragraph and a nested list, keeps its shape with its text struck; Undo of the accept and a reject give the table back exactly (#2180); fails_when=the list goes, the cell with it, and the row is left short; no_claim=none beyond protects.
+  test.each([
+    {
+      case: "a one-item list",
+      content: (): JSONContent[] => [
+        { type: "bulletList", content: [{ type: "listItem", content: [paragraph(text("TBD"))] }] },
+      ],
+      reply: "<removed>TBD</removed>",
+    },
+    {
+      case: "a list item holding a paragraph and a nested list",
+      content: (): JSONContent[] => [
+        {
+          type: "bulletList",
+          content: [
+            {
+              type: "listItem",
+              content: [
+                paragraph(text("TBD")),
+                {
+                  type: "bulletList",
+                  content: [{ type: "listItem", content: [paragraph(text("TBC"))] }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      reply: "<removed>TBD\n\nTBC</removed>",
+    },
+  ])("a cell holding $case keeps its shape when all its text is quoted", async (each) => {
+    const cell = (content: JSONContent[]): JSONContent => ({ type: "tableCell", content });
+    const { core, mind, client } = await setUp(editingModel(() => each.reply));
+    writeMind(client, [
+      paragraph(text("The costs, as agreed so far.")),
+      {
+        type: "table",
+        content: [
+          {
+            type: "tableRow",
+            content: [cell([paragraph(text("Item"))]), cell([paragraph(text("Amount"))])],
+          },
+          { type: "tableRow", content: [cell([paragraph(text("Rent"))]), cell(each.content())] },
+        ],
+      },
+    ]);
+    await client.settled();
+    const before = JSON.stringify(client.blocks.toJSON());
+    const shape = () => {
+      const kinds: string[] = [];
+      readMind(client).descendants((node) => {
+        if (node.isTextblock) return false;
+        kinds.push(node.type.name);
+        return true;
+      });
+      return kinds;
+    };
+    const shaped = shape();
+
+    const result = await core.editWithAi(
+      wholeMind(client, mind.id, "Take TBD out of the rent cell"),
+    );
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    const undo = new Y.UndoManager(client.blocks, { trackedOrigins: new Set(["editor"]) });
+    await resolveChanges(client, "accept");
+    expect(shape()).toEqual(shaped);
+    expect(readMind(client).textContent).not.toContain("TBD");
+    undo.undo();
+    await client.settled();
+    await resolveChanges(client, "reject");
+    expect(JSON.stringify(client.blocks.toJSON())).toBe(before);
+  });
+
+  // protects=a quote whose span holds a footnote is refused, so the User's own footnote never goes with words around it (#2180); fails_when=the footnote and its text go with the quote; no_claim=none beyond protects.
+  test("a quote across a footnote is refused, and the footnote stays", async () => {
+    const water = "Water is billed separately each quarter.";
+    const { core, mind, client } = await setUp(editingModel(() => "<removed>TBD TBC</removed>"));
+    writeMind(client, [
+      paragraph(
+        text("Owner: Sam TBD"),
+        { type: "footnote", attrs: { id: "fn-legal" }, content: [text("Pending legal sign-off.")] },
+        text(" TBC."),
+      ),
+      paragraph(text(water)),
+    ]);
+    await client.settled();
+    const before = JSON.stringify(client.blocks.toJSON());
+
+    // A footnote reads as one character in the selection's text, its own words left out.
+    const result = await core.editWithAi({
+      ...wholeMind(client, mind.id, "Remove TBD TBC"),
+      text: `Owner: Sam TBD\uFFFC TBC.\n${water}`,
+    });
+
+    expect(result).toEqual({ kind: "unplaced", quotes: ["TBD TBC"] });
+    expect(JSON.stringify(client.blocks.toJSON())).toBe(before);
+  });
+
+  // protects=a word taken out right before a full stop or comma takes the space before it, so no space is left before the punctuation; one taken out mid-sentence takes the space after it (#2180); fails_when=the line reads "Owner: Sam ." or two words run together; no_claim=none beyond protects.
+  test.each([
+    { line: "Owner: Sam TBD.", after: "Owner: Sam." },
+    { line: "Owner: Sam TBD, for now.", after: "Owner: Sam, for now." },
+    { line: "Owner: Sam TBD later.", after: "Owner: Sam later." },
+    { line: "Owner: Sam TBD", cited: true, after: "Owner: Sam." },
+  ])(
+    "a word taken out leaves no space before punctuation: $line",
+    async ({ line, cited, after }) => {
+      const water = "Water is billed separately each quarter.";
+      const { core, mind, client, tides } = await setUp(
+        editingModel(() => "<removed>TBD</removed>"),
+      );
+      writeMind(client, [
+        cited ? paragraph(text(line), citation(tides), text(".")) : paragraph(text(line)),
+        paragraph(text(water)),
+      ]);
+      await client.settled();
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Drop the TBD"));
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      await resolveChanges(client, "accept");
+      expect(shownWithChanges(client)).toEqual([after, water]);
+    },
+  );
+
+  // protects=a paragraph the reply moved is a paragraph it wrote: when its new place still has the quoted words, a part quote refuses the edit, and the same words in a paragraph left out stay (#2180); fails_when=the moved paragraph counts as having dropped them and the quote is let pass, or the left-out paragraph loses them; no_claim=none beyond protects.
+  test("a part quote a moved paragraph still has refuses the edit", async () => {
+    const lines = [
+      "Parking costs 100 a month. Keys are at the front desk.",
+      "Bikes go in the shed. Keys are at the front desk.",
+      "Water is billed separately each quarter.",
+    ];
+    const { core, mind, client } = await setUp(
+      editingModel(
+        () => `${lines[2]}\n\n${lines[0]}\n\n<removed>Keys are at the front desk.</removed>`,
+      ),
+    );
+    writeMind(
+      client,
+      lines.map((line) => paragraph(text(line))),
+    );
+    await client.settled();
+
+    const result = await core.editWithAi(
+      wholeMind(client, mind.id, "Put the parking line last and drop the keys"),
+    );
+
+    expect(result).toEqual({ kind: "unplaced", quotes: ["Keys are at the front desk."] });
+    expect(shownWithChanges(client)).toEqual(lines);
+  });
+
+  // protects=a formula right after a quoted sentence stays, as the reply didn't quote it; the Citation marker after one goes with it (#2180); in Chinese too; fails_when=the formula goes with the sentence; no_claim=none beyond protects.
+  test.each([
+    { language: "English", quoted: "Done.", rest: " More text." },
+    { language: "Chinese", quoted: "已完成。", rest: "接下来。" },
+  ])("a formula after a quoted sentence stays, $language", async ({ quoted, rest }) => {
+    const { core, mind, client } = await setUp(editingModel(() => `<removed>${quoted}</removed>`));
+    writeMind(client, [
+      paragraph(text("Rent is monthly.")),
+      paragraph(text(`${quoted} `), { type: "inlineMath", attrs: { latex: "F = ma" } }, text(rest)),
+      paragraph(text("Water is quarterly.")),
+    ]);
+    await client.settled();
+
+    const result = await core.editWithAi(wholeMind(client, mind.id, "Delete that sentence"));
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([
+      "Rent is monthly.",
+      `\uFFFC${rest}`,
+      "Water is quarterly.",
+    ]);
+  });
+
+  // protects=a quote that isn't in the passage word for word refuses the whole edit and is named, so nothing it wrote leans on text that stayed (#2180); fails_when=a paragraph goes for a paraphrase, the rest applies, or the quote isn't reported; no_claim=how a real model words a quote.
+  test("a quote that isn't in the passage word for word refuses the edit, and is named", async () => {
+    const weekly = THIRD.replace("each week", "weekly");
+    const { core, client, asked } = await threeParagraphs(
+      () => `${weekly}\n\n<removed>The harbour is big and boats wait for the tide.</removed>`,
+    );
+
+    const result = await core.editWithAi(asked("Say weekly, and drop the bit about the boats"));
+
+    expect(result).toEqual({
+      kind: "unplaced",
+      quotes: ["The harbour is big and boats wait for the tide."],
+    });
+    expect(shownWithChanges(client)).toEqual([FIRST, SECOND, THIRD]);
+    expect(translate("en", "edit.problem.unplaced")).toBe(
+      "The AI marked text to remove that doesn’t match the selection word for word in one place, so nothing changed. Try again.",
+    );
+    expect(translate("zh-CN", "edit.problem.unplaced")).toBe(
+      "AI 标出要删除的文字在选中内容里找不到唯一一处原文，没有改动。请重试。",
+    );
+  });
+
+  // protects=a new line that only reads like a line the reply left out is new text, and the old line stays; in Chinese too (#2180); fails_when=the old line is taken as moved and deleted; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "English",
+      lines: [
+        "Deposit is 1,200, paid on signing.",
+        "Parking is 100 a month.",
+        "Water is 30 a month.",
+      ],
+      reply: "Water is 30 a month.\n\nInternet is 1,200 a year, paid on signing.",
+      added: "Internet is 1,200 a year, paid on signing.",
+    },
+    {
+      language: "Chinese",
+      lines: ["押金1200元，签约时支付。", "停车每月100元。", "水费每月30元。"],
+      reply: "水费每月30元。\n\n网费每年1200元，签约时支付。",
+      added: "网费每年1200元，签约时支付。",
+    },
+  ])(
+    "a new line much like one left out doesn't take it out, $language",
+    async ({ lines, reply, added }) => {
+      const { core, mind, client } = await setUp(editingModel(() => reply));
+      writeMind(
+        client,
+        lines.map((line) => paragraph(text(line))),
+      );
+      await client.settled();
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Add a line for internet"));
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      await resolveChanges(client, "accept");
+      const shown = shownWithChanges(client);
+      expect(shown).toEqual(expect.arrayContaining([...lines, added]));
+      expect(shown).toHaveLength(4);
+    },
+  );
+
+  // protects=of two paragraphs that read the same, a quote takes out the one the reply left out, and two left out alike take nothing for one quote (#2180); fails_when=the quote lands on the paragraph the reply kept, or picks one of two left out by guess; no_claim=none beyond protects.
+  test("of two paragraphs that read the same, the one left out goes; two left out alike are not guessed between", async () => {
+    const lines = ["Same line here.", "Middle one.", "Same line here."];
+    const kept = await setUp(
+      editingModel(() => "Same line here.\n\nMiddle one.\n\n<removed>Same line here.</removed>"),
+    );
+    writeMind(
+      kept.client,
+      lines.map((line) => paragraph(text(line))),
+    );
+    await kept.client.settled();
+    expect(
+      await kept.core.editWithAi(wholeMind(kept.client, kept.mind.id, "Remove the last line")),
+    ).toMatchObject({ kind: "proposed" });
+    expect(shownWithChanges(kept.client)).toEqual([
+      "Same line here.",
+      "Middle one.",
+      "- Same line here.",
+    ]);
+
+    const both = await setUp(
+      editingModel(() => "Middle one, now clearer.\n\n<removed>Same line here.</removed>"),
+    );
+    writeMind(
+      both.client,
+      lines.map((line) => paragraph(text(line))),
+    );
+    await both.client.settled();
+    const guess = await both.core.editWithAi(wholeMind(both.client, both.mind.id, "Remove one"));
+    expect(guess).toEqual({ kind: "unplaced", quotes: ["Same line here."] });
+    expect(shownWithChanges(both.client)).toEqual(lines);
+  });
+
+  // protects=a fixed task (Shorten, Improve) never asks for text to go, so a reply that only quotes the passage fails with its reason and takes nothing out; in Chinese too (#2180); fails_when=the selection is emptied; no_claim=how often a model does this.
+  test.each([
+    {
+      action: "shorten" as const,
+      line: "The harbour office posts the tide times every Monday morning.",
+    },
+    { action: "improve" as const, line: "港务办公室每周一上午公布潮汐表。" },
+  ])(
+    "$action answered with only a quote of the passage fails, and takes nothing out",
+    async ({ action, line }) => {
+      const { core, mind, client } = await setUp(
+        editingModel(() => `<removed>${line}</removed>\n<why>Nothing left to keep.</why>`),
+      );
+      const note = paragraph(text(line));
+      writeMind(client, [note]);
+      await client.settled();
+
+      const result = await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, action));
+
+      expect(result).toMatchObject({ kind: "failed", error: { message: "Nothing left to keep." } });
+      expect(shownWithChanges(client)).toEqual([line]);
+    },
+  );
+
+  // protects=a section's paragraphs replaced by one plain new sentence, the old ones quoted as taken out, leave its heading as it was; in Chinese too; fails_when=the new sentence is written into the heading, or the heading goes; no_claim=where a sentence that pairs with no paragraph goes, nor how a real model words it.
+  test.each([
+    {
+      language: "English",
+      title: "Hours",
+      lines: ["Work is full time, Monday to Friday.", "Core hours are 9:30 to 15:30."],
+      sentence: "Working hours are flexible.",
+    },
+    {
+      language: "Chinese",
+      title: "上班时间",
+      lines: ["全职，周一至周五上班。", "核心工作时间为9:30至15:30。"],
+      sentence: "上班时间由员工自行安排，十分灵活。",
+    },
+  ])(
+    "two paragraphs replaced by one plain sentence keep their heading, $language",
+    async ({ title, lines, sentence }) => {
+      const { core, mind, client } = await setUp(
+        editingModel(() =>
+          [...lines.map((line) => `<removed>${line}</removed>`), sentence].join("\n\n"),
+        ),
+      );
+      writeMind(client, [headingOf(title), ...lines.map((line) => paragraph(text(line)))]);
+      await client.settled();
+
+      const result = await core.editWithAi(
+        wholeMind(client, mind.id, "Replace the two paragraphs with one sentence"),
+      );
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      await resolveChanges(client, "accept");
+      const shown = shownWithChanges(client);
+      expect(shown).toHaveLength(2);
+      expect(shown).toEqual(expect.arrayContaining([title, sentence]));
+    },
+  );
+
+  // protects=no shape a model writes the mark in puts its words, or the tag, into the Note: a mark closed later on its line, one never closed, a close alone, an empty one; fails_when=“removed” or a quoted word lands as text; no_claim=that a model should write these shapes.
+  test.each([
+    `<removed/>${SECOND}</removed>`,
+    `<removed>${SECOND}`,
+    `</removed>\n\n<removed>${SECOND}</removed>`,
+    `<removed/>\n\n<removed>${SECOND}</removed>`,
+    `<REMOVED>${SECOND}</REMOVED>`,
+  ])("a mark written as %s is no text of the Note, and takes out what it quotes", async (mark) => {
+    const { core, client, asked } = await threeParagraphs(
+      () => `${FIRST}\n\n${THIRD}\n\n${mark}\n<why>Removed.</why>`,
+    );
+
+    await core.editWithAi(asked("Drop the middle one"));
+
+    expect(shownWithChanges(client)).toEqual([FIRST, `- ${SECOND}`, THIRD]);
+  });
+
+  // protects=a mark never closed quotes only its own paragraph, so the paragraphs written after it stay as text; fails_when=a paragraph after it is taken out or lost; no_claim=that a model leaves marks open.
+  test("an unclosed mark in the middle of a reply quotes only its own paragraph", async () => {
+    const { core, client, asked } = await threeParagraphs(
+      () => `${FIRST}\n\n<removed>${SECOND}\n\n${THIRD}\n<why>Removed.</why>`,
+    );
+
+    await core.editWithAi(asked("Drop the middle one"));
+
+    expect(shownWithChanges(client)).toEqual([FIRST, `- ${SECOND}`, THIRD]);
+  });
+
+  // protects=typed text that only starts like the mark, such as <removed-items>, is the User's and comes back as typed; fails_when=it is read as a mark and the words after it are lost; no_claim=how a model words the rest.
+  test("typed text like <removed-items> or <removed:x> is no mark", async () => {
+    const typed =
+      "Keep <removed-items> and <removed:x> in the list. The office posts the times each week.";
+    const { core, mind, client } = await setUp(
+      editingModel(({ passage }) => passage.replace("each week", "weekly")),
+    );
+    const note = paragraph(text(typed));
+    writeMind(client, [note]);
+    await client.settled();
+
+    const result = await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "instruction", "Say weekly"),
+    );
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([typed.replace("each week", "weekly")]);
+  });
+
+  // protects=words quoted inside a paragraph are taken out of it, and the rest of the paragraph is kept as it was; in Chinese too; fails_when=the quoted words stay, or the paragraph goes whole; no_claim=that a real model quotes words this way.
+  test.each([
+    {
+      line: SECOND,
+      words: " and a lot of boats don't leave at low water",
+      reply: "It's a big harbour <removed>and a lot of boats don't leave at low water</removed>.",
+    },
+    {
+      line: "港口很大，低潮时很多船不出港。",
+      words: "，低潮时很多船不出港",
+      reply: "港口很大<removed>，低潮时很多船不出港</removed>。",
+    },
+  ])(
+    "words quoted inside a paragraph are taken out of it: $reply",
+    async ({ line, words, reply }) => {
+      const { core, mind, client } = await setUp(editingModel(() => reply));
+      const note = paragraph(text(line));
+      writeMind(client, [note]);
+      await client.settled();
+
+      const result = await core.editWithAi(
+        wholeParagraph(client, mind.id, note.attrs.id, "instruction", "Drop the second half"),
+      );
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      await resolveChanges(client, "accept");
+      expect(shownWithChanges(client)).toEqual([line.replace(words, "")]);
+    },
+  );
+
+  test("a reply that quotes all of the passage as taken out takes out every paragraph, and applies", async () => {
+    const { core, client, asked } = await threeParagraphs(
+      () => `<removed>${FIRST}\n\n${SECOND}\n\n${THIRD}</removed>\n<why>Removed.</why>`,
+    );
+
+    const result = await core.editWithAi(asked("Get rid of all of it"));
 
     expect(result).toMatchObject({ kind: "proposed" });
     expect(result).not.toHaveProperty("held");
     expect(result).not.toHaveProperty("leftOut");
-    expect(shownWithChanges(client)).toEqual([FIRST, `- ${SECOND}`, THIRD]);
+    expect(shownWithChanges(client)).toEqual([`- ${FIRST}`, `- ${SECOND}`, `- ${THIRD}`]);
+  });
+
+  // protects=the mark and its words are never shown while they stream in, four characters at a time; fails_when=the Mind, at any moment, holds "<remo", "removed>" or a quoted word as new text; no_claim=the Proposals' look.
+  test.each([
+    {
+      reply: [FIRST, `<removed>${SECOND}</removed>`, THIRD].join("\n\n"),
+      shows: [FIRST, `- ${SECOND}`, THIRD],
+    },
+    {
+      reply: [FIRST, `<removed>${SECOND}</removed>`, THIRD].join("\n"),
+      shows: [FIRST, `- ${SECOND}`, THIRD],
+    },
+    {
+      reply: `<removed>${FIRST}\n\n${SECOND}\n\n${THIRD}</removed>\n<why>Removed.</why>`,
+      shows: [`- ${FIRST}`, `- ${SECOND}`, `- ${THIRD}`],
+    },
+  ])("the streamed mark is never shown: $reply", async ({ reply, shows }) => {
+    const { core, mind, client, asked } = await threeParagraphs(() => reply);
+    const seen: string[] = [];
+    const stop = core.on("mind.update", (event) => {
+      if (event.mindId === mind.id) seen.push(shownWithChanges(client).join("\n"));
+    });
+
+    await core.editWithAi(asked("Remove the second paragraph"));
+    stop();
+
+    expect(seen.join("\n")).not.toMatch(/<remo|removed>|^\+ /m);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(shownWithChanges(client)).toEqual(shows);
+  });
+
+  // protects=text typed like the mark is the User's, shown to the model escaped and read back as typed; fails_when=it is taken for the mark, or comes back with a backslash; no_claim=how a model words it.
+  test("a typed <removed> in the Note is escaped for the model and read back as text", async () => {
+    const calls: EditCall[] = [];
+    const typed =
+      "Write <removed>words</removed> where words go, and \\<removed> for the tag itself.";
+    const { core, mind, client } = await setUp(
+      editingModel(({ passage }) => passage.replace("itself", "alone"), calls),
+    );
+    const note = paragraph(text(typed));
+    writeMind(client, [note]);
+    await client.settled();
+
+    const result = await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "instruction", "Say alone"),
+    );
+
+    expect(calls[0]?.passage).toBe(
+      "Write \\<removed>words\\</removed> where words go, and \\\\\\<removed> for the tag itself.",
+    );
+    expect(result).toMatchObject({ kind: "proposed" });
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([typed.replace("itself", "alone")]);
   });
 
   test("new text like none of the selection's, which would remove most of it, is held for the User, all of it as changes", async () => {

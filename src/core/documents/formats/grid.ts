@@ -17,9 +17,13 @@ import type { SheetLayout, WorkbookLayout } from "./sheetLayout";
 export const BLOCK_ROWS = 100;
 /** About how many characters of rows a block holds: about 400 tokens. */
 export const BLOCK_CHARACTERS = 1600;
-/** The most rows read from one Document, over all its sheets: the rest are left out. */
+/**
+ * The most rows one pass reads from a Document, over all its sheets: the rest
+ * are left out. Hidden sheets are read in a pass of their own, so a workbook
+ * read with them can read up to twice this (#740).
+ */
 export const MAX_ROWS = 20_000;
-/** The most cells read from one Document. */
+/** The most cells one pass reads from a Document. */
 export const MAX_CELLS = 500_000;
 
 export interface Cell {

@@ -170,6 +170,8 @@ export interface ProcessingJob {
   file: string;
   /** How a PDF's scanned pages are read; none when they can't be (no model to read them with). */
   scan?: ScanJob | null;
+  /** A workbook's hidden and very hidden sheets are read too, as the User asked (#740). */
+  readHiddenSheets?: true;
 }
 
 /** Reading a PDF's scanned pages from their pictures (#397). */
@@ -450,6 +452,7 @@ export async function processFile(
     reading,
     password,
     readPicture,
+    job.readHiddenSheets === true,
   );
   if (reading?.signal.aborted) return { outcome: "stopped" };
   const firstUnit = processed.outcome === "ready" ? (processed.pages[0]?.text ?? null) : null;
@@ -566,9 +569,17 @@ async function processBytes(
   reading: PageReading | null,
   password: string | undefined,
   readPicture: ((src: string) => Promise<Uint8Array>) | null,
+  readHiddenSheets: boolean,
 ): Promise<{ processed: Processed; firstPages: string[] }> {
   try {
-    const extracted = await extractText(kind, bytes, reading, password, readPicture);
+    const extracted = await extractText(
+      kind,
+      bytes,
+      reading,
+      password,
+      readPicture,
+      readHiddenSheets,
+    );
     const firstPages = extracted.units.slice(0, REFERENCE_PAGES).map((unit) => unit.text);
     // The running headers go while a page's lines are the ones extraction joined as they
     // always were; the wider join comes after, where it reaches the model.

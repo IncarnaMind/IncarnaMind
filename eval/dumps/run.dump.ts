@@ -160,7 +160,7 @@ async function dumpEvaluationSet(
   const db = openDatabase(join(library.dataDir, DATABASE_FILE));
   try {
     const ids = new Map([...library.documents].map(([key, document]) => [key, document.id]));
-    const pathOf = new Map(set.documents.map((document) => [document.key, document.path]));
+    const documentOf = new Map(set.documents.map((document) => [document.key, document] as const));
     const kind = (question: EvalQuestion) =>
       question.crossLingual ? "cross-lingual" : question.paraphrase ? "paraphrase" : "gating";
     const dump = await buildDump(
@@ -181,7 +181,10 @@ async function dumpEvaluationSet(
             kind: kind(question),
             language: question.language,
             ...(name === "formats" && {
-              format: formatOf(pathOf.get(question.expected.document) ?? ""),
+              format: formatOf(
+                documentOf.get(question.expected.document)?.path ?? "",
+                documentOf.get(question.expected.document)?.kind,
+              ),
             }),
           },
           ids,

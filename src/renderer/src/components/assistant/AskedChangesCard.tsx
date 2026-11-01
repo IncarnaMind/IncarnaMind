@@ -1,19 +1,35 @@
+import { useMemo } from "react";
 import { appliedWaiting } from "../../../../shared/proposals";
+import { type ArrivingInMind, arrivingInMind } from "../../arrivingChanges";
 import {
   type AskedOutcome,
   reviewAsked,
   undoAsked,
   useAcceptedChanges,
+  useArrivingAnswers,
   useAskedFacts,
   useAskedReview,
   useAskedState,
   useWrittenOnTop,
 } from "../../askedChanges";
 import type { ChangedMind } from "../../changedMinds";
-import { appliedFact, changeFact, inNoteText, keptText, leftText } from "../../changeFacts";
+import {
+  appliedFact,
+  changeFact,
+  inNoteText,
+  keptText,
+  leftText,
+  ownWaiting,
+} from "../../changeFacts";
 import { shortcutLabel } from "../../commands/keymap";
+import { useConversations } from "../../conversations";
 import { useT } from "../../i18n";
-import { showChanges, showNoteWaiting, useWaitingIn, type WaitingRow } from "../../mindChanges";
+import {
+  showChanges,
+  showNoteWaiting,
+  useWaitingBesidesApplied,
+  type WaitingRow,
+} from "../../mindChanges";
 import { PencilLineIcon } from "../lineIcons";
 import { useReadMindId } from "./readMind";
 
@@ -42,6 +58,15 @@ export function AskedChangesCard({
   nameOf(row: ChangedMind): string;
 }) {
   const t = useT();
+  const messages = useConversations((state) => state.messages);
+  const arrivingAnswers = useArrivingAnswers();
+  const arrivingByMind = useMemo(() => {
+    const arriving = new Map<string, ArrivingInMind>();
+    for (const row of rows) {
+      arriving.set(row.mindId, arrivingInMind(messages, row.mindId, arrivingAnswers));
+    }
+    return arriving;
+  }, [messages, rows, arrivingAnswers]);
   const applied = rows.filter((row) => outcomes[row.mindId] !== undefined);
   const also = rows.flatMap((row, index) => {
     const count = waiting[index]?.count;
@@ -58,6 +83,7 @@ export function AskedChangesCard({
           row={row}
           outcome={outcomes[row.mindId]}
           waiting={waiting[rows.indexOf(row)]}
+          arriving={arrivingByMind.get(row.mindId)}
           name={nameOf(row)}
         />
       ))}
@@ -88,15 +114,18 @@ function AskedRow({
   row,
   outcome,
   waiting,
+  arriving,
   name,
 }: {
   answerId: string;
   row: ChangedMind;
   outcome: AskedOutcome | undefined;
   waiting: WaitingRow | undefined;
+  arriving: ArrivingInMind | undefined;
   name: string;
 }) {
   const t = useT();
+  const answerArrivingNow = useArrivingAnswers().has(answerId);
   const facts = useAskedFacts(answerId, row.mindId) ?? row;
   const accepted = useAcceptedChanges(answerId, row.mindId);
   const settled =
@@ -111,11 +140,18 @@ function AskedRow({
   // has the apply, so it neither shows what was taken nor moves anything when it appears (#1325).
   const shown = outcome === "held" || settled === null || settled.settled;
   const kept = keptText(t, row);
-  const total = useWaitingIn(row.mindId);
+  const total = useWaitingBesidesApplied(row.mindId, arriving);
+  // The Note's copy can still hold the changes this apply took for a frame after the Answer stops
+  // arriving: they are not waiting, so the Note's count leaves them out too (#1325). While the
+  // Answer is arriving, the count already leaves them out; subtracting again would hide others.
+  const takenHere =
+    answerArrivingNow || outcome !== "applied" || !settled || !waiting
+      ? 0
+      : waiting.pending.length - settled.count;
   const inNote = inNoteText(
     t,
-    total,
-    outcome === "held" ? waiting?.count : outcome === "applied" ? (settled?.count ?? 0) : null,
+    typeof total === "number" ? Math.max(0, total - takenHere) : total,
+    outcome === "held" ? ownWaiting(waiting) : outcome === "applied" ? (settled?.count ?? 0) : null,
   );
   return (
     <div className="mind-changes-head">
