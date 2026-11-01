@@ -33,7 +33,9 @@
     "riverbank-allotment": { "path": "eval/retrieval/formats/files/web/Riverbank Allotment Water Plan.html", "kind": "web" },
     "harbour-museum": { "path": "eval/retrieval/formats/files/web/Harbour Museum Volunteer Handbook.html", "kind": "web" },
     "社区花园": { "path": "eval/retrieval/formats/files/web/社区花园浇水指南.html", "kind": "web" },
-    "图书馆值班": { "path": "eval/retrieval/formats/files/web/图书馆志愿值班手册.html", "kind": "web" }
+    "图书馆值班": { "path": "eval/retrieval/formats/files/web/图书馆志愿值班手册.html", "kind": "web" },
+    "harbourline-ferry": { "path": "eval/retrieval/formats/files/web/Harbourline Ferry Terminal Winter Sailing Notes.html", "kind": "web" },
+    "青禾图书馆": { "path": "eval/retrieval/formats/files/web/青禾社区图书馆冬季开放须知.html", "kind": "web" }
   },
   "questions": [
     { "id": "word-en-01", "language": "en", "place": "body", "question": "When did the Riverside Library open?", "expected": { "document": "riverside-library", "pages": [2, 2], "quote": "The Riverside Library opened in 1968 and last had a major refurbishment in 1994." } },
@@ -214,6 +216,9 @@
     { "id": "web-zh-03", "language": "zh", "place": "list", "question": "入冬前水管要怎么处理？", "expected": { "document": "社区花园", "pages": [4, 4], "quote": "把水管收进工具房并排空积水。" } },
     { "id": "web-zh-04", "language": "zh", "place": "section", "question": "图书馆少儿阅览区的灯几点打开？", "expected": { "document": "图书馆值班", "pages": [2, 2], "quote": "上午九点整打开少儿阅览区的灯，比大门开启时间早半小时。" } },
     { "id": "web-zh-05", "language": "zh", "place": "table-cell", "question": "闭馆时二层阅览室要检查什么？", "expected": { "document": "图书馆值班", "pages": [3, 3], "quote": "二层阅览室 窗户关闭 17:45" } },
-    { "id": "web-zh-06", "language": "zh", "place": "list", "question": "值班志愿者要带上什么统计表？", "expected": { "document": "图书馆值班", "pages": [4, 4], "quote": "带上蓝色夹板和读者统计表。" } }
+    { "id": "web-zh-06", "language": "zh", "place": "list", "question": "值班志愿者要带上什么统计表？", "expected": { "document": "图书馆值班", "pages": [4, 4], "quote": "带上蓝色夹板和读者统计表。" } },
+
+    { "id": "web-en-07", "language": "en", "place": "section", "question": "Under the winter timetable, what time does the first sailing leave the north pier?", "expected": { "document": "harbourline-ferry", "pages": [6, 6], "quote": "From 14 December the first sailing leaves the north pier at 07:10, and the last sailing returns to the terminal at 18:40." } },
+    { "id": "web-zh-07", "language": "zh", "place": "section", "question": "冬季开放时间表里，第一班社区班车几点从北门开出？", "expected": { "document": "青禾图书馆", "pages": [6, 6], "quote": "从十二月十四日开始，每天早上七点十分从北门开出的第一班社区班车直达图书馆，晚上六点四十分从图书馆返回的末班车停靠北门。" } }
   ]
 }

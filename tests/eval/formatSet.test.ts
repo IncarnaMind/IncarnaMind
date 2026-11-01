@@ -8,7 +8,7 @@
  * snapshot as `saveWebPage` makes it (#155). A known gap's quote, a scanned
  * page's, is in none of its Document's Units. Every format has at least 3
  * hard places; each of the big formats has 3 Questions per place in each
- * language, and a Web page's 4 pages have 2, one per page.
+ * language, and a Web page's 6 pages have 2 or 3, one per page in each place.
  */
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
