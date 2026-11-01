@@ -1,24 +1,29 @@
 /**
- * A workbook's formulas against a real model (#2347), through the core as the app asks, in
- * English and Chinese. Two sets: "training", the Questions the Tools' wording was tuned on (a
- * DCF, an LBO, three statements and a SaaS plan), and "held out", Questions on a store budget
- * written by a reviewer who hadn't read that wording, committed before any run and never used to
- * tune, so its count is the one to trust. Each passes only when the Answer records the figure
- * from the right cell and, for a what-if, with LibreOffice's result. It runs only when
- * INCARNAMIND_LIVE_ANTHROPIC_KEY is set (INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku by default), so
- * `npx vitest run` makes no request without one; pick a set with `-t`.
- * INCARNAMIND_LIVE_REPORT keeps each Answer, its Tool calls and figures, and its tokens.
+ * A workbook's formulas against a real model (#2347, #2372), through the core as the app asks, in
+ * English and Chinese. "training": the Questions the Tools' wording was tuned on (a DCF, an LBO,
+ * three statements and a SaaS plan, and the store budget #2347 held out, looked at since).
+ * "held out": a rental property's Questions, written for #2372 by someone who hadn't read that
+ * wording and committed before any run (./../helpers/rentalHeldOut), so its count is the one to
+ * trust. Each passes only when the Answer records the figure from the right cell and, for a
+ * what-if, with the workbook's own result. It runs only when INCARNAMIND_LIVE_ANTHROPIC_KEY is set
+ * (INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku by default), so `npx vitest run` makes no request
+ * without one; pick a set with `-t`. INCARNAMIND_LIVE_REPORT keeps each Answer, its Tool calls and
+ * figures, and every request's tokens and price. INCARNAMIND_LIVE_MAX_USD stops asking once a set
+ * has cost that much; the Questions not asked count as missed.
  */
 import { createHash } from "node:crypto";
 import { appendFile, readFile } from "node:fs/promises";
 import { expect, onTestFinished, test } from "vitest";
-import type { AnswerUsage, ConversationAnswer, Core, MarkedFigure } from "../../src/core";
+import type { ConversationAnswer, Core, MarkedFigure } from "../../src/core";
 
+import { costOf } from "../../src/core/cost/price";
+import { catalogModel } from "../../src/core/providers/catalog";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { type ChatModelFactory, createAiSdkChatModel } from "../../src/core/providers/models";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { saasWorkbook, storeBudgetWorkbook } from "../helpers/financeWorkbooks";
+import { RENTAL_HELD_OUT, rentalPropertyWorkbook, savedNumber } from "../helpers/rentalHeldOut";
 import { libreOfficeFixture } from "../helpers/workbookFixtures";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
@@ -107,11 +112,8 @@ const TRAINING: Asked[] = [
 
 const MONTH_COLUMNS = ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"];
 
-/**
- * Written for this pull request by its reviewer, who hadn't read the Tools' wording, and committed
- * before any run: nothing was tuned on them.
- */
-const HELD_OUT: Asked[] = [
+/** #2347's held-out store budget, training since #2372 looked at its misses. */
+const STORE_BUDGET: Asked[] = [
   { question: "What feeds into December's gross margin?", cell: "Budget!M6", change: null },
   {
     question: "Which inputs move the 2027 operating profit the most?",
@@ -149,6 +151,22 @@ const HELD_OUT: Asked[] = [
   },
 ];
 
+/** The held-out rental property's Questions, each `also` cell's what-if worked out as its own is. */
+const HELD_OUT: Asked[] = RENTAL_HELD_OUT.map(({ question, cell, change, also }) => ({
+  question,
+  cell,
+  change: change && { value: change.value, result: change.result },
+  ...(also && {
+    also: also.map((other) => ({
+      cell: other,
+      change: change && {
+        value: change.value,
+        result: savedNumber(rentalPropertyWorkbook({ [change.input]: change.value }), other),
+      },
+    })),
+  }),
+}));
+
 /** Whether an Answer gives the Question's figure from its cell, and a what-if with LibreOffice's result. */
 const answersAs = (figure: MarkedFigure, expected: Accepted): boolean => {
   const book = figure.workbook;
@@ -163,35 +181,97 @@ const answersAs = (figure: MarkedFigure, expected: Accepted): boolean => {
 const answers = (figure: MarkedFigure, expected: Asked): boolean =>
   [expected, ...(expected.also ?? [])].some((each) => answersAs(figure, each));
 
-let requests = 0;
-/** The real model, counting each request it makes. */
+/** What one request was billed for, as its provider reported it. */
+interface Billed {
+  input: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+}
+
+interface ReportedUsage {
+  inputTokens?: { total?: number; cacheRead?: number; cacheWrite?: number };
+  outputTokens?: { total?: number };
+}
+
+const billedOf = (usage: ReportedUsage | undefined): Billed => ({
+  input: usage?.inputTokens?.total ?? 0,
+  cacheRead: usage?.inputTokens?.cacheRead ?? 0,
+  cacheWrite: usage?.inputTokens?.cacheWrite ?? 0,
+  output: usage?.outputTokens?.total ?? 0,
+});
+
+const PRICE = catalogModel("anthropic", MODEL)?.price;
+
+const MAX_USD = Number(process.env.INCARNAMIND_LIVE_MAX_USD ?? Number.POSITIVE_INFINITY);
+if (Number.isNaN(MAX_USD)) throw new Error("INCARNAMIND_LIVE_MAX_USD must be a number of dollars.");
+if (MAX_USD !== Number.POSITIVE_INFINITY && !PRICE)
+  throw new Error(`INCARNAMIND_LIVE_MAX_USD needs a model the catalog prices; ${MODEL} isn't.`);
+
+/** A request's price at its own prompt's tier (src/core/cost/price.ts). */
+const priced = (each: Billed): number =>
+  PRICE
+    ? costOf(
+        {
+          inputTokens: each.input,
+          cachedInputTokens: each.cacheRead,
+          cacheWriteTokens: each.cacheWrite,
+          outputTokens: each.output,
+        },
+        PRICE,
+        new Date(),
+        { cacheWrites: true },
+      )
+    : Number.NaN;
+
+const tokensLine = (list: readonly Billed[]): string => {
+  const sum = (key: keyof Billed) => list.reduce((total, each) => total + each[key], 0);
+  const uncached = sum("input") - sum("cacheRead") - sum("cacheWrite");
+  const largest = Math.max(0, ...list.map((each) => each.input));
+  const cost = list.reduce((total, each) => total + priced(each), 0);
+  return `${list.length} requests; uncached input ${uncached}, cache reads ${sum("cacheRead")}, cache writes ${sum("cacheWrite")}, output ${sum("output")}; largest prompt ${largest}; $${cost.toFixed(4)}`;
+};
+
+/** Every request the real model made, with what it was billed for once it finished. */
+const billed: Billed[] = [];
 const counting: ChatModelFactory = (spec) => {
   const model = createAiSdkChatModel(spec);
   return new Proxy(model, {
     get(target, property, receiver) {
       const value = Reflect.get(target, property, receiver);
-      if ((property === "doStream" || property === "doGenerate") && typeof value === "function")
-        return (...args: unknown[]) => {
-          requests++;
-          return value.apply(target, args);
+      if (property === "doGenerate" && typeof value === "function")
+        return async (...args: unknown[]) => {
+          const result = (await value.apply(target, args)) as { usage?: ReportedUsage };
+          billed.push(billedOf(result.usage));
+          return result;
+        };
+      if (property === "doStream" && typeof value === "function")
+        return async (...args: unknown[]) => {
+          const result = (await value.apply(target, args)) as {
+            stream: ReadableStream<{ type: string; usage?: ReportedUsage }>;
+          };
+          const [given, read] = result.stream.tee();
+          const entry = billedOf(undefined);
+          billed.push(entry);
+          void (async () => {
+            const reader = read.getReader();
+            for (let part = await reader.read(); !part.done; part = await reader.read())
+              if (part.value.type === "finish") Object.assign(entry, billedOf(part.value.usage));
+          })();
+          return { ...result, stream: given };
         };
       return value;
     },
   });
 };
 
-async function ask(
-  core: Core,
-  text: string,
-): Promise<{ answer: ConversationAnswer; usage: AnswerUsage | null }> {
+async function ask(core: Core, text: string): Promise<{ answer: ConversationAnswer }> {
   const result = await core.askInConversation({ text });
   if (!result.asked) throw new Error(`Not asked: ${JSON.stringify(result)}`);
-  let usage: AnswerUsage | null = null;
   await new Promise<void>((resolve) => {
     const stops = [
       core.on("answer.finished", (finished) => {
         if (finished.answerId !== result.answerId) return;
-        usage = finished.usage;
         done();
       }),
       core.on("answer.failed", ({ answerId }) => answerId === result.answerId && done()),
@@ -204,12 +284,12 @@ async function ask(
   const { messages } = await core.getConversation(result.conversation.id);
   const answer = messages.find((message) => message.id === result.answerId);
   if (answer?.kind !== "answer") throw new Error("No Answer.");
-  return { answer, usage };
+  return { answer };
 }
 
 test.skipIf(KEY === undefined).each([
   {
-    set: "training",
+    set: "training, four models",
     asked: TRAINING,
     files: () => [
       { name: "DCF model.xlsx", contents: libreOfficeFixture("dcf") },
@@ -219,10 +299,17 @@ test.skipIf(KEY === undefined).each([
     ],
   },
   {
+    set: "training, store budget",
+    asked: STORE_BUDGET,
+    files: () => [
+      { name: "Store budget.xlsx", contents: new Uint8Array(storeBudgetWorkbook().xlsx()) },
+    ],
+  },
+  {
     set: "held out",
     asked: HELD_OUT,
     files: () => [
-      { name: "Store budget.xlsx", contents: new Uint8Array(storeBudgetWorkbook().xlsx()) },
+      { name: "Rental property.xlsx", contents: new Uint8Array(rentalPropertyWorkbook().xlsx()) },
     ],
   },
 ])(
@@ -252,15 +339,26 @@ test.skipIf(KEY === undefined).each([
         await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${report.join("\n")}\n\n`);
     });
     const missed: string[] = [];
+    const from = billed.length;
+    const spent = () => billed.slice(from).reduce((total, each) => total + priced(each), 0);
     for (const expected of asked) {
-      const from = requests;
-      const { answer, usage } = await ask(core, expected.question);
+      if (spent() > MAX_USD) {
+        missed.push(expected.question);
+        report.push(
+          `### ${expected.question}`,
+          "not asked: the set's spending limit was reached",
+          "",
+        );
+        continue;
+      }
+      const first = billed.length;
+      const { answer } = await ask(core, expected.question);
       const passed =
         answer.status === "done" && answer.figures.some((figure) => answers(figure, expected));
       if (!passed) missed.push(expected.question);
       report.push(
         `### ${expected.question}`,
-        `${passed ? "passed" : "missed"}; ${answer.status}; ${requests - from} requests; input ${usage?.inputTokens} (cache reads ${usage?.cachedInputTokens}, cache writes ${usage?.cacheWriteTokens}), output ${usage?.outputTokens}`,
+        `${passed ? "passed" : "missed"}; ${answer.status}; ${tokensLine(billed.slice(first))}`,
         `Tools: ${answer.toolCalls.map((call) => `${call.tool} ${JSON.stringify(call.input)}`).join("; ")}`,
         `> ${answer.text.replace(/\s+/g, " ")}`,
         ...answer.figures.map(
@@ -270,7 +368,10 @@ test.skipIf(KEY === undefined).each([
         "",
       );
     }
-    report.push(`${asked.length - missed.length} of ${asked.length} passed.`);
+    report.push(
+      `${asked.length - missed.length} of ${asked.length} passed.`,
+      `All: ${tokensLine(billed.slice(from))}`,
+    );
     expect(missed).toEqual([]);
     expect(await hashes()).toEqual(before);
   },

@@ -84,6 +84,12 @@ export const calculationsSchema = {
         description:
           "Show an amount in this scale: 万, 亿, thousand, million, billion. Inputs are in base units with their page's scale applied, so this, never the formula, sets the scale shown.",
       },
+      constants: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Only when calculate's reply asks for it: the numbers written in the formula that are constants of the arithmetic itself, such as 12 months in a year.",
+      },
     },
     required: ["marker", "inputs", "formula"],
   },
