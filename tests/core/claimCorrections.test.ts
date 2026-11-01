@@ -1311,6 +1311,38 @@ describe("A correction of one number of a range written with words or spaces (#1
       wording: "8 through 10",
     },
     {
+      name: "one end of a range whose other number the quote has elsewhere",
+      claim: "The term is 10 to 12 months.",
+      from: "10",
+      to: "8",
+      quote: "The term is 8 to 10 months, with 12 weeks' notice.",
+      wording: undefined,
+    },
+    {
+      name: "a whole range whose old number the quote has elsewhere",
+      claim: "The term is 10 to 12 months.",
+      from: "10 to 12",
+      to: "8 to 10",
+      quote: "The term is 8 to 10 months, with 12 weeks' notice.",
+      wording: "8 to 10",
+    },
+    {
+      name: "one end of a 至 range whose other number the quote has elsewhere",
+      claim: "期限为10至12个月。",
+      from: "10",
+      to: "8",
+      quote: "期限为8至10个月，提前12周通知。",
+      wording: undefined,
+    },
+    {
+      name: "a whole 至 range whose old number the quote has elsewhere",
+      claim: "期限为10至12个月。",
+      from: "10至12",
+      to: "8至10",
+      quote: "期限为8至10个月，提前12周通知。",
+      wording: "8至10",
+    },
+    {
       name: "a number with another number in a clause of its own",
       claim: "The rate is 36.8%, and staff numbered 52.",
       from: "36.8%",
@@ -1346,6 +1378,75 @@ describe("A correction of one number of a range written with words or spaces (#1
     expect(result.verdict).toBe("contradicted");
     expect(correctionIn(result)?.choices[0]?.wording).toBe(each.wording);
   });
+});
+
+test.each([
+  {
+    claim: "The cash adjustment was 4,620.00.",
+    from: "4,620.00",
+    to: "4,260.00",
+    quote: "The cash adjustment was 4,260.00.",
+  },
+  {
+    claim: "Payment is due within 30 days.",
+    from: "30 days",
+    to: "45 days",
+    quote: "Payment is due within 45 days.",
+  },
+  {
+    claim: "The flat sold for £385,000.",
+    from: "£385,000",
+    to: "£390,000",
+    quote: "The flat sold for £390,000.",
+  },
+  { claim: "The rate is 5%.", from: "5%", to: "7%", quote: "The rate is 7%." },
+  { claim: "付款期限为三十日。", from: "三十日", to: "四十五日", quote: "付款期限为四十五日。" },
+  {
+    claim: "The base rent is $15,000 per month.",
+    from: "$15,000",
+    to: "$14,250",
+    quote: "The base rent is $14,250 per month.",
+  },
+  {
+    claim: "The Supplier delivers 1,500 units each quarter.",
+    from: "1,500 units",
+    to: "1,200 units",
+    quote: "The Supplier delivers 1,200 units each quarter.",
+  },
+  { claim: "The rate is 36.8%.", from: "36.8%", to: "38.6%", quote: "The rate is 38.6%." },
+  {
+    claim: "停车费为人民币1,000元。",
+    from: "人民币1,000元",
+    to: "人民币800元",
+    quote: "停车费为人民币800元。",
+  },
+  { claim: "The term is 3 years.", from: "3 years", to: "5 years", quote: "The term is 5 years." },
+  { claim: "租金为12.5万元。", from: "12.5万元", to: "13万元", quote: "租金为13万元。" },
+  {
+    claim: "Revenue was $1.5m in 2025.",
+    from: "$1.5m",
+    to: "$1.2m",
+    quote: "Revenue was $1.2m in 2025.",
+  },
+])("an ordinary correction of $from to $to is still offered (#1481)", async (each) => {
+  const { result } = await checkConflict({
+    claim: each.claim,
+    reply: [
+      "Verdict: contradicted",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      "The Document gives another value.",
+      `Change 1: ${each.from}`,
+      `To 1: ${each.to} [^1]`,
+    ].join("\n"),
+    citations: [{ marker: 1, quote: each.quote }],
+    files: [{ name: "Terms.md", contents: `${each.quote}\n${each.claim}` }],
+    dates: ["2026-01-01T00:00:00.000Z"],
+  });
+
+  expect(result.verdict).toBe("contradicted");
+  expect(correctionIn(result)?.choices[0]?.wording).toBe(each.to);
 });
 
 describe("A wording that goes on past its quote", () => {

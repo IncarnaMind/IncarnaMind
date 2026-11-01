@@ -2051,27 +2051,31 @@ const NEAREST_MARKER = 98;
 /** The marker the record asked for once more is given: apart from any the model gave. */
 const EVIDENCE_MARKER = 99;
 
-function namedPeriods(text: string): string[] {
+/** Where `text` names a period: "Q2 2025", "第二季度", "2026年4月". */
+function periodSpans(text: string): { from: number; to: number }[] {
   const words: { from: number; to: number }[] = [];
   for (const match of text.matchAll(/[\p{L}\p{N}]+/gu)) {
     if (match.index === undefined) continue;
     words.push({ from: match.index, to: match.index + match[0].length });
   }
-  const candidates: string[] = [];
+  const candidates: { from: number; to: number }[] = [];
   for (const [index, word] of words.entries()) {
     for (const end of words.slice(index, index + 4)) {
-      candidates.push(text.slice(word.from, end.to));
+      candidates.push({ from: word.from, to: end.to });
     }
   }
   for (let end = 0; end < text.length; end++) {
     if (!/[年季度月]/u.test(text[end] ?? "")) continue;
     for (let start = Math.max(0, end - 24); start < end; start++) {
-      candidates.push(text.slice(start, end + 1));
+      candidates.push({ from: start, to: end + 1 });
     }
   }
-  return candidates
-    .filter(isPeriod)
-    .map((period) => period.normalize("NFKC").toLocaleLowerCase())
+  return candidates.filter((span) => isPeriod(text.slice(span.from, span.to)));
+}
+
+function namedPeriods(text: string): string[] {
+  return periodSpans(text)
+    .map((span) => text.slice(span.from, span.to).normalize("NFKC").toLocaleLowerCase())
     .sort();
 }
 
@@ -2174,20 +2178,31 @@ const NUMBERS =
 /** Where a clause ends: "," or ";" before a space, a sentence's stop, or their Chinese forms. */
 const CLAUSE_END = /[,;](?=\s)|\.(?=\s|$)|[，；。！？!?]/gu;
 
+/** Text as compared for a range: one space for any run of them, and one dash for any dash. */
+const spacedAsOne = (text: string) => text.replace(/\s*[–—−‐-]\s*/gu, "-").replace(/\s+/gu, " ");
+
 /**
- * Whether every other number in the clause the corrected words sit in is one the quote writes. A
- * range is one clause however it is joined, so this fails closed on any connector: "8" over "10"
- * of "10 to 12", 10至12 or 10到12 leaves the User's 12 beside the Document's 8 (#1481).
+ * Whether the clause the corrected words sit in, from its first number to its last with whatever
+ * joins them, is written in the quote as one piece. A range is one clause however it is joined,
+ * so this fails closed on any connector: "8" over "10" of "10 to 12", 10至12 or 10到12 leaves the
+ * User's 12 beside the Document's 8, even where the quote has a 12 elsewhere (#1481). The numbers
+ * of a named period are left to the period rules, which hold wherever the quote names it.
  */
-function clauseHolds(corrected: string, first: number, end: number, quote: string): boolean {
+function clauseHeld(corrected: string, first: number, end: number, quote: string): boolean {
   const ends = [...corrected.matchAll(CLAUSE_END)].map((match) => match.index);
   const start = Math.max(0, ...ends.filter((at) => at < first).map((at) => at + 1));
   const stop = Math.min(corrected.length, ...ends.filter((at) => at >= end));
-  const quoted = new Set([...quote.matchAll(NUMBERS)].map((match) => match[0]));
-  return [...corrected.slice(start, stop).matchAll(NUMBERS)].every((match) => {
-    const at = start + match.index;
-    return (at < end && at + match[0].length > first) || quoted.has(match[0]);
-  });
+  const clause = corrected.slice(start, stop);
+  const periods = periodSpans(clause);
+  const numbers = [...clause.matchAll(NUMBERS)].filter(
+    (match) =>
+      !periods.some((span) => span.from <= match.index && span.to >= match.index + match[0].length),
+  );
+  const [head] = numbers;
+  const last = numbers.at(-1);
+  if (!head || !last) return true;
+  const span = corrected.slice(start + head.index, start + last.index + last[0].length);
+  return spacedAsOne(quote).includes(spacedAsOne(span));
 }
 
 /**
@@ -2211,7 +2226,7 @@ function readsAsQuote(
   const end = first + wording.length;
   if (
     numberAround(corrected, first, end) !== numberAround(quote, at, at + wording.length) ||
-    !clauseHolds(corrected, first, end, quote)
+    !clauseHeld(corrected, first, end, quote)
   )
     return false;
   const quoted = readFigures(quote, documentFigureContext([{ text: quote }])).filter(
