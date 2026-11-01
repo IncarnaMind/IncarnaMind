@@ -88,7 +88,7 @@ const nouns: Record<CommandTarget, [string, string]> = {
 
 /** What only the User changes (#1421), as the model is told how to ask for it. */
 const YOURS_RULE =
-  "The User's alone: keys and sign-ins, consent, Local mode, Privacy and what leaves the computer, what you may do without asking, the monthly spending cap, deleting for good, giving “Checked by me”, and marking text as the User's own. Run a request for one all the same, with settings.change and that setting (localMode, consent, privacy, webSearch, apiKey, signIn, approvals, monthlyCap, deleteForGood, …) or the window's own command for it: nothing changes, and the User is shown where they do it. Words alone show them nothing.";
+  "The User's alone: keys and sign-ins, consent, Local mode, Privacy and what leaves the computer, what you may do without asking, the monthly spending cap, deleting for good, giving “Checked by me”, and marking text as the User's own. Run a request for one all the same, with settings.change and that setting (localMode, consent, privacy, webSearch, apiKey, signIn, approvals, monthlyCap, deleteForGood, …) or the window's own command for it: nothing changes; the User is shown where they do it. Words alone show them nothing.";
 
 export interface CommandToolsOptions {
   host: CommandsHost;
@@ -181,7 +181,7 @@ export function commandTools(options: CommandToolsOptions): {
   const counted = new Map<string, number>();
   const renames = [...options.renames];
   const readTitles = new Set(options.titledPages);
-  /** What the model read of the window's commands that ran: marked `done`, one ends the turn. */
+  /** What the model read of the window's commands that ran, and of refusals: marked `done`, one ends the turn. */
   const oneLine = new Set<string>();
   /** The window's commands still going on when their calls returned, by call. */
   const goingOn = new Map<string, CommandDone>();
@@ -298,7 +298,7 @@ export function commandTools(options: CommandToolsOptions): {
       `${COMMAND_TOOLS.list} gives the others for what it found, and with kind "window" those for the window in front; run them by id the same way.`,
       `A change inside IncarnaMind runs at once and the User can undo it. A delete, a file saved outside the Output location, files added from a folder, a recording, what can't be undone and more than ${COMMAND_AT_ONCE} changes wait for the User to allow them.`,
       YOURS_RULE,
-      "Set done on the call that does the last thing the request asks for; leave it out while more is to do. After a window's command with done, no reply is needed: what it shows is the reply. Otherwise say only what each call returned.",
+      "Set done on the call that does the last thing the request asks for; leave it out while more is to do. After a window's command or a refusal with done, no reply is needed: what it shows is the reply. Otherwise say only what each call returned.",
     ].join(" "),
     inputSchema: {
       type: "object",
@@ -338,8 +338,9 @@ export function commandTools(options: CommandToolsOptions): {
     providerTool: COMMAND_TOOLS.run,
     effects: commandEffects,
     untrustedResult: false,
-    // Only a window's command the model marked as the request's last ends the turn: a refusal
-    // never does, so a request that asked for more goes on to it.
+    // Only a window's command or a refusal the model marked as the request's last ends the turn,
+    // so a request that asked for more goes on to it. After a refusal the model, told IncarnaMind
+    // says it, still said it again, and that the place was opened for the User (#2252).
     endsTurn: (result, input) => input.done === true && oneLine.has(result),
     async call(_input, { toolCallId, signal }) {
       const command = checked.get(toolCallId);
@@ -366,7 +367,7 @@ export function commandTools(options: CommandToolsOptions): {
       if (ran.step) options.steps.add(options.runId, ran.step);
       const done = { ...ran.done, command: command.command, run: options.runId };
       options.ran(toolCallId, done);
-      if (ran.done.window) oneLine.add(ran.said);
+      if (ran.done.window || ran.done.yours) oneLine.add(ran.said);
       if (ran.done.window?.running) {
         goingOn.set(toolCallId, done);
         const early = endedEarly.get(toolCallId);

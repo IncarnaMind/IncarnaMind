@@ -290,7 +290,7 @@ const TURN_RULE = [
  * refused in words, with no card to take the User there.
  */
 const COMMAND_TURN =
-  "- Something done to the User's Documents, Notes or Folders themselves, or in the app: check the Note, file or sort Documents into Folders, open, rename, delete, change a setting (核对、归档、打开、改名、删除、设置). Run the app's command for it (below), also when it is the User's alone, never a Note or a reply that does it instead.";
+  "- Something done to the User's Documents, Notes or Folders themselves, or in the app: check whether the Note is right, file or sort Documents into Folders, open, rename, delete, change a setting (核对、归档、打开、改名、删除、设置). A request about the User's files themselves, all those on a subject too, rather than for a piece of writing, is this kind. Run the app's command for it (below), also when it is the User's alone, never a Note or a reply that does it instead.";
 
 const turnRule = (commands: boolean) =>
   [

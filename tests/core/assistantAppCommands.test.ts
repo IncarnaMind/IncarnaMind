@@ -1544,6 +1544,27 @@ describe("A refusal is said, and the commands a request names are within reach (
     }
   });
 
+  // protects=a refusal the model marks as the request's last ends the turn, as a window command does: the reply is the card's own line, said once, and the model isn't asked to write one that says it again; fails_when=the model is asked again after the refusal, or the reply holds more than the line; no_claim=that a real model marks done, which the live requests measure.
+  test.each([
+    { text: "Lower my spending cap to 20 dollars", language: "en" as const },
+    { text: "把每月花费上限调低到 20 美元", language: "zh-CN" as const },
+  ])("“$text”: a refusal marked done ends the turn on its line", async ({ text, language }) => {
+    const model = callingThen(
+      "I can't change the spending cap; it's in Settings › General.",
+      run("settings.change", { setting: "monthlyCap", value: "20", done: true }, false),
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const before = (await core.getSettings()).user.monthlyCap;
+
+    const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
+
+    expect(commandCalls(answer)[0]?.command?.yours).toBe("spending");
+    expect((await core.getSettings()).user.monthlyCap).toEqual(before);
+    expect(answerRequests(model)).toHaveLength(1);
+    expect(answer.text).toBe(translate(language, "commands.yours.spending"));
+    core.close();
+  });
+
   // protects=however the turn ends, the reply says the refusal: here a check of the reply asks the model again and that request fails, so the reply before it stands, and the refusal's line still follows it; fails_when=the Answer ends without the line; no_claim=which check asks.
   test("a reply asked again that then fails still says the refusal", async () => {
     const model = scriptedModel((call) => {
