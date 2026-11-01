@@ -186,6 +186,9 @@ export function quotedLines(quoted: QuotedText): string {
 const beforeOnLine = (text: string, at: number) =>
   text.slice(text.lastIndexOf("\n", at - 1) + 1, at);
 
+/** The most lines above a number alone that its row's label is looked for in. */
+const MOST_LINES_UP = 8;
+
 /** The most places of one quote looked at: more can't be told apart, and keep a line's start reading. */
 const MOST_PLACES = 50;
 
@@ -519,7 +522,6 @@ function exceptedBy(statement: StatedUnit, label: string): boolean {
 // points, a count of shares, people or things, a year, a date or an identifier, and a per-share
 // figure no exception leaves out. A share count is often in the line's millions, but not always.
 const NOT_AN_AMOUNT: readonly [string, RegExp][] = [
-  ["per-share", PER_SHARE],
   ["share count", SHARE_COUNT],
   ["percent", /%|per ?cent|percentage|\bmargin\b|百分比|率/i],
   ["ratio", /\bratio\b|\(x\)|\btimes\b|\bmultiple\b|倍/i],
@@ -528,13 +530,33 @@ const NOT_AN_AMOUNT: readonly [string, RegExp][] = [
     "count",
     /\bemployees\b|\bheadcount\b|\bstaff\b|\bcount\b|\bnumber of\b|\bunits\b|\bcustomers\b|\bstores\b|人数|员工|数量|门店|户数|家数/i,
   ],
-  ["year or date", /\byears?\b|\bdate\b|年份|日期/i],
-  ["identifier", /\bID\b|\bcode\b|\bISIN\b|\bno\.|编号|代码/i],
+  [
+    "year or date",
+    /^\s*(?:(?:financial |fiscal )?year|date)\s*$|\byear (?:founded|established|of incorporation)\b|\bdate\b|年份|日期/i,
+  ],
+  ["identifier", /\bID\b|\bcode\b|\bISIN\b|\bno\.|\bphone\b|\btel\b|编号|代码|电话/i],
 ];
 
+// The words of an amount's row, which outweigh a kind's word beside them: "Staff costs", "Profit
+// for the year", "Revenue from stores", 员工薪酬, 汇率变动的影响. A per-share row is still per share.
+const AMOUNT_WORDS =
+  /\b(?:profits?|income|revenues?|sales|turnover|costs?|expenses?|amounts?|dividends?|assets?|liabilit(?:y|ies)|equity|cash|debt|loans?|borrowings?|payables?|receivables?|inventor(?:y|ies)|tax(?:ation)?|charges?|fees?|capital|reserves?|provisions?|interest|depreciation|amorti[sz]ation|impairment|goodwill|deposits?|losse?s?|gains?|earnings|surplus|deficit|premiums?|claims?|accruals?|creditors|debtors|wages|salaries|remuneration|proceeds|payments?|investments?|property|plant|equipment|intangibles?|total)\b|收入|成本|费用|薪酬|利润|资产|负债|权益|现金|收益|款|金额|税|存货|准备|折旧|摊销|减值|商誉|股本|损失|利得|影响|支出|开支|余额|合计|总额/i;
+
+// A percent, a multiple or a rate by its sign, or by the noun its label ends with, whatever amount
+// it is of: "Return on equity (%)", "Net interest margin", 净资产收益率, "Debt ratio".
+const RATE_ROW =
+  /%|per ?cent|percentage|\bbps\b|basis points|基点|[(（]\s*(?:x|times|倍)\s*[)）]|(?:\bmargin|\bratio|\brate|\byield|\bmultiple|率|倍|比例)[\s:：)）]*$/i;
+
 /** The kind of row `label` names that a scale line's amounts don't include, or null for an amount's. */
-const notAnAmount = (label: string): string | null =>
-  NOT_AN_AMOUNT.find(([, pattern]) => pattern.test(label))?.[0] ?? null;
+function notAnAmount(label: string): string | null {
+  if (PER_SHARE.test(label)) return "per-share";
+  if (RATE_ROW.test(label)) return "percent, rate or multiple";
+  // "Payment date", "付款日期", "Supplier ID": a date or an identifier, whatever it is of.
+  if (/\bdates?\b|日期|\bID\b|\bISIN\b|\bphone\b|\btel\b|编号|代码|电话/i.test(label))
+    return "date or identifier";
+  if (AMOUNT_WORDS.test(label)) return null;
+  return NOT_AN_AMOUNT.find(([, pattern]) => pattern.test(label))?.[0] ?? null;
+}
 
 /** Whether `statement` scales its amounts "except where noted", and `label` is a per-share row it may leave out. */
 const notedOut = (statement: StatedUnit, label: string): boolean =>
@@ -845,12 +867,21 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         : (before.split(/\d[\d,.]*[)）%]?/).at(-1) ?? ""),
     );
     if (/[\p{L}%]/u.test(label)) return label;
-    // A table read one cell per line puts a row's label on the line above its number.
-    const above = text
+    // A table read one cell per line puts a row's label above its numbers, one year's under the
+    // other's: the nearest line with words, past lines of numbers alone, up to a blank line or the
+    // scale line itself.
+    const lines = text
       .slice(0, start - before.length)
       .split("\n")
-      .findLast((line) => line.trim() !== "");
-    return above && !/\d/.test(above) ? withoutStatement(above) : label;
+      .slice(0, -1)
+      .reverse();
+    for (const line of lines.slice(0, MOST_LINES_UP)) {
+      if (line.trim() === "") break;
+      if (!/[\p{L}%]/u.test(line)) continue;
+      const own = withoutStatement(line);
+      return /[\p{L}%]/u.test(own) ? own : label;
+    }
+    return label;
   }
 
   function lineBefore(quoted: Quoted, figure: Figure): string {

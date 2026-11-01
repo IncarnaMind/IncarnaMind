@@ -2736,6 +2736,10 @@ const ROW_KINDS_EN: readonly [string, string][] = [
   ["Customer ID 5512", "5512"],
   ["Year founded 1998", "1998"],
   ["Weighted average shares 412.5", "412.5"],
+  ["Dividend per share 0.35", "0.35"],
+  ["Payment date 15", "15"],
+  ["ISIN 4471", "4471"],
+  ["Phone 5550123", "5550123"],
 ];
 const ROW_KINDS_ZH: readonly [string, string][] = [
   ["营业收入 1,234.5", "1,234.5"],
@@ -2749,54 +2753,60 @@ const ROW_KINDS_ZH: readonly [string, string][] = [
   ["客户编号 5512", "5512"],
   ["成立年份 1998", "1998"],
   ["发行在外普通股加权平均股份 412.5", "412.5"],
+  ["每股股利（元） 0.35", "0.35"],
+  ["付款日期 15", "15"],
+  ["证券代码 4471", "4471"],
+  ["联系电话 5550123", "5550123"],
+];
+
+/**
+ * What each row of the tables above doubles to under a line that scales 1,234.5 to `revenue`: only
+ * the amount is scaled, and the per-share rows are left plain where the line excepts them.
+ */
+const doubledRows = (revenue: number, perShare: [number, number] | null) => [
+  revenue,
+  perShare?.[0] ?? null,
+  ...Array<null>(9).fill(null),
+  perShare?.[1] ?? null,
+  null,
+  null,
+  null,
 ];
 
 // protects=#2365; fails_when=a row that isn't an amount (earnings per share, a percent, a ratio, a multiple, basis points, a count, an identifier) is scaled by its Document's scale line when the model quotes it, under any form of that line, in English or Chinese.
 test.each([
-  {
-    head: "(in thousands)",
-    chinese: false,
-    doubled: [2_469_000, null, null, null, null, null, null, null, null, null, null],
-  },
+  { head: "(in thousands)", chinese: false, doubled: doubledRows(2_469_000, null) },
+  { head: "(in billions)", chinese: false, doubled: doubledRows(2_469_000_000_000, null) },
   {
     head: "(in millions, except per share data)",
     chinese: false,
-    doubled: [2_469_000_000, 2.5, null, null, null, null, null, null, null, null, null],
+    doubled: doubledRows(2_469_000_000, [2.5, 0.7]),
   },
+  { head: "Amounts in £'000", chinese: false, doubled: doubledRows(2_469_000, null) },
   {
-    head: "Amounts in £'000",
+    head: "All figures in £'000 unless otherwise stated",
     chinese: false,
-    doubled: [2_469_000, null, null, null, null, null, null, null, null, null, null],
+    doubled: doubledRows(2_469_000, null),
   },
   {
     head: "In millions of dollars, except where noted",
     chinese: false,
-    doubled: [2_469_000_000, null, null, null, null, null, null, null, null, null, null],
+    doubled: doubledRows(2_469_000_000, null),
   },
-  {
-    head: "(000 omitted)",
-    chinese: false,
-    doubled: [2_469_000, null, null, null, null, null, null, null, null, null, null],
-  },
-  {
-    head: "单位：千元",
-    chinese: true,
-    doubled: [2_469_000, null, null, null, null, null, null, null, null, null, null],
-  },
+  { head: "(000 omitted)", chinese: false, doubled: doubledRows(2_469_000, null) },
+  { head: "单位：千元", chinese: true, doubled: doubledRows(2_469_000, null) },
+  { head: "单位：万元", chinese: true, doubled: doubledRows(24_690_000, null) },
+  { head: "单位：亿元", chinese: true, doubled: doubledRows(246_900_000_000, null) },
   {
     head: "单位：千元，每股收益除外",
     chinese: true,
-    doubled: [2_469_000, 1.04, null, null, null, null, null, null, null, null, null],
+    doubled: doubledRows(2_469_000, [1.04, 0.7]),
   },
-  {
-    head: "金额（万）",
-    chinese: true,
-    doubled: [24_690_000, null, null, null, null, null, null, null, null, null, null],
-  },
+  { head: "金额（万）", chinese: true, doubled: doubledRows(24_690_000, null) },
   {
     head: "单位：百万元（除另有说明外）",
     chinese: true,
-    doubled: [2_469_000_000, null, null, null, null, null, null, null, null, null, null],
+    doubled: doubledRows(2_469_000_000, null),
   },
 ])(
   "each kind of row under “$head” is scaled only when it is an amount",
@@ -2845,6 +2855,198 @@ test.each([
 
     const byMarker = new Map(answer.figures.map((figure) => [figure.marker, figure.value]));
     expect(rows.map((_, index) => byMarker.get(index + 1) ?? null)).toEqual(doubled);
+  },
+);
+
+/** Twice each of `quotes`, from a Word file of `lines` under `head`, with `head` as unitQuote; `null` where refused. */
+async function doubledUnder(head: string, lines: readonly string[], quotes: readonly string[]) {
+  const model = calculatingModel({
+    queries: ["Pelican statement"],
+    steps: [
+      citeStatement("Pelican", quotes, (cited) => [
+        {
+          tool: "calculate",
+          input: {
+            figures: quotes.map((quote, index) => ({
+              marker: index + 1,
+              label: quote,
+              formula: "x * 2",
+              inputs: [
+                {
+                  name: "x",
+                  label: quote,
+                  citation: cited[index],
+                  number: quote.split(" ").at(-1),
+                  unitQuote: head,
+                },
+              ],
+            })),
+          },
+        },
+      ]),
+    ],
+    answer: quotes.map((_, index) => `[=${index + 1}]`).join(" "),
+  });
+  const { core } = await setUpCalculating(model, [
+    {
+      name: "Pelican statement.docx",
+      contents: docxOf(["Pelican statement", head, ...lines].map((text) => ({ text }))),
+    },
+  ]);
+  const { answer } = await askAndRead(core, "What is each doubled?");
+  const byMarker = new Map(answer.figures.map((figure) => [figure.marker, figure.value]));
+  return quotes.map((_, index) => byMarker.get(index + 1) ?? null);
+}
+
+// protects=#2365; fails_when=a table read one cell per line gives a second year's number no label, so a per-share figure or a percent under the first year's is scaled: 1.10 EPS recorded as 2,200.
+test.each([
+  {
+    language: "English",
+    head: "(in thousands, except per share data)",
+    lines: [
+      "Revenue",
+      "1,234.5",
+      "1,100.5",
+      "Diluted earnings per share",
+      "1.25",
+      "1.10",
+      "Gross margin (%)",
+      "27.4",
+      "26.1",
+    ],
+    quotes: ["1,100.5", "1.10", "26.1"],
+    doubled: [2_201_000, 2.2, null],
+  },
+  {
+    language: "Chinese",
+    head: "单位：千元，每股收益除外",
+    lines: [
+      "营业收入",
+      "1,234.5",
+      "1,100.5",
+      "稀释每股收益",
+      "0.52",
+      "0.48",
+      "毛利率（%）",
+      "27.4",
+      "26.1",
+    ],
+    quotes: ["1,100.5", "0.48", "26.1"],
+    doubled: [2_201_000, 0.96, null],
+  },
+])(
+  "a second year's number under the first takes the row's label from above: $language",
+  {
+    timeout: 60_000,
+  },
+  async ({ head, lines, quotes, doubled }) => {
+    expect(await doubledUnder(head, lines, quotes)).toEqual(doubled);
+  },
+);
+
+/** Ordinary rows of UK/IFRS, US GAAP and Chinese (CAS) statements: amounts a scale line covers. */
+const AMOUNT_ROWS_EN = [
+  "Revenue",
+  "Cost of sales",
+  "Gross profit",
+  "Distribution costs",
+  "Administrative expenses",
+  "Other operating income",
+  "Operating profit",
+  "Finance income",
+  "Finance costs",
+  "Profit before tax",
+  "Income tax expense",
+  "Profit for the year",
+  "Total comprehensive income for the year",
+  "Staff costs",
+  "Depreciation and amortisation",
+  "Trade and other receivables",
+  "Amounts due from customers",
+  "Cash and cash equivalents",
+  "Inventories",
+  "Property, plant and equipment",
+  "Trade and other payables",
+  "Borrowings",
+  "Share capital",
+  "Retained earnings",
+  "Net revenues",
+  "Cost of units sold",
+  "Selling, general and administrative",
+  "Research and development",
+  "Net income",
+  "Interest income",
+  "Dividends paid",
+  "Revenue from stores",
+  "Accounts receivable",
+  "Accrued liabilities",
+  "Long-term debt",
+  "Total stockholders' equity",
+  "Goodwill",
+  "Deferred revenue",
+  "Operating lease liabilities",
+  "Capital expenditure",
+];
+const AMOUNT_ROWS_ZH = [
+  "营业收入",
+  "营业成本",
+  "税金及附加",
+  "销售费用",
+  "管理费用",
+  "研发费用",
+  "财务费用",
+  "其中：利息费用",
+  "利息收入",
+  "其他收益",
+  "投资收益",
+  "公允价值变动收益",
+  "信用减值损失",
+  "资产减值损失",
+  "营业利润",
+  "营业外收入",
+  "营业外支出",
+  "利润总额",
+  "所得税费用",
+  "净利润",
+  "归属于母公司股东的净利润",
+  "货币资金",
+  "应收账款",
+  "存货",
+  "固定资产",
+  "无形资产",
+  "商誉",
+  "短期借款",
+  "应付账款",
+  "应付职工薪酬",
+  "应交税费",
+  "长期借款",
+  "实收资本（或股本）",
+  "资本公积",
+  "盈余公积",
+  "未分配利润",
+  "汇率变动对现金的影响",
+  "员工薪酬",
+  "经营活动产生的现金流量净额",
+  "购建固定资产支付的现金",
+];
+
+// protects=#2365; fails_when=an ordinary amount row ("Profit for the year", "Staff costs", "Cost of units sold", 员工薪酬, 汇率变动的影响) is taken for a year, a count or a rate and refused, so a scaled statement can't be calculated.
+test.each([
+  { part: "English, 1–20", head: "(in thousands)", rows: AMOUNT_ROWS_EN.slice(0, 20) },
+  { part: "English, 21–40", head: "(in thousands)", rows: AMOUNT_ROWS_EN.slice(20) },
+  { part: "Chinese, 1–20", head: "单位：千元", rows: AMOUNT_ROWS_ZH.slice(0, 20) },
+  { part: "Chinese, 21–40", head: "单位：千元", rows: AMOUNT_ROWS_ZH.slice(20) },
+])(
+  "every ordinary amount row is scaled by its line: $part",
+  {
+    timeout: 60_000,
+  },
+  async ({ head, rows }) => {
+    const lines = rows.map((row) => `${row} 1,234.5`);
+    const doubled = await doubledUnder(head, lines, lines);
+    expect(rows.map((row, index) => [row, doubled[index]])).toEqual(
+      rows.map((row) => [row, 2_469_000]),
+    );
   },
 );
 

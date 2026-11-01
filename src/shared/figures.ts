@@ -1288,7 +1288,7 @@ const EXCEPT_AFTER =
   /^[^\n]{0,24}?except(?:[ \u00a0]for)?[ \u00a0](?<shares>(?:shares?|share counts?)[ \u00a0]and[ \u00a0])?per[- \u00a0]share/i;
 const EXCEPT_NEAR = /除(?<shares>股数及|股份数及|股数和)?每股[^外\n]{0,6}外|每股[^除\n]{0,6}除外/;
 const EXCEPT_NOTED =
-  /^[^\n]{0,24}?except[ \u00a0](?:where|as|when|if)[ \u00a0](?:otherwise[ \u00a0])?(?:noted|stated|indicated|shown|disclosed)|除(?:另有|特别)(?:说明|注明|列明|指明)外|另有(?:说明|注明)(?:者)?除外/i;
+  /^[^\n]{0,24}?(?:except[ \u00a0](?:where|as|when|if)|unless)[ \u00a0](?:otherwise[ \u00a0])?(?:noted|stated|indicated|shown|disclosed)|除(?:另有|特别)(?:说明|注明|列明|指明)外|另有(?:说明|注明)(?:者)?除外/i;
 
 /** What a scale statement at `start`–`end` of `text` leaves out, as its line says: per-share figures, and share counts too. */
 function exceptionOf(text: string, start: number, end: number): StatedUnit["except"] | null {
