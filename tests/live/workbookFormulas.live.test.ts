@@ -17,7 +17,7 @@ import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { type ChatModelFactory, createAiSdkChatModel } from "../../src/core/providers/models";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { libreOfficeFixture } from "../helpers/financeWorkbooks";
+import { libreOfficeFixture } from "../helpers/workbookFixtures";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =

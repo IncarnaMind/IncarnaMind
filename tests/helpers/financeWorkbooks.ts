@@ -6,10 +6,8 @@
  * is worked out here in plain JavaScript, as Excel would save it, apart from
  * IncarnaMind's own formula engine. They are what LibreOffice is given to
  * work out (with their results taken out), and the files it saves are the
- * fixtures tests compare with (`libreOfficeFixture`). Test data only.
+ * fixtures tests compare with (./workbookFixtures). Test data only.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { buildZip } from "./zip";
 
 type Format = "general" | "percent" | "money" | "multiple" | "date";
@@ -778,16 +776,4 @@ export function floatEqualityWorkbook(): WorkbookBuilder {
   const book = new WorkbookBuilder();
   book.sheet("Check").number("A1", 0.1).number("A2", 0.25).formula("B1", "IF(A1+A2=0.3,1,0)", 0);
   return book;
-}
-
-/**
- * A model as LibreOffice saved it once it had worked every formula out
- * (tests/fixtures/workbooks; eval/excel/whatIf.excel.ts makes them again and
- * checks they still match): the saved values tests compare with come from
- * LibreOffice, not from this file.
- */
-export function libreOfficeFixture(name: "dcf" | "lbo" | "three-statements"): Uint8Array {
-  return new Uint8Array(
-    readFileSync(join(import.meta.dirname, "../fixtures/workbooks", `${name}.xlsx`)),
-  );
 }

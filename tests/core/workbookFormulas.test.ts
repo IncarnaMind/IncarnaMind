@@ -13,10 +13,10 @@ import {
   dcfWorkbook,
   iterativeWorkbook,
   largeWorkbook,
-  libreOfficeFixture,
   unsupportedWorkbook,
   WorkbookBuilder,
 } from "../helpers/financeWorkbooks";
+import { libreOfficeFixture } from "../helpers/workbookFixtures";
 
 async function modelOf(
   book: WorkbookBuilder | Uint8Array,

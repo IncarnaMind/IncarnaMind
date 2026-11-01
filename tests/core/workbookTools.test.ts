@@ -7,8 +7,9 @@ import { calculatedFigureNode, readCalculatedFigure } from "../../src/shared/cal
 import { answerEnded, type ShownPassage, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { libreOfficeFixture, unsupportedWorkbook } from "../helpers/financeWorkbooks";
+import { unsupportedWorkbook } from "../helpers/financeWorkbooks";
 import { scriptedModel, scriptedModels } from "../helpers/models";
+import { libreOfficeFixture } from "../helpers/workbookFixtures";
 
 type Call = { tool: string; input: unknown };
 

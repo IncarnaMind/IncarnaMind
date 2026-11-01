@@ -15,8 +15,10 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  pointAndClick,
   pointAt,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
 } from "./app";
@@ -26,8 +28,8 @@ import {
  * at 3% growth, the Answer gives the figure traced through the workbook's formulas and the figure
  * worked out again with the growth input changed. Added to the note, each card shows the
  * figure's formula chain and its inputs cited to their cells; the what-if's names the input it
- * changed and the value the workbook has. The workbook's file is unchanged. English wide,
- * Chinese narrow.
+ * changed and the value the workbook has. Tied out, each is checked against the workbook and the
+ * what-if's row names its change. The workbook's file is unchanged. English wide, Chinese narrow.
  */
 
 const SHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -121,6 +123,38 @@ for (const [language, width] of [
       await expect(card).toContainText(t("figures.workbook.inWorkbook", { value: "254.7" }));
       await expect(card).toContainText(t("figures.workbook.note"));
       await shot(window, `workbook-figure-what-if-${language}`);
+      await window.mouse.move(0, 0);
+      await expect(card).toBeHidden();
+
+      // Tied out, each figure is checked against the workbook, and the what-if is named as one.
+      const schedule = window.getByTestId("figure-schedule");
+      await runCommand(window, "mind.tieOut", t("figures.command"));
+      const ask = window.getByTestId("mind-check-ask");
+      await expect(ask.or(schedule).first()).toBeVisible({ timeout: 30_000 });
+      if (await ask.isVisible()) await pointAndClick(window, ask.getByTestId("mind-check-check"));
+      // The "3%" the Answer writes is a figure of the Note too, a row of its own.
+      const rows = schedule.locator("tbody tr[data-figure-id]");
+      await expect(rows).toHaveCount(3);
+      const row = (figure: string) =>
+        rows.filter({ has: window.locator(".figure-main-button", { hasText: figure }) });
+      for (const figure of ["254.7", "240.4"])
+        await expect(row(figure).locator(".figure-status")).toContainText(
+          t("claim.state.supported"),
+          { timeout: 60_000 },
+        );
+      await expect(row("254.7").locator(".figure-source")).toHaveText(
+        `${t("figures.calculated")} · DCF!E5 = E4*Margin`,
+      );
+      await expect(row("240.4").locator(".figure-source")).toContainText(
+        t("figures.workbook.whatIfFormula", {
+          cell: "DCF!E5",
+          formula: "E4*Margin",
+          input: "Revenue growth (Growth)",
+          from: "5.0%",
+          to: "3.0%",
+        }),
+      );
+      await shot(window, `workbook-figure-schedule-${language}`);
 
       expect(
         createHash("sha256")
