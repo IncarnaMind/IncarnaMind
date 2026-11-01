@@ -1,9 +1,12 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { describe, expect, test } from "vitest";
 import type { RecognizedLine } from "../../src/core";
 import { stripBoilerplate } from "../../src/core/documents/boilerplate";
 import { convexHull, minAreaRect, textBoxes } from "../../src/core/documents/scan/detect";
 import {
+  mixedNumberWord,
   readingOrder,
   scannedUnit,
   unsureSpansIn,
@@ -165,6 +168,12 @@ describe("Reading a scanned page's lines (#397)", () => {
       "1O0",
       "(6O)",
       "1o.",
+      "1T5",
+      "8D0",
+      "1q9",
+      "6E0",
+      "4H0",
+      "１T５",
     ]) {
       const read = line(word, [0, 0, 100, 10]);
       expect(unsureWords(read), word).toEqual([[0, word.length]]);
@@ -195,6 +204,7 @@ describe("Reading a scanned page's lines (#397)", () => {
       "1990s-2000s",
       "3Q24",
       "1H25",
+      "2H24",
       "2024Q3",
       "4x4",
       "1e6",
@@ -226,6 +236,22 @@ describe("Reading a scanned page's lines (#397)", () => {
     ]);
   });
 
+  test("on the scan fixtures only the real misreads are doubtful (#535)", () => {
+    const read = JSON.parse(
+      readFileSync(join(import.meta.dirname, "../fixtures/scans/read.json"), "utf8"),
+    ) as { pages: Record<string, { lines: { text: string }[] }> };
+    const doubtful = Object.values(read.pages).flatMap((page) =>
+      page.lines.flatMap((line) => line.text.split(/\s+/u)).filter((word) => mixedNumberWord(word)),
+    );
+    expect(doubtful).toEqual(["(6O)", "1o."]);
+  });
+
+  test("a Chinese numeral between a number's digits is a digit the scan may have misread (#535)", () => {
+    expect(mixedNumberWord("2〇25")).toBe(true);
+    expect(mixedNumberWord("2一5")).toBe(true);
+    expect(mixedNumberWord("第2二阶段")).toBe(false);
+  });
+
   test("a Chinese line's numbers are judged on their own, so clean ones stay sure and a misread one is found (#535)", () => {
     const clean = scannedUnit(
       1,
@@ -245,6 +271,19 @@ describe("Reading a scanned page's lines (#397)", () => {
     expect(unsureSpansIn(oldPage).map(([from, to]) => oldPage.text.slice(from, to))).toEqual([
       "2o25",
     ]);
+    const numeral = scannedUnit(
+      1,
+      [line("租金为2〇25元。", [100, 120, 600, 150])],
+      { width: 1000, height: 2000 },
+      "PP-OCRv5 mobile/1",
+    );
+    const numeralPage: TextUnit = {
+      ...numeral,
+      label: { scan: { reader: "PP-OCRv5 mobile/1" } },
+    };
+    expect(
+      unsureSpansIn(numeralPage).map(([from, to]) => numeralPage.text.slice(from, to)),
+    ).toEqual(["2〇25"]);
   });
 
   test("taking a running header off a scanned page keeps its anchors and unsure words in step", () => {

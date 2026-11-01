@@ -19,42 +19,45 @@ import type { RecognizedLine } from "../../adapters";
 /** A word the recognizer is less sure of than this, at its least sure character, is marked unsure. */
 export const UNSURE_BELOW = 0.8;
 
-/** Marks that never belong in a number: a separator or sign the recognizer made up. */
-const STRAY_MARK = /[;!?=~^&*#@_|\\]/;
-
 /**
- * Letters a recognizer reads for digits: a for 4, o and O for 0, l, I and i
- * for 1, S for 5, B for 8, Z for 2, G for 6.
+ * Real codes whose letters between digits are the code's own: a quarter
+ * ("3Q24", "2024Q3", "1H25", "2H24"), a size ("4x4") and scientific notation
+ * ("1e6"). They follow the recognizer's score; any other letter between a
+ * number's digits is a digit it may have misread.
  */
-const DIGIT_LETTER = /[aAoOlIiSsBbZzGg]/;
+const CODE_SHAPE = /^(?:[1-4][QH]\d{2}|\d{4}[QH][1-4]|\d+[xX]\d+|\d+(?:\.\d+)?e[+-]?\d+)$/u;
+
+/** A CJK numeral: between digits ("2〇25") it is a digit the scan may have read as a character. */
+const CJK_NUMERAL = "〇零一二三四五六七八九十百千万亿两壹贰叁肆伍陆柒捌玖拾佰仟";
 
 /**
- * Whether a word starts like a number and mixes its digits with a letter a
- * recognizer reads for one, or with a made-up mark: "2o25", "7a;45o", "1O%",
- * "l2,000", "3S.6", "74;450". Always unsure, whatever the recognizer's score
- * (#535). A code's own letters, inside or before the digits ("Q3", "A4",
- * "H2O", "FY2025", "No.7", "3Q24", "1H25", "2024Q3", "4x4", "1e6"), a
- * number's unit or scale after them ("2.5bn", "10bps", "1990s", "10am",
- * "50kg", "100ml", "4GB", "5G", "12b"), a range's ends ("10am-12pm"), and an
- * ordinal's suffix ("1st", "2nd") all follow the recognizer's score.
+ * Whether a word starts like a number and holds, between its first and last
+ * digit, anything but a digit, comma or full stop: a letter or a mark the
+ * recognizer read for a digit ("2o25", "1T5", "7a;45o", "74;450"), or a
+ * Chinese numeral ("2〇25"). Always unsure, whatever the recognizer's score
+ * (#535). A few real codes keep their letters ("3Q24", "2024Q3", "1H25",
+ * "4x4", "1e6"), and a number's unit or scale follows its digits ("2.5bn",
+ * "10bps", "1990s", "10am", "50kg", "100ml", "4GB", "5G", "12b"); those, a
+ * code's letters before the number ("Q3", "A4", "H2O", "FY2025", "No.7"), a
+ * range's ends ("10am-12pm") and an ordinal's suffix ("1st", "2nd") follow
+ * the recognizer's score.
  */
 export function mixedNumberWord(text: string): boolean {
-  const word = text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
-  if (!/\d/.test(word)) return false;
+  // Full-width digits and marks read as the ASCII ones a number is written with ("１T５" is "1T5").
+  const word = text.normalize("NFKC").replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  if (!/\p{Nd}/u.test(word)) return false;
   // A range's ends are numbers of their own, and their units belong to them ("10bps-20bps").
   if (/[-–—]/u.test(word)) {
     return word.split(/[-–—]/u).some((part) => part !== "" && mixedNumberWord(part));
   }
-  if (/^\d+(?:st|nd|rd|th)$/iu.test(word)) return false;
+  if (/^\p{Nd}+(?:st|nd|rd|th)$/iu.test(word)) return false;
   // A lower-case l or a capital I in front of digits is a 1 the recognizer missed.
-  if (/^[lI]\d/u.test(word)) return true;
-  if (!/^\d/u.test(word)) return false;
-  // Between the number's first and last digit, a digit's letter ("3S.6") or a
-  // made-up mark ("74;450") is a misread; a code's letter ("3Q24") follows the score.
-  const core = word.slice(word.search(/\d/u), word.search(/\d(?![\s\S]*\d)/u) + 1);
-  if (DIGIT_LETTER.test(core) || STRAY_MARK.test(core)) return true;
+  if (/^[lI]\p{Nd}/u.test(word)) return true;
+  if (!/^\p{Nd}/u.test(word)) return false;
+  const core = word.slice(word.search(/\p{Nd}/u), word.search(/\p{Nd}(?![\s\S]*\p{Nd})/u) + 1);
+  if (/[^\p{Nd}.,]/u.test(core) && !CODE_SHAPE.test(word)) return true;
   // An O for a 0 beside the last digit: "1O%", "1o.". A unit's letter ("5l") isn't one.
-  return /\d[Oo](?!\p{L})/u.test(word);
+  return /\p{Nd}[Oo](?!\p{L})/u.test(word);
 }
 
 /**
@@ -85,8 +88,15 @@ export function unsureSpansIn(unit: {
   return merged;
 }
 
-/** A stretch of a scanned line that can be a number: not a space, and not a character of Chinese, Japanese or Korean text. */
-const NUMBER_RUN = /[^\s\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]+/gu;
+/**
+ * A stretch of a scanned line that can be a number: not a space, and not a
+ * character of Chinese, Japanese or Korean text, though a CJK numeral is one
+ * of the number ("2〇25").
+ */
+const NUMBER_RUN = new RegExp(
+  `(?:[^\\s\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}\\p{sc=Hangul}]|[${CJK_NUMERAL}])+`,
+  "gu",
+);
 
 /** Lines at least this much longer than tall show the page's slant. */
 const SLANT_LINE_RATIO = 4;
