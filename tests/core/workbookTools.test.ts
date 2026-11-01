@@ -305,6 +305,9 @@ describe("a workbook's formulas in an Answer", () => {
       expect(names.includes("what_if")).toBe(offered);
       const system = JSON.stringify(call?.prompt[0] ?? "");
       expect(system.includes("call trace_formulas")).toBe(offered);
+      // A what-if is the workbook's own; a Python result is the Analysis's, never the workbook's (#2378, #2383).
+      expect(system.includes("call what_if, not run_analysis")).toBe(offered);
+      expect(system.includes("never the workbook's recalculation")).toBe(offered);
     },
   );
 
