@@ -23,14 +23,20 @@ export const UNSURE_BELOW = 0.8;
 const STRAY_MARK = /[;!?=~^&*#@_|\\]/;
 
 /**
- * Whether a word starts like a number and mixes its digits with a letter or a
- * mark no number holds between them: "2o25", "7a;45o", "1O%", "l2,000",
- * "3S.6", "74;450". Always unsure, whatever the recognizer's score (#535).
- * A code's letters come first ("Q3", "A4", "H2O", "FY2025", "No.7"), a
- * number's unit or scale follows its digits ("2.5bn", "10bps", "1990s",
- * "10am", "50kg", "100ml", "4GB", "5G", "12b"), a range is its ends
- * ("10am-12pm"), and an ordinal's suffix is a word's own ("1st", "2nd"): all
- * follow the recognizer's score.
+ * Letters a recognizer reads for digits: a for 4, o and O for 0, l, I and i
+ * for 1, S for 5, B for 8, Z for 2, G for 6.
+ */
+const DIGIT_LETTER = /[aAoOlIiSsBbZzGg]/;
+
+/**
+ * Whether a word starts like a number and mixes its digits with a letter a
+ * recognizer reads for one, or with a made-up mark: "2o25", "7a;45o", "1O%",
+ * "l2,000", "3S.6", "74;450". Always unsure, whatever the recognizer's score
+ * (#535). A code's own letters, inside or before the digits ("Q3", "A4",
+ * "H2O", "FY2025", "No.7", "3Q24", "1H25", "2024Q3", "4x4", "1e6"), a
+ * number's unit or scale after them ("2.5bn", "10bps", "1990s", "10am",
+ * "50kg", "100ml", "4GB", "5G", "12b"), a range's ends ("10am-12pm"), and an
+ * ordinal's suffix ("1st", "2nd") all follow the recognizer's score.
  */
 export function mixedNumberWord(text: string): boolean {
   const word = text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
@@ -43,10 +49,10 @@ export function mixedNumberWord(text: string): boolean {
   // A lower-case l or a capital I in front of digits is a 1 the recognizer missed.
   if (/^[lI]\d/u.test(word)) return true;
   if (!/^\d/u.test(word)) return false;
-  // Between the number's first and last digit, anything but a digit or a full
-  // stop or comma is a misread: a letter ("3S.6"), a made-up mark ("74;450").
+  // Between the number's first and last digit, a digit's letter ("3S.6") or a
+  // made-up mark ("74;450") is a misread; a code's letter ("3Q24") follows the score.
   const core = word.slice(word.search(/\d/u), word.search(/\d(?![\s\S]*\d)/u) + 1);
-  if (/\p{L}/u.test(core) || STRAY_MARK.test(core)) return true;
+  if (DIGIT_LETTER.test(core) || STRAY_MARK.test(core)) return true;
   // An O for a 0 beside the last digit: "1O%", "1o.". A unit's letter ("5l") isn't one.
   return /\d[Oo](?!\p{L})/u.test(word);
 }

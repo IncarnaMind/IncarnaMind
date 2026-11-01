@@ -193,6 +193,11 @@ describe("Reading a scanned page's lines (#397)", () => {
       "10bps-20bps",
       "10am-12pm",
       "1990s-2000s",
+      "3Q24",
+      "1H25",
+      "2024Q3",
+      "4x4",
+      "1e6",
     ]) {
       expect(unsureWords(line(word, [0, 0, 100, 10])), word).toEqual([]);
       expect(unsureWords(line(word, [0, 0, 100, 10], 0.4)), word).toEqual([[0, word.length]]);
