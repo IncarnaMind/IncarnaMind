@@ -221,6 +221,12 @@ export interface UnitText {
   kind?: UnitKind;
   label?: UnitLabel | null;
   anchors?: Anchor[] | null;
+  /**
+   * A currency written next to a scale in the Unit's text before running headers were
+   * stripped ("(£'000)"): a Document that writes one scales its amounts somewhere, so a
+   * currency read from one line must not apply to a bare number (#1001).
+   */
+  scaleMarker?: string | null;
 }
 
 /** Builds a Unit's text while recording anchors. */

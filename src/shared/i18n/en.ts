@@ -864,6 +864,7 @@ export const en = {
   "figures.export.documentPlace": "Document and location",
   "figures.export.recordHeading": "Figures",
   "figures.unitQuote": "Unit statement",
+  "figures.unitFrom": "{currency} stated on {quote}",
   "figures.command": "Tie out figures",
   "figures.title": "Figure schedule",
   "figures.tab": "Figure schedule – {name}",

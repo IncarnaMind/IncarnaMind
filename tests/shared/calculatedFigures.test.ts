@@ -89,6 +89,18 @@ test("a complete existing figure preserves every input, raw cell, chosen reading
   expect(readFigureCitation(citation())).toEqual(citation());
 });
 
+test("a unit statement keeps the currency as its line writes it, and refuses one that isn't text", () => {
+  const written = { ...input(), unitStatement: { ...input().unitStatement, currencyChars: "£" } };
+  expect(readFigureInput(written)?.unitStatement).toMatchObject({ currencyChars: "£" });
+  expect(
+    readFigureInput({
+      ...written,
+      unitStatement: { ...written.unitStatement, currencyChars: 3 },
+    }),
+  ).toBeNull();
+  expect(readFigureInput(written)?.unitStatement).not.toHaveProperty("currencyChars", null);
+});
+
 test("Chinese shown scales and quoted character offsets survive without unit conversion", () => {
   const revenue: FigureInput = {
     ...input(),

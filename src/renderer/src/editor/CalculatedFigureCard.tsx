@@ -259,7 +259,14 @@ function CalculationInput({ input }: { input: FigureInput }) {
       <CalculationQuote citation={input.citation} />
       {input.unitStatement && (
         <div className="calculated-figure-unit">
-          <span>{t("figures.unitQuote")}</span>
+          <span>
+            {input.unitStatement.currencyChars
+              ? t("figures.unitFrom", {
+                  currency: input.unitStatement.currencyChars,
+                  quote: input.unitStatement.citation.quote,
+                })
+              : t("figures.unitQuote")}
+          </span>
           <CalculationQuote citation={input.unitStatement.citation} />
         </div>
       )}

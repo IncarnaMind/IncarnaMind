@@ -155,16 +155,24 @@ function unitStatementOf(value: unknown): FigureInput["unitStatement"] | undefin
   const citation = readFigureCitation(value.citation);
   const scaleWord = optionalText(value.scaleWord);
   const code = optionalText(value.currency);
+  const currencyChars = optionalText(value.currencyChars);
   if (
     !citation ||
     !finite(value.scale) ||
     value.scale <= 0 ||
     scaleWord === undefined ||
     code === undefined ||
+    currencyChars === undefined ||
     (code !== null && !currency(code))
   )
     return undefined;
-  return { citation, scale: value.scale, scaleWord, currency: code };
+  return {
+    citation,
+    scale: value.scale,
+    scaleWord,
+    currency: code,
+    ...(currencyChars !== null && { currencyChars }),
+  };
 }
 
 export function readFigureInput(value: unknown): FigureInput | null {

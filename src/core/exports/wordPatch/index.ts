@@ -40,6 +40,7 @@ import { child, elements, type XmlElement } from "../../documents/formats/xml";
 import {
   type Block,
   type FailedSentence,
+  firstNumberOf,
   plainText,
   type ReadOptions,
   readBlock,
@@ -364,6 +365,11 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
       if (known) return known;
       const element = yOf.get(node);
       return element ? readBlock(element, options) : [];
+    },
+    firstNumberOf: (list, nested) => {
+      const element = yOf.get(list);
+      if (!element) throw new Error("A list being written isn't one of the Note's.");
+      return firstNumberOf(element, nested);
     },
     writer: docxWriter,
     bookmarkOf,
