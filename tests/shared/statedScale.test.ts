@@ -211,6 +211,31 @@ describe("the same scale as reading the whole page", () => {
   });
 });
 
+describe("footnote marks and line breaks beside a scale", () => {
+  test("a superscript or circled letter the reader makes a footnote mark keeps the scale", () => {
+    const texts = [
+      "\u24d0m USD",
+      "\u207fm USD",
+      "Revenue \u24d0k EUR",
+      "EUR k\u24d1",
+      "\u2071\0Mrd HK$",
+    ];
+    expect(texts.map((text) => statedScale(text))).toEqual([
+      "m USD",
+      "m USD",
+      "k EUR",
+      "EUR k",
+      "Mrd HK$",
+    ]);
+    expectSameAsWholePage(texts);
+  });
+
+  test("a currency and a scale token on two lines state no scale, read whole or by line", () => {
+    expect(wholePageScale("USD\nm")).toBeNull();
+    expect(statedScale("USD\nm")).toBeNull();
+  });
+});
+
 describe("a page written as one long line", () => {
   const line = "Spring tides come twice a month. ".repeat(6_000);
 

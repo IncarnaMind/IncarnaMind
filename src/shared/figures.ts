@@ -167,7 +167,8 @@ const MARK = "\ue000";
 const NBSP = "\u00a0";
 
 const LINE_BREAK = /[\n\r\v\f\u0085\u2028\u2029]/;
-const SUPERSCRIPT = /^[\u00b2\u00b3\u00b9\u2070-\u207f\u2460-\u24ff\u2776-\u2793]$/u;
+const SUPERSCRIPT_CHARS = "\\u00b2\\u00b3\\u00b9\\u2070-\\u207f\\u2460-\\u24ff\\u2776-\\u2793";
+const SUPERSCRIPT = new RegExp(`^[${SUPERSCRIPT_CHARS}]$`, "u");
 const SPACE_LIKE = /^[\u00a0\u2007\u2009\u202f]$/;
 const FULL_WIDTH_DIGIT = /^[\uff10-\uff19]$/;
 const LATIN_LETTER = /^[A-Za-z]$/;
@@ -1308,6 +1309,10 @@ const HINT_OR_UNPLAIN = new RegExp(
 const INVISIBLE_CHARS = new RegExp(`[${[...INVISIBLE].join("")}]`, "g");
 const QUOTE_CHARS = /[‘’‚‛′`]/g;
 
+// The reader makes "ⁿ" or "ⓐ" a footnote mark, which NFKC makes a letter: a line holding one is
+// read, since a letter beside "m USD" hides the scale the mark leaves standing.
+const FOOTNOTE_MARK = new RegExp(`[${SUPERSCRIPT_CHARS}]`, "u");
+
 const roughlyNormalised = (text: string): string =>
   text.normalize("NFKC").replace(INVISIBLE_CHARS, "").replace(QUOTE_CHARS, "'");
 
@@ -1388,7 +1393,11 @@ function* linesHintingScales(text: string): Generator<string> {
     at = line.end;
     if (line.start === line.end) continue;
     const written = text.slice(line.start, line.end);
-    if (hint.groups?.unplain === undefined || SCALE_HINT_IN.test(roughlyNormalised(written))) {
+    if (
+      hint.groups?.unplain === undefined ||
+      FOOTNOTE_MARK.test(written) ||
+      SCALE_HINT_IN.test(roughlyNormalised(written))
+    ) {
       yield written;
     }
   }
