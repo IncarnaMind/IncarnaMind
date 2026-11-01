@@ -16,9 +16,9 @@
  * split from it by emphasis. A rewrite is read by Edit with AI's own reading, so it is read
  * here first the same way (`markersRead`): a "[" that reads as a marker as written gets a word
  * joiner, and when the reading still finds a marker no token placed (one emphasis joined to a
- * number, "[**1**]"), every "[" gets one. The User's
- * Citations the agent has no token for, and their footnotes, it reads as handles
- * ("[kept:1]", "[note:1]") that keep them where they are, once each. Who made the changes is
+ * number, "[**1**]"), every "[" gets one. The User's Citations the agent has no token for, and
+ * their footnotes, it reads as handles ("[kept:1]", "[note:1]") that keep them where they are,
+ * once each. Who made the changes is
  * recorded with them; their text is marked third-party once the User accepts it
  * (`decideProposals`), and read as such while it waits.
  */
@@ -26,7 +26,7 @@ import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { type NodeJSON, replaceMarkers } from "../../shared/blockJson";
-import { inertBrackets } from "../../shared/inertBrackets";
+import { INERT_BRACKET, inertBrackets } from "../../shared/inertBrackets";
 import {
   readProposalAttribute,
   readProposalRef,
@@ -105,14 +105,12 @@ const paragraphName = (index: number) => `¶${index + 1}`;
 const escapeNames = (text: string) => text.replace(/¶/g, "\\¶");
 const unescapeNames = (text: string) => text.replace(/\\¶/g, "¶");
 
-const inert = inertBrackets;
-
 /**
  * Words with a word joiner after each "[" that reads as a marker as written ("[1]", "[^1]",
  * "[=1]", "\\[^1]", "[\\^1]"). A "[" before words ("[sic]") stays as it is. One that only
  * parsing joins to a number ("[**1**]") is left to the reading after it (`rewriteText`).
  */
-const inertBeforeNumbers = (text: string) => text.replace(/\[(?=\\*[\^=]?\\*\d)/g, "[\u2060");
+const inertBeforeNumbers = (text: string) => text.replace(/\[(?=\\*[\^=]?\\*\d)/g, INERT_BRACKET);
 
 /** A typed "<removed>" kept as words, unless the agent already wrote it escaped as it was shown. */
 const keepRemovedTag = (text: string) => text.replace(/(?<!\\)<(?=\/?removed[\s/>])/gi, "\\<");
@@ -325,7 +323,7 @@ function rewriteText(
         : -1;
       const kept = own >= 0 ? once(`[${own + 1}]`) : null;
       if (kept) return kept;
-      if (!cited?.citable) return inert(options.notFound);
+      if (!cited?.citable) return inertBrackets(options.notFound);
       next += 1;
       fresh.set(next, cited.attributes);
       placed.push(`[${next}]`);
@@ -342,7 +340,7 @@ function rewriteText(
           match[1] === "note"
             ? selection.footnotes[n - 1] && once(`[^${n}]`)
             : selection.citations[n - 1] && once(`[${n}]`);
-        out += own || inert(match[0]);
+        out += own || inertBrackets(match[0]);
         at = match.index + match[0].length;
       }
       return out + plain(part.slice(at));
@@ -352,18 +350,17 @@ function rewriteText(
       .replace(LEADING_NAME, "")
       .split("\n")
       .map((line) =>
-        withTokens(line, (part) => words(part, line.includes("|") ? inert : guard), marker),
+        withTokens(line, (part) => words(part, line.includes("|") ? inertBrackets : guard), marker),
       )
       .join("\n");
     return { text, fresh, placed };
   };
   let rewrite = attempt(inertBeforeNumbers);
-  if (!sameMarkers(markersRead(rewrite.text), rewrite.placed)) rewrite = attempt(inert);
+  if (!sameMarkers(markersRead(rewrite.text), rewrite.placed)) rewrite = attempt(inertBrackets);
   const read = markersRead(rewrite.text);
   if (!rewrite.placed.every((marker) => read.includes(marker))) {
     throw new ChangeRefused("agents.propose.formula", name);
   }
-  // With every "[" inert, no marker reads but those placed: nothing more to check.
   return { text: rewrite.text, fresh: rewrite.fresh };
 }
 
@@ -421,7 +418,7 @@ function newBlocks(written: string, options: ProposeOptions): NodeJSON[] {
     if (node.type === "text") {
       const inCode = code || (node.marks?.some((mark) => mark.type === "code") ?? false);
       const text = asWritten(node.text ?? "");
-      return [{ ...node, text: inCode ? text : inert(text) }];
+      return [{ ...node, text: inCode ? text : inertBrackets(text) }];
     }
     const inCode = code || node.type === "codeBlock";
     return [
@@ -476,7 +473,7 @@ function addAfter(
  * The sentences a request's changes leave with no Citation, as the bar of each of them counts
  * them (`uncitedSpans`): each paragraph they are in, read with them accepted and no other.
  */
-export function uncitedOf(blocks: Y.XmlFragment, request: string): string[] {
+function uncitedOf(blocks: Y.XmlFragment, request: string): string[] {
   const found: string[] = [];
   for (const { element } of textBlocks(blocks)) {
     let wholly = false;

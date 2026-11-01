@@ -49,6 +49,8 @@ const TIDES = [
 ].join("\n");
 
 const SPRING = "Spring tides happen twice a month, at new moon and full moon.";
+const ROCKS = "Moon rocks are grey basalt and dust.";
+const MOON = ["# Moon", "", `${ROCKS} The far side is never seen from Earth.`].join("\n");
 const NEAP = "Neap tides come at the first and third quarters of the moon.";
 
 const words = (text: string): JSONContent[] => (text ? [{ type: "text", text }] : []);
@@ -190,7 +192,7 @@ async function pairedWithNote(
   return { ...started, core, sources, tides, coast, finance, pairing, mind, client, agent };
 }
 
-/** The sentences each change's bar in the editor counts as uncited, in the Note's order. */
+/** The sentences the change bars in the editor count as uncited, each once, in the Note's order. */
 function barUncited(client: MindClient): string[] {
   const editor = new Editor({
     element: null,
@@ -202,18 +204,41 @@ function barUncited(client: MindClient): string[] {
     doc: editor.state.doc,
     plugins: editor.extensionManager.plugins,
   });
-  return pendingIn(state)
-    .flatMap((proposal) => uncitedSentences(state.doc, proposal))
-    .sort((a, b) => a.from - b.from)
-    .map(({ from, to }) => state.doc.textBetween(from, to));
+  const counted = new Map<number, string>();
+  for (const proposal of pendingIn(state)) {
+    for (const { from, to } of uncitedSentences(state.doc, proposal)) {
+      counted.set(from, state.doc.textBetween(from, to));
+    }
+  }
+  return [...counted.entries()].sort(([a], [b]) => a - b).map(([, words]) => words);
 }
 
-/** Another agent, Codex, that may change the Note but can't read Tides: the Note moves to a Folder of its own. */
-async function notesOnlyAgent(core: Core, mindId: string): Promise<Agent> {
+/**
+ * Another agent, Codex, that may change the Note but can't read Tides: the Note moves to a Folder
+ * of its own, which Codex is given with `folderIds`.
+ */
+async function agentWithoutTides(
+  core: Core,
+  mindId: string,
+  folderIds: string[] = [],
+): Promise<Agent> {
   const notes = await core.createLibraryGroup({ name: "Notes", description: "Mine." });
   await core.moveToFolder({ mindIds: [mindId], folderId: notes.id });
-  const other = await core.connectAgent({ name: "Codex", folderIds: [notes.id], propose: true });
+  const other = await core.connectAgent({
+    name: "Codex",
+    folderIds: [notes.id, ...folderIds],
+    propose: true,
+  });
   return connectLegacyAgent(other.launch);
+}
+
+/** Moon, in a Folder of its own (Sky), for an agent that can't read Tides to cite. */
+async function addMoon(core: Core, sources: string) {
+  const [moon] = await addAndProcess(core, [await writeSourceFile(sources, "Moon.md", MOON)]);
+  if (!moon) throw new Error("Moon wasn't added.");
+  const sky = await core.createLibraryGroup({ name: "Sky", description: "Up there." });
+  await core.assignDocumentGroup(moon.id, sky.id);
+  return { moon, sky };
 }
 
 /** Accepts or rejects in the editor's copy, as one step its Undo takes back, as the editor does. */
@@ -775,7 +800,7 @@ describe("an outside agent's proposed changes (#352)", () => {
         })),
       );
       await client.settled();
-      const codex = await notesOnlyAgent(core, mind.id);
+      const codex = await agentWithoutTides(core, mind.id);
       const { markdown, version } = await readNamed(codex, mind.id);
       expect(markdown).not.toContain("[cite:");
       structured<Proposed>(
@@ -918,9 +943,26 @@ describe("an outside agent's proposed changes (#352)", () => {
     await client.settled();
     decide(client, undoOf(client), () => true, "accept");
     await client.settled();
-    // In the Note, a word joiner keeps the agent's "[1]" from reading as a Citation.
+    // The agent reads its own line back with the word joiners in, and adds it again as it read.
+    const again = await readNamed(agent, mind.id);
+    const read = again.markdown.split("\n\n")[1]?.replace(/^¶2 /, "") ?? "";
+    structured<Proposed>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version: again.version,
+          changes: [{ paragraph: "¶2+", text: read }],
+        },
+      }),
+    );
+    await client.settled();
+    decide(client, undoOf(client), () => true, "accept");
+    await client.settled();
+    // In the Note, one word joiner keeps each of the agent's "[" from reading as a marker.
     expect([...readMind(client).children].map((each) => each.textContent)).toEqual([
       "See [1] and [sic] here.",
+      "See [\u20601] and [\u2060sic] here.",
       "See [\u20601] and [\u2060sic] here.",
     ]);
 
@@ -928,12 +970,13 @@ describe("an outside agent's proposed changes (#352)", () => {
       (await core.exportMind(mind.id, { format: "markdown" })).data,
     );
     const lines = markdown.split("\n").filter((line) => line.startsWith("See "));
-    expect(lines).toHaveLength(2);
-    expect(lines[1]).toBe(lines[0]);
+    expect(lines).toHaveLength(3);
+    expect(new Set(lines).size).toBe(1);
     const word = unzip((await core.exportMind(mind.id, { format: "docx" })).data)
       .get("word/document.xml")
       ?.toString("utf8");
     expect(acceptedParagraphs(word ?? "")).toEqual([
+      "See [1] and [sic] here.",
       "See [1] and [sic] here.",
       "See [1] and [sic] here.",
     ]);
@@ -1024,7 +1067,7 @@ describe("an outside agent's proposed changes (#352)", () => {
     ]);
     await client.settled();
     // An agent that can't read Tides gets handles, not tokens.
-    const codex = await notesOnlyAgent(core, mind.id);
+    const codex = await agentWithoutTides(core, mind.id);
     const named = await readNamed(codex, mind.id);
     expect(named.markdown).toBe(
       "¶1 Spring tides come at new moon [kept:1] as \\[note:1] says [note:1]",
@@ -1082,12 +1125,15 @@ describe("an outside agent's proposed changes (#352)", () => {
   });
 
   it("cite no source a table's cell names in brackets: the User's Citation doesn't come back on their words", async () => {
-    const { core, agent, mind, client, tides } = await pairedWithNote([]);
+    const { core, agent, mind, client, tides, sources } = await pairedWithNote([]);
     writeMind(client, [
       citedLine("Spring tides come at new moon ", tides, await firstPassage(agent)),
     ]);
     await client.settled();
-    const codex = await notesOnlyAgent(core, mind.id);
+    // Codex can't read Tides, but reads Moon, and cites it with a token of its own.
+    const { moon, sky } = await addMoon(core, sources);
+    const codex = await agentWithoutTides(core, mind.id, [sky.id]);
+    const grey = await tokenFor(codex, "moon rocks grey", ROCKS);
     const named = await readNamed(codex, mind.id);
     expect(named.markdown).toBe("¶1 Spring tides come at new moon [kept:1]");
     structured<Proposed>(
@@ -1099,7 +1145,13 @@ describe("an outside agent's proposed changes (#352)", () => {
           changes: [
             {
               paragraph: "¶1",
-              text: "| Claim | Source |\n| --- | --- |\n| The moon is cheese | [Tides] |",
+              text: [
+                "| Claim | Source |",
+                "| --- | --- |",
+                "| The moon is cheese | [Tides] |",
+                "| Tides rise at noon | [Tides.md] |",
+                `| Moon rocks are grey | ${grey} |`,
+              ].join("\n"),
             },
           ],
         },
@@ -1109,19 +1161,26 @@ describe("an outside agent's proposed changes (#352)", () => {
     decide(client, undoOf(client), () => true, "accept");
     await client.settled();
 
-    // The table is made, and its cell names Tides in words only.
+    // The table is made: the cells that name Tides do so in words only, and the token cites Moon.
     expect(nodesNamed(client, "table")).toBe(1);
-    expect(readMind(client).textContent).toContain("The moon is cheese[\u2060Tides]");
-    expect(citationsIn(client)).toEqual([]);
+    const table = readMind(client).textContent;
+    expect(table).toContain("The moon is cheese[\u2060Tides]");
+    expect(table).toContain("Tides rise at noon[\u2060Tides.md]");
+    expect(citationsIn(client)).toEqual([
+      expect.objectContaining({ documentId: moon.id, quote: ROCKS }),
+    ]);
   });
 
   it("report the sentences they leave with no Citation as the change bars count them", async () => {
-    const { core, agent, mind, client, tides } = await pairedWithNote([]);
+    const { core, agent, mind, client, tides, sources } = await pairedWithNote([]);
     writeMind(client, [
       citedLine("Spring tides come at new moon ", tides, await firstPassage(agent)),
+      paragraph("Moon rocks are grey."),
     ]);
     await client.settled();
-    const codex = await notesOnlyAgent(core, mind.id);
+    const { sky } = await addMoon(core, sources);
+    const codex = await agentWithoutTides(core, mind.id, [sky.id]);
+    const grey = await tokenFor(codex, "moon rocks grey", ROCKS);
     const named = await readNamed(codex, mind.id);
     const proposed = structured<Proposed>(
       await codex.callTool({
@@ -1142,11 +1201,15 @@ describe("an outside agent's proposed changes (#352)", () => {
                 "Harbour walls flood in winter storms.",
               ].join("\n\n"),
             },
+            // Two changes in one sentence: a word, and the Citation that cites it.
+            { paragraph: "¶2", text: `Moon rocks are mostly grey ${grey}.` },
           ],
         },
       }),
     );
-    // A sentence the Citation it kept by its handle is in cites; a heading or a cell makes no claim.
+    // A Citation kept by its handle, or added by another of its changes, cites; a heading or a
+    // cell makes no claim.
+    expect(pendingProposals(client.blocks).length).toBeGreaterThanOrEqual(6);
     expect(proposed.uncited).toEqual([
       "The moon is made of green cheese.",
       "Harbour walls flood in winter storms.",

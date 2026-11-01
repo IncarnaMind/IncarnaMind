@@ -11,7 +11,8 @@ import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { ProposalReview, pendingIn } from "../../src/renderer/src/editor/proposalReview";
 import { uncitedSentences } from "../../src/renderer/src/editor/uncitedSentences";
 
-const ref = (id: string) => ({ id, request: "agent" });
+/** A change of the agent's request, unless another request is named. */
+const ref = (id: string, request = "agent") => ({ id, request });
 const adds = (id: string) => [{ type: "proposalInsert", attrs: ref(id) }];
 const removes = (id: string) => [{ type: "proposalDelete", attrs: ref(id) }];
 const text = (value: string, marks?: JSONContent["marks"]): JSONContent => ({
@@ -23,8 +24,8 @@ const citation: JSONContent = {
   type: "citation",
   attrs: { documentId: "d1", documentName: "Tides", quote: "Spring tides.", check: "found" },
 };
-const whole = (id: string, kind: "insert" | "delete") => ({
-  [PROPOSAL_ATTRIBUTE]: { ...ref(id), kind },
+const whole = (id: string, kind: "insert" | "delete", request = "agent") => ({
+  [PROPOSAL_ATTRIBUTE]: { ...ref(id, request), kind },
 });
 const addedWhole = (id: string, ...content: JSONContent[]): JSONContent => ({
   type: "paragraph",
@@ -140,14 +141,14 @@ describe("The sentences a change leaves with no Citation", () => {
     ).toEqual(["Harbour walls flood in winter storms."]);
   });
 
-  test("leave out the User's sentence that holds a note another change takes out", () => {
+  test("leave out the User's sentence that holds a note another request's change takes out", () => {
     const paragraph: JSONContent = {
       type: "paragraph",
       content: [
         text("Tides rise twice a day"),
         {
           type: "footnote",
-          attrs: { id: "n1", ...whole("p2", "delete") },
+          attrs: { id: "n1", ...whole("p2", "delete", "assistant") },
           content: [text("At the coast.")],
         },
         text(". "),
@@ -155,6 +156,24 @@ describe("The sentences a change leaves with no Citation", () => {
       ],
     };
     expect(uncitedOf([paragraph], "p1")).toEqual(["King tides flood the harbour wall."]);
+  });
+
+  test("read the paragraph with the agent's other changes accepted: a Citation one of them adds cites", () => {
+    const costs = (request: string): JSONContent[] => [
+      {
+        type: "paragraph",
+        content: [
+          text("Costs rose "),
+          text("sharply ", adds("p1")),
+          text("in 2023"),
+          { ...citation, attrs: { ...citation.attrs, ...whole("p2", "insert", request) } },
+          text("."),
+        ],
+      },
+    ];
+    expect(uncitedOf(costs("agent"), "p1")).toEqual([]);
+    // Another request's Citation isn't there until the User accepts it.
+    expect(uncitedOf(costs("assistant"), "p1")).toHaveLength(1);
   });
 
   test("are none for a change that only takes words out", () => {

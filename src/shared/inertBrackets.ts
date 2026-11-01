@@ -4,10 +4,13 @@
  * Note keeps it, so no later reading of its text joins the bracket to a number; what leaves
  * the app (an export, a copy) goes without it, as the words read.
  */
-const INERT = "[\u2060";
+export const INERT_BRACKET = "[\u2060";
 
-/** Text with a word joiner after every "[". */
-export const inertBrackets = (text: string): string => text.replaceAll("[", INERT);
+/**
+ * Text with a word joiner after every "[" that hasn't one: the agent reads the Note with them,
+ * and words it echoes stay as they were.
+ */
+export const inertBrackets = (text: string): string => text.replace(/\[(?!\u2060)/g, INERT_BRACKET);
 
 /** Text with the word joiner after a "[" taken out again, for what leaves the app. */
-export const withoutInertBrackets = (text: string): string => text.replaceAll(INERT, "[");
+export const withoutInertBrackets = (text: string): string => text.replaceAll(INERT_BRACKET, "[");

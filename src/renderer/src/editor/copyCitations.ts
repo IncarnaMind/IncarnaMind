@@ -39,8 +39,8 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
         // After the editor's own copy and cut handlers, which set the HTML: Word's conditional
         // blocks can't be made in the DOM, so they are written into the string.
         view: (view) => {
-          // An outside agent's inert brackets (#352) are copied as the words read: pasting into a
-          // Note never reads "[1]" as a Citation, so the joiner has nothing to keep out there.
+          // An outside agent's inert brackets (#352) are copied as the words read. Pasted into a
+          // Note they are words the User typed: a paste makes a Citation only from a copied one.
           const rewrite = (event: Event) => {
             const data = (event as ClipboardEvent).clipboardData;
             const html = data?.getData("text/html");

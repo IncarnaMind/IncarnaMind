@@ -24,13 +24,14 @@ const proposalOf = (node: ProseMirrorNode) =>
 
 /**
  * The sentences a change would leave with no Citation once accepted (#352), as the agent is
- * told of them (`uncitedSpans`): each paragraph it is in, read with this change accepted and
- * the others not.
+ * told of them (`uncitedSpans`): each paragraph it is in, read with the changes of its request
+ * accepted and the others not, so a Citation another of the agent's changes adds cites.
  */
 export function uncitedSentences(
   doc: ProseMirrorNode,
-  proposal: Pick<PendingProposal, "id" | "ranges">,
+  proposal: Pick<PendingProposal, "id" | "request" | "ranges">,
 ): SentenceRange[] {
+  const { id, request } = proposal;
   const paragraphs = new Set<number>();
   for (const range of proposal.ranges) {
     doc.nodesBetween(range.from, range.to, (node, at) => {
@@ -42,7 +43,7 @@ export function uncitedSentences(
   for (const at of [...paragraphs].sort((a, b) => a - b)) {
     const paragraph = doc.nodeAt(at);
     if (!paragraph) continue;
-    // A Block this change, or another, adds whole decides for every word in it.
+    // A Block a change adds whole decides for every word in it.
     let wholly = false;
     let skipped = false;
     let kind: ChangedParagraph["kind"] =
@@ -52,8 +53,8 @@ export function uncitedSentences(
       if (CELLS.has(place.node(depth).type.name)) kind = "cell";
       const whole = proposalOf(place.node(depth));
       if (!whole) continue;
-      if (whole.kind === "insert" && whole.id === proposal.id) wholly = true;
-      else if (whole.kind === "insert" || whole.id === proposal.id) skipped = true;
+      if (whole.kind === "insert" && whole.request === request) wholly ||= whole.id === id;
+      else if (whole.kind === "insert" || whole.request === request) skipped = true;
     }
     if (skipped) continue;
     let text = "";
@@ -69,19 +70,21 @@ export function uncitedSentences(
         const removes = readProposalRef(
           child.marks.find((mark) => mark.type.name === PROPOSAL_DELETE_MARK)?.attrs ?? null,
         );
-        if ((adds && adds.id !== proposal.id) || removes?.id === proposal.id) return;
+        if ((adds && adds.request !== request) || removes?.request === request) return;
         const words = child.text ?? "";
         for (let index = 0; index < words.length; index++) {
-          if (wholly || adds) mine.add(text.length);
+          if (wholly || adds?.id === id) mine.add(text.length);
           positions.push(start + index);
           text += words[index];
         }
         return;
       }
       const own = proposalOf(child);
-      if (own && (own.kind === "insert" ? own.id !== proposal.id : own.id === proposal.id)) return;
-      // What another change takes out is still here, and isn't this change's.
-      if (wholly || own?.kind === "insert") mine.add(text.length);
+      if (own && (own.kind === "insert" ? own.request !== request : own.request === request)) {
+        return;
+      }
+      // What another request's change takes out is still here, and isn't this change's.
+      if (wholly || (own?.kind === "insert" && own.id === id)) mine.add(text.length);
       if (child.type.name === CITATION_NODE) cited.add(text.length);
       positions.push(start);
       text += INLINE_NODE;
