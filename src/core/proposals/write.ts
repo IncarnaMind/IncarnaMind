@@ -70,6 +70,7 @@ import {
 import { MOST_OF_IT, mapsOnto } from "../edits/applies";
 import {
   escapeNames,
+  NAME_AT_LINE,
   NAME_LINE,
   type ParagraphName,
   paragraphName,
@@ -885,10 +886,7 @@ function newParagraphs(
     | TableText
     | { marker: ReturnType<typeof readBlockMarker>; paragraph: string; asOther?: boolean }
   );
-  // A table's first line is a table's only at a line's start: a name before it goes on a line of its own.
-  const source = named
-    ? text.replace(new RegExp(String.raw`(^|\n)(${NAME_LINE})[ \t]*(?=\|)`, "g"), "$1$2\n")
-    : text;
+  const source = named ? tableRowsUnnamed(text) : text;
   const read = tablesApart(source).flatMap((part): Part[] =>
     typeof part !== "string"
       ? [part]
@@ -962,6 +960,26 @@ function newParagraphs(
       notes,
     };
   });
+}
+
+/**
+ * A reply's text with the names on its tables' lines moved off them, as a table's first line is a
+ * table's only at a line's start: a name before its first row goes on a line of its own, and one
+ * before each row after it goes, since a row is no paragraph (Claude Haiku 5.5 names every row).
+ */
+function tableRowsUnnamed(text: string): string {
+  let inTable = false;
+  return text
+    .split("\n")
+    .map((line) => {
+      const name = NAME_AT_LINE.exec(line)?.[0] ?? "";
+      const rest = line.slice(name.length);
+      const row = rest.trimStart().startsWith("|");
+      const out = !row || name === "" ? line : inTable ? rest : `${name.trim()}\n${rest}`;
+      inTable = row;
+      return out;
+    })
+    .join("\n");
 }
 
 /**
@@ -2368,7 +2386,13 @@ export function createRewriteStream(
 
   /** A paragraph of a text that names the one each replaces (#2356), written where its name says. */
   const takeNamed = (paragraph: NewParagraph) => {
-    const name = paragraph.name ?? { follows: null };
+    const written = paragraph.name ?? { follows: null };
+    // A name just past the last paragraph names none it could write over: the reply numbered a
+    // new one (Claude Haiku 5.5 writes ¶16 for a sixteenth), which goes after the last.
+    const name =
+      "replaces" in written && written.replaces === segments.length + 1
+        ? { follows: written.replaces }
+        : written;
     const words = paragraph.tokens.some((token) => token.node || token.text?.trim());
     if ("unclear" in name) {
       misnamed = true;
@@ -2381,7 +2405,6 @@ export function createRewriteStream(
       else comingFirst.push(paragraph);
       return;
     }
-    // One numbered just past the last follows the last: the reply counted it as one of them.
     const index = "follows" in name && named === segments.length + 1 ? named - 2 : named - 1;
     const segment = segments[index];
     if (!segment || !words || ("replaces" in name && namedSoFar.has(index))) {

@@ -4967,7 +4967,7 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       lines: ["房租每月1200元。", "水费每月30元。"],
       reply: "¶2 水费每月35元。\n\n¶2 水费按季度收。",
     },
-    { lines: ["房租每月1200元。", "水费每月30元。"], reply: "¶3 网费每月40元。" },
+    { lines: ["房租每月1200元。", "水费每月30元。"], reply: "¶4 网费每月40元。" },
     { lines: ["房租每月1200元。", "水费每月30元。"], reply: "¶5+ 网费每月40元。" },
     {
       lines: ["房租每月1200元。", "水费每月30元。"],
@@ -5187,6 +5187,76 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       expect(await acceptThenUndo(client, before)).toEqual([lines[3], lines[4]]);
     },
   );
+
+  // protects=the ways Claude Haiku 5.5 writes names for new lines and tables beyond the rule each read as it means: ¶++ for a second new line, ¶16 or "¶16 +" numbering a new last line, ¶7++ after a single line break, and a name on every row of a table, where only the first names the table; nothing is written over and no name is left in the Note; English and Chinese; fails_when=the edit is refused, a name stays as text, or a paragraph changes; no_claim=how often a model writes them.
+  test.each([
+    {
+      lines: ["Lena books the van.", "Omar packs the archive."],
+      reply:
+        "¶2 Omar packs the archive.\n\n¶+ Uma brings the keys.\n\n¶++ Vic cleans the old office.",
+      after: [
+        "Lena books the van.",
+        "Omar packs the archive.",
+        "Uma brings the keys.",
+        "Vic cleans the old office.",
+      ],
+    },
+    {
+      lines: ["年会定在十二月五日举行。", "签到从下午两点开始。"],
+      reply: "¶3 + 当天停车免费。",
+      after: ["年会定在十二月五日举行。", "签到从下午两点开始。", "当天停车免费。"],
+    },
+    {
+      lines: ["年会定在十二月五日举行。", "签到从下午两点开始。"],
+      reply: "¶3 当天停车免费。",
+      after: ["年会定在十二月五日举行。", "签到从下午两点开始。", "当天停车免费。"],
+    },
+    {
+      lines: ["小林负责场地。", "老周负责音响。"],
+      reply: "¶2 老周负责音响。\n¶2++ 小王负责主持。",
+      after: ["小林负责场地。", "老周负责音响。", "小王负责主持。"],
+    },
+  ])("a new line named as Haiku writes it is added: $reply", async ({ lines, reply, after }) => {
+    const { core, mind, client, before } = await noteOf(plain(lines), () => reply);
+
+    expect(await core.editWithAi(wholeMind(client, mind.id, "Add it"))).toMatchObject({
+      kind: "proposed",
+    });
+    expect(await acceptThenUndo(client, before)).toEqual(after);
+  });
+
+  // protects=a table whose every row starts with a name, as Claude Haiku 5.5 writes one, is one table in the place of the paragraph its first row names, and the paragraphs the other rows' names point at stay; fails_when=it is refused as no table, a row name is left in a cell, or another paragraph goes; no_claim=none beyond protects.
+  test("a table with a name on every row is one table, in the place of the paragraph its first row names", async () => {
+    const lines = ["People", "Lena books the van.", "Omar packs the archive."];
+    const { core, mind, client } = await noteOf(plain(lines), () =>
+      [
+        "¶2 | Name | Task |",
+        "¶3 |---|---|",
+        "¶4 | Lena | Books the van. |",
+        "¶5 | Omar | Packs the archive. |",
+      ].join("\n"),
+    );
+
+    expect(await core.editWithAi(wholeMind(client, mind.id, "Make it a table"))).toMatchObject({
+      kind: "proposed",
+    });
+    await resolveChanges(client, "accept");
+    const kinds: string[] = [];
+    readMind(client).forEach((block) => {
+      kinds.push(block.type.name);
+    });
+    expect(kinds).toEqual(["paragraph", "table", "paragraph"]);
+    expect(shownWithChanges(client)).toEqual([
+      "People",
+      "Name",
+      "Task",
+      "Lena",
+      "Books the van.",
+      "Omar",
+      "Packs the archive.",
+      "Omar packs the archive.",
+    ]);
+  });
 
   // protects=a new paragraph numbered just past the selection's last (¶4+ in a Note of three, as Claude Haiku 5.5 numbers a new line) goes after the last, the only place past it; fails_when=it is refused or lands elsewhere; no_claim=none beyond protects.
   test("a new paragraph numbered just past the last goes after the last", async () => {

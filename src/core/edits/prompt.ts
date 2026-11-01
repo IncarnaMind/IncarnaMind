@@ -60,8 +60,11 @@ export type ParagraphName =
   /** Written as a name but none, as "¶2a": which paragraph it is can't be told. */
   | { unclear: string };
 
-/** A name where a reply's paragraph starts, ended by a space or the line's end: "¶3+" is never ¶3. */
-const NAME_HERE = /^¶(?:(\d+)(\+?)|\+)(?=\s|$)\s*/;
+/**
+ * A name where a reply's paragraph starts, ended by a space or the line's end: "¶3+" is never ¶3.
+ * A new one may carry more than one + ("¶++", "¶3 +"), as Claude Haiku 5.5 writes a second.
+ */
+const NAME_HERE = /^¶(?:(\d+)(?:[ \t]*(\++))?|\++)(?=\s|$)\s*/;
 
 /** The name a reply's paragraph starts with, and the rest of it; null for none. */
 export function readName(paragraph: string): { name: ParagraphName | null; rest: string } {
@@ -82,8 +85,11 @@ export function readName(paragraph: string): { name: ParagraphName | null; rest:
   return { name, rest: paragraph.slice(all.length) };
 }
 
-/** A name a line of a reply starts with, for telling where its paragraphs start. */
-export const NAME_LINE = String.raw`[ \t]*¶(?:\d+\+?|\+)(?=\s|$)`;
+/** A name a line of a reply starts with, written well or not, for telling where its paragraphs start. */
+export const NAME_LINE = String.raw`[ \t]*¶\S`;
+
+/** The name a line starts with, and the spaces after it. */
+export const NAME_AT_LINE = /^[ \t]*¶\S*[ \t]*/;
 
 /**
  * The reply with a name written just before a <removed> mark at a line's start taken off, so the
@@ -293,7 +299,7 @@ function besideTag(text: string, tags: readonly Tag[], index: number, side: "bef
   const plain = (part: string) => part.replace(/\\([\s\S])/g, "$1").replace(/\s+/g, "");
   if (side === "before") {
     const line = text.lastIndexOf("\n", tag.at - 1) + 1;
-    const name = new RegExp(String.raw`^${NAME_LINE}[ \t]*`).exec(text.slice(line, tag.at));
+    const name = NAME_AT_LINE.exec(text.slice(line, tag.at));
     const from = Math.max(tags[index - 1]?.end ?? 0, line + (name?.[0].length ?? 0));
     return plain(text.slice(from, tag.at)).slice(-BESIDE_TAG);
   }
