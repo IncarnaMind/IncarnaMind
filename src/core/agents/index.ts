@@ -96,7 +96,10 @@ export interface AgentsOptions {
   /** This build's version, as the server names itself to agents. */
   version: string;
   /** What the calls read (see ./access). */
-  access: Omit<AgentAccessDeps, "admit" | "record" | "citations" | "clock" | "now" | "reportError">;
+  access: Omit<
+    AgentAccessDeps,
+    "admit" | "record" | "citations" | "clock" | "now" | "newId" | "reportError"
+  >;
   /** Whether this agent has IncarnaMind's Skill installed (see ./setup). */
   skillInstalled(client: string | null): boolean;
   changed(settings: AgentSettings): void;
@@ -408,6 +411,7 @@ export function createAgents(options: AgentsOptions) {
     citations,
     clock: options.clock,
     now: options.now,
+    newId: randomUUID,
     reportError: options.reportError,
   };
 

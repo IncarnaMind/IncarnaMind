@@ -44,6 +44,7 @@ function accessAnswering(outcome: OutsideAnswer) {
     say: (key, params) => translate("en", key, params),
     clock: () => 0,
     now: () => "2026-11-01T09:00:00.000Z",
+    newId: () => "id",
     reportError: () => undefined,
   };
   return createAgentAccess(deps, "pairing");

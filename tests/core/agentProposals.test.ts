@@ -313,7 +313,7 @@ describe("an outside agent's proposed changes (#352)", () => {
         "¶5 A \\¶ sign the User typed.",
       ].join("\n\n"),
     );
-    expect(named.version).toMatch(/^[\w-]{16}$/);
+    expect(named.version).toMatch(/^[0-9a-z]+$/);
     // The same Note reads the same, and so names its paragraphs the same.
     expect((await readNamed(agent, mind.id)).version).toBe(named.version);
   });

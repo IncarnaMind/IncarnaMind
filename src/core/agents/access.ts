@@ -19,7 +19,6 @@
  * Citations as tokens. Every call is recorded for the pairing's activity list.
  */
 
-import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { citedLocation, type LiveDocument, withShownName } from "../../shared/citations";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
@@ -362,6 +361,8 @@ export interface AgentAccessDeps {
   clock(): number;
   /** Now, ISO 8601, UTC. */
   now(): string;
+  /** A new random id, for a request of changes and the Proposals it writes. */
+  newId(): string;
   reportError(error: unknown): void;
 }
 
@@ -1238,7 +1239,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               throw new AgentRefusedError("changed", t("agents.problem.changed"));
             }
             return proposeNamed(blocks, note, placeChanges(asked, note.paragraphs.length, t), {
-              request: randomUUID(),
+              request: deps.newId(),
               made: {
                 source: "outside-agent",
                 agent: pairing.name,
@@ -1247,7 +1248,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               },
               cited: (token) => tokens.get(token)?.cited ?? null,
               notFound: t("agents.answer.notFound"),
-              newId: randomUUID,
+              newId: deps.newId,
             });
           });
         } catch (error) {

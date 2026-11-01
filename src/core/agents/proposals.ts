@@ -22,7 +22,6 @@
  * recorded with them; their text is marked third-party once the User accepts it
  * (`decideProposals`), and read as such while it waits.
  */
-import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { type NodeJSON, replaceMarkers } from "../../shared/blockJson";
@@ -222,16 +221,13 @@ export function namedNote(blocks: Y.XmlFragment, words: NamedWords): NamedNote {
     paragraph.held === null
       ? `${paragraph.name} ${paragraph.text}`
       : `${paragraph.name} ${paragraph.held === "busy" ? words.busy : words.waiting} ${paragraph.text}`;
-  const version = createHash("sha256")
-    .update(
-      paragraphs
-        .map(
-          (paragraph) => `${paragraph.blockId}\u0000${paragraph.held ?? ""}\u0000${paragraph.text}`,
-        )
-        .join("\u0001"),
-    )
-    .digest("base64url")
-    .slice(0, 16);
+  const version = targetHash(
+    paragraphs
+      .map(
+        (paragraph) => `${paragraph.blockId}\u0000${paragraph.held ?? ""}\u0000${paragraph.text}`,
+      )
+      .join("\u0001"),
+  );
   return { paragraphs, text: paragraphs.map(line).join("\n\n"), version };
 }
 
