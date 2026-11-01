@@ -249,6 +249,7 @@ export function withPassageNotes(
     fileDatesNote(passages),
     notCitedNote(passages),
     bracketedAmountsNote(passages),
+    formulaRowsNote(passages),
     unreadDocumentsNote(unread),
     stillReadingNote(reading),
   ]
@@ -453,6 +454,18 @@ const NOT_CITED_PASSAGE = new RegExp(`<passage [^>]*${NOT_CITED_ATTRIBUTE}`);
 export function notCitedNote(passages: string): string {
   if (!NOT_CITED_PASSAGE.test(passages)) return "";
   return `A Passage marked cite="never" is from the User's own working file. Read it to understand the Question, but never cite it, never offer it as support for or agreement with another Document, and rest nothing on it: a record naming it is refused. Where only such a Passage states something, say in one sentence that only the User's own working file says it, with no marker.`;
+}
+
+const FORMULA_ROWS_PASSAGE = /<passage [^>]*\bformulas="/;
+
+/**
+ * A reminder after a workbook's Passages that name the rows its formulas work out (#2372): told
+ * only in its instructions, Claude Haiku 5.5 answered from the rows' labels how such figures are
+ * worked out. Empty when no Passage names any.
+ */
+export function formulaRowsNote(passages: string): string {
+  if (!FORMULA_ROWS_PASSAGE.test(passages)) return "";
+  return "In a Passage marked formulas=\"…\", the rows it names hold values the workbook's own formulas worked out, and no Passage shows those formulas. Before saying how such a figure is worked out, which cells or assumptions it comes from, or how much each one counts, call trace_formulas for the figure; for the figure with one of the workbook's inputs at another value, call what_if.";
 }
 
 const ROW_CONTEXT = "Revision worksheets need every item row and its revision, no bare values";

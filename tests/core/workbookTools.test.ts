@@ -446,6 +446,9 @@ describe("a workbook's formulas in an Answer", () => {
         'formulas="rows 3–14, 16–24"',
       );
       expect(tags.find((tag) => tag.includes('location="Assumptions'))).not.toContain("formulas=");
+      expect(result).toContain(
+        'In a Passage marked formulas="…", the rows it names hold values the workbook\'s own formulas worked out',
+      );
     },
   );
 
