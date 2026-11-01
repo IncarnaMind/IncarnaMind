@@ -274,7 +274,7 @@ describe("The window's commands run in the window, as ⌘K runs them (#1421)", {
 });
 
 describe("What only the User changes is never run (#1421)", { timeout: 60_000 }, () => {
-  // protects="turn on Local mode" changes nothing, asks nothing, and its card says where the User changes it; the refusal doesn't end the turn, so the model replies once; fails_when=Local mode changes, an approval shows, or the Answer ends with no reply; no_claim=the card's words, which the renderer's tests hold.
+  // protects="turn on Local mode" changes nothing and asks nothing, and the reply ends with where the User changes it; the refusal doesn't end the turn, so the model replies once; fails_when=Local mode changes, an approval shows, or the reply doesn't say the refusal; no_claim=the card's words, which the renderer's tests hold.
   test("Local mode, by its setting or by the window's command, is the User's", async () => {
     for (const step of [
       run("settings.change", { setting: "localMode", value: "on" }, false),
@@ -297,7 +297,7 @@ describe("What only the User changes is never run (#1421)", { timeout: 60_000 },
       expect(asked).toEqual([]);
       expect(approved).toEqual([]);
       expect(answerRequests(model)).toHaveLength(2);
-      expect(answer.text).toBe("Done.");
+      expect(answer.text).toBe(`Done.\n\n${translate("en", "commands.yours.privacy")}`);
     }
   });
 
@@ -596,7 +596,7 @@ describe("A request goes on to its end, and nothing records unasked (#1421)", {
     expect(commandCalls(nowhere)[0]?.status).toBe("failed");
   });
 
-  // protects="turn on Local mode, then check this note" refuses the first and still runs the second, and the model replies once at the end; fails_when=the refusal ends the turn, the check never runs, or the Answer ends with no words; no_claim=the reply's words.
+  // protects="turn on Local mode, then check this note" refuses the first and still runs the second, and the model replies once at the end, the refusal said after it; fails_when=the refusal ends the turn, the check never runs, or the reply leaves the refusal out; no_claim=the reply's words.
   test("a refusal followed by a window command does both and replies once", async () => {
     const model = calling(
       run("settings.change", { setting: "localMode", value: "on" }, false),
@@ -616,7 +616,7 @@ describe("A request goes on to its end, and nothing records unasked (#1421)", {
     ).toEqual(["privacy", "mind.check"]);
     expect(asked.map((each) => each.command)).toEqual(["mind.check"]);
     expect(answerRequests(model)).toHaveLength(3);
-    expect(answer.text).toBe("Done.");
+    expect(answer.text).toBe(`Done.\n\n${translate("en", "commands.yours.privacy")}`);
   });
 
   // protects=a window command first, then a core one: neither ends the turn early, both run, and one reply follows; done on the last call alone ends it; fails_when=the turn ends after the window command; no_claim=a real model's choice of done.
@@ -1500,7 +1500,7 @@ describe("A web search's results on an approval card (#2240)", { timeout: 90_000
 describe("A refusal is said, and the commands a request names are within reach (#2252)", {
   timeout: 60_000,
 }, () => {
-  // protects=a refusal followed by a window command marked done still gets a reply that says it: the model is asked once more, and if it still says nothing the reply is the card's own line, in the User's language; fails_when=the Answer ends blank with the refusal only on its card, or the model isn't asked again; no_claim=how a real model words the reply.
+  // protects=a refusal followed by a window command marked done still gets a reply that says it: the card's own line, in the User's language, after what the model wrote or as the whole reply, with no request to the model for it; fails_when=the Answer ends blank or without the line, or the model is asked again; no_claim=how a real model words the rest of the reply.
   test.each([
     {
       text: "Switch on local-only processing, then show the Harbour Street lease on the right",
@@ -1517,12 +1517,15 @@ describe("A refusal is said, and the commands a request names are within reach (
       said: translate("zh-CN", "commands.yours.spending"),
     },
   ])("“$text”: the reply says what was refused", async ({ text, setting, name, yours, said }) => {
-    for (const reply of ["", "I opened it beside this note; the rest is yours to change."]) {
+    for (const { done, reply } of [
+      { done: true, reply: "" },
+      { done: false, reply: "I opened it beside this note." },
+    ]) {
       const model = callingThen(
         reply,
         run("settings.change", setting, false),
         find(name),
-        run("document.openBeside", { done: true }),
+        run("document.openBeside", { done }),
       );
       const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
       const asked = windowOf(core, () => ({ ran: true, changed: false }));
@@ -1535,34 +1538,29 @@ describe("A refusal is said, and the commands a request names are within reach (
         ),
       ).toEqual([yours, "document.openBeside"]);
       expect(asked.map((each) => each.command)).toEqual(["document.openBeside"]);
-      const requests = answerRequests(model);
-      expect(requests).toHaveLength(4);
-      expect(JSON.stringify(requests.at(-1)?.prompt)).toContain("Your reply is empty");
-      expect(requests.at(-1)?.toolChoice).toEqual({ type: "none" });
-      expect(answer.text).toBe(reply === "" ? said : reply);
+      expect(answerRequests(model)).toHaveLength(done ? 3 : 4);
+      expect(answer.text).toBe(reply === "" ? said : `${reply}\n\n${said}`);
       core.close();
     }
   });
 
-  // protects=asked once more to say a refusal, the model can only write: a call it makes then is refused, so the window command it already ran isn't run again, and the reply is still the refusal's line; fails_when=the Document opens twice, or the Answer ends blank; no_claim=a real model's reply.
-  test("asked to say the refusal, a call the model makes runs nothing again", async () => {
+  // protects=however the turn ends, the reply says the refusal: here a check of the reply asks the model again and that request fails, so the reply before it stands, and the refusal's line still follows it; fails_when=the Answer ends without the line; no_claim=which check asks.
+  test("a reply asked again that then fails still says the refusal", async () => {
     const model = scriptedModel((call) => {
       const made = call.results.filter((each) => /^(?:list_commands|run_command)$/.test(each.tool));
       const steps: Step[] = [
         run("settings.change", { setting: "localMode", value: "on" }, false),
         find("Harbour Street"),
-        run("document.openBeside", { done: true }),
+        run("document.openBeside"),
       ];
       const step = steps[made.length];
       if (step) return { calls: [step(call.results)] };
-      const opened = call.results.find((each) => each.tool === "list_commands")?.text ?? "";
-      const [id = ""] = [...opened.matchAll(/^- (\S+): /gm)].map((match) => match[1] ?? "");
-      return {
-        calls: [{ tool: "run_command", input: { command: "document.openBeside", ids: [id] } }],
-      };
+      return call.prompt.includes("no cite record backs")
+        ? { error: { status: 400, message: "The request was refused." } }
+        : { text: "I opened the lease beside your note.[^7]" };
     });
     const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
-    const asked = windowOf(core, () => ({ ran: true, changed: false }));
+    windowOf(core, () => ({ ran: true, changed: false }));
 
     const answer = await askAssistant(core, {
       text: "Go local-only and put the Harbour Street lease beside my note",
@@ -1570,8 +1568,9 @@ describe("A refusal is said, and the commands a request names are within reach (
       ...FROM_WINDOW,
     });
 
-    expect(asked.map((each) => each.command)).toEqual(["document.openBeside"]);
-    expect(answer.text).toBe(translate("en", "commands.yours.privacy"));
+    expect(answerRequests(model)).toHaveLength(5);
+    expect(answer.text).toContain("I opened the lease beside your note.");
+    expect(answer.text.endsWith(`\n\n${translate("en", "commands.yours.privacy")}`)).toBe(true);
     core.close();
   });
 
@@ -1601,7 +1600,9 @@ describe("A refusal is said, and the commands a request names are within reach (
           : [],
       ) ?? [];
     expect(listed.join("\n")).toContain(`- ${deleted?.id}: “Q3 commentary” (document, deleted`);
-    expect(listed.join("\n")).toContain("the User's alone: deleted.deletePermanently");
+    expect(listed.join("\n")).toContain(
+      "the User's alone, run all the same to show them where: deleted.deletePermanently",
+    );
     const [, refusal] = commandCalls(answer);
     expect(refusal?.input).toMatchObject({
       command: "deleted.deletePermanently",
@@ -1646,7 +1647,9 @@ describe("A refusal is said, and the commands a request names are within reach (
     expect(listed).toContain("“Q3 commentary”");
     expect(listed).toContain("one that only shares a word with it is another, so ask");
     expect(listed).toContain(`- ${deleted?.id}: “Q3 memo” (document, deleted`);
-    expect(listed).toContain("the User's alone: deleted.deletePermanently");
+    expect(listed).toContain(
+      "the User's alone, run all the same to show them where: deleted.deletePermanently",
+    );
     expect(commandCalls(answer).at(-1)?.command?.yours).toBe("permanent");
     expect((await core.listDocuments()).map((each) => each.name)).toContain("Q3 commentary");
     expect((await core.listDeleted()).map((each) => each.id)).toContain(deleted?.id);
@@ -1887,7 +1890,7 @@ describe("A refusal is said, and the commands a request names are within reach (
     core.close();
   });
 
-  // protects=a request to check the Note in front or to put Documents on a subject together is offered the window's Check by its id in the instructions and Organize beside create_mind, with the instruction that putting them together is Organize's, not a new Note; fails_when=the instructions don't name mind.check or say so of Organize, or run_command doesn't offer documents.organize; no_claim=which a real model chooses, which the live requests measure.
+  // protects=a request to check the Note in front or to put Documents on a subject together is offered the window's Check by its id in the instructions and Organize beside create_mind; the turn's rule decides a command before a piece of writing, so putting them together is Organize's, not a new Note; fails_when=the instructions don't name mind.check, the rule doesn't list the command's kind first, or run_command doesn't offer documents.organize; no_claim=which a real model chooses, which the live requests measure.
   test.each([
     "Go through this note and verify it",
     "能不能把这篇笔记里的内容对一下资料",
@@ -1908,6 +1911,9 @@ describe("A refusal is said, and the commands a request names are within reach (
       "is the window's Check, mind.check: run it, never check the Note in your reply",
     );
     expect(system).toContain("Organize's, never a Note written about them");
+    const command = system.indexOf("- Something done to the User's Documents, Notes or Folders");
+    expect(command).toBeGreaterThan(system.indexOf("Each turn, decide:"));
+    expect(command).toBeLessThan(system.indexOf("- A piece of writing to keep"));
     expect(tools.find(([name]) => name === "run_command")?.[1]).toContain("documents.organize (");
     expect(tools.map(([name]) => name)).toEqual(
       expect.arrayContaining(["create_mind", "list_commands"]),

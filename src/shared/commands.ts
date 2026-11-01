@@ -94,8 +94,8 @@ export const yoursWordsOf = (
     : YOURS_WORDS[what];
 
 /**
- * A refusal's sentence in `language`: the card's, and the reply's when the model writes none, so
- * the card leaves it out then and shows only its button (#2252).
+ * A refusal's sentence in `language`: the card's, and the one the core ends the reply with, so the
+ * card leaves it out and shows only its button (#2252).
  */
 export const yoursLine = (
   language: Language,

@@ -276,13 +276,28 @@ const NO_MIND_TOOLS =
  * write either, or a mix.
  */
 const TURN_RULE = [
-  "You work beside the User's page (a Note). Each turn, decide:",
   "- A piece of writing to keep: they ask you to write, draft, summarise, prepare or put together something (写、起草、整理、总结、准备一份), such as a summary, report, memo, notes, plan or letter (总结、报告、备忘录、笔记、计划、信). Write it into a Note with the write command: into the empty Note in front if there is one, otherwise into a new Note. Start the piece with a title line (a Heading 1; 以一行标题开头), which names the Note. Never put the piece itself in your reply.",
   "- A change to their text: shorten, expand, fix, rewrite, translate, add or remove a part (缩短、扩写、修正、改写、翻译、增加或删去一部分). Make it in place with the edit command. Don't repeat the new text in your reply.",
   "- A question, an explanation, an opinion or ideas (提问、解释、征求意见或想法): answer in your reply and change nothing.",
   "- Unsure: if the request names something to produce, write it into a Note (it can be undone); otherwise answer.",
   "After a write or an edit, reply in one short sentence saying what you did and where. Never say you wrote or changed anything unless the command ran.",
-].join("\n");
+];
+
+/**
+ * With the commands' Tools, what they do is a kind of turn of its own, decided first (#2252): read
+ * only as "You can also…" after the rule, a request to check the Note was checked in the reply,
+ * one to gather Documents in one place became a new Note, and one the User alone may do was
+ * refused in words, with no card to take the User there.
+ */
+const COMMAND_TURN =
+  "- Something done to the User's Documents, Notes or Folders themselves, or in the app: check the Note, file or sort Documents into Folders, open, rename, delete, change a setting (核对、归档、打开、改名、删除、设置). Run the app's command for it (below), also when it is the User's alone, never a Note or a reply that does it instead.";
+
+const turnRule = (commands: boolean) =>
+  [
+    "You work beside the User's page (a Note). Each turn, decide:",
+    ...(commands ? [COMMAND_TURN] : []),
+    ...TURN_RULE,
+  ].join("\n");
 
 /**
  * The Minds' Tools, when offered (#202), on every turn in the assistant: the
@@ -294,11 +309,15 @@ const TURN_RULE = [
  */
 export function mindInstructions(
   offered: boolean,
-  { inAssistant = false, lastAnswer = false }: { inAssistant?: boolean; lastAnswer?: boolean } = {},
+  {
+    inAssistant = false,
+    lastAnswer = false,
+    commands = false,
+  }: { inAssistant?: boolean; lastAnswer?: boolean; commands?: boolean } = {},
 ): string {
   if (!offered) return inAssistant ? NO_MIND_TOOLS : "";
   return [
-    TURN_RULE,
+    turnRule(commands),
     "",
     "The write command is create_mind for a new Note, or add_to_mind for the empty Note in front and to add a part to the User's text; the edit command is edit_mind. read_mind reads a Note the User names. A change applies at once, with Undo, unless it would take out most of the User's own text: then it waits for them. Each call's result says which.",
     `- A line "${YOUR_MINDS} …" before the Question names their Notes, the most recently changed first. A name the User gives that one of their Notes has is that Note, also when they don't call it a Note ("the trip plan", "会议记录"): to write from it, read it with read_mind first; give its name in mind to add a part to it with add_to_mind (where it goes in after), or to change its text with edit_mind. A Note marked "from an earlier Answer" can be read and named as a source too; a new piece never goes into it unless the User explicitly names it for a change. Only a name that no Note has can be a Document's. A name that is neither on the line nor a Document's may still be a Note's, as read_mind finds any Note by its name; when none has it, say so in one sentence that names it, and change nothing. A piece of writing the User asks for goes into the empty Note in front or a new Note, even when a Note on the line has the same or a similar title. Change or add to a Note on the line only when the User names it.`,

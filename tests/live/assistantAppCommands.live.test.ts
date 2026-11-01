@@ -394,14 +394,6 @@ const renamedOnceBack =
     }
   };
 
-/** An unclear request: putting the Documents in a Folder, or writing a Note of what they say. */
-const organizedOrNoted: Check = (seen) => {
-  const noted = seen.answer.toolCalls.some(
-    (call) => call.tool === "create_mind" && call.status === "done",
-  );
-  if (!noted) organized(seen);
-};
-
 const REQUESTS: { id: string; text: string; check: Check; choose?: Choose }[] = [
   {
     id: "folder-en",
@@ -420,9 +412,9 @@ const REQUESTS: { id: string; text: string; check: Check; choose?: Choose }[] = 
     check: organized,
   },
   {
-    id: "organize-or-note-en",
+    id: "gather-en",
     text: "Gather everything that talks about rent into one place",
-    check: organizedOrNoted,
+    check: organized,
   },
   {
     id: "privacy-en",

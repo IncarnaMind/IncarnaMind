@@ -3006,22 +3006,16 @@ export function createAnswers(options: AnswersOptions) {
         {
           name: "refused-no-reply",
           check: (text) => {
-            if (text.trim() !== "") return null;
-            const missing = endedAfterRefusal() ? missingMindNames() : [];
-            const refused = refusedCommands().length > 0;
-            if (missing.length === 0 && !refused) return null;
+            if (text.trim() !== "" || !endedAfterRefusal()) return null;
+            const missing = missingMindNames();
             const named =
               missing.length === 1
                 ? `there is no note called “${missing[0]}”`
                 : `there are no notes called ${missing.map((name) => `“${name}”`).join(", ")}`;
-            const notThere =
-              missing.length > 0 ? `that ${named}, and that the change wasn't made` : "";
             return {
               claims: [],
               writeOnly: true,
-              note: refused
-                ? `Your reply is empty. Say in the User's language ${notThere ? `${notThere}; ` : ""}that what run_command said is the User's to do wasn't done, and where they do it; then what the other calls did.`
-                : `Your reply is empty. Say in the User's language ${notThere}. Don't say that you changed anything.`,
+              note: `Your reply is empty. Say in the User's language that ${named}, and that the change wasn't made. Don't say that you changed anything.`,
             };
           },
         },
@@ -3138,6 +3132,7 @@ export function createAnswers(options: AnswersOptions) {
             mindInstructions(withMindTools, {
               inAssistant: mindsTools !== null && !help,
               lastAnswer: input.assistant?.lastAnswer != null,
+              commands: withCommandTools,
             }),
             commandInstructions(withCommandTools),
             input.assistant && !help ? THIS_DOCUMENT_RULE : "",
@@ -3208,34 +3203,26 @@ export function createAnswers(options: AnswersOptions) {
           ? {
               turnChecks,
               shownUpTo: heldBack,
-              // A command that only acted on the window, or that is the User's alone, ends the
-              // turn: its card is the reply (#1421).
+              // A command that only acted on the window ends the turn: its card is the reply
+              // (#1421). One that is the User's alone is said after the reply (`refusalSuffix`).
               mayEndBlank: () =>
                 changedAMind() ||
                 [...commandsDone.values()].some((done) => done.window !== undefined || done.yours),
               blankReply: () => {
+                if (!endedAfterRefusal()) return null;
                 const language = answerLanguage(context.question);
-                const missing = endedAfterRefusal() ? missingMindNames() : [];
+                const missing = missingMindNames();
                 const [only] = missing;
+                if (missing.length === 1 && only !== undefined) {
+                  return translate(language, "answer.refused.noSuchMind", { name: only });
+                }
                 const quoted = missing.map((name) => `“${name}”`);
-                const lines = [
-                  ...(missing.length === 1 && only !== undefined
-                    ? [translate(language, "answer.refused.noSuchMind", { name: only })]
-                    : missing.length > 1
-                      ? [
-                          translate(language, "answer.refused.noSuchMind.many", {
-                            names:
-                              language === "zh-CN"
-                                ? quoted.join("、")
-                                : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
-                          }),
-                        ]
-                      : []),
-                  ...refusedCommands().map(({ yours, folder }) =>
-                    yoursLine(language, yours, folder),
-                  ),
-                ];
-                return lines.length === 0 ? null : lines.join(language === "zh-CN" ? "" : " ");
+                return translate(language, "answer.refused.noSuchMind.many", {
+                  names:
+                    language === "zh-CN"
+                      ? quoted.join("、")
+                      : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
+                });
               },
             }
           : input.checkScales
@@ -3254,14 +3241,20 @@ export function createAnswers(options: AnswersOptions) {
               }
             : readByUser && { turnChecks: [claimedTools] }),
         // Every Answer, in the assistant or a Note, says why work of its stayed out of a Folder,
-        // worded by the wall as it is now: a wall lifted meanwhile is no wall (#2250).
+        // worded by the wall as it is now: a wall lifted meanwhile is no wall (#2250). It says
+        // each command it was asked for that is the User's alone in the card's own words, however
+        // the turn ends, so the reply and the card never disagree and the card keeps only its
+        // button (#2252).
         refusalSuffix: () => {
-          if (wallRefusals.size === 0) return null;
+          const language = answerLanguage(context.question);
           const lifted = turnWall !== null && options.walledFolderId(turnWall) === null;
-          return [...wallRefusals]
-            .map((key) => (key === "folder.wall.refusal" && lifted ? "folder.wall.changed" : key))
-            .map((key) => translate(answerLanguage(context.question), key))
-            .join(" ");
+          const lines = [
+            ...[...wallRefusals]
+              .map((key) => (key === "folder.wall.refusal" && lifted ? "folder.wall.changed" : key))
+              .map((key) => translate(language, key)),
+            ...refusedCommands().map(({ yours, folder }) => yoursLine(language, yours, folder)),
+          ];
+          return lines.length === 0 ? null : lines.join(language === "zh-CN" ? "" : " ");
         },
         signal: controller.signal,
       })) {

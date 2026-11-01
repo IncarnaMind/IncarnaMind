@@ -55,9 +55,12 @@ const windowLine = (entry: OfferedCommand) =>
 
 const yoursLine = (entry: OfferedCommand) => `${entry.id} (“${entry.label}”)`;
 
+/** The commands of the User's alone are still the model's to run: the refusal shows the User where. */
+const YOURS_RUN = "alone, run all the same to show them where";
+
 const yoursFor = (kind: CommandTarget, offered: readonly OfferedCommand[]): string | null => {
   const yours = offered.filter((entry) => entry.yours !== null && entry.on?.includes(kind));
-  return yours.length > 0 ? `the User's alone: ${yours.map(yoursLine).join("; ")}` : null;
+  return yours.length > 0 ? `the User's ${YOURS_RUN}: ${yours.map(yoursLine).join("; ")}` : null;
 };
 
 /**
@@ -85,7 +88,7 @@ const nouns: Record<CommandTarget, [string, string]> = {
 
 /** What only the User changes (#1421), as the model is told how to ask for it. */
 const YOURS_RULE =
-  "Never yours to change: keys and sign-ins, consent, Local mode, Privacy and what leaves the computer, what you may do without asking, the monthly spending cap, deleting for good, giving “Checked by me”, and marking text as the User's own. For a request for one, always call run_command, never only words: with settings.change and that setting (localMode, consent, privacy, webSearch, apiKey, signIn, approvals, monthlyCap, deleteForGood, …), or with the window's own command for it. Nothing runs, and the User is shown where they change it.";
+  "The User's alone: keys and sign-ins, consent, Local mode, Privacy and what leaves the computer, what you may do without asking, the monthly spending cap, deleting for good, giving “Checked by me”, and marking text as the User's own. Run a request for one all the same, with settings.change and that setting (localMode, consent, privacy, webSearch, apiKey, signIn, approvals, monthlyCap, deleteForGood, …) or the window's own command for it: nothing changes, and the User is shown where they do it. Words alone show them nothing.";
 
 export interface CommandToolsOptions {
   host: CommandsHost;
@@ -236,9 +239,7 @@ export function commandTools(options: CommandToolsOptions): {
             ? "The window offers no command now."
             : `Commands for the window in front: ${windowCommands.map(windowLine).join("; ")}.`,
           ...(yoursCommands.length > 0
-            ? [
-                `The User's alone, which only tell them where they change it: ${yoursCommands.map(yoursLine).join("; ")}.`,
-              ]
+            ? [`The User's ${YOURS_RUN}: ${yoursCommands.map(yoursLine).join("; ")}.`]
             : []),
         ].join("\n");
       }
