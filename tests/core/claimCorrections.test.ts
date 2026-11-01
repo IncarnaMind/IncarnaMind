@@ -1884,8 +1884,7 @@ describe("A correction persisted on a claim mark", () => {
       ],
     });
     expect(check && restsOn(check)).toEqual(expect.arrayContaining([first, second]));
-    // The version that keeps a correction, or a later one.
-    expect(CONTENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(44);
+    expect(CONTENT_SCHEMA_VERSION).toBe(45);
   });
 
   test("an older mark without one, and a malformed one, read safely", () => {
