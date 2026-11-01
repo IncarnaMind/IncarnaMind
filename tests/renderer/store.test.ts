@@ -497,6 +497,26 @@ describe("changes the User can take back", () => {
     expect(said(useUndo.getState().line?.change)).toBe("Added 1 Document");
   });
 
+  // protects=an add whose Documents were all deleted before its Undo leaves nothing to redo, so ⇧⌘Z never says it added them (#2402); fails_when=Redo restores nothing yet says "Added 2 Documents · Undo", or the Edit menu offers to redo it; no_claim=which Documents count as the add's own.
+  test("an add whose Documents were all deleted since: its Undo takes nothing, and leaves no Redo that says it added them", async () => {
+    const brought = [doc("x"), doc("y")];
+    method("addDocuments").mockResolvedValue({
+      documents: brought,
+      skipped: [],
+      added: ["x", "y"],
+    });
+    await useAppStore.getState().addPaths(["/s/x.txt", "/s/y.txt"]);
+    expect(said(top())).toBe("Added 2 Documents");
+    method("listDocuments").mockResolvedValue([]);
+    await useUndo.getState().undo();
+    expect(method("deleteDocument")).not.toHaveBeenCalled();
+    expect(useUndo.getState().line).toBeNull();
+    expect(useUndo.getState().undone).toEqual([]);
+    await useUndo.getState().redo();
+    expect(method("restore")).not.toHaveBeenCalled();
+    expect(useUndo.getState().line).toBeNull();
+  });
+
   // protects=an Undo of Link a folder, whose Documents leave the Library with it, says so on the undo line with Redo, in English and Chinese (#2402); fails_when=the folder's Documents leave with no line; no_claim=how the core unlinks it.
   test.each([
     { language: "en", unlinked: "Unlinked “Deals”" },

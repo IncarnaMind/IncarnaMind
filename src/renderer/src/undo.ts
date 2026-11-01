@@ -28,7 +28,7 @@ export interface Undoable {
   /**
    * What the line says, with Redo, once it is taken back, when that took away something the User
    * may not be looking at: "Removed 7 Documents". A ⌘Z can reach it long after it was made, from
-   * a note. Null: it took nothing away.
+   * a note. Null: it took nothing away, so there is nothing to do again either.
    */
   takenBack?(): WordsInLine | null;
   /**
@@ -122,6 +122,8 @@ export type UndoLineState =
   | {
       id: number;
       told: ToldLine;
+      /** The change its Redo does again, when it says what an Undo took away. */
+      redoes?: Undoable;
       shownAt?: undefined;
       change?: undefined;
       problem?: undefined;
@@ -211,6 +213,7 @@ const lineOf = (change: Undoable): UndoLineState => ({ id: ++lines, change });
 
 const takenBackLine = (change: Undoable, says: WordsInLine): UndoLineState => ({
   id: ++lines,
+  redoes: change,
   told: {
     says,
     action: {
@@ -334,13 +337,14 @@ export const useUndo = create<UndoState>()((set, get) => {
         }
         if (get().running?.change !== change) return;
         const note = change.undoneNote?.() ?? null;
-        const takenBack = change.redo ? (change.takenBack?.() ?? null) : null;
+        const takenBack = change.takenBack?.() ?? null;
+        const tookNothing = change.takenBack !== undefined && takenBack === null;
         set((state) => ({
-          undone: change.redo ? [...state.undone, change] : [],
+          undone: tookNothing ? state.undone : change.redo ? [...state.undone, change] : [],
           running: null,
           ...(note
             ? { line: { id: ++lines, note, ...(change.shownAt && { shownAt: change.shownAt }) } }
-            : takenBack && { line: takenBackLine(change, takenBack) }),
+            : change.redo && takenBack && { line: takenBackLine(change, takenBack) }),
         }));
       }),
     redo: (wanted) =>
@@ -368,7 +372,10 @@ export const useUndo = create<UndoState>()((set, get) => {
         set((state) => ({
           done: state.done.filter((each) => each !== change),
           undone: [...state.undone, change],
-          ...(state.line?.change === change && { line: null }),
+          // ⇧⌘Z reaches this change now, not the one a line's Redo names.
+          ...((state.line?.change === change || (state.line?.told && state.line.redoes)) && {
+            line: null,
+          }),
         }));
       } else if (step === "redo" && get().undone.includes(change)) {
         set((state) => ({

@@ -107,12 +107,11 @@ export function deleted(
  */
 export function documentsAdded(count: number, take: () => Promise<RestoreRef[]>): Undoable {
   let taken: RestoreRef[] = [];
-  // Once taken back, it is what Redo brings back: some may have been deleted meanwhile.
-  const added = () => taken.length || count;
+  let added = count;
   return {
     said: (t) =>
-      t(added() === 1 ? "undo.documentAdded.one" : "undo.documentsAdded", {
-        count: formatCount(added(), languageNow()),
+      t(added === 1 ? "undo.documentAdded.one" : "undo.documentsAdded", {
+        count: formatCount(added, languageNow()),
       }),
     name: (t) => t("undo.name.addDocuments"),
     takenBack: () =>
@@ -126,7 +125,9 @@ export function documentsAdded(count: number, take: () => Promise<RestoreRef[]>)
       taken = await take();
     },
     redo: async () => {
-      if (taken.length > 0) await core.restore(taken);
+      await core.restore(taken);
+      // Some may have been deleted before the Undo: it brought back only the others.
+      added = taken.length;
     },
   };
 }
