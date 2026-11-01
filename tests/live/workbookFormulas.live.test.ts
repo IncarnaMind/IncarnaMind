@@ -1,7 +1,8 @@
 /**
- * A workbook's formulas against a real model (#2347): "what drives 2027
- * EBITDA?" and "what if growth is 3%?", in English and in Chinese, over a
- * test DCF, asked through the core as the app asks. It runs only when
+ * A workbook's formulas against a real model (#2347), on Questions held out
+ * from everything the Tools and their steer were written against: an LBO's
+ * IRR and three statements' net income, asked in other words, in English and
+ * in Chinese, through the core as the app asks. It runs only when
  * INCARNAMIND_LIVE_ANTHROPIC_KEY is set (INCARNAMIND_LIVE_ANTHROPIC_MODEL,
  * Haiku by default), so `npx vitest run` makes no request without one.
  * INCARNAMIND_LIVE_REPORT keeps each Answer, its Tool calls and figures, and
@@ -10,28 +11,59 @@
 import { createHash } from "node:crypto";
 import { appendFile, readFile } from "node:fs/promises";
 import { expect, onTestFinished, test } from "vitest";
-import type { AnswerUsage, ConversationAnswer, Core } from "../../src/core";
+import type { AnswerUsage, ConversationAnswer, Core, MarkedFigure } from "../../src/core";
 
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { type ChatModelFactory, createAiSdkChatModel } from "../../src/core/providers/models";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { dcfWorkbook } from "../helpers/financeWorkbooks";
+import { libreOfficeFixture } from "../helpers/financeWorkbooks";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
   process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
   (catalogProvider("anthropic")?.roles.quickTasks as string);
 
-const QUESTIONS = [
-  { question: "In the DCF workbook, what drives 2027 EBITDA?", whatIf: false },
+/** Each Question, the cell its figure is, and for a what-if the input's new value and LibreOffice's result. */
+const QUESTIONS: {
+  question: string;
+  cell: string;
+  change: { value: number; result: number } | null;
+}[] = [
   {
-    question: "In the DCF workbook, what would 2027 EBITDA be if revenue growth were 3%?",
-    whatIf: true,
+    question: "Which assumptions does the sponsor's IRR in the LBO model rest on?",
+    cell: "LBO!B32",
+    change: null,
   },
-  { question: "DCF 工作簿里，2027 年的 EBITDA 由什么驱动？", whatIf: false },
-  { question: "DCF 工作簿里，如果收入增长率是 3%，2027 年的 EBITDA 是多少？", whatIf: true },
+  {
+    question:
+      "Say the LBO exits at 9.5 times EBITDA rather than the multiple it assumes now. What IRR does the sponsor make then?",
+    cell: "LBO!B32",
+    change: { value: 9.5, result: 0.2731919000203173 },
+  },
+  {
+    question: "三表模型里，2027 年的净利润是怎么算出来的？取决于哪些假设？",
+    cell: "IS!E13",
+    change: null,
+  },
+  {
+    question: "三表模型中，假如税率调到 25%，2027 年的净利润会变成多少？",
+    cell: "IS!E13",
+    change: { value: 0.25, result: 245.532546 },
+  },
 ];
+
+/** Whether an Answer gives the Question's figure from its cell, and a what-if with LibreOffice's result. */
+const answers = (figure: MarkedFigure, expected: (typeof QUESTIONS)[number]): boolean => {
+  const book = figure.workbook;
+  if (!book || `${book.cell.sheet}!${book.cell.ref}` !== expected.cell) return false;
+  if (!expected.change) return book.change === null;
+  return (
+    book.change?.value === expected.change.value &&
+    Math.abs((figure.value as number) - expected.change.result) <=
+      1e-9 * Math.abs(expected.change.result)
+  );
+};
 
 let requests = 0;
 /** The real model, counting each request it makes. */
@@ -78,32 +110,46 @@ async function ask(
 }
 
 test.skipIf(KEY === undefined)(
-  "a real model traces 2027 EBITDA to its assumptions and works out growth at 3%, in English and Chinese",
+  "a real model traces an LBO's IRR and three statements' net income to their assumptions, and works out a what-if on each, in English and Chinese",
   { timeout: 1_200_000 },
   async () => {
     const core = startCore(await createTempDataFolder(), { createChatModel: counting });
     core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
     await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
-    const file = await writeSourceFile(
-      await createTempDataFolder(),
-      "DCF model.xlsx",
-      new Uint8Array(dcfWorkbook().xlsx()),
-    );
-    await addAndProcess(core, [file]);
-    const before = createHash("sha256")
-      .update(await readFile(file))
-      .digest("hex");
-    const report = [`## Workbook formulas · ${MODEL}`];
+    const folder = await createTempDataFolder();
+    const files = [
+      await writeSourceFile(folder, "LBO model.xlsx", libreOfficeFixture("lbo")),
+      await writeSourceFile(
+        folder,
+        "Three statements.xlsx",
+        libreOfficeFixture("three-statements"),
+      ),
+    ];
+    await addAndProcess(core, files);
+    const hashes = async () =>
+      Promise.all(
+        files.map(async (file) =>
+          createHash("sha256")
+            .update(await readFile(file))
+            .digest("hex"),
+        ),
+      );
+    const before = await hashes();
+    const report = [`## Workbook formulas, held-out Questions · ${MODEL}`];
     onTestFinished(async () => {
       if (process.env.INCARNAMIND_LIVE_REPORT)
         await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${report.join("\n")}\n\n`);
     });
-    for (const { question, whatIf } of QUESTIONS) {
+    const missed: string[] = [];
+    for (const expected of QUESTIONS) {
       const from = requests;
-      const { answer, usage } = await ask(core, question);
+      const { answer, usage } = await ask(core, expected.question);
+      const passed =
+        answer.status === "done" && answer.figures.some((figure) => answers(figure, expected));
+      if (!passed) missed.push(expected.question);
       report.push(
-        `### ${question}`,
-        `${answer.status}; ${requests - from} requests; input ${usage?.inputTokens} (cache reads ${usage?.cachedInputTokens}, cache writes ${usage?.cacheWriteTokens}), output ${usage?.outputTokens}`,
+        `### ${expected.question}`,
+        `${passed ? "passed" : "missed"}; ${answer.status}; ${requests - from} requests; input ${usage?.inputTokens} (cache reads ${usage?.cachedInputTokens}, cache writes ${usage?.cacheWriteTokens}), output ${usage?.outputTokens}`,
         `Tools: ${answer.toolCalls.map((call) => `${call.tool} ${JSON.stringify(call.input)}`).join("; ")}`,
         `> ${answer.text.replace(/\s+/g, " ")}`,
         ...answer.figures.map(
@@ -112,22 +158,8 @@ test.skipIf(KEY === undefined)(
         ),
         "",
       );
-      expect(answer.status, answer.errorMessage ?? "").toBe("done");
-      const fromWorkbook = answer.figures.filter((figure) => figure.workbook);
-      expect(fromWorkbook.length).toBeGreaterThan(0);
-      if (whatIf)
-        expect(
-          fromWorkbook.some(
-            (figure) =>
-              figure.workbook?.change?.value === 0.03 &&
-              Math.abs((figure.value as number) - 240.39994) < 1e-6,
-          ),
-        ).toBe(true);
     }
-    expect(
-      createHash("sha256")
-        .update(await readFile(file))
-        .digest("hex"),
-    ).toBe(before);
+    expect(missed).toEqual([]);
+    expect(await hashes()).toEqual(before);
   },
 );
