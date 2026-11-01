@@ -450,7 +450,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const done = window.getByTestId("export-result").getByTestId("export-done");
       await expect(done).toContainText(savedLine("Harbour.md", out, language), { timeout: 30_000 });
       // The Saved line says the count, and Show opens the card that names each file.
-      await expect(done.getByTestId("export-unread")).toHaveText(WORDS[language].count);
+      // The count and its Show are one part, so a wrapped line never leaves Show on its own.
+      await expect(done.getByTestId("export-unread")).toContainText(WORDS[language].count);
       await expect(done.getByTestId("export-unread-show")).toHaveText(WORDS[language].show);
       const exported = await readFile(join(out, "Harbour.md"), "utf8");
       expect(exported).toContain(SENTENCE);

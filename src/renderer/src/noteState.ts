@@ -49,7 +49,11 @@ export interface NoteState {
   mark: NoteStateMark;
   /** The newest check among the claims that now hold (ISO 8601): the green's time. */
   checkedAt: string | null;
-  /** The files to name: the narrow-scope ones that keep it amber, or, in green, every file its checks couldn't read (#740, D261). */
+  /**
+   * The files the check badge's card names (#740): a narrow-scope check's unread files when one
+   * could hold the evidence, else every file the checks couldn't read. The Saved line counts
+   * this same list.
+   */
   unread: number;
   /** Whether a file the checks couldn't read could hold evidence they looked for: one of them searched a scope narrower than all Documents. */
   unreadMatters: boolean;
@@ -63,7 +67,8 @@ export interface NoteState {
  * failed, that no longer holds, or is checking right now is "Not checked": nothing has checked
  * it since its last edit, and a run in flight is never done. Unread files that could hold the
  * evidence — a check searched a scope narrower than all Documents — keep the state amber and are
- * named; files only a search of all Documents couldn't read stay in the green's count.
+ * named; files only a search of all Documents couldn't read stay in the green's count, and the
+ * card and the Saved line name them in every state.
  */
 export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): NoteState | null {
   const unreadMatters = narrowUnread > 0;
@@ -71,8 +76,8 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
   const look = health.lookClaims.length;
   const base = {
     checkedAt: health.checkedAt,
-    unread: 0,
-    unreadMatters: false,
+    unread: unreadMatters ? narrowUnread : unread,
+    unreadMatters,
     checkable: health.checkable,
   };
   if (health.contradicted.length > 0) {
@@ -82,8 +87,6 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
       look,
       tone: "error",
       mark: "contradicted",
-      unread: narrowUnread,
-      unreadMatters,
     };
   }
   if (look > 0) {
@@ -94,8 +97,6 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
       look,
       tone: "warning",
       mark,
-      unread: narrowUnread,
-      unreadMatters,
     };
   }
   if (health.checking.length > 0 || health.toCheck.length > 0) {
@@ -109,11 +110,20 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
       look: 0,
       tone: "warning",
       mark: "notChecked",
-      unread: narrowUnread,
-      unreadMatters,
     };
   }
-  return { ...base, kind: "checked", look: 0, tone: "success", mark: "checked", unread };
+  return { ...base, kind: "checked", look: 0, tone: "success", mark: "checked" };
+}
+
+/**
+ * Whether the state's own line names its unread files: in green, every one, or in amber only
+ * those a narrow check missed (#740, D266). The Saved line always counts them when there are any.
+ */
+export function noteStateShowsUnread(state: NoteState): boolean {
+  return (
+    state.unread > 0 &&
+    (state.kind === "checked" || (state.kind === "needs-look" && state.unreadMatters))
+  );
 }
 
 /** The checks that looked in a scope narrower than all Documents: a Folder, a Tag, or Documents the User picked. */
@@ -152,7 +162,7 @@ export function noteStateParts(
   now?: Date,
 ): readonly string[] {
   const count = (value: number) => new Intl.NumberFormat(language).format(value);
-  const unread = noteStateUnreadWords(state, t, language);
+  const unread = noteStateShowsUnread(state) ? noteStateUnreadWords(state, t, language) : null;
   if (state.kind === "not-checked") return [t("health.state.notChecked")];
   if (state.kind === "needs-look") {
     const parts: string[] = [];
@@ -172,15 +182,17 @@ export function noteStateParts(
   return unread === null ? [said] : [said, unread];
 }
 
-/** "3 files couldn't be read": the files the state counts as unread, for the Saved line's Show (#740); null when it counts none. */
+/**
+ * "3 files couldn't be read": the check badge's card list, which the Saved line counts (#740);
+ * null when it names none. Every state counts them, so a Note that needs a look or is Not
+ * checked still says what the card names.
+ */
 export function noteStateUnreadWords(
   state: NoteState,
   t: Translate,
   language: Language,
 ): string | null {
   if (state.unread === 0) return null;
-  if (state.kind !== "checked" && !(state.kind === "needs-look" && state.unreadMatters))
-    return null;
   const count = new Intl.NumberFormat(language).format(state.unread);
   return t(state.unread === 1 ? "unread.count.one" : "unread.count", { count });
 }

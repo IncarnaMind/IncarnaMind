@@ -153,11 +153,27 @@ describe("A note's state (D266)", () => {
     });
   });
 
-  test("names only the narrow-scope unread files: a wide search's stay out of an amber state", () => {
-    expect(
-      noteStateOf(health({ checkable: 1, contradicted: [0], lookClaims: [0] }), 3)?.unread,
-    ).toBe(0);
-    expect(noteStateOf(health({ checkable: 1, toCheck: [0] }), 3)?.unread).toBe(0);
+  test("counts the card's list in an amber or Not checked state, though a wide search's stay out of the state's line", () => {
+    const words = (state: Parameters<typeof noteStateParts>[0]) =>
+      noteStateUnreadWords(state, (key, params) => translate("en", key, params), "en");
+    const parts = (state: Parameters<typeof noteStateParts>[0]) =>
+      noteStateParts(state, (key, params) => translate("en", key, params), "en");
+    // A Contradicted claim whose check searched all Documents: the card names the file, so the Saved line counts it.
+    const wide =
+      noteStateOf(health({ checkable: 1, contradicted: [0], lookClaims: [0] }), 1) ?? fail();
+    expect(wide).toMatchObject({ kind: "needs-look", unread: 1, unreadMatters: false });
+    expect(words(wide)).toBe("1 file couldn’t be read");
+    expect(parts(wide)).toEqual(["1 needs a look"]);
+    // A narrow check's file keeps the amber line's count, as before.
+    const narrow =
+      noteStateOf(health({ checkable: 1, contradicted: [0], lookClaims: [0] }), 3, 1) ?? fail();
+    expect(narrow).toMatchObject({ kind: "needs-look", unread: 1, unreadMatters: true });
+    expect(words(narrow)).toBe("1 file couldn’t be read");
+    // Not checked: the state's line says only that, and the card still names the files.
+    const unchecked = noteStateOf(health({ checkable: 1, toCheck: [0] }), 2) ?? fail();
+    expect(unchecked).toMatchObject({ kind: "not-checked", unread: 2, unreadMatters: false });
+    expect(words(unchecked)).toBe("2 files couldn’t be read");
+    expect(parts(unchecked)).toEqual(["Not checked"]);
   });
 
   test("says the words of each state in English and Chinese, the times from dates.ts", () => {

@@ -28,7 +28,12 @@ import { useMindNoteStates } from "../home";
 import { useLanguage, useT } from "../i18n";
 import { showCheckCard } from "../mindCheck";
 import { enter } from "../motion";
-import { type NoteState, noteStateParts, noteStateUnreadWords } from "../noteState";
+import {
+  type NoteState,
+  noteStateParts,
+  noteStateShowsUnread,
+  noteStateUnreadWords,
+} from "../noteState";
 import { chooseOutputLocation, savedFolderLabel, showOutputLocationSetting } from "../outputFiles";
 import { useAppStore } from "../store";
 import { useHeld } from "../useHeld";
@@ -424,7 +429,9 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
     state === null || (state.kind === "checked" && state.unread === 0)
       ? []
       : noteStateParts(state, t, language);
-  const beforeUnread = unread === null ? standing : standing.slice(0, -1);
+  // The state's line already ends with the count in green and in amber for a narrow check; it does not in the other states.
+  const beforeUnread =
+    state !== null && noteStateShowsUnread(state) ? standing.slice(0, -1) : standing;
   const comments = checkComments(result.checks, t, othersWord(result));
   const parts: SavedWithFile = [
     ...chosen.map((text) => ({ testId: "export-chosen", text })),
@@ -509,24 +516,29 @@ function SavedName({
     <span className="block min-w-0 grow overflow-hidden">
       <span className="-ml-4 flex flex-wrap">
         <span className="block max-w-full pl-4">{saved}</span>
-        {withFile.flatMap(({ testId, text, action }) => [
+        {withFile.map(({ testId, text, action }) => (
           <FilePart key={`${testId}:${text}`} testId={testId}>
             {text}
-          </FilePart>,
-          ...(action
-            ? [
-                <FilePart key={action.testId} testId={action.testId}>
-                  <button
-                    type="button"
-                    onClick={action.onClick}
-                    className="font-semibold text-ink-secondary hover:text-ink hover:underline"
-                  >
-                    {action.label}
-                  </button>
-                </FilePart>,
-              ]
-            : []),
-        ])}
+            {action && (
+              <>
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-4 text-center text-ink-placeholder"
+                >
+                  ·
+                </span>
+                <button
+                  type="button"
+                  data-testid={action.testId}
+                  onClick={action.onClick}
+                  className="font-semibold text-ink-secondary hover:text-ink hover:underline"
+                >
+                  {action.label}
+                </button>
+              </>
+            )}
+          </FilePart>
+        ))}
         {children && <FilePart>{children}</FilePart>}
       </span>
     </span>
