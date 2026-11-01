@@ -379,6 +379,56 @@ export function dcfWorkbook(): WorkbookBuilder {
   return book;
 }
 
+const MONTHS = ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"];
+
+/**
+ * A SaaS plan for 2026, month by month: customers kept after churn plus those won, seats,
+ * MRR at a price per seat, gross profit, then ARR and the year's revenue. Its drivers sheet's
+ * churn and price have names (Churn, Price). Used only by Questions held out from the work on
+ * the workbook Tools' wording.
+ */
+export function saasWorkbook(): WorkbookBuilder {
+  const book = new WorkbookBuilder();
+  const d = book.sheet("Drivers");
+  d.text("A1", "Driver").text("B1", "Value");
+  d.text("A3", "Customers at start").number("B3", 1200);
+  d.text("A4", "New customers a month").number("B4", 80);
+  d.text("A5", "Monthly churn").number("B5", 0.025, "percent");
+  d.text("A6", "Seats per customer").number("B6", 6);
+  d.text("A7", "Price per seat").number("B7", 45, "money");
+  d.text("A8", "Gross margin").number("B8", 0.78, "percent");
+  book.name("Churn", "Drivers!$B$5").name("Price", "Drivers!$B$7");
+
+  const p = book.sheet("Plan");
+  p.text("A1", "SaaS plan 2026");
+  p.text("A3", "Month");
+  ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].forEach(
+    (month, i) => {
+      p.text(`${MONTHS[i]}3`, month);
+    },
+  );
+  const churn = d.n("B5");
+  const customers: number[] = [];
+  for (let i = 0; i < 12; i++)
+    customers.push((i === 0 ? d.n("B3") : (customers[i - 1] as number)) * (1 - churn) + d.n("B4"));
+  p.text("A4", "Customers").formula(
+    "B4",
+    "Drivers!B3*(1-Churn)+Drivers!$B$4",
+    customers[0] as number,
+  );
+  p.fill("C4:M4", "B4*(1-Churn)+Drivers!$B$4", (i) => customers[i + 1] as number);
+  p.text("A5", "Seats");
+  p.fill("B5:M5", "B4*Drivers!$B$6", (i) => (customers[i] as number) * d.n("B6"));
+  p.text("A6", "MRR");
+  p.fill("B6:M6", "B5*Price", (i) => (customers[i] as number) * d.n("B6") * d.n("B7"), "money");
+  p.text("A7", "Gross profit");
+  p.fill("B7:M7", "B6*Drivers!$B$8", (i) => p.n(`${MONTHS[i]}6`) * d.n("B8"), "money");
+  p.text("A9", "ARR").formula("B9", "M6*12", p.n("M6") * 12, "money");
+  const revenue = MONTHS.reduce((total, column) => total + p.n(`${column}6`), 0);
+  p.text("A10", "Annual revenue").formula("B10", "SUM(B6:M6)", revenue, "money");
+  return book;
+}
+
 /**
  * A small LBO: bought at a multiple of EBITDA with debt, EBITDA grown, cash
  * swept to repay debt, sold at an exit multiple; IRR and MOIC, a dated XIRR,

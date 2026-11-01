@@ -115,8 +115,8 @@ export function webInstructions(offered: boolean): string {
 export function workbookInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    'A figure in an Excel workbook is worked out by the workbook\'s own formulas. For what drives it or how it is worked out, call trace_formulas with its Passage and cell; for the figure with one input changed ("if the price rose 4%"), call what_if. Write the markers they give where the numbers go.',
-    "- Never work a what-if out yourself from the values a Passage shows, and never say how a figure is worked out without trace_formulas. When either says a formula can't be worked out, say so in the Answer.",
+    "A figure in an Excel workbook is worked out by the workbook's own formulas, and its Passages show only the values Excel saved, never the formulas. So when the Question asks what drives a figure, what it depends on or is built from, why it is what it is, or how it is worked out, call trace_formulas for it before you answer, even when the rows seem to show it; when the Question changes one of the workbook's inputs (\"if the rate rose to 6%\"), call what_if. Write the marker each gives in the Answer where its figure's number goes.",
+    "- Never work a what-if out yourself, with calculate or in words, from the values a Passage shows, and never say how a figure is worked out, or that a sheet doesn't show its formulas, without trace_formulas. When either says a formula can't be worked out, say so in the Answer.",
   ].join("\n");
 }
 

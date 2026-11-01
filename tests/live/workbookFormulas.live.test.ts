@@ -1,12 +1,12 @@
 /**
- * A workbook's formulas against a real model (#2347), on Questions held out
- * from everything the Tools and their steer were written against: an LBO's
- * IRR and three statements' net income, asked in other words, in English and
- * in Chinese, through the core as the app asks. It runs only when
- * INCARNAMIND_LIVE_ANTHROPIC_KEY is set (INCARNAMIND_LIVE_ANTHROPIC_MODEL,
- * Haiku by default), so `npx vitest run` makes no request without one.
- * INCARNAMIND_LIVE_REPORT keeps each Answer, its Tool calls and figures, and
- * the tokens and requests it took.
+ * A workbook's formulas against a real model (#2347), through the core as the app asks, in
+ * English and Chinese. Two sets: "training", the Questions the Tools' wording was tuned on (a
+ * DCF, an LBO and three statements), and "held out", Questions on a SaaS plan written before any
+ * run and never used to tune, so its count is the one to trust. Each passes only when the Answer
+ * records the figure from the right cell and, for a what-if, with LibreOffice's result. It runs
+ * only when INCARNAMIND_LIVE_ANTHROPIC_KEY is set (INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku by
+ * default), so `npx vitest run` makes no request without one; pick a set with `-t`.
+ * INCARNAMIND_LIVE_REPORT keeps each Answer, its Tool calls and figures, and its tokens.
  */
 import { createHash } from "node:crypto";
 import { appendFile, readFile } from "node:fs/promises";
@@ -17,6 +17,7 @@ import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { type ChatModelFactory, createAiSdkChatModel } from "../../src/core/providers/models";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { saasWorkbook } from "../helpers/financeWorkbooks";
 import { libreOfficeFixture } from "../helpers/workbookFixtures";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
@@ -24,12 +25,26 @@ const MODEL =
   process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
   (catalogProvider("anthropic")?.roles.quickTasks as string);
 
-/** Each Question, the cell its figure is, and for a what-if the input's new value and LibreOffice's result. */
-const QUESTIONS: {
+interface Asked {
   question: string;
+  /** The cell its figure is, and for a what-if the input's new value and LibreOffice's result. */
   cell: string;
   change: { value: number; result: number } | null;
-}[] = [
+}
+
+const TRAINING: Asked[] = [
+  { question: "In the DCF workbook, what drives 2027 EBITDA?", cell: "DCF!E5", change: null },
+  {
+    question: "In the DCF workbook, what would 2027 EBITDA be if revenue growth were 3%?",
+    cell: "DCF!E5",
+    change: { value: 0.03, result: 240.39994 },
+  },
+  { question: "DCF 工作簿里，2027 年的 EBITDA 由什么驱动？", cell: "DCF!E5", change: null },
+  {
+    question: "DCF 工作簿里，如果收入增长率是 3%，2027 年的 EBITDA 是多少？",
+    cell: "DCF!E5",
+    change: { value: 0.03, result: 240.39994 },
+  },
   {
     question: "Which assumptions does the sponsor's IRR in the LBO model rest on?",
     cell: "LBO!B32",
@@ -39,7 +54,7 @@ const QUESTIONS: {
     question:
       "Say the LBO exits at 9.5 times EBITDA rather than the multiple it assumes now. What IRR does the sponsor make then?",
     cell: "LBO!B32",
-    change: { value: 9.5, result: 0.2731919000203173 },
+    change: { value: 9.5, result: 0.273191900020312 },
   },
   {
     question: "三表模型里，2027 年的净利润是怎么算出来的？取决于哪些假设？",
@@ -59,18 +74,35 @@ const QUESTIONS: {
   {
     question: "What would the LBO's term loan payment be if the interest rate were 7%?",
     cell: "LBO!B34",
-    change: { value: 0.07, result: 121.94534722068695 },
+    change: { value: 0.07, result: 121.945347220687 },
   },
   { question: "三表模型中，2027 年末的现金余额取决于什么？", cell: "BS!E3", change: null },
   {
     question: "如果 2026 年的收入增长率是 10%，三表模型里 2027 年末的现金是多少？",
     cell: "BS!E3",
-    change: { value: 0.1, result: 638.7805408328768 },
+    change: { value: 0.1, result: 638.780540832877 },
+  },
+];
+
+const HELD_OUT: Asked[] = [
+  { question: "In the SaaS plan, what is the ARR built from?", cell: "Plan!B9", change: null },
+  { question: "Why is December's MRR in the SaaS plan what it is?", cell: "Plan!M6", change: null },
+  { question: "SaaS 计划里，12 月的客户数取决于哪些假设？", cell: "Plan!M4", change: null },
+  { question: "SaaS 计划中的年收入是怎么算出来的？", cell: "Plan!B10", change: null },
+  {
+    question: "If monthly churn in the SaaS plan were 1.5%, what would ARR be?",
+    cell: "Plan!B9",
+    change: { value: 0.015, result: 6109304.67997897 },
+  },
+  {
+    question: "SaaS 计划里，如果每个席位的价格是 50 美元，年收入会是多少？",
+    cell: "Plan!B10",
+    change: { value: 50, result: 5389161.29234364 },
   },
 ];
 
 /** Whether an Answer gives the Question's figure from its cell, and a what-if with LibreOffice's result. */
-const answers = (figure: MarkedFigure, expected: (typeof QUESTIONS)[number]): boolean => {
+const answers = (figure: MarkedFigure, expected: Asked): boolean => {
   const book = figure.workbook;
   if (!book || `${book.cell.sheet}!${book.cell.ref}` !== expected.cell) return false;
   if (!expected.change) return book.change === null;
@@ -125,39 +157,49 @@ async function ask(
   return { answer, usage };
 }
 
-test.skipIf(KEY === undefined)(
-  "a real model traces an LBO's IRR and three statements' net income to their assumptions, and works out a what-if on each, in English and Chinese",
-  { timeout: 1_200_000 },
-  async () => {
+test.skipIf(KEY === undefined).each([
+  {
+    set: "training",
+    asked: TRAINING,
+    files: () => [
+      { name: "DCF model.xlsx", contents: libreOfficeFixture("dcf") },
+      { name: "LBO model.xlsx", contents: libreOfficeFixture("lbo") },
+      { name: "Three statements.xlsx", contents: libreOfficeFixture("three-statements") },
+    ],
+  },
+  {
+    set: "held out",
+    asked: HELD_OUT,
+    files: () => [{ name: "SaaS plan.xlsx", contents: new Uint8Array(saasWorkbook().xlsx()) }],
+  },
+])(
+  "$set: a real model traces each figure to its assumptions and works out a what-if from the workbook",
+  { timeout: 1_800_000 },
+  async ({ set, asked, files }) => {
     const core = startCore(await createTempDataFolder(), { createChatModel: counting });
-    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));
     await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
     const folder = await createTempDataFolder();
-    const files = [
-      await writeSourceFile(folder, "LBO model.xlsx", libreOfficeFixture("lbo")),
-      await writeSourceFile(
-        folder,
-        "Three statements.xlsx",
-        libreOfficeFixture("three-statements"),
-      ),
-    ];
-    await addAndProcess(core, files);
+    const paths = await Promise.all(
+      files().map((file) => writeSourceFile(folder, file.name, file.contents)),
+    );
+    await addAndProcess(core, paths);
     const hashes = async () =>
       Promise.all(
-        files.map(async (file) =>
+        paths.map(async (path) =>
           createHash("sha256")
-            .update(await readFile(file))
+            .update(await readFile(path))
             .digest("hex"),
         ),
       );
     const before = await hashes();
-    const report = [`## Workbook formulas, held-out Questions · ${MODEL}`];
+    const report = [`## Workbook formulas, ${set} · ${MODEL}`];
     onTestFinished(async () => {
       if (process.env.INCARNAMIND_LIVE_REPORT)
         await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${report.join("\n")}\n\n`);
     });
     const missed: string[] = [];
-    for (const expected of QUESTIONS) {
+    for (const expected of asked) {
       const from = requests;
       const { answer, usage } = await ask(core, expected.question);
       const passed =
@@ -175,6 +217,7 @@ test.skipIf(KEY === undefined)(
         "",
       );
     }
+    report.push(`${asked.length - missed.length} of ${asked.length} passed.`);
     expect(missed).toEqual([]);
     expect(await hashes()).toEqual(before);
   },
