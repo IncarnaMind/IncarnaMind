@@ -2332,6 +2332,23 @@ export function createRewriteStream(
     else if (anew) writeHeld(Math.min(segments.length, at + held.length + LOOKAHEAD));
   };
 
+  /**
+   * A name the paragraph's own words contradict: they share no word with the paragraph it names,
+   * and read as another the text hasn't named. A model can miscount (Claude Haiku 5.5 named ¶7
+   * for a rewrite of ¶6, #2356), and that paragraph would be written over; this refuses, and pairs
+   * nothing.
+   */
+  const namesAnother = (paragraph: NewParagraph, index: number): boolean => {
+    const segment = segments[index];
+    if (!segment || likeness(segment.tokens, paragraph.tokens) > 0) return false;
+    return segments.some(
+      (other, at) =>
+        at !== index &&
+        !namedSoFar.has(at) &&
+        readsAs(other, paragraph, { least: COUNTERPART_LIKENESS }),
+    );
+  };
+
   /** A paragraph of a text that names the one each replaces (#2356), written where its name says. */
   const takeNamed = (paragraph: NewParagraph) => {
     const name = paragraph.name ?? { follows: null };
@@ -2363,6 +2380,10 @@ export function createRewriteStream(
       for (const each of comingFirst.splice(0)) addNew(each);
       addNew(paragraph);
       if (place) following.set(segment, place);
+      return;
+    }
+    if (namesAnother(paragraph, index)) {
+      misnamed = true;
       return;
     }
     namedSoFar.add(index);

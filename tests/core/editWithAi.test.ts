@@ -4950,6 +4950,34 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     expect(asked?.prompt).not.toContain("each starting with a name");
   });
 
+  // protects=a named paragraph whose words share none with the paragraph it names, and read as another the reply doesn't name, refuses the edit rather than writing over the one named (Claude Haiku 5.5 named ¶7 for a rewrite of ¶6); a replacement in new words that reads as no other one paragraph still goes in; English and Chinese; fails_when=the paragraph named is written over, or a plain replacement is refused; no_claim=how often a model miscounts.
+  test.each([
+    { lines: TEAM.en, reply: "¶4 - Ana leads the vendor work.", refused: true, now: "" },
+    { lines: TEAM.zh, reply: "¶4 - 安娜做数据分析。", refused: true, now: "" },
+    {
+      lines: TEAM.en,
+      reply: "¶4 - Chloe joins as tester.",
+      refused: false,
+      now: "Chloe joins as tester.",
+    },
+    { lines: TEAM.zh, reply: "¶4 - 克洛伊负责测试。", refused: false, now: "克洛伊负责测试。" },
+  ])(
+    "a name its words contradict refuses the edit: $reply",
+    async ({ lines, reply, refused, now }) => {
+      const { core, mind, client, before } = await noteOf(team(lines), () => reply);
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Change the last item"));
+
+      if (refused) {
+        expect(result).toEqual({ kind: "misnamed" });
+        expect(readMind(client).toJSON()).toEqual(before);
+        return;
+      }
+      expect(result).toMatchObject({ kind: "proposed" });
+      expect(await acceptThenUndo(client, before)).toEqual([lines[0], lines[1], lines[2], now]);
+    },
+  );
+
   // protects=a name alone on its line names the words after it, on the next line or after a blank one, so a model that breaks the line after a name isn't refused; fails_when=it is refused or the words are added beside; no_claim=none beyond protects.
   test.each(["¶2\nWater is 35 a month.", "¶2\n\nWater is 35 a month."])(
     "a name alone names the words after it: %j",
