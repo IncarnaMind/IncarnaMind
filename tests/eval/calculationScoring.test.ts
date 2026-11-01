@@ -198,6 +198,19 @@ describe("one requested result", () => {
     expect(score.falseChecked).toEqual([]);
   });
 
+  test("an amount in 万元 with no currency named, converted at a cited rate, is the right amount though it comes out a ratio", () => {
+    const { yuan, rate } = inputsOf("en-20") as { yuan: ExpectedInput; rate: ExpectedInput };
+    const score = scoreCase(
+      caseOf("en-20"),
+      answer({
+        figures: [
+          figure(1_205_529_707.814903, "ratio", [inputOf(yuan), inputOf(rate)], "1,205,529,707.81"),
+        ],
+      }),
+    );
+    expect(score.results[0]).toMatchObject({ outcome: "calculated", inputsRight: true });
+  });
+
   test("a right number written without the Tool is right but not Tool-covered", () => {
     const score = scoreCase(
       caseOf("zh-16"),

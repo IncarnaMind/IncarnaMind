@@ -11,7 +11,7 @@ import {
   bars,
   type CaseScore,
   type GroupScore,
-  type ObservedFigure,
+  type ObservedAnswer,
   type Rate,
   scoreGroup,
 } from "./score";
@@ -34,7 +34,8 @@ export interface ArmRun {
   };
   /** What the core priced it at, per currency. */
   spent: { currency: string; amount: number }[];
-  answers: { id: string; run: number; text: string; figures: readonly ObservedFigure[] }[];
+  /** What each Answer gave, as scored: a report can be scored again from it. */
+  answers: { id: string; run: number; observed: ObservedAnswer }[];
 }
 
 export interface CalculationsReport {

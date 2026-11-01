@@ -116,7 +116,12 @@ function figureFits(unit: ExpectedUnit, figure: ObservedFigure): boolean {
       return figure.unit === "points";
     case "USD":
     case "CNY":
-      return (figure.unit === "currency" && figure.currency === unit) || figure.unit === "plain";
+      // An amount whose Document names no currency ("单位：万元" alone) divided by a rate comes out a ratio.
+      return (
+        (figure.unit === "currency" && figure.currency === unit) ||
+        figure.unit === "plain" ||
+        figure.unit === "ratio"
+      );
   }
 }
 

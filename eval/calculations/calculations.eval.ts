@@ -275,12 +275,7 @@ test("calculations evaluation", async () => {
           const requests = billedIn(library.dataDir).requests - billed;
           const observed = observe(answer, each.language, names, seconds, requests);
           armRun.cases.push(scoreCase(each, observed));
-          armRun.answers.push({
-            id: each.id,
-            run,
-            text: observed.text,
-            figures: observed.figures,
-          });
+          armRun.answers.push({ id: each.id, run, observed });
           if (observed.status !== "done")
             log(
               `${each.id}, Tools ${arm}: ${observed.status}${observed.error ? ` (${observed.error})` : ""}`,
