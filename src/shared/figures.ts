@@ -127,8 +127,11 @@ export interface FigureContext {
   language?: string | null;
   /** The separators the Document's other numbers use (see `figureContextOf`). */
   separators?: Separators | null;
-  /** What "¥" stands for in the Document, when its text says. */
-  yen?: "CNY" | "JPY" | null;
+  /**
+   * What "¥" stands for in the Document, when its text says: "unsure" when the text names the
+   * other currency too ("日元" in Chinese text), so the number is refused rather than guessed.
+   */
+  yen?: "CNY" | "JPY" | "unsure" | null;
   /** A table header or caption that applies to the text: the scale or currency it states. */
   header?: string | null;
   /** Read years, dates, quarters and periods as plain figures too. */
@@ -662,10 +665,16 @@ export function figureContextOfFacts(
   }
   const cny = parts.some((part) => part.cny);
   const jpy = parts.some((part) => part.jpy);
+  const tag = language ? tagOf(language) : null;
+  // A Chinese text that names the yen leaves "¥" open, as a Japanese text naming yuan does.
+  const disputed = (tag?.language === "zh" && jpy) || (tag?.language === "ja" && cny);
+  const byLanguage = settle({ language }).yen;
+  const [only] = byLanguage;
+  const settled = byLanguage.length === 1 && (only === "CNY" || only === "JPY") ? only : null;
   return {
     language,
     separators: separatorsFrom(evidence),
-    yen: cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null,
+    yen: disputed ? "unsure" : (settled ?? (cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null)),
     accounts: parts.some((part) => part.accounts),
   };
 }
@@ -729,9 +738,9 @@ function settle(context: FigureContext): Settled {
   // "¥" is yuan in mainland Chinese, yen in Japanese; elsewhere the Document's own words must say.
   const traditional = tag?.script === "Hant" || YUAN[region] !== undefined;
   let yen = ["CNY", "JPY"];
-  if (context.yen) yen = [context.yen];
-  else if (tag?.language === "zh" && !traditional) yen = ["CNY"];
-  else if (tag?.language === "ja") yen = ["JPY"];
+  if (context.yen === "CNY" || context.yen === "JPY") yen = [context.yen];
+  else if (!context.yen && tag?.language === "zh" && !traditional) yen = ["CNY"];
+  else if (!context.yen && tag?.language === "ja") yen = ["JPY"];
   return {
     decimal: separators?.decimal ?? null,
     spaceGroups: separators?.group === " ",
@@ -880,6 +889,11 @@ const NAMED_CODES = new Map(
     .filter(([word]) => /^[a-z]/.test(word) || /^[A-Za-z.]+(?: [A-Za-z]+)+$/.test(word))
     .map(([word, code]) => [word.toLowerCase(), code]),
 );
+
+/** The currency a word after an amount names: "pounds" is GBP, "欧元" EUR; null for any other word. */
+export function currencyNamed(word: string): string | null {
+  return CURRENCY_CODES[word] ?? NAMED_CODES.get(word.toLowerCase()) ?? null;
+}
 
 const CN_CURRENCY_AFTER =
   /(?:新加坡元|瑞士法郎|新台币|澳门元|澳门币|人民币|美元|港元|港币|欧元|日元|英镑|澳元|加元|韩元|卢布|元|圆|円)(?:人民币)?/y;
@@ -1208,6 +1222,53 @@ export function readStatedUnits(
       unit: statement.unit,
     };
   });
+}
+
+/** A currency a line states on its own first figure, as written, as a code, and where that figure is. */
+export interface StatedCurrency {
+  chars: string;
+  code: string;
+  /** Where the figure starts in the line. */
+  at: number;
+}
+
+/**
+ * The currency a line writes on its own first figure ("Sale price £385,000.00"), as written and
+ * as a code, when no other figure on the line writes another; null when none does, when the
+ * reader leaves it two ways ("¥" outside a Chinese Document), or when the line writes two.
+ * A first figure of 0 is a scale written with a currency ("All figures in £000"), not an amount.
+ */
+export function currencyOnItsFigure(
+  text: string,
+  context: FigureContext = {},
+): StatedCurrency | null {
+  const figures = readFigures(text, { ...context, header: null });
+  const [first] = figures;
+  if (first?.unit.kind !== "currency" || first.currency === null) return null;
+  if (first.value === 0) return null;
+  const codes = new Set(figures.flatMap(currenciesOf));
+  return codes.size === 1
+    ? { chars: first.currency, code: first.unit.code, at: first.start }
+    : null;
+}
+
+// A currency a scale is written with: a sign, an ISO code or a Han currency word.
+const CURRENCY_ANY = `(?:${CURRENCY_ISO_CODES}|CN¥|JP¥|US\\$|HK\\$|A\\$|C\\$|S\\$|NT\\$|\\$|[¥€£₹₩₽₺฿₫₱]|${HAN_CURRENCIES})`;
+// The scale tokens a Document writes next to a currency when it scales its amounts.
+const SCALE_NEAR_CURRENCY =
+  "(?:Mio|Mrd|Tsd|thousands?|millions?|MM|mn|bn|k|K|m|M|B|T|['’]?0{3}s?|千|仟|万|萬|百万|百萬|亿|億)";
+const CURRENCY_SCALE = new RegExp(
+  `${CURRENCY_ANY}[ \\u00a0]?${SCALE_NEAR_CURRENCY}(?![A-Za-z])|(?<![A-Za-z])${SCALE_NEAR_CURRENCY}\\.?[ \\u00a0]?${CURRENCY_ANY}`,
+  "i",
+);
+
+/**
+ * A currency written next to a scale token ("£'000", "€ Mio.", "TEUR", "港幣百萬"), in either
+ * order; null when none is. A Document that writes one, in a title, a column head or a running
+ * header, scales its amounts somewhere, so a currency read from one line can't apply (#1001).
+ */
+export function currencyScaleMarker(text: string): string | null {
+  return CURRENCY_SCALE.exec(prepare(text).s)?.[0] ?? null;
 }
 
 // Numerals -------------------------------------------------------------------

@@ -54,7 +54,6 @@ import {
   type ScopeKind,
 } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
-import { setUnreadFileNames } from "../shared/unreadFiles";
 import { readVerification, verificationOf, writeVerification } from "../shared/verification";
 import { wordFileOf } from "../shared/wordFiles";
 import { wordFontsOf, wordLookOf } from "../shared/wordLook";
@@ -243,6 +242,7 @@ import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createTranscripts } from "./meetings/transcript";
+import { meetingWords } from "./meetings/words";
 import { accessFor, isKnownKind, parseKind } from "./mindAccess";
 import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
@@ -332,6 +332,7 @@ import {
   QWEN3_ASR_0_6B,
   TRANSCRIPTION_SPEED,
 } from "./transcription/model";
+import { inScript } from "./transcription/script";
 import { createSpeakerModel } from "./transcription/speakerModel";
 import { createUnsavedChanges } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
@@ -1873,6 +1874,8 @@ export function createCore(adapters: CoreAdapters): Core {
     liveTranscript: (mindId) => liveTranscriptOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     providerExists: (providerId) => chat.exists(providerId),
+    checkAnswer: (input) => checks.checkAnswer(input),
+    estimateAnswerCheck: (input) => checks.estimateAnswerCheck(input),
     defaultModel: () => settings.get().user.chatModel,
     readsImages: (choice) => chat.readsImages(choice),
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
@@ -1904,7 +1907,8 @@ export function createCore(adapters: CoreAdapters): Core {
       searchableNames: (documentIds, limit) =>
         documents.searchableNames(documentIds ?? undefined, limit),
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
-      searchableHasSheets: (documentIds) => documents.searchableHasSheets(documentIds ?? undefined),
+      searchableHasSheets: (documentIds, workbooksOnly) =>
+        documents.searchableHasSheets(documentIds ?? undefined, workbooksOnly),
       passage: (passageId) => documents.passage(passageId),
       passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
       passagesCovering: (documentId, from, to, overlapping) =>
@@ -2075,6 +2079,12 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       writeAnswer: (answerId, write) => {
         const answer = conversations.writeAnswer(answerId, write);
+        if (answer) events.emit("conversation.message", answer);
+        return answer !== null;
+      },
+      answer: (answerId) => conversations.answer(answerId),
+      writeCitations: (answerId, text, citations) => {
+        const answer = conversations.writeCitations(answerId, text, citations);
         if (answer) events.emit("conversation.message", answer);
         return answer !== null;
       },
@@ -2638,6 +2648,12 @@ export function createCore(adapters: CoreAdapters): Core {
       return metered && meter.estimateRead(metered, read);
     },
     readSpent: (requestId, currency) => meter.runSpent(requestId, currency),
+    capLeft() {
+      const { cap, spentTowardCap, setAsideTowardCap } = meter.summary();
+      if (!cap) return null;
+      const used = (spentTowardCap?.amount ?? 0) + (setAsideTowardCap?.amount ?? 0);
+      return { currency: cap.currency, amount: cap.amount - used };
+    },
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
@@ -4035,6 +4051,16 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       health: captureHealth,
       memo: (meetingId) => isMemo(db, meetingId),
+      wordsOf: (meetingId) =>
+        meetingWords({
+          db,
+          meetingId,
+          userWords: settings.get().user.meetingWords,
+          folderName: (folderId) =>
+            library.folders().find((folder) => folder.id === folderId)?.name ?? null,
+          folderDocuments: (folderId) => library.documentIds(folderId),
+        }),
+      lineText: (text, words) => inScript(text, settings.get().chineseScript, words),
       purgedPaths: () =>
         db
           .all<{ path: string }>(
@@ -4585,6 +4611,8 @@ export function createCore(adapters: CoreAdapters): Core {
       return documents.searchableCount(scopeDocuments(wanted) ?? undefined);
     },
     stopConversationAnswer: async (input) => answers.stopInConversation(input),
+    checkAnswerAgain: (input) => answers.checkAnswerAgain(input),
+    estimateAnswerCheck: (input) => answers.estimateAnswerCheck(input),
     usualAnswerWait: async (answerId) => conversations.usualWait(answerId),
     listConversations: async (options) => conversations.list(options),
     getConversation: async (conversationId) => conversations.content(conversationId),
@@ -5916,13 +5944,6 @@ export function createCore(adapters: CoreAdapters): Core {
         else if (style !== null) library.setCitationStyle(folderId, style);
       }
       return mindCitationStyle(mind.id);
-    },
-    setMindUnreadFileNames: async (mindId, names) => {
-      if (typeof names !== "boolean") {
-        throw new InvalidInputError({ key: "error.mind.unreadFileNames" });
-      }
-      const mind = writableMind(mindId);
-      content.editSettings(mind.id, (mindSettings) => setUnreadFileNames(mindSettings, names));
     },
     listCitationStyles: async () => citationStyles.list(),
     openCitationStyleLicences: async () => {

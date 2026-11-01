@@ -8,6 +8,7 @@
 import type { TranscriptionModelFiles } from "../adapters";
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import { engineModule, exportsOf } from "../engineModules";
+import { contextWords, echoes, hotwordsOf, mayMend, withToldWords } from "./context";
 import type { SpeechEngine, VoiceDetector } from "./speech";
 import { textOfResult, wordsOnly } from "./speechText";
 import { writtenNumbers } from "./spokenNumbers";
@@ -40,11 +41,14 @@ export const SHERPA = engineModule(
   ],
 );
 
-/** Reads a decoded stretch's result itself when sherpa's own reader refuses it (#981). */
+/**
+ * Reads a decoded stretch's result itself when sherpa's own reader refuses it (#981). A stream's
+ * options, which tell the model the words a stretch may hold (#1031), are set through it too.
+ */
 export const SHERPA_ADDON = engineModule(
   "sherpa-onnx-node/addon.js",
   async () => exportsOf(await import("sherpa-onnx-node/addon.js")),
-  ["getOfflineStreamResultAsJson"],
+  ["getOfflineStreamResultAsJson", "offlineStreamSetOption"],
 );
 
 type Sherpa = Awaited<ReturnType<typeof SHERPA.load>>;
@@ -132,22 +136,47 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
 
   const detector = () => sileroDetector(sherpa, model.vad, STRETCH_MIN_SPEECH);
 
+  async function read(samples: Float32Array, words: readonly string[]): Promise<string> {
+    const stream = recognizer.createStream();
+    if (words.length > 0) stream.setOption("hotwords", hotwordsOf(words));
+    stream.acceptWaveform({ samples, sampleRate: MEETING_SAMPLE_RATE });
+    try {
+      return writtenNumbers(wordsOnly((await recognizer.decodeAsync(stream)).text));
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      // The stretch was decoded; sherpa's reader refused its JSON (#981): read it here.
+      const addon = await SHERPA_ADDON.load();
+      return writtenNumbers(
+        wordsOnly(textOfResult(addon.getOfflineStreamResultAsJson(stream.handle))),
+      );
+    }
+  }
+
   return {
     detector,
     recognizer: {
-      async decode(samples) {
-        const stream = recognizer.createStream();
-        stream.acceptWaveform({ samples, sampleRate: MEETING_SAMPLE_RATE });
+      async decode(samples, _stream, given) {
+        const words = contextWords(given);
+        const plain = await read(samples, []);
+        if (!mayMend(plain, words)) return plain;
+        let told: string;
         try {
-          return writtenNumbers(wordsOnly((await recognizer.decodeAsync(stream)).text));
+          told = await read(samples, words);
         } catch (error) {
-          if (!(error instanceof SyntaxError)) throw error;
-          // The stretch was decoded; sherpa's reader refused its JSON (#981): read it here.
-          const addon = await SHERPA_ADDON.load();
-          return writtenNumbers(
-            wordsOnly(textOfResult(addon.getOfflineStreamResultAsJson(stream.handle))),
+          // The second reading only mends names: the stretch keeps the reading it has.
+          console.warn(
+            "The speech model couldn't read a stretch again with its words; it keeps its plain reading.",
+            error instanceof Error ? error.name : typeof error,
+          );
+          return plain;
+        }
+        if (echoes(told, words)) {
+          // The process has no logger of its own: its output goes to the app's log. No words in it.
+          console.warn(
+            "The speech model wrote the words it was told; the stretch keeps its plain reading.",
           );
         }
+        return withToldWords(plain, told, words);
       },
     },
     // The recognizer and detectors are freed with the process; nothing holds them here.

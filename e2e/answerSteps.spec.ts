@@ -143,7 +143,7 @@ async function start(options: { documents?: boolean; local?: boolean; model?: st
   return { app, window };
 }
 
-/** Asks in the assistant, as a person does, and resolves with the Answer once written. */
+/** Asks in the assistant, as a person does, and resolves with the Answer once written and its sentences judged. */
 async function ask(window: Page, question: string): Promise<Locator> {
   const answers = assistantAnswers(window);
   const before = await answers.count();
@@ -153,6 +153,9 @@ async function ask(window: Page, question: string): Promise<Locator> {
   await expect(answers).toHaveCount(before + 1, { timeout: 15_000 });
   const answer = answers.last();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  await expect(answer.locator('[data-testid="citation"][data-check="checking"]')).toHaveCount(0, {
+    timeout: 30_000,
+  });
   return answer;
 }
 
@@ -503,6 +506,31 @@ test("the folded line opens by click, Enter and Space, at once, to the reasoning
   await expect(frontMindName(window)).toHaveText("Moon notes");
   await pointAndClick(window, timeline.getByTestId("answer-step-read"));
   await expect(frontMindName(window)).toHaveText("Lit review: tides");
+  await app.close();
+});
+
+test("a sentence its quote doesn't support loses its green check, and the check step says it needs a look, in English and Chinese (#2311)", async () => {
+  const { app, window } = await start();
+  await core(window).mind("Lit review: tides");
+  const kept = await ask(window, "When do spring tides happen?");
+  await expect(kept.getByTestId("citation")).toHaveAttribute("data-check", "found");
+
+  const beyond = await ask(window, "When do spring tides happen, beyond its quote?");
+  await expect(beyond.getByTestId("citation")).toHaveAttribute("data-check", "unsupported");
+  await pointAndClick(window, beyond.getByTestId("answer-steps"));
+  await expect(beyond.getByTestId("answer-timeline").locator('[data-step="check"]')).toHaveText(
+    "Checked 1 Citation against its source · 1 needs a look",
+  );
+  await screenshot(window, "beyond-its-quote-en");
+
+  await core(window).language("zh-CN");
+  const chinese = await ask(window, "spring tides 什么时候出现？超出引文");
+  await expect(chinese.getByTestId("citation")).toHaveAttribute("data-check", "unsupported");
+  await pointAndClick(window, chinese.getByTestId("answer-steps"));
+  await expect(chinese.getByTestId("answer-timeline").locator('[data-step="check"]')).toHaveText(
+    "把 1 处引用和原文核对 · 1 处需要留意",
+  );
+  await screenshot(window, "beyond-its-quote-zh");
   await app.close();
 });
 

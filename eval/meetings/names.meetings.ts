@@ -1,0 +1,236 @@
+/**
+ * `npm run eval:meetings -- names` (eval/meetings/README.md, Words to know): two calls full of
+ * names, one in English and one in Chinese, in synthetic speech (macOS `say`, the voices in
+ * names.json), as #1031 measured the built app on them. Each call's two sides are the
+ * microphone's and the computer sound's tracks, fed to the code the app runs (`createSpeechHost`,
+ * Qwen3-ASR 0.6B with Silero VAD) in 100 ms frames, seven times: told no words, told the call's
+ * own names (as its Note and Folder give them), told those and the other call's (as a User's list
+ * holds both), told only the other call's names, told twenty names in the call's language that
+ * sound like its own but are never said, told names that sound the same as its own but are other
+ * people's (Danielle for Daniel), and told names that are also everyday words. Each run also
+ * counts the stretches the engine would read twice: those whose plain reading holds a told name
+ * misheard (`mayMend`).
+ *
+ * The audio is made the first time into the evaluation's cache, `meetings/names/`; macOS only.
+ * INCARNAMIND_EVAL_OUT: the results folder (default eval/results/meetings-names-<date>).
+ */
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, test } from "vitest";
+import { MEETING_SAMPLE_RATE, type SpeechSegment } from "../../src/core/adapters";
+import { contextWords, mayMend } from "../../src/core/transcription/context";
+import { QWEN3_ASR_0_6B, transcriptionModelFiles } from "../../src/core/transcription/model";
+import { createSherpaEngine } from "../../src/core/transcription/sherpa";
+import { createSpeechHost } from "../../src/core/transcription/speech";
+import { monoSamples } from "../lib/wav";
+import { FRAME, modelData } from "../transcription/clips";
+import { characters, errorRate, words } from "../transcription/scoring";
+import { meetingsCache } from "./cache";
+import { scoreTerms, type TermScore } from "./terms";
+import type { Hypothesis, Reference, Track } from "./types";
+
+interface Call {
+  id: string;
+  language: "en" | "zh";
+  voices: { me: string; them: string };
+  /** What the call's Note and Folder would tell the transcriber. */
+  names: string[];
+  /** Every name said, the parts of a name said alone too, for scoring. */
+  said: string[];
+  /** Names in the call's language that sound like its own, none of them said. */
+  decoys: string[];
+  /** Names that sound the same as some of its own, other people's, none of them said. */
+  sameSounding: string[];
+  /** Names that are also everyday words, some of them said as the word. */
+  commonWords: string[];
+  lines: { side: "me" | "them"; text: string }[];
+}
+
+const ARMS = [
+  "none",
+  "own",
+  "own and other",
+  "other only",
+  "decoys",
+  "same sounding",
+  "common words",
+] as const;
+type Arm = (typeof ARMS)[number];
+
+const GAP_SECONDS = 0.8;
+const YIELD_EVERY = 50;
+const callsFile = join(dirname(fileURLToPath(import.meta.url)), "names.json");
+
+/**
+ * Each line's speech, made with `say` the first time and kept as 16 kHz mono 16-bit WAV, named
+ * for its voice and words, so a line changed in names.json is spoken again.
+ */
+async function lineAudio(call: Call, at: number): Promise<Float32Array> {
+  const folder = join(meetingsCache(), "names");
+  const line = call.lines[at] as Call["lines"][number];
+  const voice = call.voices[line.side];
+  const key = createHash("sha256").update(`${voice}\n${line.text}`).digest("hex").slice(0, 16);
+  const wav = join(folder, `${call.id}-${String(at).padStart(2, "0")}-${key}.wav`);
+  if (!existsSync(wav)) {
+    await mkdir(folder, { recursive: true });
+    const aiff = `${wav}.aiff`;
+    const partial = `${wav}.partial.wav`;
+    execFileSync("say", ["-v", voice, "-r", "165", "-o", aiff, line.text]);
+    execFileSync("afconvert", ["-f", "WAVE", "-d", "LEI16@16000", "-c", "1", aiff, partial]);
+    await rename(partial, wav);
+    await rm(aiff, { force: true });
+  }
+  return monoSamples(await readFile(wav), wav);
+}
+
+/** The call laid out as a conversation: each side's lines on its own track, one after another. */
+async function layOut(call: Call) {
+  const placed: { start: number; samples: Float32Array; track: Track; text: string }[] = [];
+  let at = 1;
+  for (const [index, line] of call.lines.entries()) {
+    const samples = await lineAudio(call, index);
+    placed.push({
+      start: at,
+      samples,
+      track: line.side === "me" ? "mic" : "system",
+      text: line.text,
+    });
+    at += samples.length / MEETING_SAMPLE_RATE + GAP_SECONDS;
+  }
+  const length = Math.ceil((at + 1) * MEETING_SAMPLE_RATE);
+  const tracks = { mic: new Float32Array(length), system: new Float32Array(length) };
+  for (const each of placed) {
+    (each.track === "mic" ? tracks.mic : tracks.system).set(
+      each.samples,
+      Math.round(each.start * MEETING_SAMPLE_RATE),
+    );
+  }
+  const reference: Reference = {
+    format: 1,
+    segments: placed.map((each) => ({
+      start: each.start,
+      end: each.start + each.samples.length / MEETING_SAMPLE_RATE,
+      speaker: each.track,
+      text: each.text,
+      track: each.track,
+    })),
+  };
+  return { tracks, reference };
+}
+
+describe("Words to know on two calls full of names (#1031)", () => {
+  test("the names' error rate told and not told, and everything else's", async () => {
+    const { calls } = JSON.parse(await readFile(callsFile, "utf8")) as { calls: Call[] };
+    const date = new Date().toISOString().slice(0, 10);
+    const out =
+      process.env.INCARNAMIND_EVAL_OUT ??
+      join(process.cwd(), "eval", "results", `meetings-names-${date}`);
+    await mkdir(out, { recursive: true });
+    const engine = await createSherpaEngine(
+      transcriptionModelFiles(await modelData(), QWEN3_ASR_0_6B),
+    );
+    const results: {
+      call: string;
+      arm: Arm;
+      told: string[];
+      errors: ReturnType<typeof errorRate>;
+      names: TermScore;
+      lines: string[];
+      changed: number;
+      readTwice: number;
+    }[] = [];
+
+    for (const call of calls) {
+      const other = calls.find((each) => each !== call) as Call;
+      const { tracks, reference } = await layOut(call);
+      for (const arm of ARMS) {
+        const toldIn: Record<Arm, string[]> = {
+          none: [],
+          own: call.names,
+          "own and other": [...call.names, ...other.names],
+          "other only": other.names,
+          decoys: call.decoys,
+          "same sounding": call.sameSounding,
+          "common words": call.commonWords,
+        };
+        const told = toldIn[arm];
+        const notSaid: Record<Arm, string[]> = {
+          none: [],
+          own: [],
+          "own and other": other.names,
+          "other only": other.names,
+          decoys: call.decoys,
+          "same sounding": call.sameSounding,
+          "common words": [],
+        };
+        const segments: SpeechSegment[] = [];
+        const host = createSpeechHost(engine, {
+          segment: (segment) => {
+            if (segment.final && segment.text) segments.push(segment);
+          },
+          progress: () => {},
+          failed: (stream, message) => console.error(`${call.id} ${stream}: ${message}`),
+        });
+        for (const track of ["mic", "system"] as const) host.words(track, told);
+        for (let at = 0, frames = 0; at < tracks.mic.length; at += FRAME, frames++) {
+          host.push("mic", tracks.mic.subarray(at, at + FRAME));
+          host.push("system", tracks.system.subarray(at, at + FRAME));
+          if (frames % YIELD_EVERY === 0) await new Promise((resolve) => setImmediate(resolve));
+        }
+        await Promise.all([host.finish("mic"), host.finish("system")]);
+        const hypothesis: Hypothesis = {
+          case: call.id,
+          transcriber: `${QWEN3_ASR_0_6B.name}, told ${arm}`,
+          segments: segments
+            .map((segment) => ({
+              start: segment.startMs / 1000,
+              end: segment.endMs / 1000,
+              text: segment.text,
+            }))
+            .sort((a, b) => a.start - b.start),
+        };
+        const split = call.language === "en" ? words : characters;
+        const text = (each: { text: string }[]) => each.map((segment) => segment.text).join(" ");
+        const lines = hypothesis.segments.map((segment) => segment.text);
+        const plain = results.find((each) => each.call === call.id && each.arm === "none");
+        results.push({
+          call: call.id,
+          arm,
+          told,
+          errors: errorRate(split(text(reference.segments)), split(text(hypothesis.segments))),
+          names: scoreTerms(call.language, reference, hypothesis, {
+            said: call.said,
+            notSaid: notSaid[arm],
+          }),
+          lines,
+          // Exactly, case and all: a told name may change only a word that is that name misheard.
+          changed: plain
+            ? Math.max(plain.lines.length, lines.length) -
+              lines.filter((line, at) => line === plain.lines[at]).length
+            : 0,
+          readTwice: (plain?.lines ?? lines).filter((line) => mayMend(line, contextWords(told)))
+            .length,
+        });
+      }
+    }
+    engine.close();
+
+    const rows = [
+      "| Call | Told | Error rate | Names not written exactly | Other units' error rate | Told, never said, written | Lines unlike told nothing | Stretches read twice |",
+      "|---|---|---|---|---|---|---|---|",
+      ...results.map(
+        ({ call, arm, errors, names, changed, readTwice, lines }) =>
+          `| ${call} | ${arm} | ${(100 * errors.rate).toFixed(1)}% (${errors.errors} of ${errors.total}) | ${names.wrong} of ${names.occurrences} | ${((100 * names.others.errors) / Math.max(1, names.others.total)).toFixed(1)}% | ${names.unsaid} | ${changed} | ${readTwice} of ${lines.length} |`,
+      ),
+    ];
+    const report = rows.join("\n");
+    await writeFile(join(out, "names.md"), `${report}\n`);
+    await writeFile(join(out, "names.json"), JSON.stringify(results, null, 2));
+    console.log(report);
+    expect(results.length).toBe(calls.length * ARMS.length);
+  });
+});

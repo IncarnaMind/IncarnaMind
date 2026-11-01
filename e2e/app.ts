@@ -2812,7 +2812,7 @@ const answerEnded = (window: Page, known: readonly string[]) =>
 /**
  * Asks a Question as a person does: ⌘J, the words, Enter. It is asked in the
  * assistant's conversation (#201); resolves with its Answer there once the assistant says its
- * stream ended and the page shows it done. The scripted model streams a word every
+ * stream ended, the page shows it done, and its sentences are judged (#2311). The scripted model streams a word every
  * 60 ms, so a wide table takes about 7 s on a quiet computer, and a loaded runner took more than
  * twice the old 15 s ceiling (#1651).
  */
@@ -2846,6 +2846,10 @@ export async function askInAssistant(
   await expect(endedHere).toHaveAttribute(
     "data-status",
     end.status === "closed" ? "done" : end.status,
+    { timeout },
+  );
+  await expect(endedHere.locator('[data-testid="citation"][data-check="checking"]')).toHaveCount(
+    0,
     { timeout },
   );
   return answer;
@@ -2926,6 +2930,10 @@ export async function openSteps(window: Page, answer: Locator): Promise<Locator>
  */
 export async function addToNote(window: Page, answer: Locator): Promise<void> {
   await pointAt(window, answer.getByTestId("assistant-answer-text"));
+  // A Citation marker under the pointer opens its card over the Answer's foot: let it close
+  // before aiming at the button, as a person does, or the card takes the click.
+  await window.mouse.move(0, 0);
+  await expect(window.getByTestId("citation-card")).toHaveCount(0);
   await pointAndClick(window, answer.getByTestId("answer-add"));
   await expect(answer.getByTestId("answer-added")).toBeVisible();
   await expect(window.locator(".block-just-added")).toHaveCount(0);

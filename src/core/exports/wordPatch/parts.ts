@@ -5,10 +5,12 @@
  * so a Citation is the same footnote, and a list the same Word list, whichever
  * export made it.
  */
-import { elements } from "../../documents/formats/xml";
+import type { NumberingScheme } from "../../../shared/numbering";
+import { child, elements } from "../../documents/formats/xml";
 import {
   type DocxStyles,
   type DocxTarget,
+  type ListKind,
   listDefinition,
   listInstance,
   NEW_DOCUMENT_STYLE_IDS,
@@ -202,8 +204,8 @@ export class DocumentNumbering {
   private readonly instances: string[] = [];
   private nextDefinition: number;
   private nextInstance: number;
-  /** The definitions added for bullets and for numbers. */
-  private readonly own = new Map<boolean, number>();
+  private readonly own = new Map<ListKind, number>();
+  private readonly added = new Map<number, number>();
 
   private constructor(
     private readonly pkg: WordPackageWriter,
@@ -231,17 +233,38 @@ export class DocumentNumbering {
     return new DocumentNumbering(pkg, document, relationships, name ?? "word/numbering.xml", part);
   }
 
-  /** A new list: its numId. Each ordered one starts at `start`. */
-  list(ordered: boolean, level: number, start: number): number {
-    let definition = this.own.get(ordered);
+  /** A new list: its numId, its items at Word level `level` and drawn from `from` of its scheme. Each numbered one starts at `start`. */
+  list(kind: ListKind, level: number, start: number, from?: number): number {
+    // A list that starts deeper gets a definition of its own, as in a new document (#1419).
+    const alone = kind !== "bullet" && level > 0;
+    let definition = alone ? undefined : this.own.get(kind);
     if (definition === undefined) {
       definition = this.nextDefinition++;
-      this.own.set(ordered, definition);
-      this.definitions.push(listDefinition(definition, ordered));
+      if (!alone) this.own.set(kind, definition);
+      this.definitions.push(listDefinition(definition, kind, level - (from ?? level)));
     }
     const numId = this.nextInstance++;
-    this.instances.push(listInstance(numId, definition, { ordered, level, start }));
+    this.instances.push(listInstance(numId, definition, { kind, level, start }));
+    this.added.set(numId, definition);
     return numId;
+  }
+
+  /** Another list of `numId`'s definition, the file's or one added, starting again at `start` at `level`. */
+  restart(numId: number, scheme: NumberingScheme, level: number, start: number): number {
+    const definition = this.added.get(numId) ?? this.fileDefinitionOf(numId);
+    if (definition === null) return numId;
+    const restarted = this.nextInstance++;
+    this.instances.push(listInstance(restarted, definition, { kind: scheme, level, start }));
+    this.added.set(restarted, definition);
+    return restarted;
+  }
+
+  private fileDefinitionOf(numId: number): number | null {
+    const num = (this.part ? elements(this.part.root) : []).find(
+      (each) => each.name === "w:num" && Number(each.attrs["w:numId"]) === numId,
+    );
+    const definition = Number(num && child(num, "w:abstractNumId")?.attrs["w:val"]);
+    return num && Number.isFinite(definition) ? definition : null;
   }
 
   /**
@@ -478,8 +501,12 @@ export class PatchTarget implements DocxTarget {
     return { id: this.relationships.add(RELATIONSHIP_TYPES.image, `media/${name}`), name };
   }
 
-  list(ordered: boolean, level: number, start: number): number {
-    return this.numbering.list(ordered, level, start);
+  list(kind: ListKind, level: number, start: number, from?: number): number {
+    return this.numbering.list(kind, level, start, from);
+  }
+
+  restart(numId: number, scheme: NumberingScheme, level: number, start: number): number {
+    return this.numbering.restart(numId, scheme, level, start);
   }
 
   /** A note's bookmark, named so it can't resolve to one the file already has. */

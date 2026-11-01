@@ -30,6 +30,7 @@
  * the XML parser's refusal of a DOCTYPE apply (./zip, ./xml).
  */
 import type { MarkJSON, NodeJSON } from "../../../shared/blockJson";
+import { type NumberingScheme, schemeOfWordLevels } from "../../../shared/numbering";
 import { NODE_CHARACTER, targetHash } from "../../../shared/proposals";
 import { MAX_NOTE_START, readWordAtom } from "../../../shared/wordFiles";
 import { groupWordLists } from "../../../shared/wordLists";
@@ -326,6 +327,8 @@ function styleChain(styles: Styles, id: string | null): ParagraphStyle[] {
 interface ListLevel {
   format: string;
   start: number;
+  /** Its number's text, "%1." or "(%2)": the scheme it is written in (#1419). */
+  text: string;
 }
 
 interface Numbering {
@@ -338,8 +341,10 @@ interface Numbering {
 function readLevel(lvl: XmlElement): Partial<ListLevel> {
   const format = child(lvl, "w:numFmt")?.attrs["w:val"];
   const start = child(lvl, "w:start")?.attrs["w:val"];
+  const text = child(lvl, "w:lvlText")?.attrs["w:val"];
   return {
     ...(format !== undefined && { format }),
+    ...(text !== undefined && { text }),
     ...(start !== undefined && Number.isFinite(Number(start)) && { start: Number(start) }),
   };
 }
@@ -358,6 +363,7 @@ function readNumbering(xml: string | undefined, styles: Styles): Numbering {
         levels.set(Number(lvl.attrs["w:ilvl"] ?? 0), {
           format: level.format ?? "decimal",
           start: level.start ?? 1,
+          text: level.text ?? "",
         });
       }
       abstracts.set(id, levels);
@@ -1271,7 +1277,26 @@ class Reader {
   private blocks(container: XmlElement, into: NodeJSON[], inCell: boolean): void {
     const items: Item[] = [];
     this.collect(container, items, inCell);
-    into.push(...groupLists(items));
+    into.push(...groupLists(items, (numId, used, own) => this.schemeOf(numId, used, own)));
+  }
+
+  private schemeOf(
+    numId: string,
+    used: readonly number[],
+    own: readonly number[],
+  ): { scheme: NumberingScheme; startLevel: number } | null {
+    const num = this.numbering.nums.get(numId);
+    const base = num ? this.numbering.abstracts.get(num.abstract) : undefined;
+    const levels = new Map<number, { format: string; text: string }>();
+    for (let level = 0; level <= Math.max(...used); level++) {
+      const override = num?.overrides.get(level);
+      const own = base?.get(level);
+      levels.set(level, {
+        format: override?.format ?? own?.format ?? "decimal",
+        text: override?.text ?? own?.text ?? "",
+      });
+    }
+    return schemeOfWordLevels(levels, used, own);
   }
 
   private collect(container: XmlElement, items: Item[], inCell: boolean): void {
@@ -2283,23 +2308,62 @@ function rowsOf(
   return rows;
 }
 
-const groupLists = (items: readonly Item[]): NodeJSON[] =>
-  groupWordLists(
-    items.map(({ node, list }) => ({
-      node,
-      list: list && {
-        listId: list.numId,
-        level: list.level,
-        ordered: list.ordered,
-        number: list.number,
-      },
-    })),
+function groupLists(
+  items: readonly Item[],
+  schemeOf: (
+    numId: string,
+    used: readonly number[],
+    own: readonly number[],
+  ) => { scheme: NumberingScheme; startLevel: number } | null,
+): NodeJSON[] {
+  const levelsUsed = (key: (list: ListInfo) => string) => {
+    const used = new Map<string, Set<number>>();
+    for (const { list } of items) {
+      if (!list?.ordered) continue;
+      const levels = used.get(key(list)) ?? new Set();
+      levels.add(list.level);
+      used.set(key(list), levels);
+    }
+    return used;
+  };
+  // A nested list is an instance of its outer list's definition, as Word writes "Restart at 1":
+  // the scheme is the definition's, the level a list starts at its own items'.
+  const byDefinition = levelsUsed((list) => list.abstract);
+  const byList = levelsUsed((list) => list.numId);
+  const abstractOf = new Map(
+    items.flatMap(({ list }) => (list ? [[list.numId, list.abstract]] : [])),
+  );
+  const schemes = new Map(
+    [...byList].map(([numId, own]) => [
+      numId,
+      schemeOf(numId, [...(byDefinition.get(abstractOf.get(numId) ?? "") ?? own)], [...own]),
+    ]),
+  );
+  return groupWordLists(
+    items.map(({ node, list }) => {
+      const scheme = list && schemes.get(list.numId);
+      return {
+        node,
+        list: list && {
+          listId: list.numId,
+          level: list.level,
+          ordered: list.ordered,
+          number: list.number,
+          ...(scheme && { scheme: scheme.scheme, startLevel: scheme.startLevel }),
+        },
+      };
+    }),
     {
-      list: (place) =>
+      list: (place, startLevel) =>
         place.ordered
           ? {
               type: "orderedList",
-              attrs: { [BLOCK_ID_ATTRIBUTE]: newId(), start: place.number },
+              attrs: {
+                [BLOCK_ID_ATTRIBUTE]: newId(),
+                start: place.number,
+                ...(place.scheme && place.scheme !== "default" && { numbering: place.scheme }),
+                ...(startLevel > 0 && { startLevel }),
+              },
               content: [],
             }
           : { type: "bulletList", attrs: { [BLOCK_ID_ATTRIBUTE]: newId() }, content: [] },
@@ -2311,3 +2375,4 @@ const groupLists = (items: readonly Item[]): NodeJSON[] =>
       },
     },
   );
+}

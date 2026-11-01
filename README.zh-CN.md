@@ -171,4 +171,4 @@ IncarnaMind 始于 2023 年，最初是一个和 PDF 对话的 Python 工具，�
 
 ## 许可证
 
-[Apache License 2.0](LICENSE)。随应用附带的字体（Source Serif 4、Source Sans 3、JetBrains Mono）采用 [SIL Open Font License 1.1](https://openfontlicense.org)。引用格式和语言文件原样取自 [Citation Style Language](https://citationstyles.org/) 项目，采用 [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) 许可，由 [Hayagriva](https://github.com/typst/hayagriva)（MIT 或 Apache-2.0）排版。相关声明见 [`resources/notices`](resources/notices)。
+[Apache License 2.0](LICENSE)。随应用附带的字体（Source Serif 4、JetBrains Mono、Carlito、Caladea）采用 [SIL Open Font License 1.1](https://openfontlicense.org)。引用格式和语言文件原样取自 [Citation Style Language](https://citationstyles.org/) 项目，采用 [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) 许可，由 [Hayagriva](https://github.com/typst/hayagriva)（MIT 或 Apache-2.0）排版。相关声明见 [`resources/notices`](resources/notices)。

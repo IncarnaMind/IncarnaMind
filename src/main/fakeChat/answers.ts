@@ -5,7 +5,8 @@
  * of the first Passage that shares a word with the Question (on the page, or
  * at the Location, that line is on), then answers with a marker. A Question
  * with "misquote" in it gets a quote that isn't on the page; one with "no page"
- * names no page, as a small model often doesn't; one with "without citing" (不引用)
+ * names no page, as a small model often doesn't; one with "beyond its quote" (超出引文) says more
+ * than its quote does, which the scripted check finds unsupported; one with "without citing" (不引用)
  * writes a marker and never calls cite, as a model sometimes does; one with "citing as text" (文字引用)
  * writes its records as text in a <cite> block instead of calling cite; one with "each"
  * cites the first Passage of each Document found, with a marker for each; one
@@ -36,7 +37,8 @@
  * search, as a model does whose first Passages fall short. One that asks how much something
  * grew (增长) has the growth from the first two numbers of its quote calculated, and writes it
  * with its marker; one that also asks for a share (占比) gets the earlier number's share of the
- * later one as a second figure.
+ * later one as a second figure. One that asks what drives 2027 EBITDA (2027 年的 EBITDA 由什么驱动)
+ * traces it through its workbook's formulas and works it out again at 3% growth (#2347).
  * As models did (#1172), one for a "short summary" (简短的摘要) ends with a
  * paragraph pointing to an earlier Answer, and one about "home working"
  * (居家办公) asked beside a Mind ends by setting the Documents apart from it,
@@ -77,6 +79,7 @@ import {
   USAGE,
   userText,
 } from "./prompt";
+import { WORKBOOK_WHAT_IF, workbookWhatIf } from "./workbookFormulas";
 
 /** What the scripted model reasons before it searches: a line that quotes the Question. */
 const reasoningFor = (question: string) => `Search the Documents for “${question}”.`;
@@ -111,6 +114,12 @@ const FOUND_PAGES = [
 
 /** The scripted Answer when it cited something: one sentence with a marker. */
 export const CITED_ANSWER = "Your Documents answer this [^1].\n\nThat is all.";
+
+/** A Question whose Answer says more than its quote does: the scripted check finds it unsupported (#2311). */
+const BEYOND_ITS_QUOTE = /\bbeyond its quote\b|超出引文/i;
+
+/** The sentence such an Answer writes, which says more than its quote: the scripted check finds it unsupported. */
+export const SAYS_MORE = /\bit is already done\b|这件事已经完成/u;
 
 /**
  * A Question whose model, after its search, runs on for pages of working notes instead of an
@@ -548,6 +557,42 @@ export function searchParts(tool: string, query: string): StreamPart[] {
 }
 
 const BY_REGION = /\bby region\b|按地区/i;
+const AGAINST_SPEND = /\bad spend\b|广告投入/i;
+
+/** A regression of revenue on ad spend, its plot, and the total IncarnaMind works out again. */
+function regressionReply(prompt: Prompt, question: string, searched: string): Reply | null {
+  const chinese = /\p{Script=Han}/u.test(question);
+  if (toolResults(prompt, "run_analysis").length > 0) {
+    return {
+      text: chinese
+        ? "广告投入每增加 1，收入增加 [=1]，收入合计 [=2]。\n\n[=picture 1]"
+        : "Each unit of ad spend adds [=1] of revenue, out of [=2] in total.\n\n[=picture 1]",
+    };
+  }
+  const marketing = passagesIn(searched).find((passage) =>
+    /marketing|营销/i.test(passage.document),
+  );
+  if (!marketing) return null;
+  const code = [
+    "import statsmodels.formula.api as smf",
+    "import matplotlib.pyplot as plt",
+    'df = inputs["marketing"].dropna(subset=["Revenue"])',
+    'fit = smf.ols("Revenue ~ AdSpend", data=df).fit()',
+    `result("slope", fit.params["AdSpend"], "${chinese ? "每单位广告投入带来的收入" : "Revenue per unit of ad spend"}", of=df[["AdSpend", "Revenue"]])`,
+    `figure("total", df["Revenue"], "sum", "${chinese ? "收入合计" : "Total revenue"}")`,
+    "fig, ax = plt.subplots()",
+    'ax.scatter(df["AdSpend"], df["Revenue"])',
+    'ax.set_title("Revenue against ad spend")',
+  ].join("\n");
+  return {
+    tool: "run_analysis",
+    input: {
+      title: chinese ? "收入对广告投入的回归" : "Revenue against ad spend",
+      inputs: [{ name: "marketing", passage: marketing.id }],
+      code,
+    },
+  };
+}
 const WITH_MANAGERS = /\bmanager|负责人/i;
 
 function analysisReply(prompt: Prompt, question: string, searched: string): Reply | null {
@@ -634,8 +679,14 @@ function answerFrom(
   searches: readonly string[],
   skill: string | null,
 ): Reply {
+  if (tools.includes("trace_formulas") && WORKBOOK_WHAT_IF.test(question))
+    return workbookWhatIf(prompt, question, searches.at(-1) ?? "");
   if (tools.includes("run_analysis") && BY_REGION.test(question)) {
     const reply = analysisReply(prompt, question, searches.at(-1) ?? "");
+    if (reply) return reply;
+  }
+  if (tools.includes("run_analysis") && AGAINST_SPEND.test(question)) {
+    const reply = regressionReply(prompt, question, searches.at(-1) ?? "");
     if (reply) return reply;
   }
   const claimed = prompt
@@ -686,6 +737,13 @@ function answerFrom(
         };
       return { text: chinese ? "增长了[=1][^1]。" : "It grew [=1] [^1].\n\nThat is all." };
     }
+  }
+  if (BEYOND_ITS_QUOTE.test(question)) {
+    return {
+      text: /\p{Script=Han}/u.test(question)
+        ? "文档说这件事已经完成[^1]。"
+        : "Your Documents say it is already done [^1].",
+    };
   }
   const firstPassage = passagesIn(searches.at(-1) ?? "")[0];
   const quoted = firstPassage && recordFor(firstPassage, question, 1)?.quoted;

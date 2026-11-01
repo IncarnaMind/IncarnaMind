@@ -1,17 +1,18 @@
 /**
- * Each place meeting audio can be transcribed (#141), on the same FLEURS clips: this computer
- * (Qwen3-ASR-0.6B with Silero VAD), OpenAI's live model and Soniox, each with the User's own
- * key. Three streams go to each, fed in 100 ms frames at the pace they were spoken, through the
+ * Each place meeting audio can be transcribed (#141, #463), on the same FLEURS clips: this
+ * computer (Qwen3-ASR-0.6B with Silero VAD), OpenAI's live model, Soniox and Qwen's
+ * (Alibaba Cloud Model Studio) `fun-asr-realtime`, each with the User's own key. Three streams go to each, fed in 100 ms frames at the pace they were spoken, through the
  * code the app runs (`createSpeechHost`, and the cloud adapters in
  * src/core/transcription/cloud): the English clips, the Chinese clips, and the two taking
  * turns, as a meeting in both languages does. Reports WER for English, CER for Chinese, and for
  * the mixed stream an error rate counting each Han character and each English word as one unit.
  *
  * INCARNAMIND_EVAL_CLIPS: the folder fetch-fleurs.py wrote (required).
- * OPENAI_API_KEY, SONIOX_API_KEY: a route runs only with its key.
+ * OPENAI_API_KEY, SONIOX_API_KEY, QWEN_API_KEY: a route runs only with its key. Qwen's key works
+ * in one region: QWEN_REGION is "cn" (Beijing, the default) or "intl" (Singapore).
  * INCARNAMIND_EVAL_RECORD: a folder to write what each service sent back, as the adapters'
  * contract tests replay it.
- * INCARNAMIND_EVAL_ROUTES: only these routes, comma-separated ("openai,soniox").
+ * INCARNAMIND_EVAL_ROUTES: only these routes, comma-separated ("openai,soniox,qwen").
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { loadavg } from "node:os";
@@ -20,9 +21,12 @@ import { describe, expect, test } from "vitest";
 import { MEETING_SAMPLE_RATE, type SpeechSegment } from "../../src/core/adapters";
 import {
   OPENAI_LIVE_TRANSCRIPTION_MODEL,
+  QWEN_REALTIME_MODEL,
+  qwenRegion,
   SONIOX_REALTIME_MODEL,
 } from "../../src/core/providers/catalog/transcription";
 import { createOpenAiStream } from "../../src/core/transcription/cloud/openai";
+import { createQwenStream } from "../../src/core/transcription/cloud/qwen";
 import { type CloudConnect, connectWebSocket } from "../../src/core/transcription/cloud/socket";
 import { createSonioxStream } from "../../src/core/transcription/cloud/soniox";
 import type { CloudStreamHandle } from "../../src/core/transcription/cloud/stream";
@@ -35,7 +39,7 @@ import { characters, type ErrorRate, errorRate, words } from "./scoring";
 const CLIPS = process.env.INCARNAMIND_EVAL_CLIPS;
 const RECORD = process.env.INCARNAMIND_EVAL_RECORD;
 
-type Route = "local" | "openai" | "soniox";
+type Route = "local" | "openai" | "soniox" | "qwen";
 type Language = "en" | "zh" | "mixed";
 
 interface Result {
@@ -109,6 +113,7 @@ describe.runIf(CLIPS)("Each route's error rate on English, Chinese and both taki
         "local",
         ...(process.env.OPENAI_API_KEY ? (["openai"] as const) : []),
         ...(process.env.SONIOX_API_KEY ? (["soniox"] as const) : []),
+        ...(process.env.QWEN_API_KEY ? (["qwen"] as const) : []),
       ] as Route[]
     ).filter((route) => !only || only.includes(route));
 
@@ -153,11 +158,18 @@ describe.runIf(CLIPS)("Each route's error rate on English, Chinese and both taki
                 apiKey: process.env.OPENAI_API_KEY as string,
                 detector: detectors(),
               })
-            : createSonioxStream({
-                ...options,
-                model: SONIOX_REALTIME_MODEL,
-                apiKey: process.env.SONIOX_API_KEY as string,
-              });
+            : route === "qwen"
+              ? createQwenStream({
+                  ...options,
+                  model: QWEN_REALTIME_MODEL,
+                  apiKey: process.env.QWEN_API_KEY as string,
+                  url: qwenRegion(process.env.QWEN_REGION ?? null).url,
+                })
+              : createSonioxStream({
+                  ...options,
+                  model: SONIOX_REALTIME_MODEL,
+                  apiKey: process.env.SONIOX_API_KEY as string,
+                });
         push = (frame) => handle.push(toInt16(frame));
         finish = () => handle.finish();
       }
@@ -202,7 +214,9 @@ describe.runIf(CLIPS)("Each route's error rate on English, Chinese and both taki
         local: QWEN3_ASR_0_6B.name,
         openai: OPENAI_LIVE_TRANSCRIPTION_MODEL,
         soniox: SONIOX_REALTIME_MODEL,
+        qwen: QWEN_REALTIME_MODEL,
       },
+      qwenRegion: process.env.QWEN_REGION ?? "cn",
       loadAverage: loadavg().map((value) => Math.round(value * 10) / 10),
       results,
     };

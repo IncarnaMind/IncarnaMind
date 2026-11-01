@@ -17,6 +17,7 @@ import {
 import { markQuote, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import "./officeFonts.css";
+import { mapOfficeFontNames } from "./officeFontNames";
 import { CitationMark, quoteMarkOf, quoteTone } from "./quoteMark";
 import { domSelection, useSelectionReader } from "./selectedText";
 import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
@@ -197,6 +198,7 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
             link.rel = "noreferrer";
           } else link.removeAttribute("href");
         }
+        mapOfficeFontNames(style, body);
         fixSymbols(style, body);
         comments.current = takeComments(body, CLASS_NAME, (author) =>
           t("viewer.docx.comment", { author }),

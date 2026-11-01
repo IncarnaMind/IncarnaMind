@@ -5,12 +5,13 @@
  * (src/main/transcriber.ts); the evaluation and the tests run it in this one.
  *
  * Requests: { type: "load", id, model }, { type: "open", stream, cloud },
- * { type: "audio", stream, samples }, { type: "finish", id, stream } and
- * { type: "drop", stream }. The other end answers a load or a finish with
- * { type: "done", id } or { type: "error", id, message }, and reports
- * { type: "segment", segment }, { type: "progress", stream, doneMs },
- * { type: "failed", stream, message }, { type: "switched", change },
- * { type: "lost", stream, loss } and { type: "opened", stream } as they happen.
+ * { type: "words", stream, words }, { type: "audio", stream, samples },
+ * { type: "finish", id, stream } and { type: "drop", stream }. The other end
+ * answers a load or a finish with { type: "done", id } or { type: "error", id,
+ * message }, and reports { type: "segment", segment }, { type: "progress",
+ * stream, doneMs }, { type: "failed", stream, message }, { type: "switched",
+ * change }, { type: "lost", stream, loss } and { type: "opened", stream } as
+ * they happen.
  *
  * A stream opened with a cloud service (#141) goes to it instead of the engine, from the same
  * process: OpenAI's live model needs Silero VAD, which runs here.
@@ -25,6 +26,7 @@ import type {
   TranscriptionModelFiles,
 } from "../adapters";
 import { createOpenAiStream } from "./cloud/openai";
+import { createQwenStream } from "./cloud/qwen";
 import type { CloudConnect } from "./cloud/socket";
 import { createSonioxStream } from "./cloud/soniox";
 import type { CloudStreamHandle } from "./cloud/stream";
@@ -39,6 +41,7 @@ import {
 export type TranscriberRequest =
   | { type: "load"; id: number; model: TranscriptionModelFiles }
   | { type: "open"; stream: string; cloud: CloudStream }
+  | { type: "words"; stream: string; words: readonly string[] }
   | { type: "audio"; stream: string; samples: Int16Array }
   | { type: "finish"; id: number; stream: string }
   | { type: "drop"; stream: string };
@@ -47,7 +50,7 @@ export type TranscriberResponse =
   | { type: "done"; id: number }
   | { type: "error"; id: number; message: string }
   | { type: "segment"; segment: SpeechSegment }
-  | { type: "progress"; stream: string; doneMs: number }
+  | { type: "progress"; stream: string; doneMs: number; heardMs?: number }
   | { type: "failed"; stream: string; message: string }
   | { type: "switched"; change: EngineSwitch }
   | { type: "lost"; stream: string; loss: CloudLoss }
@@ -95,7 +98,8 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
           for (const listener of listeners) listener.segment(response.segment);
           return;
         case "progress":
-          for (const listener of listeners) listener.progress(response.stream, response.doneMs);
+          for (const listener of listeners)
+            listener.progress(response.stream, response.doneMs, response.heardMs);
           return;
         case "failed":
           for (const listener of listeners) listener.failed(response.stream, response.message);
@@ -161,6 +165,11 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
       channel.send({ type: "open", stream, cloud });
     },
 
+    words(stream, words) {
+      if (!channel || loadedKey === undefined || clouds.has(stream)) return;
+      channel.send({ type: "words", stream, words });
+    },
+
     push(stream, samples) {
       if (!channel || samples.length === 0) return;
       if (loadedKey === undefined && !clouds.has(stream)) return;
@@ -221,8 +230,13 @@ export function serveTranscriber(
   let ready: Promise<void> = Promise.resolve();
   const report = {
     segment: (segment: SpeechSegment) => port.respond({ type: "segment", segment }),
-    progress: (stream: string, doneMs: number) =>
-      port.respond({ type: "progress", stream, doneMs }),
+    progress: (stream: string, doneMs: number, heardMs?: number) =>
+      port.respond({
+        type: "progress",
+        stream,
+        doneMs,
+        ...(heardMs !== undefined && { heardMs }),
+      }),
     failed: (stream: string, message: string) => port.respond({ type: "failed", stream, message }),
   };
   const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -241,7 +255,7 @@ export function serveTranscriber(
     }
     const streamReport = {
       segment: report.segment,
-      progress: (doneMs: number) => report.progress(stream, doneMs),
+      progress: (doneMs: number, heardMs?: number) => report.progress(stream, doneMs, heardMs),
       lost,
       opened: () => port.respond({ type: "opened", stream }),
     };
@@ -253,6 +267,7 @@ export function serveTranscriber(
       report: streamReport,
     };
     if (config.service === "soniox") return createSonioxStream(options);
+    if (config.service === "qwen") return createQwenStream({ ...options, url: config.url });
     try {
       let made = detectors.get(config.vad);
       if (!made) {
@@ -307,6 +322,9 @@ export function serveTranscriber(
             port.respond({ type: "error", id: request.id, message: messageOf(error) });
           }
         });
+        return;
+      case "words":
+        void ready.then(() => host?.words(request.stream, request.words));
         return;
       case "audio":
         void ready.then(() => host?.push(request.stream, toFloat(request.samples)));

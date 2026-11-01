@@ -22,6 +22,8 @@ const RED_RULES = [
   // A contradicted Citation's badge in an Answer, which has no margin for its mark.
   'src/styles.css .mind-editor.assistant-answer-text .citation-marker &[data-check="contradicted"]',
   'src/styles.css .margin-check &[data-check="contradicted"]',
+  // An Answer's check step, its ≠ when a sentence of it is contradicted (#2311).
+  'src/styles.css .answer-step-check[data-check="contradicted"]',
   'src/styles.css .citation-marker &[data-check="contradicted"]',
   'src/styles.css .citation-run &[data-check="contradicted"]',
   "src/styles.css .chart-check--contradicted",

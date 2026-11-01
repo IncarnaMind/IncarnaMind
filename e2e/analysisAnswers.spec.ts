@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ConversationAnswer } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import { xlsxOf } from "../tests/helpers/office";
 import {
   acceptPlainTextKeys,
@@ -15,6 +16,7 @@ import {
   newMind,
   openSteps,
   pointAndClick,
+  pointAt,
   removeDataFolder,
   setWindowSize,
 } from "./app";
@@ -41,6 +43,30 @@ const REGIONS = xlsxOf([
       ["North", "Ana"],
       ["South", "Bo"],
       ["Central", "Chen"],
+    ],
+  },
+]);
+
+/**
+ * A test workbook of monthly ad spend and revenue: revenue grows with spend and with time, and
+ * row 7's revenue isn't a number.
+ */
+const MARKETING = xlsxOf([
+  {
+    name: "Marketing",
+    rows: [
+      ["Month", "Region", "AdSpend", "Revenue"],
+      ...Array.from({ length: 24 }, (_, at) => {
+        const spend = 10 + (at % 7) * 2.5;
+        const revenue =
+          Math.round((50 + 3.2 * spend + 4 * Math.sin(at / 2) + at * 0.8) * 100) / 100;
+        return [
+          `${2024 + Math.floor(at / 12)}-${String((at % 12) + 1).padStart(2, "0")}`,
+          ["North", "South", "East"][at % 3] ?? "",
+          spend,
+          at === 5 ? "n/a" : revenue,
+        ];
+      }),
     ],
   },
 ]);
@@ -84,8 +110,13 @@ async function launchWithSheets(language: "en" | "zh-CN" = "en", width = 1600, s
   );
   await writeFile(join(sources, "Sales 2026.xlsx"), SALES);
   await writeFile(join(sources, "Regions.xlsx"), REGIONS);
-  await addDocuments(window, [join(sources, "Sales 2026.xlsx"), join(sources, "Regions.xlsx")]);
-  for (const name of ["Sales 2026", "Regions"]) {
+  await writeFile(join(sources, "Marketing 2026.xlsx"), MARKETING);
+  await addDocuments(window, [
+    join(sources, "Sales 2026.xlsx"),
+    join(sources, "Regions.xlsx"),
+    join(sources, "Marketing 2026.xlsx"),
+  ]);
+  for (const name of ["Sales 2026", "Regions", "Marketing 2026"]) {
     await expect(
       window.getByTestId("document-list-item").filter({ hasText: name }).first(),
     ).toHaveAttribute("data-status", "ready", { timeout: 30_000 });
@@ -176,6 +207,94 @@ for (const language of ["en", "zh-CN"] as const) {
       }
     });
   }
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`${language}: a regression's plot is a picture in its Answer, and each figure's card names the rows it came from, beside its code`, async () => {
+    test.setTimeout(240_000);
+    const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
+    const { app, window } = await launchWithSheets(language, 1200);
+    const evidence = process.env.INCARNAMIND_ANALYSIS_EVIDENCE_DIR;
+    try {
+      const answer = await askInAssistant(
+        window,
+        language === "en"
+          ? "How does Revenue grow with ad spend (AdSpend)?"
+          : "Revenue 随广告投入（AdSpend）如何变化？",
+        { timeout: 120_000 },
+      );
+      const text = answer.getByTestId("assistant-answer-text");
+      const picture = text.getByRole("img", { name: "Revenue against ad spend" });
+      await expect(picture).toBeVisible();
+      await expect(picture).toHaveAttribute("src", /^data:image\/png;base64,iVBORw0KGgo/);
+      const drawn = await picture.evaluate((image: HTMLImageElement) => ({
+        loaded: image.complete && image.naturalWidth > 0,
+        sharp: image.naturalWidth >= image.getBoundingClientRect().width * 1.5,
+        fits:
+          image.getBoundingClientRect().right <=
+          (image.closest("[data-testid=assistant-answer]")?.getBoundingClientRect().right ?? 0) + 1,
+      }));
+      expect(drawn).toEqual({ loaded: true, sharp: true, fits: true });
+      await expect(text).not.toContainText("[=");
+      if (evidence) {
+        await picture.scrollIntoViewIfNeeded();
+        await window.screenshot({ path: join(evidence, `${language}-picture-wide.png`) });
+        await setWindowSize(app, window, 900, 660);
+        await picture.scrollIntoViewIfNeeded();
+        await window.screenshot({ path: join(evidence, `${language}-picture-narrow.png`) });
+        await setWindowSize(app, window, 1200, 660);
+      }
+
+      const markers = text.getByTestId("calculated-figure-marker");
+      await expect(markers).toHaveCount(2);
+      const card = window.locator(".calculated-figure-card");
+      await pointAt(window, markers.nth(1));
+      await expect(card.getByTestId("calculated-figure-rows")).toContainText(
+        language === "en"
+          ? "Sum of Revenue in 23 rows of marketing: rows 2–6, 8–25"
+          : "“marketing”第 2–6、8–25 行中 Revenue 的合计（共 23 行）",
+      );
+      await expect(card).toContainText(t("figures.analysisRows.recalculated"));
+      await expect(card.locator(".calculated-figure-state")).toContainText(
+        t("figures.inline.retained"),
+      );
+      if (evidence) {
+        await expect(card).toHaveCSS("opacity", "1");
+        await window.screenshot({ path: join(evidence, `${language}-total-card.png`) });
+      }
+      await window.mouse.move(0, 0);
+      await expect(card).toBeHidden();
+
+      await markers.nth(0).focus();
+      await window.keyboard.press("Enter");
+      await expect(card.getByTestId("calculated-figure-rows")).toContainText(
+        language === "en"
+          ? "Worked out from 23 rows of marketing: rows 2–6, 8–25, using AdSpend, Revenue"
+          : "根据“marketing”第 2–6、8–25 行（共 23 行）计算，用到 AdSpend、Revenue",
+      );
+      await expect(card).not.toContainText(t("figures.analysisRows.recalculated"));
+      await expect(card.locator(".calculated-figure-input")).toHaveCount(2);
+      await pointAndClick(window, card.locator(".calculated-figure-code summary"));
+      await expect(card.locator(".calculated-figure-code pre")).toContainText("smf.ols");
+      if (evidence) {
+        await expect(card).toHaveCSS("opacity", "1");
+        await window.screenshot({ path: join(evidence, `${language}-slope-card.png`) });
+      }
+      await window.keyboard.press("Escape");
+      await expect(card).toBeHidden();
+
+      const [analysis] = (await storedAnswer(window)).analyses;
+      expect(analysis?.versions?.packages).toMatchObject({
+        statsmodels: "0.14.6",
+        matplotlib: "3.10.8",
+      });
+      expect(analysis?.recalculations).toEqual([
+        { result: "total", check: { kind: "same", value: expect.any(Number) } },
+      ]);
+    } finally {
+      await app.close();
+    }
+  });
 }
 
 test("an Analysis that joins two sheets reports the rows that matched and those that didn't", async () => {

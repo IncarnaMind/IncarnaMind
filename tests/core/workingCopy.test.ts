@@ -50,24 +50,29 @@ const lastQuestion = (call: ModelCall) => call.prompt.split("\n").filter(Boolean
  */
 function citingFirst(): { model: ReturnType<typeof scriptedModel>; prompts: string[] } {
   const prompts: string[] = [];
-  const model = scriptedModel((call: ModelCall): ScriptedReply => {
-    prompts.push(call.prompt);
-    const given = shownPassages(upFrontIn(call.prompt));
-    const fromGiven = given.length > 0 && ABOUT_THE_RESUME.test(lastQuestion(call));
-    const searches = call.results.filter((result) => result.tool === "search_documents");
-    if (!fromGiven && searches.length === 0) {
-      return { calls: [{ tool: "search_documents", input: { query: lastQuestion(call) } }] };
-    }
-    if (!call.results.some((result) => result.tool === "cite")) {
-      const [first] = fromGiven ? given : shownPassages(searches.at(-1)?.text ?? "");
-      if (!first) return { text: "That Document isn't among your Documents." };
-      const quote = first.text.split("\n").find((line) => line.trim().length > 8) ?? first.text;
-      return {
-        calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: first.id, quote }] } }],
-      };
-    }
-    return { text: "It is a résumé [^1]." };
-  });
+  const model = scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      prompts.push(call.prompt);
+      const given = shownPassages(upFrontIn(call.prompt));
+      const fromGiven = given.length > 0 && ABOUT_THE_RESUME.test(lastQuestion(call));
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (!fromGiven && searches.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: lastQuestion(call) } }] };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const [first] = fromGiven ? given : shownPassages(searches.at(-1)?.text ?? "");
+        if (!first) return { text: "That Document isn't among your Documents." };
+        const quote = first.text.split("\n").find((line) => line.trim().length > 8) ?? first.text;
+        return {
+          calls: [
+            { tool: "cite", input: { citations: [{ marker: 1, passage: first.id, quote }] } },
+          ],
+        };
+      }
+      return { text: "It is a résumé [^1]." };
+    },
+    { judgesItsAnswers: true },
+  );
   return { model, prompts };
 }
 

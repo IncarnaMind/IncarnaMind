@@ -29,11 +29,11 @@ import {
   setUpWithDocuments,
   shownPassages,
 } from "../helpers/citations";
-import { createTempDataFolder, startCore } from "../helpers/core";
-import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
+import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { askAndEnd, isAnswer, QWEN35, setUpLocalModel } from "../helpers/localModels";
 import { answerIn, question, writeMind } from "../helpers/minds";
-import { promptOf, scriptedModel, scriptedModels } from "../helpers/models";
+import { answerRequests, promptOf, scriptedModel, scriptedModels } from "../helpers/models";
 import { xlsxPackage } from "../helpers/office";
 import { type OllamaChatReply, startOllamaServer } from "../helpers/ollama";
 import { buildPdf } from "../helpers/pdf";
@@ -136,9 +136,16 @@ function passageOf(passages: readonly ShownPassage[], name: string): string {
   return found.id;
 }
 
+/**
+ * Whether a Citation's quote was found, apart from the judgement of its sentence that follows an
+ * Answer in the assistant (#2311, tests/core/answerSupport.test.ts).
+ */
+const quoteCheck = (citation: { check: string }) =>
+  citation.check === "not-found" ? "not-found" : "found";
+
 /** What each call of `tool` told the model, oldest first, as the model's last request shows them. */
 function told(model: MockLanguageModelV4, tool: string): string[] {
-  const last = model.doStreamCalls.at(-1);
+  const last = answerRequests(model).at(-1);
   if (!last) throw new Error("The model wasn't asked anything.");
   const texts: string[] = [];
   for (const message of last.prompt) {
@@ -400,7 +407,7 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
 
     const { answer } = await askAndRead(core, "How much did Acme's revenue grow in 2025?");
 
-    expect(model.doStreamCalls).toHaveLength(3);
+    expect(answerRequests(model)).toHaveLength(3);
     expect(shown(answerBlocks(answer))).toBe("Revenue grew 20.4% in 2025, to $1,482.6 million.");
     expect(answer.figures).toMatchObject([
       { marker: 1, inputs: [{ citation: { check: "found" } }, { citation: { check: "found" } }] },
@@ -1286,6 +1293,447 @@ describe("Amounts in brackets are negative (#978)", { timeout: 60_000 }, () => {
   });
 });
 
+/** The statement of #1001: the currency is on the sale price, and the deductions below it are bare. */
+const MIXED_LINES = [
+  "Sale price £385,000.00",
+  "Less: agent's fee (4,620.00)",
+  "Less: legal fees (1,500.00)",
+  "Less: search and other costs (804.00)",
+];
+const MIXED = {
+  name: "Completion statement 14 Mill Lane.pdf",
+  contents: buildPdf([{ lines: ["Completion statement: 14 Mill Lane", ...MIXED_LINES] }]),
+};
+const MIXED_ZH = {
+  name: "房产交易结算表.pdf",
+  contents: buildPdf([
+    {
+      chineseLines: [
+        "房产交易结算表",
+        "成交价 ¥3,850,000.00",
+        "减：中介费 （46,200.00）",
+        "减：律师费 （15,000.00）",
+        "减：其他费用 （8,040.00）",
+      ],
+    },
+  ]),
+};
+
+describe("A currency on a statement's first amount (#1001)", { timeout: 60_000 }, () => {
+  const labels = ["Sale price", "Agent's fee", "Legal fees", "Other costs"];
+  const inputs = (cited: number[], numbers: readonly string[], unitQuote: string) =>
+    labels.map((label, index) => ({
+      name: ["price", "agent", "legal", "other"][index],
+      label,
+      citation: cited[index],
+      number: numbers[index],
+      ...(index > 0 ? { unitQuote } : {}),
+    }));
+  const figure = (cited: number[], numbers: readonly string[], unitQuote: string) => ({
+    marker: 1,
+    label: "Net sale proceeds",
+    formula: "price + agent + legal + other",
+    inputs: inputs(cited, numbers, unitQuote),
+  });
+  const unitOf = (currency: string, chars: string, quote: string) => ({
+    citation: { quote, check: "found" },
+    scale: 1,
+    scaleWord: null,
+    currency,
+    currencyChars: chars,
+  });
+
+  // protects=#1001; fails_when=a bare fee under "Sale price £385,000.00" has no currency, a second currency is guessed, or the input doesn't keep where its currency came from; no_claim=the wording of the Answer, which the scripted model writes.
+  test("the sale price's £ is the bare fees' currency: £378,076.00, with each fee negative and its unit's line kept", async () => {
+    const numbers = ["£385,000.00", "(4,620.00)", "(1,500.00)", "(804.00)"];
+    const model = calculatingModel({
+      queries: ["sale price deductions"],
+      steps: [
+        citeStatement("Completion statement", MIXED_LINES, (cited) => [
+          {
+            tool: "calculate",
+            input: { figures: [figure(cited, numbers, "Sale price £385,000.00")] },
+          },
+        ]),
+      ],
+      answer: "The net sale proceeds were [=1][^1].",
+    });
+    const { core } = await setUpCalculating(model, [MIXED]);
+
+    const { answer, finished } = await askAndRead(
+      core,
+      "What were the net sale proceeds of 14 Mill Lane?",
+    );
+
+    expect(shown(answerBlocks(answer))).toBe("The net sale proceeds were £378,076.00.");
+    expect(
+      answer.figures[0]?.inputs.map((input) => [input.number.chars, input.number.value]),
+    ).toEqual([
+      ["£385,000.00", 385_000],
+      ["(4,620.00)", -4_620],
+      ["(1,500.00)", -1_500],
+      ["(804.00)", -804],
+    ]);
+    expect(answer.figures[0]?.inputs.map((input) => input.unitStatement)).toMatchObject([
+      null,
+      unitOf("GBP", "£", "Sale price £385,000.00"),
+      unitOf("GBP", "£", "Sale price £385,000.00"),
+      unitOf("GBP", "£", "Sale price £385,000.00"),
+    ]);
+    expect(finished.uncalculated).toBe(0);
+  });
+
+  test("in Chinese: ¥ on 成交价 is the bare fees' currency, and the net income is in 元", async () => {
+    const numbers = ["¥3,850,000.00", "（46,200.00）", "（15,000.00）", "（8,040.00）"];
+    const model = calculatingModel({
+      queries: ["成交价 中介费"],
+      steps: [
+        citeStatement(
+          "房产交易结算表",
+          [
+            "成交价 ¥3,850,000.00",
+            "减：中介费 （46,200.00）",
+            "减：律师费 （15,000.00）",
+            "减：其他费用 （8,040.00）",
+          ],
+          (cited) => [
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "净收入",
+                    formula: "price + agent + legal + other",
+                    inputs: inputs(cited, numbers, "成交价 ¥3,850,000.00"),
+                  },
+                ],
+              },
+            },
+          ],
+        ),
+      ],
+      answer: "出售房产的净收入为[=1][^1]。",
+    });
+    const { core } = await setUpCalculating(model, [MIXED_ZH]);
+
+    const { answer } = await askAndRead(core, "出售房产的净收入是多少？");
+
+    expect(shown(answerBlocks(answer))).toBe("出售房产的净收入为3,780,760.00元。");
+    expect(answer.figures[0]?.inputs.map((input) => input.number.value)).toEqual([
+      3_850_000, -46_200, -15_000, -8_040,
+    ]);
+    expect(answer.figures[0]?.inputs.slice(1).map((input) => input.unitStatement)).toMatchObject([
+      unitOf("CNY", "¥", "成交价 ¥3,850,000.00"),
+      unitOf("CNY", "¥", "成交价 ¥3,850,000.00"),
+      unitOf("CNY", "¥", "成交价 ¥3,850,000.00"),
+    ]);
+  });
+
+  // protects=#1001; fails_when=a statement in 万元 over a ¥ amount and bare fees reads the ¥ lines' currency without the scale, so the User sees 380.38元 instead of the amount in 万元.
+  test("in Chinese, the scale's own line still applies it: the net income is in 万元", async () => {
+    const lines = [
+      "单位：万元",
+      "成交价 ¥380.38",
+      "减：中介费 （4.00）",
+      "减：律师费 （1.50）",
+      "减：其他费用 （0.80）",
+    ];
+    const statement = {
+      name: "房产交易结算表.pdf",
+      contents: buildPdf([{ chineseLines: ["房产交易结算表", ...lines] }]),
+    };
+    const numbers = ["¥380.38", "（4.00）", "（1.50）", "（0.80）"];
+    const model = calculatingModel({
+      queries: ["成交价 中介费"],
+      steps: [
+        citeStatement("房产交易结算表", lines.slice(1), (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  label: "净收入",
+                  formula: "price + agent + legal + other",
+                  inputs: labels.map((label, index) => ({
+                    name: ["price", "agent", "legal", "other"][index],
+                    label,
+                    citation: cited[index],
+                    number: numbers[index],
+                    unitQuote: "单位：万元",
+                  })),
+                },
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "出售房产的净收入为[=1][^1]。",
+    });
+    const { core } = await setUpCalculating(model, [statement]);
+
+    const { answer } = await askAndRead(core, "出售房产的净收入是多少？");
+
+    expect(shown(answerBlocks(answer))).toBe("出售房产的净收入为374.08万元。");
+    expect(answer.figures[0]?.inputs.map((input) => input.number.value)).toEqual([
+      3_803_800, -40_000, -15_000, -8_000,
+    ]);
+  });
+
+  test("a Passage that names two currencies gives the bare fees neither, and the model is told why", async () => {
+    const document = {
+      name: "Completion statement 14 Mill Lane.pdf",
+      contents: buildPdf([
+        {
+          lines: [
+            "Completion statement: 14 Mill Lane",
+            "Sale price £385,000.00",
+            "Deposit $12,000.00",
+            ...MIXED_LINES.slice(1),
+          ],
+        },
+      ]),
+    };
+    const numbers = ["£385,000.00", "(4,620.00)", "(1,500.00)", "(804.00)"];
+    const model = calculatingModel({
+      queries: ["sale price deductions"],
+      steps: [
+        citeStatement("Completion statement", MIXED_LINES, (cited) => [
+          {
+            tool: "calculate",
+            input: { figures: [figure(cited, numbers, "Sale price £385,000.00")] },
+          },
+        ]),
+      ],
+      answer: "The net sale proceeds were [=1][^1].",
+    });
+    const { core } = await setUpCalculating(model, [document]);
+
+    const { answer, finished } = await askAndRead(
+      core,
+      "What were the net sale proceeds of 14 Mill Lane?",
+    );
+
+    expect(told(model, "calculate")[0]).toContain(
+      'the unitQuote "Sale price £385,000.00" gives GBP, but p. 1 names more than one currency (GBP, USD); quote the line that applies, from a Passage that names one.',
+    );
+    expect(answer.figures).toEqual([]);
+    expect(finished.uncalculated).toBe(1);
+    expect(translate("en", "answer.figures.uncalculated.one")).toBe(
+      "1 figure couldn’t be calculated",
+    );
+    expect(translate("zh-CN", "answer.figures.uncalculated.one")).toBe("1 个数字未能计算");
+  });
+
+  // protects=#1001; fails_when=a line that writes a currency for a one-decimal amount under a scale is recorded, so a User sees £380.4 for an amount in thousands.
+  test("amounts without two decimals are refused, and the Answer reports the figure couldn't be calculated", async () => {
+    const lines = ["All figures in thousands", "Sale price £380.4", "Less: agent's fee (4.0)"];
+    const statement = {
+      name: "Completion statement 14 Mill Lane.pdf",
+      contents: buildPdf([{ lines: ["Completion statement: 14 Mill Lane", ...lines] }]),
+    };
+    const model = calculatingModel({
+      queries: ["sale price deductions"],
+      steps: [
+        citeStatement("Completion statement", lines, (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  label: "Net sale proceeds",
+                  formula: "price + agent",
+                  inputs: [
+                    {
+                      name: "price",
+                      label: "Sale price",
+                      citation: cited[1],
+                      number: "£380.4",
+                      unitQuote: "All figures in thousands",
+                    },
+                    {
+                      name: "agent",
+                      label: "Agent's fee",
+                      citation: cited[2],
+                      number: "(4.0)",
+                      unitQuote: "Sale price £380.4",
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "The net sale proceeds were [=1][^1].",
+    });
+    const { core } = await setUpCalculating(model, [statement]);
+
+    const { answer, finished } = await askAndRead(
+      core,
+      "What were the net sale proceeds of 14 Mill Lane?",
+    );
+
+    expect(told(model, "calculate")[0]).toContain(
+      'are not full money amounts with two decimals ("385,000.00")',
+    );
+    expect(answer.figures).toEqual([]);
+    expect(finished.uncalculated).toBe(1);
+  });
+
+  // protects=#1001; fails_when=a PDF whose pages say "(£'000)" in a running header reads a bare fee without the scale; the header is stripped before the page text is stored, so the marker is read before the strip.
+  test("a currency next to a scale in a PDF's running header is caught before it is stripped", async () => {
+    const pages = [
+      {
+        lines: [
+          "(£'000)",
+          "Completion statement: 14 Mill Lane",
+          "Sale price £385,000.00",
+          "Less: agent's fee (4,620.00)",
+        ],
+      },
+      { lines: ["(£'000)", "Notes on the sale continue on this page."] },
+      { lines: ["(£'000)", "The seller's file notes continue further."] },
+      { lines: ["(£'000)", "The seller's file notes end here."] },
+    ];
+    const document = {
+      name: "Completion statement 14 Mill Lane.pdf",
+      contents: buildPdf(pages),
+    };
+    const model = calculatingModel({
+      queries: ["sale price deductions"],
+      steps: [
+        citeStatement(
+          "Completion statement",
+          ["Sale price £385,000.00", "Less: agent's fee (4,620.00)"],
+          (cited) => [
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Net sale proceeds",
+                    formula: "price + agent",
+                    inputs: [
+                      {
+                        name: "price",
+                        label: "Sale price",
+                        citation: cited[0],
+                        number: "£385,000.00",
+                      },
+                      {
+                        name: "agent",
+                        label: "Agent's fee",
+                        citation: cited[1],
+                        number: "(4,620.00)",
+                        unitQuote: "Sale price £385,000.00",
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        ),
+      ],
+      answer: "The net sale proceeds were [=1][^1].",
+    });
+    const { core } = await setUpCalculating(model, [document]);
+
+    const { answer, finished } = await askAndRead(
+      core,
+      "What were the net sale proceeds of 14 Mill Lane?",
+    );
+
+    expect(told(model, "calculate")[0]).toContain('the Document states a scale ("£\'000")');
+    expect(answer.figures).toEqual([]);
+    expect(finished.uncalculated).toBe(1);
+  });
+
+  // protects=#1001; fails_when=a PDF read before this build (no scale marker) is trusted without being read again, or its running header's scale is lost by the re-read.
+  test("a PDF read before this build is read again, and keeps its running header's scale", async () => {
+    const dataDir = await createTempDataFolder();
+    const pages = [
+      {
+        lines: [
+          "(£'000)",
+          "Completion statement: 14 Mill Lane",
+          "Sale price £385,000.00",
+          "Less: agent's fee (4,620.00)",
+        ],
+      },
+      { lines: ["(£'000)", "Notes on the sale continue on this page."] },
+      { lines: ["(£'000)", "The seller's file notes continue further."] },
+      { lines: ["(£'000)", "The seller's file notes end here."] },
+    ];
+    const document = {
+      name: "Completion statement 14 Mill Lane.pdf",
+      contents: buildPdf(pages),
+    };
+    const model = calculatingModel({ queries: [], steps: [], answer: "Nothing." });
+    const { core } = await setUpCalculating(model, [document], dataDir);
+    const saved = (await core.listDocuments())[0];
+    if (!saved) throw new Error("Missing Document.");
+    core.close();
+
+    // The pages as an older build left them: no marker, and the older pipeline's version.
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    db.run("UPDATE document_pages SET scale_marker = NULL WHERE document_id = ?", [saved.id]);
+    db.run("UPDATE documents SET processing_version = 18 WHERE id = ?", [saved.id]);
+    db.close();
+
+    const again = startCore(dataDir);
+    await waitForProcessing(again, [saved.id]);
+    const markers = queryDatabase<{ scale_marker: string }>(
+      dataDir,
+      "SELECT DISTINCT scale_marker FROM document_pages WHERE document_id = ? AND deleted_at IS NULL",
+      [saved.id],
+    ).map((row) => row.scale_marker);
+    expect(markers).toEqual(["£'000"]);
+    again.close();
+  });
+
+  test("a unitQuote that isn't in the Passage, or writes no currency, is refused as today", async () => {
+    const numbers = ["£385,000.00", "(4,620.00)", "(1,500.00)", "(804.00)"];
+    const model = calculatingModel({
+      queries: ["sale price deductions"],
+      steps: [
+        citeStatement("Completion statement", MIXED_LINES, (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                figure(cited, numbers, "Sale price £999,999.00"),
+                { ...figure(cited, numbers, "Less: agent's fee (4,620.00)"), marker: 2 },
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "The net sale proceeds were [=1] and [=2][^1].",
+    });
+    const { core } = await setUpCalculating(model, [MIXED]);
+
+    const { answer, finished } = await askAndRead(
+      core,
+      "What were the net sale proceeds of 14 Mill Lane?",
+    );
+
+    const [toldOnce] = told(model, "calculate");
+    expect(toldOnce).toContain(
+      "the unitQuote isn't word for word in P1; copy the line that states the unit exactly, from the same Passage.",
+    );
+    expect(toldOnce).toContain(
+      'the unitQuote "Less: agent\'s fee (4,620.00)" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".',
+    );
+    expect(answer.figures).toEqual([]);
+    expect(finished.uncalculated).toBe(2);
+  });
+});
+
 describe("Calculated figures with conversations (ADR-0017)", { timeout: 60_000 }, () => {
   test("are kept with each Answer, and read back the same after a restart; Answers from before keep none", async () => {
     const dataDir = await createTempDataFolder();
@@ -2161,7 +2609,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-      expect(model.doStreamCalls).toHaveLength(requests);
+      expect(answerRequests(model)).toHaveLength(requests);
       expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
       expect(answer.figures.map((figure) => figure.shown)).toEqual(["2.3 percentage points"]);
     },
@@ -2188,7 +2636,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme's margin change in 2025?");
 
-      expect(model.doStreamCalls).toHaveLength(requests);
+      expect(answerRequests(model)).toHaveLength(requests);
       expect(answer.figures.map((figure) => figure.shown)).toEqual(["2.3 percentage points"]);
     },
   );
@@ -2225,8 +2673,8 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-      expect(model.doStreamCalls).toHaveLength(requests);
-      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
+      expect(answerRequests(model)).toHaveLength(requests);
+      expect(answer.citations.map(quoteCheck)).toEqual(["found", "found"]);
     },
   );
 
@@ -2264,9 +2712,9 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-      expect(model.doStreamCalls).toHaveLength(2);
+      expect(answerRequests(model)).toHaveLength(2);
       expect(answer.text).toContain("[^2]");
-      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
+      expect(answer.citations.map(quoteCheck)).toEqual(["found", "found"]);
     },
   );
 
@@ -2292,9 +2740,9 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-      expect(model.doStreamCalls).toHaveLength(requests);
+      expect(answerRequests(model)).toHaveLength(requests);
       expect(answer.text).toContain("[^2]");
-      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
+      expect(answer.citations.map(quoteCheck)).toEqual(["found", "found"]);
     },
   );
 
@@ -2311,9 +2759,9 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-      expect(model.doStreamCalls).toHaveLength(3);
+      expect(answerRequests(model)).toHaveLength(3);
       expect(answer.text).toContain("[^2]");
-      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "not-found"]);
+      expect(answer.citations.map(quoteCheck)).toEqual(["found", "not-found"]);
     },
   );
 
@@ -2340,9 +2788,9 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-      expect(model.doStreamCalls.length).toBeGreaterThan(3);
+      expect(answerRequests(model).length).toBeGreaterThan(3);
       expect(answer.text).toContain("[^2]");
-      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "not-found"]);
+      expect(answer.citations.map(quoteCheck)).toEqual(["found", "not-found"]);
     },
   );
 
@@ -2360,8 +2808,8 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
     const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-    expect(model.doStreamCalls).toHaveLength(3);
-    expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
+    expect(answerRequests(model)).toHaveLength(3);
+    expect(answer.citations.map(quoteCheck)).toEqual(["found", "found"]);
   });
 
   test("cites first: what the model writes after its fix is the rest of the Answer", async () => {
@@ -2379,10 +2827,10 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
     const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-    expect(model.doStreamCalls).toHaveLength(4);
+    expect(answerRequests(model)).toHaveLength(4);
     expect(answer.text).toBe(
       "Revenue was $1,482.6 million in 2025[^1].\n\nAcme grew in every quarter.",
     );
-    expect(answer.citations.map((citation) => citation.check)).toEqual(["found"]);
+    expect(answer.citations.map(quoteCheck)).toEqual(["found"]);
   });
 });
