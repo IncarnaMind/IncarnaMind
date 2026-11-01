@@ -3,10 +3,13 @@
  * names, one in English and one in Chinese, in synthetic speech (macOS `say`, the voices in
  * names.json), as #1031 measured the built app on them. Each call's two sides are the
  * microphone's and the computer sound's tracks, fed to the code the app runs (`createSpeechHost`,
- * Qwen3-ASR 0.6B with Silero VAD) in 100 ms frames, six times: told no words, told the call's own
- * names (as its Note and Folder give them), told those and the other call's (as a User's list
+ * Qwen3-ASR 0.6B with Silero VAD) in 100 ms frames, seven times: told no words, told the call's
+ * own names (as its Note and Folder give them), told those and the other call's (as a User's list
  * holds both), told only the other call's names, told twenty names in the call's language that
- * sound like its own but are never said, and told names that are also everyday words.
+ * sound like its own but are never said, told names that sound the same as its own but are other
+ * people's (Danielle for Daniel), and told names that are also everyday words. Each run also
+ * counts the stretches the engine would read twice: those whose plain reading holds a told name
+ * misheard (`mayMend`).
  *
  * The audio is made the first time into the evaluation's cache, `meetings/names/`; macOS only.
  * INCARNAMIND_EVAL_OUT: the results folder (default eval/results/meetings-names-<date>).
@@ -19,6 +22,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { MEETING_SAMPLE_RATE, type SpeechSegment } from "../../src/core/adapters";
+import { contextWords, mayMend } from "../../src/core/transcription/context";
 import { QWEN3_ASR_0_6B, transcriptionModelFiles } from "../../src/core/transcription/model";
 import { createSherpaEngine } from "../../src/core/transcription/sherpa";
 import { createSpeechHost } from "../../src/core/transcription/speech";
@@ -39,12 +43,22 @@ interface Call {
   said: string[];
   /** Names in the call's language that sound like its own, none of them said. */
   decoys: string[];
+  /** Names that sound the same as some of its own, other people's, none of them said. */
+  sameSounding: string[];
   /** Names that are also everyday words, some of them said as the word. */
   commonWords: string[];
   lines: { side: "me" | "them"; text: string }[];
 }
 
-const ARMS = ["none", "own", "own and other", "other only", "decoys", "common words"] as const;
+const ARMS = [
+  "none",
+  "own",
+  "own and other",
+  "other only",
+  "decoys",
+  "same sounding",
+  "common words",
+] as const;
 type Arm = (typeof ARMS)[number];
 
 const GAP_SECONDS = 0.8;
@@ -127,6 +141,7 @@ describe("Words to know on two calls full of names (#1031)", () => {
       names: TermScore;
       lines: string[];
       changed: number;
+      readTwice: number;
     }[] = [];
 
     for (const call of calls) {
@@ -139,6 +154,7 @@ describe("Words to know on two calls full of names (#1031)", () => {
           "own and other": [...call.names, ...other.names],
           "other only": other.names,
           decoys: call.decoys,
+          "same sounding": call.sameSounding,
           "common words": call.commonWords,
         };
         const told = toldIn[arm];
@@ -148,6 +164,7 @@ describe("Words to know on two calls full of names (#1031)", () => {
           "own and other": other.names,
           "other only": other.names,
           decoys: call.decoys,
+          "same sounding": call.sameSounding,
           "common words": [],
         };
         const segments: SpeechSegment[] = [];
@@ -195,17 +212,19 @@ describe("Words to know on two calls full of names (#1031)", () => {
             ? Math.max(plain.lines.length, lines.length) -
               lines.filter((line, at) => line === plain.lines[at]).length
             : 0,
+          readTwice: (plain?.lines ?? lines).filter((line) => mayMend(line, contextWords(told)))
+            .length,
         });
       }
     }
     engine.close();
 
     const rows = [
-      "| Call | Told | Error rate | Names not written exactly | Other units' error rate | Told, never said, written | Lines unlike told nothing |",
-      "|---|---|---|---|---|---|---|",
+      "| Call | Told | Error rate | Names not written exactly | Other units' error rate | Told, never said, written | Lines unlike told nothing | Stretches read twice |",
+      "|---|---|---|---|---|---|---|---|",
       ...results.map(
-        ({ call, arm, errors, names, changed }) =>
-          `| ${call} | ${arm} | ${(100 * errors.rate).toFixed(1)}% (${errors.errors} of ${errors.total}) | ${names.wrong} of ${names.occurrences} | ${((100 * names.others.errors) / Math.max(1, names.others.total)).toFixed(1)}% | ${names.unsaid} | ${changed} |`,
+        ({ call, arm, errors, names, changed, readTwice, lines }) =>
+          `| ${call} | ${arm} | ${(100 * errors.rate).toFixed(1)}% (${errors.errors} of ${errors.total}) | ${names.wrong} of ${names.occurrences} | ${((100 * names.others.errors) / Math.max(1, names.others.total)).toFixed(1)}% | ${names.unsaid} | ${changed} | ${readTwice} of ${lines.length} |`,
       ),
     ];
     const report = rows.join("\n");

@@ -120,6 +120,12 @@
         "May",
         "Mark",
         "Bill"
+      ],
+      "sameSounding": [
+        "Danielle West",
+        "Markus",
+        "Pria",
+        "Sofie Lindquist"
       ]
     },
     {
@@ -213,6 +219,12 @@
         "平安",
         "高峰",
         "工期"
+      ],
+      "sameSounding": [
+        "王莉",
+        "李铭",
+        "星禾科技",
+        "王宗"
       ]
     }
   ]
