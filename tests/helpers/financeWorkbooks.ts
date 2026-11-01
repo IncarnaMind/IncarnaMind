@@ -430,6 +430,85 @@ export function saasWorkbook(): WorkbookBuilder {
 }
 
 /**
+ * A retail store's budget for 2027, month by month with the year's total: sales grown monthly,
+ * the cost of goods at a share of sales, gross margin, payroll from headcount, rent rising by a
+ * monthly increase, other costs, operating profit and the cash balance. Its assumptions sheet's
+ * headcount and rent have names (Headcount, Rent). Used only by Questions held out from the work
+ * on the workbook Tools' wording, written by someone who hadn't read it.
+ */
+export function storeBudgetWorkbook(): WorkbookBuilder {
+  const book = new WorkbookBuilder();
+  const a = book.sheet("Assumptions");
+  a.text("A1", "Assumption").text("B1", "Value");
+  a.text("A3", "January sales").number("B3", 120_000, "money");
+  a.text("A4", "Monthly sales growth").number("B4", 0.015, "percent");
+  a.text("A5", "Cost of goods % of sales").number("B5", 0.58, "percent");
+  a.text("A6", "Headcount").number("B6", 10);
+  a.text("A7", "Monthly pay per head").number("B7", 3_200, "money");
+  a.text("A8", "Rent per month").number("B8", 8_000, "money");
+  a.text("A9", "Monthly rent increase").number("B9", 0, "percent");
+  a.text("A10", "Other costs per month").number("B10", 6_500, "money");
+  a.text("A11", "Opening cash").number("B11", 50_000, "money");
+  book.name("Headcount", "Assumptions!$B$6").name("Rent", "Assumptions!$B$8");
+
+  const b = book.sheet("Budget");
+  b.text("A1", "Store budget 2027");
+  b.text("A3", "Line");
+  ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].forEach(
+    (month, i) => {
+      b.text(`${MONTHS[i]}3`, month);
+    },
+  );
+  b.text("N3", "Total 2027");
+  const month = (row: number) => MONTHS.map((column) => b.n(`${column}${row}`));
+  const total = (row: number) => {
+    b.formula(
+      `N${row}`,
+      `SUM(B${row}:M${row})`,
+      month(row).reduce((sum, each) => sum + each, 0),
+      "money",
+    );
+  };
+  const sales = MONTHS.map((_, i) => a.n("B3") * (1 + a.n("B4")) ** i);
+  b.text("A4", "Sales").formula("B4", "Assumptions!B3", sales[0] as number, "money");
+  b.fill("C4:M4", "B4*(1+Assumptions!$B$4)", (i) => sales[i + 1] as number, "money");
+  total(4);
+  b.text("A5", "Cost of goods sold");
+  b.fill("B5:M5", "B4*Assumptions!$B$5", (i) => (sales[i] as number) * a.n("B5"), "money");
+  total(5);
+  b.text("A6", "Gross margin");
+  b.fill("B6:M6", "B4-B5", (i) => (sales[i] as number) * (1 - a.n("B5")), "money");
+  total(6);
+  b.text("A7", "Payroll");
+  b.fill("B7:M7", "Headcount*Assumptions!$B$7", () => a.n("B6") * a.n("B7"), "money");
+  total(7);
+  const rent = MONTHS.map((_, i) => a.n("B8") * (1 + a.n("B9")) ** i);
+  b.text("A8", "Rent").formula("B8", "Rent", rent[0] as number, "money");
+  b.fill("C8:M8", "B8*(1+Assumptions!$B$9)", (i) => rent[i + 1] as number, "money");
+  total(8);
+  b.text("A9", "Other costs");
+  b.fill("B9:M9", "Assumptions!$B$10", () => a.n("B10"), "money");
+  total(9);
+  b.text("A10", "Total expenses");
+  b.fill(
+    "B10:M10",
+    "SUM(B7:B9)",
+    (i) => (month(7)[i] as number) + (month(8)[i] as number) + (month(9)[i] as number),
+    "money",
+  );
+  total(10);
+  b.text("A11", "Operating profit");
+  b.fill("B11:M11", "B6-B10", (i) => (month(6)[i] as number) - (month(10)[i] as number), "money");
+  total(11);
+  const cash: number[] = [];
+  for (let i = 0; i < 12; i++)
+    cash.push((i === 0 ? a.n("B11") : (cash[i - 1] as number)) + (month(11)[i] as number));
+  b.text("A12", "Cash balance").formula("B12", "Assumptions!B11+B11", cash[0] as number, "money");
+  b.fill("C12:M12", "B12+C11", (i) => cash[i + 1] as number, "money");
+  return book;
+}
+
+/**
  * A small LBO: bought at a multiple of EBITDA with debt, EBITDA grown, cash
  * swept to repay debt, sold at an exit multiple; IRR and MOIC, a dated XIRR,
  * and a term loan's PMT.

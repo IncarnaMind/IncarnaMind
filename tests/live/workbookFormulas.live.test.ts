@@ -1,11 +1,12 @@
 /**
  * A workbook's formulas against a real model (#2347), through the core as the app asks, in
  * English and Chinese. Two sets: "training", the Questions the Tools' wording was tuned on (a
- * DCF, an LBO and three statements), and "held out", Questions on a SaaS plan written before any
- * run and never used to tune, so its count is the one to trust. Each passes only when the Answer
- * records the figure from the right cell and, for a what-if, with LibreOffice's result. It runs
- * only when INCARNAMIND_LIVE_ANTHROPIC_KEY is set (INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku by
- * default), so `npx vitest run` makes no request without one; pick a set with `-t`.
+ * DCF, an LBO, three statements and a SaaS plan), and "held out", Questions on a store budget
+ * written by a reviewer who hadn't read that wording, committed before any run and never used to
+ * tune, so its count is the one to trust. Each passes only when the Answer records the figure
+ * from the right cell and, for a what-if, with LibreOffice's result. It runs only when
+ * INCARNAMIND_LIVE_ANTHROPIC_KEY is set (INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku by default), so
+ * `npx vitest run` makes no request without one; pick a set with `-t`.
  * INCARNAMIND_LIVE_REPORT keeps each Answer, its Tool calls and figures, and its tokens.
  */
 import { createHash } from "node:crypto";
@@ -17,7 +18,7 @@ import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { type ChatModelFactory, createAiSdkChatModel } from "../../src/core/providers/models";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { saasWorkbook } from "../helpers/financeWorkbooks";
+import { saasWorkbook, storeBudgetWorkbook } from "../helpers/financeWorkbooks";
 import { libreOfficeFixture } from "../helpers/workbookFixtures";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
@@ -25,11 +26,16 @@ const MODEL =
   process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
   (catalogProvider("anthropic")?.roles.quickTasks as string);
 
-interface Asked {
-  question: string;
-  /** The cell its figure is, and for a what-if the input's new value and LibreOffice's result. */
+/** A figure that answers a Question: its cell, and for a what-if the input's new value and LibreOffice's result. */
+interface Accepted {
   cell: string;
   change: { value: number; result: number } | null;
+}
+
+interface Asked extends Accepted {
+  question: string;
+  /** Other figures that answer it as well, where the Question can be read more than one way. */
+  also?: Accepted[];
 }
 
 const TRAINING: Asked[] = [
@@ -82,9 +88,7 @@ const TRAINING: Asked[] = [
     cell: "BS!E3",
     change: { value: 0.1, result: 638.780540832877 },
   },
-];
 
-const HELD_OUT: Asked[] = [
   { question: "In the SaaS plan, what is the ARR built from?", cell: "Plan!B9", change: null },
   { question: "Why is December's MRR in the SaaS plan what it is?", cell: "Plan!M6", change: null },
   { question: "SaaS 计划里，12 月的客户数取决于哪些假设？", cell: "Plan!M4", change: null },
@@ -101,8 +105,52 @@ const HELD_OUT: Asked[] = [
   },
 ];
 
+const MONTH_COLUMNS = ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"];
+
+/**
+ * Written for this pull request by its reviewer, who hadn't read the Tools' wording, and committed
+ * before any run: nothing was tuned on them.
+ */
+const HELD_OUT: Asked[] = [
+  { question: "What feeds into December's gross margin?", cell: "Budget!M6", change: null },
+  {
+    question: "Which inputs move the 2027 operating profit the most?",
+    cell: "Budget!N11",
+    change: null,
+  },
+  {
+    question: "Where does the rent figure in the budget come from?",
+    cell: "Budget!N8",
+    change: null,
+    also: MONTH_COLUMNS.map((column) => ({ cell: `Budget!${column}8`, change: null })),
+  },
+  {
+    question: "If headcount were 12 instead of 10, what would payroll be?",
+    cell: "Budget!N7",
+    change: { value: 12, result: 460800 },
+    also: MONTH_COLUMNS.map((column) => ({
+      cell: `Budget!${column}7`,
+      change: { value: 12, result: 38400 },
+    })),
+  },
+  {
+    question: "Trace the cash balance at year end back to its assumptions.",
+    cell: "Budget!M12",
+    change: null,
+  },
+  { question: "十二月的毛利是由哪些数字算出来的？", cell: "Budget!M6", change: null },
+  { question: "年度营业利润主要受哪些假设影响？", cell: "Budget!N11", change: null },
+  {
+    // Read as the monthly increase, or as each month's rent 5% higher.
+    question: "如果租金每月涨5%，全年费用会变成多少？",
+    cell: "Budget!N10",
+    change: { value: 0.05, result: 589337.012163541 },
+    also: [{ cell: "Budget!N10", change: { value: 8400, result: 562800 } }],
+  },
+];
+
 /** Whether an Answer gives the Question's figure from its cell, and a what-if with LibreOffice's result. */
-const answers = (figure: MarkedFigure, expected: Asked): boolean => {
+const answersAs = (figure: MarkedFigure, expected: Accepted): boolean => {
   const book = figure.workbook;
   if (!book || `${book.cell.sheet}!${book.cell.ref}` !== expected.cell) return false;
   if (!expected.change) return book.change === null;
@@ -112,6 +160,8 @@ const answers = (figure: MarkedFigure, expected: Asked): boolean => {
       1e-9 * Math.abs(expected.change.result)
   );
 };
+const answers = (figure: MarkedFigure, expected: Asked): boolean =>
+  [expected, ...(expected.also ?? [])].some((each) => answersAs(figure, each));
 
 let requests = 0;
 /** The real model, counting each request it makes. */
@@ -165,12 +215,15 @@ test.skipIf(KEY === undefined).each([
       { name: "DCF model.xlsx", contents: libreOfficeFixture("dcf") },
       { name: "LBO model.xlsx", contents: libreOfficeFixture("lbo") },
       { name: "Three statements.xlsx", contents: libreOfficeFixture("three-statements") },
+      { name: "SaaS plan.xlsx", contents: new Uint8Array(saasWorkbook().xlsx()) },
     ],
   },
   {
     set: "held out",
     asked: HELD_OUT,
-    files: () => [{ name: "SaaS plan.xlsx", contents: new Uint8Array(saasWorkbook().xlsx()) }],
+    files: () => [
+      { name: "Store budget.xlsx", contents: new Uint8Array(storeBudgetWorkbook().xlsx()) },
+    ],
   },
 ])(
   "$set: a real model traces each figure to its assumptions and works out a what-if from the workbook",
