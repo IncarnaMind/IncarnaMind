@@ -6,6 +6,7 @@ import {
   changedOnMessage,
   changedSourceNote,
   citationAttributesOf,
+  citationCheckRan,
   citationReference,
   citationSource,
   citationState,
@@ -157,6 +158,15 @@ describe("A Citation's badge", () => {
     expect(words({ ...found, check: "cant-check", checkReason: "no-text" }).en).toBe("Can’t check");
     for (const check of ["found", "not-found", "cant-check", "checking", "not-checked"] as const) {
       expect(words({ ...found, check }).en).not.toMatch(/verif/i);
+    }
+  });
+
+  test("a check ran only where it gave a result, never while checking or when it couldn't", () => {
+    for (const check of ["found", "not-found", "unsupported", "contradicted"] as const) {
+      expect(citationCheckRan(check), check).toBe(true);
+    }
+    for (const check of ["checking", "cant-check", "not-checked"] as const) {
+      expect(citationCheckRan(check), check).toBe(false);
     }
   });
 
