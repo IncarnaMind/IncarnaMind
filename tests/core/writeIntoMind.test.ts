@@ -9,7 +9,7 @@ import {
   MIND_ORIGINS_FIELD,
   MIND_REPLACED_ORIGINS_FIELD,
 } from "../../src/core";
-import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
+import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -563,7 +563,7 @@ describe("Use all after Reject all of a later rewrite (#1950)", { timeout: 60_00
   async function rewritten(how: "content" | "instruction") {
     let later = false;
     const model = scriptedModel((call): ScriptedReply => {
-      if (call.system.startsWith(EDIT_INSTRUCTIONS)) {
+      if ([EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED].includes(call.system)) {
         const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? "";
         return { text: `${passage} Both are due on the first.\n<why>Longer.</why>` };
       }

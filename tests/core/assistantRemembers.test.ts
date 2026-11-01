@@ -1,6 +1,6 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
-import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
+import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant, changesIn } from "../helpers/assistant";
@@ -33,7 +33,7 @@ const asked = ({ options }: ModelCall): string => {
 };
 
 const editPassage = (call: ModelCall): string | null =>
-  call.system.startsWith(EDIT_INSTRUCTIONS)
+  [EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED].includes(call.system)
     ? (/<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? null)
     : null;
 
