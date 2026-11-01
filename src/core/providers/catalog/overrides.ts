@@ -56,7 +56,7 @@ export const OVERRIDES: CatalogOverrides = {
   },
   providers: {
     // Measured using the calculate Tool well (#438: Claude Haiku 5.5, GPT-6 Luna); the ChatGPT plan
-    // serves OpenAI's models. Every other provider stays off until the evaluation (#441) says.
+    // serves OpenAI's models. Every other provider stays off until the evaluation (#441) measures it.
     anthropic: { calculates: true, toolsEveryRequest: true },
     openai: { calculates: true },
     // Google asks for its Gemini 3 models to run at their default temperature: lower makes
@@ -65,7 +65,8 @@ export const OVERRIDES: CatalogOverrides = {
     // DeepSeek takes JSON mode only (its prompt must say "json"), and answers 400 to a forced
     // Tool choice while it thinks, which it does by default; then it ignores the temperature.
     // The evaluation's first runs (#441, #2399): DeepSeek Flash used calculate on 72 Questions in
-    // English and Chinese with no figure wrongly marked checked. DeepSeek's models served by other
+    // English and Chinese with no figure wrongly marked checked. The fact also offers the workbook
+    // Tools and the Analysis Tool, as for Anthropic and OpenAI. DeepSeek's models served by other
     // providers (OpenRouter, SiliconFlow…) weren't measured and stay off.
     deepseek: {
       structuredOutput: "json_object",
