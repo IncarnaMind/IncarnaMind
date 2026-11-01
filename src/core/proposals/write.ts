@@ -1725,6 +1725,10 @@ const IN_WORD = /^[\p{L}\p{N}]$/u;
 const HAN_CHAR = /^\p{Script=Han}$/u;
 /** A sentence or clause mark, a closing bracket or quote: it closes onto the word before it. */
 const CLOSING = /^[.,;:!?…)\]}»”’"'。，、；：！？）】》」』]$/u;
+/** An opening bracket or quote: the word after it starts there. */
+const OPENING = /^[([{«“‘"'（【《「『]$/u;
+/** Where a table's text sits: a paragraph there is struck, never removed, so the table keeps its shape. */
+const CELLS: ReadonlySet<string> = new Set(["tableCell", "tableHeader"]);
 
 /**
  * Where a quote's words are in a paragraph, as characters of `charsOf` (#2180): the one place
@@ -2124,7 +2128,8 @@ export function createRewriteStream(
       const { chars, at } = read.get(segment) ?? { chars: "", at: [] };
       const taken = new Array<boolean>(chars.length).fill(false);
       for (const { first, end } of places) taken.fill(true, first, end);
-      if (taken.every(Boolean)) {
+      const parent = segment.element.parent;
+      if (taken.every(Boolean) && !(parent instanceof Y.XmlElement && CELLS.has(parent.nodeName))) {
         whole.push(segment);
         continue;
       }
@@ -2152,11 +2157,12 @@ export function createRewriteStream(
 
   /**
    * What taking the quoted words from `quotedFrom` to `quotedTo` out of a paragraph takes (#2180):
-   * those words, the Citation and footnote markers right after them, and one space beside them
-   * when they are whole words: the one after them, or the one before them at the paragraph's end
-   * or before a closing mark. Chinese words go exactly, with no neighbour. Null when the words
-   * start or end inside a word of other text, or hold a formula or another inline node: what
-   * else would go can't be told.
+   * those words, the Citation markers right after them, and one space beside them: the one after
+   * them when nothing but a space, an opening mark or the paragraph's start is before them, or
+   * the one before them at the paragraph's end or before a closing mark. Null when the words
+   * start or end inside a word of text other than Chinese, hold a formula, a line break or a
+   * footnote, or have a footnote right after them: the User's own words or what else would go
+   * can't be told.
    */
   const partOf = (
     segment: Segment,
@@ -2170,8 +2176,7 @@ export function createRewriteStream(
       );
       return token?.text?.[position - token.from];
     };
-    const marker = (token: OldToken | undefined) =>
-      token?.node?.name === CITATION_NODE || token?.node?.name === FOOTNOTE_NODE;
+    const citation = (token: OldToken | undefined) => token?.node?.name === CITATION_NODE;
     const insideWord = (position: number) => {
       const before = charAt(position - 1);
       const after = charAt(position);
@@ -2186,30 +2191,34 @@ export function createRewriteStream(
     if (insideWord(quotedFrom) || insideWord(quotedTo)) return null;
     const holdsNode = tokens.some(
       (each) =>
-        each.text === undefined && each.from >= quotedFrom && each.from < quotedTo && !marker(each),
+        each.text === undefined &&
+        each.from >= quotedFrom &&
+        each.from < quotedTo &&
+        !citation(each),
     );
     if (holdsNode) return null;
     let to = quotedTo;
     for (
       let token = tokens.find((each) => each.from === to);
-      token?.text === undefined && marker(token);
+      token?.text === undefined && token?.node;
       token = tokens.find((each) => each.from === to)
     ) {
-      to = token?.to ?? to;
+      if (!citation(token))
+        return token.node.name === FOOTNOTE_NODE ? null : { from: quotedFrom, to };
+      to = token.to;
     }
     const next = charAt(to);
+    const before = charAt(quotedFrom - 1);
+    const startsWord =
+      before === undefined
+        ? !tokens.some((each) => each.to <= quotedFrom)
+        : /\s/.test(before) || OPENING.test(before);
     if (next !== undefined && /\s/.test(next)) {
-      return HAN_CHAR.test(charAt(quotedTo - 1) ?? "")
-        ? { from: quotedFrom, to }
-        : { from: quotedFrom, to: to + 1 };
+      return startsWord ? { from: quotedFrom, to: to + 1 } : { from: quotedFrom, to };
     }
     const closes =
       next === undefined ? !tokens.some((each) => each.from >= to) : CLOSING.test(next);
-    const before = charAt(quotedFrom - 1);
-    return closes &&
-      before !== undefined &&
-      /\s/.test(before) &&
-      !HAN_CHAR.test(charAt(quotedFrom) ?? "")
+    return closes && before !== undefined && /\s/.test(before)
       ? { from: quotedFrom - 1, to }
       : { from: quotedFrom, to };
   };
