@@ -1541,12 +1541,12 @@ export function createAnswers(options: AnswersOptions) {
       }
       return told;
     };
+    /** The markers a workbook's Tools gave their figures, which the model never chose itself. */
+    const workbookMarkers: number[] = [];
     /**
      * A workbook's figure, cited as an input quoted directly is (#2347): to its cell, or a
      * what-if to the input it changed, never to the cell whose number it isn't.
      */
-    /** The markers a workbook's Tools gave their figures, which the model never chose itself. */
-    const workbookMarkers: number[] = [];
     const recordWorkbookFigure = (figure: CalculatedFigure): number => {
       const change = figure.workbook?.change;
       const cell = change
