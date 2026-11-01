@@ -385,9 +385,7 @@ export function CitationView({
     !inFootnote
       ? () => {
           dismiss();
-          asOneStep(editor, () =>
-            updateAttributes({ check: "found", checkReason: null, pageChecked: true }),
-          );
+          asOneStep(editor, () => updateAttributes({ pageChecked: true }));
           offerEditorUndo(editor, (t) => t("citation.pageChecked.undo"));
           editor.view.focus();
         }

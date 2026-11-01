@@ -204,7 +204,7 @@ describe("Reading a scanned page's lines (#397)", () => {
       "PP-OCRv5 mobile/1",
     );
     // As an older reader left it: its label holds no unsure words, and the shape still says so.
-    const page = { ...read, label: { scan: { reader: "PP-OCRv5 mobile/1" } } };
+    const page: TextUnit = { ...read, label: { scan: { reader: "PP-OCRv5 mobile/1" } } };
     expect(page.label?.scan?.unsure).toBeUndefined();
     expect(unsureSpansIn(page).map(([from, to]) => page.text.slice(from, to))).toEqual(["2o25"]);
     // A word stored as unsure, and one the shape finds, are both returned, once.
