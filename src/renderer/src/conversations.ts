@@ -300,9 +300,9 @@ export async function askInAssistant(
     watchCommands(result.answerId);
     const id = result.conversation.id;
     if (move === moves && useConversations.getState().openId !== id) {
-      // A new conversation shows with its messages as they are now, and each write after this
-      // comes as an event. Shown before they are read, its Answer's first write drew above the
-      // Question still on its way (#1741).
+      // A new conversation shows only with its messages read: an Answer write arriving before
+      // them would be drawn above the Question still on its way (#1741). Each write after the
+      // read comes as an event.
       const { messages } = await core.getConversation(id);
       if (move === moves) useConversations.setState({ openId: id, messages });
     }
