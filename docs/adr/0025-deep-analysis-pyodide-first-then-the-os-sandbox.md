@@ -100,6 +100,7 @@ On the M2 Max used for ADR-0023, with macOS 26.5, Electron 44.9.1 and Pyodide 31
 | A job that imports all four | — | 6.8 s |
 
 - A job's time is its packages loading, then its code: of a scipy job's 2.6 s, its code (the import and the work) took 1.9 s. matplotlib is imported before the code starts, so its code took 0.15 s.
+- With Claude Haiku 5.5 driving the built app on a made-up workbook (five questions: a regression, a forecast, a clustering with a plot, a total and a region's part of it, and averages asked in Chinese), in six runs while the instructions were worded: IncarnaMind worked out again every `figure()` figure the model gave, 22 of 22, and refused none. A model's figures named their rows (`of=`) in 0 of 8 before the instructions gave an example, and in 2 of 8 to 5 of 5 after; the final wording's run named 5 of 5. Asking again for the rows of figures that named none made the model run again and once turn a right share into a wrong one, so it isn't asked. At most 1 call in a run failed.
 - Python's files (`resources/python`) are 21.4 MB unpacked and 13.0 MB compressed today (`xz -9`, as installers compress), and 57.9 MB and 48.7 MB with the four packages: 35.8 MB more compressed. The installers themselves were not built for this record.
 
 **The OS sandbox and `run_code`** (`tests/main/runCode.bench.test.ts`, python-build-standalone 3.14.10 with numpy 2.5.4 and pandas 3.1.0):
