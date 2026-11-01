@@ -137,6 +137,10 @@ describe("the same scale as reading the whole page", () => {
     const joins = [
       "\n",
       "\r\n",
+      "\r",
+      "\u2029",
+      "\v",
+      "\f",
       " \n ",
       "\n\n",
       "\t\n",
@@ -204,6 +208,15 @@ describe("the same scale as reading the whole page", () => {
     });
     expect(texts.filter((text) => wholePageScale(text) !== null).length).toBeGreaterThan(1000);
     expectSameAsWholePage(texts);
+  });
+});
+
+describe("a page written as one long line", () => {
+  const line = "Spring tides come twice a month. ".repeat(6_000);
+
+  test("states the same scale as reading it whole", () => {
+    expectSameAsWholePage([line, `${line}Revenue in millions`, `单位：万元 ${line}`], () => [{}]);
+    expect(statedScale(`${line}Revenue in millions`)).toBe("in millions");
   });
 });
 
