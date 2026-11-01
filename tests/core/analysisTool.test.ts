@@ -6,7 +6,7 @@ import type { Core } from "../../src/core";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import { nodeOf } from "../../src/core/answers/blocks";
 import { plainText } from "../../src/core/mindText";
-import type { AnalysisJob } from "../../src/shared/analysis";
+import { type AnalysisJob, noAnalysisOutput } from "../../src/shared/analysis";
 import { answerBlocks } from "../../src/shared/answerBlocks";
 import {
   calculatedFiguresIn,
@@ -129,6 +129,40 @@ const totalOf = (): FakeAnswer => ({
 });
 
 describe("an Analysis an Answer runs", () => {
+  test("two inputs that read the same rows of a sheet are refused before anything runs, so a join can't count a row twice", async () => {
+    const twice = (passages: ShownPassage[]): Call => ({
+      tool: "run_analysis",
+      input: {
+        title: "Revenue",
+        inputs: [
+          { name: "found", passage: passageOf(passages, "sales") },
+          { name: "again", passage: passageOf(passages, "sales"), range: "A1:C3" },
+        ],
+        code: 'df = pd.concat([inputs["found"], inputs["again"]])\nresult("n", len(df), "Rows")',
+      },
+    });
+    const model = analysingModel({
+      query: "revenue",
+      runs: [twice, salesRun()],
+      answer: "The total revenue is [=1].",
+    });
+    const jobs: AnalysisJob[] = [];
+    const { core } = await setUp(model, (job) => {
+      jobs.push(job);
+      return totalOf();
+    });
+
+    await askAndRead(core, "What was the total revenue?");
+
+    expect(told(model, "run_analysis")[0]).toBe(
+      'Nothing ran. Fix the inputs and run it again:\n- "found" and "again" read the same rows of "sales", so joined they would count each row twice. Every Passage of a sheet reads the whole sheet: give the sheet once, as one input, and pick its rows in the code',
+    );
+    // The run that gives the sheet once runs, with its 4 rows once.
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.inputs.map((input) => input.name)).toEqual(["sales"]);
+    expect(jobs[0]?.inputs[0]?.kind === "table" && jobs[0].inputs[0].rows).toHaveLength(4);
+  });
+
   test.each(["error", "out-of-memory"] as const)(
     "%s after giving results publishes no figure, table or chart",
     async (kind) => {
@@ -729,6 +763,62 @@ describe("an Analysis an Answer runs", () => {
     ]);
   });
 
+  test("every plot left out for its characters is counted, past the five whose titles are listed", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun("import matplotlib.pyplot as plt")],
+      answer: "No plot could be drawn.",
+    });
+    const { core } = await setUp(model, () => ({
+      output: {
+        withoutGlyphs: ["매출 1", "매출 2", "매출 3", "매출 4", "매출 5"],
+        cut: { ...noAnalysisOutput().cut, withoutGlyphs: 2 },
+      },
+    }));
+
+    await askAndRead(core, "Plot revenue");
+
+    expect(told(model, "run_analysis")[0]).toContain(
+      'Left out: 7 pictures ("매출 1", "매출 2", "매출 3", "매출 4", "매출 5", 2 more) whose text has characters',
+    );
+    expect(told(model, "run_analysis")[0]).toContain(
+      "In the Answer, tell the User these plots were left out and why.",
+    );
+  });
+
+  test("a chart the Answer says it drew but never placed is shown at its end, the latest of a title once", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun(), salesRun()],
+      answer: "图表已生成：每个地区的收入。",
+    });
+    const { core } = await setUp(model, () => ({
+      output: {
+        charts: [
+          {
+            kind: "line",
+            title: "每个地区的收入",
+            x: "地区",
+            y: ["收入"],
+            table: {
+              columns: ["地区", "收入"],
+              rows: [["North", 270.5]],
+              rowCount: 1,
+              columnCount: 2,
+            },
+          },
+        ],
+      },
+    }));
+
+    const { answer } = await askAndRead(core, "画出每个地区的收入");
+
+    expect(answer.analyses.map((each) => each.markers.charts)).toEqual([[1], [2]]);
+    expect(answer.text.split("**每个地区的收入**")).toHaveLength(2);
+    expect(answer.text).toContain("| North | 270.5 |");
+    expect(answer.text.indexOf("图表已生成")).toBeLessThan(answer.text.indexOf("每个地区的收入**"));
+  });
+
   test("a plot comes back as a picture where the Answer puts [=picture n], in the conversation and in a Note", async () => {
     const png =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
@@ -750,7 +840,7 @@ describe("an Analysis an Answer runs", () => {
     const report = told(model, "run_analysis")[0];
     expect(report).toContain("- [=picture 1] Revenue by quarter (a picture matplotlib drew)");
     expect(report).toContain(
-      "Left out: a picture (\"매출 지역별\") whose text has characters the plot's fonts don't have, such as Japanese, Korean or a rare Chinese character, which would show as boxes. Draw it with chart(), which the app draws in any language, or write the plot's text without them.",
+      "Left out: a picture (\"매출 지역별\") whose text has characters the plot's fonts don't have, such as Japanese, Korean or a rare Chinese character, which would show as boxes. In the Answer, tell the User this plot was left out and why. To show it, draw with chart(), which the app draws in any language, or write the plot's text without those characters.",
     );
     const picture = {
       type: "picture",

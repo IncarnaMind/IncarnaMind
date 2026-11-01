@@ -54,6 +54,9 @@ PANDAS_PLOTS = {"plot", "hist", "boxplot", "plotting"}
 PANDAS_SCIPY = {"spearman", "kendall"}
 # A plot is drawn at twice its size in points, so it stays sharp on a high-density screen.
 PICTURE_DPI = 200
+# The assistant panel shows a picture about 400 px wide. matplotlib sizes text in points, so a
+# figure wider than this is drawn at this width: its 10-point text is then about 11 px there.
+PICTURE_INCHES = 5.0
 CLOCK_MESSAGE = (
     "An Analysis has no clock, so that it gives the same result every time it runs. "
     "Take the date as an input instead of reading today's."
@@ -294,6 +297,7 @@ class _Run:
             "tables": 0,
             "charts": 0,
             "pictures": 0,
+            "withoutGlyphs": 0,
             "steps": 0,
             "merges": 0,
             "notNumbers": 0,
@@ -830,6 +834,9 @@ def _draw_pictures(limits):
     for drawn in _drawn:
         if not drawn.axes:
             continue
+        wide, high = drawn.get_size_inches()
+        if wide > PICTURE_INCHES:
+            drawn.set_size_inches(PICTURE_INCHES, high * PICTURE_INCHES / wide)
         dpi = min(PICTURE_DPI, edge / max(*drawn.get_size_inches(), 0.01))
         title = _text(_title_of(drawn), limits["labelCharacters"])
         # A character no font here has (Japanese, Korean, a Chinese one outside GB2312) would be
@@ -841,6 +848,8 @@ def _draw_pictures(limits):
             except UserWarning:
                 if len(_run.without_glyphs) < limits["pictures"]:
                     _run.without_glyphs.append(title)
+                else:
+                    _run.cut["withoutGlyphs"] += 1
                 continue
         # A tight box can grow past the figure's size, and a busy plot past the bytes a Note keeps.
         if max(width, height) > edge or len(data) > limits["pictureBytes"]:

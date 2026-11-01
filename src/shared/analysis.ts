@@ -187,6 +187,8 @@ export interface AnalysisCut {
   tables: number;
   charts: number;
   pictures: number;
+  /** Plots left out for their characters past the titles `withoutGlyphs` lists; absent before #2346. */
+  withoutGlyphs?: number;
   steps: number;
   merges: number;
   notNumbers: number;
@@ -203,7 +205,8 @@ export interface AnalysisOutput {
   pictures?: AnalysisPicture[];
   /**
    * The titles of plots left out because their text has characters no bundled
-   * font draws, such as Chinese, which would show as boxes.
+   * font draws, such as Japanese, Korean or a Chinese one outside GB2312, which
+   * would show as boxes.
    */
   withoutGlyphs?: string[];
   merges: AnalysisMerge[];
@@ -515,9 +518,10 @@ export function readAnalysisOutput(raw: unknown): AnalysisOutput {
   output.steps = steps.items;
   output.charts = charts.items;
   output.pictures = pictures.items;
-  output.withoutGlyphs = listOf(raw.withoutGlyphs, ANALYSIS_LIMITS.pictures, (item) =>
+  const withoutGlyphs = listOf(raw.withoutGlyphs, ANALYSIS_LIMITS.pictures, (item) =>
     typeof item === "string" ? label(item) : null,
-  ).items;
+  );
+  output.withoutGlyphs = withoutGlyphs.items;
   output.merges = merges.items;
   output.notNumbers = notNumbers.items;
   output.literals = literals.items;
@@ -528,6 +532,7 @@ export function readAnalysisOutput(raw: unknown): AnalysisOutput {
     tables: count(given.tables) + left.table,
     charts: count(given.charts) + charts.left,
     pictures: count(given.pictures) + pictures.left,
+    withoutGlyphs: count(given.withoutGlyphs) + withoutGlyphs.left,
     steps: count(given.steps) + steps.left,
     merges: count(given.merges) + merges.left,
     notNumbers: count(given.notNumbers) + notNumbers.left,

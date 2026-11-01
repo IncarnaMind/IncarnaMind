@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
-import { hasEntry, NATIVE_CODE, noticesFor } from "../../scripts/pythonNotices.mjs";
+import { AUDITED_WHEELS, noticeProblems } from "../../scripts/pythonNotices.mjs";
 import { PYODIDE_FILES, packagesFor } from "../../scripts/pythonRuntime";
+import { PLOT_FONT } from "../../src/shared/analysisWindow";
 
 /*
  * What Analyses run with ships with the app (ADR-0023): Pyodide's files and the wheels the build
@@ -69,28 +70,37 @@ describe("the files Analyses run with", () => {
     expect(notice).toContain("SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007");
   });
 
-  test("every native library compiled into the wheels has its entry and licence text in the notice", async () => {
+  test("every wheel that ships is audited, and the notice credits all it bundles with its licence text", async () => {
     const notice = await read("resources/notices/python.txt");
-    const named = new Set(NATIVE_CODE.flatMap((each) => each.notices));
+    const lock = JSON.parse(await read("node_modules/pyodide/pyodide-lock.json"));
+    const packages = packagesFor(lock);
 
-    for (const name of named) expect(hasEntry(notice, name), name).toBe(true);
-    expect(noticesFor("matplotlib", "matplotlib/_qhull.cpython-314-wasm32-emscripten.so")).toEqual([
-      "matplotlib",
-      "Qhull",
+    expect(noticeProblems(notice, packages, [PLOT_FONT])).toEqual([]);
+    expect(AUDITED_WHEELS["scipy 1.18.0"]).toEqual(
+      expect.arrayContaining([
+        "SuperLU",
+        "ARPACK",
+        "PROPACK",
+        "HiGHS",
+        "UNU.RAN",
+        "PRIMA",
+        "MINPACK",
+      ]),
+    );
+    expect(AUDITED_WHEELS["scikit-learn 1.8.0"]).toEqual(["scikit-learn", "libsvm", "liblinear"]);
+    // FreeType's licence text gone, its line in the list kept: the build fails.
+    const freeType = notice.indexOf("The FreeType Project LICENSE");
+    const withoutText = notice.slice(0, freeType) + notice.slice(notice.indexOf("\n=", freeType));
+    expect(noticeProblems(withoutText, packages, [PLOT_FONT])).toEqual([
+      'notices/python.txt has no licence text for FreeType ("The FreeType Project LICENSE")',
     ]);
-    expect(noticesFor("scipy", "scipy.libs/libopenblas.so")).toEqual([
-      "OpenBLAS",
-      "LAPACK",
-      "libf2c",
+    // An upgraded wheel fails until someone audits what it bundles.
+    const upgraded = packages.map((each) =>
+      each.name === "pillow" ? { ...each, version: "12.3.0" } : each,
+    );
+    expect(noticeProblems(notice, upgraded, [PLOT_FONT])).toEqual([
+      "pillow 12.3.0 isn't audited: list the libraries compiled into its modules in scripts/pythonNotices.mjs, with their notices",
     ]);
-    expect(noticesFor("scipy", "scipy/linalg/_flapack.cpython-314-wasm32-emscripten.so")).toEqual([
-      "scipy",
-    ]);
-    expect(noticesFor("scipy", "scipy.libs/libsomething.so")).toBeNull();
-    expect(notice).toContain("The FreeType Project LICENSE");
-    expect(notice).toContain("Independent JPEG Group");
-    expect(notice).toContain("Qhull, Copyright (c) 1993-2020");
-    expect(notice).toContain("OpenBLAS");
   });
 
   test("the build's folder is packaged beside app.asar and never committed", async () => {

@@ -82,7 +82,7 @@ import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import { unrunToolNotes } from "../../shared/unrunTools";
 import type { AnalysisRuntime } from "../adapters";
-import { withAnalysisResults } from "../analysis/markers";
+import { withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
 import { analysisTool } from "../analysis/tool";
 import {
   ANSWER_BLOCK,
@@ -1595,7 +1595,9 @@ export function createAnswers(options: AnswersOptions) {
       const final = outcome !== undefined;
       // Turned into their Citations when the Answer ends (`finish`): till then none shows.
       const text = withAnalysisResults(
-        withoutFootnoteDefinitions(final ? markdown : withoutWrittenIds(markdown, ids)),
+        withoutFootnoteDefinitions(
+          final ? withEveryChartPlaced(markdown, analyses) : withoutWrittenIds(markdown, ids),
+        ),
         analyses,
         answerLanguage(context.question),
       );

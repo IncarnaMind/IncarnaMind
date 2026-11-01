@@ -410,6 +410,10 @@ test("a regression, a forecast and a clustering run offline with scipy, statsmod
         "plt.figure()",
         'plt.bar(["서울", "부산"], [3, 1])',
         'plt.title("매출 지역별")',
+        "for n in range(1, 6):",
+        "    plt.figure()",
+        '    plt.bar(["서울"], [n])',
+        '    plt.title(f"매출 {n}")',
       ].join("\n"),
       [MARKETING],
     ),
@@ -443,12 +447,20 @@ test("a regression, a forecast and a clustering run offline with scipy, statsmod
   // pandas' own sum, which IncarnaMind works out again to Excel's 15 digits.
   expect(total?.kind === "figure" && total.value).toBeCloseTo(2590.7, 9);
   // Closed after it was saved, the plot still comes back, and so does one in Chinese, drawn with
-  // the bundled font; one in Korean, which no font here has, doesn't.
+  // the bundled font; those in Korean, which no font here has, don't.
   expect(regression.result.output.pictures).toEqual([
     expect.objectContaining({ title: "Revenue against ad spend" }),
     expect.objectContaining({ title: "各地区收入（鄞州）" }),
   ]);
-  expect(regression.result.output.withoutGlyphs).toEqual(["매출 지역별"]);
+  // Five titles are listed, and the sixth plot left out is counted.
+  expect(regression.result.output.withoutGlyphs).toEqual([
+    "매출 지역별",
+    "매출 1",
+    "매출 2",
+    "매출 3",
+    "매출 4",
+  ]);
+  expect(regression.result.output.cut.withoutGlyphs).toBe(1);
   const [picture] = regression.result.output.pictures ?? [];
   expect(picture?.png.startsWith("iVBORw0KGgo")).toBe(true);
   expect(Math.max(picture?.width ?? 0, picture?.height ?? 0)).toBeLessThanOrEqual(1600);

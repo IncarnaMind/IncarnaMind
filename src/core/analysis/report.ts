@@ -112,10 +112,15 @@ export function analysisReport(analysis: AnswerAnalysis, language: Language): st
   ].filter(Boolean);
   if (cut.length > 0) lines.push(`Left out, over the limits: ${cut.join(", ")}.`);
   const withoutGlyphs = output.withoutGlyphs ?? [];
+  const unlisted = output.cut.withoutGlyphs ?? 0;
   if (end.kind === "done" && withoutGlyphs.length > 0) {
-    const titles = withoutGlyphs.map((title) => `"${title || "Untitled"}"`).join(", ");
+    const titles = [
+      ...withoutGlyphs.map((title) => `"${title || "Untitled"}"`),
+      ...(unlisted > 0 ? [`${count(unlisted)} more`] : []),
+    ].join(", ");
+    const total = withoutGlyphs.length + unlisted;
     lines.push(
-      `Left out: ${withoutGlyphs.length === 1 ? "a picture" : `${count(withoutGlyphs.length)} pictures`} (${titles}) whose text has characters the plot's fonts don't have, such as Japanese, Korean or a rare Chinese character, which would show as boxes. Draw it with chart(), which the app draws in any language, or write the plot's text without them.`,
+      `Left out: ${total === 1 ? "a picture" : `${count(total)} pictures`} (${titles}) whose text has characters the plot's fonts don't have, such as Japanese, Korean or a rare Chinese character, which would show as boxes. In the Answer, tell the User ${total === 1 ? "this plot was" : "these plots were"} left out and why. To show ${total === 1 ? "it" : "them"}, draw with chart(), which the app draws in any language, or write the plot's text without those characters.`,
     );
   }
   lines.push(endLine(analysis, end));

@@ -30,6 +30,40 @@ function markdownTable(table: AnalysisTable, language: Language): string {
   return lines.join("\n");
 }
 
+/**
+ * `text` with each chart and picture its Analyses made that no line of it places added at its
+ * end, the latest of each title once. A reply can say a chart was drawn and leave its marker out,
+ * or write it inside a sentence, where it isn't shown (#2346): the User sees every one it made.
+ */
+export function withEveryChartPlaced(text: string, analyses: readonly AnswerAnalysis[]): string {
+  const placed = new Set(
+    text.split("\n").flatMap((line) => {
+      const whole = LINE.exec(line);
+      return whole ? [`${whole[1]} ${whole[2]}`] : [];
+    }),
+  );
+  const titled = (kind: string, marker: number, title: string | undefined) => ({
+    marker: `${kind} ${marker}`,
+    title: title ? `${kind}: ${title}` : `${kind} ${marker}`,
+  });
+  const made = analyses.flatMap((analysis) => [
+    ...analysis.markers.charts.map((marker, index) =>
+      titled("chart", marker, analysis.output.charts[index]?.title),
+    ),
+    ...(analysis.markers.pictures ?? []).map((marker, index) =>
+      titled("picture", marker, analysis.output.pictures?.[index]?.title),
+    ),
+  ]);
+  const shown = new Set(made.filter((each) => placed.has(each.marker)).map((each) => each.title));
+  const latest = new Map<string, string>();
+  for (const each of made) {
+    if (!placed.has(each.marker) && !shown.has(each.title)) latest.set(each.title, each.marker);
+  }
+  if (latest.size === 0) return text;
+  const added = [...latest.values()].map((marker) => `[=${marker}]`).join("\n\n");
+  return `${text.trimEnd()}\n\n${added}`;
+}
+
 export function withAnalysisResults(
   text: string,
   analyses: readonly AnswerAnalysis[],
