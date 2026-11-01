@@ -174,6 +174,8 @@ describe("Reading a scanned page's lines (#397)", () => {
       "6E0",
       "4H0",
       "１T５",
+      "3H25",
+      "2024H3",
     ]) {
       const read = line(word, [0, 0, 100, 10]);
       expect(unsureWords(read), word).toEqual([[0, word.length]]);
@@ -206,8 +208,17 @@ describe("Reading a scanned page's lines (#397)", () => {
       "1H25",
       "2H24",
       "2024Q3",
+      "2024H2",
       "4x4",
       "1e6",
+      "10:30",
+      "１０：３０",
+      "01/03/2024",
+      "2024/3/1",
+      "1/2",
+      "24/7",
+      "3:1",
+      "3×4",
     ]) {
       expect(unsureWords(line(word, [0, 0, 100, 10])), word).toEqual([]);
       expect(unsureWords(line(word, [0, 0, 100, 10], 0.4)), word).toEqual([[0, word.length]]);
@@ -244,6 +255,23 @@ describe("Reading a scanned page's lines (#397)", () => {
       page.lines.flatMap((line) => line.text.split(/\s+/u)).filter((word) => mixedNumberWord(word)),
     );
     expect(doubtful).toEqual(["(6O)", "1o."]);
+  });
+
+  test("an everyday number shape on a clean finance scan follows the score (#535)", () => {
+    const finance = [
+      "Trading opened at 10:30 on 01/03/2024 and closed at 15:45.",
+      "The ratio was 3:1 and the split 1/2 of 3×4 units.",
+      "The review on 2024/3/1 kept a 24/7 shift.",
+      "Revenue rose 1万2千 and costs 3亿5000万.",
+    ];
+    const page = scannedUnit(
+      1,
+      finance.map((text, index) => line(text, [100, 100 + index * 30, 900, 120 + index * 30])),
+      { width: 1000, height: 2000 },
+      "PP-OCRv5 mobile/1",
+    );
+    const clean: TextUnit = { ...page, label: { scan: { reader: "PP-OCRv5 mobile/1" } } };
+    expect(unsureSpansIn(clean)).toEqual([]);
   });
 
   test("a Chinese numeral between a number's digits is a digit the scan may have misread (#535)", () => {

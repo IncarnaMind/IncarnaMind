@@ -20,15 +20,22 @@ import type { RecognizedLine } from "../../adapters";
 export const UNSURE_BELOW = 0.8;
 
 /**
- * Real codes whose letters between digits are the code's own: a quarter
- * ("3Q24", "2024Q3", "1H25", "2H24"), a size ("4x4") and scientific notation
- * ("1e6"). They follow the recognizer's score; any other letter between a
- * number's digits is a digit it may have misread.
+ * Real code and everyday-number shapes whose letters or marks between digits
+ * are their own: a quarter ("3Q24", "2024Q3"), a half-year ("1H25", "2024H2"),
+ * a size or product ("4x4", "3×4"), scientific notation ("1e6"), a time or a
+ * ratio ("10:30", "3:1"), and a fraction or slash date ("1/2", "2024/3/1").
+ * They follow the recognizer's score; anything else between a number's digits
+ * is a digit it may have misread.
  */
-const CODE_SHAPE = /^(?:[1-4][QH]\d{2}|\d{4}[QH][1-4]|\d+[xX]\d+|\d+(?:\.\d+)?e[+-]?\d+)$/u;
+const CODE_SHAPE =
+  /^(?:[1-4]Q\d{2}|\d{4}Q[1-4]|[1-2]H\d{2}|\d{4}H[1-2]|\d+[xX×]\d+|\d+(?:\.\d+)?e[+-]?\d+|\d+:\d+(?::\d+)?|\d+\/\d+(?:\/\d+)?)$/u;
 
-/** A CJK numeral: between digits ("2〇25") it is a digit the scan may have read as a character. */
-const CJK_NUMERAL = "〇零一二三四五六七八九十百千万亿两壹贰叁肆伍陆柒捌玖拾佰仟";
+/**
+ * A CJK numeral: between digits ("2〇25") it is a digit the scan may have read
+ * as a character. The scale characters (十百千万亿) aren't digits and break the
+ * run, so "1万2千" and "3亿5000万" are numbers of their own.
+ */
+const CJK_NUMERAL = "〇零一二三四五六七八九两壹贰叁肆伍陆柒捌玖";
 
 /**
  * Whether a word starts like a number and holds, between its first and last
