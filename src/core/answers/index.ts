@@ -3203,8 +3203,9 @@ export function createAnswers(options: AnswersOptions) {
           ? {
               turnChecks,
               shownUpTo: heldBack,
-              // A command that only acted on the window ends the turn: its card is the reply
-              // (#1421). One that is the User's alone is said after the reply (`refusalSuffix`).
+              // A command that only acted on the window, or that is the User's alone, ends the
+              // turn: its card is the reply (#1421), and a refusal's line follows it
+              // (`refusalSuffix`).
               mayEndBlank: () =>
                 changedAMind() ||
                 [...commandsDone.values()].some((done) => done.window !== undefined || done.yours),
