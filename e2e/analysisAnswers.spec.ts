@@ -345,6 +345,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(badge.locator(".check-badge-words")).not.toContainText(
         language === "en" ? "needs a look" : "需要留意",
       );
+      const evidence = process.env.INCARNAMIND_ANALYSIS_EVIDENCE_DIR;
+      if (evidence) await window.screenshot({ path: join(evidence, `${language}-note-table.png`) });
     } finally {
       await app.close();
     }
