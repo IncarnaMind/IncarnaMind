@@ -35,13 +35,16 @@ const passageIds = (call: ModelCall) =>
  * `cite`; `asked` is how it replies to the one request for Citations.
  */
 function markingModel(answer: string, asked: (call: ModelCall) => ScriptedReply) {
-  return scriptedModel((call) => {
-    if (call.json) return asked(call);
-    if (!call.results.some((result) => result.tool === "search_documents")) {
-      return { calls: [{ tool: "search_documents", input: { query: "tea" } }] };
-    }
-    return { text: answer };
-  });
+  return scriptedModel(
+    (call) => {
+      if (call.json) return asked(call);
+      if (!call.results.some((result) => result.tool === "search_documents")) {
+        return { calls: [{ tool: "search_documents", input: { query: "tea" } }] };
+      }
+      return { text: answer };
+    },
+    { judgesItsAnswers: true },
+  );
 }
 
 describe("A Citation marker never shows without a Citation behind it", { timeout: 30_000 }, () => {
@@ -79,25 +82,28 @@ describe("A Citation marker never shows without a Citation behind it", { timeout
   // protects=an Answer that cites one marker and writes another with no record is asked once, and the Citation it gives takes that marker, the first one staying as it was; fails_when=the stray marker is left or the model isn't asked; no_claim=none beyond protects.
   test("a marker with no record beside one that has it is asked about once", async () => {
     let requests = 0;
-    const model = scriptedModel((call) => {
-      if (call.json) {
-        requests++;
-        const [id] = passageIds(call);
-        return {
-          text: JSON.stringify({
-            citations: [{ sentence: ENGLISH.sentences[1], passage: id, quote: SECOND }],
-          }),
-        };
-      }
-      const search = call.results.find((result) => result.tool === "search_documents");
-      if (!search) return { calls: [{ tool: "search_documents", input: { query: "tea" } }] };
-      if (!call.results.some((result) => result.tool === "cite")) {
-        const [passage] = shownPassages(search.text);
-        const record = { marker: 1, passage: passage?.id, quote: FIRST };
-        return { calls: [{ tool: "cite", input: { citations: [record] } }] };
-      }
-      return { text: ENGLISH.answer };
-    });
+    const model = scriptedModel(
+      (call) => {
+        if (call.json) {
+          requests++;
+          const [id] = passageIds(call);
+          return {
+            text: JSON.stringify({
+              citations: [{ sentence: ENGLISH.sentences[1], passage: id, quote: SECOND }],
+            }),
+          };
+        }
+        const search = call.results.find((result) => result.tool === "search_documents");
+        if (!search) return { calls: [{ tool: "search_documents", input: { query: "tea" } }] };
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const [passage] = shownPassages(search.text);
+          const record = { marker: 1, passage: passage?.id, quote: FIRST };
+          return { calls: [{ tool: "cite", input: { citations: [record] } }] };
+        }
+        return { text: ENGLISH.answer };
+      },
+      { judgesItsAnswers: true },
+    );
     const { core } = await setUpWithDocuments(model, [TEA]);
 
     const answer = await askAssistant(core, { text: ENGLISH.question });

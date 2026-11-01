@@ -519,8 +519,103 @@ describe("an Answer's steps", () => {
       citations: [{ ...quoted(1, "Spring tides"), check: "not-found" }, quoted(2, "Full moon")],
     });
     expect(stepRows(lost).at(-1)).toEqual({ kind: "check", count: 3, notFound: 2 });
+    // A sentence its found quote doesn't support needs a look, as its badge says (#2311).
+    const unbacked = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [{ ...quoted(1, "Spring tides"), check: "unsupported" }, quoted(2, "Full moon")],
+    });
+    expect(stepRows(unbacked).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      needALook: 1,
+    });
+    const contradicted = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [
+        { ...quoted(1, "Spring tides"), check: "contradicted" },
+        { ...quoted(2, "Full moon"), check: "unsupported" },
+      ],
+    });
+    const waiting = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [{ ...quoted(1, "Spring tides"), check: "checking" }, quoted(2, "Full moon")],
+    });
+    expect(stepRows(waiting).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      running: true,
+    });
+    const unjudged = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [{ ...quoted(1, "Spring tides"), check: "not-checked" }, quoted(2, "Full moon")],
+    });
+    expect(stepRows(unjudged).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      notChecked: 1,
+    });
+    expect(stepRows(contradicted).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      needALook: 2,
+      contradicted: 1,
+    });
     expect(checkedWords(en, 1)).toBe("Checked 1 Citation against its source");
     expect(checkedWords(zh, 1)).toBe("把 1 处引用和原文核对");
+  });
+
+  test("a limit that stopped judging its sentences: how many of them were checked, and which limit, in English and Chinese (#2311)", () => {
+    const quoted = (marker: number, quote: string): MarkedCitation => ({
+      ...citation(marker, "a", "d1", 4),
+      quote,
+    });
+    const text =
+      "Spring tides follow the new moon [^1]. They are the highest [^2]. Neap tides are the lowest [^3].";
+    const stoppedBy = (reason: "answer-limit" | "monthly-limit") =>
+      stepRows(
+        input({
+          text,
+          citations: [
+            quoted(1, "Spring tides"),
+            { ...quoted(2, "Full moon"), check: "not-checked", checkReason: reason },
+            { ...quoted(3, "Neap tides"), check: "not-checked", checkReason: reason },
+          ],
+        }),
+      ).at(-1);
+    const unjudged = input({
+      text,
+      citations: [
+        quoted(1, "Spring tides"),
+        { ...quoted(2, "Full moon"), check: "not-checked" },
+        quoted(3, "Neap tides"),
+      ],
+    });
+
+    expect(stoppedBy("answer-limit")).toMatchObject({
+      notChecked: 2,
+      stopped: { by: "answer-limit", checked: 1, total: 3 },
+    });
+    expect(stoppedBy("monthly-limit")).toMatchObject({
+      stopped: { by: "monthly-limit", checked: 1, total: 3 },
+    });
+    // Not checked for another reason, a failure: no limit to name.
+    expect(stepRows(unjudged).at(-1)).not.toHaveProperty("stopped");
+    expect(en("steps.check.answerLimit", { checked: 12, total: 40, limit: "$0.25" })).toBe(
+      "12 of 40 sentences checked · This Answer’s $0.25 checking limit reached",
+    );
+    expect(zh("steps.check.answerLimit", { checked: 12, total: 40, limit: "$0.25" })).toBe(
+      "已核对 40 句中的 12 句 · 已达本回答 $0.25 的核对上限",
+    );
+    expect(en("steps.check.monthlyLimit", { checked: 12, total: 40, cap: "$20.00" })).toBe(
+      "12 of 40 sentences checked · Your monthly limit of $20.00 reached",
+    );
+    expect(zh("steps.check.monthlyLimit", { checked: 12, total: 40, cap: "$20.00" })).toBe(
+      "已核对 40 句中的 12 句 · 已达每月上限 $20.00",
+    );
   });
 
   test("the figures it calculated, after the searches and before the check, with no call row", () => {

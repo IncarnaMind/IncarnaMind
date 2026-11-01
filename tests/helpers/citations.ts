@@ -1,9 +1,10 @@
 import type { MockLanguageModelV4 } from "ai/test";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import type {
   AnswerSearchTuning,
   CitationAttributes,
   CitationRecheck,
+  ConversationAnswer,
   Core,
   CoreAdapters,
   CoreEvents,
@@ -103,22 +104,25 @@ export interface CitingPlan {
 
 /** A model that calls Tools: it searches once, cites, then writes its Answer. */
 export function citingModel(plan: CitingPlan): MockLanguageModelV4 {
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    if (!call.tools.includes("search_documents")) return { text: "No Tools were offered." };
-    const searches = call.results.filter((result) => result.tool === "search_documents");
-    const cited = call.results.some((result) => result.tool === "cite");
-    if (searches.length === 0) {
-      return {
-        text: plan.preamble,
-        calls: [{ tool: "search_documents", input: { query: plan.query } }],
-      };
-    }
-    if (!cited) {
-      const passages = shownPassages(searches.at(-1)?.text ?? "");
-      return { calls: [{ tool: "cite", input: { citations: plan.records(passages) } }] };
-    }
-    return { text: plan.answer, pause: plan.pause };
-  });
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      if (!call.tools.includes("search_documents")) return { text: "No Tools were offered." };
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      const cited = call.results.some((result) => result.tool === "cite");
+      if (searches.length === 0) {
+        return {
+          text: plan.preamble,
+          calls: [{ tool: "search_documents", input: { query: plan.query } }],
+        };
+      }
+      if (!cited) {
+        const passages = shownPassages(searches.at(-1)?.text ?? "");
+        return { calls: [{ tool: "cite", input: { citations: plan.records(passages) } }] };
+      }
+      return { text: plan.answer, pause: plan.pause };
+    },
+    { judgesItsAnswers: true },
+  );
 }
 
 /** A model for a core under test that is never asked an Answer. */
@@ -192,7 +196,10 @@ export async function contextOfNextQuestion(
     .join("\n\n");
 }
 
-/** Resolves with the next "answer.finished" or "answer.failed" event for this Answer. */
+/**
+ * Resolves with the next "answer.finished" or "answer.failed" event for this Answer, an Answer in
+ * a conversation once its sentences are judged; rejects when they never are.
+ */
 export function answerEnded(
   core: Core,
   answerId: string,
@@ -200,12 +207,20 @@ export function answerEnded(
   | { event: "finished"; payload: CoreEvents["answer.finished"] }
   | { event: "failed"; payload: CoreEvents["answer.failed"] }
 > {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const stops = [
       core.on("answer.finished", (payload) => {
         if (payload.answerId !== answerId) return;
         for (const stop of stops) stop();
-        resolve({ event: "finished", payload });
+        // An Answer in a conversation ends at once; its Citations wait for their sentences' judgement (#2311).
+        const { conversationId } = payload;
+        if (!conversationId) resolve({ event: "finished", payload });
+        else {
+          answerJudged(core, conversationId, answerId).then(
+            () => resolve({ event: "finished", payload }),
+            reject,
+          );
+        }
       }),
       core.on("answer.failed", (payload) => {
         if (payload.answerId !== answerId) return;
@@ -214,6 +229,29 @@ export function answerEnded(
       }),
     ];
   });
+}
+
+/**
+ * An Answer in a conversation once its sentences are judged (#2311): it ends at once, and its
+ * Citations wait as checking until their sentences have a result.
+ */
+export async function answerJudged(
+  core: Core,
+  conversationId: string,
+  answerId: string,
+): Promise<ConversationAnswer> {
+  return vi.waitFor(
+    async () => {
+      const { messages } = await core.getConversation(conversationId);
+      const answer = messages.find((message) => message.id === answerId);
+      if (answer?.kind !== "answer") throw new Error("No Answer.");
+      if (answer.citations.some((citation) => citation.check === "checking")) {
+        throw new Error("Its sentences are still being judged.");
+      }
+      return answer;
+    },
+    { timeout: 20_000, interval: 20 },
+  );
 }
 
 /** Writes a Question into the Mind and asks it; returns the Answer's id. */
