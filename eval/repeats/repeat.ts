@@ -71,6 +71,8 @@ export interface RepeatOptions {
   /** The Search scope the User set for the Mind, as its composer keeps it; none: its own. */
   scope?: SearchScope;
   sentences: readonly string[];
+  /** The sentences are one paragraph, joined by this; absent: a paragraph each. */
+  inOneParagraph?: string;
   repeats: number;
   model: ChatModelChoice;
   /** Called after each repeat with its results; false stops the run there (a spending limit). */
@@ -86,7 +88,9 @@ export async function repeatChecks(core: Core, options: RepeatOptions): Promise<
   const client = await connectToMind(core, mindId);
   writeMind(
     client,
-    options.sentences.map((sentence) => note(sentence)),
+    options.inOneParagraph === undefined
+      ? options.sentences.map((sentence) => note(sentence))
+      : [note(options.sentences.join(options.inOneParagraph))],
   );
   if (options.scope) setMindScope(client.doc, options.scope);
   await client.settled();

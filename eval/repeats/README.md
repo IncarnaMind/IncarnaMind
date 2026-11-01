@@ -19,7 +19,7 @@ The cases are in `cases.ts`; `repeat.ts` checks any Mind's sentences in any core
 
 ## The sets
 
-An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs, invented for this evaluation), an annual report and a supply agreement in each language for the periods sets, and twelve Minds:
+An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs, invented for this evaluation), an annual report and a supply agreement in each language for the periods sets, and twelve Minds, with five more for sentences a Document states word for word (`verbatimCases.ts`):
 
 | Set | Sentences |
 |---|---|
@@ -29,6 +29,9 @@ An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs,
 | `en-paraphrases`, `zh-paraphrases` | A clause's duty or permission in other words, each expected Supported: "shall" for "must", "can" for "may", "is entitled to" for "may" and as the agreement says it; 需, 应, 应当, 必须 for 须, 可以 for 可, 不得泄露 for 须保密 |
 | `en-near-misses`, `zh-near-misses` | Near misses, each expected not Contradicted: a figure or a detail of another person or role than the agreement's (the Director of People, 人力资源总监, Managers, 经理), and "Staff" (员工) with a detail the agreement doesn't give (named days, a condition, bank transfer); and a holiday figure for 2024, the year before the holiday clause starts, expected "I didn’t find this" |
 | `en-periods`, `zh-periods` | An annual report for 2025 with the figures for 2024 beside it, and a supply agreement that runs from 2025 to 2027, in their own Library: a 2024 figure, a fourth-quarter figure and a 2026 delivery, each expected Supported; a wrong 2024 figure and a wrong 2026 price, expected Contradicted; and a 2023 figure, which neither states, expected "I didn’t find this" |
+| `en-walk` | The 2026-11-01 walk's Note, one paragraph of four sentences, in a Library around the repository's `Field Report.docx` and a two-page brief that repeats its Results sentence: that sentence word for word, expected Supported, beside a budget the newer notes state, a wrong churn figure and a booking no Document states |
+| `en-verbatim`, `zh-verbatim` | Held-out sentences a .docx states word for word, one paragraph each Note, expected Supported: one with two figures that a short PDF repeats, one with no figure, and one with a year (English) or a unit (Chinese) |
+| `en-verbatim-decoys`, `zh-verbatim-decoys` | The same sentences with one detail changed (a figure, a place, the parts swapped, another species), and a wrong cost: never Supported |
 
 ## Running it
 
@@ -44,6 +47,7 @@ npm run eval:repeats
 - `INCARNAMIND_EVAL_REPEATS`: checks of each Mind (10).
 - `INCARNAMIND_EVAL_REPEATS_SETS`: only these sets, by id (`en,zh`).
 - `INCARNAMIND_EVAL_REPEATS_BUDGET`: stops after the check that takes the spend past this many dollars, at the app's own count (5).
+- `INCARNAMIND_EVAL_RESULTS`: the folder the reports go into, in place of `eval/results`. `report.json` keeps every request's reply and tokens, and each Library's settled requests by model (input, cache reads and writes, output, cost).
 
 ## Check against a Document, read whole
 
@@ -93,6 +97,29 @@ Check this Mind asks the model once which of a Mind's sentences make claims, and
 - `INCARNAMIND_EVAL_SCOPE_CASES` picks cases by id, `INCARNAMIND_EVAL_SCOPE_BUDGET` stops the run past that many dollars (1), and `INCARNAMIND_EVAL_REPEATS` is the checks a case (10). Ten checks of one case cost $0.02 to $0.05 on Claude Haiku 5.5 and $0.30 to $0.60 on Claude Sonnet 5.5, a Mind in no Folder the most.
 
 ## Results
+
+### 2026-11-01: a sentence a Document states word for word is Supported against All Documents (#2184)
+
+In the walk of 2026-11-01, "Raising the barrier crest by 40 centimetres halves the expected annual damage in the northern estuary.", which the Field Report states word for word, came back "The model's reply couldn't be read", then Unsupported against All Documents. The search handed the model the verbatim Passage in all 165 checks against All Documents logged before the change (150 here, 15 replays of the walk's Check again); the sentence was lost in reading the reply. Claude Haiku 5.5 wrote a sentence's verdict lines in the turn that calls `cite` and its Figures line alone after it, and a sentence with figures was read from its last turn only, so it had no verdict. And for a sentence it wrote a quote into its reply instead of calling `cite`; asked for that marker's record, it gave the record alone, which the check didn't read, so the sentence was Not checked. Now a last turn with no verdict is read after the last turn set aside with one, in the asks about the Figures line as in the result and in a sentence without figures alike; a Supported verdict is read so only when nothing after it takes it back (a refusal, a verdict in words the reader can't take, prose beside the last turn's own Figures line). And a record given alone is read for the one marker its reply names, its quote still checked.
+
+`npm run eval:repeats`, 20 checks of `en-walk`, `en-verbatim`, `zh-verbatim` and their decoys, Claude Haiku 5.5 on the direct Anthropic API, thinking as the app sets it. Before is `main` at 19033fbf7 with the held-out cases (b13105241), after is 1d2c4ebed. The commits after it read a record given alone only for the one marker its reply names, and a Supported verdict across turns only when nothing after it takes it back; every record given alone in these runs answered its one marker, and every last turn without a verdict in their logs passes that rule or followed a verdict that isn't Supported, so no count below changes. Counts are Supported, Contradicted, Unsupported, Not checked.
+
+| Sentence | Before | After |
+|---|---|---|
+| Raising the barrier crest by 40 centimetres halves the expected annual damage in the northern estuary. | 18, 0, 0, 2 | 20, 0, 0, 0 |
+| Breaching the sea wall at two points raised the count of wintering redshank at Elden Flats from 140 to 410 birds. | 18, 0, 0, 2 | 20, 0, 0, 0 |
+| Cordgrass now covers most of the lower marsh, while the upper marsh is still bare mud. | 19, 0, 1, 0 | 20, 0, 0, 0 |
+| Avocets nested on the new islands for the first time in 2026. | 20, 0, 0, 0 | 20, 0, 0, 0 |
+| 新渠道通水后，灌区内水稻亩产由420公斤提高到510公斤。 | 16, 0, 0, 4 | 20, 0, 0, 0 |
+| 下游村庄的饮用水已改由新建水厂统一供应。 | 19, 0, 0, 1 | 20, 0, 0, 0 |
+| 泵站改造后，每年节约用电约35万千瓦时。 | 20, 0, 0, 0 | 20, 0, 0, 0 |
+
+- **Verbatim sentences Supported:** 130 of 140 before, 140 of 140 after; Unsupported 1 before, 0 after. All 8 Not checked "couldn't be read" before were the verdict beside `cite` with the Figures line after it; after, the 13 checks of that shape were Supported.
+- **Decoys** (the same sentences with a figure, a place, the parts or the species changed, and a wrong cost): Supported in 0 of 160 checks before and after.
+- **The one Unsupported before** was a Coverage line the model wrote for a part with no quantifier ("the upper marsh is still bare mud", `complete: false`), which turns Supported into Unsupported; it didn't recur in the 40 checks after, and is not changed here.
+- **Cost after:** $0.41 at the app's own count, 1,667 requests: 513,222 uncached input tokens, 10,472,441 cache reads, 679,262 cache writes and 333,080 output tokens.
+- **Claude Sonnet 5.5, after, 20 checks of `en-verbatim` and `zh-verbatim`:** Supported in 20 of 20 for the two-figure sentence in each language and for all three Chinese sentences, 16 of 20 for "Cordgrass now covers…" and 17 of 20 for "Avocets nested…"; no Unsupported. The 7 Not checked are replies with no verdict to read: after its search the model called `cite` with no text and then wrote only "Evidence: [1]" and "Calculation: none". $1.46 at the app's own count, 422 requests: 65,868 uncached input tokens, 3,315,531 cache reads, 138,491 cache writes and 64,790 output tokens.
+- **The other sets after the change, 5 checks each** (`en`, `zh`, their controls, the periods and the near-miss sets): no false Supported in 235 checks. Only one check of them had its verdict written beside `cite` and its Figures line after, the 2023 figure in Chinese, and it ended "I didn't find this", as expected. Every other check there gave its verdict in its last turn, which this change reads as before; one kind of Not checked among them is a remainder that isn't a copy of the sentence's words ("In 2026 Fenwick Timber delivers cubic metres of oak…", the figure taken out of the middle), 2 of the 5 checks of that sentence in English. $0.22 at the app's own count, 918 requests: 250,335 uncached input tokens, 5,452,625 cache reads, 448,990 cache writes and 173,804 output tokens.
 
 ### 2026-10-30: a sentence with a figure keeps a contradiction whose quote the model never recorded (#2184)
 

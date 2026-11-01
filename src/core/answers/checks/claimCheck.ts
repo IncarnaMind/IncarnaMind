@@ -99,7 +99,6 @@ import { needsCalculation } from "./calculationGate";
 import {
   checkFigureReply,
   figureJudgment,
-  figureReplyText,
   givesItsOwnNumber,
   readFigureReply,
   readFigureSource,
@@ -129,6 +128,7 @@ import {
   readPresence,
   readsAsRefusal,
   readVerdict,
+  replyAcrossTurns,
   STRICT_INSTRUCTIONS,
   STRICT_PRESENCE_INSTRUCTIONS,
 } from "./prompt";
@@ -333,7 +333,8 @@ function figuresReplied(
   return [
     {
       name: "figures-line",
-      check(text) {
+      check(last, setAside = []) {
+        const text = replyAcrossTurns(last, setAside);
         if (!asked(text)) return null;
         const read = readFigureReply(text, figures, request.claim);
         if (!read) return ask(text, { claims: [], note: FIGURES_LINE });
@@ -345,7 +346,8 @@ function figuresReplied(
     },
     {
       name: "figures-sources",
-      check(text) {
+      check(last, setAside = []) {
+        const text = replyAcrossTurns(last, setAside);
         const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
         if (!read) return null;
         const problems = read.items.flatMap((item) => {
@@ -1113,7 +1115,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (failed) return failedCheck(failed);
     if (request.figures?.length) {
       if (!finished || reply.trim() === "") return notChecked("empty");
-      const written = figureReplyText(reply, setAside);
+      const written = replyAcrossTurns(reply, setAside);
       // Asked about its Figures line, a model that can't do what it was asked may write prose
       // in place of its reply ("I can't rewrite that Figures entry…"): the reply asked about stands.
       // One that writes only its Figures line again leaves its verdict on the sentence standing.
@@ -1405,17 +1407,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       };
     }
     if (!finished || reply.trim() === "") return notChecked("empty");
-    // Claude Haiku 5.5 may write the verdict lines in the turn that calls `cite` after its search,
-    // with no marker, and only the sentence after it: the Answer sets that turn aside as a
-    // preamble (#1673). Only the last such turn with a verdict counts, so another one's preamble
-    // never becomes what the Document says, and a refusal after it is the reply's last word.
     const refused = readsAsRefusal(reply);
-    const withVerdict = refused
-      ? undefined
-      : setAside.findLast((text) => readVerdict(text) !== null);
-    let verdict =
-      readVerdict(reply) ??
-      (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
+    let verdict = readVerdict(replyAcrossTurns(reply, setAside));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
     if (!looked()) return notChecked("unread");
     session.check();
@@ -1821,10 +1814,24 @@ async function askForEvidence(
     return { failed: classifyProviderError(error) };
   }
   const records: CitationRecordInput[] = [];
-  if (markers.length === 0) {
-    const record = readEvidence(reply);
-    if (!record) return null;
-    records.push({ marker: EVIDENCE_MARKER, ...record });
+  // Asked for the one marker its reply names, Claude Haiku 5.5 gave the record alone, as an ask for
+  // no marker takes it, for a quote it had written into its reply instead of calling cite (#2184).
+  // Beside other markers, a record alone may be another one's copied.
+  const named = new Set([
+    ...(verdict.evidence ?? []),
+    ...(verdict.coverage?.members.flatMap((member) => member.evidence) ?? []),
+    ...(verdict.coverage?.domainEvidence ?? []),
+  ]);
+  const [asked] = markers;
+  const only =
+    markers.length === 1 && asked !== undefined && named.size === 1 && named.has(asked)
+      ? asked
+      : undefined;
+  const alone = markers.length === 0 || only !== undefined ? readEvidence(reply) : null;
+  if (alone) {
+    records.push({ marker: only ?? EVIDENCE_MARKER, ...alone });
+  } else if (markers.length === 0) {
+    return null;
   } else {
     let parsed: unknown;
     try {

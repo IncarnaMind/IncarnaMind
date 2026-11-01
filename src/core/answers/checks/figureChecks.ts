@@ -21,7 +21,7 @@ import { isRecord } from "../../errors";
 import { figureAgain, keptReason, whatIfAgain } from "../../workbooks/trace";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
 import { agreesAtShownPrecision } from "./calculated";
-import { FIGURES, type ReadVerdict, readsAsRefusal, readVerdict } from "./prompt";
+import { FIGURES, type ReadVerdict, readVerdict } from "./prompt";
 import type { BoundNumber } from "./units";
 
 export interface FigureReplyItem extends ReadVerdict {
@@ -82,15 +82,6 @@ function judgmentOf(value: unknown): ReadVerdict | null {
   )
     return null;
   return readVerdict(JSON.stringify(value));
-}
-
-export function figureReplyText(reply: string, setAside: readonly string[]): string {
-  if (reply.split(/\r?\n/).some((line) => FIGURES.test(line))) return reply;
-  if (readsAsRefusal(reply) || readVerdict(reply)) return reply;
-  const earlier = setAside.findLast((text) => readVerdict(text) !== null);
-  return earlier?.split(/\r?\n/).some((line) => FIGURES.test(line))
-    ? `${earlier}\n${reply}`
-    : reply;
 }
 
 /** The markers the reply's own words carry, in order: its Figures line's are its figures'. */

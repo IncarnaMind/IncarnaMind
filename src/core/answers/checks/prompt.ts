@@ -1002,3 +1002,49 @@ const REFUSAL =
  */
 export const readsAsRefusal = (reply: string): boolean =>
   REFUSAL.test(reply) && readVerdict(reply) === null;
+
+/** A line that labels a verdict, whatever it says: "Verdict: not supported", "结论：不支持". */
+const VERDICT_LABEL = /^[\s>*_#`"'“”-]*(?:verdict|结论|判断)[\s*_]*[:：]/i;
+/**
+ * The verdicts' own words, which a turn that takes a verdict back uses. Only ever a reason not to
+ * read a verdict from another turn, never a verdict.
+ */
+const VERDICT_WORDS =
+  /\b(?:un)?support(?:s|ed|ing)?\b|\bcontradict(?:s|ed|ing|ion|ory)?\b|支持|矛盾/i;
+
+/** A turn's lines that are neither its fields nor only markers. */
+const proseOf = (turn: string): string[] =>
+  turn
+    .replace(THINKING, "")
+    .split("\n")
+    .flatMap(fieldLines)
+    .map((line) => line.replace(MARKERS, "").trim())
+    .filter((line) => line !== "" && !FIELDS.some((field) => field.test(line)));
+
+const namesAVerdict = (turn: string): boolean =>
+  proseOf(turn).some((line) => VERDICT_LABEL.test(line) || VERDICT_WORDS.test(line));
+
+/**
+ * A check Run's reply read across its turns (#1673, #2184): a last turn with no verdict of its own
+ * is read after the last turn the Run set aside with one, as Claude Haiku 5.5 wrote its verdict
+ * lines beside `cite` and its sentence, its last fields or its Figures line alone after them. A
+ * refusal after that verdict is the model's last word on it. A Supported verdict is read only when
+ * nothing after it could take it back: a verdict in any words ("Verdict: not supported", 结论：不支持,
+ * "partly supported"), or prose beside a Figures line of the last turn's own.
+ */
+export function replyAcrossTurns(last: string, setAside: readonly string[]): string {
+  if (readVerdict(last) !== null || readsAsRefusal(last)) return last;
+  const at = setAside.findLastIndex((turn) => readVerdict(turn) !== null);
+  const earlier = setAside[at];
+  const verdict = earlier === undefined ? null : readVerdict(earlier);
+  if (earlier === undefined || verdict === null) return last;
+  const after = [...setAside.slice(at + 1), last];
+  if (after.some(readsAsRefusal)) return last;
+  const figuresLine = last.split("\n").some((line) => FIGURES.test(line));
+  if (
+    verdict.verdict === "supported" &&
+    (after.some(namesAVerdict) || (figuresLine && proseOf(last).length > 0))
+  )
+    return last;
+  return `${earlier}\n\n${last}`;
+}

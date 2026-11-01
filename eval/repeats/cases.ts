@@ -4,10 +4,12 @@
  * evaluation, and the sentences a User writes about them in a Mind of their
  * own, each with the verdict the agreement gives it.
  */
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { docxOf } from "../../tests/helpers/office";
 import { buildPdf, type PdfPage } from "../../tests/helpers/pdf";
 import type { EvalDocument } from "../lib/evaluationSet";
+import { VERBATIM_DOCUMENTS } from "./verbatimCases";
 
 /**
  * What the Documents make of a sentence: "contradicted-or-unsupported" for a wrong figure,
@@ -48,6 +50,8 @@ export interface RepeatSet {
   mind: string;
   /** Its sentences, one paragraph each, as a User types them. */
   sentences: readonly RepeatSentence[];
+  /** The sentences are one paragraph instead, joined by this, as a User types a summary. */
+  inOneParagraph?: string;
 }
 
 export interface RepeatDocument {
@@ -57,6 +61,16 @@ export interface RepeatDocument {
   /** The sets whose Library alone holds it, so the others' Library stays as it was; absent: every set's. */
   onlyFor?: readonly string[];
 }
+
+/** A Document of a set's Library: a PDF, or a .docx of these paragraphs, a file of the repository's or a text file. */
+export type LibraryDocument =
+  | RepeatDocument
+  | (Omit<RepeatDocument, "pages"> &
+      (
+        | { docx: readonly { text: string; heading?: number }[] }
+        | { fixture: string }
+        | { text: string }
+      ));
 
 export const DOCUMENTS: readonly RepeatDocument[] = [
   {
@@ -860,8 +874,8 @@ export function claimKindOf(set: RepeatSet, sentence: RepeatSentence): ClaimKind
 }
 
 /** The Documents a set's Library holds. */
-export const documentsOf = (set: Pick<RepeatSet, "id" | "language">): RepeatDocument[] =>
-  DOCUMENTS.filter(
+export const documentsOf = (set: Pick<RepeatSet, "id" | "language">): LibraryDocument[] =>
+  [...DOCUMENTS, ...VERBATIM_DOCUMENTS].filter(
     (each) => each.language === set.language && (!each.onlyFor || each.onlyFor.includes(set.id)),
   );
 
@@ -873,7 +887,11 @@ export async function writeDocuments(
   const written: EvalDocument[] = [];
   for (const document of documentsOf(set)) {
     const path = join(folder, document.file);
-    await writeFile(path, buildPdf(document.pages));
+    if ("pages" in document) await writeFile(path, buildPdf(document.pages));
+    else if ("docx" in document) await writeFile(path, docxOf(document.docx));
+    else if ("fixture" in document)
+      await copyFile(resolve(__dirname, "../..", document.fixture), path);
+    else await writeFile(path, document.text);
     written.push({ key: document.file, path });
   }
   return written;

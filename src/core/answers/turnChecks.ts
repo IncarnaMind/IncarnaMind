@@ -29,7 +29,11 @@ export interface TurnFinding {
 export interface TurnCheck {
   /** Names the check for its one ask; unique in the list. */
   name: string;
-  check(reply: string): TurnFinding | null | Promise<TurnFinding | null>;
+  /** `setAside`: the turns before the reply that the Run set aside after its search, as `text-set-aside` gives them. */
+  check(
+    reply: string,
+    setAside?: readonly string[],
+  ): TurnFinding | null | Promise<TurnFinding | null>;
 }
 
 /** The most times, in all, the checks of one Answer ask the model once more. */
@@ -71,11 +75,12 @@ export async function settleReply(
   checks: readonly TurnCheck[],
   reply: string,
   nudges: Nudges,
+  setAside: readonly string[] = [],
 ): Promise<Settled> {
   const claims = new Set<ClaimedChange>();
   const tools = new Set<ClaimedTool>();
   for (const each of checks) {
-    const found = await each.check(reply);
+    const found = await each.check(reply, setAside);
     if (!found) continue;
     if (found.note && nudges.take(each.name)) {
       return {
