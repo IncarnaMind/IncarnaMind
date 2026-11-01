@@ -9,7 +9,7 @@ import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from 
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
-import { ANSWER_BLOCK, MIND_CONTENT_FIELD } from "../../../core/api";
+import { ANSWER_BLOCK, type EditPart, MIND_CONTENT_FIELD } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import type { CitationForm } from "../../../shared/citationStyles";
 import { figureRunsFor } from "../../../shared/figureRuns";
@@ -64,6 +64,7 @@ import {
   isTitleLine,
 } from "../editor/EndHint";
 import { selectionForEdit } from "../editor/editSelection";
+import { explainSelection } from "../editor/explainSelection";
 import { FindBar } from "../editor/FindBar";
 import { FootnoteArea } from "../editor/FootnoteArea";
 import { FootnotePopover } from "../editor/FootnotePopover";
@@ -136,7 +137,7 @@ import { type OpenedCopy, openMindCopy } from "../mindCopies";
 import { isWritingIn } from "../mindStatus";
 import { followMindStyle } from "../mindStyles";
 import { useMindTools } from "../mindTools";
-import { onMindWriting, writingPlaceOf } from "../mindWriting";
+import { onMindWriting, writingPartOf, writingPlaceOf } from "../mindWriting";
 import { forgetNewMindKeys, takeNewMindKeys } from "../newMindKeys";
 import { firstOpenOf } from "../nudges";
 import { holdReviewable, useReviewPanes } from "../reviewPane";
@@ -492,7 +493,7 @@ function MindEditorView({
           translate: translateNow,
           undoKeys: () => shortcutLabel("edit.undo"),
         }),
-        WritingPlace.configure({ label: () => translateNow("mind.writing") }),
+        WritingPlace,
         Suggestions.configure({
           request: (request) => askForSuggestion(mindId, doc, request),
           cancel: (requestId) =>
@@ -632,9 +633,8 @@ function MindEditorView({
   const hasDocuments = useAppStore((state) => state.documents.length > 0);
   const aiActions = useMemo((): SelectionAction[] => {
     const available = (current: typeof editor) => selectionForEdit(current.state) !== null;
-    const run =
-      (action: "improve" | "shorten" | "explain", from?: "menu") => (current: typeof editor) =>
-        void requestEdit(current, mindId, doc, action, undefined, undefined, from);
+    const run = (action: "improve" | "shorten", from?: "menu") => (current: typeof editor) =>
+      void requestEdit(current, mindId, doc, action, undefined, undefined, from);
     return [
       {
         id: "improve",
@@ -663,7 +663,14 @@ function MindEditorView({
         })),
         run: () => undefined,
       },
-      { id: "explain", label: "editor.ai.explain", icon: "?", available, run: run("explain") },
+      {
+        id: "explain",
+        label: "editor.ai.explain",
+        icon: "?",
+        available,
+        // Answered in the assistant, with the selection as a chip: the Note is left as it is (#2348).
+        run: (current) => void explainSelection(current, mindId, doc),
+      },
       {
         id: "check-anyway",
         label: "claim.checkAnyway",
@@ -767,9 +774,13 @@ function MindEditorView({
   useEffect(() => {
     const placeNow = (place: ReturnType<typeof writingPlaceOf>) =>
       useEdits.getState().pending[mindId]?.menu ? null : place;
-    setWritingPlace(editor, placeNow(writingPlaceOf(mindId)));
-    return onMindWriting(({ mindId: changed, place }) => {
-      if (changed === mindId) setWritingPlace(editor, placeNow(place));
+    const label = (part: EditPart | null | undefined) =>
+      part
+        ? translateNow("edit.pending.part", { at: part.at, of: part.of })
+        : translateNow("mind.writing");
+    setWritingPlace(editor, placeNow(writingPlaceOf(mindId)), label(writingPartOf(mindId)));
+    return onMindWriting(({ mindId: changed, place, part }) => {
+      if (changed === mindId) setWritingPlace(editor, placeNow(place), label(part));
     });
   }, [editor, mindId]);
 

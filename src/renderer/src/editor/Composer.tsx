@@ -51,6 +51,7 @@ import { core } from "../core";
 import { type Dragged, type Dropped, useDropTarget } from "../dragDrop";
 import { editFromComposer, stopEditing, useEdits } from "../editWithAi";
 import { describeError, errorMessage } from "../errors";
+import { cancelExplain, takeExplain, useExplainQueue } from "../explainQueue";
 import { useT } from "../i18n";
 import { useCitedScopeDocument, useScopeBefore } from "../keptScope";
 import { modelInUseOf, useModelInUse } from "../modelInUse";
@@ -78,6 +79,7 @@ import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
 import { EditStatus } from "./EditStatus";
+import { ExplainQueued } from "./ExplainQueued";
 import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon, TableIcon } from "./icons";
 import { ModelChip } from "./ModelChip";
 import { useMindSelection } from "./mindSelection";
@@ -654,6 +656,18 @@ export function Composer({
 
   const askWanted = useComposer((state) => state.askWanted);
   const writing = useAnswerBeingWritten();
+  const queuedExplain = useExplainQueue((state) => state.waiting);
+  // A queued Explain is asked once the Answer being written is done; one for another Note,
+  // or one going stale as the Note changes, is dropped (#2348).
+  useEffect(() => {
+    if (!queuedExplain) return;
+    if (queuedExplain.mindId !== mindId || writing !== null) {
+      if (queuedExplain.mindId !== mindId) cancelExplain();
+      return;
+    }
+    const waiting = takeExplain();
+    if (waiting) void askInAssistant(waiting);
+  }, [queuedExplain, writing, mindId]);
   const hasMessage = useHasMessage();
   const latestAsk = useRef(ask);
   latestAsk.current = ask;
@@ -795,6 +809,7 @@ export function Composer({
         <>
           <SuggestionOffer mindId={mind.mindId} doc={mind.doc} editor={mind.editor} />
           <EditStatus mindId={mind.mindId} />
+          <ExplainQueued mindId={mind.mindId} />
         </>
       )}
       {problem && (

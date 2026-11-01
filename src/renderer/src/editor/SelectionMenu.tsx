@@ -1,6 +1,6 @@
 import type { VirtualElement } from "@floating-ui/dom";
 import { isMacOS } from "@tiptap/core";
-import { PluginKey, TextSelection } from "@tiptap/pm/state";
+import { TextSelection } from "@tiptap/pm/state";
 import { type Editor, useEditorState } from "@tiptap/react";
 import { BubbleMenu, type BubbleMenuProps } from "@tiptap/react/menus";
 import {
@@ -38,7 +38,12 @@ import {
   selectionToMath,
   TURN_INTO,
 } from "./selectionCommands";
-import { forgetMenuClosed, keepMenuClosed, menuClosedOver } from "./selectionDismissal";
+import {
+  forgetMenuClosed,
+  keepMenuClosed,
+  menuClosedOver,
+  SELECTION_MENU_KEY,
+} from "./selectionDismissal";
 import { type EditWithAiField, useEditField } from "./useEditField";
 
 /**
@@ -70,7 +75,7 @@ export interface SelectionChoice {
 
 type Mark = "bold" | "italic" | "underline" | "strike" | "link" | "code" | "highlight";
 
-const PLUGIN_KEY = new PluginKey("selectionMenu");
+const PLUGIN_KEY = SELECTION_MENU_KEY;
 
 /** A shortcut as the menu shows it: ⌘⇧H on macOS, Ctrl+Shift+H elsewhere. */
 const shortcut = (key: string, shift = false) =>

@@ -1,7 +1,9 @@
 import { ProblemLine } from "../components/ProblemLine";
 import { readinessAction, readinessAlso } from "../components/providers/ChatReadinessNotice";
 import { readinessKey, serviceName } from "../components/providers/shared";
+import { estimateLine } from "../cost";
 import {
+  answerEditAsk,
   dismissEditProblem,
   type EditProblem,
   stopEdit,
@@ -19,24 +21,56 @@ import { useAppStore } from "../store";
  */
 export function EditStatus({ mindId }: { mindId: string }) {
   const t = useT();
+  const language = useLanguage();
   const pending = useEdits((state) => state.pending[mindId]);
   const problem = useEdits((state) => state.problems[mindId]);
 
   if (pending?.menu || problem?.menu) return null;
+  if (pending?.ask) {
+    // The run waits for the User: what it is, what it would cost, and the two ways out (#83, #2348).
+    const run = pending.ask.estimate;
+    const estimate = run ? estimateLine(run, t, language, { always: true }) : null;
+    return (
+      <ProblemLine
+        role="status"
+        testId="edit-ask"
+        className="composer-problem"
+        details={estimate?.parts ?? []}
+        title={estimate?.title}
+        action={{
+          label: t("edit.ask.start"),
+          testId: "edit-ask-start",
+          onClick: () => answerEditAsk(mindId, true),
+        }}
+        also={{
+          label: t("edit.ask.cancel"),
+          testId: "edit-ask-cancel",
+          onClick: () => answerEditAsk(mindId, false),
+        }}
+      >
+        {t("edit.ask.parts", { count: pending.ask.parts })}
+      </ProblemLine>
+    );
+  }
   if (pending) {
-    const language =
+    const target =
       TRANSLATE_LANGUAGES.find((each) => each.prompt === pending.language)?.name ??
       pending.language ??
       "";
+    const estimate = pending.runEstimate ? estimateLine(pending.runEstimate, t, language) : null;
     return (
       <ProblemLine
         role="status"
         testId="edit-pending"
         className="composer-problem"
+        details={estimate?.parts ?? []}
+        title={estimate?.title}
         action={{ label: t("edit.stop"), testId: "edit-stop", onClick: () => stopEdit(mindId) }}
       >
         <span className="edit-pending-dot" aria-hidden="true" />
-        {t(`edit.pending.${pending.action}`, { language })}
+        {pending.part
+          ? t("edit.pending.part", { at: pending.part.at, of: pending.part.of })
+          : t(`edit.pending.${pending.action}`, { language: target })}
       </ProblemLine>
     );
   }
@@ -82,6 +116,26 @@ export function editProblemParts(
         role: "alert",
       };
     }
+    case "part-changed":
+      return { text: t("edit.problem.part-changed"), role: "alert" };
+    case "block-too-long":
+      // A Block can't be split: the app's own limit says to split the paragraph, and a model's
+      // window says which model to change. No model helps the first (#2348).
+      return problem.cause === "cap"
+        ? { text: t("edit.problem.block-too-long.cap"), role: "alert" }
+        : {
+            text: t("edit.problem.block-too-long", {
+              model: problem.model ?? t("answer.error.thisModel"),
+            }),
+            action: {
+              label: t("edit.problem.chooseAnotherModel"),
+              run: () => {
+                dismissEditProblem(mindId);
+                openSettings("models");
+              },
+            },
+            role: "alert",
+          };
     case "local-mode":
       return {
         text: t("edit.problem.local-mode"),

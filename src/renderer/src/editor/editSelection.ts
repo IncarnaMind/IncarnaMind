@@ -7,6 +7,24 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import type { TextPlace } from "../../../core/api";
 
+/** How much of a selection a label quotes: a chip above it holds all of it. */
+export const QUOTE_CHARACTERS = 48;
+
+/**
+ * A selection in one line, cut short: for the composer's edit chip, and the Question Explain
+ * asks with (#2348). An inline node shows as nothing, as in the core's own reading.
+ */
+export function quoteOf(text: string): string {
+  const flat = text
+    .replace(/\uFFFC/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const characters = [...flat];
+  return characters.length > QUOTE_CHARACTERS
+    ? `${characters.slice(0, QUOTE_CHARACTERS - 1).join("")}…`
+    : flat;
+}
+
 /** The text a selection covers, as Edit with AI changes it. */
 export interface EditSelection {
   from: TextPlace;

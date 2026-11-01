@@ -1119,6 +1119,17 @@ describe("The estimate before a check run (#973)", () => {
     });
   });
 
+  test("an Edit with AI too long for one request is estimated a part at a time (#2348)", async () => {
+    const { core } = await cloudCore(reportingModel([{ input: 0, output: 0 }]));
+
+    const estimate = await core.estimateRun({ items: 3, each: "edit" });
+
+    // Each part is measured at 6,900 tokens in and 3,000 out until this computer has asked for
+    // edits on the model twice per part: 3 calls of 9,900 tokens.
+    expect(estimate).toMatchObject({ billing: "per-token", calls: 3, tokens: 29_700 });
+    expect(estimate.billing === "per-token" && (estimate.cost?.amount ?? 0) > 0).toBe(true);
+  });
+
   test("checks recorded on the model are what a check's estimate averages", async () => {
     const { core, provider, dataDir } = await cloudCore(
       reportingModel([{ input: 5_000, output: 100 }]),

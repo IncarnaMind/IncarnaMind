@@ -20,6 +20,10 @@ export const useFolderHoldsDocuments = (folderId: string | null): boolean =>
     (state) => folderId !== null && (scopeCounts(libraryOf(state)).get(folderId) ?? 0) > 0,
   );
 
+/** As `useFolderHoldsDocuments`, read now: a Question asked outside React searches the same. */
+export const folderHoldsDocumentsNow = (folderId: string | null): boolean =>
+  folderId !== null && (scopeCounts(libraryOf(useAppStore.getState())).get(folderId) ?? 0) > 0;
+
 /**
  * Whether a Search scope holds no Document that can be searched now (#748):
  * false for none (every Document), and until the core has answered. Asked

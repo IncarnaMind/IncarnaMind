@@ -2432,6 +2432,12 @@ export function createCore(adapters: CoreAdapters): Core {
     announceTagged(documentIds);
   };
 
+  /**
+   * Edits waiting on the User's word before a run in parts starts on a model billed per token
+   * (#2348): the answer resolves the ask, and a stopped or closed edit takes it as no.
+   */
+  const editAsks = new Map<string, (accept: boolean) => void>();
+
   // Edit with AI (#93): the change comes back as Proposals; Citations it keeps are checked again.
   const edits = createEdits({
     content,
@@ -2443,7 +2449,29 @@ export function createCore(adapters: CoreAdapters): Core {
     consent,
     localOnly: () => embedding.localOnly(),
     recheck: (attributes) => recheckKept(documents, attributes),
-    writing: (mindId, place) => events.emit("mind.writing", { mindId, place }),
+    writing: (mindId, place, part) =>
+      events.emit("mind.writing", { mindId, place, ...(part && { part }) }),
+    estimate: (choice, parts) => {
+      const chosen = choice ?? settings.get().user.chatModel;
+      const metered = chosen ? chat.metered(chosen) : null;
+      return metered ? meter.estimate(metered, parts, 0, "edit") : null;
+    },
+    ask: (mindId, requestId, parts, estimate, signal) =>
+      new Promise<boolean>((resolve) => {
+        const done = (accept: boolean) => {
+          editAsks.delete(requestId);
+          signal.removeEventListener("abort", stopped);
+          resolve(accept);
+        };
+        const stopped = () => done(false);
+        if (signal.aborted) {
+          done(false);
+          return;
+        }
+        signal.addEventListener("abort", stopped);
+        editAsks.set(requestId, done);
+        events.emit("edits.ask", { mindId, requestId, parts, estimate });
+      }),
     checkpoint: (mindId) => {
       checkpoints.save(mindId, "accept");
     },
@@ -5071,7 +5099,7 @@ export function createCore(adapters: CoreAdapters): Core {
     estimateRun: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError("estimateRun expects an object.");
       const { items, model, searches = 0, each = "answer" } = input;
-      if (each !== "answer" && each !== "check") {
+      if (each !== "answer" && each !== "check" && each !== "edit") {
         throw new InvalidInputError({ key: "error.estimate.each" });
       }
       if (typeof items !== "number" || !Number.isInteger(items) || items < 0 || items > 100_000) {
@@ -5145,6 +5173,12 @@ export function createCore(adapters: CoreAdapters): Core {
     editWithAi: (input) => edits.editWithAi(input),
     regenerateProposal: (input) => edits.regenerateProposal(input),
     cancelEdit: async (requestId) => edits.cancel(requestId),
+    respondToEditAsk: async (input) => {
+      if (!isRecord(input) || typeof input.requestId !== "string") {
+        throw new InvalidInputError({ key: "error.edit.ask" });
+      }
+      editAsks.get(input.requestId)?.(input.accept === true);
+    },
     checkSentences: (input) => inFlow(input.action, () => checks.checkSentences(input)),
     planDocumentCheck: async (input) => checks.planDocumentCheck(input),
     cancelCheck: async (requestId) => checks.cancel(requestId),

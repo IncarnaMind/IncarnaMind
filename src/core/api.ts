@@ -1297,6 +1297,27 @@ export type WritingPlace = { after: string | null } | { over: string };
 export interface MindWriting {
   mindId: string;
   place: WritingPlace | null;
+  /** A selection too long for the model is edited in parts: which of how many is written now (#2348). */
+  part?: EditPart;
+}
+
+/** A part of a selection edited in parts (#2348): `at` counts from 1, of `of` parts in all. */
+export interface EditPart {
+  at: number;
+  of: number;
+}
+
+/**
+ * A run of an edit too long for one request, on a model billed per token, asking the User to
+ * start it: its parts, and what they would cost (#83, #2348). Answered with `respondToEditAsk`.
+ */
+export interface EditAsk {
+  mindId: string;
+  /** The edit's request, as `cancelEdit` takes it. */
+  requestId: string;
+  parts: number;
+  /** Null when nothing is known of the model's price. */
+  estimate: RunEstimate | null;
 }
 
 /**
@@ -5472,8 +5493,11 @@ export interface TaskShown {
 /** A large run to estimate: so many items (a comparison table's cells, verify's sentences…). */
 export interface RunEstimateInput {
   items: number;
-  /** What each item is: about an Answer (the default), or a sentence checked against Documents (#973). */
-  each?: "answer" | "check";
+  /**
+   * What each item is: about an Answer (the default), a sentence checked against Documents
+   * (#973), or a part of an Edit with AI too long for one request (#2348).
+   */
+  each?: "answer" | "check" | "edit";
   /** The web searches it makes (#128), each billed by the model's provider, on top of its items. */
   searches?: number;
   /** The model it would use; the default model when left out. */
@@ -5807,6 +5831,8 @@ export type EditWithAiResult =
       kind: "proposed";
       request: string;
       proposals: number;
+      /** The parts a selection too long for the model was edited in, one after another (#2348). Absent: one. */
+      parts?: number;
       droppedCitations: number;
       outOfDate: number;
       /** Markers the text had for none of the passage's Citations, left out. Absent: none. */
@@ -5817,6 +5843,11 @@ export type EditWithAiResult =
       extraCells?: number;
       /** An edit the User asked for that waits for them instead of applying (#880). */
       held?: true;
+      /**
+       * The edit stopped partway because the User typed in a later part while it ran: what the
+       * earlier parts wrote stays, and the rest was not asked (#2348).
+       */
+      stopped?: "changed";
       /** What its new text left out of the selection, kept; absent when nothing. */
       leftOut?: LeftOutPart[];
       /**
@@ -5845,6 +5876,13 @@ export type EditWithAiResult =
   | { kind: "has-proposals" }
   /** Nothing was sent: the selected text is more than the model can take at once. */
   | { kind: "too-long" }
+  /**
+   * Nothing was sent: one Block of the selection is more than the model takes at once, and a
+   * Block can't be edited in parts (#2348). `cause`: "cap" is the app's own limit, which no
+   * model changes (12,000 characters, or a reply past an edit's 16,000 tokens); "model" is this
+   * model's window, which a larger one may take.
+   */
+  | { kind: "block-too-long"; cause: "cap" | "model" }
   /** The User stopped it (`cancelEdit`). */
   | { kind: "cancelled" }
   /**
@@ -11547,6 +11585,8 @@ export interface CoreApi {
   regenerateProposal(input: RegenerateProposalInput): Promise<EditWithAiResult>;
   /** Stops an Edit with AI request: it gives "cancelled". Stopping one that ended does nothing. */
   cancelEdit(requestId: string): Promise<void>;
+  /** Says whether an edit waiting on its estimate (`EditAsk`) goes on, or stops (#2348). */
+  respondToEditAsk(input: { requestId: string; accept: boolean }): Promise<void>;
   /**
    * Check against Documents (#96): checks each sentence the
    * selection touches against the Mind's Folder (or every Document), one at a
@@ -12411,6 +12451,8 @@ export interface CoreEvents {
   "mind.update": MindUpdate;
   /** The assistant is writing changes into a Mind as they come (#202), or has stopped. */
   "mind.writing": MindWriting;
+  /** An edit too long for one request, on a model billed per token, waits for the User's go (#2348). */
+  "edits.ask": EditAsk;
   /** Changes storage refused wait in memory, or (null) all of them are stored now (#1119). */
   "minds.unsaved": UnsavedChanges | null;
   /** A Mind's Checkpoints changed: one was saved, kept for good, or thinned out. Read `listCheckpoints` again. */
@@ -12786,6 +12828,7 @@ const methods: Record<CoreApiMethod, true> = {
   editWithAi: true,
   regenerateProposal: true,
   cancelEdit: true,
+  respondToEditAsk: true,
   checkSentences: true,
   planDocumentCheck: true,
   cancelCheck: true,
