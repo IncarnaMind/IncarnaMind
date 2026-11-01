@@ -9,10 +9,14 @@ import {
   CITATION_NODE,
   type CitationAttributes,
   FOOTNOTE_NODE,
+  PROPOSAL_ATTRIBUTE,
   WORD_ATOM_NODE,
 } from "../../../core/api";
 import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
 import type { CitationForm } from "../../../shared/citationStyles";
+import { type CitationLive, citationSubject } from "../../../shared/citations";
+import { FootnoteNumbering } from "../../../shared/footnoteNumbers";
+import { readProposalAttribute } from "../../../shared/proposals";
 
 /**
  * A Citation in the Mind, with its number: its place among the Mind's
@@ -26,8 +30,9 @@ export interface NumberedCitation {
   key: string;
   attributes: CitationAttributes;
   /**
-   * Whether it is a footnote of its own in an export: each Citation in Numbered, the first of
-   * Citations side by side in a note style, none in a style that cites in the text (#289).
+   * Whether it is a footnote of its own in an export: the first Citation of a
+   * source and place in Numbered, the first of Citations side by side in a
+   * note style, none in a style that cites in the text (#289).
    */
   footnote: boolean;
 }
@@ -82,36 +87,42 @@ export function sideBySide(doc: ProseMirrorNode, before: number, after: number):
 
 /**
  * Every Citation and every footnote the User wrote, top to bottom, numbered
- * together through the Mind, as they are when exported. How a Citation counts
- * depends on the Mind's citation style (#289): in Numbered, each is a footnote,
- * its reference; in a note style, Citations side by side are one note, one
- * number; in a style that cites in the text, none is a footnote, and Citations
- * use a cited ordinal for their margin marks, the User's footnotes on their
- * own. Calculated figures join the footnote
- * numbers, or the cited ordinal in an in-text style; the latter identifies
- * their input clusters and doesn't make a footnote. A Citation inside a
- * footnote is part of that footnote's text and has no number of its own.
+ * together through the Mind, as Word, the PDF and a copy number them
+ * (`FootnoteNumbering`). How a Citation counts depends on the Mind's citation
+ * style (#289): in Numbered, one footnote for each source and place, and a
+ * later Citation of the same one repeats its number (#1381); in a note style,
+ * Citations side by side are one note, one number; in a style that cites in
+ * the text, none is a footnote, and Citations use a cited ordinal for their
+ * margin marks, the User's footnotes on their own. Calculated figures join the
+ * footnote numbers, or the cited ordinal in an in-text style; the latter
+ * identifies their input clusters and doesn't make a footnote. A Citation
+ * inside a footnote is part of that footnote's text and has no number of its
+ * own. `live` settles each Citation's check as the app shows it, so a removed
+ * Document's found and not-found Citations are one unverified footnote.
  */
 export function numberFootnotes(
   doc: ProseMirrorNode,
   form: CitationForm = "numbered",
+  live: CitationLive = { documents: null },
 ): NumberedFootnotes {
   const citations: NumberedCitation[] = [];
   const footnotes: NumberedFootnote[] = [];
   const figures: NumberedFigure[] = [];
-  let number = 0;
+  const numbering = new FootnoteNumbering();
   let endnotes = 0;
   let cited = 0;
   doc.forEach((block, offset, index) => {
     const id = block.attrs[BLOCK_ID_ATTRIBUTE];
     const blockKey = typeof id === "string" ? id : `#${index}`;
+    // A Citation a change still waiting adds or removes is a footnote of its own (#107).
+    const blockInChange = readProposalAttribute(block.attrs[PROPOSAL_ATTRIBUTE]) !== null;
     let inBlock = 0;
     block.descendants((node, pos) => {
       const name = node.type.name;
       const kept = keptNote(node);
       if (name === FOOTNOTE_NODE || kept) {
         const endnote = kept ? kept === "endnote" : node.attrs.endnote === true;
-        const at = endnote ? ++endnotes : ++number;
+        const at = endnote ? ++endnotes : numbering.footnote();
         const footnoteId: unknown = node.attrs[BLOCK_ID_ATTRIBUTE];
         footnotes.push({
           pos: offset + 1 + pos,
@@ -130,29 +141,42 @@ export function numberFootnotes(
         const attributes = readCalculatedFigureAttributes(node.attrs);
         if (!attributes) return false;
         if (form === "in-text") cited += 1;
-        else number += 1;
         figures.push({
           pos: offset + 1 + pos,
-          number: form === "in-text" ? cited : number,
+          number: form === "in-text" ? cited : numbering.footnote(),
           attributes,
         });
         return false;
       }
       if (name !== CITATION_NODE) return true;
       const at = offset + 1 + pos;
+      const attributes = node.attrs as CitationAttributes;
       const previous = citations.at(-1);
       const joined = form === "note" && previous !== undefined && sideBySide(doc, previous.pos, at);
-      const footnote = form === "numbered" || (form === "note" && !joined);
-      if (footnote) number += 1;
-      cited += 1;
+      let number: number;
+      let footnote: boolean;
+      if (form === "numbered") {
+        if (blockInChange || readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE]) !== null) {
+          number = numbering.footnote();
+          footnote = true;
+        } else {
+          const numbered = numbering.citation(citationSubject(attributes, live));
+          number = numbered.number;
+          footnote = numbered.first;
+        }
+      } else if (form === "in-text") {
+        cited += 1;
+        number = cited;
+        footnote = false;
+      } else if (joined) {
+        number = previous?.number ?? numbering.footnote();
+        footnote = false;
+      } else {
+        number = numbering.footnote();
+        footnote = true;
+      }
       inBlock += 1;
-      citations.push({
-        pos: at,
-        number: form === "in-text" ? cited : number,
-        key: `${blockKey}:${inBlock}`,
-        attributes: node.attrs as CitationAttributes,
-        footnote,
-      });
+      citations.push({ pos: at, number, key: `${blockKey}:${inBlock}`, attributes, footnote });
       return false;
     });
   });
@@ -251,6 +275,8 @@ interface Numbers extends Readonly<NumberedFootnotes> {
   generation: number;
   /** How the Mind's citation style counts Citations (see `numberFootnotes`). */
   form: CitationForm;
+  /** The live Documents, and the text kept of those unlinked, its checks were settled with. */
+  live: CitationLive;
 }
 
 const numbersKey = new PluginKey<Numbers>("citationNumbers");
@@ -261,8 +287,13 @@ const REDRAW = "redrawFootnotes";
 /** A transaction with this meta numbers again for another citation style (`setCitationForm`). */
 const FORM = "citationForm";
 
-function numbersOf(doc: ProseMirrorNode, generation: number, form: CitationForm): Numbers {
-  const { citations, footnotes, figures } = numberFootnotes(doc, form);
+function numbersOf(
+  doc: ProseMirrorNode,
+  generation: number,
+  form: CitationForm,
+  live: CitationLive,
+): Numbers {
+  const { citations, footnotes, figures } = numberFootnotes(doc, form, live);
   const node = (pos: number, attrs: Record<string, string>, spec: Record<string, number>) =>
     Decoration.node(pos, pos + (doc.nodeAt(pos)?.nodeSize ?? 1), attrs, spec);
   const decorations = DecorationSet.create(doc, [
@@ -284,7 +315,7 @@ function numbersOf(doc: ProseMirrorNode, generation: number, form: CitationForm)
       ),
     ),
   ]);
-  return { citations, footnotes, figures, decorations, generation, form };
+  return { citations, footnotes, figures, decorations, generation, form, live };
 }
 
 /**
@@ -294,6 +325,16 @@ function numbersOf(doc: ProseMirrorNode, generation: number, form: CitationForm)
  */
 export function numberedCitations(state: EditorState): readonly NumberedCitation[] {
   return numbersKey.getState(state)?.citations ?? [];
+}
+
+/** How the editor numbers Citations, as of its last change: Numbered when it doesn't say (#289). */
+export function citationFormOf(state: EditorState): CitationForm {
+  return numbersKey.getState(state)?.form ?? "numbered";
+}
+
+/** The live Documents its numbers were settled with, or none without `CitationNumbers`. */
+export function citationLiveOf(state: EditorState): CitationLive {
+  return numbersKey.getState(state)?.live ?? { documents: null };
 }
 
 /** The editor's footnotes, numbered (see `numberFootnotes`), as of its last change. */
@@ -306,7 +347,7 @@ export function numberedFigures(state: EditorState): readonly NumberedFigure[] {
   return numbersKey.getState(state)?.figures ?? [];
 }
 
-/** Redraws footnote and figure markers, e.g. once the interface's language has changed. */
+/** Redraws footnote and figure markers, e.g. once the interface's language or the live Documents changed. */
 export function redrawFootnotes(view: EditorView): void {
   view.dispatch(view.state.tr.setMeta(REDRAW, true));
 }
@@ -331,21 +372,24 @@ const isCitationForm = (value: unknown): value is CitationForm =>
 
 /**
  * The plugin behind `CitationNumbers`, which keeps the numbers in the editor's state, for
- * the citation style's form as it starts (`form`) and as `setCitationForm` changes it.
+ * the citation style's form as it starts (`form`) and as `setCitationForm` changes it, and
+ * for the Citations' checks as `live` settles them.
  */
 export function citationNumbersPlugin(
   form: () => CitationForm = () => "numbered",
+  live: () => CitationLive = () => ({ documents: null }),
 ): Plugin<Numbers> {
   return new Plugin<Numbers>({
     key: numbersKey,
     state: {
-      init: (_config, state) => numbersOf(state.doc, 0, form()),
+      init: (_config, state) => numbersOf(state.doc, 0, form(), live()),
       apply: (tr, numbers) => {
         const changedForm: unknown = tr.getMeta(FORM);
         if (isCitationForm(changedForm)) {
-          return numbersOf(tr.doc, numbers.generation + 1, changedForm);
+          return numbersOf(tr.doc, numbers.generation + 1, changedForm, live());
         }
-        if (tr.getMeta(REDRAW)) return numbersOf(tr.doc, numbers.generation + 1, numbers.form);
+        if (tr.getMeta(REDRAW))
+          return numbersOf(tr.doc, numbers.generation + 1, numbers.form, live());
         if (!tr.docChanged) return numbers;
         const typedIn = textBlockEdited(tr);
         // In a note style, typing between two Citations can join or part their note.
@@ -353,7 +397,7 @@ export function citationNumbersPlugin(
           typedIn === null ||
           (numbers.form === "note" && citationsIn(tr.doc.nodeAt(typedIn)) > 1)
         ) {
-          return numbersOf(tr.doc, numbers.generation, numbers.form);
+          return numbersOf(tr.doc, numbers.generation, numbers.form, live());
         }
         // Typing: the Citations and footnotes move along, numbered as they were.
         return {
@@ -363,6 +407,7 @@ export function citationNumbersPlugin(
           decorations: numbers.decorations.map(tr.mapping, tr.doc),
           generation: numbers.generation,
           form: numbers.form,
+          live: numbers.live,
         };
       },
     },
@@ -376,16 +421,20 @@ export function citationNumbersPlugin(
  * Numbers Citations, figures and footnotes (see `numberFootnotes`) with a node
  * decoration each, which reaches the node's view: it shows the number, and
  * redraws when an edit renumbers it. `form` says how the Mind's citation style
- * counts Citations when the editor opens.
+ * counts Citations when the editor opens, and `live` gives the Documents a
+ * Citation's check is settled with.
  */
-export const CitationNumbers = Extension.create<{ form: () => CitationForm }>({
+export const CitationNumbers = Extension.create<{
+  form: () => CitationForm;
+  live: () => CitationLive;
+}>({
   name: "citationNumbers",
 
   addOptions() {
-    return { form: () => "numbered" };
+    return { form: () => "numbered", live: () => ({ documents: null }) };
   },
 
   addProseMirrorPlugins() {
-    return [citationNumbersPlugin(this.options.form)];
+    return [citationNumbersPlugin(this.options.form, this.options.live)];
   },
 });

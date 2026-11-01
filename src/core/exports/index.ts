@@ -257,10 +257,11 @@ export function createExports(deps: ExportsDependencies) {
       name = exportName(mind, fragment);
       const fromWord = doc !== null && wordFileOf(doc) !== null;
       // A Word file shows what is waiting as tracked changes, and can mark AI text (#107); the
-      // others show someone's changes from the Word file as changes, or accepted (#734).
-      if (format === "docx") readOptions.review = reviewReading(fragment);
-      else if (doc && fromWord && format !== "source-pack")
-        readOptions.review = theirChangesReading(doc);
+      // others show someone's changes from the Word file as changes, or accepted (#734). A source
+      // pack is a reading of the Note as the Note shows it, waiting changes included (#2292).
+      if (format === "docx" || format === "source-pack")
+        readOptions.review = reviewReading(fragment);
+      else if (doc && fromWord) readOptions.review = theirChangesReading(doc);
       readOptions.sentenceChecks = failedSentences(fragment, {
         versions: new Map(documents.map((document) => [document.id, document.contentHash])),
         folderId: mind.folderId,

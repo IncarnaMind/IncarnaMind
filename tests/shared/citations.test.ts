@@ -10,10 +10,12 @@ import {
   citationReference,
   citationSource,
   citationState,
+  citationSubject,
   citedLocation,
   citedTextKept,
   closestWordsMessage,
   fetchedAgainOn,
+  footnoteSubjectKey,
   parseQuotedWords,
   quotedWordsFoundIn,
   quoteStanding,
@@ -23,7 +25,7 @@ import {
 } from "../../src/shared/citations";
 import { formatDate } from "../../src/shared/dates";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
-import { parseLocation } from "../../src/shared/locations";
+import { englishPrintedLocation, parseLocation } from "../../src/shared/locations";
 import { findQuoteInPages } from "../../src/shared/quoteMatch";
 
 /** A Citation from before Locations: its pages say where it points. */
@@ -890,5 +892,61 @@ describe("a Citation's attributes as a node holds them", () => {
       location: null,
       quote: null,
     });
+  });
+});
+
+describe("What makes two Citations one footnote (#2292)", () => {
+  const citation = (over: Partial<CitationAttributes> = {}): Partial<CitationAttributes> => ({
+    documentId: "doc-1",
+    contentHash: "v1",
+    pageFrom: 2,
+    pageTo: 2,
+    check: "found",
+    ...over,
+  });
+
+  const keyOf = (over: Partial<CitationAttributes> = {}) =>
+    footnoteSubjectKey(citationSubject(citation(over), { documents: null }));
+
+  test("the Document and version, the place and the check make the key", () => {
+    expect(keyOf()).toBe(keyOf());
+    expect(keyOf()).toBe(
+      footnoteSubjectKey({
+        documentId: "doc-1",
+        contentHash: "v1",
+        location: { kind: "page", from: 2, to: 2 },
+        unverified: false,
+      }),
+    );
+    for (const other of [
+      { documentId: "doc-2" },
+      { contentHash: "v2" },
+      { pageFrom: 3, pageTo: 3 },
+      { check: "not-found" as const },
+    ]) {
+      expect(keyOf(other)).not.toBe(keyOf());
+    }
+  });
+
+  test("a Document removed since makes a found and a not-found Citation one unverified footnote", () => {
+    const documents = [{ id: "doc-1", contentHash: "v1" }];
+    const found = citation({ check: "found" });
+    const missing = citation({ check: "not-found" });
+    expect(footnoteSubjectKey(citationSubject(found, { documents }))).not.toBe(
+      footnoteSubjectKey(citationSubject(missing, { documents })),
+    );
+    expect(footnoteSubjectKey(citationSubject(found, { documents: [] }))).toBe(
+      footnoteSubjectKey(citationSubject(missing, { documents: [] })),
+    );
+  });
+
+  test("two places that read alike are still two places", () => {
+    const printed = { from: "12", to: "12" };
+    const firstLocation = { kind: "page" as const, from: 3, to: 3, printed };
+    const secondLocation = { kind: "page" as const, from: 4, to: 4, printed };
+    expect(englishPrintedLocation(firstLocation)).toBe(englishPrintedLocation(secondLocation));
+    const first = { ...citation(), location: firstLocation };
+    const second = { ...citation(), location: secondLocation };
+    expect(keyOf(first)).not.toBe(keyOf(second));
   });
 });

@@ -4174,7 +4174,7 @@ export const en = {
   "export.pack.column.source": "Document and Location",
   "export.pack.column.page": "Page",
   "export.pack.picture": "Cited page: {source}",
-  "export.pack.notFound": "{number} · Quote not found on this page",
+  "export.pack.notFound": "{number} · Quote not found on this page: “{quote}”",
   "export.pack.noPage": "This page wasn’t saved when it was cited, so only the quotes are shown.",
   "export.saveTo": "Save to",
   "export.theirChanges": "Tracked changes",

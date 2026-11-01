@@ -309,7 +309,7 @@ export const Suggestions = Extension.create<SuggestionsOptions>({
               pos: place.pos,
               rest: joinerFor(place.text, suggestion.text) + suggestion.text,
               started: null,
-              number: citationNumberAt(view.state, place.pos),
+              number: citationNumberAt(view.state, place.pos, suggestion.citation),
             };
             view.dispatch(view.state.tr.setMeta(suggestionsKey, { show: ghost } satisfies Meta));
           };

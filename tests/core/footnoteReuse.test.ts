@@ -1,14 +1,17 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
-import type { CitationPlace, CitedWork } from "../../src/core/api";
+import { type CitationPlace, type CitedWork, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
 import { renderDocx } from "../../src/core/exports/docx";
 import { exportLabels } from "../../src/core/exports/labels";
-import type { Block, Footnote, Inline } from "../../src/core/mindText";
+import { renderPrintHtml } from "../../src/core/exports/printHtml";
+import { type Block, type Footnote, type Inline, NO_MARKS } from "../../src/core/mindText";
+import { numberFootnotes } from "../../src/renderer/src/editor/citationNumbers";
+import { citationsIn, noteNumbers } from "../../src/renderer/src/editor/copyNotes";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { checkWellFormed, footnotesOf, part, unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
-import { writeMind } from "../helpers/minds";
+import { readMind, writeMind } from "../helpers/minds";
 import { fakePrinter } from "../helpers/printer";
 
 /*
@@ -41,17 +44,54 @@ function crossReferences(document: string) {
   };
 }
 
+/**
+ * What the reader sees at every Citation mark in the text, in order: the note it points at, and
+ * the number it shows, whether it is the note's own mark or a cross-reference to it.
+ */
+function shownMarks(
+  document: string,
+): { mark: "reference" | "noteref"; note: number; shows: number }[] {
+  const bookmarks = new Map(
+    crossReferences(document).bookmarks.map((each) => [each.name, each.note]),
+  );
+  const marks: { mark: "reference" | "noteref"; note: number; shows: number }[] = [];
+  const pattern =
+    /<w:footnoteReference w:id="(\d+)"\/>|NOTEREF (_Ref\d+) \\f \\h <\/w:instrText><\/w:r><w:r><w:fldChar w:fldCharType="separate"\/><\/w:r><w:r><w:rPr><w:rStyle w:val="FootnoteReference"\/><\/w:rPr><w:t>(\d+)<\/w:t><\/w:r>/g;
+  const numbers = new Map<number, number>();
+  for (const found of document.matchAll(pattern)) {
+    if (found[1] !== undefined) {
+      const note = Number(found[1]);
+      if (!numbers.has(note)) numbers.set(note, numbers.size + 1);
+      marks.push({ mark: "reference", note, shows: numbers.get(note) ?? 0 });
+    } else {
+      marks.push({
+        mark: "noteref",
+        note: bookmarks.get(found[2] as string) ?? -1,
+        shows: Number(found[3]),
+      });
+    }
+  }
+  return marks;
+}
+
 describe("a Word export of a Mind that cites a source again", () => {
-  const citation = (documentId: string, contentHash: string | null, page: number): JSONContent => ({
+  /** The source and place a Citation names, its Document's name and the words quoted. */
+  const resume = { name: "黄珊简历", quote: "黄珊，产品经理。" };
+  const citation = (
+    documentId: string,
+    contentHash: string | null,
+    page: number,
+    source = resume,
+  ): JSONContent => ({
     type: "citation",
     attrs: {
       passageId: "passage-1",
       documentId,
-      documentName: "黄珊简历",
+      documentName: source.name,
       contentHash,
       pageFrom: page,
       pageTo: page,
-      quote: "黄珊，产品经理。",
+      quote: source.quote,
       check: "found",
       checkReason: null,
     },
@@ -64,13 +104,19 @@ describe("a Word export of a Mind that cites a source again", () => {
       citationPlace,
       format = "docx",
       ownFootnote = false,
-    }: { citationPlace?: CitationPlace; format?: "docx" | "pdf"; ownFootnote?: boolean } = {},
+      source = resume,
+    }: {
+      citationPlace?: CitationPlace;
+      format?: "docx" | "pdf";
+      ownFootnote?: boolean;
+      source?: { name: string; quote: string };
+    } = {},
   ) {
     const { printed, printer } = fakePrinter();
     const core = startCore(await createTempDataFolder(), { now: manualClock().now, printer });
     const sources = await createTempDataFolder();
-    const path = await writeSourceFile(sources, "黄珊简历.txt", "黄珊，产品经理。");
-    const [resume] = await addAndProcess(core, [path]);
+    const path = await writeSourceFile(sources, `${source.name}.txt`, source.quote);
+    const [document] = await addAndProcess(core, [path]);
     const mind = await core.createMind({ title: "总结" });
     const client = await connectToMind(core, mind.id);
     writeMind(
@@ -79,7 +125,7 @@ describe("a Word export of a Mind that cites a source again", () => {
         type: "paragraph",
         content: [
           text(`第 ${index + 1} 句`),
-          citation(resume?.id ?? "", resume?.contentHash ?? null, page),
+          citation(document?.id ?? "", document?.contentHash ?? null, page, source),
           ...(ownFootnote && index === 0
             ? [{ type: "footnote", attrs: { id: "own-1" }, content: [text("我的注。")] }]
             : []),
@@ -88,11 +134,16 @@ describe("a Word export of a Mind that cites a source again", () => {
       })),
     );
     await client.settled();
+    // The numbers the editor shows at the Citation marks, top to bottom, its checks settled as
+    // the live Documents have them.
+    const screen = numberFootnotes(readMind(client), "numbered", {
+      documents: await core.listDocuments(),
+    }).citations;
     const exported = await core.exportMind(mind.id, {
       format,
       ...(citationPlace !== undefined && { citationPlace }),
     });
-    if (format === "pdf") return { document: "", footnotes: {}, exported, printed };
+    if (format === "pdf") return { document: "", footnotes: {}, exported, printed, screen };
     const files = unzip(exported.data);
     for (const [name, content] of files) {
       if (name.endsWith(".xml") || name.endsWith(".rels"))
@@ -103,8 +154,92 @@ describe("a Word export of a Mind that cites a source again", () => {
       footnotes: footnotesOf(part(files, "word/footnotes.xml")),
       exported,
       printed,
+      screen,
     };
   }
+
+  test("each screen mark has a reference, each NOTEREF its own note's number, and the Saved line the file's count (#2292)", async () => {
+    const { document, footnotes, exported, screen } = await exportWith([1, 1, 2]);
+    const marks = shownMarks(document);
+    // The screen shows the file's numbers: one note per source and place (#1381), the repeat reused.
+    expect(screen.map((each) => each.number)).toEqual([1, 1, 2]);
+    expect(marks.map((each) => `${each.mark} ${each.shows}`)).toEqual([
+      "reference 1",
+      "noteref 1",
+      "reference 2",
+    ]);
+    // Every mark in the file answers a mark on screen.
+    expect(marks).toHaveLength(screen.length);
+    expect(footnotes).toEqual({ "1": "黄珊简历, p. 1", "2": "黄珊简历, p. 2" });
+    // A cross-reference names a bookmark around a note, and shows that note's number.
+    const numberByNote = new Map<number, number>();
+    for (const each of marks) {
+      if (each.mark === "reference" && !numberByNote.has(each.note))
+        numberByNote.set(each.note, each.shows);
+    }
+    for (const each of marks) {
+      if (each.mark !== "noteref") continue;
+      expect(each.note).toBeGreaterThan(0);
+      expect(each.shows).toBe(numberByNote.get(each.note));
+    }
+    // One mark for each footnote, and the Saved line counts the footnotes the file holds.
+    expect([...numberByNote.keys()].sort()).toEqual([1, 2]);
+    expect(exported.footnotes).toBe(Object.keys(footnotes).length);
+    expect(exported.footnotes).toBe(2);
+  });
+
+  test("an English source and place number the same way: two footnotes for three marks (#2292)", async () => {
+    const source = { name: "Tides", quote: "The tide rises twice a day." };
+    const { document, footnotes, exported, screen } = await exportWith([1, 1, 2], { source });
+    expect(screen.map((each) => each.number)).toEqual([1, 1, 2]);
+    expect(shownMarks(document).map((each) => each.shows)).toEqual([1, 1, 2]);
+    expect(footnotes).toEqual({ "1": "Tides, p. 1", "2": "Tides, p. 2" });
+    expect(exported.footnotes).toBe(2);
+    expect(exported.citations).toBe(3);
+  });
+
+  test("a Document removed since makes a found and a not-found Citation of one place one unverified footnote (#2292)", async () => {
+    const { printer } = fakePrinter();
+    const core = startCore(await createTempDataFolder(), { now: manualClock().now, printer });
+    const sources = await createTempDataFolder();
+    const path = await writeSourceFile(sources, "Tides.txt", "The tide rises twice a day.");
+    const [tides] = await addAndProcess(core, [path]);
+    const mind = await core.createMind({ title: "Memo" });
+    const client = await connectToMind(core, mind.id);
+    const cite = (check: "found" | "not-found"): JSONContent => ({
+      type: "citation",
+      attrs: {
+        passageId: "passage-1",
+        documentId: tides?.id ?? "",
+        documentName: "Tides",
+        contentHash: tides?.contentHash ?? null,
+        pageFrom: 1,
+        pageTo: 1,
+        quote: "The tide rises twice a day.",
+        check,
+        checkReason: null,
+      },
+    });
+    writeMind(client, [
+      { type: "paragraph", content: [text("One."), cite("found")] },
+      { type: "paragraph", content: [text("Two."), cite("not-found")] },
+    ]);
+    await client.settled();
+    await core.deleteDocuments([tides?.id ?? ""]);
+    const live = await core.listDocuments();
+    // Neither can be checked now: one unverified footnote, as the file has it.
+    const screen = numberFootnotes(readMind(client), "numbered", { documents: live }).citations;
+    expect(screen.map((each) => each.number)).toEqual([1, 1]);
+    const exported = await core.exportMind(mind.id, { format: "docx" });
+    const files = unzip(exported.data);
+    expect(footnotesOf(part(files, "word/footnotes.xml"))).toEqual({
+      "1": "Tides, p. 1 [unverified]",
+    });
+    expect(exported.footnotes).toBe(1);
+    expect(
+      shownMarks(part(files, "word/document.xml")).map((each) => `${each.mark} ${each.shows}`),
+    ).toEqual(["reference 1", "noteref 1"]);
+  });
 
   test("ten Citations of one résumé at two pages make two footnotes, and the other eight refer to them", async () => {
     const { document, footnotes, exported } = await exportWith([1, 1, 2, 1, 1, 2, 1, 1, 2, 1]);
@@ -175,11 +310,12 @@ describe("a Word export of a Mind that cites a source again", () => {
     expect(document).not.toContain("footnoteReference");
   });
 
-  test("a PDF places each Citation as its own footnote, so the same note says 5", async () => {
-    const { exported, printed } = await exportWith([1, 1, 1, 2, 2], { format: "pdf" });
+  test("a PDF numbers as the Note does: five Citations over two pages are two footnotes", async () => {
+    const { exported, printed, screen } = await exportWith([1, 1, 1, 2, 2], { format: "pdf" });
     expect(exported.citations).toBe(5);
-    expect(exported.footnotes).toBe(5);
-    expect(printed[0]?.notes).toHaveLength(5);
+    expect(exported.footnotes).toBe(2);
+    expect(printed[0]?.notes).toHaveLength(2);
+    expect(screen.map((each) => each.number)).toEqual([1, 1, 1, 2, 2]);
   });
 
   test("a footnote the User wrote is counted too: three Citations beside it are 3 footnotes (#2193)", async () => {
@@ -189,10 +325,10 @@ describe("a Word export of a Mind that cites a source again", () => {
     expect(Object.keys(footnotes)).toHaveLength(3);
   });
 
-  test("a PDF counts the same note's footnotes, the User's own included: 4 (#2193)", async () => {
+  test("a PDF counts the same note's footnotes, the User's own and a repeat's included: 3 (#2193)", async () => {
     const { exported, printed } = await exportWith([1, 1, 2], { ownFootnote: true, format: "pdf" });
-    expect(exported.footnotes).toBe(4);
-    expect(printed[0]?.notes).toHaveLength(4);
+    expect(exported.footnotes).toBe(3);
+    expect(printed[0]?.notes).toHaveLength(3);
   });
 });
 
@@ -322,6 +458,68 @@ describe("the writer's notes", () => {
     expect(found.results.map((each) => each.shows)).toEqual(sources.map((_, index) => index + 1));
   });
 
+  // protects=a note says a person's check only where every Citation it stands for carries it; fails_when=a checked line appears for a mark the Note shows unchecked, or a shared line is dropped; no_claim=the words of a check line, which the i18n tests hold.
+  test("a check on one Citation of a place and not another writes no check line, in Word and PDF (#2292)", () => {
+    const checked: Footnote = {
+      source: "Tides, p. 2",
+      unverified: false,
+      checked: ["Checked by Ada · 28 Oct 2026"],
+    };
+    const blocks = [
+      paragraph(words("a"), cited("Tides, p. 2")),
+      paragraph(words("b"), cited("Tides, p. 2", false, { footnote: checked })),
+    ];
+    // The second mark is checked on screen and the first is not: one note, so it says neither.
+    expect(render(blocks).footnotes).toEqual({ "1": "Tides, p. 2" });
+    expect(renderPrintHtml(blocks, exportLabels("en")).notes).toEqual(["Tides, p. 2"]);
+  });
+
+  test("a check every Citation of a place carries is written once, in Word and PDF, in Chinese too", () => {
+    const line = "由 Ada 核对 · 2026年10月28日";
+    const checked: Footnote = { source: "Tides, p. 2", unverified: false, checked: [line] };
+    const blocks = [
+      paragraph(words("a"), cited("Tides, p. 2", false, { footnote: checked })),
+      paragraph(words("b"), cited("Tides, p. 2", false, { footnote: checked })),
+    ];
+    expect(render(blocks).footnotes).toEqual({ "1": `Tides, p. 2\n${line}` });
+    expect(renderPrintHtml(blocks, exportLabels("zh-CN")).notes).toEqual([
+      `Tides, p. 2<br><span class="checked-by">${line}</span>`,
+    ]);
+  });
+
+  test("two people's checks on one place write no line rather than one that isn't every mark's", () => {
+    const check = (line: string): Footnote => ({
+      source: "Tides, p. 2",
+      unverified: false,
+      checked: [line],
+    });
+    const blocks = [
+      paragraph(
+        words("a"),
+        cited("Tides, p. 2", false, { footnote: check("Checked by Ada · 28 Oct 2026") }),
+      ),
+      paragraph(
+        words("b"),
+        cited("Tides, p. 2", false, { footnote: check("Checked by Bob · 29 Oct 2026") }),
+      ),
+    ];
+    expect(render(blocks).footnotes).toEqual({ "1": "Tides, p. 2" });
+    expect(renderPrintHtml(blocks, exportLabels("en")).notes).toEqual(["Tides, p. 2"]);
+  });
+
+  test("a line with a dollar sign in a person's name is written as it is", () => {
+    const checked: Footnote = {
+      source: "Tides, p. 2",
+      unverified: false,
+      checked: ["Checked by A$&B · 28 Oct 2026"],
+    };
+    const blocks = [
+      paragraph(words("a"), cited("Tides, p. 2", false, { footnote: checked })),
+      paragraph(words("b"), cited("Tides, p. 2", false, { footnote: checked })),
+    ];
+    expect(render(blocks).footnotes).toEqual({ "1": "Tides, p. 2\nChecked by A$&B · 28 Oct 2026" });
+  });
+
   test("a Citation whose check is not the same, or whose address is not, has a note of its own", () => {
     const { document, footnotes } = render([
       paragraph(
@@ -343,6 +541,51 @@ describe("the writer's notes", () => {
       "Page",
     ]);
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([2]);
+  });
+
+  test("a Citation a change still waiting adds or removes is a note of its own in Word and the PDF, so no later number moves", () => {
+    const change = { id: "p1", at: null };
+    const blocks = [
+      paragraph(words("a"), cited("Tides, p. 2", false, { inserted: change })),
+      paragraph(words("b"), cited("Tides, p. 2")),
+      paragraph(words("c"), cited("Tides, p. 2", false, { deleted: change })),
+      paragraph(words("d"), cited("Tides, p. 2")),
+    ];
+    // A change's Citation stands for itself (#107), so accepting or rejecting the change never
+    // leaves a cross-reference without a note; the live marks share theirs. The numbers after it
+    // are the Note's too.
+    const { document, footnotes } = render(blocks);
+    expect(Object.values(footnotes)).toEqual(["Tides, p. 2", "Tides, p. 2", "Tides, p. 2"]);
+    const found = crossReferences(document);
+    expect(found.marks).toEqual([1, 2, 3]);
+    expect(found.results.map((each) => each.shows)).toEqual([2]);
+    const printed = renderPrintHtml(blocks, exportLabels("en"));
+    // The Citations' markers are 1, 2, 3 and 2, as the Note and Word have them; the PDF's own
+    // notes on the changes take 4 and 5, after every Citation's note.
+    expect([...printed.body.matchAll(/data-note="(\d+)"/g)].map((each) => Number(each[1]))).toEqual(
+      [1, 4, 2, 3, 5, 2],
+    );
+  });
+
+  test("a waiting change before a later Citation moves no number: the Note's, Word's and the PDF's marks are 1, 2, 3", () => {
+    const change = { id: "p1", at: null };
+    const blocks = [
+      paragraph(words("a"), cited("Tides, p. 1", false, { inserted: change })),
+      paragraph(words("b"), cited("Tides, p. 1")),
+      paragraph(words("c"), cited("Moon, p. 1")),
+    ];
+    const { document } = render(blocks);
+    expect(crossReferences(document).marks).toEqual([1, 2, 3]);
+    const printed = renderPrintHtml(blocks, exportLabels("en"));
+    // The change's own note is the PDF's fourth, after the Citations' notes, so the marks before
+    // it are the Note's numbers.
+    expect(
+      [...printed.body.matchAll(/<sup class="note-ref" data-note="(\d+)"/g)].map((found) =>
+        Number(found[1]),
+      ),
+    ).toEqual([1, 2, 3]);
+    expect(printed.notes).toHaveLength(4);
+    expect(printed.notes[3]).toContain("Inserted");
   });
 
   test("a Citation a change still waiting adds or removes is never the note others refer to, nor refers to one", () => {
@@ -437,5 +680,117 @@ describe("the writer's notes", () => {
     ]);
     expect(count).toBe(6);
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([1, 4]);
+  });
+});
+
+describe("the Note, Word, the PDF and Copy with Citations number one way (#2292)", () => {
+  const words = (text: string): Inline => ({ kind: "text", text, marks: NO_MARKS });
+  const paragraph = (...content: Inline[]): Block => ({ kind: "paragraph", content });
+  const written = (value: string): JSONContent => ({ type: "text", text: value });
+
+  test("five Citations over two sources and places, and a removed Document's pair, read the same", async () => {
+    const { printer } = fakePrinter();
+    const core = startCore(await createTempDataFolder(), { now: manualClock().now, printer });
+    const sources = await createTempDataFolder();
+    const tidesPath = await writeSourceFile(sources, "Tides.txt", "The tide rises twice a day.");
+    const moonPath = await writeSourceFile(sources, "Moon.txt", "The Moon pulls the tides.");
+    const gonePath = await writeSourceFile(sources, "Notes.txt", "Remember the tide tables.");
+    const [tides, moon, gone] = await addAndProcess(core, [tidesPath, moonPath, gonePath]);
+    const mind = await core.createMind({ title: "Memo" });
+    const client = await connectToMind(core, mind.id);
+
+    /** One Citation's source and place, the check it was made with, and a Proposal's mark. */
+    const places = [
+      { document: tides, page: 1, check: "found" },
+      { document: tides, page: 1, check: "found" },
+      { document: tides, page: 2, check: "found" },
+      { document: moon, page: 1, check: "found" },
+      { document: moon, page: 1, check: "found" },
+      { document: gone, page: 1, check: "found" },
+      { document: gone, page: 1, check: "not-found" },
+      { document: tides, page: 1, check: "found", pending: true },
+    ] as const;
+    const pending = (place: (typeof places)[number]) =>
+      "pending" in place && place.pending === true;
+    const cite = (place: (typeof places)[number], index: number): JSONContent => ({
+      type: "citation",
+      attrs: {
+        passageId: `passage-${index}`,
+        documentId: place.document?.id ?? "",
+        documentName: place.document?.name ?? "",
+        contentHash: place.document?.contentHash ?? null,
+        pageFrom: place.page,
+        pageTo: place.page,
+        quote: "A quoted sentence.",
+        check: place.check,
+        checkReason: null,
+        ...(pending(place) && {
+          [PROPOSAL_ATTRIBUTE]: { id: `pending-${index}`, request: "request", kind: "insert" },
+        }),
+      },
+    });
+    writeMind(
+      client,
+      places.map((place, index) => ({
+        type: "paragraph",
+        content: [written(`Sentence ${index + 1}.`), cite(place, index)],
+      })),
+    );
+    await client.settled();
+    // A Document removed since can't be checked: its found and not-found marks are one footnote.
+    await core.deleteDocuments([gone?.id ?? ""]);
+    const live = await core.listDocuments();
+    // One source and place is one note; a Proposal's Citation is a note of its own everywhere
+    // (#107), so it does not move the numbers after it either.
+    const numbers = [1, 1, 2, 3, 3, 4, 4, 5];
+
+    // The Note: one footnote for each source and place, a later mark repeating its number.
+    const doc = readMind(client);
+    const note = numberFootnotes(doc, "numbered", { documents: live });
+    expect(note.citations.map((each) => each.number)).toEqual(numbers);
+    expect(note.citations.filter((each) => each.footnote)).toHaveLength(5);
+
+    // The PDF: the same marks with the same numbers, one note for each source and place.
+    const unverified = new Set([gone?.id]);
+    const blocks = places.map((place, index) =>
+      paragraph(words(`Sentence ${index + 1}.`), {
+        kind: "citation",
+        footnote: {
+          source: `${place.document?.name}, p. ${place.page}`,
+          unverified: unverified.has(place.document?.id),
+        },
+        work: {
+          documentId: place.document?.id ?? null,
+          documentName: place.document?.name ?? null,
+          location: { kind: "page", from: place.page, to: place.page },
+          contentHash: place.document?.contentHash ?? null,
+        },
+        ...(pending(place) && { inserted: { id: `pending-${index}`, at: null } }),
+      }),
+    );
+    const pdf = renderPrintHtml(blocks, exportLabels("en"));
+    // The Citations' markers are the Note's numbers; the PDF's own note on the change has a
+    // class of its own and comes after them, so it moves no Citation's number.
+    expect(
+      [...pdf.body.matchAll(/<sup class="note-ref" data-note="(\d+)"/g)].map((found) =>
+        Number(found[1]),
+      ),
+    ).toEqual(numbers);
+    // The Citations' five notes, and the PDF's own note that says the change.
+    expect(pdf.notes).toHaveLength(6);
+
+    // Copy with Citations: the same numbers in the markers it writes.
+    const copied = noteNumbers(citationsIn(doc.content), {
+      language: "en",
+      documents: live,
+      kept: [],
+    });
+    expect(copied).toEqual(numbers);
+
+    // The Word file counts the same footnotes, and its marks show the same numbers.
+    const exported = await core.exportMind(mind.id, { format: "docx" });
+    expect(exported.footnotes).toBe(5);
+    const files = unzip(exported.data);
+    expect(shownMarks(part(files, "word/document.xml")).map((each) => each.shows)).toEqual(numbers);
   });
 });

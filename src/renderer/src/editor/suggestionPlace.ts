@@ -1,5 +1,7 @@
 import type { EditorState } from "@tiptap/pm/state";
-import { ANSWER_BLOCK, CITATION_NODE, FOOTNOTE_NODE, QUESTION_BLOCK } from "../../../core/api";
+import { ANSWER_BLOCK, type CitationAttributes, QUESTION_BLOCK } from "../../../core/api";
+import { citationSubject, footnoteSubjectKey } from "../../../shared/citations";
+import { citationFormOf, citationLiveOf, numberFootnotes } from "./citationNumbers";
 
 /** A paragraph shorter than this gets no suggestion (the core's limit too). */
 export const MIN_PARAGRAPH_CHARACTERS = 40;
@@ -76,20 +78,35 @@ export function nextWord(text: string): string {
 }
 
 /**
- * The number a Citation inserted at `pos` gets: one more than the Citations
- * and footnotes before it in the Mind, which share one numbering (see
- * `numberFootnotes`). A Citation inside a footnote has no number of its own.
+ * The number a Citation inserted at `pos` gets: in Numbered, the footnote a Citation of the same
+ * Document and place already has, which a later one repeats (#1381); else one more than the
+ * numbers the editor has given the Citations, footnotes and figures before it. A Citation inside
+ * a footnote has no number of its own.
  */
-export function citationNumberAt(state: EditorState, pos: number): number {
-  let before = 0;
-  state.doc.nodesBetween(0, pos, (node, at) => {
-    const name = node.type.name;
-    if (name === FOOTNOTE_NODE) {
-      if (at + node.nodeSize <= pos) before++;
-      return false;
-    }
-    if (name === CITATION_NODE && at < pos) before++;
-    return true;
-  });
-  return before + 1;
+export function citationNumberAt(
+  state: EditorState,
+  pos: number,
+  attributes?: Partial<CitationAttributes>,
+): number {
+  const { citations, footnotes, figures } = numberFootnotes(
+    state.doc,
+    citationFormOf(state),
+    citationLiveOf(state),
+  );
+  if (attributes && citationFormOf(state) === "numbered") {
+    const key = footnoteSubjectKey(citationSubject(attributes, citationLiveOf(state)));
+    const shared = citations.find(
+      (each) =>
+        each.pos < pos &&
+        footnoteSubjectKey(citationSubject(each.attributes, citationLiveOf(state))) === key,
+    );
+    if (shared) return shared.number;
+  }
+  // The next number: two marks of one footnote share a number, so the count is of numbers given.
+  const taken = [
+    ...citations.filter((each) => each.pos < pos),
+    ...footnotes.filter((each) => each.pos < pos && !each.endnote),
+    ...figures.filter((each) => each.pos < pos),
+  ];
+  return taken.reduce((most, each) => Math.max(most, each.number), 0) + 1;
 }

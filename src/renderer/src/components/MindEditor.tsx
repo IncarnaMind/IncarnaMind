@@ -12,6 +12,7 @@ import type * as Y from "yjs";
 import { ANSWER_BLOCK, MIND_CONTENT_FIELD } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import type { CitationForm } from "../../../shared/citationStyles";
+import type { CitationLive } from "../../../shared/citations";
 import { figureRunsFor } from "../../../shared/figureRuns";
 import { translate } from "../../../shared/i18n";
 import { setMindScope } from "../../../shared/mindScope";
@@ -384,6 +385,7 @@ function MindEditorView({
   /** The Mind's citation style, followed as it changes (#289). */
   const styleChoice = useMindStyleChoice(doc);
   const formRef = useRef<CitationForm>(citationForm(styleChoice.chosen ?? "numbered", undefined));
+  const liveRef = useRef<CitationLive>({ documents: null });
 
   const editor = useEditor(
     {
@@ -415,8 +417,12 @@ function MindEditorView({
           tableOfContentsView: ReactNodeViewRenderer(TableOfContentsView),
           pictureView,
         }),
-        // Footnotes are numbered as the Mind's citation style counts its Citations (#289).
-        CitationNumbers.configure({ form: () => formRef.current }),
+        // Footnotes are numbered as the Mind's citation style counts its Citations (#289), their
+        // checks settled as the live Documents have them (#2292).
+        CitationNumbers.configure({
+          form: () => formRef.current,
+          live: () => liveRef.current,
+        }),
         // Pictures pasted or dropped into the Note, and the picture chosen with "/" (#1937).
         Pictures,
         CitationClusters,
@@ -519,6 +525,7 @@ function MindEditorView({
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
+  const keptCitationTexts = useAppStore((state) => state.keptCitationTexts);
   const folderId = useAppStore(
     (state) => state.minds.find((each) => each.id === mindId)?.folderId ?? null,
   );
@@ -574,6 +581,12 @@ function MindEditorView({
   useEffect(() => {
     if (!editor.isDestroyed) setCitationForm(editor.view, form);
   }, [editor, form]);
+  // A Citation's check, and so its footnote's place in the numbering, follows the live Documents
+  // and the text kept of those unlinked (#2292).
+  useEffect(() => {
+    liveRef.current = { documents, kept: keptCitationTexts };
+    if (!editor.isDestroyed) redrawFootnotes(editor.view);
+  }, [editor, documents, keptCitationTexts]);
 
   useEffect(
     () => (readOnly ? undefined : registerMindEditor(mindId, editor)),

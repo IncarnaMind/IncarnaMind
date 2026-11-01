@@ -44,10 +44,12 @@ import {
   plainText,
   type ReadOptions,
   readBlock,
+  readBlocks,
   readInlineNodes,
 } from "../../mindText";
 import { type ContentsEntry, DocxWriter } from "../docx";
 import type { ExportLabels } from "../labels";
+import { noteChecks } from "../noteChecks";
 import { Review, type ReviewChoices } from "../wordReview";
 import { AtomPlan, copiedText } from "./atoms";
 import { styleWritten, type Written } from "./citations";
@@ -261,6 +263,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     review,
     [],
     contents,
+    noteChecks(readBlocks(input.blocks, input.readOptions)),
   );
   const bookmarkOf = (node: NodeJSON) => {
     const id = node.attrs?.id;
