@@ -25,6 +25,7 @@ import { openDatabase } from "../../src/core/storage";
 import {
   createMemoryKeychain,
   createTempDataFolder,
+  manualClock,
   NO_MODEL_FILES,
   queryDatabase,
   startCore,
@@ -881,5 +882,36 @@ describe("A Re-tag all that sends nothing changes nothing", () => {
     expect(await taggingOf(core, tagged.id)).toBe("tagged");
     expect(providers.sent("anthropic")).toBe(1);
     expect(providers.sent("openai")).toBe(0);
+  });
+});
+
+describe("A Linked folder linked in the same millisecond as the turn-on", () => {
+  test("was there before it: its files wait, and a Document the User adds after still goes", async () => {
+    const providers = perProvider();
+    // A clock that moves only when told: the link and the turn-on share one time.
+    const clock = manualClock();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+      now: clock.now,
+      linkedFolders: { watch: scriptedWatcher().watch },
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    const folder = await createSourceFolder();
+    for (const at of [1, 2, 3]) {
+      await writtenBefore(folder, `Report ${at}.txt`, `Quarterly report ${at}.`);
+    }
+    const linked = await core.addLinkedFolder(folder);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    await core.reconcileDocuments();
+    const ids = (await core.listDocuments({ linkedFolderId: linked.id })).map((each) => each.id);
+    expect(ids).toHaveLength(3);
+    await waitForProcessing(core, ids);
+    await waitForTagging(core, ids, (each) => each.tagging === "off");
+    expect(providers.sent("anthropic")).toBe(0);
+
+    clock.advance(1_000);
+    const added = await add(core, "Added after.txt");
+    await waitForTagging(core, [added.id]);
+    expect(providers.sent("anthropic")).toBe(1);
   });
 });

@@ -33,7 +33,7 @@ import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
 import { sameName, type TagsStore } from "../tags";
 import { documentType, excerptFromPassages } from "../tags/classify";
-import { clearForService, mayBackgroundSend } from "../tags/held";
+import { clearForService, mayBackgroundSend, turnOnTime } from "../tags/held";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
 import { fallbackLine } from "../tags/suggest";
 import type { FolderSample, GroupClassifier } from "./classifier";
@@ -1360,7 +1360,7 @@ export function createLibrary(options: {
         : input.automatic === false && showing
           ? false
           : before.automatic;
-      const at = now();
+      const at = turnOnTime(db, now());
       const automaticSince = turnOn
         ? {
             ...sinceOf(before),

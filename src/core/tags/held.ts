@@ -37,6 +37,21 @@ export function mayBackgroundSend(
   });
 }
 
+/**
+ * The time to record a turn-on at: `now`, or just after every arrival and every Linked folder
+ * already here, if that is later. Times are kept to the millisecond, and a folder linked in the
+ * same millisecond as the turn-on, before it, was there before (#2308).
+ */
+export function turnOnTime(db: Database, now: string): string {
+  const latest = db.get<{ at: string | null }>(
+    `SELECT max(at) AS at FROM (
+       SELECT max(arrived_at) AS at FROM document_arrivals WHERE deleted_at IS NULL
+       UNION ALL SELECT max(created_at) FROM linked_folders WHERE deleted_at IS NULL)`,
+  )?.at;
+  if (!latest || latest < now) return now;
+  return new Date(Date.parse(latest) + 1).toISOString();
+}
+
 /** IncarnaMind saw this Document arrive new at `at` (see `mayBackgroundSend`). */
 export function markArrived(db: Database, documentId: string, at: string): void {
   db.run(
