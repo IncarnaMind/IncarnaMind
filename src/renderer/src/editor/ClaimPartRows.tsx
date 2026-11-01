@@ -7,6 +7,7 @@ import type {
   ClaimCalculation,
   ClaimCheckPart,
   ClaimCheckScope,
+  ClaimCorrection,
   ClaimPartSpan,
   WholeRead,
 } from "../../../core/api";
@@ -18,12 +19,14 @@ import { citationLocation, formatLocation } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { rowActionButtonClass } from "../components/sidebarRows";
+import type { PartCorrection } from "../correctionFixes";
 import { reasonText } from "../cost";
 import { useLanguage, useT } from "../i18n";
 import { openCited, quoteSaysSo } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { type CitationDecision, partDecisions } from "./alreadyCited";
+import { CorrectButton, CorrectionConflict } from "./CorrectionOffer";
 import { focusFirstAction } from "./cardFocus";
 import { useReadableQuote } from "./citationScan";
 import type { ShownClaim } from "./claimChecks";
@@ -222,6 +225,8 @@ function PartRow({
   part,
   onCheck,
   onUseWording,
+  correction,
+  onCorrect,
   onOpen,
   working,
   lookedIn,
@@ -238,6 +243,9 @@ function PartRow({
   part: ClaimCheckPart;
   onCheck(span: ClaimPartSpan): void;
   onUseWording?(part: ClaimCheckPart): void;
+  /** The part's correction from the Documents, when its old words are still in place. */
+  correction?: ClaimCorrection;
+  onCorrect?(span: ClaimPartSpan): void;
   onOpen(): void;
   lookedIn: string;
   read?: WholeRead;
@@ -290,6 +298,7 @@ function PartRow({
                       },
                     )
                   : t("claim.unsupported.notFound", { scope: lookedIn })));
+  const offered = !stale && !checking && onCorrect ? correction : undefined;
   const wording =
     !stale &&
     !checking &&
@@ -353,6 +362,7 @@ function PartRow({
       {part.says && part.verdict === "contradicted" && (
         <p className="claim-card-says">{part.says}</p>
       )}
+      {offered && <CorrectionConflict correction={offered} />}
       {part.verdict === "supported" && part.currencyClause && (
         <p data-testid="claim-part-currency-clause" className="citation-card-note">
           {part.currencyClause}
@@ -378,6 +388,13 @@ function PartRow({
       ))}
       {part.calculation && working?.(part.calculation)}
       {citations && <PartCiting citing={citing} citations={citations} onOpen={onOpen} />}
+      {offered && (
+        <CorrectButton
+          correction={offered}
+          onCorrect={() => onCorrect?.(part.span)}
+          testId="claim-part-correct"
+        />
+      )}
       {wording && (
         <button
           type="button"
@@ -422,6 +439,8 @@ export function ClaimPartRows({
   parts,
   onCheck,
   onUseWording,
+  corrections,
+  onCorrect,
   onOpen,
   working,
   scope,
@@ -436,6 +455,9 @@ export function ClaimPartRows({
   parts: readonly ClaimCheckPart[];
   onCheck(span: ClaimPartSpan): void;
   onUseWording?(part: ClaimCheckPart): void;
+  /** Each contradicted part's correction from the Documents (`correctionsFor`). */
+  corrections?: readonly PartCorrection[];
+  onCorrect?(span: ClaimPartSpan): void;
   onOpen(): void;
   scope?: ClaimCheckScope;
   /** After Check against a Document… (#1554): how much of the pick was read. */
@@ -522,6 +544,13 @@ export function ClaimPartRows({
             part={part}
             onCheck={onCheck}
             onUseWording={onUseWording}
+            correction={
+              corrections?.find(
+                ({ span }) =>
+                  span?.start === part.span.start && span.end === part.span.end && !label,
+              )?.correction
+            }
+            onCorrect={onCorrect}
             onOpen={onOpen}
             working={working}
             lookedIn={lookedIn}

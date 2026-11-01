@@ -656,6 +656,7 @@ test("a Document whose file is gone says Missing in its peek, and a press elsewh
     await openShortlist(window);
     await linkFolderFromSidebar(app, window, folder);
     await showSourceLocations(window);
+    await expectReadyDocuments(window, 2);
     const doomed = window
       .getByTestId("not-in-a-folder")
       .getByTestId("document-list-item")
