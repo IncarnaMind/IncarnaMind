@@ -117,7 +117,7 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
 
 /**
  * Whether the state's own line names its unread files: in green, every one, or in amber only
- * those a narrow check missed (#740, D266). The Saved line always counts them when there are any.
+ * those a narrow check missed (#740). The Saved line always counts them when there are any.
  */
 export function noteStateShowsUnread(state: NoteState): boolean {
   return (
