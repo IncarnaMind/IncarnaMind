@@ -381,6 +381,33 @@ test.each([
   expect(figures).toMatchObject([{ sentence, state, why: null }]);
 });
 
+// protects=a reply that copies its sentence and its whole quote line as the measure, as a model may, settles the check Supported, in English and Chinese: long measure words are found and never leave a check running (#2255); fails_when=a whole-line measure is Not checked, unsettled or Supported for another reason than its words; no_claim=how long a real model's reply takes.
+test.each([
+  {
+    language: "en" as const,
+    document: EN_DOCUMENT,
+    sentence: "Revenue grew 12% in 2025.",
+    quote: "Revenue grew 12% in 2025, to £48.2m.",
+  },
+  {
+    language: "zh-CN" as const,
+    document: ZH_DOCUMENT,
+    sentence: "2025年收入增长了12%。",
+    quote: "2025年收入增长12%，达到4.82亿元。",
+  },
+])(
+  "a whole quote line as the measure ($language)",
+  async ({ language, document, sentence, quote }) => {
+    const { figures } = await checkNote(
+      language,
+      document,
+      [paragraph("whole", sentence)],
+      one(sentence, { quote, number: "12%", measure: { sentence, quote, match: "same" } }),
+    );
+    expect(figures).toMatchObject([{ sentence, state: "supported", sentenceState: "supported" }]);
+  },
+);
+
 // protects=a Chinese sentence checked against an English Document gets the reason in Chinese, the quote's English words spaced from the Chinese around them (docs/agents/zh-CN.md), and its own Chinese measure in its place (#2255); fails_when=the reason runs Latin words into Chinese or names the measures the wrong way round; no_claim=how a real model words either measure.
 test("the reason names an English quote's measure in a Chinese sentence's reason", async () => {
   const sentence = "2025年营业利润率为12%。";
