@@ -205,9 +205,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const made = await core.offerExamples();
     const mindId = made?.mindId as string;
     await vi.waitFor(async () =>
-      expect((await core.readyQuestion())?.question).toBe(
-        "What's the leverage cap?",
-      ),
+      expect((await core.readyQuestion())?.question).toBe("What's the leverage cap?"),
     );
     const answerEvents = vi.fn();
     core.on("answer.started", answerEvents);
