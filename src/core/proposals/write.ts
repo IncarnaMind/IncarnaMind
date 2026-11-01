@@ -2138,25 +2138,20 @@ export function createRewriteStream(
     const whole = translating();
     // Where the text may leave paragraphs out, a paragraph it doesn't name is never written over
     // (#2333). A place says which paragraph a new one is only in a stretch of as many new ones as
-    // old, each written as their kind: between two the text pairs with; before the first, the
-    // selection's start the other side, each somewhat like the one in its place; after the last
-    // (a partial text stops early), each also clearly more like it than any other; or in a text
-    // that rewrites every paragraph, none of its own much like one of the selection's (a
-    // translation). Any other pairs only with one it reads as, and is added when it reads as none.
+    // old, each written as their kind: before one the text pairs with, where the text starts as
+    // the selection does or after another it pairs with; after the last (a partial text stops
+    // early, so its end says nothing), each also clearly more like the one in its place than any
+    // other; or in a text that rewrites every paragraph, none of its own much like one of the
+    // selection's (a translation). Any other pairs only with one it reads as, and is added when
+    // it reads as none.
     const sameCount =
       held.length === between.length && held.every((paragraph) => !paragraph.asOther);
-    const inItsPlace = (index: number, clearly: boolean) => {
-      const segment = between[index] as Segment;
-      const paragraph = held[index] as NewParagraph;
-      return clearly
-        ? readsAs(segment, paragraph, { least: COUNTERPART_LIKENESS })
-        : placeLikeness(segment, paragraph) >= COUNTERPART_LIKENESS;
-    };
     const byTheirPlace =
       sameCount &&
-      (bounded
-        ? pairedSoFar > 0 || held.every((_, index) => inItsPlace(index, false))
-        : held.every((_, index) => inItsPlace(index, true)));
+      (bounded ||
+        held.every((paragraph, index) =>
+          readsAs(between[index] as Segment, paragraph, { least: COUNTERPART_LIKENESS }),
+        ));
     const rewritesAll =
       keeps &&
       pairedSoFar === 0 &&
@@ -2184,12 +2179,17 @@ export function createRewriteStream(
           whole,
           placed ? undefined : (segment, paragraph) => readsAs(segment, paragraph),
         );
-    const standsIn = (segment: Segment, paragraph: NewParagraph) =>
-      !paragraph.table && readsAs(segment, paragraph, { standIn: true });
-    // A Block of another kind takes a paragraph's place by its place only in a text that
-    // rewrites every paragraph: a heading or a table between two kept ones is new text.
+    // A new Block in the place of one of its own kind, in a stretch its place says, takes that
+    // one's place, as an item about something else does between two kept items (#1028). A Block
+    // of another kind takes a paragraph's place by its place only in a text that rewrites every
+    // paragraph: a heading or a table between two kept ones is new text.
+    const takesPlace = (segment: Segment, paragraph: NewParagraph) =>
+      (byTheirPlace &&
+        paragraph.kind === segment.kind &&
+        between.indexOf(segment) === held.indexOf(paragraph)) ||
+      (!paragraph.table && readsAs(segment, paragraph, { standIn: true }));
     const byPlace = !keeps || rewritesAll;
-    for (const segment of replacedIn(between, held, paired, byPlace ? null : standsIn)) {
+    for (const segment of replacedIn(between, held, paired, byPlace ? null : takesPlace)) {
       replaced.add(segment);
     }
     // Nothing written yet: what is added goes before the paragraph the text pairs with next, or

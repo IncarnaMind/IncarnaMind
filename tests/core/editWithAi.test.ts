@@ -3617,44 +3617,44 @@ describe("An edit the User asked for (#880)", () => {
   });
 });
 
+const bullets = (...items: string[]): JSONContent => ({
+  type: "bulletList",
+  content: items.map((item) => ({ type: "listItem", content: [paragraph(text(item))] })),
+});
+
+/** As `shownWithChanges` shows them, a paragraph added or removed whole marked by a Block around it too. */
+const shownWhole = (client: MindClient): string[] => {
+  const lines: string[] = [];
+  const visit = (node: ReturnType<typeof readMind>, whole: string | null) => {
+    const kind = (node.attrs?.[PROPOSAL_ATTRIBUTE] as { kind?: string } | null)?.kind ?? whole;
+    if (!node.isTextblock) {
+      node.forEach((child) => {
+        visit(child, kind);
+      });
+      return;
+    }
+    let line = "";
+    node.forEach((child) => {
+      const marks = child.marks.map((mark) => mark.type.name);
+      const words = child.text ?? "￼";
+      line += marks.includes("proposalDelete")
+        ? `[-${words}-]`
+        : marks.includes("proposalInsert")
+          ? `{+${words}+}`
+          : words;
+    });
+    lines.push(`${kind === "insert" ? "+ " : kind === "delete" ? "- " : ""}${line}`);
+  };
+  visit(readMind(client), null);
+  return lines.map((line) => line.replace(/-\]\[-|\+\}\{\+/g, ""));
+};
+
 describe("How a change reads (#1028)", () => {
   const heading = (value: string): JSONContent => ({
     type: "heading",
     attrs: { id: `block-${++ids}`, level: 2 },
     content: [text(value)],
   });
-  const bullets = (...items: string[]): JSONContent => ({
-    type: "bulletList",
-    content: items.map((item) => ({ type: "listItem", content: [paragraph(text(item))] })),
-  });
-
-  /** As `shownWithChanges` shows them, a paragraph added or removed whole marked by a Block around it too. */
-  const shownWhole = (client: MindClient): string[] => {
-    const lines: string[] = [];
-    const visit = (node: ReturnType<typeof readMind>, whole: string | null) => {
-      const kind = (node.attrs?.[PROPOSAL_ATTRIBUTE] as { kind?: string } | null)?.kind ?? whole;
-      if (!node.isTextblock) {
-        node.forEach((child) => {
-          visit(child, kind);
-        });
-        return;
-      }
-      let line = "";
-      node.forEach((child) => {
-        const marks = child.marks.map((mark) => mark.type.name);
-        const words = child.text ?? "￼";
-        line += marks.includes("proposalDelete")
-          ? `[-${words}-]`
-          : marks.includes("proposalInsert")
-            ? `{+${words}+}`
-            : words;
-      });
-      lines.push(`${kind === "insert" ? "+ " : kind === "delete" ? "- " : ""}${line}`);
-    };
-    visit(readMind(client), null);
-    return lines.map((line) => line.replace(/-\]\[-|\+\}\{\+/g, ""));
-  };
-
   /** The whole Mind, asked to change as `instruction` says. */
   const everything = (client: MindClient, mindId: string, instruction: string) => {
     const blocks: { id: string; size: number }[] = [];
@@ -4354,6 +4354,63 @@ describe("An edit never loses the User's words (#2333)", () => {
       await core.editWithAi(wholeMind(client, mind.id, "Change the second paragraph"));
 
       expect(await acceptThenUndo(client, before)).toEqual([lines[0], between, ...lines.slice(2)]);
+    },
+  );
+
+  // protects=a list item about something else between two items the reply keeps takes the place of the item there: anchored on both sides, the old item goes whole and the new one comes once, never written into it word by word (#1028), and Undo then reject restores the Note; English and Chinese; fails_when=the old item stays as left out beside the new one; no_claim=what a real model writes.
+  test.each([
+    {
+      items: [
+        "Led quarterly forecasting for a team of twelve analysts",
+        "Presented findings to the board every month",
+        "Cut the month-end close from ten days to six",
+      ],
+      made: "Ran the vendor review",
+    },
+    {
+      items: [
+        "2012.09—2016.06 复旦大学 金融学 学士",
+        "2016.09—2018.06 上海财经大学 会计学 硕士",
+        "2018.07—2020.06 某银行 管培生",
+      ],
+      made: "2020.07—至今 Deloitte Touche Tohmatsu, Senior Manager",
+    },
+  ])(
+    "a list item between two kept ones takes the place of the one between: $made",
+    async ({ items, made }) => {
+      const [first = "", old = "", last = ""] = items;
+      const { core, mind, client, before } = await noteOf([bullets(...items)], () =>
+        [first, made, last].map((item) => `- ${item}`).join("\n\n"),
+      );
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Replace the second item"));
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      expect(result).not.toHaveProperty("leftOut");
+      expect(shownWhole(client)).toEqual([first, `+ ${made}`, `- ${old}`, last]);
+      expect(await acceptThenUndo(client, before)).toEqual([first, made, last]);
+    },
+  );
+
+  // protects=a reply starts where the selection starts, so a first line renamed in words it shares none of, before a line the reply keeps, takes the first line's place; English and Chinese; fails_when=the new name is added beside the old one, which stays as left out; no_claim=a reply that drops the first line and starts with a stray one, which this reads the same.
+  test.each([
+    {
+      lines: ["Harbour office", "Tides rise twice a day, and the harbour office posts the times."],
+      reply: ["Port authority", "Tides rise twice a day, and the port authority posts the times."],
+    },
+    {
+      lines: ["海港办公室", "潮水每天涨落两次，海港办公室每周公布潮汐时间。"],
+      reply: ["港务局", "潮水每天涨落两次，港务局每周公布潮汐时间。"],
+    },
+  ])(
+    "a first line renamed before a kept one takes its place: $reply.0",
+    async ({ lines, reply }) => {
+      const { core, mind, client, before } = await noteOf(plain(lines), () => reply.join("\n\n"));
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Rename it"));
+
+      expect(result).not.toHaveProperty("leftOut");
+      expect(await acceptThenUndo(client, before)).toEqual(reply);
     },
   );
 
