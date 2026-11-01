@@ -574,8 +574,10 @@ function Grid({
   }, [model, view.width]);
   const rows = useMemo(() => {
     const used = new Axis(1, model.usedRows, model.defaultRow, model.rowSizes);
-    const room = view.height - HEADER_HEIGHT - used.total;
-    const more = room > 0 ? Math.ceil(room / model.defaultRow) : 0;
+    // A long sheet gets rows past its last too, so a Citation to its last rows scrolls them a
+    // third of the way down, not to the bottom edge under the scrollbar (#974).
+    const body = view.height - HEADER_HEIGHT;
+    const more = Math.ceil(Math.max(body - used.total, (body * 2) / 3) / model.defaultRow);
     return new Axis(1, model.usedRows + more, model.defaultRow, model.rowSizes);
   }, [model, view.height]);
   const shownColumns = useMemo(() => columns.visible(0, columns.last), [columns]);

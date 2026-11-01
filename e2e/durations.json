@@ -303,5 +303,6 @@
   "writeAsNote.spec.ts": 152,
   "writeIntoMind.spec.ts": 13,
   "writtenFrom.spec.ts": 36,
-  "xlsxNoValue.spec.ts": 6
+  "xlsxNoValue.spec.ts": 6,
+  "sheetCitationView.spec.ts": 60
 }

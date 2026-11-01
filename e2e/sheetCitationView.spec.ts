@@ -9,6 +9,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  motionSettled,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -166,9 +167,7 @@ async function expectCitedFigureInView(
   });
   expect(top).toBe(figureRef);
   if (SCREENSHOTS) {
-    await window.waitForFunction(() =>
-      document.getAnimations().every((animation) => animation.playState !== "running"),
-    );
+    await motionSettled(window);
     await mkdir(SCREENSHOTS, { recursive: true });
     await window.screenshot({ path: join(SCREENSHOTS, `${shot}.png`) });
   }
@@ -200,12 +199,18 @@ async function start(width: number): Promise<{ app: ElectronApplication; window:
   return { app, window };
 }
 
-for (const width of [1440, 1100]) {
+/** The Answer to `question`, held by its id: `askInAssistant` gives the last Answer, whichever it is. */
+async function ask(window: Page, question: string): Promise<Locator> {
+  const id = await (await askInAssistant(window, question)).getAttribute("data-answer-id");
+  return window.locator(`[data-testid="assistant-answer"][data-answer-id="${id}"]`);
+}
+
+for (const width of [1440, 1100, 900]) {
   test(`a Citation to workbook cells scrolls to them and its mark never covers them (${width}px)`, async () => {
     const { app, window } = await start(width);
 
     // Off to the right: the closing balance in column O of a row the Citation quotes whole.
-    const debtors = await askInAssistant(window, "What are the trade debtors?");
+    const debtors = await ask(window, "What are the trade debtors?");
     await expectCitedFigureInView(
       window,
       debtors,
@@ -215,8 +220,10 @@ for (const width of [1440, 1100]) {
       `sheet-citation-right-${width}`,
     );
 
-    // On another sheet, past a wide label column: the sheet switches, and the figure shows.
-    const rec = await askInAssistant(window, "What does the confirmation statement say?");
+    // On another sheet, past a wide label column: the sheet switches, and the figure shows. The
+    // scripted model cites the workbook's first Passage unless the Question says "each", when it
+    // cites the Passage whose line shares the most words with it.
+    const rec = await ask(window, "In each sheet, what does the confirmation statement say?");
     await expectCitedFigureInView(
       window,
       rec,
@@ -227,7 +234,7 @@ for (const width of [1440, 1100]) {
     );
 
     // Far down, and off to the right.
-    const suspense = await askInAssistant(window, "Where is the rounding suspense?");
+    const suspense = await ask(window, "In each sheet, where is the rounding suspense?");
     await expectCitedFigureInView(
       window,
       suspense,
@@ -239,6 +246,14 @@ for (const width of [1440, 1100]) {
 
     // In Chinese the mark's words change, and it still keeps clear of the cells.
     await setLanguage(window, "zh-CN");
+    await expectCitedFigureInView(
+      window,
+      debtors,
+      "Trial balance",
+      "O8",
+      "84,317.52",
+      `sheet-citation-right-${width}-zh`,
+    );
     await expectCitedFigureInView(
       window,
       rec,
