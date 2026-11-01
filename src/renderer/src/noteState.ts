@@ -1,10 +1,10 @@
 /**
  * Whether a note is done (D266, #1915), one rule for the corner badge, Home's Recent row and
- * the Export menu: "Not checked" while a claim has no check (none yet, one that failed, or
- * one that no longer holds), "{n} need a look" while a check found a problem, and "Checked
- * {time}" once every claim is covered, naming the files the checks couldn't read. It reads
- * `noteHealth`, the one count (#1909). A sentence kept as the User's view counts as handled
- * and is named in the card.
+ * the Export menu: "Not checked" while a claim has no check (none yet, or one this Note has
+ * never had checked), "{n} need a look" while a check found a problem, and "Checked {time}"
+ * once every claim is covered, naming the files the checks couldn't read and the sentences a
+ * check couldn't settle or a change made need one. It reads `noteHealth`, the one count
+ * (#1909). A sentence kept as the User's view counts as handled and is named in the card.
  */
 
 import { getSchema } from "@tiptap/core";
@@ -59,6 +59,10 @@ export interface NoteState {
   unreadMatters: boolean;
   /** The claims a check reads: with none, there is nothing to say. */
   checkable: number;
+  /** Sentences whose check couldn't settle them, named after the time: something is left, not the whole Note. */
+  cantCheck: number;
+  /** Sentences a change made since their check, named after the time while the rest holds. */
+  needsCheck: number;
 }
 
 /**
@@ -79,6 +83,8 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
     unread: unreadMatters ? narrowUnread : unread,
     unreadMatters,
     checkable: health.checkable,
+    cantCheck: 0,
+    needsCheck: 0,
   };
   if (health.contradicted.length > 0) {
     return {
@@ -99,7 +105,35 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
       mark,
     };
   }
-  if (health.checking.length > 0 || health.toCheck.length > 0) {
+  if (health.checking.length > 0) {
+    const mark: NoteStateMark = health.recheck.length > 0 ? "recheck" : "notChecked";
+    return { ...base, kind: "not-checked", look: 0, tone: "neutral", mark };
+  }
+  if (health.toCheck.length > 0) {
+    // A claim a check covered holds; what a check could not settle, or a change made need one,
+    // is named beside it rather than turning the whole Note back to Not checked (#2313).
+    const settled = health.uncheckable.length + health.edited.length;
+    if (health.supported > 0 && settled === health.toCheck.length) {
+      // A file a narrow check couldn't read could hold the evidence: the unread reading keeps the Note amber.
+      if (unreadMatters) {
+        return {
+          ...base,
+          kind: "needs-look",
+          look: 0,
+          tone: "warning",
+          mark: "notChecked",
+        };
+      }
+      return {
+        ...base,
+        kind: "checked",
+        look: 0,
+        tone: "success",
+        mark: "checked",
+        cantCheck: health.uncheckable.length,
+        needsCheck: health.edited.length,
+      };
+    }
     const mark: NoteStateMark = health.recheck.length > 0 ? "recheck" : "notChecked";
     return { ...base, kind: "not-checked", look: 0, tone: "neutral", mark };
   }
@@ -179,7 +213,24 @@ export function noteStateParts(
   const time =
     state.checkedAt === null ? "" : formatDateTime(state.checkedAt, language, now ? { now } : {});
   const said = time === "" ? t("health.state.checked.noTime") : t("health.state.checked", { time });
-  return unread === null ? [said] : [said, unread];
+  return [
+    said,
+    ...(unread === null ? [] : [unread]),
+    ...(state.cantCheck > 0
+      ? [
+          t(state.cantCheck === 1 ? "health.state.cantCheck.one" : "health.state.cantCheck", {
+            count: count(state.cantCheck),
+          }),
+        ]
+      : []),
+    ...(state.needsCheck > 0
+      ? [
+          t(state.needsCheck === 1 ? "health.state.needsCheck.one" : "health.state.needsCheck", {
+            count: count(state.needsCheck),
+          }),
+        ]
+      : []),
+  ];
 }
 
 /**

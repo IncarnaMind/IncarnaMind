@@ -24,6 +24,7 @@ import {
 import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
 import {
   type CheckedSentence,
+  cantBeChecked,
   checkedSentence,
   type KeptMark,
   keptOn,
@@ -71,7 +72,11 @@ export interface NoteHealth {
   contradicted: number[];
   toCheck: number[];
   failed: number[];
+  /** The failed checks running again cannot settle: a reply that failed or couldn't be used. */
+  uncheckable: number[];
   recheck: number[];
+  /** The rechecks a change to their sentence made, which a check of it can settle. */
+  edited: number[];
   checking: number[];
   kept: number[];
   tableCells: number[];
@@ -226,7 +231,9 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     contradicted: [],
     toCheck: [],
     failed: [],
+    uncheckable: [],
     recheck: [],
+    edited: [],
     checking: [],
     kept: [],
     tableCells: [],
@@ -250,8 +257,14 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     if (state.kind === "to-check") {
       health.checkable++;
       health.toCheck.push(from);
-      if (state.why === "failed") health.failed.push(from);
-      else if (state.why === "recheck") health.recheck.push(from);
+      if (state.why === "failed") {
+        health.failed.push(from);
+        if (claim && cantBeChecked(claim.shown)) health.uncheckable.push(from);
+      } else if (state.why === "recheck") {
+        health.recheck.push(from);
+        if (claim?.shown.state === "needs-recheck" && claim.shown.why === "edited")
+          health.edited.push(from);
+      }
       if (state.fresh && unexamined.has(sentenceKey(text))) health.unexamined.push(from);
       if (table) health.tableCells.push(from);
       return;

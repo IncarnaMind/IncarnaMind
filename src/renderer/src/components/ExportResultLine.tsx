@@ -426,12 +426,18 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
   });
   const unread = state === null ? null : noteStateUnreadWords(state, t, language);
   const standing =
-    state === null || (state.kind === "checked" && state.unread === 0)
+    state === null ||
+    (state.kind === "checked" &&
+      state.unread === 0 &&
+      state.cantCheck === 0 &&
+      state.needsCheck === 0)
       ? []
       : noteStateParts(state, t, language);
-  // The state's line already ends with the count in green and in amber for a narrow check; it does not in the other states.
+  // The unread count has words of its own at the line's end, in green and in amber for a narrow check; the line keeps its other parts.
   const beforeUnread =
-    state !== null && noteStateShowsUnread(state) ? standing.slice(0, -1) : standing;
+    state !== null && noteStateShowsUnread(state) && unread !== null
+      ? standing.filter((part) => part !== unread)
+      : standing;
   const comments = checkComments(result.checks, t, othersWord(result));
   const parts: SavedWithFile = [
     ...chosen.map((text) => ({ testId: "export-chosen", text })),

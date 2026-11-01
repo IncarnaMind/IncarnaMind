@@ -1018,6 +1018,13 @@ export interface AnswerAttributes {
   toolCalls: string | null;
 }
 
+/** A figure marker an Answer's text kept that has no figure (#2313): what it wrote before it, if it wrote a number. */
+export interface UncalculatedFigure {
+  marker: number;
+  /** The number the Answer wrote right before the marker, as it wrote it ("6.55"); null when it wrote none. */
+  written: string | null;
+}
+
 /** A Tool the model called while writing an Answer, e.g. a search of the User's Documents. */
 export interface AnswerToolCall {
   /** Unique within its Answer. */
@@ -1106,6 +1113,12 @@ export interface AnswerToolCall {
    * were left out of its text. Absent: none.
    */
   uncalculated?: number;
+  /**
+   * "calculate" only, beside `uncalculated`: each of those markers, with the
+   * number the Answer wrote right before it when it wrote one, so its end can
+   * say which figures they were (#2313). Absent on Answers written before it.
+   */
+  uncalculatedFigures?: UncalculatedFigure[];
   /** A Minds' Tool that changed a Mind or made one, once it ended (#202). Absent otherwise. */
   mindChange?: MindChange;
   /** A Minds' Tool that changed nothing: why, as its card says. Absent otherwise. */

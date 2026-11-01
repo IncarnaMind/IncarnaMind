@@ -34,13 +34,7 @@ describe("The one count of sentences to check (#1909)", () => {
       fresh: false,
       why: "failed",
     });
-    for (const why of [
-      "edited",
-      "new-version",
-      "document-removed",
-      "scope",
-      "search-scope",
-    ] as const)
+    for (const why of ["edited", "new-version", "document-removed", "search-scope"] as const)
       expect(state(CLAIM, { state: "needs-recheck", why })).toEqual({
         kind: "to-check",
         fresh: false,

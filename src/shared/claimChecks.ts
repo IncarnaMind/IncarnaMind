@@ -294,14 +294,14 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
 /**
  * Why a check no longer holds: its sentence was edited (an accepted change
  * or a restored Checkpoint edits it too), a Document it read has a new
- * version, one its result rests on was deleted, the Mind moved to another
- * Folder ("scope"), or the Search scope the User set for the Mind changed.
+ * version, one its result rests on was deleted, or the Search scope the User
+ * set for the Mind changed. Moving the Mind to another Folder changes what a
+ * new check searches, not a result its Citations and their sources still back.
  */
 export type RecheckReason =
   | "edited"
   | "new-version"
   | "document-removed"
-  | "scope"
   | "search-scope"
   /** Checked before each of its figures was checked with its own source (#1459). */
   | "figures"
@@ -315,6 +315,19 @@ export type ClaimCheckShown =
   | { state: "not-checked"; reason: ClaimCheckFailure }
   | { state: "needs-recheck"; why: RecheckReason }
   | { state: "kept" };
+
+/**
+ * The one failure a check on the same sentence and Documents cannot settle: the Citation it needs
+ * is kept inside another Folder. A reply that failed, was refused or couldn't be used, a service
+ * limit, a cap, a stop, or a sentence a later Check takes may be settled next time, so those stay
+ * Not checked.
+ */
+export const UNCHECKABLE_FAILURES: ReadonlySet<ClaimCheckFailure> = new Set(["kept-inside"]);
+
+/** Whether a check's result is one a check cannot settle for this sentence, rather than one still to make. */
+export function cantBeChecked(shown: ClaimCheckShown): boolean {
+  return shown.state === "not-checked" && UNCHECKABLE_FAILURES.has(shown.reason);
+}
 
 /** What a check is compared with. */
 export interface ClaimCheckNow {
@@ -482,9 +495,6 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
         return { state: "needs-recheck", why: "new-version" };
       }
     }
-  }
-  if (!check.scope.widened && !check.scope.chosen && check.scope.folderId !== now.folderId) {
-    return { state: "needs-recheck", why: "scope" };
   }
   // Contradiction watch looks in the Mind's Folder, and a whole read in the User's pick.
   if (

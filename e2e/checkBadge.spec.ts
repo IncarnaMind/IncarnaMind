@@ -139,6 +139,86 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   await app.close();
 });
 
+const checkedText = (
+  id: string,
+  state: string,
+  text: string,
+  extra: Record<string, unknown> = {},
+) => ({
+  type: "text",
+  text,
+  marks: [
+    {
+      type: "claimCheck",
+      attrs: {
+        id,
+        request: "check-1",
+        action: "check-against-documents",
+        state,
+        text,
+        scope: { folderId: null, widened: false },
+        versions: [],
+        excluded: [],
+        checkedAt: "2026-10-22T09:00:00.000Z",
+        ...extra,
+      },
+    },
+  ],
+});
+
+test("a Note with a sentence a check cannot settle says so in the pill, in full and at a narrow pane (#2313)", async () => {
+  const { app, window } = await launchWithTides();
+  await setWindowSize(app, window, 1440, 900);
+  await newMind(window);
+  const editor = window.getByTestId("mind-editor");
+  await editor.evaluate(
+    (dom, content) => {
+      (dom as unknown as { editor: Editor }).editor.commands.setContent(content);
+    },
+    [
+      {
+        type: "paragraph",
+        content: [
+          checkedText("check-settled", "supported", "Spring tides happen at new and full moon."),
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          checkedText(
+            "check-kept",
+            "not-checked",
+            "Harbours publish the times of high water every week.",
+            {
+              reason: "kept-inside",
+              detail: "Other Folder",
+            },
+          ),
+        ],
+      },
+    ],
+  );
+  const badge = window.getByTestId("check-badge");
+  await expect(badge).toHaveAttribute("data-state", "checked");
+  await expect(badge.locator(".check-badge-words")).toHaveText(/^Checked /);
+  await expect(badge).toContainText("1 sentence can’t be checked");
+  // At a narrow pane the words go and the caveat keeps its short form.
+  await expect(badge.locator(".check-badge-short-caveat")).toBeHidden();
+  await pointAndClick(window, window.getByTestId("split-group"));
+  const pages = window.locator(".mind-scroller:visible");
+  await expect(pages).toHaveCount(2);
+  await setWindowSize(app, window, 1340, 900);
+  for (const width of await pages.evaluateAll((all) => all.map((page) => page.clientWidth))) {
+    expect(width).toBeLessThan(400);
+  }
+  const narrow = window.getByTestId("check-badge").first();
+  await expect(narrow.locator(".check-badge-words")).toBeHidden();
+  await expect(narrow.locator(".check-badge-short-caveat")).toBeVisible();
+  await expect(narrow).toContainText("1 can’t be checked");
+  await screenshot(window, "check-badge-caveat-narrow");
+  await app.close();
+});
+
 test("in Chinese and a narrow pane the badge keeps its state to its mark; Tab reaches its card and Esc brings the focus back", async () => {
   const { app, window } = await launchWithTides();
   await setWindowSize(app, window, 1440, 900);
