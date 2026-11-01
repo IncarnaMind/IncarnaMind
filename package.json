@@ -68,7 +68,6 @@
     "eval:citations:scan": "vitest run --config eval/citations/vitest.config.ts scan.citations"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "2.0.2",
     "@ai-sdk/alibaba": "2.0.65",
     "@ai-sdk/anthropic": "4.0.78",
     "@ai-sdk/cohere": "4.0.59",

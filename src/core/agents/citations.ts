@@ -13,6 +13,12 @@ import type { Database } from "../storage";
 const ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
 const TOKEN_LENGTH = 8;
 
+/** A Citation token as an agent writes it; the capture is the token itself. */
+export const CITATION_TOKEN = /\[cite:([a-z0-9]{1,32})\]/g;
+
+/** How a token is written in text. */
+export const citeTag = (token: string) => `[cite:${token}]`;
+
 /** A Citation minted for an agent. */
 export interface AgentCitation {
   token: string;
