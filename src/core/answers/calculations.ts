@@ -487,7 +487,7 @@ interface Stated {
    * another part of the Document, which this Passage doesn't hold, or written in a form that reads
    * more than one way ("in MM").
    */
-  unquotable?: "header" | "elsewhere" | "unsettled";
+  unquotable?: "header" | "elsewhere" | "unsettled" | "noted";
   /** For one stated elsewhere: where. */
   where?: string;
 }
@@ -498,6 +498,8 @@ function candidateProblem(chars: string, where: string, candidate: Stated): stri
     return `${chars} has no unit, and a running header or footer at ${where} states a scale ("${candidate.statement}") that no Passage quotes; it can't be calculated without guessing its scale.`;
   if (candidate.unquotable === "elsewhere")
     return `${chars} has no unit, and ${candidate.where || "another part of its Document"} states a scale ("${candidate.statement}") that ${where} doesn't; it can't be calculated without guessing whether that scale applies.`;
+  if (candidate.unquotable === "noted")
+    return `${chars} is on a per-share row, and "${candidate.statement}" scales its Document's amounts except where it notes otherwise; it can't be calculated without guessing its scale.`;
   if (candidate.unquotable === "unsettled")
     return `${chars} has no unit, and ${where} writes "${candidate.statement}", which can be read as more than one scale or unit; it can't be calculated without guessing its scale.`;
   return `${chars} has no unit, and ${where} says "${candidate.statement}"; give that line as unitQuote.`;
@@ -509,9 +511,36 @@ const SHARE_COUNT = /\bshares\b|股数|普通股加权平均|加权平均股份/
 
 /** Whether `statement`'s exception ("in millions, except per share data") leaves out the number labelled `label`. */
 function exceptedBy(statement: StatedUnit, label: string): boolean {
-  if (!statement.except) return false;
+  if (statement.except !== "per-share" && statement.except !== "shares") return false;
   return PER_SHARE.test(label) || (statement.except === "shares" && SHARE_COUNT.test(label));
 }
+
+/** Whether `statement` scales its amounts "except where noted", and `label` is a per-share row it may leave out. */
+const notedOut = (statement: StatedUnit, label: string): boolean =>
+  statement.except === "noted" && PER_SHARE.test(label);
+
+/** A head row's statements that give a number different units or scales: "Revenue (£000)	EPS (£)". */
+function conflicting(statements: readonly StatedUnit[]): boolean {
+  // "币种：人民币" names the currency of every column, beside "单位：万元".
+  const heads = statements.filter(
+    (each) => !/^\s*(?:币种|幣種|currency)\s*[:：]/i.test(each.chars),
+  );
+  const unitOf = (each: StatedUnit) =>
+    each.unit.kind === "plain" ? null : JSON.stringify(each.unit);
+  return heads.some((a, at) =>
+    heads.slice(at + 1).some((b) => {
+      const [ua, ub] = [unitOf(a), unitOf(b)];
+      if (ua !== null && ub !== null && ua !== ub) return true;
+      if (a.scale !== b.scale && ((a.scale !== 1 && b.scale !== 1) || (ua !== null && ua === ub)))
+        return true;
+      return false;
+    }),
+  );
+}
+
+// The words that end a scale statement's line: ", except per share data)", "，每股收益除外".
+const EXCEPTION_WORDS =
+  /except[^)\n]{0,40}?(?:shares?|noted|stated|indicated|shown|disclosed)[^)\n]{0,20}\)?|除[^外\n]{0,12}外|[^\s，,]{0,8}除外/gi;
 
 /** A reading of `base` a thousand times over: a stand-in for a scale that can't be settled, to tell whether a result depends on it. */
 const thousandfold = (base: Reading): Reading => ({
@@ -771,8 +800,16 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const { text, at } = onPage(quoted);
     const end = text.indexOf("\n", at + figure.start);
     const row = `${before}${text.slice(at + figure.start, end < 0 ? undefined : end)}`;
-    if (row.includes("\t")) return row.split("\t")[0] ?? "";
-    return before.split(/\d[\d,.]*[)）%]?/).at(-1) ?? "";
+    const label = row.includes("\t")
+      ? (row.split("\t")[0] ?? "")
+      : (before.split(/\d[\d,.]*[)）%]?/).at(-1) ?? "");
+    // The scale statement before the first row of a joined line isn't that row's label.
+    const from = Math.max(
+      0,
+      ...[...label.matchAll(EXCEPTION_WORDS)].map((each) => each.index + each[0].length),
+      ...readStatedUnits(label).map((each) => each.end),
+    );
+    return label.slice(from);
   }
 
   function lineBefore(quoted: Quoted, figure: Figure): string {
@@ -1021,6 +1058,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
           stated: { ...base, unit: { kind: "currency", code: onFigure.code } },
           currencyChars: onFigure.chars,
         };
+      } else if (statedLine.some((each) => notedOut(each, labelOf(quoted, figure)))) {
+        return `${figure.chars} is on a per-share row, and the unitQuote "${unit.citation.quote}" scales its Document's amounts except where it notes otherwise; it can't be calculated without guessing its scale.`;
       } else if (statedLine.some((each) => exceptedBy(each, labelOf(quoted, figure)))) {
         const currency = statedLine.find((each) => each.unit.kind === "currency")?.unit;
         if (currency && base.unit.kind === "plain")
@@ -1034,15 +1073,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         );
         if (scales.size > 1)
           return `the unitQuote "${unit.citation.quote}" states more than one scale; give the one line that applies.`;
-        // A table's head row states each column's unit: "Revenue (£000)	Margin (%)" doesn't say
-        // which of them a number is in, so it states none of them for it.
-        const units = new Set(
-          readings
-            .filter((each) => each.unit.kind !== "plain")
-            .map((each) => JSON.stringify(each.unit)),
-        );
-        if (units.size > 1)
-          return `the unitQuote "${unit.citation.quote}" states more than one unit; give the line or column head that states the unit of ${figure.chars} alone.`;
+        // A table's head row states each column's unit: "Revenue (£000)	EPS (£)" doesn't say which
+        // of them a number is in, so it states none of them for it.
+        if (conflicting(statedLine))
+          return `the unitQuote "${unit.citation.quote}" states more than one unit or scale; give the line or column head that states the unit of ${figure.chars} alone.`;
         const applies =
           readings.find((each) => each.scale !== 1) ??
           readings.find((each) => each.unit.kind !== base.unit.kind) ??
@@ -1052,6 +1086,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     } else if (!ownUnit) {
       const page = quoted.units.map((each) => each.text).join("\n");
       const found: Stated[] = [];
+      let noted: string | null = null;
       const lines = quotedLines(quoted);
       const row = onLine(lines);
       if (row) found.push({ statement: lines, reading: row });
@@ -1059,6 +1094,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         a.value === b.value && JSON.stringify(a.unit) === JSON.stringify(b.unit);
       for (const statement of readStatedUnits(page, context)) {
         if (exceptedBy(statement, labelOf(quoted, figure))) continue;
+        if (notedOut(statement, labelOf(quoted, figure))) {
+          noted = noted ?? statement.chars;
+          continue;
+        }
         for (const each of statedReading(quote, figure.start, quoteContext, statement.chars)) {
           if (!changes(each)) continue;
           if (!found.some((other) => same(other.reading, each)))
@@ -1075,20 +1114,22 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       // be in that scale: no Passage holds both, so the number is refused rather than read plain.
       const pages = new Set(quoted.units.map((each) => each.page));
       const elsewhere = scaledUnitsOf(quoted.citation).find((each) => !pages.has(each.page));
+      const unquotableAs = (
+        statement: string | null | undefined,
+        unquotable: Stated["unquotable"],
+        where?: string,
+      ): Stated[] =>
+        statement
+          ? [{ statement, reading: thousandfold(base), unquotable, ...(where && { where }) }]
+          : [];
       candidate =
-        found[0] ??
-        (header
-          ? { statement: header, reading: thousandfold(base), unquotable: "header" }
-          : unsure
-            ? { statement: unsure, reading: thousandfold(base), unquotable: "unsettled" }
-            : elsewhere
-              ? {
-                  statement: elsewhere.scale,
-                  reading: thousandfold(base),
-                  unquotable: "elsewhere",
-                  where: elsewhere.where,
-                }
-              : null);
+        [
+          ...found,
+          ...unquotableAs(noted, "noted"),
+          ...unquotableAs(header, "header"),
+          ...unquotableAs(unsure, "unsettled"),
+          ...unquotableAs(elsewhere?.scale, "elsewhere", elsewhere?.where),
+        ][0] ?? null;
     }
 
     let rate: ReadInput["rate"] = null;

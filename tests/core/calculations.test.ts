@@ -2145,16 +2145,31 @@ describe("Text that only looks like a scale changes nothing, and one that reads 
         "Millions",
         "Thousands of 000s of users",
       ],
-      refused: ["Accounts ending in 000", "Call (000)", "Holdings of TUSD stablecoin"],
+      refused: [
+        "Accounts ending in 000",
+        "Call (000)",
+        "Holdings of TUSD stablecoin",
+        "We hold Class USD B",
+      ],
     },
     {
       language: "Chinese",
       chinese: true,
       plain: ["美元B类份额", "账户尾号000"],
-      refused: ["客户热线（000）"],
+      refused: ["客户热线（000）", "持有份额类别：USD B。"],
     },
   ])("$language", async ({ chinese, plain, refused }) => {
-    const codes = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel"];
+    const codes = [
+      "Alpha",
+      "Bravo",
+      "Charlie",
+      "Delta",
+      "Echo",
+      "Foxtrot",
+      "Golf",
+      "Hotel",
+      "India",
+    ];
     const forms = [...plain, ...refused].map((line, index) => ({
       code: codes[index] as string,
       line,
@@ -2174,14 +2189,28 @@ describe("Text that only looks like a scale changes nothing, and one that reads 
   });
 });
 
-// protects=#2365; fails_when=a number under one column of a table's head row takes another column's unit when the whole row is given as unitQuote: a 12.5% margin recorded as £25.0 thousand.
+// protects=#2365; fails_when=a number under one column of a table's head row takes another column's unit or scale when the whole row is given as unitQuote: a 12.5% margin recorded as £25.0 thousand, or EPS £1.25 as £1,250.
 test.each([
   {
-    language: "English",
+    language: "English, a percent",
     head: ["Segment", "Revenue (£000)", "Margin (%)"],
     row: ["Clothing", 4620, 12.5],
   },
-  { language: "Chinese", head: ["分部", "收入（万元）", "毛利率（%）"], row: ["服装", 4620, 12.5] },
+  {
+    language: "Chinese, a percent",
+    head: ["分部", "收入（万元）", "毛利率（%）"],
+    row: ["服装", 4620, 12.5],
+  },
+  {
+    language: "English, one currency at two scales",
+    head: ["Segment", "Revenue (£000)", "EPS (£)"],
+    row: ["Clothing", 4620, 12.5],
+  },
+  {
+    language: "Chinese, one currency at two scales",
+    head: ["分部", "收入（万元）", "每股收益（元）"],
+    row: ["服装", 4620, 12.5],
+  },
 ])(
   "a head row that states a unit for each column doesn't give one of them to a number: $language",
   {
@@ -2239,7 +2268,7 @@ test.each([
     const { answer } = await askAndRead(core, "What is twice the margin?");
 
     expect(told(model, "calculate")[0]).toContain(
-      `[=1] m: the unitQuote "${headLine}" states more than one unit; give the line or column head that states the unit of 12.5 alone.`,
+      `[=1] m: the unitQuote "${headLine}" states more than one unit or scale; give the line or column head that states the unit of 12.5 alone.`,
     );
     expect(answer.figures).toEqual([]);
   },
@@ -2399,6 +2428,285 @@ test.each([
       [2, 4.3],
       [3, 4.3],
       [4, 825],
+    ]);
+  },
+);
+
+// protects=#2365; fails_when=the amounts on a joined line after "单位：千元，每股收益除外" or "(in thousands, except per share data)" are taken for per-share figures, because the statement's own words are read as their row's label, and come out a thousand times too small.
+test.each([
+  {
+    language: "Chinese PDF, its rows joined",
+    document: {
+      name: "Pelican 利润表.pdf",
+      contents: buildPdf([
+        {
+          chineseLines: [
+            "Pelican 利润表",
+            "单位：千元，每股收益除外",
+            "营业收入 1,234.5",
+            "营业成本 334.5",
+            "基本每股收益 0.52",
+          ],
+        },
+      ]),
+    },
+    head: "单位：千元，每股收益除外",
+    quotes: ["营业收入 1,234.5", "营业成本 334.5", "基本每股收益 0.52"],
+  },
+  {
+    language: "Chinese Word file, its rows apart",
+    document: {
+      name: "Pelican 利润表.docx",
+      contents: docxOf(
+        [
+          "Pelican 利润表",
+          "单位：千元，每股收益除外",
+          "营业收入 1,234.5",
+          "营业成本 334.5",
+          "基本每股收益 0.52",
+        ].map((text) => ({ text })),
+      ),
+    },
+    head: "单位：千元，每股收益除外",
+    quotes: ["营业收入 1,234.5", "营业成本 334.5", "基本每股收益 0.52"],
+  },
+  {
+    language: "English PDF, all on one line",
+    document: {
+      name: "Pelican results.pdf",
+      contents: buildPdf([
+        {
+          lines: [
+            "Pelican Inc (in thousands, except per share data) Revenue 1,234.5 Costs 334.5 Diluted EPS 0.52",
+          ],
+        },
+      ]),
+    },
+    head: "(in thousands, except per share data)",
+    quotes: ["Revenue 1,234.5", "Costs 334.5", "Diluted EPS 0.52"],
+  },
+])(
+  "the amounts beside a per-share exception are scaled; the per-share row isn't: $language",
+  {
+    timeout: 60_000,
+  },
+  async ({ document, head, quotes }) => {
+    const [revenue = "", costs = "", eps = ""] = quotes;
+    const number = (quote: string) => quote.split(" ").at(-1) ?? "";
+    const model = calculatingModel({
+      queries: ["Pelican 营业收入 revenue"],
+      steps: [
+        (passages) => {
+          const passage = passageOf(passages, "Pelican");
+          const location = passages.find((each) => each.id === passage)?.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: quotes.map((quote, index) => ({
+                  marker: index + 1,
+                  passage,
+                  location,
+                  quote,
+                })),
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Margin",
+                    formula: "rev - cost",
+                    inputs: [
+                      {
+                        name: "rev",
+                        label: "Revenue",
+                        citation: 1,
+                        number: number(revenue),
+                        unitQuote: head,
+                      },
+                      {
+                        name: "cost",
+                        label: "Costs",
+                        citation: 2,
+                        number: number(costs),
+                        unitQuote: head,
+                      },
+                    ],
+                  },
+                  {
+                    marker: 2,
+                    label: "Twice the revenue",
+                    formula: "rev * 2",
+                    inputs: [
+                      { name: "rev", label: "Revenue", citation: 1, number: number(revenue) },
+                    ],
+                  },
+                  {
+                    marker: 3,
+                    label: "Twice the EPS",
+                    formula: "eps * 2",
+                    inputs: [
+                      {
+                        name: "eps",
+                        label: "EPS",
+                        citation: 3,
+                        number: number(eps),
+                        unitQuote: head,
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1] [=2] [=3][^1]",
+    });
+    const { core } = await setUpCalculating(model, [document]);
+
+    const { answer } = await askAndRead(core, "What is the margin?");
+
+    expect(told(model, "calculate")[0]).toContain(`[=2] rev: ${number(revenue)} has no unit, and `);
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 900_000],
+      [3, 1.04],
+    ]);
+  },
+);
+
+// protects=#2365; fails_when=a fund's share class in a sheet's row ("USD B") is read as the row's unit, so a NAV of 12.34 is recorded as $24.68 billion.
+test("a share class in a sheet's row is no unit for its NAV, which is refused rather than scaled", {
+  timeout: 60_000,
+}, async () => {
+  const row = ["USD B", "LU0123456789", 12.34];
+  const model = calculatingModel({
+    queries: ["Funds NAV"],
+    steps: [
+      (passages) => [
+        {
+          tool: "cite",
+          input: {
+            citations: [
+              {
+                marker: 1,
+                passage: passageOf(passages, "Funds"),
+                location: "Funds, rows 1–2",
+                quote: row.join("\t"),
+              },
+            ],
+          },
+        },
+        {
+          tool: "calculate",
+          input: {
+            figures: [
+              {
+                marker: 1,
+                label: "Twice the NAV",
+                formula: "nav * 2",
+                inputs: [{ name: "nav", label: "NAV", citation: 1, number: "12.34" }],
+              },
+            ],
+          },
+        },
+      ],
+    ],
+    answer: "[=1][^1]",
+  });
+  const { core } = await setUpCalculating(model, [
+    {
+      name: "Funds.xlsx",
+      contents: xlsxOf([{ name: "Funds", rows: [["Share class", "ISIN", "NAV"], row] }]),
+    },
+  ]);
+
+  const { answer } = await askAndRead(core, "What is twice the NAV?");
+
+  expect(told(model, "calculate")[0]).toContain(
+    `[=1] nav: 12.34 has no unit, and Funds, row 2 writes "USD B", which can be read as more than one scale or unit`,
+  );
+  expect(answer.figures).toEqual([]);
+});
+
+// protects=#2365; fails_when=a per-share row under "In millions of dollars, except where noted" is scaled with the amounts when the model quotes that line, so EPS $1.25 comes out $1.25 million.
+test.each([
+  {
+    language: "English",
+    lines: [
+      "Pelican In millions of dollars, except where noted",
+      "Revenue 1,234.5",
+      "Earnings per share 1.25",
+    ],
+    chinese: false,
+  },
+  {
+    language: "Chinese",
+    lines: ["Pelican 单位：百万元（除另有说明外）", "营业收入 1,234.5", "每股收益 1.25"],
+    chinese: true,
+  },
+])(
+  "a per-share row under “except where noted” is refused, the amounts scaled: $language",
+  {
+    timeout: 60_000,
+  },
+  async ({ lines, chinese }) => {
+    const [title = "", revenue = "", eps = ""] = lines;
+    const head = title.replace("Pelican ", "");
+    const number = (quote: string) => quote.split(" ").at(-1) ?? "";
+    const twice = (marker: number, citation: number, quote: string, unitQuote?: string) => ({
+      marker,
+      label: `Twice ${quote}`,
+      formula: "x * 2",
+      inputs: [
+        {
+          name: "x",
+          label: quote,
+          citation,
+          number: number(quote),
+          ...(unitQuote && { unitQuote }),
+        },
+      ],
+    });
+    const model = calculatingModel({
+      queries: ["Pelican revenue 营业收入"],
+      steps: [
+        citeStatement("Pelican", [revenue, eps], (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                twice(1, cited[0] as number, revenue, head),
+                twice(2, cited[1] as number, eps),
+                twice(3, cited[1] as number, eps, head),
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "[=1] [=2] [=3][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "Pelican results.pdf",
+        contents: buildPdf([chinese ? { chineseLines: lines } : { lines }]),
+      },
+    ]);
+
+    const { answer } = await askAndRead(core, "What are the figures doubled?");
+
+    const [asked] = told(model, "calculate");
+    expect(asked).toContain(
+      `[=2] x: 1.25 is on a per-share row, and "${head.replace(/（.*$|, except.*$/, "")}`,
+    );
+    expect(asked).toContain(
+      `[=3] x: 1.25 is on a per-share row, and the unitQuote "${head}" scales its Document's amounts except where it notes otherwise; it can't be calculated without guessing its scale.`,
+    );
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 2_469_000_000],
     ]);
   },
 );

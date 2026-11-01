@@ -1348,6 +1348,9 @@ describe("the scale forms a Document states apart from its figures (#2365)", () 
     ["Segment\tThousands", ["Thousands 1000 plain"], []],
     ["Unit: thousand", ["thousand 1000 plain"], []],
     ["Group £m\t2025", ["£m 1000000 GBP"], []],
+    ["Amounts in USD m", ["USD m 1000000 USD"], []],
+    ["Amounts in USD bn", ["USD bn 1000000000 USD"], []],
+    ["Amounts in $B", ["$B 1000000000 USD"], []],
     // A currency joined to a scale.
     ["Angaben in TEUR", ["TEUR 1000 EUR"], []],
     ["T€", ["T€ 1000 EUR"], []],
@@ -1412,6 +1415,10 @@ describe("the scale forms a Document states apart from its figures (#2365)", () 
     ["Call (000)", [], ["(000)"]],
     ["Revenue (000)", [], ["(000)"]],
     ["Holdings of TUSD stablecoin", [], ["TUSD"]],
+    ["Fund (USD B)", [], ["USD B"]],
+    ["Ticker GBP M:", [], ["GBP M"]],
+    ["Units held: USD K", [], ["USD K"]],
+    ["We hold Class USD B", [], ["USD B"]],
   ];
 
   test.each(CASES)("%s", (text, statements, unsettled) => {
@@ -1435,6 +1442,10 @@ describe("the scale forms a Document states apart from its figures (#2365)", () 
     expect(except("单位：千元（除每股数据外）")).toEqual([["单位：千元", "per-share"]]);
     expect(except("（除股数及每股数据外，单位：百万元）")).toEqual([["单位：百万元", "shares"]]);
     expect(except("Results (in millions)")).toEqual([["in millions", undefined]]);
+    expect(except("In millions of dollars, except where noted")).toEqual([
+      ["In millions of dollars", "noted"],
+    ]);
+    expect(except("单位：百万元（除另有说明外）")).toEqual([["单位：百万元", "noted"]]);
   });
 
   test("a figure written in 仟 is read at its scale, as 萬 and 億 are", () => {
