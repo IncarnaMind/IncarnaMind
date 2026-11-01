@@ -93,3 +93,48 @@ test("a Word page's Office faces are the viewer's alone, and the app's own font 
   expect(sidebar).toMatch(SYSTEM);
   await app.close();
 });
+
+/** A Word file whose body font comes only from its theme, as most Word files' do. */
+const THEME = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office">
+  <a:themeElements>
+    <a:fontScheme name="Office">
+      <a:majorFont><a:latin typeface="Calibri Light"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>
+      <a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont>
+    </a:fontScheme>
+  </a:themeElements>
+</a:theme>`;
+const THEME_STYLES = `<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi" w:eastAsiaTheme="minorHAnsi"/><w:sz w:val="22"/></w:rPr></w:rPrDefault><w:pPrDefault/></w:docDefaults>`;
+
+test("a Word file whose font comes only from its theme is drawn with the viewer's stand-in, not Times", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 900);
+  const file = join(files, "Theme font.docx");
+  await writeFile(
+    file,
+    wordFile({
+      styles: THEME_STYLES,
+      body: paragraph("Theme font memo"),
+      rels: `<Relationship Id="rIdTheme" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>`,
+      parts: [{ name: "word/theme/theme1.xml", data: THEME }],
+    }),
+  );
+  await addDocuments(window, [file]);
+  await pointAndClick(
+    window,
+    window
+      .getByTestId("document-list-item")
+      .filter({ hasText: "Theme font" })
+      .getByTestId("open-document"),
+  );
+  const viewer = window.getByTestId("viewer");
+  await expect(viewer.getByText("Theme font memo")).toBeVisible();
+  const drawn = await fontsDrawing(window, '[data-testid="viewer"] .docx-view p');
+  expect(drawn.map((font) => font.name.toLowerCase())).not.toContain("timesnewromanpsmt");
+  expect(drawn.map((font) => font.name.toLowerCase()).some((name) => name.includes("times"))).toBe(
+    false,
+  );
+  expect(drawn.some((font) => font.bundled && /carlito/i.test(font.family))).toBe(true);
+  await app.close();
+});

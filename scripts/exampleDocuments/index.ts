@@ -4,7 +4,8 @@
  * (`npx playwright install chromium`), which also prints them tagged.
  * `tests/core/exampleDocuments.test.ts` reads what it writes.
  */
-import { mkdir } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "@playwright/test";
@@ -13,6 +14,29 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const EXAMPLES = join(HERE, "..", "..", "resources", "examples", "credit");
 // A check prints into a scratch folder, so it can prove the fonts load without touching the committed PDFs.
 const OUT = process.env.EXAMPLE_PDF_OUT ?? EXAMPLES;
+
+/** The pages' fonts come from these sheets and the files beside them: a missing one prints in Times. */
+const FONT_SHEETS = ["fonts/source-sans-3.css", "fonts/noto.css"] as const;
+
+async function checkFontFiles(): Promise<void> {
+  for (const sheet of FONT_SHEETS) {
+    const path = join(HERE, sheet);
+    let css: string;
+    try {
+      css = await readFile(path, "utf8");
+    } catch {
+      throw new Error(`${sheet} is missing, so the pages would print in Times`);
+    }
+    for (const [, url] of css.matchAll(/url\("\.\/([^"]+)"\)/g)) {
+      if (url === undefined) continue;
+      try {
+        await access(join(dirname(path), url), constants.R_OK);
+      } catch {
+        throw new Error(`${sheet} asks for ${url}, which is missing, so the pages would print in Times`);
+      }
+    }
+  }
+}
 
 const DOCUMENTS = [
   { html: "credit-en-q3.html", pdf: "en/Northwind Retail · Q3 2026 results.pdf" },
@@ -27,6 +51,7 @@ const DOCUMENTS = [
   },
 ] as const;
 
+await checkFontFiles();
 const browser = await chromium.launch();
 try {
   for (const document of DOCUMENTS) {
