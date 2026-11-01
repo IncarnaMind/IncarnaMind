@@ -803,7 +803,7 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
               (call) =>
                 `${call.tool} ${JSON.stringify(call.input)} → ${call.status}${call.approval ? ` (${call.approval})` : ""}`,
             );
-          line += `\n  ${calls.join("\n  ")}\n  window: ${seen.window.map((each) => each.command).join(", ") || "none"}\n  > ${answer.text.replace(/\s+/g, " ").slice(0, 240)}`;
+          line += `\n  ${calls.join("\n  ")}\n  window: ${seen.window.map((each) => each.command).join(", ") || "none"}\n  > ${answer.text.replace(/\s+/g, " ").slice(0, 600)}`;
           if (seen.questions.length > 0)
             line += `\n  questions: ${seen.questions.map((each) => each.request.question.question).join(" | ")}`;
           try {
