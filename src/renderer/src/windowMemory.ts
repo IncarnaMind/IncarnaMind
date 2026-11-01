@@ -32,8 +32,13 @@ async function showAgain(conversationId: string): Promise<void> {
   const stayed = noMoveSince();
   try {
     const { messages } = await core.getConversation(conversationId);
+    const { openId } = useConversations.getState();
     // Not over a conversation the User opened or asked in by now, nor over a New chat they chose.
-    if (!stayed() || useConversations.getState().openId !== null) return;
+    // A New chat left the open conversation empty, as it was: what a reload shows is kept here.
+    if (!stayed() || openId !== null) {
+      write(CONVERSATION_KEY, openId);
+      return;
+    }
     useConversations.setState({ openId: conversationId, messages });
   } catch {
     // Deleted meanwhile: the assistant starts a new chat, as it does without a reload.

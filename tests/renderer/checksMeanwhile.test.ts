@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { CheckMindResult, CoreBridge, MindCheckPlan, RunEstimate } from "../../src/core/api";
+import type {
+  CheckMindResult,
+  ContradictionCheckPlan,
+  CoreBridge,
+  MindCheckPlan,
+  RunEstimate,
+} from "../../src/core/api";
 
 /*
  * A Check of a Note goes by the checks running when it acts, not by those running before it
@@ -118,6 +124,20 @@ describe("Check for contradictions", () => {
   });
 });
 
+test("Check for contradictions says nothing to check beside a check that started while it was planned", async () => {
+  const planning = Promise.withResolvers<ContradictionCheckPlan>();
+  bridge.planContradictionCheck.mockReturnValue(planning.promise);
+
+  const starting = startContradictionCheck("mind");
+  await vi.waitFor(() => expect(bridge.planContradictionCheck).toHaveBeenCalled());
+  anotherCheckRuns();
+  planning.resolve({ kind: "no-folder" });
+  await starting;
+
+  expect(useChecks.getState().problems.mind).toBeUndefined();
+  expect(useChecks.getState().running.mind).toEqual({ requestId: "another", action: "whole-mind" });
+});
+
 describe("The one Check and Check every sentence again", () => {
   test("pressed twice while the Note's question is put away, it checks once", async () => {
     useMindCheck.setState({
@@ -167,6 +187,24 @@ describe("The one Check and Check every sentence again", () => {
 
     expect(useMindCheck.getState().asking.mind === undefined).toBe(started);
     expect(outcome?.kind).toBe(started ? "running" : "asked");
+    checking.resolve({ kind: "cancelled" });
+    await other;
+  });
+
+  test("a plan with nothing changed shows nothing beside a check that started while it was read", async () => {
+    const planning = Promise.withResolvers<MindCheckPlan>();
+    bridge.planMindCheck.mockReturnValue(planning.promise);
+    const checking = Promise.withResolvers<CheckMindResult>();
+    bridge.checkMind.mockReturnValue(checking.promise);
+
+    const starting = startMindCheck("mind", "changed");
+    await vi.waitFor(() => expect(bridge.planMindCheck).toHaveBeenCalled());
+    const other = checkMind("mind", "all");
+    planning.resolve({ kind: "unchanged", since: null });
+
+    expect(await starting).toEqual({ kind: "running" });
+    expect(useMindCheck.getState().unchanged.mind).toBeUndefined();
+    expect(bridge.checkMind).toHaveBeenCalledOnce();
     checking.resolve({ kind: "cancelled" });
     await other;
   });

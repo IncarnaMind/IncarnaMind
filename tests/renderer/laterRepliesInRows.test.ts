@@ -205,11 +205,15 @@ const skill = (name: string): Skill => ({
   updatedAt: "2026-11-01T09:00:00.000Z",
 });
 
-const tideTables: SkillDraft = { name: "tide-tables", description: "When tides.", steps: "Read." };
+const draftOf = (name: string): SkillDraft => ({
+  name,
+  description: `When ${name} helps.`,
+  steps: "Read the table.",
+});
 
 describe("Settings › Skills", () => {
-  /** Shows Skills with the User's own `tide-tables`, whose draft is read when it is edited. */
-  async function showSkills(draftRead: Promise<SkillDraft>) {
+  /** Shows Skills with the User's own Skills, each draft read when it is edited as given. */
+  async function showSkills(drafts: Record<string, Promise<SkillDraft>>) {
     // The editor puts the cursor in it and scrolls it into view, which this document can't do.
     Object.assign(window.HTMLElement.prototype, {
       scrollIntoView: () => undefined,
@@ -217,28 +221,29 @@ describe("Settings › Skills", () => {
     });
     // This document draws no animation: the menu's opening shows at once.
     Object.assign(window, { reportError: () => undefined });
-    calls.set("getSkillDraft", () => draftRead);
+    calls.set("getSkillDraft", async (id) => drafts[String(id)]);
     calls.set("listRemovedBuiltInSkills", async () => []);
     const { useAppStore } = await import("../../src/renderer/src/store");
-    useAppStore.setState({ skills: [skill("tide-tables")] });
+    useAppStore.setState({ skills: Object.keys(drafts).map(skill) });
     const settingsPath = "../../src/renderer/src/components/SkillsSettings.tsx";
     const { SkillsSettings } = (await import(settingsPath)) as { SkillsSettings: ComponentType };
     await act(async () => root?.render(createElement(SkillsSettings)));
   }
-  const press = async (testId: string) => {
-    const button = container.querySelector(`[data-testid="${testId}"]`);
-    if (!button) throw new Error(`Nothing to press: ${testId}.`);
+  const press = async (selector: string) => {
+    const button = container.querySelector(selector);
+    if (!button) throw new Error(`Nothing to press: ${selector}.`);
     await act(async () => button.dispatchEvent(new window.Event("click", { bubbles: true })));
   };
-  /** Edit in the Skill's ⋯ menu. */
-  const edit = async () => {
+  /** Edit in a Skill's ⋯ menu. */
+  const edit = async (name: string) => {
+    const row = `[data-skill-name="${name}"]`;
     // The browser shows the popover; this document can't, so the menu hears that it opens.
-    const menu = container.querySelector<HTMLElement>('[data-testid="skill-actions"]');
-    if (!menu) throw new Error("The Skill has no menu.");
+    const menu = container.querySelector<HTMLElement>(`${row} [data-testid="skill-actions"]`);
+    if (!menu) throw new Error(`${name} has no menu.`);
     Object.assign(menu, { hidePopover: () => undefined, matches: () => false });
     const opens = Object.assign(new window.Event("beforetoggle"), { newState: "open" });
     await act(async () => menu.dispatchEvent(opens));
-    await press("skill-edit");
+    await press(`${row} [data-testid="skill-edit"]`);
   };
   /** Each Skill editor shown, by its title. */
   const editors = () =>
@@ -248,19 +253,42 @@ describe("Settings › Skills", () => {
 
   test("a Skill's draft read before New Skill was pressed doesn't replace the new one's editor", async () => {
     const reading = Promise.withResolvers<SkillDraft>();
-    await showSkills(reading.promise);
-    await edit();
-    await press("skill-new");
+    await showSkills({ "tide-tables": reading.promise });
+    await edit("tide-tables");
+    await press('[data-testid="skill-new"]');
     expect(editors()).toEqual(["New Skill"]);
 
-    await act(async () => reading.resolve(tideTables));
+    await act(async () => reading.resolve(draftOf("tide-tables")));
 
     expect(editors()).toEqual(["New Skill"]);
   });
 
+  test.each(["before", "after"] as const)(
+    "a save that lands %s the next Skill's draft is read leaves that Skill's editor open",
+    async (when) => {
+      const reading = Promise.withResolvers<SkillDraft>();
+      await showSkills({
+        "tide-tables": Promise.resolve(draftOf("tide-tables")),
+        "harbour-charts": reading.promise,
+      });
+      const saving = Promise.withResolvers<unknown>();
+      calls.set("updateSkill", () => saving.promise);
+      await edit("tide-tables");
+      await press('[data-testid="skill-editor-save"]');
+      await edit("harbour-charts");
+
+      const saved = { ok: true, skill: skill("tide-tables") };
+      if (when === "before") await act(async () => saving.resolve(saved));
+      await act(async () => reading.resolve(draftOf("harbour-charts")));
+      if (when === "after") await act(async () => saving.resolve(saved));
+
+      expect(editors()).toEqual(["Edit harbour-charts"]);
+    },
+  );
+
   test("Edit opens the Skill's editor with its draft when nothing was opened meanwhile", async () => {
-    await showSkills(Promise.resolve(tideTables));
-    await edit();
+    await showSkills({ "tide-tables": Promise.resolve(draftOf("tide-tables")) });
+    await edit("tide-tables");
 
     expect(editors()).toEqual(["Edit tide-tables"]);
   });

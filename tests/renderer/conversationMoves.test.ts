@@ -345,6 +345,21 @@ test.each(["open another conversation", "start a New chat"] as const)(
   },
 );
 
+test("help asked during a call doesn't take the User from a Question they asked in the new chat meanwhile", async () => {
+  const { askHelpInAssistant } = await inACall();
+  const help = held<ConversationAskResult>();
+  helpAsk = () => help.promise;
+  const asking = askHelpInAssistant("sum");
+  const { reply, asked } = askHeld();
+  reply.settle(askedIn("new"));
+  await asked;
+  help.settle(askedIn("help"));
+  await asking;
+
+  expect(shown()).toBe("new");
+  expect(readsAsked).not.toContain("help");
+});
+
 test("help asked during a call shows its conversation when the User stayed", async () => {
   const { askHelpInAssistant } = await inACall();
   helpAsk = async () => askedIn("help");
@@ -361,7 +376,6 @@ async function reloadedShowing(conversationId: string) {
 }
 
 test("a New chat clicked while a reload shows the conversation again stays a New chat", async () => {
-  await conversations.openConversation("other");
   const restoring = held<{ messages: ConversationMessage[] }>();
   reads.set("kept", restoring.promise);
   await reloadedShowing("kept");
@@ -371,6 +385,8 @@ test("a New chat clicked while a reload shows the conversation again stays a New
 
   expect(readsAsked).toContain("kept");
   expect(shown()).toBeNull();
+  // A second reload starts in the New chat too.
+  expect(sessionStorage.getItem("incarnamind.window.conversation")).toBeNull();
 });
 
 test("a reload shows the conversation it showed again when the User stayed", async () => {

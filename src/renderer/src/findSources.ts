@@ -6,6 +6,7 @@ import {
   SOURCE_KIND_PROVIDERS,
   type SourceProviderInfo,
 } from "../../core/api";
+import { newestReads } from "../../core/newest";
 import { core } from "./core";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
@@ -62,6 +63,9 @@ interface FindSourcesState extends SourceSearch {
 
 /** Counts searches, so only the latest one's answer is shown. */
 let searchTicket = 0;
+
+/** Each key field opened or closed: a key kept before then doesn't close the field (#2302). */
+const keyFieldChoices = newestReads();
 
 /** The providers the last search couldn't ask for want of the User's key, or whose key they refused. */
 function keyProblems(result: FindSourcesResult | null): string[] {
@@ -121,6 +125,7 @@ export const useFindSources = create<FindSourcesState>()((set, get) => ({
   keyOpen: null,
 
   openKey(providerId) {
+    keyFieldChoices();
     set({ keyOpen: providerId });
   },
 
@@ -195,12 +200,11 @@ export const useFindSources = create<FindSourcesState>()((set, get) => ({
   },
 
   async setKey(providerId, key) {
+    const newest = keyFieldChoices();
     try {
       await core.setSourceProviderKey(providerId, key);
       const providers = await core.listSourceProviders();
-      // Another provider's field, opened while this key was kept, stays open with what is typed
-      // in it.
-      set((state) => ({ providers, keyOpen: state.keyOpen === providerId ? null : state.keyOpen }));
+      set(newest() ? { providers, keyOpen: null } : { providers });
       // A search that wanted this key is asked again with it.
       if (key !== null && keyProblems(get().result).includes(providerId)) void get().search();
       return null;

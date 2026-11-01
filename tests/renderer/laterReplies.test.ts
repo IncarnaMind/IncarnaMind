@@ -296,6 +296,22 @@ describe("Find sources", () => {
     expect(useFindSources.getState().keyOpen).toBe("openfda");
   });
 
+  test("a key kept doesn't close its field when the User closed and opened it again meanwhile", async () => {
+    const { useFindSources } = await import("../../src/renderer/src/findSources");
+    const keeping = Promise.withResolvers<void>();
+    method("setSourceProviderKey").mockReturnValue(keeping.promise);
+    method("listSourceProviders").mockResolvedValue([]);
+
+    useFindSources.getState().openKey("govinfo");
+    const kept = useFindSources.getState().setKey("govinfo", "govinfo key");
+    useFindSources.getState().openKey(null);
+    useFindSources.getState().openKey("govinfo");
+    keeping.resolve();
+
+    expect(await kept).toBeNull();
+    expect(useFindSources.getState().keyOpen).toBe("govinfo");
+  });
+
   test("a key kept closes its own field", async () => {
     const { useFindSources } = await import("../../src/renderer/src/findSources");
     method("setSourceProviderKey").mockResolvedValue(undefined);

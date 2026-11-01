@@ -519,6 +519,9 @@ async function askOrCheck(
   plan: MindCheckPlan,
   started: () => void,
 ): Promise<CheckOutcome> {
+  // A check of this Note that started while this one was held and planned has the badge, with
+  // Stop: this one changes nothing beside it (#2302).
+  if (useChecks.getState().running[mindId]) return { kind: "running" };
   if (plan.kind === "unchanged") {
     clearAsk(mindId);
     dismissCheckProblem(mindId);
@@ -569,8 +572,7 @@ async function askOrCheck(
     started();
     return runCheck(mindId, requestId, run);
   }
-  // A check of this Note that started while this one was planned has the badge, with Stop: no
-  // question beside it (#2302).
+  // Nor one that started while the sentences were read and the run estimated.
   if (useChecks.getState().running[mindId]) return { kind: "running" };
   const estimate = estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
   waitForAnswer(requestId);

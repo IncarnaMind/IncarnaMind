@@ -273,6 +273,9 @@ export async function askInAssistant(
   input: Omit<AskInConversationInput, "conversationId"> & { mindId: string | null },
 ): Promise<boolean> {
   const key = composerKey(input.mindId);
+  // Asked in a new chat, it makes the conversation the assistant shows: a reply still on its way
+  // from before (help during a call, a slow open) doesn't take the User from it.
+  if (useConversations.getState().openId === null) moves += 1;
   const stayed = noMoveSince();
   useConversations.setState({
     asking: input.text,
