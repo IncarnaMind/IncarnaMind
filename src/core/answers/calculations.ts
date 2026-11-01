@@ -599,27 +599,41 @@ function conflicting(statements: readonly StatedUnit[]): boolean {
   );
 }
 
+// A statement of the page's own scale, as a joined line puts it before a row: an exception, or a
+// "单位：" or "Units:" line. Any other scale with the row's words before it is the row head's own.
+const PAGE_STATEMENT = /^\s*(?:(?:金额|货币|数量)?单位|units?\s*[:：])/i;
+
 /**
- * A row's label without the scale statement in it: the words after it, where a joined line puts the
- * statement before the row ("单位：千元，每股收益除外营业收入"), else the words before it, where the row
- * head states its own scale ("Net debt (£m)"). Its own unit ("Diluted EPS ($)", "基本每股收益（元）")
- * stays, as it changes no scale.
+ * A row's label without the scale statements in it, and the scales its head states for itself. A
+ * page's statement before the row ("单位：千元，每股收益除外营业收入") leaves the words after it; a scale
+ * after the row's own words ("Net debt (£m)", "Revenue (£000) - UK", "收入（百万元）合计") is the row
+ * head's, and the words around it stay. Its own unit ("Diluted EPS ($)", "基本每股收益（元）") stays
+ * too, as it changes no scale.
  */
-function withoutStatement(label: string): RowLabel {
-  const scales = readStatedUnits(label).filter((each) => each.scale !== 1 || each.except);
-  const spans = [
-    ...[...label.matchAll(EXCEPTION_WORDS)].map((each) => ({
+function withoutStatement(text: string): RowLabel {
+  const scales = readStatedUnits(text).filter((each) => each.scale !== 1 || each.except);
+  const page = [
+    ...[...text.matchAll(EXCEPTION_WORDS)].map((each) => ({
       start: each.index,
       end: each.index + each[0].length,
     })),
-    ...scales,
+    ...scales.filter(
+      (each) =>
+        each.except || PAGE_STATEMENT.test(each.chars) || !WORDS.test(text.slice(0, each.start)),
+    ),
   ];
-  if (spans.length === 0) return { label, ownScales: [] };
-  const after = label.slice(Math.max(...spans.map((each) => each.end)));
-  if (WORDS.test(after)) return { label: after, ownScales: [] };
+  const own = scales.filter((each) => !page.includes(each));
+  const from = Math.max(0, ...page.map((each) => each.end));
+  let label = text.slice(from);
+  for (const each of [...own].sort((a, b) => b.start - a.start)) {
+    if (each.start >= from)
+      label = `${label.slice(0, each.start - from)}${label.slice(each.end - from)}`;
+  }
+  if (!WORDS.test(label) && page.length > 0)
+    label = text.slice(0, Math.min(...page.map((each) => each.start)));
   return {
-    label: label.slice(0, Math.min(...spans.map((each) => each.start))),
-    ownScales: scales.filter((each) => each.scale !== 1).map((each) => each.scale),
+    label,
+    ownScales: own.filter((each) => each.scale !== 1).map((each) => each.scale),
   };
 }
 

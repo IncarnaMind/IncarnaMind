@@ -355,12 +355,10 @@ describe("A Document's keyword version", { timeout: 60_000 }, () => {
     const embedder = createControlledEmbedder();
     const first = startCore(dataDir, { embedder });
     await turnOnEmbeddings(first);
+    // Markdown has been read the same way since version 5, so version 7 is current for it (#2365
+    // made Word files current only from version 20).
     const [word] = (await addAndProcess(first, [
-      await writeSourceFile(
-        sources,
-        "Library.docx",
-        docxOf([{ text: "Costs", heading: 1 }, { text: "A contingency is held." }]),
-      ),
+      await writeSourceFile(sources, "Library.md", "# Costs\n\nA contingency is held.\n"),
     ])) as [Document];
     first.close();
     // A Document whose Passages are what this pipeline builds, with rows the older one wrote.
