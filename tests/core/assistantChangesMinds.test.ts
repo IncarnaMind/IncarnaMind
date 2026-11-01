@@ -694,13 +694,10 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
 
       await client.settled();
       const told = lastResult(model);
-      expect(told).toContain(
-        stays ? "they are still in the text" : "no longer in the text as they were",
-      );
-      expect(told).toContain(`“${notes[1]}”`);
-      expect(told).not.toContain(
-        stays ? "no longer in the text as they were" : "they are still in the text",
-      );
+      // A reply by names that doesn't name a paragraph never spoke of it: it isn't told as left out (#2356).
+      expect(told.includes(`“${notes[1]}”`)).toBe(!stays);
+      expect(told).not.toContain("they are still in the text");
+      expect(told.includes("no longer in the text as they were")).toBe(!stays);
       expect(shownWithChanges(client).join(" ").includes(`- ${notes[1]}`)).toBe(!stays);
     },
   );
@@ -1691,5 +1688,201 @@ describe("Arguments a model gets slightly wrong cost no extra step", { timeout: 
       "+ Tides",
       "+ Spring tides come at new and full moon ⟨found⟩.",
     ]);
+  });
+});
+
+describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, () => {
+  /** A model whose edit_mind call is `asked`, and whose rewrite of the passage is `reply`. */
+  const editing = (asked: string, reply: string) =>
+    scriptedModel((call: ModelCall): ScriptedReply => {
+      if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
+      return call.results.length === 0
+        ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+        : { text: "Done." };
+    });
+  const APPLIES = "It applies in the Note at once";
+  const item = (text: string): JSONContent => ({
+    type: "bulletList",
+    content: [{ type: "listItem", content: [note(text)] }],
+  });
+  const cell = (text: string): JSONContent => ({ type: "tableCell", content: [note(text)] });
+  /** A paragraph the request leaves alone, so what goes is less than half the User's text. */
+  const EN_VISIT =
+    "The site visit is on Friday, the team meets at the gate at nine, and everyone brings a hard hat and boots.";
+  const ZH_VISIT =
+    "现场考察定在周五，团队九点在大门口集合，请提前准备好安全帽和工作靴，并带上身份证件。";
+  const visit = {
+    en: note(EN_VISIT),
+    zh: note(ZH_VISIT),
+  };
+
+  // protects=taking sentences out of a paragraph of the User's, however much of it they are, takes out only those words and applies at once like any small edit, the rest staying the User's own; the model is told exactly the sentences that went; first, middle and last, two at once, one holding a quote, in a list item and a table cell; English and Chinese; fails_when=the paragraph is written anew whole, so the edit waits for the User ("this rewrites most of your text") and every sentence is told as gone, or a kept sentence is told as left out or gone; no_claim=how a real model words its reply.
+  test.each([
+    {
+      case: "zh, the first sentence, holding a quote",
+      blocks: [note("经理说：“预算不能再增加。”我们决定推迟采购。供应商同意延期两周。"), visit.zh],
+      asked: "删掉经理说的那句话。",
+      reply: "¶1 我们决定推迟采购。供应商同意延期两周。",
+      gone: ["经理说：“预算不能再增加。”"],
+      after: ["我们决定推迟采购。供应商同意延期两周。", ZH_VISIT],
+    },
+    {
+      case: "zh, the last sentence",
+      blocks: [
+        note("预算已批准。测量船已预订在2026年12月2日，由海事局的两名工程师随船进行全程测量。"),
+        visit.zh,
+      ],
+      asked: "把我笔记里关于测量船的那句话删掉。",
+      reply: "¶1 预算已批准。",
+      gone: ["测量船已预订在2026年12月2日，由海事局的两名工程师随船进行全程测量。"],
+      after: ["预算已批准。", ZH_VISIT],
+    },
+    {
+      case: "zh, two sentences",
+      blocks: [note("新办公室在西湖路。每人需自行打包桌面物品。停车卡需重新申请。"), visit.zh],
+      asked: "删掉关于打包和停车卡的两句话。",
+      reply: "¶1 新办公室在西湖路。",
+      gone: ["每人需自行打包桌面物品。", "停车卡需重新申请。"],
+      after: ["新办公室在西湖路。", ZH_VISIT],
+    },
+    {
+      case: "en, the middle sentence",
+      blocks: [
+        note(
+          "Pay is monthly. The survey vessel is booked for 2 December 2026 and two engineers from the harbour office will sail with it. Work starts in March.",
+        ),
+        visit.en,
+      ],
+      asked: "Delete the sentence about the survey vessel.",
+      reply: "¶1 Pay is monthly. Work starts in March.",
+      gone: [
+        "The survey vessel is booked for 2 December 2026 and two engineers from the harbour office will sail with it.",
+      ],
+      after: ["Pay is monthly. Work starts in March.", EN_VISIT],
+    },
+    {
+      case: "en, a list item's second sentence",
+      blocks: [
+        item(
+          "The deposit is three months' rent. It is held by the landlord and returned without interest when the lease ends.",
+        ),
+        visit.en,
+      ],
+      asked: "Delete the sentence about who holds the deposit.",
+      reply: "¶1 - The deposit is three months' rent.",
+      gone: ["It is held by the landlord and returned without interest when the lease ends."],
+      after: ["The deposit is three months' rent.", EN_VISIT],
+    },
+    {
+      case: "zh, a table cell's sentence, quoted as taken out",
+      blocks: [
+        {
+          type: "table",
+          content: [
+            { type: "tableRow", content: [cell("条款"), cell("内容")] },
+            {
+              type: "tableRow",
+              content: [cell("租金"), cell("每月5日前支付。逾期一周后每月加收百分之二的滞纳金。")],
+            },
+          ],
+        },
+        visit.zh,
+      ],
+      asked: "删掉滞纳金那句。",
+      reply: "<removed>逾期一周后每月加收百分之二的滞纳金。</removed>",
+      gone: ["逾期一周后每月加收百分之二的滞纳金。"],
+      after: ["条款", "内容", "租金", "每月5日前支付。", ZH_VISIT],
+    },
+  ])("a sentence taken out applies at once and is told alone: $case", async (each) => {
+    const model = editing(each.asked, each.reply);
+    const { core, mind, client } = await setUp(model);
+    writeMind(client, each.blocks);
+    await client.settled();
+    const kept = shownWithChanges(client)
+      .join(" ")
+      .split(/(?<=[.。]["”]|[.。](?!["”]))\s*/u)
+      .filter((sentence) => sentence !== "" && !each.gone.includes(sentence));
+
+    await ask(core, { text: each.asked, mindId: mind.id });
+    await client.settled();
+
+    const told = lastResult(model);
+    expect(told).toContain(APPLIES);
+    expect(told).not.toContain("waits there for them");
+    expect(told).not.toContain("still in the text");
+    for (const sentence of each.gone) expect(told).toContain(`“${sentence}”`);
+    for (const sentence of kept) expect(told).not.toContain(`“${sentence}”`);
+    for (const line of shownWithChanges(client)) expect(line).not.toMatch(/^[-+] |\{\+/);
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual(each.after);
+  });
+
+  // protects=a reply that rewrites one paragraph of a Note by name, or only quotes what goes, is told the change made and nothing about the paragraphs and sentences it never spoke of, so its reply can't call the result contradictory ("Make my note shorter."); English and Chinese; fails_when=sentences the reply didn't write are told as left out but still there beside the ones that went; no_claim=how a real model words its reply.
+  test.each([
+    {
+      asked: "Make my note shorter.",
+      lines: [
+        "Sales grew twelve percent this quarter, mostly from new customers in the east, and most customers are happy with delivery.",
+        "Next quarter we open two sales points in the south.",
+      ],
+      reply: "¶1 Sales grew twelve percent this quarter, mostly from new eastern customers.",
+    },
+    {
+      asked: "把我的笔记写短一点。",
+      lines: [
+        "本季度销售额增长了百分之十二。增长主要来自华东地区的新客户。大部分客户对交付速度表示满意。",
+        "下季度我们计划在华南开设两个销售点。",
+      ],
+      reply: "¶1 本季度销售额增长了百分之十二。增长主要来自华东地区的新客户。",
+    },
+    {
+      asked: "Delete the sentence about delivery.",
+      lines: [
+        "Sales grew twelve percent this quarter. Most customers are happy with delivery.",
+        "Next quarter we open two sales points in the south.",
+      ],
+      reply: "<removed>Most customers are happy with delivery.</removed>",
+    },
+  ])("the reply is told only the change made: $asked", async ({ asked, lines, reply }) => {
+    const model = editing(asked, reply);
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      lines.map((line) => note(line)),
+    );
+    await client.settled();
+
+    await ask(core, { text: asked, mindId: mind.id });
+    await client.settled();
+
+    const told = lastResult(model);
+    expect(told).toContain(APPLIES);
+    expect(told).not.toContain("still in the text");
+    expect(told).not.toContain(`“${lines[1]}”`);
+    expect(told).toContain("no longer in the text as they were");
+  });
+
+  // protects=a reply written without names that leaves a whole paragraph out is still told that paragraph stayed, as the edit counts it left out and kept (#2180); fails_when=the model isn't told, or is told it went; no_claim=how a real model words its reply.
+  test("a paragraph a reply without names leaves out is told as still there", async () => {
+    const lines = [
+      "Pay is monthly and the post is senior.",
+      "Work is full time, Monday to Friday.",
+    ];
+    const model = editing("Make it shorter", "Pay is monthly, and the post is senior.");
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      lines.map((line) => note(line)),
+    );
+    await client.settled();
+
+    await ask(core, { text: "Make it shorter", mindId: mind.id });
+    await client.settled();
+
+    const told = lastResult(model);
+    expect(told).toContain(
+      `they are still in the text, as it didn't mark them as taken out: “${lines[1]}”`,
+    );
+    expect(told).not.toContain(`(taken out or reworded): “${lines[1]}”`);
   });
 });

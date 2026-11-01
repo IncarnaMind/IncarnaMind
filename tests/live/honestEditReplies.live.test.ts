@@ -144,8 +144,9 @@ const REQUESTS: Request[] = [
   },
 ];
 
+/** A sentence ends at its stop, or after the closing quote mark right after it. */
 const sentencesOf = (text: string) =>
-  text.split(/(?<=[.!?。！？]["”]?)\s*/u).filter((each) => each.trim() !== "");
+  text.split(/(?<=[.!?。！？]["”]|[.!?。！？](?!["”]))\s*/u).filter((each) => each.trim() !== "");
 
 /** Whether the Note came out as asked. */
 function madeAsAsked(request: Request, after: string[]): boolean {

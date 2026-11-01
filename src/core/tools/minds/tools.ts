@@ -108,7 +108,7 @@ import {
   waitingIn,
   writtenByAnswer,
 } from "../../proposals/ownWaiting";
-import { layout, textAround, textBlocks } from "../../proposals/write";
+import { layout, leftOutText, textAround, textBlocks } from "../../proposals/write";
 import type { PreparedChatModel } from "../../providers/chat";
 import { MIND_TOOLS, type Tool, type ToolProviderInfo } from "..";
 import { partialFields } from "../partialInput";
@@ -706,9 +706,10 @@ const quotesSaid = (quotes: readonly string[]) =>
 
 /**
  * What a rewrite took out, as the model is told so it reports what happened and not what it
- * meant to do: the sentences of the old text the new one doesn't hold. Null when none went.
+ * meant to do: the sentences of the old text the new one doesn't hold, and those of the parts it
+ * left out (`leftOut`) that stay. Null when none went or stayed.
  */
-function takenOut(before: string, after: string, wrote: string = after): string | null {
+function takenOut(before: string, after: string, leftOut = ""): string | null {
   const sentencesOf = (text: string) =>
     text
       .split(/\n+/)
@@ -732,11 +733,11 @@ function takenOut(before: string, after: string, wrote: string = after): string 
   };
   const was = [...new Set(sentencesOf(before))];
   const now = new Set(sentencesOf(after));
-  const written = new Set(sentencesOf(wrote));
   const gone = was.filter((sentence) => !now.has(sentence));
-  // Text the rewrite left out stays unless it quoted it as taken out (#2180), as a model may
-  // return only what it changed: said plainly, so its own "removed" is not repeated.
-  const stayed = was.filter((sentence) => now.has(sentence) && !written.has(sentence));
+  // A paragraph the rewrite left out stays unless it quoted it as taken out (#2180): said plainly,
+  // so its own "removed" is not repeated. Only those the edit itself counts as left out: one a
+  // reply by names didn't name, or one it quoted words from, it never spoke of (#2356).
+  const stayed = [...new Set(sentencesOf(leftOut))].filter((sentence) => now.has(sentence));
   const told = [
     ...(gone.length > 0
       ? [
@@ -2339,7 +2340,13 @@ export function mindTools(options: MindToolsOptions): {
       const around = revised
         ? length
         : minds.read(mind.id, (note) => textAround(note, stretch.from, stretch.to, result.request));
-      const gone = around ? takenOut(around.before, around.after, length?.after) : null;
+      const gone = around
+        ? takenOut(
+            around.before,
+            around.after,
+            minds.read(mind.id, (note) => leftOutText(note, result.leftOut ?? [], result.request)),
+          )
+        : null;
       const span = around ?? length;
       const went = span ? ` (${lengths(span.before, span.after)})` : "";
       return [

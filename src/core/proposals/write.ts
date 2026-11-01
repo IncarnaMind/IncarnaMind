@@ -550,6 +550,43 @@ export function textAround(
   return { before: lines(false), after: lines(true) };
 }
 
+/**
+ * The words of the parts a rewrite left out and kept (`LeftOutPart`), a line to a part, as they
+ * were: what stays because the text didn't speak of it, not what the text's own words leave out.
+ */
+export function leftOutText(
+  blocks: Y.XmlFragment,
+  parts: readonly LeftOutPart[],
+  request: string,
+): string {
+  const elements = new Map(
+    textBlocks(blocks).map(({ element }) => [element.getAttribute(BLOCK_ID_ATTRIBUTE), element]),
+  );
+  return parts
+    .map(({ blockId, from, to }) => {
+      const element = elements.get(blockId);
+      if (!element) return "";
+      let text = "";
+      let at = 0;
+      for (const { node, size } of layout(element)) {
+        if (!(node instanceof Y.XmlText)) {
+          at += size;
+          continue;
+        }
+        for (const run of node.toDelta() as Run[]) {
+          if (typeof run.insert !== "string") continue;
+          if (readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK])?.request === request)
+            continue;
+          const end = at + run.insert.length;
+          text += run.insert.slice(Math.max(0, from - at), Math.max(0, to - at));
+          at = end;
+        }
+      }
+      return text;
+    })
+    .join("\n");
+}
+
 /** About this many characters of the words around a selection are shown to the model. */
 const NEAR_CHARACTERS = 80;
 
@@ -1560,21 +1597,28 @@ const droppedOf = (notes: CitationNotes) =>
 const REWRITTEN_SHARE = 0.4;
 
 /**
- * About 40% or more of the paragraph's words changed: written anew, read as
- * one change, before and after whole, never old and new words interleaved.
- * Words only added keep the rest as it was, read word by word.
+ * About 40% or more of the paragraph's words replaced by others: written anew, read as one
+ * change, before and after whole, never old and new words interleaved. Words only added, or only
+ * taken out, keep the rest as it was, read word by word: a sentence taken out of a short paragraph
+ * is no rewrite, and the User's other words stay theirs (#2356).
  */
 function rewritten(steps: readonly Step[], old: readonly OldToken[]) {
   const isWord = (text: string | undefined) => text === undefined || !/^\s+$/.test(text);
-  let kept = 0;
+  let replaced = 0;
+  let removed = 0;
+  let adds = false;
   let at = 0;
-  for (const step of steps) {
-    if (step === "insert") continue;
-    if (step === "equal" && isWord(old[at]?.text)) kept++;
-    at++;
+  for (const step of [...steps, "equal" as const]) {
+    if (step === "equal") {
+      if (adds) replaced += removed;
+      removed = 0;
+      adds = false;
+      at++;
+    } else if (step === "insert") adds = true;
+    else if (isWord(old[at++]?.text)) removed++;
   }
   const words = old.filter((token) => isWord(token.text)).length;
-  return words > 0 && words - kept >= words * REWRITTEN_SHARE;
+  return words > 0 && replaced >= words * REWRITTEN_SHARE;
 }
 
 /**
@@ -2205,6 +2249,8 @@ export function createRewriteStream(
   /** Two were like none: the text is written anew, and each pairs in order. */
   let anew = false;
   const kept: Segment[] = [];
+  /** Kept paragraphs a quote took words out of: the text spoke of them, so none is left out. */
+  const quotedFrom = new Set<Segment>();
   /** Of the selection's paragraphs, those new ones stand in for: they go, even when left-out ones are kept. */
   const replaced = new Set<Segment>();
   /** The new text's finished paragraphs so far. */
@@ -2648,8 +2694,10 @@ export function createRewriteStream(
         while (taken[end]) end++;
         const from = at[first] ?? segment.start;
         const part = partOf(segment, from, (at[end - 1] ?? from) + 1);
-        if (part) removePart(segment, part);
-        else {
+        if (part) {
+          removePart(segment, part);
+          quotedFrom.add(segment);
+        } else {
           const start = first;
           unplaced.push(
             ...places
@@ -2926,9 +2974,15 @@ export function createRewriteStream(
       added: notes.characters.added,
     }),
 
-    /** The paragraphs the text left out and are kept; none for a text that names its own, which leaves the others as they are. */
+    /**
+     * The paragraphs the text left out and are kept; none for a text that names its own, which
+     * leaves the others as they are, nor for one that only quotes what goes (#2356).
+     */
     leftOut: (): LeftOutPart[] =>
-      (byName ? [] : kept).flatMap((segment) => {
+      (byName || seen.length === 0
+        ? []
+        : kept.filter((segment) => !quotedFrom.has(segment))
+      ).flatMap((segment) => {
         const blockId = segment.element.getAttribute(BLOCK_ID_ATTRIBUTE);
         return typeof blockId === "string"
           ? [
