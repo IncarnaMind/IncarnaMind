@@ -5562,7 +5562,7 @@ export const en = {
   "firstOpen.step.question.body":
     "Ask your files anything, or the question below. Every quote is checked.",
   "firstOpen.step.question.ready": "Ask: “{question}”",
-  "firstOpen.step.question.own": "or press {shortcut} to type your own",
+  "firstOpen.step.question.own": "or {shortcut} to type your own",
   "firstOpen.step.question.ownOnly": "Press {shortcut} to ask your own Question.",
   "firstOpen.step.question.reading": "Reading “{document}”…",
   "firstOpen.step.question.stop": "Stop",

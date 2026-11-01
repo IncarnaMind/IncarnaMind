@@ -165,12 +165,16 @@ test("a Block is deleted from its handle's menu, and with the keyboard", async (
   await app.close();
 });
 
-test("a Mind is written in the system's font, and in the bundled Source Serif 4 once it is in the Serif style, Chinese in a system face of the same kind", async () => {
+test("the app and a Mind's writing are in the system's font and its scale, and in the bundled Source Serif 4 once in the Serif style, Chinese in a system face of the same kind", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await newMind(window);
   const editor = window.getByTestId("mind-editor");
   await editor.click();
+  await window.keyboard.type("# Spring tides");
+  await window.keyboard.press("Enter");
+  await window.keyboard.type("## When they come");
+  await window.keyboard.press("Enter");
   await window.keyboard.type("Spring tides come ");
   await window.keyboard.press("ControlOrMeta+I");
   await window.keyboard.type("at new moon");
@@ -186,11 +190,33 @@ test("a Mind is written in the system's font, and in the bundled Source Serif 4 
       .locator("p")
       .first()
       .evaluate((first) => getComputedStyle(first).fontFamily);
+  const typeOf = (selector: string) =>
+    window
+      .locator(selector)
+      .first()
+      .evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          family: style.fontFamily,
+          size: Number.parseFloat(style.fontSize),
+          leading: Number.parseFloat(style.lineHeight),
+          weight: Number.parseInt(style.fontWeight, 10),
+          spacing: Number.parseFloat(style.letterSpacing) || 0,
+        };
+      });
+  // Chromium writes BlinkMacSystemFont as a quoted system-ui in the computed value.
+  const system =
+    /^-apple-system, (?:BlinkMacSystemFont|"system-ui"), "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif$/;
 
-  // By default the text is the system's font, which nothing bundled draws; Chinese is its sans.
-  expect(await familyOf()).not.toMatch(/Source Serif 4/);
+  // The sidebar, the assistant and the writing are the system's font, which nothing bundled draws.
+  for (const family of [
+    await typeOf('[data-testid="sidebar"]').then((type) => type.family),
+    await typeOf('[data-testid="assistant"]').then((type) => type.family),
+    await familyOf(),
+  ])
+    expect(family).toMatch(system);
   expect((await fontsDrawing(window, paragraph)).filter((font) => font.bundled)).toEqual([]);
-  const sansChinese = await fontsDrawing(window, `${paragraph}:nth-child(2)`);
+  const sansChinese = await fontsDrawing(window, `${paragraph}:nth-of-type(2)`);
   expect(sansChinese).not.toEqual([]);
   expect(sansChinese.filter((font) => font.bundled)).toEqual([]);
   // By its PostScript name: the system's font has no Chinese, and the face macOS falls back to
@@ -198,6 +224,21 @@ test("a Mind is written in the system's font, and in the bundled Source Serif 4 
   if (process.platform === "darwin") {
     expect(sansChinese.map((font) => font.name)).toEqual([expect.stringMatching(/^PingFangSC-/)]);
   }
+
+  // The scale by computed style, not pictures: the title 34/42 weight 600 and tightened, a
+  // heading 22/30 weight 600, the writing 16/26.
+  const [title, heading, body] = await Promise.all([
+    typeOf('[data-testid="mind-editor"] h1'),
+    typeOf('[data-testid="mind-editor"] h2'),
+    typeOf(`${paragraph}:first-of-type`),
+  ]);
+  expect(title).toMatchObject({ size: 34, leading: 42, weight: 600 });
+  expect(heading).toMatchObject({ size: 22, leading: 30, weight: 600 });
+  expect(body).toMatchObject({ size: 16, leading: 26 });
+  expect(title.spacing).toBeLessThan(0);
+  expect(heading.spacing).toBe(0);
+  expect(title.size).toBeGreaterThan(heading.size);
+  expect(heading.size).toBeGreaterThan(body.size);
 
   const [mind] = await (await coreOf(window)).evaluate((core) => core.listMinds());
   if (!mind) throw new Error("The Mind wasn't made.");
@@ -211,22 +252,22 @@ test("a Mind is written in the system's font, and in the bundled Source Serif 4 
   expect(latin).toHaveLength(2);
   expect(latin.every((font) => font.family === "Source Serif 4" && font.bundled)).toBe(true);
   // Chinese falls through to the system's Simplified Chinese serif.
-  const chinese = await fontsDrawing(window, `${paragraph}:nth-child(2)`);
+  const chinese = await fontsDrawing(window, `${paragraph}:nth-of-type(2)`);
   expect(chinese).not.toEqual([]);
   expect(chinese.filter((font) => font.bundled)).toEqual([]);
   expect(chinese.map((font) => font.family)).not.toEqual(sansChinese.map((font) => font.family));
   if (process.platform === "darwin")
     expect(chinese.map((font) => font.family)).toEqual(["Songti SC"]);
 
-  // The interface and code fonts are bundled too.
-  const others = await window.evaluate(async () =>
-    Promise.all(
-      ["16px 'Source Sans 3'", "13px 'JetBrains Mono'"].map(async (font) =>
-        (await document.fonts.load(font)).map((face) => face.status),
-      ),
-    ),
+  // Code is still bundled, and the interface no longer ships a face of its own.
+  const [mono, own] = await window.evaluate(async () =>
+    Promise.all([
+      (await document.fonts.load("13px 'JetBrains Mono'")).map((face) => face.status),
+      [...document.fonts].filter((face) => face.family === "Source Sans 3").length,
+    ]),
   );
-  expect(others).toEqual([["loaded"], ["loaded"]]);
+  expect(mono).toEqual(["loaded"]);
+  expect(own).toBe(0);
   await app.close();
 });
 

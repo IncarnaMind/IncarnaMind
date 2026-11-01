@@ -50,22 +50,24 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-/** How many lines the Saved sentence is set in, and which of its words a box it sits in cuts off. */
-function measure(saved: Locator): Promise<{ lines: number; clipped: string[] }> {
-  return saved.evaluate((root) => {
+/** Which of the Saved line's words a box it sits in, or the window, cuts off. */
+function cutOff(done: Locator): Promise<string[]> {
+  return done.evaluate((root) => {
     const result = root.closest('[data-testid="export-result"]');
     if (!result) throw new Error("The sentence isn't in the result line.");
-    const centres: number[] = [];
     const clipped: string[] = [];
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const owner = node.parentElement;
       const words = node.textContent?.trim() ?? "";
-      if (!owner || words === "") continue;
+      if (!owner || words === "" || owner.closest('[aria-hidden="true"]')) continue;
       const range = document.createRange();
       range.selectNodeContents(node);
       for (const rect of range.getClientRects()) {
-        centres.push(rect.top + rect.height / 2);
+        if (rect.left < 0 || rect.right > innerWidth || rect.top < 0 || rect.bottom > innerHeight) {
+          clipped.push(words);
+          continue;
+        }
         for (let box: Element | null = owner; box; box = box.parentElement) {
           const edge = box.getBoundingClientRect();
           const style = getComputedStyle(box);
@@ -76,18 +78,15 @@ function measure(saved: Locator): Promise<{ lines: number; clipped: string[] }> 
             rect.right <= edge.right + 0.5 &&
             rect.top >= edge.top - 0.5 &&
             rect.bottom <= edge.bottom + 0.5;
-          if (holds && !inside) clipped.push(words);
+          if (holds && !inside) {
+            clipped.push(words);
+            break;
+          }
           if (box === result) break;
         }
       }
     }
-    let lines = 0;
-    let last = Number.NEGATIVE_INFINITY;
-    for (const centre of centres.toSorted((a, b) => a - b)) {
-      if (centre - last > 8) lines++;
-      last = centre;
-    }
-    return { lines, clipped };
+    return clipped;
   });
 }
 
@@ -105,7 +104,7 @@ async function addComment(window: Page): Promise<void> {
 }
 
 for (const beside of [false, true]) {
-  test(`a long file name: the Saved line is whole, in two lines at most, with the name cut in the middle, at 900, 1,100 and 1,440 px, ${
+  test(`a long file name: the Saved line may take a third line, with the name cut in the middle and every part inside it, at 900, 1,100 and 1,440 px, ${
     beside ? "beside an open Document" : "alone"
   }, in English and Chinese`, async () => {
     test.setTimeout(240_000);
@@ -163,9 +162,8 @@ for (const beside of [false, true]) {
           expect(shown).toMatch(/…[^…]*\.docx”/);
           expect(shown).not.toContain(name);
 
-          const measured = await measure(saved);
-          expect(measured.clipped).toEqual([]);
-          expect(measured.lines).toBeLessThanOrEqual(2);
+          // #400: a third line is allowed; every word of the line and its parts stays inside the window.
+          expect(await cutOff(done)).toEqual([]);
 
           await motionSettled(window);
           await screenshot(

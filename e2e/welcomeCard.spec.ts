@@ -29,6 +29,12 @@ import {
   welcomeStep as step,
 } from "./app";
 
+/** Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots. */
+const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
+async function shot(target: Page | Locator, name: string) {
+  if (SCREENSHOTS) await target.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
+}
+
 let dataDir: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
@@ -478,6 +484,7 @@ for (const language of ["en", "zh-CN"] as const) {
             wholeLabel.slice(shownLabel.length - 1),
             `${language} ${width}px, a word's end`,
           ).toMatch(/^\s/u);
+        await shot(a.window, `ask-line-long-${language}-${width}`);
       } finally {
         await a.app.close();
         await removeDataFolder(first);
@@ -533,6 +540,7 @@ test("a Chinese Question longer than the line cuts at a character, whole in its 
     expect(shown.endsWith("…")).toBe(true);
     expect(whole.startsWith(shown.slice(0, -1))).toBe(true);
     expect(whole.charAt(shown.length - 1)).not.toBe(" ");
+    await shot(window, "ask-line-zh-900");
   } finally {
     await app.close();
     await removeDataFolder(sources);
@@ -547,9 +555,10 @@ test("the English example's Question shows whole on one line at 900 px (#2084)",
     await expectReadyDocuments(window, 2);
     await markSteps(window, { indexed: true });
     const button = step(window, "question").getByTestId("first-open-ready");
-    const whole = "Ask: “What leverage does the agreement allow?”";
+    const whole = "Ask: “What’s the leverage cap?”";
     await expect(button).toHaveAttribute("aria-label", whole, { timeout: 30_000 });
     await expect(button).toHaveText(whole);
+    await shot(window, "ask-line-example-900");
   } finally {
     await app.close();
   }
