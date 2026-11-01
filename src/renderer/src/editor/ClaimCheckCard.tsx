@@ -824,7 +824,7 @@ export function ClaimCard({
   return (
     <div
       ref={rootRef}
-      className={`citation-card citation-card--${TONE[mark]} ${partRows ? "citation-card--parts" : ""}`}
+      className={`citation-card citation-card--${TONE[mark]} claim-card`}
       contentEditable={false}
       {...objectMenu.rowProps}
     >
