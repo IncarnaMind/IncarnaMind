@@ -26,7 +26,7 @@ The first run downloads the two built-in models from Hugging Face, the embedding
 
 The models run on Node worker threads (`lib/embedderWorker.ts`, `lib/rerankerWorker.ts`). They use the same code as the app's utility processes: `createOnnxEmbedder` and `createOnnxCrossEncoder`, served over the channels in `src/core/embedding/channel.ts` and `src/core/reranking/channel.ts`.
 
-A run takes about two minutes on an Apple M2 Max, most of it spent embedding about 1,200 Passages for the hybrid and vector modes, then reranking 75 searches twice (keyword search's top 20, about 0.8 s a search, then hybrid search's candidates, about 0.6 s). The other ways to find the candidates add about seven minutes more, reranking 65 searches each: about a minute for each mode of 20 candidates and two for keyword search's top 40, as a reranker's time grows with its candidates. The every-format set adds 28 small Documents and 167 Questions, reranked twice too.
+A run takes about two minutes on an Apple M2 Max, most of it spent embedding about 1,200 Passages for the hybrid and vector modes, then reranking 75 searches twice (keyword search's top 20, about 0.8 s a search, then hybrid search's candidates, about 0.6 s). The other ways to find the candidates add about seven minutes more, reranking 65 searches each: about a minute for each mode of 20 candidates and two for keyword search's top 40, as a reranker's time grows with its candidates. The every-format set adds 30 small Documents and 169 Questions, reranked twice too.
 
 ### Reranking candidates
 
@@ -272,7 +272,7 @@ To compare how searches are made on Answers, set `INCARNAMIND_EVAL_RERANK_DEPTH`
 
 ### Every format
 
-The gating set asks only about text PDFs. The every-format set, `retrieval/formats.json` (#70), asks about Word, PowerPoint, Excel, CSV, Markdown, plain text, PDF, Transcript and Web page Documents (#155), and the hard places in each: 167 Questions over 28 Documents, at least 2 English and 2 Chinese Questions for each Web page's hard place and at least 3 for the others', and 8 cross-lingual ones (4 each way, each with a `translatedQuery`). Each has one answer, at one Location.
+The gating set asks only about text PDFs. The every-format set, `retrieval/formats.json` (#70), asks about Word, PowerPoint, Excel, CSV, Markdown, plain text, PDF, Transcript and Web page Documents (#155), and the hard places in each: 169 Questions over 30 Documents, at least 2 English and 2 Chinese Questions for each Web page's hard place and at least 3 for the others', and 8 cross-lingual ones (4 each way, each with a `translatedQuery`). Each has one answer, at one Location.
 
 | Format | Documents | Hard places | Questions (English + Chinese) |
 |---|---|---|---|
@@ -282,9 +282,9 @@ The gating set asks only about text PDFs. The every-format set, `retrieval/forma
 | Markdown and plain text | Field Kit Setup Guide.md, 实验室数据管理规范.md, Night Shift Handbook.txt, 冷链仓库值班手册.txt | table, list, code block | 10 + 9 |
 | PDF | Urban Heat in Six Districts.pdf, 城市绿地与夏季降温调查.pdf, and four image-only scans | table, two columns (one sentence runs from a column's foot onto the next page), footnote, figure caption, scanned | 15 + 15 |
 | Transcript (#136) | Riverside Library Steering Meeting.vtt, 社区食堂周例会.vtt | a cue, a sentence the speaker split over two cues, a cue in the second block of cues | 9 + 9 |
-| Web page (#155) | Riverbank Allotment Water Plan.html, Harbour Museum Volunteer Handbook.html, 社区花园浇水指南.html, 图书馆志愿值班手册.html | a paragraph under its heading, table cell, list item | 6 + 6 |
+| Web page (#155) | Riverbank Allotment Water Plan.html, Harbour Museum Volunteer Handbook.html, 社区花园浇水指南.html, 图书馆志愿值班手册.html, and two article-length pages with header, navigation and footer: Harbourline Ferry Terminal Winter Sailing Notes.html and 青禾社区图书馆冬季开放须知.html | a paragraph under its heading, table cell, list item, and an answer in a later Passage of an article-length page, found through its heading | 7 + 7 |
 
-- **Fixtures:** synthetic, Apache-2.0. The 14 Office files, PDFs and text files in `retrieval/formats/files/` are written by `retrieval/formats/make-fixtures.py` (python-docx, python-pptx, openpyxl, reportlab), the same bytes each time; the two WebVTT Transcripts and the four Web pages in `retrieval/formats/files/web/` were written by hand; the others are the repository's own test fixtures, written by other libraries. See `retrieval/formats/ATTRIBUTION.md`.
+- **Fixtures:** synthetic, Apache-2.0. The 14 Office files, PDFs and text files in `retrieval/formats/files/` are written by `retrieval/formats/make-fixtures.py` (python-docx, python-pptx, openpyxl, reportlab), the same bytes each time; the two WebVTT Transcripts and the six Web pages in `retrieval/formats/files/web/` were written by hand; the others are the repository's own test fixtures, written by other libraries. See `retrieval/formats/ATTRIBUTION.md`.
 - **Locations:** `expected.pages` are Unit numbers, as Citations count them (ADR-0011): a PDF's page, a deck's slide, a Word or Markdown section in reading order (a Word file's footnotes are its last Unit), a block of rows (later sheets continue the count), a block of lines, a block of a Transcript's cues, a Web page's sections in reading order.
 - **Known gaps:** 6 Questions ask about text the readers don't index today: scanned pages (no text layer; ADR-0011 leaves text recognition out). They are asked and reported, by hard place, and counted apart from their format's figures. The 6 Word comment Questions were known gaps too until #76, when the Word reader came to read comments into the section their mark is in; they count with Word's figures now.
 - **Checked against the stored text:** `tests/eval/formatSet.test.ts` processes each Document as the core does and checks each quote: on its expected Units and no others, citable together, and inside a Passage that covers them. A Web page is read from the snapshot `saveWebPage` makes of it. A known gap's quote is on none of its Document's Units.
@@ -296,7 +296,7 @@ The gating set asks only about text PDFs. The every-format set, `retrieval/forma
 To approve after the first run, for each of Word, PowerPoint, Excel and CSV, Markdown and plain text, PDF, Transcript and Web page, over the Questions that aren't known gaps:
 
 - **Retrieval:** at least 80% with the search Tool's default, overall and in each language, as for the gating set. One Question is 6 to 17 points of a format's language here, so a bar that the first run misses by one Question is evidence of nothing; a format that misses by more has a problem to look into first.
-- **Citations, with a cloud model:** the gating set's targets per format: at least 90% "Quote found" and at most 5% false "not found", over at least 20 Citations per format; a Web page's 12 Questions may give fewer, and are reported as a smaller sample.
+- **Citations, with a cloud model:** the gating set's targets per format: at least 90% "Quote found" and at most 5% false "not found", over at least 20 Citations per format; a Web page's 14 Questions may give fewer, and are reported as a smaller sample.
 - **Known gaps:** reported, never gating, until their text is indexed.
 
 ## Citation-check cases
