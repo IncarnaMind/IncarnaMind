@@ -219,7 +219,7 @@ describe("Settings › Skills", () => {
       scrollIntoView: () => undefined,
       select: () => undefined,
     });
-    // This document draws no animation: the menu's opening shows at once.
+    // The menu's opening can't be animated here, which motion reports through `reportError`.
     Object.assign(window, { reportError: () => undefined });
     calls.set("getSkillDraft", async (id) => drafts[String(id)]);
     calls.set("listRemovedBuiltInSkills", async () => []);

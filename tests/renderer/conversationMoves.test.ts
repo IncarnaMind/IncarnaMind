@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import type {
   Conversation,
   ConversationAskResult,
@@ -360,6 +360,24 @@ test("help asked during a call doesn't take the User from a Question they asked 
   expect(readsAsked).not.toContain("help");
 });
 
+test.each(["first", "last"] as const)(
+  "the help pressed last in a New chat shows when the help pressed before it comes back %s",
+  async (order) => {
+    const { askHelpInAssistant } = await inACall();
+    const replies = [held<ConversationAskResult>(), held<ConversationAskResult>()];
+    const [first, second] = replies;
+    let asks = 0;
+    helpAsk = () => (replies[asks++] as (typeof replies)[number]).promise;
+    const pressed = [askHelpInAssistant("sum"), askHelpInAssistant("ask")];
+    if (order === "first") first?.settle(askedIn("help1"));
+    second?.settle(askedIn("help2"));
+    if (order === "last") first?.settle(askedIn("help1"));
+    await Promise.all(pressed);
+
+    expect(shown()).toBe("help2");
+  },
+);
+
 test("help asked during a call shows its conversation when the User stayed", async () => {
   const { askHelpInAssistant } = await inACall();
   helpAsk = async () => askedIn("help");
@@ -381,18 +399,18 @@ test("a New chat clicked while a reload shows the conversation again stays a New
   await reloadedShowing("kept");
   conversations.startNewChat();
   restoring.settle({ messages: [question("kept")] });
-  for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+  // A second reload starts in the New chat too: what is kept says so once the read is done.
+  await vi.waitFor(() =>
+    expect(sessionStorage.getItem("incarnamind.window.conversation")).toBeNull(),
+  );
 
   expect(readsAsked).toContain("kept");
   expect(shown()).toBeNull();
-  // A second reload starts in the New chat too.
-  expect(sessionStorage.getItem("incarnamind.window.conversation")).toBeNull();
 });
 
 test("a reload shows the conversation it showed again when the User stayed", async () => {
   await reloadedShowing("kept");
-  for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+  await vi.waitFor(() => expect(shown()).toBe("kept"));
 
-  expect(shown()).toBe("kept");
   expect(conversations.useConversations.getState().messages).toEqual([question("kept")]);
 });

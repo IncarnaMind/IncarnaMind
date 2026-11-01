@@ -152,6 +152,16 @@ export function noMoveSince(): () => boolean {
   return () => move === moves;
 }
 
+/**
+ * For an ask from the assistant (a Question, help during a call): in a new chat it makes the
+ * conversation the assistant shows, so it counts as a move, and a reply still on its way from
+ * before doesn't take the User from it. Whether the User hasn't moved the assistant since.
+ */
+export function noMoveSinceAsked(): () => boolean {
+  if (useConversations.getState().openId === null) moves += 1;
+  return noMoveSince();
+}
+
 /** A new chat: the assistant shows an empty conversation, which its first Question makes. */
 export function startNewChat(): void {
   moves += 1;
@@ -273,10 +283,7 @@ export async function askInAssistant(
   input: Omit<AskInConversationInput, "conversationId"> & { mindId: string | null },
 ): Promise<boolean> {
   const key = composerKey(input.mindId);
-  // Asked in a new chat, it makes the conversation the assistant shows: a reply still on its way
-  // from before (help during a call, a slow open) doesn't take the User from it.
-  if (useConversations.getState().openId === null) moves += 1;
-  const stayed = noMoveSince();
+  const stayed = noMoveSinceAsked();
   useConversations.setState({
     asking: input.text,
     askingReads: { mindId: input.mindId, scope: input.scope ?? null },
