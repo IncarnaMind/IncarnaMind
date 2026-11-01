@@ -287,6 +287,27 @@ describe.each([
   });
 });
 
+// protects=a model names a measure's words around its number, joining them across it ("employed drivers" for "employed 1,840 drivers"), and the check still finds them; a measure it calls different backs nothing even when its words for the quote's aren't found there (#2255); fails_when=words joined across the number aren't found, or a "differs" with words the quote lacks is Supported or Not checked; no_claim=none beyond protects.
+test.each([
+  {
+    measure: { sentence: "Revenue grew in 2025", quote: "Revenue grew in 2025", match: "same" },
+    state: "supported",
+  },
+  {
+    measure: { sentence: "Revenue grew", quote: "turnover", match: "differs" },
+    state: "unsupported",
+  },
+])("words joined across the number, or a differs: $measure.match", async ({ measure, state }) => {
+  const sentence = "Revenue grew 12% in 2025.";
+  const { figures } = await checkNote(
+    "en",
+    EN_DOCUMENT,
+    [paragraph("joined", sentence)],
+    one(sentence, { quote: "Revenue grew 12% in 2025, to £48.2m.", number: "12%", measure }),
+  );
+  expect(figures).toMatchObject([{ sentence, state, why: null }]);
+});
+
 // protects=a Chinese sentence checked against an English Document gets the reason in Chinese, the quote's English words spaced from the Chinese around them (docs/agents/zh-CN.md), and its own Chinese measure in its place (#2255); fails_when=the reason runs Latin words into Chinese or names the measures the wrong way round; no_claim=how a real model words either measure.
 test("the reason names an English quote's measure in a Chinese sentence's reason", async () => {
   const sentence = "2025年营业利润率为12%。";

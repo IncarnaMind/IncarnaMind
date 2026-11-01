@@ -41,18 +41,16 @@ const wordsOf = (text: string): string[] =>
     .toLowerCase()
     .match(/\p{Script=Han}|(?:(?!\p{Script=Han})[\p{L}\p{N}\p{M}])+/gu) ?? [];
 
-/** Which word of `text` `words` start at, word for word; null when `text` doesn't hold them. */
-function placeIn(text: string, words: string): number | null {
+/** Whether `text` holds `words`, word for word. */
+function holds(text: string, words: string): boolean {
   const all = wordsOf(text);
   const part = wordsOf(words);
-  if (part.length === 0) return null;
+  if (part.length === 0) return false;
   for (let at = 0; at + part.length <= all.length; at++) {
-    if (part.every((word, index) => all[at + index] === word)) return at;
+    if (part.every((word, index) => all[at + index] === word)) return true;
   }
-  return null;
+  return false;
 }
-
-const holds = (text: string, words: string): boolean => placeIn(text, words) !== null;
 
 /** `text` with its figures and stated units taken out: what is left says what they are. */
 function withoutNumbers(text: string): string {
@@ -67,6 +65,13 @@ function withoutNumbers(text: string): string {
 
 /** Whether `text` has a word of its own beside its numbers: a name for what they measure. */
 export const namesSomething = (text: string): boolean => /\p{L}/u.test(withoutNumbers(text));
+
+/**
+ * Whether `text` holds the measure's `words`, numbers left out of both: Claude Haiku 5.5 named
+ * "employed drivers" for "employed 1,840 drivers", and "drove 96 million kilometres" for it too.
+ */
+const namedIn = (text: string, words: string): boolean =>
+  holds(withoutNumbers(text), withoutNumbers(words));
 
 /** A table's row as text: its cells apart by tabs or bars. */
 const isRow = (line: string): boolean => line.includes("\t") || /\S\s*\|\s*\S/.test(line);
@@ -102,7 +107,7 @@ function shown(words: string, texts: readonly string[]): string {
 
 export type MeasureFinding =
   | { kind: "same" }
-  /** `measured`: null when the quote is a bare number the reply names nothing for. */
+  /** `measured`: null when the reply gives no words for it that its quote or table holds. */
   | { kind: "differs"; measured: string | null; claimed: string }
   /** The quote is a bare number and the reply names nothing for it: its table's headings decide. */
   | { kind: "unnamed" }
@@ -123,24 +128,28 @@ export function measureFinding(
 ): MeasureFinding {
   if (!measure) return { kind: "unread" };
   const said = measure.sentence;
-  if (!namesSomething(said) || !sentence.some((text) => holds(text, said)))
+  if (!namesSomething(said) || !sentence.some((text) => namedIn(text, said)))
     return { kind: "unread" };
   const bare = !namesSomething(quote);
   const quoted = measure.quote;
-  if (quoted === null && !bare) return { kind: "unread" };
-  if (quoted === null)
-    return measure.match === "same"
-      ? { kind: "unnamed" }
-      : { kind: "differs", measured: null, claimed: shown(said, sentence) };
   // A table's cell is named by its row label and its column's heading, which a quote of the cell
   // or its row may leave out; a quote of a number alone, by the words its Passage puts around it.
-  const found = holds(quote, quoted)
-    ? [quote]
-    : passage().flatMap((text) => {
-        const around = tableOf(text, quote) ?? (bare ? text : null);
-        return around !== null && holds(around, quoted) ? [around] : [];
-      });
-  if (!namesSomething(quoted) || found.length === 0) return { kind: "unread" };
-  if (measure.match === "same") return { kind: "same" };
-  return { kind: "differs", measured: shown(quoted, found), claimed: shown(said, sentence) };
+  const found =
+    quoted === null || !namesSomething(quoted)
+      ? []
+      : namedIn(quote, quoted)
+        ? [quote]
+        : passage().flatMap((text) => {
+            const around = tableOf(text, quote) ?? (bare ? text : null);
+            return around !== null && namedIn(around, quoted) ? [around] : [];
+          });
+  // A measure the reply itself says differs backs nothing, whatever words it gives the quote's.
+  if (measure.match === "differs")
+    return {
+      kind: "differs",
+      measured: quoted !== null && found.length > 0 ? shown(quoted, found) : null,
+      claimed: shown(said, sentence),
+    };
+  if (found.length > 0) return { kind: "same" };
+  return quoted === null && bare ? { kind: "unnamed" } : { kind: "unread" };
 }
