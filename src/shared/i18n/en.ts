@@ -418,6 +418,7 @@ export const en = {
   "undo.examplesShown": "Showed the examples",
   "menu.showExamples": "Show the examples again",
   "undo.folderLinked": "Linked “{name}”",
+  "undo.folderUnlinked": "Unlinked “{name}”",
   "undo.linkedFolder.mergedGone":
     "“{name}”, the Linked folder this link took in, isn’t on the disk any more.",
   "undo.linkedFolderPaused": "Paused reading in “{name}”",

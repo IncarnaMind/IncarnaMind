@@ -27,8 +27,8 @@ export interface Undoable {
   undoneNote?(): Words | null;
   /**
    * What the line says, with Redo, once it is taken back, when that took away something the User
-   * may not be looking at: "Removed 7 Documents". A ⌘Z can reach it long after it was made.
-   * Null: it took nothing away.
+   * may not be looking at: "Removed 7 Documents". A ⌘Z can reach it long after it was made, from
+   * a note. Null: it took nothing away.
    */
   takenBack?(): WordsInLine | null;
   /**
@@ -209,7 +209,6 @@ export const SLOW_CHANGE_MS = 1_000;
 let lines = 0;
 const lineOf = (change: Undoable): UndoLineState => ({ id: ++lines, change });
 
-/** What a change taken back took away, with Redo, which does that change again. */
 const takenBackLine = (change: Undoable, says: WordsInLine): UndoLineState => ({
   id: ++lines,
   told: {
@@ -218,7 +217,11 @@ const takenBackLine = (change: Undoable, says: WordsInLine): UndoLineState => ({
       label: (t) => t("menu.redo"),
       shortcut: "edit.redo",
       testId: "redo-action",
-      run: () => void useUndo.getState().redo(change),
+      run: () => {
+        // An edit since may have ended what can be redone, under the line still showing.
+        if (useUndo.getState().undone.includes(change)) void useUndo.getState().redo(change);
+        else useUndo.getState().dismiss();
+      },
     },
   },
 });
@@ -371,7 +374,6 @@ export const useUndo = create<UndoState>()((set, get) => {
         set((state) => ({
           undone: state.undone.filter((each) => each !== change),
           done: [...state.done, change],
-          line: lineOf(change),
         }));
       }
     },

@@ -389,18 +389,32 @@ describe("what an Undo took away (#2402)", () => {
 
   test("is said with Redo, which does that change again even once another is taken back after it", async () => {
     const log: string[] = [];
+    const fix = change("Fix", log);
+    push(fix);
     push(taking("Add", log, "Removed 7 Documents"));
     await undo();
     expect(told()?.says).toBe("Removed 7 Documents");
     expect(told()?.action?.label(noWords)).toBe("menu.redo");
-    const redoAdd = told()?.action;
-    // A step taken back in the note meanwhile lands on top of Redo; the line's Redo is still the add's.
-    useUndo.setState((state) => ({ undone: [...state.undone, change("Fix", log)] }));
-    redoAdd?.run();
+    // The note takes back its own step meanwhile: it lands on top of Redo, under the same line.
+    useUndo.getState().follow(fix, "undo");
+    expect(names(useUndo.getState().undone)).toEqual(["Add", "Fix"]);
+    told()?.action?.run();
     await undoSettled();
     expect(log).toEqual(["undo Add", "redo Add"]);
     expect(names(useUndo.getState().undone)).toEqual(["Fix"]);
     expect(names(useUndo.getState().done)).toEqual(["Add"]);
+  });
+
+  test("a Redo that an edit since has ended takes the line away instead of doing nothing", async () => {
+    const log: string[] = [];
+    push(taking("Add", log, "Removed 7 Documents"));
+    await undo();
+    useUndo.setState({ undone: [] });
+    expect(told()?.says).toBe("Removed 7 Documents");
+    told()?.action?.run();
+    await undoSettled();
+    expect(log).toEqual(["undo Add"]);
+    expect(useUndo.getState().line).toBeNull();
   });
 
   test("an Undo that took nothing away, or can't be done again, shows no line", async () => {

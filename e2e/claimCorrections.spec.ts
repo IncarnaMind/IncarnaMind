@@ -294,6 +294,7 @@ for (const [language, width] of [
     const fixed = async () => {
       await expect(line).toContainText("38.6%");
       await expect(line.getByTestId("citation")).toHaveCount(1);
+      await expect(line.getByTestId("citation")).toHaveAttribute("data-check", "found");
       await expect(mark).toHaveAttribute("data-check", "supported");
     };
     const before = async () => {
@@ -334,7 +335,6 @@ for (const [language, width] of [
       translate(language, "undo.documentsRemoved", { count: "3" }),
     );
     await expect.poll(library).toBe(0);
-    await expect(mark).toHaveAttribute("data-check", "needs-recheck");
     await screenshot(window, `correction-add-undone-${language}`);
 
     await pointAndClick(window, undoLine.getByTestId("redo-action"));

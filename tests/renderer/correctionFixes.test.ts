@@ -968,7 +968,7 @@ describe("A fix taken back and done again from outside the note (#2402)", () => 
     applyCorrection(editor, "mind", claim(editor, "one"));
     const [change] = useUndo.getState().done;
 
-    undoManager(editor)?.undo();
+    editor.commands.undo();
     expect(shown(editor)).toEqual(before);
     expect(useUndo.getState().done).toEqual([]);
     expect(useUndo.getState().undone).toEqual([change]);
@@ -980,7 +980,7 @@ describe("A fix taken back and done again from outside the note (#2402)", () => 
     expect(useUndo.getState().done).toEqual([change]);
 
     await undo();
-    undoManager(editor)?.redo();
+    editor.commands.redo();
     expect(shown(editor)).toEqual(fixed);
     expect(useUndo.getState().done).toEqual([change]);
     expect(useUndo.getState().undone).toEqual([]);

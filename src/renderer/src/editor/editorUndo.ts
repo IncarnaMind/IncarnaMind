@@ -55,13 +55,16 @@ export function asOneStep<T>(editor: Editor, change: () => T): T {
  * again, as ⌘⇧Z in the note would. Once the User edits again, takes back an
  * earlier step in the note, or closes the note, it leaves the stack.
  * `onUndone` puts back what the step left behind outside the note's history,
- * such as a check's result the core wrote over (#1247).
+ * such as a check's result the core wrote over (#1247), and `onRedone` makes
+ * that again once the step is done again: without it, only the note's own
+ * ⇧⌘Z does the step again.
  */
 export function offerEditorUndo(
   editor: Editor,
   said: WordsInLine,
   shownAt?: string,
   onUndone?: () => void,
+  onRedone?: () => void,
 ): void {
   const manager = undoStackOf(editor);
   const last = manager?.undoStack.at(-1);
@@ -76,8 +79,7 @@ export function offerEditorUndo(
     undo: async () => {
       if (!editor.isDestroyed && manager.undoStack.at(-1) === step) editor.commands.undo();
     },
-    // Redo in the note brings back its text, never what `onUndone` put back outside its history.
-    ...(!onUndone && {
+    ...((!onUndone || onRedone) && {
       redo: async () => {
         if (!editor.isDestroyed && reversal && manager.redoStack.at(-1) === reversal) {
           editor.commands.redo();
@@ -103,16 +105,15 @@ export function offerEditorUndo(
   };
   const onPopped = (event: { stackItem: UndoStep; type: "undo" | "redo" }) => {
     if (event.type === "undo" && event.stackItem === step) {
-      if (!change.redo) {
-        forget();
-        onUndone?.();
-        return;
-      }
-      reversal = added;
-      followHere("undo");
+      if (change.redo) {
+        reversal = added;
+        followHere("undo");
+      } else forget();
+      onUndone?.();
     } else if (event.type === "redo" && reversal && event.stackItem === reversal) {
       if (added) step = added;
       reversal = undefined;
+      onRedone?.();
       followHere("redo");
     } else forget();
   };

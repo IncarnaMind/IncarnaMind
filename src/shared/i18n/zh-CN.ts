@@ -407,6 +407,7 @@ export const zhCN = {
   "undo.examplesShown": "已显示示例",
   "menu.showExamples": "重新显示示例",
   "undo.folderLinked": "已添加关联文件夹“{name}”",
+  "undo.folderUnlinked": "已移除关联文件夹“{name}”",
   "undo.linkedFolder.mergedGone": "并入的关联文件夹“{name}”已不在磁盘上。",
   "undo.linkedFolderPaused": "已暂停读取“{name}”",
   "undo.linkedFolderResumed": "已继续读取“{name}”",
