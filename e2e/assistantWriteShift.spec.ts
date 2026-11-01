@@ -101,6 +101,7 @@ async function writeShift(language: "en" | "zh-CN", mindName: string) {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
+  // biome-ignore lint/correctness/useHookAtTopLevel: an e2e helper whose name begins with "use", not a React hook.
   await useLocalChatModel(window);
   await setLanguage(window, language);
   await mindWrittenBefore(window, mindName, [
