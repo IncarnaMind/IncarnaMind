@@ -936,4 +936,24 @@ describe("Turned on again where it is on", () => {
 
     expect(providers.sent("anthropic")).toBe(2);
   });
+
+  test("after the User took the consent back, turning it on again is a new consent: what came in meanwhile waits, what comes after goes", async () => {
+    const providers = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    await core.revokeConsent("tagging", "https://api.anthropic.com");
+    const during = await add(core, "During.txt");
+
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    await waitForTagging(core, [during.id], (each) => each.tagging === "off");
+    expect(providers.sent("anthropic")).toBe(0);
+    const after = await add(core, "After.txt");
+    await waitForTagging(core, [after.id]);
+
+    expect(await taggingOf(core, during.id)).toBe("off");
+    expect(providers.sent("anthropic")).toBe(1);
+  });
 });
