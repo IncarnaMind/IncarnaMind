@@ -98,6 +98,29 @@ Check this Mind asks the model once which of a Mind's sentences make claims, and
 
 ## Results
 
+### 2026-11-01: a sentence a Document states word for word is Supported against All Documents (#2184)
+
+In the walk of 2026-11-01, "Raising the barrier crest by 40 centimetres halves the expected annual damage in the northern estuary.", which the Field Report states word for word, came back "The model's reply couldn't be read", then Unsupported against All Documents. The search handed the model the verbatim Passage in all 165 checks against All Documents logged before the change (150 here, 15 replays of the walk's Check again); the sentence was lost in reading the reply. Claude Haiku 5.5 wrote a sentence's verdict lines in the turn that calls `cite` and its Figures line alone after it, and a sentence with figures was read from its last turn only, so it had no verdict. And for a sentence it wrote a quote into its reply instead of calling `cite`; asked for that marker's record, it gave the record alone, which the check didn't read, so the sentence was Not checked. Now a last turn with no verdict is read after the last turn set aside with one, in the asks about the Figures line as in the result, and a record given alone for the one marker asked about is read, its quote still checked.
+
+`npm run eval:repeats`, 20 checks of `en-walk`, `en-verbatim`, `zh-verbatim` and their decoys, Claude Haiku 5.5 on the direct Anthropic API, thinking as the app sets it. Before is `main` at 19033fbf7 with the held-out cases (b13105241), after is 1d2c4ebed. The commit after it reads a record given alone only for the one marker its reply names; every record given alone in these runs answered that one marker, so no count below changes. Counts are Supported, Contradicted, Unsupported, Not checked.
+
+| Sentence | Before | After |
+|---|---|---|
+| Raising the barrier crest by 40 centimetres halves the expected annual damage in the northern estuary. | 18, 0, 0, 2 | 20, 0, 0, 0 |
+| Breaching the sea wall at two points raised the count of wintering redshank at Elden Flats from 140 to 410 birds. | 18, 0, 0, 2 | 20, 0, 0, 0 |
+| Cordgrass now covers most of the lower marsh, while the upper marsh is still bare mud. | 19, 0, 1, 0 | 20, 0, 0, 0 |
+| Avocets nested on the new islands for the first time in 2026. | 20, 0, 0, 0 | 20, 0, 0, 0 |
+| 新渠道通水后，灌区内水稻亩产由420公斤提高到510公斤。 | 16, 0, 0, 4 | 20, 0, 0, 0 |
+| 下游村庄的饮用水已改由新建水厂统一供应。 | 19, 0, 0, 1 | 20, 0, 0, 0 |
+| 泵站改造后，每年节约用电约35万千瓦时。 | 20, 0, 0, 0 | 20, 0, 0, 0 |
+
+- **Verbatim sentences Supported:** 130 of 140 before, 140 of 140 after; Unsupported 1 before, 0 after. All 9 Not checked "couldn't be read" before were the verdict beside `cite` with the Figures line after it; after, the 14 checks of that shape were Supported.
+- **Decoys** (the same sentences with a figure, a place, the parts or the species changed, and a wrong cost): Supported in 0 of 160 checks before and after.
+- **The one Unsupported before** was a Coverage line the model wrote for a part with no quantifier ("the upper marsh is still bare mud", `complete: false`), which turns Supported into Unsupported; it didn't recur in the 40 checks after, and is not changed here.
+- **Cost after:** $0.41 at the app's own count, 1,667 requests: 513,222 uncached input tokens, 10,472,441 cache reads, 679,262 cache writes and 333,080 output tokens.
+- **Claude Sonnet 5.5, after, 20 checks of `en-verbatim` and `zh-verbatim`:** Supported in 20 of 20 for the two-figure sentence in each language and for all three Chinese sentences, 16 of 20 for "Cordgrass now covers…" and 17 of 20 for "Avocets nested…"; no Unsupported. The 7 Not checked are replies with no verdict to read: after its search the model called `cite` with no text and then wrote only "Evidence: [1]" and "Calculation: none". $1.46 at the app's own count, 422 requests: 65,868 uncached input tokens, 3,315,531 cache reads, 138,491 cache writes and 64,790 output tokens.
+- **The other sets after the change, 5 checks each** (`en`, `zh`, their controls, the periods and the near-miss sets): no false Supported in 235 checks. Only one check of them had its verdict written beside `cite` and its Figures line after, the 2023 figure in Chinese, and it ended "I didn't find this", as expected. Every other check there gave its verdict in its last turn, which this change reads as before; one kind of Not checked among them is a remainder that isn't a copy of the sentence's words ("In 2026 Fenwick Timber delivers cubic metres of oak…", the figure taken out of the middle), 2 of the 5 checks of that sentence in English. $0.22 at the app's own count, 918 requests: 250,335 uncached input tokens, 5,452,625 cache reads, 448,990 cache writes and 173,804 output tokens.
+
 ### 2026-10-30: a sentence with a figure keeps a contradiction whose quote the model never recorded (#2184)
 
 A sentence with a figure is checked figure by figure, and the reply's own verdict on the sentence counts beside its figures. On Claude Haiku 5.5, about one contradicted reply in seven gave no recorded quote: it wrote its record into the reply instead of calling `cite`, most often in a long reply that corrects a first verdict. The figure step then had no quote to judge the contradiction on, and the card showed Unsupported. Now the check asks once for the deciding quote, as it does for a sentence without figures, and judges the contradiction on it. A reply reads as a refusal only when it gives no verdict ("两万元无法核对" is a reason), and the Figures line is never shown as what the Document says.
