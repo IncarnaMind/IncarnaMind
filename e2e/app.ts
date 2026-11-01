@@ -2812,7 +2812,7 @@ const answerEnded = (window: Page, known: readonly string[]) =>
 /**
  * Asks a Question as a person does: ⌘J, the words, Enter. It is asked in the
  * assistant's conversation (#201); resolves with its Answer there once the assistant says its
- * stream ended and the page shows it done. The scripted model streams a word every
+ * stream ended, the page shows it done, and its sentences are judged (#2311). The scripted model streams a word every
  * 60 ms, so a wide table takes about 7 s on a quiet computer, and a loaded runner took more than
  * twice the old 15 s ceiling (#1651).
  */
@@ -2846,6 +2846,10 @@ export async function askInAssistant(
   await expect(endedHere).toHaveAttribute(
     "data-status",
     end.status === "closed" ? "done" : end.status,
+    { timeout },
+  );
+  await expect(endedHere.locator('[data-testid="citation"][data-check="checking"]')).toHaveCount(
+    0,
     { timeout },
   );
   return answer;

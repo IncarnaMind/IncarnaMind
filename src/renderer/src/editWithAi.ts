@@ -63,6 +63,7 @@ export type EditProblem = (
         | "local-mode"
         | "cant-regenerate"
         | "no-table"
+        | "unplaced"
         | "late"
         | "busy";
     }
