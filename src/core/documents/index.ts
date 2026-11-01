@@ -2424,12 +2424,16 @@ export function createDocuments(options: DocumentsOptions) {
         .map((row) => ({ id: row.id, name: row.name, size: Number(row.size) }));
     },
 
-    /** Whether any live Document to search (of all of them, or only of these) is a workbook or a CSV file. */
-    searchableHasSheets(documentIds: readonly string[] | undefined): boolean {
+    /** Whether any live Document to search (of all of them, or only of these) is a workbook or a CSV file; or a workbook. */
+    searchableHasSheets(
+      documentIds: readonly string[] | undefined,
+      workbooksOnly = false,
+    ): boolean {
       const { where, params } = searchable(documentIds);
+      const kinds = workbooksOnly ? "('xlsx')" : "('xlsx', 'csv')";
       return (
         db.get<{ found: number }>(
-          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ('xlsx', 'csv') LIMIT 1`,
+          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ${kinds} LIMIT 1`,
           params,
         ) !== undefined
       );

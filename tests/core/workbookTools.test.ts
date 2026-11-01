@@ -233,4 +233,28 @@ describe("a workbook's formulas in an Answer", () => {
     expect(answer.figures[0]?.value).toBeCloseTo(240.39994, 9);
     expect(answer.figures[0]?.workbook?.change).toMatchObject({ value: 0.03, shown: "3.0%" });
   });
+
+  test.each([
+    [
+      "a CSV file alone",
+      "sales.csv",
+      new TextEncoder().encode("Region,Revenue\nNorth,120\n"),
+      false,
+    ],
+    ["a workbook", "dcf.xlsx", new Uint8Array(dcfWorkbook().xlsx()), true],
+  ])(
+    "%s: the workbook's Tools and their steer are offered only with a workbook",
+    async (_name, file, contents, offered) => {
+      const model = scriptedModel(() => ({ text: "Done." }));
+      const { core } = await setUp(model, file, contents);
+      await ask(core, "What is in the sheet?");
+      const call = model.doStreamCalls[0];
+      const names = (call?.tools ?? []).map((tool) => tool.name);
+      expect(names).toContain("search_documents");
+      expect(names.includes("trace_formulas")).toBe(offered);
+      expect(names.includes("what_if")).toBe(offered);
+      const system = JSON.stringify(call?.prompt[0] ?? "");
+      expect(system.includes("call trace_formulas")).toBe(offered);
+    },
+  );
 });

@@ -797,8 +797,11 @@ export interface DocumentsForAnswers
   ): ListedDocuments & { webPages: string[] };
   /** The Documents to search, the most text first. */
   searchableBySize(documentIds: readonly string[] | null): SizedDocument[];
-  /** Whether a Document to search is a workbook or a CSV file: what an Analysis reads (#447). */
-  searchableHasSheets(documentIds: readonly string[] | null): boolean;
+  /**
+   * Whether a Document to search is a workbook or a CSV file: what an Analysis reads (#447);
+   * with `workbooksOnly`, a workbook, whose formulas its Tools read (#2347).
+   */
+  searchableHasSheets(documentIds: readonly string[] | null, workbooksOnly?: boolean): boolean;
   passage(passageId: string): WindowedPassage | null;
   /** The live Passages of a live Document at positions `from` to `to`, in reading order. */
   passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];
@@ -2594,7 +2597,7 @@ export function createAnswers(options: AnswersOptions) {
         calculating &&
         input.toolSet === undefined &&
         !help &&
-        options.documents.searchableHasSheets(documentIds)
+        options.documents.searchableHasSheets(documentIds, true)
           ? workbookTools({
               passage: shownPassage,
               passageOf: (documentId, page) =>

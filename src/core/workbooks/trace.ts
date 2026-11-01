@@ -239,13 +239,25 @@ export async function traceChain(
     frontier = next;
   }
   const result = run.results.get(target);
+  // A run stopped at its time limit before it reached the figure worked nothing out for it.
+  const unfinished: Dependence[] =
+    !result && first.formula !== null
+      ? [
+          {
+            sheet: first.sheet,
+            row: first.row,
+            column: first.column,
+            problem: { kind: "too-large" },
+          },
+        ]
+      : [];
   return {
     target: first,
     steps,
     inputs,
     moreSteps,
     moreInputs,
-    dependsOn: result?.dependsOn ?? [],
+    dependsOn: result?.dependsOn ?? unfinished,
     formulaCells: run.order.length,
     ms: run.ms,
   };
