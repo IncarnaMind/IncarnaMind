@@ -30,6 +30,7 @@ export const FORMATS = [
   { id: "text", label: "Markdown and plain text", kinds: ["markdown", "text"] },
   { id: "pdf", label: "PDF", kinds: ["pdf"] },
   { id: "transcript", label: "Transcript", kinds: ["transcript"] },
+  { id: "web", label: "Web page", kinds: ["web"] },
 ] as const satisfies readonly { id: string; label: string; kinds: readonly DocumentKind[] }[];
 
 export type FormatId = (typeof FORMATS)[number]["id"];
@@ -40,9 +41,11 @@ export type FormatId = (typeof FORMATS)[number]["id"];
  */
 export const FORMAT_MODES: readonly RetrievalMode[] = [GATING_MODE, HYBRID, HYBRID_RERANK_MODE];
 
-/** The format of a Document's file, by its kind. */
-export function formatOf(path: string): FormatId {
-  const kind = kindOf(path);
+/**
+ * The format of a Document, by its kind: `kind` when the set names it, as a
+ * Web page's, else the kind of the file at `path`.
+ */
+export function formatOf(path: string, kind: DocumentKind | undefined = kindOf(path)): FormatId {
   const format = FORMATS.find((each) => (each.kinds as readonly string[]).includes(kind ?? ""));
   if (!format) throw new Error(`${path} isn't a Document format.`);
   return format.id;
@@ -91,7 +94,9 @@ export function summariseFormats(
   retrieval: RetrievalRun,
   citations: CitationRun | { skipped: string },
 ): FormatSummary[] {
-  const formatByDocument = new Map(set.documents.map(({ key, path }) => [key, formatOf(path)]));
+  const formatByDocument = new Map(
+    set.documents.map(({ key, path, kind }) => [key, formatOf(path, kind)]),
+  );
   const results = new Map(retrieval.questions.map((result) => [result.id, result]));
   const hit = (id: string, mode: RetrievalMode) => results.get(id)?.modes[mode]?.hit === true;
   const formatOfQuestion = new Map(

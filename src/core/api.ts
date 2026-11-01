@@ -13,6 +13,7 @@ import type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+import type { Localized } from "./providers/catalog/types";
 import type { UiUsageEvent } from "./usageEvents";
 
 export type {
@@ -1234,7 +1235,8 @@ export interface AnalysisCall {
  * (someone else's, or the User's own requests), `count` of them in the Mind;
  * "mixed": its own waiting text sits beside the User's there. "model": the
  * model failed, as `message` says. "no-table": a table it wrote couldn't be
- * made, so none of its text went in (#961).
+ * made, so none of its text went in (#961). "unplaced": text it marked to take
+ * out isn't in the Mind word for word, so none of its text went in (#2180).
  */
 export type MindProblem =
   | { kind: "waiting"; mindId: string; count: number; mixed: boolean }
@@ -1254,6 +1256,7 @@ export type MindProblem =
         | "content-not-own"
         | "stopped"
         | "no-table"
+        | "unplaced"
         | "uncited"
         // Only in Answers written before #1559.
         | "new-mind";
@@ -2736,10 +2739,10 @@ export interface DeviceSettings {
 
 /**
  * Where a Meeting's audio is turned into text: on this computer, or by a cloud service with the
- * User's own key (#141): OpenAI with the key of the OpenAI provider in Settings › Models, Soniox
- * with a key of its own. #463 adds Qwen.
+ * User's own key (#141): OpenAI and Qwen (Alibaba Cloud Model Studio, for mainland China) with
+ * the key of their provider in Settings › Models, Soniox with a key of its own.
  */
-export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox"] as const;
+export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox", "qwen"] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];
 export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 
@@ -2747,13 +2750,23 @@ export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 export interface TranscriptionServiceStatus {
   route: CloudTranscriptionRoute;
   name: string;
+  /** Who gets the audio, as the consent line names it ("Alibaba Cloud" for Qwen). */
+  recipient: Localized;
   model: string;
   perHour: Money;
+  /** The region the key is for, named as in Settings › Models. */
+  region: Localized | null;
+  dataUse: { summary: Localized; url: Localized } | null;
   /** "provider": it uses the key of the chat provider of the same name in Settings › Models. */
   key: "provider" | "own";
   hasKey: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
+  /**
+   * It was chosen, and set back to this computer when its key began to send the audio somewhere
+   * the User hadn't chosen (a Qwen key for another region): choosing it again sends it there.
+   */
+  chooseAgain: boolean;
 }
 
 /**
@@ -5783,6 +5796,11 @@ export type EditWithAiResult =
    * (#961): nothing was written. `text`: the passage's new text, as it wrote it.
    */
   | { kind: "no-table"; text: string }
+  /**
+   * The model marked text to take out that the passage doesn't have word for word in one
+   * place (#2180): nothing was written. `quotes`: that text, as it wrote it.
+   */
+  | { kind: "unplaced"; quotes: string[] }
   /** The model failed, or gave nothing back. */
   | { kind: "failed"; error: ProviderError };
 
@@ -10023,12 +10041,13 @@ export interface MeetingTranscript {
    * This computer took over from the cloud service the User chose, during this stretch of
    * recording: where, in the Meeting's time, and why. "dropped": the connection was lost;
    * "refused": the service didn't accept the key; "cap": the month reached the cap;
-   * "local-mode": “Keep everything on this computer” is on. Null otherwise.
+   * "local-mode": “Keep everything on this computer” is on; "moved": the key now sends the
+   * audio somewhere the User hasn't chosen (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
    */
   fellBack: {
     route: CloudTranscriptionRoute;
     atMs: number;
-    reason: "dropped" | "refused" | "cap" | "local-mode";
+    reason: "dropped" | "refused" | "cap" | "local-mode" | "moved";
   } | null;
   /** Its own file in the data folder, once saved: kept for the Library, never shown as a path (#763). */
   savedPath: string | null;
