@@ -5270,8 +5270,10 @@ export const zhCN = {
   "approvals.thirdParty.conversation.webPage": "会先问你：这个对话里有来自网页的文字。",
   "approvals.thirdParty.conversation.checkedDocument":
     "会先问你：这个对话里有正在核对的文档中的文字。",
-  "approvals.thirdParty.read.outsideAgent": "会先问你：这条回答读过含有智能体文字的笔记。",
-  "approvals.thirdParty.task.outsideAgent": "会先问你：这个任务读过含有智能体文字的笔记。",
+  "approvals.thirdParty.read.outsideAgent":
+    "会先问你：这条回答读过一篇笔记，里面有已连接智能体写的文字。",
+  "approvals.thirdParty.task.outsideAgent":
+    "会先问你：这个任务读过一篇笔记，里面有已连接智能体写的文字。",
   "approvals.thirdParty.mind.outsideAgent": "会先问你：这篇笔记里有已连接智能体写的文字。",
   "approvals.thirdParty.conversation.outsideAgent": "会先问你：这个对话里有已连接智能体写的文字。",
   "approvals.call.waiting": "等待你的批准：{connector}：{tool}",
