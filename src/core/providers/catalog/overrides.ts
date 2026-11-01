@@ -44,6 +44,14 @@ const KIMI = { temperature: false, forcedToolChoice: false } as const;
 /** GLM takes JSON mode but no JSON schema, and only automatic Tool choice. */
 const GLM = { structuredOutput: "json_object", forcedToolChoice: false } as const;
 
+/** `calculate` in Answers and checks, with the workbook and Analysis Tools beside it. */
+const CALCULATES_EVERYWHERE = {
+  calculates: true,
+  workbookTools: true,
+  analysis: true,
+  checkCalculates: true,
+} as const;
+
 export const OVERRIDES: CatalogOverrides = {
   cannotAnswer: {
     openai: {
@@ -57,23 +65,14 @@ export const OVERRIDES: CatalogOverrides = {
   providers: {
     // Measured using the calculate Tool well (#438: Claude Haiku 5.5, GPT-6 Luna); the ChatGPT plan
     // serves OpenAI's models. Every other provider stays off until the evaluation (#441) measures it.
-    anthropic: { calculates: true, toolsEveryRequest: true },
-    openai: { calculates: true },
+    anthropic: { ...CALCULATES_EVERYWHERE, toolsEveryRequest: true },
+    openai: CALCULATES_EVERYWHERE,
     // Google asks for its Gemini 3 models to run at their default temperature: lower makes
     // them loop or reason worse.
     google: { temperature: false },
     // DeepSeek takes JSON mode only (its prompt must say "json"), and answers 400 to a forced
     // Tool choice while it thinks, which it does by default; then it ignores the temperature.
-    // The evaluation's first runs (#441, #2399): DeepSeek Flash used calculate on 72 Questions in
-    // English and Chinese with no figure wrongly marked checked. The fact also offers the workbook
-    // Tools and the Analysis Tool, as for Anthropic and OpenAI. DeepSeek's models served by other
-    // providers (OpenRouter, SiliconFlow…) weren't measured and stay off.
-    deepseek: {
-      structuredOutput: "json_object",
-      forcedToolChoice: false,
-      temperature: false,
-      calculates: true,
-    },
+    deepseek: { structuredOutput: "json_object", forcedToolChoice: false, temperature: false },
     // Qwen thinks by default, and a forced Tool choice fails while it does.
     qwen: { forcedToolChoice: false },
     "qwen/intl": { forcedToolChoice: false },
@@ -132,8 +131,12 @@ export const OVERRIDES: CatalogOverrides = {
       "mistral-small-2603": { structuredOutput: "json_schema" },
     },
     deepseek: {
-      // The peak price, from the Chinese price page; the rest of the day it is half.
+      // calculate in Answers only: DeepSeek Flash used it on #441's 72 Questions with no figure
+      // wrongly marked checked (#2399). Its workbook, Analysis and claim-check calculate weren't
+      // measured, nor were V4 Pro and the vision model.
       "deepseek-flash": {
+        calculates: true,
+        // The peak price, from the Chinese price page; the rest of the day it is half.
         price: yuan(
           2,
           8,
@@ -145,6 +148,7 @@ export const OVERRIDES: CatalogOverrides = {
           DEEPSEEK_PEAK,
         ),
       },
+      "deepseek-v4-flash": { calculates: true },
       "deepseek-v4-pro": {
         price: yuan(
           9,

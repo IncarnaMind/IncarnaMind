@@ -62,7 +62,7 @@ import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
 import { isRecord } from "../../errors";
 import type { Language } from "../../language";
-import { calculates, givesStructuredOutput } from "../../providers/capabilities";
+import { checkCalculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
 import { OUTPUT_LIMITS, outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
@@ -517,7 +517,7 @@ const asPassage = (source: CitationSource): WindowedPassage => ({
 });
 
 const calculatesIn = (model: Pick<PreparedChatModel, "support" | "capabilities">): boolean =>
-  model.support === "tools" && calculates(model.capabilities);
+  model.support === "tools" && checkCalculates(model.capabilities);
 
 /** What a check Run starts from: its sentence, read in its paragraph, beside what it cites. */
 export type CheckStart = Pick<ClaimCheckRequest, "claim" | "context" | "cited" | "figures"> & {

@@ -154,7 +154,12 @@ import type { MindContent } from "../mindContent";
 import { plainText } from "../mindText";
 import { docOf } from "../proposals/merge";
 import { proposeBlocks } from "../proposals/write";
-import { givesStructuredOutput, calculates as offersCalculate } from "../providers/capabilities";
+import {
+  givesStructuredOutput,
+  offersAnalysis,
+  calculates as offersCalculate,
+  offersWorkbookTools,
+} from "../providers/capabilities";
 import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { PreparedChatModel } from "../providers/chat";
 import type { ModelCallKind } from "../providers/outputLimits";
@@ -1477,6 +1482,7 @@ export function createAnswers(options: AnswersOptions) {
      * model, once prepared (ADR-0021). Off, the Answer is as it was before them.
      */
     let calculating = false;
+    let analysisOffered = false;
     /** Its `calculate` calls, as one Tool call (see `calculatedCall`), once a figure is recorded. */
     let calculated: AnswerToolCall | null = null;
     const recordedFigures = new Set<number>();
@@ -2299,8 +2305,9 @@ export function createAnswers(options: AnswersOptions) {
         return;
       }
       calculating = offersCalculate(prepared.capabilities);
+      analysisOffered = offersAnalysis(prepared.capabilities);
       workbookToolsOffered =
-        calculating &&
+        offersWorkbookTools(prepared.capabilities) &&
         input.toolSet === undefined &&
         !help &&
         options.documents.searchableHasSheets(documentIds, true);
@@ -2819,7 +2826,7 @@ export function createAnswers(options: AnswersOptions) {
         : [];
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
-        calculating &&
+        analysisOffered &&
         input.toolSet === undefined &&
         !help &&
         (input.analyse === true || options.documents.searchableHasSheets(documentIds))
