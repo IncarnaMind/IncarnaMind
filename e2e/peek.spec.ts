@@ -8,6 +8,7 @@ import {
   coreOf,
   createDataFolder,
   dismissChatSetup,
+  expectReadyDocuments,
   type LaunchOptions,
   launchApp,
   linkFolderFromSidebar,
@@ -207,14 +208,7 @@ async function addAndShow(
   language: "en" | "zh-CN" = "en",
 ): Promise<void> {
   await window.getByTestId("add-documents-input").setInputFiles(paths);
-  await expect
-    .poll(async () =>
-      (await coreOf(window)).evaluate(
-        async (core) =>
-          (await core.listDocuments()).filter((each) => each.status === "ready").length,
-      ),
-    )
-    .toBe(paths.length);
+  await expectReadyDocuments(window, paths.length);
   await setLanguage(window, language);
   await place.show(window);
 }
