@@ -519,7 +519,7 @@ test("an approval card at 900 px in Chinese keeps one text edge and its choices 
     deny.y > always.y + 1 || deny.x >= always.x + always.width - 1,
     "Deny after Always allow, on its row or the next",
   ).toBe(true);
-  await screenshot(answer, "approval-card-zh-900");
+  await screenshot(answer, "approval-card-zh-900.png");
   await card.getByTestId("approval-deny").click();
   await app.close();
 });
