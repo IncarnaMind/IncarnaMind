@@ -317,6 +317,7 @@ describe("Automatic tagging in the background queue", () => {
       now,
       tags,
       background,
+      maySend: () => true,
       stopped: () => false,
       canRun: async () => true,
       mightBeReady: () => true,

@@ -7,6 +7,7 @@
  * each provider gets.
  */
 import { readFileSync } from "node:fs";
+import { rename, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
@@ -248,7 +249,8 @@ describe("A Document held off stays off, for every sender", () => {
       const revisedPath = await writeSourceFile(folder, "Report 1.txt", revisedText);
       await core.reconcileDocuments();
       const revisedId = documentAt(linked, revisedPath).id;
-      const [revised] = await waitForProcessing(core, [revisedId]);
+      await waitForProcessing(core, [revisedId]);
+      const [revised] = await waitForTagging(core, [revisedId], (each) => each.tagging === "off");
       expect(revised?.contentHash).toBe(sha256(revisedText));
       expect(revised?.tagging).toBe("off");
       expect(await unassigned(core, ids)).toEqual([]);
@@ -270,7 +272,8 @@ describe("A Document held off stays off, for every sender", () => {
           ).map((row) => row.processing_version),
         ).toEqual([PROCESSING_VERSION]),
       );
-      const reread = await waitForProcessing(core, ids);
+      await waitForProcessing(core, ids);
+      const reread = await waitForTagging(core, ids, (each) => each.tagging === "off");
 
       expect(reread.map((each) => each.tagging)).toEqual(["off", "off", "off", "off", "off"]);
       expect(await unassigned(core, ids)).toEqual([]);
@@ -435,5 +438,148 @@ describe("Every Document already here is held, whatever its state", () => {
     expect(held?.tagging).toBe("off");
     expect(providers.sent("anthropic")).toBe(1);
     core.close();
+  });
+});
+
+/** A file already on disk before tagging was turned on: written an hour ago. */
+async function writtenBefore(folder: string, name: string, text: string) {
+  const path = await writeSourceFile(folder, name, text);
+  const hourAgo = new Date(Date.now() - 3_600_000);
+  await utimes(path, hourAgo, hourAgo);
+  return path;
+}
+
+describe("Only what is new since tagging was turned on goes by itself", () => {
+  test("a Document restored from Recently deleted after the turn-on is sent by nobody", async () => {
+    const providers = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+    });
+    const restored = await add(core, "Restored.txt");
+    await core.deleteDocument(restored.id);
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+
+    await core.restore([{ kind: "document", id: restored.id }]);
+    const [held] = await waitForTagging(core, [restored.id], (each) => each.tagging === "off");
+    const added = await add(core, "Added after.txt");
+    await waitForTagging(core, [added.id]);
+
+    expect(held?.tagging).toBe("off");
+    expect(providers.sent("anthropic")).toBe(1);
+  });
+
+  test("a Linked folder linked before the turn-on: the 40 files its scan adds after, and one renamed, go only with the User's Organize", async () => {
+    const providers = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    const folder = await createSourceFolder();
+    for (let at = 1; at <= 40; at++) {
+      await writtenBefore(folder, `Report ${at}.txt`, `Quarterly report ${at}.`);
+    }
+    const linked = await core.addLinkedFolder(folder);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    await core.reconcileDocuments();
+    const ids = (await core.listDocuments({ linkedFolderId: linked.id })).map((each) => each.id);
+    expect(ids).toHaveLength(40);
+    await waitForProcessing(core, ids);
+    await waitForTagging(core, ids, (each) => each.tagging === "off");
+    expect(providers.sent("anthropic")).toBe(0);
+
+    await rename(join(folder, "Report 1.txt"), join(folder, "Report one.txt"));
+    await core.reconcileDocuments();
+    await waitForDocuments(core, (documents) => {
+      expect(documentAt(documents, join(folder, "Report one.txt")).status).toBe("ready");
+    });
+    await waitForTagging(core, ids, (each) => each.tagging === "off");
+    expect(providers.sent("anthropic")).toBe(0);
+
+    await core.createLibraryGroup({ name: "Finance", description: "Reports." });
+    await core.classifyDocuments(ids);
+    await waitForTagging(core, ids);
+    expect(providers.sent("anthropic")).toBe(40);
+  });
+
+  test("a paused Linked folder resumed after the turn-on: the files already there wait, one written after goes", async () => {
+    const providers = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    const folder = await createSourceFolder();
+    await writtenBefore(folder, "Before.txt", "Quarterly report, before.");
+    const [first] = await linkAndProcess(core, folder);
+    if (!first?.linkedFolderId) throw new Error("Not linked.");
+    await core.setLinkedFolderPaused(first.linkedFolderId, true);
+    const pausedPath = await writtenBefore(folder, "While paused.txt", "Written while paused.");
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+
+    await core.setLinkedFolderPaused(first.linkedFolderId, false);
+    await core.reconcileDocuments();
+    const [already] = await waitForDocuments(core, (documents) => {
+      expect(documentAt(documents, pausedPath).status).toBe("ready");
+    }).then((documents) => [documentAt(documents, pausedPath)]);
+    await waitForTagging(core, [already?.id ?? ""], (each) => each.tagging === "off");
+    expect(providers.sent("anthropic")).toBe(0);
+
+    const afterPath = await writeSourceFile(folder, "After resume.txt", "Written after resume.");
+    await core.reconcileDocuments();
+    const [after] = await waitForDocuments(core, (documents) => {
+      expect(documentAt(documents, afterPath).status).toBe("ready");
+    }).then((documents) => [documentAt(documents, afterPath)]);
+    await waitForTagging(core, [after?.id ?? ""]);
+    expect(providers.sent("anthropic")).toBe(1);
+  });
+
+  test("a Linked folder linked after the turn-on is new: its files and one added later each go once", async () => {
+    const providers = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    const folder = await createSourceFolder();
+    await writtenBefore(folder, "Old file.txt", "Written long ago, linked now.");
+    const linked = await linkAndProcess(core, folder);
+    await waitForTagging(
+      core,
+      linked.map((each) => each.id),
+    );
+    expect(providers.sent("anthropic")).toBe(1);
+
+    const newPath = await writeSourceFile(folder, "New file.txt", "Written after.");
+    await core.reconcileDocuments();
+    const [added] = await waitForDocuments(core, (documents) => {
+      expect(documentAt(documents, newPath).status).toBe("ready");
+    }).then((documents) => [documentAt(documents, newPath)]);
+    await waitForTagging(core, [added?.id ?? ""]);
+    expect(providers.sent("anthropic")).toBe(2);
+  });
+
+  test("a save from a window with an older view never turns the switch on, and never moves when it was turned on", async () => {
+    const dataDir = await createTempDataFolder();
+    const providers = perProvider();
+    const core = startCore(dataDir, { createChatModel: providers.createChatModel });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    const stored = () =>
+      queryDatabase<{ value: string }>(
+        dataDir,
+        "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
+      ).map((row) => JSON.parse(row.value).automaticSince);
+    const since = stored();
+    const older = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({ ...older, automatic: false });
+
+    await core.saveLibrarySettings({ ...older, organizeWith: null });
+    const held = await add(core, "After the older save.txt");
+
+    expect(older.automatic).toBe(true);
+    expect((await core.getLibrary()).settings.automatic).toBe(false);
+    expect(stored()).toEqual(since);
+    expect(held.tagging).toBe("off");
+    expect(providers.sent("anthropic")).toBe(0);
   });
 });

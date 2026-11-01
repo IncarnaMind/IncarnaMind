@@ -2128,8 +2128,20 @@ export const migrations: readonly Migration[] = [
   {
     version: 120,
     description:
-      "The preset Invoice Tag says what isn't an invoice, unless the User edited it (#2308)",
+      "The preset Invoice Tag says what isn't an invoice, unless the User edited it, and the User's Organize or re-tag of a Document is recorded (#2308)",
     sql: `
+      -- When the User last organized or re-tagged a Document: from then it may go to the
+      -- services tagging was turned on for by itself (src/core/tags/held.ts).
+      CREATE TABLE IF NOT EXISTS tagging_clearances (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        cleared_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX IF NOT EXISTS tagging_clearances_by_document
+        ON tagging_clearances (document_id) WHERE deleted_at IS NULL;
       -- Its first description let a quote, a registration or notes with prices read as "asks for or
       -- confirms a payment", and the tagger tagged them Invoice (#2308). Only a description still
       -- as it was seeded changes (src/core/tags/presets.ts has the same text); one the User wrote

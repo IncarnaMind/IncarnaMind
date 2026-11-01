@@ -316,6 +316,7 @@ import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
 import { createTags, tagsOfDocument } from "./tags";
 import { chatClassifier } from "./tags/classify";
+import { mayBackgroundSend } from "./tags/held";
 import { createJevTagging, decisionModelTagger } from "./tags/jev";
 import { createRateLimitPause } from "./tags/rateLimit";
 import { createTagger, TAGGING_FLOW_SENDS } from "./tags/tagger";
@@ -3095,6 +3096,7 @@ export function createCore(adapters: CoreAdapters): Core {
         classifier.kind === "auto" ? "error.library.autoNotLocal" : "error.library.ollamaNotLocal",
     });
   const tagger = createTagger({
+    maySend: (id) => mayBackgroundSend(db, id, library.sendsSince()),
     db,
     now,
     tags,
@@ -3222,9 +3224,8 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return [...services.values()];
     },
-    allowed: (service) =>
-      consent.allows("tagging", service) || consent.allows("classification", service),
-    holdTagging: () => tagger.holdExisting(),
+    consentedAt: (service) =>
+      consent.acceptedAt("tagging", service) ?? consent.acceptedAt("classification", service),
     pagesWaitFor: (classifier) => {
       if (classifier.kind !== "chat") return null;
       const reader = chat.imageModel(classifier.choice);

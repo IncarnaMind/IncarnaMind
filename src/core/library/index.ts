@@ -33,7 +33,7 @@ import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
 import { sameName, type TagsStore } from "../tags";
 import { documentType, excerptFromPassages } from "../tags/classify";
-import { heldOff } from "../tags/held";
+import { clearForUser, mayBackgroundSend, type SendsSince } from "../tags/held";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
 import { fallbackLine } from "../tags/suggest";
 import type { FolderSample, GroupClassifier } from "./classifier";
@@ -323,10 +323,8 @@ export function createLibrary(options: {
     classifier: LibraryClassifier;
     organizeWith: TaggingClassifier | null;
   }): ExternalService[];
-  /** Whether the User allowed tagging or Organize to send to this service (../consent). */
-  allowed(service: ExternalService): boolean;
-  /** Holds automatic tagging's Documents "off" (`holdExisting` in ../tags/tagger). */
-  holdTagging(): void;
+  /** When the User allowed tagging or Organize to send to this service (../consent); null if not. */
+  consentedAt(service: ExternalService): string | null;
   /**
    * The service that would read a scan's pages for this classifier if the User
    * allowed it, while they haven't; null when it reads them, or can't.
@@ -358,9 +356,13 @@ export function createLibrary(options: {
       classifier: taggingClassifierOf(saved.classifier) ?? LIBRARY_DEFAULTS.classifier,
       // Null until the User sets the switch: it follows the model then (see `LibrarySettings.automatic`).
       automatic: typeof saved.automatic === "boolean" ? saved.automatic : null,
-      // The services the User turned it on for; null for a switch saved before there was a list.
-      automaticFor: Array.isArray(saved.automaticFor)
-        ? saved.automaticFor.filter((each): each is string => typeof each === "string")
+      // When the User turned it on for each service; null for a switch saved before these were kept.
+      automaticSince: isRecord(saved.automaticSince)
+        ? Object.fromEntries(
+            Object.entries(saved.automaticSince).filter(
+              (each): each is [string, string] => typeof each[1] === "string",
+            ),
+          )
         : null,
       organizeWith: taggingClassifierOf(saved.organizeWith),
       taggingStopped: Array.isArray(saved.taggingStopped)
@@ -374,20 +376,37 @@ export function createLibrary(options: {
     options.sendsTo(saved).length > 0;
   const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !usesCloud(saved);
   /**
+   * When the switch was turned on for each service. One saved before these were kept holds from
+   * when the User allowed tagging or Organize to send there.
+   */
+  const sinceOf = (saved: ReturnType<typeof savedSettings>): Record<string, string> =>
+    saved.automaticSince ??
+    Object.fromEntries(
+      options.sendsTo(saved).flatMap((service) => {
+        const at = options.consentedAt(service);
+        return at === null ? [] : [[service.id, at]];
+      }),
+    );
+  /**
    * Whether the switch the User turned on holds where tagging sends now: turned on for one
-   * service, it is off for another until they turn it on there (#2308). One saved before there was
-   * a list holds where they allowed tagging or Organize to send.
+   * service, it is off for another until they turn it on there (#2308).
    */
   const turnedOnHere = (saved: ReturnType<typeof savedSettings>) => {
-    const { automaticFor } = saved;
-    return options
-      .sendsTo(saved)
-      .every((service) =>
-        automaticFor === null ? options.allowed(service) : automaticFor.includes(service.id),
-      );
+    const since = sinceOf(saved);
+    return options.sendsTo(saved).every((service) => since[service.id] !== undefined);
+  };
+  /** When tagging was turned on for every service it and Organize send to now (`SendsSince`). */
+  const sendsSince = (): SendsSince => {
+    const saved = savedSettings();
+    const services = options.sendsTo(saved);
+    if (services.length === 0) return "here";
+    const since = sinceOf(saved);
+    const times = services.map((service) => since[service.id]);
+    if (times.some((at) => at === undefined)) return null;
+    return times.reduce<string>((latest, at) => (at && at > latest ? at : latest), "");
   };
   const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => {
-    const { automaticFor: _automaticFor, ...shown } = saved;
+    const { automaticSince: _automaticSince, ...shown } = saved;
     return {
       ...shown,
       automatic:
@@ -764,6 +783,10 @@ export function createLibrary(options: {
           assignment(id)?.request_id !== initial?.request_id;
         try {
           if (!initial || initial.status === "classified") return;
+          if (!asked.has(id) && !mayBackgroundSend(db, id, sendsSince())) {
+            holdBack(id, initial);
+            return;
+          }
           const current = document(id);
           if (!hasContent(current)) {
             state(id, "waiting", scanWaits(current));
@@ -970,42 +993,27 @@ export function createLibrary(options: {
     });
 
   /**
-   * Tagging and sorting were turned on, or where they send changed: what Organize waits to file
-   * by itself is held "off", as automatic tagging's Documents are (`holdExisting` in
-   * ../tags/tagger), so none goes to where it sends now (#2308). One in a request is held too:
-   * the save made its answer stale, and it would otherwise be sent again. Organize, or a re-tag,
-   * which the User starts, still sends them. One it had filed stays in its Folder.
+   * A Document Organize may not send by itself (`mayBackgroundSend`) waits for the User, "off":
+   * one it hadn't filed has no assignment, as if it was never sorted; one it had stays filed.
    */
-  function holdWaiting(): void {
-    const rows = db
-      .all<{ document_id: string; group_id: string | null }>(
-        `SELECT document_id, group_id FROM document_groups WHERE deleted_at IS NULL
-           AND source = 'automatic' AND status IN ('pending', 'classifying', 'waiting')`,
-      )
-      .filter(
-        (row) => !asked.has(row.document_id) && !options.isExampleDocument?.(row.document_id),
-      );
-    if (rows.length === 0) return;
+  function holdBack(id: string, row: { source: string; group_id: string | null }): void {
     const at = now();
     db.transaction(() => {
-      for (const { document_id: id, group_id: groupId } of rows) {
-        if (groupId === null) {
-          db.run(
-            "UPDATE document_groups SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
-            [at, at, id],
-          );
-        } else {
-          state(id, "classified");
-        }
+      if (row.source === "automatic" && row.group_id === null) {
         db.run(
-          "UPDATE documents SET tagging_status = 'off', tagging_error_kind = NULL, tagging_error_message = NULL, tagging_error_resets_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
-          [at, id],
+          "UPDATE document_groups SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
+          [at, at, id],
         );
+      } else {
+        state(id, "classified");
       }
+      db.run(
+        "UPDATE documents SET tagging_status = 'off', tagging_error_kind = NULL, tagging_error_message = NULL, tagging_error_resets_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+        [at, id],
+      );
     });
-    const ids = rows.map((row) => row.document_id);
-    options.tagged(ids);
-    announce(ids);
+    options.tagged([id]);
+    announce([id]);
   }
 
   // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
@@ -1017,6 +1025,7 @@ export function createLibrary(options: {
 
   return {
     settings: getSettings,
+    sendsSince,
     taggingStoppedFor,
     isOrganizing,
     taggingPlaces(): (string | null)[] {
@@ -1331,42 +1340,32 @@ export function createLibrary(options: {
         classifier: automaticChosen ? AUTOMATIC : (taggingClassifierOf(chosen) ?? AUTOMATIC),
         organizeWith: taggingClassifierOf(organizeWith),
       };
-      // Only `turnOn`, sent where the line says what goes, turns it on for a service (ADR-0022):
-      // a save sends the switch as shown, which reads on while it follows a model on this computer.
+      // Only `turnOn`, sent where the line says what goes, turns it on, and records when, for
+      // each service it sends to (ADR-0022). Any other save may only turn it off: a save sends
+      // the switch as shown, which can be a window's older view (#2308).
       const turnOn = input.turnOn === true;
       const showing = shownSettings(before).automatic;
       const automatic = turnOn
         ? true
-        : input.automatic !== showing
-          ? input.automatic
+        : input.automatic === false && showing
+          ? false
           : before.automatic;
-      const automaticFor = turnOn
-        ? options.sendsTo(next).map((service) => service.id)
-        : (before.automaticFor ??
-          (before.automatic && showing
-            ? options.sendsTo(before).map((service) => service.id)
-            : []));
+      const at = now();
+      const automaticSince = turnOn
+        ? {
+            ...sinceOf(before),
+            ...Object.fromEntries(options.sendsTo(next).map((service) => [service.id, at])),
+          }
+        : sinceOf(before);
       if (automatic !== null && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
         settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       }
-      const sentTo = options.sendsTo(before).map((service) => service.id);
-      const sends = options.sendsTo(next).map((service) => service.id);
-      // The line says only new Documents go (#2308): turned on, or sending somewhere new, every
-      // Document already here is held in the same write as the switch, so no quit in between
-      // leaves one to be sent at the next start.
-      const holds = sends.length > 0 && (turnOn || sends.some((id) => !sentTo.includes(id)));
-      db.transaction(() => {
-        settings.writeDeviceValue("library", {
-          classifier: automaticChosen ? AUTOMATIC : chosen,
-          ...(automatic !== null && { automatic }),
-          organizeWith,
-          automaticFor,
-          taggingStopped: before.taggingStopped,
-        });
-        if (holds) {
-          options.holdTagging();
-          holdWaiting();
-        }
+      settings.writeDeviceValue("library", {
+        classifier: automaticChosen ? AUTOMATIC : chosen,
+        ...(automatic !== null && { automatic }),
+        organizeWith,
+        automaticSince,
+        taggingStopped: before.taggingStopped,
       });
       revision++;
       changed();
@@ -1417,6 +1416,11 @@ export function createLibrary(options: {
       ).filter((id) => !options.isExampleDocument?.(id));
       const docs = ids.map(document);
       for (const doc of docs) asked.add(doc.id);
+      clearForUser(
+        db,
+        docs.map((doc) => doc.id),
+        now(),
+      );
       db.transaction(() => {
         for (const doc of docs) {
           const existing = assignment(doc.id);
@@ -1589,7 +1593,7 @@ export function createLibrary(options: {
     },
     documentChanged(id: string) {
       if (lifetime.signal.aborted) return;
-      if (options.isExampleDocument?.(id) || heldOff(db, id)) return;
+      if (options.isExampleDocument?.(id)) return;
       const doc = document(id);
       const existing = assignment(id);
       if (!hasContent(doc)) {

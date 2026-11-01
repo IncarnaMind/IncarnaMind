@@ -137,11 +137,10 @@ export interface LibrarySettings {
    * and off for a cloud model, since each Document's name and an excerpt go
    * to it. Turned on for where it sends (`turnOn` in `saveLibrarySettings`),
    * it reads off once that changes, to another service or from this computer
-   * to one, until it is turned on there (#2308); the Documents then waiting
-   * to be tagged go "off", so turning it on sends none of them. Off, nothing is
-   * sent by itself: what the User starts by hand (Organize, a re-tag) still
-   * goes. A Document added while it is off isn't tagged or sorted when it is
-   * turned on, nor when it is read again.
+   * to one, until it is turned on there (#2308). On, only a Document new
+   * since it was turned on goes by itself (`mayBackgroundSend` in
+   * ../tags/held); the others are "off". Off, nothing is sent by itself: what
+   * the User starts by hand (Organize, a re-tag) still goes.
    */
   automatic: boolean;
   /**

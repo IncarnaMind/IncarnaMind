@@ -10212,11 +10212,12 @@ export interface CoreApi {
    * Saves the Tagging setting: the model for automatic tagging and Organize,
    * and whether new and changed Documents are organized automatically. A
    * classifier of null is Automatic; `organizeWith` left out stays as it was.
-   * `automatic` is the switch as shown. `turnOn` turns it on, and is the
-   * consent for the services it sends to now (ADR-0022): only where the line
-   * says what goes, as setup's Use this, Settings › Models' Tagging section
-   * and Turn on… do. Turned on for one service, it reads off for another
-   * until it is turned on there (#2308).
+   * `automatic` is the switch as shown, and a save can only turn it off.
+   * `turnOn` turns it on, and records when, as the consent for the services
+   * it sends to now (ADR-0022): only where the line says what goes, as
+   * setup's Use this, Settings › Models' Tagging section and Turn on… do.
+   * Turned on for one service, it reads off for another until it is turned
+   * on there (#2308).
    */
   saveLibrarySettings(
     settings: Omit<LibrarySettings, "classifier" | "organizeWith" | "taggingStopped"> & {

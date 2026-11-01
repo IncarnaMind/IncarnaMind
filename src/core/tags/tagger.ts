@@ -53,7 +53,7 @@ import {
   type TagChoice,
   type TagClassifier,
 } from "./classify";
-import { heldOff } from "./held";
+import { clearForUser } from "./held";
 import { type TagsStore, tagsOfDocument } from "./index";
 import { type RateLimitPause, rateLimitError } from "./rateLimit";
 import { fallbackLine } from "./suggest";
@@ -88,6 +88,11 @@ export interface TaggerOptions {
   organizing?(id: string): boolean;
   stopped(id: string): boolean;
   now: () => string;
+  /**
+   * Whether this Document may go by itself to where tagging sends now (`mayBackgroundSend` in
+   * ./held); one that may not waits for the User, "off".
+   */
+  maySend(id: string): boolean;
   tags: TagsStore;
   /** Whether the tagger in use can take a request now. Asks the User nothing. */
   canRun(): Promise<boolean>;
@@ -229,11 +234,15 @@ export function createTagger(options: TaggerOptions) {
     const row = rowOf(id);
     // Tagged meanwhile: Organize did it, in its own turn.
     if (row?.status !== "ready" || row.tagging_status === "tagged") return;
+    if (!asked.has(id) && !options.maySend(id)) {
+      if (setState(id, "off")) announce([id]);
+      return;
+    }
     const definitions = tags.list();
     if (setState(id, "tagging")) announce([id]);
 
     let choice: TagChoice = { decisions: [], newTags: [] };
-    let asked = false;
+    let modelAsked = false;
     if (definitions.length > 0 || options.namesTags?.() === true) {
       let tagger: TagClassifier;
       try {
@@ -255,13 +264,15 @@ export function createTagger(options: TaggerOptions) {
         }
         return;
       }
-      asked = definitions.length > 0 || tagger.namesTags === true;
+      modelAsked = definitions.length > 0 || tagger.namesTags === true;
       // A model on this computer serves one request at a time: an Answer goes first.
       if (tagger.local) call.runsLocally();
       if (stale()) return;
       const signal = AbortSignal.any([lifetime.signal, call.signal]);
       const decide = async () =>
-        asked ? tagger.decide({ tags: definitions, excerpt: excerptOf(id, row), signal }) : choice;
+        modelAsked
+          ? tagger.decide({ tags: definitions, excerpt: excerptOf(id, row), signal })
+          : choice;
       try {
         try {
           choice = await decide();
@@ -311,7 +322,7 @@ export function createTagger(options: TaggerOptions) {
       const applied = tags.applyAutomatic(id, choice.decisions, choice.newTags);
       // Asked with no Tag to offer and given none, it is checked again once a Tag exists.
       const found = definitions.length > 0 || tagsOfDocument(db, id).length > 0;
-      const settled = setState(id, asked && found ? "tagged" : "no-tags");
+      const settled = setState(id, modelAsked && found ? "tagged" : "no-tags");
       return { changed: settled || applied.changed, made: applied.made };
     });
     if (made > 0) options.tagsMade?.();
@@ -486,8 +497,8 @@ export function createTagger(options: TaggerOptions) {
     documentReady(id: string): void {
       if (options.enabled?.() === false || organized(id)) return;
       const row = rowOf(id);
-      // Processed again (e.g. by a newer pipeline, or its file changed): the same file keeps its Tags.
-      if (!row || row.tagging_status === "tagged" || heldOff(db, id)) return;
+      // Processed again (e.g. by a newer pipeline): the same file keeps its Tags.
+      if (!row || row.tagging_status === "tagged") return;
       if (!automatic()) {
         setState(id, "off");
         return;
@@ -502,26 +513,6 @@ export function createTagger(options: TaggerOptions) {
       }
       setState(id, "pending");
       enqueue(id);
-    },
-
-    /**
-     * Tagging was turned on, or where it sends changed: every Document already here that isn't
-     * tagged is "off", read or not (no text, failed, still being read), so it isn't sent when its
-     * text comes later either (#2308). Organize, or a re-tag, which the User starts, still sends it.
-     */
-    holdExisting(): void {
-      const ids = db
-        .all<{ id: string }>(
-          `SELECT id FROM documents WHERE deleted_at IS NULL
-             AND tagging_status IN ('pending', 'waiting-for-provider', 'failed', 'no-tags')`,
-        )
-        .map((row) => row.id)
-        .filter((id) => !organized(id) && !asked.has(id));
-      for (const id of ids) {
-        const at = queue.indexOf(id);
-        if (at !== -1) queue.splice(at, 1);
-      }
-      setStates(ids, "off");
     },
 
     /** A Tag may exist now: the Documents checked while there were none are tagged. */
@@ -555,6 +546,11 @@ export function createTagger(options: TaggerOptions) {
         return { id, row };
       });
       if (input !== undefined) for (const { id } of rows) asked.add(id);
+      clearForUser(
+        db,
+        rows.map(({ id }) => id),
+        now(),
+      );
       const changed: string[] = [];
       const ready = options.mightBeReady();
       for (const { id, row } of rows) {
