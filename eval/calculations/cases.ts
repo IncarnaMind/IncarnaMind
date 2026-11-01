@@ -61,6 +61,8 @@ export interface ExpectedResult {
   alsoAccepted?: readonly ExpectedInput[];
   /** In the calculate Tool's syntax over the inputs' names; empty for a quoted result. */
   formula: string;
+  /** A gap asked as "how much larger or smaller": either sign of it is right. */
+  eitherSign?: true;
   /** Values a model is known to reach by a wrong reading, and why. */
   traps: readonly { value: number; why: string }[];
 }
@@ -438,11 +440,14 @@ function sameFacts(inputs: readonly ExpectedInput[]): ExpectedInput[] {
   );
 }
 
+/** Every number the set's Documents state, as the cases quote them. */
+export const DOCUMENT_LINES: readonly ExpectedInput[] = [nw, deck, ks, rate, yf, ql, ht].flatMap(
+  (lines) => Object.values(lines),
+);
+
 /** Every amount the Documents in `scope` state: what an Answer may still give when it must refuse. */
 const statedIn = (scope: readonly string[]): ExpectedInput[] =>
-  [nw, deck, ks, yf, ql, ht].flatMap((lines) =>
-    Object.values(lines).filter((each) => scope.includes(each.document) && each.value > 1),
-  );
+  DOCUMENT_LINES.filter((each) => scope.includes(each.document) && each.value > 1);
 
 const RESTATED = "2024 as originally reported ($2,112.5 million), not as restated";
 const REPORTED_GROWTH = "Revenue growth as reported, not on the comparable basis asked for";
@@ -704,19 +709,22 @@ const english: CalculationCase[] = [
         "yuan / rate",
         (x) => v(x, "yuan") / v(x, "rate"),
       ),
-      derived(
-        "Qinglan over Kestrel 2025",
-        "USD",
-        { yuan: ql.rev25, rate: rate.average, kestrel: ks.sales25 },
-        "yuan / rate - kestrel",
-        (x) => v(x, "yuan") / v(x, "rate") - v(x, "kestrel"),
-        [
-          {
-            value: 862315.4 * WAN - 1186.4 * M,
-            why: "Yuan and dollars subtracted without converting",
-          },
-        ],
-      ),
+      {
+        ...derived(
+          "Qinglan over Kestrel 2025",
+          "USD",
+          { yuan: ql.rev25, rate: rate.average, kestrel: ks.sales25 },
+          "yuan / rate - kestrel",
+          (x) => v(x, "yuan") / v(x, "rate") - v(x, "kestrel"),
+          [
+            {
+              value: 862315.4 * WAN - 1186.4 * M,
+              why: "Yuan and dollars subtracted without converting",
+            },
+          ],
+        ),
+        eitherSign: true,
+      },
     ],
   },
   {
@@ -1140,14 +1148,17 @@ const chinese: CalculationCase[] = [
         "usd * rate",
         (x) => v(x, "usd") * v(x, "rate"),
       ),
-      derived(
-        "青岚高出Kestrel的金额",
-        "CNY",
-        { yuan: ql.rev25, usd: ks.sales25, rate: rate.average },
-        "yuan - usd * rate",
-        (x) => v(x, "yuan") - v(x, "usd") * v(x, "rate"),
-        [{ value: 862315.4 * WAN - 1186.4 * M, why: "美元和人民币没有折算就相减" }],
-      ),
+      {
+        ...derived(
+          "青岚高出Kestrel的金额",
+          "CNY",
+          { yuan: ql.rev25, usd: ks.sales25, rate: rate.average },
+          "yuan - usd * rate",
+          (x) => v(x, "yuan") - v(x, "usd") * v(x, "rate"),
+          [{ value: 862315.4 * WAN - 1186.4 * M, why: "美元和人民币没有折算就相减" }],
+        ),
+        eitherSign: true,
+      },
     ],
   },
   {

@@ -222,12 +222,78 @@ describe("one requested result", () => {
     expect(group.toolCoverage.rate).toBe(0);
   });
 
-  test("a change in percentage points written as a percent is not right", () => {
+  test("a change in percentage points written as a percent is wrong", () => {
     const score = scoreCase(
       caseOf("zh-23"),
       answer({ written: [written("1.0%", 0.01, "percent")] }),
     );
+    expect(score.results[0]?.outcome).toBe("wrong-written");
+  });
+
+  test.each([
+    ["en-01", written("15.2%", 0.152, "percent")],
+    ["en-01", written("about 13%", 0.13, "percent")],
+    ["en-07", written("$53.5 billion", 53_500_000_000, "currency", "USD")],
+  ] as const)("%s written as %o is wrong, not left out", (id, number) => {
+    const score = scoreCase(caseOf(id), answer({ written: [number] }));
+    expect(score.results[0]?.outcome).toBe("wrong-written");
+    expect(scoreGroup([score]).figureCorrectness).toMatchObject({ count: 0, of: 1 });
+  });
+
+  test("a total written in its table's scale, under that table's heading, is right", () => {
+    const score = scoreCase(
+      caseOf("en-12"),
+      answer({
+        written: [written("2,169.6", 2169.6, "plain"), written("13.7%", 0.137, "percent")],
+      }),
+    );
+    expect(score.results.map((result) => result.outcome)).toEqual(["written", "written"]);
+  });
+
+  test("a year, or an amount a Document states, written beside a result left out is no attempt at it", () => {
+    const score = scoreCase(
+      caseOf("en-07"),
+      answer({
+        written: [
+          written("2025", 2025, "plain"),
+          written("$268.4 million", 268_400_000, "currency", "USD"),
+          written("$2.35 billion", 2_350_000_000, "currency", "USD"),
+        ],
+      }),
+    );
     expect(score.results[0]?.outcome).toBe("omitted");
+  });
+
+  test("an increase given as a fall is wrong: only a gap asked as larger or smaller takes either sign", () => {
+    const { a, b } = inputsOf("en-07") as { a: ExpectedInput; b: ExpectedInput };
+    const score = scoreCase(
+      caseOf("en-07"),
+      answer({
+        figures: [
+          {
+            ...figure(-53_500_000, "currency", [inputOf(a), inputOf(b)], "−$53.5 million"),
+            currency: "USD",
+          },
+        ],
+      }),
+    );
+    expect(score.results[0]?.outcome).toBe("wrong-calculated");
+  });
+
+  test("a checked figure that is no requested result is listed", () => {
+    const { now, before } = inputsOf("en-01") as { now: ExpectedInput; before: ExpectedInput };
+    const { now: kestrel } = inputsOf("en-16") as { now: ExpectedInput };
+    const score = scoreCase(
+      caseOf("en-01"),
+      answer({
+        figures: [
+          figure(0.12599558583629222, "percent", [inputOf(now), inputOf(before)], "12.6%"),
+          figure(0.5, "percent", [inputOf(kestrel), inputOf(before)], "50.0%"),
+        ],
+      }),
+    );
+    expect(score.unmatched).toEqual(["50.0%"]);
+    expect(scoreGroup([score]).unmatched).toBe(1);
   });
 
   test("a model that says it checked its figures but gives a wrong one scores nothing for it", () => {
@@ -238,10 +304,10 @@ describe("one requested result", () => {
         written: [written("13.4%", 0.134, "percent")],
       }),
     );
-    expect(score.results[0]?.outcome).toBe("omitted");
+    expect(score.results[0]?.outcome).toBe("wrong-written");
     const group = scoreGroup([score]);
-    expect(group.completeness.rate).toBe(0);
-    expect(group.figureCorrectness.rate).toBeNull();
+    expect(group.completeness.rate).toBe(1);
+    expect(group.figureCorrectness.rate).toBe(0);
   });
 
   test("a stated rate recalculated is the trap, and the stated one quoted is right", () => {
@@ -489,6 +555,12 @@ describe("a Question that must be refused", () => {
   test.each([
     ["Qinglan's revenue was larger than Kestrel's, though I can't say by exactly how much.", []],
     [
+      "No exchange rate is given. Even so, Qinglan's revenue is larger than Kestrel's net sales if converted at any plausible rate.",
+      [],
+    ],
+    ["No exchange rate is given, but Qinglan is clearly the larger of the two.", []],
+    ["范围内没有汇率，无法精确折算，但按常见汇率估算，青岚的营业总收入更大。", []],
+    [
       "No rate is given, but Qinglan's revenue is about 7.27 times Kestrel's.",
       [written("7.27 times", 7.27, "times")],
     ],
@@ -553,20 +625,42 @@ describe("the bars", () => {
       ["Tool coverage at least 90%", true],
       ["Figure correctness at least 95% where inputs are right", true],
       ["Input correctness at least 85%", true],
-      ["Figure correctness above the baseline", true],
+      ["Figure correctness clearly above the baseline (by at least 5 points)", true],
       ["No false checked figure", true],
       ["Unchecked-figure detection: precision at least 90%, recall at least 95%", null],
     ]);
   });
 
-  test("figure correctness equal to the baseline's is not above it", () => {
-    const right = scoreGroup([
-      scoreCase(caseOf("zh-16"), answer({ written: [written("9.09%", 0.0909, "percent")] })),
-    ]);
-    const above = bars(right, right).find(
-      (bar) => bar.name === "Figure correctness above the baseline",
-    );
-    expect(above?.met).toBe(false);
+  test("one more right Answer in 40 is not clearly above the baseline; two are", () => {
+    const group = (right: number) =>
+      scoreGroup(
+        Array.from({ length: 40 }, (_, at) =>
+          scoreCase(
+            caseOf("zh-16"),
+            answer({
+              written: [
+                at < right
+                  ? written("9.09%", 0.0909, "percent")
+                  : written("9.5%", 0.095, "percent"),
+              ],
+            }),
+          ),
+        ),
+      );
+    const clearly = (on: number, off: number) =>
+      bars(group(on), group(off)).find((bar) => bar.name.startsWith("Figure correctness clearly"))
+        ?.met;
+    expect(clearly(40, 39)).toBe(false);
+    expect(clearly(40, 38)).toBe(true);
+  });
+
+  test("refusals worded as Haiku's and DeepSeek's still read as refusals", () => {
+    for (const text of [
+      "I can't say which was larger, because the two figures are in different currencies and the Documents give no exchange rate.",
+      "两个数字的币种不同，文档中没有汇率，无法判断哪个更大。",
+      "无法直接比较大小：两份文件给出的金额货币不同，且文件中没有提供汇率。",
+    ])
+      expect(scoreCase(caseOf("en-19"), answer({ text })).refusal?.refused).toBe(true);
   });
 });
 

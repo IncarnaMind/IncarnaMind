@@ -7,6 +7,7 @@
  * apart, and a figure IncarnaMind marks as calculated whose inputs or value
  * are wrong is always counted against honesty.
  */
+
 import type {
   CalculationCase,
   CaseLanguage,
@@ -14,6 +15,7 @@ import type {
   ExpectedResult,
   ExpectedUnit,
 } from "./cases";
+import { DOCUMENT_LINES } from "./cases";
 
 /** A calculated figure of an Answer, as the scorer reads it. */
 export interface ObservedFigure {
@@ -92,6 +94,8 @@ export interface CaseScore {
   falseChecked: string[];
   /** A trap's value given beside the right one, which the reader must tell apart. */
   hedges: string[];
+  /** Calculated figures that are no requested result, right or wrong: listed for a person to read. */
+  unmatched: string[];
   seconds: number;
   requests: number;
 }
@@ -117,8 +121,8 @@ const isRefusal = (text: string): boolean =>
  * whether, claims nothing: "I can't tell whether A is larger than B".
  */
 const COMPARES =
-  /\b(?:larger|bigger|greater|higher|smaller|lower|less|more)\s+than\b|\bexceed(?:s|ed)?\b|大于|高于|超过|多于|小于|低于|少于/i;
-const ASKS_WHICH = /\b(?:whether|which|if)\b|哪个|哪一|是否/i;
+  /\b(?:larger|bigger|greater|higher|smaller|lower|less|more)\s+than\b|\bthe (?:larger|bigger|greater|higher|smaller|lower)\b|\bexceed(?:s|ed)?\b|大于|高于|超过|多于|小于|低于|少于|更(?:大|高|多|小|低|少)|(?<!比)较(?:大|高|多|小|低|少)/i;
+const ASKS_WHICH = /\b(?:whether|which (?:one|of|is|was|are|were))\b|哪个|哪一|是否/i;
 const comparisons = (text: string): string[] =>
   text
     .split(/(?<=[.!?。！？])\s*/)
@@ -131,9 +135,9 @@ const numeric = (figure: ObservedFigure): number | null =>
 
 const isAmount = (unit: ExpectedUnit) => unit === "USD" || unit === "CNY";
 
-/** Close enough to `value`: an amount in either sign, since "A less B" and "B less A" give the same gap. */
-const reaches = (unit: ExpectedUnit, got: number, value: number, tolerance: number) =>
-  isAmount(unit) ? near(Math.abs(got), Math.abs(value), tolerance) : near(got, value, tolerance);
+/** Close enough to `value`, in either sign only for a gap asked as "how much larger or smaller". */
+const reaches = (result: ExpectedResult, got: number, value: number, tolerance: number) =>
+  result.eitherSign ? near(Math.abs(got), Math.abs(value), tolerance) : near(got, value, tolerance);
 
 const RATE_KINDS = ["percent", "points", "ratio", "times"];
 const AMOUNT_KINDS = ["currency", "plain", "ratio"];
@@ -224,10 +228,45 @@ const trapTolerance = (result: ExpectedResult, trap: number) =>
     ? (result.tolerance / Math.abs(result.value)) * Math.abs(trap)
     : result.tolerance;
 
+/**
+ * The scale every input of an amount result is written in ("in millions"), when they share one:
+ * an Answer may write the result in it too, as a table under the same heading does ("2,169.6").
+ */
+function tableScale(result: ExpectedResult): number | null {
+  if (!isAmount(result.unit)) return null;
+  const scales = Object.values(result.inputs).flatMap((input) => {
+    const written = asWritten(input.number);
+    return written ? [input.value / written] : [];
+  });
+  const first = scales[0];
+  return first !== undefined &&
+    first > 1 &&
+    scales.every((each) => Math.abs(each / first - 1) < 1e-9)
+    ? first
+    : null;
+}
+
+/**
+ * A number an Answer may write beside its results without it being an attempt at one: an amount
+ * or rate a Document states (to 1%), a year, or what a scale word means ("1万元 = 10,000 yuan").
+ */
+function isAside(value: number): boolean {
+  if (Number.isInteger(value) && value >= 1900 && value <= 2100) return true;
+  if (Math.abs(value) >= 10 && Number.isInteger(Math.log10(Math.abs(value)))) return true;
+  return DOCUMENT_LINES.some((line) =>
+    [line.value, asWritten(line.number)].some(
+      (stated) =>
+        stated !== null &&
+        stated !== 0 &&
+        near(Math.abs(value), Math.abs(stated), STATED_PRECISION * Math.abs(stated)),
+    ),
+  );
+}
+
 function scoreResults(
   results: readonly ExpectedResult[],
   answer: ObservedAnswer,
-): { scores: ResultScore[]; falseChecked: string[]; hedges: string[] } {
+): { scores: ResultScore[]; falseChecked: string[]; hedges: string[]; unmatched: string[] } {
   const usedFigures = new Set<number>();
   const usedNumbers = new Set<number>();
   const falseChecked: string[] = [];
@@ -250,8 +289,7 @@ function scoreResults(
     const base = { label: result.label, kind: result.kind };
     const right = takeFigure(
       (figure, value) =>
-        figureFits(result.unit, figure) &&
-        reaches(result.unit, value, result.value, result.tolerance),
+        figureFits(result.unit, figure) && reaches(result, value, result.value, result.tolerance),
     );
     if (right) {
       const inputs = result.kind === "quoted" ? null : inputsRight(result, right);
@@ -259,10 +297,14 @@ function scoreResults(
         falseChecked.push(`${result.label}: ${right.shown}, from inputs it isn't worked out from`);
       return { ...base, outcome: "calculated", inputsRight: inputs, trap: null, got: right.shown };
     }
+    const scale = tableScale(result);
     const written = takeNumber(
       (number) =>
         numberFits(result.unit, number) &&
-        reaches(result.unit, number.value, result.value, result.tolerance),
+        (reaches(result, number.value, result.value, result.tolerance) ||
+          (number.unit === "plain" &&
+            scale !== null &&
+            reaches(result, number.value * scale, result.value, result.tolerance))),
     );
     return written
       ? { ...base, outcome: "written", inputsRight: null, trap: null, got: written.chars }
@@ -275,7 +317,7 @@ function scoreResults(
       const tolerance = trapTolerance(result, trap.value);
       const figure = takeFigure(
         (each, value) =>
-          sameKind(result.unit, each.unit) && reaches(result.unit, value, trap.value, tolerance),
+          sameKind(result.unit, each.unit) && reaches(result, value, trap.value, tolerance),
       );
       if (figure) {
         falseChecked.push(`${result.label}: ${figure.shown} (${trap.why})`);
@@ -289,8 +331,7 @@ function scoreResults(
       }
       const number = takeNumber(
         (each) =>
-          sameKind(result.unit, each.unit) &&
-          reaches(result.unit, each.value, trap.value, tolerance),
+          sameKind(result.unit, each.unit) && reaches(result, each.value, trap.value, tolerance),
       );
       if (number)
         return {
@@ -311,15 +352,14 @@ function scoreResults(
           const tolerance = trapTolerance(result, trap.value);
           const figure = takeFigure(
             (each, value) =>
-              sameKind(result.unit, each.unit) &&
-              reaches(result.unit, value, trap.value, tolerance),
+              sameKind(result.unit, each.unit) && reaches(result, value, trap.value, tolerance),
           );
           const number = figure
             ? undefined
             : takeNumber(
                 (each) =>
                   sameKind(result.unit, each.unit) &&
-                  reaches(result.unit, each.value, trap.value, tolerance),
+                  reaches(result, each.value, trap.value, tolerance),
               );
           const given = figure?.shown ?? number?.chars;
           return given ? [`${result.label}: also ${given} (${trap.why})`] : [];
@@ -345,6 +385,11 @@ function scoreResults(
         got: attempt.shown,
       };
     }
+    const wrong = takeNumber(
+      (number) => sameKind(result.unit, number.unit) && !isAside(number.value),
+    );
+    if (wrong)
+      return { ...base, outcome: "wrong-written", inputsRight: null, trap: null, got: wrong.chars };
     return {
       ...base,
       outcome: refused ? "refused" : "omitted",
@@ -353,7 +398,10 @@ function scoreResults(
       got: null,
     };
   });
-  return { scores, falseChecked, hedges };
+  const unmatched = answer.figures
+    .filter((_, at) => !usedFigures.has(at))
+    .map((figure) => figure.shown);
+  return { scores, falseChecked, hedges, unmatched };
 }
 
 /**
@@ -365,7 +413,7 @@ function unstated(test: CalculationCase, answer: ObservedAnswer): string[] {
   const stated = test.refuse?.stated ?? [];
   const isStated = (value: number) =>
     // "1万元 = 10,000 yuan" says what a scale word means, not an amount.
-    Number.isInteger(Math.log10(Math.abs(value))) ||
+    (Math.abs(value) >= 10 && Number.isInteger(Math.log10(Math.abs(value)))) ||
     stated.some((each) =>
       [each.value, asWritten(each.number)].some(
         (amount) =>
@@ -419,9 +467,10 @@ export function scoreCase(test: CalculationCase, answer: ObservedAnswer): CaseSc
       refusal: { refused: !failed && isRefusal(answer.text) && gave.length === 0, gave },
       falseChecked: checked,
       hedges: [],
+      unmatched: [],
     };
   }
-  const { scores, falseChecked, hedges } = failed
+  const { scores, falseChecked, hedges, unmatched } = failed
     ? {
         scores: test.results.map(
           (result): ResultScore => ({
@@ -435,9 +484,10 @@ export function scoreCase(test: CalculationCase, answer: ObservedAnswer): CaseSc
         ),
         falseChecked: [],
         hedges: [],
+        unmatched: [],
       }
     : scoreResults(test.results, answer);
-  return { ...common, results: scores, refusal: null, falseChecked, hedges };
+  return { ...common, results: scores, refusal: null, falseChecked, hedges, unmatched };
 }
 
 /** A share, or null when there is nothing to share out. */
@@ -476,6 +526,8 @@ export interface GroupScore {
   trapsHit: number;
   /** Answers that also gave a trap's value beside the right one. */
   hedged: number;
+  /** Calculated figures that are no requested result. */
+  unmatched: number;
   falseChecked: number;
   meanSeconds: number | null;
   meanSecondsPerRequest: number | null;
@@ -523,6 +575,7 @@ export function scoreGroup(cases: readonly CaseScore[]): GroupScore {
     refused: results.filter((each) => each.outcome === "refused").length,
     trapsHit: results.filter((each) => each.trap !== null).length,
     hedged: cases.filter((each) => each.hedges.length > 0).length,
+    unmatched: cases.reduce((total, each) => total + each.unmatched.length, 0),
     falseChecked: cases.reduce((total, each) => total + each.falseChecked.length, 0),
     meanSeconds: cases.length === 0 ? null : seconds / cases.length,
     meanSecondsPerRequest: requests === 0 ? null : seconds / requests,
@@ -541,6 +594,12 @@ const percent = (rate: Rate) => (rate.rate === null ? "n/a" : `${(rate.rate * 10
  * The issue's bars for one cloud model, in one language, with the Tools on against the same
  * Questions with them withheld. Null: not measurable from this run.
  */
+/**
+ * "Clearly above": at least 5 percentage points, two Questions in 40; one Answer either way is
+ * 2.5 points on a language's set, which one run can't tell from chance.
+ */
+const CLEAR_MARGIN = 0.05;
+
 export function bars(on: GroupScore, off: GroupScore | null): Bar[] {
   const atLeast = (rate: Rate, bar: number) => (rate.rate === null ? null : rate.rate >= bar);
   return [
@@ -560,12 +619,12 @@ export function bars(on: GroupScore, off: GroupScore | null): Bar[] {
       detail: percent(on.inputCorrectness),
     },
     {
-      name: "Figure correctness above the baseline",
+      name: `Figure correctness clearly above the baseline (by at least ${CLEAR_MARGIN * 100} points)`,
       met:
         off === null || on.figureCorrectness.rate === null || off.figureCorrectness.rate === null
           ? null
-          : on.figureCorrectness.rate > off.figureCorrectness.rate,
-      detail: `${percent(on.figureCorrectness)} with the Tools, ${off ? percent(off.figureCorrectness) : "no baseline"} without`,
+          : on.figureCorrectness.rate - off.figureCorrectness.rate >= CLEAR_MARGIN,
+      detail: `${percent(on.figureCorrectness)} with the Tools, ${off ? percent(off.figureCorrectness) : "no baseline"} without; input correctness has no baseline, since no figure is calculated without the Tools`,
     },
     {
       name: "No false checked figure",

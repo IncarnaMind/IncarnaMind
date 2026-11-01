@@ -210,9 +210,11 @@ test("calculations evaluation", async () => {
     throw new Error("INCARNAMIND_EVAL_CALC_RUNS must be a whole number of at least 1.");
   const provider = chat ? chatProviderOf(chat) : SCRIPTED;
   const entry = catalogModel(modelsProviderOfKind(provider.kind), provider.modelId);
+  // The calculate fact lives only in the catalog, which has no entry for a local model yet (#441
+  // names src/core/providers/catalog/local.ts for it): until then such a model can't be run here.
   if (!entry)
     throw new Error(
-      `The catalog doesn't know ${provider.kind}/${provider.modelId}, so its calculate fact can't be set.`,
+      `The catalog has no entry for ${provider.kind}/${provider.modelId}, so the calculate Tool can't be offered or withheld for it.`,
     );
   const offered = entry.calculates;
   log(
