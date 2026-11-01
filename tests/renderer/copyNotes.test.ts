@@ -2,11 +2,12 @@ import { getSchema, type JSONContent } from "@tiptap/core";
 import { CellSelection } from "@tiptap/pm/tables";
 import { parseHTML } from "linkedom";
 import { describe, expect, test } from "vitest";
-import { CHART_NODE, CITATION_NODE, FOOTNOTE_NODE } from "../../src/core/api";
+import { CHART_NODE, CITATION_NODE, FOOTNOTE_NODE, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
 import {
   addFootnotes,
   citationsIn,
   copiedText,
+  noteNumbers,
   wordFootnoteHtml,
 } from "../../src/renderer/src/editor/copyNotes";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -362,3 +363,18 @@ function chartOf(tableId: string): JSONContent {
     },
   };
 }
+
+describe("the numbers a copy writes", () => {
+  test("a Citation a change still waiting adds is a note of its own, so later numbers stay", () => {
+    const pending = {
+      ...cite(2),
+      attrs: {
+        ...cite(2).attrs,
+        [PROPOSAL_ATTRIBUTE]: { id: "p1", request: "r", kind: "insert" },
+      },
+    };
+    expect(noteNumbers(citationsIn(fragmentOf(pending, cite(2), cite(5))), context)).toEqual([
+      1, 2, 3,
+    ]);
+  });
+});

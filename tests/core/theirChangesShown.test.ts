@@ -126,7 +126,7 @@ describe("someone else's changes, shown as changes", { timeout: 30_000 }, () => 
     await core.exportMind(mindId, { format: "pdf" });
     const body = printed[0]?.body ?? "";
     expect(body).toContain(
-      '<del class="change">9.2 The Customer may terminate for convenience.</del><sup class="note-ref" data-note="2">2</sup>',
+      '<del class="change">9.2 The Customer may terminate for convenience.</del><sup class="note-ref change-note" data-note="2">2</sup>',
     );
     expect(body).toContain('<ins class="change"> under any circumstances</ins>');
     expect(printed[0]?.notes).toEqual([

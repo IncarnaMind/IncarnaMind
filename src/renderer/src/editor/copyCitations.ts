@@ -14,7 +14,8 @@ import { useAppStore } from "../store";
 import { addFootnotes, citationsIn, copiedText, wordFootnoteHtml } from "./copyNotes";
 
 export function sourceContext(): SourceContext {
-  return { language: languageNow(), documents: useAppStore.getState().documents };
+  const { documents, keptCitationTexts } = useAppStore.getState();
+  return { language: languageNow(), documents, kept: keptCitationTexts };
 }
 
 export const FIGURE_RUNS_ATTRIBUTE = "data-incarnamind-figure-runs";

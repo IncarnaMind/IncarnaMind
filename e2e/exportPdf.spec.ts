@@ -235,14 +235,13 @@ test("a Mind with English and Chinese Citations, a table and maths prints as a P
     "The pull that raises them falls off as 1/𝑟3, faster than gravity:",
     "𝐹 = 𝐺𝑚1𝑚2𝑟2",
     "Tide 潮 Range 潮差",
-    "Spring 大潮 4 m3",
-    "Neap 小潮 2 m4",
-    "Tea reached Europe through Portuguese merchants5.",
+    "Spring 大潮 4 m1",
+    "Neap 小潮 2 m3",
+    "Tea reached Europe through Portuguese merchants4.",
     "1 Tides, p. 1",
     "2 潮汐, p. 1",
-    "3 Tides, p. 1",
-    "4 潮汐, p. 1 [unverified]",
-    `5 Tea, The Open Encyclopedia, § History, ¶ 3, ${ADDRESS}, accessed ${accessed}`,
+    "3 潮汐, p. 1 [unverified]",
+    `4 Tea, The Open Encyclopedia, § History, ¶ 3, ${ADDRESS}, accessed ${accessed}`,
     "1",
   ].join("\n");
   expect((await pdfText(pdf)).map(unspaced)).toEqual([unspaced(golden)]);
@@ -605,7 +604,7 @@ test("Export as HTML saves one .html file whose footnotes link both ways, and th
     for (const width of [1280, 390]) {
       await setWindowSize(app, reader, width, 844);
       await expect(reader.locator("main > p").filter({ has: reader.locator("#ref-1") })).toHaveText(
-        "Spring tides happen at new moon1. 大潮出现在新月前后2,3。",
+        "Spring tides happen at new moon1. 大潮出现在新月前后2,1。",
       );
       expect(
         await reader

@@ -10,6 +10,7 @@ import type {
   CitationAttributes,
   CitationCheck,
   CitationCheckReason,
+  CitationLocation,
   CitationRecheck,
   Document,
   KeptCitationText,
@@ -457,6 +458,56 @@ export function citationSource(
       : location;
   const where = formatLocation(shown, t);
   return { name, where, text: t("citation.where", { document: name, location: where }) };
+}
+
+/** What a Citation's footnote is about: the Document and version quoted, the place, and its check. */
+export interface FootnoteSubject {
+  documentId: string | null;
+  contentHash: string | null;
+  location: CitationLocation | null;
+  /** The note carries the "[unverified]" marker: a verified Citation can't share it. */
+  unverified: boolean;
+  /** A web page's address, which its footnote names. */
+  link?: string | null;
+}
+
+/**
+ * What makes two Citations one footnote in an export (#1381, #1552): the same Document and
+ * version, at the same place, with the same check. A later Citation with this key repeats the
+ * first's footnote number, in a Word file and on screen alike (#2292). The place is its own
+ * values, not the words it prints as: two places that read alike are still two places.
+ */
+export function footnoteSubjectKey(subject: FootnoteSubject): string {
+  return [
+    subject.documentId ?? "",
+    subject.contentHash ?? "",
+    subject.location ? JSON.stringify(subject.location) : "",
+    subject.unverified ? "unverified" : "verified",
+    subject.link ?? "",
+  ].join("\u0000");
+}
+
+/** The live Documents, and the text kept of those unlinked with their folder, to settle a check. */
+export interface CitationLive {
+  documents: readonly LiveDocument[] | null;
+  kept?: readonly KeptCitationText[];
+}
+
+/**
+ * A Citation's footnote subject, its check settled as the live Documents have it: a Document
+ * removed since makes a found and a not-found Citation together one unverified footnote (#2292).
+ */
+export function citationSubject(
+  attributes: Partial<CitationAttributes>,
+  { documents, kept = [] }: CitationLive,
+): FootnoteSubject {
+  const state = citationState(attributes, documents, kept);
+  return {
+    documentId: attributes.documentId ?? null,
+    contentHash: attributes.contentHash ?? null,
+    location: citationLocation(attributes),
+    unverified: state.check !== "found",
+  };
 }
 
 /** A Citation as plain text, e.g. "[Attention Is All You Need, p. 3]", for copying as text. */

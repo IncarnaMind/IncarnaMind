@@ -1,15 +1,18 @@
 /**
  * A Mind as HTML to print as a PDF (#100): the body, and its footnotes apart, which the print
  * page puts at the foot of the page each marker lands on. Citations and the User's own
- * footnotes are numbered together in the order they appear, as in the other exports; a
- * citation style's notes take their numbers too, and its in-text Citations and Bibliography
- * are in the body. Maths is typeset (MathML); what KaTeX can't read stays LaTeX. Everything
+ * footnotes are numbered together as in the other exports: one note for each source and place,
+ * a later Citation of it repeating its number (#2292); a citation style's notes take their
+ * numbers too, and its in-text Citations and Bibliography are in the body. Maths is typeset
+ * (MathML); what KaTeX can't read stays LaTeX. Everything
  * from the Mind is escaped: the page shows text, never markup it was given. The HTML export
  * (./html) is the same document, its markers are links to the notes (`linkNotes`).
  * Someone's changes from a Word file still waiting are marked as Word prints
  * them, inserted words underlined and deleted ones struck, each with a note of
  * who made it and when (#734).
  */
+import { footnoteSubjectKey } from "../../shared/citations";
+import { FootnoteNumbering } from "../../shared/footnoteNumbers";
 import { cssString } from "../../shared/mindStyle";
 import { paragraphFormatDeclarations } from "../../shared/paragraphFormat";
 import type { ParagraphFormat, StyledRun } from "../api";
@@ -25,6 +28,7 @@ import {
 import { changedContent, changeEnding, changeSpans } from "../shownChanges";
 import type { ExportLabels } from "./labels";
 import { latexToMathMl } from "./math";
+import { noteChecks } from "./noteChecks";
 
 export type PrintLabels = ExportLabels;
 
@@ -75,16 +79,14 @@ export function renderPrintHtml(
   const notes: string[] = [];
   const writer = new PrintWriter(
     labels,
-    (note) => {
-      notes.push(note);
-      return notes.length;
-    },
+    notes,
     linkNotes,
     citations,
     isLink,
     headingEntries(blocks),
+    noteChecks(blocks),
   );
-  const body = writer.blocks(blocks);
+  const body = writer.finish(writer.blocks(blocks));
   return { body, notes, footnotes: notes.length };
 }
 
@@ -189,15 +191,27 @@ function wrap(text: string, marks: Marks, isLink: LinkTest): string {
 }
 
 class PrintWriter {
+  /** The Mind's footnotes as every surface numbers them (#2292): one for each source and place. */
+  private readonly numbering = new FootnoteNumbering();
+  /** The notes whose first marker carries the id the note links back to. */
+  private readonly linked = new Set<number>();
+  /**
+   * The notes that say who made a change: the page's own, numbered after the Citations' notes
+   * so a change never moves a Citation's number away from the Note's (#2292).
+   */
+  private readonly changeNotes: string[] = [];
+
   constructor(
     private readonly labels: PrintLabels,
-    /** Numbers a footnote, given as HTML: 1, 2, 3… in the order they are written. */
-    private readonly number: (note: string) => number,
+    /** The notes the page prints, in order: a note's number is its place here, from 1. */
+    private readonly notes: string[],
     /** Markers link to their notes, and carry the id the note links back to. */
     private readonly linkNotes: boolean,
     private readonly citations: CitationWriter | null,
     private readonly isLink: LinkTest,
     private readonly headings: readonly HeadingEntry[] = [],
+    /** The "Checked by" lines each note carries, by its key (see `noteChecks`). */
+    private readonly checks: ReadonlyMap<string, readonly string[]> = new Map(),
   ) {}
 
   blocks(blocks: readonly Block[]): string {
@@ -218,13 +232,75 @@ class PrintWriter {
     return parts.map((part) => (part.length > 0 ? wrap(this.inline(part)) : "")).join(PAGE_BREAK);
   }
 
+  /** A footnote the page prints now: the User's own, a figure's note, or a citation style's. */
   private marker(note: string, adjacent = false): string {
-    const number = this.number(note);
-    const separator = adjacent ? "," : "";
-    if (this.linkNotes) {
-      return `<sup class="note-ref" id="ref-${number}">${separator}<a href="#note-${number}">${number}</a></sup>`;
+    const number = this.numbering.footnote();
+    this.notes.push(note);
+    return this.markerAt(number, adjacent);
+  }
+
+  /**
+   * A Citation's marker: its source and place's footnote number. The first Citation of a source
+   * and place writes the note, and a later one points at it and shows its number (#1381); a
+   * Citation a change still waiting adds or removes stands for itself, as its own note (#107).
+   */
+  private citationMarker(item: Extract<Inline, { kind: "citation" }>, adjacent: boolean): string {
+    const subject = {
+      documentId: item.work.documentId,
+      contentHash: item.work.contentHash ?? null,
+      location: item.work.location,
+      unverified: item.footnote.unverified,
+      link: item.footnote.link ?? null,
+    };
+    const shared = item.inserted === undefined && item.deleted === undefined;
+    const key = shared ? footnoteSubjectKey(subject) : null;
+    const numbered =
+      key === null
+        ? { number: this.numbering.footnote(), first: true }
+        : this.numbering.citation(subject);
+    if (numbered.first) {
+      // A note stands for every Citation of its source and place, so it says a person's check
+      // only where all of them carry it (`noteChecks`).
+      const lines = key === null ? (item.footnote.checked ?? []) : (this.checks.get(key) ?? []);
+      this.notes.push(sourceHtml(item.footnote, this.labels, this.isLink) + checkedHtml(lines));
     }
-    return `<sup class="note-ref" data-note="${number}">${separator}${number}</sup>`;
+    return this.markerAt(numbered.number, adjacent);
+  }
+  /**
+   * A marker: its note's number, and with links, the note's way back to the first marker that
+   * shows it. A later Citation of the same note shows the same number, without a second id.
+   */
+  private markerAt(number: number, adjacent = false, classes = ""): string {
+    const separator = adjacent ? "," : "";
+    const style = `note-ref${classes}`;
+    if (this.linkNotes) {
+      const first = !this.linked.has(number);
+      this.linked.add(number);
+      return `<sup class="${style}"${first ? ` id="ref-${number}"` : ""}>${separator}<a href="#note-${number}">${number}</a></sup>`;
+    }
+    return `<sup class="${style}" data-note="${number}">${separator}${number}</sup>`;
+  }
+
+  /**
+   * Where a change's note goes in the text, filled in by `finish` once the Citations' are
+   * numbered; `adjacent` is the comma a marker right after another note shows.
+   */
+  private changeMarker(note: string, adjacent: boolean): string {
+    const id = this.changeNotes.length;
+    this.changeNotes.push(note);
+    const after = adjacent ? ' data-adjacent="1"' : "";
+    return `<sup class="note-ref change-note" data-change="${id}"${after}></sup>`;
+  }
+
+  /** The body with each change's marker numbered, and their notes after the Citations' notes. */
+  finish(body: string): string {
+    const base = this.notes.length;
+    for (const note of this.changeNotes) this.notes.push(note);
+    return body.replace(
+      /<sup class="note-ref change-note" data-change="(\d+)"(?: data-adjacent="1")?><\/sup>/g,
+      (found, id: string) =>
+        this.markerAt(base + Number(id) + 1, found.includes("data-adjacent"), " change-note"),
+    );
   }
 
   private block(block: Block): string {
@@ -347,7 +423,7 @@ class PrintWriter {
           state.lastWasNote = false;
           return `${marked} (${note})`;
         }
-        const marker = this.marker(note, state.lastWasNote);
+        const marker = this.changeMarker(note, state.lastWasNote);
         state.lastWasNote = true;
         return marked + marker;
       })
@@ -386,14 +462,11 @@ class PrintWriter {
             if (/\S$/.test(html)) html += " ";
             html += sourceHtml(item.footnote, this.labels, this.isLink);
           } else if (this.citations) {
-            const number = this.number(this.citations.note(item.footnote));
+            const number = this.numbering.footnote();
+            this.notes.push(this.citations.note(item.footnote));
             html += this.citations.marker(item.footnote, number);
           } else {
-            html += this.marker(
-              sourceHtml(item.footnote, this.labels, this.isLink) +
-                checkedHtml(item.footnote.checked),
-              state.lastWasNote,
-            );
+            html += this.citationMarker(item, state.lastWasNote);
             lastWasNote = true;
           }
           break;

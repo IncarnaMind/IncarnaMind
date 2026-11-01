@@ -3992,7 +3992,7 @@ export const zhCN = {
   "export.pack.column.source": "文档和位置",
   "export.pack.column.page": "页码",
   "export.pack.picture": "引用页面：{source}",
-  "export.pack.notFound": "{number} · 此页未找到引文",
+  "export.pack.notFound": "{number} · 此页未找到引文：“{quote}”",
   "export.pack.noPage": "引用时未保存此页，这里只显示引文。",
   "export.saveTo": "保存到",
   "export.theirChanges": "修订",
