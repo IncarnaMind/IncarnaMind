@@ -197,13 +197,14 @@ export async function checkMind(
   { allDocuments = false, figureIds }: { allDocuments?: boolean; figureIds?: string[] } = {},
 ): Promise<void> {
   if (useChecks.getState().running[mindId]) return;
+  await freeAskedNote(mindId);
+  // Read again once the asked Note is freed, which waits on the core: a second press meanwhile
+  // found no question to free and started its run (#2302).
+  if (useChecks.getState().running[mindId]) return;
+  dismissCheckProblem(mindId);
   const requestId = crypto.randomUUID();
-  // Recorded before the asked Note is freed, which waits on the core: a second press meanwhile
-  // must find this run on, as in `runCheck` (#2302).
   setCheckRunning(mindId, { requestId, action: "whole-mind" });
   try {
-    await freeAskedNote(mindId);
-    dismissCheckProblem(mindId);
     await checkMindNow(mindId, mode, allDocuments, requestId, figureIds);
   } finally {
     setCheckRunning(mindId, null);
