@@ -239,7 +239,7 @@ test("with the Qwen key from Models, Other ways… offers it with its region and
   await shot(window, "meeting-bar-qwen-refused-en");
   await setLanguage(window, "zh-CN");
   await expect(refused).toContainText(
-    "通义千问拒绝了这个密钥（密钥有误、已过期或属于其他地域）。请在“设置 › 模型”中检查密钥和地域。正在这台电脑上转写。",
+    "通义千问拒绝了这个密钥（密钥有误、已过期或属于其他区域）。请在“设置 › 模型”中检查密钥和区域。正在这台电脑上转写。",
   );
   await shot(window, "meeting-bar-qwen-refused-zh");
   await bar.getByTestId("meeting-line-change-key").click();

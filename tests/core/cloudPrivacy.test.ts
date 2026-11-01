@@ -13,7 +13,12 @@ import { OPENAI_TRANSCRIPTION_URL } from "../../src/core/transcription/cloud/ope
 import type { CloudConnect } from "../../src/core/transcription/cloud/socket";
 import { createFakeSpeechEngine } from "../../src/core/transcription/fake";
 import { createFakeCloud, type FakeCloudOptions } from "../../src/core/transcription/fakeCloud";
-import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
+import {
+  createMemoryKeychain,
+  createTempDataFolder,
+  manualClock,
+  startCore,
+} from "../helpers/core";
 import { NO_TRANSCRIPTION_FILES, until } from "../helpers/transcription";
 
 const SECOND = 1000;
@@ -97,11 +102,8 @@ function counting(options: FakeCloudOptions = {}) {
 
 type Service = ReturnType<typeof counting>;
 
-async function meetingOn(route: Route, service: Service) {
-  const dataDir = await createTempDataFolder();
-  const clock = manualClock();
-  const capture = createFakeCapture({ now: () => clock.now().getTime() });
-  const transcriber: Transcriber = createChannelTranscriber(() => {
+function transcriberOn(service: Service): Transcriber {
+  return createChannelTranscriber(() => {
     let deliver: (request: TranscriberRequest) => void = () => {};
     const responses: ((response: TranscriberResponse) => void)[] = [];
     const port: TranscriberPort = {
@@ -124,13 +126,22 @@ async function meetingOn(route: Route, service: Service) {
       stop: () => {},
     };
   });
-  const core = startCore(dataDir, {
-    audioCapture: capture,
-    transcriber,
-    transcriptionModelSource: NO_TRANSCRIPTION_FILES,
-    transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
-    now: clock.now,
-  });
+}
+
+async function meetingOn(route: Route, service: Service, keychain = createMemoryKeychain()) {
+  const dataDir = await createTempDataFolder();
+  const clock = manualClock();
+  const capture = createFakeCapture({ now: () => clock.now().getTime() });
+  const open = () =>
+    startCore(dataDir, {
+      audioCapture: capture,
+      transcriber: transcriberOn(service),
+      transcriptionModelSource: NO_TRANSCRIPTION_FILES,
+      transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
+      keychain,
+      now: clock.now,
+    });
+  const core = open();
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
   await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));
   if (route === "soniox") {
@@ -151,7 +162,12 @@ async function meetingOn(route: Route, service: Service) {
       capture.push("system", step);
     }
   };
-  return { core, record, meeting };
+  /** The app quit and opened again, with the same data folder and keychain. */
+  const restart = () => {
+    core.close();
+    return open();
+  };
+  return { core, record, meeting, restart };
 }
 
 /** Lets messages cross the channel and the pretend socket. */
@@ -377,6 +393,98 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
       "wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference",
       "wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference",
     ]);
+  });
+
+  test("qwen: the key moving to another region while another key's read is slow still says so in the bar", async () => {
+    const service = counting();
+    const keychain = createMemoryKeychain();
+    let slow = false;
+    const read = keychain.get;
+    keychain.get = async (name) => {
+      // Any read that lands after Qwen's: the keychain answers one at a time.
+      if (slow && name.startsWith("transcription:soniox")) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+      return read(name);
+    };
+    const { core, record, meeting } = await meetingOn("qwen", service, keychain);
+    await until(core, meeting.id, (each) => each.cloud === "qwen");
+    record(2 * SECOND);
+    const beijing = (await core.listChatProviders())[0]?.id ?? "";
+    await core.saveChatProvider({
+      kind: "qwen",
+      endpoint: "intl",
+      apiKey: "sk-qwen-intl-test",
+      modelId: "qwen3.7-plus",
+    });
+    service.mark();
+    slow = true;
+    const deleted = core.deleteChatProvider(beijing);
+    for (let step = 0; step < 8; step++) {
+      record(SECOND / 2);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    await deleted;
+    slow = false;
+
+    const local = await until(core, meeting.id, (each) => each.fellBack !== null);
+    expect(local).toMatchObject({ cloud: null, fellBack: { route: "qwen", reason: "moved" } });
+    expect(service.sentSinceMark()).toBe(0);
+    expect((await core.getSettings()).device.transcriptionRoute).toBe("local");
+  });
+
+  test("qwen: after a restart, the key moving to a region chosen once before still waits for Qwen to be chosen again", async () => {
+    const service = counting();
+    const { core, record, meeting, restart } = await meetingOn("qwen", service);
+    await core.stopMeeting(meeting.id);
+    const qwenRow = async (on: Core, endpoint: "cn" | "intl") =>
+      (await on.listChatProviders()).find(
+        (provider) => provider.kind === "qwen" && (provider.endpoint ?? "cn") === endpoint,
+      )?.id ?? "";
+    const save = (on: Core, endpoint: "cn" | "intl") =>
+      on.saveChatProvider({
+        kind: "qwen",
+        endpoint,
+        apiKey: `sk-qwen-${endpoint}-test`,
+        modelId: "qwen3.7-plus",
+      });
+    const choose = (on: Core) => on.updateSettings({ device: { transcriptionRoute: "qwen" } });
+    await save(core, "intl");
+    await core.deleteChatProvider(await qwenRow(core, "cn"));
+    await choose(core);
+    await save(core, "cn");
+    await core.deleteChatProvider(await qwenRow(core, "intl"));
+    await choose(core);
+    await save(core, "intl");
+
+    const again = restart();
+    await again.deleteChatProvider(await qwenRow(again, "cn"));
+    expect((await again.getSettings()).device.transcriptionRoute).toBe("local");
+    expect(
+      (await again.listTranscriptionServices()).services.find((each) => each.route === "qwen"),
+    ).toMatchObject({
+      chooseAgain: true,
+      region: { en: "International (Singapore)", zh: "国际（新加坡）" },
+    });
+    // Singapore's consent still stands from the first choice: the route waits all the same.
+    expect(await again.listDataFlows()).toContainEqual(
+      expect.objectContaining({
+        flow: expect.objectContaining({
+          id: "transcription",
+          service: expect.objectContaining({ id: "https://dashscope-intl.aliyuncs.com" }),
+        }),
+        consent: "accepted",
+      }),
+    );
+    const next = await again.createMeeting();
+    await again.startMeeting({ meetingId: next.id });
+    service.mark();
+    record(4 * SECOND);
+    const heard = await until(again, next.id, (each) => each.lines > 0);
+    expect(heard).toMatchObject({ cloud: null, fellBack: null });
+    expect(service.sentSinceMark()).toBe(0);
+    // No audio was ever recorded for Qwen here, so no connection was ever opened.
+    expect(service.opened()).toEqual([]);
   });
 
   for (const route of ["soniox", "qwen"] as const) {

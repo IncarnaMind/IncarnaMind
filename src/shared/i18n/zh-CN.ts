@@ -5306,9 +5306,9 @@ export const zhCN = {
   "meetings.line.cloudCap": "正在这台电脑上转写（{time} 时已达到每月上限）",
   "meetings.line.cloudRefused": "{provider}不接受这个密钥，正在这台电脑上转写。",
   "meetings.line.cloudRefusedRegion":
-    "{provider}拒绝了这个密钥（密钥有误、已过期或属于其他地域）。请在“设置 › 模型”中检查密钥和地域。正在这台电脑上转写。",
+    "{provider}拒绝了这个密钥（密钥有误、已过期或属于其他区域）。请在“设置 › 模型”中检查密钥和区域。正在这台电脑上转写。",
   "meetings.line.cloudMoved":
-    "正在这台电脑上转写：{provider}密钥现在属于其他地域。重新选择{provider}后，音频会发送到该地域。",
+    "正在这台电脑上转写：{provider}密钥现在属于其他区域。重新选择{provider}后，音频会发送到该区域。",
   "meetings.line.chooseAgain": "重新选择",
   "meetings.line.cloudLocalMode": "正在这台电脑上转写：已开启“所有内容都留在这台电脑上”。",
   "meetings.line.openSettings.mac": "打开系统设置",

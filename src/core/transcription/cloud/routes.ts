@@ -38,6 +38,9 @@ const KEY_CHECKS: Partial<Record<CloudTranscriptionRoute, string>> = {
 const KEY_CHECK_TIMEOUT_MS = 15_000;
 
 const keyName = (route: CloudTranscriptionRoute) => `transcription:${route}:api-key`;
+// Kept outside DeviceSettings, so only choosing a route changes them, and a restart keeps them.
+const CONFIRMED_SERVICE = "transcriptionConfirmedService";
+const CHOOSE_AGAIN = "transcriptionChooseAgain";
 const fingerprint = (apiKey: string) => createHash("sha256").update(apiKey).digest("hex");
 
 export const isCloudRoute = (route: unknown): route is CloudTranscriptionRoute =>
@@ -50,11 +53,12 @@ export interface CloudAudioMeter {
 
 /**
  * Where a stretch of recording goes: the chosen service, ready to open streams; or this computer,
- * because the month is at the cap, the service refused its key, or Local mode is on.
+ * because the month is at the cap, the service refused its key, Local mode is on, or the key now
+ * sends somewhere the User hasn't chosen.
  */
 export type CloudStart =
   | { route: CloudTranscriptionRoute; stream: CloudStream; meter: CloudAudioMeter }
-  | { route: CloudTranscriptionRoute; refused: "cap" | "key" | "local-mode" };
+  | { route: CloudTranscriptionRoute; refused: "cap" | "key" | "local-mode" | "moved" };
 
 /**
  * Whether audio may go to a route now. "local-mode": “Keep everything on this computer” is on;
@@ -96,8 +100,12 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
   const keys = new Map<CloudTranscriptionRoute, { fingerprint: string; endpoint: string | null }>();
   // Until the key changes, so each Meeting doesn't start with a refusal and a gap.
   const refused = new Set<CloudTranscriptionRoute>();
-  // Set back to this computer because the key now sends elsewhere; until the User chooses again.
-  const moved = new Set<CloudTranscriptionRoute>();
+  // The service the User last chose the route for: Qwen's key can later be one for another region.
+  const confirmedValue = settings.readDeviceValue(CONFIRMED_SERVICE);
+  let confirmed = typeof confirmedValue === "string" ? confirmedValue : null;
+  // Set back to this computer because its key began to send elsewhere; until the User chooses again.
+  const movedValue = settings.readDeviceValue(CHOOSE_AGAIN);
+  let moved = isCloudRoute(movedValue) ? movedValue : null;
   // Grows with every committed change to what `list` says; a failed change leaves it alone.
   let revision = 0;
 
@@ -122,6 +130,17 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
     route === "qwen"
       ? qwenRegion(keys.get(route)?.endpoint ?? null).service
       : TRANSCRIPTION_SERVICES[route].service;
+
+  // A route chosen before the service was kept (OpenAI or Soniox, whose service never changes)
+  // has nothing to compare.
+  const movedAway = (route: CloudTranscriptionRoute) =>
+    confirmed !== null && serviceNow(route).id !== confirmed;
+
+  function setBack(route: CloudTranscriptionRoute): void {
+    moved = route;
+    settings.writeDeviceValue(CHOOSE_AGAIN, route);
+    settings.update({ device: { transcriptionRoute: "local" } });
+  }
 
   consent.registry.register({
     id: "transcription",
@@ -152,7 +171,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
           hasKey: key !== null,
           liveSpeakers: service.liveSpeakers,
           keyUrl: service.keyUrl ?? null,
-          chooseAgain: key !== null && moved.has(service.route),
+          chooseAgain: key !== null && moved === service.route,
         };
       }),
     );
@@ -166,9 +185,12 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
   };
 
   function sending(route: CloudTranscriptionRoute, stream: CloudStream | null): CloudSending {
-    if (chosen() !== route) return moved.has(route) ? "moved" : "stopped";
+    if (chosen() !== route) return moved === route ? "moved" : "stopped";
     const current = keys.get(route);
     if (!current) return "stopped";
+    // Before the stream's own checks: a stream open to the old region is "moved" from the first
+    // chunk the new key is read for, whenever the route itself is set back.
+    if (movedAway(route)) return "moved";
     if (stream) {
       if (stream.service !== route) return "stopped";
       if (current.fingerprint !== fingerprint(stream.apiKey)) return "stopped";
@@ -194,8 +216,13 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
 
     /** The User chose where meeting audio is transcribed: a cloud service, chosen, is allowed. */
     chose(route: TranscriptionRoute | null): void {
-      moved.clear();
-      if (isCloudRoute(route)) consent.choose(["transcription"], serviceNow(route));
+      moved = null;
+      settings.deleteDeviceValue(CHOOSE_AGAIN);
+      if (!isCloudRoute(route)) return;
+      const service = serviceNow(route);
+      consent.choose(["transcription"], service);
+      confirmed = service.id;
+      settings.writeDeviceValue(CONFIRMED_SERVICE, service.id);
     },
 
     /** A choice the User can make now: a cloud service needs its key. */
@@ -224,26 +251,22 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
 
     /**
      * Reads the keys again, after a provider was saved or deleted: a chosen route whose key went
-     * is chosen no more, and one whose key now sends elsewhere (Qwen's, for another region) is
-     * set back to this computer, as consent is for where the audio goes (ADR-0022). Resolves to
-     * whether that changed the route.
+     * is chosen no more, and one whose key now sends somewhere other than the service the User
+     * chose it for (Qwen's, for another region) is set back to this computer until they choose it
+     * again, as consent is for where the audio goes (ADR-0022). Resolves to whether that changed
+     * the route.
      */
     async refreshKeys(): Promise<boolean> {
       revision += 1;
-      const before = chosen();
-      const was = isCloudRoute(before) && keys.has(before) ? serviceNow(before).id : null;
       await list();
       const route = chosen();
       if (!isCloudRoute(route)) return false;
-      if (keys.has(route)) {
-        const now = serviceNow(route);
-        const elsewhere =
-          (route === before && was !== null && was !== now.id) ||
-          !consent.allows("transcription", now);
-        if (!elsewhere) return false;
-        moved.add(route);
+      if (!keys.has(route)) {
+        settings.update({ device: { transcriptionRoute: "local" } });
+        return true;
       }
-      settings.update({ device: { transcriptionRoute: "local" } });
+      if (!movedAway(route)) return false;
+      setBack(route);
       return true;
     },
 
@@ -321,6 +344,10 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
         return { route, refused: "key" };
       }
       const now = sending(route, null);
+      if (now === "moved") {
+        setBack(route);
+        return { route, refused: "moved" };
+      }
       if (now === "local-mode") return { route, refused: "local-mode" };
       if (now !== "ok") return null;
       if (refused.has(route)) return { route, refused: "key" };
