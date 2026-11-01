@@ -1326,6 +1326,8 @@ export const en = {
   "edit.problem.retry": "Try again",
   "edit.problem.cant-regenerate": "Can’t be made again: reject it, then edit the text with AI.",
   "edit.problem.no-table": "The AI’s table wasn’t complete, so nothing changed. Try again.",
+  "edit.problem.unplaced":
+    "The AI marked text to remove that doesn’t match the selection word for word in one place, so nothing changed. Try again.",
   "edit.problem.late": "This edit arrived too late to apply. Accept or reject its changes.",
   "edit.problem.busy": "Another edit is still running. Wait for it, or stop it.",
   "composer.edit.placeholder": "Say what to change…",
@@ -3701,7 +3703,7 @@ export const en = {
 
   "citation.label": "Citation {number}: {document}. {badge}",
   "citation.inFootnote.label": "Citation: {document}. {badge}",
-  "citation.badge.checking": "checking…",
+  "citation.badge.checking": "Checking…",
   "citation.badge.found.on": "Quote found on {location}",
   "citation.badge.found.in": "Quote found in {location}",
   "citation.badge.found.document": "Quote found in {document}",
@@ -3711,6 +3713,7 @@ export const en = {
   "citation.badge.found.transcript": "Quote found in the transcript at {location}",
   "citation.badge.notFound.transcript": "Quote not found in the transcript at {location}",
   "citation.badge.cantCheck": "Can’t check",
+  "citation.badge.notChecked": "Not checked",
   "citation.badge.unsupported": "Unsupported by your Documents",
   "citation.badge.contradicted": "Contradicted",
   "citation.reason.quote-not-on-pages": "The quote isn’t in the text of the place it cites.",
@@ -3722,7 +3725,12 @@ export const en = {
   "citation.reason.document-removed": "The Document has been deleted.",
   "citation.reason.kept-inside": "Kept inside {folder}",
   "citation.reason.quoted-words-not-on-pages": "The quoted words aren’t in the cited place.",
-  "citation.reason.checking": "The quote is checked when the Answer is finished.",
+  "citation.reason.checking": "Checking the quote, and whether it supports this sentence.",
+  "citation.reason.answer-limit":
+    "Not checked: this Answer’s {limit} checking limit was reached before this sentence.",
+  "citation.reason.monthly-limit":
+    "Not checked: your monthly limit of {cap} was reached before this sentence.",
+  "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
   "citation.where": "{document}, {location}",
   "citation.scan": "Text read from a scan",
   "citation.scan.unsure.one": "Text read from a scan · 1 word may be misread",
@@ -6229,6 +6237,17 @@ export const en = {
   "steps.check.allFound": "all found",
   "steps.check.found": "found",
   "steps.check.notFound": "{count} not found",
+  "steps.check.needALook": "{count} need a look",
+  "steps.check.needALook.one": "1 needs a look",
+  "steps.check.answerLimit":
+    "{checked} of {total} sentences checked · This Answer’s {limit} checking limit reached",
+  "steps.check.monthlyLimit":
+    "{checked} of {total} sentences checked · Your monthly limit of {cap} reached",
+  "steps.check.checkTheRest": "Check the rest",
+  "steps.check.checkTheRest.go": "Check",
+  "steps.check.checkTheRest.cancel": "Cancel",
+  "steps.check.settings": "Settings",
+  "steps.check.notChecked": "{count} not checked",
   "steps.askedAgain.calculate":
     "Asked again: the reply said figures were calculated, and no calculation had run",
   "steps.askedAgain.search": "Asked again: the reply said a search ran, and none had",
@@ -6378,6 +6397,8 @@ export const en = {
     "Couldn’t change “{mind}”: only the assistant’s own text can be rewritten",
   "mindCall.failed.stopped": "Stopped before “{mind}” changed",
   "mindCall.failed.noTable": "Couldn’t make the table, so nothing was added to “{mind}”",
+  "mindCall.failed.unplaced":
+    "The text marked to remove doesn’t match “{mind}” word for word in one place, so nothing changed",
   "mindCall.failed.uncited": "Didn’t add to “{mind}”: its sources weren’t cited",
   "mindCall.failed.noChart.noTable": "No chart: “{mind}” has no table",
   "mindCall.failed.noChart.several":
