@@ -180,11 +180,20 @@ describe("Excel's documented results", () => {
     expect(await excel('VALUE("2025-02-30")')).toBe("#VALUE!");
     expect(await excel('VALUE("2025-13-01")')).toBe("#VALUE!");
     expect(await excel('VALUE("2025-01-31")')).toBe(45688);
+    // Excel gives 60, counting its 29 February 1900: refused before any check of the day.
+    expect(await excel('VALUE("1900-02-29")')).toEqual({ refused: "early-date" });
   });
 
   test("DATE past 31 December 9999 is #NUM!", async () => {
     expect(await excel("DATE(9999,12,32)")).toBe("#NUM!");
     expect(await excel("DATE(9999,12,31)")).toBe(2958465);
+  });
+
+  test("EDATE and EOMONTH past 31 December 9999 are #NUM!", async () => {
+    expect(await excel("EDATE(2958465,1)")).toBe("#NUM!");
+    expect(await excel("EOMONTH(2958465,1)")).toBe("#NUM!");
+    expect(await excel("EDATE(2958435,1)")).toBe("#NUM!");
+    expect(await excel("EDATE(2958435,0)")).toBe(2958435);
   });
 
   test("a date written as text in arithmetic is refused; other text is #VALUE!", async () => {

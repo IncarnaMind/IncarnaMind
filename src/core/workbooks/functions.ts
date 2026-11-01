@@ -856,7 +856,7 @@ function monthsLater(
   const within = ((month % 12) + 12) % 12;
   const day = end ? daysInMonth(year, within) : Math.min(parts.day, daysInMonth(year, within));
   const result = serialOf(year, within, day, date1904);
-  return result < 0 ? NUM : result;
+  return result < 0 || result > LAST_SERIAL ? NUM : result;
 }
 
 function yearFraction(
@@ -1228,6 +1228,8 @@ function textValue(value: Scalar, date1904: boolean): number | CellError {
     const iso = /^\s*(\d{4})-(\d\d)-(\d\d)\s*$/.exec(value);
     if (iso) {
       const [year, month, day] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
+      // Before March 1900 first: Excel's calendar there has a 29 February 1900 this one lacks.
+      if (!date1904 && year * 12 + month - 1 < 1900 * 12 + 2) throw new Refusal("early-date");
       if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month - 1)) return VALUE;
       return serialOf(year, month - 1, day, date1904);
     }
