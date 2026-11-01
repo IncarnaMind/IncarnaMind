@@ -74,7 +74,7 @@ const HEADED = {
   zh: { name: "港口业绩2025.md", contents: "## 营业利润率\n\n2025年收入增长12%，达到4.82亿元。\n" },
 };
 
-/** Rows whose numbers start the same, and two rows with one number. */
+/** Rows whose numbers start the same. */
 const ROWS = {
   name: "Depot measures 2025.md",
   contents: [
@@ -82,8 +82,6 @@ const ROWS = {
     "| --- | --- |",
     "| Operating margin | 21.5% |",
     "| Revenue growth | 21% |",
-    "| Headcount growth | 7% |",
-    "| Depot growth | 7% |",
     "",
   ].join("\n"),
 };
@@ -477,6 +475,7 @@ describe("a table's row label and headings say what a cell measures (#2255)", ()
       state: "supported",
     },
     { measure: { sentence: "Gross margin", quote: null, match: "same" }, state: "supported" },
+    { measure: { sentence: "Gross margin", quote: "", match: "same" }, state: "not-checked" },
     { measure: { sentence: "Gross margin", quote: null, match: "differs" }, state: "unsupported" },
     {
       measure: { sentence: "Gross margin", quote: "Operating margin", match: "same" },
@@ -579,7 +578,7 @@ describe("where a quote's words may come from (#2255's review)", () => {
     expect(figures).toMatchObject([{ sentence, state: reply.state }]);
   });
 
-  // protects=a cell's row is found by the quote's text, so "21%" is the "21%" row's, never the "21.5%" row's, and a quote two rows hold is in neither (#2255); fails_when=another row's label makes a figure Supported; no_claim=none beyond protects.
+  // protects=a cell's row is found by the quote's text, so "21%" is the "21%" row's, never the "21.5%" row's (#2255); fails_when=another row's label makes a figure Supported; no_claim=none beyond protects.
   test.each([
     {
       sentence: "Operating margin was 21% in 2025.",
@@ -592,12 +591,6 @@ describe("where a quote's words may come from (#2255's review)", () => {
       quote: "21%",
       row: "Revenue growth",
       state: "supported",
-    },
-    {
-      sentence: "Headcount growth was 7% in 2025.",
-      quote: "7%",
-      row: "Headcount growth",
-      state: "not-checked",
     },
   ])("a cell's own row: $quote for $row", async ({ sentence, quote, row, state }) => {
     const { figures } = await checkNote("en", ROWS, [paragraph("r", sentence)], () => ({
@@ -639,5 +632,33 @@ describe("where a quote's words may come from (#2255's review)", () => {
       "unread",
       "unread",
     ]);
+  });
+
+  // protects=a quote is placed only where its text stands as a number of its own ("21%" not inside "121%" or "1.21%"), and a text that holds it twice places it nowhere, so neither row's label names it, though a Passage the citation reads may hold it once; a text that holds it once places it (#2255); fails_when=a quote is placed inside a longer number, or in the first of two rows; no_claim=none beyond protects.
+  test.each([
+    {
+      rows: ["| Margin index | 121% |", "| Revenue growth | 21% |"],
+      row: "Revenue growth",
+      kind: "same",
+    },
+    {
+      rows: ["| Margin index | 1.21% |", "| Revenue growth | 21% |"],
+      row: "Revenue growth",
+      kind: "same",
+    },
+    {
+      rows: ["| Headcount growth | 21% |", "| Depot growth | 21% |"],
+      row: "Headcount growth",
+      kind: "unread",
+    },
+  ])("a quote placed once, as text: $rows", ({ rows, row, kind }) => {
+    const text = ["| Measure | 2025 |", "| --- | --- |", ...rows].join("\n");
+    const finding = measureFinding(
+      { sentence: row, quote: row, match: "same" },
+      [`${row} was 21% in 2025.`],
+      "21%",
+      () => [text],
+    );
+    expect(finding.kind).toBe(kind);
   });
 });
