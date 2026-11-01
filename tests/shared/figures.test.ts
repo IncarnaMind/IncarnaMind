@@ -1118,7 +1118,9 @@ describe("stated units", () => {
       "All figures are in thousands",
       "Every amount is stated in millions",
       "所有金额单位：千元",
+      "所有金額單位：千元",
       "本报告金额单位：万元",
+      "本報告金額單位：萬元",
       "全文金额均以千元列示",
     ])
       expect([line, statesForWholeDocument(line)]).toEqual([line, true]);
@@ -1128,7 +1130,9 @@ describe("stated units", () => {
       "All amounts in this table are in £'000",
       "All figures in the section below are in thousands",
       "金额单位：千元",
+      "金額單位：千元",
       "本表金额单位：万元",
+      "本表金額單位：萬元",
     ])
       expect([line, statesForWholeDocument(line)]).toEqual([line, false]);
   });

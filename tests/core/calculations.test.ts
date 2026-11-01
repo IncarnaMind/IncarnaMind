@@ -2301,12 +2301,17 @@ describe("A scale stated in another part of the Document refuses a bare number, 
         `[=${marker}] rev: ${chinese ? "1,200" : "1,234.5"} has no unit, and `,
       );
     }
-    // A Word heading's section is a Unit of its own, so its parent's line can be quoted from
-    // another Passage; the figure is still refused until it is.
-    if (format === "word section before")
+    // A Word heading's section is a Unit of its own: a parent's line that says it holds for the
+    // whole Document can be quoted from another Passage; the figure is still refused until it is.
+    if (format === "word section before") {
+      if (!chinese)
+        expect(asked).toContain(
+          "in another Passage of the same Document; give that line as unitQuote.",
+        );
       expect(asked).toContain(
-        "in another Passage of the same Document; give that line as unitQuote.",
+        "it can't be calculated without guessing whether that scale applies.",
       );
+    }
     expect(recorded).toEqual([]);
   });
 });
@@ -2496,13 +2501,112 @@ describe("A parent heading's scale line is quoted from another Passage, and a si
     const asked = told(model, "calculate")[0] ?? "";
     expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
     expect(asked).toContain(`[=2] rev:`);
-    expect(asked).toContain("is in a sibling section");
+    expect(asked).toContain("is in another section");
     const input = answer.figures[0]?.inputs[0];
     const unit = input?.unitStatement;
     expect(unit?.citation.quote).toBe(fixture.scale);
     expect(unit?.citation.check).toBe("found");
     expect(unit?.citation.passageId).not.toBe(input?.citation.passageId);
     expect(unit?.scale).toBe(1000);
+  });
+
+  /** Runs `unitQuote` for two rows of a Word Document; returns the Answer and what the model was told. */
+  async function wordQuoteUnder(
+    name: string,
+    contents: Buffer,
+    rows: [string, string],
+    unitQuote: string,
+  ) {
+    const [revenue, costs] = rows.map((row) => row.slice(row.lastIndexOf(" ") + 1)) as [
+      string,
+      string,
+    ];
+    const model = calculatingModel({
+      queries: ["revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, name, rows[0]);
+          const location = passage.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: rows[0] },
+                  { marker: 2, passage: passage.id, location, quote: rows[1] },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: { figures: [scaleFigure(1, { revenue, costs }, unitQuote)] },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [{ name: `${name}.docx`, contents }]);
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+    return { answer, asked: told(model, "calculate")[0] ?? "" };
+  }
+
+  test("a line in another occurrence of the same heading path is refused", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const contents = docxOf([
+      { text: "Notes", heading: 1 },
+      { text: "Revenue", heading: 2 },
+      { text: "All amounts in €'000" },
+      ...fillerLines(false).map((text) => ({ text })),
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Notes", heading: 1 },
+      { text: "Revenue", heading: 2 },
+      ...fillerLines(false).map((text) => ({ text })),
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordQuoteUnder(
+      "Notes accounts",
+      contents,
+      rows,
+      "All amounts in €'000",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is in another section");
+  });
+
+  test("a table's caption inside the ancestor section is refused", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const contents = docxOf([
+      { text: "Financial statements", heading: 1 },
+      { text: "Amounts in HK$ millions" },
+      ...fillerLines(false).map((text) => ({ text })),
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Notes", heading: 2 },
+      ...fillerLines(false).map((text) => ({ text })),
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Income statement", heading: 2 },
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordQuoteUnder(
+      "Caption accounts",
+      contents,
+      rows,
+      "Amounts in HK$ millions",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is in another section");
   });
 });
 

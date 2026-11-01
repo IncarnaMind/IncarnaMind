@@ -1287,11 +1287,13 @@ const WHOLE_DOCUMENT_ZH =
 
 /**
  * Whether a scale line says it holds for the whole Document ("All amounts in £'000", "All figures
- * are in thousands", "所有金额单位：千元"), rather than for a table or section under it. Only such a
- * line may state the scale of a figure on a later page, which isn't in its section (#2365).
+ * are in thousands", "所有金额单位：千元", "所有金額單位：千元"), rather than for a table or section
+ * under it. Only such a line may state the scale of a figure outside its own section (#2365).
  */
 export function statesForWholeDocument(text: string): boolean {
-  const line = text.normalize("NFKC");
+  const line = text
+    .normalize("NFKC")
+    .replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
   if (LOCAL_SCOPE.test(line)) return false;
   return WHOLE_DOCUMENT.test(line) || WHOLE_DOCUMENT_ZH.test(line);
 }

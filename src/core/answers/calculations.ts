@@ -529,10 +529,13 @@ interface Stated {
   quotable?: true;
 }
 
-/** A scale line in a Unit of a Document version, as written, and where the Unit is. */
+/** A scale line in a Unit of a Document version: the line as written, the scale it states, and where the Unit is. */
 interface ElsewhereScale {
   unit: PageText;
+  /** The scale the reader found in it, as written ("£'000", "in thousands"). */
   statement: string;
+  /** Its whole line, which the model quotes, and which says whether it holds for the whole Document. */
+  line: string;
   where: string;
 }
 
@@ -683,6 +686,13 @@ interface RowLabel {
   ownUnsettled: string | null;
 }
 
+/** The whole line of `text` that `start`–`end` is on, trimmed. */
+function lineOf(text: string, start: number, end: number): string {
+  const from = text.lastIndexOf("\n", start - 1) + 1;
+  const to = text.indexOf("\n", end);
+  return text.slice(from, to < 0 ? undefined : to).trim();
+}
+
 /** The pieces of `text` between its numbers, a stated scale's digits ("£'000") kept whole. */
 function betweenNumbers(text: string): string[] {
   const kept = readStatedUnits(text);
@@ -804,14 +814,24 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       found = documents
         .pageTexts(citation.documentId, citation.contentHash, null, null)
         .flatMap((unit) => {
-          const scale =
-            readStatedUnits(unit.text, context).find((each) => each.scale !== 1)?.chars ??
-            unsettledScales(unit.text, context)[0] ??
-            (unit.scaleMarker && !unit.text.includes(unit.scaleMarker) ? unit.scaleMarker : null);
+          const stated = readStatedUnits(unit.text, context).find((each) => each.scale !== 1);
+          const unsettled = stated ? null : (unsettledScales(unit.text, context)[0] ?? null);
+          const marker =
+            stated || unsettled
+              ? null
+              : unit.scaleMarker && !unit.text.includes(unit.scaleMarker)
+                ? unit.scaleMarker
+                : null;
+          const statement = stated?.chars ?? unsettled ?? marker;
+          if (!statement) return [];
+          let line = statement;
+          if (stated !== undefined) line = lineOf(unit.text, stated.start, stated.end);
+          else if (unsettled !== null) {
+            const at = unit.text.indexOf(unsettled);
+            if (at >= 0) line = lineOf(unit.text, at, at + unsettled.length);
+          }
           const location = unitLocation(unit);
-          return scale
-            ? [{ unit, statement: scale, where: location ? englishLocation(location) : "" }]
-            : [];
+          return [{ unit, statement, line, where: location ? englishLocation(location) : "" }];
         });
       unitScales.set(key, found);
     }
@@ -835,9 +855,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   }
 
   /**
-   * Whether a scale line in `other` may state `figure`'s scale too (#2365): a Word section under
-   * the headings that contain the number, or, for a PDF, an earlier page whose line says it holds
-   * for the whole Document. A sibling section's line, or a table's own line on another page, may not.
+   * Whether a line in `other` may state the scale of the number in `numbersUnit` (#2365): on a
+   * page, an earlier page's line that says it holds for the whole Document; in a Word file, a
+   * line of a strict ancestor heading's section that says so. Another occurrence of the same
+   * heading path, a sibling section, and a table's caption inside the ancestor state nothing here.
    */
   function statesFrom(numbersUnit: PageText | null, other: PageText, line: string): boolean {
     if (!numbersUnit || numbersUnit.page === null || other.page === null) return false;
@@ -847,12 +868,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     if (numbersUnit.kind !== "section") return false;
     const mine = numbersUnit.label?.path ?? [];
     const theirs = other.label?.path ?? [];
-    if (theirs.length === 0 || theirs.length > mine.length) return false;
+    // A strict ancestor only: the same path may be another occurrence of the same heading, whose
+    // `part` numbering restarts, so it never proves this number's section.
+    if (theirs.length === 0 || theirs.length >= mine.length) return false;
     if (!theirs.every((name, at) => name === mine[at])) return false;
-    // A repeated heading in another chapter has the same path; only an earlier part of this section does.
-    if (theirs.length === mine.length)
-      return (other.label?.part ?? 1) < (numbersUnit.label?.part ?? 1);
-    return true;
+    return statesForWholeDocument(line);
   }
 
   /**
@@ -869,7 +889,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const refused: ElsewhereScale[] = [];
     for (const each of scaledUnitsOf(quoted.citation)) {
       if (pages.has(each.unit.page)) continue;
-      (statesFrom(numbersUnit, each.unit, each.statement) ? quotable : refused).push(each);
+      (statesFrom(numbersUnit, each.unit, each.line) ? quotable : refused).push(each);
     }
     return { quotable, refused };
   }
@@ -1313,7 +1333,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     // taken from another Passage doesn't stop it being read.
     if (unitProblem && !ownUnit && !ofRow) {
       if (unitElsewhereRefused === "section")
-        return `the unitQuote "${given.unitQuote}" is in a sibling section that doesn't contain ${figure.chars}; a scale line states only the numbers under it. Give the line above ${figure.chars} in its own section as unitQuote.`;
+        return `the unitQuote "${given.unitQuote}" is in another section that doesn't contain ${figure.chars}; a scale line states only the numbers under it, or those under a heading it says all amounts are under. Give the line above ${figure.chars} in its own section as unitQuote.`;
       if (unitElsewhereRefused === "page")
         return `the unitQuote "${given.unitQuote}" is on an earlier page, but it doesn't say it holds for the whole Document; give the line that states ${figure.chars}'s scale, or one that says it holds for the whole Document.`;
       return unitProblem;
@@ -1448,13 +1468,13 @@ export function createCalculationSession(options: CalculationSessionOptions) {
           ...(quotable
             ? [
                 {
-                  statement: quotable.statement,
+                  statement: quotable.line,
                   reading: thousandfold(base),
                   where: quotable.where,
                   quotable: true as const,
                 },
               ]
-            : unquotableAs(refusedScale?.statement, "elsewhere", refusedScale?.where)),
+            : unquotableAs(refusedScale?.line, "elsewhere", refusedScale?.where)),
         ][0] ?? null;
     }
 
