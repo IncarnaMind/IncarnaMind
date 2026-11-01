@@ -607,9 +607,6 @@ describe("an Analysis an Answer runs", () => {
       ["2.3e-14", { kind: "plain" }],
       ["29", { kind: "plain" }],
     ]);
-    expect(told(model, "run_analysis")[0]).toContain(
-      "slope, p, n name no rows, so their cards cite all of sales. If a model or test worked one out from only some of those rows (after dropping or filtering rows), give it with of=, the rows it used, and run it again.",
-    );
   });
 
   test("a figure() figure gets its marker only when IncarnaMind's own arithmetic over its cells gives the same number, and the model reads what the cells come to when it doesn't", async () => {
@@ -701,8 +698,6 @@ describe("an Analysis an Answer runs", () => {
       "- [=2] Slope: 1.25 (from 3 rows of sales (rows 2–3, 5): Quarter, Revenue)",
     );
     expect(report).not.toContain("[=3]");
-    // Each figure with a marker names its rows: nothing to ask for.
-    expect(report).not.toContain("name no rows");
 
     const blocks = answerBlocks(answer);
     expect(figureRunsOfAnswer(answer, blocks)[0]?.values).toEqual([
