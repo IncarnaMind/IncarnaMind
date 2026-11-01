@@ -14,9 +14,13 @@
  * - one the reader can read more than one way (its separator or sign, a
  *   range, points), until the model picks one of the readings it is offered;
  *   a "¥" that could be yuan or yen, until a `unitQuote` names the currency;
- * - a number with no scale of its own where its page states one ("单位：万元",
- *   "in millions"), when the result depends on it, until the model gives that
- *   line as `unitQuote`: a scale is never guessed;
+ * - a number with no currency or scale of its own where another line states one
+ *   (a heading, "单位：万元", or an amount above it, "Sale price £385,000.00"),
+ *   when the result depends on it, until the model gives that line as
+ *   `unitQuote`: a unit is never guessed, a line states only full money amounts
+ *   of two decimals below it in one statement block and table column, a Passage
+ *   that names two currencies gives neither, and a Document that writes a
+ *   currency next to a scale anywhere is refused;
  * - what the evaluator refuses: a syntax error, units that don't combine,
  *   division by zero;
  * - a formula that changes an amount's scale itself ("rev / 10000" for 万 to
@@ -30,15 +34,19 @@
  */
 import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 import {
+  currencyOnItsFigure,
+  currencyScaleMarker,
   type Figure,
   type FigureContext,
   type FigureFacts,
   figureContextOf,
   figureContextOfFacts,
   figureLanguageTag,
+  namedCurrencies,
   type Reading,
   readFigures,
   readStatedUnits,
+  type StatedCurrency,
 } from "../../shared/figures";
 import {
   evaluateFormula,
@@ -484,8 +492,8 @@ interface ReadInput {
   reading: Reading;
   /** Which of the reader's readings the model chose, from 1. */
   chosen: number | null;
-  /** The reading under the line it gave as `unitQuote`. */
-  unit: { quoted: Quoted; stated: Reading } | null;
+  /** The reading under the line it gave as `unitQuote`, and that line's currency as written when a figure on it writes one. */
+  unit: { quoted: Quoted; stated: Reading; currencyChars: string | null } | null;
   /** A scale its page states that would change its value; it isn't applied unless the result needs it. */
   candidate: Stated | null;
   cell: FigureInput["cell"];
@@ -538,6 +546,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   const failed = new Map<number, FigureProblem>();
   let calls = 0;
   const contexts = new Map<string, FigureContext>();
+  const scales = new Map<string, { scale: string | null; stale: boolean }>();
 
   /** How a Document version writes its numbers, read once from all its text. */
   const contextOf = (citation: Citation): FigureContext => {
@@ -550,6 +559,34 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       contexts.set(key, context);
     }
     return context;
+  };
+
+  /**
+   * The scale a Document version states anywhere, read once: a line the reader applies
+   * ("in thousands", "单位：万元"), a currency next to a scale token ("£'000"), or a page's
+   * running header kept from before it was stripped. `stale`: a page was read before this
+   * build kept that marker, so a scale it wrote can't be ruled out (#1001).
+   */
+  const scaleOf = (citation: Citation): { scale: string | null; stale: boolean } => {
+    const key = `${citation.documentId}\n${citation.contentHash}`;
+    let found = scales.get(key);
+    if (!found) {
+      const units = documents.pageTexts(citation.documentId, citation.contentHash, null, null);
+      const stated = readStatedUnits(
+        units.map((unit) => unit.text).join("\n"),
+        contextOf(citation),
+      ).find((each) => each.scale !== 1);
+      found = {
+        scale:
+          units.find((unit) => unit.scaleMarker)?.scaleMarker ??
+          currencyScaleMarker(units.map((unit) => unit.text).join("\n")) ??
+          stated?.chars ??
+          null,
+        stale: units.some((unit) => unit.scaleMarker === null),
+      };
+      scales.set(key, found);
+    }
+    return found;
   };
 
   /** Where a Citation's quote is, for messages: "p. 12", "Revenue, rows 3–4". */
@@ -664,6 +701,93 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return beforeOnLine(text, at + figure.start);
   }
 
+  /** Whether `quote` is one statement row: a label, then `chars` as its last amount. */
+  function statesAmount(quote: string, at: number, chars: string, context: FigureContext): boolean {
+    const figures = readFigures(quote, { ...context, header: null });
+    const last = figures.at(-1);
+    return (
+      last !== undefined &&
+      last.start === at &&
+      last.chars === chars &&
+      /\p{L}/u.test(quote.slice(0, at)) &&
+      /^[\s.,;:]*$/u.test(quote.slice(at + chars.length))
+    );
+  }
+
+  /**
+   * Why the line a model gave as `unitQuote` can't state the currency of `figure`: the two must
+   * be full money amounts in one statement block below it, in its own table column, and the
+   * Document must write no currency next to a scale anywhere (#1001).
+   */
+  function statementProblem(
+    quoted: Quoted,
+    unit: Quoted,
+    line: StatedCurrency,
+    figure: Figure,
+    context: FigureContext,
+  ): string | null {
+    const passage = quoted.passageText;
+    const statement = findQuote(passage, unit.citation.quote, unit.matching)?.[0];
+    const place = findQuote(passage, quoted.citation.quote, quoted.matching)?.[0];
+    if (!statement || !place)
+      return `the unitQuote "${unit.citation.quote}" isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
+    const first = readFigures(unit.citation.quote, { ...context, header: null })[0];
+    if (first?.decimals !== 2 || figure.decimals !== 2)
+      return `the unitQuote "${unit.citation.quote}" and ${figure.chars} are not full money amounts with two decimals ("385,000.00"); a statement written in a scale can't pass as one.`;
+    const bareAt = place.start + figure.start;
+    const bareFrom = passage.lastIndexOf("\n", bareAt - 1) + 1;
+    const bareEnd = passage.indexOf("\n", bareAt);
+    const bareLine = passage.slice(bareFrom, bareEnd < 0 ? passage.length : bareEnd);
+    const atInLine = bareAt - bareFrom;
+    if (
+      !statesAmount(unit.citation.quote, line.at, first.chars, context) ||
+      !/\p{L}/u.test(bareLine.slice(0, atInLine)) ||
+      !/^[\s.,;:]*$/u.test(bareLine.slice(atInLine + figure.chars.length))
+    )
+      return `the unitQuote "${unit.citation.quote}" and ${figure.chars} are not statement rows of a label and one amount; give the line and the number each as one row.`;
+    if (place.start + figure.start <= statement.start + line.at)
+      return `the unitQuote "${unit.citation.quote}" is not above ${figure.chars} in ${quoted.passage}; a statement states the currency of the bare numbers below it only.`;
+    const oneBlock = quoted.units.some(
+      (each) =>
+        findQuote(each.text, unit.citation.quote, unit.matching) !== null &&
+        findQuote(each.text, quoted.citation.quote, quoted.matching) !== null,
+    );
+    if (!oneBlock)
+      return `the unitQuote "${unit.citation.quote}" and ${figure.chars} are not in one statement block in ${quoted.passage}; no page break may stand between them.`;
+    const between = passage.slice(statement.start + unit.citation.quote.length, place.start);
+    const rows = between.split("\n");
+    if (
+      rows.slice(1, -1).some((row) => row.trim() !== "" && !statesAmountRow(row, context)) ||
+      (rows.length > 2 && rows.slice(1, -1).some((row) => row.trim() === ""))
+    )
+      return `the unitQuote "${unit.citation.quote}" and ${figure.chars} are not in one statement block: a blank line or a heading stands between them.`;
+    const columnOf = (at: number) => passage.slice(passage.lastIndexOf("\n", at - 1) + 1, at);
+    const tabs = (text: string) => text.split("\t").length - 1;
+    const mine = columnOf(place.start + figure.start);
+    const theirs = columnOf(statement.start + line.at);
+    if ((theirs.includes("\t") || mine.includes("\t")) && tabs(theirs) !== tabs(mine))
+      return `the unitQuote "${unit.citation.quote}" is not in the table column of ${figure.chars} in ${quoted.passage}; a table row's currency states only its own column.`;
+    const ownScale = first.scale !== 1 || first.scaleWord !== null ? first.chars : null;
+    const stated = scaleOf(quoted.citation);
+    if (stated.stale)
+      return `the unitQuote "${unit.citation.quote}" gives ${line.code}, but the Document was read by an older build that kept no scale marker; read it again before its amounts can state this number's unit.`;
+    const scale = ownScale ?? stated.scale;
+    if (scale)
+      return `the unitQuote "${unit.citation.quote}" gives ${line.code}, but the Document states a scale ("${scale}"); quote the line that states both as unitQuote.`;
+    return null;
+  }
+
+  /** Whether `row` is an intervening statement row: a label, then an amount that ends it. */
+  function statesAmountRow(row: string, context: FigureContext): boolean {
+    const figures = readFigures(row, { ...context, header: null });
+    const last = figures.at(-1);
+    return (
+      last !== undefined &&
+      /\p{L}/u.test(row.slice(0, last.start)) &&
+      /^[\s.,;:]*$/u.test(row.slice(last.end))
+    );
+  }
+
   /** Reads one input; or says why it can't be read. */
   function readInput(
     given: GivenInput,
@@ -770,7 +894,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       }
     }
 
-    let stated: { quoted: Quoted; stated: Reading } | null = null;
+    let stated: ReadInput["unit"] = null;
     let candidate: Stated | null = null;
     const ownUnit =
       figure.scaleWord !== null || (base.unit.kind !== "plain" && base.unit.kind !== "currency");
@@ -788,22 +912,47 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     if (unitProblem && !ownUnit && !ofRow) return unitProblem;
     // A row's unit cell beside the number ("31000 | 万元") states its unit as a heading does.
     const onLine = (line: string) => (ownUnit ? null : readOnItsLine(line, figure, context));
-    if (ofRow) stated = { quoted, stated: ofRow };
+    if (ofRow) stated = { quoted, stated: ofRow, currencyChars: null };
     else if (unit && !ownUnit) {
       const row = onLine(unit.citation.quote);
-      if (!row && readStatedUnits(unit.citation.quote, context, true).length === 0)
+      const statedLine = readStatedUnits(unit.citation.quote, context, true);
+      // A statement may write its currency on its own first figure ("Sale price £385,000.00") instead of in a heading (#1001).
+      const onFigure =
+        row === null && statedLine.length === 0
+          ? currencyOnItsFigure(unit.citation.quote, context)
+          : null;
+      if (!row && statedLine.length === 0 && !onFigure)
         return `the unitQuote "${unit.citation.quote}" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".`;
-      const readings = row
-        ? [row]
-        : statedReading(quote, figure.start, quoteContext, unit.citation.quote);
-      const scales = new Set(readings.filter((each) => each.scale !== 1).map((each) => each.scale));
-      if (scales.size > 1)
-        return `the unitQuote "${unit.citation.quote}" states more than one scale; give the one line that applies.`;
-      const applies =
-        readings.find((each) => each.scale !== 1) ??
-        readings.find((each) => each.unit.kind !== base.unit.kind) ??
-        null;
-      if (applies) stated = { quoted: unit, stated: applies };
+      if (onFigure) {
+        const problem = statementProblem(quoted, unit, onFigure, figure, context);
+        if (problem) return problem;
+        const named = namedCurrencies(
+          quoted.passageText,
+          context,
+          readFigures(quoted.passageText, { ...context, header: null }),
+        );
+        if (named.size > 1)
+          return `the unitQuote "${unit.citation.quote}" gives ${onFigure.code}, but ${whereOf(quoted)} names more than one currency (${[...named].join(", ")}); quote the line that applies, from a Passage that names one.`;
+        stated = {
+          quoted: unit,
+          stated: { ...base, unit: { kind: "currency", code: onFigure.code } },
+          currencyChars: onFigure.chars,
+        };
+      } else {
+        const readings = row
+          ? [row]
+          : statedReading(quote, figure.start, quoteContext, unit.citation.quote);
+        const scales = new Set(
+          readings.filter((each) => each.scale !== 1).map((each) => each.scale),
+        );
+        if (scales.size > 1)
+          return `the unitQuote "${unit.citation.quote}" states more than one scale; give the one line that applies.`;
+        const applies =
+          readings.find((each) => each.scale !== 1) ??
+          readings.find((each) => each.unit.kind !== base.unit.kind) ??
+          null;
+        if (applies) stated = { quoted: unit, stated: applies, currencyChars: null };
+      }
     } else if (!ownUnit) {
       const page = quoted.units.map((each) => each.text).join("\n");
       const found: Stated[] = [];
@@ -899,6 +1048,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
             scale: read.unit.stated.scale,
             scaleWord: read.unit.stated.scaleWord,
             currency: read.unit.stated.unit.kind === "currency" ? read.unit.stated.unit.code : null,
+            currencyChars: read.unit.currencyChars,
           }
         : null,
     };
@@ -1164,7 +1314,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         JSON.stringify(current.cell) !== JSON.stringify(input.cell) ||
         current.unitStatement?.citation.contentHash !== input.unitStatement?.citation.contentHash ||
         current.unitStatement?.scale !== input.unitStatement?.scale ||
-        current.unitStatement?.currency !== input.unitStatement?.currency
+        current.unitStatement?.currency !== input.unitStatement?.currency ||
+        (current.unitStatement?.currencyChars ?? null) !==
+          (input.unitStatement?.currencyChars ?? null)
       )
         return {
           problem: "the input or its Document has changed since this figure was calculated.",

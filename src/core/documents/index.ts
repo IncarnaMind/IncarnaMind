@@ -193,6 +193,7 @@ interface UnitRow {
   kind: string;
   label: string | null;
   anchors: string | null;
+  scale_marker: string | null;
 }
 
 /** JSON stored by this app; null if it doesn't parse. */
@@ -211,6 +212,7 @@ const toUnitText = (row: UnitRow): PageText => ({
   kind: row.kind as UnitKind,
   label: parseJson<UnitLabel>(row.label),
   anchors: parseJson<Anchor[]>(row.anchors),
+  scaleMarker: row.scale_marker,
 });
 
 /**
@@ -873,11 +875,11 @@ export function createDocuments(options: DocumentsOptions) {
     versionAt: string,
   ): void {
     const at = now();
-    for (const { page, text, kind, label, anchors } of pages) {
+    for (const { page, text, kind, label, anchors, scaleMarker } of pages) {
       db.run(
         `INSERT INTO document_pages (id, document_id, content_hash, page, kind, label, anchors,
-           text, created_at, updated_at, version_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           scale_marker, text, created_at, updated_at, version_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           randomUUID(),
           documentId,
@@ -886,6 +888,7 @@ export function createDocuments(options: DocumentsOptions) {
           kind ?? "page",
           label ? JSON.stringify(label) : null,
           anchors && anchors.length > 0 ? JSON.stringify(anchors) : null,
+          scaleMarker ?? "",
           text,
           at,
           at,
@@ -1591,7 +1594,8 @@ export function createDocuments(options: DocumentsOptions) {
     const params = from === null || to === null ? [] : [BigInt(from), BigInt(to)];
     return db
       .all<UnitRow>(
-        `SELECT dp.page, dp.text, dp.kind, dp.label, dp.anchors FROM document_pages dp
+        `SELECT dp.page, dp.text, dp.kind, dp.label, dp.anchors, dp.scale_marker
+         FROM document_pages dp
          JOIN documents d ON d.id = dp.document_id
          WHERE dp.document_id = ? AND dp.content_hash = ? AND dp.deleted_at IS NULL
            AND d.deleted_at IS NULL ${range}

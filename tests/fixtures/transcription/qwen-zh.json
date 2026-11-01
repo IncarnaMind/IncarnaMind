@@ -1,0 +1,701 @@
+{
+  "service": "qwen",
+  "model": "fun-asr-realtime",
+  "messages": [
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "task-started",
+        "attributes": {}
+      },
+      "payload": {}
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2200,
+            "end_time": null,
+            "text": "",
+            "sentence_begin": true,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2200,
+            "end_time": 3961,
+            "text": "报告警告称，没有人能",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2200,
+            "end_time": 5546,
+            "text": "报告警告称，没有人能保证目前在伊拉克采",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2200,
+            "end_time": 7130,
+            "text": "报告警告称，没有人能保证目前在伊拉克采取的任何行动能够阻",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2200,
+            "end_time": 8715,
+            "text": "报告警告称，没有人能保证目前在伊拉克采取的任何行动能够阻止宗派战争不断增长",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2200,
+            "end_time": 10300,
+            "text": "报告警告称，没有人能保证目前在伊拉克采取的任何行动能够阻止宗派战争不断增长的暴力或走向混乱。",
+            "heartbeat": false,
+            "sentence_end": true,
+            "sentence_id": 1,
+            "words": [
+              {
+                "begin_time": 2200,
+                "end_time": 2376,
+                "text": "报",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 2376,
+                "end_time": 2552,
+                "text": "告",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 2552,
+                "end_time": 2728,
+                "text": "警",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 2728,
+                "end_time": 2904,
+                "text": "告",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 2904,
+                "end_time": 3080,
+                "text": "称",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 3080,
+                "end_time": 3257,
+                "text": "，",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 3257,
+                "end_time": 3433,
+                "text": "没",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 3433,
+                "end_time": 3609,
+                "text": "有",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 3609,
+                "end_time": 3785,
+                "text": "人",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 3785,
+                "end_time": 3961,
+                "text": "能",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 3961,
+                "end_time": 4137,
+                "text": "保",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 4137,
+                "end_time": 4313,
+                "text": "证",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 4313,
+                "end_time": 4489,
+                "text": "目",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 4489,
+                "end_time": 4665,
+                "text": "前",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 4665,
+                "end_time": 4841,
+                "text": "在",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 4841,
+                "end_time": 5017,
+                "text": "伊",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 5017,
+                "end_time": 5193,
+                "text": "拉",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 5193,
+                "end_time": 5370,
+                "text": "克",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 5370,
+                "end_time": 5546,
+                "text": "采",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 5546,
+                "end_time": 5722,
+                "text": "取",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 5722,
+                "end_time": 5898,
+                "text": "的",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 5898,
+                "end_time": 6074,
+                "text": "任",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 6074,
+                "end_time": 6250,
+                "text": "何",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 6250,
+                "end_time": 6426,
+                "text": "行",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 6426,
+                "end_time": 6602,
+                "text": "动",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 6602,
+                "end_time": 6778,
+                "text": "能",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 6778,
+                "end_time": 6954,
+                "text": "够",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 6954,
+                "end_time": 7130,
+                "text": "阻",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 7130,
+                "end_time": 7307,
+                "text": "止",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 7307,
+                "end_time": 7483,
+                "text": "宗",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 7483,
+                "end_time": 7659,
+                "text": "派",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 7659,
+                "end_time": 7835,
+                "text": "战",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 7835,
+                "end_time": 8011,
+                "text": "争",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 8011,
+                "end_time": 8187,
+                "text": "不",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 8187,
+                "end_time": 8363,
+                "text": "断",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 8363,
+                "end_time": 8539,
+                "text": "增",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 8539,
+                "end_time": 8715,
+                "text": "长",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 8715,
+                "end_time": 8891,
+                "text": "的",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 8891,
+                "end_time": 9067,
+                "text": "暴",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 9067,
+                "end_time": 9243,
+                "text": "力",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 9243,
+                "end_time": 9420,
+                "text": "或",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 9420,
+                "end_time": 9596,
+                "text": "走",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 9596,
+                "end_time": 9772,
+                "text": "向",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 9772,
+                "end_time": 9948,
+                "text": "混",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 9948,
+                "end_time": 10124,
+                "text": "乱",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 10124,
+                "end_time": 10300,
+                "text": "。",
+                "punctuation": ""
+              }
+            ]
+          }
+        },
+        "usage": {
+          "duration": 11
+        }
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": null,
+            "end_time": null,
+            "text": "",
+            "heartbeat": true,
+            "sentence_id": 0,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 15400,
+            "end_time": null,
+            "text": "",
+            "sentence_begin": true,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 15400,
+            "end_time": 16326,
+            "text": "这样的做",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 15400,
+            "end_time": 17253,
+            "text": "这样的做法在北方",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 15400,
+            "end_time": 18179,
+            "text": "这样的做法在北方地区已经",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 15400,
+            "end_time": 19105,
+            "text": "这样的做法在北方地区已经使用了许",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 15400,
+            "end_time": 19800,
+            "text": "这样的做法在北方地区已经使用了许多年。",
+            "heartbeat": false,
+            "sentence_end": true,
+            "sentence_id": 2,
+            "words": [
+              {
+                "begin_time": 15400,
+                "end_time": 15632,
+                "text": "这",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 15632,
+                "end_time": 15863,
+                "text": "样",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 15863,
+                "end_time": 16095,
+                "text": "的",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 16095,
+                "end_time": 16326,
+                "text": "做",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 16326,
+                "end_time": 16558,
+                "text": "法",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 16558,
+                "end_time": 16789,
+                "text": "在",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 16789,
+                "end_time": 17021,
+                "text": "北",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 17021,
+                "end_time": 17253,
+                "text": "方",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 17253,
+                "end_time": 17484,
+                "text": "地",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 17484,
+                "end_time": 17716,
+                "text": "区",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 17716,
+                "end_time": 17947,
+                "text": "已",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 17947,
+                "end_time": 18179,
+                "text": "经",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 18179,
+                "end_time": 18411,
+                "text": "使",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 18411,
+                "end_time": 18642,
+                "text": "用",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 18642,
+                "end_time": 18874,
+                "text": "了",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 18874,
+                "end_time": 19105,
+                "text": "许",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 19105,
+                "end_time": 19337,
+                "text": "多",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 19337,
+                "end_time": 19568,
+                "text": "年",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 19568,
+                "end_time": 19800,
+                "text": "。",
+                "punctuation": ""
+              }
+            ]
+          }
+        },
+        "usage": {
+          "duration": 20
+        }
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "task-finished",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {},
+        "usage": null
+      }
+    }
+  ]
+}
