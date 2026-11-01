@@ -91,6 +91,12 @@ const MARKS: Record<CitationCheck, (props: IconProps) => JSX.Element> = {
       <circle cx="12" cy="12" r="4" />
     </svg>
   ),
+  // Neither found nor a problem: the judgement of its sentence didn't run (#2311).
+  "not-checked": (props) => (
+    <Stroke weight={2.5} {...props}>
+      <circle cx="12" cy="12" r="4" />
+    </Stroke>
+  ),
 };
 
 /** The state of a Citation check as a small mark, for the margin and narrow markers. */
@@ -125,7 +131,7 @@ export function CheckStateIcon({ check, ...props }: IconProps & { check: Citatio
           <path d="m13.5 7.5-3 9" />
         </>
       )}
-      {check === "checking" && <path d="M12 7.5V12l3 2" />}
+      {(check === "checking" || check === "not-checked") && <path d="M12 7.5V12l3 2" />}
     </Stroke>
   );
 }

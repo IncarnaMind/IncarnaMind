@@ -5,7 +5,8 @@
  * of the first Passage that shares a word with the Question (on the page, or
  * at the Location, that line is on), then answers with a marker. A Question
  * with "misquote" in it gets a quote that isn't on the page; one with "no page"
- * names no page, as a small model often doesn't; one with "without citing" (不引用)
+ * names no page, as a small model often doesn't; one with "beyond its quote" (超出引文) says more
+ * than its quote does, which the scripted check finds unsupported; one with "without citing" (不引用)
  * writes a marker and never calls cite, as a model sometimes does; one with "citing as text" (文字引用)
  * writes its records as text in a <cite> block instead of calling cite; one with "each"
  * cites the first Passage of each Document found, with a marker for each; one
@@ -111,6 +112,12 @@ const FOUND_PAGES = [
 
 /** The scripted Answer when it cited something: one sentence with a marker. */
 export const CITED_ANSWER = "Your Documents answer this [^1].\n\nThat is all.";
+
+/** A Question whose Answer says more than its quote does: the scripted check finds it unsupported (#2311). */
+const BEYOND_ITS_QUOTE = /\bbeyond its quote\b|超出引文/i;
+
+/** The sentence such an Answer writes, which says more than its quote: the scripted check finds it unsupported. */
+export const SAYS_MORE = /\bit is already done\b|这件事已经完成/u;
 
 /**
  * A Question whose model, after its search, runs on for pages of working notes instead of an
@@ -726,6 +733,13 @@ function answerFrom(
         };
       return { text: chinese ? "增长了[=1][^1]。" : "It grew [=1] [^1].\n\nThat is all." };
     }
+  }
+  if (BEYOND_ITS_QUOTE.test(question)) {
+    return {
+      text: /\p{Script=Han}/u.test(question)
+        ? "文档说这件事已经完成[^1]。"
+        : "Your Documents say it is already done [^1].",
+    };
   }
   const firstPassage = passagesIn(searches.at(-1) ?? "")[0];
   const quoted = firstPassage && recordFor(firstPassage, question, 1)?.quoted;
