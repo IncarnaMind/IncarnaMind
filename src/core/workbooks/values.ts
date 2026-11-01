@@ -168,9 +168,10 @@ const weight = (character: string) => {
 };
 
 /**
- * Excel's order of two texts, ignoring case: a space, then digits, then
- * letters. Excel orders punctuation and other scripts by rules of its own
- * ("_" before "A"), so ordering text that holds any is refused.
+ * Excel's order of two texts, ignoring case: digits, then letters, and a space before letters.
+ * Excel orders punctuation and other scripts by rules of its own ("_" before "A"), so ordering
+ * text that holds any is refused; so is a space against a digit, which Excel's documents order
+ * both ways.
  */
 function textOrder(a: string, b: string): number {
   const x = a.toUpperCase();
@@ -178,8 +179,11 @@ function textOrder(a: string, b: string): number {
   if (x === y) return 0;
   if (!ORDERED_TEXT.test(x) || !ORDERED_TEXT.test(y)) throw new Refusal("text-order");
   for (let index = 0; index < Math.min(x.length, y.length); index++) {
-    const step = weight(x[index] ?? " ") - weight(y[index] ?? " ");
-    if (step !== 0) return step;
+    const p = x[index] ?? " ";
+    const q = y[index] ?? " ";
+    if (p === q) continue;
+    if ((p === " " && /\d/.test(q)) || (q === " " && /\d/.test(p))) throw new Refusal("text-order");
+    return weight(p) - weight(q);
   }
   return x.length - y.length;
 }

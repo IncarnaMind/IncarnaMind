@@ -852,7 +852,7 @@ export const en = {
   "figures.workbook.kept.date-text":
     "{cell} reads a date or time written as text, which Excel reads by the computer’s date settings, so its saved value is used",
   "figures.workbook.kept.text-order":
-    "{cell} orders text with punctuation or letters outside A to Z, which Excel orders by rules of its own, so its saved value is used",
+    "{cell} orders text Excel’s rules leave unclear (punctuation, letters outside A to Z, or a space against a digit), so its saved value is used",
   "figures.workbook.kept.too-large":
     "{cell} reads a block too large to work out here, so its saved value is used",
   "figures.card.source": "{figure}: the source gives {value} ({source})",

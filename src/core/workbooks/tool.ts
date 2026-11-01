@@ -110,7 +110,7 @@ export function problemText(problem: CellProblem): string {
     case "criterion":
       return "uses a condition IncarnaMind can't read the way Excel does (a time, or a date written another way)";
     case "text-order":
-      return "orders text with punctuation or letters outside A to Z, which Excel orders by rules of its own";
+      return "orders text Excel's rules leave unclear: punctuation, letters outside A to Z, or a space against a digit";
     case "date-text":
       return "reads a date or time written as text, which Excel reads by the computer's date settings";
   }

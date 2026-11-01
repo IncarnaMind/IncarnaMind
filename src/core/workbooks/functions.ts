@@ -810,11 +810,14 @@ export function serialOf(year: number, month: number, day: number, date1904: boo
   return serial;
 }
 
+/** 31 December 9999, the last day Excel has. */
+const LAST_SERIAL = 2_958_465;
+
 function partsOf(
   serial: number,
   date1904: boolean,
 ): { year: number; month: number; day: number } | null {
-  if (!(serial >= 0) || serial > 2_958_465) return null;
+  if (!(serial >= 0) || serial > LAST_SERIAL) return null;
   assertCalendar(serial, date1904);
   const date = new Date(epoch(date1904) + Math.floor(serial) * DAY);
   return { year: date.getUTCFullYear(), month: date.getUTCMonth(), day: date.getUTCDate() };
@@ -1204,27 +1207,30 @@ function text(args: Arg[], context: Evaluation): Value {
     const code = toText(format ?? null);
     if (isError(code)) return code;
     if (isError(value)) return value;
-    if (typeof value === "string") {
-      const number = textNumber(value);
-      return number === null
-        ? displayText(value, code).text
-        : displayNumber(number, code, { date1904: context.date1904 }).text;
+    const read = typeof value === "string" ? textNumber(value) : toNumber(value ?? null);
+    if (read === null) return displayText(String(value), code).text;
+    if (isError(read)) return read;
+    const options = { date1904: context.date1904 };
+    if (isDateFormat(code)) {
+      assertCalendar(Math.floor(read), context.date1904);
+      return displayNumber(read, code, options).text;
     }
-    const number = toNumber(value ?? null);
-    if (isError(number)) return number;
-    if (isDateFormat(code)) assertCalendar(Math.floor(number), context.date1904);
-    const shown = displayNumber(number, code, { date1904: context.date1904 }).text;
-    // Excel keeps the sign of a negative number its one section rounds to zero: "-0.00".
-    return number < 0 && !code.includes(";") && !isDateFormat(code) && !shown.includes("-")
-      ? `-${shown}`
-      : shown;
+    // A format of one section shows a negative number as a minus before the number's size, even
+    // one it rounds to zero ("-0.00"), whatever "-" the format writes itself.
+    return read < 0 && !code.includes(";")
+      ? `-${displayNumber(-read, code, options).text}`
+      : displayNumber(read, code, options).text;
   }).call(args, context);
 }
 
 function textValue(value: Scalar, date1904: boolean): number | CellError {
   if (typeof value === "string") {
     const iso = /^\s*(\d{4})-(\d\d)-(\d\d)\s*$/.exec(value);
-    if (iso) return serialOf(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]), date1904);
+    if (iso) {
+      const [year, month, day] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
+      if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month - 1)) return VALUE;
+      return serialOf(year, month - 1, day, date1904);
+    }
   }
   return toNumber(value);
 }
@@ -1595,7 +1601,7 @@ const FUNCTIONS: ReadonlyMap<string, WorkbookFunction> = new Map<string, Workboo
       const y = Math.trunc(year) < 1900 ? Math.trunc(year) + 1900 : Math.trunc(year);
       if (Math.trunc(year) < 0 || y > 9999) return NUM;
       const serial = serialOf(y, Math.trunc(month) - 1, Math.trunc(day), date1904);
-      return serial < 0 ? NUM : serial;
+      return serial < 0 || serial > LAST_SERIAL ? NUM : serial;
     }),
   ],
   [

@@ -830,7 +830,7 @@ export const zhCN = {
   "figures.workbook.kept.date-text":
     "{cell} 把以文本写的日期或时间当作数字读取，Excel 会按电脑的日期设置来读，因此使用其保存的值",
   "figures.workbook.kept.text-order":
-    "{cell} 对含标点或 A 到 Z 以外字母的文本排序，Excel 有自己的排序规则，因此使用其保存的值",
+    "{cell} 对 Excel 规则不明确的文本排序（含标点、A 到 Z 以外的字母，或空格与数字相比），因此使用其保存的值",
   "figures.workbook.kept.too-large": "{cell} 引用的区域过大，无法在此计算，因此使用其保存的值",
   "figures.card.source": "{figure}：来源为 {value}（{source}）",
   "figures.inline.openInput": "打开",

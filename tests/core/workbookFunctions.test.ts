@@ -145,9 +145,9 @@ describe("Excel's documented results", () => {
     expect(await excel('"a"<"B"')).toBe(true);
     expect(await excel('"10"<"9"')).toBe(true);
     expect(await excel('" z"<"a"')).toBe(true);
-    // A space before a digit, as LibreOffice compares them too.
-    expect(await excel('" "<"1"')).toBe(true);
-    expect(await excel('"1"<" "')).toBe(false);
+    // Excel's documents order a space and a digit both ways: refused, never guessed.
+    expect(await excel('" "<"1"')).toEqual({ refused: "text-order" });
+    expect(await excel('"a 1"<"a1"')).toEqual({ refused: "text-order" });
     expect(await excel('"_"<"A"')).toEqual({ refused: "text-order" });
     expect(await excel('"é"="E"')).toBe(false);
   });
@@ -170,8 +170,21 @@ describe("Excel's documented results", () => {
 
   test("TEXT keeps the sign of a negative number its format rounds to zero", async () => {
     expect(await excel('TEXT(-0.004,"0.00")')).toBe("-0.00");
+    expect(await excel('TEXT("-0.004","0.00")')).toBe("-0.00");
+    expect(await excel('TEXT(-0.004,"0-00")')).toBe("-0-00");
     expect(await excel('TEXT(-0.5,"0.00")')).toBe("-0.50");
     expect(await excel('TEXT(0.004,"0.00")')).toBe("0.00");
+  });
+
+  test("VALUE refuses a date that doesn't exist with #VALUE!, as Excel does", async () => {
+    expect(await excel('VALUE("2025-02-30")')).toBe("#VALUE!");
+    expect(await excel('VALUE("2025-13-01")')).toBe("#VALUE!");
+    expect(await excel('VALUE("2025-01-31")')).toBe(45688);
+  });
+
+  test("DATE past 31 December 9999 is #NUM!", async () => {
+    expect(await excel("DATE(9999,12,32)")).toBe("#NUM!");
+    expect(await excel("DATE(9999,12,31)")).toBe(2958465);
   });
 
   test("a date written as text in arithmetic is refused; other text is #VALUE!", async () => {
