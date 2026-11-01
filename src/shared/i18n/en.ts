@@ -6583,6 +6583,12 @@ export const en = {
     "What the assistant may do without asking wasn’t changed. Only you can change it, in Settings › Privacy",
   "answer.notDone.permanent":
     "Nothing was deleted for good. Only you can do that, in Recently deleted",
+  "answer.notDone.wall":
+    "Whether a Folder keeps its work inside it wasn’t changed. Only you can change it, in the Folder’s ⋯ menu",
+  "answer.notDone.signOff":
+    "Nothing was marked “Checked by me”. Only you can do that, on each Citation’s card",
+  "answer.notDone.authorship":
+    "No text was marked as yours. Only you can do that: select it and choose “Mark as mine”",
   "answer.uncitedReply":
     "This reply has no Citations, so none of it was checked against your Documents",
   "answer.uncitedWrite":

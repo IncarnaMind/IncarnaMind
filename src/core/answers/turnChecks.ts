@@ -67,11 +67,34 @@ export interface Flags {
 /**
  * What the checks make of a reply: to ask the model once more (and the Tools
  * the ask is about, which the Answer shows as a step, and the one it must call
- * first), or what to flag it with.
+ * first, and what flags the reply should it stand after all), or what to flag it with.
  */
 export type Settled =
-  | { nudge: string; requires?: string; writeOnly?: true; tools?: readonly ClaimedTool[] }
+  | {
+      nudge: string;
+      requires?: string;
+      writeOnly?: true;
+      tools?: readonly ClaimedTool[];
+      flags: Flags;
+    }
   | Flags;
+
+const flagsOfFinding = (found: TurnFinding): Flags => ({
+  claims: [...found.claims],
+  ...(found.tools && found.tools.length > 0 && { tools: [...found.tools] }),
+  ...(found.commands && found.commands.length > 0 && { commands: [...found.commands] }),
+});
+
+/** Both sets of flags, each claim once. */
+export function mergedFlags(one: Flags, other: Flags): Flags {
+  const tools = [...new Set([...(one.tools ?? []), ...(other.tools ?? [])])];
+  const commands = [...new Set([...(one.commands ?? []), ...(other.commands ?? [])])];
+  return {
+    claims: [...new Set([...one.claims, ...other.claims])],
+    ...(tools.length > 0 && { tools }),
+    ...(commands.length > 0 && { commands }),
+  };
+}
 
 export async function settleReply(
   checks: readonly TurnCheck[],
@@ -90,6 +113,7 @@ export async function settleReply(
         ...(found.requires && { requires: found.requires }),
         ...(found.writeOnly && { writeOnly: true }),
         ...(found.tools && found.tools.length > 0 && { tools: found.tools }),
+        flags: flagsOfFinding(found),
       };
     }
     for (const claim of found.claims) claims.add(claim);

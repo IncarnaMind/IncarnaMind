@@ -131,7 +131,14 @@ import { replyJson, retryQuotes } from "./quoteRetry";
 import { formatDocumentPages, readDocumentPages } from "./readDocumentPages";
 import { type SmallCallModel, smallCallModel } from "./smallCalls";
 import { heldBackFrom, TOOL_TEXT_TAGS, takeToolText } from "./toolText";
-import { createNudges, type Flags, flagsOf, settleReply, type TurnCheck } from "./turnChecks";
+import {
+  createNudges,
+  type Flags,
+  flagsOf,
+  mergedFlags,
+  settleReply,
+  type TurnCheck,
+} from "./turnChecks";
 import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
 import { createWindowBudget, SEARCH_RESERVE_TOKENS, type WindowBudget } from "./window";
 
@@ -1903,6 +1910,11 @@ async function* toolLoop(
   const rambling = new AbortController();
   /** The reply that stands if the model, asked once more, fails: as it was before the last ask. */
   let standing: string | null = null;
+  /**
+   * What the check that asked found in `standing`: it still flags that reply should it stand, even
+   * when the checks can't be run on it again (#2407).
+   */
+  let standingFlags: Flags = { claims: [] };
   let again: readonly RunMessage[] | null = null;
   /** The Tool the ask said to call: the asked-again Run's first step calls it. */
   let mustCall: string | null = null;
@@ -1923,16 +1935,13 @@ async function* toolLoop(
   const toolTextTags = [...new Set([...TOOL_TEXT_TAGS, ...offered.keys()])];
   const releasable = (text: string) =>
     Math.min(request.shownUpTo?.(text) ?? text.length, heldBackFrom(text, toolTextTags));
-  async function* flag(text: string): AsyncGenerator<AnswerEngineEvent> {
-    yield* flagged(await flagsOf(request.turnChecks ?? [], text));
-  }
   async function* backToFirst(written: string): AsyncGenerator<AnswerEngineEvent> {
     if (released > 0) yield { type: "text-retracted", length: released };
     released = 0;
     keptText = written;
     stepText = "";
     yield* release(keptText.length);
-    yield* flag(keptText);
+    yield* flagged(mergedFlags(standingFlags, await flagsOf(request.turnChecks ?? [], keptText)));
   }
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
     const suffix = request.refusalSuffix?.(keptText) ?? null;
@@ -2193,6 +2202,7 @@ async function* toolLoop(
         if ("nudge" in settled) {
           if (settled.tools) yield { type: "asked-again", tools: settled.tools };
           standing = taken.text;
+          standingFlags = settled.flags;
           if (released > 0) yield { type: "text-retracted", length: released };
           released = 0;
           keptText = "";

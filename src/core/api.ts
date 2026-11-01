@@ -7002,9 +7002,8 @@ export type ClaimedChange = (typeof CLAIMED_CHANGES)[number];
 
 /**
  * What an Answer's reply can say it did in the app (#2407): changed one of what only the User
- * changes, named so that it never reads as done (Local mode and what goes to cloud services, the
- * keys, the spending cap, the approval rules, deleting for good), or ran any other command or
- * changed any other setting.
+ * changes, named so that it never reads as done, or ran any other command or changed any other
+ * setting.
  */
 export const CLAIMED_COMMANDS = [
   "privacy",
@@ -7012,6 +7011,9 @@ export const CLAIMED_COMMANDS = [
   "spending",
   "approvals",
   "permanent",
+  "wall",
+  "signOff",
+  "authorship",
   "command",
 ] as const satisfies readonly (Yours | "command")[];
 export type ClaimedCommand = (typeof CLAIMED_COMMANDS)[number];

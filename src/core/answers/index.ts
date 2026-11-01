@@ -80,8 +80,7 @@ import {
 } from "../../shared/searchScope";
 import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
-import { unbackedCommandNotes } from "../../shared/unbackedCommands";
-import { unrunToolNotes } from "../../shared/unrunTools";
+import { unbackedCommandNotes, unrunToolNotes } from "../../shared/unrunTools";
 import type { AnalysisRuntime } from "../adapters";
 import { withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
 import { analysisTool } from "../analysis/tool";
@@ -2944,6 +2943,17 @@ export function createAnswers(options: AnswersOptions) {
         ];
       };
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
+      // After a command that was refused, failed or not allowed, the reply shows only once it is
+      // checked: what it says of that command could be untrue, and a Stop meanwhile would leave it
+      // unchecked (#2407).
+      const shownUpTo = (text: string) =>
+        toolCalls.some(
+          (call) =>
+            call.tool === COMMAND_TOOLS.run &&
+            (call.status === "failed" || call.command?.yours !== undefined),
+        )
+          ? 0
+          : heldBack(text);
       // Asked again inside the turn, the model reads what applied as applied: the window may not
       // have taken it in yet, and told it waits, the model tells the User so.
       const appliedInTurn: ChangeStates = (change) =>
@@ -3014,28 +3024,29 @@ export function createAnswers(options: AnswersOptions) {
                       usage.cachedInputTokens += checked.usage.cachedInputTokens ?? 0;
                       usage.cacheWriteTokens += checked.usage.cacheWriteTokens ?? 0;
                     }
-                    // A claim in the app that stands names what the turn refused as the User's alone
-                    // too, whatever the judge took the claim to be about, so none of it reads as
-                    // done (#2407).
+                    // Any claim that stands, and a check that couldn't run, name what the turn
+                    // refused as the User's alone, whatever the judge took a claim to be about, so
+                    // none of it reads as done (#2407). Only a verdict asks again.
                     const refused = new Set<string>(refusedCommands().map(({ yours }) => yours));
+                    const claimed = checked.claims.length > 0 || checked.commands.length > 0;
                     const commands =
-                      checked.commands.length === 0
-                        ? []
-                        : CLAIMED_COMMANDS.filter(
+                      claimed || checked.failed
+                        ? CLAIMED_COMMANDS.filter(
                             (each) => checked.commands.includes(each) || refused.has(each),
-                          );
-                    return checked.claims.length > 0 || commands.length > 0
-                      ? {
-                          claims: checked.claims,
-                          commands,
-                          note: askAgainNote(
-                            checked,
-                            toolCalls,
-                            options.readableMindName,
-                            appliedInTurn,
-                          ),
-                        }
-                      : null;
+                          )
+                        : [];
+                    if (!claimed)
+                      return commands.length > 0 ? { claims: [], commands, note: "" } : null;
+                    return {
+                      claims: checked.claims,
+                      commands,
+                      note: askAgainNote(
+                        checked,
+                        toolCalls,
+                        options.readableMindName,
+                        appliedInTurn,
+                      ),
+                    };
                   } finally {
                     activity = "writing";
                     showPhase();
@@ -3243,7 +3254,7 @@ export function createAnswers(options: AnswersOptions) {
         ...(input.assistant
           ? {
               turnChecks,
-              shownUpTo: heldBack,
+              shownUpTo,
               // A command that only acted on the window, or that is the User's alone, ends the
               // turn: its card is the reply (#1421), and a refusal's line follows it
               // (`refusalSuffix`).

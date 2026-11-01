@@ -1,4 +1,4 @@
-import { type CommandClaimSteps, unbackedCommandLines } from "../../../../shared/unbackedCommands";
+import { type CommandClaimSteps, unbackedCommandLines } from "../../../../shared/unrunTools";
 import { useT } from "../../i18n";
 import { ProblemLine } from "../ProblemLine";
 
@@ -15,7 +15,7 @@ export function UnbackedCommandLines({
     <ProblemLine
       key={what}
       role="status"
-      testId="answer-unbacked-command"
+      testId={`answer-unbacked-command-${what}`}
       action={
         retry
           ? {

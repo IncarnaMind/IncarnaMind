@@ -83,7 +83,7 @@ export const CLAIM_CHECK_INSTRUCTIONS = [
   "You check an AI assistant's reply against IncarnaMind's record of what its Tools did: to the User's Notes, and in the app through run_command. The record's Tool names and fields say mind for a Note.",
   "Read every sentence of the reply. For each claim that a Note was made, written in, added to, changed, shortened, lengthened, replaced or removed from, return it with its kind and whether the record backs it. For each claim that the assistant or IncarnaMind did something in the app, return it too: a Document, Note, Folder or Tag renamed, moved, tagged, deleted, restored or exported; a page, a split, a panel or Settings opened; a check or a recording started or stopped; a setting, a mode or a switch turned on, off or changed; a key, a sign-in or a limit changed. Return every such claim, backed or not backed.",
   "A change whose state is applied counts as made. A change that only waits for the User does not. A failed call, a denied call and no call change nothing. A revision of text the assistant wrote into a Note earlier is a change, like any other change to a Note.",
-  "Each call's outcome says what it did. A run_command whose outcome is done or started backs a claim only of what its command, items, setting and window say. One refused as the User's alone, one that failed and one not allowed by the User did nothing in the app, and nor was anything done that no call shows.",
+  "Each command's outcome says what its call did. A run_command whose outcome is done or started backs a claim only of what its command, items, setting and window say. One refused as the User's alone, one that failed and one not allowed by the User did nothing in the app, and nor was anything done that no call shows.",
   "When the record has no Tool calls, or no change to a Note and no command done, every affirmative report of a change or of something done is unbacked; never return an empty list just to be cautious. / 如果没有工具调用、没有改动、也没有执行成功的命令，任何声称已经改动或已经做了的话都没有依据，必须返回，不能留空。",
   "Never flag a sentence about the reply itself, searching, what a Document says, or something that wasn't or couldn't be done, nor one that says what the User can do or where, or that something is theirs to change; but a sentence that says a page, a setting or a window was opened, shown or brought up is a claim, even when it goes on to say what the User can do there. Never flag a sentence about the app's own checks of the text it wrote — that sentences in the Note were marked, flagged, not supported or couldn't be checked: the app makes those marks, not a Tool. Never flag a sentence only for its wording, coverage or length, for where a page sits, for a Note's name, or for details the record doesn't give, such as which paragraph changed. A translation or other text in the reply itself is not a change to a Note.",
   "For every claim, about says what the sentence is about: mind when it is a Note, a page or a part of one that the assistant says it changed; app when it is anything else done in the app, to a Document, a Folder, a Tag, a window or a setting; local_mode when it is Local mode, “Keep everything on this computer”, or what goes to cloud services (web search, suggestions as the User writes, cloud transcription); keys when it is an API key or a sign-in; spending_cap when it is the monthly spending cap; approval_rules when it is what the assistant may do without asking; deleted_for_good when it is deleting for good or emptying Recently deleted; reply when it is this reply's own text, such as what it sets out, lists, orders, sorts, organizes or summarizes; document when it is what a Document says, holds or is; offer_or_question when the assistant offers to do something or asks; negation when it says nothing was or could be done. Only a claim about a mind, the app, local_mode, keys, spending_cap, approval_rules or deleted_for_good counts. For one done in the app, kind is removed for a delete and changed otherwise.",
@@ -154,7 +154,7 @@ export function changeLogOf(calls: readonly AnswerToolCall[]): ChangeLog {
   return log;
 }
 
-/** What a call did, in the instructions' words: a refusal's call returns done, and did nothing. */
+/** What a command's call did, in the instructions' words: a refusal's call returns done, and did nothing. */
 function outcomeOf(call: AnswerToolCall): string {
   if (call.approval === "denied") return "not allowed by the User";
   if (call.command?.yours) return "refused: the User's alone";
@@ -170,7 +170,7 @@ function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: C
     return {
       tool: call.tool,
       status: call.status,
-      outcome: outcomeOf(call),
+      ...(call.source === "commands" && { outcome: outcomeOf(call) }),
       ...(call.approval && { approval: call.approval }),
       resultCount: call.resultCount,
       target: targetOf(call, names),
@@ -223,8 +223,6 @@ function verdictOf(value: unknown, reply: string): Unbacked | null {
   for (const item of value.claims) {
     if (!isRecord(item)) continue;
     const { sentence, kind, about, backed } = item;
-    const claimed = CLAIMED_CHANGES.find((claim) => claim === kind);
-    if (!claimed) return null;
     if (
       typeof sentence !== "string" ||
       sentence.trim() === "" ||
@@ -234,9 +232,13 @@ function verdictOf(value: unknown, reply: string): Unbacked | null {
     ) {
       continue;
     }
+    // A claim in the app counts whatever kind the judge gave it: none of the Notes' kinds fits
+    // "opened" or "turned on", and a provider may not hold the schema's enum.
     const command = inTheApp(about);
+    const claimed = CLAIMED_CHANGES.find((claim) => claim === kind);
     if (command) commands.add(command);
-    else if (!(typeof about === "string" && NOT_COUNTED.includes(about))) claims.add(claimed);
+    else if (claimed && !(typeof about === "string" && NOT_COUNTED.includes(about)))
+      claims.add(claimed);
   }
   return { claims: [...claims], commands: [...commands] };
 }
@@ -244,6 +246,8 @@ function verdictOf(value: unknown, reply: string): Unbacked | null {
 export interface ClaimCheckResult extends Unbacked {
   usage: TokenUsage | null;
   durationMs: number;
+  /** The check failed or its verdict couldn't be read, so it found nothing either way. */
+  failed?: true;
 }
 
 export async function unbackedClaims(
@@ -302,13 +306,19 @@ export async function unbackedClaims(
       if (!signal.aborted) {
         console.error(`The reply's change claims couldn't be checked: ${messageOf(error)}`);
       }
-      return { claims: [], commands: [], usage: null, durationMs: Date.now() - started };
+      return {
+        claims: [],
+        commands: [],
+        usage: null,
+        durationMs: Date.now() - started,
+        failed: true,
+      };
     }
   }
   const unbacked = verdictOf(value, reply);
   if (unbacked === null) {
     console.error("The reply's change-claim check returned no readable verdict.");
-    return { claims: [], commands: [], usage, durationMs: Date.now() - started };
+    return { claims: [], commands: [], usage, durationMs: Date.now() - started, failed: true };
   }
   return { ...unbacked, usage, durationMs: Date.now() - started };
 }
@@ -329,6 +339,9 @@ const COMMAND_WORDS: Record<ClaimedCommand, string> = {
   spending: "changed the spending cap",
   approvals: "changed what you may do without asking",
   permanent: "deleted something for good",
+  wall: "changed whether a Folder keeps its work inside it",
+  signOff: "marked something “Checked by me”",
+  authorship: "marked text as the User's own",
   command: "did something in the app",
 };
 

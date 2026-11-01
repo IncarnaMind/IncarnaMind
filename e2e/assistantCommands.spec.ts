@@ -508,7 +508,7 @@ test("a reply that says Local mode is on, though it was refused, keeps a line un
   await expect(text).toContainText(
     "“Keep everything on this computer” and what goes to cloud services are yours to change, not mine.",
   );
-  const line = answer.getByTestId("answer-unbacked-command");
+  const line = answer.getByTestId("answer-unbacked-command-privacy");
   await expect(line).toHaveText(
     "“Keep everything on this computer” and what goes to cloud services weren’t changed. Only you can change them, in Settings › Privacy",
   );
@@ -517,7 +517,7 @@ test("a reply that says Local mode is on, though it was refused, keeps a line un
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 700);
   await expect(line).toHaveText(
-    "未更改“所有内容都留在这台电脑上”和哪些内容发送到云服务。只有你能在“设置 › 隐私”里更改",
+    "“所有内容都留在这台电脑上”和哪些内容发送到云服务，都没有更改。只有你能在“设置 › 隐私”里更改",
   );
   const [box, width] = await Promise.all([
     line.boundingBox(),

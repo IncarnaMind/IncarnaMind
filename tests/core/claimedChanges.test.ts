@@ -263,6 +263,34 @@ describe("A claim of something done in the app (#2407)", () => {
     expect(result.commands).toEqual(["privacy"]);
   });
 
+  // protects=a claim in the app counts whatever kind the judge gave it, and one item's unknown kind never voids the rest of the verdict, as a provider that doesn't hold the schema's enum sends; fails_when=a verdict with "opened" as a kind drops a real claim about Local mode; no_claim=none beyond protects.
+  test("an unknown kind voids nothing", async () => {
+    const reply = "I opened Settings. Local mode is on now.";
+    const result = await check(
+      judge({
+        claims: [
+          { sentence: "I opened Settings.", kind: "opened", about: "app", backed: false },
+          { sentence: english, kind: "turned on", about: "local_mode", backed: false },
+          { sentence: "I opened Settings.", kind: "opened", about: "mind", backed: false },
+        ],
+      }),
+      reply,
+    );
+    expect(result.commands).toEqual(["command", "privacy"]);
+    expect(result.claims).toEqual([]);
+    expect(result.failed).toBeUndefined();
+  });
+
+  // protects=a check that couldn't run or couldn't be read says so, apart from one that found nothing; fails_when=a failed check reads as a clean one, which can't then fail closed; no_claim=none beyond protects.
+  test("a failed check says it failed", async () => {
+    const down = scriptedModel(() => ({ text: "" }), {
+      generate: () => ({ error: { status: 503, message: "offline" } }),
+    });
+    expect((await check(down, english)).failed).toBe(true);
+    expect((await check(judge("not JSON"), english)).failed).toBe(true);
+    expect((await check(judge({ claims: [] }), english)).failed).toBeUndefined();
+  });
+
   // protects=the record gives each run_command what it did, so a refusal (whose status is done) reads as having done nothing; fails_when=a refusal or a denied call reads as done; no_claim=none beyond protects.
   test("the record says what each command did", async () => {
     const model = judge({ claims: [] });
@@ -285,6 +313,29 @@ describe("A claim of something done in the app (#2407)", () => {
         approval: "denied",
         resultCount: null,
       },
+      {
+        id: "going-on",
+        tool: "run_command",
+        source: "commands",
+        input: { command: "mind.check" },
+        status: "done",
+        resultCount: null,
+        command: {
+          command: "mind.check",
+          run: "r1",
+          items: [],
+          window: { changed: false, running: true },
+        },
+      },
+      {
+        id: "edit",
+        tool: "edit_mind",
+        source: "minds",
+        input: {},
+        status: "done",
+        resultCount: null,
+        mindChange: { mindId: "q3", created: false, request: "r1", proposals: 1 },
+      },
     ];
 
     await check(model, english, calls);
@@ -292,5 +343,8 @@ describe("A claim of something done in the app (#2407)", () => {
     const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
     expect(prompt).toContain(`\\"outcome\\": \\"refused: the User's alone\\"`);
     expect(prompt).toContain(`\\"outcome\\": \\"not allowed by the User\\"`);
+    expect(prompt).toContain(`\\"outcome\\": \\"started\\"`);
+    // Only the commands' calls carry one: an edit's change says what it did itself.
+    expect(prompt.match(/\\"outcome\\":/g)).toHaveLength(3);
   });
 });
