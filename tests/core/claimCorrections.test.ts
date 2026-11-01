@@ -1,0 +1,1921 @@
+import { utimes } from "node:fs/promises";
+import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
+import {
+  type CitationAttributes,
+  type ClaimCheckResult,
+  CONTENT_SCHEMA_VERSION,
+  MIND_CONTENT_FIELD,
+} from "../../src/core";
+import { readVerdict } from "../../src/core/answers/checks/prompt";
+import { markedSentences } from "../../src/core/answers/checks/sentences";
+import { readClaimCheck, restsOn } from "../../src/shared/claimChecks";
+import {
+  checkGenerate,
+  checkingModel,
+  checkReply,
+  type Plan,
+  requestedFigures,
+} from "../helpers/checks";
+import { type SourceFile, setUpWithDocuments, shownPassages } from "../helpers/citations";
+import { createTempDataFolder, startCore } from "../helpers/core";
+import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { writeMind } from "../helpers/minds";
+import { scriptedModel, scriptedModels } from "../helpers/models";
+
+const CLAIM = "The rate is 36.8%.";
+const QUOTE = "The rate is 38.6%.";
+const REPORT = { name: "Report.md", contents: QUOTE };
+const correctionLines = (from = "36.8%", to = "38.6%") =>
+  `The report gives another rate.\nChange 1: ${from}\nTo 1: ${to}`;
+const correctionIn = (result: ClaimCheckResult) =>
+  result.verdict === "not-checked" ? undefined : result.correction;
+const contradicted = (says = correctionLines()): Plan => ({
+  verdict: "contradicted",
+  quote: QUOTE,
+  says,
+});
+
+async function checkWith(
+  plan: Plan,
+  claim = CLAIM,
+  files: readonly SourceFile[] = [REPORT],
+): Promise<ClaimCheckResult> {
+  const { core } = await setUpWithDocuments(checkingModel({ [claim]: plan }), files);
+  return core.checkClaim({ claim });
+}
+
+async function markWith(plan: Plan, claim = CLAIM, files: readonly SourceFile[] = [REPORT]) {
+  const { core, client, mind } = await setUpWithDocuments(checkingModel({ [claim]: plan }), files);
+  const block = {
+    type: "paragraph",
+    attrs: { id: "correction-block" },
+    content: [{ type: "text", text: claim }],
+  };
+  writeMind(client, [block]);
+  await client.settled();
+  await core.checkSentences({
+    requestId: "correction-request",
+    mindId: mind.id,
+    action: "check-against-documents",
+    from: { blockId: "correction-block", offset: 0 },
+    to: { blockId: "correction-block", offset: claim.length },
+  });
+  const { state } = await core.openMind(mind.id);
+  const reopened = new Y.Doc();
+  Y.applyUpdate(reopened, state);
+  const [marked] = markedSentences(reopened.getXmlFragment(MIND_CONTENT_FIELD));
+  if (!marked) throw new Error("The checked sentence has no mark.");
+  return marked.check;
+}
+
+describe("A correction in a check reply", () => {
+  test("parses the exact old substring and each Document wording with its Citation marker", () => {
+    const read = readVerdict(
+      [
+        "Verdict: contradicted",
+        "Scope: none, same",
+        "Topic: found",
+        "Roles: none, same",
+        "The Documents give other rates.",
+        "Change 1: 36.8%",
+        "To 1: 38.6% [^1]",
+        "Change 2: 36.8%",
+        "To 2: 39.4% [^2]",
+      ].join("\n"),
+    );
+
+    expect(read?.says).toBe("The Documents give other rates.");
+    expect(read?.correction).toEqual({
+      from: "36.8%",
+      choices: [
+        { wording: "38.6%", marker: 1 },
+        { wording: "39.4%", marker: 2 },
+      ],
+    });
+  });
+
+  test("takes each choice's marker from the quote its To line ends with", () => {
+    const read = readVerdict(
+      [
+        "Verdict: contradicted",
+        "The Documents give other rates. [^3][^4]",
+        "Change 1: 36.8%",
+        "To 1: 38.6% [^4]",
+        "Change 2: 36.8%",
+        "To 2: 39.4% [^3]",
+      ].join("\n"),
+    );
+
+    expect(read?.correction?.choices).toEqual([
+      { wording: "38.6%", marker: 4 },
+      { wording: "39.4%", marker: 3 },
+    ]);
+  });
+
+  test.each([
+    {
+      language: "English",
+      says: "The minutes say the committee rejected the growth strategy.",
+      fields: 'Change 1: "adopted the growth strategy" To 1: "rejected the growth strategy" [^2]',
+      from: "adopted the growth strategy",
+      wording: "rejected the growth strategy",
+    },
+    {
+      language: "Chinese",
+      says: "纪要说委员会否决了增长战略。",
+      fields: "Change 1: 「采纳了增长战略」 To 1: 「否决了增长战略」 [^2]",
+      from: "采纳了增长战略",
+      wording: "否决了增长战略",
+    },
+  ])("reads $language fields written after the sentence, in quotation marks", (each) => {
+    const read = readVerdict(`Verdict: contradicted\nTopic: found\n${each.says} ${each.fields}`);
+
+    expect(read?.says).toBe(each.says);
+    expect(read?.correction).toEqual({
+      from: each.from,
+      choices: [{ wording: each.wording, marker: 2 }],
+    });
+  });
+
+  test.each([
+    ["为期三年 (the grant letter, “基金会提供为期三年的资助”)", "为期三年"],
+    ["$14,250 [P1, p. 1]", "$14,250"],
+    ["西境商业地产投资与资产管理（华东）有限公司", "西境商业地产投资与资产管理（华东）有限公司"],
+    [
+      'within 30 days after the Lease ends [p. 1] (Harbor Street Lease); "The Landlord shall return it within 30 days after the Lease ends"',
+      "within 30 days after the Lease ends",
+    ],
+    ["30日内 [第1页]（租赁合同）；“押金在租期届满后30日内退还”", "30日内"],
+    [
+      'within 30 days after the Lease ends [p. 1] "The Landlord shall return it within 30 days after the Lease ends"',
+      "within 30 days after the Lease ends",
+    ],
+    ["30日内 [第1页] “租期届满后30日内无息退还”", "30日内"],
+    ["the 2026 liquidity (and capital) strategy", "the 2026 liquidity (and capital) strategy"],
+  ])("reads the To value %s without a note after it", (to, wording) => {
+    const read = readVerdict(
+      `Verdict: contradicted\nThe report differs.\nChange 1: old\nTo 1: ${to}`,
+    );
+
+    expect(read?.correction?.choices).toEqual([{ wording, marker: 1 }]);
+  });
+
+  test("reads old words that hold “to 1:” as words, not a field", () => {
+    const read = readVerdict(
+      "Verdict: contradicted\nThe report gives 3 to 1.\nChange 1: rose to 1: 2\nTo 1: rose to 3: 1",
+    );
+
+    expect(read?.correction).toEqual({
+      from: "rose to 1: 2",
+      choices: [{ wording: "rose to 3: 1", marker: 1 }],
+    });
+  });
+
+  test.each([
+    ["a To line is missing", "Change 1: 36.8%"],
+    [
+      "the second old substring differs",
+      "Change 1: 36.8%\nTo 1: 38.6%\nChange 2: 37.2%\nTo 2: 39.4%",
+    ],
+    ["a third choice is given", "Change 1: 36.8%\nTo 1: 38.6%\nChange 3: 36.8%\nTo 3: 39.4%"],
+    ["wording is empty", "Change 1: 36.8%\nTo 1: [^1]"],
+  ])("is left unread when %s", (_case, lines) => {
+    expect(
+      readVerdict(`Verdict: contradicted\nThe report differs.\n${lines}`)?.correction,
+    ).toBeUndefined();
+  });
+
+  test.each(["supported", "unsupported"] as const)("is ignored for %s", (verdict) => {
+    expect(
+      readVerdict(`Verdict: ${verdict}\nThe report differs.\n${correctionLines()}`)?.correction,
+    ).toBeUndefined();
+  });
+});
+
+describe("A correction from the public core", () => {
+  test("keeps a short, finally confirmed contradiction's exact replacement", async () => {
+    const result = await checkWith(contradicted());
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      evidence: { quote: QUOTE, check: "found" },
+      correction: {
+        from: "36.8%",
+        choices: [{ wording: "38.6%", evidence: { quote: QUOTE, check: "found" } }],
+      },
+    });
+  });
+
+  test("persists on the claim mark when the Mind is reopened", async () => {
+    const marked = await markWith(contradicted());
+
+    expect(marked.correction).toMatchObject({
+      from: "36.8%",
+      choices: [{ wording: "38.6%", evidence: { quote: QUOTE, check: "found" } }],
+    });
+    expect(marked.figures?.[0]?.correction).toEqual(marked.correction);
+  });
+
+  test.each([
+    {
+      name: "a To line with another of the quote's values",
+      claim: "Revenue was £20.",
+      quote: "Revenue was £21, previously £22.",
+      lines: "Change 1: £20\nTo 1: £22",
+      number: "£21",
+      from: "£20",
+    },
+    {
+      name: "a To line that merely contains the deciding digits",
+      claim: "Revenue was 20%.",
+      quote: "Revenue was 36.8%, previously 136.8%.",
+      lines: "Change 1: 20%\nTo 1: 136.8%",
+      number: "36.8%",
+      from: "20%",
+    },
+    {
+      name: "Chinese old words that are the whole sentence",
+      claim: "每个停车位每月收费人民币1,000元。",
+      quote: "每个停车位每月收费人民币800元，与租金一并支付。",
+      lines:
+        "Change 1: 每个停车位每月收费人民币1,000元。\nTo 1: 每个停车位每月收费人民币800元，与租金一并支付。",
+      number: "人民币800元",
+      from: "人民币1,000元",
+    },
+  ])("changes the figure to the Document's number its check found, despite $name", async (each) => {
+    const marked = await markWith(
+      {
+        ...contradicted(`The report gives another value.\n${each.lines}`),
+        quote: each.quote,
+        number: each.number,
+      },
+      each.claim,
+      [{ name: "Report.md", contents: each.quote }],
+    );
+
+    expect(marked).toMatchObject({
+      state: "contradicted",
+      correction: { from: each.from, choices: [{ wording: each.number }] },
+    });
+  });
+
+  test.each([
+    {
+      language: "English",
+      claim: "Payment is due within 60 days of invoice.",
+      quote: "Payment is due within 45 days of invoice.",
+      to: "due within 45 days of invoice",
+      from: "60 days",
+      wording: "45 days",
+    },
+    {
+      language: "Chinese",
+      claim: "货款应在开票后60日内支付。",
+      quote: "货款应在开票后45日内支付。",
+      to: "货款应在开票后45日内支付",
+      from: "60日内",
+      wording: "45日内",
+    },
+  ])("fits $language Document words to the place of the old words", async (each) => {
+    const result = await checkWith(
+      {
+        ...contradicted(`The agreement differs.\nChange 1: ${each.from}\nTo 1: ${each.to}`),
+        quote: each.quote,
+      },
+      each.claim,
+      [{ name: "Agreement.md", contents: each.quote }],
+    );
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: each.from, choices: [{ wording: each.wording }] },
+    });
+  });
+
+  test("keeps a correction whose quote names the sentence's period more than once", async () => {
+    const claim = "The base rent is $15,000 per month.";
+    const quote = "The base rent is $14,250 per month, paid on the 5th day of each month.";
+    const marked = await markWith(
+      {
+        ...contradicted("The lease gives another rent.\nChange 1: $15,000\nTo 1: $14,250"),
+        quote,
+      },
+      claim,
+      [{ name: "Lease.md", contents: quote }],
+    );
+
+    expect(marked.state).toBe("contradicted");
+    expect(marked.correction?.choices[0]?.wording).toBe("$14,250");
+  });
+
+  test.each([
+    { name: "only the figure", from: "$15,000", to: "$14,250", offered: true },
+    {
+      name: "the figure, then the words after it",
+      from: "$15,000",
+      to: "$14,250 per month, paid in advance.",
+      offered: true,
+    },
+    {
+      name: "the whole sentence",
+      from: "The base rent is $15,000 per month.",
+      to: "The base rent is $14,250 per month, paid in advance.",
+      offered: false,
+    },
+  ])(
+    "writes over a figure it couldn't compare when the reply names $name",
+    async ({ from, to, offered }) => {
+      // The note's bare "$" isn't backed by the quote's digits alone (#2073): the figure is
+      // Unsupported, and the sentence's own verdict is the contradiction.
+      const claim = "The base rent is $15,000 per month.";
+      const quote = "The base rent is $14,250 per month, paid in advance.";
+      const marked = await markWith(
+        { ...contradicted(`The lease gives another rent.\nChange 1: ${from}\nTo 1: ${to}`), quote },
+        claim,
+        [{ name: "Lease.md", contents: quote }],
+      );
+
+      expect(marked.state).toBe("contradicted");
+      expect(marked.figures?.[0]?.state).toBe("unsupported");
+      expect(marked.correction?.choices[0]?.wording).toBe(offered ? "$14,250" : undefined);
+    },
+  );
+
+  test("has none rather than attaching a later figure's correction to the first", async () => {
+    const claim = "Revenue was £20 and profit was £30.";
+    const quote = "Revenue was £21 and profit was £31.";
+    const marked = await markWith(
+      {
+        verdict: "contradicted",
+        quote,
+        reply: (call) => {
+          const searches = call.results.filter((result) => result.tool === "search_documents");
+          if (searches.length === 0) {
+            return { calls: [{ tool: "search_documents", input: { query: claim } }] };
+          }
+          if (!call.results.some((result) => result.tool === "cite")) {
+            const passage = shownPassages(searches.at(-1)?.text ?? "").find((each) =>
+              each.text.includes(quote),
+            );
+            if (!passage) throw new Error("The fixture has no result Passage.");
+            return {
+              calls: [
+                {
+                  tool: "cite",
+                  input: { citations: [{ marker: 1, passage: passage.id, quote }] },
+                },
+              ],
+            };
+          }
+          const items = requestedFigures(call).map(({ id, shown, reading }) => ({
+            id,
+            verdict: "contradicted",
+            scope: "same",
+            topic: "found",
+            roles: "same",
+            says: null,
+            reading,
+            relation: "equals",
+            source: { citation: 1, number: shown === "£20" ? "£21" : "£31" },
+            calculation: null,
+          }));
+          return {
+            text: `Verdict: contradicted\nChange 1: £30\nTo 1: £31 [^1]\nFigures: ${JSON.stringify({ items, remainder: null })}`,
+          };
+        },
+      },
+      claim,
+      [{ name: "Results.md", contents: quote }],
+    );
+
+    expect(marked.state).toBe("contradicted");
+    expect(marked.correction).toBeUndefined();
+  });
+
+  test.each([
+    ["is absent from the claim", CLAIM, correctionLines("37.2%")],
+    [
+      "occurs more than once",
+      "The first rate is 36.8%; the second rate is 36.8%.",
+      correctionLines(),
+    ],
+    ["equals the old substring", CLAIM, correctionLines("36.8%", "36.8%")],
+  ])("has none when the old substring %s", async (_case, claim, says) => {
+    const result = await checkWith(contradicted(says), claim);
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
+  });
+
+  test("has none when a replacement changes the claim's named period", async () => {
+    const claim = "Gross margin fell to 36.8% in Q2, mostly in online.";
+    const quote = "Gross margin fell to 38.6% in Q3, mostly in online.";
+    const result = await checkWith(
+      {
+        ...contradicted(
+          `The report gives another quarter.\nChange 1: 36.8% in Q2\nTo 1: 38.6% in Q3`,
+        ),
+        quote,
+      },
+      claim,
+      [{ name: "Q3 results.md", contents: quote }],
+    );
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
+  });
+
+  test("has none when a replacement changes a period outside the old substring", async () => {
+    const claim = "Gross margin fell to 36.8% in Q2, mostly in online.";
+    const quote = "Gross margin fell to 38.6% in Q3, mostly in online.";
+    const result = await checkWith(
+      {
+        ...contradicted(`The report gives another quarter.\n${correctionLines()}`),
+        quote,
+      },
+      claim,
+      [{ name: "Q3 results.md", contents: quote }],
+    );
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
+  });
+
+  test("drops the surrounding English period a replacement repeats", async () => {
+    const claim = "Gross margin fell to 36.8% in Q2.";
+    const quote = "Gross margin fell to 38.6% in Q2.";
+    const result = await checkWith(
+      {
+        ...contradicted("The report gives another rate.\nChange 1: 36.8%\nTo 1: 38.6% in Q2"),
+        quote,
+      },
+      claim,
+      [{ name: "Q2 results.md", contents: quote }],
+    );
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: "36.8%", choices: [{ wording: "38.6%" }] },
+    });
+  });
+
+  test("drops the surrounding Chinese period a figure's replacement repeats", async () => {
+    const claim = "第二季度毛利率降至36.8%。";
+    const quote = "毛利率降至38.6%（第二季度）。";
+    const result = await checkWith(
+      {
+        ...contradicted("报告给出另一个季度。\nChange 1: 36.8%\nTo 1: 38.6%（第二季度）"),
+        quote,
+      },
+      claim,
+      [{ name: "第二季度业绩.md", contents: quote }],
+    );
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: "36.8%", choices: [{ wording: "38.6%" }] },
+    });
+  });
+
+  test("has none when a Chinese replacement's Citation changes the surrounding period", async () => {
+    const claim = "第二季度毛利率降至36.8%。";
+    const quote = "第三季度毛利率降至38.6%。";
+    const result = await checkWith(
+      {
+        ...contradicted(`报告给出另一个季度。\n${correctionLines()}`),
+        quote,
+      },
+      claim,
+      [{ name: "第三季度业绩.md", contents: quote }],
+    );
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
+  });
+
+  test("has none when the replacement is absent from its Citation", async () => {
+    const result = await checkWith(
+      contradicted("The report gives another rate.\nChange 1: 36.8%\nTo 1: 39.4%"),
+    );
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
+  });
+
+  test("has none when a Chinese replacement changes the named period", async () => {
+    const claim = "第二季度毛利率降至36.8%。";
+    const quote = "第三季度毛利率降至38.6%。";
+    const result = await checkWith(
+      {
+        ...contradicted(`报告给出另一个季度。\nChange 1: 第二季度\nTo 1: 第三季度`),
+        quote,
+      },
+      claim,
+      [{ name: "第三季度业绩.md", contents: quote }],
+    );
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
+  });
+
+  test("allows a long replacement that adds detail without changing a named period", async () => {
+    const claim = "The committee adopted the old strategy.";
+    const quote =
+      "The committee adopted the 2026 liquidity and capital preservation strategy after a full risk review.";
+    const result = await checkWith(
+      {
+        ...contradicted(
+          `The report gives the new strategy.\nChange 1: old strategy\nTo 1: ${quote}`,
+        ),
+        quote,
+      },
+      claim,
+      [{ name: "Committee.md", contents: quote }],
+    );
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: {
+        from: "old strategy",
+        choices: [
+          { wording: "2026 liquidity and capital preservation strategy after a full risk review" },
+        ],
+      },
+    });
+  });
+
+  test.each([
+    {
+      language: "English",
+      claim: "The committee adopted the growth strategy.",
+      quote: "The committee rejected the growth strategy.",
+      part: "adopted the growth strategy",
+      wording: "rejected the growth strategy",
+    },
+    {
+      language: "Chinese",
+      claim: "委员会采纳了增长战略。",
+      quote: "委员会否决了增长战略。",
+      part: "采纳了增长战略",
+      wording: "否决了增长战略",
+    },
+  ])(
+    "changes only the contradicted part of a $language sentence, never all of it",
+    async (each) => {
+      const check = (from: string, to: string) =>
+        checkWith(
+          {
+            ...contradicted(`The minutes differ.\nChange 1: ${from}\nTo 1: ${to}`),
+            quote: each.quote,
+          },
+          each.claim,
+          [{ name: "Minutes.md", contents: each.quote }],
+        );
+
+      const part = await check(each.part, each.wording);
+      const whole = await check(each.claim, each.quote);
+
+      expect(part).toMatchObject({
+        verdict: "contradicted",
+        correction: { from: each.part, choices: [{ wording: each.wording }] },
+      });
+      expect(whole.verdict).toBe("contradicted");
+      expect(correctionIn(whole)).toBeUndefined();
+    },
+  );
+
+  test("keeps a replacement in the same named period", async () => {
+    const claim = "Gross margin fell to 36.8% in Q2, mostly in online.";
+    const quote = "Gross margin fell to 38.6% in Q2, mostly in online.";
+    const result = await checkWith(
+      {
+        ...contradicted(`The report gives another rate.\nChange 1: 36.8% in Q2\nTo 1: 38.6% in Q2`),
+        quote,
+      },
+      claim,
+      [{ name: "Q2 results.md", contents: quote }],
+    );
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: "36.8% in Q2", choices: [{ wording: "38.6% in Q2" }] },
+    });
+  });
+
+  test("keeps a numeric replacement whose Citation names the same surrounding period", async () => {
+    const claim = "Gross margin fell to 36.8% in Q2, mostly in online.";
+    const quote = "Gross margin fell to 38.6% in Q2, mostly in online.";
+    const result = await checkWith(
+      {
+        ...contradicted(`The report gives another rate.\n${correctionLines()}`),
+        quote,
+      },
+      claim,
+      [{ name: "Q2 results.md", contents: quote }],
+    );
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: "36.8%", choices: [{ wording: "38.6%" }] },
+    });
+  });
+
+  test("has none when a second choice has no found Citation", async () => {
+    const result = await checkWith(
+      contradicted(
+        "The reports differ.\nChange 1: 36.8%\nTo 1: 38.6% [^1]\nChange 2: 36.8%\nTo 2: 39.4% [^2]",
+      ),
+    );
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
+  });
+
+  test.each(["supported", "unsupported"] as const)("has none for %s", async (verdict) => {
+    const result = await checkWith({ verdict, quote: QUOTE, says: correctionLines() });
+
+    expect(result.verdict).toBe(verdict);
+    expect(correctionIn(result)).toBeUndefined();
+  });
+
+  test.each(["same", "neither"] as const)(
+    "has none when the contradiction is not finally confirmed (%s)",
+    async (judgement) => {
+      const claim = "Harbours publish the times of high water every year in January.";
+      const quote = "Harbours publish the times of high water every year.";
+      const result = await checkWith(
+        {
+          verdict: "contradicted",
+          quote,
+          says: "The report gives the yearly times, not the month.\nCovered: the yearly times\nNot covered: January\nChange 1: every year in January\nTo 1: every year",
+          judgement: judgement === "same" ? "same" : "conflict",
+          strict: {
+            text: "Sentence: in January\nQuote: not stated\nJudgement: neither",
+          },
+        },
+        claim,
+        [{ name: "Tides.md", contents: quote }],
+      );
+
+      expect(result.verdict).toBe("unsupported");
+      expect(correctionIn(result)).toBeUndefined();
+    },
+  );
+});
+
+/** A Run that names `parts` in its first turn, then checks each part as `plans` say. */
+function partsModel(plans: Record<string, Plan>, parts: readonly string[]) {
+  return scriptedModel(
+    (call) => {
+      const reply = checkReply(call, plans);
+      const first = !call.results.some((result) => result.tool === "search_documents");
+      if (!first || !call.system.includes("Parts:")) return reply;
+      return {
+        ...reply,
+        text: `Parts: ${JSON.stringify(parts.map((text) => ({ kind: "fact", text })))}`,
+      };
+    },
+    { generate: checkGenerate(plans) },
+  );
+}
+
+describe("A correction in a sentence of several parts", () => {
+  const SENTENCE = "The rate is 36.8%, and the board approved the plan.";
+  const RATE = "The rate is 36.8%";
+  const BOARD = "the board approved the plan";
+  const MINUTES = "The board approved the plan.";
+
+  async function checkParts(board: Plan): Promise<ClaimCheckResult> {
+    const { core } = await setUpWithDocuments(
+      partsModel({ [RATE]: contradicted(), [BOARD]: board }, [RATE, BOARD]),
+      [
+        REPORT,
+        { name: "Minutes.md", contents: MINUTES },
+        { name: "Vote.md", contents: "The board rejected the plan." },
+      ],
+    );
+    return core.checkClaim({ claim: SENTENCE });
+  }
+
+  test("is each contradicted part's own, the first the sentence's", async () => {
+    const result = await checkParts({
+      ...contradicted("The minutes say the board rejected it.\nChange 1: approved\nTo 1: rejected"),
+      quote: "The board rejected the plan.",
+    });
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: "36.8%", choices: [{ wording: "38.6%" }] },
+      parts: [
+        { verdict: "contradicted", correction: { from: "36.8%" } },
+        {
+          verdict: "contradicted",
+          correction: { from: "approved", choices: [{ wording: "rejected" }] },
+        },
+      ],
+    });
+  });
+
+  test("stays on its part beside a supported or unsupported one", async () => {
+    const supported = await checkParts({ verdict: "supported", quote: MINUTES });
+    const unsupported = await checkParts({ verdict: "unsupported" });
+
+    for (const [result, other] of [
+      [supported, "supported"],
+      [unsupported, "unsupported"],
+    ] as const) {
+      expect(result).toMatchObject({
+        verdict: "contradicted",
+        correction: { from: "36.8%" },
+        parts: [{ verdict: "contradicted", correction: { from: "36.8%" } }, { verdict: other }],
+      });
+      expect(result.parts?.[1]?.correction).toBeUndefined();
+    }
+  });
+});
+
+interface ConflictCase {
+  claim: string;
+  reply: string;
+  citations: readonly { marker: 1 | 2; quote: string }[];
+  files: readonly SourceFile[];
+  dates: readonly string[];
+}
+
+function conflictModel(input: ConflictCase) {
+  return scriptedModel(
+    (call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: input.claim } }] };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passages = shownPassages(searches.at(-1)?.text ?? "");
+        const citations = input.citations.map((citation) => {
+          const passage = passages.find((each) => each.text.includes(citation.quote));
+          if (!passage) throw new Error(`No Passage holds ${citation.quote}`);
+          return { ...citation, passage: passage.id };
+        });
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      return { text: input.reply };
+    },
+    { generate: checkGenerate({}) },
+  );
+}
+
+async function checkConflict(input: ConflictCase): Promise<{
+  result: ClaimCheckResult;
+  documentIds: string[];
+}> {
+  const model = conflictModel(input);
+  const dataDir = await createTempDataFolder();
+  const sources = await createTempDataFolder();
+  const core = startCore(dataDir, {
+    createChatModel: scriptedModels(model).createChatModel,
+  });
+  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  const paths = await Promise.all(
+    input.files.map((file) => writeSourceFile(sources, file.name, file.contents)),
+  );
+  await Promise.all(
+    paths.map((path, index) => {
+      const date = new Date(input.dates[index] ?? "2026-01-01T00:00:00.000Z");
+      return utimes(path, date, date);
+    }),
+  );
+  const documents = await addAndProcess(core, paths);
+  const result = await core.checkClaim({ claim: input.claim });
+  return { result, documentIds: documents.map((document) => document.id) };
+}
+
+const conflictReply = (first: string, second: string, from = "36.8%") =>
+  [
+    "Verdict: contradicted",
+    "Scope: none, same",
+    "Topic: found",
+    "Roles: none, same",
+    "The Documents give other rates.",
+    `Change 1: ${from}`,
+    `To 1: ${first} [^1]`,
+    `Change 2: ${from}`,
+    `To 2: ${second} [^2]`,
+  ].join("\n");
+
+describe("Conflicting Documents' correction choices", () => {
+  test("the newest Document supplies the existing evidence and the first choice", async () => {
+    const old = "The rate is 38.6%.";
+    const newer = "The rate is 39.4%.";
+    const { result, documentIds } = await checkConflict({
+      claim: CLAIM,
+      reply: conflictReply("38.6%", "39.4%"),
+      citations: [
+        { marker: 1, quote: old },
+        { marker: 2, quote: newer },
+      ],
+      files: [
+        { name: "Old.md", contents: old },
+        { name: "New.md", contents: newer },
+      ],
+      dates: ["2025-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"],
+    });
+    const [oldId, newId] = documentIds;
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      evidence: { documentId: newId, quote: newer },
+      correction: {
+        from: "36.8%",
+        choices: [
+          { wording: "39.4%", evidence: { documentId: newId, quote: newer } },
+          { wording: "38.6%", evidence: { documentId: oldId, quote: old } },
+        ],
+      },
+    });
+  });
+
+  test("Chinese choices keep their original marker order when Document dates tie", async () => {
+    const first = "增长率为38.6%。";
+    const second = "增长率为39.4%。";
+    const { result, documentIds } = await checkConflict({
+      claim: "增长率为36.8%。",
+      reply: conflictReply("38.6%", "39.4%"),
+      citations: [
+        { marker: 1, quote: first },
+        { marker: 2, quote: second },
+      ],
+      files: [
+        { name: "报告一.md", contents: first },
+        { name: "报告二.md", contents: second },
+      ],
+      dates: ["2026-02-03T00:00:00.000Z", "2026-02-03T00:00:00.000Z"],
+    });
+    const [firstId, secondId] = documentIds;
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      evidence: { documentId: firstId },
+      correction: {
+        from: "36.8%",
+        choices: [
+          { wording: "38.6%", evidence: { documentId: firstId } },
+          { wording: "39.4%", evidence: { documentId: secondId } },
+        ],
+      },
+    });
+  });
+});
+
+describe("A correction's wording in the sentence's own language", () => {
+  const quotes: Record<string, string> = {
+    "30日内": "押金在30日内退还。",
+    "30 days": "The deposit is returned within 30 days.",
+  };
+  test.each([
+    { to: ["30日内", "30 days"], wordings: ["30 days"] },
+    { to: ["30日内"], wordings: undefined },
+    { to: ["30 days"], wordings: ["30 days"] },
+  ])("an English sentence is offered $wordings for $to (#1481)", async ({ to, wordings }) => {
+    const reply = [
+      "Verdict: contradicted",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      "The leases give another period.",
+      ...to.flatMap((wording, index) => [
+        `Change ${index + 1}: 60 days`,
+        `To ${index + 1}: ${wording} [^${index + 1}]`,
+      ]),
+    ].join("\n");
+    const { result } = await checkConflict({
+      claim: "The deposit is returned within 60 days.",
+      reply,
+      citations: to.map((wording, index) => ({
+        marker: index === 0 ? 1 : 2,
+        quote: quotes[wording] ?? "",
+      })),
+      files: [
+        // Its English line lets the English sentence's search find it.
+        {
+          name: "租赁合同.md",
+          contents: `${quotes["30日内"]}\nThe deposit is returned as this lease says.`,
+        },
+        { name: "Lease.md", contents: quotes["30 days"] ?? "" },
+      ],
+      dates: ["2026-02-03T00:00:00.000Z", "2025-01-14T00:00:00.000Z"],
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)?.choices.map((choice) => choice.wording)).toEqual(wordings);
+  });
+});
+
+describe("A To line that goes on with a second Document's words", () => {
+  const english = "The Landlord shall return it within 30 days after the Lease ends";
+  const chinese = "租期届满后30日内无息退还";
+  test.each([
+    {
+      claim: "The Landlord must return the deposit within 60 days.",
+      from: "60 days",
+      to: `within 30 days after the Lease ends (Harbor Street Lease); ${chinese} (补充协议)`,
+      wording: "30 days after the Lease ends",
+      quote: english,
+    },
+    {
+      claim: "押金应在租期届满后60日内退还。",
+      from: "60日内",
+      to: `30日内 (补充协议); ${english} (Harbor Street Lease)`,
+      wording: "30日内",
+      quote: chinese,
+    },
+  ])("gives $wording its own quote (#1481)", async ({ claim, from, to, wording, quote }) => {
+    const reply = [
+      "Verdict: contradicted",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      `Change 1: ${from}`,
+      `To 1: ${to}`,
+      "The leases give another period.",
+      "Evidence: [1, 2]",
+    ].join("\n");
+    const { result } = await checkConflict({
+      claim,
+      reply,
+      citations: [
+        { marker: 1, quote },
+        { marker: 2, quote: quote === english ? chinese : english },
+      ],
+      files: [
+        // Each has a line in the other language, so that either sentence's search finds both.
+        {
+          name: "Lease.md",
+          contents: `${english}, less any amounts properly deducted.\n押金按本租约退还。`,
+        },
+        {
+          name: "租赁合同.md",
+          contents: `${chinese}。\nThe Landlord returns the deposit as this lease says.`,
+        },
+      ],
+      dates: ["2025-01-14T00:00:00.000Z", "2026-02-03T00:00:00.000Z"],
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)?.choices).toMatchObject([{ wording, evidence: { quote } }]);
+  });
+});
+
+test("a figure's wording in another language than its quote is not cut at a thousands separator (#1481)", async () => {
+  const quote = "供应商每季度交付1,200件。";
+  const { result } = await checkConflict({
+    claim: "供应商每季度交付1,500件。",
+    reply: [
+      "Verdict: contradicted",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      "The agreement gives another quantity.",
+      "Change 1: 1,500件",
+      "To 1: 1,200 units each quarter [^1]",
+    ].join("\n"),
+    citations: [{ marker: 1, quote }],
+    files: [{ name: "供货协议.md", contents: quote }],
+    dates: ["2026-01-01T00:00:00.000Z"],
+  });
+
+  expect(result.verdict).toBe("contradicted");
+  expect(correctionIn(result)).toBeUndefined();
+});
+
+describe("A correction read again in its sentence (#1481)", () => {
+  test.each([
+    {
+      name: "a dollar figure's digits keep its scale",
+      claim: "Revenue was $1.5m in the year.",
+      from: "1.5",
+      to: "1,200,000",
+      quote: "Revenue was $1.2m ($1,200,000) in the year.",
+      wording: undefined,
+    },
+    {
+      name: "a dollar figure's digits written in its scale",
+      claim: "Revenue was $1.5m in the year.",
+      from: "1.5",
+      to: "1.2",
+      quote: "Revenue was $1.2m in the year.",
+      wording: "1.2",
+    },
+    {
+      name: "a whole dollar figure",
+      claim: "The base rent is $15,000 per month.",
+      from: "$15,000",
+      to: "$14,250",
+      quote: "The Tenant shall pay a base rent of $14,250 per month.",
+      wording: "$14,250",
+    },
+    {
+      name: "亿元 digits keep their scale",
+      claim: "营收为1.5亿元。",
+      from: "1.5",
+      to: "120,000,000元",
+      quote: "营收为1.2亿元（120,000,000元）。",
+      wording: undefined,
+    },
+    {
+      name: "万元 digits keep their scale",
+      claim: "月租金为9.5万元。",
+      from: "9.5",
+      to: "98,000",
+      quote: "月租金为98,000元。",
+      wording: undefined,
+    },
+    {
+      name: "亿元 digits written in their scale",
+      claim: "营收为1.5亿元。",
+      from: "1.5",
+      to: "1.2",
+      quote: "营收为1.2亿元。",
+      wording: "1.2",
+    },
+    {
+      name: "a number the Document writes twice",
+      claim: "月租金为人民币九万五千元。",
+      from: "人民币九万五千元",
+      to: "人民币九万八千元（¥98,000）",
+      quote: "月租金调整为人民币九万八千元（¥98,000）。",
+      wording: "人民币九万八千元（¥98,000）",
+    },
+    {
+      name: "a positive figure the Document brackets as negative",
+      claim: "The cash adjustment was 4,260.00.",
+      from: "4,260.00",
+      to: "4,620.00",
+      quote: "The cash adjustment was (4,620.00).",
+      wording: undefined,
+    },
+    {
+      name: "a bracketed figure the Document writes as positive",
+      claim: "The cash adjustment was (4,620.00).",
+      from: "4,620.00",
+      to: "4,260.00",
+      quote: "The cash adjustment was 4,260.00.",
+      wording: undefined,
+    },
+    {
+      name: "a figure of the same sign",
+      claim: "The cash adjustment was 4,260.00.",
+      from: "4,260.00",
+      to: "4,620.00",
+      quote: "The cash adjustment was 4,620.00.",
+      wording: "4,620.00",
+    },
+    {
+      name: "a 元 figure the Document brackets as negative",
+      claim: "现金调整额为4,260.00元。",
+      from: "4,260.00",
+      to: "4,620.00",
+      quote: "现金调整额为(4,620.00)元。",
+      wording: undefined,
+    },
+    {
+      name: "a 元 figure of the same sign",
+      claim: "现金调整额为4,260.00元。",
+      from: "4,260.00",
+      to: "4,620.00",
+      quote: "现金调整额为4,620.00元。",
+      wording: "4,620.00",
+    },
+    {
+      name: "English words in a Chinese sentence",
+      claim: "押金在60日内退还。",
+      from: "60日内",
+      to: "within 30 days",
+      quote: "The Landlord shall return it within 30 days.",
+      wording: undefined,
+    },
+    {
+      name: "Chinese words in a Chinese sentence",
+      claim: "押金在60日内退还。",
+      from: "60日内",
+      to: "30日内",
+      quote: "押金在30日内退还。",
+      wording: "30日内",
+    },
+    {
+      name: "Chinese words in an English sentence that names 华信公司",
+      claim: "The deposit from 华信公司 is returned within 60 days.",
+      from: "60 days",
+      to: "30日内",
+      quote: "押金在30日内退还。",
+      wording: undefined,
+    },
+    {
+      name: "English words in an English sentence that names 华信公司",
+      claim: "The deposit from 华信公司 is returned within 60 days.",
+      from: "60 days",
+      to: "30 days",
+      quote: "The deposit is returned within 30 days.",
+      wording: "30 days",
+    },
+    {
+      name: "one end of a range",
+      claim: "The term is 10–12 months.",
+      from: "10",
+      to: "8",
+      quote: "The term is 8–10 months.",
+      wording: undefined,
+    },
+    {
+      name: "one end of the Document's range",
+      claim: "The term is 10 months.",
+      from: "10",
+      to: "8",
+      quote: "The term is 8–10 months.",
+      wording: undefined,
+    },
+    {
+      name: "a whole range",
+      claim: "The term is 10–12 months.",
+      from: "10–12",
+      to: "8–10",
+      quote: "The term is 8–10 months.",
+      wording: "8–10",
+    },
+    {
+      name: "one end of a range of 个月",
+      claim: "租期为10–12个月。",
+      from: "10",
+      to: "8",
+      quote: "租期为8–10个月。",
+      wording: undefined,
+    },
+    {
+      name: "a whole range of 个月",
+      claim: "租期为10–12个月。",
+      from: "10–12",
+      to: "8–10",
+      quote: "租期为8–10个月。",
+      wording: "8–10",
+    },
+    {
+      name: "a scale letter written twice",
+      claim: "Revenue was $1.5m in the year.",
+      from: "$1.5",
+      to: "$1.2m",
+      quote: "Revenue was $1.2m in the year.",
+      wording: undefined,
+    },
+    {
+      name: "a figure with its scale letter",
+      claim: "Revenue was $1.5m in the year.",
+      from: "$1.5m",
+      to: "$1.2m",
+      quote: "Revenue was $1.2m in the year.",
+      wording: "$1.2m",
+    },
+    {
+      name: "a currency written twice",
+      claim: "The fee is 15,000 USD.",
+      from: "15,000",
+      to: "$14,250",
+      quote: "The fee is $14,250.",
+      wording: undefined,
+    },
+    {
+      name: "a figure in the sentence's own currency words",
+      claim: "The fee is 15,000 USD.",
+      from: "15,000",
+      to: "14,250",
+      quote: "The fee is 14,250 USD.",
+      wording: "14,250",
+    },
+    {
+      name: "a 元 figure given a ¥ too",
+      claim: "费用为15,000元。",
+      from: "15,000",
+      to: "¥14,250",
+      quote: "费用为¥14,250。",
+      wording: undefined,
+    },
+    {
+      name: "a 元 figure's digits",
+      claim: "费用为15,000元。",
+      from: "15,000",
+      to: "14,250",
+      quote: "费用为14,250元。",
+      wording: "14,250",
+    },
+  ])("gives $wording for $name", async (each) => {
+    const { result } = await checkConflict({
+      claim: each.claim,
+      reply: [
+        "Verdict: contradicted",
+        "Scope: none, same",
+        "Topic: found",
+        "Roles: none, same",
+        "The Document gives another value.",
+        `Change 1: ${each.from}`,
+        `To 1: ${each.to} [^1]`,
+      ].join("\n"),
+      citations: [{ marker: 1, quote: each.quote }],
+      // The sentence's own words let its search find the quote in either language.
+      files: [{ name: "Accounts.md", contents: `${each.quote}\n${each.claim}` }],
+      dates: ["2026-01-01T00:00:00.000Z"],
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)?.choices[0]?.wording).toBe(each.wording);
+  });
+});
+
+describe("A correction of one number of a range written with words or spaces (#1481)", () => {
+  test.each([
+    {
+      name: "one end of a range joined by to",
+      claim: "The term is 10 to 12 months.",
+      from: "10",
+      to: "8",
+      quote: "The term is 8 to 10 months.",
+      wording: undefined,
+    },
+    {
+      name: "a whole range joined by to",
+      claim: "The term is 10 to 12 months.",
+      from: "10 to 12",
+      to: "8 to 10",
+      quote: "The term is 8 to 10 months.",
+      wording: "8 to 10",
+    },
+    {
+      name: "one end of a range joined by 至",
+      claim: "租期为10至12个月。",
+      from: "10",
+      to: "8",
+      quote: "租期为8至10个月。",
+      wording: undefined,
+    },
+    {
+      name: "a whole range joined by 至",
+      claim: "租期为10至12个月。",
+      from: "10至12",
+      to: "8至10",
+      quote: "租期为8至10个月。",
+      wording: "8至10",
+    },
+    {
+      name: "one end of a range joined by 到",
+      claim: "租期为10到12个月。",
+      from: "10",
+      to: "8",
+      quote: "租期为8到10个月。",
+      wording: undefined,
+    },
+    {
+      name: "a whole range joined by 到",
+      claim: "租期为10到12个月。",
+      from: "10到12",
+      to: "8到10",
+      quote: "租期为8到10个月。",
+      wording: "8到10",
+    },
+    {
+      name: "one end of a range joined by a spaced dash",
+      claim: "The term is 10 – 12 months.",
+      from: "10",
+      to: "8",
+      quote: "The term is 8 – 10 months.",
+      wording: undefined,
+    },
+    {
+      name: "a whole range joined by a spaced dash",
+      claim: "The term is 10 – 12 months.",
+      from: "10 – 12",
+      to: "8 – 10",
+      quote: "The term is 8 – 10 months.",
+      wording: "8 – 10",
+    },
+    {
+      name: "one end of a range joined by through",
+      claim: "The term is 10 through 12 months.",
+      from: "10",
+      to: "8",
+      quote: "The term is 8 through 10 months.",
+      wording: undefined,
+    },
+    {
+      name: "a whole range joined by through",
+      claim: "The term is 10 through 12 months.",
+      from: "10 through 12",
+      to: "8 through 10",
+      quote: "The term is 8 through 10 months.",
+      wording: "8 through 10",
+    },
+    {
+      name: "one end of a range whose other number the quote has elsewhere",
+      claim: "The term is 10 to 12 months.",
+      from: "10",
+      to: "8",
+      quote: "The term is 8 to 10 months, with 12 weeks' notice.",
+      wording: undefined,
+    },
+    {
+      name: "a whole range whose old number the quote has elsewhere",
+      claim: "The term is 10 to 12 months.",
+      from: "10 to 12",
+      to: "8 to 10",
+      quote: "The term is 8 to 10 months, with 12 weeks' notice.",
+      wording: "8 to 10",
+    },
+    {
+      name: "one end of a 至 range whose other number the quote has elsewhere",
+      claim: "期限为10至12个月。",
+      from: "10",
+      to: "8",
+      quote: "期限为8至10个月，提前12周通知。",
+      wording: undefined,
+    },
+    {
+      name: "a whole 至 range whose old number the quote has elsewhere",
+      claim: "期限为10至12个月。",
+      from: "10至12",
+      to: "8至10",
+      quote: "期限为8至10个月，提前12周通知。",
+      wording: "8至10",
+    },
+    {
+      name: "one end of a range the quote has whole in another clause after it",
+      claim: "The term is 10 to 12 months.",
+      from: "10",
+      to: "8",
+      quote: "The term is 8 to 10 months; the option is 8 to 12 months.",
+      wording: undefined,
+    },
+    {
+      name: "a whole range beside the quote's range in another clause after it",
+      claim: "The term is 10 to 12 months.",
+      from: "10 to 12",
+      to: "8 to 10",
+      quote: "The term is 8 to 10 months; the option is 8 to 12 months.",
+      wording: "8 to 10",
+    },
+    {
+      name: "one end of a range the quote has whole in another clause before it",
+      claim: "The term is 10 to 12 months.",
+      from: "10",
+      to: "8",
+      quote: "The option is 8 to 12 months; the term is 8 to 10 months.",
+      wording: undefined,
+    },
+    {
+      name: "a whole range beside the quote's range in another clause before it",
+      claim: "The term is 10 to 12 months.",
+      from: "10 to 12",
+      to: "8 to 10",
+      quote: "The option is 8 to 12 months; the term is 8 to 10 months.",
+      wording: "8 to 10",
+    },
+    {
+      name: "one end of a range the quote has whole in a longer number",
+      claim: "The term is 10 to 12 months.",
+      from: "10",
+      to: "8",
+      quote: "The term is 8 to 10 months; options run 18 to 120 days.",
+      wording: undefined,
+    },
+    {
+      name: "a whole range beside the quote's range in a longer number",
+      claim: "The term is 10 to 12 months.",
+      from: "10 to 12",
+      to: "8 to 10",
+      quote: "The term is 8 to 10 months; options run 18 to 120 days.",
+      wording: "8 to 10",
+    },
+    {
+      name: "one end of a range the quote has whole in another Chinese clause before it",
+      claim: "租期为10至12个月。",
+      from: "10",
+      to: "8",
+      quote: "续租期为8至12个月；租期为8至10个月。",
+      wording: undefined,
+    },
+    {
+      name: "a whole range beside the quote's range in another Chinese clause before it",
+      claim: "租期为10至12个月。",
+      from: "10至12",
+      to: "8至10",
+      quote: "续租期为8至12个月；租期为8至10个月。",
+      wording: "8至10",
+    },
+    {
+      name: "a wording that repeats the words before it in another case",
+      claim: "The term is 10 to 12 months.",
+      from: "10 to 12 months",
+      to: "the term is 8 to 10 months",
+      quote: "The option period is 8 to 12 months; the term is 8 to 10 months.",
+      wording: "8 to 10 months",
+    },
+    {
+      name: "a Chinese wording that repeats the words before it",
+      claim: "租期为10至12个月。",
+      from: "10至12个月",
+      to: "租期为8至10个月",
+      quote: "续租期为8至12个月；租期为8至10个月。",
+      wording: "8至10个月",
+    },
+    {
+      name: "a wording that runs on with the clause's own words",
+      claim: "The base rent is $15,000 per month.",
+      from: "$15,000 per month",
+      to: "monthly rent of $14,250",
+      quote: "The Tenant shall pay a monthly rent of $14,250.",
+      wording: undefined,
+    },
+    {
+      name: "the same figure without them",
+      claim: "The base rent is $15,000 per month.",
+      from: "$15,000",
+      to: "$14,250",
+      quote: "The Tenant shall pay $14,250 per month.",
+      wording: "$14,250",
+    },
+    {
+      name: "a wording that runs on into the words after it",
+      claim: "Payment is due within 30 days of invoice.",
+      from: "30 days",
+      to: "45 days of the invoice",
+      quote: "Payment is due within 45 days of the invoice.",
+      wording: undefined,
+    },
+    {
+      name: "the same days without them",
+      claim: "Payment is due within 30 days of invoice.",
+      from: "30 days",
+      to: "45 days",
+      quote: "Payment is due within 45 days of the invoice.",
+      wording: "45 days",
+    },
+    {
+      name: "a Chinese wording that runs on with the clause's own characters",
+      claim: "租期为10至12个月。",
+      from: "10至12个月",
+      to: "租赁期限为8至10个月",
+      quote: "租赁期限为8至10个月。",
+      wording: undefined,
+    },
+    {
+      name: "the same Chinese range without them",
+      claim: "租期为10至12个月。",
+      from: "10至12个月",
+      to: "8至10个月",
+      quote: "租赁期限为8至10个月。",
+      wording: "8至10个月",
+    },
+    {
+      name: "a Chinese wording that says the words before it again in its own way",
+      claim: "付款期限为开票后30日内。",
+      from: "30日内",
+      to: "发票开具后45日内",
+      quote: "付款期限为发票开具后45日内。",
+      wording: undefined,
+    },
+    {
+      name: "the same Chinese days without them",
+      claim: "付款期限为开票后30日内。",
+      from: "30日内",
+      to: "45日内",
+      quote: "付款期限为发票开具后45日内。",
+      wording: "45日内",
+    },
+    {
+      name: "a name that ends in “the”",
+      claim: "The lease was signed by Northgate of London.",
+      from: "Northgate",
+      to: "Westmarch of the",
+      quote: "The lease was signed by Westmarch of the City of London.",
+      wording: undefined,
+    },
+    {
+      name: "a name that ends in “is”",
+      claim: "The guarantor is Northgate.",
+      from: "Northgate",
+      to: "Westmarch, which is",
+      quote: "The guarantor is Westmarch, which is the parent.",
+      wording: undefined,
+    },
+    {
+      name: "a name that ends in “to”",
+      claim: "The lease was assigned to Northgate by the Tenant.",
+      from: "Northgate",
+      to: "Westmarch to",
+      quote: "The lease was assigned to Westmarch to hold by the Tenant.",
+      wording: undefined,
+    },
+    {
+      name: "a name that ends in “the” before “or”",
+      claim: "Payment goes to Northgate or its agent.",
+      from: "Northgate",
+      to: "Westmarch or the",
+      quote: "Payment goes to Westmarch or the agent.",
+      wording: undefined,
+    },
+    {
+      name: "a name that ends in “with”",
+      claim: "The lease is with Northgate in London.",
+      from: "Northgate",
+      to: "Westmarch with",
+      quote: "The lease is with Westmarch with offices in London.",
+      wording: undefined,
+    },
+    {
+      name: "a Chinese name that ends in 的",
+      claim: "合同由北门控股签署。",
+      from: "北门控股",
+      to: "西境公司的",
+      quote: "合同由西境公司的代表签署。",
+      wording: undefined,
+    },
+    {
+      name: "a days wording that ends in its own words",
+      claim: "The Landlord must return the deposit within 60 days.",
+      from: "60 days",
+      to: "30 days after the Lease ends",
+      quote: "The Landlord shall return it within 30 days after the Lease ends.",
+      wording: "30 days after the Lease ends",
+    },
+    {
+      name: "a plural of the clause's own word",
+      claim: "Payment is due within 30 days of invoice.",
+      from: "30 days",
+      to: "45 days of invoices",
+      quote: "Payment is due within 45 days of invoices.",
+      wording: undefined,
+    },
+    {
+      name: "a name followed by “but”",
+      claim: "The lease was signed by Northgate of London.",
+      from: "Northgate",
+      to: "Westmarch but",
+      quote: "The lease was signed by Westmarch but the parties agreed.",
+      wording: undefined,
+    },
+    {
+      name: "a name followed by “than”",
+      claim: "The lease was signed by Northgate of London.",
+      from: "Northgate",
+      to: "Westmarch than",
+      quote: "The lease was signed by Westmarch than the parties agreed.",
+      wording: undefined,
+    },
+    {
+      name: "a name followed by “that”",
+      claim: "The lease was signed by Northgate of London.",
+      from: "Northgate",
+      to: "Westmarch that",
+      quote: "The lease was signed by Westmarch that the parties agreed.",
+      wording: undefined,
+    },
+    {
+      name: "a name followed by “upon”",
+      claim: "The lease was signed by Northgate of London.",
+      from: "Northgate",
+      to: "Westmarch upon",
+      quote: "The lease was signed by Westmarch upon the parties agreed.",
+      wording: undefined,
+    },
+    {
+      name: "a name followed by “between”",
+      claim: "The lease was signed by Northgate of London.",
+      from: "Northgate",
+      to: "Westmarch between",
+      quote: "The lease was signed by Westmarch between the parties agreed.",
+      wording: undefined,
+    },
+    {
+      name: "a name followed by “which” at the clause's end",
+      claim: "The guarantor is Northgate.",
+      from: "Northgate",
+      to: "Westmarch which",
+      quote: "The guarantor is Westmarch which owns the Tenant.",
+      wording: undefined,
+    },
+    {
+      name: "a name followed by “into”",
+      claim: "The lease was assigned to Northgate by the Tenant.",
+      from: "Northgate",
+      to: "Westmarch into",
+      quote: "The lease was assigned to Westmarch into trust.",
+      wording: undefined,
+    },
+    {
+      name: "a name followed by “per”",
+      claim: "The rent is paid to Northgate in advance.",
+      from: "Northgate",
+      to: "Westmarch per",
+      quote: "The rent is paid to Westmarch per month.",
+      wording: undefined,
+    },
+    {
+      name: "a name followed by “via”",
+      claim: "Payment goes to Northgate or its agent.",
+      from: "Northgate",
+      to: "Westmarch via",
+      quote: "Payment goes to Westmarch via its bank.",
+      wording: undefined,
+    },
+    {
+      name: "a Chinese name followed by 及其",
+      claim: "出租人为北门控股。",
+      from: "北门控股",
+      to: "西境公司及其",
+      quote: "出租人为西境公司及其关联公司。",
+      wording: undefined,
+    },
+    {
+      name: "a Chinese name followed by 在",
+      claim: "出租人为北门控股。",
+      from: "北门控股",
+      to: "西境公司在",
+      quote: "出租人为西境公司在上海的分公司。",
+      wording: undefined,
+    },
+    {
+      name: "a Chinese name followed by 并",
+      claim: "出租人为北门控股。",
+      from: "北门控股",
+      to: "西境公司并",
+      quote: "出租人为西境公司并由其代理。",
+      wording: undefined,
+    },
+    {
+      name: "a Chinese name that starts with 的",
+      claim: "出租人为北门控股。",
+      from: "北门控股",
+      to: "的西境公司",
+      quote: "本合同的西境公司为出租人。",
+      wording: undefined,
+    },
+    {
+      name: "a party that keeps its “the”",
+      claim: "Notice goes to the Tenant.",
+      from: "the Tenant",
+      to: "the Guarantor",
+      quote: "Notice goes to the Guarantor.",
+      wording: "the Guarantor",
+    },
+    {
+      name: "another party that keeps its “the”",
+      claim: "The deposit is held by the Landlord.",
+      from: "the Landlord",
+      to: "the Agent",
+      quote: "The deposit is held by the Agent.",
+      wording: "the Agent",
+    },
+    {
+      name: "a name the Document writes with “the”",
+      claim: "The guarantor is Northgate.",
+      from: "Northgate",
+      to: "the Bank of England",
+      quote: "The guarantor is the Bank of England.",
+      wording: "the Bank of England",
+    },
+    {
+      name: "a rent that keeps its “a”",
+      claim: "The Tenant pays a rent of $15,000.",
+      from: "a rent of $15,000",
+      to: "a rent of $14,250",
+      quote: "The Tenant pays a rent of $14,250.",
+      wording: "a rent of $14,250",
+    },
+    {
+      name: "a Chinese name in its place",
+      claim: "出租人为北门控股。",
+      from: "北门控股",
+      to: "西境公司",
+      quote: "出租人为西境公司。",
+      wording: "西境公司",
+    },
+    {
+      name: "a number with another number in a clause of its own",
+      claim: "The rate is 36.8%, and staff numbered 52.",
+      from: "36.8%",
+      to: "38.6%",
+      quote: "The rate is 38.6%.",
+      wording: "38.6%",
+    },
+    {
+      name: "a Chinese number with another number in a clause of its own",
+      claim: "增长率为36.8%，员工52人。",
+      from: "36.8%",
+      to: "38.6%",
+      quote: "增长率为38.6%。",
+      wording: "38.6%",
+    },
+  ])("gives $wording for $name", async (each) => {
+    const { result } = await checkConflict({
+      claim: each.claim,
+      reply: [
+        "Verdict: contradicted",
+        "Scope: none, same",
+        "Topic: found",
+        "Roles: none, same",
+        "The Document gives another value.",
+        `Change 1: ${each.from}`,
+        `To 1: ${each.to} [^1]`,
+      ].join("\n"),
+      citations: [{ marker: 1, quote: each.quote }],
+      files: [{ name: "Terms.md", contents: `${each.quote}\n${each.claim}` }],
+      dates: ["2026-01-01T00:00:00.000Z"],
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)?.choices[0]?.wording).toBe(each.wording);
+  });
+});
+
+test.each([
+  {
+    claim: "The cash adjustment was 4,620.00.",
+    from: "4,620.00",
+    to: "4,260.00",
+    quote: "The cash adjustment was 4,260.00.",
+  },
+  {
+    claim: "Payment is due within 30 days.",
+    from: "30 days",
+    to: "45 days",
+    quote: "Payment is due within 45 days.",
+  },
+  {
+    claim: "The flat sold for £385,000.",
+    from: "£385,000",
+    to: "£390,000",
+    quote: "The flat sold for £390,000.",
+  },
+  { claim: "The rate is 5%.", from: "5%", to: "7%", quote: "The rate is 7%." },
+  { claim: "付款期限为三十日。", from: "三十日", to: "四十五日", quote: "付款期限为四十五日。" },
+  {
+    claim: "The base rent is $15,000 per month.",
+    from: "$15,000",
+    to: "$14,250",
+    quote: "The base rent is $14,250 per month.",
+  },
+  {
+    claim: "The Supplier delivers 1,500 units each quarter.",
+    from: "1,500 units",
+    to: "1,200 units",
+    quote: "The Supplier delivers 1,200 units each quarter.",
+  },
+  { claim: "The rate is 36.8%.", from: "36.8%", to: "38.6%", quote: "The rate is 38.6%." },
+  {
+    claim: "停车费为人民币1,000元。",
+    from: "人民币1,000元",
+    to: "人民币800元",
+    quote: "停车费为人民币800元。",
+  },
+  { claim: "The term is 3 years.", from: "3 years", to: "5 years", quote: "The term is 5 years." },
+  { claim: "租金为12.5万元。", from: "12.5万元", to: "13万元", quote: "租金为13万元。" },
+  {
+    claim: "Revenue was $1.5m in 2025.",
+    from: "$1.5m",
+    to: "$1.2m",
+    quote: "Revenue was $1.2m in 2025.",
+  },
+])("an ordinary correction of $from to $to is still offered (#1481)", async (each) => {
+  const { result } = await checkConflict({
+    claim: each.claim,
+    reply: [
+      "Verdict: contradicted",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      "The Document gives another value.",
+      `Change 1: ${each.from}`,
+      `To 1: ${each.to} [^1]`,
+    ].join("\n"),
+    citations: [{ marker: 1, quote: each.quote }],
+    files: [{ name: "Terms.md", contents: `${each.quote}\n${each.claim}` }],
+    dates: ["2026-01-01T00:00:00.000Z"],
+  });
+
+  expect(result.verdict).toBe("contradicted");
+  expect(correctionIn(result)?.choices[0]?.wording).toBe(each.to);
+});
+
+describe("A wording that goes on past its quote", () => {
+  test.each([
+    {
+      claim: "The Landlord must return the deposit within 60 days.",
+      from: "60 days",
+      to: "within 30 days after the Lease ends, less any amounts properly deducted",
+      quote: "The Landlord shall return it within 30 days after the Lease ends",
+      wording: "30 days after the Lease ends",
+    },
+    {
+      claim: "押金应在租期届满后60日内退还。",
+      from: "60日内",
+      to: "30日内无息退还，扣除应付款项",
+      quote: "租期届满后30日内无息退还",
+      wording: "30日内无息",
+    },
+    {
+      claim: "The Landlord must return the deposit within 60 days.",
+      from: "60 days",
+      to: "within 45 days, as agreed",
+      quote: "The Landlord shall return it within 30 days after the Lease ends",
+      wording: undefined,
+    },
+  ])("gives $wording, as far as its quote holds it (#1481)", async (each) => {
+    const { result } = await checkConflict({
+      claim: each.claim,
+      reply: [
+        "Verdict: contradicted",
+        "Scope: none, same",
+        "Topic: found",
+        "Roles: none, same",
+        "The lease gives another period.",
+        `Change 1: ${each.from}`,
+        `To 1: ${each.to} [^1]`,
+      ].join("\n"),
+      citations: [{ marker: 1, quote: each.quote }],
+      files: [{ name: "Lease.md", contents: `${each.quote}, less any amounts properly deducted.` }],
+      dates: ["2025-01-14T00:00:00.000Z"],
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)?.choices[0]?.wording).toBe(each.wording);
+  });
+});
+
+const evidence = (documentId: string): CitationAttributes => ({
+  passageId: `passage-${documentId}`,
+  documentId,
+  documentName: documentId,
+  contentHash: `hash-${documentId}`,
+  pageFrom: null,
+  pageTo: null,
+  location: null,
+  quote: `Quote ${documentId}`,
+  check: "found",
+  checkReason: null,
+});
+
+describe("A correction persisted on a claim mark", () => {
+  test("reads with every choice's evidence in what the result rests on", () => {
+    const first = evidence("first");
+    const second = evidence("second");
+    const check = readClaimCheck({
+      id: "check-1",
+      state: "contradicted",
+      evidence: first,
+      correction: {
+        from: "36.8%",
+        choices: [
+          { wording: "38.6%", evidence: first },
+          { wording: "39.4%", evidence: second },
+        ],
+      },
+    });
+
+    expect(check?.correction).toEqual({
+      from: "36.8%",
+      choices: [
+        { wording: "38.6%", evidence: first },
+        { wording: "39.4%", evidence: second },
+      ],
+    });
+    expect(check && restsOn(check)).toEqual(expect.arrayContaining([first, second]));
+    // The version that keeps a correction, or a later one.
+    expect(CONTENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(44);
+  });
+
+  test("an older mark without one, and a malformed one, read safely", () => {
+    const legacy = readClaimCheck({ id: "legacy", state: "contradicted" });
+    expect(legacy?.state).toBe("contradicted");
+    expect(legacy?.correction).toBeUndefined();
+    expect(
+      readClaimCheck({
+        id: "invalid",
+        state: "contradicted",
+        correction: {
+          from: "36.8%",
+          choices: [{ wording: "36.8%", evidence: evidence("same") }],
+        },
+      })?.correction,
+    ).toBeUndefined();
+    expect(
+      readClaimCheck({
+        id: "invalid-evidence",
+        state: "contradicted",
+        correction: {
+          from: "36.8%",
+          choices: [
+            {
+              wording: "38.6%",
+              evidence: { ...evidence("not-found"), check: "not-found" },
+            },
+          ],
+        },
+      })?.correction,
+    ).toBeUndefined();
+  });
+});

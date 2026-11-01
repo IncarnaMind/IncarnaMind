@@ -189,7 +189,7 @@ Of what #2346 built:
   And Noto Sans SC 2.004 under the SIL Open Font License 1.1, as a Modified Version. All are permissive, and none is taken under the LGPL or GPL. `scripts/check-package.mjs` lists every shared library in the bundled wheels and fails a build with one the notice doesn't cover (`scripts/pythonNotices.mjs`).
 - **A job that uses them waits for them.** A job that imports one of the four takes 2–7 s more on this Mac than a pandas job, most of it importing the package; more on a slower computer.
 - **A Chinese font ships.** GB2312's second level, which holds characters common in people's and companies' names, costs about 0.5 MB more than its first level alone; the whole set is worth it. Japanese, Korean and rarer Chinese characters still leave a plot out.
-- **Content schema 44.** A Note keeps an Analysis figure's rows with its kept value, so an older version opens a Note written since read-only.
+- **Content schema 45.** A Note keeps an Analysis figure's rows with its kept value, so an older version opens a Note written since read-only.
 - **The packaged app's engine check** runs a regression, a forecast, a clustering and a plot in the Analyses window, on macOS, Windows and Linux.
 
 Of the rest, once built (#2351):

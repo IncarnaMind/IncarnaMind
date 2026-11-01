@@ -56,6 +56,12 @@ import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
 import { cutTitle } from "../shared/naming";
 import {
+  isNumberingScheme,
+  itemLevel,
+  type NumberingScheme,
+  numberingMarker,
+} from "../shared/numbering";
+import {
   readParagraphFormat,
   readTextColor,
   readTextFont,
@@ -331,6 +337,11 @@ export type Block = (
       items: Block[][];
       /** A checklist's state, in the same order as its items; absent on ordinary lists. */
       checked?: boolean[];
+      /**
+       * A numbered list's scheme and its items' level (#1419), and each item's marker as the
+       * editor draws it ("(a)", "1.2.", "（一）"); absent on bullets and checklists.
+       */
+      numbering?: { scheme: NumberingScheme; level: number; markers: string[] };
     }
   | { kind: "quote"; content: Block[] }
   | { kind: "rule" }
@@ -381,6 +392,8 @@ export interface ReadOptions {
    * decides (./exports/citations).
    */
   trimBeforeFootnote?: boolean;
+  /** The numbered list a list being read is nested in: its scheme, and its items' level and numbers. */
+  outerList?: OuterList;
   /**
    * A comparison table's own words (#98): its first column's heading, and what a cell
    * without an Answer says. Absent: in English.
@@ -698,6 +711,80 @@ const hasBlockChildren = (element: Y.XmlElement) =>
     .toArray()
     .some((child) => child instanceof Y.XmlElement && !INLINE_TYPES.has(child.nodeName));
 
+interface OuterList {
+  scheme: NumberingScheme;
+  level: number;
+  numbers: readonly number[];
+}
+
+const startOf = (element: Y.XmlElement) =>
+  Math.max(Math.trunc(Number(element.getAttribute("start"))) || 1, 1);
+
+/**
+ * A numbered list's scheme, its items' level, and the numbers before its first item, as the
+ * editor draws them: nested, its outer list's scheme one level deeper; outermost, its own scheme
+ * from the level it starts at, going on from the numbered list before when it continues.
+ */
+function numberingOf(
+  element: Y.XmlElement,
+  outer: OuterList | undefined,
+): { scheme: NumberingScheme; level: number; numbers: number[] } {
+  if (outer) {
+    const level = Math.min(outer.level, 8);
+    const numbers = [...outer.numbers];
+    numbers[level] = startOf(element) - 1;
+    return { scheme: outer.scheme, level, numbers };
+  }
+  const scheme = element.getAttribute("numbering");
+  const level = itemLevel(0, Number(element.getAttribute("startLevel")) || 0);
+  const numbers = Array.from({ length: level }, () => 1);
+  const before =
+    (element.getAttributes() as Record<string, unknown>).continues === true
+      ? lastNumbersBefore(element)
+      : null;
+  numbers[level] = before ? (before[level] ?? 0) : startOf(element) - 1;
+  if (before) for (let at = 0; at < level; at++) numbers[at] = before[at] || 1;
+  return { scheme: isNumberingScheme(scheme) ? scheme : "default", level, numbers };
+}
+
+/**
+ * The number a numbered list's first item is drawn with: `nested` in a numbered list's item, its
+ * own start; else as its own numbering counts it, going on from the list before when it continues.
+ */
+export function firstNumberOf(element: Y.XmlElement, nested: boolean): number {
+  if (nested) return startOf(element);
+  const { level, numbers } = numberingOf(element, undefined);
+  return (numbers[level] ?? 0) + 1;
+}
+
+function lastNumbersBefore(element: Y.XmlElement): number[] | null {
+  for (let at = element.prevSibling; at; at = at.prevSibling) {
+    if (!(at instanceof Y.XmlElement) || at.nodeName !== "orderedList") continue;
+    const { level, numbers } = numberingOf(at, undefined);
+    const last = [...numbers];
+    const count = (list: Y.XmlElement, depth: number) => {
+      for (const item of list.toArray()) {
+        if (!(item instanceof Y.XmlElement)) continue;
+        last[depth] = (last[depth] ?? 0) + 1;
+        last.length = depth + 1;
+        for (const inner of item.toArray()) {
+          if (inner instanceof Y.XmlElement && inner.nodeName === "orderedList") {
+            const next = Math.min(depth + 1, 8);
+            const own: number | undefined = last[depth];
+            last[next] = startOf(inner) - 1;
+            count(inner, next);
+            last[depth] = own ?? 0;
+          }
+        }
+      }
+    };
+    count(at, level);
+    last.length = level + 1;
+    return last;
+  }
+  return null;
+}
+
 function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] {
   switch (element.nodeName) {
     case "paragraph":
@@ -729,18 +816,31 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
     case "taskList":
     case "orderedList": {
       const ordered = element.nodeName === "orderedList";
-      const start = ordered
-        ? Math.max(Math.trunc(Number(element.getAttribute("start"))) || 1, 0)
-        : 1;
+      const numbering = ordered ? numberingOf(element, options.outerList) : null;
+      let number = numbering ? (numbering.numbers[numbering.level] ?? 0) : 0;
+      const start = numbering ? number + 1 : 1;
+      const markers: string[] = [];
       const items = element
         .toArray()
         .filter((item): item is Y.XmlElement => item instanceof Y.XmlElement)
         .flatMap((item) => {
           const change = options.review ? changeOf(item, options) : undefined;
           if (options.review && !change) return [];
+          let inside: ReadOptions = options.outerList
+            ? { ...options, outerList: undefined }
+            : options;
+          if (numbering) {
+            number++;
+            const numbers = [...numbering.numbers.slice(0, numbering.level), number];
+            markers.push(numberingMarker(numbering.scheme, numbering.level, numbers));
+            inside = {
+              ...options,
+              outerList: { scheme: numbering.scheme, level: numbering.level + 1, numbers },
+            };
+          }
           const attributes: Record<string, unknown> = item.getAttributes();
           const checked = attributes.checked === true;
-          const content = readChildren(item.toArray(), options);
+          const content = readChildren(item.toArray(), inside);
           return [{ content: change ? withChange(content, change) : content, checked }];
         });
       return [
@@ -750,6 +850,9 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
           start,
           items: items.map((item) => item.content),
           ...(element.nodeName === "taskList" && { checked: items.map((item) => item.checked) }),
+          ...(numbering && {
+            numbering: { scheme: numbering.scheme, level: numbering.level, markers },
+          }),
         },
       ];
     }

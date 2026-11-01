@@ -13,6 +13,7 @@ import type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+import type { Localized } from "./providers/catalog/types";
 import type { UiUsageEvent } from "./usageEvents";
 
 export type {
@@ -287,15 +288,20 @@ export interface CreateMindInput {
  *   so it opens these Notes read-only. Older content is version 43 content as
  *   it is: a chart drawn before holds no figure, and its values read as
  *   quoted until Update draws it again from its table.
- * - 44: an Analysis figure's kept value names the rows of the input it was
+ * - 44: a confirmed contradiction's correction (#1481): `correction` on a
+ *   contradicted part of a `claimCheck` mark (and on its figure or remainder)
+ *   holds the exact old words and up to two Document wordings with their
+ *   Citations, which an older editor would strip. Older content is version 44
+ *   content as it is.
+ * - 45: an Analysis figure's kept value names the rows of the input it was
  *   worked out from (`of` on a value of the Note's Analysis records, #2346):
  *   which rows and columns, and for `figure()` how IncarnaMind worked it out
  *   again. An older version would keep the record again without it, so it
  *   opens these Notes read-only.
- *   Older content is version 44 content as it is: a figure kept before names
+ *   Older content is version 45 content as it is: a figure kept before names
  *   no rows.
  */
-export const CONTENT_SCHEMA_VERSION = 44;
+export const CONTENT_SCHEMA_VERSION = 45;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2426,14 +2432,16 @@ export interface FigureInput {
   cell: { sheet: string | null; ref: string; stored: number | null } | null;
   /**
    * The line of the same Passage that states the number's scale or currency
-   * ("单位：万元"), given as `unitQuote` when the number has none of its own;
-   * null when none was needed.
+   * ("单位：万元", or "Sale price £385,000.00" above bare figures), given as
+   * `unitQuote` when the number has none of its own; null when none was needed.
    */
   unitStatement: {
     citation: Citation;
     scale: number;
     scaleWord: string | null;
     currency: string | null;
+    /** The currency's characters as the line writes them ("£", "US$") when it writes them on a figure; absent for a heading's. */
+    currencyChars?: string | null;
   } | null;
 }
 
@@ -2675,10 +2683,10 @@ export interface DeviceSettings {
 
 /**
  * Where a Meeting's audio is turned into text: on this computer, or by a cloud service with the
- * User's own key (#141): OpenAI with the key of the OpenAI provider in Settings › Models, Soniox
- * with a key of its own. #463 adds Qwen.
+ * User's own key (#141): OpenAI and Qwen (Alibaba Cloud Model Studio, for mainland China) with
+ * the key of their provider in Settings › Models, Soniox with a key of its own.
  */
-export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox"] as const;
+export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox", "qwen"] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];
 export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 
@@ -2686,13 +2694,23 @@ export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 export interface TranscriptionServiceStatus {
   route: CloudTranscriptionRoute;
   name: string;
+  /** Who gets the audio, as the consent line names it ("Alibaba Cloud" for Qwen). */
+  recipient: Localized;
   model: string;
   perHour: Money;
+  /** The region the key is for, named as in Settings › Models. */
+  region: Localized | null;
+  dataUse: { summary: Localized; url: Localized } | null;
   /** "provider": it uses the key of the chat provider of the same name in Settings › Models. */
   key: "provider" | "own";
   hasKey: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
+  /**
+   * It was chosen, and set back to this computer when its key began to send the audio somewhere
+   * the User hadn't chosen (a Qwen key for another region): choosing it again sends it there.
+   */
+  chooseAgain: boolean;
 }
 
 /**
@@ -5862,6 +5880,18 @@ export interface ClaimCalculation {
   agrees: boolean;
 }
 
+/** One Document's wording that can replace the contradicted part of a sentence. */
+export interface ClaimCorrectionChoice {
+  wording: string;
+  evidence: CitationAttributes;
+}
+
+/** A confirmed contradiction's exact old substring and the Document wording choices for it. */
+export interface ClaimCorrection {
+  from: string;
+  choices: ClaimCorrectionChoice[];
+}
+
 /** UTF-16 offsets into the checked sentence; end is exclusive. */
 export interface ClaimPartSpan {
   start: number;
@@ -5911,6 +5941,11 @@ export interface ClaimCheckPart extends ClaimPartPlan {
    * and where it is (#2226).
    */
   currencyClause?: string;
+  /**
+   * For "contradicted": the Document's wording for the part, `from` occurring exactly once in the
+   * part's own words.
+   */
+  correction?: ClaimCorrection;
 }
 
 export type ClaimPartJudgment = (
@@ -6004,6 +6039,8 @@ export type ClaimJudgment =
        * Documents say something different" (#770).
        */
       evidence: Citation | null;
+      /** A finally confirmed contradiction's exact replacement choices; absent for every other result. */
+      correction?: ClaimCorrection;
       /** For "supported" and "contradicted": what the Document says, in one plain sentence. */
       says: string | null;
       /** For "unsupported": why. Null for the other verdicts. */
@@ -6229,6 +6266,8 @@ export interface ClaimCheckBasis {
   text: string;
   /** "supported" and "contradicted": the Passage that decides it, as a Citation found. */
   evidence: CitationAttributes | null;
+  /** A confirmed contradiction's correction; absent for every other result. */
+  correction?: ClaimCorrection;
   /** "supported" and "contradicted": what the Document says, in one plain sentence. */
   says: string | null;
   /** "unsupported": why. */
@@ -9967,12 +10006,13 @@ export interface MeetingTranscript {
    * This computer took over from the cloud service the User chose, during this stretch of
    * recording: where, in the Meeting's time, and why. "dropped": the connection was lost;
    * "refused": the service didn't accept the key; "cap": the month reached the cap;
-   * "local-mode": “Keep everything on this computer” is on. Null otherwise.
+   * "local-mode": “Keep everything on this computer” is on; "moved": the key now sends the
+   * audio somewhere the User hasn't chosen (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
    */
   fellBack: {
     route: CloudTranscriptionRoute;
     atMs: number;
-    reason: "dropped" | "refused" | "cap" | "local-mode";
+    reason: "dropped" | "refused" | "cap" | "local-mode" | "moved";
   } | null;
   /** Its own file in the data folder, once saved: kept for the Library, never shown as a path (#763). */
   savedPath: string | null;
