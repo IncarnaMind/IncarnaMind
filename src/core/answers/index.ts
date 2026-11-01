@@ -53,7 +53,7 @@ import { yoursLine } from "../../shared/commands";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { translate } from "../../shared/i18n";
-import { englishPlace } from "../../shared/locations";
+import { citationLocation, englishLocation, englishPlace } from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
@@ -98,6 +98,7 @@ import {
   type AskedQuote,
   type AskResult,
   BLOCK_ID_ATTRIBUTE,
+  type CalculatedFigure,
   type ChatModelChoice,
   type ChatReadiness,
   type Citation,
@@ -192,6 +193,7 @@ import { commandTools } from "../tools/commands/tools";
 import { type MindsForTools, type MindToolsOptions, mindTools } from "../tools/minds/tools";
 import { asksForWeb } from "../tools/web/intent";
 import { type SavedPage, webTools } from "../tools/web/tools";
+import { workbookTools } from "../workbooks/tool";
 import {
   contentHash,
   createElement,
@@ -326,6 +328,7 @@ import {
   unrecordedMarkersNote,
   webInstructions,
   withPassageNotes,
+  workbookInstructions,
   workingCopyNote,
 } from "./prompt";
 import { quotedWordsIn, withoutQuotationMarks } from "./quotedWords";
@@ -819,8 +822,11 @@ export interface DocumentsForAnswers
   ): ListedDocuments & { webPages: string[] };
   /** The Documents to search, the most text first. */
   searchableBySize(documentIds: readonly string[] | null): SizedDocument[];
-  /** Whether a Document to search is a workbook or a CSV file: what an Analysis reads (#447). */
-  searchableHasSheets(documentIds: readonly string[] | null): boolean;
+  /**
+   * Whether a Document to search is a workbook or a CSV file: what an Analysis reads (#447);
+   * with `workbooksOnly`, a workbook, whose formulas its Tools read (#2347).
+   */
+  searchableHasSheets(documentIds: readonly string[] | null, workbooksOnly?: boolean): boolean;
   passage(passageId: string): WindowedPassage | null;
   /** The live Passages of a live Document at positions `from` to `to`, in reading order. */
   passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];
@@ -1509,16 +1515,44 @@ export function createAnswers(options: AnswersOptions) {
       quotesRecorded.set(marker, quote);
       return true;
     };
+    const recordInputQuotes = (marker: number) => {
+      for (const source of figures.inputSources(marker)) {
+        if (typeof source !== "number" && !recordedQuotes.has(quoteKey(source)))
+          recordQuote(source, nextMarker());
+      }
+    };
     const calculateFigures = (given: readonly unknown[], calculateOptions?: CiteOptions) => {
       const told = figures.calculate(given, calculateOptions);
       for (const raw of given) {
         const marker = whole((raw as { marker?: unknown } | null)?.marker);
-        for (const source of marker === null ? [] : figures.inputSources(marker)) {
-          if (typeof source !== "number" && !recordedQuotes.has(quoteKey(source)))
-            recordQuote(source, nextMarker());
-        }
+        if (marker !== null) recordInputQuotes(marker);
       }
       return told;
+    };
+    /**
+     * A workbook's figure, cited as an input quoted directly is (#2347): to its cell, or a
+     * what-if to the input it changed, never to the cell whose number it isn't.
+     */
+    const recordWorkbookFigure = (figure: CalculatedFigure): number => {
+      const change = figure.workbook?.change;
+      const cell = change
+        ? figure.inputs.find((input) => input.name === change.input)?.citation
+        : figure.workbook?.cell.input.citation;
+      const location = cell ? citationLocation(cell) : null;
+      const marker = figures.record(
+        figure,
+        cell
+          ? [
+              {
+                passage: cell.passageId,
+                location: location ? englishLocation(location) : null,
+                quote: cell.quote,
+              },
+            ]
+          : [],
+      );
+      recordInputQuotes(marker);
+      return marker;
     };
     const citeRecords = (records: readonly CitationRecordInput[], citeOptions?: CiteOptions) => {
       for (const record of records) {
@@ -2738,6 +2772,32 @@ export function createAnswers(options: AnswersOptions) {
         }),
       };
       const runtime = outside ? undefined : options.analysisRuntime;
+      /** A Passage the model was given, by its short id, and its version's Units: what a sheet's Tools read. */
+      const shownPassage = (id: string) => {
+        const named = id.trim().toLowerCase();
+        const shown = session.shownPassages().find((each) => each.id.toLowerCase() === named);
+        const source = shown ? searched.citationSource(shown.passageId) : null;
+        if (!source || source.documentDeleted) return null;
+        return {
+          source,
+          units: searched.pageTexts(source.documentId, source.contentHash, null, null),
+        };
+      };
+      // A workbook's own formulas, traced and worked out again (#2347): offered with calculate.
+      const fromWorkbooks: Tool[] =
+        calculating &&
+        input.toolSet === undefined &&
+        !help &&
+        options.documents.searchableHasSheets(documentIds, true)
+          ? workbookTools({
+              passage: shownPassage,
+              passageOf: (documentId, page) =>
+                options.documents.passagesCovering(documentId, page, page, true)[0]?.passageId ??
+                null,
+              figure: recordWorkbookFigure,
+              language: answerLanguage(context.question),
+            })
+          : [];
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
         calculating &&
@@ -2747,18 +2807,7 @@ export function createAnswers(options: AnswersOptions) {
           ? [
               analysisTool({
                 runtime,
-                passage: (id) => {
-                  const named = id.trim().toLowerCase();
-                  const shown = session
-                    .shownPassages()
-                    .find((each) => each.id.toLowerCase() === named);
-                  const source = shown ? searched.citationSource(shown.passageId) : null;
-                  if (!source || source.documentDeleted) return null;
-                  return {
-                    source,
-                    units: searched.pageTexts(source.documentId, source.contentHash, null, null),
-                  };
-                },
+                passage: shownPassage,
                 number: (given) => figures.number(given),
                 figure: (figure) => figures.record(figure),
                 language: answerLanguage(context.question),
@@ -3016,6 +3065,7 @@ export function createAnswers(options: AnswersOptions) {
             webTools: withWebTools = false,
             mindTools: withMindTools = false,
             analysisTools: withAnalysisTools = false,
+            workbookTools: withWorkbookTools = false,
             commandTools: withCommandTools = false,
           } = {},
         ) =>
@@ -3057,6 +3107,7 @@ export function createAnswers(options: AnswersOptions) {
             input.assistant && !help ? THIS_DOCUMENT_RULE : "",
             emptyMindNote(withMindTools, focusedEmpty),
             analysisInstructions(withAnalysisTools),
+            workbookInstructions(withWorkbookTools),
             meetingInstructions(heard !== null),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
             help ? "" : language,
@@ -3090,6 +3141,7 @@ export function createAnswers(options: AnswersOptions) {
           ...fromWeb,
           ...(mindsTools?.tools ?? []),
           ...fromAnalysis,
+          ...fromWorkbooks,
           ...(commandsOffered?.tools ?? []),
           ...(asking ? [asking] : []),
         ],

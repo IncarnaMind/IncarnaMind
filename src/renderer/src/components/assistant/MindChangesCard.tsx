@@ -18,7 +18,7 @@ import {
 import type { Translate } from "../../objects";
 import { useAppStore } from "../../store";
 import { MindLineIcon, PencilLineIcon } from "../lineIcons";
-import { AskedChangesCard } from "./AskedChangesCard";
+import { AppliedLine, AskedChangesCard } from "./AskedChangesCard";
 
 /** The names of Minds seen in a card, for a row whose Mind has since been removed. */
 const seenNames = new Map<string, string>();
@@ -118,56 +118,74 @@ export function MindChangesCard({
     >
       <div className="mind-changes-head">
         <PencilLineIcon aria-hidden="true" className="mind-changes-icon" />
-        <p className="mind-changes-line">
-          <span data-testid="mind-changes-title" className="mind-changes-title">
-            {head}
-          </span>
-          {headLeft && (
-            <>
-              {" "}
-              <span
-                data-testid="mind-changes-left"
-                className="mind-changes-count whitespace-nowrap"
-              >
-                {headLeft}
-              </span>
-            </>
+        {/*
+         * One Note's head keeps the room of the applied row it becomes, so the card is as tall as
+         * the taller of its waiting and applied rows at this width, whatever the name, the font or
+         * the language (#400, DESIGN.md's feel rules).
+         */}
+        <div className="mind-changes-rows">
+          <p className="mind-changes-line">
+            <span data-testid="mind-changes-title" className="mind-changes-title">
+              {head}
+            </span>
+            {headLeft && (
+              <>
+                {" "}
+                <span
+                  data-testid="mind-changes-left"
+                  className="mind-changes-count whitespace-nowrap"
+                >
+                  {headLeft}
+                </span>
+              </>
+            )}
+            {headInNote && (
+              <>
+                {" "}
+                <span
+                  data-testid="mind-changes-in-note"
+                  className="mind-changes-count whitespace-nowrap"
+                >
+                  {headInNote}
+                </span>
+              </>
+            )}
+            {headKept && (
+              <>
+                {" "}
+                <span data-testid="mind-changes-kept" className="mind-changes-count">
+                  {headKept}
+                </span>
+              </>
+            )}
+            {(first || (headInNote && only)) && (
+              <>
+                <span aria-hidden="true" className="mind-changes-dot">
+                  {" · "}
+                </span>
+                <button
+                  type="button"
+                  data-testid="mind-changes-review"
+                  onClick={() => (first ? showChanges(first) : only && showNoteWaiting(only))}
+                  className="mind-changes-review"
+                >
+                  {t("mindChanges.review")}
+                </button>
+              </>
+            )}
+          </p>
+          {rows.length === 1 && only && (
+            <AppliedLine
+              answerId={answer.id}
+              row={only}
+              name={nameOf(only)}
+              outcome={undefined}
+              waiting={waiting[0]}
+              arriving={arrivingByMind.get(only.mindId)}
+              shown={false}
+            />
           )}
-          {headInNote && (
-            <>
-              {" "}
-              <span
-                data-testid="mind-changes-in-note"
-                className="mind-changes-count whitespace-nowrap"
-              >
-                {headInNote}
-              </span>
-            </>
-          )}
-          {headKept && (
-            <>
-              {" "}
-              <span data-testid="mind-changes-kept" className="mind-changes-count">
-                {headKept}
-              </span>
-            </>
-          )}
-          {(first || (headInNote && only)) && (
-            <>
-              <span aria-hidden="true" className="mind-changes-dot">
-                {" · "}
-              </span>
-              <button
-                type="button"
-                data-testid="mind-changes-review"
-                onClick={() => (first ? showChanges(first) : only && showNoteWaiting(only))}
-                className="mind-changes-review"
-              >
-                {t("mindChanges.review")}
-              </button>
-            </>
-          )}
-        </p>
+        </div>
       </div>
       {rows.length > 1 &&
         rows.map((row, index) => {

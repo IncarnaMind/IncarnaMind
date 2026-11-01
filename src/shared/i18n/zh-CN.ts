@@ -783,6 +783,55 @@ export const zhCN = {
   "figures.inline.literal": "{value}，公式中的固定数字",
   "figures.inline.raw": "单元格原始值：{value}",
   "figures.inline.original": "原计算输入",
+  "figures.workbook.workedOut": "已按工作簿中的公式重新计算",
+  "figures.workbook.savedValue": "工作簿保存的值",
+  "figures.workbook.formulas": "共计算了 {count} 个公式",
+  "figures.workbook.change": "已将“{input}”（{cell}）从 {from} 改为 {to}",
+  "figures.workbook.inWorkbook": "工作簿中的原值：{value}",
+  "figures.workbook.whatIfFormula":
+    "假设情形：{cell} = {formula}，其中“{input}”取 {to}（工作簿中为 {from}）",
+  "figures.workbook.whatIfInput": "为假设情形而改",
+  "figures.workbook.whatIfLabel": "{label}（假设情形：“{input}”取 {value}）",
+  "figures.workbook.moreInputs": "另有 {count} 项所用数据未列出",
+  "figures.workbook.keptNote":
+    "这是工作簿保存的值：IncarnaMind 无法重新计算，原因见上。每项所用数据都引用到所在单元格。",
+  "figures.workbook.note":
+    "IncarnaMind 已在内存中按工作簿自己的公式重新计算，文件本身没有改动。每项所用数据都引用到所在单元格。这并不说明工作簿的假设是对的。",
+  "figures.workbook.kept.volatile":
+    "{cell} 使用了易失性函数 {name}，每次计算结果都会变，因此使用其保存的值",
+  "figures.workbook.kept.finds-cells":
+    "{cell} 用 {name} 在计算时才确定引用的单元格，因此使用其保存的值",
+  "figures.workbook.kept.function":
+    "IncarnaMind 无法计算 {cell} 中的函数 {name}（可能来自宏），因此使用其保存的值",
+  "figures.workbook.kept.add-in": "{cell} 使用了加载项函数 {name}，因此使用其保存的值",
+  "figures.workbook.kept.data-table": "{cell} 属于模拟运算表，因此使用其保存的值",
+  "figures.workbook.kept.external": "{cell} 链接到其他工作簿，因此使用其保存的值",
+  "figures.workbook.kept.table": "{cell} 按列名引用表格，因此使用其保存的值",
+  "figures.workbook.kept.three-d": "{cell} 跨多个工作表引用同一区域，因此使用其保存的值",
+  "figures.workbook.kept.unreadable": "IncarnaMind 无法读取 {cell} 中的公式，因此使用其保存的值",
+  "figures.workbook.kept.circular": "{cell} 存在循环引用，因此使用其保存的值",
+  "figures.workbook.kept.iterative":
+    "{cell} 存在循环引用，Excel 用迭代计算求解，因此使用其保存的值",
+  "figures.workbook.kept.not-read":
+    "{cell} 引用的“{name}”未读取（已隐藏或超出读取上限），因此使用其保存的值",
+  "figures.workbook.kept.array": "{cell} 是跨多个单元格的数组公式，因此使用其保存的值",
+  "figures.workbook.kept.no-saved-value":
+    "工作簿没有保存 {cell} 的计算结果：文件可能由程序生成，之后未在 Excel 中打开",
+  "figures.workbook.kept.differs":
+    "IncarnaMind 对 {cell} 的计算结果与工作簿保存的值不同，因此使用保存的值。输入改动后工作簿可能未重新计算：在 Excel 中打开并保存",
+  "figures.workbook.kept.too-many":
+    "{cell} 依赖超过 {name} 个公式，超出 IncarnaMind 一次能计算的数量，因此使用其保存的值",
+  "figures.workbook.kept.unsorted":
+    "{cell} 在未排序的区域中近似查找，无法确定 Excel 的结果，因此使用其保存的值",
+  "figures.workbook.kept.early-date":
+    "{cell} 使用了 1900 年 3 月 1 日之前的日期，Excel 会计入并不存在的 1900 年 2 月 29 日，因此使用其保存的值",
+  "figures.workbook.kept.criterion":
+    "{cell} 使用的条件无法按 Excel 的方式读取（例如时间），因此使用其保存的值",
+  "figures.workbook.kept.date-text":
+    "{cell} 把以文本写的日期或时间当作数字读取，Excel 会按电脑的日期设置来读，因此使用其保存的值",
+  "figures.workbook.kept.text-order":
+    "{cell} 对 Excel 规则不明确的文本排序（含标点、A 到 Z 以外的字母，或空格与数字相比），因此使用其保存的值",
+  "figures.workbook.kept.too-large": "{cell} 引用的区域过大，无法在此计算，因此使用其保存的值",
   "figures.card.source": "{figure}：来源为 {value}（{source}）",
   "figures.inline.openInput": "打开",
   "figures.export.sheet": "核对表",
@@ -1062,6 +1111,18 @@ export const zhCN = {
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
   "claim.reason.read-budget": "已花 {spent} 后停止，这次读取最多可花 {most}。",
   "claim.reason.read-budget.unknown": "已停止：已达到这次读取最多可花的费用。",
+  "claim.reason.workbook-differs":
+    "Excel 保存的值与工作簿公式算出的不同，因此无法核对这个数。请在 Excel 中打开工作簿并保存。",
+  "claim.reason.workbook-external":
+    "它用到了指向另一个文件的链接，IncarnaMind 无法读取，因此无法核对这个数。",
+  "claim.reason.workbook-volatile": "它用到了每次计算都会变化的值，因此无法核对这个数。",
+  "claim.reason.workbook-circular": "它的公式相互引用，因此无法核对这个数。",
+  "claim.reason.workbook-not-read": "它用到了未读取的隐藏工作表或行，因此无法核对这个数。",
+  "claim.reason.workbook-no-saved-value":
+    "它用到的某个公式没有 Excel 保存的值，因此无法核对这个数。",
+  "claim.reason.workbook-unsupported": "它用到了 IncarnaMind 无法计算的公式，因此无法核对这个数。",
+  "claim.reason.workbook-changed":
+    "按工作簿现在的单元格，已得不出这个数。请重新提问，按工作簿现在的内容再算一次。",
   "claim.readBudget.continue": "继续",
   "claim.recheck.edited": "核对之后，这句话改过了。",
   "claim.recheck.new-version": "核对时用到的文档有了新版本。",
@@ -3927,8 +3988,6 @@ export const zhCN = {
   "export.commentFailedChecks": "为需要留意的说法添加批注",
   "export.commentFailedChecks.hint": "与文档矛盾、无依据、未找到、未找到引文或需重新核对",
   "export.commentFailedChecks.hint.others": "批注会引用你的文档原文并写出文档名",
-  "export.unreadNames": "列出文件名",
-  "export.unreadNames.hint": "“未能读取的文件”会列出文件名。关闭时只说明有几个文件。",
   "aiStatement.command": "导出 AI 使用声明",
   "aiStatement.keywords": "AI 使用声明 学位论文 论文 披露 说明 记录",
   "aiStatement.title": "AI 使用声明：{name}",
@@ -3991,9 +4050,7 @@ export const zhCN = {
     "已核对的每条句子（只列开头的 {count} 个字），附最新的核对结果：",
   "aiStatement.sentences.column.sentence": "句子",
   "aiStatement.sentences.column.checked": "核对日期",
-  "aiStatement.unread.one": "核对这些说法时，有 1 个文件未能读取，因此没有检索这个文件：",
   "aiStatement.unread.one.fullStop": "核对这些说法时，有 1 个文件未能读取，因此没有检索这个文件。",
-  "aiStatement.unread": "核对这些说法时，有 {count} 个文件未能读取，因此没有检索这些文件：",
   "aiStatement.unread.fullStop":
     "核对这些说法时，有 {count} 个文件未能读取，因此没有检索这些文件。",
   "aiStatement.note":
@@ -4220,6 +4277,9 @@ export const zhCN = {
   "export.citation.accessed": "访问于 {date}",
   "export.figure.calculated": "计算得出：{formula} = {figure}。",
   "export.figure.analysis": "由数据分析“{title}”计算得出：{figure}。",
+  "export.figure.workbook": "按工作簿中的公式计算得出（{cell} = {formula}）：{figure}。",
+  "export.figure.whatIf":
+    "按工作簿中的公式计算得出（{cell} = {formula}），其中“{input}”改为 {value}：{figure}。",
   "export.figure.inputs": "{inputs}：{source}。",
   "export.figure.cluster": "据{cluster}计算",
   "export.figure.cluster.note": "据{cluster}计算",
@@ -4341,7 +4401,6 @@ export const zhCN = {
   "error.document.nameEmpty": "文档名称不能为空。",
   "error.document.nameTooLong": "文档名称不能超过 {max} 个字符。",
   "error.document.notCitedChoice": "是否将文档作为引用来源只能是 true 或 false。",
-  "error.mind.unreadFileNames": "是否在导出中列出文件名只能是 true 或 false。",
   "error.document.fileMissing": "找不到这个文档的文件。",
   "error.verify.request": "无法读取这个核对文档的请求。",
   "error.verify.notVerifying": "这篇笔记没有在核对文档。",

@@ -9,6 +9,7 @@
  * assistant's conversations (ADR-0017).
  */
 import * as Y from "yjs";
+import { citedInputs } from "../../shared/calculatedFigures";
 import { readChartData, valueCitations } from "../../shared/charts";
 import { readClaimCheck, restsOn } from "../../shared/claimChecks";
 import { calculatedFiguresIn, figureRunsFor } from "../../shared/figureRuns";
@@ -131,7 +132,9 @@ export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): Citatio
                 checked: child instanceof Y.XmlText ? figureCheckCitations(child) : [],
               },
         );
-  const inputs = parts.flatMap(({ figures }) => figures.flatMap(({ figure }) => figure.inputs));
+  const inputs = parts.flatMap(({ figures }) =>
+    figures.flatMap(({ figure }) => citedInputs(figure)),
+  );
   const cited: CitationFields[] = [];
   if (fragment.doc) {
     const blocks = parts.flatMap(({ node }) => (node ? [node] : []));
