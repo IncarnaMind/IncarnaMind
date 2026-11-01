@@ -28,6 +28,7 @@ import {
   listedSentences,
   type Plan,
   requestedFigures,
+  sameMeasure,
   sentenceOf,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -1137,6 +1138,7 @@ describe("A sentence gets the same verdict in Check this note as checked alone",
                 reading: null,
                 relation: "equals",
                 source: { citation: 1, position, reading: null, unitQuote: null },
+                measure: sameMeasure(sentenceOf(call), quote),
                 calculation: null,
               };
             }),
@@ -1296,6 +1298,7 @@ describe("Checking selected figures in one sentence", () => {
                 reading: null,
                 relation: "equals",
                 source: { citation: 1, position, reading: null, unitQuote: null },
+                measure: sameMeasure(sentence, source),
                 calculation: null,
               };
             }),

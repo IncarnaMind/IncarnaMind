@@ -1050,6 +1050,7 @@ export const zhCN = {
   "claim.unsupported.currency.uncovered": "币种（{currency}）",
   "claim.unsupported.scale.uncovered": "{figure} 的币种、单位或量级",
   "claim.unsupported.unit": "文档写的是{amount}，不是{figure}。",
+  "claim.unsupported.otherMeasure": "文档中的{amount}指的是{measure}，而不是{claimed}。",
   "claim.unsupported.whichDollar": "“{document}”写的是“{amount}”，没有注明币种",
   "claim.unsupported.yuanSign": "“{document}”写的是“{amount}”，中文里 ¥ 指人民币",
   "claim.currencyClause": "文档注明了币种（{source}）：{quote}",

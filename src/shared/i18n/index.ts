@@ -29,6 +29,8 @@ const NAMES: ReadonlySet<string> = new Set([
   "label",
   "amount",
   "figure",
+  "measure",
+  "claimed",
   "host",
   "connector",
 ]);

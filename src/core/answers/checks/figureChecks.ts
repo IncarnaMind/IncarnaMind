@@ -21,11 +21,14 @@ import { isRecord } from "../../errors";
 import { figureAgain, keptReason, whatIfAgain } from "../../workbooks/trace";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
 import { agreesAtShownPrecision } from "./calculated";
+import { type FigureMeasure, measureFinding, readMeasure } from "./figureMeasures";
 import { FIGURES, type ReadVerdict, readsAsRefusal, readVerdict } from "./prompt";
 import type { BoundNumber } from "./units";
 
 export interface FigureReplyItem extends ReadVerdict {
   id: string;
+  /** What the number measures, in the sentence's words and the quote's; null when it gives none that reads. */
+  measure: FigureMeasure | null;
   reading: number | null;
   relation: "equals" | "at most" | "at least";
   source: {
@@ -175,7 +178,15 @@ export function readFigureReply(
       source = { citation, record, number: written, position, reading: sourceReading, unitQuote };
     }
     if (source && calculation !== null) return null;
-    items.push({ ...judgment, id: raw.id, reading, relation: raw.relation, source, calculation });
+    items.push({
+      ...judgment,
+      id: raw.id,
+      measure: readMeasure(raw.measure),
+      reading,
+      relation: raw.relation,
+      source,
+      calculation,
+    });
   }
   if (ids.size > 0) return null;
   const parsed: FigureReply = { items };
@@ -306,6 +317,8 @@ export function figureJudgment(
 export interface FigureCheckOptions {
   requested: readonly CheckFigure[];
   claim: string;
+  /** The paragraph the sentence is in: its words for what a figure measures may be there. */
+  paragraph?: string;
   reply: string;
   calculations: CalculationSession;
   citation(marker: number): Citation | null;
@@ -324,6 +337,10 @@ export interface FigureCheckOptions {
   ): UnsupportedReason | null;
   /** A cited Document version's Units, for a workbook's figure worked out again (#2347). */
   units(citation: Citation): readonly UnitText[];
+  /** The texts a quote is in, its cited pages first: where its table's headings or its sentence are. */
+  around(citation: Citation): readonly string[];
+  /** Why a figure isn't backed by a source number (`amount`) that measures something else (#2255). */
+  otherMeasure(amount: string, measured: string, claimed: string): UnsupportedReason;
   signal: AbortSignal;
 }
 
@@ -628,6 +645,29 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       });
       continue;
     }
+    const bound = sourceInput;
+    const measure =
+      bound && !replayed
+        ? measureFinding(
+            item.measure,
+            [options.claim, target.label ?? "", target.context ?? "", options.paragraph ?? ""],
+            bound.citation.quote,
+            () => options.around(bound.citation),
+          )
+        : null;
+    // A number that measures something else neither backs the figure nor contradicts it, and the
+    // card says so whatever verdict the model gave the figure.
+    if (bound && measure?.kind === "differs") {
+      const judged = unbacked(evidence);
+      const { shown } = measure;
+      const why = shown && options.otherMeasure(bound.number.chars, shown.measured, shown.claimed);
+      rows.push({
+        ...base,
+        sourceInput,
+        result: why && judged.verdict === "unsupported" ? { ...judged, unsupported: why } : judged,
+      });
+      continue;
+    }
     if (
       item.verdict === "unsupported" ||
       item.topic !== "found" ||
@@ -692,6 +732,11 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     // figure: another row's, or one in a unit the reader doesn't see. It is never Supported.
     if (agrees && item.verdict === "contradicted") {
       rows.push({ ...base, sourceInput, result: unavailable("unread") });
+      continue;
+    }
+    // An equal number is Supported only on words that show it measures what the figure does.
+    if (agrees && measure?.kind === "unread") {
+      rows.push({ ...base, sourceInput, result: unavailable("malformed") });
       continue;
     }
     const difference = target.reading.value - compared.value;

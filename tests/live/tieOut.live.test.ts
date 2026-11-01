@@ -563,10 +563,21 @@ for (const language of LANGUAGES) {
         const seconds = (Date.now() - started) / 1000;
         const schedule = await core.getFigureSchedule(mind.id);
         const { counts, misses } = score(schedule.rows, truth);
-        const cost = queryDatabase<{ cost: number }>(
+        // The tokens beside the cost, so a reader can price each run again.
+        const usage = queryDatabase<{
+          cost: number;
+          requests: number;
+          input: number;
+          cached: number;
+          written: number;
+          output: number;
+        }>(
           dataDir,
-          "SELECT coalesce(sum(cost), 0) AS cost FROM model_requests WHERE deleted_at IS NULL AND status = 'settled'",
-        )[0]?.cost;
+          `SELECT coalesce(sum(cost), 0) AS cost, count(*) AS requests,
+             coalesce(sum(input_tokens), 0) AS input, coalesce(sum(cached_input_tokens), 0) AS cached,
+             coalesce(sum(cache_write_tokens), 0) AS written, coalesce(sum(output_tokens), 0) AS output
+           FROM model_requests WHERE deleted_at IS NULL AND status = 'settled'`,
+        )[0];
         const report = {
           language,
           model: MODEL,
@@ -574,7 +585,8 @@ for (const language of LANGUAGES) {
           result: result.kind,
           figures: schedule.rows.length,
           seconds,
-          cost,
+          cost: usage?.cost,
+          usage,
           ...counts,
           misses,
         };

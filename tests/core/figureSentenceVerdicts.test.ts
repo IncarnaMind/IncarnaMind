@@ -6,12 +6,14 @@
  */
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
+import { isRecord } from "../../src/core/errors";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import {
   checkGenerate,
   isCheckRun,
   type Plan,
   requestedFigures,
+  sameMeasure,
   sentenceOf,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -688,13 +690,18 @@ function replying(calls: ModelCall[], judged: GenerateCall[], evidence: Generate
           ],
         };
       if (asked && !planned.repair) return { text: planned.prose ?? CANT_REWRITE };
+      const given = asked ? planned.repair : planned.item;
+      // It names what each number measures in the sentence's words and its quote's (#2255).
+      const marker = isRecord(given?.source) ? Number(given.source.citation) : Number.NaN;
+      const quote = planned.quotes[marker - 1];
       const items = requestedFigures(call).map(({ id }) => ({
         id,
         says: null,
         reading: null,
         relation: "equals",
         calculation: null,
-        ...(asked ? planned.repair : planned.item),
+        ...(quote !== undefined && { measure: sameMeasure(sentence, quote) }),
+        ...given,
       }));
       const line = planned.omitsRemainder
         ? { items }

@@ -1080,6 +1080,7 @@ export const en = {
   "claim.unsupported.currency.uncovered": "the currency ({currency})",
   "claim.unsupported.scale.uncovered": "the currency, unit or scale in {figure}",
   "claim.unsupported.unit": "The Document gives {amount}, not {figure}.",
+  "claim.unsupported.otherMeasure": "The Document gives {amount} for {measure}, not for {claimed}.",
   "claim.unsupported.whichDollar": "“{document}” gives “{amount}” without saying which currency",
   "claim.unsupported.yuanSign": "“{document}” gives “{amount}”, and in Chinese text ¥ means 人民币",
   "claim.currencyClause": "The Document states the currency ({source}): {quote}",
