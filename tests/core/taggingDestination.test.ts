@@ -590,6 +590,24 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     expect(providers.sent("anthropic")).toBe(2);
   });
 
+  test("a web page the User saves after the turn-on is new, and goes once", async () => {
+    const providers = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+
+    const saved = await core.saveWebPage({
+      address: "https://example.com/quarterly-report",
+      html: `<html><head><title>Quarterly report</title></head><body><h1>Quarterly report</h1><p>${"Sales grew in every region this quarter. ".repeat(20)}</p></body></html>`,
+    });
+    if (saved.outcome !== "saved") throw new Error("The page wasn't saved.");
+    await waitForTagging(core, [saved.document.id]);
+
+    expect(providers.sent("anthropic")).toBe(1);
+  });
+
   test("a save from a window with an older view never turns the switch on, and never moves when it was turned on", async () => {
     const dataDir = await createTempDataFolder();
     const providers = perProvider();
