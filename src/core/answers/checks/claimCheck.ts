@@ -657,6 +657,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       passagesBetween: (documentId, from, to) =>
         deps.documents.passagesBetween(documentId, from, to),
     };
+    // Which of two Documents that disagree is newer orders a correction's choices (#1481): the
+    // host's own date for each, never shown to the model as the Document's words.
+    const newestFirst = (documentId: string) => deps.documents.documentDate(documentId);
     const session = createCitationSession(scoped, { onRecord: () => undefined });
     // The words a Citation quotes don't say where they stand: a sheet row's year is in its
     // sheet's name and heading row, which the check reads only in the Passage itself (#1459).
@@ -1281,7 +1284,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         const corrected = (
           read: ReadCorrection | undefined,
           citation: (marker: number) => Citation | null,
-        ) => correctionFor(sentence, request.claim, read, citation, scoped.documentDate, context);
+        ) => correctionFor(sentence, request.claim, read, citation, newestFirst, context);
         const stated = corrected(said?.correction, session.finalCitation);
         const owner = figures.find((figure) => figure.result.verdict === "contradicted");
         let found = stated;
@@ -1694,7 +1697,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             request.claim,
             verdict.correction,
             session.finalCitation,
-            scoped.documentDate,
+            newestFirst,
             documentFigureContext([{ text: request.originalClaim ?? request.claim }]),
           )
         : null;
@@ -2191,13 +2194,35 @@ const CLAUSE_END = /[,;](?=\s)|\.(?=\s|$)|[，；。！？!?]/gu;
 const spacedAsOne = (text: string) => text.replace(/\s*[–—−‐-]\s*/gu, "-").replace(/\s+/gu, " ");
 
 /**
- * Whether the clause the corrected words sit in, from its first number to its last with whatever
- * joins them, is written in the quote as one piece. A range is one clause however it is joined,
- * so this fails closed on any connector: "8" over "10" of "10 to 12", 10至12 or 10到12 leaves the
- * User's 12 beside the Document's 8, even where the quote has a 12 elsewhere (#1481). The numbers
- * of a named period are left to the period rules, which hold wherever the quote names it.
+ * Where `wording` stands in `quote`: its one place, never inside a longer number; -1 when it
+ * isn't there or stands in more than one place, so no other stretch of the quote can vouch for it.
  */
-function clauseHeld(corrected: string, first: number, end: number, quote: string): boolean {
+function placeIn(quote: string, wording: string): number {
+  const places: number[] = [];
+  for (let at = quote.indexOf(wording); at >= 0; at = quote.indexOf(wording, at + 1)) {
+    const runsOn =
+      (isDigit(wording[0]) && isDigit(quote[at - 1])) ||
+      (isDigit(wording.at(-1)) && isDigit(quote[at + wording.length]));
+    if (!runsOn) places.push(at);
+  }
+  return places.length === 1 ? (places[0] ?? -1) : -1;
+}
+
+/**
+ * Whether the clause the corrected words sit in, from its first number to its last with whatever
+ * joins them, is what the quote writes around those words where they stand in it. A range is one
+ * clause however it is joined, so this fails closed on any connector: "8" over "10" of "10 to 12",
+ * 10至12 or 10到12 leaves the User's 12 beside the Document's 8, even where the quote has "8 to
+ * 12" in another clause or "18 to 120" (#1481). The numbers of a named period are left to the
+ * period rules, which hold wherever the quote names it.
+ */
+function clauseHeld(
+  corrected: string,
+  first: number,
+  end: number,
+  quote: string,
+  at: number,
+): boolean {
   const ends = [...corrected.matchAll(CLAUSE_END)].map((match) => match.index);
   const start = Math.max(0, ...ends.filter((at) => at < first).map((at) => at + 1));
   const stop = Math.min(corrected.length, ...ends.filter((at) => at >= end));
@@ -2210,8 +2235,18 @@ function clauseHeld(corrected: string, first: number, end: number, quote: string
   const [head] = numbers;
   const last = numbers.at(-1);
   if (!head || !last) return true;
-  const span = corrected.slice(start + head.index, start + last.index + last[0].length);
-  return spacedAsOne(quote).includes(spacedAsOne(span));
+  const before = spacedAsOne(corrected.slice(Math.min(first, start + head.index), first));
+  const after = spacedAsOne(
+    corrected.slice(end, Math.max(end, start + last.index + last[0].length)),
+  );
+  const quoteBefore = spacedAsOne(quote.slice(0, at));
+  const quoteAfter = spacedAsOne(quote.slice(at + end - first));
+  return (
+    quoteBefore.endsWith(before) &&
+    quoteAfter.startsWith(after) &&
+    !(isDigit(before[0]) && isDigit(quoteBefore[quoteBefore.length - before.length - 1])) &&
+    !(isDigit(after.at(-1)) && isDigit(quoteAfter[after.length]))
+  );
 }
 
 /**
@@ -2229,13 +2264,13 @@ function readsAsQuote(
   context: FigureContext,
 ): boolean {
   const written = writtenAt(claim, first, from, wording, context);
-  const at = quote.indexOf(wording);
+  const at = placeIn(quote, wording);
   if (written === null || at < 0) return false;
   const corrected = claim.slice(0, first) + wording + claim.slice(first + from.length);
   const end = first + wording.length;
   if (
     numberAround(corrected, first, end) !== numberAround(quote, at, at + wording.length) ||
-    !clauseHeld(corrected, first, end, quote)
+    !clauseHeld(corrected, first, end, quote, at)
   )
     return false;
   const quoted = readFigures(quote, documentFigureContext([{ text: quote }])).filter(
@@ -2287,10 +2322,13 @@ const overlaps = (words: string) => words.length >= 2 || /^[^\p{L}\p{N}]$/u.test
  * already has. Asked for 60日内, Claude Haiku 5.5 gave 货款应在开票后45日内支付 (#1481).
  */
 function inPlace(before: string, after: string, wording: string): string {
+  // Whatever its case: Claude Haiku 5.5 gave "The term is 10 to 12 months." the wording "the term
+  // is 8 to 10 months" (#1481).
+  const lower = (text: string) => text.toLocaleLowerCase();
   let start = 0;
   for (let length = Math.min(before.length, wording.length); length > 0; length--) {
     const words = wording.slice(0, length);
-    if (before.endsWith(words) && overlaps(words)) {
+    if (lower(before).endsWith(lower(words)) && overlaps(words)) {
       start = length;
       break;
     }
@@ -2298,7 +2336,7 @@ function inPlace(before: string, after: string, wording: string): string {
   let end = wording.length;
   for (let length = Math.min(after.length, wording.length - start); length > 0; length--) {
     const words = wording.slice(wording.length - length);
-    if (after.startsWith(words) && overlaps(words)) {
+    if (lower(after).startsWith(lower(words)) && overlaps(words)) {
       end = wording.length - length;
       break;
     }
