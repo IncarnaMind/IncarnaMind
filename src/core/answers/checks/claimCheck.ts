@@ -1823,10 +1823,14 @@ async function askForEvidence(
     return { failed: classifyProviderError(error) };
   }
   const records: CitationRecordInput[] = [];
-  if (markers.length === 0) {
-    const record = readEvidence(reply);
-    if (!record) return null;
-    records.push({ marker: EVIDENCE_MARKER, ...record });
+  // Asked for one marker's record, Claude Haiku 5.5 gave the record alone, as an ask for no marker
+  // takes it, for a quote it had written into its reply instead of calling cite (#2184).
+  const [only] = markers.length === 1 ? markers : [];
+  const alone = markers.length === 0 || only !== undefined ? readEvidence(reply) : null;
+  if (alone) {
+    records.push({ marker: only ?? EVIDENCE_MARKER, ...alone });
+  } else if (markers.length === 0) {
+    return null;
   } else {
     let parsed: unknown;
     try {
