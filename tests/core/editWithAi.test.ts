@@ -5188,7 +5188,7 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     },
   );
 
-  // protects=the ways Claude Haiku 5.5 writes names for new lines and tables beyond the rule each read as it means: ¶++ for a second new line, ¶16 or "¶16 +" numbering a new last line, ¶7++ after a single line break, and a name on every row of a table, where only the first names the table; nothing is written over and no name is left in the Note; English and Chinese; fails_when=the edit is refused, a name stays as text, or a paragraph changes; no_claim=how often a model writes them.
+  // protects=the ways Claude Haiku 5.5 and Sonnet 5.5 write names for new lines and tables beyond the rule each read as it means: ¶++ for a second new line, ¶16 or "¶16 +" numbering a new last line, ¶+7 for one after ¶7, ¶7++ after a single line break, and a name on every row of a table, where only the first names the table; nothing is written over and no name is left in the Note; English and Chinese; fails_when=the edit is refused, a name stays as text, or a paragraph changes; no_claim=how often a model writes them.
   test.each([
     {
       lines: ["Lena books the van.", "Omar packs the archive."],
@@ -5210,6 +5210,11 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       lines: ["年会定在十二月五日举行。", "签到从下午两点开始。"],
       reply: "¶3 当天停车免费。",
       after: ["年会定在十二月五日举行。", "签到从下午两点开始。", "当天停车免费。"],
+    },
+    {
+      lines: ["小林负责场地。", "老周负责音响。", "外地同事可报销一晚住宿。"],
+      reply: "¶+2 - 小陈负责摄影。",
+      after: ["小林负责场地。", "老周负责音响。", "- 小陈负责摄影。", "外地同事可报销一晚住宿。"],
     },
     {
       lines: ["小林负责场地。", "老周负责音响。"],

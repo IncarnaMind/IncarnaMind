@@ -62,9 +62,10 @@ export type ParagraphName =
 
 /**
  * A name where a reply's paragraph starts, ended by a space or the line's end: "¶3+" is never ¶3.
- * A new one may carry more than one + ("¶++", "¶3 +"), as Claude Haiku 5.5 writes a second.
+ * A new one may carry more than one + ("¶++", "¶3 +"), as Claude Haiku 5.5 writes a second, or
+ * its + first ("¶+7"), as Claude Sonnet 5.5 writes one.
  */
-const NAME_HERE = /^¶(?:(\d+)(?:[ \t]*(\++))?|\++)(?=\s|$)\s*/;
+const NAME_HERE = /^¶(?:(\d+)(?:[ \t]*(\++))?|\++(\d*))(?=\s|$)\s*/;
 
 /** The name a reply's paragraph starts with, and the rest of it; null for none. */
 export function readName(paragraph: string): { name: ParagraphName | null; rest: string } {
@@ -75,13 +76,13 @@ export function readName(paragraph: string): { name: ParagraphName | null; rest:
       ? { name: { unclear: unclear.trim() }, rest: paragraph.slice(unclear.length) }
       : { name: null, rest: paragraph };
   }
-  const [all, number, plus] = found;
+  const [all, number, plus, after] = found;
   const name =
-    number === undefined
-      ? { follows: null }
-      : plus
+    number !== undefined
+      ? plus
         ? { follows: Number(number) }
-        : { replaces: Number(number) };
+        : { replaces: Number(number) }
+      : { follows: after ? Number(after) : null };
   return { name, rest: paragraph.slice(all.length) };
 }
 
