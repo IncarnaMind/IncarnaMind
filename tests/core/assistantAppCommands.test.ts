@@ -1565,28 +1565,39 @@ describe("A refusal is said, and the commands a request names are within reach (
     core.close();
   });
 
-  // protects=however the turn ends, the reply says the refusal: here a check of the reply asks the model again and the provider refuses that request (400) or fails it (500), so the reply before it stands, and the refusal's line still follows it, once; fails_when=the Answer ends without the line; no_claim=which check asks.
+  // protects=however the turn ends, the reply says the refusal: here the claim check asks the model again about a change no call made, and the provider refuses that request as one it doesn't support, or fails it (400, 500), so the reply before it stands, and the refusal's line still follows it, once; fails_when=the Answer ends without the line; no_claim=what the claim check's line under the reply says.
   test.each([
-    { status: 400, message: "The request was refused." },
-    { status: 500, message: "The server had an error." },
+    { branch: "refused", status: 400, message: "This model does not support tools." },
+    { branch: "failed", status: 400, message: "The request was refused." },
+    { branch: "failed", status: 500, message: "The server had an error." },
   ])(
-    "a reply asked again whose request ends in a $status still says the refusal",
+    "a reply asked again whose request is $branch ($status) still says the refusal",
     async ({ status, message }) => {
-      const model = scriptedModel((call) => {
-        const made = call.results.filter((each) =>
-          /^(?:list_commands|run_command)$/.test(each.tool),
-        );
-        const steps: Step[] = [
-          run("settings.change", { setting: "localMode", value: "on" }, false),
-          find("Harbour Street"),
-          run("document.openBeside"),
-        ];
-        const step = steps[made.length];
-        if (step) return { calls: [step(call.results)] };
-        return call.prompt.includes("no cite record backs")
-          ? { error: { status, message } }
-          : { text: "I opened the lease beside your note.[^7]" };
-      });
+      const reply = "I opened the lease beside your note and added its rent to the note.";
+      const model = scriptedModel(
+        (call) => {
+          const made = call.results.filter((each) =>
+            /^(?:list_commands|run_command)$/.test(each.tool),
+          );
+          const steps: Step[] = [
+            run("settings.change", { setting: "localMode", value: "on" }, false),
+            find("Harbour Street"),
+            run("document.openBeside"),
+          ];
+          const step = steps[made.length];
+          if (step) return { calls: [step(call.results)] };
+          return call.prompt.includes("but no Tool did that")
+            ? { error: { status, message } }
+            : { text: reply };
+        },
+        {
+          generate: () => ({
+            text: JSON.stringify({
+              claims: [{ sentence: reply, kind: "added", about: "mind", backed: false }],
+            }),
+          }),
+        },
+      );
       const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
       windowOf(core, () => ({ ran: true, changed: false }));
 
@@ -1596,11 +1607,11 @@ describe("A refusal is said, and the commands a request names are within reach (
         ...FROM_WINDOW,
       });
 
-      expect(answerRequests(model)).toHaveLength(5);
-      expect(answer.text).toContain("I opened the lease beside your note.");
+      const asked = answerRequests(model);
+      expect(asked).toHaveLength(5);
+      expect(JSON.stringify(asked.at(-1)?.prompt)).toContain("but no Tool did that");
       const said = translate("en", "commands.yours.privacy");
-      expect(answer.text.endsWith(`\n\n${said}`)).toBe(true);
-      expect(answer.text.split(said)).toHaveLength(2);
+      expect(answer.text).toBe(`${reply}\n\n${said}`);
       core.close();
     },
   );
