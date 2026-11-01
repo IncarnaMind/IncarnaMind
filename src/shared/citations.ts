@@ -98,6 +98,19 @@ export interface CitationState {
 }
 
 /**
+ * Whether opening a Citation's page washes its quote: a found one, or a scan's
+ * word the reading may have misread, which asks for a look at the page (#535).
+ */
+export function quoteWashedOnOpen(state: Pick<CitationState, "check" | "reason">): boolean {
+  return (
+    state.check === "found" ||
+    state.check === "unsupported" ||
+    state.check === "contradicted" ||
+    state.reason === "unsure-word"
+  );
+}
+
+/**
  * Whether the stored text a Citation's check read is kept, though its
  * Document was unlinked with its Linked folder: every Unit it cites, of the
  * version it quotes (or of any version, if it doesn't say). The viewer asks

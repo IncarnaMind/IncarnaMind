@@ -12,7 +12,7 @@ import {
   type RecognizedLine,
   type TextRecognizer,
 } from "../../src/core";
-import { recheckWhereSelected } from "../../src/core/answers/citations";
+import { createCitationSession, recheckWhereSelected } from "../../src/core/answers/citations";
 import type { PageText } from "../../src/core/documents/passages";
 import { SCAN_CURRENT_SINCE } from "../../src/core/documents/processing";
 import { createFakeTextRecognizer, type FakeScanScript } from "../../src/core/documents/scan/fake";
@@ -741,6 +741,66 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
       unsure: ["61,200"],
     });
     expect(cited.quote).toBe("against 61,200 a year earlier");
+  });
+
+  test("a corrected quote that lands on a scan's unsure word is Check the page, not rejected (#535)", async () => {
+    const text = "The gauge read 7a;45o at the harbour.";
+    const unit: PageText = { page: 1, kind: "page", text, label: { scan: { reader: READER } } };
+    const passage = {
+      passageId: "p1",
+      documentId: "d1",
+      documentName: "Gauge.pdf",
+      documentKind: "pdf" as const,
+      contentHash: "h1",
+      pageFrom: 1,
+      pageTo: 1,
+      position: 0,
+      seq: 0,
+      windowFrom: 0,
+      windowTo: 0,
+      text,
+    };
+    const session = createCitationSession(
+      {
+        searchableCount: () => 1,
+        search: async () => [passage],
+        citationSource: () => ({
+          passageId: "p1",
+          text,
+          pageFrom: 1,
+          pageTo: 1,
+          documentId: "d1",
+          documentName: "Gauge.pdf",
+          documentKind: "pdf",
+          contentHash: "h1",
+          documentDeleted: false,
+          notCited: false,
+        }),
+        pageTexts: () => [unit],
+        documentDate: () => null,
+      },
+      { onRecord: () => undefined },
+    );
+    await session.tools.searchDocuments("gauge");
+    // The model's first quote isn't on the page; the correction is, but on a word the scan may misread.
+    await session.tools.cite([
+      {
+        marker: 1,
+        passage: "P1",
+        pageFrom: 1,
+        pageTo: 1,
+        quote: "The gauge read 74,450 at the harbour.",
+      },
+    ]);
+    expect(session.tools.quoteFound?.("P1", text)).toBe(true);
+    expect(session.tools.correctQuote?.(1, text)).toBe(true);
+    // The Answer finishes: every record is checked.
+    session.check();
+    expect(session.finalCitation(1)).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["7a;45o"],
+    });
   });
 
   test("calculate reads a figure in a quote's second part, so an ellipsis can't hide a misread number (#535)", async () => {

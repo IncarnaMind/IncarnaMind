@@ -9,7 +9,7 @@ vi.mock("../../src/renderer/src/core", () => ({
   files: {},
 }));
 
-const { sourceOf, uncheckedFigureDecorations } = await import(
+const { figuresOf, sourceOf, uncheckedFigureDecorations } = await import(
   "../../src/renderer/src/editor/uncheckedFigures"
 );
 
@@ -53,6 +53,25 @@ test("a figure that is part of a longer number isn't the scan's", () => {
 
 test("a page the User checked settles the word, so its figure stops being unchecked", () => {
   expect(sourceOf("61,200", [scan("against 61,200 a year earlier", ["61,200"], true)])).toBeNull();
+});
+
+test("the memo keeps each Citation's Document and version, not only its words", () => {
+  const text = "It read 7,450 at the harbour.";
+  const [first] = figuresOf(text, [
+    { at: 10, attributes: scan("read 7a;45o at the harbour", ["7a;45o"]) },
+  ]);
+  expect(first?.source.citation.documentId).toBe("d1");
+  const [second] = figuresOf(text, [
+    {
+      at: 10,
+      attributes: {
+        ...scan("read 7a;45o at the harbour", ["7a;45o"]),
+        documentId: "d2",
+        contentHash: "h2",
+      },
+    },
+  ]);
+  expect(second?.source.citation.documentId).toBe("d2");
 });
 
 test("the editor's wash and ? go in place once the page is checked", () => {

@@ -190,6 +190,16 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(selected.trim().length).toBeGreaterThan(0);
     expect(chosen.washed).toContain(selected.trim());
 
+    // The card's own Open brings the page back with the quote washed, as the chip does.
+    await window.getByTestId("document-tab").getByTestId("tab-close").first().click();
+    await expect(viewer).toHaveCount(0);
+    const openCard = await cardOf(window, citation.getByTestId("citation-chip"));
+    await openCard.getByTestId("citation-open").click();
+    await expect(window.getByTestId("viewer")).toBeVisible();
+    await expect(
+      window.getByTestId("viewer").locator("[data-quote-highlight]").first(),
+    ).toBeVisible();
+
     // In a Note, the User compares the quote with the page: Matches the page makes it found, and
     // ⌘Z takes that back.
     await addToNote(window, answer);

@@ -18,6 +18,7 @@ import {
   parseQuotedWords,
   quotedWordsFoundIn,
   quoteStanding,
+  quoteWashedOnOpen,
   shownDocumentName,
   versionMoment,
   withShownName,
@@ -925,6 +926,13 @@ describe("A scan's page confirmation (#535)", () => {
         null,
       ),
     ).toMatchObject({ check: "not-found", reason: "quote-not-on-pages" });
+  });
+
+  test("opening its page washes the quote, while another can't-check Citation opens without one", () => {
+    expect(quoteWashedOnOpen({ check: "found", reason: null })).toBe(true);
+    expect(quoteWashedOnOpen({ check: "cant-check", reason: "unsure-word" })).toBe(true);
+    expect(quoteWashedOnOpen({ check: "cant-check", reason: "no-text" })).toBe(false);
+    expect(quoteWashedOnOpen({ check: "not-found", reason: "quote-not-on-pages" })).toBe(false);
   });
 
   test("is cleared when the Citation moves to another version, with that version's unsure words", () => {

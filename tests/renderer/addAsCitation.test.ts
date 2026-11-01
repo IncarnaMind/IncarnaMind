@@ -152,6 +152,8 @@ describe("Widen the Citation and Replace the Citation", () => {
       passageId: "passage-OLD",
       verdict: "The contract says two days a week, p. 2",
       quotedWords: QUOTED_WORDS,
+      pageChecked: true,
+      unsure: ["2o25"],
     });
     expect(
       widenCitation(editor, {
@@ -177,6 +179,9 @@ describe("Widen the Citation and Replace the Citation", () => {
       contentHash: "v2",
       check: "found",
       checkReason: null,
+      // The page confirmation was for the old quote, and the old words asked for it.
+      pageChecked: null,
+      unsure: null,
       verdict: null,
       quotedWords: null,
     });

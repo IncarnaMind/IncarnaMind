@@ -22,6 +22,7 @@ import {
   needsRecheck,
   newVersionCitation,
   parseQuotedWords,
+  quoteWashedOnOpen,
   withShownName,
 } from "../../../shared/citations";
 import {
@@ -48,7 +49,7 @@ import { useJudgementLimit } from "../judgementLimit";
 import { currentTabOf, groupsMerged } from "../layoutSlice";
 import { useBreathing } from "../motion";
 import type { ObjectRef } from "../objects";
-import { openCited as openCitedPlace, quoteSaysSo } from "../openCited";
+import { openCited as openCitedPlace } from "../openCited";
 import {
   pinCitation,
   pinnedMind,
@@ -205,7 +206,7 @@ export function CitationView({
   const badge = badgeMessage(state, shown, t);
   const badgeText = recheckAsked ? t("citation.badge.recheck") : t(badge.key, badge.params);
   // A scan's unsure word: the page is shown with the quote, so the User can check it (#535).
-  const showsQuote = quoteSaysSo(state.check) || state.reason === "unsure-word";
+  const showsQuote = quoteWashedOnOpen(state);
   const number = citationNumberOf(decorations);
   // In a footnote's text it is part of the footnote: it shows where it points, not a number.
   const footnoteId = useContext(InFootnoteContext);
@@ -811,7 +812,7 @@ function CitationCard({
     web?.fetchedAt;
   const checked = state.check === "found" || state.check === "not-found";
   // A scan's unsure word: the page is shown with the quote, so the User can check it (#535).
-  const showsQuote = quoteSaysSo(state.check) || state.reason === "unsure-word";
+  const showsQuote = quoteWashedOnOpen(state);
   // A scan's quote says the Document is a scan, and the page the User should look at (#535).
   const scanWhere =
     state.reason === "unsure-word" && where

@@ -183,12 +183,19 @@ interface Cited {
  * The figures of a paragraph's text that come from an unsure word of its Citation, read once for
  * each paragraph text and its Citations: a change elsewhere in the Note reads the rest as before.
  */
-const figuresOf = memoized(
+export const figuresOf = memoized(
   2000,
   (text: string, citations: readonly Cited[]) =>
     `${text}\u0000${JSON.stringify(
       citations.map((each) => [
         each.at,
+        each.attributes.passageId,
+        each.attributes.documentId,
+        each.attributes.contentHash,
+        each.attributes.pageFrom,
+        each.attributes.pageTo,
+        each.attributes.location,
+        each.attributes.quote,
         each.attributes.check,
         each.attributes.checkReason,
         each.attributes.pageChecked ?? false,

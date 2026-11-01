@@ -450,6 +450,11 @@ const removedFrom = (range: PageRange): CitationRecheck => ({
 const FOUND: CheckResult = { check: "found", checkReason: null };
 const NOT_ON_PAGES: CheckResult = { check: "not-found", checkReason: "quote-not-on-pages" };
 
+/** Whether a check puts the quote on its page: found, or a scan's word that asks for a look (#535). */
+const located = (result: CheckResult) =>
+  result.check === "found" ||
+  (result.check === "cant-check" && result.checkReason === "unsure-word");
+
 function versionOf(documents: RecheckDocuments, documentId: string, contentHash: string) {
   const units = documents.pageTexts(documentId, contentHash, null, null);
   const matching = matchingOf(units);
@@ -1945,7 +1950,7 @@ export function createCitationSession(
 
     quoteFound(passage: string, quote: string): boolean {
       const taken = takeQuote({ passage, quote }, 0, { structured: true });
-      return taken.ok && !!taken.record.quote && check(taken.record).check === "found";
+      return taken.ok && !!taken.record.quote && located(check(taken.record));
     },
 
     unfoundQuotes(): UnfoundQuote[] {
@@ -1977,7 +1982,7 @@ export function createCitationSession(
         { marker, passage: earlier.handle, ...earlier.given, quote },
         { structured: true },
       );
-      if (!taken.ok || !taken.record.quote || check(taken.record).check !== "found") return false;
+      if (!taken.ok || !taken.record.quote || !located(check(taken.record))) return false;
       records.set(marker, taken.record);
       toFix.delete(marker);
       events.onRecord(marker, toCitation(taken.record, null));
