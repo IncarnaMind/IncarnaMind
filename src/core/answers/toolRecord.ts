@@ -82,6 +82,8 @@ function whyNot(problem: MindProblem | undefined): string {
       return "it was stopped";
     case "no-table":
       return "its table couldn't be made";
+    case "unplaced":
+      return "the text it marked to take out isn't there word for word";
     case "new-mind":
       return "the User asked for a new Note: make it with create_mind";
     case "uncited":

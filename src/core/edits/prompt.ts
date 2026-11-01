@@ -6,12 +6,14 @@
  * one escaped ("\1. "), the paragraphs around it for meaning, the
  * words just before and after it when it is part of a sentence (#94: a
  * change made again is often a few words), and the task; it gives back the
- * passage's new text, which ../proposals/write compares with the old.
+ * passage's new text, which ../proposals/write compares with the old, and
+ * quotes each paragraph it takes out between <removed> and </removed>
+ * (#2180): what it leaves out without saying so may be text it didn't change.
  */
 
 import type { EditAction } from "../api";
 
-/** For every task but "explain": rewrite the passage, keeping its markers. */
+/** For every task but "explain": rewrite the passage, keeping its markers, and quote what it takes out (#2180). */
 export const EDIT_INSTRUCTIONS = [
   "You edit a passage of the User's own notes, as they ask. The passage is between <passage> and </passage>.",
   "The paragraphs it sits in are between <context> and </context>: they are there for meaning only.",
@@ -30,7 +32,7 @@ export const EDIT_INSTRUCTIONS = [
   "- A source is only ever one of the passage's markers. Never write a Document's name as a source, such as [Report, p. 2] or (Report, p. 2).",
   "- Write in the passage's language, unless the task is to translate it.",
   "- Change only what the task asks for. Keep names, numbers and facts as they are.",
-  "- When the task takes out the whole passage, give none of its text and no explanation: only the <why> line, saying it is removed.",
+  "- When the task names text to go, write each paragraph that goes between <removed> and </removed>, word for word, on lines of its own where it stood: a paragraph left out of your reply stays. So to take out the second of three list items, write the first, then <removed>- the second, word for word</removed>, then the third. A heading, a list item and a table each count as a paragraph, and a section is its heading with all the paragraphs under it. Shortening, improving, rewriting or translating text takes none of it out: for those, never write <removed>. A backslash before <removed makes it words of the passage, not the mark: keep the backslash. Never explain a removal outside <why>.",
 ].join("\n");
 
 /** For "explain": a few sentences to go under the passage. */
@@ -40,6 +42,10 @@ export const EXPLAIN_INSTRUCTIONS = [
   "",
   "Reply with the explanation and nothing else: two to four plain sentences for someone reading the passage for the first time, in the passage's language. No preamble, no markers, no Markdown formatting.",
 ].join("\n");
+
+/** Said right after the User's own words, where a model heeds it most (#2180). */
+export const QUOTE_WHAT_GOES =
+  "If that names text to go, write each paragraph that goes between <removed> and </removed>, word for word, where it stood: leaving it out doesn't take it out.";
 
 /** What each action asks for; `instruction` is the language, the User's words or the unsupported part; `cited`, what the passage's markers quote. */
 function taskFor(action: EditAction, instruction: string, cited: string): string {
@@ -53,7 +59,7 @@ function taskFor(action: EditAction, instruction: string, cited: string): string
     case "explain":
       return "Explain what the passage says.";
     case "instruction":
-      return `Do what the User asks: ${instruction}`;
+      return `Do what the User asks: ${instruction}\n${QUOTE_WHAT_GOES}`;
     case "follow-citation":
       return [
         ...(cited ? [`Its markers' Documents now say only this: ${cited}.`] : []),
@@ -156,6 +162,58 @@ export function readEditReply(reply: string, passage: string): string {
     }
   }
   return text;
+}
+
+/**
+ * An escape pair, or a <removed> tag in any shape a model writes it: <removed>, <removed/>,
+ * </removed>. Ended as `escapeRemovedMark` ends it, so typed text such as <removed-items> stays text.
+ */
+const ESCAPE_OR_TAG = /\\[\s\S]|<(\/?)removed(?=[\s/>])[^<>]*?(\/?)>/gi;
+
+const withoutTags = (text: string) =>
+  text.replace(ESCAPE_OR_TAG, (each) => (each.startsWith("\\") ? each : ""));
+
+/**
+ * The new text without what the reply says it takes out (#2180), and the words of the paragraphs
+ * it says so of. A <removed>…</removed> that starts a line quotes paragraphs taken out, and the
+ * text after it starts a paragraph; one among a paragraph's words takes those words out of it;
+ * an empty one, or a tag alone, is no text; one never closed quotes only its own paragraph. Until
+ * the reply is `done`, the text ends where a mark not yet closed starts, so none of its words is
+ * read as text before the close comes.
+ */
+export function readRemovals(text: string, done = true): { text: string; quoted: string[] } {
+  const tags = [...text.matchAll(ESCAPE_OR_TAG)].filter((tag) => !tag[0].startsWith("\\"));
+  const quoted: string[] = [];
+  let out = "";
+  let at = 0;
+  for (let index = 0; index < tags.length; index++) {
+    const tag = tags[index] as RegExpExecArray;
+    const before = text.slice(at, tag.index);
+    at = tag.index + tag[0].length;
+    if (tag[1] === "/") {
+      out += before;
+      continue;
+    }
+    const empty = tag[2] === "/";
+    const lineEnd = text.indexOf("\n", at);
+    const next = tags.slice(index + 1).find((each) => each[1] === "/");
+    // <removed/>words</removed>, as a small model writes it, is a mark around those words.
+    const close = next && (!empty || lineEnd < 0 || next.index < lineEnd) ? next : undefined;
+    if (!close && !done && (!empty || lineEnd < 0)) return { text: out + before, quoted };
+    const line = `${out}${before}`.slice(`${out}${before}`.lastIndexOf("\n") + 1);
+    const blank = /\n[ \t]*\n/.exec(text.slice(at));
+    const end = close ? close.index : empty ? at : blank ? at + blank.index : text.length;
+    const words = text.slice(at, end);
+    at = close ? close.index + close[0].length : end;
+    if (close) index = tags.indexOf(close);
+    if (line.trim() !== "") {
+      out += before.replace(/[ \t]+$/, "");
+      continue;
+    }
+    out += `${before}\n\n`;
+    if (words.trim() !== "") quoted.push(withoutTags(words));
+  }
+  return { text: out + text.slice(at), quoted };
 }
 
 /** Two texts that read the same once their spaces are made alike: the model changed nothing. */

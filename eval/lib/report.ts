@@ -503,7 +503,7 @@ function formatsSection(formats: FormatsReport): string[] {
   const lines = [
     "## Every format (reported, not gating)",
     "",
-    `\`${formats.source}\`: ${retrieval.questions.length} Questions over ${formats.documents.length} Documents in Word, PowerPoint, Excel, CSV, Markdown, plain text and PDF, in English and Chinese, about the hard places in each (#70). They are searched in a library of their own, with the gating set's hit rule; the expected pages are the Units a Citation would cite. Known gaps, text the readers don't index today (scanned pages), are counted apart. No bar is set yet: \`eval/README.md\` proposes one per format.`,
+    `\`${formats.source}\`: ${retrieval.questions.length} Questions over ${formats.documents.length} Documents in Word, PowerPoint, Excel, CSV, Markdown, plain text, PDF, Transcript and Web page, in English and Chinese, about the hard places in each (#70, #155). They are searched in a library of their own, with the gating set's hit rule; the expected pages are the Units a Citation would cite. Known gaps, text the readers don't index today (scanned pages), are counted apart. No bar is set yet: \`eval/README.md\` proposes one per format.`,
     "",
     `| Format | Documents | Questions (English / Chinese), known gaps apart | ${GATING_LABEL}: English | Chinese | All | ${HYBRID}: All | ${HYBRID_RERANK_LABEL}: All | Known gaps found |`,
     "|---|---|---|---|---|---|---|---|---|",

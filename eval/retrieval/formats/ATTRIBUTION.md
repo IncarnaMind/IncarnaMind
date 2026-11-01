@@ -1,6 +1,6 @@
 # Every-format fixtures: source and licence
 
-The files in `files/` were written for IncarnaMind's evaluation (#70): all by `make-fixtures.py` but the two WebVTT Transcripts, written by hand. All their text is synthetic, written for this project: no third-party text is reproduced. People, places, companies, institutions, products and figures are fictional, and no contact details appear. They are released under the repository's Apache-2.0 licence.
+The files in `files/` were written for IncarnaMind's evaluation (#70): all by `make-fixtures.py` but the two WebVTT Transcripts and the four Web pages, written by hand. All their text is synthetic, written for this project: no third-party text is reproduced. People, places, companies, institutions, products and figures are fictional, and no contact details appear. They are released under the repository's Apache-2.0 licence.
 
 | Format | Written with |
 |---|---|
@@ -9,6 +9,7 @@ The files in `files/` were written for IncarnaMind's evaluation (#70): all by `m
 | Excel | openpyxl 3.1.5 |
 | CSV, Markdown, plain text | written as UTF-8 text |
 | WebVTT Transcripts (#136) | written by hand as UTF-8 WebVTT, one cue per line said, each with its speaker |
+| Web pages (#155) | written by hand as UTF-8 HTML in `files/web/`: a heading-led section, a table and a list each, in English and Chinese |
 | PDF | reportlab 5.0.1 in its invariant mode: Helvetica for Latin text, reportlab's built-in STSong-Light CID font for Chinese (not embedded; pdf.js maps it with its CMaps), figures drawn by reportlab |
 
 With the same library versions, `make-fixtures.py` writes the same bytes again: fixed document dates, fixed ZIP timestamps (also inside the workbooks charts embed) and reportlab's invariant mode.
