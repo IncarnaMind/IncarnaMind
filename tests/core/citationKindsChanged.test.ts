@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import type { Core, Document } from "../../src/core";
 import { citationState, needsRecheck, newVersionCitation } from "../../src/shared/citations";
-import { checkedResult, citingModel, setUpWithDocuments } from "../helpers/citations";
+import { answerEnded, checkedResult, citingModel, setUpWithDocuments } from "../helpers/citations";
 import { sha256, waitForProcessing } from "../helpers/documents";
 import { docxOf, xlsxOf } from "../helpers/office";
 import { para, pptxOf, sp, txBody } from "../helpers/pptx";
@@ -103,13 +103,7 @@ async function cited(kind: Kind) {
   if (!document?.path) throw new Error("Nothing was added.");
   const result = await setup.core.askInConversation({ text: QUESTION });
   if (!result.asked) throw new Error("Not asked.");
-  await new Promise<void>((resolve) => {
-    const stop = setup.core.on("answer.finished", ({ answerId }) => {
-      if (answerId !== result.answerId) return;
-      stop();
-      resolve();
-    });
-  });
+  await answerEnded(setup.core, result.answerId);
   const { messages } = await setup.core.getConversation(result.conversation.id);
   const answer = messages.find((each) => each.id === result.answerId);
   if (answer?.kind !== "answer") throw new Error("No Answer.");
