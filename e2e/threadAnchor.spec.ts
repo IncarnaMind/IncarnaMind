@@ -290,6 +290,35 @@ async function expectAnchoredQuestion(window: Page) {
   await expect.poll(async () => (await whereIs(window)).question).toBeLessThan(24);
 }
 
+/**
+ * The two states the thread may be in while an Answer grows: the Question at the panel's top
+ * while there is room under it, or, once the Answer has reached the foot, the thread at its foot.
+ * A wider system font makes a taller Answer, so the foot comes sooner; the Question never rests
+ * anywhere else.
+ */
+async function expectAnchoredOrAtFoot(window: Page) {
+  await expect
+    .poll(
+      () =>
+        window.evaluate(() => {
+          const thread = document.querySelector<HTMLElement>('[data-testid="assistant-thread"]');
+          if (!thread) throw new Error("The assistant isn't showing.");
+          const questions = document.querySelectorAll('[data-testid="assistant-question"]');
+          const top = questions.item(questions.length - 1)?.getBoundingClientRect().top ?? 0;
+          const question = top - thread.getBoundingClientRect().top;
+          const fromFoot = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
+          if (thread.hasAttribute("data-anchored")) {
+            return question < 24
+              ? "ok"
+              : `the anchored Question ${question} px under the panel's top`;
+          }
+          return fromFoot <= 2 ? "ok" : `the thread ${fromFoot} px from its foot`;
+        }),
+      { message: "the Question at the panel's top with room under it, or the thread at its foot" },
+    )
+    .toBe("ok");
+}
+
 async function askSlowAnchored(window: Page, question: string) {
   await window.keyboard.press("ControlOrMeta+j");
   await expect(window.getByTestId("composer-input")).toBeFocused();
@@ -393,21 +422,21 @@ for (const { language, width, question } of [
         }, dock),
       )
       .toBe(dock === "bottom" ? before.height + 10 : before.width + 10);
-    await expectAnchoredQuestion(window);
+    await expectAnchoredOrAtFoot(window);
 
     await moveAssistant(window, "float");
     await expect(assistant).toHaveAttribute("data-dock", "float");
-    await expectAnchoredQuestion(window);
+    await expectAnchoredOrAtFoot(window);
     await window.getByTestId("assistant-fold").click();
     await expect(assistant).toHaveAttribute("data-folded", "true");
     await window.getByTestId("assistant-fold").click();
     await expect(assistant).not.toHaveAttribute("data-folded");
-    await expectAnchoredQuestion(window);
+    await expectAnchoredOrAtFoot(window);
 
     await moveAssistant(window, "right");
     await expect(assistant).toHaveAttribute("data-chosen-dock", "right");
     await expect(assistant).toHaveAttribute("data-dock", width < 1000 ? "bottom" : "right");
-    await expectAnchoredQuestion(window);
+    await expectAnchoredOrAtFoot(window);
     await expect(answer).toHaveAttribute("data-status", "streaming");
     await app.close();
   });

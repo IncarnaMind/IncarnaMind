@@ -97,78 +97,120 @@ const heightsOf = (frames: readonly Frame[], pick: (frame: Frame) => number | nu
   ...new Set(frames.map(pick).filter((each): each is number => each !== null)),
 ];
 
+async function writeShift(
+  language: "en" | "zh-CN",
+  mindName: string,
+  {
+    width = 1440,
+    question = true,
+    finalWaiting = false,
+  }: { width?: number; question?: boolean; finalWaiting?: boolean } = {},
+) {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, width, 900);
+  await dismissChatSetup(window);
+  // biome-ignore lint/correctness/useHookAtTopLevel: an e2e helper whose name begins with "use", not a React hook.
+  await useLocalChatModel(window);
+  await setLanguage(window, language);
+  await mindWrittenBefore(window, mindName, [
+    { heading: "Summary" },
+    { note: "The quarter was good. Sales rose and the margin held." },
+  ]);
+  await pointAndClick(window, window.getByTestId("mind-list-item").filter({ hasText: mindName }));
+  const editor = window.locator('[data-testid="mind-editor"]:visible');
+  await expect(editor).toContainText("The quarter was good.");
+
+  await sampleFrames(window);
+  await askInAssistant(window, "Add a section on the risks");
+  await expect(editor).toContainText("The supplier is late.");
+  await expect(editor.getByTestId("applied-line")).toBeVisible();
+  await expect(window.getByTestId("mind-changes-undo")).toBeVisible();
+  // Two frames after the last of it is painted.
+  await window.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  const frames = await stopSampling(window);
+
+  // Both lines of the band and both rows of the card were on screen, and the Question beside its Answer.
+  expect(frames.some((frame) => frame.writing)).toBe(true);
+  expect(frames.some((frame) => frame.line && !frame.writing)).toBe(true);
+  expect(frames.some((frame) => frame.card !== null && !frame.undo)).toBe(true);
+  expect(frames.some((frame) => frame.card !== null && frame.undo)).toBe(true);
+  expect(frames.some((frame) => frame.card === null)).toBe(true);
+
+  // The Mind's top line is one line high whether it says "Writing…" or shows the change, and the
+  // text under it never moves.
+  const writing = heightsOf(
+    frames.filter((frame) => frame.writing),
+    (frame) => frame.band,
+  );
+  const applied = heightsOf(
+    frames.filter((frame) => frame.line && !frame.writing),
+    (frame) => frame.band,
+  );
+  expect(writing).toHaveLength(1);
+  expect(applied).toEqual(writing);
+  expect(heightsOf(frames, (frame) => frame.first)).toHaveLength(1);
+
+  // At 1,440 px the Question stays where it was while the Answer's card arrives. At 900 px the
+  // assistant's pane scrolls as the Answer grows and the Question moves with the thread: that
+  // relation belongs to the 1,440 px layout, so it is asked there; the card's is asked below.
+  if (question) {
+    const questions = frames.filter((frame) => frame.question !== null);
+    expect(questions.some((frame) => frame.card === null)).toBe(true);
+    expect(questions.some((frame) => frame.card !== null)).toBe(true);
+    expect(heightsOf(questions, (frame) => frame.question)).toHaveLength(1);
+  }
+
+  // The card keeps its height as its waiting row becomes the applied one, so nothing under it
+  // moves: its two rows share one cell and it is as tall as the taller. The waiting height is the
+  // last frame before the apply: while the Answer streams, its own count and the paragraph it says
+  // were changed grow with the words arriving, and neither they nor the room they will need are
+  // known in advance; the apply is what must not move the card.
+  const waitingFrames = frames.filter(
+    (frame) => frame.card !== null && !frame.undo && frame.counted,
+  );
+  const waiting = heightsOf(
+    finalWaiting ? waitingFrames.slice(-1) : waitingFrames,
+    (frame) => frame.cardHeight,
+  );
+  const done = heightsOf(
+    frames.filter((frame) => frame.card !== null && frame.undo),
+    (frame) => frame.cardHeight,
+  );
+  expect(waiting).toHaveLength(1);
+  expect(done).toEqual(waiting);
+
+  await app.close();
+}
+
+const LONG_NAME = {
+  en: "Q3 review for the northern coastal programme and its suppliers",
+  "zh-CN": "北岸沿海项目及其供应商的第三季度审查报告与后续安排",
+} as const;
+
 for (const language of ["en", "zh-CN"] as const) {
   test(`at 1440px in ${language}, the assistant's write leaves the Mind's top line and the Question where they were`, async () => {
     test.setTimeout(90_000);
-    const { app, window } = await launchApp(dataDir, { fakeChat: true });
-    await setWindowSize(app, window, 1440, 900);
-    await dismissChatSetup(window);
-    await useLocalChatModel(window);
-    await setLanguage(window, language);
-    await mindWrittenBefore(window, "Q3 review", [
-      { heading: "Summary" },
-      { note: "The quarter was good. Sales rose and the margin held." },
-    ]);
-    await pointAndClick(
-      window,
-      window.getByTestId("mind-list-item").filter({ hasText: "Q3 review" }),
-    );
-    const editor = window.locator('[data-testid="mind-editor"]:visible');
-    await expect(editor).toContainText("The quarter was good.");
+    await writeShift(language, "Q3 review", { finalWaiting: true });
+  });
 
-    await sampleFrames(window);
-    await askInAssistant(window, "Add a section on the risks");
-    await expect(editor).toContainText("The supplier is late.");
-    await expect(editor.getByTestId("applied-line")).toBeVisible();
-    await expect(window.getByTestId("mind-changes-undo")).toBeVisible();
-    // Two frames after the last of it is painted.
-    await window.evaluate(
-      () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        ),
-    );
-    const frames = await stopSampling(window);
+  test(`at 1440px in ${language}, a long Note name leaves the changes card's height where it was`, async () => {
+    test.setTimeout(90_000);
+    await writeShift(language, LONG_NAME[language], { finalWaiting: true });
+  });
+}
 
-    // Both lines of the band and both rows of the card were on screen, and the Question beside its Answer.
-    expect(frames.some((frame) => frame.writing)).toBe(true);
-    expect(frames.some((frame) => frame.line && !frame.writing)).toBe(true);
-    expect(frames.some((frame) => frame.card !== null && !frame.undo)).toBe(true);
-    expect(frames.some((frame) => frame.card !== null && frame.undo)).toBe(true);
-    expect(frames.some((frame) => frame.card === null)).toBe(true);
-    const questions = frames.filter((frame) => frame.question !== null);
-    expect(questions.some((frame) => frame.card === null)).toBe(true);
-
-    // The Mind's top line is one line high whether it says "Writing…" or shows the change, and the
-    // text under it never moves.
-    const writing = heightsOf(
-      frames.filter((frame) => frame.writing),
-      (frame) => frame.band,
-    );
-    const applied = heightsOf(
-      frames.filter((frame) => frame.line && !frame.writing),
-      (frame) => frame.band,
-    );
-    expect(writing).toHaveLength(1);
-    expect(applied).toEqual(writing);
-    expect(heightsOf(frames, (frame) => frame.first)).toHaveLength(1);
-
-    // The Question stays where it was while the Answer's card arrives.
-    expect(questions.some((frame) => frame.card !== null)).toBe(true);
-    expect(heightsOf(questions, (frame) => frame.question)).toHaveLength(1);
-
-    // The card keeps its height as its waiting row becomes the applied one, so nothing under it moves.
-    const waiting = heightsOf(
-      frames.filter((frame) => frame.card !== null && !frame.undo && frame.counted),
-      (frame) => frame.cardHeight,
-    );
-    const done = heightsOf(
-      frames.filter((frame) => frame.card !== null && frame.undo),
-      (frame) => frame.cardHeight,
-    );
-    expect(waiting).toHaveLength(1);
-    expect(done).toEqual(waiting);
-
-    await app.close();
+for (const language of ["en", "zh-CN"] as const) {
+  test(`at 900px in ${language}, the changes card keeps its height as its waiting row becomes the applied one`, async () => {
+    test.setTimeout(90_000);
+    await writeShift(language, "Q3 review", {
+      width: 900,
+      question: false,
+      finalWaiting: true,
+    });
   });
 }

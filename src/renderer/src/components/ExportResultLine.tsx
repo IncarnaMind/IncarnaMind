@@ -562,7 +562,7 @@ function ChangePart({ mindId }: { mindId: string }) {
 
 function FilePart({ children, testId }: { children: ReactNode; testId?: string }) {
   return (
-    <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+    <span className="block max-w-full break-words">
       <span aria-hidden="true" className="inline-block w-4 text-center text-ink-placeholder">
         ·
       </span>

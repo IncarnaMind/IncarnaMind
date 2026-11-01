@@ -171,4 +171,4 @@ IncarnaMind began in 2023 as a Python tool for chatting with your PDFs, starred 
 
 ## Licence
 
-[Apache License 2.0](LICENSE). The bundled fonts (Source Serif 4, Source Sans 3, JetBrains Mono) are under the [SIL Open Font License 1.1](https://openfontlicense.org). The citation styles and locales come unmodified from the [Citation Style Language](https://citationstyles.org/) project under [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/), formatted by [Hayagriva](https://github.com/typst/hayagriva) (MIT or Apache-2.0). Notices are in [`resources/notices`](resources/notices).
+[Apache License 2.0](LICENSE). The bundled fonts (Source Serif 4, JetBrains Mono, Carlito, Caladea) are under the [SIL Open Font License 1.1](https://openfontlicense.org). The citation styles and locales come unmodified from the [Citation Style Language](https://citationstyles.org/) project under [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/), formatted by [Hayagriva](https://github.com/typst/hayagriva) (MIT or Apache-2.0). Notices are in [`resources/notices`](resources/notices).
