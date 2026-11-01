@@ -2346,6 +2346,8 @@ export interface FigureFromWorkbook {
   moreInputs: number;
   /** The value the workbook saved for the cell, which IncarnaMind's own result matched. */
   saved: number;
+  /** That value as the cell shows it: "254.7". */
+  savedShown: string;
   /** A what-if's one changed input: its name among the inputs, and the value it was given. */
   change: { input: string; value: number; shown: string } | null;
   /**

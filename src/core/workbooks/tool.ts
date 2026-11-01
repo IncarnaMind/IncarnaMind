@@ -411,6 +411,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
         formulaCells: chain.formulaCells,
         moreInputs: chain.moreInputs,
         saved: target.saved,
+        savedShown: target.shown || String(target.saved),
         change,
         kept: chain.dependsOn.map(keptCell),
         engine: WORKBOOK_ENGINE_VERSION,

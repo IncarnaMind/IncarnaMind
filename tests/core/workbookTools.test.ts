@@ -150,6 +150,7 @@ describe("a workbook's formulas in an Answer", () => {
         },
       });
       expect(changed?.workbook?.saved).toBeCloseTo(254.6775, 9);
+      expect(changed?.workbook?.savedShown).toBe("254.7");
       expect(told(model, "what_if")).toContain("the User's file is unchanged");
       expect(await sha256(file)).toBe(before);
 

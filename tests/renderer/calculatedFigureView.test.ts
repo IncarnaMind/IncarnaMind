@@ -474,6 +474,7 @@ const whatIf: CalculatedFigure = {
     formulaCells: 5,
     moreInputs: 0,
     saved: 254.6775,
+    savedShown: "254.7",
     change: { input: "Assumptions_B4", value: 0.03, shown: "3.0%" },
     kept: [],
     engine: 1,
@@ -488,6 +489,7 @@ const keptValue: CalculatedFigure = {
     ...(whatIf.workbook as NonNullable<CalculatedFigure["workbook"]>),
     change: null,
     saved: 5.2,
+    savedShown: "5.2",
     kept: [{ sheet: "Cases", ref: "C2", reason: "volatile", name: "RAND" }],
   },
 };
@@ -515,6 +517,7 @@ test.each(["en", "zh-CN"] as const)(
         to: "3.0%",
       }),
     );
+    expect(text).toContain(translate(language, "figures.workbook.inWorkbook", { value: "254.7" }));
     expect(text).toContain(translate(language, "figures.workbook.workedOut"));
     expect(text).toContain(translate(language, "figures.workbook.note"));
     expect(text).toContain("Revenue growth\t5.0%");

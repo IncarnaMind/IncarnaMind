@@ -329,6 +329,7 @@ function workbookOf(
     !index(value.formulaCells) ||
     !index(value.moreInputs) ||
     !finite(value.saved) ||
+    !named(value.savedShown) ||
     changed === undefined ||
     !kept ||
     kept.length > MAX_WORKBOOK_STEPS ||
@@ -342,6 +343,7 @@ function workbookOf(
     formulaCells: value.formulaCells,
     moreInputs: value.moreInputs,
     saved: value.saved,
+    savedShown: value.savedShown,
     change: changed,
     kept: kept as WorkbookKeptCell[],
     engine: value.engine,

@@ -211,9 +211,7 @@ function WorkbookChain({
       )}
       {workbook.change && (
         <p className="calculated-figure-note">
-          {t("figures.workbook.inWorkbook", {
-            value: shownNumber(workbook.saved, language),
-          })}
+          {t("figures.workbook.inWorkbook", { value: workbook.savedShown })}
         </p>
       )}
       {workbook.kept.map((kept) => (

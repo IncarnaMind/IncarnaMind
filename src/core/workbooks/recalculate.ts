@@ -602,7 +602,7 @@ class Pace {
   constructor(private readonly signal: AbortSignal | undefined) {}
 
   async step(): Promise<void> {
-    if ((++this.count & 63) !== 0) return;
+    if ((++this.count & 15) !== 0) return;
     const now = performance.now();
     if (now - this.sliceStart < SLICE_MS) return;
     await yieldNow();
