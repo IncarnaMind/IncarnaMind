@@ -16,15 +16,14 @@ const FONT_FILES: Record<string, string> = {
   "serif.woff2": "@fontsource-variable/source-serif-4/files/source-serif-4-latin-opsz-normal.woff2",
   "serif-italic.woff2":
     "@fontsource-variable/source-serif-4/files/source-serif-4-latin-opsz-italic.woff2",
-  "sans.woff2": "@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2",
   "mono.woff2": "@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2",
   "mono-500.woff2": "@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2",
 };
 
+// Source Sans 3 is no longer bundled; the boards drawn in it read as the system's font (DESIGN.md).
 const FONT_CSS = `
 @font-face{font-family:"Source Serif 4";font-style:normal;font-weight:200 900;src:url(https://fonts.local/serif.woff2) format("woff2")}
 @font-face{font-family:"Source Serif 4";font-style:italic;font-weight:200 900;src:url(https://fonts.local/serif-italic.woff2) format("woff2")}
-@font-face{font-family:"Source Sans 3";font-style:normal;font-weight:200 900;src:url(https://fonts.local/sans.woff2) format("woff2")}
 @font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:400;src:url(https://fonts.local/mono.woff2) format("woff2")}
 @font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:500;src:url(https://fonts.local/mono-500.woff2) format("woff2")}
 `;

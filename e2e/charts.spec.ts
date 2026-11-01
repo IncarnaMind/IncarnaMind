@@ -482,6 +482,11 @@ for (const [language, width] of [
     await window.keyboard.press("Tab");
     await window.keyboard.press("Tab");
     await window.keyboard.type("120.0");
+    // The Mind's floating check badge rests over the foot's last line at the foot of the panel:
+    // scroll Update clear of it first, as a person does to reach a link under it.
+    await chart
+      .getByTestId("chart-update")
+      .evaluate((element) => element.scrollIntoView({ block: "center" }));
     await pointAndClick(window, chart.getByTestId("chart-update"));
     await expect(chart.getByTestId("chart-changed")).toHaveCount(0);
 

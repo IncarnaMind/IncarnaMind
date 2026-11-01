@@ -61,7 +61,7 @@ export function LibraryHeader({
       <div className="flex min-w-0 items-center gap-3">
         <h1
           data-testid="library-heading"
-          className="flex min-w-0 shrink-0 items-baseline gap-2 font-serif text-heading font-semibold text-ink"
+          className="flex min-w-0 shrink-0 items-baseline gap-2 font-sans text-heading font-semibold text-ink"
         >
           <span className="truncate">{t("library.title")}</span>
           <span

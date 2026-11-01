@@ -48,6 +48,7 @@ import {
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
 import "./officeFonts.css";
+import { officeFontName } from "./officeFontNames";
 
 /** The header row's height and the row numbers' width, in CSS pixels; rows drawn past the view. */
 const HEADER_HEIGHT = 24;
@@ -322,8 +323,8 @@ let measuring: CanvasRenderingContext2D | null = null;
 /** A font as the canvas takes it: concrete families, as `var()` means nothing there. */
 function canvasFont(font: FontStyle, fallbackPoints: number): string {
   const size = ((font.size ?? fallbackPoints) * 4) / 3;
-  const family = font.name ? `"${font.name.replace(/["\\]/g, "")}", ` : "";
-  return `${font.italic ? "italic " : ""}${font.bold ? 700 : 400} ${size}px ${family}"Source Sans 3", sans-serif`;
+  const family = font.name ? `"${officeFontName(font.name).replace(/["\\]/g, "")}", ` : "";
+  return `${font.italic ? "italic " : ""}${font.bold ? 700 : 400} ${size}px ${family}system-ui, sans-serif`;
 }
 
 function measure(text: string, font: string): number {
@@ -351,7 +352,7 @@ function wrappedLines(text: string, font: string, width: number): number {
 }
 
 /** The UI font a CSV's grid is set in (viewer.css), as the canvas takes it. */
-const CSV_FONT = '400 13px "Source Sans 3", sans-serif';
+const CSV_FONT = "400 13px system-ui, sans-serif";
 
 /** A CSV's column widths: fitted to the widest value among its first rows. */
 function csvWidths(sheet: Sheet): Map<number, number> {
