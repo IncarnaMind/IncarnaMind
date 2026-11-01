@@ -1081,7 +1081,7 @@ export interface Written {
 const refOf = ({ id, request, target }: ProposalRef): ProposalRef =>
   target === undefined ? { id, request } : { id, request, target };
 
-/** The marks of words a Proposal adds: AI text, unless they are inline code, which holds no other mark. */
+/** The marks of words a Proposal adds: AI text, unless they are inline code, which can't hold it. */
 const asAiText = (marks: Attributes): Attributes =>
   INLINE_CODE_MARK in marks ? marks : { ...marks, [GENERATED_MARK]: {} };
 

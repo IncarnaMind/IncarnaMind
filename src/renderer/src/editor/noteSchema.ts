@@ -1,4 +1,5 @@
 import type { Extensions, NodeViewRenderer } from "@tiptap/core";
+import Code from "@tiptap/extension-code";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Highlight from "@tiptap/extension-highlight";
 import { TaskList } from "@tiptap/extension-list";
@@ -10,12 +11,21 @@ import {
   ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
+  CLAIM_CHECK_MARK,
   COMPARISON_TABLE_NODE,
   FOOTNOTE_NODE,
   GENERATED_MARK,
   NOTE_BLOCK_TYPES,
   QUESTION_BLOCK,
+  SUBSCRIPT_MARK,
+  SUPERSCRIPT_MARK,
+  TEXT_COLOR_MARK,
+  TEXT_FONT_MARK,
+  TEXT_SIZE_MARK,
+  WORD_RUN_MARK,
+  WORD_TAB_MARK,
 } from "../../../core/api";
+import { INLINE_CODE_MARK } from "../../../shared/aiText";
 import { translate } from "../../../shared/i18n";
 import { Generated } from "./aiText";
 import { CalculatedFigure, FigureTableRoles } from "./calculatedFigureSchema";
@@ -69,6 +79,32 @@ const BLOCK_TYPES: readonly string[] = [
   ANSWER_BLOCK,
   COMPARISON_TABLE_NODE,
 ];
+
+/**
+ * Inline code takes no other look, AI text or sentence check, but does take a Proposal's marks,
+ * which say what a change does to its words: Tiptap's excludes every mark, so a rewrite that took
+ * out or added code left a Note the editor can't read (#2362).
+ */
+const InlineCode = Code.extend({
+  excludes: [
+    INLINE_CODE_MARK,
+    GENERATED_MARK,
+    CLAIM_CHECK_MARK,
+    "link",
+    "bold",
+    "italic",
+    "strike",
+    "underline",
+    "highlight",
+    WORD_RUN_MARK,
+    WORD_TAB_MARK,
+    TEXT_COLOR_MARK,
+    TEXT_FONT_MARK,
+    TEXT_SIZE_MARK,
+    SUPERSCRIPT_MARK,
+    SUBSCRIPT_MARK,
+  ].join(" "),
+});
 
 /** The node types that hold a formula, written in LaTeX. */
 export const MATH_TYPES: readonly string[] = ["blockMath", "inlineMath"];
@@ -160,6 +196,7 @@ export function noteExtensions({
     StarterKit.configure({
       // MindDocument takes Questions and Answers as well as Notes.
       document: false,
+      code: false,
       codeBlock: false,
       // Collaboration brings its own undo, which only undoes this client's changes.
       undoRedo: false,
@@ -170,6 +207,7 @@ export function noteExtensions({
       // Shows where a dragged Block will land.
       dropcursor: { color: "rgb(14 165 233)", width: 2 },
     }),
+    InlineCode,
     MindDocument,
     ComparisonStructureLock,
     Numbering,

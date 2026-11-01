@@ -14,6 +14,7 @@ import {
   type WritingPlace,
 } from "../../src/core";
 import { withoutNames } from "../../src/core/edits/prompt";
+import { proposalsIn, resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import { translate } from "../../src/shared/i18n";
 import {
   aiUseOfAccepted,
@@ -24,6 +25,7 @@ import {
 } from "../../src/shared/proposals";
 import { setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, nextEvent, saveProviderUnasked, startCore } from "../helpers/core";
+import { boundEditor } from "../helpers/editor";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import { controlledModel, scriptedModels, streamedReply } from "../helpers/models";
@@ -5701,4 +5703,275 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       expect(await acceptThenUndo(client, before)).toEqual(each.after);
     },
   );
+});
+
+describe("A rewrite of text marked as code (#2362)", () => {
+  const code = (words: string): JSONContent => text(words, "code");
+  const link = (words: string): JSONContent => ({
+    type: "text",
+    text: words,
+    marks: [{ type: "link", attrs: { href: "https://example.com/guide" } }],
+  });
+
+  /** Each run of code in the Mind: "-" before one a change takes out, "+" before one it adds. */
+  const codeRuns = (client: MindClient): string[] => {
+    const runs: string[] = [];
+    readMind(client).descendants((node) => {
+      if (!node.isText || !node.marks.some((mark) => mark.type.name === "code")) return true;
+      const names = node.marks.map((mark) => mark.type.name);
+      const change = names.includes("proposalDelete")
+        ? "-"
+        : names.includes("proposalInsert")
+          ? "+"
+          : "";
+      runs.push(`${change}${node.text}`);
+      return true;
+    });
+    return runs;
+  };
+
+  // protects=a rewrite that takes out code, all of it or part, or leaves it and changes the words beside it, is written as changes the Note can read, the code struck with its code look, and Accept takes it out while Undo then Reject give the Note back exactly; adjacent code, code across the end of a removal, code beside bold and a link; English and Chinese; fails_when=the Note can't be read (code and proposalDelete on one word), the struck words lose their code look, or Reject leaves anything changed; no_claim=which words a model keeps.
+  test.each([
+    {
+      case: "code taken out whole",
+      content: [
+        text("Check the build and the docs, then run "),
+        code("npm test"),
+        text(" before you push the branch."),
+      ],
+      reply: "Check the build and the docs before you push the branch.",
+      shown: "Check the build and the docs[-, then run npm test-] before you push the branch.",
+      runs: ["-npm test"],
+      after: "Check the build and the docs before you push the branch.",
+    },
+    {
+      case: "a paragraph with code written anew",
+      content: [text("Check the build, then run "), code("npm test"), text(" before you push.")],
+      reply: "Check the build before you push.",
+      shown:
+        "[-Check the build, then run npm test before you push.-]{+Check the build before you push.+}",
+      runs: ["-npm test"],
+      after: "Check the build before you push.",
+    },
+    {
+      case: "code taken out in part",
+      content: [text("Start it with "), code("npm run dev --open"), text(" in a terminal.")],
+      reply: "Start it with npm run dev in a terminal.",
+      shown: "Start it with npm run dev [---open -]in a terminal.",
+      runs: ["npm run dev ", "---open"],
+      after: "Start it with npm run dev in a terminal.",
+    },
+    {
+      case: "code kept, the words beside it changed",
+      content: [text("Run "), code("make docs"), text(" to build the pages.")],
+      reply: "Run make docs to rebuild the pages.",
+      shown: "Run make docs to [-build-]{+rebuild+} the pages.",
+      runs: ["make docs"],
+      after: "Run make docs to rebuild the pages.",
+    },
+    {
+      case: "one of two code spans side by side",
+      content: [text("Use "), code("git add"), text(" "), code("git commit"), text(" now.")],
+      reply: "Use git commit now.",
+      shown: "Use git [-add git -]commit now.",
+      runs: ["git ", "-add", "-git ", "commit"],
+      after: "Use git commit now.",
+    },
+    {
+      case: "a removal across the end of code",
+      content: [text("Type "), code("npm run build"), text(" and wait for it.")],
+      reply: "Type npm and wait for it.",
+      shown: "Type npm [-run build -]and wait for it.",
+      runs: ["npm ", "-run build"],
+      after: "Type npm and wait for it.",
+    },
+    {
+      case: "code beside bold and a link",
+      content: [
+        text("Note:", "bold"),
+        text(" see "),
+        link("the guide"),
+        text(" and "),
+        code("make help"),
+        text("."),
+      ],
+      reply: "**Note:** see the guide.",
+      shown: "Note: see the guide[- and make help-].",
+      runs: ["-make help"],
+      after: "Note: see the guide.",
+    },
+    {
+      case: "Chinese",
+      content: [text("推送之前先运行"), code("npm test"), text("，然后检查测试结果和全部日志。")],
+      reply: "推送之前先检查测试结果和全部日志。",
+      shown: "推送之前先[-运行npm test，然后-]检查测试结果和全部日志。",
+      runs: ["-npm test"],
+      after: "推送之前先检查测试结果和全部日志。",
+    },
+  ])("$case", async ({ content, reply, shown, runs, after }) => {
+    const note = paragraph(...content);
+    const { core, mind, client, before } = await noteOf([note], () => reply);
+
+    const result = await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    expect(shownWithChanges(client)).toEqual([shown]);
+    expect(codeRuns(client)).toEqual(runs);
+    expect(await exported(core, mind.id)).not.toContain(after);
+    expect(await acceptThenUndo(client, before)).toEqual([after]);
+  });
+
+  // protects=code the reply quotes as taken out (#2192) is struck with its code look and goes on Accept, the space beside it with it; English and Chinese; fails_when=the Note can't be read, or Undo then Reject leave it changed; no_claim=how a model quotes code.
+  test.each([
+    {
+      content: [text("Run "), code("npm test"), text(" before you push.")],
+      reply: "<removed>npm test</removed>",
+      after: "Run before you push.",
+    },
+    {
+      content: [text("推送之前运行"), code("npm test"), text("。")],
+      reply: "<removed>npm test</removed>",
+      after: "推送之前运行。",
+    },
+  ])("code quoted as taken out goes: $after", async ({ content, reply, after }) => {
+    const { core, mind, client, before } = await noteOf([paragraph(...content)], () => reply);
+
+    expect(await core.editWithAi(wholeMind(client, mind.id, "Take the command out"))).toMatchObject(
+      { kind: "proposed" },
+    );
+
+    expect(codeRuns(client)).toEqual(["-npm test"]);
+    expect(await acceptThenUndo(client, before)).toEqual([after]);
+  });
+
+  // protects=code in a list item or a table cell is struck in place when a rewrite takes it out, and the list or table keeps its shape through Accept, Undo and Reject; fails_when=the Note can't be read, or the item or cell changes shape; no_claim=none beyond protects.
+  test.each([
+    {
+      case: "a list item",
+      holder: (inner: JSONContent): JSONContent => ({
+        type: "bulletList",
+        content: [{ type: "listItem", content: [inner] }],
+      }),
+    },
+    {
+      case: "a table cell",
+      holder: (inner: JSONContent): JSONContent => ({
+        type: "table",
+        content: [
+          {
+            type: "tableRow",
+            content: [
+              { type: "tableCell", content: [paragraph(text("Step"))] },
+              { type: "tableCell", content: [inner] },
+            ],
+          },
+        ],
+      }),
+    },
+  ])("code in $case", async ({ holder }) => {
+    const inner = paragraph(
+      text("Install it with "),
+      code("npm ci"),
+      text(" on the build machine."),
+    );
+    const { core, mind, client, before } = await noteOf([holder(inner)], () => {
+      return "Install it on the build machine.";
+    });
+
+    await core.editWithAi(wholeParagraph(client, mind.id, inner.attrs.id, "improve"));
+
+    expect(codeRuns(client)).toEqual(["-npm ci"]);
+    const accepted = await acceptThenUndo(client, before);
+    expect(accepted.at(-1)).toBe("Install it on the build machine.");
+  });
+
+  // protects=the User's typing while struck code is shown: beside it, the change stays and Accept keeps their words; in the struck code, the change goes out of date and Reject gives back their edit with the code look; fails_when=the typing is lost, the Note can't be read, or the code look is lost; no_claim=none beyond protects.
+  test("the User types while struck code is shown", async () => {
+    const note = paragraph(
+      text("Check the build and the docs, then run "),
+      code("npm test"),
+      text(" before you push."),
+    );
+    const { core, mind, client } = await noteOf([note], () => {
+      return "Check the build and the docs before you push.";
+    });
+    await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+    const words = () => (client.blocks.get(0) as Y.XmlElement).get(0) as Y.XmlText;
+
+    words().insert(words().length, " Always.", {});
+    await client.settled();
+    expect(outOfDateProposals(client.blocks).size).toBe(0);
+    expect(codeRuns(client)).toEqual(["-npm test"]);
+    const undo = new Y.UndoManager(client.blocks, { trackedOrigins: new Set(["editor"]) });
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([
+      "Check the build and the docs before you push. Always.",
+    ]);
+    undo.undo();
+    await client.settled();
+
+    words().insert("Check the build and the docs, then run npm".length, " run");
+    await client.settled();
+    expect(outOfDateProposals(client.blocks).size).toBe(1);
+    await resolveChanges(client, "reject");
+    expect(shownWithChanges(client)).toEqual([
+      "Check the build and the docs, then run npm run test before you push. Always.",
+    ]);
+    expect(codeRuns(client)).toEqual(["npm run test"]);
+  });
+
+  // protects=a reply refused with code in the Note (a misnamed paragraph, or the text given back as it was) leaves the Note byte for byte as it was; fails_when=any mark or attribute is written; no_claim=none beyond protects.
+  test.each([
+    { reply: "¶3 Run the tests first.", kind: "misnamed" },
+    { reply: "Run npm test first.", kind: "unchanged" },
+  ])("a refused reply leaves code as it was: $kind", async ({ reply, kind }) => {
+    const { core, mind, client } = await noteOf(
+      [paragraph(text("Run "), code("npm test"), text(" first."))],
+      () => reply,
+    );
+    const stored = JSON.stringify(client.blocks.toJSON());
+
+    expect(await core.editWithAi(wholeMind(client, mind.id, "Shorter"))).toMatchObject({ kind });
+
+    expect(JSON.stringify(client.blocks.toJSON())).toBe(stored);
+  });
+
+  // protects=the Note's editor reads struck code, its review shows the code as what is removed, and Reject, Accept, Undo and Redo there give back exactly the Note or the change; fails_when=the editor can't hold the change, the review shows other words, or Undo or Redo of a decision is not exact; no_claim=none beyond protects.
+  test("in the editor: review, Reject, Accept, Undo and Redo", async () => {
+    const note = paragraph(
+      text("Check the build and the docs, then run "),
+      code("npm test"),
+      text(" before you push the branch."),
+    );
+    const { core, mind, client } = await noteOf([note], () => {
+      return "Check the build and the docs before you push the branch.";
+    });
+    const stored = () => JSON.stringify(client.blocks.toJSON());
+    const before = stored();
+    await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+    const proposed = stored();
+    const editor = boundEditor(client);
+
+    editor.state.doc.check();
+    expect(proposalsIn(editor.state.doc).map((each) => each.removed)).toEqual([
+      ", then run npm test",
+    ]);
+    resolveInEditor(editor, "all", "reject");
+    expect(stored()).toBe(before);
+    editor.commands.undo();
+    expect(stored()).toBe(proposed);
+    editor.commands.redo();
+    expect(stored()).toBe(before);
+    editor.commands.undo();
+
+    resolveInEditor(editor, "all", "accept");
+    expect(shownWithChanges(client)).toEqual([
+      "Check the build and the docs before you push the branch.",
+    ]);
+    expect(codeRuns(client)).toEqual([]);
+    editor.commands.undo();
+    expect(stored()).toBe(proposed);
+    editor.commands.redo();
+    expect(codeRuns(client)).toEqual([]);
+  });
 });
