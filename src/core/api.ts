@@ -1229,7 +1229,8 @@ export interface AnalysisCall {
  * (someone else's, or the User's own requests), `count` of them in the Mind;
  * "mixed": its own waiting text sits beside the User's there. "model": the
  * model failed, as `message` says. "no-table": a table it wrote couldn't be
- * made, so none of its text went in (#961).
+ * made, so none of its text went in (#961). "unplaced": text it marked to take
+ * out isn't in the Mind word for word, so none of its text went in (#2180).
  */
 export type MindProblem =
   | { kind: "waiting"; mindId: string; count: number; mixed: boolean }
@@ -1249,6 +1250,7 @@ export type MindProblem =
         | "content-not-own"
         | "stopped"
         | "no-table"
+        | "unplaced"
         | "uncited"
         // Only in Answers written before #1559.
         | "new-mind";
@@ -5706,6 +5708,11 @@ export type EditWithAiResult =
    * (#961): nothing was written. `text`: the passage's new text, as it wrote it.
    */
   | { kind: "no-table"; text: string }
+  /**
+   * The model marked text to take out that the passage doesn't have word for word in one
+   * place (#2180): nothing was written. `quotes`: that text, as it wrote it.
+   */
+  | { kind: "unplaced"; quotes: string[] }
   /** The model failed, or gave nothing back. */
   | { kind: "failed"; error: ProviderError };
 

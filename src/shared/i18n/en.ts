@@ -1326,6 +1326,8 @@ export const en = {
   "edit.problem.retry": "Try again",
   "edit.problem.cant-regenerate": "Can’t be made again: reject it, then edit the text with AI.",
   "edit.problem.no-table": "The AI’s table wasn’t complete, so nothing changed. Try again.",
+  "edit.problem.unplaced":
+    "The AI marked text to remove that doesn’t match the selection word for word in one place, so nothing changed. Try again.",
   "edit.problem.late": "This edit arrived too late to apply. Accept or reject its changes.",
   "edit.problem.busy": "Another edit is still running. Wait for it, or stop it.",
   "composer.edit.placeholder": "Say what to change…",
@@ -6386,6 +6388,8 @@ export const en = {
     "Couldn’t change “{mind}”: only the assistant’s own text can be rewritten",
   "mindCall.failed.stopped": "Stopped before “{mind}” changed",
   "mindCall.failed.noTable": "Couldn’t make the table, so nothing was added to “{mind}”",
+  "mindCall.failed.unplaced":
+    "The text marked to remove doesn’t match “{mind}” word for word in one place, so nothing changed",
   "mindCall.failed.uncited": "Didn’t add to “{mind}”: its sources weren’t cited",
   "mindCall.failed.noChart.noTable": "No chart: “{mind}” has no table",
   "mindCall.failed.noChart.several":
