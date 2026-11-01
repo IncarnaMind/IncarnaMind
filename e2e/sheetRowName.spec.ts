@@ -53,7 +53,11 @@ function trialBalance(): string {
   const rows = [`<row r="1">${header}</row>`];
   for (const row of [2, 3, 4, 5, 6, 7, 8, 9, 10, 12]) {
     const name = row === 8 ? "Trade debtors" : row === 10 ? "银行存款" : `Ledger ${1000 + row}`;
-    const code = row === 12 ? `<c r="A12"><v>4012</v></c>` : text(`A${row}`, String(4000 + row));
+    // Row 8's code is a number, as many ledgers store it; it doesn't hide the name beside it.
+    const code =
+      row === 12 || row === 8
+        ? `<c r="A${row}"><v>${4000 + row}</v></c>`
+        : text(`A${row}`, String(4000 + row));
     const months = MONTHS.map((_, index) =>
       amount(`${column(index + 2)}${row}`, row * 100 + index + 0.25),
     );
@@ -146,7 +150,7 @@ for (const width of [1600, 900]) {
     );
 
     // The scripted model cites the line that shares the most words with a Question that says
-    // "each", and that line and the next when it says "rows".
+    // "each", and that line and the next two when it says "three rows".
     const debtors = await ask(window, "In each sheet, where are the trade debtors?");
     await expectMark(
       window,
@@ -168,14 +172,15 @@ for (const width of [1600, 900]) {
       { row: 12, shown: "Trial balance, row 12", location: "Trial balance, row 12" },
       `row-name-none-${width}`,
     );
-    const both = await ask(window, "In each sheet, what are the rows for the trade debtors?");
+    // Several rows keep their range on the mark; the tooltip names each.
+    const three = await ask(window, "In each sheet, what are the three rows from ledger 1007?");
     await expectMark(
       window,
-      both,
+      three,
       {
-        row: 8,
-        shown: "Trade debtors",
-        location: "Trial balance, rows 8–9 · Trade debtors, Ledger 1009",
+        row: 7,
+        shown: "Trial balance, rows 7–9",
+        location: "Trial balance, rows 7–9 · Ledger 1007, Trade debtors, Ledger 1009",
       },
       `row-name-rows-${width}`,
     );
@@ -189,11 +194,11 @@ for (const width of [1600, 900]) {
     );
     await expectMark(
       window,
-      both,
+      three,
       {
-        row: 8,
-        shown: "Trade debtors",
-        location: "Trial balance，第 8–9 行 · Trade debtors、Ledger 1009",
+        row: 7,
+        shown: "Trial balance，第 7–9 行",
+        location: "Trial balance，第 7–9 行 · Ledger 1007、Trade debtors、Ledger 1009",
       },
       `row-name-rows-${width}-zh`,
     );

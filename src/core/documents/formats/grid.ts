@@ -85,10 +85,14 @@ export interface Workbook {
 
 const NUMERIC = /^[-+(]?[£$€¥]?\d[\d,.]*%?\)?$/;
 
+/** Whether a cell holds words rather than a figure, even one stored as text ("1,200"). */
+export const holdsWords = (cell: Pick<Cell, "value" | "numeric">): boolean =>
+  !cell.numeric && !NUMERIC.test(cell.value);
+
 /** Whether a row looks like a header: two cells or more, mostly words. */
 export function looksLikeHeader(cells: readonly Pick<Cell, "value" | "numeric">[]): boolean {
   if (cells.length < 2) return false;
-  const words = cells.filter((cell) => !cell.numeric && !NUMERIC.test(cell.value)).length;
+  const words = cells.filter(holdsWords).length;
   return words * 2 > cells.length;
 }
 

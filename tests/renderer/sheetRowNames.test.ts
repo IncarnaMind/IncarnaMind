@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Cell, Sheet } from "../../src/core/documents/formats/grid";
+import { cellIndex, type SheetLayout } from "../../src/core/documents/formats/sheetLayout";
 import { citedRowNames, shortRowName } from "../../src/renderer/src/viewer/sheetRowNames";
 
 const text = (row: number, column: number, value: string): Cell => ({
@@ -15,8 +16,34 @@ const figure = (row: number, column: number, value: string): Cell => ({
   numeric: true,
 });
 
-function sheetOf(cells: Cell[], merges: string[] = []): Sheet {
-  return { name: "Trial balance", cells, merges, rowCount: 20, columnCount: 6, columnWidths: [] };
+function sheetOf(cells: Cell[], merges: string[] = [], layout?: Partial<SheetLayout>): Sheet {
+  return {
+    name: "Trial balance",
+    cells,
+    merges,
+    rowCount: 20,
+    columnCount: 6,
+    columnWidths: [],
+    ...(layout && {
+      layout: {
+        styles: new Map(),
+        shown: new Map(),
+        runs: new Map(),
+        centred: new Set(),
+        noValue: new Set(),
+        notes: new Map(),
+        rows: new Map(),
+        columns: new Map(),
+        defaultRowHeight: 20,
+        defaultColumnWidth: 64,
+        showGridLines: true,
+        frozen: null,
+        drawings: [],
+        extent: { rows: 0, columns: 0 },
+        ...layout,
+      },
+    }),
+  };
 }
 
 const trialBalance = sheetOf([
@@ -24,7 +51,7 @@ const trialBalance = sheetOf([
   text(7, 1, "Cash at bank"),
   figure(7, 2, "700.25"),
   figure(7, 3, "84,317.52"),
-  text(8, 0, "4008"),
+  figure(8, 0, "4008"),
   text(8, 1, "Trade debtors"),
   figure(8, 2, "800.25"),
   figure(8, 3, "12.48"),
@@ -32,28 +59,57 @@ const trialBalance = sheetOf([
   figure(9, 2, "900.25"),
 ]);
 
-describe("the names of the rows a quote covers", () => {
-  test("a row quoted whole is named by its first text cell left of its figures", () => {
-    expect(citedRowNames(trialBalance, ["A8", "B8", "C8", "D8"])).toEqual(["Trade debtors"]);
-  });
-
-  test("a figure quoted alone is named by the text left of it", () => {
-    expect(citedRowNames(trialBalance, ["D7"])).toEqual(["Cash at bank"]);
-  });
-
-  test("several rows, each with its own name, in row order", () => {
-    expect(citedRowNames(trialBalance, ["D8", "C8", "C7", "D7"])).toEqual([
-      "Cash at bank",
-      "Trade debtors",
+describe("the rows a quote covers, each with its name", () => {
+  test("a row quoted whole is named by its first text left of its figures", () => {
+    expect(citedRowNames(trialBalance, ["A7", "B7", "C7", "D7"])).toEqual([
+      { row: 7, name: "Cash at bank" },
     ]);
   });
 
-  test("a row of only numbers has no name", () => {
-    expect(citedRowNames(trialBalance, ["A9", "C9"])).toEqual([]);
+  test("an account code stored as a number doesn't hide the name beside it", () => {
+    expect(citedRowNames(trialBalance, ["A8", "B8", "C8", "D8"])).toEqual([
+      { row: 8, name: "Trade debtors" },
+    ]);
+  });
+
+  test("a figure quoted alone is named by the text left of it", () => {
+    expect(citedRowNames(trialBalance, ["D7"])).toEqual([{ row: 7, name: "Cash at bank" }]);
+  });
+
+  test("several rows, each with its own name or none, in row order", () => {
+    expect(citedRowNames(trialBalance, ["C9", "D8", "C7"])).toEqual([
+      { row: 7, name: "Cash at bank" },
+      { row: 8, name: "Trade debtors" },
+      { row: 9, name: null },
+    ]);
   });
 
   test("a quote of text only has no name", () => {
-    expect(citedRowNames(trialBalance, ["B8"])).toEqual([]);
+    expect(citedRowNames(trialBalance, ["B8"])).toEqual([{ row: 8, name: null }]);
+  });
+
+  test("text that names nothing is passed over", () => {
+    for (const filler of ["-", "n/a", "N/A", "#N/A", "#REF!", "#DIV/0!", "TRUE", "1,200", "2026"]) {
+      const sheet = sheetOf([text(4, 0, "Rent"), text(4, 1, filler), figure(4, 2, "10.00")]);
+      expect(citedRowNames(sheet, ["C4"]), filler).toEqual([{ row: 4, name: "Rent" }]);
+    }
+  });
+
+  test("a hidden column and text its number format hides are passed over", () => {
+    const sheet = sheetOf(
+      [text(4, 0, "Rent"), text(4, 1, "Old code"), text(4, 2, "Secret"), figure(4, 3, "10.00")],
+      [],
+      {
+        columns: new Map([[1, { hidden: true }]]),
+        shown: new Map([[cellIndex(4, 2), { text: "" }]]),
+      },
+    );
+    expect(citedRowNames(sheet, ["D4"])).toEqual([{ row: 4, name: "Rent" }]);
+  });
+
+  test("a name's line breaks become spaces", () => {
+    const sheet = sheetOf([text(4, 0, "Cash at\nbank "), figure(4, 1, "10.00")]);
+    expect(citedRowNames(sheet, ["B4"])).toEqual([{ row: 4, name: "Cash at bank" }]);
   });
 
   test("a name in a merged cell names each row the merge covers", () => {
@@ -61,12 +117,12 @@ describe("the names of the rows a quote covers", () => {
       [text(3, 0, "Accruals"), figure(3, 2, "10.00"), figure(4, 2, "20.00")],
       ["A3:B4"],
     );
-    expect(citedRowNames(merged, ["C4"])).toEqual(["Accruals"]);
+    expect(citedRowNames(merged, ["C4"])).toEqual([{ row: 4, name: "Accruals" }]);
   });
 
   test("a Chinese name", () => {
     const chinese = sheetOf([text(8, 1, "银行存款"), figure(8, 2, "84,317.52")]);
-    expect(citedRowNames(chinese, ["C8"])).toEqual(["银行存款"]);
+    expect(citedRowNames(chinese, ["C8"])).toEqual([{ row: 8, name: "银行存款" }]);
   });
 });
 
