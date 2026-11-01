@@ -134,7 +134,9 @@ export function CalculatedFigureCard({
           figure.analysis
             ? "figures.inline.analysisNote"
             : figure.workbook
-              ? "figures.workbook.note"
+              ? figure.workbook.kept.length > 0
+                ? "figures.workbook.keptNote"
+                : "figures.workbook.note"
               : replayed
                 ? "figures.inline.note"
                 : "figures.inline.savedNote",

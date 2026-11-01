@@ -45,7 +45,12 @@ function told(model: MockLanguageModelV4, tool: string): string {
   return texts.join("\n");
 }
 
-async function setUp(model: MockLanguageModelV4, name: string, contents: Uint8Array) {
+async function setUp(
+  model: MockLanguageModelV4,
+  name: string,
+  contents: Uint8Array,
+  ownWorkings = false,
+) {
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
   });
@@ -56,7 +61,8 @@ async function setUp(model: MockLanguageModelV4, name: string, contents: Uint8Ar
   });
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
   const file = await writeSourceFile(await createTempDataFolder(), name, contents);
-  await addAndProcess(core, [file]);
+  const [document] = await addAndProcess(core, [file]);
+  if (ownWorkings && document) await core.setNotCited(document.id, true);
   return { core, file };
 }
 
@@ -257,4 +263,47 @@ describe("a workbook's formulas in an Answer", () => {
       expect(system.includes("call trace_formulas")).toBe(offered);
     },
   );
+
+  test.each([
+    ["kept as the User's own workings", true, 0],
+    ["cited as usual", false, 1],
+  ])(
+    "a workbook %s: figures are recorded from it only when it may be cited",
+    async (_name, ownWorkings, recorded) => {
+      const model = modelling({
+        query: "EBITDA revenue growth",
+        calls: [traceEbitda],
+        answer: "2027 EBITDA is [=1].",
+      });
+      const { core } = await setUp(
+        model,
+        "dcf.xlsx",
+        new Uint8Array(dcfWorkbook().xlsx()),
+        ownWorkings,
+      );
+      const answer = await ask(core, "What drives 2027 EBITDA?");
+      expect(answer.figures).toHaveLength(recorded);
+      // An own working's Passages are read but never offered to name, so the trace can't record one.
+      expect(told(model, "trace_formulas").startsWith("Nothing was recorded")).toBe(ownWorkings);
+    },
+  );
+
+  test("a new value with a decimal comma is refused, not read ten times larger; a decimal point works", async () => {
+    const whatIfAt =
+      (value: string) =>
+      (passage: string): Call => ({
+        tool: "what_if",
+        input: { passage, cell: "DCF!E5", label: "EBITDA 2027", input: "Assumptions!B3", value },
+      });
+    const model = modelling({
+      query: "EBITDA revenue growth",
+      calls: [whatIfAt("1,5"), whatIfAt("1.5")],
+      answer: "It would be [=1].",
+    });
+    const { core } = await setUp(model, "dcf.xlsx", new Uint8Array(dcfWorkbook().xlsx()));
+    const answer = await ask(core, "What would 2027 EBITDA be if 2024 revenue were 1.5?");
+    expect(told(model, "what_if")).toContain('"1,5" can be read more than one way');
+    expect(answer.figures).toHaveLength(1);
+    expect(answer.figures[0]?.workbook?.change).toMatchObject({ value: 1.5 });
+  });
 });

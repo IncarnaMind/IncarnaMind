@@ -570,6 +570,13 @@ class SheetFormulas {
       )
         this.sheet.saved?.set(ref, cell.value);
       if (cell?.date && cell.number !== undefined) this.sheet.saved?.set(ref, cell.number);
+      // General shows 15 digits; an input worked from keeps every digit the file stores.
+      else if (
+        cell?.number !== undefined &&
+        cell.raw === undefined &&
+        Number(cell.value) !== cell.number
+      )
+        this.sheet.saved?.set(ref, cell.number);
       return;
     }
     this.sheet.formulas?.set(ref, formula);

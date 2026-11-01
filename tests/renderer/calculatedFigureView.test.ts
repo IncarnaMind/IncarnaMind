@@ -537,6 +537,8 @@ test.each(["en", "zh-CN"] as const)(
       translate(language, "figures.workbook.kept.volatile", { cell: "Cases!C2", name: "RAND" }),
     );
     expect(kept).toContain(translate(language, "figures.workbook.savedValue"));
+    expect(kept).toContain(translate(language, "figures.workbook.keptNote"));
+    expect(kept).not.toContain(translate(language, "figures.workbook.note"));
     expect(kept).not.toContain(translate(language, "figures.workbook.workedOut"));
   },
 );

@@ -789,6 +789,8 @@ export const zhCN = {
   "figures.workbook.change": "已将“{input}”（{cell}）从 {from} 改为 {to}",
   "figures.workbook.inWorkbook": "工作簿中的原值：{value}",
   "figures.workbook.moreInputs": "另有 {count} 项所用数据未列出",
+  "figures.workbook.keptNote":
+    "这是工作簿保存的值：IncarnaMind 无法重新计算，原因见上。每项所用数据都引用到所在单元格。",
   "figures.workbook.note":
     "IncarnaMind 已在内存中按工作簿自己的公式重新计算，文件本身没有改动。每项所用数据都引用到所在单元格。这并不说明模型的假设是对的。",
   "figures.workbook.kept.volatile":

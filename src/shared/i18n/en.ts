@@ -806,6 +806,8 @@ export const en = {
   "figures.workbook.change": "Changed {input} ({cell}) from {from} to {to}",
   "figures.workbook.inWorkbook": "In the workbook as it is: {value}",
   "figures.workbook.moreInputs": "{count} more inputs not listed",
+  "figures.workbook.keptNote":
+    "This is the value the workbook saved: IncarnaMind couldn’t work it out again, for the reason above. Each input is cited to its cell.",
   "figures.workbook.note":
     "IncarnaMind worked this out again from the workbook’s own formulas, in memory: the file is unchanged. Each input is cited to its cell. This doesn’t show that the model’s assumptions are right.",
   "figures.workbook.kept.volatile":

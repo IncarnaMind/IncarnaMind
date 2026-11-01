@@ -88,7 +88,8 @@ export interface CellResult {
 }
 
 /** Places as one number: the sheet's place in the workbook, then `cellIndex`. */
-const SHEET_SPAN = 2 ** 34;
+// Row 1,048,576 by 16,384 columns takes cellIndex past 2^34.
+const SHEET_SPAN = 2 ** 35;
 export const placeKey = (sheet: WorkbookSheet, row: number, column: number): number =>
   sheet.index * SHEET_SPAN + cellIndex(row, column);
 
@@ -276,7 +277,7 @@ export class WorkbookEngine {
 }
 
 /** A block's cells that hold something, row by row. */
-function cellsIn(sheet: WorkbookSheet, range: CellRange): WorkbookCell[] {
+export function cellsIn(sheet: WorkbookSheet, range: CellRange): WorkbookCell[] {
   const width = range.right - range.left + 1;
   const height = range.bottom - range.top + 1;
   const found: WorkbookCell[] = [];
@@ -719,8 +720,10 @@ export async function recalculate(
       for (const dependence of current.dependsOn) {
         if (!entry.dependsOn.some((each) => each === dependence)) entry.dependsOn.push(dependence);
       }
+      if (current.unread) entry.unread = current.unread;
       current = outer;
     }
+    if (entry.unread) current.unread ??= entry.unread;
     for (const dependence of entry.dependsOn)
       addDependence(current.dependsOn, current.seen, dependence);
     return entry;

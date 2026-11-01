@@ -13,9 +13,10 @@ import {
   type WorkbookModel,
   type WorkbookSheet,
 } from "./model";
-import { type CellRange, cellName } from "./parse";
+import { cellName } from "./parse";
 import {
   type CellProblem,
+  cellsIn,
   type Dependence,
   placeKey,
   placeOf,
@@ -174,21 +175,8 @@ function precedentsOf(engine: WorkbookEngine, key: number): number[] {
   for (const read of engine.analysis(key).reads) {
     const sheet = engine.sheetNamed(read.sheet);
     if (!sheet) continue;
-    for (const cell of cellsOfRange(sheet, read.range))
+    for (const cell of cellsIn(sheet, read.range))
       found.push(placeKey(sheet, cell.row, cell.column));
-  }
-  return found;
-}
-
-function cellsOfRange(sheet: WorkbookSheet, range: CellRange): WorkbookCell[] {
-  const found: WorkbookCell[] = [];
-  for (const column of sheet.columns) {
-    if (column < range.left || column > range.right) continue;
-    for (const row of sheet.columnRows.get(column) ?? []) {
-      if (row < range.top || row > range.bottom) continue;
-      const cell = sheet.cells.get(cellIndex(row, column));
-      if (cell) found.push(cell);
-    }
   }
   return found;
 }

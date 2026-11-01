@@ -239,6 +239,8 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     const found = options.passage(passageId);
     if (!found) return `${passageId || "passage"} isn't a Passage you were given.`;
     const { source, units } = found;
+    if (source.notCited)
+      return `${source.documentName} is kept as the User's own workings, which are never cited: use its formulas to understand the Question, but record no figure from it.`;
     const key = `${source.documentId}\n${source.contentHash}`;
     const known = opened.get(key);
     if (known) return known;
@@ -520,10 +522,14 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
   const parseValue = (given: unknown, cell: ChainCell): number | string => {
     const percentCell = cell.shown.trim().endsWith("%");
     const here = `${where(cell.sheet, cell.ref)} (${cell.label}) shows ${cell.shown}`;
-    const written =
+    const bare =
       typeof given === "number" && Number.isFinite(given)
         ? String(given)
-        : text(given).replace(/[\s,$€£¥]/g, "");
+        : text(given).replace(/[\s$€£¥]/g, "");
+    // A comma is a thousands separator only between groups of three ("1,250.5"): "1,5" isn't read.
+    if (bare.includes(",") && !/^[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?%?$/.test(bare))
+      return `"${bare}" can be read more than one way: give the new value with a decimal point, such as "1.5" or "1250".`;
+    const written = bare.replaceAll(",", "");
     const match = /^([-+]?(?:\d+\.?\d*|\.\d+))(%?)$/.exec(written);
     if (!match) return `give the new value as a number, such as "3%" or "1250".`;
     if (percentCell && match[2] !== "%")

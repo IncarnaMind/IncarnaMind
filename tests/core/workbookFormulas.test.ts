@@ -1,8 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { extractXlsx } from "../../src/core/documents/formats/xlsx";
-import { type WorkbookModel, workbookModel } from "../../src/core/workbooks/model";
+import { cellIndex, type WorkbookModel, workbookModel } from "../../src/core/workbooks/model";
 import { moveFormula, parseFormula } from "../../src/core/workbooks/parse";
-import { placeKey, recalculate, WorkbookEngine } from "../../src/core/workbooks/recalculate";
+import {
+  placeKey,
+  placeOf,
+  recalculate,
+  WorkbookEngine,
+} from "../../src/core/workbooks/recalculate";
 import { traceChain, whatIf } from "../../src/core/workbooks/trace";
 import {
   dcfWorkbook,
@@ -11,7 +16,7 @@ import {
   lboWorkbook,
   threeStatementWorkbook,
   unsupportedWorkbook,
-  type WorkbookBuilder,
+  WorkbookBuilder,
 } from "../helpers/financeWorkbooks";
 
 async function modelOf(
@@ -246,5 +251,43 @@ describe("a workbook's formulas, worked out again", () => {
     expect(outcome).toMatchObject({ ok: true, formulaCells: 12_001 });
     const run = await recalculate(engine, formulaKeys(model));
     expect([...run.results.values()].filter((result) => result.problem !== null)).toEqual([]);
+  });
+
+  test("a range on a sheet that wasn't read names it, as a single cell there does; read, it is worked out", async () => {
+    const book = new WorkbookBuilder();
+    const totals = book.sheet("Totals");
+    totals.text("A1", "Total").formula("B1", "SUM(Calc!A1:A3)", 6).formula("C1", "Calc!A1*2", 2);
+    const calc = book.sheet("Calc");
+    calc.number("A1", 1).number("A2", 2).number("A3", 3);
+    calc.state = "hidden";
+    const left = await modelOf(book);
+    for (const column of [1, 2]) {
+      const chain = await traceChain(left.engine, at(left.model, "Totals", 1, column));
+      expect(chain.dependsOn.map((each) => each.problem)).toContainEqual({
+        kind: "not-read",
+        sheet: "Calc",
+      });
+    }
+    const read = await modelOf(book, {}, true);
+    expect((await traceChain(read.engine, at(read.model, "Totals", 1, 1))).dependsOn).toEqual([]);
+  });
+
+  test("a cell in Excel's last row and column keeps its own place on every sheet", async () => {
+    const { model } = await modelOf(dcfWorkbook());
+    const sheet = model.byName.get("DCF");
+    if (!sheet) throw new Error("No DCF sheet");
+    const place = placeOf(model, placeKey(sheet, 1_048_576, 16_383));
+    expect([place.sheet.name, place.row, place.column]).toEqual(["DCF", 1_048_576, 16_383]);
+  });
+
+  test("an input General shows to 15 digits is worked from with every digit the file stores", async () => {
+    const book = new WorkbookBuilder();
+    book.sheet("Rates").number("A1", 1.0000000000000002).formula("B1", "A1*2", 2.0000000000000004);
+    const { model, engine } = await modelOf(book);
+    const cell = model.byName.get("RATES")?.cells.get(cellIndex(1, 0));
+    expect(cell?.shown).toBe("1");
+    expect(cell?.saved).toBe(1.0000000000000002);
+    const outcome = await whatIf(engine, at(model, "Rates", 1, 1), at(model, "Rates", 1, 0), 0.5);
+    expect(outcome).toMatchObject({ ok: true, before: 2.0000000000000004, after: 1 });
   });
 });
