@@ -1383,8 +1383,11 @@ const BEFORE_NUMBER = new RegExp(
  */
 export function unsettledScales(text: string, context: FigureContext = {}): string[] {
   const prepared = prepare(text);
+  return unsettledIn(prepared, text, statementsIn(prepared, text, settle(context)));
+}
+
+function unsettledIn(prepared: Prepared, text: string, settled: readonly Statement[]): string[] {
   const { s } = prepared;
-  const settled = statementsIn(prepared, text, settle(context));
   const found: { from: number; chars: string }[] = [];
   for (const pattern of [UNSURE_SCALE, CURRENCY_NEXT_TO_SCALE]) {
     for (const match of s.matchAll(pattern)) {
@@ -1426,6 +1429,8 @@ const SCALE_HINT = [
   "[`']000|000'?s(?![A-Za-z])|000\\s+omitted|in\\s+(?:000|MM|K|M)(?![A-Za-z0-9])",
   "[(\uff08]\\s*(?:bn|bln|mn|mln|MM|000)\\s*[)\uff09]",
   "lakh|crore",
+  // Every currency a statement is read with, so "Rs. 000" or "Rs m" is read too.
+  `(?<![A-Za-z])(?:${STATED_CURRENCY})\\s*(?:in\\s+)?${SCALE_NEAR_CURRENCY}(?![A-Za-z])`,
 ].join("|");
 const SCALE_HINT_IN = new RegExp(SCALE_HINT, "i");
 // Where the normaliser reads a character as the same character, a hint is found in the text as
@@ -1532,15 +1537,24 @@ function* linesHintingScales(text: string): Generator<string> {
 }
 
 /**
- * The first form `text` writes that reads more than one way (`unsettledScales`), reading only the
- * lines that may state a scale; null when none does.
+ * The scale a page states, for its scale marker: what `statedScale` gives, else the first form
+ * that reads more than one way (`unsettledScales`); null when it states neither. Each line that
+ * may state a scale is normalised once for both.
  */
-export function unsettledScale(text: string, context: FigureContext = {}): string | null {
+export function pageScale(text: string, context: FigureContext = {}): string | null {
+  const settled = settle(context);
+  let stated: string | null = null;
+  let unsettled: string | null = null;
   for (const line of linesHintingScales(text)) {
-    const [found] = unsettledScales(line, context);
-    if (found !== undefined) return found;
+    const prepared = prepare(line);
+    const marker = CURRENCY_SCALE.exec(prepared.s)?.[0];
+    if (marker !== undefined) return marker;
+    const statements = statementsIn(prepared, line, settled);
+    stated ??=
+      statedUnitsOf(prepared, line, statements).find((each) => each.scale !== 1)?.chars ?? null;
+    unsettled ??= unsettledIn(prepared, line, statements)[0] ?? null;
   }
-  return null;
+  return stated ?? unsettled;
 }
 
 /**

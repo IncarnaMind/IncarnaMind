@@ -2327,6 +2327,65 @@ test("a Word header that writes a scale two ways refuses the figure", {
   expect(recorded).toEqual([]);
 });
 
+// protects=#2365; fails_when=a Document of a kind not read again (here plain text) keeps the empty marker an earlier build stored, and a scale it writes two ways ("in MM") is then missed, so a statement's currency is carried to bare fees unscaled.
+test("a stored empty marker still finds a scale the page writes two ways", {
+  timeout: 60_000,
+}, async () => {
+  const dataDir = await createTempDataFolder();
+  const lines = ["Sale price £385.00", "Less: agent's fee (4.62)"];
+  const document = {
+    name: "Completion statement 14 Mill Lane.txt",
+    contents: ["Completion statement: 14 Mill Lane", "Amounts (in MM)", ...lines].join("\n"),
+  };
+  const first = await setUpCalculating(
+    calculatingModel({ queries: [], steps: [], answer: "Nothing." }),
+    [document],
+    dataDir,
+  );
+  first.core.close();
+  // As a build before this one stored it: the page's marker read without the forms that read two ways.
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  db.run("UPDATE document_pages SET scale_marker = ''");
+  db.close();
+
+  const model = calculatingModel({
+    queries: ["sale price deductions"],
+    steps: [
+      citeStatement("Completion statement", lines, (cited) => [
+        {
+          tool: "calculate",
+          input: {
+            figures: [
+              {
+                marker: 1,
+                label: "Net",
+                formula: "price + agent",
+                inputs: [
+                  { name: "price", label: "Price", citation: cited[0], number: "£385.00" },
+                  {
+                    name: "agent",
+                    label: "Fee",
+                    citation: cited[1],
+                    number: "(4.62)",
+                    unitQuote: lines[0],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ]),
+    ],
+    answer: "[=1][^1]",
+  });
+  const { core } = await setUpCalculating(model, [], dataDir);
+
+  const { answer } = await askAndRead(core, "What are the net proceeds?");
+
+  expect(told(model, "calculate")[0]).toContain('but the Document states a scale ("in MM")');
+  expect(answer.figures).toEqual([]);
+});
+
 // protects=#2365; fails_when=a PDF read before this build keeps no scale for a running header in a form the reader didn't know ("(000 omitted)"), so its pages' bare figures are read plain.
 test("a PDF read before this build is read again and keeps a running header's “(000 omitted)”", {
   timeout: 60_000,

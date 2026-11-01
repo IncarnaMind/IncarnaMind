@@ -42,12 +42,12 @@ import {
   figureContextOfFacts,
   figureLanguageTag,
   namedCurrencies,
+  pageScale,
   type Reading,
   readFigures,
   readStatedUnits,
   type StatedCurrency,
   type StatedUnit,
-  statedScale,
   unsettledScales,
 } from "../../shared/figures";
 import {
@@ -791,7 +791,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       found = {
         scale:
           units.find((unit) => unit.scaleMarker)?.scaleMarker ??
-          statedScale(units.map((unit) => unit.text).join("\n"), contextOf(citation)),
+          pageScale(units.map((unit) => unit.text).join("\n"), contextOf(citation)),
         stale: units.some((unit) => unit.scaleMarker === null),
       };
       scales.set(key, found);
