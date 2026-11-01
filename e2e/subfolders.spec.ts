@@ -139,7 +139,9 @@ for (const [language, width] of [
       const thesis = language === "en" ? "Thesis: urban heat" : "论文：城市热岛";
       const field = language === "en" ? "Field data" : "实地数据";
       const chapter = language === "en" ? "Chapter 2" : "第二章";
+      const archive = language === "en" ? "Archive" : "档案";
       await newFolder(window, field);
+      await newFolder(window, archive);
       await newFolderInside(window, thesis, chapter);
       await expect.poll(() => folders(window)).toMatchObject({ [chapter]: thesis });
       await nestedRow(window, chapter, 1);
@@ -241,6 +243,37 @@ for (const [language, width] of [
       await window.keyboard.press("ControlOrMeta+Shift+z");
       await expect.poll(() => folders(window)).toMatchObject({ [field]: thesis });
 
+      // Several Folders selected drag together: ⌘-click two, then drag one, and both nest;
+      // one ⌘Z puts both back.
+      await window.keyboard.press("Escape");
+      const mod = process.platform === "darwin" ? "Meta" : "Control";
+      await row(window, field).click({ modifiers: [mod] });
+      await row(window, chapter).click({ modifiers: [mod] });
+      await dragOnto(window, row(window, field), row(window, archive), async () => {
+        await expect(window.getByTestId("drop-label")).toHaveText(
+          language === "en" ? "Put inside" : "放入其中",
+        );
+      });
+      await expect
+        .poll(() => folders(window))
+        .toMatchObject({ [field]: archive, [chapter]: archive });
+      await expect(undoMessage(window)).toHaveText(
+        language === "en" ? "Moved 2 Folders into “Archive”" : "已将 2 个文件夹移入“档案”",
+      );
+      await leaveText(window);
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect
+        .poll(() => folders(window))
+        .toMatchObject({ [field]: thesis, [chapter]: thesis });
+      // The two stay selected, and the row's own menu acts on what is selected: focus the
+      // tree and Esc, as a list clears, so the next step opens Chapter 2 rather than both.
+      await row(window, chapter).focus();
+      await window.keyboard.press("Escape");
+      await expect(sidebarFolder(window, chapter).locator(":scope > div")).not.toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+
       // A Folder opened from the sidebar opens its section and brings its row into view.
       await sidebarFolder(window, chapter).hover();
       await folderMenu(window, chapter).click();
@@ -303,7 +336,7 @@ for (const [language, width] of [
       const library = window.getByTestId("library");
       // The section counts what its sub-Folders hold.
       await expect(sectionOf(window, thesis).getByTestId("library-section-subfolders")).toHaveText(
-        language === "en" ? "· 1 in subfolders" : "· 子文件夹中 1 个",
+        language === "en" ? "· 1 in sub-Folders" : "· 子文件夹中 1 个",
       );
       // A search opens the sub-Folders holding a match and shows each match's path.
       await library.getByTestId("library-search").fill("Hyde Park");
@@ -341,9 +374,8 @@ for (const [language, width] of [
         .locator(":scope > div")
         .getByTestId("folder.delete")
         .click();
-      await expect(window.getByTestId("library-folders").getByTestId("library-folder")).toHaveCount(
-        0,
-      );
+      await expect(sidebarFolder(window, thesis)).toHaveCount(0);
+      await expect(sidebarFolder(window, archive)).toHaveCount(1);
       const deleted = await (await coreOf(window)).evaluate(async (core: CoreBridge) =>
         core.listDeleted(),
       );

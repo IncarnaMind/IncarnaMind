@@ -5,7 +5,7 @@ import { shortcutLabel } from "../commands/keymap";
 import { commands } from "../commands/registry";
 import { useDraggedRef, useDragSource, useDropTarget } from "../dragDrop";
 import { useFolderContents } from "../folderContents";
-import { folderDrag, folderTarget, folderTopTarget, useDraggedOutOfFolder } from "../folderDrag";
+import { folderRowDrag, folderTarget, folderTopTarget, useDraggedOutOfFolder } from "../folderDrag";
 import { buildFolderTree, type FolderNode, folderPathLabel } from "../folders";
 import { useLanguage, useT } from "../i18n";
 import { currentMindIdOf, currentTabOf } from "../layoutSlice";
@@ -428,7 +428,7 @@ function FolderGroup({
   const select = useSelectable(object, "sidebar", toggle);
   const several = useSeveralSelected("sidebar");
   const lit = select.selected || shownInLibrary;
-  const dragSource = useDragSource(() => folderDrag(folder, "sidebar"));
+  const dragSource = useDragSource(() => folderRowDrag(folder, "sidebar"));
   const dragged = useDraggedRef(object);
   // The first click of a double-click folds or unfolds it: back as it was before renaming.
   const rename = useRename<HTMLButtonElement>(`folder:${folder.id}`, toggle);

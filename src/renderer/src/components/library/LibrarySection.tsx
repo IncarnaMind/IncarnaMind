@@ -313,6 +313,16 @@ function SubfolderRow({
                 … › {deep}
               </span>
             )}
+          </div>
+          <span className="w-[200px] shrink-0 group-data-[hide~=narrow]/page:w-[152px] group-data-[hide~=narrower]/page:w-[112px] group-data-[hide~=narrowest]/page:w-[88px] group-data-[hide~=chips]/page:w-auto" />
+          <span
+            data-testid="library-subfolder-format"
+            className="w-[76px] shrink-0 text-[13px] text-ink-secondary group-data-[hide~=format]/page:hidden"
+          >
+            {t("library.format.folder")}
+          </span>
+          <span className="w-24 shrink-0 group-data-[hide~=added]/page:hidden" />
+          <span className="flex w-7 shrink-0 justify-end">
             {!rename.renaming && (
               <ObjectMenu
                 target={object}
@@ -330,18 +340,10 @@ function SubfolderRow({
                         ),
                     ),
                 }}
+                className={`${rowActionButtonClass} opacity-0 group-hover/row:opacity-100 group-has-[:focus-visible]/row:opacity-100 aria-expanded:opacity-100`}
               />
             )}
-          </div>
-          <span className="w-[200px] shrink-0 group-data-[hide~=narrow]/page:w-[152px] group-data-[hide~=narrower]/page:w-[112px] group-data-[hide~=narrowest]/page:w-[88px] group-data-[hide~=chips]/page:w-auto" />
-          <span
-            data-testid="library-subfolder-format"
-            className="w-[76px] shrink-0 text-[13px] text-ink-secondary group-data-[hide~=format]/page:hidden"
-          >
-            {t("library.format.folder")}
           </span>
-          <span className="w-24 shrink-0 group-data-[hide~=added]/page:hidden" />
-          <span className="flex w-7 shrink-0 justify-end" />
         </div>
       </div>
       {open &&

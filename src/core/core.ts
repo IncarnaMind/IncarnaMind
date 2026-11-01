@@ -4395,7 +4395,12 @@ export function createCore(adapters: CoreAdapters): Core {
         })),
       foldersInScope: folderIdsInScope,
       documentsIn: (folderIds) => {
-        const only = walledFolderId(folderIds.length === 1 ? (folderIds[0] ?? null) : null);
+        // A pairing granted a Folder behind a wall reads that Folder and the Folders inside it,
+        // never the wall's other Folders: a grant names what it names (#1934, #246).
+        const only =
+          folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null
+            ? (folderIds[0] ?? null)
+            : null;
         if (only !== null) return library.treeDocumentIds(only);
         const allowed = folderIdsInScope(folderIds);
         const folders = allowed.filter((id) => id !== NOT_IN_A_FOLDER_ID);

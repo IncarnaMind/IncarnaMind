@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { Dragged } from "../../src/renderer/src/dragDrop";
 import type { ObjectRef } from "../../src/renderer/src/objects";
 
@@ -99,6 +99,7 @@ describe("a Folder dragged onto another (#246)", () => {
         { id: "thesis", name: "Thesis", parentId: null },
         { id: "chapter", name: "Chapter 2", parentId: "thesis" },
         { id: "other", name: "Other", parentId: null },
+        { id: "notes", name: "Notes", parentId: null },
       ]),
     });
   });
@@ -137,10 +138,37 @@ describe("a Folder dragged onto another (#246)", () => {
     const chapter = { kind: "objects" as const, refs: [folder("chapter")] };
     expect(thesis.accepts(chapter, middle)).toBeNull();
     expect(thesis.refuses?.(chapter, middle)).toBeNull();
+    // An edge of a Folder at the same level would change nothing either: nothing is refused.
+    const other = { kind: "objects" as const, refs: [folder("other")] };
+    expect(thesis.accepts(other, topEdge)).toBeNull();
+    expect(thesis.refuses?.(other, topEdge)).toBeNull();
     // The top level takes a Folder out of its Folder.
     expect(targets.folderTopTarget().accepts(chapter, middle)).toMatchObject({ kind: "move" });
     expect(
       targets.folderTopTarget().accepts({ kind: "objects", refs: [folder("thesis")] }, middle),
     ).toBeNull();
+  });
+
+  test("several selected Folders drag together into one, and one inside itself refuses them all", () => {
+    const dragged = { kind: "objects" as const, refs: [folder("other"), folder("notes")] };
+    const thesis = targets.folderTarget("thesis", rect);
+    expect(thesis.accepts(dragged, middle)).toMatchObject({ kind: "move", place: "into" });
+    const moveFolders = vi.fn(async () => undefined);
+    store.setState({ moveFolders });
+    thesis.drop({ kind: "objects", refs: dragged.refs }, { kind: "move", place: "into" });
+    expect(moveFolders).toHaveBeenCalledWith(["other", "notes"], "thesis");
+
+    // The top level takes them all out: Chapter 2 is inside Thesis, so it accepts the two.
+    expect(
+      targets
+        .folderTopTarget()
+        .accepts({ kind: "objects", refs: [folder("chapter"), folder("other")] }, middle),
+    ).toMatchObject({ kind: "move" });
+
+    // With Chapter 2's own Folder among them, into Chapter 2 is inside itself: refused, not moved.
+    const insideItself = { kind: "objects" as const, refs: [folder("thesis"), folder("chapter")] };
+    const chapter = targets.folderTarget("chapter", rect);
+    expect(chapter.accepts(insideItself, middle)).toBeNull();
+    expect(chapter.refuses?.(insideItself, middle)).toBeTypeOf("function");
   });
 });

@@ -267,6 +267,8 @@ export interface AppState extends LayoutSlice {
   nameNewFolder(folderId: string, name: string): Promise<void>;
   /** Puts a Folder inside another, or at the top level (null), with Undo. */
   moveFolder(folderId: string, parentId: string | null): Promise<void>;
+  /** Puts the Folders selected together inside another, or at the top level (null), as one Undo. */
+  moveFolders(folderIds: readonly string[], parentId: string | null): Promise<void>;
   /** Renames a Folder, keeping its description. */
   renameFolder(folderId: string, name: string): Promise<void>;
   /** Changes a Folder's name, description or evidence choice, with Undo. Throws what the core throws. */
@@ -1283,37 +1285,49 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
     },
 
-    moveFolder: (folderId, parentId) =>
+    moveFolder: (folderId, parentId) => get().moveFolders([folderId], parentId),
+
+    moveFolders: (folderIds, parentId) =>
       attempt(async () => {
         const groups = get().library?.groups ?? [];
-        const folder = groups.find((group) => group.id === folderId);
-        if (!folder || folder.parentId === parentId) return;
-        // A Folder can't go inside itself or one of its own sub-Folders.
-        if (parentId !== null && isInsideFolder(groups, parentId, folderId)) return;
-        const putIn = (next: string | null) => async () => {
-          const groups = useAppStore.getState().library?.groups ?? [];
-          const moved = groups.find((group) => group.id === folderId);
-          if (!moved) return;
-          await core.updateLibraryGroup(folderId, {
-            name: moved.name,
-            description: moved.description,
-            countsOwnFiles: moved.countsOwnFiles,
-            keepInside: moved.keepInside,
-            parentId: next,
-          });
+        const moving = folderIds.flatMap((folderId) => {
+          const folder = groups.find((group) => group.id === folderId);
+          if (!folder || folder.parentId === parentId) return [];
+          // A Folder can't go inside itself or one of its own sub-Folders.
+          if (parentId !== null && isInsideFolder(groups, parentId, folderId)) return [];
+          return [folder];
+        });
+        if (moving.length === 0) return;
+        const putIn = (entries: readonly { id: string; parent: string | null }[]) => async () => {
+          for (const entry of entries) {
+            const groups = useAppStore.getState().library?.groups ?? [];
+            const moved = groups.find((group) => group.id === entry.id);
+            if (!moved) continue;
+            await core.updateLibraryGroup(entry.id, {
+              name: moved.name,
+              description: moved.description,
+              countsOwnFiles: moved.countsOwnFiles,
+              keepInside: moved.keepInside,
+              parentId: entry.parent,
+            });
+          }
           await get().refreshLibrary();
         };
-        const before = folderPathLabel(groups, folder.parentId);
+        await putIn(moving.map((folder) => ({ id: folder.id, parent: parentId })))();
+        const before = folderPathLabel(groups, moving[0]?.parentId ?? null);
         const after = parentId === null ? null : folderPathLabel(groups, parentId);
-        await putIn(parentId)();
         push({
           said: (t) =>
-            parentId === null
-              ? t("folder.moved.out", { name: folder.name, from: before })
-              : t("folder.moved.into", { name: folder.name, into: after ?? "" }),
-          name: (t) => t("undo.name.moveFolder"),
-          undo: putIn(folder.parentId),
-          redo: putIn(parentId),
+            moving.length === 1
+              ? parentId === null
+                ? t("folder.moved.out", { name: moving[0]?.name ?? "", from: before })
+                : t("folder.moved.into", { name: moving[0]?.name ?? "", into: after ?? "" })
+              : parentId === null
+                ? t("folder.moved.many.top", { count: moving.length })
+                : t("folder.moved.many.into", { count: moving.length, into: after ?? "" }),
+          name: (t) => t(moving.length === 1 ? "undo.name.moveFolder" : "undo.name.moveFolders"),
+          undo: putIn(moving.map((folder) => ({ id: folder.id, parent: folder.parentId }))),
+          redo: putIn(moving.map((folder) => ({ id: folder.id, parent: parentId }))),
         });
       }),
 

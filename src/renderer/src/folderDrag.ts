@@ -1,9 +1,10 @@
 import type { Document, LibrarySnapshot, Mind } from "../../core/api";
 import { type Dropped, type DropTarget, type ObjectDrag, runDrop, useDragState } from "./dragDrop";
 import { isInsideFolder } from "./folders";
+import { translateNow } from "./i18n";
 import { type MoveItems, moveLabel } from "./moves";
 import type { ObjectRef } from "./objects";
-import { useSelection } from "./selection";
+import { type SelectSurface, selectedOn, useSelection } from "./selection";
 import { useAppStore } from "./store";
 import { linksIn, useWebPages } from "./webPages";
 
@@ -94,10 +95,14 @@ export type FolderPlace = "into" | "before" | "after";
 
 const groupsNow = () => useAppStore.getState().library?.groups ?? [];
 
-/** The one Folder a drag carries; null for anything else. */
-function folderDragged(refs: readonly ObjectRef[]): string | null {
-  return refs.length === 1 && refs[0]?.kind === "folder" ? refs[0].id : null;
+/** The Folders a drag carries: one, or the several selected together; empty for anything else. */
+function foldersDragged(refs: readonly ObjectRef[]): string[] {
+  return refs.flatMap((ref) => (ref.kind === "folder" ? [ref.id] : []));
 }
+
+/** Whether a drag carries Folders alone: a selection with Documents or Notes in it is no Folder move. */
+const onlyFolders = (refs: readonly ObjectRef[], folders: readonly string[]): boolean =>
+  folders.length > 0 && folders.length === refs.length;
 
 /** The zone of a row's box the pointer is in: its middle nests, its top and bottom edges place beside. */
 export function folderZoneOf(rect: DOMRect | null, at: { y: number }): FolderPlace {
@@ -122,6 +127,13 @@ function besideChanges(folderId: string, referenceId: string): boolean {
   return folder.parentId !== parent && !isInsideFolder(groups, parent, folderId);
 }
 
+/** Whether placing `folderId` beside `referenceId` would put it inside itself. */
+function besideInsideItself(folderId: string, referenceId: string): boolean {
+  const groups = groupsNow();
+  const parent = groups.find((each) => each.id === referenceId)?.parentId ?? null;
+  return parent !== null && isInsideFolder(groups, parent, folderId);
+}
+
 /**
  * The drop target of a Folder's row (or head), which also nests Folders.
  * `rect` is the row's box, so a Folder dropped near its top or bottom edge
@@ -137,18 +149,21 @@ export function folderTarget(
     accepts(dragged, at) {
       if (dragged.kind === "links") return { kind: "add" };
       if (dragged.kind !== "objects") return null;
-      const folder = folderDragged(dragged.refs);
-      if (folder !== null) {
+      const folders = foldersDragged(dragged.refs);
+      if (onlyFolders(dragged.refs, folders)) {
         if (folderId === null) return null;
         const place = folderZoneOf(rect?.() ?? null, at);
+        const parents = new Map(groupsNow().map((group) => [group.id, group.parentId] as const));
         if (place === "into") {
-          const inside = groupsNow().find((group) => group.id === folder)?.parentId ?? null;
-          if (folderInsideItself(folder, folderId) || inside === folderId) return null;
+          if (folders.some((folder) => folderInsideItself(folder, folderId))) return null;
+          if (folders.every((folder) => (parents.get(folder) ?? null) === folderId)) return null;
           return { kind: "move", place, said: (t) => t("drop.into") };
         }
-        if (!besideChanges(folder, folderId)) return null;
+        if (folders.some((folder) => besideInsideItself(folder, folderId))) return null;
+        if (!folders.some((folder) => besideChanges(folder, folderId))) return null;
         return { kind: "move", place, said: (t) => t("drop.beside") };
       }
+      if (folders.length > 0) return null;
       if (!wouldMove(dragged.refs, folderId)) return null;
       const items = itemsOfRefs(dragged.refs);
       return {
@@ -159,12 +174,19 @@ export function folderTarget(
     },
     refuses(dragged, at) {
       if (dragged.kind !== "objects" || folderId === null) return null;
-      const folder = folderDragged(dragged.refs);
-      if (folder === null) return null;
+      const folders = foldersDragged(dragged.refs);
+      if (!onlyFolders(dragged.refs, folders)) return null;
       const place = folderZoneOf(rect?.() ?? null, at);
-      if (place === "into")
-        return folderInsideItself(folder, folderId) ? (t) => t("folder.refuse.inside") : null;
-      return besideChanges(folder, folderId) ? null : (t) => t("folder.refuse.inside");
+      if (place === "into") {
+        return folders.some((folder) => folderInsideItself(folder, folderId))
+          ? (t) => t("folder.refuse.inside")
+          : null;
+      }
+      // An edge says why only where the drop would put a Folder inside itself; an edge
+      // that would change nothing shows nothing, as every target does (#246).
+      return folders.some((folder) => besideInsideItself(folder, folderId))
+        ? (t) => t("folder.refuse.inside")
+        : null;
     },
     drop(dropped, effect) {
       if (dropped.kind === "links") {
@@ -172,8 +194,8 @@ export function folderTarget(
         return null;
       }
       if (dropped.kind !== "objects") return null;
-      const folder = folderDragged(dropped.refs);
-      if (folder !== null) {
+      const folders = foldersDragged(dropped.refs);
+      if (onlyFolders(dropped.refs, folders)) {
         if (folderId === null) return null;
         const place = effect.place ?? "into";
         const parent =
@@ -182,9 +204,10 @@ export function folderTarget(
             : ((groupsNow().find((group) => group.id === folderId)?.parentId ?? null) as
                 | string
                 | null);
-        void useAppStore.getState().moveFolder(folder, parent);
+        void useAppStore.getState().moveFolders(folders, parent);
         return null;
       }
+      if (folders.length > 0) return null;
       const moved = useAppStore.getState().moveToFolder(itemsOfRefs(dropped.refs), folderId);
       doneWithSelection(dropped);
       return moved;
@@ -193,11 +216,27 @@ export function folderTarget(
 }
 
 /** A Folder being dragged: onto another to nest it, or onto the tree's top level to take it out. */
-export function folderDrag(
-  folder: { id: string; name: string },
-  from: "sidebar" | "library",
-): ObjectDrag {
+export function folderDrag(folder: { id: string; name: string }, from: SelectSurface): ObjectDrag {
   return { refs: [{ kind: "folder", id: folder.id }], name: folder.name, from };
+}
+
+/**
+ * A Folder dragged from a row of a list with a selection: the Folders selected with
+ * it, when it is one of them, so dragging one of several moves them all; else the row.
+ */
+export function folderRowDrag(
+  folder: { id: string; name: string },
+  surface: SelectSurface,
+): ObjectDrag {
+  const chosen = selectedOn(surface);
+  const held = chosen.some((each) => each.kind === "folder" && each.id === folder.id);
+  const folders = held ? chosen.filter((each) => each.kind === "folder") : [];
+  if (folders.length <= 1) return folderDrag(folder, surface);
+  return {
+    refs: folders,
+    name: translateNow("folder.count", { count: folders.length }),
+    from: surface,
+  };
 }
 
 /** The tree's top level: a Folder dropped there comes out of the Folder it is in. */
@@ -205,15 +244,15 @@ export function folderTopTarget(): DropTarget<FolderPlace> {
   return {
     accepts(dragged) {
       if (dragged.kind !== "objects") return null;
-      const folder = folderDragged(dragged.refs);
-      if (folder === null) return null;
-      const current = groupsNow().find((group) => group.id === folder);
-      if (!current || current.parentId === null) return null;
+      const folders = foldersDragged(dragged.refs);
+      if (!onlyFolders(dragged.refs, folders)) return null;
+      const parentOf = new Map(groupsNow().map((group) => [group.id, group.parentId] as const));
+      if (!folders.some((folder) => (parentOf.get(folder) ?? null) !== null)) return null;
       return { kind: "move", place: "into", said: (t) => t("drop.topLevel") };
     },
     drop(dropped) {
-      const folder = dropped.kind === "objects" ? folderDragged(dropped.refs) : null;
-      if (folder !== null) void useAppStore.getState().moveFolder(folder, null);
+      const folders = dropped.kind === "objects" ? foldersDragged(dropped.refs) : [];
+      if (folders.length > 0) void useAppStore.getState().moveFolders(folders, null);
       return null;
     },
   };
