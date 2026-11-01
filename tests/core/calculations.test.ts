@@ -3101,6 +3101,48 @@ test.each([
     doubled: [null],
   },
   {
+    layout: "a row head in (bn) under a scale line in millions, above its number",
+    head: "(in millions)",
+    lines: ["Loans (bn)", "12.3"],
+    quotes: ["12.3"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head in (bn) under a scale line in millions, on its number's line",
+    head: "(in millions)",
+    lines: ["Loans (bn) 12.3"],
+    quotes: ["12.3"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head in (bn) quoted as the scale line",
+    head: "Loans (bn)",
+    lines: ["12.3"],
+    quotes: ["12.3"],
+    doubled: [24_600_000_000],
+  },
+  {
+    layout: "a row head in 亿 under 单位：万元, on its number's line",
+    head: "单位：万元",
+    lines: ["营业收入（亿） 12.3"],
+    quotes: ["12.3"],
+    doubled: [null],
+  },
+  {
+    layout: "row heads in units of measure under a scale line",
+    head: "(in thousands)",
+    lines: ["Capacity (MW) 1,234.5", "Sales area (m2) 334.5", "Output (tonnes) 412.5"],
+    quotes: ["1,234.5", "334.5", "412.5"],
+    doubled: [null, null, null],
+  },
+  {
+    layout: "row heads in Chinese units of measure under 单位：千元",
+    head: "单位：千元",
+    lines: ["装机容量（兆瓦） 1,234.5", "销售面积（平方米） 334.5", "产量（吨） 412.5"],
+    quotes: ["1,234.5", "334.5", "412.5"],
+    doubled: [null, null, null],
+  },
+  {
     layout: "a lone number right under the scale line",
     head: "(in thousands)",
     lines: ["1,234.5"],
@@ -3392,7 +3434,7 @@ test("a Word file read before this build is read again in the background, keeps 
   // As the build before left it: the header never read, and the older pipeline's version.
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   db.run("UPDATE document_pages SET scale_marker = '' WHERE document_id = ?", [saved.id]);
-  db.run("UPDATE documents SET processing_version = 19 WHERE id = ?", [saved.id]);
+  db.run("UPDATE documents SET processing_version = 20 WHERE id = ?", [saved.id]);
   db.close();
 
   const again = startCore(dataDir);

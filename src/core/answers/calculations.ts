@@ -190,7 +190,8 @@ const beforeOnLine = (text: string, at: number) =>
 const MOST_LINES_UP = 12;
 
 const WORDS = /[\p{L}%]/u;
-const NUMBER = /\d[\d,.]*[)）%]?/;
+// A number on its own; "m2" or "CO2" in a row head is part of its words.
+const NUMBER = /(?<![\p{L}\d.,])\d[\d,.]*[)）%]?/u;
 // A label: no figure and no sentence's end. "Earnings per share are shown in note 9." is prose.
 const LABEL_LIKE = /^[^\d.。!?！？]{1,80}[^.。!?！？]?\s*$/u;
 
@@ -525,6 +526,9 @@ const PER_SHARE = /per[- \u00a0]share|\bEPS\b|^\s*(?:basic|diluted)\b(?!.*\bshar
 // A figure per unit of something, as a per-share figure is; "per annum" or "per month" is an amount.
 const PER_UNIT =
   /\bper[- \u00a0](?:unit|user|customer|subscriber|member|tonne|ton|barrel|boe|ounce|oz|head|employee|room|passenger|vehicle|store|visit|order|kg|kilogram|litre|liter|mwh|kwh|square (?:foot|feet|metre|meter)|sq\.? ?(?:ft|m))\b|\bARPU\b|每吨|每单位|单位产品|人均|每户|每人|每平方米|每桶|每盎司/i;
+// A row head's unit of measure, which no money scale applies to: "Capacity (MW)", "装机容量（兆瓦）".
+const MEASURE_HEAD =
+  /[(（]\s*(?:[kMGT]Wh?|m2|m²|m3|m³|sq\.? ?(?:m|ft)|km|tonnes?|t|kt|bbls?|boe|oz|kg|litres?|liters?|units|吨|万吨|千吨|平方米|立方米|兆瓦|千瓦|千瓦时|兆瓦时|公里|桶|盎司|千克|公斤)\s*[)）]/i;
 const SHARE_COUNT = /\bshares\b|股数|普通股加权平均|加权平均股份/i;
 
 /** Whether `statement`'s exception ("in millions, except per share data") leaves out the number labelled `label`. */
@@ -566,6 +570,7 @@ const RATE_ROW =
 function notAnAmount(label: string): string | null {
   if (PER_SHARE.test(label)) return "per-share";
   if (PER_UNIT.test(label)) return "per-unit";
+  if (MEASURE_HEAD.test(label)) return "unit of measure";
   if (RATE_ROW.test(label)) return "percent, rate or multiple";
   // "Payment date", "付款日期", "Supplier ID": a date or an identifier, whatever it is of.
   if (/\bdates?\b|日期|\bID\b|\bISIN\b|\bphone\b|\btel\b|编号|代码|电话/i.test(label))
@@ -599,15 +604,12 @@ function conflicting(statements: readonly StatedUnit[]): boolean {
   );
 }
 
-// A statement of the page's own scale, as a joined line puts it before a row: an exception, or a
-// "单位：" or "Units:" line. Any other scale with the row's words before it is the row head's own.
-const PAGE_STATEMENT = /^\s*(?:(?:金额|货币|数量)?单位|units?\s*[:：])/i;
-
 /**
  * A row's label without the scale statements in it, and the scales its head states for itself. A
- * page's statement before the row ("单位：千元，每股收益除外营业收入") leaves the words after it; a scale
- * after the row's own words ("Net debt (£m)", "Revenue (£000) - UK", "收入（百万元）合计") is the row
- * head's, and the words around it stay. Its own unit ("Diluted EPS ($)", "基本每股收益（元）") stays
+ * page's statement with its exception before the row ("单位：千元，每股收益除外营业收入") leaves the words
+ * after it; any other scale ("Net debt (£m)", "Revenue (£000) - UK", "收入（百万元）合计") is the row
+ * head's, and the words around it stay. Taking a page's plain scale line for the row's own only
+ * refuses a unitQuote of another scale, which is right either way. Its own unit ("Diluted EPS ($)", "基本每股收益（元）") stays
  * too, as it changes no scale.
  */
 function withoutStatement(text: string): RowLabel {
@@ -617,10 +619,7 @@ function withoutStatement(text: string): RowLabel {
       start: each.index,
       end: each.index + each[0].length,
     })),
-    ...scales.filter(
-      (each) =>
-        each.except || PAGE_STATEMENT.test(each.chars) || !WORDS.test(text.slice(0, each.start)),
-    ),
+    ...scales.filter((each) => each.except),
   ];
   const own = scales.filter((each) => !page.includes(each));
   const from = Math.max(0, ...page.map((each) => each.end));
@@ -648,7 +647,7 @@ function betweenNumbers(text: string): string[] {
   const kept = readStatedUnits(text);
   const pieces: string[] = [];
   let from = 0;
-  for (const match of text.matchAll(new RegExp(NUMBER.source, "g"))) {
+  for (const match of text.matchAll(new RegExp(NUMBER.source, "gu"))) {
     if (kept.some((each) => each.start <= match.index && match.index < each.end)) continue;
     pieces.push(text.slice(from, match.index));
     from = match.index + match[0].length;

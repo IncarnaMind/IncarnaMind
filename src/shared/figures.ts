@@ -785,9 +785,11 @@ const EN_SCALES: Readonly<Record<string, number>> = {
   trn: 12,
   billion: 9,
   bn: 9,
+  bln: 9,
   b: 9,
   million: 6,
   mn: 6,
+  mln: 6,
   mm: 6,
   m: 6,
   thousand: 3,
@@ -1160,6 +1162,8 @@ const STATEMENTS: readonly RegExp[] = [
   // be a wrapped "£19.8⏎million".
   /(?<=(?:[\t(（|]|\bunits?[ \u00a0]?[:：])[ \u00a0]*)(?<scale>thousands?|millions?|billions?)(?=[ \u00a0]*(?:$|[\n\t)）|]))/dgi,
   /[(（]%[)）]|(?<![A-Za-z])in (?:%|per cent|percent)(?![A-Za-z])/dg,
+  // A row head's "Loans (bn)"; a bracketed "(m)" may be metres and is left alone.
+  /[(（][ \u00a0]?(?<scale>[Bb]n|[Bb]ln|[Mm]n|[Mm]ln)[ \u00a0]?[)）]/dg,
 ];
 
 /** The power of ten a scale word multiplies by: 8 for "亿", 6 for "million" or "m"; 0 for a word that isn't one. */
