@@ -2842,6 +2842,87 @@ describe("An edit the User asked for (#880)", () => {
     expect(shownWithChanges(client)).toEqual(after);
   });
 
+  // protects=a part quote takes out exactly its words: one that starts or ends inside a word of Latin text is refused, a mark that doesn't close a word keeps the space before it, and Chinese loses only the quoted characters (#2180); fails_when=the rest of a word, a space or a neighbouring character goes too; no_claim=none beyond protects.
+  test.each([
+    { line: "Sam TBD's car is red.", quote: "TBD", after: null },
+    { line: "foo TBD.bar baz", quote: "TBD", after: null },
+    { line: "foo TBD.bar", quote: "TBD", after: null },
+    { line: "Price TBD/TBC.", quote: "TBD", after: "Price /TBC." },
+    { line: "Sam TBD&Co", quote: "TBD", after: "Sam &Co" },
+    { line: "预算待定期间 确认。", quote: "待定期", after: "预算间 确认。" },
+  ])("a part quote takes out exactly its words: $line", async ({ line, quote, after }) => {
+    const water = "Water is billed separately each quarter.";
+    const { core, mind, client } = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+    writeMind(client, [paragraph(text(line)), paragraph(text(water))]);
+    await client.settled();
+
+    const result = await core.editWithAi(wholeMind(client, mind.id, `Remove ${quote}`));
+
+    if (after === null) {
+      expect(result).toEqual({ kind: "unplaced", quotes: [quote] });
+      expect(shownWithChanges(client)).toEqual([line, water]);
+      return;
+    }
+    expect(result).toMatchObject({ kind: "proposed" });
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([after, water]);
+  });
+
+  // protects=whatever the text around it, a part removal takes out the quoted words and at most one space beside them, or is refused with the Note as it was (#2180); fails_when=any other character goes; no_claim=none beyond protects.
+  test("a part removal takes out only the quote and at most one space, or nothing", async () => {
+    const water = "Water is billed separately each quarter.";
+    const rows: { line: string; quote: string; applies: boolean }[] = [
+      { line: "Sam TBD's car is red.", quote: "TBD", applies: false },
+      { line: "foo TBD.bar baz", quote: "TBD", applies: false },
+      { line: "foo TBD.bar", quote: "TBD", applies: false },
+      { line: "Price TBD/TBC.", quote: "TBD", applies: true },
+      { line: "Sam TBD&Co", quote: "TBD", applies: true },
+      { line: '"Sam TBD"', quote: "TBD", applies: true },
+      { line: "Owner: Sam TBD.", quote: "TBD", applies: true },
+      { line: "Owner: Sam TBD, for now.", quote: "TBD", applies: true },
+      { line: "Owner: Sam TBD later.", quote: "TBD", applies: true },
+      { line: "TBD Sam is the owner.", quote: "TBD", applies: true },
+      {
+        line: "Keys are at the front desk. Ask first.",
+        quote: "Keys are at the front desk.",
+        applies: true,
+      },
+      {
+        line: "Ask first. Keys are at the front desk.",
+        quote: "Keys are at the front desk.",
+        applies: true,
+      },
+      { line: "预算待定期间 确认。", quote: "待定期", applies: true },
+      { line: "预算：待定下周确认。", quote: "待定", applies: true },
+      { line: "预算 待定 下周确认。", quote: "待定", applies: true },
+    ];
+    const onlyTheQuote = (line: string, quote: string, after: string) => {
+      const at = line.indexOf(quote);
+      const head = line.slice(0, at);
+      const tail = line.slice(at + quote.length);
+      const allowed = [head + tail];
+      if (/\s$/.test(head)) allowed.push(head.slice(0, -1) + tail);
+      if (/^\s/.test(tail)) allowed.push(head + tail.slice(1));
+      return allowed.includes(after);
+    };
+    const wrong: string[] = [];
+    for (const { line, quote, applies } of rows) {
+      const { core, mind, client } = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+      writeMind(client, [paragraph(text(line)), paragraph(text(water))]);
+      await client.settled();
+      const result = await core.editWithAi(wholeMind(client, mind.id, `Remove ${quote}`));
+      if (result.kind === "proposed") await resolveChanges(client, "accept");
+      const [after, rest] = shownWithChanges(client);
+      const right =
+        rest === water &&
+        (applies
+          ? result.kind === "proposed" && after !== undefined && onlyTheQuote(line, quote, after)
+          : result.kind === "unplaced" && after === line);
+      if (!right) wrong.push(`${line} -> ${result.kind}: ${after}`);
+    }
+    expect(wrong).toEqual([]);
+  });
+
   // protects=a word taken out right before a full stop or comma takes the space before it, so no space is left before the punctuation; one taken out mid-sentence takes the space after it (#2180); fails_when=the line reads "Owner: Sam ." or two words run together; no_claim=none beyond protects.
   test.each([
     { line: "Owner: Sam TBD.", after: "Owner: Sam." },

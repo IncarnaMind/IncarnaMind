@@ -1723,6 +1723,8 @@ function newCharsOf(tokens: readonly NewToken[]): { chars: string; at: number[] 
 /** A letter or digit of a word that runs on without spaces, unlike a Chinese character. */
 const IN_WORD = /^[\p{L}\p{N}]$/u;
 const HAN_CHAR = /^\p{Script=Han}$/u;
+/** A sentence or clause mark, a closing bracket or quote: it closes onto the word before it. */
+const CLOSING = /^[.,;:!?…)\]}»”’"'。，、；：！？）】》」』]$/u;
 
 /**
  * Where a quote's words are in a paragraph, as characters of `charsOf` (#2180): the one place
@@ -2085,7 +2087,7 @@ export function createRewriteStream(
       moved.push(...kept.splice(kept.indexOf(segment), 1));
     }
     const read = new Map(segments.map((segment) => [segment, charsOf(segment.tokens)] as const));
-    const stretches = new Map<Segment, { first: number; end: number }[]>();
+    const stretches = new Map<Segment, { first: number; end: number; quote: string }[]>();
     const none = { chars: "", at: [] };
     for (const quote of quotes) {
       const holds = (segment: Segment) =>
@@ -2115,7 +2117,7 @@ export function createRewriteStream(
         unplaced.push(quote.text);
         continue;
       }
-      stretches.set(target, [...(stretches.get(target) ?? []), place]);
+      stretches.set(target, [...(stretches.get(target) ?? []), { ...place, quote: quote.text }]);
     }
     const whole: Segment[] = [];
     for (const [segment, places] of stretches) {
@@ -2130,8 +2132,16 @@ export function createRewriteStream(
         let end = first;
         while (taken[end]) end++;
         const from = at[first] ?? segment.start;
-        const to = (at[end - 1] ?? from) + 1;
-        removePart(segment, from, to);
+        const part = partOf(segment, from, (at[end - 1] ?? from) + 1);
+        if (part) removePart(segment, part);
+        else {
+          const start = first;
+          unplaced.push(
+            ...places
+              .filter((place) => place.first < end && place.end > start)
+              .map((each) => each.quote),
+          );
+        }
         first = end;
       }
     }
@@ -2141,36 +2151,72 @@ export function createRewriteStream(
   };
 
   /**
-   * Takes the quoted words from `from` to `to` out of a paragraph left out, with the Citation
-   * and footnote markers right after them and the spaces that would be left over: those after
-   * them, or at the paragraph's end or before punctuation those before them. A formula or a line
-   * break after them stays.
+   * What taking the quoted words from `quotedFrom` to `quotedTo` out of a paragraph takes (#2180):
+   * those words, the Citation and footnote markers right after them, and one space beside them
+   * when they are whole words: the one after them, or the one before them at the paragraph's end
+   * or before a closing mark. Chinese words go exactly, with no neighbour. Null when the words
+   * start or end inside a word of other text, or hold a formula or another inline node: what
+   * else would go can't be told.
    */
-  const removePart = (segment: Segment, quotedFrom: number, quotedTo: number) => {
+  const partOf = (
+    segment: Segment,
+    quotedFrom: number,
+    quotedTo: number,
+  ): { from: number; to: number } | null => {
     const { tokens } = segment;
-    const blank = (token: OldToken | undefined) =>
-      token !== undefined &&
-      (token.text === undefined
-        ? token.node?.name === CITATION_NODE || token.node?.name === FOOTNOTE_NODE
-        : /^\s+$/.test(token.text));
+    const charAt = (position: number): string | undefined => {
+      const token = tokens.find(
+        (each) => each.text !== undefined && each.from <= position && position < each.to,
+      );
+      return token?.text?.[position - token.from];
+    };
+    const marker = (token: OldToken | undefined) =>
+      token?.node?.name === CITATION_NODE || token?.node?.name === FOOTNOTE_NODE;
+    const insideWord = (position: number) => {
+      const before = charAt(position - 1);
+      const after = charAt(position);
+      return (
+        before !== undefined &&
+        after !== undefined &&
+        !HAN_CHAR.test(before) &&
+        !HAN_CHAR.test(after) &&
+        tokens.some((each) => each.text !== undefined && each.from < position && position < each.to)
+      );
+    };
+    if (insideWord(quotedFrom) || insideWord(quotedTo)) return null;
+    const holdsNode = tokens.some(
+      (each) =>
+        each.text === undefined && each.from >= quotedFrom && each.from < quotedTo && !marker(each),
+    );
+    if (holdsNode) return null;
     let to = quotedTo;
-    let spaced = false;
-    let after = tokens.findIndex((token) => token.from >= to);
-    while (after >= 0 && after < tokens.length && blank(tokens[after])) {
-      if (tokens[after]?.text !== undefined) spaced = true;
-      to = tokens[after]?.to ?? to;
-      after++;
+    for (
+      let token = tokens.find((each) => each.from === to);
+      token?.text === undefined && marker(token);
+      token = tokens.find((each) => each.from === to)
+    ) {
+      to = token?.to ?? to;
     }
-    let from = quotedFrom;
-    // A full stop or comma right after the words closes onto the word before them.
-    const closing = !spaced && /^[\p{Po}\p{Pe}\p{Pf}]/u.test(tokens[after]?.text ?? "");
-    if (after < 0 || after >= tokens.length || closing) {
-      let previous = tokens.findLastIndex((token) => token.to <= from);
-      while (previous >= 0 && tokens[previous]?.text !== undefined && blank(tokens[previous])) {
-        from = tokens[previous]?.from ?? from;
-        previous--;
-      }
+    const next = charAt(to);
+    if (next !== undefined && /\s/.test(next)) {
+      return HAN_CHAR.test(charAt(quotedTo - 1) ?? "")
+        ? { from: quotedFrom, to }
+        : { from: quotedFrom, to: to + 1 };
     }
+    const closes =
+      next === undefined ? !tokens.some((each) => each.from >= to) : CLOSING.test(next);
+    const before = charAt(quotedFrom - 1);
+    return closes &&
+      before !== undefined &&
+      /\s/.test(before) &&
+      !HAN_CHAR.test(charAt(quotedFrom) ?? "")
+      ? { from: quotedFrom - 1, to }
+      : { from: quotedFrom, to };
+  };
+
+  /** Takes what `partOf` found out of a paragraph left out. */
+  const removePart = (segment: Segment, { from, to }: { from: number; to: number }) => {
+    const { tokens } = segment;
     const touched = tokens.filter((token) => token.to > from && token.from < to);
     const target = touched
       .map((token) =>
