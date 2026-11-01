@@ -117,15 +117,16 @@ What this leaves different, on purpose or for want of a rule: a Chinese numeral 
 - Per-case scores are in the report that `npm run eval:meetings:score` writes (`score.md` and `score.json`).
 - Numbers from one run on one busy machine: a check that the set works and a baseline to beat, not a ranking. #137's bake-off runs the whole set on three machines.
 
-**Words to know (#1031),** the same engine on the whole set, 2026-11-01, Apple M2 Max (load average 15 to 40), told nothing and told each case's words in `words.json`. Told, each final stretch is read as before and again told the words, and keeps the first reading but for the told names the second one wrote where the first wrote that name misheard (`src/core/transcription/context.ts`):
+**Words to know (#1031),** the same engine on the whole set, 2026-11-01, Apple M2 Max (load average 10 to 16), told nothing and told each case's words in `words.json`. Told, each final stretch is read as before and again told the words, and keeps the first reading but for the told names the second one wrote where the first wrote that name misheard (`src/core/transcription/context.ts`):
 
 | Language | Told words said | Not written exactly, told nothing | Told | Other units' errors, told nothing | Told | Error rate, told nothing | Told |
 |---|---|---|---|---|---|---|---|
-| English | 74 | 48 (64.9%) | 22 (29.7%) | 7,174 of 24,152 | 7,175 | WER 25.9% (6,269 of 24,226) | WER 25.8% (6,243) |
-| Chinese | 241 | 91 (37.8%) | 89 (36.9%) | 14,543 of 43,152 | 14,544 | CER 29.1% (12,709 of 43,642) | CER 29.1% (12,707) |
-| Mixed | 3 | 0 | 0 | 2,600 of 7,504 | 2,600 | MER 33.6% (2,523 of 7,507) | MER 33.6% (2,523) |
+| English | 74 | 46 (62.2%) | 45 (60.8%) | 7,213 of 24,152 | 7,213 | WER 26.1% (6,322 of 24,226) | WER 26.1% (6,321) |
+| Chinese | 241 | 87 (36.1%) | 86 (35.7%) | 14,327 of 43,152 | 14,327 | CER 28.7% (12,504 of 43,642) | CER 28.6% (12,503) |
+| Mixed | 3 | 2 | 2 | 2,620 of 7,504 | 2,620 | MER 34.2% (2,571 of 7,507) | MER 34.2% (2,571) |
 
-- A word told and never said was written once in the whole set: on an English call, a stretch read as "Francis，就。" became "Francis，转正。", one wrong word for another.
-- The model wrote out the list instead of the speech 28 times; each time the stretch kept its first reading.
-- Reading the final stretches twice costs time: the real-time factor went from 0.09–0.22× to 0.11–0.47× on this busy machine.
-- The Chinese words this rule picks are mostly everyday internet words (抖音, 主播, 淘宝) that the model already writes; the gain is in names it doesn't know. On the two calls full of names (`npm run eval:meetings -- names`), told their own names, English names not written exactly went from 5 of 14 to 1, Chinese from 2 of 6 to 0, and every other word's error rate stayed the same (9.4% and 13.3%); told only the other call's names, nothing changed.
+- Told, two lines in the whole set changed: "Speak Characterization" became "Speak Characterisation", and 宝洁 became 保洁, both words said there. No word changed only its case.
+- The words told and never said (eight a case: four of another language, four of the next case in the same one) were written once told nothing and once told, the same word the engine writes unprompted.
+- The words this rule picks are mostly terms rather than names (Characterisation, Disfluencies, 抖音, 主播), which the engine writes in lower case or as everyday words; a told name mends only a word written as a name that sounds like it, so they gain little. The names are what it is for: on the two calls full of names (`npm run eval:meetings -- names`), told their own names, English names not written exactly went from 4 of 14 to 0 with every other word's error rate the same; the Chinese call's three misheard names are other syllables (新和科技 for 星河科技), which stay as heard. Told twenty unsaid names that sound like the call's, or names that are everyday words (Will, Hope, Grace), neither call wrote a name nobody said or changed a word's case.
+- The model wrote out the list instead of the speech 49 times; each time the stretch kept its first reading.
+- Reading the final stretches twice costs time: the real-time factor went from 0.08–0.15× to 0.15–0.43× on this busy machine. The evaluation feeds the audio faster than it is spoken, so the app's limit (a final stretch is told its words only while decoding takes at most half the audio's time, every stream counted) doesn't come into play here.
