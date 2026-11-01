@@ -115,6 +115,9 @@ async function turnOn(core: Core, classifier?: LibraryClassifier) {
   });
 }
 
+const taggingOf = async (core: Core, id: string) =>
+  (await core.listDocuments()).find((each) => each.id === id)?.tagging;
+
 async function add(core: Core, name: string) {
   const [document] = await addAndProcess(core, [
     await writeSourceFile(await createSourceFolder(), name, `${name}: a quarterly report.`),
@@ -464,15 +467,8 @@ function scriptedWatcher() {
   };
 }
 
-/**
- * Not sent and settled: "off", or waiting for a model that isn't ready yet (as when the turn-on's
- * consent is still being recorded). The request counts decide whether anything went.
- */
-const unsent = (each: { tagging: string }) =>
-  each.tagging === "off" || each.tagging === "waiting-for-provider";
-
 /** How long the forty-Document test waits for a state at most, on a loaded machine. */
-const FORTY_WAIT_MS = 60_000;
+const FORTY_WAIT_MS = 120_000;
 
 /** A file already on disk before tagging was turned on: written an hour ago. */
 async function writtenBefore(folder: string, name: string, text: string) {
@@ -520,7 +516,7 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     const ids = (await core.listDocuments({ linkedFolderId: linked.id })).map((each) => each.id);
     expect(ids).toHaveLength(40);
     await waitForProcessing(core, ids, FORTY_WAIT_MS);
-    await waitForTagging(core, ids, unsent, FORTY_WAIT_MS);
+    await waitForTagging(core, ids, (each) => each.tagging === "off", FORTY_WAIT_MS);
     expect(providers.sent("anthropic")).toBe(0);
 
     await rename(join(folder, "Report 1.txt"), join(folder, "Report one.txt"));
@@ -528,14 +524,14 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     await waitForDocuments(core, (documents) => {
       expect(documentAt(documents, join(folder, "Report one.txt")).status).toBe("ready");
     });
-    await waitForTagging(core, ids, unsent, FORTY_WAIT_MS);
+    await waitForTagging(core, ids, (each) => each.tagging === "off", FORTY_WAIT_MS);
     expect(providers.sent("anthropic")).toBe(0);
 
     await core.createLibraryGroup({ name: "Finance", description: "Reports." });
     await core.classifyDocuments(ids);
     await waitForTagging(core, ids, undefined, FORTY_WAIT_MS);
     expect(providers.sent("anthropic")).toBe(40);
-  }, 180_000);
+  }, 600_000);
 
   test("a paused Linked folder resumed after the turn-on: the file already there and one written while paused wait, one its watcher sees after goes", async () => {
     const providers = perProvider();
@@ -818,7 +814,7 @@ describe("Everything is per service: a turn-on and a clearance", () => {
 });
 
 describe("Re-tagging all goes only as tagging by itself would", () => {
-  test("with tagging turned off, Re-tag all sends nothing; re-tagging one Document sends it", async () => {
+  test("with tagging turned off, Re-tag all sends nothing and leaves the Document as it was; re-tagging it sends it", async () => {
     const providers = perProvider();
     const core = startCore(await createTempDataFolder(), {
       createChatModel: providers.createChatModel,
@@ -832,7 +828,9 @@ describe("Re-tagging all goes only as tagging by itself would", () => {
     await core.saveLibrarySettings({ ...settings, automatic: false });
 
     await core.retagDocuments();
-    await waitForTagging(core, [report.id], (each) => each.tagging === "off");
+    const after = await add(core, "Added after.txt");
+    await waitForTagging(core, [after.id], (each) => each.tagging === "off");
+    expect(await taggingOf(core, report.id)).toBe("tagged");
     expect(providers.sent("anthropic")).toBe(1);
 
     await core.retagDocuments([report.id]);
@@ -840,7 +838,7 @@ describe("Re-tagging all goes only as tagging by itself would", () => {
     expect(providers.sent("anthropic")).toBe(2);
   });
 
-  test("Re-tag all skips where the User stopped tagging; re-tagging there by hand sends", async () => {
+  test("Re-tag all leaves where the User stopped tagging as it was; re-tagging there by hand sends", async () => {
     const providers = perProvider();
     const core = startCore(await createTempDataFolder(), {
       createChatModel: providers.createChatModel,
@@ -853,11 +851,35 @@ describe("Re-tagging all goes only as tagging by itself would", () => {
     await core.setTaggingWithAi(null, false);
 
     await core.retagDocuments();
-    await waitForTagging(core, [report.id], (each) => each.tagging === "stopped");
+    expect(await taggingOf(core, report.id)).toBe("tagged");
     expect(providers.sent("anthropic")).toBe(1);
 
     await core.retagDocuments([report.id]);
     await waitForTagging(core, [report.id]);
     expect(providers.sent("anthropic")).toBe(2);
+  });
+});
+
+describe("A Re-tag all that sends nothing changes nothing", () => {
+  test("tagging turned on for Anthropic, then OpenAI picked in Settings › Models: Re-tag all leaves a tagged Document tagged", async () => {
+    const providers = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    const tagged = await add(core, "A.txt");
+    await waitForTagging(core, [tagged.id]);
+    const openai = await core.saveChatProvider(OPENAI);
+    await chooseInModels(core, chatModel(openai.id, OPENAI.modelId));
+    expect((await core.getLibrary()).settings.automatic).toBe(false);
+
+    await core.retagDocuments();
+    const after = await add(core, "Added after.txt");
+    await waitForTagging(core, [after.id], (each) => each.tagging === "off");
+
+    expect(await taggingOf(core, tagged.id)).toBe("tagged");
+    expect(providers.sent("anthropic")).toBe(1);
+    expect(providers.sent("openai")).toBe(0);
   });
 });

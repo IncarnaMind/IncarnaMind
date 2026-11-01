@@ -554,8 +554,9 @@ export function createTagger(options: TaggerOptions) {
         if (!row) throw new NotFoundError({ key: "error.document.notFound" });
         return { id, row };
       });
-      // Re-tagging these Documents is the User's request for each. Re-tagging all of them goes
-      // only as tagging by itself would: not while it is off, nor where it is stopped (#2308).
+      // Re-tagging these Documents is the User's request for each. Re-tagging all of them is their
+      // request for every Document where tagging is on and not stopped; the others are left as
+      // they are (#2308).
       const askedFor =
         input !== undefined
           ? rows
@@ -565,7 +566,7 @@ export function createTagger(options: TaggerOptions) {
       for (const { id } of askedFor) asked.add(id);
       const changed: string[] = [];
       const ready = options.mightBeReady();
-      for (const { id, row } of rows) {
+      for (const { id, row } of askedFor) {
         if (row.status !== "ready") {
           // Being processed again: tagged afresh once ready. Failed or without text: nothing to tag.
           if (row.tagging_status === "tagged" && setState(id, "pending")) changed.push(id);
@@ -575,7 +576,7 @@ export function createTagger(options: TaggerOptions) {
       }
       if (changed.length > 0) announce(changed);
       if (!ready) return;
-      for (const { id, row } of rows) if (row.status === "ready") enqueue(id, true);
+      for (const { id, row } of askedFor) if (row.status === "ready") enqueue(id, true);
     },
 
     /** The ready Documents whose tagging, or Organize's, couldn't reach the AI model, unless stopped. */
