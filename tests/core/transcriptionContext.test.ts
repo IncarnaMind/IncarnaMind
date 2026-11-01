@@ -161,6 +161,9 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
         expect(withToldWords(plain as string, told as string, names)).toBe(plain);
       }
       expect(withToldWords("I will send it.", "I will send it.", ["Will"])).toBe("I will send it.");
+      // A word in lower case is never a name, however like a told one it sounds.
+      expect(withToldWords("I hope so.", "I Hoppe so.", ["Hoppe"])).toBe("I hope so.");
+      expect(withToldWords("We will see.", "We Wil see.", ["Wil"])).toBe("We will see.");
       expect(withToldWords("Thanks, Pria.", "Thanks, Priya.", english)).toBe("Thanks, Priya.");
     });
 
