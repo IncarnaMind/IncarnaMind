@@ -122,8 +122,9 @@ export function WordsToKnow() {
       return;
     }
     setProblem(null);
-    setDraft("");
     await saveWords([word, ...words]);
+    // A word that wasn't saved (the failure is reported) stays typed, to try again.
+    if (wordsNow()[0] === word) setDraft("");
   };
 
   const rename = async (from: string, to: string) => {

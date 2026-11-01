@@ -11,8 +11,9 @@
  * INCARNAMIND_EVAL_OUT: the results folder (default eval/results/meetings-names-<date>).
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
@@ -45,16 +46,24 @@ const GAP_SECONDS = 0.8;
 const YIELD_EVERY = 50;
 const callsFile = join(dirname(fileURLToPath(import.meta.url)), "names.json");
 
-/** Each line's speech, made with `say` the first time and kept: 16 kHz mono 16-bit WAV. */
+/**
+ * Each line's speech, made with `say` the first time and kept as 16 kHz mono 16-bit WAV, named
+ * for its voice and words, so a line changed in names.json is spoken again.
+ */
 async function lineAudio(call: Call, at: number): Promise<Float32Array> {
   const folder = join(meetingsCache(), "names");
-  const wav = join(folder, `${call.id}-${String(at).padStart(2, "0")}.wav`);
+  const line = call.lines[at] as Call["lines"][number];
+  const voice = call.voices[line.side];
+  const key = createHash("sha256").update(`${voice}\n${line.text}`).digest("hex").slice(0, 16);
+  const wav = join(folder, `${call.id}-${String(at).padStart(2, "0")}-${key}.wav`);
   if (!existsSync(wav)) {
     await mkdir(folder, { recursive: true });
-    const line = call.lines[at] as Call["lines"][number];
     const aiff = `${wav}.aiff`;
-    execFileSync("say", ["-v", call.voices[line.side], "-r", "165", "-o", aiff, line.text]);
-    execFileSync("afconvert", ["-f", "WAVE", "-d", "LEI16@16000", "-c", "1", aiff, wav]);
+    const partial = `${wav}.partial.wav`;
+    execFileSync("say", ["-v", voice, "-r", "165", "-o", aiff, line.text]);
+    execFileSync("afconvert", ["-f", "WAVE", "-d", "LEI16@16000", "-c", "1", aiff, partial]);
+    await rename(partial, wav);
+    await rm(aiff, { force: true });
   }
   return monoSamples(await readFile(wav), wav);
 }

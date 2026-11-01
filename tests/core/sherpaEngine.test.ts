@@ -28,8 +28,11 @@ vi.mock("sherpa-onnx-node", () => ({
             handle: { id: RESULTS.length },
           };
         },
-        decodeAsync: async () =>
-          JSON.parse(toldResult !== null && STREAMS.at(-1)?.hotwords ? toldResult : latest()),
+        decodeAsync: async () => {
+          const told = toldResult !== null && STREAMS.at(-1)?.hotwords;
+          if (told && toldResult === "fails") throw new Error("The told reading failed.");
+          return JSON.parse(told ? (toldResult as string) : latest());
+        },
       }),
     },
     Vad: class {},
@@ -162,6 +165,21 @@ describe("The sherpa-onnx recognizer", () => {
     );
     expect(STREAMS).toEqual([{}, { hotwords: "李明" }]);
     clock.mockRestore();
+    toldResult = null;
+  });
+
+  test("a told reading that fails leaves the stretch its first reading, and the log none of its words (#1031)", async () => {
+    const engine = await createSherpaEngine(model);
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    RESULTS.push('{"lang": "", "text": "项目经理李林会把施工图发给你。", "tokens": []}');
+    toldResult = "fails";
+
+    expect(await engine.recognizer.decode(samples, "meeting:1:mic", ["李明"])).toBe(
+      "项目经理李林会把施工图发给你。",
+    );
+    expect(warned).toHaveBeenCalledTimes(1);
+    expect(String(warned.mock.calls[0])).not.toMatch(/李|施工/);
+    warned.mockRestore();
     toldResult = null;
   });
 });

@@ -170,7 +170,17 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
         if (words.length === 0) return plain;
         const took = (performance.now() - started) / 1000;
         if (took > (samples.length / MEETING_SAMPLE_RATE) * READ_AGAIN_WITHIN) return plain;
-        const told = await read(samples, words);
+        let told: string;
+        try {
+          told = await read(samples, words);
+        } catch (error) {
+          // The second reading only mends names: the stretch keeps the reading it has.
+          console.warn(
+            "The speech model couldn't read a stretch again with its words; it keeps its plain reading.",
+            error instanceof Error ? error.name : typeof error,
+          );
+          return plain;
+        }
         if (echoes(told, words)) {
           // The process has no logger of its own: its output goes to the app's log. No words in it.
           console.warn(
