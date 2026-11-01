@@ -450,6 +450,8 @@ export const en = {
   "undo.documentsAdded": "Added {count} Documents",
   "undo.documentAdded.one": "Added 1 Document",
   "undo.name.addDocuments": "Add Documents",
+  "undo.documentsRemoved": "Removed {count} Documents",
+  "undo.documentRemoved.one": "Removed 1 Document",
   "object.restored": "Restored “{name}”",
   "object.restoredTo": "Restored “{name}” to {folder}",
   "object.restored.count": "Restored {count} items",

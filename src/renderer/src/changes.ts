@@ -103,7 +103,8 @@ export function deleted(
 
 /**
  * Documents added: undone by moving to Recently deleted those of the ones this add brought in that
- * are still its own, done again by bringing back exactly those. `take` says which it took.
+ * are still its own, done again by bringing back exactly those. `take` says which it took. A ⌘Z
+ * can reach it long after, from a note, so taking it back says how many left the Library.
  */
 export function documentsAdded(count: number, take: () => Promise<RestoreRef[]>): Undoable {
   let taken: RestoreRef[] = [];
@@ -113,6 +114,13 @@ export function documentsAdded(count: number, take: () => Promise<RestoreRef[]>)
         count: formatCount(count, languageNow()),
       }),
     name: (t) => t("undo.name.addDocuments"),
+    takenBack: () =>
+      taken.length === 0
+        ? null
+        : (t) =>
+            t(taken.length === 1 ? "undo.documentRemoved.one" : "undo.documentsRemoved", {
+              count: formatCount(taken.length, languageNow()),
+            }),
     undo: async () => {
       taken = await take();
     },

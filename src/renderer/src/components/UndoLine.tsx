@@ -156,7 +156,7 @@ export function UndoLineBody({
       data-testid="undo-action"
       aria-label={t("move.undoLabel", { message: fullMessage ?? message })}
       title={t("undo.title", { shortcut: shortcutLabel("edit.undo") })}
-      onClick={() => void useUndo.getState().undo()}
+      onClick={() => void useUndo.getState().undo(line.change)}
       className={actionClass}
     >
       {t("move.undo")}

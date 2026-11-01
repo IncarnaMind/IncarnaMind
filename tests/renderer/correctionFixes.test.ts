@@ -18,6 +18,7 @@ import {
   MIND_CONTENT_FIELD,
   PROPOSAL_DELETE_MARK,
 } from "../../src/core/api";
+import type { Language } from "../../src/core/language";
 import {
   applyCorrection,
   correctableCount,
@@ -32,10 +33,14 @@ import {
   shownClaims,
 } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { saidInLine } from "../../src/renderer/src/lineNames";
 import { useNotices } from "../../src/renderer/src/notices";
+import type { Translate } from "../../src/renderer/src/objects";
+import { nextToRedo, useUndo } from "../../src/renderer/src/undo";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { checkWithParts } from "../../src/shared/claimParts";
 import { readFigures } from "../../src/shared/figures";
+import { translate } from "../../src/shared/i18n";
 import { INLINE_NODE } from "../../src/shared/sentences";
 
 const { recordAiUse } = vi.hoisted(() => ({ recordAiUse: vi.fn(() => Promise.resolve([])) }));
@@ -897,4 +902,95 @@ describe("Old words a correction leaves alone (#1481)", () => {
       }
     },
   );
+});
+
+describe("A fix taken back and done again from outside the note (#2402)", () => {
+  const { undo, redo } = useUndo.getState();
+
+  /** What the window's undo line says now, in `language`. */
+  const lineIn = (language: Language) => {
+    const t: Translate = (key, params) => translate(language, key, params);
+    const { line } = useUndo.getState();
+    if (line?.change) return saidInLine(t, line.change.said).message;
+    return line?.told ? saidInLine(t, line.told.says).message : null;
+  };
+
+  const contradicted = () => {
+    const { editor } = editorWith([
+      {
+        type: "paragraph",
+        attrs: { id: "block-one" },
+        content: [marked("The rate is 36.8%.", check("one", "The rate is 36.8%."))],
+      },
+    ]);
+    return editor;
+  };
+
+  /** What the User sees of the sentence: its words, its Citations and its mark. */
+  const shown = (editor: Editor) => ({
+    text: textOf(editor),
+    cited: citationsOf(editor).map((each) => each.documentId),
+    mark: claim(editor, "one").shown.state,
+  });
+  const before = { text: "The rate is 36.8%.", cited: [], mark: "contradicted" };
+  const fixed = { text: `The rate is 38.6%${INLINE_NODE}.`, cited: ["report"], mark: "supported" };
+
+  beforeEach(() => {
+    useUndo.setState({ done: [], undone: [], line: null, running: null, making: 0, places: [] });
+  });
+
+  test.each([
+    { language: "en", said: "Changed to what the Document says" },
+    { language: "zh-CN", said: "已改为文档的说法" },
+  ] as const)(
+    "⌘Z takes the fix back and ⇧⌘Z brings it back with its Citation, its line saying so ($language)",
+    async ({ language, said }) => {
+      const editor = contradicted();
+      expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
+      expect(shown(editor)).toEqual(fixed);
+      expect(lineIn(language)).toBe(said);
+
+      await undo();
+      expect(shown(editor)).toEqual(before);
+      expect(nextToRedo(useUndo.getState())).toBeDefined();
+
+      await redo();
+      expect(shown(editor)).toEqual(fixed);
+      expect(lineIn(language)).toBe(said);
+
+      await undo();
+      expect(shown(editor)).toEqual(before);
+    },
+  );
+
+  test("the note's own ⌘Z and ⇧⌘Z hand the fix to the window's Redo and Undo, and an edit after ends its Redo", async () => {
+    const editor = contradicted();
+    applyCorrection(editor, "mind", claim(editor, "one"));
+    const [change] = useUndo.getState().done;
+
+    undoManager(editor)?.undo();
+    expect(shown(editor)).toEqual(before);
+    expect(useUndo.getState().done).toEqual([]);
+    expect(useUndo.getState().undone).toEqual([change]);
+    // Its line goes: it would offer Undo of what is taken back already.
+    expect(useUndo.getState().line).toBeNull();
+
+    await redo();
+    expect(shown(editor)).toEqual(fixed);
+    expect(useUndo.getState().done).toEqual([change]);
+
+    await undo();
+    undoManager(editor)?.redo();
+    expect(shown(editor)).toEqual(fixed);
+    expect(useUndo.getState().done).toEqual([change]);
+    expect(useUndo.getState().undone).toEqual([]);
+
+    await undo();
+    expect(nextToRedo(useUndo.getState())).toBe(change);
+    editor.commands.insertContentAt(1, "Now ");
+    expect(textOf(editor)).toBe("Now The rate is 36.8%.");
+    expect(nextToRedo(useUndo.getState())).toBeUndefined();
+    await redo();
+    expect(textOf(editor)).toBe("Now The rate is 36.8%.");
+  });
 });

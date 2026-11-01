@@ -8,10 +8,14 @@ import {
   addDocuments,
   checkCard,
   useLocalChatModel as chooseScriptedModel,
+  clickEditItem,
   clickEndOf,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
+  editItem,
   launchApp,
+  leaveText,
   motionSettled,
   newMind,
   pointAndClick,
@@ -19,6 +23,7 @@ import {
   runCommand,
   setLanguage,
   setWindowSize,
+  undoMenuItem,
 } from "./app";
 
 /*
@@ -265,6 +270,81 @@ for (const [language, width] of [
     await expect(card.getByTestId("claim-correct")).toHaveCount(0);
     await expect(card.getByTestId("claim-open")).toBeVisible();
     await expect(card.getByTestId("claim-keep")).toBeVisible();
+    await app.close();
+  });
+
+  // protects=a check's fix taken back with ⌘Z or Edit › Undo outside the note comes back with ⇧⌘Z or Edit › Redo, Citation and all, and the ⌘Z that then reaches the older add says which Documents it took out, with Redo that brings them back and the fix after them (#2402); fails_when=Redo is greyed after the fix's Undo, or the Documents leave without a line; no_claim=the note's own ⌘Z inside the text, which its own history keeps.
+  test(`⌘Z and the Edit menu take back a fix and bring it back, and the next ⌘Z says which Documents it took out (${language}, ${width}px)`, async () => {
+    test.setTimeout(240_000);
+    const { app, window, editor, check, evidence } = await launched(language, width);
+    const text = language === "en" ? "The rate is 36.8%." : "比率是 36.8%。";
+    await insert(window, [
+      paragraph(
+        marked(
+          text,
+          check("rate", text, {
+            from: "36.8%",
+            choices: [{ wording: "38.6%", evidence: evidence("Acceptance scan", "王芳") }],
+          }),
+        ),
+      ),
+    ]);
+    const mark = window.getByTestId("claim-mark").first();
+    const line = editor.locator(":scope > p").first();
+    const fixed = async () => {
+      await expect(line).toContainText("38.6%");
+      await expect(line.getByTestId("citation")).toHaveCount(1);
+      await expect(mark).toHaveAttribute("data-check", "supported");
+    };
+    const before = async () => {
+      await expect(line).toContainText("36.8%");
+      await expect(line.getByTestId("citation")).toHaveCount(0);
+      await expect(mark).toHaveAttribute("data-check", "contradicted");
+    };
+    const library = async () =>
+      (await coreOf(window)).evaluate(async (core) => (await core.listDocuments()).length);
+    await pointAndClick(window, mark);
+    await pointAndClick(window, window.getByTestId("claim-card").getByTestId("claim-correct"));
+    await fixed();
+
+    // Outside the note, as after the card closes: ⌘Z and ⇧⌘Z reach the window's changes.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await before();
+    await expect.poll(async () => (await editItem(app, "edit.redo"))?.enabled).toBe(true);
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await fixed();
+    await clickEditItem(app, "edit.undo");
+    await before();
+    await clickEditItem(app, "edit.redo");
+    await fixed();
+
+    await window.keyboard.press("ControlOrMeta+z");
+    await before();
+    const addDocuments = translate(language, "undo.name.addDocuments");
+    await expect
+      .poll(() => undoMenuItem(app))
+      .toEqual({
+        label: translate(language, "menu.undo.named", { action: addDocuments }),
+        enabled: true,
+      });
+    await window.keyboard.press("ControlOrMeta+z");
+    const undoLine = window.getByTestId("undo-line");
+    await expect(undoLine).toContainText(
+      translate(language, "undo.documentsRemoved", { count: "3" }),
+    );
+    await expect.poll(library).toBe(0);
+    await expect(mark).toHaveAttribute("data-check", "needs-recheck");
+    await screenshot(window, `correction-add-undone-${language}`);
+
+    await pointAndClick(window, undoLine.getByTestId("redo-action"));
+    await expect.poll(library).toBe(3);
+    await expect(undoLine).toContainText(
+      translate(language, "undo.documentsAdded", { count: "3" }),
+    );
+    await before();
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await fixed();
     await app.close();
   });
 

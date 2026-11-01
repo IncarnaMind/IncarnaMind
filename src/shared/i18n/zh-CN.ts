@@ -438,6 +438,8 @@ export const zhCN = {
   "undo.documentsAdded": "已添加 {count} 个文档",
   "undo.documentAdded.one": "已添加 1 个文档",
   "undo.name.addDocuments": "添加文档",
+  "undo.documentsRemoved": "已移除 {count} 个文档",
+  "undo.documentRemoved.one": "已移除 1 个文档",
   "object.restored": "已恢复“{name}”",
   "object.restoredTo": "已将“{name}”恢复到“{folder}”",
   "object.restored.count": "已恢复 {count} 项",
