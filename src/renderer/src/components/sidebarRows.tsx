@@ -52,6 +52,14 @@ export const rowClass = (
 
 export const dropIntoClass = "bg-accent-wash shadow-[inset_0_0_0_2px_var(--color-accent)]";
 
+/** A Folder dropped near a row's top edge goes beside it: a line across that edge. */
+export const dropBeforeClass =
+  "before:pointer-events-none before:absolute before:inset-x-2 before:top-0 before:z-10 before:h-0.5 before:rounded-full before:bg-accent before:content-['']";
+
+/** A Folder dropped near a row's bottom edge goes beside it. */
+export const dropAfterClass =
+  "after:pointer-events-none after:absolute after:inset-x-2 after:bottom-0 after:z-10 after:h-0.5 after:rounded-full after:bg-accent after:content-['']";
+
 /** A name being typed in a row. */
 export const rowInputClass =
   "h-6 w-full min-w-0 rounded-sm border border-accent bg-sheet px-1.5 text-ui text-ink outline-1 outline-offset-0 outline-accent select-text";

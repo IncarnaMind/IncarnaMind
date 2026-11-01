@@ -6,7 +6,8 @@ const EDGE_PX = 4;
 
 export function DropLabel() {
   const t = useT();
-  const said = useDragState((state) => state.over?.effect.said ?? null);
+  const said = useDragState((state) => state.over?.effect.said ?? state.refusal?.said ?? null);
+  const refused = useDragState((state) => state.refusal !== null);
   const at = useDragState((state) => state.at);
   const label = useRef<HTMLDivElement>(null);
   // Under the pointer, and kept inside the window by its own width, so a short one stays by it.
@@ -21,9 +22,11 @@ export function DropLabel() {
   return (
     <div
       ref={label}
-      data-testid="drop-label"
+      data-testid={refused ? "drop-refusal" : "drop-label"}
       aria-hidden="true"
-      className="pointer-events-none fixed z-[70] max-w-72 truncate rounded-md bg-ink px-2 py-1 text-[12px] leading-4 font-semibold text-white shadow-[0_4px_12px_rgba(23,25,28,0.18)]"
+      className={`pointer-events-none fixed z-[70] max-w-72 truncate rounded-md px-2 py-1 text-[12px] leading-4 font-semibold shadow-[0_4px_12px_rgba(23,25,28,0.18)] ${
+        refused ? "bg-ink-secondary text-white" : "bg-ink text-white"
+      }`}
     >
       {said(t)}
     </div>

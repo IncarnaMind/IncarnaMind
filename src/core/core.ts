@@ -1428,43 +1428,38 @@ export function createCore(adapters: CoreAdapters): Core {
       : documents.searchTool(query, options);
   };
   const constrainedScope = (scope: SearchScope, mindId: string | null = null): SearchScope => {
-    const walled = new Set(
-      library
-        .folders()
-        .filter((folder) => folder.keepInside)
-        .map((folder) => folder.id),
-    );
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
-    if (own !== null && walled.has(own)) return folderScope(own);
-    return { ...scope, folderIds: scope.folderIds.filter((id) => !walled.has(id)) };
+    const ownWall = own === null ? null : library.wallOf(own);
+    if (ownWall !== null) return folderScope(ownWall);
+    return { ...scope, folderIds: scope.folderIds.filter((id) => library.wallOf(id) === null) };
   };
   const resolveScope = (scope: SearchScope | null, mindId: string | null = null) => {
     const wanted = scope ?? NO_SCOPE;
     const walled = library.folders().filter((folder) => folder.keepInside);
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
-    const ownWall = own !== null && walled.some((folder) => folder.id === own);
-    const wallIds = wanted.folderIds.filter((id) => walled.some((folder) => folder.id === id));
+    const ownWall = own === null ? null : library.wallOf(own);
+    const wallIds = wanted.folderIds.filter((id) => library.wallOf(id) !== null);
     const explicitFolderScope =
       mindId === null &&
       wallIds.length === 1 &&
-      wanted.folderIds.every((id) => walled.some((folder) => folder.id === id)) &&
+      wanted.folderIds.every((id) => library.wallOf(id) !== null) &&
       wanted.tagIds.length === 0 &&
       wanted.documentIds.length === 0;
-    if (ownWall || explicitFolderScope) {
-      return resolveSearchScope(ownWall ? constrainedScope(wanted, mindId) : wanted, {
+    if (ownWall !== null || explicitFolderScope) {
+      return resolveSearchScope(ownWall !== null ? constrainedScope(wanted, mindId) : wanted, {
         folderTree: (folderId) => folders.subtree(folderId),
-        organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+        organizedFolderDocuments: (folderId) => library.treeDocumentIds(folderId),
         documentIds: (filter) => documents.ids(filter),
       });
     }
     const constrained = constrainedScope(wanted, mindId);
-    if (!ownWall && hasSearchScope(wanted) && !hasSearchScope(constrained)) return [];
+    if (ownWall === null && hasSearchScope(wanted) && !hasSearchScope(constrained)) return [];
     const resolved = resolveSearchScope(constrained, {
       folderTree: (folderId) => folders.subtree(folderId),
-      organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+      organizedFolderDocuments: (folderId) => library.treeDocumentIds(folderId),
       documentIds: (filter) => documents.ids(filter),
     });
-    if (ownWall || walled.length === 0) return resolved;
+    if (ownWall !== null || walled.length === 0) return resolved;
     const excluded = new Set(walledDocuments());
     return (resolved ?? documents.ids({})).filter((id) => !excluded.has(id));
   };
@@ -1476,7 +1471,7 @@ export function createCore(adapters: CoreAdapters): Core {
     const searched = new Set(resolveScope(scope, mindId) ?? documents.ids({}));
     const picked = resolveSearchScope(scope, {
       folderTree: (folderId) => folders.subtree(folderId),
-      organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+      organizedFolderDocuments: (folderId) => library.treeDocumentIds(folderId),
       documentIds: (filter) => documents.ids(filter),
     });
     return (picked ?? []).filter((id) => searched.has(id));
@@ -1487,16 +1482,14 @@ export function createCore(adapters: CoreAdapters): Core {
       : constrainedScope({ folderIds: [...folderIds], tagIds: [], documentIds: [] }).folderIds;
   const walledFolderId = (folderId: string | null): string | null => {
     if (folderId === null || folderId === NOT_IN_A_FOLDER_ID) return null;
-    return library.folders().find((folder) => folder.id === folderId)?.keepInside === true
-      ? folderId
-      : null;
+    return library.wallOf(folderId);
   };
   // The fingerprints of the files IncarnaMind writes (#80).
   const ownFiles = createOwnFiles(db, now);
-  // Behind a wall: filed in it, or a file IncarnaMind wrote from one of its Notes, wherever that
-  // file was indexed again (a Linked folder holding the Output location).
+  // Behind a wall: filed in it or in a Folder inside it, or a file IncarnaMind wrote from one of
+  // its Notes, wherever that file was indexed again (a Linked folder holding the Output location).
   const behindWall = (folderId: string) => [
-    ...library.allDocumentIds(folderId),
+    ...library.allTreeDocumentIds(folderId),
     ...ownFiles.writtenFrom([folderId]),
   ];
   const wallOfDocument = (documentId: string) =>
@@ -1510,13 +1503,9 @@ export function createCore(adapters: CoreAdapters): Core {
       .folders()
       .filter((folder) => folder.keepInside)
       .flatMap((folder) => behindWall(folder.id));
-  /** The wall a thing in Recently deleted was behind: its Folder's, or a deleted walled Folder's own. */
+  /** The wall a thing in Recently deleted was behind: its Folder's, or a deleted Folder's own or its parent's. */
   const deletedWall = (item: DeletedItem): string | null =>
-    item.kind === "folder"
-      ? library.snapshot().deletedGroups.some((group) => group.id === item.id && group.keepInside)
-        ? item.id
-        : null
-      : walledFolderId(item.groupId);
+    item.kind === "folder" ? library.wallOf(item.id, true) : walledFolderId(item.groupId);
   const walledFolderName = (documentId: string): string | null =>
     wallOfDocument(documentId)?.name ?? null;
   const folderOfNote = (mindId: string | null): string | null =>
@@ -1662,7 +1651,7 @@ export function createCore(adapters: CoreAdapters): Core {
     const filed = new Set(
       folderIds
         .filter((id) => !named.some((folder) => folder.id === id))
-        .flatMap((id) => documents.getMany(library.documentIds(id)))
+        .flatMap((id) => documents.getMany(library.treeDocumentIds(id)))
         .map((document) => document.folderId),
     );
     return [...named, ...all.filter((folder) => filed.has(folder.id))];
@@ -1959,7 +1948,7 @@ export function createCore(adapters: CoreAdapters): Core {
         const allowed = wallId
           ? resolveSearchScope(folderScope(wallId), {
               folderTree: (folderId) => folders.subtree(folderId),
-              organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+              organizedFolderDocuments: (folderId) => library.treeDocumentIds(folderId),
               documentIds: (filter) => documents.ids(filter),
             })
           : resolveScope(NO_SCOPE, mindId);
@@ -2401,23 +2390,28 @@ export function createCore(adapters: CoreAdapters): Core {
     conversationsChanged();
   };
 
-  /** Sends a Folder to Recently deleted; what it held goes to Not in a Folder. */
+  /** Sends a Folder and the Folders inside it to Recently deleted; what they held goes to Not in a Folder. */
   const removeFolder = (id: unknown, at: string = now()) => {
     const deletion = db.transaction(() => {
       const folder = library.folder(id);
-      const left = minds.leaveFolder(folder.id);
-      const leftConversations = conversations.leaveFolder(folder.id);
+      const leftMinds: Record<string, string[]> = {};
+      const leftConversations: Record<string, string[]> = {};
+      const mindIds: string[] = [];
+      const conversationIds: string[] = [];
+      for (const folderId of library.subtree(folder.id)) {
+        const left = minds.leaveFolder(folderId);
+        const leftChats = conversations.leaveFolder(folderId);
+        leftMinds[folderId] = left.map((mind) => mind.id);
+        leftConversations[folderId] = leftChats.map((conversation) => conversation.id);
+        mindIds.push(...left.filter((item) => item.live).map((item) => item.id));
+        conversationIds.push(...leftChats.filter((item) => item.live).map((item) => item.id));
+      }
       const { assignments } = library.delete(
         folder.id,
-        {
-          minds: left.map((mind) => mind.id),
-          conversations: leftConversations.map((conversation) => conversation.id),
-        },
+        { minds: leftMinds, conversations: leftConversations },
         at,
       );
-      const live = (items: { id: string; live: boolean }[]) =>
-        items.filter((item) => item.live).map((item) => item.id);
-      return { assignments, mindIds: live(left), conversationIds: live(leftConversations) };
+      return { assignments, mindIds, conversationIds };
     });
     if (deletion.mindIds.length > 0) mindsChanged();
     if (deletion.conversationIds.length > 0) conversationsChanged();
@@ -4084,7 +4078,7 @@ export function createCore(adapters: CoreAdapters): Core {
           userWords: settings.get().user.meetingWords,
           folderName: (folderId) =>
             library.folders().find((folder) => folder.id === folderId)?.name ?? null,
-          folderDocuments: (folderId) => library.documentIds(folderId),
+          folderDocuments: (folderId) => library.treeDocumentIds(folderId),
         }),
       lineText: (text, words) => inScript(text, settings.get().chineseScript, words),
       purgedPaths: () =>
@@ -4402,7 +4396,7 @@ export function createCore(adapters: CoreAdapters): Core {
       foldersInScope: folderIdsInScope,
       documentsIn: (folderIds) => {
         const only = walledFolderId(folderIds.length === 1 ? (folderIds[0] ?? null) : null);
-        if (only !== null) return library.documentIds(only);
+        if (only !== null) return library.treeDocumentIds(only);
         const allowed = folderIdsInScope(folderIds);
         const folders = allowed.filter((id) => id !== NOT_IN_A_FOLDER_ID);
         const filed =

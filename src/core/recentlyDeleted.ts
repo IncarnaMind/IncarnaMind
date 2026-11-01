@@ -327,7 +327,11 @@ export function createRecentlyDeleted(options: {
           ),
         ...db
           .all<{ id: string; name: string; deleted_at: string }>(
-            "SELECT id, name, deleted_at FROM library_groups WHERE deleted_at >= ? AND purged_at IS NULL",
+            // A Folder deleted with the Folder it is in waits as part of that one item.
+            `SELECT g.id, g.name, g.deleted_at FROM library_groups g
+             WHERE g.deleted_at >= ? AND g.purged_at IS NULL
+               AND NOT EXISTS (SELECT 1 FROM library_groups p
+                 WHERE p.id = g.parent_id AND p.deleted_at = g.deleted_at)`,
             [since],
           )
           .map((row) => item("folder", row)),
@@ -421,9 +425,13 @@ export function createRecentlyDeleted(options: {
               restored.documents.push(ref.id);
             } else if (kind === "folder") {
               const taken = library.restore(ref.id);
-              if (minds.returnToFolder(taken.minds, ref.id)) restored.minds = true;
-              if (conversations.returnToFolder(taken.conversations, ref.id)) {
-                restored.conversations = true;
+              for (const group of taken.minds) {
+                if (minds.returnToFolder(group.ids, group.folderId)) restored.minds = true;
+              }
+              for (const group of taken.conversations) {
+                if (conversations.returnToFolder(group.ids, group.folderId)) {
+                  restored.conversations = true;
+                }
               }
               restored.folders = true;
             } else {
@@ -492,7 +500,15 @@ export function createRecentlyDeleted(options: {
               key: "error.restore.notDeleted",
               values: { name: nameOf(kind, row) },
             });
-          purge(db, kind, [id], at, documentText);
+          purge(
+            db,
+            kind,
+            kind === "folder" && row.deleted_at !== null
+              ? library.deletedWith(id, row.deleted_at)
+              : [id],
+            at,
+            documentText,
+          );
           // After the Mind, so its Citations no longer keep its Transcript's text.
           if (kind === "mind" && row.deleted_at !== null) {
             purge(db, "document", documentsWith(id, row.deleted_at), at, documentText);

@@ -143,7 +143,7 @@ A PDF of the pages a Note cites, made from Export options: a cover list, then on
 _Avoid_: evidence bundle, appendix, bundle
 
 **Folder**:
-A project inside IncarnaMind: a named place for Documents and Notes, with a description of what belongs there. Each Document and each Note belongs to one Folder or is Not in a Folder; this does not change where a Document's original file is stored. A Note in a Folder searches the Folder by default; deleting a Folder moves its Documents and Notes to Not in a Folder. **Keep this Folder's work inside it** adds a work wall: its Notes use only its Documents, and other Notes do not search them, while the Library, Search and ⌘K still show and open everything.
+A project inside IncarnaMind: a named place for Documents and Notes, with a description of what belongs there. A Folder holds Folders, Minds and Documents. Each Document and each Note belongs to one Folder or is Not in a Folder; this does not change where a Document's original file is stored. A Note in a Folder searches the Folder by default, and its Search scope covers the Folders inside it too; deleting a Folder moves its Documents and Notes, and those of the Folders inside it, to Not in a Folder. **Keep this Folder's work inside it** adds a work wall: its Notes use only its Documents, the Folders inside it included, and other Notes do not search them, while the Library, Search and ⌘K still show and open everything.
 _Avoid_: project (in the interface), group (a Folder's former name; a Group is now a column of tabs), collection, category
 
 **Not in a Folder**:

@@ -52,7 +52,18 @@ type DropResult = Undoable | null | undefined;
 
 export interface DropTarget<Place = unknown> {
   accepts(dragged: Dragged, at: Point): DropEffect<Place> | null;
+  /**
+   * Why it takes none of what is dragged, beside the pointer, for a drop it would otherwise
+   * seem to take: a Folder into itself, for instance. Null while it is over no such drop.
+   */
+  refuses?(dragged: Dragged, at: Point): Words | null;
   drop(dropped: Dropped, effect: DropEffect<Place>): DropResult | Promise<DropResult>;
+}
+
+/** Why the target under the pointer takes none of the drop. */
+export interface Refusal {
+  key: string;
+  said: Words;
 }
 
 export interface ObjectDrag {
@@ -63,13 +74,20 @@ export interface ObjectDrag {
 
 interface DragState {
   over: { key: string; effect: DropEffect } | null;
-  /** The pointer, while over a target that says what its drop would do. */
+  /** The pointer, while over a target that says what its drop would do, or why it won't. */
   at: Point | null;
   /** What this window drags, set once the drag is under way. */
   source: ObjectDrag | null;
+  /** Why the target under the pointer takes none of what is dragged. */
+  refusal: Refusal | null;
 }
 
-export const useDragState = create<DragState>()(() => ({ over: null, at: null, source: null }));
+export const useDragState = create<DragState>()(() => ({
+  over: null,
+  at: null,
+  source: null,
+  refusal: null,
+}));
 
 // A drag's data can only be read on the drop, so what is dragged is kept here for the targets it passes over.
 let dragging: ObjectDrag | null = null;
@@ -84,7 +102,7 @@ const stopHolding = () => {
 
 function clear(): void {
   stopHolding();
-  useDragState.setState({ over: null, at: null });
+  useDragState.setState({ over: null, at: null, refusal: null });
 }
 
 function endDrag(): void {
@@ -262,9 +280,20 @@ function show(key: string, effect: DropEffect, point: Point): void {
   const state = useDragState.getState();
   const changed = state.over?.key !== key || !samePlace(state.over.effect.place, effect.place);
   const at = effect.said ? point : null;
-  if (!changed && at === null && state.at === null) return;
+  if (!changed && at === null && state.at === null && state.refusal === null) return;
   if (changed) stopHolding();
-  useDragState.setState({ ...(changed && { over: { key, effect } }), at });
+  useDragState.setState({ ...(changed && { over: { key, effect } }), at, refusal: null });
+}
+
+/** Why the target under the pointer takes none of what is dragged, in place of what its drop would do. */
+function sayWhy(key: string, said: Words, point: Point): void {
+  const state = useDragState.getState();
+  if (state.refusal?.key === key && state.refusal.said === said) {
+    if (state.at?.x !== point.x || state.at?.y !== point.y) useDragState.setState({ at: point });
+    return;
+  }
+  stopHolding();
+  useDragState.setState({ over: null, refusal: { key, said }, at: point });
 }
 
 function letGo(at: Point, into?: Element): void {
@@ -328,18 +357,27 @@ export function dropProps<Place>(
     return dragged ? target.accepts(dragged, pointOf(event)) : null;
   };
   const leave = () => {
-    if (useDragState.getState().over?.key === key) clear();
+    const state = useDragState.getState();
+    if (state.over?.key === key || state.refusal?.key === key) clear();
   };
   const over = (event: DragEvent) => {
     listenForEnd();
-    const effect = effectOf(event);
-    if (!effect) {
+    const dragged = event.defaultPrevented ? null : draggedIn(event.dataTransfer);
+    if (!dragged) {
       leave();
+      return;
+    }
+    const point = pointOf(event);
+    const effect = target.accepts(dragged, point);
+    if (!effect) {
+      const why = target.refuses?.(dragged, point);
+      if (why) sayWhy(key, why, point);
+      else leave();
       return;
     }
     event.preventDefault();
     event.dataTransfer.dropEffect = DROP_EFFECTS[effect.kind];
-    show(key, effect, pointOf(event));
+    show(key, effect, point);
     if (open && holding?.key !== key) {
       holding = { key, timer: setTimeout(open, OPENS_AFTER_MS) };
     }

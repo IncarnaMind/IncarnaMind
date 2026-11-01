@@ -83,6 +83,7 @@ function acting(
     here: {
       "mind.moveTo": moveTo,
       "document.moveTo": moveTo,
+      "folder.moveTo": moveTo,
       ...citationHandle.current?.here(),
       ...figureHandle.current?.here(),
       ...here,

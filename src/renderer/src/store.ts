@@ -53,6 +53,7 @@ import { core, files } from "./core";
 import { LIBRARY_DELETED } from "./deletedItems";
 import { applyAssignments, applyDocumentChanges, createDocumentUpdates } from "./documentUpdates";
 import { describeError, errorMessage } from "./errors";
+import { folderPathLabel, folderWallOf, isInsideFolder } from "./folders";
 import { languageNow } from "./i18n";
 import {
   createLayoutSlice,
@@ -256,13 +257,16 @@ export interface AppState extends LayoutSlice {
   /**
    * Makes "Untitled Folder" (numbered if that is taken) and asks the sidebar to
    * open its name field, or, given a `name`, makes it with that name. With
-   * `items`, the Minds and Documents go into it at once. One step to undo, with
-   * its first name (`nameNewFolder`). Resolves to the Folder's id, or null if
-   * it couldn't be made.
+   * `items`, the Minds and Documents go into it at once. Inside `parentId`'s
+   * Folder, with that Folder's chain opened in the sidebar. One step to undo,
+   * with its first name (`nameNewFolder`). Resolves to the Folder's id, or null
+   * if it couldn't be made.
    */
-  createFolder(items?: MoveItems, name?: string): Promise<string | null>;
+  createFolder(items?: MoveItems, name?: string, parentId?: string | null): Promise<string | null>;
   /** Names the Folder just made: part of making it, so one Undo takes both back. */
   nameNewFolder(folderId: string, name: string): Promise<void>;
+  /** Puts a Folder inside another, or at the top level (null), with Undo. */
+  moveFolder(folderId: string, parentId: string | null): Promise<void>;
   /** Renames a Folder, keeping its description. */
   renameFolder(folderId: string, name: string): Promise<void>;
   /** Changes a Folder's name, description or evidence choice, with Undo. Throws what the core throws. */
@@ -1173,7 +1177,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           names: namesOfFolders(library, [folderId, ...foldersMovedFrom(done)]),
           done,
           outOfWall: foldersMovedFrom(done).some(
-            (id) => library?.groups.find((group) => group.id === id)?.keepInside === true,
+            (id) => folderWallOf(library?.groups ?? [], id) !== null,
           ),
         });
         push(change);
@@ -1181,7 +1185,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       return change;
     },
 
-    createFolder: async (items, named) => {
+    createFolder: async (items, named, parentId) => {
       let madeId: string | null = null;
       await attempt(async () => {
         const { minds, documents, library } = get();
@@ -1191,7 +1195,11 @@ export const useAppStore = create<AppState>()((set, get) => {
             t,
             (library?.groups ?? []).map((group) => group.name),
           );
-        const folder = await core.createLibraryGroup({ name, description: "" });
+        const folder = await core.createLibraryGroup({
+          name,
+          description: "",
+          ...(parentId && { parentId }),
+        });
         await get().refreshLibrary();
         const chosen = items ? itemsOf(items) : null;
         const going =
@@ -1204,9 +1212,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           names: namesOfFolders(library, done ? foldersMovedFrom(done) : []),
           done,
           outOfWall: done
-            ? foldersMovedFrom(done).some(
-                (id) => library?.groups.find((group) => group.id === id)?.keepInside === true,
-              )
+            ? foldersMovedFrom(done).some((id) => folderWallOf(library?.groups ?? [], id) !== null)
             : false,
         });
         const step = stepNamed(name);
@@ -1276,6 +1282,40 @@ export const useAppStore = create<AppState>()((set, get) => {
         redo: folderFields(folderId, after),
       });
     },
+
+    moveFolder: (folderId, parentId) =>
+      attempt(async () => {
+        const groups = get().library?.groups ?? [];
+        const folder = groups.find((group) => group.id === folderId);
+        if (!folder || folder.parentId === parentId) return;
+        // A Folder can't go inside itself or one of its own sub-Folders.
+        if (parentId !== null && isInsideFolder(groups, parentId, folderId)) return;
+        const putIn = (next: string | null) => async () => {
+          const groups = useAppStore.getState().library?.groups ?? [];
+          const moved = groups.find((group) => group.id === folderId);
+          if (!moved) return;
+          await core.updateLibraryGroup(folderId, {
+            name: moved.name,
+            description: moved.description,
+            countsOwnFiles: moved.countsOwnFiles,
+            keepInside: moved.keepInside,
+            parentId: next,
+          });
+          await get().refreshLibrary();
+        };
+        const before = folderPathLabel(groups, folder.parentId);
+        const after = parentId === null ? null : folderPathLabel(groups, parentId);
+        await putIn(parentId)();
+        push({
+          said: (t) =>
+            parentId === null
+              ? t("folder.moved.out", { name: folder.name, from: before })
+              : t("folder.moved.into", { name: folder.name, into: after ?? "" }),
+          name: (t) => t("undo.name.moveFolder"),
+          undo: putIn(folder.parentId),
+          redo: putIn(parentId),
+        });
+      }),
 
     // Its Minds' list follows the core's "minds.changed" event, the Library its "library.changed".
     deleteFolder: (folderId) =>

@@ -12,6 +12,7 @@ const groups = [
     id: "research",
     name: "Research",
     description: "Scientific papers",
+    parentId: null,
     countsOwnFiles: false,
     keepInside: false,
     createdAt: "",
