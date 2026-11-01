@@ -25,14 +25,18 @@ import {
   NotFoundError,
   TaggingNotReadyError,
 } from "../errors";
+import type { Language } from "../language";
 import { normalizeBaseUrl, serviceForUrl } from "../providers/kinds";
 import { classifyProviderError } from "../providers/providerErrors";
 import { gateStop } from "../sendGate";
 import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
 import { sameName, type TagsStore } from "../tags";
+import { documentType, excerptFromPassages } from "../tags/classify";
+import { clearForService, mayBackgroundSend, turnOnTime } from "../tags/held";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
-import type { GroupClassifier } from "./classifier";
+import { fallbackLine } from "../tags/suggest";
+import type { FolderSample, GroupClassifier } from "./classifier";
 import {
   ORGANIZE_PASSAGES,
   type OrganizeSource,
@@ -279,6 +283,11 @@ function parseAssignmentState(input: unknown): AssignmentState {
  */
 export const CLASSIFICATION_FLOW_SENDS = ["groups", "tags", "document-excerpts"] as const;
 
+/** How many Documents a Folder proposal reads the start of, how much of each, and how many more by name. */
+const SAMPLED = 60;
+const SAMPLE_TOKENS = 120;
+const NAMED = 240;
+
 /** Up to 3 page images of a PDF with no text, to a model that reads images. */
 export const SCAN_IMAGES_FLOW_SENDS = ["page-images"] as const;
 
@@ -297,6 +306,8 @@ export function createLibrary(options: {
   assigned(assignments: DocumentGroupAssignment[]): void;
   tags: TagsStore;
   tagged(ids: string[]): void;
+  /** Organize made new Tags: the list of Tags is to be read again. */
+  tagsMade?(): void;
   prepare(settings: LibrarySettings): Promise<GroupClassifier>;
   providerExists(id: string): boolean;
   /**
@@ -305,13 +316,23 @@ export function createLibrary(options: {
    */
   readsPages(classifier: TaggingClassifier): boolean;
   /**
-   * Whether the model tagging or organizing would use runs on another computer:
-   * the switch for doing it by itself is off for one until the User turns it on.
+   * The services tagging and organizing by themselves would send to, none for models on this
+   * computer: the switch for doing it by itself is off for one until the User turns it on there.
    */
-  usesCloud(settings: {
+  sendsTo(settings: {
     classifier: LibraryClassifier;
     organizeWith: TaggingClassifier | null;
-  }): boolean;
+  }): ExternalService[];
+  /** When the User allowed tagging or Organize to send to this service (../consent); null if not. */
+  consentedAt(service: ExternalService): string | null;
+  /** Whether the User's consent to tagging sending to this service stands (../consent). */
+  taggingAllowed(service: ExternalService): boolean;
+  /**
+   * The service an Organize request with these settings sends a Document to; none on this
+   * computer. A scan's page images may go to the image model's too, which the User allows for
+   * itself (the "scan-images" flow).
+   */
+  organizeService(settings: LibrarySettings): ExternalService | null;
   /**
    * The service that would read a scan's pages for this classifier if the User
    * allowed it, while they haven't; null when it reads them, or can't.
@@ -343,6 +364,14 @@ export function createLibrary(options: {
       classifier: taggingClassifierOf(saved.classifier) ?? LIBRARY_DEFAULTS.classifier,
       // Null until the User sets the switch: it follows the model then (see `LibrarySettings.automatic`).
       automatic: typeof saved.automatic === "boolean" ? saved.automatic : null,
+      // When the User turned it on for each service; null for a switch saved before these were kept.
+      automaticSince: isRecord(saved.automaticSince)
+        ? Object.fromEntries(
+            Object.entries(saved.automaticSince).filter(
+              (each): each is [string, string] => typeof each[1] === "string",
+            ),
+          )
+        : null,
       organizeWith: taggingClassifierOf(saved.organizeWith),
       taggingStopped: Array.isArray(saved.taggingStopped)
         ? saved.taggingStopped.filter(
@@ -351,11 +380,44 @@ export function createLibrary(options: {
         : [],
     };
   };
-  const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !options.usesCloud(saved);
-  const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => ({
-    ...saved,
-    automatic: saved.automatic ?? defaultAutomatic(saved),
-  });
+  const usesCloud = (saved: Parameters<typeof options.sendsTo>[0]) =>
+    options.sendsTo(saved).length > 0;
+  const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !usesCloud(saved);
+  /**
+   * When the switch was turned on for each service. One saved before these were kept holds from
+   * when the User allowed tagging or Organize to send there.
+   */
+  const sinceOf = (saved: ReturnType<typeof savedSettings>): Record<string, string> =>
+    saved.automaticSince ??
+    Object.fromEntries(
+      options.sendsTo(saved).flatMap((service) => {
+        const at = options.consentedAt(service);
+        return at === null ? [] : [[service.id, at]];
+      }),
+    );
+  /**
+   * Whether the switch the User turned on holds where tagging sends now: turned on for one
+   * service, it is off for another until they turn it on there (#2308).
+   */
+  const turnedOnHere = (saved: ReturnType<typeof savedSettings>) => {
+    const since = sinceOf(saved);
+    return options.sendsTo(saved).every((service) => since[service.id] !== undefined);
+  };
+  /** When the User turned tagging on for this service; null if they haven't. */
+  const turnedOnAt = (service: ExternalService): string | null => {
+    const saved = savedSettings();
+    return saved.automaticSince
+      ? (saved.automaticSince[service.id] ?? null)
+      : options.consentedAt(service);
+  };
+  const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => {
+    const { automaticSince: _automaticSince, ...shown } = saved;
+    return {
+      ...shown,
+      automatic:
+        saved.automatic === null ? defaultAutomatic(saved) : saved.automatic && turnedOnHere(saved),
+    };
+  };
   const getSettings = (): LibrarySettings => shownSettings(savedSettings());
   const noticeIsOpen = (marker: unknown) => marker === "pending" || marker === true;
   const automaticOffNotice = (): boolean => {
@@ -752,9 +814,17 @@ export function createLibrary(options: {
             return;
           }
           state(id, "classifying");
-          const classifier = await options.prepare(getSettings());
+          const settingsNow = getSettings();
+          const classifier = await options.prepare(settingsNow);
           if (classifier.local) call.runsLocally();
           if (stale()) return;
+          // Checked on where this request goes, as prepared; the User's own Organize goes.
+          const service = options.organizeService(settingsNow);
+          const services = service ? [service] : [];
+          if (!asked.has(id) && !mayBackgroundSend(db, id, services, turnedOnAt)) {
+            holdBack(id, initial);
+            return;
+          }
           const declined = rejected(id);
           const offered = definitions.filter((item) => !declined.has(item.id));
           const read = source(current);
@@ -785,8 +855,9 @@ export function createLibrary(options: {
           const { groupId } = result;
           if (groupId !== null && !offered.some((item) => item.id === groupId))
             throw new Error("The classifier returned an unknown group.");
+          if (result.fallback) console.info(fallbackLine(id));
           const chosen = initial.source === "user";
-          db.transaction(() => {
+          const { made } = db.transaction(() => {
             write(
               latest,
               chosen ? initial.group_id : groupId,
@@ -797,9 +868,12 @@ export function createLibrary(options: {
                 : null,
               !chosen && groupId !== null,
             );
-            options.tags.applyAutomatic(id, result.tags);
+            const applied = options.tags.applyAutomatic(id, result.tags, result.newTags);
             tagState(id, "classified");
+            if (asked.has(id)) clearForService(db, id, services, now());
+            return applied;
           });
+          if (made > 0) options.tagsMade?.();
           options.tagged([id]);
           announce([id]);
         } catch (error) {
@@ -830,8 +904,10 @@ export function createLibrary(options: {
             if (assignment(id)?.status === "classifying") state(id, "pending");
             if (!call.gaveWay) {
               queued.delete(id);
-              if (assignment(id)?.status === "pending") enqueue(id);
-              else asked.delete(id);
+              const status = assignment(id)?.status;
+              // Waiting to be allowed, it is still the User's request when it goes.
+              if (status === "pending") enqueue(id);
+              else if (status !== "waiting") asked.delete(id);
             }
           }
         }
@@ -908,6 +984,50 @@ export function createLibrary(options: {
     return { name, description, countsOwnFiles, keepInside };
   }
 
+  const documentIdsOf = (input: unknown): string[] => {
+    if (!Array.isArray(input) || !input.every((id) => typeof id === "string" && id !== ""))
+      throw new InvalidInputError("Choose valid Documents.");
+    return [...new Set(input as string[])];
+  };
+
+  /**
+   * What a proposal reads: the first `SAMPLED` Documents with the start of their text, the rest
+   * up to `NAMED` by name and type only, so a Linked folder of thousands stays one request.
+   */
+  const samplesOf = (docs: readonly DocumentRow[]): FolderSample[] =>
+    docs.slice(0, SAMPLED + NAMED).map((doc, at) => {
+      const excerpt = organizeExcerpt(source(doc, at < SAMPLED));
+      return {
+        name: doc.name,
+        type: documentType(excerpt),
+        text: at < SAMPLED ? excerptFromPassages([excerpt.text], SAMPLE_TOKENS) : "",
+      };
+    });
+
+  /**
+   * A Document Organize may not send by itself (`mayBackgroundSend`) waits for the User, "off":
+   * one it hadn't filed has no assignment, as if it was never sorted; one it had stays filed.
+   */
+  function holdBack(id: string, row: { source: string; group_id: string | null }): void {
+    const at = now();
+    db.transaction(() => {
+      if (row.source === "automatic" && row.group_id === null) {
+        db.run(
+          "UPDATE document_groups SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
+          [at, at, id],
+        );
+      } else {
+        state(id, "classified");
+      }
+      db.run(
+        "UPDATE documents SET tagging_status = 'off', tagging_error_kind = NULL, tagging_error_message = NULL, tagging_error_resets_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+        [at, id],
+      );
+    });
+    options.tagged([id]);
+    announce([id]);
+  }
+
   // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
   // waiting or failed), or while Organize files new Documents by itself.
   const isOrganizing = (id: string): boolean => {
@@ -917,6 +1037,7 @@ export function createLibrary(options: {
 
   return {
     settings: getSettings,
+    turnedOnAt,
     taggingStoppedFor,
     isOrganizing,
     taggingPlaces(): (string | null)[] {
@@ -1226,38 +1347,100 @@ export function createLibrary(options: {
         if (!isRecord(each)) throw new InvalidInputError("Choose a classifier.");
         checkClassifier(each);
       }
-      // A save that leaves the switch where it shows doesn't set it: it goes on following the model.
       const before = savedSettings();
-      const showing = before.automatic ?? !options.usesCloud(before);
-      const setByUser = before.automatic !== null || input.automatic !== showing;
-      if (setByUser && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
+      const next = {
+        classifier: automaticChosen ? AUTOMATIC : (taggingClassifierOf(chosen) ?? AUTOMATIC),
+        organizeWith: taggingClassifierOf(organizeWith),
+      };
+      // Only `turnOn`, sent where the line says what goes, turns it on, and records when, for
+      // each service it sends to (ADR-0022). Any other save may only turn it off: a save sends
+      // the switch as shown, which can be a window's older view (#2308).
+      const turnOn = input.turnOn === true;
+      const showing = shownSettings(before).automatic;
+      const automatic = turnOn
+        ? true
+        : input.automatic === false && showing
+          ? false
+          : before.automatic;
+      const at = turnOnTime(db, now());
+      // Turned on again where it is on, and still allowed, as a new key's Use this does, it keeps
+      // its time: what came in while it was on stays new. Where the User took the consent back,
+      // turning it on is a new consent.
+      const onFor = new Set(
+        showing
+          ? options
+              .sendsTo(before)
+              .filter((service) => options.taggingAllowed(service))
+              .map((service) => service.id)
+          : [],
+      );
+      const automaticSince = turnOn
+        ? {
+            ...sinceOf(before),
+            ...Object.fromEntries(
+              options
+                .sendsTo(next)
+                .filter((service) => !onFor.has(service.id))
+                .map((service) => [service.id, at]),
+            ),
+          }
+        : sinceOf(before);
+      if (automatic !== null && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
         settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       }
       settings.writeDeviceValue("library", {
         classifier: automaticChosen ? AUTOMATIC : chosen,
-        ...(setByUser && { automatic: input.automatic }),
+        ...(automatic !== null && { automatic }),
         organizeWith,
+        automaticSince,
         taggingStopped: before.taggingStopped,
       });
       revision++;
       changed();
       resume();
     },
+    /**
+     * Proposes Folders for these Documents (the User's own, live ones with text), names them in
+     * `language` and makes them; Organize then sorts the Documents into them (`classify`).
+     * Returns the Folders made. Throws InvalidInputError when Organize's model can't name Folders.
+     */
+    async propose(input: unknown, language: Language): Promise<LibraryGroup[]> {
+      const settings = getSettings();
+      if (!organizeModelOf(settings))
+        throw new InvalidInputError({ key: "error.library.noClassifier" });
+      const docs = documentIdsOf(input)
+        .filter((id) => !options.isExampleDocument?.(id))
+        .map(document)
+        .filter(hasContent);
+      if (docs.length === 0) return [];
+      const classifier = await options.prepare(settings);
+      if (!classifier.proposeFolders)
+        throw new InvalidInputError({ key: "error.library.cantPropose" });
+      const existing = groups().map((each) => each.name);
+      const proposed = await classifier.proposeFolders(
+        samplesOf(docs),
+        existing,
+        language,
+        lifetime.signal,
+      );
+      const made: LibraryGroup[] = [];
+      for (const folder of proposed) {
+        if (groups().some((each) => sameName(each.name, folder.name))) continue;
+        if (groups().length >= 100) break;
+        made.push(create(folder));
+      }
+      return made;
+    },
     classify(input: unknown) {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
       if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
-      if (
-        input !== undefined &&
-        (!Array.isArray(input) || !input.every((id) => typeof id === "string" && id !== ""))
-      )
-        throw new InvalidInputError("Choose valid Documents.");
       const ids = (
         input === undefined
           ? db
               .all<{ id: string }>("SELECT id FROM documents WHERE deleted_at IS NULL")
               .map((row) => row.id)
-          : [...new Set(input as string[])]
+          : documentIdsOf(input)
       ).filter((id) => !options.isExampleDocument?.(id));
       const docs = ids.map(document);
       for (const doc of docs) asked.add(doc.id);

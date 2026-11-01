@@ -306,7 +306,7 @@ describe("Automatic tagging in the background queue", () => {
         return new Promise((resolve) => {
           answer = () => {
             running--;
-            resolve([]);
+            resolve({ decisions: [], newTags: [] });
           };
         });
       },
@@ -317,6 +317,7 @@ describe("Automatic tagging in the background queue", () => {
       now,
       tags,
       background,
+      maySend: () => true,
       stopped: () => false,
       canRun: async () => true,
       mightBeReady: () => true,

@@ -3207,8 +3207,10 @@ export interface DocumentScanProgress {
  * - "tagging": the tagger is deciding the Document's Tags.
  * - "tagged": its automatic Tags are up to date. With none, the tagger asked
  *   and none fit.
- * - "no-tags": there were no Tags to choose from, so no model was asked. It is
- *   tagged once a Tag exists.
+ * - "no-tags": there were no Tags to choose from and the tagger only chooses
+ *   (Jev, a decision model), so no model was asked. It is tagged once a Tag
+ *   exists. The chat model names Tags of its own, so it is asked anyway; a
+ *   Document it gives none is "no-tags" too.
  * - "failed": the tagger's provider failed (see `taggingError`); a re-tag, a
  *   change of model or a restart tries again.
  * - "skipped": the Document has no text to tag (processing failed, or found none).
@@ -3216,8 +3218,9 @@ export interface DocumentScanProgress {
  *   a Folder (see `stopTagging`): nothing is sent until it is turned back on.
  * - "off": the Document came in while automatic tagging and sorting was off
  *   (`LibrarySettings.automatic`, off for a cloud model until the User turns
- *   it on): nothing is sent for it, and turning the switch on doesn't tag
- *   it. A re-tag the User asks for does.
+ *   it on): nothing is sent for it, and turning the switch on, or reading
+ *   it again (a newer pipeline, its file changed), doesn't tag it. Organize,
+ *   or a re-tag the User asks for, does.
  */
 export type TaggingState =
   | "pending"
@@ -5899,8 +5902,10 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "consent-revoked": the User turned off sending checks to the model's service while it ran.
  * - "local-mode": "Keep everything on this computer" came on while it ran.
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
- * - "absence-unconfirmed": a whole read's window said what the sentence calls absent is there,
- *   but a look at its quote found it doesn't state that (#1554).
+ * - "absence-unconfirmed": a whole read said what the sentence calls absent is there, but a look
+ *   at its quote found it doesn't state that (#1554, #1443).
+ * - "absence-other-document": a whole read's quote states what the sentence calls absent, but in
+ *   another Document than the one the sentence is about (#1443).
  * - "read-budget": a whole read reached the most it may spend before this part was judged, so
  *   nothing more was sent (`detail`: that most and what it had spent, as JSON of
  *   `{ most: Money; spent: Money }`).
@@ -5929,6 +5934,7 @@ export type ClaimCheckFailure =
   | "local-mode"
   | "absence-read-limit"
   | "absence-unconfirmed"
+  | "absence-other-document"
   | "kept-inside"
   | "cut-short"
   | "read-budget"
@@ -10409,11 +10415,18 @@ export interface CoreApi {
    * Saves the Tagging setting: the model for automatic tagging and Organize,
    * and whether new and changed Documents are organized automatically. A
    * classifier of null is Automatic; `organizeWith` left out stays as it was.
+   * `automatic` is the switch as shown, and a save can only turn it off.
+   * `turnOn` turns it on, and records when, as the consent for the services
+   * it sends to now (ADR-0022): only where the line says what goes, as
+   * setup's Use this, Settings › Models' Tagging section and Turn on… do.
+   * Turned on for one service, it reads off for another until it is turned
+   * on there (#2308).
    */
   saveLibrarySettings(
     settings: Omit<LibrarySettings, "classifier" | "organizeWith" | "taggingStopped"> & {
       classifier: LibraryClassifier | null;
       organizeWith?: TaggingClassifier | null;
+      turnOn?: boolean;
     },
   ): Promise<void>;
   /**
@@ -10429,6 +10442,15 @@ export interface CoreApi {
    * whether the User allowed the service.
    */
   getTaggingRoute(flow?: TaggingFlow): Promise<TaggingRoute>;
+  /**
+   * Organize where there are no Folders to sort into (#2308): asks Organize's model, once, for
+   * a few Folders that would hold these Documents, named from what they say in the interface
+   * language, and makes them. `classifyDocuments` then suggests one for each. Returns the
+   * Folders made, none when no Document has text to read. Throws InvalidInputError with no
+   * model for Organize, or one that can't name Folders (a decision model), and what the
+   * provider throws; nothing is made then.
+   */
+  proposeFolders(documentIds: string[]): Promise<LibraryGroup[]>;
   /**
    * Queues selected documents, or all. Organize suggests a Folder for each
    * (a Suggested Folder) and its Tags; manual assignments are preserved, and
@@ -12831,6 +12853,7 @@ const methods: Record<CoreApiMethod, true> = {
   saveLibrarySettings: true,
   getTaggingModels: true,
   getTaggingRoute: true,
+  proposeFolders: true,
   classifyDocuments: true,
   stopTagging: true,
   setTaggingWithAi: true,

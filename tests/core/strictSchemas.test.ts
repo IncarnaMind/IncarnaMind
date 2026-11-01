@@ -148,9 +148,11 @@ function replyTo(body: Record<string, unknown>): Reply {
     case "citations":
       return { text: JSON.stringify({ citations: [] }) };
     case "document_group":
-      return { text: JSON.stringify({ groupId: "g-reports", tags: ["t-report"] }) };
+      return { text: JSON.stringify({ groupId: "g-reports", tags: ["t-report"], newTags: [] }) };
     case "document_tags":
-      return { text: JSON.stringify({ tags: ["Report"] }) };
+      return { text: JSON.stringify({ tags: ["Report"], newTags: [] }) };
+    case "folder_proposals":
+      return { text: JSON.stringify({ folders: [{ name: "Reports", description: "Reports." }] }) };
     case "suggestion":
       return { text: JSON.stringify({ text: "", passage: "", quote: "" }) };
     default:

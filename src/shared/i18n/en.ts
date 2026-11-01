@@ -36,6 +36,11 @@ export const en = {
   "library.organize.setUp": "Set up a model on this computer",
   "library.organize.done.one": "Organize suggested a Folder for 1 Document",
   "library.organize.done": "Organize suggested a Folder for {count} Documents",
+  "library.organize.doneFolders": "Organize suggested Folders for {count} Documents",
+  "library.organize.noneFit": "Organize found no Folder to suggest for these Documents",
+  "library.organize.reading": "Reading what they say…",
+  "library.organize": "Organize Documents not in a Folder",
+  "library.organize.keywords": "organize sort folders tags suggest",
   "library.review.title": "To review",
   "library.review.summary": "Sorted {count} Documents: {parts}",
   "library.review.summary.one": "Sorted 1 Document: {parts}",
@@ -178,8 +183,6 @@ export const en = {
   "library.automaticOff.turnOn": "Turn it on in Settings",
   "library.automaticOff.dismiss": "Got it",
   "tagging.automatic.switch": "Tag and sort new Documents automatically",
-  "tagging.automatic.sends":
-    "Sends each new Document’s name and first passages, and your Folder and Tag names, to {service}.",
   "tagging.automatic.local": "Runs on this computer.",
   "library.preset.research": "Research papers",
   "library.preset.research.description": "Academic papers, experiments and research methods.",
@@ -1162,6 +1165,8 @@ export const en = {
     "A sentence that says something is absent needs its Document read whole.",
   "claim.reason.absence-unconfirmed":
     "Verdict hidden: the quote the model gave doesn’t show what the sentence says is absent.",
+  "claim.reason.absence-other-document":
+    "Verdict hidden: the quote the model gave is from another Document than the one the sentence is about.",
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.read-budget": "Stopped after {spent}; this read may spend up to {most}.",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
@@ -2558,7 +2563,13 @@ export const en = {
   "setup.sorting.here":
     "Tags, Folders and meeting hints run on this computer \u00b7 free \u00b7 nothing leaves",
   "setup.sorting.sends":
-    "Documents’ names and excerpts, and Folder and Tag names and descriptions, go to {service}",
+    "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, go to {service}. Documents already in the Library go only when you run Organize.",
+  "setup.sorting.sendsWhenOn":
+    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, to {service}. Documents already in the Library go only when you run Organize.",
+  "models.sorting.off": "Tagging new Documents is off",
+  "models.sorting.turnOn": "Turn on…",
+  "command.tagging.turnOn": "Turn on tagging new Documents…",
+  "command.tagging.turnOn.keywords": "tags automatic tagging sorting switch on settings",
   "setup.sorting.chat": "Tags and Folders use {model}",
   "setup.sorting.chatHere": "Tags and Folders use {model} on this computer \u00b7 nothing leaves",
   "setup.sorting.chat.hints": "Meeting hints stay off until a decision model is chosen",
@@ -5099,6 +5110,8 @@ export const en = {
   "error.library.noClassifier": "Choose a classification model first.",
   "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",
   "error.library.noFolders": "Create or choose Folders first.",
+  "error.library.cantPropose":
+    "The model Organize uses can sort into Folders but can’t name them. Make a Folder first, or choose an AI model for Organize.",
   "error.library.scanImagesOff":
     "No text in this scan, and its page images aren’t sent to {service}. Allow them to sort it.",
   "scan.images.allow": "Allow page images",

@@ -82,11 +82,12 @@ export const PRESET_TAGS: readonly PresetTag[] = [
       en: {
         name: "Invoice",
         description:
-          "A bill or receipt that asks for or confirms a payment, with items, amounts and dates.",
+          "A bill or receipt that asks for or confirms payment for goods or services supplied, with items, amounts and dates. Not a quote, an estimate, a price list, an order, a registration, or a donation or gift receipt, for which nothing is supplied.",
       },
       "zh-CN": {
         name: "发票",
-        description: "要求或确认付款的账单或收据，列有项目、金额和日期。",
+        description:
+          "就已提供的商品或服务要求或确认付款的账单或收据，列有项目、金额和日期。报价单、估价、价目表、订单、报名表，以及没有提供商品或服务的捐赠或赠与收据，都不算。",
       },
     },
   },

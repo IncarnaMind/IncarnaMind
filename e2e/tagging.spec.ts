@@ -2,7 +2,9 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import {
+  acceptPlainTextKeys,
   closeSettings,
   createDataFolder,
   dismissChatSetup,
@@ -10,6 +12,7 @@ import {
   openAdvancedModels,
   openSettings,
   removeDataFolder,
+  setLanguage,
   setWindowSize,
 } from "./app";
 
@@ -168,3 +171,52 @@ test("in Chinese: 自动打标签, with the model Automatic uses and the list's 
     await app.close();
   }
 });
+
+const libraryOf = (window: Page) =>
+  window.evaluate(
+    async () =>
+      (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getLibrary())
+        .settings,
+  );
+
+// Choosing a cloud model here turns tagging on, so its row says what each new Document sends to
+// its service before it is chosen; a choice not made, such as Other model… left unsaved, changes
+// nothing (#2308, ADR-0022's amendment).
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a cloud model's row says what each new Document sends to its service before choosing it turns tagging on (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1440, 900);
+      await dismissChatSetup(window);
+      await acceptPlainTextKeys(window);
+      await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await bridge.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "sk-ant-not-a-real-key",
+          modelId: "claude-haiku-5-5",
+        });
+      });
+      const section = await tagging(window);
+      await setLanguage(window, language);
+      const sends = translate(language, "setup.sorting.sends", { service: "Anthropic" });
+      const haiku = option(section, "Claude Haiku 5.5");
+      await expect(haiku.getByTestId("tagging-option-sends")).toHaveText(sends);
+      const automatic = section.getByTestId("tagging-automatic-organize");
+      await expect(automatic).not.toBeChecked();
+
+      await section.getByTestId("tagging-other").click();
+      const form = section.getByTestId("tagging-other-form");
+      await expect(form.getByTestId("tagging-other-sends")).toHaveText(sends);
+      await form.getByLabel(translate(language, "library.model")).fill("claude-sonnet-5-5");
+      await expect(automatic).not.toBeChecked();
+      expect((await libraryOf(window)).automatic).toBe(false);
+
+      await haiku.click();
+      await expect(automatic).toBeChecked();
+      expect((await libraryOf(window)).automatic).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+}

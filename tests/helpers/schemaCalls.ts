@@ -21,7 +21,7 @@ export const SCHEMA_CALLS = {
   "answers/figureRetry.ts": ["calculations"],
   "answers/quoteRetry.ts": ["quotes"],
   "answers/unmarkedQuotes.ts": ["citations"],
-  "library/classifier.ts": ["document_group"],
+  "library/classifier.ts": ["document_group", "folder_proposals"],
   "suggestions/index.ts": ["suggestion"],
   "tags/classify.ts": ["document_tags"],
 } as const;
@@ -96,6 +96,12 @@ export async function callEverySchema(model: ChatLanguageModel): Promise<AnswerE
     ],
     tags,
     excerpt,
+    signal,
+  );
+  await chatGroupClassifier(model, false).proposeFolders?.(
+    [{ name: "QBR", type: "PDF, 2 pages", text: "Quarterly review." }],
+    [],
+    "en",
     signal,
   );
   await generateText({

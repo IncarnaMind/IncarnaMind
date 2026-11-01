@@ -28,7 +28,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory } from "../../core";
 import { searchParts } from "./answers";
 import { isCell } from "./cells";
-import { fakeAbsence, fakeSentenceBatch } from "./checks";
+import { fakeAbsence, fakePresence, fakeSentenceBatch } from "./checks";
 import { fakeClaims, findsClaims } from "./claims";
 import { fakeConfirm } from "./confirm";
 import { editParts, fakeEdit } from "./edit";
@@ -91,6 +91,7 @@ const overloadedOnce = new Set<string>();
 const GENERATE_HANDLERS: readonly ((options: GenerateOptions) => string | null)[] = [
   fakeSentenceBatch,
   fakeAbsence,
+  fakePresence,
   fakePlan,
   fakeResearchTags,
   fakeClaims,
