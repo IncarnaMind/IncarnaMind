@@ -1943,7 +1943,13 @@ async function lookForPresence(
       ({ text: reply } = await generateText({
         model: model.model,
         instructions,
-        prompt: presencePrompt({ claim: request.claim, absent, quote: quoted.quote, passage }),
+        prompt: presencePrompt({
+          claim: request.claim,
+          absent,
+          quote: quoted.quote,
+          document: quoted.documentName ?? "",
+          passage,
+        }),
         temperature: answerTemperature(model.capabilities.facts.temperature),
         maxOutputTokens: outputTokens("comparison"),
         maxRetries: 1,

@@ -2136,6 +2136,74 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE document_pages ADD COLUMN scale_marker TEXT;
     `,
   },
+  {
+    version: 121,
+    description:
+      "The preset Invoice Tag says what isn't an invoice, unless the User edited it, what IncarnaMind saw arrive new, and where the User's Organize sent a Document, are recorded (#2308)",
+    sql: `
+      -- When IncarnaMind first saw each Document arrive new: the User's own add, a Linked
+      -- folder's first scan, or a watcher event after it. A Document without a row was here
+      -- before. Only a new one may go by itself (src/core/tags/held.ts).
+      CREATE TABLE IF NOT EXISTS document_arrivals (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        arrived_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX IF NOT EXISTS document_arrivals_by_document
+        ON document_arrivals (document_id) WHERE deleted_at IS NULL;
+      -- The services the User's own Organize or re-tag sent a Document to: it may go by itself
+      -- to those, and only those.
+      CREATE TABLE IF NOT EXISTS tagging_clearances (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        service_id TEXT NOT NULL,
+        cleared_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX IF NOT EXISTS tagging_clearances_by_document_and_service
+        ON tagging_clearances (document_id, service_id) WHERE deleted_at IS NULL;
+      -- When a Linked folder's first scan finished: a file found by a later scan was there
+      -- before. The folders already linked have been scanned.
+      CREATE TABLE IF NOT EXISTS linked_folder_baselines (
+        id TEXT PRIMARY KEY NOT NULL,
+        linked_folder_id TEXT NOT NULL,
+        scanned_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX IF NOT EXISTS linked_folder_baselines_by_folder
+        ON linked_folder_baselines (linked_folder_id) WHERE deleted_at IS NULL;
+      INSERT INTO linked_folder_baselines (id, linked_folder_id, scanned_at, created_at, updated_at)
+        SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4'
+            || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', 1 + (random() & 3), 1)
+            || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))),
+          l.id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM linked_folders l
+        WHERE l.deleted_at IS NULL AND NOT EXISTS (
+          SELECT 1 FROM linked_folder_baselines b
+          WHERE b.linked_folder_id = l.id AND b.deleted_at IS NULL);
+      -- Its first description let a quote, a registration or notes with prices read as "asks for or
+      -- confirms a payment", and the tagger tagged them Invoice (#2308). Only a description still
+      -- as it was seeded changes (src/core/tags/presets.ts has the same text); one the User wrote
+      -- is theirs.
+      UPDATE tags SET
+        description = 'A bill or receipt that asks for or confirms payment for goods or services supplied, with items, amounts and dates. Not a quote, an estimate, a price list, an order, a registration, or a donation or gift receipt, for which nothing is supplied.',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE preset = 'invoice'
+        AND description = 'A bill or receipt that asks for or confirms a payment, with items, amounts and dates.';
+      UPDATE tags SET
+        description = '就已提供的商品或服务要求或确认付款的账单或收据，列有项目、金额和日期。报价单、估价、价目表、订单、报名表，以及没有提供商品或服务的捐赠或赠与收据，都不算。',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE preset = 'invoice' AND description = '要求或确认付款的账单或收据，列有项目、金额和日期。';
+    `,
+  },
 ];
 
 /**

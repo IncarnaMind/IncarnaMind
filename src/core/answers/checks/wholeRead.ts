@@ -233,6 +233,7 @@ export function createWholeRead(options: WholeReadOptions) {
     const shown = measuring();
     const sized = windows.map(({ passages }) => ({
       tokens: estimateTokens(shown.measure(passages)),
+      document: passages[0]?.documentName ?? "",
       longest: passages.reduce(
         (longest, { text }) => (text.length > longest.length ? text : longest),
         "",
@@ -277,7 +278,9 @@ export function createWholeRead(options: WholeReadOptions) {
         for (let each = 0; each < after.comparisons; each++) {
           most.push({ inputTokens: compared, outputTokens: comparing });
         }
-        const looked = estimateTokens(presencePrompt({ ...quoted, absent: check.claim }));
+        const looked = estimateTokens(
+          presencePrompt({ ...quoted, absent: check.claim, document: window.document }),
+        );
         for (const instructions of [PRESENCE_INSTRUCTIONS, STRICT_PRESENCE_INSTRUCTIONS]) {
           most.push({
             inputTokens: estimateTokens(instructions) + looked,

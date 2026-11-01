@@ -158,3 +158,13 @@ The 2026-10-18 amendment's table, `ASSISTANT_COMMANDS`, is gone. The assistant's
 - **Organize by content** runs the Library's Organize on the Documents named, or those in no Folder, with the Folder the request names among those it may choose, made if there is none. Its suggestions wait in To review; nothing moves before the User accepts. Its Undo takes back the suggestions it made and that Folder.
 - **One Undo per request.** What a window command changed goes into the same step as the Run's other changes.
 - **A request goes on to its end.** A command of the window's ends the turn only when the model marks its call as the request's last (`done`, read through `Tool.endsTurn(result, input)`): its card is then the reply, and no closing reply follows. A refusal never ends the turn, so what the request asked for after it is still done.
+
+## Amendment, 2026-11-01: the User's own agent in the assistant edits in place (ADR-0026, #353)
+
+ADR-0026 records how the assistant runs on the User's own agent over ACP, and changes three lines of the addendum of 2026-10-11 for that case:
+
+- **"Let agents write to Minds directly" was rejected there, for a change to wait as a Proposal.** For a hosted agent in the assistant, a Note edit through IncarnaMind's write tools now applies at once with one Undo, checked as our engine's edits are, and a delete waits on the approval card (#1274). Proposals stay for an outside agent connected over MCP and acting on its own (#351, #352).
+- **"After our Tools return Passages to it, we stop offering 'always allow'."** A hosted agent's requests are never offered "always", from the start: its card offers Allow once and Deny, and a hosted Run counts as having read third-party text (#78) from its first step.
+- **"Its own Tools are outside our Effects."** They still are, and the consent says so; the agent now also runs in the OS sandbox, which keeps it from IncarnaMind's data folder and the User's Documents.
+
+The amendment of 2026-10-18 said outside agents aren't offered the commands. That holds for an outside agent over MCP; a hosted Run is offered them as an Answer in the assistant is.

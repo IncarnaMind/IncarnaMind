@@ -35,35 +35,41 @@ import { type InlineTextProjection, inlineRange, inlineSpan } from "./inlineText
 import { parseLocation } from "./locations";
 import { hasSearchScope, storedSearchScope } from "./searchScope";
 
-export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = [
-  "refused",
-  "malformed",
-  "empty",
-  "no-evidence",
-  "unread",
-  "rate-limit",
-  "cost-cap",
-  "plan-limit",
-  "out-of-credit",
-  "failed",
-  "stopped",
-  "too-many",
-  "consent-revoked",
-  "local-mode",
-  "kept-inside",
-  "absence-read-limit",
-  "absence-unconfirmed",
-  "cut-short",
-  "read-budget",
-  "workbook-changed",
-  "workbook-differs",
-  "workbook-external",
-  "workbook-volatile",
-  "workbook-circular",
-  "workbook-not-read",
-  "workbook-no-saved-value",
-  "workbook-unsupported",
-];
+// Keyed by every reason, so a new one that isn't listed fails to compile instead of reading back
+// from a saved Note as another (#1443).
+const FAILURES: Record<ClaimCheckFailure, true> = {
+  refused: true,
+  malformed: true,
+  empty: true,
+  "no-evidence": true,
+  unread: true,
+  "rate-limit": true,
+  "cost-cap": true,
+  "plan-limit": true,
+  "out-of-credit": true,
+  failed: true,
+  stopped: true,
+  "too-many": true,
+  "consent-revoked": true,
+  "local-mode": true,
+  "kept-inside": true,
+  "absence-read-limit": true,
+  "absence-unconfirmed": true,
+  "absence-other-document": true,
+  "cut-short": true,
+  "read-budget": true,
+  "workbook-changed": true,
+  "workbook-differs": true,
+  "workbook-external": true,
+  "workbook-volatile": true,
+  "workbook-circular": true,
+  "workbook-not-read": true,
+  "workbook-no-saved-value": true,
+  "workbook-unsupported": true,
+};
+export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FAILURES).filter(
+  (key): key is ClaimCheckFailure => Object.hasOwn(FAILURES, key),
+);
 const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
 const CITATION_REASONS: readonly CitationCheckReason[] = [
   "quote-not-on-pages",

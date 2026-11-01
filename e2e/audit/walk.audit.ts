@@ -343,6 +343,7 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
       await bridge.saveLibrarySettings({
         classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
         automatic: true,
+        turnOn: true,
       });
     });
 

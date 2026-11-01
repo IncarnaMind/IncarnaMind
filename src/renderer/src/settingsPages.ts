@@ -23,6 +23,7 @@ export type SettingsTarget =
   | "chat-model"
   | "add-provider"
   | "tagging"
+  | "turn-on-tagging"
   | "meeting-words"
   | SignInRoute;
 
