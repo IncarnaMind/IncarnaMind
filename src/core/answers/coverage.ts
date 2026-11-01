@@ -21,58 +21,6 @@ export interface SizedDocument {
 
 const SUMMARY =
   /\b(?:summar(?:y|ies|i[sz]e[sd]?|i[sz]ing)|overview|digest|recap|synops[ie]s)\b|总结|概括|概述|摘要|综述|汇总/i;
-
-/** More ways a call is summed up ("past 5 minutes", "key takeaways", "回顾"), beside `SUMMARY`. */
-const RECAP =
-  /\b(?:sum up|gist|run[- ]?through|walk (?:me )?through|go over|catch (?:me )?up|(?:bring|get) me up to speed|fill (?:me )?in|what happened|where (?:are|were) we|tl;?dr|takeaways?|highlights?|key points?|decisions?|(?:covered|discussed|said|agreed|decided) so far)\b|\bwhat (?:we(?:'ve| have)?|did we|has been|was) (?:cover(?:ed)?|discuss(?:ed)?|say|said|talk(?:ed)? about|agree|agreed|decide|decided)\b|\bwhere we (?:are|left off|got to)\b|\bwhere (?:did )?we (?:leave|left) off\b|回顾|复盘|小结|梳理|归纳|聊到哪|说到哪|讲到哪|(?:刚才|刚刚).{0,8}(?:讲了什么|说了什么|聊了什么)|(?:到目前为止|到今天为止|目前为止|到现在).{0,8}(?:讲|说|聊)了?(?:什么|哪些|些什么)|错过了?什么|要点|重点/i;
-
-/** What a summary has to be about to be a recap of the call: the call, its span, or what was said. */
-const ABOUT_THE_CALL =
-  /\b(?:(?:call|conversation|meeting|discussion)|so far|up to (?:now|here)|(?:last|past|previous) (?:\d+|two|three|four|five|six|seven|eight|nine|ten|few|several) minutes|we(?:'ve| have) (?:covered|discussed|said|talked|agreed|decided)|what (?:we(?:'ve| have)?|did we|has been|was) (?:cover(?:ed)?|discuss(?:ed)?|say|said|talk(?:ed)? about|agree|agreed|decide|decided)|(?:bring|get) me up to speed|fill (?:me )?in|what (?:i missed|did i miss)|what happened|where (?:are|were) we|catch (?:me )?up|tl;?dr|takeaways?|highlights?|key points?|decisions?|what \p{Lu}[\p{L}'-]* said)\b|(?:通话|会议|对话|讨论|到目前为止|目前为止|目前(?:为止)?的?(?:通话|会议|讨论|情况|进展)|最近(?:\s*\d+\s*分钟|几分钟|的通话|的会议|的讨论)|刚才|刚刚|至今|到现在|聊到|说到|讲到|错过|要点|重点)/iu;
-
-/** Polite ways a Question asks for something: they are no reference to the assistant's earlier words. */
-const REQUEST_FRAME =
-  /\b(?:can|could|would|will)\s+you\b|\byou\s+please\b|\bplease\b|(?:你|您)能|(?:你|您)可以|能不能|能否|麻烦(?:你|您)?|请问|请帮(?:我|忙)?|请你|请您|请|你帮我|您帮我|你给我(?=(?:回顾|总结|概括|梳理|讲|说|看|读|念|复盘))|您给我(?=(?:回顾|总结|概括|梳理|讲|说|看|读|念|复盘))/gi;
-
-/** A phrase about someone else's answer, not the assistant's: "the previous answer from the client". */
-const NOT_THE_ASSISTANT =
-  /\b(?:the\s+)?(?:(?:earlier|previous|last|prior|preceding)\s+)?(?:answers?|repl(?:y|ies)|responses?)\s+(?:from|by|of)\s+(?:the\s+)?(?:participants?|attendees?|people|others?|team|members?|speakers?|user|clients?|customers?|candidates?|interviewees?)\b|(?:客户|对方|参与者|面试者|团队成员)(?:之前|刚才|上面|前面)的?(?:回答|回复|答复)/g;
-
-/** A call's own span, not a reference to the assistant: "the previous 10 minutes". */
-const CALL_SPAN =
-  /\b(?:last|past|previous)\s+(?:\d+|few|several|two|three|four|five|six|seven|eight|nine|ten)\s+minutes\b/g;
-
-/** A call-time phrase with "before", not a reference to the assistant: "before the break". */
-const BEFORE_TIME =
-  /\bbefore\s+(?:the|this|our)\s+(?:break|call|meeting|conversation|recording|start|session|interview|discussion|lunch|end)\b|\bbefore\s+we\s+(?:started|began|spoke|talked)\b/giu;
-
-/**
- * What points at the assistant's own earlier words once request frames and other people's
- * answers are taken out: a second-person word, or a back-reference. Its test errs toward
- * keeping the turns: a wrong drop loses a reply the User asked about, while a wrong keep is
- * only the old recap context (#1319).
- */
-const REFERS_TO_AN_EARLIER_REPLY =
-  /\b(?:you|your|yours)\b|\b(?:from before|before|earlier|above|previous(?:ly)?|assistant|those|these)\b|\b(?:that|this)\s+(?:list|message|answer|reply|response)\b|\blast\s+(?:message|answer|reply|response)\b|\bcall[ -]help\b|\b(?:suggest(?:ions?|ed)?|tips?|recommend(?:ed|ations?)?|advice|help|answers?|repl(?:y|ies)|responses?|checklist|told me|ai|bot|it gave|previously)\b|[你您]|前面|上面|之前|那几|那条|这几|助手|建议|提示|推荐|回答|回复|答复|清单|它|先前|上一条/iu;
-
-const refersToTheAssistant = (question: string): boolean =>
-  REFERS_TO_AN_EARLIER_REPLY.test(
-    question
-      .replace(REQUEST_FRAME, " ")
-      .replace(NOT_THE_ASSISTANT, " ")
-      .replace(BEFORE_TIME, " ")
-      .replace(CALL_SPAN, " "),
-  );
-
-/**
- * Whether a Question asks for a recap of the live call ("recap the last 5 minutes",
- * "回顾最近 5 分钟"): summary words and a reference to the call or its span, but not a
- * Question about the assistant's own earlier words, which keeps the turns it asks about (#1319).
- */
-export const asksForCallRecap = (question: string): boolean =>
-  (SUMMARY.test(question) || RECAP.test(question)) &&
-  ABOUT_THE_CALL.test(question) &&
-  !refersToTheAssistant(question);
 const DOCUMENT_WORDS = "(?:documents|docs|papers|files|reports)";
 const ZH_DOCUMENT_WORDS = "(?:文档|论文|文件|报告)";
 const THE_SET = new RegExp(
@@ -237,11 +185,14 @@ const quotedList = (names: readonly string[]) =>
         .map((name) => `“${name}”`)
         .join(", ")} and “${names.at(-1)}”`;
 
-/** What the model is told of the Documents a Question asks about; "" when nothing. */
+/**
+ * What the model is told of the Documents a Question asks about, `documents`
+ * the Documents in scope, the most text first; "" when nothing.
+ */
 export function coverageInstructions(
   coverage: AnswerCoverage | null,
   each: boolean,
-  documents: number,
+  documents: readonly SizedDocument[],
 ): string {
   const covered = coverage?.used.map((document) => document.name) ?? [];
   const searchEach =
@@ -250,9 +201,17 @@ export function coverageInstructions(
     return `The User asked about the main Documents: IncarnaMind took ${quotedList(covered)}, the largest, and says so above your reply, with an offer of others. Answer from ${covered.length === 1 ? "it" : "these"}; don't ask which.`;
   }
   if (coverage?.kind === "largest") {
-    return `This Answer covers the ${covered.length} largest of ${covered.length + coverage.rest.length} Documents: ${quotedList(covered)}. IncarnaMind says so above your reply and offers the rest, so don't name or apologise for the others. ${searchEach}`;
+    // The reply names what the next summary covers, as the offer above it does no more than count them (#894).
+    const rest = documents.filter((document) => coverage.rest.includes(document.id));
+    const next = rest.slice(0, COVERED_AT_ONCE).map((document) => document.name);
+    const after = rest.length - next.length;
+    const left =
+      after > 0
+        ? `the next summary takes ${quotedList(next)}, and ${after} more ${after === 1 ? "comes" : "come"} after those`
+        : `${quotedList(next)} ${next.length === 1 ? "is" : "are"} left for the next summary`;
+    return `This Answer covers the ${covered.length} largest of the ${documents.length} Documents, as one summary covers ${COVERED_AT_ONCE} at a time: ${quotedList(covered)}. In your reply, not in a Note, say that ${left}, say why, and offer to go on; IncarnaMind says so above your reply too, with a button for it. ${searchEach}`;
   }
-  return each && documents > 1
-    ? `The User asked about each of the ${documents} Documents. ${searchEach}`
+  return each && documents.length > 1
+    ? `The User asked about each of the ${documents.length} Documents. ${searchEach}`
     : "";
 }

@@ -27,6 +27,7 @@ import {
   type ThirdPartySource,
 } from "../api";
 import { keywordTerms, keywordText } from "../documents/keywords";
+import type { Language } from "../language";
 import { type ReviewReading, reviewReading } from "../mindText";
 import type { RunPicture } from "../runs/engine";
 import { attribute, contentMarkdown, textAttribute, toMarkdown } from "./blocks";
@@ -630,6 +631,10 @@ function cutMind(
 /** The Mind read with a Question (`MindCut`): where the request holds it. */
 type MindParts = Pick<MindCut, "text" | "selection" | "pictures">;
 
+/** The first line of an earlier Answer in a live call's context, in the interface's language (#1319). */
+export const earlierReplyLabel = (language: Language): string =>
+  language === "zh-CN" ? "之前的回答：" : "Earlier reply:";
+
 /**
  * The Question context of a Question in one of the assistant's conversations
  * (ADR-0017): the messages before it, Questions as the User's words and Answers
@@ -659,6 +664,11 @@ interface ConversationContextOptions {
   /** The names of the Documents open on screen, the focused group's first. */
   onScreen?: readonly string[];
   ids?: ContextCitations;
+  /**
+   * The first line of every earlier Answer in this context, in the interface's language
+   * (#1319): a live call's answers are earlier replies, not something said in the call.
+   */
+  earlierReplyLabel?: string;
 }
 
 /**
@@ -679,6 +689,7 @@ export function conversationContextOf(
     changeStates,
     onScreen = [],
     ids,
+    earlierReplyLabel,
   }: ConversationContextOptions = {},
 ): QuestionContextWithOrigins {
   const pieces: Piece[] = earlier.flatMap((message): Piece[] => {
@@ -707,7 +718,7 @@ export function conversationContextOf(
     return [
       {
         role: "assistant",
-        text,
+        text: earlierReplyLabel ? `${earlierReplyLabel}\n${text}` : text,
         answer: message.id,
         ...(message.textOrigin && { origins: [message.textOrigin] }),
       },
