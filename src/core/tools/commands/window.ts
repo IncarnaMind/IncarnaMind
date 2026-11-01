@@ -28,9 +28,14 @@ export const YOURS_SAID: Readonly<Record<Yours, string>> = {
     "Marking text as the User's own is theirs to do, never yours. They select it and choose “Mark as mine”.",
 };
 
+/** What IncarnaMind says itself after the reply, so the model doesn't say it twice (#2252). */
+const SAID_AFTER_REPLY =
+  "IncarnaMind tells the User so, and where, after your reply: don't repeat it.";
+
 /**
- * A refusal: nothing runs, and the card under the reply says where the User changes it; for a
- * Folder's wall, `folder` is the one the request is about, which the card names and opens.
+ * A refusal: nothing runs, and the reply ends with where the User changes it, the card under it
+ * opening the place; for a Folder's wall, `folder` is the one the request is about, which both
+ * name.
  */
 export const yoursChecked = (
   command: CommandId,
@@ -50,9 +55,11 @@ export const yoursChecked = (
   run: async () => ({
     done: { items: [], yours, ...(folder && { folder }) },
     step: null,
-    said: folder
-      ? `Whether “${folder.name}” keeps its work inside it is the User's to change, never yours. It's in the Folder's ⋯ menu.`
-      : YOURS_SAID[yours],
+    said: `${
+      folder
+        ? `Whether “${folder.name}” keeps its work inside it is the User's to change, never yours. It's in the Folder's ⋯ menu.`
+        : YOURS_SAID[yours]
+    } ${SAID_AFTER_REPLY}`,
   }),
 });
 

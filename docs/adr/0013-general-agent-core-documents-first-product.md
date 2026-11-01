@@ -168,3 +168,11 @@ ADR-0026 records how the assistant runs on the User's own agent over ACP, and ch
 - **"Its own Tools are outside our Effects."** They still are, and the consent says so; the agent now also runs in the OS sandbox, which keeps it from IncarnaMind's data folder and the User's Documents.
 
 The amendment of 2026-10-18 said outside agents aren't offered the commands. That holds for an outside agent over MCP; a hosted Run is offered them as an Answer in the assistant is.
+
+## Amendment, 2026-11-01: a refusal is the reply's last line, and a command is a kind of turn (#2252)
+
+The amendment of 2026-10-29 said that a refusal's card says where the User changes it, and that a refusal never ends the turn. Claude Haiku 5.5 then left a refusal out of its reply, or said it in its own words with the wrong Settings page, or said it had opened the page; the card said it again under that.
+
+- **The reply says the refusal.** The core ends the reply with the refusal's own sentence, in the User's language, as it already ends one with a Folder wall's refusal: after the model's reply, after none, and after a reply asked again that then failed. A sentence the reply already holds isn't added twice. The card under it keeps only its button. The model is told IncarnaMind says it, and to leave it out of its own reply.
+- **A refusal marked as the request's last ends the turn,** as a window command does (`done`): the reply is then the refusal's sentence alone. One not marked so goes on to the rest of the request, as before.
+- **A command is a kind of turn.** With the commands' Tools, the rule of 2026-10-21 (#1559) lists something done to the User's Documents, Notes or Folders themselves, or in the app, as a kind of its own, before writing, editing and answering. The model still decides; no pattern over the User's words does.

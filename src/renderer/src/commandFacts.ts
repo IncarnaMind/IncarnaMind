@@ -82,7 +82,7 @@ export function refusalsOf(
 
 /**
  * Whether the reply already says this refusal's sentence, in either language, as the core writes
- * it when the model says nothing (#2252): the card then shows only its button.
+ * it after the reply (#2252): the card then shows only its button.
  */
 export const saidInReply = (text: string, what: Yours, folder: CommandDone["folder"]): boolean =>
   LANGUAGES.some((language) => text.includes(yoursLine(language, what, folder)));
