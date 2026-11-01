@@ -6,7 +6,7 @@
  * they read an Answer of ours. A token minted for no one, or for another
  * pairing, is a marker without a Citation.
  */
-import { CITATION_TOKEN } from "../../src/core/agents/citations";
+import { CITATION_TOKEN } from "../../src/core/agents/tokens";
 import type { RequestFailure } from "../everyday/checks";
 import type { SentenceSupport } from "../everyday/support";
 

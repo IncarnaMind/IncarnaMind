@@ -28,9 +28,11 @@ import {
   type TerminalExitStatus,
   type ToolKind,
 } from "@agentclientprotocol/sdk";
-import { MARKER } from "../../shared/answerSentences";
-import { FIGURE_MARKER } from "../../shared/figureMarkers";
+import { markersIn } from "../../shared/answerBlocks";
+import { withFigures } from "../../shared/figureMarkers";
 import type { AgentProcess } from "../adapters";
+import { markdownToBlocks } from "../answers/markdown";
+import { CITATION_TOKEN } from "./tokens";
 
 /** What the User decided on the approval card. */
 export type HostedDecision = "allow-once" | "deny";
@@ -89,24 +91,76 @@ export type HostedEvent =
   | { type: "failed"; problem: HostedProblem; detail: string };
 
 class HostedTurnError extends Error {
-  constructor(
-    readonly problem: HostedProblem,
-    detail: string,
-  ) {
+  readonly problem: HostedProblem;
+  constructor(problem: HostedProblem, detail: string) {
     super(detail);
+    this.problem = problem;
   }
 }
 
+/** Invisible, and never escaped away: right after a "[", it keeps the "[" from starting one of our markers. */
+const INERT = "\u2060";
+
+/** A "[" the agent wrote that could start a Citation marker ("[^2]") or a figure marker ("[=1]"), escaped or not. */
+const MARKER_START = /\[(?=\\*[\^=])/g;
+
+/** Every "[" made inert, inside code too: the last resort, when the narrow rule above wasn't enough. */
+const ANY_BRACKET = /\[/g;
+
+/** The Citation markers and figure markers that `text` shows once it is parsed as an Answer is. */
+function parsedMarkers(text: string): { citations: number[]; figures: number[] } {
+  const figures: number[] = [];
+  withFigures(
+    markdownToBlocks(text),
+    (marker) => {
+      figures.push(marker);
+      return null;
+    },
+    () => "",
+  );
+  return { citations: markersIn(text), figures };
+}
+
+/** Whether every marker `shown` has is one of `placed`, as many times at most (one in code shows none). */
+function onlyPlaced(shown: readonly number[], placed: readonly number[]): boolean {
+  const left = [...placed];
+  return shown.every((marker) => {
+    const at = left.indexOf(marker);
+    if (at < 0) return false;
+    left.splice(at, 1);
+    return true;
+  });
+}
+
 /**
- * The agent's text with every Citation marker ("[^2]") and figure marker ("[=1]") it
- * wrote itself made plain text, so that it can't borrow a checked Citation or figure:
- * only a token IncarnaMind minted becomes a marker, after this. The backslash keeps
- * the text as the agent wrote it on screen.
+ * The agent's text as a hosted Answer stores it. Nothing the agent wrote can become a
+ * Citation or a figure: every "[" that could start one of our markers is made inert, so
+ * no escape, emphasis, quote or link the Markdown parser undoes brings one back. Then
+ * each token minted for this Run becomes the marker `markerOf` gives it. The result is
+ * parsed as an Answer is, and must show none but those markers and no figure; if it
+ * doesn't, every "[" is made inert, and if even that doesn't hold, the text keeps no
+ * marker at all. Run it on the whole text so far, never chunk by chunk.
  */
-export function withoutOurMarkers(text: string): string {
-  return text
-    .replace(MARKER, (_marker, number: string) => `[\\^${number}]`)
-    .replace(FIGURE_MARKER, (_marker, number: string) => `[\\=${number}]`);
+export function hostedAnswerText(
+  agentText: string,
+  markerOf: (token: string) => number | null,
+): string {
+  const convert = (inert: string) => {
+    const placed: number[] = [];
+    const text = inert.replace(CITATION_TOKEN, (token: string, id: string) => {
+      const marker = markerOf(id);
+      if (marker === null) return token;
+      placed.push(marker);
+      return `[^${marker}]`;
+    });
+    const shown = parsedMarkers(text);
+    return onlyPlaced(shown.citations, placed) && shown.figures.length === 0 ? text : null;
+  };
+  return (
+    convert(agentText.replace(MARKER_START, `[${INERT}`)) ??
+    convert(agentText.replace(ANY_BRACKET, `[${INERT}`)) ??
+    agentText.replace(ANY_BRACKET, `[${INERT}`)
+  );
 }
 
 /** JSON-RPC's code for a request the client refused. */

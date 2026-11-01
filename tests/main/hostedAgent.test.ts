@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CreateTerminalRequest } from "@agentclientprotocol/sdk";
 import { describe, expect, onTestFinished, test } from "vitest";
-import type { AgentProcess } from "../../src/core";
+import type { AgentProcess, AgentProgram } from "../../src/core";
 import {
   type HostedActions,
   type HostedDecision,
@@ -41,8 +41,11 @@ async function startAgent() {
         (entry): entry is [string, string] => entry[1] !== undefined,
       ),
     );
+  // These tests are about the protocol, on every system; tests/main/agentSandbox.test.ts confines it.
+  const unconfined = async (program: AgentProgram) => program;
   const agentProcess: AgentProcess = await createAgentProcesses(
     createProcessLauncher(environment),
+    unconfined,
   ).start({
     command: process.execPath,
     args: [SCRIPTED_AGENT],

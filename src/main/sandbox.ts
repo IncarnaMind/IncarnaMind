@@ -36,7 +36,7 @@ import { access, realpath, stat } from "node:fs/promises";
 import { delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-import type { ExecRequest, Executor, ProcessLauncher } from "../core";
+import type { AgentProgram, ExecRequest, Executor, ProcessLauncher } from "../core";
 import { engineModule } from "../core/engineModules";
 import { type Confinement, createLocalExecutor, folderPath } from "../core/execution";
 
@@ -52,6 +52,7 @@ export const SANDBOX_RUNTIME = engineModule(
     "SandboxManager.checkDependenciesAsync",
     "SandboxManager.wrapWithSandboxArgv",
     "SandboxManager.cleanupAfterCommand",
+    "SandboxManager.getConfig",
   ],
 );
 
@@ -71,9 +72,24 @@ export interface OsExecutorOptions {
   reportError(error: unknown): void;
 }
 
-/** Whether the OS sandbox can start here; if it can, how to make its Executors. */
+/** What a hosted agent may reach in the sandbox (#353, ADR-0026). */
+export interface AgentProfile {
+  /** Folders it may not read: IncarnaMind's data folder, the Linked folders, Documents' own files, the Output location. */
+  denyRead: readonly string[];
+  /** Folders it may write: its working folder, and its own settings and cache. */
+  allowWrite: readonly string[];
+  /** The one local socket it may connect to: the one IncarnaMind's MCP shim reaches the app through. */
+  socket: string;
+}
+
+/** Whether the OS sandbox can start here; if it can, how to make its Executors, and confine an agent. */
 export type OsSandbox =
-  | { available: true; createExecutor(options: OsExecutorOptions): Executor }
+  | {
+      available: true;
+      createExecutor(options: OsExecutorOptions): Executor;
+      /** `program`, run in the sandbox `profile` describes, with every process it starts. */
+      confineAgent(program: AgentProgram, profile: AgentProfile): Promise<AgentProgram>;
+    }
   | { available: false; reason: string };
 
 /**
@@ -315,5 +331,43 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
     available: true,
     createExecutor: (options) =>
       createLocalExecutor({ ...options, confinement: osConfinement(sandbox, options) }),
+    confineAgent: (program, profile) => confineAgent(sandbox, program, profile),
   };
+}
+
+/**
+ * Wraps an agent in the sandbox. No network but its one socket: an agent's vendor's
+ * hosts need sandbox-runtime's proxy, which isn't started here. sandbox-runtime reads
+ * the sockets a wrap allows from its shared configuration only, so it is set for this
+ * one wrap and put back at once.
+ */
+async function confineAgent(
+  sandbox: SandboxManager,
+  program: AgentProgram,
+  profile: AgentProfile,
+): Promise<AgentProgram> {
+  if (process.platform !== "darwin") {
+    // On Linux sandbox-runtime allows Unix sockets all or none, which would open the User's other sockets.
+    throw new Error("A hosted agent runs only in macOS's sandbox for now.");
+  }
+  const previous = sandbox.getConfig();
+  sandbox.updateConfig({
+    ...(previous ?? { filesystem: NO_FILE_RULES }),
+    network: { ...NO_NETWORK, allowUnixSockets: [profile.socket] },
+  });
+  try {
+    const script = `export TMPDIR=${quote(program.cwd)}; exec ${[program.command, ...program.args].map(quote).join(" ")}`;
+    const wrapped = await wrap(sandbox, script, {
+      network: NO_NETWORK,
+      filesystem: {
+        denyRead: [...profile.denyRead],
+        allowRead: [],
+        allowWrite: [...profile.allowWrite],
+        denyWrite: SANDBOX_RUNTIME_TEMP,
+      },
+    });
+    return { ...program, ...wrapped };
+  } finally {
+    sandbox.updateConfig(previous ?? { network: NO_NETWORK, filesystem: NO_FILE_RULES });
+  }
 }

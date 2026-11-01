@@ -38,7 +38,8 @@ import {
 import { keywordTerms } from "../documents/keywords";
 import type { WindowedPassage } from "../documents/search";
 import type { SearchToolParameters } from "../documents/searchTool";
-import { type AgentCitation, type AgentCitations, CITATION_TOKEN, citeTag } from "./citations";
+import type { AgentCitation, AgentCitations } from "./citations";
+import { CITATION_TOKEN, citeTag } from "./tokens";
 
 // ---------------------------------------------------------------------------
 // The interface

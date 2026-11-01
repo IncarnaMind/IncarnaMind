@@ -8,6 +8,8 @@
  *   ran, or ends as cancelled if it was cancelled meanwhile.
  * - "write file": asks the client to write a file in its working folder.
  * - "run command": asks the client to run `echo hi` and reads what it printed.
+ * - "use incarnamind": starts the MCP server the session was given, as an agent
+ *   does, and lists its Tools.
  * - "wait": goes on until it is cancelled.
  * - "crash": writes part of an answer, then exits with an error.
  *
@@ -20,6 +22,8 @@
 import { appendFileSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 import { agent, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const log = (record) => {
   const file = process.env.ACP_TEST_LOG;
@@ -34,6 +38,26 @@ const OPTIONS = [
 
 let cancelRequested = false;
 let workingFolder = "";
+let mcpServers = [];
+
+/** The Tools the session's first MCP server lists, or why it couldn't be reached. */
+async function listMcpTools() {
+  const [server] = mcpServers;
+  const env = { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" };
+  for (const variable of server.env) env[variable.name] = variable.value;
+  const client = new Client({ name: "scripted-agent", version: "1.0.0" });
+  try {
+    await client.connect(
+      new StdioClientTransport({ command: server.command, args: server.args, env }),
+    );
+    const { tools } = await client.listTools();
+    return { ok: true, tools: tools.map((tool) => tool.name) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  } finally {
+    await client.close();
+  }
+}
 let cancelled = () => undefined;
 
 const say = (client, sessionId, text) =>
@@ -103,6 +127,7 @@ const app = agent({ name: "scripted-agent" })
   })
   .onRequest("session/new", ({ params }) => {
     workingFolder = params.cwd;
+    mcpServers = params.mcpServers;
     log({
       event: "session/new",
       cwd: params.cwd,
@@ -149,6 +174,16 @@ const app = agent({ name: "scripted-agent" })
         process.stderr.write("boom: the agent's model went away\n", () => process.exit(3)),
       );
       return new Promise(() => undefined);
+    }
+    if (words.includes("use incarnamind")) {
+      const listed = await listMcpTools();
+      log({ event: "mcp", ...listed });
+      await say(
+        client,
+        sessionId,
+        listed.ok ? "IncarnaMind answered." : "IncarnaMind didn't answer.",
+      );
+      return { stopReason: "end_turn" };
     }
     if (words.includes("write file")) {
       const written = await outcomeOf(
