@@ -321,8 +321,9 @@ const blankWork = { documentId: null, documentName: null, location: null };
 function listMarkdown(list: Extract<Block, { kind: "list" }>, naming: Naming): string {
   let number = list.start;
   return list.items
-    .map((item) => {
-      const marker = list.ordered ? `${number++}.` : "-";
+    .map((item, at) => {
+      const marker = list.ordered ? (list.numbering?.markers[at] ?? `${number}.`) : "-";
+      number++;
       const indent = " ".repeat(marker.length + 1);
       return blocksMarkdown(item, naming)
         .split("\n")

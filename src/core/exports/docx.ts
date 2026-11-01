@@ -16,6 +16,7 @@
 
 import { deflateRawSync } from "node:zlib";
 import type { TableAlign } from "../../shared/markdownTables";
+import { NUMBERING_SCHEMES, type NumberingScheme, wordLevel } from "../../shared/numbering";
 import type { ParagraphFormat, StyledRun } from "../api";
 import { writeZip } from "../documents/formats/zip";
 import {
@@ -307,8 +308,17 @@ export interface DocxTarget {
   link(href: string, inNote: boolean): string;
   /** A new picture's relationship from the document part, and its part's file name. */
   picture(picture: NewPicture): { id: string; name: string };
-  /** A numbering instance for a list at `level` that starts at `start`: its numId. */
-  list(ordered: boolean, level: number, start: number): number;
+  /**
+   * A numbering instance for a list of bullets or in a scheme, its items at Word level `level`
+   * and starting at `start`, drawn from `from` of its scheme: its numId.
+   */
+  list(kind: ListKind, level: number, start: number, from?: number): number;
+  /**
+   * Another numbering instance of `numId`'s definition, which Word counts on with it, its items at
+   * `level` starting again at `start`: a nested list keeps its parent's numbers ("1.1.") and its
+   * own start (#1419).
+   */
+  restart(numId: number, scheme: NumberingScheme, level: number, start: number): number;
   /** The bookmark around a note's mark that later Citations refer to: a name the file doesn't have. */
   noteBookmark(note: number): string;
 }
@@ -352,8 +362,14 @@ class NewDocxTarget implements DocxTarget {
     return { id, name };
   }
 
-  list(ordered: boolean, level: number, start: number): number {
-    this.lists.push({ ordered, level, start });
+  list(kind: ListKind, level: number, start: number, from?: number): number {
+    this.lists.push({ kind, level, start, ...(from !== undefined && from !== level && { from }) });
+    return this.lists.length;
+  }
+
+  restart(numId: number, scheme: NumberingScheme, level: number, start: number): number {
+    if (!this.lists[numId - 1]) throw new Error(`The list ${numId} isn't in this document.`);
+    this.lists.push({ kind: scheme, level, start, of: numId });
     return this.lists.length;
   }
 
@@ -370,6 +386,10 @@ interface Context {
   style: string | null;
   /** How deep in lists they are, from 0. */
   listDepth: number;
+  /** The level the outermost list they are in starts at, so its nested lists sit under it. */
+  listStart?: number;
+  /** The numbered list they are in, whose nested numbered lists share its Word numbering. */
+  numbered?: { id: number; scheme: NumberingScheme };
   /** All their text is bold, e.g. in a table's header row. */
   bold: boolean;
   /** The width available, in twips. */
@@ -387,10 +407,21 @@ interface Context {
   pending?: boolean;
 }
 
+export type ListKind = "bullet" | NumberingScheme;
+
 export interface List {
-  ordered: boolean;
+  kind: ListKind;
+  /** Where its items sit in Word's levels, from 0: how deep the list is. */
   level: number;
   start: number;
+  /**
+   * The level of its scheme its items draw from, when it isn't their Word level: a numbered list
+   * under a bullet starts its own numbering a level in, and draws the scheme's first format there
+   * (#1419).
+   */
+  from?: number;
+  /** The list whose definition it is an instance of, when it is nested in it. */
+  of?: number;
 }
 
 /** The context of a Block a change still waiting gives or takes away: its Citations share no note. */
@@ -715,12 +746,34 @@ export class DocxWriter {
     return footnoteReference(id, this.styles.footnote.reference);
   }
 
-  /** A Word list: the first paragraph of each item carries its number or bullet. */
+  /**
+   * A Word list: the first paragraph of each item carries its number or bullet. A numbered list
+   * and the numbered lists nested in it are one Word numbering, so "1.1." takes its parent's number
+   * and Word goes on with it; each nested list is an instance of it that starts again at its own
+   * start, as the editor draws it. Each item at its level, a list that starts deeper at that level.
+   * A list's level numbers it and its depth places it: a numbered list under a bullet starts its
+   * own numbering, and still sits a level in (#1419).
+   */
   private list(block: Extract<Block, { kind: "list" }>, context: Context): string {
     if (block.checked) return this.todos(block, block.checked, context);
-    const level = Math.min(context.listDepth, 8);
-    const numbering = { id: this.target.list(block.ordered, level, block.start), level };
-    const textIndent = context.indent + INDENT * (level + 1);
+    const scheme = block.ordered ? (block.numbering?.scheme ?? "default") : null;
+    // How far in its items sit, and the level of its scheme they draw: the same, except a numbered
+    // list whose numbering starts again under an unnumbered list, which draws a level up from where it sits.
+    const level = block.numbering?.level ?? null;
+    const depth = Math.min(context.listDepth + (context.listStart ?? level ?? 0), 8);
+    const from = Math.min(level ?? depth, 8);
+    const shared = scheme !== null && context.numbered?.scheme === scheme ? context.numbered : null;
+    const id = shared
+      ? this.target.restart(shared.id, shared.scheme, depth, block.start)
+      : this.target.list(scheme ?? "bullet", depth, block.start, from);
+    const numbering = { id, level: depth };
+    const inside: Context = {
+      ...context,
+      listDepth: context.listDepth + 1,
+      listStart: depth - context.listDepth,
+      numbered: scheme === null ? undefined : { id, scheme },
+    };
+    const textIndent = context.indent + INDENT * (depth + 1);
     const numbered = (content: string) =>
       paragraph(
         { style: this.styles.listParagraph, numbering, indent: textIndent, hanging: HANGING },
@@ -743,8 +796,7 @@ export class DocxWriter {
             ? this.list(
                 child,
                 pendingContext(child, {
-                  ...context,
-                  listDepth: context.listDepth + 1,
+                  ...inside,
                   // A checklist starts at the text of the bullet or number it hangs under.
                   ...(child.checked && { indent: textIndent }),
                 }),
@@ -803,7 +855,10 @@ export class DocxWriter {
                   pendingContext(child, {
                     ...context,
                     indent: textAt,
+                    // A list under a to-do starts its own numbering, whatever list holds the to-do.
                     listDepth: 0,
+                    listStart: undefined,
+                    numbered: undefined,
                     todo: undefined,
                   }),
                 )
@@ -1390,17 +1445,24 @@ const settings = (updateFields: boolean) =>
   "</w:settings>";
 
 const BULLETS = ["•", "◦", "▪"];
-const NUMBER_FORMATS = ["decimal", "lowerLetter", "lowerRoman"];
 
-/** A list definition (`w:abstractNum`) of bullets, or of numbers. */
-export function listDefinition(id: number, ordered: boolean): string {
+/**
+ * A list definition (`w:abstractNum`) of bullets, or of numbers in a scheme, each level as it
+ * draws: `shift` levels down the scheme's first format, for a list that starts its numbering
+ * deeper than its scheme's first level.
+ */
+export function listDefinition(id: number, kind: ListKind, shift = 0): string {
   let levels = "";
   for (let level = 0; level < 9; level++) {
-    const format = ordered ? NUMBER_FORMATS[level % 3] : "bullet";
-    const text = ordered ? `%${level + 1}.` : BULLETS[level % 3];
-    levels += `<w:lvl w:ilvl="${level}"><w:start w:val="1"/><w:numFmt w:val="${format}"/><w:lvlText w:val="${text}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="${INDENT * (level + 1)}" w:hanging="${HANGING}"/></w:pPr></w:lvl>`;
+    const { format, text } =
+      kind === "bullet"
+        ? { format: "bullet", text: BULLETS[level % 3] ?? "•" }
+        : wordLevel(kind, Math.max(level - shift, 0), level);
+    levels += `<w:lvl w:ilvl="${level}"><w:start w:val="1"/><w:numFmt w:val="${format}"/><w:lvlText w:val="${escapeXml(text)}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="${INDENT * (level + 1)}" w:hanging="${HANGING}"/></w:pPr></w:lvl>`;
   }
-  return `<w:abstractNum w:abstractNumId="${id}"><w:multiLevelType w:val="hybridMultilevel"/>${levels}</w:abstractNum>`;
+  // Outline's "1.1." is one numbering through its levels, not a list of lists.
+  const type = kind === "outline" ? "multilevel" : "hybridMultilevel";
+  return `<w:abstractNum w:abstractNumId="${id}"><w:multiLevelType w:val="${type}"/>${levels}</w:abstractNum>`;
 }
 
 /**
@@ -1408,13 +1470,27 @@ export function listDefinition(id: number, ordered: boolean): string {
  * rather than going on from the last list of the same definition.
  */
 export function listInstance(numId: number, definition: number, list: List): string {
-  return `<w:num w:numId="${numId}"><w:abstractNumId w:val="${definition}"/>${list.ordered ? `<w:lvlOverride w:ilvl="${list.level}"><w:startOverride w:val="${list.start}"/></w:lvlOverride>` : ""}</w:num>`;
+  return `<w:num w:numId="${numId}"><w:abstractNumId w:val="${definition}"/>${list.kind !== "bullet" ? `<w:lvlOverride w:ilvl="${list.level}"><w:startOverride w:val="${list.start}"/></w:lvlOverride>` : ""}</w:num>`;
 }
 
-/** Two list definitions, bullets (0) and numbers (1), and an instance of one for each list. */
 function numbering(lists: readonly List[]): string {
-  const instances = lists.map((list, index) => listInstance(index + 1, list.ordered ? 1 : 0, list));
-  return `${XML_DECLARATION}<w:numbering xmlns:w="${NS.w}">${listDefinition(0, false)}${listDefinition(1, true)}${instances.join("")}</w:numbering>`;
+  const kinds: ListKind[] = ["bullet", ...NUMBERING_SCHEMES];
+  // LibreOffice treats instances of one definition as one list, so a list that starts deeper,
+  // which draws the levels above it ("1.1."), counts them on from the list before: it gets its own.
+  const definitions = kinds.map((kind, id) => listDefinition(id, kind));
+  const definitionOf: number[] = [];
+  const instances = lists.map((list, index) => {
+    const nested = list.of === undefined ? undefined : definitionOf[list.of - 1];
+    const own = nested === undefined && list.kind !== "bullet" && list.level > 0;
+    const definition = nested ?? (own ? definitions.length : kinds.indexOf(list.kind));
+    if (own)
+      definitions.push(
+        listDefinition(definition, list.kind, list.level - (list.from ?? list.level)),
+      );
+    definitionOf.push(definition);
+    return listInstance(index + 1, definition, list);
+  });
+  return `${XML_DECLARATION}<w:numbering xmlns:w="${NS.w}">${definitions.join("")}${instances.join("")}</w:numbering>`;
 }
 
 const CODE_FONT = '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/>';
