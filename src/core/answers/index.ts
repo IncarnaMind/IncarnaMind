@@ -53,7 +53,7 @@ import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { yoursLine } from "../../shared/commands";
 import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
-import { translate } from "../../shared/i18n";
+import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { citationLocation, englishLocation, englishPlace } from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
@@ -80,6 +80,7 @@ import {
 } from "../../shared/searchScope";
 import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
+import { unbackedCommandNotes } from "../../shared/unbackedCommands";
 import { unrunToolNotes } from "../../shared/unrunTools";
 import type { AnalysisRuntime } from "../adapters";
 import { withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
@@ -106,7 +107,9 @@ import {
   type CitationRecheck,
   type CitationSupport,
   type CitedSelection,
+  CLAIMED_COMMANDS,
   type ClaimedChange,
+  type ClaimedCommand,
   type ClaimedTool,
   type CommandDone,
   type CommandProblem,
@@ -539,10 +542,13 @@ function lastAnswerOf(
   const answer = earlier[at];
   if (answer?.kind !== "answer") return null;
   const question = earlier.slice(0, at).findLast((message) => message.kind === "question");
-  // Put into a Note as it is, a claim of a Tool that didn't run keeps its line (#1796).
+  // Put into a Note as it is, a claim of a Tool that didn't run keeps its line (#1796), and so
+  // does one of something in the app that wasn't done (#2407).
+  const said = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   const blocks = [
     ...pageBlocks(answer, question?.text ?? ""),
-    ...unrunToolNotes((key, params) => translate(language, key, params), answer.steps),
+    ...unrunToolNotes(said, answer.steps),
+    ...unbackedCommandNotes(said, answer.steps),
   ];
   if (!hasText(blocks)) return null;
   return {
@@ -1308,6 +1314,7 @@ export function createAnswers(options: AnswersOptions) {
     /** The one request to fix figures, if the engine made it (see ./figureRetry). */
     let figureRetry: FigureRetry | null = null;
     let unbackedClaims: ClaimedChange[] = [];
+    let unbackedCommands: readonly ClaimedCommand[] = [];
     let unrunTools: readonly ClaimedTool[] = [];
     let askedAgainFor: readonly ClaimedTool[] = [];
     /** What the model calls counted, the cached input tokens too. */
@@ -1409,6 +1416,7 @@ export function createAnswers(options: AnswersOptions) {
           firstWordAt !== Infinity && { firstWordMs: wordAfter(sentAt, firstWordAt) }),
         ...(careful && { careful: true as const }),
         ...(unbackedClaims.length > 0 && { unbackedClaims: [...unbackedClaims] }),
+        ...(unbackedCommands.length > 0 && { unbackedCommands: [...unbackedCommands] }),
         ...(unrunTools.length > 0 && {
           unrunTools: [...unrunTools],
           ...(!calculating && unrunTools.includes("calculate") && { calculateUnavailable: true }),
@@ -2917,6 +2925,24 @@ export function createAnswers(options: AnswersOptions) {
           ),
         ).values(),
       ];
+      /**
+       * The lines the reply ends with, each in any language: why work stayed out of a Folder,
+       * worded by the wall as it is now, since one lifted meanwhile is no wall (#2250), and each
+       * command asked for that is the User's alone, in the card's own words (#2252).
+       */
+      const refusalLines = (): ((language: Language) => string)[] => {
+        const lifted = turnWall !== null && options.walledFolderId(turnWall) === null;
+        return [
+          ...[...wallRefusals]
+            .map((key) => (key === "folder.wall.refusal" && lifted ? "folder.wall.changed" : key))
+            .map((key) => (each: Language) => translate(each, key)),
+          ...refusedCommands().map(
+            ({ yours, folder }) =>
+              (each: Language) =>
+                yoursLine(each, yours, folder),
+          ),
+        ];
+      };
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
       // Asked again inside the turn, the model reads what applied as applied: the window may not
       // have taken it in yet, and told it waits, the model tells the User so.
@@ -2950,12 +2976,16 @@ export function createAnswers(options: AnswersOptions) {
       // call's help is read by its own flow, which offers no calculate to call.
       const readByUser = !outside && !help && !input.task && input.toolSet !== "check";
       const turnChecks: TurnCheck[] = [
-        ...(mindsTools
+        ...(mindsTools || commandsOffered
           ? [
               {
                 name: "claimed-change",
                 check: async (text: string) => {
-                  if (text.trim() === "") return null;
+                  // A refusal's own line says what wasn't done: never read as a claim (#2407).
+                  const reply = refusalLines()
+                    .flatMap((line) => LANGUAGES.map(line))
+                    .reduce((rest, line) => rest.split(line).join(""), text);
+                  if (reply.trim() === "") return null;
                   activity = "checking-claims";
                   showPhase();
                   try {
@@ -2971,7 +3001,7 @@ export function createAnswers(options: AnswersOptions) {
                     }
                     mindsNow = null;
                     const checked = await inStep("change-claim-check", () =>
-                      claimsNoCallMade(text, toolCalls, mindsListed(), focusedId, {
+                      claimsNoCallMade(reply, toolCalls, mindsListed(), focusedId, {
                         model: judgeModel,
                         names: options.readableMindName,
                         states: appliedInTurn,
@@ -2984,11 +3014,22 @@ export function createAnswers(options: AnswersOptions) {
                       usage.cachedInputTokens += checked.usage.cachedInputTokens ?? 0;
                       usage.cacheWriteTokens += checked.usage.cacheWriteTokens ?? 0;
                     }
-                    return checked.claims.length > 0
+                    // A claim in the app that stands names what the turn refused as the User's alone
+                    // too, whatever the judge took the claim to be about, so none of it reads as
+                    // done (#2407).
+                    const refused = new Set<string>(refusedCommands().map(({ yours }) => yours));
+                    const commands =
+                      checked.commands.length === 0
+                        ? []
+                        : CLAIMED_COMMANDS.filter(
+                            (each) => checked.commands.includes(each) || refused.has(each),
+                          );
+                    return checked.claims.length > 0 || commands.length > 0
                       ? {
                           claims: checked.claims,
+                          commands,
                           note: askAgainNote(
-                            checked.claims,
+                            checked,
                             toolCalls,
                             options.readableMindName,
                             appliedInTurn,
@@ -3241,25 +3282,13 @@ export function createAnswers(options: AnswersOptions) {
                 ],
               }
             : readByUser && { turnChecks: [claimedTools] }),
-        // Every Answer, in the assistant or a Note, says why work of its stayed out of a Folder,
-        // worded by the wall as it is now: a wall lifted meanwhile is no wall (#2250). It says
-        // each command it was asked for that is the User's alone in the card's own words, after
-        // the model's reply, after none, and after a reply asked again that then failed, so the
-        // reply and the card never disagree and the card keeps only its button (#2252).
+        // Every Answer, in the assistant or a Note, ends with its refusal lines after the model's
+        // reply, after none, and after a reply asked again that then failed, so the reply and the
+        // card never disagree and the card keeps only its button (#2252).
         refusalSuffix: (reply) => {
           const language = answerLanguage(context.question);
-          const lifted = turnWall !== null && options.walledFolderId(turnWall) === null;
           // Said in either language, a line is said: a reply can copy an earlier Answer's.
-          const lines = [
-            ...[...wallRefusals]
-              .map((key) => (key === "folder.wall.refusal" && lifted ? "folder.wall.changed" : key))
-              .map((key) => (each: Language) => translate(each, key)),
-            ...refusedCommands().map(
-              ({ yours, folder }) =>
-                (each: Language) =>
-                  yoursLine(each, yours, folder),
-            ),
-          ]
+          const lines = refusalLines()
             .filter((line) => !LANGUAGES.some((each) => reply.includes(line(each))))
             .map((line) => line(language));
           return lines.length === 0 ? null : lines.join(language === "zh-CN" ? "" : " ");
@@ -3304,6 +3333,7 @@ export function createAnswers(options: AnswersOptions) {
             break;
           case "claims-unbacked":
             unbackedClaims = event.claims;
+            unbackedCommands = event.commands ?? [];
             unrunTools = event.tools ?? [];
             writeSoon();
             break;

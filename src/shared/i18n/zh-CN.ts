@@ -6233,6 +6233,13 @@ export const zhCN = {
   "answer.notCalculated.unavailable":
     "未运行计算：这个模型无法调用 IncarnaMind 的计算工具，这条回答中算出的数字尚未核对",
   "answer.notSearched": "未运行搜索：这条回答不是根据搜索结果生成的",
+  "answer.notDone.command": "助手没有在应用中完成这条回答说的全部操作",
+  "answer.notDone.privacy":
+    "未更改“所有内容都留在这台电脑上”和哪些内容发送到云服务。只有你能在“设置 › 隐私”里更改",
+  "answer.notDone.keys": "未更改密钥和登录。只有你能在“设置 › 模型”里更改",
+  "answer.notDone.spending": "未更改每月花费上限。只有你能在“设置 › 通用”里更改",
+  "answer.notDone.approvals": "未更改助手不经询问能做什么。只有你能在“设置 › 隐私”里更改",
+  "answer.notDone.permanent": "未彻底删除任何内容。只有你能在“回收站”里彻底删除",
   "answer.uncitedReply": "这条回答没有引用，未与文档核对",
   "answer.uncitedWrite": "“{mind}”中写入的内容没有引用，未与文档核对",
   "answer.added": "已添加到“{mind}”",

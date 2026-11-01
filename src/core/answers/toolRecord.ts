@@ -267,6 +267,9 @@ function commandLine(call: AnswerToolCall): string {
   if (!done) {
     return `run_command ${field(call, "command")}: ${call.approval === "denied" ? "the User didn't allow it, so nothing changed" : "failed, so nothing changed"}`;
   }
+  if (done.yours) {
+    return `run_command ${done.command}: refused, since only the User changes it, so nothing changed`;
+  }
   const items = done.items
     .map((item) =>
       item.renamed ? `${quoted(item.name)} to ${quoted(item.renamed)}` : quoted(item.name),
@@ -277,7 +280,19 @@ function commandLine(call: AnswerToolCall): string {
   const file = done.file
     ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(done)}`
     : "";
-  return `run_command ${done.command}: ${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${file}`;
+  const setting = done.setting
+    ? `${done.setting.name} changed from ${quoted(done.setting.from)} to ${quoted(done.setting.to)}`
+    : "";
+  const what =
+    setting && done.items.length === 0
+      ? setting
+      : `${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${file}${setting && `, ${setting}`}`;
+  const window = done.window
+    ? done.window.running
+      ? ", started in the window and still going on"
+      : ", run in the window"
+    : "";
+  return `run_command ${done.command}: ${what}${window}`;
 }
 
 /** What a Word export did about marking the text IncarnaMind wrote, and why, as its result said. */

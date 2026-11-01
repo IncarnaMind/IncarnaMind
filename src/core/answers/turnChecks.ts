@@ -7,7 +7,7 @@
  * left is flagged, by every check, the same way: an Answer flagged with
  * Regenerate (`claims-unbacked`).
  */
-import type { ClaimedChange, ClaimedTool } from "../api";
+import type { ClaimedChange, ClaimedCommand, ClaimedTool } from "../api";
 
 /** What a check found wrong in the reply. */
 export interface TurnFinding {
@@ -24,6 +24,8 @@ export interface TurnFinding {
   claims: readonly ClaimedChange[];
   /** The Tools the reply says ran that didn't (#1796), which flag it too. */
   tools?: readonly ClaimedTool[];
+  /** What the reply says it did in the app that no call did (#2407), which flags it too. */
+  commands?: readonly ClaimedCommand[];
 }
 
 export interface TurnCheck {
@@ -52,10 +54,14 @@ export function createNudges(maxSteps: number, steps: () => number): Nudges {
   };
 }
 
-/** What flags a reply that stands: the changes and the Tools it claims that none of its calls made. */
+/**
+ * What flags a reply that stands: the changes, the Tools and what in the app it claims that none
+ * of its calls made.
+ */
 export interface Flags {
   claims: ClaimedChange[];
   tools?: ClaimedTool[];
+  commands?: ClaimedCommand[];
 }
 
 /**
@@ -74,6 +80,7 @@ export async function settleReply(
 ): Promise<Settled> {
   const claims = new Set<ClaimedChange>();
   const tools = new Set<ClaimedTool>();
+  const commands = new Set<ClaimedCommand>();
   for (const each of checks) {
     const found = await each.check(reply);
     if (!found) continue;
@@ -87,8 +94,13 @@ export async function settleReply(
     }
     for (const claim of found.claims) claims.add(claim);
     for (const tool of found.tools ?? []) tools.add(tool);
+    for (const command of found.commands ?? []) commands.add(command);
   }
-  return { claims: [...claims], ...(tools.size > 0 && { tools: [...tools] }) };
+  return {
+    claims: [...claims],
+    ...(tools.size > 0 && { tools: [...tools] }),
+    ...(commands.size > 0 && { commands: [...commands] }),
+  };
 }
 
 /** What flags a reply that is not asked about again. */

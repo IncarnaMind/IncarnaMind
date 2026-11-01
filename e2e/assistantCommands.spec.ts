@@ -495,6 +495,44 @@ test("in Chinese, Local mode's line and its button are in Chinese, and fit a nar
   await app.close();
 });
 
+test("a reply that says Local mode is on, though it was refused, keeps a line under it that says it wasn't changed, in English and Chinese", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+
+  const answer = await askInAssistant(window, "Say you turned on Local mode");
+
+  const text = answer.getByTestId("assistant-answer-text");
+  await expect(text).toContainText("I've turned on Local mode.");
+  await expect(text).toContainText(
+    "“Keep everything on this computer” and what goes to cloud services are yours to change, not mine.",
+  );
+  const line = answer.getByTestId("answer-unbacked-command");
+  await expect(line).toHaveText(
+    "“Keep everything on this computer” and what goes to cloud services weren’t changed. Only you can change them, in Settings › Privacy",
+  );
+  await expect(answer.getByTestId("answer-unbacked-claim")).toHaveCount(0);
+  await screenshot(window, "claimed-local-mode-en");
+  await setLanguage(window, "zh-CN");
+  await setWindowSize(app, window, 900, 700);
+  await expect(line).toHaveText(
+    "未更改“所有内容都留在这台电脑上”和哪些内容发送到云服务。只有你能在“设置 › 隐私”里更改",
+  );
+  const [box, width] = await Promise.all([
+    line.boundingBox(),
+    window.evaluate(() => globalThis.innerWidth),
+  ]);
+  expect(box && box.x + box.width <= width).toBe(true);
+  await screenshot(window, "claimed-local-mode-zh-narrow");
+  const localOnly = await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await core.getEmbeddingSettings()).localOnly;
+  });
+  expect(localOnly).toBe(false);
+  await app.close();
+});
+
 test("put the documents about rent together: Organize reads them, they wait in To review, and nothing moves", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);

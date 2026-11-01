@@ -146,6 +146,42 @@ describe("The record of an Answer's Tool calls", () => {
     );
   });
 
+  // protects=a command refused as the User's alone reads as having changed nothing, though its call is done; a setting says what it changed from and to; a window's command says it ran there, or is still going on (#2407); fails_when=a refusal reads as "0 items", which a model asked again takes as done; no_claim=how a model reads it.
+  test("a refusal, a setting and a window's command each say what they did (#2407)", () => {
+    const ran = (command: object) =>
+      toolRecordLines(
+        [call({ tool: "run_command", source: "commands", command: command as never })],
+        names,
+      ).at(0);
+    expect(ran({ command: "settings.change", run: "r", items: [], yours: "privacy" })).toBe(
+      "- run_command settings.change: refused, since only the User changes it, so nothing changed",
+    );
+    expect(
+      ran({
+        command: "settings.change",
+        run: "r",
+        items: [],
+        setting: { name: "motion", from: "on", to: "off" },
+      }),
+    ).toBe("- run_command settings.change: motion changed from “on” to “off”");
+    expect(
+      ran({
+        command: "document.openBeside",
+        run: "r",
+        items: [{ kind: "document", id: "d1", name: "Mill Lane" }],
+        window: { changed: false },
+      }),
+    ).toBe("- run_command document.openBeside: 1 item (“Mill Lane”), run in the window");
+    expect(
+      ran({
+        command: "mind.check",
+        run: "r",
+        items: [],
+        window: { changed: false, running: true },
+      }),
+    ).toBe("- run_command mind.check: 0 items, started in the window and still going on");
+  });
+
   // protects=the record says how many Citations a change wrote and how many markers it left out, and how many the reply holds; fails_when=a page whose Citations were lost reads as cited, or the reply's are left out; no_claim=none beyond protects.
   test("the Citations a change wrote, the markers it left out, and the reply's", () => {
     const made = call({

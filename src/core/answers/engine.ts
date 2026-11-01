@@ -76,6 +76,7 @@ import type {
   AnswerPhase,
   CitationSupport,
   ClaimedChange,
+  ClaimedCommand,
   ClaimedTool,
   FigureRetry,
   ProviderError,
@@ -603,7 +604,12 @@ export type AnswerEngineEvent =
    * The reply claims these changes to a Mind, or says these Tools ran (#1796), which none of the
    * Answer's Tool calls made or ran.
    */
-  | { type: "claims-unbacked"; claims: ClaimedChange[]; tools?: ClaimedTool[] }
+  | {
+      type: "claims-unbacked";
+      claims: ClaimedChange[];
+      tools?: ClaimedTool[];
+      commands?: ClaimedCommand[];
+    }
   /** The reply said these Tools ran, and none had: the model was asked once more (#1796). */
   | { type: "asked-again"; tools: readonly ClaimedTool[] }
   /** The Answer is complete. Nothing follows. */
@@ -2368,9 +2374,14 @@ async function* flagClaims(
   yield* flagged(await flagsOf(request.turnChecks ?? [], text));
 }
 
-function* flagged({ claims, tools }: Flags): Generator<AnswerEngineEvent> {
-  if (claims.length > 0 || tools) {
-    yield { type: "claims-unbacked", claims, ...(tools && { tools }) };
+function* flagged({ claims, tools, commands }: Flags): Generator<AnswerEngineEvent> {
+  if (claims.length > 0 || tools || commands) {
+    yield {
+      type: "claims-unbacked",
+      claims,
+      ...(tools && { tools }),
+      ...(commands && { commands }),
+    };
   }
 }
 

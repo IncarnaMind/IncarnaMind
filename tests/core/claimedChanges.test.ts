@@ -219,3 +219,78 @@ describe("What the judge says the sentence is about (#2194)", () => {
     }
   });
 });
+
+describe("A claim of something done in the app (#2407)", () => {
+  const english = "Local mode is on now.";
+  const chinese = "已经为你开启了本地模式。";
+
+  // protects=each value the judge gives a claim in the app counts as that claim, apart from a Note's change, in English and Chinese; fails_when=one is dropped, or read as a change to a Note (whose line says nothing was written); no_claim=what a real judge answers.
+  test.each([
+    ["app", "command"],
+    ["local_mode", "privacy"],
+    ["keys", "keys"],
+    ["spending_cap", "spending"],
+    ["approval_rules", "approvals"],
+    ["deleted_for_good", "permanent"],
+  ] as const)("about %s counts as %s", async (about, command) => {
+    for (const reply of [english, chinese]) {
+      const result = await check(
+        judge({ claims: [{ sentence: reply, kind: "changed", about, backed: false }] }),
+        reply,
+      );
+      expect(result.commands).toEqual([command]);
+      expect(result.claims).toEqual([]);
+    }
+  });
+
+  // protects=a claim in the app the record backs counts for nothing, beside one it doesn't; fails_when=a backed claim flags; no_claim=none beyond protects.
+  test("a backed claim in the app finds nothing, beside one that isn't", async () => {
+    const reply = "I opened the lease beside your note. Local mode is on now.";
+    const result = await check(
+      judge({
+        claims: [
+          {
+            sentence: "I opened the lease beside your note.",
+            kind: "changed",
+            about: "app",
+            backed: true,
+          },
+          { sentence: english, kind: "changed", about: "local_mode", backed: false },
+        ],
+      }),
+      reply,
+    );
+    expect(result.commands).toEqual(["privacy"]);
+  });
+
+  // protects=the record gives each run_command what it did, so a refusal (whose status is done) reads as having done nothing; fails_when=a refusal or a denied call reads as done; no_claim=none beyond protects.
+  test("the record says what each command did", async () => {
+    const model = judge({ claims: [] });
+    const calls: AnswerToolCall[] = [
+      {
+        id: "refused",
+        tool: "run_command",
+        source: "commands",
+        input: { command: "settings.change", setting: "localMode", value: "on" },
+        status: "done",
+        resultCount: null,
+        command: { command: "settings.change", run: "r1", items: [], yours: "privacy" },
+      },
+      {
+        id: "denied",
+        tool: "run_command",
+        source: "commands",
+        input: { command: "document.delete", ids: ["d1"] },
+        status: "failed",
+        approval: "denied",
+        resultCount: null,
+      },
+    ];
+
+    await check(model, english, calls);
+
+    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    expect(prompt).toContain(`\\"outcome\\": \\"refused: the User's alone\\"`);
+    expect(prompt).toContain(`\\"outcome\\": \\"not allowed by the User\\"`);
+  });
+});
