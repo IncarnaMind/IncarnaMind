@@ -1340,15 +1340,19 @@ describe("the scale forms a Document states apart from its figures (#2365)", () 
     ["(000 omitted)", ["(000 omitted) 1000 plain"], []],
     ["(000's omitted)", ["(000's omitted) 1000 plain"], []],
     ["Dollar amounts, 000 omitted", ["000 omitted 1000 plain"], []],
-    ["Revenue (000)", ["(000) 1000 plain"], []],
-    ["(in 000s)", ["(in 000s) 1000 plain"], []],
+    ["(in 000s)", ["000s 1000 plain"], []],
+    ["('000)", ["'000 1000 plain"], []],
+    ["(in 000)", ["(in 000) 1000 plain"], []],
     ["£000", ["£000 1000 GBP"], []],
-    ["Thousands", ["Thousands 1000 plain"], []],
+    ["(thousands)", ["thousands 1000 plain"], []],
+    ["Segment\tThousands", ["Thousands 1000 plain"], []],
     ["Unit: thousand", ["thousand 1000 plain"], []],
+    ["Group £m\t2025", ["£m 1000000 GBP"], []],
     // A currency joined to a scale.
     ["Angaben in TEUR", ["TEUR 1000 EUR"], []],
     ["T€", ["T€ 1000 EUR"], []],
     ["k€", ["k€ 1000 EUR"], []],
+    ["kEUR", ["kEUR 1000 EUR"], []],
     ["MEUR", ["MEUR 1000000 EUR"], []],
     ["€ Mio.", ["€ Mio. 1000000 EUR"], []],
     ["Tsd. €", ["Tsd. € 1000 EUR"], []],
@@ -1365,7 +1369,20 @@ describe("the scale forms a Document states apart from its figures (#2365)", () 
     ["港幣百萬", ["港幣百萬 1000000 HKD"], []],
     ["（港幣百萬）", ["（港幣百萬） 1000000 HKD"], []],
     ["金額（億元）", ["（億元） 100000000 CNY"], []],
-    // Not a scale: a figure, a code, a phone number, a clause or a unit of measure.
+    // Not a scale: a figure, a code, a phone number, a clause, a name or a unit of measure.
+    ["Share class USD B Acc", [], []],
+    ["EUR M Dist", [], []],
+    ["USD M&A advisory fees", [], []],
+    ["Series M USD notes", [], []],
+    ["Millions", [], []],
+    ["Thousands", [], []],
+    ["Fees were £19.8\nmillion, paid in 2025", [], []],
+    ["Thousands of 000s of users", [], []],
+    ["Vintage 000s", [], []],
+    ["#000s", [], []],
+    ["£m 2025", [], []],
+    ["美元B类份额", [], []],
+    ["账户尾号000", [], []],
     ["order 000123", [], []],
     ["Room 000", [], []],
     ["(000) 123-4567", [], []],
@@ -1378,6 +1395,7 @@ describe("the scale forms a Document states apart from its figures (#2365)", () 
     ["约3（万）人", [], []],
     ["人民币千万不要", [], []],
     ["今欠到吴梅废书款伍拾肆万捌仟元整", [], []],
+    ["他是村里的万元户", [], []],
     ["(K) the Seller's costs", [], []],
     ["Temperature (K)", [], []],
     ["Length (in mm)", [], []],
@@ -1390,6 +1408,10 @@ describe("the scale forms a Document states apart from its figures (#2365)", () 
     ["Amounts in K", [], ["in K"]],
     ["Amounts in M", [], ["in M"]],
     ["Amounts in $T", [], ["$T"]],
+    ["Accounts ending in 000", [], ["in 000"]],
+    ["Call (000)", [], ["(000)"]],
+    ["Revenue (000)", [], ["(000)"]],
+    ["Holdings of TUSD stablecoin", [], ["TUSD"]],
   ];
 
   test.each(CASES)("%s", (text, statements, unsettled) => {
@@ -1400,6 +1422,19 @@ describe("the scale forms a Document states apart from its figures (#2365)", () 
       ),
     ).toEqual(statements);
     expect(unsettledScales(text)).toEqual(unsettled);
+  });
+
+  test("a scale statement says which figures it leaves out", () => {
+    const except = (text: string) => readStatedUnits(text).map((each) => [each.chars, each.except]);
+    expect(except("Results (in millions, except per share data)")).toEqual([
+      ["in millions", "per-share"],
+    ]);
+    expect(except("(In thousands of dollars, except share and per-share amounts)")).toEqual([
+      ["In thousands of dollars", "shares"],
+    ]);
+    expect(except("单位：千元（除每股数据外）")).toEqual([["单位：千元", "per-share"]]);
+    expect(except("（除股数及每股数据外，单位：百万元）")).toEqual([["单位：百万元", "shares"]]);
+    expect(except("Results (in millions)")).toEqual([["in millions", undefined]]);
   });
 
   test("a figure written in 仟 is read at its scale, as 萬 and 億 are", () => {

@@ -25,7 +25,7 @@
  */
 import { type TextUnit, UnitBuilder, type UnitComment } from "../../../shared/units";
 import { headingLevelOfStyleName } from "../../../shared/wordStyles";
-import { relationshipsOf } from "./docxPackage";
+import { type Relationship, relationshipsOf } from "./docxPackage";
 import { ExtractionError } from "./errors";
 import { child, elements, local, parseXml, type XmlElement } from "./xml";
 import { openPackage, type ZipArchive } from "./zip";
@@ -245,21 +245,28 @@ function addComments(
 /**
  * The text of each Word section's headers and footers, in the order the sections run: the last
  * section's properties are the body's own. A section without a header or footer of a kind (first
- * page, even pages, the rest) keeps the one before it, as Word shows it.
+ * page, even pages, the rest) keeps the one before it, as Word shows it. A header, footer or
+ * relationships part that can't be parsed reads as empty: the body is read as without them.
  */
 async function runningTexts(
   zip: ZipArchive,
   sections: readonly (XmlElement | undefined)[],
   styles: Map<string, number>,
 ): Promise<string[]> {
-  const rels = await relationshipsOf(zip, "word/document.xml");
+  const rels = await relationshipsOf(zip, "word/document.xml").catch(
+    () => new Map<string, Relationship>(),
+  );
   const parts = new Map<string, string>();
   const textOfPart = async (part: string) => {
     let text = parts.get(part);
     if (text === undefined) {
-      const xml = await zip.readText(part);
       const inner: Paragraph[] = [];
-      if (xml) readBlocks(parseXml(xml), styles, inner);
+      try {
+        const xml = await zip.readText(part);
+        if (xml) readBlocks(parseXml(xml), styles, inner);
+      } catch {
+        inner.length = 0;
+      }
       text = textOf(inner, "\n");
       parts.set(part, text);
     }

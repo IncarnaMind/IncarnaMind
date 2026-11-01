@@ -47,6 +47,7 @@ import {
   readFigures,
   readStatedUnits,
   type StatedCurrency,
+  type StatedUnit,
   unsettledScales,
 } from "../../shared/figures";
 import {
@@ -71,6 +72,7 @@ import {
   englishLocation,
   joinUnits,
   quoteInUnits,
+  unitLocation,
 } from "../../shared/locations";
 import { memoized } from "../../shared/memo";
 import { findQuote, type TextRange } from "../../shared/quoteMatch";
@@ -481,19 +483,34 @@ interface Stated {
   statement: string;
   reading: Reading;
   /**
-   * Why no unitQuote can settle it: the scale is stated only in a running header or footer, which
-   * no Passage quotes, or written in a form that reads more than one way ("in MM").
+   * Why no unitQuote can settle it: the scale is stated only in a running header or footer, or in
+   * another part of the Document, which this Passage doesn't hold, or written in a form that reads
+   * more than one way ("in MM").
    */
-  unquotable?: "header" | "unsettled";
+  unquotable?: "header" | "elsewhere" | "unsettled";
+  /** For one stated elsewhere: where. */
+  where?: string;
 }
 
 /** Why a number with no unit of its own can't be calculated where its page states a scale. */
 function candidateProblem(chars: string, where: string, candidate: Stated): string {
   if (candidate.unquotable === "header")
     return `${chars} has no unit, and a running header or footer at ${where} states a scale ("${candidate.statement}") that no Passage quotes; it can't be calculated without guessing its scale.`;
+  if (candidate.unquotable === "elsewhere")
+    return `${chars} has no unit, and ${candidate.where || "another part of its Document"} states a scale ("${candidate.statement}") that ${where} doesn't; it can't be calculated without guessing whether that scale applies.`;
   if (candidate.unquotable === "unsettled")
     return `${chars} has no unit, and ${where} writes "${candidate.statement}", which can be read as more than one scale or unit; it can't be calculated without guessing its scale.`;
   return `${chars} has no unit, and ${where} says "${candidate.statement}"; give that line as unitQuote.`;
+}
+
+// A per-share row names itself, or is a "Basic" or "Diluted" row under one; "Diluted shares" is a count.
+const PER_SHARE = /per[- \u00a0]share|\bEPS\b|^\s*(?:basic|diluted)\b(?!.*\bshares?\b)|每股/i;
+const SHARE_COUNT = /\bshares\b|股数|普通股加权平均|加权平均股份/i;
+
+/** Whether `statement`'s exception ("in millions, except per share data") leaves out the number labelled `label`. */
+function exceptedBy(statement: StatedUnit, label: string): boolean {
+  if (!statement.except) return false;
+  return PER_SHARE.test(label) || (statement.except === "shares" && SHARE_COUNT.test(label));
 }
 
 /** A reading of `base` a thousand times over: a stand-in for a scale that can't be settled, to tell whether a result depends on it. */
@@ -569,6 +586,33 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   let calls = 0;
   const contexts = new Map<string, FigureContext>();
   const scales = new Map<string, { scale: string | null; stale: boolean }>();
+  const unitScales = new Map<string, { page: number | null; scale: string; where: string }[]>();
+
+  /**
+   * Each Unit of a Document version that states a scale, read once: in its text, in a form that
+   * reads more than one way, or in a running header or Word header kept beside it.
+   */
+  const scaledUnitsOf = (citation: Citation) => {
+    const key = `${citation.documentId}\n${citation.contentHash}`;
+    let found = unitScales.get(key);
+    if (!found) {
+      const context = contextOf(citation);
+      found = documents
+        .pageTexts(citation.documentId, citation.contentHash, null, null)
+        .flatMap((unit) => {
+          const scale =
+            readStatedUnits(unit.text, context).find((each) => each.scale !== 1)?.chars ??
+            unsettledScales(unit.text, context)[0] ??
+            (unit.scaleMarker && !unit.text.includes(unit.scaleMarker) ? unit.scaleMarker : null);
+          const location = unitLocation(unit);
+          return scale
+            ? [{ page: unit.page, scale, where: location ? englishLocation(location) : "" }]
+            : [];
+        });
+      unitScales.set(key, found);
+    }
+    return found;
+  };
 
   /** How a Document version writes its numbers, read once from all its text. */
   const contextOf = (citation: Citation): FigureContext => {
@@ -585,10 +629,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
 
   /**
    * The scale a Document version states anywhere, read once: a line the reader applies
-   * ("in thousands", "单位：万元"), a currency next to a scale token ("£'000"), a PDF's running
-   * header or a Word header kept beside a page's text, or a form that reads more than one way
-   * ("in MM", #2365). `stale`: a page was read before this build kept that marker, so a scale it
-   * wrote can't be ruled out (#1001).
+   * ("in thousands", "单位：万元"), a currency next to a scale token ("£'000"), or a page's
+   * scale marker: its PDF running header or Word header, or a form that reads two ways ("in MM",
+   * #2365). `stale`: a page was read before this build kept that marker, so a scale it wrote
+   * can't be ruled out (#1001).
    */
   const scaleOf = (citation: Citation): { scale: string | null; stale: boolean } => {
     const key = `${citation.documentId}\n${citation.contentHash}`;
@@ -602,7 +646,6 @@ export function createCalculationSession(options: CalculationSessionOptions) {
           units.find((unit) => unit.scaleMarker)?.scaleMarker ??
           currencyScaleMarker(all) ??
           stated?.chars ??
-          unsettledScales(all, contextOf(citation))[0] ??
           null,
         stale: units.some((unit) => unit.scaleMarker === null),
       };
@@ -716,6 +759,20 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const { text } = joinUnits(quoted.units);
     const { at, midLine } = quoteOnPage(text, quote, quoted.passageText, quoted.matching);
     return at < 0 ? { text: quote, at: 0, midLine } : { text, at, midLine };
+  }
+
+  /**
+   * The words a figure is labelled with on its row: its table row's first cell, or the words
+   * between it and the number before it ("Diluted earnings per share" in "…412.5 Diluted earnings
+   * per share 2.15", as a Chinese PDF's joined rows read).
+   */
+  function labelOf(quoted: Quoted, figure: Figure): string {
+    const before = lineBefore(quoted, figure);
+    const { text, at } = onPage(quoted);
+    const end = text.indexOf("\n", at + figure.start);
+    const row = `${before}${text.slice(at + figure.start, end < 0 ? undefined : end)}`;
+    if (row.includes("\t")) return row.split("\t")[0] ?? "";
+    return before.split(/\d[\d,.]*[)）%]?/).at(-1) ?? "";
   }
 
   function lineBefore(quoted: Quoted, figure: Figure): string {
@@ -964,6 +1021,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
           stated: { ...base, unit: { kind: "currency", code: onFigure.code } },
           currencyChars: onFigure.chars,
         };
+      } else if (statedLine.some((each) => exceptedBy(each, labelOf(quoted, figure)))) {
+        const currency = statedLine.find((each) => each.unit.kind === "currency")?.unit;
+        if (currency && base.unit.kind === "plain")
+          stated = { quoted: unit, stated: { ...base, unit: currency }, currencyChars: null };
       } else {
         const readings = row
           ? [row]
@@ -973,6 +1034,15 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         );
         if (scales.size > 1)
           return `the unitQuote "${unit.citation.quote}" states more than one scale; give the one line that applies.`;
+        // A table's head row states each column's unit: "Revenue (£000)	Margin (%)" doesn't say
+        // which of them a number is in, so it states none of them for it.
+        const units = new Set(
+          readings
+            .filter((each) => each.unit.kind !== "plain")
+            .map((each) => JSON.stringify(each.unit)),
+        );
+        if (units.size > 1)
+          return `the unitQuote "${unit.citation.quote}" states more than one unit; give the line or column head that states the unit of ${figure.chars} alone.`;
         const applies =
           readings.find((each) => each.scale !== 1) ??
           readings.find((each) => each.unit.kind !== base.unit.kind) ??
@@ -988,6 +1058,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       const same = (a: Reading, b: Reading) =>
         a.value === b.value && JSON.stringify(a.unit) === JSON.stringify(b.unit);
       for (const statement of readStatedUnits(page, context)) {
+        if (exceptedBy(statement, labelOf(quoted, figure))) continue;
         for (const each of statedReading(quote, figure.start, quoteContext, statement.chars)) {
           if (!changes(each)) continue;
           if (!found.some((other) => same(other.reading, each)))
@@ -1000,13 +1071,24 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         ({ text, scaleMarker }) => scaleMarker && !text.includes(scaleMarker),
       )?.scaleMarker;
       const [unsure] = unsettledScales(page, context);
+      // A Word section under a heading that states its scale, or a page after one that does, may
+      // be in that scale: no Passage holds both, so the number is refused rather than read plain.
+      const pages = new Set(quoted.units.map((each) => each.page));
+      const elsewhere = scaledUnitsOf(quoted.citation).find((each) => !pages.has(each.page));
       candidate =
         found[0] ??
         (header
           ? { statement: header, reading: thousandfold(base), unquotable: "header" }
           : unsure
             ? { statement: unsure, reading: thousandfold(base), unquotable: "unsettled" }
-            : null);
+            : elsewhere
+              ? {
+                  statement: elsewhere.scale,
+                  reading: thousandfold(base),
+                  unquotable: "elsewhere",
+                  where: elsewhere.where,
+                }
+              : null);
     }
 
     let rate: ReadInput["rate"] = null;

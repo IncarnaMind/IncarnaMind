@@ -216,6 +216,21 @@ describe("Word", () => {
     ).not.toHaveProperty("runningText");
   });
 
+  // protects=#2365; fails_when=a Word file whose header, footer or relationships part is damaged can't be read at all, where its body could be read before headers were.
+  test.each(["word/header1.xml", "word/_rels/document.xml.rels"])(
+    "reads the body of a Word file whose %s is damaged, with no header",
+    async (part) => {
+      const units = await extractUnits(
+        "docx",
+        docxOf([{ text: "Revenue 1,200" }], { header: "Amounts in £'000", broken: [part] }),
+      );
+
+      expect(units.map((unit) => [unit.text, unit.runningText])).toEqual([
+        ["Revenue 1,200", undefined],
+      ]);
+    },
+  );
+
   test("reads the comment of a real Word file into its first section", async () => {
     const { units } = await extractDocx(fixture("Field Report.docx"));
 

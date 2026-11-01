@@ -1762,7 +1762,26 @@ const CHINESE_FORMS: readonly ScaleForm[] = [
   { code: "Papa", line: "金額（萬）", value: 9_000_000 },
 ];
 
-type ScaleFormat = "pdf" | "word" | "word header" | "sheet";
+/**
+ * Where a Document states its scale: on the figures' PDF page or Word section, only in its Word
+ * header, in a sheet's cell, or apart from the figures, on the PDF page or under the Word heading
+ * before theirs.
+ */
+type ScaleFormat =
+  | "pdf"
+  | "word"
+  | "word header"
+  | "sheet"
+  | "pdf page before"
+  | "word section before";
+
+/** Enough text that the part stating the scale is a Passage of its own. */
+const fillerLines = (chinese: boolean) =>
+  Array.from({ length: 40 }, (_, index) =>
+    chinese
+      ? `董事会第${index + 1}次审阅了集团的经营情况、现金状况以及来年的展望。`
+      : `The directors reviewed item ${index + 1} of the group's trading, cash and outlook in detail.`,
+  );
 
 /**
  * The rows a form's Document writes: its title, then revenue and costs, in its language. An English
@@ -1805,6 +1824,28 @@ function scaleDocument(form: ScaleForm, format: ScaleFormat, chinese: boolean) {
           ],
           format === "word header" ? { header: form.line } : {},
         ),
+      };
+    case "pdf page before": {
+      const page = (lines: string[]) => (chinese ? { chineseLines: lines } : { lines });
+      return {
+        name: `${form.code} accounts.pdf`,
+        contents: buildPdf([
+          page([`${form.code} notes`, form.line, ...fillerLines(chinese)]),
+          page([title, line(revenue), line(costs)]),
+        ]),
+      };
+    }
+    case "word section before":
+      return {
+        name: `${form.code} accounts.docx`,
+        contents: docxOf([
+          { text: `${form.code} notes`, heading: 1 },
+          { text: form.line },
+          ...fillerLines(chinese).map((text) => ({ text })),
+          { text: title, heading: 2 },
+          { text: line(revenue) },
+          { text: line(costs) },
+        ]),
       };
     case "sheet":
       return {
@@ -1866,10 +1907,17 @@ function scaleModel(
   const steps: ((passages: ShownPassage[]) => Call[])[] = [
     (passages) => {
       const citations = forms.flatMap((form, index) => {
-        const passage = passages.find((each) => each.document.startsWith(`${form.code} accounts`));
-        if (!passage) throw new Error(`No Passage of ${form.code} was shown.`);
-        const location = passage.location ?? "p. 1";
         const { revenue, costs } = scaleQuotes(form, format, chinese);
+        const passage = passages.find(
+          (each) =>
+            each.document.startsWith(`${form.code} accounts`) && each.text.includes(revenue.quote),
+        );
+        if (!passage) throw new Error(`No Passage of ${form.code} was shown.`);
+        const location =
+          passage.location ??
+          (passage.pages?.includes("-")
+            ? `pp. ${passage.pages.replace("-", "–")}`
+            : `p. ${passage.pages}`);
         return [
           { marker: 2 * index + 1, passage: passage.id, location, quote: revenue.quote },
           { marker: 2 * index + 2, passage: passage.id, location, quote: costs.quote },
@@ -2028,6 +2076,7 @@ describe("A statement's first-amount currency isn't carried under a scale form t
     { scale: "Figures in 000s", chinese: false },
     { scale: "(000 omitted)", chinese: false },
     { scale: "金额（万）", chinese: true },
+    { scale: "Amounts (in MM)", chinese: false },
   ])("$scale", async ({ scale, chinese }) => {
     const lines = chinese
       ? ["成交价 ¥385.00", "减：中介费 （4.62）"]
@@ -2080,6 +2129,279 @@ describe("A statement's first-amount currency isn't carried under a scale form t
     expect(finished.uncalculated).toBe(1);
   });
 });
+
+// protects=#2365; fails_when=a line that only looks like a scale (a share class, "M&A", "Series M", a wrapped "million", "000s of users") changes a figure, or one that reads two ways ("ending in 000", "Call (000)", "TUSD") is read either way instead of refused.
+describe("Text that only looks like a scale changes nothing, and one that reads two ways is refused (#2365)", {
+  timeout: 120_000,
+}, () => {
+  test.each([
+    {
+      language: "English",
+      chinese: false,
+      plain: [
+        "Share class USD B Acc",
+        "USD M&A advisory fees",
+        "Series M USD notes",
+        "Millions",
+        "Thousands of 000s of users",
+      ],
+      refused: ["Accounts ending in 000", "Call (000)", "Holdings of TUSD stablecoin"],
+    },
+    {
+      language: "Chinese",
+      chinese: true,
+      plain: ["美元B类份额", "账户尾号000"],
+      refused: ["客户热线（000）"],
+    },
+  ])("$language", async ({ chinese, plain, refused }) => {
+    const codes = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel"];
+    const forms = [...plain, ...refused].map((line, index) => ({
+      code: codes[index] as string,
+      line,
+      value: 900,
+    }));
+    const {
+      told: [asked],
+      recorded,
+    } = await calculateUnderScales(forms, "pdf", chinese, false);
+
+    expect(recorded).toEqual(plain.map((_, index) => [index + 1, 900]));
+    for (const marker of refused.map((_, index) => plain.length + index + 1)) {
+      expect(asked).toContain(
+        `[=${marker}] rev: ${chinese ? "1,200" : "1,234.5"} has no unit, and p. 1 writes "`,
+      );
+    }
+  });
+});
+
+// protects=#2365; fails_when=a number under one column of a table's head row takes another column's unit when the whole row is given as unitQuote: a 12.5% margin recorded as £25.0 thousand.
+test.each([
+  {
+    language: "English",
+    head: ["Segment", "Revenue (£000)", "Margin (%)"],
+    row: ["Clothing", 4620, 12.5],
+  },
+  { language: "Chinese", head: ["分部", "收入（万元）", "毛利率（%）"], row: ["服装", 4620, 12.5] },
+])(
+  "a head row that states a unit for each column doesn't give one of them to a number: $language",
+  {
+    timeout: 60_000,
+  },
+  async ({ head, row }) => {
+    const headLine = head.join("\t");
+    const rowLine = row.join("\t");
+    const model = calculatingModel({
+      queries: ["Segments margin 分部"],
+      steps: [
+        (passages) => [
+          {
+            tool: "cite",
+            input: {
+              citations: [
+                {
+                  marker: 1,
+                  passage: passageOf(passages, "Segments"),
+                  location: "Segments, rows 1–2",
+                  quote: rowLine,
+                },
+              ],
+            },
+          },
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  label: "Double the margin",
+                  formula: "m * 2",
+                  inputs: [
+                    {
+                      name: "m",
+                      label: "Margin",
+                      citation: 1,
+                      number: "12.5",
+                      unitQuote: headLine,
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      { name: "Segments.xlsx", contents: xlsxOf([{ name: "Segments", rows: [head, row] }]) },
+    ]);
+
+    const { answer } = await askAndRead(core, "What is twice the margin?");
+
+    expect(told(model, "calculate")[0]).toContain(
+      `[=1] m: the unitQuote "${headLine}" states more than one unit; give the line or column head that states the unit of 12.5 alone.`,
+    );
+    expect(answer.figures).toEqual([]);
+  },
+);
+
+// protects=#2365; fails_when=a number under a Word heading whose parent section states the scale, or on a PDF page after the one that does, is calculated plain, 1,000 to 1,000,000 times too small.
+describe("A scale stated in another part of the Document refuses a bare number, never leaves it out (#2365)", {
+  timeout: 120_000,
+}, () => {
+  test.each([
+    ...(["pdf page before", "word section before"] as const).flatMap((format) => [
+      { format, language: "English", forms: ENGLISH_FORMS.slice(0, 4), chinese: false },
+      { format, language: "Chinese", forms: CHINESE_FORMS.slice(0, 2), chinese: true },
+    ]),
+  ])("$format, $language", async ({ format, forms, chinese }) => {
+    const {
+      told: [asked],
+      recorded,
+    } = await calculateUnderScales(forms, format, chinese, false);
+
+    for (const marker of forms.map((_, index) => index + 1)) {
+      expect(asked).toContain(
+        `[=${marker}] rev: ${chinese ? "1,200" : "1,234.5"} has no unit, and `,
+      );
+    }
+    // A Word heading's section is a Unit of its own; a short PDF page shares a Passage with the one
+    // before it, whose scale line the Passage's Units then hold.
+    if (format === "word section before")
+      expect(asked).toContain(
+        "it can't be calculated without guessing whether that scale applies.",
+      );
+    expect(recorded).toEqual([]);
+  });
+});
+
+// protects=#2365; fails_when=a Word header in a form that reads two ways ("(in MM)") leaves no scale marker, so the figure under it is calculated plain.
+test("a Word header that writes a scale two ways refuses the figure", {
+  timeout: 60_000,
+}, async () => {
+  const form = { code: "Quebec", line: "Revenue (in MM)", value: 0 };
+  const {
+    told: [asked],
+    recorded,
+  } = await calculateUnderScales([form], "word header", false, false);
+
+  expect(asked).toContain(
+    `[=1] rev: 1,234.5 has no unit, and a running header or footer at § Quebec Holdings accounts states a scale ("in MM")`,
+  );
+  expect(recorded).toEqual([]);
+});
+
+// protects=#2365; fails_when=a PDF read before this build keeps no scale for a running header in a form the reader didn't know ("(000 omitted)"), so its pages' bare figures are read plain.
+test("a PDF read before this build is read again and keeps a running header's “(000 omitted)”", {
+  timeout: 60_000,
+}, async () => {
+  const dataDir = await createTempDataFolder();
+  const pages = [
+    "Revenue 1,234.5",
+    "Notes continue here.",
+    "More notes here.",
+    "The notes end.",
+  ].map((line) => ({ lines: ["Holdings Ltd (000 omitted)", line] }));
+  const model = calculatingModel({ queries: [], steps: [], answer: "Nothing." });
+  const { core } = await setUpCalculating(
+    model,
+    [{ name: "Holdings accounts.pdf", contents: buildPdf(pages) }],
+    dataDir,
+  );
+  const saved = (await core.listDocuments())[0];
+  if (!saved) throw new Error("Missing Document.");
+  core.close();
+
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  db.run("UPDATE document_pages SET scale_marker = '' WHERE document_id = ?", [saved.id]);
+  db.run("UPDATE documents SET processing_version = 19 WHERE id = ?", [saved.id]);
+  db.close();
+
+  const again = startCore(dataDir);
+  expect((await again.listDocuments())[0]).toMatchObject({ id: saved.id, status: "queued" });
+  await waitForProcessing(again, [saved.id]);
+  expect(
+    queryDatabase<{ scale_marker: string }>(
+      dataDir,
+      "SELECT DISTINCT scale_marker FROM document_pages WHERE document_id = ? AND deleted_at IS NULL",
+      [saved.id],
+    ).map((row) => row.scale_marker),
+  ).toEqual(["(000 omitted)"]);
+  again.close();
+});
+
+// protects=#2365; fails_when=a per-share figure, or a share count, under "(in millions, except per share data)" or "（除每股数据外）" is scaled with the amounts, so earnings per share come out a million times too large.
+test.each([
+  {
+    language: "English",
+    lines: [
+      "Results (in millions, except share and per share data)",
+      "Revenue 1,482.6",
+      "Diluted earnings per share 2.15",
+      "Weighted average shares outstanding 412.5",
+    ],
+    question: "What are twice the revenue, EPS and shares?",
+    chinese: false,
+  },
+  {
+    language: "Chinese",
+    lines: [
+      "单位：百万元（除股数及每股数据外）",
+      "营业收入 1,482.6",
+      "基本每股收益 2.15",
+      "发行在外普通股加权平均股份 412.5",
+    ],
+    question: "营业收入、每股收益和股数的两倍各是多少？",
+    chinese: true,
+  },
+])(
+  "a scale that leaves out per-share data and share counts applies to the amounts alone: $language",
+  {
+    timeout: 60_000,
+  },
+  async ({ lines, question, chinese }) => {
+    const [head = "", ...rows] = lines;
+    const document = {
+      name: "Results 2025.pdf",
+      contents: buildPdf([chinese ? { chineseLines: lines } : { lines }]),
+    };
+    const twice = (marker: number, citation: number, number: string, unitQuote?: string) => ({
+      marker,
+      label: `Twice ${number}`,
+      formula: "x * 2",
+      inputs: [{ name: "x", label: number, citation, number, ...(unitQuote && { unitQuote }) }],
+    });
+    const model = calculatingModel({
+      queries: [chinese ? "营业收入 每股收益" : "revenue earnings per share"],
+      steps: [
+        citeStatement("Results 2025", rows, (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                twice(1, cited[0] as number, "1,482.6", head),
+                twice(2, cited[1] as number, "2.15"),
+                twice(3, cited[1] as number, "2.15", head),
+                twice(4, cited[2] as number, "412.5", head),
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "[=1] [=2] [=3] [=4][^1]",
+    });
+    const { core } = await setUpCalculating(model, [document]);
+
+    const { answer } = await askAndRead(core, question);
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 2_965_200_000],
+      [2, 4.3],
+      [3, 4.3],
+      [4, 825],
+    ]);
+  },
+);
 
 // protects=#2365; fails_when=a Word file read before this build keeps no header scale until it is added again, or re-reading it holds up the start or changes its Passages.
 test("a Word file read before this build is read again in the background, keeps its Passages, and gains its header's scale", {
