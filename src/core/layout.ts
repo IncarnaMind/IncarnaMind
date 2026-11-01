@@ -6,6 +6,7 @@ import {
   type AssistantFloat,
   type AssistantPlace,
   type CitationCheck,
+  type CitationCheckReason,
   DEFAULT_ASSISTANT,
   type DocumentPlace,
   type LayoutChange,
@@ -70,7 +71,14 @@ const isId = (value: unknown): value is string =>
 const isUnit = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value >= 1;
 
-const CHECKS: readonly CitationCheck[] = [
+/** True when `List` holds every member of `T` and nothing else: keeps a list here in step with its type. */
+type Exactly<List extends readonly string[], T extends string> = [T] extends [List[number]]
+  ? [List[number]] extends [T]
+    ? true
+    : never
+  : never;
+
+const CHECKS = [
   "checking",
   "found",
   "not-found",
@@ -78,7 +86,29 @@ const CHECKS: readonly CitationCheck[] = [
   "not-checked",
   "unsupported",
   "contradicted",
-];
+] as const satisfies readonly CitationCheck[];
+
+const REASONS = [
+  "quote-not-on-pages",
+  "quoted-words-not-on-pages",
+  "pages-outside-passage",
+  "too-many-pages",
+  "in-several-places",
+  "no-text",
+  "kept-inside",
+  "document-removed",
+  "answer-limit",
+  "monthly-limit",
+  "small-model",
+  "unsure-word",
+] as const satisfies readonly CitationCheckReason[];
+
+// The lists follow their types: a new check or reason fails the type-check until it is listed.
+const _inStep: [
+  Exactly<typeof CHECKS, CitationCheck>,
+  Exactly<typeof REASONS, CitationCheckReason>,
+] = [true, true];
+void _inStep;
 
 function parseItem(value: unknown): TabItem {
   if (isRecord(value)) {
@@ -99,6 +129,10 @@ function parseCitation(value: unknown): TabCitation {
     throw new InvalidInputError("A Citation's place needs its check.");
   }
   const citation: TabCitation = { check: value.check as CitationCheck };
+  // Why it can't be checked: the viewer's mark for a scan's unsure word reads it (#535).
+  if (REASONS.includes(value.checkReason as CitationCheckReason)) {
+    citation.checkReason = value.checkReason as CitationCheckReason;
+  }
   if (value.number !== undefined) {
     if (!isUnit(value.number)) throw new InvalidInputError("A Citation's number counts from 1.");
     citation.number = value.number;

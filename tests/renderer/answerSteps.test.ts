@@ -568,6 +568,27 @@ describe("an Answer's steps", () => {
     expect(checkedWords(zh, 1)).toBe("把 1 处引用和原文核对");
   });
 
+  // protects=#535: a Citation that can't be checked, a scan's unsure word among them, is counted in the check line and the line never says all found; fails_when=the row leaves it out; no_claim=how its card asks for the page (e2e).
+  test("a Citation that can't be checked is counted in the check line (#535)", () => {
+    const unsure = input({
+      text: "Spring tides follow the new moon [^1].",
+      citations: [
+        {
+          ...citation(1, "a", "d1", 4),
+          check: "cant-check",
+          checkReason: "unsure-word",
+          unsure: ["convenience"],
+        },
+      ],
+    });
+    expect(stepRows(unsure).at(-1)).toEqual({
+      kind: "check",
+      count: 1,
+      notFound: 0,
+      cantCheck: 1,
+    });
+  });
+
   test("a limit that stopped judging its sentences: how many of them were checked, and which limit, in English and Chinese (#2311)", () => {
     const quoted = (marker: number, quote: string): MarkedCitation => ({
       ...citation(marker, "a", "d1", 4),

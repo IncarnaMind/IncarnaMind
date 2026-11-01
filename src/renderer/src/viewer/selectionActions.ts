@@ -55,9 +55,11 @@ const REFUSED: Partial<Record<CitationCheckReason, MessageKey>> = {
 
 async function citedSelection({ document, parts }: ViewerSelection): Promise<CitedSelection> {
   const cited = await core.citeSelection({ documentId: document.id, parts });
-  // Only words found where they were selected are cited: a refused Citation's next check could
-  // find the same words somewhere else and move it there.
-  if (cited.check !== "found") {
+  // Words a scan's reading may have misread are still where the User selected them: their Citation
+  // asks for a look at the page, and goes in the note as it is (#535). Any other refused Citation
+  // is not: its next check could find the same words somewhere else and move it there.
+  const unsure = cited.check === "cant-check" && cited.checkReason === "unsure-word";
+  if (cited.check !== "found" && !unsure) {
     const reason = cited.checkReason && REFUSED[cited.checkReason];
     throw new Error(translateNow(reason ?? "viewer.selection.refused"));
   }
@@ -78,6 +80,7 @@ async function quoteOf(selection: ViewerSelection): Promise<NodeJSON> {
     quote: cited.quote,
     check: cited.check,
     checkReason: cited.checkReason,
+    ...(cited.unsure && cited.unsure.length > 0 && { unsure: cited.unsure }),
   };
   return {
     type: "blockquote",

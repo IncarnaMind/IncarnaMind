@@ -101,6 +101,8 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | History (a Note's versions) | 历史版本 | "历史版本", "恢复此版本", "当前版本". As Yuque and Tencent Docs. Not 历史对话, which is the assistant's. |
 | Record cite | 记录引用 | A reference in legal writing to a record Document and its exact Location ("Smith Dep. 45:3–12"). Each has its own result, apart from the sentence's: "这句话中的记录引用". Not 引用 alone, which is a Citation. |
 | Citation check | 核对 | "正在核对引文…", "无法核对". |
+| Check the page (a scan's quote) | 请核对原页 | A Citation whose quote covers a word the text recognition may have misread. It is as quiet as an uncited sentence, never an alarm. |
+| Matches the page | 原页无误 | The User compared the quote with the page and it matched: the Citation becomes found, and its card says 已由你对照原页核对; the undo line is 已对照原页核对. |
 | Quote not found | 未找到引文 | |
 | Unsupported | 无依据 | |
 | Not found (a sentence's check) | 未找到 | The card of an unsupported sentence that nothing in the scope states: "未找到", "未在“{scope}”中找到". Never 未找到引文, which is a Citation's quote. |

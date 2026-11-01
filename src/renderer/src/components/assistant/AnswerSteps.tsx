@@ -688,6 +688,7 @@ function StepItem({
         <CheckStep
           count={row.count}
           notFound={row.notFound}
+          cantCheck={row.cantCheck ?? 0}
           needALook={row.needALook ?? 0}
           contradicted={row.contradicted ?? 0}
           notChecked={row.notChecked ?? 0}
@@ -962,6 +963,7 @@ function FailedSearch({
 function CheckStep({
   count,
   notFound,
+  cantCheck,
   needALook,
   contradicted,
   notChecked,
@@ -971,6 +973,7 @@ function CheckStep({
 }: {
   count: number;
   notFound: number;
+  cantCheck: number;
   needALook: number;
   contradicted: number;
   notChecked: number;
@@ -1016,7 +1019,7 @@ function CheckStep({
       </Step>
     );
   }
-  const allFound = notFound === 0 && needALook === 0 && notChecked === 0;
+  const allFound = notFound === 0 && needALook === 0 && notChecked === 0 && cantCheck === 0;
   const mark =
     contradicted > 0
       ? "contradicted"
@@ -1026,11 +1029,14 @@ function CheckStep({
           ? "unsupported"
           : notChecked > 0
             ? "not-checked"
-            : "found";
+            : cantCheck > 0
+              ? "cant-check"
+              : "found";
   const result = allFound
     ? t(count === 1 ? "steps.check.found" : "steps.check.allFound")
     : [
         ...(notFound > 0 ? [t("steps.check.notFound", { count: notFound })] : []),
+        ...(cantCheck > 0 ? [t("steps.check.cantCheck", { count: cantCheck })] : []),
         ...(needALook === 1 ? [t("steps.check.needALook.one")] : []),
         ...(needALook > 1 ? [t("steps.check.needALook", { count: needALook })] : []),
         ...(notChecked > 0 ? [t("steps.check.notChecked", { count: notChecked })] : []),

@@ -178,6 +178,11 @@
     --quote-wash: var(--color-warning-wash);
     --quote-edge: var(--color-warning);
   }
+  /* A scan's unsure words: the quote is quiet grey, as an uncited sentence is (#535). */
+  [data-quote-tone="cant-check"] {
+    --quote-wash: var(--color-chip);
+    --quote-edge: var(--color-ink-secondary);
+  }
   /* Contradicted is never green: no fill, the words outlined in red. */
   [data-quote-tone="contradicted"] {
     --quote-wash: transparent;
@@ -494,6 +499,9 @@
   }
   .quote-mark--not-found {
     @apply bg-warning-wash text-warning;
+  }
+  .quote-mark--cant-check {
+    @apply bg-chip text-ink-secondary;
   }
   .quote-mark--contradicted {
     @apply bg-sheet text-danger;

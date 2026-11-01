@@ -150,6 +150,21 @@ describe("A Mind's health", () => {
     });
   });
 
+  test("a Citation that can't be checked, as a scan's unsure word, counts with the can't-check Citations (#535)", () => {
+    const doc = docOf(
+      paragraph(
+        text("Ferry passengers rose to 74,450 in June "),
+        citation("cant-check"),
+        text("."),
+      ),
+    );
+    const health = healthOf(doc);
+    // Neither found nor not found: the can't-check look never counts as the found check.
+    expect(parts(health)).toEqual({ ...NOTHING, toCheck: 1 });
+    expect(health.found).toEqual([]);
+    expect(health.notFound).toEqual([]);
+  });
+
   test("a check that failed or no longer holds is not checked yet (#1909)", () => {
     const doc = docOf(
       paragraph(text("The quote isn't on the page it cites "), citation("not-found"), text(".")),

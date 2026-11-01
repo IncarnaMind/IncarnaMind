@@ -19,6 +19,101 @@ import type { RecognizedLine } from "../../adapters";
 /** A word the recognizer is less sure of than this, at its least sure character, is marked unsure. */
 export const UNSURE_BELOW = 0.8;
 
+/**
+ * Real code and everyday-number shapes whose letters or marks between digits
+ * are their own: a quarter ("3Q24", "2024Q3"), a half-year ("1H25", "2024H2"),
+ * a size or product ("4x4", "3×4"), scientific notation ("1e6"), a time or a
+ * ratio ("10:30", "3:1", "10h30"), and a fraction or slash date ("1/2",
+ * "2024/3/1"). They follow the recognizer's score, with or without a unit
+ * after them ("10:30am", "1/2kg"); anything else between a number's digits is
+ * a digit it may have misread.
+ */
+const CODE_SHAPE =
+  /^(?:[1-4]Q\d{2}|\d{4}Q[1-4]|[1-2]H\d{2}|\d{4}H[1-2]|\d+[xX×]\d+|\d+(?:\.\d+)?e[+-]?\d+|\d+:\d+(?::\d+)?|\d{1,2}h\d{2}|\d+\/\d+(?:\/\d+)?)$/u;
+
+/**
+ * A unit or suffix after a number or a shape ("10:30am", "1/2kg", "3x4m",
+ * "3/4ths"): the shape is read without it, as a plain number's unit is. A
+ * bare "x" ("1e6x") isn't one: that is a word the scan may have misread.
+ */
+const TRAILING_UNIT =
+  /(?:am|pm|kg|g|mg|km|cm|mm|m|l|ml|cl|dl|s|sec|secs|min|mins|h|hr|hrs|d|day|days|wk|wks|mo|mos|yr|yrs|th|ths|bps|bp|bn|b|k|GB|MB|TB|KB|Hz|kHz|MHz|GHz|W|kW|MW|GW|V|mA|mAh|kWh|MWh)$/iu;
+
+/**
+ * A CJK numeral: between digits ("2〇25") it is a digit the scan may have read
+ * as a character. The scale characters (十百千万亿) aren't digits and break the
+ * run, so "1万2千" and "3亿5000万" are numbers of their own.
+ */
+const CJK_NUMERAL = "〇零一二三四五六七八九两壹贰叁肆伍陆柒捌玖";
+
+/**
+ * Whether a word starts like a number and holds, between its first and last
+ * digit, anything but a digit, comma or full stop: a letter or a mark the
+ * recognizer read for a digit ("2o25", "1T5", "7a;45o", "74;450"), or a
+ * Chinese numeral ("2〇25"). Always unsure, whatever the recognizer's score
+ * (#535). A few real codes keep their letters ("3Q24", "2024Q3", "1H25",
+ * "4x4", "1e6"), and a number's unit or scale follows its digits ("2.5bn",
+ * "10bps", "1990s", "10am", "50kg", "100ml", "4GB", "5G", "12b"); those, a
+ * code's letters before the number ("Q3", "A4", "H2O", "FY2025", "No.7"), a
+ * range's ends ("10am-12pm") and an ordinal's suffix ("1st", "2nd") follow
+ * the recognizer's score, as does a shape with a unit after it ("10:30am").
+ */
+export function mixedNumberWord(text: string): boolean {
+  // Full-width digits and marks read as the ASCII ones a number is written with ("１T５" is "1T5").
+  const word = text.normalize("NFKC").replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  if (!/\p{Nd}/u.test(word)) return false;
+  // A range's ends are numbers of their own, and their units belong to them ("10bps-20bps").
+  if (/[-–—]/u.test(word)) {
+    return word.split(/[-–—]/u).some((part) => part !== "" && mixedNumberWord(part));
+  }
+  if (/^\p{Nd}+(?:st|nd|rd|th)$/iu.test(word)) return false;
+  // A lower-case l or a capital I in front of digits is a 1 the recognizer missed.
+  if (/^[lI]\p{Nd}/u.test(word)) return true;
+  if (!/^\p{Nd}/u.test(word)) return false;
+  const core = word.slice(word.search(/\p{Nd}/u), word.search(/\p{Nd}(?![\s\S]*\p{Nd})/u) + 1);
+  if (/[^\p{Nd}.,]/u.test(core) && !CODE_SHAPE.test(word.replace(TRAILING_UNIT, ""))) return true;
+  // An O for a 0 beside the last digit: "1O%", "1o.". A unit's letter ("5l") isn't one.
+  return /\p{Nd}[Oo](?!\p{L})/u.test(word);
+}
+
+/**
+ * The words of a scanned Unit that may have been misread: those stored when it
+ * was read, and those a number's shape shows (#535), so a page read before
+ * that rule is covered without reading it again. Spans are into the Unit's
+ * text, in order, each once.
+ */
+export function unsureSpansIn(unit: {
+  text: string;
+  label?: TextUnit["label"];
+}): [number, number][] {
+  if (!unit.label?.scan) return [];
+  const spans: [number, number][] = (unit.label.scan.unsure ?? []).map(([from, to]) => [from, to]);
+  for (const match of unit.text.matchAll(NUMBER_RUN)) {
+    if (!mixedNumberWord(match[0])) continue;
+    const start = match.index ?? 0;
+    spans.push([start, start + match[0].length]);
+  }
+  spans.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const merged: [number, number][] = [];
+  for (const span of spans) {
+    const last = merged.at(-1);
+    // Two words that touch are two words (each Chinese character is one); only an overlap is one word.
+    if (last && span[0] < last[1]) last[1] = Math.max(last[1], span[1]);
+    else merged.push(span);
+  }
+  return merged;
+}
+
+/**
+ * A stretch of a scanned line that can be a number: not a space, and not a
+ * character of Chinese, Japanese or Korean text, though a CJK numeral is one
+ * of the number ("2〇25").
+ */
+const NUMBER_RUN = new RegExp(
+  `(?:[^\\s\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}\\p{sc=Hangul}]|[${CJK_NUMERAL}])+`,
+  "gu",
+);
+
 /** Lines at least this much longer than tall show the page's slant. */
 const SLANT_LINE_RATIO = 4;
 /** Two lines are in one row when they overlap by at least this share of the shorter's height. */
@@ -155,13 +250,18 @@ export function readingOrder(lines: readonly RecognizedLine[]): RecognizedLine[]
   return ordered.map((row) => row.map((each) => each.line));
 }
 
-/** The spans of a line's words whose least sure character is below `UNSURE_BELOW`, as offsets into its text. */
+/** The spans of a line's words that are unsure: too little sure of, or a number's look (#535), as offsets into its text. */
 export function unsureWords(line: RecognizedLine): [number, number][] {
   const spans: [number, number][] = [];
   let at = 0;
   let word: { start: number; end: number; least: number } | null = null;
   const close = () => {
-    if (word && word.least < UNSURE_BELOW) spans.push([word.start, word.end]);
+    if (
+      word &&
+      (word.least < UNSURE_BELOW || mixedNumberWord(line.text.slice(word.start, word.end)))
+    ) {
+      spans.push([word.start, word.end]);
+    }
     word = null;
   };
   for (const character of line.characters) {
