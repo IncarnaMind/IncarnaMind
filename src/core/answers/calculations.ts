@@ -42,11 +42,13 @@ import {
   figureContextOfFacts,
   figureLanguageTag,
   namedCurrencies,
+  pageScale,
   type Reading,
   readFigures,
   readStatedUnits,
   type StatedCurrency,
-  statedScale,
+  type StatedUnit,
+  unsettledScales,
 } from "../../shared/figures";
 import {
   evaluateFormula,
@@ -71,6 +73,7 @@ import {
   englishLocation,
   joinUnits,
   quoteInUnits,
+  unitLocation,
 } from "../../shared/locations";
 import { memoized } from "../../shared/memo";
 import { misreadDigits, numberDigits } from "../../shared/misreadWords";
@@ -204,6 +207,22 @@ function quoteParts(quote: string): TextRange[] {
 
 const beforeOnLine = (text: string, at: number) =>
   text.slice(text.lastIndexOf("\n", at - 1) + 1, at);
+
+/** The most lines above a number alone that its row's label is looked for in: a ten-year record. */
+const MOST_LINES_UP = 12;
+
+const WORDS = /[\p{L}%]/u;
+// A number on its own; "m2" or "CO2" in a row head is part of its words.
+const NUMBER = /(?<![\p{L}\d.,])\d[\d,.]*[)）%]?/u;
+// A label: no figure and no sentence's end. "Earnings per share are shown in note 9." is prose.
+const LABEL_LIKE = /^[^\d.。!?！？]{1,80}[^.。!?！？]?\s*$/u;
+
+/** Whether every number on `line` is written as `chars` is, to the same decimal places: one column. */
+function writtenLike(line: string, chars: string): boolean {
+  const places = (each: string) => /\.(\d+)/.exec(each)?.[1]?.length ?? 0;
+  const numbers = line.match(/\d[\d,.]*/g) ?? [];
+  return numbers.length > 0 && numbers.every((each) => places(each) === places(chars));
+}
 
 /** The most places of one quote looked at: more can't be told apart, and keep a line's start reading. */
 const MOST_PLACES = 50;
@@ -516,7 +535,174 @@ function storedAs(reading: Reading, stored: number): number {
 interface Stated {
   statement: string;
   reading: Reading;
+  /**
+   * Why no unitQuote can settle it: the scale is stated only in a running header or footer, or in
+   * another part of the Document, which this Passage doesn't hold, or written in a form that reads
+   * more than one way ("in MM").
+   */
+  unquotable?: "header" | "elsewhere" | "unsettled" | "noted";
+  /** For one stated elsewhere: where. */
+  where?: string;
 }
+
+/** Why a number with no unit of its own can't be calculated where its page states a scale. */
+function candidateProblem(chars: string, where: string, candidate: Stated): string {
+  if (candidate.unquotable === "header")
+    return `${chars} has no unit, and a running header or footer at ${where} states a scale ("${candidate.statement}") that no Passage quotes; it can't be calculated without guessing its scale.`;
+  if (candidate.unquotable === "elsewhere")
+    return `${chars} has no unit, and ${candidate.where || "another part of its Document"} states a scale ("${candidate.statement}") that ${where} doesn't; it can't be calculated without guessing whether that scale applies.`;
+  if (candidate.unquotable === "noted")
+    return `${chars} is on a per-share row, and "${candidate.statement}" scales its Document's amounts except where it notes otherwise; it can't be calculated without guessing its scale.`;
+  if (candidate.unquotable === "unsettled")
+    return `${chars} has no unit, and ${where} writes "${candidate.statement}", which can be read as more than one scale or unit; it can't be calculated without guessing its scale.`;
+  return `${chars} has no unit, and ${where} says "${candidate.statement}"; give that line as unitQuote.`;
+}
+
+// A per-share row names itself, or is a "Basic" or "Diluted" row under one; "Diluted shares" is a count.
+const PER_SHARE = /per[- \u00a0]share|\bEPS\b|^\s*(?:basic|diluted)\b(?!.*\bshares?\b)|每股/i;
+// A figure per unit of something, as a per-share figure is; "per annum" or "per month" is an amount.
+const PER_UNIT =
+  /\bper[- \u00a0](?:unit|user|customer|subscriber|member|tonne|ton|barrel|boe|ounce|oz|head|employee|room|passenger|vehicle|store|visit|order|kg|kilogram|litre|liter|mwh|kwh|square (?:foot|feet|metre|meter)|sq\.? ?(?:ft|m))\b|\bARPU\b|每吨|每单位|单位产品|人均|每户|每人|每平方米|每桶|每盎司/i;
+// A row head's unit of measure, which no money scale applies to: "Capacity (MW)", "装机容量（兆瓦）".
+const MEASURE_HEAD =
+  /[(（]\s*(?:[kMGT]Wh?|m2|m²|m3|m³|sq\.? ?(?:m|ft)|km|tonnes?|t|kt|bbls?|boe|oz|kg|litres?|liters?|units|吨|万吨|千吨|平方米|立方米|兆瓦|千瓦|千瓦时|兆瓦时|公里|桶|盎司|千克|公斤)\s*[)）]/i;
+const SHARE_COUNT = /\bshares\b|股数|普通股加权平均|加权平均股份/i;
+
+/** Whether `statement`'s exception ("in millions, except per share data") leaves out the number labelled `label`. */
+function exceptedBy(statement: StatedUnit, label: string): boolean {
+  if (statement.except !== "per-share" && statement.except !== "shares") return false;
+  return PER_SHARE.test(label) || (statement.except === "shares" && SHARE_COUNT.test(label));
+}
+
+// Rows whose numbers aren't amounts a scale line applies to: a percent, a ratio or multiple, basis
+// points, a count of shares, people or things, a year, a date or an identifier, and a per-share
+// figure no exception leaves out. A share count is often in the line's millions, but not always.
+const NOT_AN_AMOUNT: readonly [string, RegExp][] = [
+  ["share count", SHARE_COUNT],
+  ["percent", /%|per ?cent|percentage|\bmargin\b|百分比|率/i],
+  ["ratio", /\bratio\b|\(x\)|\btimes\b|\bmultiple\b|倍/i],
+  ["basis points", /\bbps\b|basis points|基点/i],
+  [
+    "count",
+    /\bemployees\b|\bheadcount\b|\bstaff\b|\bcount\b|\bnumber of\b|\bunits\b|\bcustomers\b|\bstores\b|人数|员工|数量|门店|户数|家数/i,
+  ],
+  [
+    "year or date",
+    /^\s*(?:(?:financial |fiscal )?year|date)\s*$|\byear (?:founded|established|of incorporation)\b|\bdate\b|年份|日期/i,
+  ],
+  ["identifier", /\bID\b|\bcode\b|\bISIN\b|\bno\.|\bphone\b|\btel\b|编号|代码|电话/i],
+];
+
+// The words of an amount's row, which outweigh a kind's word beside them: "Staff costs", "Profit
+// for the year", "Revenue from stores", 员工薪酬, 汇率变动的影响. A per-share row is still per share.
+const AMOUNT_WORDS =
+  /\b(?:profits?|income|revenues?|sales|turnover|costs?|expenses?|amounts?|dividends?|assets?|liabilit(?:y|ies)|equity|cash|debt|loans?|borrowings?|payables?|receivables?|inventor(?:y|ies)|tax(?:ation)?|charges?|fees?|capital|reserves?|provisions?|interest|depreciation|amorti[sz]ation|impairment|goodwill|deposits?|losse?s?|gains?|earnings|surplus|deficit|premiums?|claims?|accruals?|creditors|debtors|wages|salaries|remuneration|proceeds|payments?|investments?|property|plant|equipment|intangibles?|total)\b|收入|成本|费用|薪酬|利润|资产|负债|权益|现金|收益|款|金额|税|存货|准备|折旧|摊销|减值|商誉|股本|损失|利得|影响|支出|开支|余额|合计|总额/i;
+
+// A percent, a multiple or a rate by its sign, or by the noun its label ends with, whatever amount
+// it is of: "Return on equity (%)", "Net interest margin", 净资产收益率, "Debt ratio".
+const RATE_ROW =
+  /%|per ?cent|percentage|\bbps\b|basis points|基点|[(（]\s*(?:x|times|倍)\s*[)）]|(?:\bmargin|\bratio|\brate|\byield|\bmultiple|率|倍|比例)[\s:：)）]*$/i;
+
+/** The kind of row `label` names that a scale line's amounts don't include, or null for an amount's. */
+function notAnAmount(label: string): string | null {
+  if (PER_SHARE.test(label)) return "per-share";
+  if (PER_UNIT.test(label)) return "per-unit";
+  if (MEASURE_HEAD.test(label)) return "unit of measure";
+  if (RATE_ROW.test(label)) return "percent, rate or multiple";
+  // "Payment date", "付款日期", "Supplier ID": a date or an identifier, whatever it is of.
+  if (/\bdates?\b|日期|\bID\b|\bISIN\b|\bphone\b|\btel\b|编号|代码|电话/i.test(label))
+    return "date or identifier";
+  if (AMOUNT_WORDS.test(label)) return null;
+  return NOT_AN_AMOUNT.find(([, pattern]) => pattern.test(label))?.[0] ?? null;
+}
+
+/** Whether `statement` scales its amounts "except where noted", and `label` is a per-share row it may leave out. */
+const notedOut = (statement: StatedUnit, label: string): boolean =>
+  statement.except === "noted" && PER_SHARE.test(label);
+
+/** A head row's statements that give a number different units or scales: "Revenue (£000)	EPS (£)". */
+function conflicting(statements: readonly StatedUnit[]): boolean {
+  // "币种：人民币" names the currency of every column, beside "单位：万元".
+  const heads = statements.filter(
+    (each) => !/^\s*(?:币种|幣種|currency)\s*[:：]/i.test(each.chars),
+  );
+  const unitOf = (each: StatedUnit) =>
+    each.unit.kind === "plain" ? null : JSON.stringify(each.unit);
+  return heads.some((a, at) =>
+    heads.slice(at + 1).some((b) => {
+      const [ua, ub] = [unitOf(a), unitOf(b)];
+      if (ua !== null && ub !== null && ua !== ub) return true;
+      // "Revenue ($000)	Shares (000s)": a count's column beside a currency's.
+      if ((ua === null) !== (ub === null) && (ua === null ? a : b).scale !== 1) return true;
+      if (a.scale !== b.scale && ((a.scale !== 1 && b.scale !== 1) || (ua !== null && ua === ub)))
+        return true;
+      return false;
+    }),
+  );
+}
+
+/**
+ * A row's label without the scale statements in it, and the scales its head states for itself. A
+ * page's statement with its exception before the row ("单位：千元，每股收益除外营业收入") leaves the words
+ * after it; any other scale ("Net debt (£m)", "Revenue (£000) - UK", "收入（百万元）合计") is the row
+ * head's, and the words around it stay. Taking a page's plain scale line for the row's own only
+ * refuses a unitQuote of another scale, which is right either way. Its own unit ("Diluted EPS ($)", "基本每股收益（元）") stays
+ * too, as it changes no scale.
+ */
+function withoutStatement(text: string): RowLabel {
+  const scales = readStatedUnits(text).filter((each) => each.scale !== 1 || each.except);
+  const page = [
+    ...[...text.matchAll(EXCEPTION_WORDS)].map((each) => ({
+      start: each.index,
+      end: each.index + each[0].length,
+    })),
+    ...scales.filter((each) => each.except),
+  ];
+  const own = scales.filter((each) => !page.includes(each));
+  const from = Math.max(0, ...page.map((each) => each.end));
+  let label = text.slice(from);
+  for (const each of [...own].sort((a, b) => b.start - a.start)) {
+    if (each.start >= from)
+      label = `${label.slice(0, each.start - from)}${label.slice(each.end - from)}`;
+  }
+  if (!WORDS.test(label) && page.length > 0)
+    label = text.slice(0, Math.min(...page.map((each) => each.start)));
+  return {
+    label,
+    ownScales: own.filter((each) => each.scale !== 1).map((each) => each.scale),
+  };
+}
+
+/** A row's label, and the scales its head states for itself ("Net debt (£m)"). */
+interface RowLabel {
+  label: string;
+  ownScales: number[];
+}
+
+/** The pieces of `text` between its numbers, a stated scale's digits ("£'000") kept whole. */
+function betweenNumbers(text: string): string[] {
+  const kept = readStatedUnits(text);
+  const pieces: string[] = [];
+  let from = 0;
+  for (const match of text.matchAll(new RegExp(NUMBER.source, "gu"))) {
+    if (kept.some((each) => each.start <= match.index && match.index < each.end)) continue;
+    pieces.push(text.slice(from, match.index));
+    from = match.index + match[0].length;
+  }
+  pieces.push(text.slice(from));
+  return pieces;
+}
+
+// The words that end a scale statement's line: ", except per share data)", "，每股收益除外".
+const EXCEPTION_WORDS =
+  /except[^)\n]{0,40}?(?:shares?|noted|stated|indicated|shown|disclosed)[^)\n]{0,20}\)?|除[^外\n]{0,12}外|[^\s，,]{0,8}除外/gi;
+
+/** A reading of `base` a thousand times over: a stand-in for a scale that can't be settled, to tell whether a result depends on it. */
+const thousandfold = (base: Reading): Reading => ({
+  ...base,
+  value: base.value * 1000,
+  scale: base.scale * 1000,
+});
 
 /** An input as the core read it. */
 interface ReadInput {
@@ -591,6 +777,33 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   let calls = 0;
   const contexts = new Map<string, FigureContext>();
   const scales = new Map<string, { scale: string | null; stale: boolean }>();
+  const unitScales = new Map<string, { page: number | null; scale: string; where: string }[]>();
+
+  /**
+   * Each Unit of a Document version that states a scale, read once: in its text, in a form that
+   * reads more than one way, or in a running header or Word header kept beside it.
+   */
+  const scaledUnitsOf = (citation: Citation) => {
+    const key = `${citation.documentId}\n${citation.contentHash}`;
+    let found = unitScales.get(key);
+    if (!found) {
+      const context = contextOf(citation);
+      found = documents
+        .pageTexts(citation.documentId, citation.contentHash, null, null)
+        .flatMap((unit) => {
+          const scale =
+            readStatedUnits(unit.text, context).find((each) => each.scale !== 1)?.chars ??
+            unsettledScales(unit.text, context)[0] ??
+            (unit.scaleMarker && !unit.text.includes(unit.scaleMarker) ? unit.scaleMarker : null);
+          const location = unitLocation(unit);
+          return scale
+            ? [{ page: unit.page, scale, where: location ? englishLocation(location) : "" }]
+            : [];
+        });
+      unitScales.set(key, found);
+    }
+    return found;
+  };
 
   /** How a Document version writes its numbers, read once from all its text. */
   const contextOf = (citation: Citation): FigureContext => {
@@ -608,8 +821,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   /**
    * The scale a Document version states anywhere, read once: a line the reader applies
    * ("in thousands", "单位：万元"), a currency next to a scale token ("£'000"), or a page's
-   * running header kept from before it was stripped. `stale`: a page was read before this
-   * build kept that marker, so a scale it wrote can't be ruled out (#1001).
+   * scale marker: its PDF running header or Word header, or a form that reads two ways ("in MM",
+   * #2365). `stale`: a page was read before this build kept that marker, so a scale it wrote
+   * can't be ruled out (#1001).
    */
   const scaleOf = (citation: Citation): { scale: string | null; stale: boolean } => {
     const key = `${citation.documentId}\n${citation.contentHash}`;
@@ -619,7 +833,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       found = {
         scale:
           units.find((unit) => unit.scaleMarker)?.scaleMarker ??
-          statedScale(units.map((unit) => unit.text).join("\n"), contextOf(citation)),
+          pageScale(units.map((unit) => unit.text).join("\n"), contextOf(citation)),
         stale: units.some((unit) => unit.scaleMarker === null),
       };
       scales.set(key, found);
@@ -791,6 +1005,47 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const { at, midLine } = quoteOnPage(text, quote, quoted.passageText, quoted.matching);
     return at < 0 ? { text: quote, at: 0, midLine } : { text, at, midLine };
   }
+
+  /**
+   * The words a figure's row is labelled with, or null when its page doesn't say which row it is.
+   * On its own line: a table row's first cell, or the last words before it ("Diluted earnings per
+   * share" in "…412.5 Diluted earnings per share 2.15", as a Chinese PDF's joined rows read). A
+   * number alone on its line takes the nearest line above that reads as a label, past a column of
+   * numbers written like it (a five- or ten-year record read one cell per line); a blank line, a
+   * sentence, a number written otherwise or the scale line itself leaves its row unknown.
+   */
+  function rowOf(quoted: Quoted, figure: Figure): RowLabel | null {
+    const before = lineBefore(quoted, figure);
+    const { text, at } = onPage(quoted);
+    const start = at + figure.start;
+    const end = text.indexOf("\n", start);
+    const row = `${before}${text.slice(start, end < 0 ? undefined : end)}`;
+    const named = (each: RowLabel) => WORDS.test(each.label);
+    if (row.includes("\t")) {
+      const cell = withoutStatement(row.split("\t")[0] ?? "");
+      return named(cell) ? cell : null;
+    }
+    const own = betweenNumbers(before).map(withoutStatement).findLast(named);
+    if (own !== undefined) return own;
+    const lines = text
+      .slice(0, start - before.length)
+      .split("\n")
+      .slice(0, -1)
+      .reverse();
+    for (const line of lines.slice(0, MOST_LINES_UP)) {
+      if (line.trim() === "") return null;
+      if (!WORDS.test(line)) {
+        if (writtenLike(line, figure.chars)) continue;
+        return null;
+      }
+      const label = withoutStatement(line);
+      return named(label) && LABEL_LIKE.test(label.label) ? label : null;
+    }
+    return null;
+  }
+
+  const labelOf = (quoted: Quoted, figure: Figure): string | null =>
+    rowOf(quoted, figure)?.label ?? null;
 
   function lineBefore(quoted: Quoted, figure: Figure): string {
     const { text, at } = onPage(quoted);
@@ -1024,6 +1279,12 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     else if (unit && !ownUnit) {
       const row = onLine(unit.citation.quote);
       const statedLine = readStatedUnits(unit.citation.quote, context, true);
+      const ownRow = rowOf(quoted, figure);
+      const label = ownRow?.label ?? null;
+      const [unsure] =
+        row || statedLine.length > 0 ? [] : unsettledScales(unit.citation.quote, context);
+      if (unsure)
+        return `the unitQuote "${unit.citation.quote}" writes "${unsure}", which can be read as more than one scale or unit; ${figure.chars} can't be calculated without guessing its scale.`;
       // A statement may write its currency on its own first figure ("Sale price £385,000.00") instead of in a heading (#1001).
       const onFigure =
         row === null && statedLine.length === 0
@@ -1046,6 +1307,19 @@ export function createCalculationSession(options: CalculationSessionOptions) {
           stated: { ...base, unit: { kind: "currency", code: onFigure.code } },
           currencyChars: onFigure.chars,
         };
+      } else if (label === null && row === null && statedLine.some((each) => each.scale !== 1)) {
+        return `${figure.chars} has no label on its line or above it that says what its row is, and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing its scale.`;
+      } else if (
+        ownRow?.ownScales.length &&
+        statedLine.some((each) => each.scale !== 1 && !ownRow.ownScales.includes(each.scale))
+      ) {
+        return `${figure.chars} is on a row whose head states its own scale, and the unitQuote "${unit.citation.quote}" states another; quote the row's head as unitQuote.`;
+      } else if (statedLine.some((each) => notedOut(each, label ?? ""))) {
+        return `${figure.chars} is on a per-share row, and the unitQuote "${unit.citation.quote}" scales its Document's amounts except where it notes otherwise; it can't be calculated without guessing its scale.`;
+      } else if (statedLine.some((each) => exceptedBy(each, label ?? ""))) {
+        const currency = statedLine.find((each) => each.unit.kind === "currency")?.unit;
+        if (currency && base.unit.kind === "plain")
+          stated = { quoted: unit, stated: { ...base, unit: currency }, currencyChars: null };
       } else {
         const readings = row
           ? [row]
@@ -1055,21 +1329,35 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         );
         if (scales.size > 1)
           return `the unitQuote "${unit.citation.quote}" states more than one scale; give the one line that applies.`;
+        // A table's head row states each column's unit: "Revenue (£000)	EPS (£)" doesn't say which
+        // of them a number is in, so it states none of them for it.
+        if (conflicting(statedLine))
+          return `the unitQuote "${unit.citation.quote}" states more than one unit or scale; give the line or column head that states the unit of ${figure.chars} alone.`;
         const applies =
           readings.find((each) => each.scale !== 1) ??
           readings.find((each) => each.unit.kind !== base.unit.kind) ??
           null;
+        const kind = applies && applies.scale !== 1 ? notAnAmount(label ?? "") : null;
+        if (kind)
+          return `${figure.chars} is on a ${kind} row ("${(label ?? "").trim()}"), and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing its scale.`;
         if (applies) stated = { quoted: unit, stated: applies, currencyChars: null };
       }
     } else if (!ownUnit) {
       const page = quoted.units.map((each) => each.text).join("\n");
       const found: Stated[] = [];
+      let noted: string | null = null;
       const lines = quotedLines(quoted);
       const row = onLine(lines);
       if (row) found.push({ statement: lines, reading: row });
       const same = (a: Reading, b: Reading) =>
         a.value === b.value && JSON.stringify(a.unit) === JSON.stringify(b.unit);
+      const rowLabel = labelOf(quoted, figure) ?? "";
       for (const statement of readStatedUnits(page, context)) {
+        if (exceptedBy(statement, rowLabel)) continue;
+        if (notedOut(statement, rowLabel)) {
+          noted = noted ?? statement.chars;
+          continue;
+        }
         for (const each of statedReading(quote, figure.start, quoteContext, statement.chars)) {
           if (!changes(each)) continue;
           if (!found.some((other) => same(other.reading, each)))
@@ -1078,7 +1366,30 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       }
       if (found.length > 1)
         return `${figure.chars} has no unit, and ${whereOf(quoted)} states more than one (${found.map((each) => `"${each.statement}"`).join(", ")}); give the line that applies to it as unitQuote.`;
-      candidate = found[0] ?? null;
+      const header = quoted.units.find(
+        ({ text, scaleMarker }) => scaleMarker && !text.includes(scaleMarker),
+      )?.scaleMarker;
+      const [unsure] = unsettledScales(page, context);
+      // A Word section under a heading that states its scale, or a page after one that does, may
+      // be in that scale: no Passage holds both, so the number is refused rather than read plain.
+      const pages = new Set(quoted.units.map((each) => each.page));
+      const elsewhere = scaledUnitsOf(quoted.citation).find((each) => !pages.has(each.page));
+      const unquotableAs = (
+        statement: string | null | undefined,
+        unquotable: Stated["unquotable"],
+        where?: string,
+      ): Stated[] =>
+        statement
+          ? [{ statement, reading: thousandfold(base), unquotable, ...(where && { where }) }]
+          : [];
+      candidate =
+        [
+          ...found,
+          ...unquotableAs(noted, "noted"),
+          ...unquotableAs(header, "header"),
+          ...unquotableAs(unsure, "unsettled"),
+          ...unquotableAs(elsewhere?.scale, "elsewhere", elsewhere?.where),
+        ][0] ?? null;
     }
 
     let rate: ReadInput["rate"] = null;
@@ -1221,9 +1532,12 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         plain.ok && scaled.ok ? !sameValue(plain.value, scaled.value) : plain.ok !== scaled.ok;
       if (depends)
         return {
-          problems: affected.map(
-            (read) =>
-              `${lead} ${read.given.name}: ${read.figure.chars} has no unit, and ${read.where} says "${read.candidate?.statement}"; give that line as unitQuote.`,
+          problems: affected.flatMap((read) =>
+            read.candidate
+              ? [
+                  `${lead} ${read.given.name}: ${candidateProblem(read.figure.chars, read.where, read.candidate)}`,
+                ]
+              : [],
           ),
         };
     }
@@ -1433,9 +1747,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       if (typeof read === "string")
         return { problem: read, ...(onUnreadPage(given) && { pageUnread: true as const }) };
       if (read.candidate && !read.unit) {
-        return {
-          problem: `${read.figure.chars} has no unit, and ${read.where} says "${read.candidate.statement}"; give that line as unitQuote.`,
-        };
+        return { problem: candidateProblem(read.figure.chars, read.where, read.candidate) };
       }
       return { input: checkedNumber(read) };
     },

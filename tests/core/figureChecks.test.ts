@@ -938,7 +938,8 @@ test.each([
 
 test.each([
   { unitQuote: "All figures in £m", verdict: "supported" },
-  { unitQuote: "All figures in £000", verdict: "not-checked" },
+  // The source's £300,000 is a thousandth of the note's £300m (#2365).
+  { unitQuote: "All figures in £000", verdict: "contradicted" },
 ])(
   "a bare cell under the note's “(£m)” heading is compared in its source's frame when the note offers it: $unitQuote",
   async ({ unitQuote, verdict }) => {
