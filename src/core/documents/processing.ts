@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { currencyScaleMarker, readStatedUnits } from "../../shared/figures";
 import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
 import type { DocumentFailureReason, DocumentKind, UnreadParts } from "../api";
@@ -62,7 +63,7 @@ import { unreadMessage } from "./unreadMessage";
  * page ended itself, such as a heading, keeps its break). 18: #1709 (explicit
  * deposition layouts keep their printed page and line anchors).
  */
-export const PROCESSING_VERSION = 18;
+export const PROCESSING_VERSION = 19;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -85,9 +86,11 @@ export const PROCESSING_VERSION = 18;
  * only PDFs' too: a deposition's explicit "Page N" layout over numbered lines
  * gains printed page and line anchors and keeps its "Page N" lines, which
  * cleanup took for running headers; other PDFs' pages come out as they were.
+ * Version 19 only PDFs' as well: a page keeps the scale its running header
+ * wrote ("(£'000)", "All figures in thousands") for a calculated figure (#1001).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 18,
+  pdf: 19,
   text: 5,
   markdown: 5,
   docx: 7,
@@ -591,7 +594,7 @@ async function processBytes(
     // Only a page pdf.js read has lines that break a sentence; a scanned page's rows are its
     // layout, as a transcript's numbered lines are, and joining two of them would merge a
     // table's rows or a deposition's lines (and move their anchors).
-    const pages =
+    const laid =
       kind === "pdf"
         ? stripped.map((unit, index) => {
             if (unit.label?.scan || hasPrintedLines(unit)) return unit;
@@ -599,6 +602,16 @@ async function processBytes(
             return { ...unit, text: joinCjkLineWraps(unit.text, moved(kept, starts[index] ?? 0)) };
           })
         : stripped;
+    // The running header a page had before it was stripped, kept as its scale marker: a page
+    // that wrote "(£'000)" there scaled its amounts, which the stored text no longer shows (#1001).
+    const pages = laid.map((unit, index) => {
+      const written = extracted.units[index]?.text ?? "";
+      const scaleMarker =
+        currencyScaleMarker(written) ??
+        readStatedUnits(written, {}).find((each) => each.scale !== 1)?.chars ??
+        "";
+      return { ...unit, scaleMarker };
+    });
     const { pageCount, unread, parts } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
       ...passage,
