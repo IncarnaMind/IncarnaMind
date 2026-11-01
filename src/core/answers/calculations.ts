@@ -35,7 +35,6 @@
 import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 import {
   currencyOnItsFigure,
-  currencyScaleMarker,
   type Figure,
   type FigureContext,
   type FigureFacts,
@@ -47,6 +46,7 @@ import {
   readFigures,
   readStatedUnits,
   type StatedCurrency,
+  statedScale,
 } from "../../shared/figures";
 import {
   evaluateFormula,
@@ -574,16 +574,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     let found = scales.get(key);
     if (!found) {
       const units = documents.pageTexts(citation.documentId, citation.contentHash, null, null);
-      const stated = readStatedUnits(
-        units.map((unit) => unit.text).join("\n"),
-        contextOf(citation),
-      ).find((each) => each.scale !== 1);
       found = {
         scale:
           units.find((unit) => unit.scaleMarker)?.scaleMarker ??
-          currencyScaleMarker(units.map((unit) => unit.text).join("\n")) ??
-          stated?.chars ??
-          null,
+          statedScale(units.map((unit) => unit.text).join("\n"), contextOf(citation)),
         stale: units.some((unit) => unit.scaleMarker === null),
       };
       scales.set(key, found);
