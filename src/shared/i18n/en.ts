@@ -3938,7 +3938,7 @@ export const en = {
   "scripts.settings.body": "No sandbox: scripts run here and ask before each run.",
   "scripts.settings.bodySandboxed": "Scripts run in a sandbox and ask before each run.",
   "scripts.settings.bodySandboxed.details":
-    "They can’t open your home folder or IncarnaMind’s data, can only write in their own working folder, and have no internet. Unless you chose “Always run” for a Skill, each run asks first.",
+    "They can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in their own working folder, and have no internet. Unless you chose “Always run” for a Skill, each run asks first.",
   "scripts.settings.timeout": "Stop a script that runs longer than",
   "scripts.settings.seconds": "seconds",
 
@@ -3970,7 +3970,7 @@ export const en = {
     "No sandbox: it can read, change or delete your files and use the internet.",
   "scripts.card.sandboxed": "Runs in a sandbox: no internet, no home folder.",
   "scripts.card.sandboxed.details":
-    "It can’t open your home folder or IncarnaMind’s data, can only write in its own working folder, and has no internet.",
+    "It can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in its own working folder, and has no internet.",
   "scripts.card.allowOnce": "Allow once",
   "scripts.card.alwaysRun": "Always run",
   "scripts.card.alwaysRunHint": "Run {skill}’s scripts without asking from now on",
@@ -3979,9 +3979,9 @@ export const en = {
   "scripts.alwaysRun.body":
     "From now on, {skill}’s scripts run without asking. With no sandbox, they can delete your files and send your data online.",
   "scripts.alwaysRun.bodySandboxed":
-    "From now on, {skill}’s scripts run without asking. They run in a sandbox, but can still read files on other drives.",
+    "From now on, {skill}’s scripts run without asking. They run in a sandbox, but can still read some files on this computer.",
   "scripts.alwaysRun.bodySandboxed.details":
-    "They can’t open your home folder or IncarnaMind’s data, can only write in their own working folder, and have no internet.",
+    "They can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in their own working folder, and have no internet.",
   "scripts.alwaysRun.trust": "Only for a Skill you trust. Reset in Settings › Approvals.",
   "scripts.alwaysRun.confirm": "Always run {skill}’s scripts",
   "scripts.alwaysRun.cancel": "Cancel",
