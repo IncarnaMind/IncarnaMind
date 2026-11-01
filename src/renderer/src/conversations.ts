@@ -13,7 +13,7 @@ import type {
 } from "../../core/api";
 import { conversationName } from "../../shared/naming";
 import { settleAsk, useAnswers } from "./answers";
-import { applyWhatIsAsked, applyWhatWasAsked } from "./askedChanges";
+import { applyNotAsked, applyWhatIsAsked, applyWhatWasAsked } from "./askedChanges";
 import { watchCommands } from "./assistantCommands";
 import { watchMindsMadeBy } from "./assistantMinds";
 import { offeredCommands } from "./assistantWindow";
@@ -397,9 +397,13 @@ export async function regenerateAnswer(
       commands: offeredCommands(askedFrom(answerId)),
       clientId,
     });
+    // A core that refuses to start (no model, or a forced Skill off) writes nothing, so nothing
+    // of the Answer is on its way; its asked changes wait, and the Note's count must say so (#1325).
+    if (!result.asked) applyNotAsked(answerId);
     settleAsk(answerId, result);
     sayLeftOut(result);
   } catch (error) {
+    applyNotAsked(answerId);
     settleAsk(answerId, null, error);
   }
 }

@@ -17,6 +17,7 @@ import {
   PROPOSAL_ATTRIBUTE,
   type WindowLayout,
 } from "../../src/core/api";
+import { arrivingInMind } from "../../src/renderer/src/arrivingChanges";
 import { AppliedEditLine, appliedLineIn } from "../../src/renderer/src/editor/appliedEditLine";
 import type { FollowedSteps } from "../../src/renderer/src/editor/editorUndo";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -129,10 +130,14 @@ let activeLayout: LayoutBridge = async () => OPEN_LAYOUT;
 let activeAsk: (input: AskInConversationInput) => Promise<ConversationAskResult> = async () => {
   throw new Error("No Question is asked in this test.");
 };
+let activeRegenerate: () => Promise<ConversationAskResult> = async () => {
+  throw new Error("No Answer is regenerated in this test.");
+};
 const delegatedBridge = {
   listConversations: async () => [],
   getConversation: async () => ({ messages: [] }),
   askInConversation: (input: AskInConversationInput) => activeAsk(input),
+  regenerateConversationAnswer: () => activeRegenerate(),
   on: (event: string, listener: (payload: unknown) => void) => {
     const registered = listeners.get(event) ?? new Set<(payload: unknown) => void>();
     registered.add(listener);
@@ -1431,4 +1436,67 @@ test("Undo while the Note opens, then another change, leaves it undone when the 
   expect(appliedLineIn(editor.state)).toBeNull();
   expect(useUndo.getState().done).toHaveLength(1);
   doc.destroy();
+});
+
+describe("A regenerate that never starts (#1325)", () => {
+  const refused = {
+    asked: false,
+    reason: "not-ready",
+    readiness: { ready: false, reason: "no-provider" },
+  } as unknown as ConversationAskResult;
+
+  async function regenerate(regenerateCore: () => Promise<ConversationAskResult>) {
+    mountDom({
+      undoAskedChanges: async () => null,
+      redoAskedChanges: async () => null,
+      releaseAskedChanges: async () => undefined,
+    });
+    activeRegenerate = regenerateCore;
+    const { regenerateAnswer, useConversations } = await import(
+      "../../src/renderer/src/conversations"
+    );
+    const { applyNotAsked, useAskedChanges } = await import("../../src/renderer/src/askedChanges");
+    // Nothing from an earlier test is still on its way when this one starts.
+    for (const id of useAskedChanges.getState().arriving) applyNotAsked(id);
+    useConversations.setState({ openId: "conversation" });
+    return { regenerateAnswer, useAskedChanges };
+  }
+
+  test("a core that refuses the regenerate leaves nothing of it on its way", async () => {
+    let called = 0;
+    const { regenerateAnswer, useAskedChanges } = await regenerate(async () => {
+      called += 1;
+      return refused;
+    });
+
+    await regenerateAnswer("answer-1");
+
+    expect(called).toBe(1);
+    const arriving = useAskedChanges.getState().arriving;
+    expect(arriving.has("answer-1")).toBe(false);
+    expect(arrivingInMind([], "mind", arriving)).toEqual({
+      requests: new Set(),
+      known: new Set(),
+      open: false,
+    });
+  });
+
+  test("a regenerate that throws leaves nothing of it on its way", async () => {
+    let called = 0;
+    const { regenerateAnswer, useAskedChanges } = await regenerate(async () => {
+      called += 1;
+      throw new Error("The core is gone.");
+    });
+
+    await regenerateAnswer("answer-1");
+
+    expect(called).toBe(1);
+    const arriving = useAskedChanges.getState().arriving;
+    expect(arriving.has("answer-1")).toBe(false);
+    expect(arrivingInMind([], "mind", arriving)).toEqual({
+      requests: new Set(),
+      known: new Set(),
+      open: false,
+    });
+  });
 });
