@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { decideAll } from "../../eval/minds/state";
 import { BLOCK_ID_ATTRIBUTE, type ConversationAnswer, type Core } from "../../src/core";
-import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
+import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -328,7 +328,7 @@ describe("A Mind that was there, its waiting text revised by a later Answer", {
   async function revised(times: 1 | 2, how: "content" | "instruction" = "content") {
     let revising = false;
     const core = await setUp((call) => {
-      if (call.system === EDIT_INSTRUCTIONS) {
+      if ([EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED].includes(call.system)) {
         const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? "";
         return { text: `${passage} ${LONGER_RISK}\n<why>Longer.</why>` };
       }

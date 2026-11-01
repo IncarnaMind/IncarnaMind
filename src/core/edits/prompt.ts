@@ -35,6 +35,106 @@ export const EDIT_INSTRUCTIONS = [
   "- When the task names text to go, write each paragraph that goes between <removed> and </removed>, word for word, on lines of its own where it stood: a paragraph left out of your reply stays. So to take out the second of three list items, write the first, then <removed>- the second, word for word</removed>, then the third. A heading, a list item and a table each count as a paragraph, and a section is its heading with all the paragraphs under it. Shortening, improving, rewriting or translating text takes none of it out: for those, never write <removed>. A backslash before <removed makes it words of the passage, not the mark: keep the backslash. Never explain a removal outside <why>.",
 ].join("\n");
 
+/**
+ * A request in the User's words shows each paragraph of the passage with a name, and the reply
+ * names the paragraph each of its own replaces, so no paragraph is paired by guess (#2356).
+ */
+export const NAMES_SHOWN: ReadonlySet<EditAction> = new Set(["instruction"]);
+
+/** A passage paragraph's name, by its place: ¶1 is the first. */
+export const paragraphName = (index: number) => `¶${index + 1}`;
+
+/** Every ¶ the User typed escaped as Markdown escapes a mark, so it stays words: one that reads as a name, or as one written wrong. */
+export const escapeNames = (text: string) => text.replace(/¶/g, "\\¶");
+
+/** Escaped names (`escapeNames`), words again. */
+export const unescapeNames = (text: string) => text.replace(/\\¶/g, "¶");
+
+/**
+ * What a reply's paragraph says it is by its name: the passage's paragraph it `replaces` (¶3), or a
+ * new one that `follows` one of them (¶3+) or the reply's paragraph before it (¶+, null).
+ */
+export type ParagraphName =
+  | { replaces: number }
+  | { follows: number | null }
+  /** Written as a name but none, as "¶2a": which paragraph it is can't be told. */
+  | { unclear: string };
+
+/**
+ * A name where a reply's paragraph starts, ended by a space or the line's end: "¶3+" is never ¶3.
+ * A new one may carry more than one + ("¶++", "¶3 +"), as Claude Haiku 5.5 writes a second, or
+ * its + first ("¶+7"), as Claude Sonnet 5.5 writes one.
+ */
+const NAME_HERE = /^¶(?:(\d+)(?:[ \t]*(\++))?|\++(\d*))(?=\s|$)\s*/;
+
+/** The name a reply's paragraph starts with, and the rest of it; null for none. */
+export function readName(paragraph: string): { name: ParagraphName | null; rest: string } {
+  const found = NAME_HERE.exec(paragraph);
+  if (!found) {
+    const unclear = /^¶\S+\s*/.exec(paragraph)?.[0];
+    return unclear
+      ? { name: { unclear: unclear.trim() }, rest: paragraph.slice(unclear.length) }
+      : { name: null, rest: paragraph };
+  }
+  const [all, number, plus, after] = found;
+  const name =
+    number !== undefined
+      ? plus
+        ? { follows: Number(number) }
+        : { replaces: Number(number) }
+      : { follows: after ? Number(after) : null };
+  return { name, rest: paragraph.slice(all.length) };
+}
+
+/**
+ * A ¶ not escaped where a reply's paragraph starts, after spaces or quote marks, that no name was
+ * read from: a name written wrong ("¶ 2", "> ¶2"), as the User's own ¶ was shown escaped. Null
+ * when there is none.
+ */
+export const strayName = (paragraph: string): string | null =>
+  /^[\s>"'“‘「『(]*¶\S*/.exec(paragraph)?.[0].trim() ?? null;
+
+/** A name a line of a reply starts with, written well or not, for telling where its paragraphs start. */
+export const NAME_LINE = String.raw`[ \t]*¶\S`;
+
+/** The name a line starts with, and the spaces after it. */
+export const NAME_AT_LINE = /^[ \t]*¶\S*[ \t]*/;
+
+/** A name written just before a <removed> mark at a line's start. */
+const NAMED_REMOVAL = /(^|\n)[ \t]*¶(?:\d+\+?|\+)[ \t]*(?=<removed[\s/>])/gi;
+
+/**
+ * The reply with a name written just before a <removed> mark at a line's start taken off, so the
+ * mark starts its line and quotes paragraphs (`readRemovals`); names inside a quote are read off
+ * with its paragraphs.
+ */
+export const unnameRemovals = (text: string) => text.replace(NAMED_REMOVAL, "$1");
+
+/** Whether the reply names a paragraph it quotes as taken out, as only a reply read by names does. */
+export const namesRemoval = (text: string) => new RegExp(NAMED_REMOVAL.source, "i").test(text);
+
+/** A reply's text as it reads, without the names its lines start with, and escaped names made words again. */
+export const withoutNames = (text: string) =>
+  text
+    .split("\n")
+    .map((line) => readName(line.replace(/^[ \t]+(?=¶)/, "")).rest)
+    .join("\n")
+    .replace(/\\¶/g, "¶");
+
+/**
+ * For a passage shown with its paragraphs' names (#2356): the shared instructions and how a reply
+ * names its own. Apart from them, as a model told of names in a passage shown none writes some.
+ */
+export const EDIT_INSTRUCTIONS_NAMED = [
+  ...EDIT_INSTRUCTIONS.split("\n").slice(0, -1),
+  // An example of an item by its place made Claude Haiku 5.5 quote that item unasked (#2356).
+  (EDIT_INSTRUCTIONS.split("\n").at(-1) ?? "").replace(
+    "So to take out the second of three list items, write the first, then <removed>- the second, word for word</removed>, then the third.",
+    "So to take out a list item, write <removed>- the item, word for word</removed> where it stood, and only that item.",
+  ),
+  "- Each paragraph of the passage starts with its name, such as ¶1 or ¶2. Write only the paragraphs you change or add, and those the task names to go, each starting with a name copied from the passage, never counted: one you rewrite with the name of the passage's paragraph it replaces, as in ¶3 - The new words; one that goes with its name and then its words, word for word, between <removed> and </removed>, as in ¶4 <removed>- The item</removed>; a new one with ¶+, right after the paragraph it follows, which you write too, as it is. Name a paragraph once at most. A paragraph you don't write stays as it is. Write nothing else: no line on what you did, didn't do or got wrong. When nothing needs to change, your whole reply is <why> alone, such as <why>Nothing needed changing.</why> A backslash before ¶ makes it words of the passage: keep the backslash.",
+].join("\n");
+
 /** For "explain": a few sentences to go under the passage. */
 export const EXPLAIN_INSTRUCTIONS = [
   "You explain a passage of the User's own notes. The passage is between <passage> and </passage>.",
@@ -204,12 +304,17 @@ function tagsOf(text: string): Tag[] {
 /** How many characters beside a tag tell where it is. */
 const BESIDE_TAG = 10;
 
-/** The characters beside a tag on its line, up to the next tag, without spaces or escapes: the nearest `BESIDE_TAG`. */
+/**
+ * The characters beside a tag on its line, up to the next tag, without spaces or escapes: the
+ * nearest `BESIDE_TAG`. A name the line starts with isn't counted: a reply may leave it out.
+ */
 function besideTag(text: string, tags: readonly Tag[], index: number, side: "before" | "after") {
   const tag = tags[index] as Tag;
   const plain = (part: string) => part.replace(/\\([\s\S])/g, "$1").replace(/\s+/g, "");
   if (side === "before") {
-    const from = Math.max(tags[index - 1]?.end ?? 0, text.lastIndexOf("\n", tag.at - 1) + 1);
+    const line = text.lastIndexOf("\n", tag.at - 1) + 1;
+    const name = NAME_AT_LINE.exec(text.slice(line, tag.at));
+    const from = Math.max(tags[index - 1]?.end ?? 0, line + (name?.[0].length ?? 0));
     return plain(text.slice(from, tag.at)).slice(-BESIDE_TAG);
   }
   const line = text.indexOf("\n", tag.end);

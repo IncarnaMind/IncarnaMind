@@ -230,7 +230,7 @@ describe("The evaluation of requests that change several Minds", { timeout: 60_0
             )
             .replace(
               "Public launch on 1 March.",
-              "Public launch on 1 March.\n\nThe beta opens to 50 customers.",
+              "Public launch on 1 March.\n\n¶+ The beta opens to 50 customers.",
             ),
         };
       }
@@ -287,7 +287,7 @@ describe("The evaluation of requests that change several Minds", { timeout: 60_0
 
     const open = await runScripted("missing-mind-en", (call) => {
       const rewritten = rewrittenTerm(call);
-      if (rewritten) return { text: "Goals are short." };
+      if (rewritten) return { text: "¶+ Goals are short." };
       return call.results.length === 0
         ? {
             calls: [
