@@ -7,7 +7,7 @@ import { calculatedFigureNode, readCalculatedFigure } from "../../src/shared/cal
 import { answerEnded, type ShownPassage, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { dcfWorkbook, unsupportedWorkbook } from "../helpers/financeWorkbooks";
+import { libreOfficeFixture, unsupportedWorkbook } from "../helpers/financeWorkbooks";
 import { scriptedModel, scriptedModels } from "../helpers/models";
 
 type Call = { tool: string; input: unknown };
@@ -109,8 +109,7 @@ describe("a workbook's formulas in an Answer", () => {
         calls: [traceEbitda, growthAt3],
         answer: "2027 EBITDA is [=1]; at 3% growth it would be [=2].",
       });
-      const bytes = dcfWorkbook().xlsx();
-      const { core, file } = await setUp(model, "dcf.xlsx", new Uint8Array(bytes));
+      const { core, file } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
       const before = await sha256(file);
       const answer = await ask(core, question);
 
@@ -228,7 +227,7 @@ describe("a workbook's formulas in an Answer", () => {
       ],
       answer: "At 3% growth, 2027 EBITDA would be [=1].",
     });
-    const { core } = await setUp(model, "dcf.xlsx", new Uint8Array(dcfWorkbook().xlsx()));
+    const { core } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
     const answer = await ask(core, "What would 2027 EBITDA be at 3% growth?");
     const results = told(model, "what_if");
     expect(results).toContain(
@@ -247,7 +246,7 @@ describe("a workbook's formulas in an Answer", () => {
       new TextEncoder().encode("Region,Revenue\nNorth,120\n"),
       false,
     ],
-    ["a workbook", "dcf.xlsx", new Uint8Array(dcfWorkbook().xlsx()), true],
+    ["a workbook", "dcf.xlsx", libreOfficeFixture("dcf"), true],
   ])(
     "%s: the workbook's Tools and their steer are offered only with a workbook",
     async (_name, file, contents, offered) => {
@@ -275,12 +274,7 @@ describe("a workbook's formulas in an Answer", () => {
         calls: [traceEbitda],
         answer: "2027 EBITDA is [=1].",
       });
-      const { core } = await setUp(
-        model,
-        "dcf.xlsx",
-        new Uint8Array(dcfWorkbook().xlsx()),
-        ownWorkings,
-      );
+      const { core } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"), ownWorkings);
       const answer = await ask(core, "What drives 2027 EBITDA?");
       expect(answer.figures).toHaveLength(recorded);
       // An own working's Passages are read but never offered to name, so the trace can't record one.
@@ -300,7 +294,7 @@ describe("a workbook's formulas in an Answer", () => {
       calls: [whatIfAt("1,5"), whatIfAt("1.5")],
       answer: "It would be [=1].",
     });
-    const { core } = await setUp(model, "dcf.xlsx", new Uint8Array(dcfWorkbook().xlsx()));
+    const { core } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
     const answer = await ask(core, "What would 2027 EBITDA be if 2024 revenue were 1.5?");
     expect(told(model, "what_if")).toContain('"1,5" can be read more than one way');
     expect(answer.figures).toHaveLength(1);

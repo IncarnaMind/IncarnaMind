@@ -4,9 +4,12 @@
  * names, cross-sheet references and shared formulas; workbooks of what can't
  * be worked out; and one of over 10,000 formulas. Each formula's saved result
  * is worked out here in plain JavaScript, as Excel would save it, apart from
- * IncarnaMind's own formula engine, so the engine is checked against it.
- * Test data only.
+ * IncarnaMind's own formula engine. They are what LibreOffice is given to
+ * work out (with their results taken out), and the files it saves are the
+ * fixtures tests compare with (`libreOfficeFixture`). Test data only.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { buildZip } from "./zip";
 
 type Format = "general" | "percent" | "money" | "multiple" | "date";
@@ -244,7 +247,8 @@ export class WorkbookBuilder {
 function cellXml(ref: string, cell: Cell, options: XlsxOptions): string {
   const style = STYLE[cell.format] ? ` s="${STYLE[cell.format]}"` : "";
   if (cell.formula === undefined) {
-    if (cell.error) return `<c r="${ref}"${style} t="e"><v>${escapeXml(String(cell.value))}</v></c>`;
+    if (cell.error)
+      return `<c r="${ref}"${style} t="e"><v>${escapeXml(String(cell.value))}</v></c>`;
     if (typeof cell.value === "string")
       return `<c r="${ref}"${style} t="inlineStr"><is><t>${escapeXml(cell.value)}</t></is></c>`;
     if (typeof cell.value === "boolean")
@@ -756,4 +760,34 @@ export function largeWorkbook(products = 100, months = 120): WorkbookBuilder {
     "money",
   );
   return book;
+}
+
+/**
+ * Blanks that count: SUMPRODUCT over ten cells of which two are filled, so
+ * a comparison with B1 counts the eight blank ones too once B1 is above 0.
+ */
+export function blankCellsWorkbook(): WorkbookBuilder {
+  const book = new WorkbookBuilder();
+  book.sheet("S").number("A1", 1).number("A2", 9).number("B1", 0);
+  book.sheet("F").formula("A1", "SUMPRODUCT(--(S!A1:A10<S!B1))", 0);
+  return book;
+}
+
+/** A check that two sums are equal, which binary arithmetic leaves a hair apart (0.1 + 0.2). */
+export function floatEqualityWorkbook(): WorkbookBuilder {
+  const book = new WorkbookBuilder();
+  book.sheet("Check").number("A1", 0.1).number("A2", 0.25).formula("B1", "IF(A1+A2=0.3,1,0)", 0);
+  return book;
+}
+
+/**
+ * A model as LibreOffice saved it once it had worked every formula out
+ * (tests/fixtures/workbooks; eval/excel/whatIf.excel.ts makes them again and
+ * checks they still match): the saved values tests compare with come from
+ * LibreOffice, not from this file.
+ */
+export function libreOfficeFixture(name: "dcf" | "lbo" | "three-statements"): Uint8Array {
+  return new Uint8Array(
+    readFileSync(join(import.meta.dirname, "../fixtures/workbooks", `${name}.xlsx`)),
+  );
 }

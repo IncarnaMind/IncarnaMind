@@ -1,17 +1,19 @@
 /**
- * `npm run eval:excel` (#2347): a what-if IncarnaMind works out from a
- * workbook's own formulas gives what LibreOffice gives recalculating the same
- * change. Each test model (a DCF, an LBO, three linked statements and one of
- * over 10,000 formulas) is read as IncarnaMind stores it, one input is
- * changed in memory and the figure worked out again; LibreOffice headless
- * opens a copy of the file with that input's cell changed, recalculates every
- * formula and saves it, and the figure's saved value there is compared. The
+ * `npm run eval:excel` (#2347): IncarnaMind's formula engine against
+ * LibreOffice headless. Each test model (a DCF, an LBO, three linked
+ * statements and one of over 10,000 formulas) is saved with no results and
+ * LibreOffice works every formula out: the engine must give each value
+ * LibreOffice saved, and the unit tests' fixtures (tests/fixtures/workbooks)
+ * must be the files LibreOffice makes (INCARNAMIND_WRITE_WORKBOOK_FIXTURES=1
+ * writes them again). Then one input is changed in memory and the figure
+ * worked out again; LibreOffice opens a copy with that input's cell changed,
+ * works every formula out and saves it, and the figure there is compared. The
  * file IncarnaMind read stays byte for byte as it was. CI runs it in the job
  * that installs LibreOffice; without LibreOffice it only works the what-ifs
  * out, unless INCARNAMIND_EXCEL_REQUIRE_LIBREOFFICE=1 makes that a failure.
  */
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateRawSync } from "node:zlib";
@@ -19,10 +21,17 @@ import { expect, test } from "vitest";
 import { extractXlsx } from "../../src/core/documents/formats/xlsx";
 import { openPackage, writeZip, type ZipWriteEntry } from "../../src/core/documents/formats/zip";
 import { cellIndex, workbookModel } from "../../src/core/workbooks/model";
-import { placeKey, WorkbookEngine } from "../../src/core/workbooks/recalculate";
+import {
+  placeKey,
+  recalculate,
+  sameValue,
+  WorkbookEngine,
+} from "../../src/core/workbooks/recalculate";
 import { whatIf } from "../../src/core/workbooks/trace";
 import {
+  blankCellsWorkbook,
   dcfWorkbook,
+  floatEqualityWorkbook,
   largeWorkbook,
   lboWorkbook,
   refParts,
@@ -112,6 +121,20 @@ const CASES: Case[] = [
     input: "Drivers!B2",
     value: 0.002,
   },
+  {
+    name: "Blanks that count: SUMPRODUCT over a mostly blank range, B1 0 to 5",
+    book: blankCellsWorkbook,
+    figure: "F!A1",
+    input: "S!B1",
+    value: 5,
+  },
+  {
+    name: "0.1 + 0.2 = 0.3 compared as Excel does, A2 0.25 to 0.2",
+    book: floatEqualityWorkbook,
+    figure: "Check!B1",
+    input: "Check!A2",
+    value: 0.2,
+  },
 ];
 
 function place(written: string): { sheet: string; row: number; column: number } {
@@ -169,13 +192,75 @@ async function savedValue(bytes: Uint8Array, written: string): Promise<unknown> 
 const close = (a: number, b: number) =>
   Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b), 1);
 
+/** The workbook saved with no results and worked out by LibreOffice, as it saves it. */
+async function libreOfficeWorkbook(soffice: string, book: WorkbookBuilder): Promise<Uint8Array> {
+  const file = join(await mkdtemp(join(tmpdir(), "incarnamind-lo-")), "model.xlsx");
+  await writeFile(file, book.xlsx({ withoutResults: true, recalculateOnOpen: true }));
+  const made = await convertFile(soffice, file, "xlsx", ".xlsx");
+  if (!made.data) throw new Error(`LibreOffice saved nothing: ${made.problem}`);
+  return new Uint8Array(made.data);
+}
+
+/** Each formula cell's saved value, by sheet and cell. */
+async function formulaValues(bytes: Uint8Array): Promise<Map<string, unknown>> {
+  const model = workbookModel("model", "version", (await extractXlsx(bytes)).units);
+  if (!model) throw new Error("No formulas were kept.");
+  const values = new Map<string, unknown>();
+  for (const sheet of model.sheets)
+    for (const cell of sheet.cells.values())
+      if (cell.formula !== null) values.set(`${sheet.name}!${cell.row},${cell.column}`, cell.saved);
+  return values;
+}
+
+const FIXTURES = join(import.meta.dirname, "../../tests/fixtures/workbooks");
+
+test.each([
+  ["dcf", dcfWorkbook],
+  ["lbo", lboWorkbook],
+  ["three-statements", threeStatementWorkbook],
+  ["12,120 formulas", () => largeWorkbook()],
+] as const)(
+  "%s: every formula gives the value LibreOffice works out, and the fixture is LibreOffice's",
+  async (name, build) => {
+    const soffice = findLibreOffice();
+    if (!soffice && REQUIRED) throw new Error("LibreOffice isn't installed (INCARNAMIND_SOFFICE).");
+    if (!soffice) return;
+    const bytes = await libreOfficeWorkbook(soffice, build());
+    const model = workbookModel("model", "version", (await extractXlsx(bytes)).units);
+    if (!model) throw new Error("No formulas were kept.");
+    const engine = new WorkbookEngine(model);
+    const keys = model.sheets.flatMap((sheet) =>
+      [...sheet.cells.values()]
+        .filter((cell) => cell.formula !== null)
+        .map((cell) => placeKey(sheet, cell.row, cell.column)),
+    );
+    const run = await recalculate(engine, keys);
+    const matched = [...run.results.values()].filter((result) => result.problem === null).length;
+    console.log(`${name}: ${matched} of ${keys.length} formulas give the value LibreOffice saved`);
+    expect(matched).toBe(keys.length);
+    if (name.includes(",")) return;
+    const fixture = join(FIXTURES, `${name}.xlsx`);
+    if (process.env.INCARNAMIND_WRITE_WORKBOOK_FIXTURES === "1") {
+      await mkdir(FIXTURES, { recursive: true });
+      await writeFile(fixture, bytes);
+    }
+    const committed = await formulaValues(new Uint8Array(await readFile(fixture)));
+    const fresh = await formulaValues(bytes);
+    expect([...committed.keys()]).toEqual([...fresh.keys()]);
+    for (const [cell, value] of fresh) {
+      expect(sameValue(committed.get(cell) as never, value as never), cell).toBe(true);
+    }
+  },
+);
+
 test.each(CASES)(
   "$name: IncarnaMind's what-if equals LibreOffice recalculating it",
   async (each) => {
     const soffice = findLibreOffice();
     if (!soffice && REQUIRED) throw new Error("LibreOffice isn't installed (INCARNAMIND_SOFFICE).");
     const book = each.book();
-    const bytes = new Uint8Array(book.xlsx());
+    // With LibreOffice, the User's file is one LibreOffice worked out: no saved value comes from here.
+    const bytes = soffice ? await libreOfficeWorkbook(soffice, book) : new Uint8Array(book.xlsx());
     const file = join(await mkdtemp(join(tmpdir(), "incarnamind-model-")), "model.xlsx");
     await writeFile(file, bytes);
     const before = createHash("sha256")
@@ -227,16 +312,7 @@ test.each(CASES)(
     expect(typeof libreOffice).toBe("number");
     expect(close(outcome.after, libreOffice as number)).toBe(true);
     // Unchanged, LibreOffice works the figure out to what IncarnaMind worked it out to.
-    const { sheet } = place(each.input);
-    const saved = book.get(sheet).n(each.input.split("!")[1] as string);
-    const unchanged = await convertFile(
-      soffice,
-      await changedCopy(bytes, book, each.input, saved),
-      "xlsx",
-      ".xlsx",
-    );
-    expect(unchanged.opened, unchanged.problem).toBe(true);
-    const base = await savedValue(new Uint8Array(unchanged.data ?? Buffer.alloc(0)), each.figure);
+    const base = await savedValue(bytes, each.figure);
     console.log(`  LibreOffice unchanged: ${String(base)}`);
     expect(close(outcome.before, base as number)).toBe(true);
   },

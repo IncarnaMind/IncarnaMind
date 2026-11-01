@@ -13,18 +13,18 @@ import {
   dcfWorkbook,
   iterativeWorkbook,
   largeWorkbook,
-  lboWorkbook,
-  threeStatementWorkbook,
+  libreOfficeFixture,
   unsupportedWorkbook,
   WorkbookBuilder,
 } from "../helpers/financeWorkbooks";
 
 async function modelOf(
-  book: WorkbookBuilder,
+  book: WorkbookBuilder | Uint8Array,
   options: Parameters<WorkbookBuilder["xlsx"]>[0] = {},
   readHidden = false,
 ) {
-  const { units } = await extractXlsx(new Uint8Array(book.xlsx(options)), readHidden);
+  const bytes = book instanceof Uint8Array ? book : new Uint8Array(book.xlsx(options));
+  const { units } = await extractXlsx(bytes, readHidden);
   const model = workbookModel("document", "version", units);
   if (!model) throw new Error("The workbook kept no formulas.");
   return { model, engine: new WorkbookEngine(model) };
@@ -46,11 +46,11 @@ function formulaKeys(model: WorkbookModel): number[] {
 
 describe("a workbook's formulas, worked out again", () => {
   test.each([
-    ["a DCF", dcfWorkbook, 70],
-    ["an LBO", lboWorkbook, 64],
-    ["three linked statements", threeStatementWorkbook, 93],
-  ])("%s: every formula gives the value Excel saved", async (_name, build, formulas) => {
-    const { model, engine } = await modelOf(build());
+    ["dcf", 70],
+    ["lbo", 64],
+    ["three-statements", 93],
+  ] as const)("%s: every formula gives the value LibreOffice saved", async (name, formulas) => {
+    const { model, engine } = await modelOf(libreOfficeFixture(name));
     expect(model.formulaCount).toBe(formulas);
     const run = await recalculate(engine, formulaKeys(model));
     const problems = [...run.results.values()].filter((result) => result.problem !== null);
@@ -87,7 +87,7 @@ describe("a workbook's formulas, worked out again", () => {
   });
 
   test("2027 EBITDA's chain runs through its formulas to the assumptions that drive it", async () => {
-    const { model, engine } = await modelOf(dcfWorkbook());
+    const { model, engine } = await modelOf(libreOfficeFixture("dcf"));
     const chain = await traceChain(engine, at(model, "DCF", 5, 4));
     expect(chain.target).toMatchObject({
       label: "EBITDA 2027",
@@ -118,7 +118,7 @@ describe("a workbook's formulas, worked out again", () => {
   });
 
   test("a what-if on growth works the figure out again, in memory, and leaves the model as it was", async () => {
-    const { model, engine } = await modelOf(dcfWorkbook());
+    const { model, engine } = await modelOf(libreOfficeFixture("dcf"));
     const growth = at(model, "Assumptions", 4, 1);
     const outcome = await whatIf(engine, at(model, "DCF", 5, 4), growth, 0.03);
     expect(outcome).toMatchObject({ ok: true, before: 254.6775 });
@@ -132,7 +132,7 @@ describe("a workbook's formulas, worked out again", () => {
   });
 
   test("an input the figure doesn't depend on, and one worked out by a formula, are refused, named", async () => {
-    const { model, engine } = await modelOf(dcfWorkbook());
+    const { model, engine } = await modelOf(libreOfficeFixture("dcf"));
     const ebitda = at(model, "DCF", 5, 4);
     expect(await whatIf(engine, ebitda, at(model, "Assumptions", 12, 1), 400)).toMatchObject({
       ok: false,
@@ -225,7 +225,7 @@ describe("a workbook's formulas, worked out again", () => {
         ]),
       },
     });
-    const saved = await modelOf(dcfWorkbook());
+    const saved = await modelOf(libreOfficeFixture("dcf"));
     expect(
       await whatIf(
         saved.engine,
@@ -273,7 +273,7 @@ describe("a workbook's formulas, worked out again", () => {
   });
 
   test("a cell in Excel's last row and column keeps its own place on every sheet", async () => {
-    const { model } = await modelOf(dcfWorkbook());
+    const { model } = await modelOf(libreOfficeFixture("dcf"));
     const sheet = model.byName.get("DCF");
     if (!sheet) throw new Error("No DCF sheet");
     const place = placeOf(model, placeKey(sheet, 1_048_576, 16_383));
@@ -289,5 +289,74 @@ describe("a workbook's formulas, worked out again", () => {
     expect(cell?.saved).toBe(1.0000000000000002);
     const outcome = await whatIf(engine, at(model, "Rates", 1, 1), at(model, "Rates", 1, 0), 0.5);
     expect(outcome).toMatchObject({ ok: true, before: 2.0000000000000004, after: 1 });
+  });
+
+  test("a workbook set to calculate by hand is worked out like any other once its saved values check out", async () => {
+    const book = dcfWorkbook();
+    book.calc.manual = true;
+    const { model, engine } = await modelOf(book);
+    expect(model.manual).toBe(true);
+    const outcome = await whatIf(
+      engine,
+      at(model, "DCF", 5, 4),
+      at(model, "Assumptions", 4, 1),
+      0.03,
+    );
+    expect(outcome).toMatchObject({ ok: true });
+    // Stale there, its saved values don't check out: refused, naming the cells that differ.
+    const stale = dcfWorkbook();
+    stale.calc.manual = true;
+    stale.get("Assumptions").number("B4", 0.06, "percent");
+    const kept = await modelOf(stale);
+    expect(
+      await whatIf(
+        kept.engine,
+        at(kept.model, "DCF", 5, 4),
+        at(kept.model, "Assumptions", 4, 1),
+        0.03,
+      ),
+    ).toMatchObject({
+      ok: false,
+      why: {
+        kind: "depends",
+        on: expect.arrayContaining([
+          expect.objectContaining({ problem: expect.objectContaining({ kind: "differs" }) }),
+        ]),
+      },
+    });
+  });
+
+  test("a figure that depends on more formulas than are worked out at once keeps its saved value, named", async () => {
+    const book = new WorkbookBuilder();
+    const chain = book.sheet("Chain");
+    chain.number("A1", 1);
+    let value = 1;
+    const columns = ["A", "B", "C"];
+    for (const [index, column] of columns.entries()) {
+      const top = index === 0 ? 2 : 1;
+      const previous = index === 0 ? "A1" : `${columns[index - 1]}13500`;
+      chain.formula(`${column}${top}`, `${previous}+1`, ++value);
+      chain.fill(
+        `${column}${top + 1}:${column}13500`,
+        `${column}${top}+1`,
+        (offset) => value + offset + 1,
+      );
+      value += 13500 - top;
+    }
+    const { model, engine } = await modelOf(book);
+    expect(model.formulaCount).toBe(40_499);
+    const target = at(model, "Chain", 13500, 2);
+    const chained = await traceChain(engine, target);
+    expect(chained.dependsOn.map((each) => each.problem)).toEqual([
+      { kind: "too-many", limit: 40_000 },
+    ]);
+    expect(await whatIf(engine, target, at(model, "Chain", 1, 0), 2)).toMatchObject({
+      ok: false,
+      why: { kind: "too-many" },
+    });
+    // A figure nearer the start depends on fewer, and is worked out.
+    expect(
+      await whatIf(engine, at(model, "Chain", 100, 0), at(model, "Chain", 1, 0), 2),
+    ).toMatchObject({ ok: true, before: 100, after: 101 });
   });
 });
