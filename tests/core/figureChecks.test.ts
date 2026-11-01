@@ -18,7 +18,9 @@ import { workbookTools } from "../../src/core/workbooks/tool";
 import { MAX_CHART_VALUES } from "../../src/shared/charts";
 import { readFigures } from "../../src/shared/figures";
 import { translate } from "../../src/shared/i18n";
+import { escapedInStrings } from "../../src/shared/jsonText";
 import type { UnitText } from "../../src/shared/units";
+import { sameMeasure } from "../helpers/checks";
 import { unsupportedWorkbook, WorkbookBuilder } from "../helpers/financeWorkbooks";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 
@@ -178,6 +180,39 @@ function target(
   };
 }
 
+/**
+ * A reply whose Figures items name what each number measures as a model that copies whole texts
+ * does: the claim's words and its source quote's, the same measure (#2255). An item that names
+ * its own is left as it is, and so is a line that isn't JSON.
+ */
+function namingMeasures(
+  text: string | undefined,
+  claim: string,
+  quoteOf: (marker: number) => string | undefined,
+): string | undefined {
+  return text
+    ?.split("\n")
+    .map((line) => {
+      const json = /^Figures: (\{.*\})$/.exec(line)?.[1];
+      if (!json) return line;
+      let value: { items?: Record<string, unknown>[] };
+      try {
+        value = JSON.parse(escapedInStrings(json));
+      } catch {
+        return line;
+      }
+      for (const each of value.items ?? []) {
+        const source = each.source as { citation?: unknown; quote?: unknown } | null;
+        if (!source || "measure" in each) continue;
+        const quote =
+          typeof source.quote === "string" ? source.quote : quoteOf(Number(source.citation));
+        if (quote !== undefined) each.measure = sameMeasure(claim, quote);
+      }
+      return `Figures: ${JSON.stringify(value)}`;
+    })
+    .join("\n");
+}
+
 async function checkWith(options: {
   text: string;
   figures?: readonly CheckFigure[];
@@ -205,6 +240,9 @@ async function checkWith(options: {
 }) {
   const body =
     options.body ?? "Revenue in 2024 was £20; revenue in 2025 was £21. The licence has expired.";
+  const claim = options.claim ?? "Revenue in 2024 was £20 and revenue in 2025 was £20.";
+  const named = (text: string | undefined) =>
+    namingMeasures(text, claim, (marker) => (options.quotes ?? [body])[marker - 1]);
   const calls: ModelCall[] = [];
   const confirmations: string[] = [];
   let emitted = "";
@@ -226,10 +264,10 @@ async function checkWith(options: {
         !asked &&
         !call.results.some((result) => result.tool === "cite")
       )
-        return { text: options.text };
+        return { text: named(options.text) };
       if (!options.neverCites && !call.results.some((result) => result.tool === "cite"))
         return {
-          text: options.besideCite,
+          text: named(options.besideCite),
           calls: [
             {
               tool: "cite",
@@ -247,8 +285,8 @@ async function checkWith(options: {
       if (options.calculations && !call.results.some((result) => result.tool === "calculate"))
         return { calls: [{ tool: "calculate", input: { figures: options.calculations } }] };
       if (options.askedAgain && call.prompt.includes(options.askedAgain.note))
-        return { text: options.askedAgain.text };
-      return options.failure ? { error: options.failure } : { text: options.text };
+        return { text: named(options.askedAgain.text) };
+      return options.failure ? { error: options.failure } : { text: named(options.text) };
     },
     {
       generate(call) {
@@ -348,7 +386,7 @@ async function checkWith(options: {
     },
   });
   const result = await check({
-    claim: options.claim ?? "Revenue in 2024 was £20 and revenue in 2025 was £20.",
+    claim,
     figures: options.figures,
     scope: options.scope ?? { documentIds: null, excluded: new Map() },
     model: prepared,

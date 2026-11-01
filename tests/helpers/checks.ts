@@ -3,6 +3,7 @@
  * a verified document's claims: those it has a plan for.
  */
 import { documentFigureContext } from "../../src/core/answers/calculations";
+import { namesSomething } from "../../src/core/answers/checks/figureMeasures";
 import { recordClaimFacts } from "../../src/core/answers/checks/recordCites";
 import { listedSentences } from "./claimSentences";
 
@@ -31,6 +32,11 @@ export interface Plan {
   number?: string;
   /** The line of the quote's Passage that states that number's unit, as the model gives it. */
   unitQuote?: string;
+  /**
+   * What its figure items say the number measures; by default the sentence's words (its label's,
+   * for a table cell) and the quote's, which name the same measure.
+   */
+  measure?: { sentence: string; quote: string | null; match: "same" | "differs" };
   says?: string;
   /** Its Absence line: no when left out, as the reply form asks of an ordinary sentence; null: no line. */
   absence?: boolean | null;
@@ -75,9 +81,13 @@ const FIGURES = /<figures>\n([\s\S]*?)\n<\/figures>/;
  * The figures of the sentence a check Run is asked to bind, each with its id, its shown text and,
  * for one it may be read more than one way, its first reading, as a model names one.
  */
-export function requestedFigures(
-  call: ModelCall,
-): { id: string; shown: string; reading: number | null }[] {
+export function requestedFigures(call: ModelCall): {
+  id: string;
+  shown: string;
+  reading: number | null;
+  label: string | null;
+  context: string | null;
+}[] {
   const match = FIGURES.exec(call.prompt);
   if (!match?.[1]) return [];
   const value: unknown = JSON.parse(match[1]);
@@ -86,9 +96,27 @@ export function requestedFigures(
     if (!isRecord(figure) || typeof figure.id !== "string" || typeof figure.shown !== "string")
       throw new Error("The fixture received an invalid figure.");
     const unsettled = Array.isArray(figure.ambiguities) && figure.ambiguities.length > 0;
-    return { id: figure.id, shown: figure.shown, reading: unsettled ? 1 : null };
+    const label = typeof figure.label === "string" ? figure.label : null;
+    const context = typeof figure.context === "string" ? figure.context : null;
+    return { id: figure.id, shown: figure.shown, reading: unsettled ? 1 : null, label, context };
   });
 }
+
+/**
+ * What a figure item says its number measures, as a model copies the words: the sentence's own (a
+ * table cell's label, or the words around a part that is its number alone), and the quote's, or
+ * null for a quote that is a number alone.
+ */
+export const sameMeasure = (
+  sentence: string,
+  quote: string,
+  label: string | null = null,
+  context: string | null = null,
+) => ({
+  sentence: label ?? (namesSomething(sentence) ? sentence : (context ?? sentence)),
+  quote: namesSomething(quote) ? quote : null,
+  match: "same" as const,
+});
 
 /** The sentence a check Run is asked about. */
 /**
@@ -200,7 +228,7 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
     }
     // Each figure from the cited quote's number of its own kind of unit, or its first.
     const numbers = readFigures(quote, documentFigureContext([{ text: quote }]));
-    const items = figures.map(({ id, shown, reading }) => {
+    const items = figures.map(({ id, shown, reading, label, context }) => {
       const kind = readFigures(shown, documentFigureContext([{ text: shown }]))[0]?.unit.kind;
       const source = plan.number
         ? { chars: plan.number }
@@ -220,6 +248,9 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
               number: source.chars,
               ...(plan.unitQuote && { unitQuote: plan.unitQuote }),
             }
+          : null,
+        measure: source
+          ? (plan.measure ?? sameMeasure(sentenceOf(call), quote, label, context))
           : null,
         calculation: null,
       };

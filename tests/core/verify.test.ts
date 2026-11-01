@@ -21,6 +21,7 @@ import {
   listedSentences,
   type Plan,
   requestedFigures,
+  sameMeasure,
   sentenceOf,
   unsupportedReply,
 } from "../helpers/checks";
@@ -450,7 +451,7 @@ describe("Verify a document", () => {
           if ("calls" in reply) return reply;
           return {
             text: `Verdict: ${verdict}\nAbsence: no\nFigures: ${JSON.stringify({
-              items: requestedFigures(call).map(({ id, shown, reading }) => {
+              items: requestedFigures(call).map(({ id, shown, reading, label }) => {
                 const binding = bindings[shown];
                 if (!binding) throw new Error(`No checked row fixture for ${shown}`);
                 return {
@@ -463,6 +464,7 @@ describe("Verify a document", () => {
                   reading,
                   relation: "equals",
                   source: { citation: 1, number: binding.number },
+                  measure: sameMeasure(sentenceOf(call), quote, label),
                   calculation: null,
                 };
               }),
