@@ -15,6 +15,7 @@ import {
   type Matrix,
   matrix,
   type Reference,
+  Refusal,
   type Scalar,
   VALUE,
   type Value,
@@ -72,7 +73,11 @@ export function intersect(reference: Reference, context: Evaluation): Scalar {
 /** A value as an operand: a reference read as one value, or as a block in an array formula. */
 export function operand(value: Value, context: Evaluation, array: boolean): Scalar | Matrix {
   if (!isReference(value)) return value;
-  return array ? context.values(value) : intersect(value, context);
+  if (!array) return intersect(value, context);
+  const block = context.values(value);
+  // Element by element, a blank counts ("" or 0): a block missing its blanks would count wrong.
+  if (block.clipped) throw new Refusal("too-large");
+  return block;
 }
 
 /** One value: an array's first, as a cell shows a formula that gives one. */

@@ -2322,14 +2322,19 @@ export type WorkbookKeptReason =
   | "array"
   | "no-saved-value"
   | "differs"
-  | "too-large";
+  | "too-large"
+  | "too-many"
+  | "unsorted"
+  | "early-date"
+  | "criterion"
+  | "text-order";
 
 export interface WorkbookKeptCell {
   sheet: string;
   /** "C5"; null for a whole sheet that wasn't read. */
   ref: string | null;
   reason: WorkbookKeptReason;
-  /** The function it uses (NOW, OFFSET), or the sheet it reads that wasn't read. */
+  /** The function it uses (NOW, OFFSET), the sheet it reads that wasn't read, or the most formulas worked out at once. */
   name: string | null;
 }
 

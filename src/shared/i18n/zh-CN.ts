@@ -792,7 +792,7 @@ export const zhCN = {
   "figures.workbook.keptNote":
     "这是工作簿保存的值：IncarnaMind 无法重新计算，原因见上。每项所用数据都引用到所在单元格。",
   "figures.workbook.note":
-    "IncarnaMind 已在内存中按工作簿自己的公式重新计算，文件本身没有改动。每项所用数据都引用到所在单元格。这并不说明模型的假设是对的。",
+    "IncarnaMind 已在内存中按工作簿自己的公式重新计算，文件本身没有改动。每项所用数据都引用到所在单元格。这并不说明工作簿的假设是对的。",
   "figures.workbook.kept.volatile":
     "{cell} 使用了易失性函数 {name}，每次计算结果都会变，因此使用其保存的值",
   "figures.workbook.kept.finds-cells":
@@ -812,9 +812,14 @@ export const zhCN = {
     "{cell} 引用的“{name}”未读取（已隐藏或超出读取上限），因此使用其保存的值",
   "figures.workbook.kept.array": "{cell} 是跨多个单元格的数组公式，因此使用其保存的值",
   "figures.workbook.kept.no-saved-value":
-    "工作簿没有保存 {cell} 的计算结果：文件由程序生成，之后未在 Excel 中打开",
+    "工作簿没有保存 {cell} 的计算结果：文件可能由程序生成，之后未在 Excel 中打开",
   "figures.workbook.kept.differs":
-    "IncarnaMind 对 {cell} 的计算结果与工作簿保存的值不同，因此使用保存的值",
+    "IncarnaMind 对 {cell} 的计算结果与工作簿保存的值不同，因此使用保存的值。输入改动后工作簿可能未重新计算：在 Excel 中打开并保存",
+  "figures.workbook.kept.too-many": "{cell} 依赖超过 {name} 个公式，超出 IncarnaMind 一次能计算的数量，因此使用其保存的值",
+  "figures.workbook.kept.unsorted": "{cell} 在未排序的区域中近似查找，无法确定 Excel 的结果，因此使用其保存的值",
+  "figures.workbook.kept.early-date": "{cell} 使用了 1900 年 3 月 1 日之前的日期，Excel 会计入并不存在的 1900 年 2 月 29 日，因此使用其保存的值",
+  "figures.workbook.kept.criterion": "{cell} 使用的条件无法按 Excel 的方式读取（例如时间），因此使用其保存的值",
+  "figures.workbook.kept.text-order": "{cell} 对含标点或 A 到 Z 以外字母的文本排序，Excel 有自己的排序规则，因此使用其保存的值",
   "figures.workbook.kept.too-large": "{cell} 引用的区域过大，无法在此计算，因此使用其保存的值",
   "figures.card.source": "{figure}：来源为 {value}（{source}）",
   "figures.inline.openInput": "打开",

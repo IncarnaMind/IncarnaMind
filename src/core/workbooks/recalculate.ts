@@ -34,6 +34,7 @@ import {
   DIV0,
   each,
   elementwise,
+  equal,
   error,
   finite,
   isError,
@@ -44,6 +45,7 @@ import {
   NAME,
   REF,
   type Reference,
+  Refusal,
   type Scalar,
   toNumber,
   toText,
@@ -65,7 +67,12 @@ export type CellProblem =
   | { kind: "array" }
   | { kind: "no-saved-value" }
   | { kind: "differs"; saved: Scalar; worked: Scalar }
-  | { kind: "too-large" };
+  | { kind: "too-large" }
+  | { kind: "too-many"; limit: number }
+  | { kind: "unsorted" }
+  | { kind: "early-date" }
+  | { kind: "criterion" }
+  | { kind: "text-order" };
 
 /** A cell a result depends on that keeps its saved value, and why. */
 export interface Dependence {
@@ -105,6 +112,13 @@ export function placeOf(
 const MAX_DEPENDENCES = 8;
 /** The most cells one block a formula reads may have, past the cells its sheet has. */
 const MAX_BLOCK_CELLS = 4_000_000;
+/** The largest block held whole, its blanks included; a larger one is cut to the cells its sheet has. */
+const MAX_WHOLE_BLOCK_CELLS = 250_000;
+/**
+ * The most formula cells one figure may depend on: a 100,000-formula what-if took about 276 MB,
+ * so past this a figure keeps its saved value rather than risk the computer's memory.
+ */
+export const MAX_FORMULA_CELLS = 40_000;
 /** How long a slice of work runs before it gives way, and how long a whole run may take. */
 const SLICE_MS = 8;
 export const MAX_RUN_MS = 60_000;
@@ -333,8 +347,12 @@ function denseValues(
 ): Matrix {
   const sheet = engine.sheetNamed(reference.sheet);
   const { range } = reference;
-  const bottom = Math.min(range.bottom, sheet?.lastRow ?? 0);
-  const right = Math.min(range.right, sheet?.lastColumn ?? -1);
+  const fullRows = range.bottom - range.top + 1;
+  const fullColumns = range.right - range.left + 1;
+  // A block is whole, blanks and all, unless it is too large to hold (a whole column, say).
+  const whole = fullRows * fullColumns <= MAX_WHOLE_BLOCK_CELLS;
+  const bottom = whole ? range.bottom : Math.min(range.bottom, sheet?.lastRow ?? 0);
+  const right = whole ? range.right : Math.min(range.right, sheet?.lastColumn ?? -1);
   const rows = Math.max(0, bottom - range.top + 1);
   const columns = Math.max(0, right - range.left + 1);
   if (rows * columns > MAX_BLOCK_CELLS) {
@@ -347,7 +365,8 @@ function denseValues(
     const c = placed.column - range.left;
     if (r < rows && c < columns) values[r * columns + c] = placed.value;
   }
-  return matrix(rows, columns, values);
+  const block = matrix(rows, columns, values);
+  return whole ? block : { ...block, clipped: true };
 }
 
 /** Reads blocks once per run: a block's formula cells are worked out before any formula that reads it. */
@@ -384,12 +403,10 @@ function arithmetic(operator: string, a: Scalar, b: Scalar): Scalar {
   if (["=", "<>", "<", ">", "<=", ">="].includes(operator)) {
     if (isError(a)) return a;
     if (isError(b)) return b;
+    if (operator === "=") return equal(a, b);
+    if (operator === "<>") return !equal(a, b);
     const order = compare(a, b);
     switch (operator) {
-      case "=":
-        return order === 0;
-      case "<>":
-        return order !== 0;
       case "<":
         return order < 0;
       case ">":
@@ -516,6 +533,8 @@ export interface Run {
   order: number[];
   /** The run stopped at `MAX_RUN_MS` before it was done. */
   stopped: boolean;
+  /** The targets depend on more than `MAX_FORMULA_CELLS` formulas: nothing was worked out. */
+  tooMany: boolean;
   ms: number;
 }
 
@@ -536,7 +555,7 @@ async function closure(
   engine: WorkbookEngine,
   targets: readonly number[],
   pace: Pace,
-): Promise<{ order: number[]; circular: Set<number> }> {
+): Promise<{ order: number[]; circular: Set<number>; tooMany: boolean }> {
   const index = new Map<number, number>();
   const low = new Map<number, number>();
   const onStack = new Set<number>();
@@ -550,47 +569,54 @@ async function closure(
     for (const read of analysis.reads) found.push(...engine.formulaCellsIn(read));
     return found;
   };
-  for (const target of targets) {
-    if (index.has(target) || engine.cellAt(target)?.formula == null) continue;
-    const frames: { key: number; next: number[]; at: number }[] = [];
-    const open = (key: number) => {
-      index.set(key, counter);
-      low.set(key, counter);
-      counter++;
-      stack.push(key);
-      onStack.add(key);
-      frames.push({ key, next: precedents(key), at: 0 });
-    };
-    open(target);
-    while (frames.length > 0) {
-      await pace.step();
-      const frame = frames[frames.length - 1] as (typeof frames)[number];
-      if (frame.at < frame.next.length) {
-        const next = frame.next[frame.at++] as number;
-        if (next === frame.key) circular.add(next);
-        if (!index.has(next)) open(next);
-        else if (onStack.has(next))
-          low.set(frame.key, Math.min(low.get(frame.key) ?? 0, index.get(next) ?? 0));
-        continue;
-      }
-      frames.pop();
-      const parent = frames[frames.length - 1];
-      if (parent) low.set(parent.key, Math.min(low.get(parent.key) ?? 0, low.get(frame.key) ?? 0));
-      if (low.get(frame.key) === index.get(frame.key)) {
-        const component: number[] = [];
-        let member: number | undefined;
-        do {
-          member = stack.pop();
-          if (member === undefined) break;
-          onStack.delete(member);
-          component.push(member);
-        } while (member !== frame.key);
-        if (component.length > 1) for (const each of component) circular.add(each);
-        order.push(...component.reverse());
+  try {
+    for (const target of targets) {
+      if (index.has(target) || engine.cellAt(target)?.formula == null) continue;
+      const frames: { key: number; next: number[]; at: number }[] = [];
+      const open = (key: number) => {
+        if (counter >= MAX_FORMULA_CELLS) throw new Refusal("too-large");
+        index.set(key, counter);
+        low.set(key, counter);
+        counter++;
+        stack.push(key);
+        onStack.add(key);
+        frames.push({ key, next: precedents(key), at: 0 });
+      };
+      open(target);
+      while (frames.length > 0) {
+        await pace.step();
+        const frame = frames[frames.length - 1] as (typeof frames)[number];
+        if (frame.at < frame.next.length) {
+          const next = frame.next[frame.at++] as number;
+          if (next === frame.key) circular.add(next);
+          if (!index.has(next)) open(next);
+          else if (onStack.has(next))
+            low.set(frame.key, Math.min(low.get(frame.key) ?? 0, index.get(next) ?? 0));
+          continue;
+        }
+        frames.pop();
+        const parent = frames[frames.length - 1];
+        if (parent)
+          low.set(parent.key, Math.min(low.get(parent.key) ?? 0, low.get(frame.key) ?? 0));
+        if (low.get(frame.key) === index.get(frame.key)) {
+          const component: number[] = [];
+          let member: number | undefined;
+          do {
+            member = stack.pop();
+            if (member === undefined) break;
+            onStack.delete(member);
+            component.push(member);
+          } while (member !== frame.key);
+          if (component.length > 1) for (const each of component) circular.add(each);
+          order.push(...component.reverse());
+        }
       }
     }
+  } catch (thrown) {
+    if (thrown instanceof Refusal) return { order: [], circular, tooMany: true };
+    throw thrown;
   }
-  return { order, circular };
+  return { order, circular, tooMany: false };
 }
 
 /** Gives way to everything else every few milliseconds, and stops when asked or out of time. */
@@ -644,7 +670,8 @@ export async function recalculate(
 ): Promise<Run> {
   const { model } = engine;
   const pace = new Pace(options.signal);
-  const { order, circular } = await closure(engine, targets, pace);
+  const { order, circular, tooMany } = await closure(engine, targets, pace);
+  if (tooMany) return { results: new Map(), order: [], stopped: false, tooMany, ms: pace.ms };
   const results = new Map<number, CellResult>();
   let current: { dependsOn: Dependence[]; seen: Set<string>; unread?: CellProblem } = {
     dependsOn: [],
@@ -758,6 +785,11 @@ export async function recalculate(
     try {
       worked = cellValue(evaluate(analysis.node, context, analysis.array), context);
     } catch (thrown) {
+      if (thrown instanceof Refusal) {
+        results.set(key, own({ kind: thrown.why }));
+        done.push(key);
+        continue;
+      }
       if (thrown instanceof RangeError) worked = "array";
       else throw thrown;
     }
@@ -808,7 +840,7 @@ export async function recalculate(
     }
     done.push(key);
   }
-  return { results, order: done, stopped: pace.stopped, ms: pace.ms };
+  return { results, order: done, stopped: pace.stopped, tooMany: false, ms: pace.ms };
 }
 
 /** A problem's cells that a later run must keep at their saved values: those whose result differed. */

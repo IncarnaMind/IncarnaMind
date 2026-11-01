@@ -288,6 +288,11 @@ const KEPT_REASONS: readonly WorkbookKeptReason[] = [
   "no-saved-value",
   "differs",
   "too-large",
+  "too-many",
+  "unsorted",
+  "early-date",
+  "criterion",
+  "text-order",
 ];
 
 function keptOf(value: unknown): WorkbookKeptCell | null {

@@ -23,7 +23,13 @@ import type { Language } from "../language";
 import { type Tool, type ToolProviderInfo, WORKBOOK_TOOLS } from "../tools";
 import { hasFormulas, type WorkbookCell, type WorkbookModel, workbookModel } from "./model";
 import { parseFormula } from "./parse";
-import { type CellProblem, type Dependence, placeKey, WorkbookEngine } from "./recalculate";
+import {
+  type CellProblem,
+  type Dependence,
+  MAX_FORMULA_CELLS,
+  placeKey,
+  WorkbookEngine,
+} from "./recalculate";
 import { type Chain, type ChainCell, cellOfChain, namedCell, traceChain, whatIf } from "./trace";
 import { isError, type Scalar, textNumber } from "./values";
 
@@ -86,6 +92,16 @@ export function problemText(problem: CellProblem): string {
       return `was worked out here as ${scalarText(problem.worked)}, not the ${scalarText(problem.saved)} the workbook saved`;
     case "too-large":
       return "reads a block of cells too large to work out here";
+    case "too-many":
+      return `depends on more than ${problem.limit.toLocaleString("en")} formulas, more than IncarnaMind works out at once`;
+    case "unsorted":
+      return "looks a value up approximately in a range that isn't sorted, where Excel's answer can't be told";
+    case "early-date":
+      return "uses a date before 1 March 1900, where Excel counts a 29 February 1900 that never was";
+    case "criterion":
+      return "uses a condition IncarnaMind can't read the way Excel does (a time, or a date written another way)";
+    case "text-order":
+      return "orders text with punctuation or letters outside A to Z, which Excel orders by rules of its own";
   }
 }
 
@@ -114,7 +130,9 @@ export function keptCell(each: Dependence): WorkbookKeptCell {
       ? problem.name
       : problem.kind === "not-read"
         ? problem.sheet
-        : null;
+        : problem.kind === "too-many"
+          ? problem.limit.toLocaleString("en")
+          : null;
   return {
     sheet: each.sheet,
     ref:
@@ -247,7 +265,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     if (!units.some((unit) => unit.kind === "rows" && unit.label?.sheet !== undefined))
       return `${source.documentName} isn't an Excel workbook, so it has no formulas.`;
     if (!hasFormulas(units))
-      return `${source.documentName} was read before IncarnaMind kept its formulas; it is being read again. Answer from its values for now.`;
+      return `${source.documentName} was read before IncarnaMind kept its formulas, so they can't be traced until it is read again. Answer from its values for now.`;
     const model = workbookModel(source.documentId, source.contentHash, units);
     if (!model) return `${source.documentName} has no formulas IncarnaMind kept.`;
     const made = {
@@ -265,7 +283,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
   const readingOf = (book: Opened, shownText: string) =>
     readFigures(shownText, { ...book.figures, dates: false, midLine: true, header: null })[0];
 
-  /** A cell the model named: "E5", "DCF!E5", or a defined name; null with why when it isn't one. */
+  /** A cell the model named: "D12", "Plan!D12", or a defined name; null with why when it isn't one. */
   const cellNamed = (
     book: Opened,
     written: string,
@@ -276,7 +294,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
       return { key: placeKey(named.sheet, named.row, named.column), sheet: named.sheet.name };
     const node = parseFormula(written.replace(/^=/, ""));
     if (node.kind !== "reference")
-      return `"${written}" isn't a cell such as "DCF!E5" or a defined name.`;
+      return `"${written}" isn't a cell such as "Plan!D12" or a defined name.`;
     const { range } = node;
     if (range.top !== range.bottom || range.left !== range.right)
       return `"${written}" is a range; give one cell.`;
@@ -451,21 +469,21 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     provider: PROVIDER,
     providerTool: WORKBOOK_TOOLS.trace,
     description:
-      'Show how a figure in an Excel workbook is worked out from the workbook\'s own formulas: the formulas from its cell down to the inputs (cells holding numbers, such as assumptions) that drive it, worked out again and checked against the values Excel saved. Give the figure as calculate takes an input, its Passage, its row copied as quote and the number: {"passage": "P3", "quote": "EBITDA\\t231.0\\t242.6\\t254.7", "number": "254.7", "label": "EBITDA 2027"}; or a cell a result of this Tool named, {"passage": "P3", "cell": "DCF!E5", "label": "EBITDA 2027"}. It records the figure as [=n], its inputs cited to their cells: write [=n] where the number goes, and name the inputs that drive it.',
+      'Show how a figure in an Excel workbook is worked out from the workbook\'s own formulas: the formulas from its cell down to the inputs (cells holding numbers, such as assumptions) that drive it, worked out again and checked against the values Excel saved. Give the figure as calculate takes an input, its Passage, its row copied as quote and the number: {"passage": "P3", "quote": "Sales\\t410.0\\t455.2\\t503.8", "number": "455.2", "label": "Sales 2026"}; or a cell a result of this Tool named, {"passage": "P3", "cell": "Plan!D12", "label": "Sales 2026"}. It records the figure as [=n], its inputs cited to their cells: write [=n] where the number goes, and name the inputs that drive it.',
     inputSchema: {
       type: "object",
       properties: {
         passage: { type: "string" },
         cell: {
           type: "string",
-          description: 'The figure\'s cell, as a result named it: "DCF!E5".',
+          description: 'The figure\'s cell, as a result named it: "Plan!D12".',
         },
         quote: { type: "string" },
         number: { type: "string" },
         citation: { type: "number" },
         label: {
           type: "string",
-          description: 'What the figure is, with its period: "EBITDA 2027".',
+          description: 'What the figure is, with its period: "Sales 2026".',
         },
       },
       required: ["passage", "label"],
@@ -531,9 +549,9 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
       return `"${bare}" can be read more than one way: give the new value with a decimal point, such as "1.5" or "1250".`;
     const written = bare.replaceAll(",", "");
     const match = /^([-+]?(?:\d+\.?\d*|\.\d+))(%?)$/.exec(written);
-    if (!match) return `give the new value as a number, such as "3%" or "1250".`;
+    if (!match) return `give the new value as a number, such as "4%" or "1250".`;
     if (percentCell && match[2] !== "%")
-      return `${here}, a percent: give the new value as a percent, such as "3%".`;
+      return `${here}, a percent: give the new value as a percent, such as "4%".`;
     if (!percentCell && match[2] === "%")
       return `${here}, not a percent: give its new value as a number like it, or change the input you meant.`;
     const number = Number(match[1]);
@@ -553,27 +571,27 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     name: WORKBOOK_TOOLS.whatIf,
     provider: PROVIDER,
     providerTool: WORKBOOK_TOOLS.whatIf,
-    description: `Work a figure of an Excel workbook out again with one input changed (what-if), from the workbook's own formulas, on a copy in memory: the User's file is never changed. Give the figure as ${WORKBOOK_TOOLS.trace} takes it, the input to change (its cell as ${WORKBOOK_TOOLS.trace} lists it, "Assumptions!B4", or its defined name, "Growth") and its new value ("3%", "1250"). It records the result as [=n], naming the input changed; it refuses when the figure depends on a formula it can't work out.`,
+    description: `Work a figure of an Excel workbook out again with one input changed (what-if), from the workbook's own formulas, on a copy in memory: the User's file is never changed. Give the figure as ${WORKBOOK_TOOLS.trace} takes it, the input to change (its cell as ${WORKBOOK_TOOLS.trace} lists it, "Inputs!C7", or its defined name, "Price") and its new value ("4%", "1250"). It records the result as [=n], naming the input changed; it refuses when the figure depends on a formula it can't work out.`,
     inputSchema: {
       type: "object",
       properties: {
         passage: { type: "string" },
         cell: {
           type: "string",
-          description: 'The figure\'s cell, as a result named it: "DCF!E5".',
+          description: 'The figure\'s cell, as a result named it: "Plan!D12".',
         },
         quote: { type: "string" },
         number: { type: "string" },
         citation: { type: "number" },
         label: {
           type: "string",
-          description: 'What the figure is, with the change: "EBITDA 2027 at 3% growth".',
+          description: 'What the figure is, with the change: "Sales 2026 at a 4% price".',
         },
         input: {
           type: "string",
-          description: 'The input to change: "Assumptions!B4" or "Growth".',
+          description: 'The input to change: "Inputs!C7" or "Price".',
         },
-        value: { type: "string", description: 'Its new value: "3%".' },
+        value: { type: "string", description: 'Its new value: "4%".' },
       },
       required: ["passage", "label", "input", "value"],
     },
@@ -633,7 +651,8 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
             return `Nothing was recorded: ${ref} (${chain.target.label}) doesn't depend on ${inputRef}, so changing it leaves the figure as it is.${inputsList(chain)}`;
           case "depends":
             return `Nothing was recorded: ${chain.target.label} (${ref}) depends on cells that keep the values the workbook saved, so a what-if would mix values worked out again with values that should have changed: ${why.on.map(dependenceText).join("; ")}. Say so in the Answer rather than working it out.`;
-          case "manual":
+          case "too-many":
+            return `Nothing was recorded: ${chain.target.label} (${ref}) depends on more than ${MAX_FORMULA_CELLS.toLocaleString("en")} formulas, more than IncarnaMind works out at once. Say so in the Answer, and give the figure the workbook saved.`;
           case "stopped":
             return `Nothing was recorded: the workbook took too long to work out again; answer from its saved values.`;
         }

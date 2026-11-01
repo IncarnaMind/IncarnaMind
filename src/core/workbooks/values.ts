@@ -37,6 +37,8 @@ export interface Matrix {
   rows: number;
   columns: number;
   values: Scalar[];
+  /** A block too large to hold whole, cut to the cells its sheet has: its blanks past them are missing. */
+  clipped?: true;
 }
 
 /** A block of cells of one sheet, as a reference rather than its values. */
@@ -127,21 +129,70 @@ export function toBoolean(value: Scalar): boolean | CellError {
   return value;
 }
 
+/** What a formula met as it ran that IncarnaMind can't work out with confidence. */
+export type Unsure = "unsorted" | "early-date" | "criterion" | "text-order" | "too-large";
+
+/** Stops working a formula out: its cell keeps the value Excel saved, named with why. */
+export class Refusal extends Error {
+  constructor(readonly why: Unsure) {
+    super(why);
+  }
+}
+
+/** Two numbers as Excel compares them: the same when they agree to 15 significant digits. */
+export const sameNumber = (a: number, b: number): boolean =>
+  a === b || (Number.isFinite(a) && Number.isFinite(b) && a.toPrecision(15) === b.toPrecision(15));
+
 const rank = (value: number | string | boolean) =>
   typeof value === "number" ? 0 : typeof value === "string" ? 1 : 2;
 
+const ORDERED_TEXT = /^[A-Za-z0-9 ]*$/;
+const weight = (character: string) => {
+  const code = character.charCodeAt(0);
+  return character === " " ? 0 : code <= 57 ? code - 47 : code - 54;
+};
+
+/**
+ * Excel's order of two texts, ignoring case: a space, then digits, then
+ * letters. Excel orders punctuation and other scripts by rules of its own
+ * ("_" before "A"), so ordering text that holds any is refused.
+ */
+function textOrder(a: string, b: string): number {
+  const x = a.toUpperCase();
+  const y = b.toUpperCase();
+  if (x === y) return 0;
+  if (!ORDERED_TEXT.test(x) || !ORDERED_TEXT.test(y)) throw new Refusal("text-order");
+  for (let index = 0; index < Math.min(x.length, y.length); index++) {
+    const step = weight(x[index] ?? " ") - weight(y[index] ?? " ");
+    if (step !== 0) return step;
+  }
+  return x.length - y.length;
+}
+
+const filledIn = (
+  a: Exclude<Scalar, CellError>,
+  b: Exclude<Scalar, CellError>,
+): [number | string | boolean, number | string | boolean] => [
+  a ?? (typeof b === "string" ? "" : typeof b === "boolean" ? false : 0),
+  b ?? (typeof a === "string" ? "" : typeof a === "boolean" ? false : 0),
+];
+
+/** Whether two values that aren't errors are equal as Excel's = finds them. */
+export function equal(a: Exclude<Scalar, CellError>, b: Exclude<Scalar, CellError>): boolean {
+  const [left, right] = filledIn(a, b);
+  if (typeof left === "number" && typeof right === "number") return sameNumber(left, right);
+  if (typeof left === "string" && typeof right === "string")
+    return left.toUpperCase() === right.toUpperCase();
+  return left === right;
+}
+
 /** Excel's order of two values that aren't errors: negative, 0 or positive. */
 export function compare(a: Exclude<Scalar, CellError>, b: Exclude<Scalar, CellError>): number {
-  const left = a ?? (typeof b === "string" ? "" : typeof b === "boolean" ? false : 0);
-  const right = b ?? (typeof a === "string" ? "" : typeof a === "boolean" ? false : 0);
+  const [left, right] = filledIn(a, b);
   if (rank(left) !== rank(right)) return rank(left) - rank(right);
-  if (typeof left === "string" && typeof right === "string") {
-    const x = left.toUpperCase();
-    const y = right.toUpperCase();
-    return x < y ? -1 : x > y ? 1 : 0;
-  }
+  if (typeof left === "string" && typeof right === "string") return textOrder(left, right);
   if (typeof left === "boolean" && typeof right === "boolean") return Number(left) - Number(right);
-  return (left as number) - (right as number);
+  return sameNumber(left as number, right as number) ? 0 : (left as number) - (right as number);
 }
 
 /** A whole result that arithmetic gave, or #NUM! for one Excel can't hold. */

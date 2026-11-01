@@ -8,6 +8,7 @@
  * worked out: the cell keeps the value Excel saved, marked as such.
  */
 import { displayNumber, displayText } from "../documents/formats/numberDisplay";
+import { isDateFormat } from "../documents/formats/numbers";
 import {
   type Arg,
   arrayOf,
@@ -19,12 +20,13 @@ import {
   operand,
   scalarOf,
 } from "./context";
-import { LAST_COLUMN, LAST_ROW, parseFormula } from "./parse";
+import { ERROR_CODES, LAST_COLUMN, LAST_ROW, parseFormula } from "./parse";
 import {
   at,
   type CellError,
   compare,
   DIV0,
+  equal,
   finite,
   isError,
   isMatrix,
@@ -35,7 +37,9 @@ import {
   NUM,
   REF,
   type Reference,
+  Refusal,
   type Scalar,
+  sameNumber,
   textNumber,
   toBoolean,
   toNumber,
@@ -166,6 +170,12 @@ function aggregate(
   };
 }
 
+// A loop, not Math.max(...numbers): spreading more than about 120,000 numbers overflows the stack.
+const largest = (numbers: readonly number[]) =>
+  numbers.reduce((most, each) => (each > most ? each : most), Number.NEGATIVE_INFINITY);
+const smallest = (numbers: readonly number[]) =>
+  numbers.reduce((least, each) => (each < least ? each : least), Number.POSITIVE_INFINITY);
+
 const sum = (numbers: readonly number[]) => {
   let total = 0;
   for (const number of numbers) total += number;
@@ -188,6 +198,8 @@ export function roundTo(value: number, digits: number, mode: "half" | "up" | "do
   const places = Math.trunc(digits);
   const factor = 10 ** Math.abs(places);
   const scaled = places >= 0 ? Math.abs(value) * factor : Math.abs(value) / factor;
+  // A number this large has no digits after the point to round.
+  if (!Number.isFinite(scaled)) return value;
   const cleaned = Number(scaled.toPrecision(15));
   const whole =
     mode === "half"
@@ -198,8 +210,6 @@ export function roundTo(value: number, digits: number, mode: "half" | "up" | "do
   const result = places >= 0 ? whole / factor : whole * factor;
   return value < 0 ? -result : result;
 }
-
-// Criteria, as SUMIF, COUNTIF and the rest read them.
 
 function wildcard(pattern: string): RegExp {
   let source = "";
@@ -216,10 +226,45 @@ function wildcard(pattern: string): RegExp {
 
 type Matcher = (value: Scalar) => boolean;
 
-export function criterion(given: Scalar): Matcher {
+const ISO_DATE = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
+const SLASHED_DATE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+/** What Excel would read as a date or time in a condition, in a form not read here. */
+const DATE_LIKE =
+  /:|\d[/.-]\d|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|[年月日]/i;
+
+/**
+ * A date a condition writes ("2025-01-31", "1/31/2025"), as its serial;
+ * null when it writes none. One that could be either day first or month
+ * first ("1/2/2025"), or a form Excel reads by the computer's settings, is
+ * refused rather than guessed.
+ */
+function criterionDate(text: string, date1904: boolean): number | null {
+  const iso = ISO_DATE.exec(text);
+  const slashed = SLASHED_DATE.exec(text);
+  let parts: [number, number, number] | null = null;
+  if (iso) parts = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
+  else if (slashed) {
+    const first = Number(slashed[1]);
+    const second = Number(slashed[2]);
+    const year = Number(slashed[3]);
+    if (first === second || second > 12) parts = [year, first, second];
+    else if (first > 12) parts = [year, second, first];
+    else throw new Refusal("criterion");
+  } else if (DATE_LIKE.test(text)) throw new Refusal("criterion");
+  if (!parts) return null;
+  const [year, month, day] = parts;
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month - 1))
+    throw new Refusal("criterion");
+  return serialOf(year, month - 1, day, date1904);
+}
+
+const sameAs = (number: number) => (value: Scalar) =>
+  (typeof value === "number" && sameNumber(value, number)) ||
+  (typeof value === "string" && textNumber(value) === number);
+
+export function criterion(given: Scalar, date1904: boolean): Matcher {
   if (isError(given)) return (value) => value === given;
-  if (typeof given === "number")
-    return (value) => value === given || (typeof value === "string" && textNumber(value) === given);
+  if (typeof given === "number") return sameAs(given);
   if (typeof given === "boolean") return (value) => value === given;
   if (given === null) return () => false;
   const match = /^(<=|>=|<>|=|<|>)?([\s\S]*)$/.exec(given);
@@ -230,8 +275,15 @@ export function criterion(given: Scalar): Matcher {
     if (operator === "" || operator === "=") return (value) => value === null || value === "";
     return () => false;
   }
-  const number = textNumber(operandText);
-  const upper = operandText.toUpperCase();
+  const upper = operandText.trim().toUpperCase();
+  const code = ERROR_CODES.find((each) => each === upper);
+  if (code) {
+    const isIt = (value: Scalar) => isError(value) && value.code === code;
+    if (operator === "" || operator === "=") return isIt;
+    if (operator === "<>") return (value) => !isIt(value);
+    throw new Refusal("criterion");
+  }
+  const number = textNumber(operandText) ?? criterionDate(operandText.trim(), date1904);
   const flag = upper === "TRUE" ? true : upper === "FALSE" ? false : null;
   const test = (order: number) =>
     operator === "<"
@@ -242,13 +294,10 @@ export function criterion(given: Scalar): Matcher {
           ? order <= 0
           : order >= 0;
   if (number !== null) {
-    if (operator === "" || operator === "=")
-      return (value) =>
-        value === number || (typeof value === "string" && textNumber(value) === number);
-    if (operator === "<>")
-      return (value) =>
-        !(value === number || (typeof value === "string" && textNumber(value) === number));
-    return (value) => typeof value === "number" && test(value - number);
+    const same = sameAs(number);
+    if (operator === "" || operator === "=") return same;
+    if (operator === "<>") return (value) => !same(value);
+    return (value) => typeof value === "number" && test(compare(value, number));
   }
   if (flag !== null) {
     if (operator === "" || operator === "=") return (value) => value === flag;
@@ -344,7 +393,7 @@ function conditionsOf(
     const size = [blockRows(block), blockColumns(block)];
     if (rows === -1) [rows, columns] = size as [number, number];
     else if (size[0] !== rows || size[1] !== columns) return VALUE;
-    conditions.push({ block, test: criterion(scalarOf(given, context)) });
+    conditions.push({ block, test: criterion(scalarOf(given, context), context.date1904) });
   }
   return { conditions, rows, columns };
 }
@@ -371,7 +420,7 @@ function conditional(
         const [range, given, sumRange] = args as [Arg, Arg, Arg | undefined];
         const block = blockOf(range, context);
         found = {
-          conditions: [{ block, test: criterion(scalarOf(given, context)) }],
+          conditions: [{ block, test: criterion(scalarOf(given, context), context.date1904) }],
           rows: blockRows(block),
           columns: blockColumns(block),
         };
@@ -412,7 +461,7 @@ function conditional(
       if (pick === "average")
         return numbers.length === 0 ? DIV0 : finite(sum(numbers) / numbers.length);
       if (numbers.length === 0) return 0;
-      return pick === "max" ? Math.max(...numbers) : Math.min(...numbers);
+      return pick === "max" ? largest(numbers) : smallest(numbers);
     },
   };
 }
@@ -443,7 +492,28 @@ function counted(layout: "single" | "multiple"): WorkbookFunction {
   };
 }
 
-// Lookups.
+/**
+ * Excel finds an approximate match by halving a range it takes as sorted, so
+ * over one that isn't sorted (or has blanks or other kinds of value among its
+ * values) its answer can't be told: that is refused, not imitated.
+ */
+function assertSorted(values: readonly Scalar[], direction: 1 | -1): void {
+  let previous: Exclude<Scalar, CellError | null> | undefined;
+  let gap = false;
+  for (const value of values) {
+    if (value === null) {
+      gap = true;
+      continue;
+    }
+    if (isError(value) || gap) throw new Refusal("unsorted");
+    if (previous !== undefined) {
+      if (typeof previous !== typeof value) throw new Refusal("unsorted");
+      const order = compare(previous, value);
+      if (direction > 0 ? order >= 0 : order <= 0) throw new Refusal("unsorted");
+    }
+    previous = value;
+  }
+}
 
 /** The position (from 0) MATCH finds `wanted` at in `values`, or -1. */
 function position(values: readonly Scalar[], wanted: Scalar, type: number): number {
@@ -459,9 +529,10 @@ function position(values: readonly Scalar[], wanted: Scalar, type: number): numb
       pattern
         ? typeof value === "string" && pattern.test(value)
         : sameKind(value) &&
-          compare(value as Exclude<Scalar, CellError>, wanted as Exclude<Scalar, CellError>) === 0,
+          equal(value as Exclude<Scalar, CellError>, wanted as Exclude<Scalar, CellError>),
     );
   }
+  assertSorted(trailingBlanksOff(values), type > 0 ? 1 : -1);
   let found = -1;
   for (let index = 0; index < values.length; index++) {
     const value = values[index] ?? null;
@@ -474,6 +545,13 @@ function position(values: readonly Scalar[], wanted: Scalar, type: number): numb
     else break;
   }
   return found;
+}
+
+/** A range's values without the blanks after its last value: a block held whole keeps them. */
+function trailingBlanksOff(values: readonly Scalar[]): readonly Scalar[] {
+  let end = values.length;
+  while (end > 0 && values[end - 1] === null) end--;
+  return end === values.length ? values : values.slice(0, end);
 }
 
 function vector(block: Block): { values: Scalar[]; vertical: boolean } | CellError {
@@ -535,6 +613,9 @@ function lookupXl(args: Arg[], context: Evaluation): Value {
   const direction = args[5] && !args[5].missing ? toNumber(scalarOf(args[5], context)) : 1;
   if (isError(mode)) return mode;
   if (isError(direction)) return direction;
+  // A binary search (2 or -2) takes the range as sorted; a linear one finds the same on one that is.
+  if (Math.abs(direction) === 2)
+    assertSorted(trailingBlanksOff(line.values), direction > 0 ? 1 : -1);
   const order = line.values.map((_, index) => index);
   if (direction < 0) order.reverse();
   let found = -1;
@@ -549,6 +630,11 @@ function lookupXl(args: Arg[], context: Evaluation): Value {
       continue;
     }
     if (value === null || isError(value) || typeof value !== typeof (wanted ?? 0)) continue;
+    if (equal(value, wanted as Exclude<Scalar, CellError>)) {
+      found = index;
+      break;
+    }
+    if (mode !== -1 && mode !== 1) continue;
     const order = compare(value, wanted as Exclude<Scalar, CellError>);
     if (order === 0) {
       found = index;
@@ -698,8 +784,6 @@ function indirect(args: Arg[], context: Evaluation): Value {
   return { kind: "reference", sheet, range: node.range };
 }
 
-// Dates, as serial numbers from 1899-12-30 (or 1904-01-01).
-
 const DAY = 86_400_000;
 const epoch = (date1904: boolean) => (date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, 30));
 
@@ -710,8 +794,19 @@ function utc(year: number, month: number, day: number): number {
   return date.getTime();
 }
 
+/**
+ * Excel's 1900 date system counts a 29 February 1900 that never was, so its
+ * serials before 1 March 1900 (61) are a day off from the calendar's; no
+ * other spreadsheet copies that, so nothing here can be checked against it.
+ */
+function assertCalendar(serial: number, date1904: boolean): void {
+  if (!date1904 && serial >= 0 && serial < 61) throw new Refusal("early-date");
+}
+
 export function serialOf(year: number, month: number, day: number, date1904: boolean): number {
-  return Math.round((utc(year, month, day) - epoch(date1904)) / DAY);
+  const serial = Math.round((utc(year, month, day) - epoch(date1904)) / DAY);
+  assertCalendar(serial, date1904);
+  return serial;
 }
 
 function partsOf(
@@ -719,6 +814,7 @@ function partsOf(
   date1904: boolean,
 ): { year: number; month: number; day: number } | null {
   if (!(serial >= 0) || serial > 2_958_465) return null;
+  assertCalendar(serial, date1904);
   const date = new Date(epoch(date1904) + Math.floor(serial) * DAY);
   return { year: date.getUTCFullYear(), month: date.getUTCMonth(), day: date.getUTCDate() };
 }
@@ -812,8 +908,6 @@ function yearFraction(
   }
 }
 
-// The time value of money.
-
 function futureValue(
   rate: number,
   periods: number,
@@ -847,16 +941,16 @@ function interestPayment(
   return type === 1 ? interest / (1 + rate) : interest;
 }
 
-/** Newton's method from `guess`, as Excel's IRR and RATE iterate; #NUM! when it doesn't settle. */
-function solve(
-  f: (x: number) => number,
-  derivative: (x: number) => number,
-  guess: number,
-): number | CellError {
+/**
+ * Newton's method from `guess`, its slope taken from `f` itself, stopping
+ * after as many tries as Excel's function does: #NUM! when it doesn't settle.
+ */
+function solve(f: (x: number) => number, guess: number, tries: number): number | CellError {
   let x = guess;
-  for (let step = 0; step < 100; step++) {
+  for (let step = 0; step < tries; step++) {
     const value = f(x);
-    const slope = derivative(x);
+    const h = Math.max(1e-7, Math.abs(x) * 1e-7);
+    const slope = (f(x + h) - f(x - h)) / (2 * h);
     if (!Number.isFinite(value) || !Number.isFinite(slope) || slope === 0) return NUM;
     const next = x - value / slope;
     if (!Number.isFinite(next)) return NUM;
@@ -865,6 +959,10 @@ function solve(
   }
   return NUM;
 }
+
+/** Excel's IRR and RATE give up after 20 tries, and XIRR after 100. */
+const IRR_TRIES = 20;
+const XIRR_TRIES = 100;
 
 function flowsOf(arg: Arg | undefined, context: Evaluation): number[] | CellError {
   if (!arg) return VALUE;
@@ -884,9 +982,7 @@ function irr(args: Arg[], context: Evaluation): Value {
   if (!flows.some((each) => each > 0) || !flows.some((each) => each < 0)) return NUM;
   const npv = (rate: number) =>
     flows.reduce((total, flow, at) => total + flow / (1 + rate) ** at, 0);
-  const slope = (rate: number) =>
-    flows.reduce((total, flow, at) => total - (at * flow) / (1 + rate) ** (at + 1), 0);
-  return solve(npv, slope, guess);
+  return solve(npv, guess, IRR_TRIES);
 }
 
 function datedFlows(
@@ -902,6 +998,7 @@ function datedFlows(
   const start = Math.floor(dates[0] ?? 0);
   const days: number[] = [];
   for (const date of dates) {
+    assertCalendar(Math.floor(date), context.date1904);
     if (Math.floor(date) < start) return NUM;
     days.push(Math.floor(date) - start);
   }
@@ -931,12 +1028,7 @@ function xirr(args: Arg[], context: Evaluation): Value {
   if (!flows.some((each) => each > 0) || !flows.some((each) => each < 0)) return NUM;
   const value = (rate: number) =>
     flows.reduce((total, flow, at) => total + flow / (1 + rate) ** ((days[at] ?? 0) / 365), 0);
-  const slope = (rate: number) =>
-    flows.reduce((total, flow, at) => {
-      const years = (days[at] ?? 0) / 365;
-      return total - (years * flow) / (1 + rate) ** (years + 1);
-    }, 0);
-  return solve(value, slope, guess);
+  return solve(value, guess, XIRR_TRIES);
 }
 
 function npv(args: Arg[], context: Evaluation): Value {
@@ -972,20 +1064,14 @@ function rate(args: Arg[], context: Evaluation): Value {
   const [periods, pay, present, future, type, guess] = numbers as (number | null)[];
   if (periods == null || pay == null || present == null) return VALUE;
   const fv = future ?? 0;
-  const t = type ?? 0;
+  const t = (type ?? 0) !== 0 ? 1 : 0;
   const f = (r: number) => {
     if (r === 0) return present + pay * periods + fv;
     const growth = (1 + r) ** periods;
     return present * growth + (pay * (1 + r * t) * (growth - 1)) / r + fv;
   };
-  const slope = (r: number) => {
-    const h = Math.max(1e-7, Math.abs(r) * 1e-7);
-    return (f(r + h) - f(r - h)) / (2 * h);
-  };
-  return solve(f, slope, guess ?? 0.1);
+  return solve(f, guess ?? 0.1, IRR_TRIES);
 }
-
-// Logic.
 
 function logical(apply: (values: boolean[]) => boolean): WorkbookFunction {
   return {
@@ -1087,7 +1173,7 @@ function switchFunction(args: Arg[], context: Evaluation): Value {
     if (isError(candidate)) return candidate;
     if (
       typeof candidate === typeof subject &&
-      compare(candidate as Exclude<Scalar, CellError>, subject as Exclude<Scalar, CellError>) === 0
+      equal(candidate as Exclude<Scalar, CellError>, subject as Exclude<Scalar, CellError>)
     )
       return args[index + 1]?.value() ?? NA;
   }
@@ -1102,8 +1188,6 @@ function choose(args: Arg[], context: Evaluation): Value {
   return chosen.missing ? 0 : chosen.value();
 }
 
-// Information.
-
 function information(test: (value: Scalar) => boolean): WorkbookFunction {
   return lifted(1, 1, ([value]) => test(value ?? null));
 }
@@ -1113,8 +1197,6 @@ function isBlank(args: Arg[], context: Evaluation): Value {
   if (isReference(value)) return intersect(value, context) === null;
   return false;
 }
-
-// Text.
 
 function text(args: Arg[], context: Evaluation): Value {
   return lifted(2, 2, ([value, format]) => {
@@ -1129,6 +1211,7 @@ function text(args: Arg[], context: Evaluation): Value {
     }
     const number = toNumber(value ?? null);
     if (isError(number)) return number;
+    if (isDateFormat(code)) assertCalendar(Math.floor(number), context.date1904);
     return displayNumber(number, code, { date1904: context.date1904 }).text;
   }).call(args, context);
 }
@@ -1268,8 +1351,8 @@ const FUNCTIONS: ReadonlyMap<string, WorkbookFunction> = new Map<string, Workboo
     "AVERAGE",
     aggregate(1, (numbers) => (numbers.length === 0 ? DIV0 : sum(numbers) / numbers.length)),
   ],
-  ["MAX", aggregate(1, (numbers) => (numbers.length === 0 ? 0 : Math.max(...numbers)))],
-  ["MIN", aggregate(1, (numbers) => (numbers.length === 0 ? 0 : Math.min(...numbers)))],
+  ["MAX", aggregate(1, (numbers) => (numbers.length === 0 ? 0 : largest(numbers)))],
+  ["MIN", aggregate(1, (numbers) => (numbers.length === 0 ? 0 : smallest(numbers)))],
   [
     "MEDIAN",
     aggregate(1, (numbers) => {
@@ -1537,7 +1620,14 @@ const FUNCTIONS: ReadonlyMap<string, WorkbookFunction> = new Map<string, Workboo
       monthsLater(start, months, date1904, false),
     ),
   ],
-  ["DAYS", numeric(2, 2, ([end = 0, start = 0]) => Math.floor(end) - Math.floor(start))],
+  [
+    "DAYS",
+    dateFunction(2, 2, ([end = 0, start = 0], _given, date1904) => {
+      assertCalendar(Math.floor(end), date1904);
+      assertCalendar(Math.floor(start), date1904);
+      return Math.floor(end) - Math.floor(start);
+    }),
+  ],
   [
     "YEARFRAC",
     dateFunction(2, 3, ([start = 0, end = 0, basis = 0], _given, date1904) =>

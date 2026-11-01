@@ -18,6 +18,7 @@ import {
   type CellProblem,
   cellsIn,
   type Dependence,
+  MAX_FORMULA_CELLS,
   placeKey,
   placeOf,
   type Run,
@@ -166,7 +167,12 @@ function chainCell(engine: WorkbookEngine, run: Run, key: number, depth: number)
 
 /** A cell as a chain lists it, with its saved value: an input a what-if changes, say. */
 export function cellOfChain(engine: WorkbookEngine, key: number): ChainCell | null {
-  return chainCell(engine, { results: new Map(), order: [], stopped: false, ms: 0 }, key, 0);
+  return chainCell(
+    engine,
+    { results: new Map(), order: [], stopped: false, tooMany: false, ms: 0 },
+    key,
+    0,
+  );
 }
 
 /** The cells a formula cell reads directly. */
@@ -227,7 +233,7 @@ export async function traceChain(
     frontier = next;
   }
   const result = run.results.get(target);
-  // A run stopped at its time limit before it reached the figure worked nothing out for it.
+  // A run stopped at its time or formula limit before it reached the figure worked nothing out for it.
   const unfinished: Dependence[] =
     !result && first.formula !== null
       ? [
@@ -235,7 +241,9 @@ export async function traceChain(
             sheet: first.sheet,
             row: first.row,
             column: first.column,
-            problem: { kind: "too-large" },
+            problem: run.tooMany
+              ? { kind: "too-many", limit: MAX_FORMULA_CELLS }
+              : { kind: "too-large" },
           },
         ]
       : [];
@@ -270,7 +278,7 @@ export type WhatIfRefusal =
   | { kind: "not-a-number" }
   | { kind: "unrelated" }
   | { kind: "depends"; on: Dependence[] }
-  | { kind: "manual" }
+  | { kind: "too-many" }
   | { kind: "stopped" };
 
 /**
@@ -289,7 +297,6 @@ export async function whatIf(
   const changed = engine.cellAt(input);
   const figure = engine.cellAt(target);
   if (!figure?.formula) return { ok: false, why: { kind: "target-not-formula" } };
-  if (engine.model.manual) return { ok: false, why: { kind: "manual" } };
   const options = signal ? { signal } : {};
   if (changed?.formula) {
     const chain = await traceChain(engine, input, signal);
@@ -298,6 +305,7 @@ export async function whatIf(
   if (changed && typeof changed.saved !== "number")
     return { ok: false, why: { kind: "input-not-number" } };
   const base = await recalculate(engine, [target], options);
+  if (base.tooMany) return { ok: false, why: { kind: "too-many" } };
   if (base.stopped) return { ok: false, why: { kind: "stopped" } };
   const before = base.results.get(target);
   if (!before || before.dependsOn.length > 0)

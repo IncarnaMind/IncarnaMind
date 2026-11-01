@@ -809,7 +809,7 @@ export const en = {
   "figures.workbook.keptNote":
     "This is the value the workbook saved: IncarnaMind couldn’t work it out again, for the reason above. Each input is cited to its cell.",
   "figures.workbook.note":
-    "IncarnaMind worked this out again from the workbook’s own formulas, in memory: the file is unchanged. Each input is cited to its cell. This doesn’t show that the model’s assumptions are right.",
+    "IncarnaMind worked this out again from the workbook’s own formulas, in memory: the file is unchanged. Each input is cited to its cell. This doesn’t show that the workbook’s assumptions are right.",
   "figures.workbook.kept.volatile":
     "{cell} uses {name}, which gives a new value each time, so its saved value is used",
   "figures.workbook.kept.finds-cells":
@@ -834,9 +834,19 @@ export const en = {
   "figures.workbook.kept.array":
     "{cell} is an array formula over several cells, so its saved value is used",
   "figures.workbook.kept.no-saved-value":
-    "The workbook saved no result for {cell}: it was written by a program and not opened in Excel since",
+    "The workbook saved no result for {cell}: perhaps it was written by a program and not opened in Excel since",
   "figures.workbook.kept.differs":
-    "IncarnaMind’s result for {cell} differs from the value the workbook saved, so the saved value is used",
+    "IncarnaMind’s result for {cell} differs from the value the workbook saved, so the saved value is used. The workbook may not have been recalculated since an input changed: open it in Excel and save it",
+  "figures.workbook.kept.too-many":
+    "{cell} depends on more than {name} formulas, more than IncarnaMind works out at once, so its saved value is used",
+  "figures.workbook.kept.unsorted":
+    "{cell} looks a value up approximately in a range that isn’t sorted, where Excel’s answer can’t be told, so its saved value is used",
+  "figures.workbook.kept.early-date":
+    "{cell} uses a date before 1 March 1900, where Excel counts a 29 February 1900 that never was, so its saved value is used",
+  "figures.workbook.kept.criterion":
+    "{cell} uses a condition IncarnaMind can’t read the way Excel does, such as a time, so its saved value is used",
+  "figures.workbook.kept.text-order":
+    "{cell} orders text with punctuation or letters outside A to Z, which Excel orders by rules of its own, so its saved value is used",
   "figures.workbook.kept.too-large":
     "{cell} reads a block too large to work out here, so its saved value is used",
   "figures.card.source": "{figure}: the source gives {value} ({source})",

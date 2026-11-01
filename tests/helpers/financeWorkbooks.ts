@@ -22,6 +22,7 @@ interface Cell {
   /** An array formula over this block. */
   array?: string;
   format: Format;
+  error?: true;
 }
 
 const escapeXml = (text: string) =>
@@ -64,6 +65,17 @@ export class SheetBuilder {
 
   number(ref: string, value: number, format: Format = "general"): this {
     this.cells.set(ref, { value, format });
+    return this;
+  }
+
+  flag(ref: string, value: boolean): this {
+    this.cells.set(ref, { value, format: "general" });
+    return this;
+  }
+
+  /** An error typed into a cell, as Excel keeps "#N/A" typed in. */
+  error(ref: string, code: string): this {
+    this.cells.set(ref, { value: code, format: "general", error: true });
     return this;
   }
 
@@ -123,6 +135,8 @@ export class WorkbookBuilder {
   readonly sheets: SheetBuilder[] = [];
   readonly names: { name: string; sheet?: string; refersTo: string }[] = [];
   calc: { iterate?: boolean; manual?: boolean } = {};
+  /** Its dates count from 1904. */
+  date1904 = false;
   nextShared = 0;
 
   sheet(name: string): SheetBuilder {
@@ -184,7 +198,7 @@ export class WorkbookBuilder {
             })
             .join("")}</definedNames>`;
     const calc = `<calcPr calcId="191029"${this.calc.iterate ? ' iterate="1"' : ""}${this.calc.manual ? ' calcMode="manual"' : ""}${options.recalculateOnOpen ? ' fullCalcOnLoad="1"' : ""}/>`;
-    const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook ${ns}><sheets>${this.sheets
+    const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook ${ns}>${this.date1904 ? '<workbookPr date1904="1"/>' : ""}<sheets>${this.sheets
       .map(
         (sheet, index) =>
           `<sheet name="${escapeXml(sheet.name)}" sheetId="${index + 1}"${sheet.state ? ` state="${sheet.state}"` : ""} r:id="rId${index + 1}"/>`,
@@ -230,6 +244,7 @@ export class WorkbookBuilder {
 function cellXml(ref: string, cell: Cell, options: XlsxOptions): string {
   const style = STYLE[cell.format] ? ` s="${STYLE[cell.format]}"` : "";
   if (cell.formula === undefined) {
+    if (cell.error) return `<c r="${ref}"${style} t="e"><v>${escapeXml(String(cell.value))}</v></c>`;
     if (typeof cell.value === "string")
       return `<c r="${ref}"${style} t="inlineStr"><is><t>${escapeXml(cell.value)}</t></is></c>`;
     if (typeof cell.value === "boolean")
