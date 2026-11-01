@@ -308,6 +308,26 @@ describe("Typing a marker", () => {
 });
 
 describe("A list that starts deeper", () => {
+  // protects=a numbered list that states no start level, as every list typed or in an Answer, renders with no start level and no style, as before; fails_when=it gains a data-start-level or a --start-level, which changes its indent; no_claim=how the browser lays it out.
+  test("a list that states no start level renders without one", () => {
+    const editor = editorWith([
+      ordered({}, item("A")),
+      ordered({ numbering: "clauses" }, item("B")),
+    ]);
+    const { document } = parseHTML("<!doctype html><html><body></body></html>");
+    const html = document.createElement("div");
+    html.appendChild(
+      DOMSerializer.fromSchema(editor.schema).serializeFragment(editor.state.doc.content, {
+        document,
+      }),
+    );
+    for (const list of html.querySelectorAll("ol")) {
+      expect(list.hasAttribute("data-start-level")).toBe(false);
+      expect(list.hasAttribute("style")).toBe(false);
+    }
+    expect(html.querySelectorAll("ol").length).toBe(2);
+  });
+
   // protects=Shift-Tab of a whole list back to the first level stores 0, a level the User chose, and the editor's HTML keeps it with the indent the first level has; fails_when=it stores nothing, which reads the same as a list imported from Word before lists kept their level, so the Word file keeps the deeper level, or it writes no --start-level, so the list loses its indent and its markers hang outside the text column; no_claim=a list that never started deeper, which stores nothing.
   test("Shift-Tab back to the first level keeps 0 as the list's start level", () => {
     const editor = editorWith([ordered({ numbering: "chinese", startLevel: 1 }, item("A"))]);
