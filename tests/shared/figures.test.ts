@@ -12,6 +12,7 @@ import { describe, expect, test } from "vitest";
 import {
   type AmbiguityKind,
   currencyOnItsFigure,
+  currencyScaleMarker,
   type Figure,
   type FigureContext,
   type FigureUnit,
@@ -1196,6 +1197,43 @@ describe("stated units", () => {
 
   test("a figure's own scale isn't a statement", () => {
     expect(stated("$1.2m and 3,500万元")).toEqual([]);
+  });
+});
+
+describe("a currency written next to a scale", () => {
+  test.each([
+    "(£'000)",
+    "£000s",
+    "€ Mio.",
+    "Tsd. €",
+    "TEUR",
+    "T€",
+    "k€",
+    "$K",
+    "MEUR",
+    "$MM",
+    "USD MM",
+    "新台幣仟元",
+    "港幣百萬",
+    "金额：人民币万元",
+  ])("is found in %s", (text) => {
+    expect(currencyScaleMarker(text)).not.toBeNull();
+  });
+
+  test.each([
+    "In 2026 the sale completed.",
+    "Unit 4, 12 Mill Lane",
+    "I'm the seller's agent.",
+    "M. Smith",
+    "Room 000",
+    "万科",
+    "一千",
+    "工作单位",
+    "Sale price £385,000.00",
+    "Less: agent's fee (4,620.00)",
+    "Deposit $12,000.00",
+  ])("is not found in %s", (text) => {
+    expect(currencyScaleMarker(text)).toBeNull();
   });
 });
 

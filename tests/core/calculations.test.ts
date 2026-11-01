@@ -29,8 +29,8 @@ import {
   setUpWithDocuments,
   shownPassages,
 } from "../helpers/citations";
-import { createTempDataFolder, startCore } from "../helpers/core";
-import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
+import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { askAndEnd, isAnswer, QWEN35, setUpLocalModel } from "../helpers/localModels";
 import { answerIn, question, writeMind } from "../helpers/minds";
 import { answerRequests, promptOf, scriptedModel, scriptedModels } from "../helpers/models";
@@ -1526,8 +1526,8 @@ describe("A currency on a statement's first amount (#1001)", { timeout: 60_000 }
     expect(translate("zh-CN", "answer.figures.uncalculated.one")).toBe("1 个数字未能计算");
   });
 
-  // protects=#1001; fails_when=a line that writes a currency for a number under a scale the line doesn't apply is recorded, so a User sees £380.4 for an amount in thousands.
-  test("a scale the line doesn't apply is refused, and the Answer reports the figure couldn't be calculated", async () => {
+  // protects=#1001; fails_when=a line that writes a currency for a one-decimal amount under a scale is recorded, so a User sees £380.4 for an amount in thousands.
+  test("amounts without two decimals are refused, and the Answer reports the figure couldn't be calculated", async () => {
     const lines = ["All figures in thousands", "Sale price £380.4", "Less: agent's fee (4.0)"];
     const statement = {
       name: "Completion statement 14 Mill Lane.pdf",
@@ -1577,10 +1577,123 @@ describe("A currency on a statement's first amount (#1001)", { timeout: 60_000 }
     );
 
     expect(told(model, "calculate")[0]).toContain(
-      'gives GBP, but a scale is stated ("thousands") that this line doesn\'t apply',
+      'are not full money amounts with two decimals ("385,000.00")',
     );
     expect(answer.figures).toEqual([]);
     expect(finished.uncalculated).toBe(1);
+  });
+
+  // protects=#1001; fails_when=a PDF whose pages say "(£'000)" in a running header reads a bare fee without the scale; the header is stripped before the page text is stored, so the marker is read before the strip.
+  test("a currency next to a scale in a PDF's running header is caught before it is stripped", async () => {
+    const pages = [
+      {
+        lines: [
+          "(£'000)",
+          "Completion statement: 14 Mill Lane",
+          "Sale price £385,000.00",
+          "Less: agent's fee (4,620.00)",
+        ],
+      },
+      { lines: ["(£'000)", "Notes on the sale continue on this page."] },
+      { lines: ["(£'000)", "The seller's file notes continue further."] },
+      { lines: ["(£'000)", "The seller's file notes end here."] },
+    ];
+    const document = {
+      name: "Completion statement 14 Mill Lane.pdf",
+      contents: buildPdf(pages),
+    };
+    const model = calculatingModel({
+      queries: ["sale price deductions"],
+      steps: [
+        citeStatement(
+          "Completion statement",
+          ["Sale price £385,000.00", "Less: agent's fee (4,620.00)"],
+          (cited) => [
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Net sale proceeds",
+                    formula: "price + agent",
+                    inputs: [
+                      {
+                        name: "price",
+                        label: "Sale price",
+                        citation: cited[0],
+                        number: "£385,000.00",
+                      },
+                      {
+                        name: "agent",
+                        label: "Agent's fee",
+                        citation: cited[1],
+                        number: "(4,620.00)",
+                        unitQuote: "Sale price £385,000.00",
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        ),
+      ],
+      answer: "The net sale proceeds were [=1][^1].",
+    });
+    const { core } = await setUpCalculating(model, [document]);
+
+    const { answer, finished } = await askAndRead(
+      core,
+      "What were the net sale proceeds of 14 Mill Lane?",
+    );
+
+    expect(told(model, "calculate")[0]).toContain('the Document states a scale ("£\'000")');
+    expect(answer.figures).toEqual([]);
+    expect(finished.uncalculated).toBe(1);
+  });
+
+  // protects=#1001; fails_when=a PDF read before this build (no scale marker) is trusted without being read again, or its running header's scale is lost by the re-read.
+  test("a PDF read before this build is read again, and keeps its running header's scale", async () => {
+    const dataDir = await createTempDataFolder();
+    const pages = [
+      {
+        lines: [
+          "(£'000)",
+          "Completion statement: 14 Mill Lane",
+          "Sale price £385,000.00",
+          "Less: agent's fee (4,620.00)",
+        ],
+      },
+      { lines: ["(£'000)", "Notes on the sale continue on this page."] },
+      { lines: ["(£'000)", "The seller's file notes continue further."] },
+      { lines: ["(£'000)", "The seller's file notes end here."] },
+    ];
+    const document = {
+      name: "Completion statement 14 Mill Lane.pdf",
+      contents: buildPdf(pages),
+    };
+    const model = calculatingModel({ queries: [], steps: [], answer: "Nothing." });
+    const { core } = await setUpCalculating(model, [document], dataDir);
+    const saved = (await core.listDocuments())[0];
+    if (!saved) throw new Error("Missing Document.");
+    core.close();
+
+    // The pages as an older build left them: no marker, and the older pipeline's version.
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    db.run("UPDATE document_pages SET scale_marker = NULL WHERE document_id = ?", [saved.id]);
+    db.run("UPDATE documents SET processing_version = 18 WHERE id = ?", [saved.id]);
+    db.close();
+
+    const again = startCore(dataDir);
+    await waitForProcessing(again, [saved.id]);
+    const markers = queryDatabase<{ scale_marker: string }>(
+      dataDir,
+      "SELECT DISTINCT scale_marker FROM document_pages WHERE document_id = ? AND deleted_at IS NULL",
+      [saved.id],
+    ).map((row) => row.scale_marker);
+    expect(markers).toEqual(["£'000"]);
+    again.close();
   });
 
   test("a unitQuote that isn't in the Passage, or writes no currency, is refused as today", async () => {

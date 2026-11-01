@@ -1252,27 +1252,23 @@ export function currencyOnItsFigure(
     : null;
 }
 
-// A scale word or form: the reader applies some ("millions", "万") and can't apply others ("'000", "Tsd. €").
-const SCALE_MARKER =
-  /\bthousands?\b|\bmillions?\b|\bbillions?\b|\b(?:mio|mrd|tsd)\b\.?|\b(?:mn|bn|m)\b|(?<![\d,.])['’]?0{3}s?(?![\d,.])|[千万亿]/iu;
-// A line that states a unit or scale for the amounts under it, whether the reader applies it or not.
-const UNIT_MARKER = /\bunits?\b|单位|^\s*in\b/i;
+// A currency a scale is written with: a sign, an ISO code or a Han currency word.
+const CURRENCY_ANY = `(?:${CURRENCY_ISO_CODES}|CN¥|JP¥|US\\$|HK\\$|A\\$|C\\$|S\\$|NT\\$|\\$|[¥€£₹₩₽₺฿₫₱]|${HAN_CURRENCIES})`;
+// The scale tokens a Document writes next to a currency when it scales its amounts.
+const SCALE_NEAR_CURRENCY =
+  "(?:Mio|Mrd|Tsd|thousands?|millions?|MM|mn|bn|k|K|m|M|B|T|['’]?0{3}s?|千|仟|万|萬|百万|百萬|亿|億)";
+const CURRENCY_SCALE = new RegExp(
+  `${CURRENCY_ANY}[ \\u00a0]?${SCALE_NEAR_CURRENCY}(?![A-Za-z])|(?<![A-Za-z])${SCALE_NEAR_CURRENCY}\\.?[ \\u00a0]?${CURRENCY_ANY}`,
+  "i",
+);
 
 /**
- * The first scale a Document writes anywhere: a scale word or form ("thousands", "'000",
- * "€ Mio.", "Tsd. €", "金额（万）") or a line that states a unit ("Unit: …", "单位：…", "in
- * millions"); null when it writes none. A currency a line states for a bare number must not
- * apply in a Document that scales its amounts anywhere, since the line may not apply the scale.
+ * A currency written next to a scale token ("£'000", "€ Mio.", "TEUR", "港幣百萬"), in either
+ * order; null when none is. A Document that writes one, in a title, a column head or a running
+ * header, scales its amounts somewhere, so a currency read from one line can't apply (#1001).
  */
-export function scaleMarkerIn(text: string): string | null {
-  const written = SCALE_MARKER.exec(text)?.[0];
-  if (written) return written;
-  return (
-    text
-      .split(LINE_BREAK)
-      .find((line) => UNIT_MARKER.test(line))
-      ?.trim() || null
-  );
+export function currencyScaleMarker(text: string): string | null {
+  return CURRENCY_SCALE.exec(prepare(text).s)?.[0] ?? null;
 }
 
 // Numerals -------------------------------------------------------------------

@@ -17,9 +17,10 @@
  * - a number with no currency or scale of its own where another line states one
  *   (a heading, "单位：万元", or an amount above it, "Sale price £385,000.00"),
  *   when the result depends on it, until the model gives that line as
- *   `unitQuote`: a unit is never guessed, a line states only the numbers below
- *   it in its own table column, a Passage that names two currencies gives
- *   neither, and a Document scale the line doesn't apply is refused;
+ *   `unitQuote`: a unit is never guessed, a line states only full money amounts
+ *   of two decimals below it in one statement block and table column, a Passage
+ *   that names two currencies gives neither, and a Document that writes a
+ *   currency next to a scale anywhere is refused;
  * - what the evaluator refuses: a syntax error, units that don't combine,
  *   division by zero;
  * - a formula that changes an amount's scale itself ("rev / 10000" for 万 to
@@ -34,6 +35,7 @@
 import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 import {
   currencyOnItsFigure,
+  currencyScaleMarker,
   type Figure,
   type FigureContext,
   type FigureFacts,
@@ -45,7 +47,6 @@ import {
   readFigures,
   readStatedUnits,
   type StatedCurrency,
-  scaleMarkerIn,
 } from "../../shared/figures";
 import {
   evaluateFormula,
@@ -545,7 +546,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   const failed = new Map<number, FigureProblem>();
   let calls = 0;
   const contexts = new Map<string, FigureContext>();
-  const scales = new Map<string, string | null>();
+  const scales = new Map<string, { scale: string | null; stale: boolean }>();
 
   /** How a Document version writes its numbers, read once from all its text. */
   const contextOf = (citation: Citation): FigureContext => {
@@ -560,20 +561,32 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return context;
   };
 
-  /** The first scale a Document version writes anywhere, read once; null when it writes none. */
-  const scaleOf = (citation: Citation): string | null => {
+  /**
+   * The scale a Document version states anywhere, read once: a line the reader applies
+   * ("in thousands", "单位：万元"), a currency next to a scale token ("£'000"), or a page's
+   * running header kept from before it was stripped. `stale`: a page was read before this
+   * build kept that marker, so a scale it wrote can't be ruled out (#1001).
+   */
+  const scaleOf = (citation: Citation): { scale: string | null; stale: boolean } => {
     const key = `${citation.documentId}\n${citation.contentHash}`;
-    if (!scales.has(key))
-      scales.set(
-        key,
-        scaleMarkerIn(
-          documents
-            .pageTexts(citation.documentId, citation.contentHash, null, null)
-            .map((unit) => unit.text)
-            .join("\n"),
-        ),
-      );
-    return scales.get(key) ?? null;
+    let found = scales.get(key);
+    if (!found) {
+      const units = documents.pageTexts(citation.documentId, citation.contentHash, null, null);
+      const stated = readStatedUnits(
+        units.map((unit) => unit.text).join("\n"),
+        contextOf(citation),
+      ).find((each) => each.scale !== 1);
+      found = {
+        scale:
+          units.find((unit) => unit.scaleMarker)?.scaleMarker ??
+          currencyScaleMarker(units.map((unit) => unit.text).join("\n")) ??
+          stated?.chars ??
+          null,
+        stale: units.some((unit) => unit.scaleMarker === null),
+      };
+      scales.set(key, found);
+    }
+    return found;
   };
 
   /** Where a Citation's quote is, for messages: "p. 12", "Revenue, rows 3–4". */
@@ -688,11 +701,23 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return beforeOnLine(text, at + figure.start);
   }
 
+  /** Whether `quote` is one statement row: a label, then `chars` as its last amount. */
+  function statesAmount(quote: string, at: number, chars: string, context: FigureContext): boolean {
+    const figures = readFigures(quote, { ...context, header: null });
+    const last = figures.at(-1);
+    return (
+      last !== undefined &&
+      last.start === at &&
+      last.chars === chars &&
+      /\p{L}/u.test(quote.slice(0, at)) &&
+      /^[\s.,;:]*$/u.test(quote.slice(at + chars.length))
+    );
+  }
+
   /**
-   * Why the line a model gave as `unitQuote` can't state the currency of `figure`: a statement
-   * states the currency of the bare numbers below it in its Passage, in its own table column
-   * only, and nothing in a Document that scales its amounts anywhere, which the line doesn't
-   * apply (#1001).
+   * Why the line a model gave as `unitQuote` can't state the currency of `figure`: the two must
+   * be full money amounts in one statement block below it, in its own table column, and the
+   * Document must write no currency next to a scale anywhere (#1001).
    */
   function statementProblem(
     quoted: Quoted,
@@ -706,20 +731,61 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const place = findQuote(passage, quoted.citation.quote, quoted.matching)?.[0];
     if (!statement || !place)
       return `the unitQuote "${unit.citation.quote}" isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
+    const first = readFigures(unit.citation.quote, { ...context, header: null })[0];
+    if (first?.decimals !== 2 || figure.decimals !== 2)
+      return `the unitQuote "${unit.citation.quote}" and ${figure.chars} are not full money amounts with two decimals ("385,000.00"); a statement written in a scale can't pass as one.`;
+    const bareAt = place.start + figure.start;
+    const bareFrom = passage.lastIndexOf("\n", bareAt - 1) + 1;
+    const bareEnd = passage.indexOf("\n", bareAt);
+    const bareLine = passage.slice(bareFrom, bareEnd < 0 ? passage.length : bareEnd);
+    const atInLine = bareAt - bareFrom;
+    if (
+      !statesAmount(unit.citation.quote, line.at, first.chars, context) ||
+      !/\p{L}/u.test(bareLine.slice(0, atInLine)) ||
+      !/^[\s.,;:]*$/u.test(bareLine.slice(atInLine + figure.chars.length))
+    )
+      return `the unitQuote "${unit.citation.quote}" and ${figure.chars} are not statement rows of a label and one amount; give the line and the number each as one row.`;
     if (place.start + figure.start <= statement.start + line.at)
       return `the unitQuote "${unit.citation.quote}" is not above ${figure.chars} in ${quoted.passage}; a statement states the currency of the bare numbers below it only.`;
+    const oneBlock = quoted.units.some(
+      (each) =>
+        findQuote(each.text, unit.citation.quote, unit.matching) !== null &&
+        findQuote(each.text, quoted.citation.quote, quoted.matching) !== null,
+    );
+    if (!oneBlock)
+      return `the unitQuote "${unit.citation.quote}" and ${figure.chars} are not in one statement block in ${quoted.passage}; no page break may stand between them.`;
+    const between = passage.slice(statement.start + unit.citation.quote.length, place.start);
+    const rows = between.split("\n");
+    if (
+      rows.slice(1, -1).some((row) => row.trim() !== "" && !statesAmountRow(row, context)) ||
+      (rows.length > 2 && rows.slice(1, -1).some((row) => row.trim() === ""))
+    )
+      return `the unitQuote "${unit.citation.quote}" and ${figure.chars} are not in one statement block: a blank line or a heading stands between them.`;
     const columnOf = (at: number) => passage.slice(passage.lastIndexOf("\n", at - 1) + 1, at);
     const tabs = (text: string) => text.split("\t").length - 1;
     const mine = columnOf(place.start + figure.start);
     const theirs = columnOf(statement.start + line.at);
     if ((theirs.includes("\t") || mine.includes("\t")) && tabs(theirs) !== tabs(mine))
       return `the unitQuote "${unit.citation.quote}" is not in the table column of ${figure.chars} in ${quoted.passage}; a table row's currency states only its own column.`;
-    const first = readFigures(unit.citation.quote, { ...context, header: null })[0];
-    const ownScale = first && (first.scale !== 1 || first.scaleWord !== null) ? first.chars : null;
-    const scale = ownScale ?? scaleOf(quoted.citation);
+    const ownScale = first.scale !== 1 || first.scaleWord !== null ? first.chars : null;
+    const stated = scaleOf(quoted.citation);
+    if (stated.stale)
+      return `the unitQuote "${unit.citation.quote}" gives ${line.code}, but the Document was read by an older build that kept no scale marker; read it again before its amounts can state this number's unit.`;
+    const scale = ownScale ?? stated.scale;
     if (scale)
-      return `the unitQuote "${unit.citation.quote}" gives ${line.code}, but a scale is stated ("${scale}") that this line doesn't apply; quote the line that states both as unitQuote.`;
+      return `the unitQuote "${unit.citation.quote}" gives ${line.code}, but the Document states a scale ("${scale}"); quote the line that states both as unitQuote.`;
     return null;
+  }
+
+  /** Whether `row` is an intervening statement row: a label, then an amount that ends it. */
+  function statesAmountRow(row: string, context: FigureContext): boolean {
+    const figures = readFigures(row, { ...context, header: null });
+    const last = figures.at(-1);
+    return (
+      last !== undefined &&
+      /\p{L}/u.test(row.slice(0, last.start)) &&
+      /^[\s.,;:]*$/u.test(row.slice(last.end))
+    );
   }
 
   /** Reads one input; or says why it can't be read. */
