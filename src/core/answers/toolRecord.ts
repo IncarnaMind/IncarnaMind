@@ -105,13 +105,26 @@ function whyNot(problem: MindProblem | undefined): string {
   }
 }
 
+/** Why a chart the model asked for wasn't drawn, as the record says it (#2378). */
+const CHART_NOT_DRAWN = {
+  several: "it has more than one table, and the User's cursor was in none",
+  noTable: "nothing was written as a table",
+  noNumbers: "the table has no column of numbers",
+  needsTwo: "a scatter chart needs two columns of numbers",
+  uncited: "some of its figures have no Citation",
+} as const;
+
 function detailsOf(change: MindChange): string {
   const tables = change.tables ? `, ${counted(change.tables, "table")} among them` : "";
+  const charts = change.charts ? `, ${counted(change.charts, "chart")} among them` : "";
   const cited = change.cited ? `, with ${counted(change.cited, "Citation")}` : "";
   const left = change.unrecorded
     ? `; ${counted(change.unrecorded, "marker")} had no Citation recorded with cite, so ${change.unrecorded === 1 ? "it was" : "they were"} left out`
     : "";
-  return `${tables}${cited}${left}`;
+  const noChart = change.chartNotDrawn
+    ? `; the chart asked for was not drawn: ${CHART_NOT_DRAWN[change.chartNotDrawn]}`
+    : "";
+  return `${tables}${charts}${cited}${left}${noChart}`;
 }
 
 function mindOf(call: AnswerToolCall, names: MindNames): string {

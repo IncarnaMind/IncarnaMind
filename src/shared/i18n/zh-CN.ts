@@ -4308,6 +4308,7 @@ export const zhCN = {
   "export.citation.document": "{document}",
   "export.citation.separator": "，",
   "export.citation.accessed": "访问于 {date}",
+  "export.figure.unavailable": "“{figure}”保存的输入暂不可用，IncarnaMind 按数值写出。",
   "export.figure.calculated": "计算得出：{formula} = {figure}。",
   "export.figure.analysis": "由数据分析“{title}”计算得出：{figure}。",
   "export.figure.workbook": "按工作簿中的公式计算得出（{cell} = {formula}）：{figure}。",

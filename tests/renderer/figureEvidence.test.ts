@@ -58,6 +58,7 @@ function setup({
   multiple = false,
   conflicting = false,
   formula = false,
+  checked = false,
   runId = "run",
   copyRuns,
 }: {
@@ -66,6 +67,7 @@ function setup({
   multiple?: boolean;
   conflicting?: boolean;
   formula?: boolean;
+  checked?: boolean;
   runId?: string;
   copyRuns?: (blocks: readonly NodeJSON[]) => readonly RetainedFigureAnalysis[];
 } = {}) {
@@ -106,7 +108,14 @@ function setup({
     codeSha256: "a".repeat(64),
     ranAt: "2026-10-27T00:00:00.000Z",
     values: [
-      { kind: "figure", name: "total", label: "Total / 合计", unit: null, value: 10 },
+      {
+        kind: "figure",
+        name: "total",
+        label: "Total / 合计",
+        unit: null,
+        value: 10,
+        ...(checked && { check: { kind: "same" as const, value: 10 } }),
+      },
       ...(multiple
         ? [{ kind: "figure" as const, name: "other", label: "Other / 其他", unit: null, value: 20 }]
         : []),
@@ -368,6 +377,23 @@ test("an Answer's selected successful generation copies no unselected output", (
   expect(html).not.toContain("unrelated printed output");
 });
 
+test("a checked figure pastes into its own Note, keeping the Note's own check (#2378)", () => {
+  const source = setup({ checked: true });
+  source.editor.commands.setNodeSelection(firstFigure(source.editor).at);
+  const html = selectedHtml(source.editor);
+  source.editor.commands.setTextSelection(source.editor.state.doc.content.size - 1);
+  pasteHtml(source.editor, html);
+  expect(reported).not.toHaveBeenCalled();
+  let figures = 0;
+  source.editor.state.doc.descendants((node) => {
+    if (node.type.name === "calculatedFigure") figures++;
+    return true;
+  });
+  expect(figures).toBe(2);
+  const [record] = source.records();
+  expect(record?.values[0]?.check).toEqual({ kind: "same", value: 10 });
+});
+
 test("transient paste ids do not weaken the durable figure reader", () => {
   const source = setup();
   const node = source.editor.state.doc.nodeAt(firstFigure(source.editor).at);
@@ -395,6 +421,10 @@ test("clipboard receipts stay inert provenance and import no execution or check 
         executionVerified: true,
         check: "supported",
         output: { printed: "not copied" },
+        values: source.record.values.map((value) => ({
+          ...value,
+          check: { kind: "same", value: 10 },
+        })),
       },
     ]),
   );
@@ -406,6 +436,7 @@ test("clipboard receipts stay inert provenance and import no execution or check 
   expect(record).not.toHaveProperty("executionVerified");
   expect(record).not.toHaveProperty("check");
   expect(record).not.toHaveProperty("output");
+  expect(record?.values[0]).not.toHaveProperty("check");
   expect(target.editor.view.dom.querySelector("script")).toBeNull();
 });
 

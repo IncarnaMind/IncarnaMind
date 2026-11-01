@@ -7,7 +7,7 @@ import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analy
 import { nodeOf } from "../../src/core/answers/blocks";
 import { plainText } from "../../src/core/mindText";
 import { type AnalysisJob, noAnalysisOutput } from "../../src/shared/analysis";
-import { answerBlocks } from "../../src/shared/answerBlocks";
+import { answerBlocks, pageBlocks } from "../../src/shared/answerBlocks";
 import {
   calculatedFiguresIn,
   figureRunsFor,
@@ -203,6 +203,21 @@ describe("an Analysis an Answer runs", () => {
       expect(report).toContain("can't be used");
     },
   );
+
+  test("the report asks a figure worked out from an input's rows to name them, so its Citation leads to them (#2378)", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun()],
+      answer: "Revenue [=1].",
+    });
+    const { core } = await setUp(model, totalOf);
+
+    await askAndRead(core, "What was the total revenue?");
+
+    expect(told(model, "run_analysis")[0]).toContain(
+      "A figure worked out from an input's rows names them with of= that input's DataFrame or column.",
+    );
+  });
 
   test("a percent figure keeps its fraction and shows 0.081 as 8.1%", async () => {
     const model = analysingModel({
@@ -747,8 +762,13 @@ describe("an Analysis an Answer runs", () => {
     expect(report).not.toContain("[=3]");
 
     const blocks = answerBlocks(answer);
-    expect(figureRunsOfAnswer(answer, blocks)[0]?.values).toEqual([
-      expect.objectContaining({ name: "total", of: sales([[2, 5]], "sum") }),
+    const [run] = figureRunsOfAnswer(answer, blocks);
+    expect(run?.values).toEqual([
+      expect.objectContaining({
+        name: "total",
+        of: sales([[2, 5]], "sum"),
+        check: { kind: "same", value: 350.5 },
+      }),
       expect.objectContaining({
         name: "slope",
         of: sales(
@@ -761,6 +781,8 @@ describe("an Analysis an Answer runs", () => {
         ),
       }),
     ]);
+    // The app doesn't work a model's own figure out again, so its Note record says no check.
+    expect(run?.values[1]).not.toHaveProperty("check");
   });
 
   test("every plot left out for its characters is counted, past the five whose titles are listed", async () => {
@@ -907,6 +929,36 @@ describe("an Analysis an Answer runs", () => {
     expect(answer.text).toContain("| South | 80 | 0.2282 |");
     expect(answer.text).not.toContain("[=table");
     expect(told(model, "run_analysis")[0]).toContain("[=table 1] Revenue by region");
+
+    // The Answer's table and what Add to note writes keep the Analysis's Citations (#2378).
+    for (const blocks of [answerBlocks(answer), pageBlocks(answer, "Revenue by region?")]) {
+      const table = blocks.find((block) => block.type === "table");
+      if (!table) throw new Error("The Answer has no table.");
+      const citations: Record<string, unknown>[] = [];
+      const visit = (node: { content?: unknown[] }) => {
+        for (const child of (node.content ?? []) as {
+          type?: string;
+          attrs?: Record<string, unknown>;
+          content?: unknown[];
+        }[]) {
+          if (child.type === "citation") citations.push(child.attrs ?? {});
+          visit(child);
+        }
+      };
+      visit(table);
+      expect(citations).toEqual([
+        expect.objectContaining({
+          documentId: expect.any(String),
+          location: { kind: "rows", sheet: null, from: 1, to: 5 },
+          check: "found",
+        }),
+        expect.objectContaining({
+          documentId: expect.any(String),
+          location: { kind: "rows", sheet: null, from: 1, to: 5 },
+          check: "found",
+        }),
+      ]);
+    }
   });
 
   test("the model is told the numbers written in the code, the cells that aren't numbers, and an error's own message", async () => {

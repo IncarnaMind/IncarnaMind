@@ -3,7 +3,12 @@ import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
 import { createCalculationSession } from "../../src/core/answers/calculations";
 import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
-import { markSentence, textOf, wordsOf } from "../../src/core/answers/checks/sentences";
+import {
+  everySentence,
+  markSentence,
+  textOf,
+  wordsOf,
+} from "../../src/core/answers/checks/sentences";
 import { type AnswerDocuments, createCitationSession } from "../../src/core/answers/citations";
 import { figureCitations } from "../../src/core/answers/citedVersions";
 import type {
@@ -1000,6 +1005,123 @@ test.each([
     expect(mark()?.state).toBe("changed");
   },
 );
+
+/** A Note with one Analysis figure whose run the core worked out again to the same number. */
+async function checkedAnalysisFigure() {
+  const { installFigureRuns } = await import("../../src/shared/figureRuns");
+  const source = sourceTable(["Item\tAmount", "A\t10", "B\t20"]);
+  const input = source.input(2);
+  const atom = calculatedFigureNode(
+    {
+      label: "Total",
+      formula: "",
+      inputs: [],
+      value: 20,
+      unit: { kind: "plain" },
+      approximate: false,
+      shown: "20",
+      show: { language: "en", as: "number", decimals: 0, scale: null },
+      literals: [],
+      engine: FORMULA_VERSION,
+      written: null,
+      analysis: { analysis: 1, result: "total" },
+    },
+    "figure-a",
+    "run-a",
+  );
+  const blocks = note({ type: "paragraph", attrs: { id: "a" }, content: [atom] });
+  const doc = blocks.doc;
+  if (!doc) throw new Error("No Note document");
+  installFigureRuns(doc, [
+    {
+      id: "run-a",
+      title: "Total",
+      language: "python",
+      code: 'figure("total", df["Amount"], "sum")',
+      inputs: [
+        {
+          kind: "range",
+          name: "sales",
+          citation: input.citation,
+          range: "A1:B3",
+          rows: 2,
+          columns: 2,
+          rowCount: 2,
+          cut: false,
+          sha256: "range",
+        },
+      ],
+      versions: null,
+      codeSha256: "code",
+      ranAt: "2026-11-01T00:00:00.000Z",
+      values: [
+        {
+          kind: "figure",
+          name: "total",
+          label: "Total",
+          unit: null,
+          value: 20,
+          check: { kind: "same", value: 20 },
+        },
+      ],
+    },
+  ]);
+  return blocks;
+}
+
+test("a kept Analysis figure shows the core's own recalculation, and needs a re-check once its Document changes", async () => {
+  const blocks = await checkedAnalysisFigure();
+  const shownWith = (versions: ReadonlyMap<string, string>) =>
+    figureSchedule({ ...scheduleInput(blocks), versions }).rows[0]?.shown;
+  expect(shownWith(new Map([["accounts", "v1"]]))).toEqual({ state: "supported" });
+  expect(shownWith(new Map([["accounts", "v2"]]))).toEqual({
+    state: "needs-recheck",
+    why: "new-version",
+  });
+  expect(shownWith(new Map())).toEqual({ state: "needs-recheck", why: "document-removed" });
+});
+
+test("a claim check that left the figure unread keeps the Figures tab from calling it supported", async () => {
+  const blocks = await checkedAnalysisFigure();
+  const element = blocks.get(0);
+  const occurrence = figuresInMind(blocks)[0];
+  if (!(element instanceof Y.XmlElement) || !occurrence) throw new Error("Missing fixture");
+  const parent = basis(wordsOf(element));
+  markSentence(element, 0, textOf(element).length, {
+    ...parent,
+    figures: [{ ...parent, ...finding(occurrence), state: "not-checked", reason: "unread" }],
+    remainder: null,
+  });
+  const row = figureSchedule({
+    ...scheduleInput(blocks),
+    versions: new Map([["accounts", "v1"]]),
+  }).rows[0];
+  expect(row?.shown).toEqual({ state: "not-checked", reason: "unread" });
+});
+
+test("a whole-sentence check with no figure child is no evidence against the core's own check", async () => {
+  const blocks = await checkedAnalysisFigure();
+  const element = blocks.get(0);
+  if (!(element instanceof Y.XmlElement)) throw new Error("Missing fixture");
+  markSentence(element, 0, textOf(element).length, basis(wordsOf(element)));
+  const row = figureSchedule({
+    ...scheduleInput(blocks),
+    versions: new Map([["accounts", "v1"]]),
+  }).rows[0];
+  expect(row?.shown).toEqual({ state: "supported" });
+});
+
+test("a Note Check reads no sentence in a table's header cell (#2378)", () => {
+  const blocks = note(
+    table(
+      row(cell("h0", "Item", true), cell("h1", "Revenue", true)),
+      row(cell("l1", "North"), cell("a1", "10")),
+    ),
+  );
+  const every = everySentence(blocks).map((sentence) => sentence.text);
+  expect(every).not.toContain("Revenue");
+  expect(every).toContain("North");
+});
 
 function scheduleInput(blocks: Y.XmlFragment) {
   return {

@@ -73,14 +73,16 @@ export function withAnalysisResults(
   const tables = new Map<number, AnalysisTable>();
   const charts = new Map<number, { title: string; table: AnalysisTable }>();
   const pictures = new Set<number>();
+  // The first Analysis that gave a marker names it: this Answer's, when it is listed first.
   for (const analysis of analyses) {
     for (const { result, marker } of analysis.markers.tables) {
       const found = analysis.output.results.find((each) => each.name === result);
-      if (found?.kind === "table") tables.set(marker, found.table);
+      if (found?.kind === "table" && !tables.has(marker)) tables.set(marker, found.table);
     }
     analysis.markers.charts.forEach((marker, index) => {
       const chart = analysis.output.charts[index];
-      if (chart) charts.set(marker, { title: chart.title, table: chart.table });
+      if (chart && !charts.has(marker))
+        charts.set(marker, { title: chart.title, table: chart.table });
     });
     for (const marker of analysis.markers.pictures ?? []) pictures.add(marker);
   }

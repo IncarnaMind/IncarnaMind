@@ -101,7 +101,7 @@ function citedIn(
   content: readonly Inline[],
 ): (Cluster | { start: number; end: number; figure: FigureInline })[] {
   const figures = content.flatMap((inline, start) =>
-    inline.kind === "figure" && figureSourcesOf(inline).length > 0
+    inline.kind === "figure" && (inline.sources === null || figureSourcesOf(inline).length > 0)
       ? [{ start, end: start + 1, figure: inline }]
       : [],
   );
@@ -143,14 +143,17 @@ export async function styleCitations(
 ): Promise<Block[]> {
   const works: CitedWork[][] = [];
   const checkedOf = new Map<string, Set<string>>();
+  // A figure whose Analysis record is lost has no work to format, but still writes its note (#2378).
+  let lostFigure = false;
   mapInlines(blocks, (content) => {
     for (const cited of citedIn(content)) {
-      works.push(
-        "figure" in cited
-          ? figureSourcesOf(cited.figure).map((source) => source.work)
-          : cited.citations.map((citation) => citation.work),
-      );
-      if ("figure" in cited) continue;
+      if ("figure" in cited) {
+        const sources = figureSourcesOf(cited.figure).map((source) => source.work);
+        if (sources.length > 0) works.push(sources);
+        else lostFigure = true;
+        continue;
+      }
+      works.push(cited.citations.map((citation) => citation.work));
       for (const { work, footnote } of cited.citations) {
         if (!work.documentId || !footnote.checked) continue;
         const lines = checkedOf.get(work.documentId) ?? new Set<string>();
@@ -160,12 +163,21 @@ export async function styleCitations(
     }
     return content;
   });
-  if (works.length === 0) return [...blocks];
+  if (works.length === 0 && !lostFigure) return [...blocks];
 
-  const formatted = await format({
-    style: style.id,
-    clusters: works.map((each) => ({ works: each })),
-  });
+  const formatted =
+    works.length > 0
+      ? await format({
+          style: style.id,
+          clusters: works.map((each) => ({ works: each })),
+        })
+      : {
+          style: style.id,
+          form: style.form,
+          clusters: [],
+          bibliography: [],
+          hangingIndent: false,
+        };
   let next = 0;
   const styled = mapInlines(blocks, (content) => {
     const clusters = citedIn(content);
@@ -174,8 +186,9 @@ export async function styleCitations(
     let at = 0;
     for (const cluster of clusters) {
       out.push(...content.slice(at, cluster.start));
-      const runs = runsOf(formatted.clusters[next]?.runs ?? []);
-      next++;
+      const lost = "figure" in cluster && figureSourcesOf(cluster.figure).length === 0;
+      const runs = lost ? [] : runsOf(formatted.clusters[next]?.runs ?? []);
+      if (!lost) next++;
       const note = formatted.form === "note";
       if ("figure" in cluster) {
         out.push(...figureCited(cluster.figure, runs, note, figures));
