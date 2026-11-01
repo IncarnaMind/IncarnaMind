@@ -52,6 +52,7 @@ import {
 } from "../shared/comparisons";
 import { type CalculatedSources, calculatedSources, labelledCitations } from "../shared/figureRuns";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
+import { withoutInertBrackets } from "../shared/inertBrackets";
 import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
 import { cutTitle } from "../shared/naming";
@@ -378,6 +379,8 @@ export type Block = (
 
 export interface ReadOptions {
   includeQuestions: boolean;
+  /** For a file that leaves the app: an outside agent's inert brackets read as written (#352). */
+  leavesApp?: boolean;
   /** The footnote for a Citation, from its node's attributes. */
   footnote(attributes: Record<string, unknown>): Footnote;
   /**
@@ -1250,7 +1253,7 @@ function readInline(
             checkId === undefined ? undefined : options.sentenceChecks?.get(checkId);
           content.push({
             kind: "text",
-            text: run.insert,
+            text: options.leavesApp ? withoutInertBrackets(run.insert) : run.insert,
             marks: marksOf(run.attributes),
             ...(ai && { ai: true }),
             ...(sentenceCheck && { sentenceCheck }),

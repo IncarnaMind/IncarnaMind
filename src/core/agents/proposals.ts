@@ -13,10 +13,10 @@
  * (ADR-0026, decision 4). New paragraphs are parsed first, with each token held by characters
  * no parsing makes or takes; only then do those become Citations, and every "[" left in their
  * words outside code gets a word joiner after it, so no later reading joins one to a number
- * split from it by emphasis. A rewrite is read by Edit with AI's own
- * reading, so it is read here first the same way (`markersRead`): every "[" that its parsing
- * could join to a number gets a word joiner before it is read, and only when the reading finds
- * no marker but those placed for tokens is it written; otherwise every "[" gets one. The User's
+ * split from it by emphasis. A rewrite is read by Edit with AI's own reading, so it is read
+ * here first the same way (`markersRead`): a "[" that reads as a marker as written gets a word
+ * joiner, and when the reading still finds a marker no token placed (one emphasis joined to a
+ * number, "[**1**]"), every "[" gets one. The User's
  * Citations the agent has no token for, and their footnotes, it reads as handles
  * ("[kept:1]", "[note:1]") that keep them where they are, once each. Who made the changes is
  * recorded with them; their text is marked third-party once the User accepts it
@@ -26,22 +26,25 @@ import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { type NodeJSON, replaceMarkers } from "../../shared/blockJson";
+import { inertBrackets } from "../../shared/inertBrackets";
 import {
   readProposalAttribute,
+  readProposalRef,
   recordProposalRequest,
   resolveProposals,
   targetHash,
   waitingChanges,
 } from "../../shared/proposals";
+import { INLINE_NODE } from "../../shared/sentences";
+import { type ChangedParagraph, sentenceWords, uncitedSpans } from "../../shared/uncitedSentences";
 import { createElement } from "../answers/blocks";
 import { emphasisOf, markdownToBlocks, withoutEmphasisEscapes } from "../answers/markdown";
 import {
   BLOCK_ID_ATTRIBUTE,
-  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
-  FOOTNOTE_NODE,
   type OutsideAgentRequest,
   PROPOSAL_ATTRIBUTE,
+  PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
   type ProposalAttribute,
 } from "../api";
@@ -102,28 +105,27 @@ const paragraphName = (index: number) => `¶${index + 1}`;
 const escapeNames = (text: string) => text.replace(/¶/g, "\\¶");
 const unescapeNames = (text: string) => text.replace(/\\¶/g, "¶");
 
-const WORD_JOINER = "\u2060";
-
-/** Words with a word joiner after every "[": no parsing takes it out, so no marker forms there. */
-const inert = (text: string) => text.replaceAll("[", `[${WORD_JOINER}`);
+const inert = inertBrackets;
 
 /**
- * Words with a word joiner after each "[" that Edit with AI's reading could join to a number
- * ("[1]", "[^1]", "[=1]"), through the emphasis and escapes it takes out ("[**1**]", "[_^1_]",
- * "\\[^1]"). A "[" before words ("[sic]") stays as it is.
+ * Words with a word joiner after each "[" that reads as a marker as written ("[1]", "[^1]",
+ * "[=1]", "\\[^1]", "[\\^1]"). A "[" before words ("[sic]") stays as it is. One that only
+ * parsing joins to a number ("[**1**]") is left to the reading after it (`rewriteText`).
  */
-const inertBeforeNumbers = (text: string) =>
-  text.replace(/\[(?=[\\*_~]*[\^=]?[\\*_~]*\d)/g, `[${WORD_JOINER}`);
+const inertBeforeNumbers = (text: string) => text.replace(/\[(?=\\*[\^=]?\\*\d)/g, "[\u2060");
 
 /** A typed "<removed>" kept as words, unless the agent already wrote it escaped as it was shown. */
 const keepRemovedTag = (text: string) => text.replace(/(?<!\\)<(?=\/?removed[\s/>])/gi, "\\<");
 
-/** How Edit with AI's reading finds a marker in a paragraph's plain words (../proposals/write). */
-const MARKER = /\[\^(\d+)\]|\[(\d+)\]|\$([^$\n]+)\$|\n/g;
+/**
+ * How Edit with AI's reading finds a marker in a paragraph's plain words (../proposals/write),
+ * and a calculated figure's ("[=1]", ADR-0021), which a later reading could take for one.
+ */
+const MARKER = /\[\^(\d+)\]|\[(\d+)\]|\[=(\d+)\]|\$([^$\n]+)\$|\n/g;
 
 /**
- * The Citation and footnote markers a rewrite reads as, as Edit with AI's reading finds them in
- * each paragraph and each line's plain words: what would become a Citation or footnote.
+ * The markers a rewrite reads as, as Edit with AI's reading finds them in each paragraph and
+ * each line's plain words: what would become a Citation or footnote, or read as a figure.
  */
 function markersRead(text: string): string[] {
   const said = readRemovals(text, true).text;
@@ -134,7 +136,9 @@ function markersRead(text: string): string[] {
           ? [`[^${match[1]}]`]
           : match[2] !== undefined
             ? [`[${match[2]}]`]
-            : [],
+            : match[3] !== undefined
+              ? [`[=${match[3]}]`]
+              : [],
     );
   const byParagraph = said.split(/\n[ \t]*\n+/).flatMap(found);
   const byLine = said.split("\n").flatMap(found);
@@ -149,9 +153,6 @@ const sameMarkers = (a: readonly string[], b: readonly string[]) =>
 const HELD_TOKEN = /\uE000(\d{1,4})\uE001/g;
 const heldToken = (n: number) => `\uE000${n}\uE001`;
 const HOLDING = /[\uE000\uE001]/g;
-
-/** Inline nodes that cite or stand for a cited figure: only IncarnaMind's own may be in new text. */
-const CITING: ReadonlySet<string> = new Set([CITATION_NODE, FOOTNOTE_NODE, CALCULATED_FIGURE_NODE]);
 
 /** A Block an unaccepted Proposal adds, or one inside it: not in the Note yet. */
 function addedByProposal(element: Y.XmlElement): boolean {
@@ -265,7 +266,7 @@ export interface ProposeOptions {
 /** A change that can't be written as it is, in the interface language's words: nothing was written. */
 export class ChangeRefused extends Error {
   constructor(
-    readonly key: "agents.propose.formula" | "agents.propose.table" | "agents.propose.unread",
+    readonly key: "agents.propose.formula" | "agents.propose.table",
     readonly paragraph: string,
   ) {
     super(`${paragraph}: ${key}`);
@@ -362,7 +363,7 @@ function rewriteText(
   if (!rewrite.placed.every((marker) => read.includes(marker))) {
     throw new ChangeRefused("agents.propose.formula", name);
   }
-  if (!sameMarkers(read, rewrite.placed)) throw new ChangeRefused("agents.propose.unread", name);
+  // With every "[" inert, no marker reads but those placed: nothing more to check.
   return { text: rewrite.text, fresh: rewrite.fresh };
 }
 
@@ -383,8 +384,9 @@ function withTokens(
 
 /**
  * New paragraphs as Blocks: Markdown, parsed with each token held apart, then each token this
- * agent may cite a Citation, and their words AI text with every "[" outside code inert. A citing
- * node the parse made itself, and a token's place parsing left in code, are only words.
+ * agent may cite a Citation, and their words AI text with every "[" outside code inert. The
+ * parse makes no Citation, footnote or figure of its own; a token's place it left in code is
+ * only words.
  */
 function newBlocks(written: string, options: ProposeOptions): NodeJSON[] {
   const tokens: { token: string; attributes: Attributes | null }[] = [];
@@ -403,7 +405,6 @@ function newBlocks(written: string, options: ProposeOptions): NodeJSON[] {
     (part) => unescapeNames(part).replace(HOLDING, ""),
     hold,
   );
-  const placed = new Set<NodeJSON>();
   const cited = replaceMarkers(markdownToBlocks(markdown), HELD_TOKEN, (match, before) => {
     const attributes = tokens[Number(match[1])]?.attributes;
     if (!attributes) return { before, put: options.notFound };
@@ -411,14 +412,12 @@ function newBlocks(written: string, options: ProposeOptions): NodeJSON[] {
       type: CITATION_NODE,
       attrs: Object.fromEntries(Object.entries(attributes).filter(([, value]) => value !== null)),
     };
-    placed.add(node);
     return { before, put: node };
   });
   const asWritten = (text: string) =>
     text.replace(HELD_TOKEN, (_, n: string) => `[cite:${tokens[Number(n)]?.token ?? ""}]`);
   // Code is the agent's code: a "[0]" in it is code, never read as a marker.
   const own = (node: NodeJSON, code = false): NodeJSON[] => {
-    if (CITING.has(node.type) && !placed.has(node)) return [];
     if (node.type === "text") {
       const inCode = code || (node.marks?.some((mark) => mark.type === "code") ?? false);
       const text = asWritten(node.text ?? "");
@@ -474,17 +473,66 @@ function addAfter(
 }
 
 /**
+ * The sentences a request's changes leave with no Citation, as the bar of each of them counts
+ * them (`uncitedSpans`): each paragraph they are in, read with them accepted and no other.
+ */
+export function uncitedOf(blocks: Y.XmlFragment, request: string): string[] {
+  const found: string[] = [];
+  for (const { element } of textBlocks(blocks)) {
+    let wholly = false;
+    let skipped = false;
+    let kind: ChangedParagraph["kind"] = element.nodeName === "heading" ? "heading" : "paragraph";
+    for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent) {
+      if (at.nodeName === "tableCell" || at.nodeName === "tableHeader") kind = "cell";
+      const whole = readProposalAttribute(at.getAttribute(PROPOSAL_ATTRIBUTE));
+      if (!whole) continue;
+      if (whole.kind === "insert" && whole.request === request) wholly = true;
+      else if (whole.kind === "insert" || whole.request === request) skipped = true;
+    }
+    if (skipped) continue;
+    let text = "";
+    const mine = new Set<number>();
+    const cited = new Set<number>();
+    for (const { node } of layout(element)) {
+      if (node instanceof Y.XmlText) {
+        for (const run of node.toDelta() as { insert: unknown; attributes?: Attributes }[]) {
+          if (typeof run.insert !== "string") continue;
+          const adds = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK]);
+          const removes = readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK]);
+          if ((adds && adds.request !== request) || removes?.request === request) continue;
+          for (const character of run.insert.split("")) {
+            if (wholly || adds) mine.add(text.length);
+            text += character;
+          }
+        }
+        continue;
+      }
+      const own = readProposalAttribute(node.getAttribute(PROPOSAL_ATTRIBUTE));
+      if (own && (own.kind === "insert" ? own.request !== request : own.request === request)) {
+        continue;
+      }
+      if (wholly || own?.kind === "insert") mine.add(text.length);
+      if (node.nodeName === CITATION_NODE) cited.add(text.length);
+      text += INLINE_NODE;
+    }
+    const paragraph: ChangedParagraph = { text, mine, cited, kind };
+    found.push(...uncitedSpans(paragraph).map((span) => sentenceWords(paragraph, span)));
+  }
+  return found;
+}
+
+/**
  * Writes the agent's changes into the Note as Proposals of `options.request`, waiting for the
- * User, and records who made them. `note` must be the Note
- * as named in this same Yjs transaction. Nothing is written unless every change can be: a
- * paragraph held is refused (`HeldParagraph`). Returns how many changes wait.
+ * User, and records who made them. `note` must be the Note as named in this same Yjs
+ * transaction. Nothing is written unless every change can be: a paragraph held is refused
+ * (`HeldParagraph`). Returns how many changes wait, and the sentences they leave uncited.
  */
 export function proposeNamed(
   blocks: Y.XmlFragment,
   note: NamedNote,
   changes: readonly NamedChange[],
   options: ProposeOptions,
-): number {
+): { waiting: number; uncited: string[] } {
   const elements = new Map<string, Y.XmlElement>();
   for (const { element } of textBlocks(blocks)) {
     const id = element.getAttribute(BLOCK_ID_ATTRIBUTE);
@@ -538,7 +586,7 @@ export function proposeNamed(
     if (nodes.length > 0) addAfter(blocks, element, nodes, options);
   }
   const doc = blocks.doc;
-  const count = waitingChanges(blocks, (each) => each.request === options.request);
-  if (doc && count > 0) recordProposalRequest(doc, options.request, options.made);
-  return count;
+  const waiting = waitingChanges(blocks, (each) => each.request === options.request);
+  if (doc && waiting > 0) recordProposalRequest(doc, options.request, options.made);
+  return { waiting, uncited: uncitedOf(blocks, options.request) };
 }

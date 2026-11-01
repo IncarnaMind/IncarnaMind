@@ -23,9 +23,12 @@ const citation: JSONContent = {
   type: "citation",
   attrs: { documentId: "d1", documentName: "Tides", quote: "Spring tides.", check: "found" },
 };
+const whole = (id: string, kind: "insert" | "delete") => ({
+  [PROPOSAL_ATTRIBUTE]: { ...ref(id), kind },
+});
 const addedWhole = (id: string, ...content: JSONContent[]): JSONContent => ({
   type: "paragraph",
-  attrs: { [PROPOSAL_ATTRIBUTE]: { ...ref(id), kind: "insert" } },
+  attrs: whole(id, "insert"),
   content,
 });
 
@@ -99,6 +102,59 @@ describe("The sentences a change leaves with no Citation", () => {
     // As the User sees the sentence: the word it takes out is still there, struck.
     expect(uncitedOf([paragraph], "p1")).toEqual(["Tides rise twicetwo times a day."]);
     expect(uncitedOf([paragraph], "p2")).toEqual(["King tides flood the harbour wall."]);
+  });
+
+  test("are none in a heading it adds, which names what follows rather than claiming it", () => {
+    expect(
+      uncitedOf(
+        [
+          {
+            type: "heading",
+            attrs: { level: 2, ...whole("p1", "insert") },
+            content: [text("Neap tides come at the quarter moons.")],
+          },
+          addedWhole("p1", text("Harbour walls flood in winter storms.")),
+        ],
+        "p1",
+      ),
+    ).toEqual(["Harbour walls flood in winter storms."]);
+  });
+
+  test("are none in a table's cell it adds", () => {
+    const cell = (words: string): JSONContent => ({
+      type: "tableCell",
+      content: [{ type: "paragraph", content: [text(words)] }],
+    });
+    expect(
+      uncitedOf(
+        [
+          {
+            type: "table",
+            attrs: whole("p1", "insert"),
+            content: [{ type: "tableRow", content: [cell("King tides flood the harbour wall.")] }],
+          },
+          addedWhole("p1", text("Harbour walls flood in winter storms.")),
+        ],
+        "p1",
+      ),
+    ).toEqual(["Harbour walls flood in winter storms."]);
+  });
+
+  test("leave out the User's sentence that holds a note another change takes out", () => {
+    const paragraph: JSONContent = {
+      type: "paragraph",
+      content: [
+        text("Tides rise twice a day"),
+        {
+          type: "footnote",
+          attrs: { id: "n1", ...whole("p2", "delete") },
+          content: [text("At the coast.")],
+        },
+        text(". "),
+        text("King tides flood the harbour wall.", adds("p1")),
+      ],
+    };
+    expect(uncitedOf([paragraph], "p1")).toEqual(["King tides flood the harbour wall."]);
   });
 
   test("are none for a change that only takes words out", () => {

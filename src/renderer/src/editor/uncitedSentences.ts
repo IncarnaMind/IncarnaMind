@@ -6,7 +6,8 @@ import {
   PROPOSAL_INSERT_MARK,
 } from "../../../core/api";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
-import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
+import { INLINE_NODE } from "../../../shared/sentences";
+import { type ChangedParagraph, uncitedSpans } from "../../../shared/uncitedSentences";
 import type { PendingProposal } from "./proposalReview";
 
 /** A sentence of the Note, as a range of the editor's document. */
@@ -22,10 +23,9 @@ const proposalOf = (node: ProseMirrorNode) =>
   readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE] ?? null);
 
 /**
- * The sentences a change would leave with no Citation once accepted (#352): each sentence its
- * words are in, read as its paragraph will read with this change accepted and the others not,
- * that makes a claim (`isClaim`, as the Note's checks count them) and holds no Citation, outside
- * headings and tables. A change that only takes words out leaves none of its own.
+ * The sentences a change would leave with no Citation once accepted (#352), as the agent is
+ * told of them (`uncitedSpans`): each paragraph it is in, read with this change accepted and
+ * the others not.
  */
 export function uncitedSentences(
   doc: ProseMirrorNode,
@@ -41,14 +41,15 @@ export function uncitedSentences(
   const found: SentenceRange[] = [];
   for (const at of [...paragraphs].sort((a, b) => a - b)) {
     const paragraph = doc.nodeAt(at);
-    // Headings and table cells aren't sentences that make claims of their own, as for the agent.
-    if (!paragraph || paragraph.type.name === "heading") continue;
+    if (!paragraph) continue;
     // A Block this change, or another, adds whole decides for every word in it.
     let wholly = false;
     let skipped = false;
+    let kind: ChangedParagraph["kind"] =
+      paragraph.type.name === "heading" ? "heading" : "paragraph";
     const place = doc.resolve(at + 1);
     for (let depth = place.depth; depth > 0; depth--) {
-      if (CELLS.has(place.node(depth).type.name)) skipped = true;
+      if (CELLS.has(place.node(depth).type.name)) kind = "cell";
       const whole = proposalOf(place.node(depth));
       if (!whole) continue;
       if (whole.kind === "insert" && whole.id === proposal.id) wholly = true;
@@ -79,16 +80,13 @@ export function uncitedSentences(
       }
       const own = proposalOf(child);
       if (own && (own.kind === "insert" ? own.id !== proposal.id : own.id === proposal.id)) return;
-      if (wholly || own) mine.add(text.length);
+      // What another change takes out is still here, and isn't this change's.
+      if (wholly || own?.kind === "insert") mine.add(text.length);
       if (child.type.name === CITATION_NODE) cited.add(text.length);
       positions.push(start);
       text += INLINE_NODE;
     });
-    for (const span of sentenceSpans(text)) {
-      const indices = Array.from({ length: span.to - span.from }, (_, index) => span.from + index);
-      if (!indices.some((index) => mine.has(index))) continue;
-      if (indices.some((index) => cited.has(index))) continue;
-      if (!isClaim(text.slice(span.from, span.to))) continue;
+    for (const span of uncitedSpans({ text, mine, cited, kind })) {
       const from = positions[span.from];
       const last = positions[span.to - 1];
       if (from !== undefined && last !== undefined) found.push({ from, to: last + 1 });

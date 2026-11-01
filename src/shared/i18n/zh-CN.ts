@@ -6336,7 +6336,6 @@ export const zhCN = {
   "agents.propose.formula":
     "{name} 中有引用位于两个美元符号之间，会被当作公式：把它写在美元符号之外。",
   "agents.propose.table": "{name} 的文字中有几行像表格行，却组不成表格。",
-  "agents.propose.unread": "IncarnaMind 无法按原样读取 {name} 的文字。换个简单的写法重写。",
   "agents.mind.namedChoice": "named 必须是 true 或 false。",
   "settings.pages.agents": "智能体",
   "agents.settings.experimental": "实验",

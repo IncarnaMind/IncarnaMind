@@ -8,6 +8,7 @@ import { Plugin } from "@tiptap/pm/state";
 import type { RetainedFigureAnalysis } from "../../../core/api";
 import type { NodeJSON } from "../../../shared/blockJson";
 import { calculatedFiguresIn, readFigureRunClosure } from "../../../shared/figureRuns";
+import { withoutInertBrackets } from "../../../shared/inertBrackets";
 import type { SourceContext } from "../../../shared/sources";
 import { languageNow } from "../i18n";
 import { useAppStore } from "../store";
@@ -38,10 +39,15 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
         // After the editor's own copy and cut handlers, which set the HTML: Word's conditional
         // blocks can't be made in the DOM, so they are written into the string.
         view: (view) => {
+          // An outside agent's inert brackets (#352) are copied as the words read: pasting into a
+          // Note never reads "[1]" as a Citation, so the joiner has nothing to keep out there.
           const rewrite = (event: Event) => {
             const data = (event as ClipboardEvent).clipboardData;
             const html = data?.getData("text/html");
-            if (data && html) data.setData("text/html", wordFootnoteHtml(html));
+            const text = data?.getData("text/plain");
+            if (data && html)
+              data.setData("text/html", withoutInertBrackets(wordFootnoteHtml(html)));
+            if (data && text) data.setData("text/plain", withoutInertBrackets(text));
           };
           view.dom.addEventListener("copy", rewrite);
           view.dom.addEventListener("cut", rewrite);

@@ -8,6 +8,7 @@
  */
 import * as Y from "yjs";
 import type { MarkJSON, NodeJSON } from "../../../shared/blockJson";
+import { withoutInertBrackets } from "../../../shared/inertBrackets";
 import { isNumberingScheme, itemLevel, type NumberingScheme } from "../../../shared/numbering";
 import { readTextColor, readTextFont, readTextSize } from "../../../shared/paragraphFormat";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
@@ -196,7 +197,9 @@ export function mindJson(
             ? { type, attrs: value as Record<string, unknown> }
             : { type },
         );
-        content.push({ type: "text", text: run.insert, ...(marks.length > 0 && { marks }) });
+        // An outside agent's inert brackets read as written in the file (#352).
+        const text = withoutInertBrackets(run.insert);
+        content.push({ type: "text", text, ...(marks.length > 0 && { marks }) });
       }
     } else if (child instanceof Y.XmlElement) {
       const node = mindJson(child, elements, review);

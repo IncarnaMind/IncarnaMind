@@ -6694,8 +6694,6 @@ export const en = {
     "In {name}, a Citation sits between two dollar signs, which read as a formula: write it outside them.",
   "agents.propose.table":
     "The text for {name} has lines that read as a table’s rows but make no table.",
-  "agents.propose.unread":
-    "IncarnaMind couldn’t read the text for {name} as written. Write it again plainly.",
   "agents.mind.namedChoice": "named must be true or false.",
   // Settings → Agents (#351): plain words for people who never edit a settings file.
   "settings.pages.agents": "Agents",

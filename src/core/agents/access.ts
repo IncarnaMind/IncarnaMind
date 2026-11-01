@@ -1230,9 +1230,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             if (!tokens.has(token)) tokens.set(token, checkToken(pairing, inScope, live, token));
           }
         }
-        let waiting: number;
+        let proposed: { waiting: number; uncited: string[] };
         try {
-          waiting = deps.editMind(mind.id, (blocks) => {
+          proposed = deps.editMind(mind.id, (blocks) => {
             const note = namedNote(blocks, namedWords(pairing, inScope, []));
             if (note.version !== version) {
               throw new AgentRefusedError("changed", t("agents.problem.changed"));
@@ -1266,11 +1266,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         return {
           result: {
             mindId: mind.id,
-            waiting,
+            waiting: proposed.waiting,
             citations,
-            uncited: uncitedIn(texts, (token) => tokens.get(token)?.cited?.citable === true),
+            // As the change's bar counts them, from what was written, the Citations kept too.
+            uncited: proposed.uncited.slice(0, MAX_UNCITED).map((sentence) => clip(sentence, 200)),
           },
-          count: waiting,
+          count: proposed.waiting,
           documentIds: [...tokens.values()].flatMap((each) =>
             each.cited ? [each.cited.minted.documentId] : [],
           ),
