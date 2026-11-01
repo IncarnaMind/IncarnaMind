@@ -1161,6 +1161,8 @@ export const en = {
     "A sentence that says something is absent needs its Document read whole.",
   "claim.reason.absence-unconfirmed":
     "Verdict hidden: the quote the model gave doesn’t show what the sentence says is absent.",
+  "claim.reason.absence-other-document":
+    "Verdict hidden: the quote the model gave is from another Document than the one the sentence is about.",
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.read-budget": "Stopped after {spent}; this read may spend up to {most}.",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
