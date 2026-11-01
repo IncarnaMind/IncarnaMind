@@ -258,8 +258,8 @@ export function createExports(deps: ExportsDependencies) {
       const fromWord = doc !== null && wordFileOf(doc) !== null;
       // A Word file shows what is waiting as tracked changes, and can mark AI text (#107); the
       // others show someone's changes from the Word file as changes, or accepted (#734). A source
-      // pack is a reading of the Note as the Note shows it, waiting changes included (#2292).
-      if (format === "docx" || format === "source-pack")
+      // pack and a PDF are readings of the Note as the Note shows it, waiting changes included (#2292).
+      if (format === "docx" || format === "source-pack" || format === "pdf")
         readOptions.review = reviewReading(fragment);
       else if (doc && fromWord) readOptions.review = theirChangesReading(doc);
       readOptions.sentenceChecks = failedSentences(fragment, {

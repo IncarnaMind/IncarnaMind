@@ -322,7 +322,7 @@ describe("Citations in changes still waiting, in a list at the end", () => {
     expect(document).not.toContain("w:footnoteReference");
   });
 
-  test("PDF: a pending insertion is left out, and the rest is numbered from 1", async () => {
+  test("PDF: a pending insertion is shown as a change and numbered after the kept Citation", async () => {
     const { printed, printer } = fakePrinter();
     const setup = await setUp(printer);
     asked(setup.client);
@@ -341,9 +341,11 @@ describe("Citations in changes still waiting, in a list at the end", () => {
     const [document] = printed;
     if (!document) throw new Error("Nothing was printed.");
     const { document: page } = parseHTML(`<html><body>${document.body}</body></html>`);
-    expect(page.querySelector("p")?.textContent).not.toContain("[2]");
+    expect(page.querySelector("p")?.textContent).toContain("[1]");
+    expect(page.querySelector("p")?.textContent).toContain("[2]");
+    expect(page.querySelector("p")?.querySelector("ins.change")).not.toBeNull();
     expect(
       [...page.querySelectorAll("section.bibliography p.entry")].map((each) => each.textContent),
-    ).toEqual(["[1] Tides. Cited: p. 2"]);
+    ).toEqual(["[1] Tides. Cited: p. 2", "[2] 潮汐. Cited: p. 1"]);
   });
 });

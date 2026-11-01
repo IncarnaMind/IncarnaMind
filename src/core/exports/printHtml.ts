@@ -281,11 +281,15 @@ class PrintWriter {
     return `<sup class="${style}" data-note="${number}">${separator}${number}</sup>`;
   }
 
-  /** Where a change's note goes in the text, filled in by `finish` once the Citations' are numbered. */
-  private changeMarker(note: string): string {
+  /**
+   * Where a change's note goes in the text, filled in by `finish` once the Citations' are
+   * numbered; `adjacent` is the comma a marker right after another note shows.
+   */
+  private changeMarker(note: string, adjacent: boolean): string {
     const id = this.changeNotes.length;
     this.changeNotes.push(note);
-    return `<sup class="note-ref change-note" data-change="${id}"></sup>`;
+    const after = adjacent ? ' data-adjacent="1"' : "";
+    return `<sup class="note-ref change-note" data-change="${id}"${after}></sup>`;
   }
 
   /** The body with each change's marker numbered, and their notes after the Citations' notes. */
@@ -293,8 +297,9 @@ class PrintWriter {
     const base = this.notes.length;
     for (const note of this.changeNotes) this.notes.push(note);
     return body.replace(
-      /<sup class="note-ref change-note" data-change="(\d+)"><\/sup>/g,
-      (_found, id: string) => this.markerAt(base + Number(id) + 1, false, " change-note"),
+      /<sup class="note-ref change-note" data-change="(\d+)"(?: data-adjacent="1")?><\/sup>/g,
+      (found, id: string) =>
+        this.markerAt(base + Number(id) + 1, found.includes("data-adjacent"), " change-note"),
     );
   }
 
@@ -418,8 +423,9 @@ class PrintWriter {
           state.lastWasNote = false;
           return `${marked} (${note})`;
         }
+        const marker = this.changeMarker(note, state.lastWasNote);
         state.lastWasNote = true;
-        return marked + this.changeMarker(note);
+        return marked + marker;
       })
       .join("");
   }

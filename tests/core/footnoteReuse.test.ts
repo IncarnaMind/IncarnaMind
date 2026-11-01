@@ -689,7 +689,7 @@ describe("the Note, Word, the PDF and Copy with Citations number one way (#2292)
   const written = (value: string): JSONContent => ({ type: "text", text: value });
 
   test("five Citations over two sources and places, and a removed Document's pair, read the same", async () => {
-    const { printer } = fakePrinter();
+    const { printed: pages, printer } = fakePrinter();
     const core = startCore(await createTempDataFolder(), { now: manualClock().now, printer });
     const sources = await createTempDataFolder();
     const tidesPath = await writeSourceFile(sources, "Tides.txt", "The tide rises twice a day.");
@@ -792,5 +792,18 @@ describe("the Note, Word, the PDF and Copy with Citations number one way (#2292)
     expect(exported.footnotes).toBe(5);
     const files = unzip(exported.data);
     expect(shownMarks(part(files, "word/document.xml")).map((each) => each.shows)).toEqual(numbers);
+
+    // The app's own PDF reads the Note with its waiting change too: the same marks, the same
+    // numbers, the change's own note after them.
+    await core.exportMind(mind.id, { format: "pdf" });
+    const pdfBody = pages.at(-1)?.body ?? "";
+    expect(
+      [...pdfBody.matchAll(/<sup class="note-ref" data-note="(\d+)"/g)].map((found) =>
+        Number(found[1]),
+      ),
+    ).toEqual(numbers);
+    // A change that ends with a Citation keeps the comma its own note shows right after it,
+    // though the note itself is printed after the Citations' (#2292).
+    expect(pdfBody).toContain('</ins><sup class="note-ref change-note" data-note="6">,6</sup>');
   });
 });
