@@ -12,10 +12,12 @@
  * - INCARNAMIND_LIVE_ANTHROPIC_MODEL: the model (Claude Haiku 5.5 when unset).
  * - INCARNAMIND_LIVE_LANGUAGES: "en", "zh" or both ("en,zh" when unset).
  * - INCARNAMIND_LIVE_REPORT: a file to keep each run's verdicts, requests, tokens and cost.
+ * - INCARNAMIND_LIVE_TRACE: a file to keep each check's last request and what the model wrote back.
  */
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
+import { wrapLanguageModel } from "ai";
 import { expect, test } from "vitest";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
@@ -165,9 +167,38 @@ const paragraph = (value: string): JSONContent => ({
 interface Seen {
   sentence: string;
   state: string;
+  /** Each figure's state, and why when it isn't checked. */
   figures: string[];
   why: string | null;
 }
+
+const TRACE = process.env.INCARNAMIND_LIVE_TRACE;
+const createChatModel: typeof createAiSdkChatModel = (spec) =>
+  wrapLanguageModel({
+    model: createAiSdkChatModel(spec),
+    middleware: {
+      specificationVersion: "v4",
+      wrapStream: async ({ doStream, params }) => {
+        const result = await doStream();
+        if (!TRACE) return result;
+        let written = "";
+        const kept = result.stream.pipeThrough(
+          new TransformStream({
+            transform(part, controller) {
+              if (part.type === "text-delta") written += part.delta;
+              controller.enqueue(part);
+            },
+            async flush() {
+              const asked = JSON.stringify(params.prompt[1] ?? "");
+              const sentence = /<sentence>\\n(.*?)\\n<\/sentence>/.exec(asked)?.[1] ?? null;
+              await appendFile(TRACE, `${JSON.stringify({ sentence, written })}\n`);
+            },
+          }),
+        );
+        return { ...result, stream: kept };
+      },
+    },
+  });
 
 for (const language of LANGUAGES) {
   const pack = PACKS[language];
@@ -178,7 +209,7 @@ for (const language of LANGUAGES) {
     async () => {
       expect(pack.pairs).toHaveLength(10);
       const dataDir = await createTempDataFolder();
-      const core = startCore(dataDir, { createChatModel: createAiSdkChatModel });
+      const core = startCore(dataDir, { createChatModel });
       core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
       await core.updateSettings({ user: { language: language === "zh" ? "zh-CN" : "en" } });
       await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL ?? "" });
@@ -198,7 +229,9 @@ for (const language of LANGUAGES) {
           {
             sentence: sentence.text.trim(),
             state: check.state,
-            figures: (check.figures ?? []).map((figure) => figure.state),
+            figures: (check.figures ?? []).map((figure) =>
+              figure.reason ? `${figure.state} (${figure.reason})` : figure.state,
+            ),
             why: check.unsupported?.reason ?? null,
           },
         ]),

@@ -68,12 +68,33 @@ function withoutNumbers(text: string): string {
 /** Whether `text` has a word of its own beside its numbers: a name for what they measure. */
 export const namesSomething = (text: string): boolean => /\p{L}/u.test(withoutNumbers(text));
 
+/** A table's row as text: its cells apart by tabs or bars. */
+const isRow = (line: string): boolean => line.includes("\t") || /\S\s*\|\s*\S/.test(line);
+
 /**
- * The words as a reason shows them: a capital that only starts its sentence ("Revenue grew 12%")
- * is lower case in the middle of the reason's.
+ * The table whose row holds `quote` in `text`, from its first row, its headings, down to that row;
+ * null when no row of a table holds it.
+ */
+function tableOf(text: string, quote: string): string | null {
+  const lines = text.split("\n");
+  const at = lines.findIndex((line) => isRow(line) && holds(line, quote));
+  if (at < 0) return null;
+  let first = at;
+  while (first > 0 && isRow(lines[first - 1] ?? "")) first--;
+  return lines.slice(first, at + 1).join("\n");
+}
+
+/**
+ * The words as a reason shows them: a capital that only starts a sentence, a cell or a heading
+ * ("Revenue grew 12%", "| On-time rate |") is lower case in the middle of the reason's.
  */
 function shown(words: string, texts: readonly string[]): string {
-  const opens = texts.some((text) => placeIn(text, words) === 0);
+  const start = words.normalize("NFKC").toLowerCase();
+  const opens = texts.some((text) =>
+    text
+      .split(/\n|\||\t|[.!?。！？]\s/u)
+      .some((piece) => piece.trim().normalize("NFKC").toLowerCase().startsWith(start)),
+  );
   return opens && /^\p{Lu}\p{Ll}/u.test(words)
     ? words.charAt(0).toLowerCase() + words.slice(1)
     : words;
@@ -91,7 +112,8 @@ export type MeasureFinding =
 /**
  * Whether a figure's source measures what the sentence's figure does. `sentence`: the texts the
  * sentence's words may come from (the sentence, its figure's label and context, its paragraph);
- * `quote`: the source quote; `passage`: the text around a bare quote, read only when it is one.
+ * `quote`: the source quote; `passage`: the texts the quote is in, read only when the quote itself
+ * doesn't hold the words.
  */
 export function measureFinding(
   measure: FigureMeasure | null,
@@ -110,11 +132,14 @@ export function measureFinding(
     return measure.match === "same"
       ? { kind: "unnamed" }
       : { kind: "differs", measured: null, claimed: shown(said, sentence) };
+  // A table's cell is named by its row label and its column's heading, which a quote of the cell
+  // or its row may leave out; a quote of a number alone, by the words its Passage puts around it.
   const found = holds(quote, quoted)
     ? [quote]
-    : bare
-      ? passage().filter((text) => holds(text, quoted))
-      : [];
+    : passage().flatMap((text) => {
+        const around = tableOf(text, quote) ?? (bare ? text : null);
+        return around !== null && holds(around, quoted) ? [around] : [];
+      });
   if (!namesSomething(quoted) || found.length === 0) return { kind: "unread" };
   if (measure.match === "same") return { kind: "same" };
   return { kind: "differs", measured: shown(quoted, found), claimed: shown(said, sentence) };

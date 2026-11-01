@@ -41,6 +41,10 @@ const EN_DOCUMENT = {
     "| Gross margin | 31% |",
     "| Net debt to EBITDA | 1.4x |",
     "",
+    "| Depot | On-time rate |",
+    "| --- | --- |",
+    "| Felixstowe | 94% |",
+    "",
   ].join("\n"),
 };
 
@@ -377,4 +381,38 @@ describe("a table's row label and headings say what a cell measures (#2255)", ()
     );
     expect(figures).toMatchObject([{ sentence, state }]);
   });
+
+  // protects=a quote of a table's row names its row (a depot), and the column's heading what its number measures, so the heading, copied from the table, counts as the quote's words; words its table doesn't hold never do, and a quote outside a table takes none from the rest of its Passage (#2255); fails_when=a row quote can't be Supported on its column's heading, or a quote is Supported on words found elsewhere in its Document; no_claim=how a real model quotes a row.
+  test.each([
+    {
+      sentence: "Felixstowe's on-time rate was 94% in 2025.",
+      quote: "Felixstowe | 94%",
+      measure: { sentence: "on-time rate", quote: "On-time rate", match: "same" },
+      state: "supported",
+    },
+    {
+      sentence: "Felixstowe's on-time rate was 94% in 2025.",
+      quote: "Felixstowe | 94%",
+      measure: { sentence: "on-time rate", quote: "Space occupancy", match: "same" },
+      state: "not-checked",
+    },
+    {
+      sentence: "Gross margin grew 12% in 2025.",
+      quote: "Revenue grew 12% in 2025, to £48.2m.",
+      measure: { sentence: "Gross margin", quote: "Gross margin", match: "same" },
+      state: "not-checked",
+    },
+  ])(
+    "a row's column heading: $measure.quote for $quote",
+    async ({ sentence, quote, measure, state }) => {
+      const number = quote.includes("94%") ? "94%" : "12%";
+      const { figures } = await checkNote(
+        "en",
+        EN_DOCUMENT,
+        [paragraph("row", sentence)],
+        one(sentence, { quote, number, measure }),
+      );
+      expect(figures).toMatchObject([{ sentence, state }]);
+    },
+  );
 });
