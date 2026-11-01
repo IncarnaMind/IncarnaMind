@@ -23,6 +23,7 @@ import {
   pointAndClick,
   removeDataFolder,
   setGroupBeside,
+  setLanguage,
   setWindowSize,
   sizeMind,
   slideSelect,
@@ -470,6 +471,56 @@ test("an approval card is a ruled block whose sections share one text edge, for 
   await scriptCard.getByTestId("always-run-cancel").click();
   await scriptCard.getByTestId("approval-deny").click();
   await expect(second).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+  await app.close();
+});
+
+test("an approval card at 900 px in Chinese keeps one text edge and its choices in the card, Deny last", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await addTideConnector(window);
+  await setWindowSize(app, window, 900, 900);
+  await setLanguage(window, "zh-CN");
+  await newMind(window);
+  await nameMind(window, "Boat trips");
+  await enterContent(window);
+  await window.keyboard.type("请从 Dover 订早班船。");
+  await window.keyboard.press("Enter");
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type("Please book_boat from Dover");
+  await window.keyboard.press("Enter");
+
+  const answer = assistantAnswers(window).first();
+  const card = answer.getByTestId("approval-card");
+  await expect(card).toBeVisible({ timeout: 15_000 });
+  await expect(card.locator(".approval-title code")).toHaveText("book_boat");
+  await expectOneTextEdge(card);
+  const cardBox = await box(card);
+  const choices = ["approval-allow-once", "approval-always-allow", "approval-deny"] as const;
+  const order = await card.evaluate((element) =>
+    [...element.querySelectorAll<HTMLElement>(".approval-actions .approval-button")].map(
+      (button) => button.dataset.testid ?? "",
+    ),
+  );
+  expect(order).toEqual([...choices]);
+  const boxes = await Promise.all(choices.map(async (each) => box(card.getByTestId(each))));
+  for (const choice of boxes) {
+    expect(choice.x).toBeGreaterThanOrEqual(cardBox.x - 0.5);
+    expect(choice.x + choice.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 0.5);
+    expect(choice.y).toBeGreaterThanOrEqual(cardBox.y - 0.5);
+    expect(choice.y + choice.height).toBeLessThanOrEqual(cardBox.y + cardBox.height + 0.5);
+  }
+  const [, always, deny] = boxes as [
+    (typeof boxes)[number],
+    (typeof boxes)[number],
+    (typeof boxes)[number],
+  ];
+  expect(
+    deny.y > always.y + 1 || deny.x >= always.x + always.width - 1,
+    "Deny after Always allow, on its row or the next",
+  ).toBe(true);
+  await screenshot(answer, "approval-card-zh-900");
+  await card.getByTestId("approval-deny").click();
   await app.close();
 });
 
