@@ -111,7 +111,13 @@ export function calculationOracle(cases: readonly CalculationCase[]): MockLangua
       }
       const lines = test.results.map((result) => {
         const marker = calculating.indexOf(result);
-        return `${result.label}: ${marker >= 0 ? `[=${marker + 1}]` : writtenValue(result, test.language)}.`;
+        const value = marker >= 0 ? `[=${marker + 1}]` : writtenValue(result, test.language);
+        const larger = result.larger?.names[0];
+        if (larger)
+          return test.language === "zh"
+            ? `${result.label}：${larger}更大，多${value}。`
+            : `${result.label}: ${larger} is larger, by ${value}.`;
+        return `${result.label}: ${value}.`;
       });
       return { text: lines.join("\n") };
     },

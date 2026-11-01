@@ -61,8 +61,11 @@ export interface ExpectedResult {
   alsoAccepted?: readonly ExpectedInput[];
   /** In the calculate Tool's syntax over the inputs' names; empty for a quoted result. */
   formula: string;
-  /** A gap asked as "how much larger or smaller": either sign of it is right. */
-  eitherSign?: true;
+  /**
+   * A gap asked as "which is larger, by how much": either sign of it is right, and the Answer
+   * must name `names` (the larger) before `than` in a sentence saying which is larger.
+   */
+  larger?: { names: readonly string[]; than: readonly string[] };
   /** Values a model is known to reach by a wrong reading, and why. */
   traps: readonly { value: number; why: string }[];
 }
@@ -79,7 +82,7 @@ export interface CalculationCase {
    * For a Question its scope can't answer: why it must be refused, and the amounts the
    * Documents state, which an Answer may still give as they are. It then has no results.
    */
-  refuse?: { why: string; stated: readonly ExpectedInput[] };
+  refuse?: { why: string; stated: readonly ExpectedInput[]; parties: readonly string[] };
   /** Over a workbook's or a survey's rows: for the Analysis issues (#447, #448), kept out of the bars. */
   analysis?: boolean;
 }
@@ -692,6 +695,7 @@ const english: CalculationCase[] = [
     refuse: {
       why: "The two are in US dollars and in yuan, and no Document in scope gives an exchange rate.",
       stated: statedIn([KESTREL, QINGLAN]),
+      parties: ["Kestrel", "Qinglan", "青岚"],
     },
   },
   {
@@ -723,7 +727,7 @@ const english: CalculationCase[] = [
             },
           ],
         ),
-        eitherSign: true,
+        larger: { names: ["Qinglan"], than: ["Kestrel"] },
       },
     ],
   },
@@ -760,6 +764,7 @@ const english: CalculationCase[] = [
     refuse: {
       why: "The report is in yuan and no Document in scope gives an exchange rate.",
       stated: statedIn([YUNFAN]),
+      parties: ["Yunfan", "云帆"],
     },
   },
   {
@@ -1131,6 +1136,7 @@ const chinese: CalculationCase[] = [
     refuse: {
       why: "一个是人民币，一个是美元，范围内的文档都没有给出汇率。",
       stated: statedIn([KESTREL, QINGLAN]),
+      parties: ["Kestrel", "Qinglan", "青岚"],
     },
   },
   {
@@ -1157,7 +1163,7 @@ const chinese: CalculationCase[] = [
           (x) => v(x, "yuan") - v(x, "usd") * v(x, "rate"),
           [{ value: 862315.4 * WAN - 1186.4 * M, why: "美元和人民币没有折算就相减" }],
         ),
-        eitherSign: true,
+        larger: { names: ["青岚", "Qinglan"], than: ["Kestrel"] },
       },
     ],
   },
@@ -1302,6 +1308,7 @@ const chinese: CalculationCase[] = [
     refuse: {
       why: "报告只有人民币金额，范围内的文档没有给出汇率。",
       stated: statedIn([YUNFAN]),
+      parties: ["Yunfan", "云帆"],
     },
   },
   {

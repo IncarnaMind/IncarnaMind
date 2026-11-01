@@ -29,7 +29,7 @@ Expected values are worked out in `cases.ts` in plain arithmetic over the inputs
 
 ## Scoring
 
-`score.ts`, tested in `tests/eval/calculationScoring.test.ts`. Each requested result of a Question is scored on its own, in this order: a calculated figure of the right value, a number written of the right value, a calculated figure or a number of a trap's value, a calculated figure of the result's kind standing where it should be (one that reads its inputs first), a written number of the result's kind, and otherwise left out (or refused, when the Answer says it can't). A written number that is a year, or a number the Documents state (to 1%), is taken as an aside, not an attempt. A figure's unit must fit: a change in percentage points written "1.0%" is wrong. A result's sign counts, except for a gap asked as "how much larger or smaller". A total written in the scale of its table ("2,169.6" under "$ millions") is right.
+`score.ts`, tested in `tests/eval/calculationScoring.test.ts`. Each requested result of a Question is scored on its own, in this order: a calculated figure of the right value, a number written of the right value, a calculated figure or a number of a trap's value, a calculated figure of the result's kind standing where it should be (one that reads its inputs first), a written number of the result's kind, and otherwise left out (or refused, when the Answer says it can't). A written number is taken as an aside, not an attempt, when it is a year, says what a scale word means ("10,000 yuan" beside 万元), or is a number a Document in the Question's scope states, as far as the number is shown (and it is shown to at least three figures). Otherwise a written number of the result's kind within three times it, or an amount a power of ten off it, is a wrong attempt. A figure's unit must fit: a change in percentage points written "1.0%" is wrong. A result's sign counts; a written number with "fell", "减少" or the like just before it counts as negative. A gap asked as "which is larger, by how much" counts in either sign, but the party named last before a word for "more" must be the larger. A written amount may be as far off as it is shown ("US$1.21 billion" for 1,205.5 million), at most 1%; a total written in the scale of its table ("2,169.6" under "$ millions") is right.
 
 Per model, Tool arm and language, apart:
 
@@ -43,7 +43,8 @@ Per model, Tool arm and language, apart:
 - **False checked**: calculated figures, standing for a requested result, whose value or inputs are wrong. Each is listed, and it must be zero.
 - **Unmatched checked**: calculated figures that are no requested result (a 2024 margin beside the asked-for change). Listed for a person to read; the scorer can't tell a useful one from a wrong one.
 - **Hedged**: a trap's value given beside the right one (the restated and the reported 2024 revenue). Listed, not counted wrong: an Answer may set them side by side on purpose. The scorer reads values, not prose, so an Answer that wrote many numbers of a result's kind would be read generously; none has.
-- **Refusals**: a Question to refuse is refused rightly when the Answer says it can't, gives no amount the Documents in scope don't state (within 1%), no multiple of one amount by the other, and no sentence saying which is larger.
+- **Refusals**: a Question to refuse is refused rightly when the Answer says it can't, gives no amount the Documents in scope don't state (as far as it is shown, in the same currency), no multiple of one amount by the other, and no sentence putting one company above the other, unless that sentence says it can't tell ("I can't tell if…", "无法判断谁更大").
+- **Limits**: the scorer reads values and a few words, not meaning. The first unclaimed number of a result's kind near it is taken as the attempt, so an Answer that leaves a result out but writes an unrelated rate of the same size is scored wrong rather than left out.
 - **Speed**: seconds per Answer and per request to the model.
 
 Each Question is asked in a new conversation, with its scope when it has one. With `INCARNAMIND_EVAL_CALC_RUNS` above 1, every run's results are kept and reported, a failed one beside those that went right.
@@ -52,7 +53,7 @@ Unchecked-figure detection (precision and recall of the marks on numbers worked 
 
 ## Bars
 
-For each cloud model, in each language, on the calculation Questions with the Tools on: Tool coverage at least 90%; figure correctness at least 95% among figures whose inputs are right; input correctness at least 85%; figure correctness clearly above the same Questions' with the Tools withheld, which is at least 5 percentage points (two Questions in 40: one either way is chance in a single run); no false checked figure. Input correctness has no baseline, since no figure is calculated with the Tools withheld. Reported, never gating.
+For each cloud model, in each language, on the calculation Questions with the Tools on: Tool coverage at least 90%; figure correctness at least 95% among figures whose inputs are right; input correctness at least 85%; clearly more right than the same Questions with the Tools withheld, which is at least two more Questions with every result right (one either way is chance in a single run); no false checked figure. Input correctness has no baseline, since no figure is calculated with the Tools withheld. Reported, never gating.
 
 ## Running it
 
@@ -74,20 +75,21 @@ The Answers of every published run are kept in `eval/evidence/441-calculations/`
 
 One run of each Question with the Tool offered (on) and withheld (off), direct to each provider. The Analysis Questions were not asked.
 
-| Model | Tools | Language | Complete | Right | Inputs right | Tool coverage | Refused rightly | False checked |
-|---|---|---|--:|--:|--:|--:|--:|--:|
-| Claude Haiku 5.5 | on | en | 40/41 | 40/40 | 36/36 | 36/38 | 2/2 | 0 |
-| Claude Haiku 5.5 | on | zh | 36/36 | 36/36 | 34/34 | 34/34 | 2/2 | 0 |
-| Claude Haiku 5.5 | off | en | 40/41 | 40/40 | – | 0/38 | 2/2 | 0 |
-| Claude Haiku 5.5 | off | zh | 36/36 | 34/36 | – | 0/34 | 2/2 | 0 |
-| DeepSeek Flash | on | en | 41/41 | 41/41 | 39/39 | 39/39 | 2/2 | 0 |
-| DeepSeek Flash | on | zh | 36/36 | 35/36 | 33/33 | 33/34 | 2/2 | 0 |
-| DeepSeek Flash | off | en | 41/41 | 40/41 | – | 0/39 | 2/2 | 0 |
-| DeepSeek Flash | off | zh | 36/36 | 36/36 | – | 0/34 | 2/2 | 0 |
+| Model | Tools | Language | Complete | Right | Inputs right | Tool coverage | Refused rightly | False checked | Questions fully right |
+|---|---|---|--:|--:|--:|--:|--:|--:|--:|
+| Claude Haiku 5.5 | on | en | 40/41 | 39/40 | 35/35 | 35/38 | 2/2 | 0 | 33/34 |
+| Claude Haiku 5.5 | on | zh | 36/36 | 36/36 | 34/34 | 34/34 | 2/2 | 0 | 34/34 |
+| Claude Haiku 5.5 | off | en | 40/41 | 40/40 | – | 0/38 | 2/2 | 0 | 33/34 |
+| Claude Haiku 5.5 | off | zh | 36/36 | 34/36 | – | 0/34 | 2/2 | 0 | 33/34 |
+| DeepSeek Flash | on | en | 41/41 | 41/41 | 39/39 | 39/39 | 2/2 | 0 | 34/34 |
+| DeepSeek Flash | on | zh | 36/36 | 35/36 | 33/33 | 33/34 | 2/2 | 0 | 33/34 |
+| DeepSeek Flash | off | en | 41/41 | 40/41 | – | 0/39 | 2/2 | 0 | 33/34 |
+| DeepSeek Flash | off | zh | 36/36 | 36/36 | – | 0/34 | 2/2 | 0 | 34/34 |
 
 - With the Tool on, both models meet the coverage, right-where-inputs-right, input-correctness and no-false-check bars in both languages.
-- The bar "clearly more right than without the Tool" is not met: only Haiku in Chinese clears it (100% against 94.4%, one Question, zh-20, where without the Tool it read US$1,186.4 million as 11,864万美元, ten times too small). The others are within a Question of each other. The set is too easy to tell the two arms apart; a harder one is the next step.
+- The bar "clearly more right than without the Tool" is not met in either language by either model: every pair is within one Question. The set is too easy to tell the two arms apart; a harder one is the next step.
+- The Tool's one clear catch: without it, Haiku read US$1,186.4 million as 11,864万美元 in zh-20, ten times too small.
 - DeepSeek's one wrong result with the Tool: asked for Yunfan's reported growth in Chinese (zh-01), it gave the comparable-basis 12.4% the chair states; without the Tool it did the same in English (en-23).
-- Haiku left out one result in each arm: en-20's converted revenue with the Tool (it gave only the gap), and en-36 without it (its reply broke off).
+- Haiku with the Tool, en-20: it wrote the checked gap ($19.1 million) as Qinglan's revenue in dollars, scored wrong; without it, en-36's reply broke off.
 - Claude Sonnet 5.5, hard check, three Questions with the Tool (en-20, zh-20, en-31): all five results right, from the right inputs.
 - Spend, from the core's meter: Haiku $0.34 for the run above, DeepSeek ¥1.27, Sonnet $0.21.

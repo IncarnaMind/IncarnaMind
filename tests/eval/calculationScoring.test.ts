@@ -436,6 +436,7 @@ describe("figures that must not pass", () => {
     const score = scoreCase(
       caseOf("en-20"),
       answer({
+        text: "Qinglan's revenue is US$19.1 million more than Kestrel's.",
         figures: [
           {
             ...figure(
@@ -579,15 +580,19 @@ describe("a Question that must be refused", () => {
       answer({
         text: "The documents give no exchange rate, so I can't convert either.",
         figures: [
-          figure(
-            0.000137,
-            "ratio",
-            [
-              { ...inputOf(kestrel), currency: "USD" },
-              { ...inputOf(qinglan), currency: "CNY" },
-            ],
-            "0.000137",
-          ),
+          {
+            // An amount the Documents state, so only its inputs' two currencies give it away.
+            ...figure(
+              1_186_400_000,
+              "currency",
+              [
+                { ...inputOf(kestrel), currency: "USD" },
+                { ...inputOf(qinglan), currency: "CNY" },
+              ],
+              "$1,186.4 million",
+            ),
+            currency: "USD",
+          },
         ],
       }),
     );
@@ -609,6 +614,127 @@ describe("a Question that must be refused", () => {
   });
 });
 
+describe("the second review's probes", () => {
+  test.each([
+    "No exchange rate is given, but Qinglan's revenue is almost certainly larger.",
+    "There is no exchange rate in the documents; even so, Qinglan comes out ahead.",
+    "No rate is given, but Qinglan outsells Kestrel.",
+    "There is no exchange rate here, but Kestrel's sales fall short of Qinglan's.",
+    "Whether you use the 2024 or 2025 rate, Qinglan's revenue is larger. No rate is given here.",
+    "文档没有汇率，但青岚的营业总收入比Kestrel高。",
+    "文档没有汇率，但青岚明显领先。",
+    "没有给出汇率。无论用哪个汇率，青岚都更大。",
+  ])("a comparison inside a refusal is not a refusal: %s", (text) => {
+    expect(scoreCase(caseOf("en-19"), answer({ text })).refusal?.refused).toBe(false);
+  });
+
+  test("a conversion at a rate no Document gives is caught though it lands near the other company's amount", () => {
+    const score = scoreCase(
+      caseOf("en-19"),
+      answer({
+        text: "The documents give no exchange rate; at a typical rate Qinglan's revenue comes to about US$1,197.7 million.",
+        written: [written("US$1,197.7 million", 1_197_700_000, "currency", "USD")],
+      }),
+    );
+    expect(score.refusal?.refused).toBe(false);
+  });
+
+  test.each([
+    "I'd need more than these two reports to compare them, since no exchange rate is given.",
+    "I can't tell if Qinglan's revenue is larger than Kestrel's: no exchange rate is given.",
+    "The two are in different currencies and no rate is given, so I can't say by how much one is larger.",
+    "文档没有汇率，无法判断青岚和Kestrel谁更大。",
+    "文档没有汇率，需要更多信息才能比较。",
+    "文档没有汇率，不能说青岚高于Kestrel，也不能说低于。",
+    "文档中没有给出人民币兑美元的汇率，因此无法把两者换算到同一货币后判断哪个更大、相差多少。",
+  ])("a refusal that compares nothing is a refusal: %s", (text) => {
+    expect(scoreCase(caseOf("en-19"), answer({ text })).refusal?.refused).toBe(true);
+  });
+
+  test.each([
+    ["en-01", written("12.5%", 0.125, "percent")],
+    ["zh-20", written("84,863.19万元", 848_631_900, "currency", "CNY")],
+    ["zh-13", written("约1亿元", 100_000_000, "currency", "CNY")],
+  ] as const)(
+    "%s: a wrong number close to a line some Document states is still wrong: %o",
+    (id, number) => {
+      const score = scoreCase(caseOf(id), answer({ written: [number] }));
+      expect(score.results[0]?.outcome).toBe("wrong-written");
+    },
+  );
+
+  test("a rate the Answer works out for another year, far from the result, is no attempt at it", () => {
+    const score = scoreCase(
+      caseOf("en-02"),
+      answer({ written: [written("41.0%", 0.41, "percent"), written("40.0%", 0.4, "percent")] }),
+    );
+    expect(score.results.map((result) => result.outcome)).toEqual(["written", "omitted"]);
+  });
+
+  test("the larger named wrongly, or an increase written as a fall, is wrong", () => {
+    const smaller = scoreCase(
+      caseOf("zh-20"),
+      answer({
+        text: "Kestrel更大，大13,683.48万元。",
+        written: [written("13,683.48万元", 136_834_800, "currency", "CNY")],
+      }),
+    );
+    expect(smaller.results[1]).toMatchObject({ outcome: "wrong-written" });
+    const named = scoreCase(
+      caseOf("zh-20"),
+      answer({
+        text: "青岚食品的营业总收入更大，比 Kestrel 多 13,683.48万元。",
+        written: [written("13,683.48万元", 136_834_800, "currency", "CNY")],
+      }),
+    );
+    expect(named.results[1]).toMatchObject({ outcome: "written" });
+    const fell = scoreCase(
+      caseOf("zh-17"),
+      answer({
+        text: "净利润减少了6,078.75万元。",
+        written: [written("6,078.75万元", 60_787_500, "currency", "CNY")],
+      }),
+    );
+    expect(fell.results[0]?.outcome).not.toBe("written");
+  });
+
+  test("an amount rounded as it is shown is right: US$1.21 billion for 1,205.5 million", () => {
+    const score = scoreCase(
+      caseOf("en-20"),
+      answer({
+        text: "Qinglan's revenue was about US$1.21 billion, US$19.1 million more than Kestrel's.",
+        written: [
+          written("US$1.21 billion", 1_210_000_000, "currency", "USD"),
+          written("US$19.1 million", 19_100_000, "currency", "USD"),
+        ],
+      }),
+    );
+    expect(score.results.map((result) => result.outcome)).toEqual(["written", "written"]);
+  });
+
+  test("one Question with two results is one Question, not clearly more", () => {
+    const wrong = scoreCase(
+      caseOf("zh-20"),
+      answer({ written: [written("84,863.19万元", 848_631_900, "currency", "CNY")] }),
+    );
+    const right = scoreCase(
+      caseOf("zh-20"),
+      answer({
+        text: "青岚更大，多 13,683.48万元。Kestrel折合848,631.92万元。",
+        written: [
+          written("848,631.92万元", 8_486_319_200, "currency", "CNY"),
+          written("13,683.48万元", 136_834_800, "currency", "CNY"),
+        ],
+      }),
+    );
+    expect(right.results.map((result) => result.outcome)).toEqual(["written", "written"]);
+    const clearly = bars(scoreGroup([right]), scoreGroup([wrong])).find((bar) =>
+      bar.name.startsWith("Clearly more right"),
+    );
+    expect(clearly?.met).toBe(false);
+  });
+});
+
 describe("the bars", () => {
   test("are met only on the numbers, with detection left until Answers mark unchecked figures (#442)", () => {
     const { now, before } = inputsOf("en-01") as { now: ExpectedInput; before: ExpectedInput };
@@ -625,7 +751,7 @@ describe("the bars", () => {
       ["Tool coverage at least 90%", true],
       ["Figure correctness at least 95% where inputs are right", true],
       ["Input correctness at least 85%", true],
-      ["Figure correctness clearly above the baseline (by at least 5 points)", true],
+      ["Clearly more right than without the Tools: at least 2 more Questions fully right", false],
       ["No false checked figure", true],
       ["Unchecked-figure detection: precision at least 90%, recall at least 95%", null],
     ]);
@@ -648,8 +774,7 @@ describe("the bars", () => {
         ),
       );
     const clearly = (on: number, off: number) =>
-      bars(group(on), group(off)).find((bar) => bar.name.startsWith("Figure correctness clearly"))
-        ?.met;
+      bars(group(on), group(off)).find((bar) => bar.name.startsWith("Clearly more right"))?.met;
     expect(clearly(40, 39)).toBe(false);
     expect(clearly(40, 38)).toBe(true);
   });

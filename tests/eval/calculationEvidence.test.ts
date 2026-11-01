@@ -46,7 +46,7 @@ function table(name: string): string[] {
 describe("the published results, scored again from the kept Answers", () => {
   test("Claude Haiku 5.5", () => {
     expect(table("claude-haiku-5-5")).toEqual([
-      "on en 40/41 40/40 36/36 36/38 2/2 0",
+      "on en 40/41 39/40 35/35 35/38 2/2 0",
       "on zh 36/36 36/36 34/34 34/34 2/2 0",
       "off en 40/41 40/40 0/0 0/38 2/2 0",
       "off zh 36/36 34/36 0/0 0/34 2/2 0",

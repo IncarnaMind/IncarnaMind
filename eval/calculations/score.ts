@@ -101,8 +101,8 @@ export interface CaseScore {
 }
 
 const DOCUMENT_VALUE_PRECISION = 1e-9;
-/** How near an amount an Answer gives must be to one a Document states to count as that one: "$1.19 billion" for 1,186.4 million. */
-const STATED_PRECISION = 0.01;
+/** The most an amount's own rounding may move it and still be right: "US$1.21 billion" for 1,205.5 million. */
+const ROUNDING_AT_MOST = 0.01;
 
 /**
  * Says a result can't be given. A rough reading of the prose: it only tells a refusal from a
@@ -117,16 +117,63 @@ const isRefusal = (text: string): boolean =>
   );
 
 /**
- * Sentences saying one amount is larger or smaller than another. One that only asks which, or
- * whether, claims nothing: "I can't tell whether A is larger than B".
+ * A sentence that puts one amount above or below the other, unless it says it can't tell:
+ * "Qinglan is the larger", "青岚比Kestrel高", but not "I can't tell if A is larger than B".
  */
-const COMPARES =
-  /\b(?:larger|bigger|greater|higher|smaller|lower|less|more)\s+than\b|\bthe (?:larger|bigger|greater|higher|smaller|lower)\b|\bexceed(?:s|ed)?\b|大于|高于|超过|多于|小于|低于|少于|更(?:大|高|多|小|低|少)|(?<!比)较(?:大|高|多|小|低|少)/i;
-const ASKS_WHICH = /\b(?:whether|which (?:one|of|is|was|are|were))\b|哪个|哪一|是否/i;
-const comparisons = (text: string): string[] =>
-  text
-    .split(/(?<=[.!?。！？])\s*/)
-    .filter((sentence) => COMPARES.test(sentence) && !ASKS_WHICH.test(sentence));
+const ORDERS =
+  /\b(?:larger|bigger|greater|higher|smaller|lower|ahead|behind|outsells?|outsold|outperforms?|exceeds?|exceeded|tops|falls? short)\b|大于|高于|超过|多于|小于|低于|少于|领先|落后|更(?:大|高|小|低)|(?<!比)较(?:大|高|小|低)|比(?!较)\S{1,20}?(?:大|高|多|少|低|小)/i;
+const UNDECIDED =
+  /\b(?:can(?:no|'|’)t|cannot|could(?:n(?:'|’)t| not)|unable to|not able to|impossible to|no way to|(?:do|does)(?: not|n(?:'|’)t) know)\b[^.]{0,40}?\b(?:(?:tell|say|know|determine|judge|decide|establish)\s+(?:whether|which|if|who)|compare)\b|(?:无法|不能|没法|无从|难以|不可以)[^。，,]{0,20}?(?:判断|确定|比较|说|断定|得知|得出|下结论|知道)/i;
+/** Sentences, split where a full stop ends one, not at a decimal point. */
+const sentencesOf = (text: string) => text.split(/(?<=[.!?])\s+|(?<=[。！？])/);
+/** Sentences putting one of `parties` above or below the other; "one is larger" names neither. */
+const comparisons = (text: string, parties: readonly string[]): string[] =>
+  sentencesOf(text).filter(
+    (sentence) =>
+      ORDERS.test(sentence) &&
+      !UNDECIDED.test(sentence) &&
+      parties.some((party) => sentence.includes(party)),
+  );
+
+/**
+ * The last place a written number is shown to, in base units: 10,000,000 for "$1.19 billion",
+ * 0.001 for "12.6%". Zero when its digits can't be read (a number written in words).
+ */
+function shownPlace(number: { chars: string; value: number }): number {
+  const digits = /\d[\d,]*(?:\.(\d+))?/.exec(number.chars);
+  const mantissa = digits ? Number(digits[0].replaceAll(",", "")) : 0;
+  if (!digits || mantissa === 0) return 0;
+  return Math.abs(number.value / mantissa) * 10 ** -(digits[1]?.length ?? 0);
+}
+
+/** Whether `number` is `stated` as far as it is shown: "$1.19 billion" is 1,186.4 million. */
+const showsAs = (number: { chars: string; value: number }, stated: number) =>
+  near(
+    Math.abs(number.value),
+    Math.abs(stated),
+    shownPlace(number) / 2 + DOCUMENT_VALUE_PRECISION * Math.abs(stated),
+  );
+
+/** "10,000 yuan" beside "1万元": what a scale word means, not an amount. */
+const definesAScale = (number: ObservedNumber) =>
+  /^10{4,}$/.test((/\d[\d,]*/.exec(number.chars)?.[0] ?? "").replaceAll(",", ""));
+
+/** The currency a Document's line is in, from its own words or its unit line. */
+function lineCurrency(line: ExpectedInput): string | null {
+  const words = `${line.quote} ${line.unitQuote ?? ""}`;
+  if (/US\$|\$|美元|dollar/i.test(words)) return "USD";
+  if (/元|人民币|yuan|RMB/i.test(words)) return "CNY";
+  return null;
+}
+
+/** A number the Answer wrote, with a sign when the words before it say it fell: "减少了6,078.75万元". */
+function signed(number: ObservedNumber, text: string): number {
+  const at = text.indexOf(number.chars);
+  const before = at < 0 ? "" : text.slice(Math.max(0, at - 16), at);
+  return /\b(?:fell|decreased|declined|dropped|down by|shrank)\b|减少|下降|下滑|降低/i.test(before)
+    ? -Math.abs(number.value)
+    : number.value;
+}
 
 const near = (a: number, b: number, tolerance: number) => Math.abs(a - b) <= tolerance;
 
@@ -135,9 +182,50 @@ const numeric = (figure: ObservedFigure): number | null =>
 
 const isAmount = (unit: ExpectedUnit) => unit === "USD" || unit === "CNY";
 
-/** Close enough to `value`, in either sign only for a gap asked as "how much larger or smaller". */
+/** Close enough to `value`; a gap asked as "which is larger, by how much" in either sign, whose prose names the larger. */
 const reaches = (result: ExpectedResult, got: number, value: number, tolerance: number) =>
-  result.eitherSign ? near(Math.abs(got), Math.abs(value), tolerance) : near(got, value, tolerance);
+  result.larger ? near(Math.abs(got), Math.abs(value), tolerance) : near(got, value, tolerance);
+
+/** How near a written amount may be: its tolerance, or as far as it is shown, at most 1%. */
+const writtenTolerance = (result: ExpectedResult, number: ObservedNumber) =>
+  isAmount(result.unit)
+    ? Math.max(
+        result.tolerance,
+        Math.min(shownPlace(number) / 2, ROUNDING_AT_MOST * Math.abs(result.value)),
+      )
+    : result.tolerance;
+
+const MORE =
+  /\b(?:larger|bigger|greater|higher|more|above|exceeds?|ahead)\b|大于|高于|多于|超过|高出|更大|更高|更多|较大|多\s*\d/gi;
+
+/**
+ * Whether the Answer says the expected larger party is the larger: the party named last before
+ * a word for "more" is it. "Qinglan's revenue was $19.1 million larger than Kestrel's" does;
+ * "Kestrel更大" doesn't.
+ */
+function namesTheLarger(result: ExpectedResult, text: string): boolean {
+  const larger = result.larger;
+  if (!larger) return true;
+  const lastAt = (before: string, names: readonly string[]) =>
+    Math.max(...names.map((name) => before.lastIndexOf(name)));
+  return [...text.matchAll(MORE)].some((match) => {
+    const before = text.slice(Math.max(0, match.index - 120), match.index);
+    const big = lastAt(before, larger.names);
+    return big >= 0 && big > lastAt(before, larger.than);
+  });
+}
+
+/**
+ * Whether a written number could be an attempt at the result: within three times it, or an
+ * amount a power of ten off it (万 read as 元, millions as billions).
+ */
+function plausibleAttempt(result: ExpectedResult, value: number): boolean {
+  const ratio = Math.abs(value / result.value);
+  if (ratio >= 1 / 3 && ratio <= 3) return true;
+  if (!isAmount(result.unit)) return false;
+  const power = Math.log10(ratio);
+  return Math.abs(power - Math.round(power)) < 0.02;
+}
 
 const RATE_KINDS = ["percent", "points", "ratio", "times"];
 const AMOUNT_KINDS = ["currency", "plain", "ratio"];
@@ -247,26 +335,30 @@ function tableScale(result: ExpectedResult): number | null {
 }
 
 /**
- * A number an Answer may write beside its results without it being an attempt at one: an amount
- * or rate a Document states (to 1%), a year, or what a scale word means ("1万元 = 10,000 yuan").
+ * A number an Answer may write beside its results without it being an attempt at one: a year,
+ * what a scale word means, or a number a Document in the Question's scope states, as far as it
+ * is shown.
  */
-function isAside(value: number): boolean {
+function isAside(number: ObservedNumber, scope: readonly string[] | null): boolean {
+  const { value } = number;
   if (Number.isInteger(value) && value >= 1900 && value <= 2100) return true;
-  if (Math.abs(value) >= 10 && Number.isInteger(Math.log10(Math.abs(value)))) return true;
-  return DOCUMENT_LINES.some((line) =>
-    [line.value, asWritten(line.number)].some(
-      (stated) =>
-        stated !== null &&
-        stated !== 0 &&
-        near(Math.abs(value), Math.abs(stated), STATED_PRECISION * Math.abs(stated)),
-    ),
+  if (definesAScale(number)) return true;
+  // A number shown coarsely ("约1亿元") matches too many lines to be taken for any of them.
+  if (shownPlace(number) > 0.01 * Math.abs(value)) return false;
+  return DOCUMENT_LINES.some(
+    (line) =>
+      (scope === null || scope.includes(line.document)) &&
+      [line.value, asWritten(line.number)].some(
+        (stated) => stated !== null && stated !== 0 && showsAs(number, stated),
+      ),
   );
 }
 
 function scoreResults(
-  results: readonly ExpectedResult[],
+  test: CalculationCase,
   answer: ObservedAnswer,
 ): { scores: ResultScore[]; falseChecked: string[]; hedges: string[]; unmatched: string[] } {
+  const results = test.results;
   const usedFigures = new Set<number>();
   const usedNumbers = new Set<number>();
   const falseChecked: string[] = [];
@@ -298,14 +390,17 @@ function scoreResults(
       return { ...base, outcome: "calculated", inputsRight: inputs, trap: null, got: right.shown };
     }
     const scale = tableScale(result);
-    const written = takeNumber(
-      (number) =>
+    const written = takeNumber((number) => {
+      const value = signed(number, answer.text);
+      const tolerance = writtenTolerance(result, number);
+      return (
         numberFits(result.unit, number) &&
-        (reaches(result, number.value, result.value, result.tolerance) ||
+        (reaches(result, value, result.value, tolerance) ||
           (number.unit === "plain" &&
             scale !== null &&
-            reaches(result, number.value * scale, result.value, result.tolerance))),
-    );
+            reaches(result, value * scale, result.value, tolerance)))
+      );
+    });
     return written
       ? { ...base, outcome: "written", inputsRight: null, trap: null, got: written.chars }
       : null;
@@ -386,7 +481,10 @@ function scoreResults(
       };
     }
     const wrong = takeNumber(
-      (number) => sameKind(result.unit, number.unit) && !isAside(number.value),
+      (number) =>
+        sameKind(result.unit, number.unit) &&
+        !isAside(number, test.scope) &&
+        plausibleAttempt(result, number.value),
     );
     if (wrong)
       return { ...base, outcome: "wrong-written", inputsRight: null, trap: null, got: wrong.chars };
@@ -398,10 +496,17 @@ function scoreResults(
       got: null,
     };
   });
+  const directed = scores.map((score, at): ResultScore => {
+    const result = results[at];
+    const given = score.outcome === "calculated" || score.outcome === "written";
+    return result && given && !namesTheLarger(result, answer.text)
+      ? { ...score, outcome: "wrong-written", trap: "Names the smaller as the larger, or neither" }
+      : score;
+  });
   const unmatched = answer.figures
     .filter((_, at) => !usedFigures.has(at))
     .map((figure) => figure.shown);
-  return { scores, falseChecked, hedges, unmatched };
+  return { scores: directed, falseChecked, hedges, unmatched };
 }
 
 /**
@@ -411,20 +516,26 @@ function scoreResults(
  */
 function unstated(test: CalculationCase, answer: ObservedAnswer): string[] {
   const stated = test.refuse?.stated ?? [];
-  const isStated = (value: number) =>
-    // "1万元 = 10,000 yuan" says what a scale word means, not an amount.
-    (Math.abs(value) >= 10 && Number.isInteger(Math.log10(Math.abs(value)))) ||
-    stated.some((each) =>
-      [each.value, asWritten(each.number)].some(
-        (amount) =>
-          amount !== null && near(Math.abs(value), Math.abs(amount), STATED_PRECISION * amount),
-      ),
+  const isStated = (number: ObservedNumber) =>
+    definesAScale(number) ||
+    stated.some(
+      (line) =>
+        (number.currency === null ||
+          lineCurrency(line) === null ||
+          lineCurrency(line) === number.currency) &&
+        [line.value, asWritten(line.number)].some(
+          (amount) => amount !== null && showsAs(number, amount),
+        ),
     );
   return [
     ...answer.figures
       .filter((figure) => {
         const value = numeric(figure);
-        return value !== null && AMOUNT_KINDS.includes(figure.unit) && !isStated(value);
+        return (
+          value !== null &&
+          AMOUNT_KINDS.includes(figure.unit) &&
+          !isStated({ chars: figure.shown, value, unit: figure.unit, currency: figure.currency })
+        );
       })
       .map((figure) => figure.shown),
     ...answer.figures
@@ -438,11 +549,11 @@ function unstated(test: CalculationCase, answer: ObservedAnswer): string[] {
       .filter(
         (number) =>
           number.unit === "times" ||
-          (number.unit === "currency" && !isStated(number.value)) ||
-          (number.unit === "plain" && Math.abs(number.value) >= 10_000 && !isStated(number.value)),
+          (number.unit === "currency" && !isStated(number)) ||
+          (number.unit === "plain" && Math.abs(number.value) >= 10_000 && !isStated(number)),
       )
       .map((number) => number.chars),
-    ...comparisons(answer.text),
+    ...comparisons(answer.text, test.refuse?.parties ?? []),
   ];
 }
 
@@ -486,7 +597,7 @@ export function scoreCase(test: CalculationCase, answer: ObservedAnswer): CaseSc
         hedges: [],
         unmatched: [],
       }
-    : scoreResults(test.results, answer);
+    : scoreResults(test, answer);
   return { ...common, results: scores, refusal: null, falseChecked, hedges, unmatched };
 }
 
@@ -524,6 +635,8 @@ export interface GroupScore {
   omitted: number;
   refused: number;
   trapsHit: number;
+  /** Questions to answer whose every result is right. */
+  questionsRight: Rate;
   /** Answers that also gave a trap's value beside the right one. */
   hedged: number;
   /** Calculated figures that are no requested result. */
@@ -574,6 +687,16 @@ export function scoreGroup(cases: readonly CaseScore[]): GroupScore {
     omitted: results.filter((each) => each.outcome === "omitted").length,
     refused: results.filter((each) => each.outcome === "refused").length,
     trapsHit: results.filter((each) => each.trap !== null).length,
+    questionsRight: rateOf(
+      cases.filter(
+        (each) =>
+          each.refusal === null &&
+          each.results.every(
+            (result) => result.outcome === "calculated" || result.outcome === "written",
+          ),
+      ).length,
+      cases.filter((each) => each.refusal === null).length,
+    ),
     hedged: cases.filter((each) => each.hedges.length > 0).length,
     unmatched: cases.reduce((total, each) => total + each.unmatched.length, 0),
     falseChecked: cases.reduce((total, each) => total + each.falseChecked.length, 0),
@@ -591,15 +714,15 @@ export interface Bar {
 const percent = (rate: Rate) => (rate.rate === null ? "n/a" : `${(rate.rate * 100).toFixed(1)}%`);
 
 /**
+ * "Clearly more right": at least two more of the same Questions fully right with the Tools. One
+ * Question either way, in one run, can't be told from chance.
+ */
+const CLEAR_MARGIN = 2;
+
+/**
  * The issue's bars for one cloud model, in one language, with the Tools on against the same
  * Questions with them withheld. Null: not measurable from this run.
  */
-/**
- * "Clearly above": at least 5 percentage points, two Questions in 40; one Answer either way is
- * 2.5 points on a language's set, which one run can't tell from chance.
- */
-const CLEAR_MARGIN = 0.05;
-
 export function bars(on: GroupScore, off: GroupScore | null): Bar[] {
   const atLeast = (rate: Rate, bar: number) => (rate.rate === null ? null : rate.rate >= bar);
   return [
@@ -619,12 +742,12 @@ export function bars(on: GroupScore, off: GroupScore | null): Bar[] {
       detail: percent(on.inputCorrectness),
     },
     {
-      name: `Figure correctness clearly above the baseline (by at least ${CLEAR_MARGIN * 100} points)`,
+      name: `Clearly more right than without the Tools: at least ${CLEAR_MARGIN} more Questions fully right`,
       met:
-        off === null || on.figureCorrectness.rate === null || off.figureCorrectness.rate === null
+        off === null || off.questionsRight.of !== on.questionsRight.of
           ? null
-          : on.figureCorrectness.rate - off.figureCorrectness.rate >= CLEAR_MARGIN,
-      detail: `${percent(on.figureCorrectness)} with the Tools, ${off ? percent(off.figureCorrectness) : "no baseline"} without; input correctness has no baseline, since no figure is calculated without the Tools`,
+          : on.questionsRight.count - off.questionsRight.count >= CLEAR_MARGIN,
+      detail: `${on.questionsRight.count} of ${on.questionsRight.of} Questions fully right with the Tools, ${off ? off.questionsRight.count : "no baseline"} without; input correctness has no baseline, since no figure is calculated without the Tools`,
     },
     {
       name: "No false checked figure",

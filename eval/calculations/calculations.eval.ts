@@ -133,7 +133,6 @@ function observe(
   };
 }
 
-/** Asks in a new conversation, in `scope`, and waits until its Answer has ended. */
 async function ask(core: Core, question: string, documentIds: readonly string[] | null) {
   const started = Date.now();
   const result = await core.askInConversation({
