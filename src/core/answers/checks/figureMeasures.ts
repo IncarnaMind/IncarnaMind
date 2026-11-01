@@ -17,6 +17,8 @@ export interface FigureMeasure {
 }
 
 const MEASURE_CHARACTERS = 300;
+/** The longest words a reason shows: a longer copy leaves the reason to the reply's own words. */
+const SHOWN_CHARACTERS = 80;
 
 /** An item's measure as written, or null when it gives none that can be read. */
 export function readMeasure(value: unknown): FigureMeasure | null {
@@ -41,7 +43,6 @@ const wordsOf = (text: string): string[] =>
     .toLowerCase()
     .match(/\p{Script=Han}|(?:(?!\p{Script=Han})[\p{L}\p{N}\p{M}])+/gu) ?? [];
 
-/** Whether `all` holds `part`, word for word. */
 function inOrder(all: readonly string[], part: readonly string[]): boolean {
   if (part.length === 0) return false;
   for (let at = 0; at + part.length <= all.length; at++) {
@@ -77,10 +78,12 @@ const namedIn = (text: string, words: string): boolean => {
 
 /** A table's row as text: its cells apart by tabs or bars. */
 const isRow = (line: string): boolean => line.includes("\t") || /\S\s*\|\s*\S/.test(line);
+const isRule = (line: string): boolean => /^[\s|:-]+$/.test(line) && line.includes("-");
 
 /**
- * The table whose row holds `quote` in `text`, from its first row, its headings, down to that row;
- * null when no row of a table holds it.
+ * The headings of the table whose row holds `quote` in `text`, and that row: the rows above a
+ * Markdown table's rule, else its first row. Another row's label names another number. Null when
+ * no row of a table holds the quote.
  */
 function tableOf(text: string, quote: string): string | null {
   const lines = text.split("\n");
@@ -88,44 +91,39 @@ function tableOf(text: string, quote: string): string | null {
   if (at < 0) return null;
   let first = at;
   while (first > 0 && isRow(lines[first - 1] ?? "")) first--;
-  return lines.slice(first, at + 1).join("\n");
+  const rule = lines.slice(first, at).findIndex(isRule);
+  const headings = rule >= 0 ? lines.slice(first, first + rule) : lines.slice(first, first + 1);
+  return [...headings, lines[at] ?? ""].join("\n");
 }
+
+/** Text as a quote is looked for in it: width, case and spaces aside, a line break inside a paragraph too. */
+const flat = (text: string): string =>
+  text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s*\n\s*\n\s*/g, "\u2029")
+    .replace(/\s+/g, " ");
 
 /**
  * The words of `text` from the start of the sentence that holds `quote` to the quote's end: a
  * clause such as "up from £4,860.0m a year earlier" takes its measure from the words before it
- * ("Revenue was £4,983.4m, …"). Null when `text` doesn't hold the quote as written.
+ * ("Revenue was £4,983.4m, …"). Null when `text` doesn't hold the quote.
  */
 function leadingTo(text: string, quote: string): string | null {
-  const at = text.indexOf(quote);
+  const all = flat(text);
+  const part = flat(quote).trim();
+  const at = part === "" ? -1 : all.indexOf(part);
   if (at < 0) return null;
-  const before = text.slice(0, at);
-  const ends = [...before.matchAll(/[.!?;](?:\s|$)|[。！？；\n]/gu)];
+  const ends = [...all.slice(0, at).matchAll(/[.!?;](?:\s|$)|[。！？；\u2029]/gu)];
   const last = ends.at(-1);
   const start = last?.index === undefined ? 0 : last.index + last[0].length;
-  return text.slice(start, at + quote.length);
-}
-
-/**
- * The words as a reason shows them: a capital that only starts a sentence, a cell or a heading
- * ("Revenue grew 12%", "| On-time rate |") is lower case in the middle of the reason's.
- */
-function shown(words: string, texts: readonly string[]): string {
-  const start = words.normalize("NFKC").toLowerCase();
-  const opens = texts.some((text) =>
-    text
-      .split(/\n|\||\t|[.!?。！？]\s/u)
-      .some((piece) => piece.trim().normalize("NFKC").toLowerCase().startsWith(start)),
-  );
-  return opens && /^\p{Lu}\p{Ll}/u.test(words)
-    ? words.charAt(0).toLowerCase() + words.slice(1)
-    : words;
+  return all.slice(start, at + part.length);
 }
 
 export type MeasureFinding =
   | { kind: "same" }
-  /** `measured`: null when the reply gives no words for it that its quote or table holds. */
-  | { kind: "differs"; measured: string | null; claimed: string }
+  /** `shown`: the two measures as a reason names them; null when either can't be shown as written. */
+  | { kind: "differs"; shown: { measured: string; claimed: string } | null }
   /** The quote is a bare number and the reply names nothing for it: its table's headings decide. */
   | { kind: "unnamed" }
   /** Words the reply doesn't give, or that aren't where it says it copied them. */
@@ -134,8 +132,8 @@ export type MeasureFinding =
 /**
  * Whether a figure's source measures what the sentence's figure does. `sentence`: the texts the
  * sentence's words may come from (the sentence, its figure's label and context, its paragraph);
- * `quote`: the source quote; `passage`: the texts the quote is in, read only when the quote itself
- * doesn't hold the words.
+ * `quote`: the source quote; `passage`: the texts the quote is in, its cited pages first, read
+ * only when the quote itself doesn't hold the words.
  */
 export function measureFinding(
   measure: FigureMeasure | null,
@@ -149,29 +147,39 @@ export function measureFinding(
   // is the sentence's own words when its label, context or paragraph holds it.
   const pieces = said.split(/\s+/u).filter((piece) => /[\p{L}\p{N}]/u.test(piece));
   const own = (words: string) => sentence.some((text) => namedIn(text, words));
-  if (!namesSomething(said) || !(own(said) || pieces.every(own))) return { kind: "unread" };
+  const owned = namesSomething(said) && (own(said) || pieces.every(own));
   const bare = !namesSomething(quote);
   const quoted = measure.quote;
   // A table's cell is named by its row label and its column's heading, which a quote of the cell
-  // or its row may leave out; a clause, by its sentence's words before it; a quote of a number
-  // alone, by the words its Passage puts around it. Words after the quote, or in another
-  // sentence, name another number.
+  // or its row may leave out; a clause, by its sentence's words before it. Words after the quote,
+  // in another row or in another sentence, name another number. The first text that holds the
+  // quote decides.
+  const around = (words: string): string[] => {
+    for (const text of passage()) {
+      const place = tableOf(text, quote) ?? leadingTo(text, quote);
+      if (place !== null) return namedIn(place, words) ? [place] : [];
+    }
+    return [];
+  };
   const found =
     quoted === null || !namesSomething(quoted)
       ? []
       : namedIn(quote, quoted)
         ? [quote]
-        : passage().flatMap((text) => {
-            const around = tableOf(text, quote) ?? leadingTo(text, quote) ?? (bare ? text : null);
-            return around !== null && namedIn(around, quoted) ? [around] : [];
-          });
-  // A measure the reply itself says differs backs nothing, whatever words it gives the quote's.
-  if (measure.match === "differs")
+        : around(quoted);
+  // A measure the reply itself says differs backs nothing, whatever words it gives for either.
+  if (measure.match === "differs") {
+    const asWritten = (words: string, texts: readonly string[]) =>
+      words.length <= SHOWN_CHARACTERS && texts.some((text) => holds(text, words));
     return {
       kind: "differs",
-      measured: quoted !== null && found.length > 0 ? shown(quoted, found) : null,
-      claimed: shown(said, sentence),
+      shown:
+        quoted !== null && owned && asWritten(quoted, found) && asWritten(said, sentence)
+          ? { measured: quoted, claimed: said }
+          : null,
     };
+  }
+  if (!owned) return { kind: "unread" };
   if (found.length > 0) return { kind: "same" };
   return quoted === null && bare ? { kind: "unnamed" } : { kind: "unread" };
 }

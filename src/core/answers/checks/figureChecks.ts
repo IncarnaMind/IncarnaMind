@@ -645,15 +645,6 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       });
       continue;
     }
-    if (
-      item.verdict === "unsupported" ||
-      item.topic !== "found" ||
-      item.scope !== "same" ||
-      item.roles !== "same"
-    ) {
-      rows.push({ ...base, sourceInput, result: unbacked(evidence) });
-      continue;
-    }
     const bound = sourceInput;
     const measure =
       bound && !replayed
@@ -664,18 +655,26 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
             () => options.around(bound.citation),
           )
         : null;
-    // A number that measures something else neither backs the figure nor contradicts it.
+    // A number that measures something else neither backs the figure nor contradicts it, and the
+    // card says so whatever verdict the model gave the figure.
     if (bound && measure?.kind === "differs") {
       const judged = unbacked(evidence);
-      const why =
-        measure.measured === null
-          ? null
-          : options.otherMeasure(bound.number.chars, measure.measured, measure.claimed);
+      const { shown } = measure;
+      const why = shown && options.otherMeasure(bound.number.chars, shown.measured, shown.claimed);
       rows.push({
         ...base,
         sourceInput,
         result: why && judged.verdict === "unsupported" ? { ...judged, unsupported: why } : judged,
       });
+      continue;
+    }
+    if (
+      item.verdict === "unsupported" ||
+      item.topic !== "found" ||
+      item.scope !== "same" ||
+      item.roles !== "same"
+    ) {
+      rows.push({ ...base, sourceInput, result: unbacked(evidence) });
       continue;
     }
     const compared =

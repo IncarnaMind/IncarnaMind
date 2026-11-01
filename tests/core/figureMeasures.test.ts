@@ -27,6 +27,8 @@ interface Reply {
   quote: string;
   number: string;
   measure: unknown;
+  /** The figure's verdict and the sentence's: supported when absent, the reply #2255 found. */
+  verdict?: "supported" | "unsupported" | "contradicted";
 }
 
 const EN_DOCUMENT = {
@@ -109,9 +111,10 @@ function checking(replies: (call: ModelCall) => Reply, calls: ModelCall[]) {
           ],
         };
       }
+      const verdict = planned.verdict ?? "supported";
       const items = requestedFigures(call).map(({ id }) => ({
         id,
-        verdict: "supported",
+        verdict,
         scope: "same",
         topic: "found",
         roles: "same",
@@ -124,7 +127,7 @@ function checking(replies: (call: ModelCall) => Reply, calls: ModelCall[]) {
       }));
       return {
         text: [
-          "Verdict: supported",
+          `Verdict: ${verdict}`,
           "Absence: no",
           "Scope: none, same",
           "Topic: found",
@@ -204,7 +207,7 @@ describe.each([
     quote: "Revenue grew 12% in 2025, to £48.2m.",
     claimed: "Operating margin",
     measured: "Revenue",
-    reason: "The Document gives 12% for revenue, not for operating margin.",
+    reason: "The Document gives 12% for Revenue, not for Operating margin.",
   },
   {
     language: "zh-CN" as const,
@@ -285,6 +288,26 @@ describe.each([
     ]);
     expect(figures[0]?.sentenceState).not.toBe("supported");
   });
+
+  // protects=the card gives the plain reason when the model itself calls the figure unsupported for another measure, as the check's instructions ask, and a figure it calls contradicted on another measure's number, even with the sentence's measure paraphrased, is Unsupported, never Contradicted (#2255); fails_when=the reason shows only on a wrong Supported reply, or another measure's number contradicts the figure; no_claim=none beyond protects.
+  test.each([
+    { verdict: "unsupported" as const, said: example.claimed, why: example.reason },
+    { verdict: "contradicted" as const, said: `${example.claimed}s`, why: null },
+  ])("another measure, called $verdict, is Unsupported", async ({ verdict, said, why }) => {
+    const sentence = example.wrong.replace("12%", "15%");
+    const { figures } = await checkNote(
+      example.language,
+      example.document,
+      [paragraph("wrong", sentence)],
+      one(sentence, {
+        quote: example.quote,
+        number: "12%",
+        verdict,
+        measure: { sentence: said, quote: example.measured, match: "differs" },
+      }),
+    );
+    expect(figures).toMatchObject([{ sentence, state: "unsupported", ...(why && { why }) }]);
+  });
 });
 
 // protects=a model names a measure's words around its number, joining them across it ("employed drivers" for "employed 1,840 drivers"), and the check still finds them; a measure it calls different backs nothing even when its words for the quote's aren't found there (#2255); fails_when=words joined across the number aren't found, or a "differs" with words the quote lacks is Supported or Not checked; no_claim=none beyond protects.
@@ -322,7 +345,7 @@ test("the reason names an English quote's measure in a Chinese sentence's reason
     }),
   );
   expect(figures).toMatchObject([
-    { sentence, state: "unsupported", why: "文档中的 12% 指的是 revenue，而不是营业利润率。" },
+    { sentence, state: "unsupported", why: "文档中的 12% 指的是 Revenue，而不是营业利润率。" },
   ]);
 });
 
@@ -337,7 +360,7 @@ describe("a table's row label and headings say what a cell measures (#2255)", ()
       wrong: "Operating margin",
       quote: "Revenue grew 12% in 2025, to £48.2m.",
       measured: "Revenue",
-      reason: "The Document gives 12% for revenue, not for operating margin.",
+      reason: "The Document gives 12% for Revenue, not for Operating margin.",
     },
     {
       language: "zh-CN" as const,
@@ -418,7 +441,7 @@ describe("a table's row label and headings say what a cell measures (#2255)", ()
     expect(figures).toMatchObject([{ sentence, state }]);
   });
 
-  // protects=a quote of a table's row names its row (a depot), and the column's heading what its number measures, so the heading, copied from the table, counts as the quote's words; a clause ("to £48.2m") takes them from its sentence before it; words its table doesn't hold never do, and a quote outside a table takes none from the rest of its Passage (#2255); fails_when=a row quote can't be Supported on its column's heading, a clause on its sentence's subject, or a quote is Supported on words found elsewhere in its Document; no_claim=how a real model quotes a row.
+  // protects=a quote of a table's row names its row (a depot), and the column's heading what its number measures, so the heading, copied from the table, counts as the quote's words; a clause ("to £48.2m") takes them from its sentence before it; words its table doesn't hold, or another row's label, never do, and a quote outside a table takes none from the rest of its Passage (#2255); fails_when=a row quote can't be Supported on its column's heading, a clause on its sentence's subject, or a quote is Supported on another row's label or on words found elsewhere in its Document; no_claim=how a real model quotes a row.
   test.each([
     {
       sentence: "Felixstowe's on-time rate was 94% in 2025.",
@@ -439,6 +462,12 @@ describe("a table's row label and headings say what a cell measures (#2255)", ()
       state: "supported",
     },
     {
+      sentence: "Gross margin was 1.4x in 2025.",
+      quote: "1.4x",
+      measure: { sentence: "Gross margin", quote: "Gross margin", match: "same" },
+      state: "not-checked",
+    },
+    {
       sentence: "Gross margin grew 12% in 2025.",
       quote: "Revenue grew 12% in 2025, to £48.2m.",
       measure: { sentence: "Gross margin", quote: "Gross margin", match: "same" },
@@ -447,7 +476,7 @@ describe("a table's row label and headings say what a cell measures (#2255)", ()
   ])(
     "a row's column heading: $measure.quote for $quote",
     async ({ sentence, quote, measure, state }) => {
-      const number = ["94%", "£48.2m", "12%"].find((each) => quote.includes(each)) ?? "";
+      const number = ["94%", "£48.2m", "12%", "1.4x"].find((each) => quote.includes(each)) ?? "";
       const { figures } = await checkNote(
         "en",
         EN_DOCUMENT,
