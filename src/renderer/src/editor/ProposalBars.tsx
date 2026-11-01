@@ -36,6 +36,7 @@ import {
 } from "./proposalReview";
 import { redrawProposalRewrites, toggleProposalOriginal } from "./proposalRewrites";
 import { madeByLine, namesList } from "./theirChanges";
+import { type SentenceRange, uncitedSentences } from "./uncitedSentences";
 
 /** How long the bar stays once the pointer leaves its change, so it can reach the bar. */
 const LEAVE_MS = 300;
@@ -344,6 +345,8 @@ interface Shown {
   made: { author: string | null; date: string | null } | null;
   /** The outside agent that proposed it (#352); null for anyone else's. */
   agent: string | null;
+  /** An outside agent's: the sentences it would leave with no Citation, in order. */
+  uncited: SentenceRange[];
   /** Why the assistant made it; null when it didn't say. */
   reason: string | null;
   /** The cursor is in it, not only the pointer on it. */
@@ -500,6 +503,8 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
   const t = useT();
   const bar = useRef<HTMLDivElement>(null);
   const over = useRef(false);
+  /** The uncited sentence of the shown change last selected from its bar. */
+  const lastUncited = useRef<{ id: string; at: number } | null>(null);
   const shown = useEditorState({
     editor,
     selector: ({ editor: current }): Shown | null => {
@@ -520,6 +525,10 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
         citations: proposal.citations,
         made: proposal.theirs ? theirChange(current, proposal) : null,
         agent: proposal.theirs ? null : outsideAgentOf(current, proposal),
+        uncited:
+          !proposal.theirs && outsideAgentOf(current, proposal) !== null
+            ? uncitedSentences(current.state.doc, proposal)
+            : [],
         reason: proposal.theirs ? null : changeReason(current, proposal),
         focused: pendingAtSelection(current.state).some((each) => each.id === proposal.id),
       };
@@ -561,6 +570,17 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
 
   if (!shown) return null;
   const removedSources = sourcesRemoved(shown, documents, kept);
+  // Each click selects the next one, back to the first after the last; none are selected at once.
+  const selectNextUncited = () => {
+    const { uncited } = shown;
+    const last = lastUncited.current;
+    const at = last?.id === shown.id ? (last.at + 1) % uncited.length : 0;
+    const sentence = uncited[at];
+    if (!sentence || editor.isDestroyed) return;
+    lastUncited.current = { id: shown.id, at };
+    editor.chain().setTextSelection(sentence).scrollIntoView().run();
+    editor.view.focus();
+  };
   const resolve = (event: ReactMouseEvent, outcome: "accept" | "reject") => {
     if (repeated(event.nativeEvent)) return;
     over.current = false;
@@ -601,6 +621,25 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
           <span data-testid="change-bar-author" className="change-bar-author">
             {madeBy}
           </span>
+        )}
+        {shown.uncited.length > 0 && (
+          <>
+            <span aria-hidden="true" className="proposal-dot">
+              ·
+            </span>
+            {/* A way to find them, not a warning: quiet, as a chart's "1 with no Citation" is. */}
+            <button
+              type="button"
+              data-testid="change-bar-uncited"
+              title={t("proposal.uncited.next")}
+              onClick={selectNextUncited}
+              className="change-bar-uncited"
+            >
+              {shown.uncited.length === 1
+                ? t("proposal.uncited.one")
+                : t("proposal.uncited", { count: shown.uncited.length })}
+            </button>
+          </>
         )}
         {shown.dropped > 0 && (
           <span data-testid="change-bar-drops" className="change-bar-drops">

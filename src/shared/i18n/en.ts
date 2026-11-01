@@ -1531,6 +1531,9 @@ export const en = {
   "proposal.madeBy": "{author}, {date}",
   // An outside agent's change waiting in a Note (#352), named after its pairing.
   "proposal.proposedBy": "Proposed by {agent}",
+  "proposal.uncited.one": "1 sentence with no Citation",
+  "proposal.uncited": "{count} sentences with no Citation",
+  "proposal.uncited.next": "Select the next sentence with no Citation",
   "proposal.why": "Why: {reason}",
   "edit.applied": "Changed {count} paragraphs",
   "edit.applied.one": "Changed 1 paragraph",
@@ -6673,6 +6676,19 @@ export const en = {
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",
   "agents.mind.busy": "(being written)",
+  // Why an outside agent's proposed changes couldn't be read (#352), for it to put right.
+  "agents.propose.list": "List 1 to {max} changes.",
+  "agents.propose.name":
+    "“{name}” isn’t a paragraph’s name. Use ¶3 for a paragraph read_mind named, ¶3+ to add after it, or ¶+ to add after the change before.",
+  "agents.propose.removeChoice": "remove must be true or false.",
+  "agents.propose.removeOnly": "To take {name} out, give remove and no text.",
+  "agents.propose.text": "Give the text for {name}.",
+  "agents.propose.textTooLong": "The text for {name} is longer than {max} characters.",
+  "agents.propose.version": "Give the version read_mind returned with named.",
+  "agents.propose.firstAdd": "¶+ adds after the change before it: name a paragraph first.",
+  "agents.propose.noParagraphs": "{name} isn’t in the note: it has no paragraphs to name.",
+  "agents.propose.outOfRange": "{name} isn’t in the note: its paragraphs are ¶1 to ¶{count}.",
+  "agents.propose.twice": "{name} is named twice: change each paragraph once.",
   // Settings → Agents (#351): plain words for people who never edit a settings file.
   "settings.pages.agents": "Agents",
   "agents.settings.experimental": "Experimental",

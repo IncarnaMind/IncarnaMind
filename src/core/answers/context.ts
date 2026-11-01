@@ -14,6 +14,7 @@
 import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import { type LiveDocument, liveDocumentOf } from "../../shared/citations";
+import { pendingProposals, proposalRequestOf } from "../../shared/proposals";
 import { parseThirdPartySource } from "../../shared/textOrigins";
 import {
   ANSWER_BLOCK,
@@ -202,17 +203,31 @@ export interface QuestionContextWithOrigins {
 
 /**
  * The third-party sources recorded for a Block and the Blocks nested in it
- * (a quote added inside a list, say), each once, in the order found.
+ * (a quote added inside a list, say), each once, in the order found. Read
+ * with its changes waiting (`review`), what an outside agent proposed there
+ * counts too: its text is marked only once accepted (#352).
  */
-function originsIn(block: Y.XmlElement, origins: Y.Map<unknown>): ThirdPartySource[] {
+function originsIn(
+  block: Y.XmlElement,
+  origins: Y.Map<unknown> | null,
+  review?: ReviewReading,
+): ThirdPartySource[] {
   const found = new Set<ThirdPartySource>();
   const visit = (element: Y.XmlElement) => {
     const id = textAttribute(element, BLOCK_ID_ATTRIBUTE);
-    const source = id === null ? null : parseThirdPartySource(origins.get(id));
+    const source = id === null || !origins ? null : parseThirdPartySource(origins.get(id));
     if (source) found.add(source);
     for (const child of element.toArray()) if (child instanceof Y.XmlElement) visit(child);
   };
   visit(block);
+  const { doc } = block;
+  if (review && doc) {
+    const fromAgent = pendingProposals(block).some(
+      (ref) =>
+        !review.skips(ref.id) && proposalRequestOf(doc, ref.request)?.source === "outside-agent",
+    );
+    if (fromAgent) found.add("outside-agent");
+  }
   return [...found];
 }
 
@@ -389,7 +404,7 @@ export function readMind(
     read.push({
       text: readText(block, piece),
       heading: block.nodeName === "heading",
-      origins: recorded ? originsIn(block, recorded) : [],
+      origins: originsIn(block, recorded, review),
     });
   }
   const placed = (focus?.blockIds ?? []).map((id) => byId.get(id));

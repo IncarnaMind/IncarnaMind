@@ -471,9 +471,26 @@ type AskedChange =
 /** "¶3", "¶3+" or "¶+". */
 const PARAGRAPH_NAME = /^¶(?:(\d{1,5})(\+?)|\+)$/;
 
-function parseChanges(value: unknown): AskedChange[] {
+/** A message in the interface language. */
+type Say = (key: MessageKey, params?: MessageParams) => string;
+
+/** A change's text: words, at most `MAX_CHANGE_CHARS` of them. */
+function changeText(value: unknown, name: string, t: Say): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new AgentRefusedError("invalid", t("agents.propose.text", { name }));
+  }
+  if (value.length > MAX_CHANGE_CHARS) {
+    throw new AgentRefusedError(
+      "invalid",
+      t("agents.propose.textTooLong", { name, max: MAX_CHANGE_CHARS }),
+    );
+  }
+  return value.trim();
+}
+
+function parseChanges(value: unknown, t: Say): AskedChange[] {
   if (!Array.isArray(value) || value.length === 0 || value.length > MAX_CHANGES) {
-    throw new AgentRefusedError("invalid", `changes must list 1 to ${MAX_CHANGES} changes.`);
+    throw new AgentRefusedError("invalid", t("agents.propose.list", { max: MAX_CHANGES }));
   }
   return value.map((entry): AskedChange => {
     const change = (typeof entry === "object" && entry !== null ? entry : {}) as Record<
@@ -483,50 +500,43 @@ function parseChanges(value: unknown): AskedChange[] {
     const name = typeof change.paragraph === "string" ? change.paragraph.trim() : "";
     const read = PARAGRAPH_NAME.exec(name);
     if (!read) {
-      throw new AgentRefusedError(
-        "invalid",
-        `"${clip(name, 20)}" isn't a paragraph's name: use ¶3 for a paragraph read_mind named, ¶3+ for new paragraphs after it, or ¶+ after the change before.`,
-      );
+      throw new AgentRefusedError("invalid", t("agents.propose.name", { name: clip(name, 20) }));
     }
     const n = read[1] === undefined ? null : Number(read[1]);
-    const adds = n === null || read[2] === "+";
     if (change.remove !== undefined && typeof change.remove !== "boolean") {
-      throw new AgentRefusedError("invalid", "remove must be true or false.");
+      throw new AgentRefusedError("invalid", t("agents.propose.removeChoice"));
     }
     if (change.remove === true) {
-      if (adds || change.text !== undefined) {
-        throw new AgentRefusedError("invalid", `To take ${name} out, give remove and no text.`);
+      if (n === null || read[2] === "+" || change.text !== undefined) {
+        throw new AgentRefusedError("invalid", t("agents.propose.removeOnly", { name }));
       }
-      return { kind: "remove", name, n: n as number };
+      return { kind: "remove", name, n };
     }
-    const written = text(change.text, `The text for ${name}`, MAX_CHANGE_CHARS);
-    return adds
-      ? { kind: "add", name, n, text: written }
-      : { kind: "rewrite", name, n: n as number, text: written };
+    const written = changeText(change.text, name, t);
+    if (n === null || read[2] === "+") return { kind: "add", name, n, text: written };
+    return { kind: "rewrite", name, n, text: written };
   });
 }
 
 /** The changes, each for the named paragraph it is for, in a Note of `count` named paragraphs. */
-function placeChanges(asked: readonly AskedChange[], count: number): NamedChange[] {
+function placeChanges(asked: readonly AskedChange[], count: number, t: Say): NamedChange[] {
   const named = new Set<number>();
   let before: number | null = null;
   return asked.map((change): NamedChange => {
     const n = change.n ?? (before === null ? null : before + 1);
-    if (n === null) {
-      throw new AgentRefusedError("invalid", "¶+ adds after the change before it: name one first.");
-    }
+    if (n === null) throw new AgentRefusedError("invalid", t("agents.propose.firstAdd"));
     if (n < 1 || n > count) {
       throw new AgentRefusedError(
         "invalid",
         count === 0
-          ? `${change.name} isn't in the Note: it has no paragraphs to name.`
-          : `${change.name} isn't in the Note: its paragraphs are ¶1 to ¶${count}.`,
+          ? t("agents.propose.noParagraphs", { name: change.name })
+          : t("agents.propose.outOfRange", { name: change.name, count }),
       );
     }
     before = n - 1;
     if (change.kind === "add") return { kind: "add", after: n - 1, text: change.text };
     if (named.has(n)) {
-      throw new AgentRefusedError("invalid", `¶${n} is named twice: change each paragraph once.`);
+      throw new AgentRefusedError("invalid", t("agents.propose.twice", { name: change.name }));
     }
     named.add(n);
     return change.kind === "remove"
@@ -548,7 +558,7 @@ interface Done<T> {
 
 /** The core interface for one pairing's calls. */
 export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): AgentAccess {
-  const t = (key: MessageKey, params?: MessageParams) => deps.say(key, params);
+  const t: Say = (key, params) => deps.say(key, params);
   const label = (
     location: CitationLocation | null,
     pageFrom: number | null,
@@ -1206,8 +1216,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
         const mind = mindInScope(pairing, text(input?.mindId, "mindId", 200));
-        const version = text(input?.version, "version", 100);
-        const asked = parseChanges(input?.changes);
+        const version = typeof input?.version === "string" ? input.version.trim() : "";
+        if (version === "" || version.length > 100) {
+          throw new AgentRefusedError("invalid", t("agents.propose.version"));
+        }
+        const asked = parseChanges(input?.changes, t);
         const inScope = new Set(scopeOf(pairing, undefined));
         const live = deps.liveDocuments();
         const tokens = new Map<
@@ -1228,7 +1241,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             if (note.version !== version) {
               throw new AgentRefusedError("changed", t("agents.problem.changed"));
             }
-            return proposeNamed(blocks, note, placeChanges(asked, note.paragraphs.length), {
+            return proposeNamed(blocks, note, placeChanges(asked, note.paragraphs.length, t), {
               request: randomUUID(),
               made: {
                 source: "outside-agent",

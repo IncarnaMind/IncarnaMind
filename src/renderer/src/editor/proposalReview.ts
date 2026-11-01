@@ -17,6 +17,7 @@ import {
   type KeptCitationText,
   MIND_PROPOSAL_REQUESTS_FIELD,
   MIND_REVISIONS_FIELD,
+  MIND_TEXT_ORIGINS_FIELD,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -583,7 +584,7 @@ type Translate = (key: MessageKey, params?: MessageParams) => string;
  * Whether a change can be made again (Regenerate): not someone's from a Word file, nor an
  * outside agent's (#352), which IncarnaMind can't ask again.
  */
-function madeAgain(state: EditorState): (proposal: PendingProposal) => boolean {
+export function madeAgain(state: EditorState): (proposal: PendingProposal) => boolean {
   const doc: Y.Doc | undefined = ySyncPluginKey.getState(state)?.binding?.doc;
   return (proposal) =>
     !proposal.theirs &&
@@ -911,10 +912,12 @@ export function resolveInEditor(
   if (!binding || (ids !== "all" && ids.size === 0)) return [];
   const undo: Y.UndoManager | undefined = yUndoPluginKey.getState(editor.state)?.undoManager;
   // The counts of what was decided (`decideProposals`) go back with the Blocks, and so do the
-  // origins a reject gives back (`restoreOrigins`) and the revisions it forgets (#1903).
+  // origins a reject gives back (`restoreOrigins`), the revisions it forgets (#1903) and the
+  // third-party mark an outside agent's accepted text gets (#352).
   undo?.addToScope([
     binding.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD),
     binding.doc.getMap(MIND_REVISIONS_FIELD),
+    binding.doc.getMap(MIND_TEXT_ORIGINS_FIELD),
     ...originMaps(binding.doc),
   ]);
   undo?.stopCapturing();

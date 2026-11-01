@@ -53,6 +53,10 @@ test.afterEach(async () => {
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 
+/** Two sentences the agent adds with no Citation. */
+const NEAP = "Neap tides come at the first and third quarters of the moon.";
+const RANGE = "Their range is the smallest of the month.";
+
 /** Saves a screenshot when INCARNAMIND_SCREENSHOTS names a folder for them. */
 async function shot(window: Page, name: string) {
   if (!SCREENSHOTS) return;
@@ -151,7 +155,10 @@ test("an agent the User lets propose changes: its change waits in the Note with 
         arguments: {
           mindId,
           version: named.version,
-          changes: [{ paragraph: "¶1", text: "Tides rise and fall two times a day." }],
+          changes: [
+            { paragraph: "¶1", text: "Tides rise and fall two times a day." },
+            { paragraph: "¶1+", text: `${NEAP} ${RANGE}` },
+          ],
         },
       });
       expect(proposed.isError ?? false).toBe(false);
@@ -159,17 +166,21 @@ test("an agent the User lets propose changes: its change waits in the Note with 
       await agent.close();
     }
 
-    // It waits: the Note's bar and the change's own bar name the agent.
-    await expect(window.getByTestId("proposals-count")).toHaveText("1 change waiting");
+    // They wait: the Note's bar and each change's own bar name the agent, and the change's bar
+    // counts the sentences it would leave with no Citation.
+    await expect(window.getByTestId("proposals-count")).toHaveText("2 changes waiting");
     await expect(window.getByTestId("proposals-agents")).toHaveText("Proposed by Research agent");
     await pointAndClick(window, editor.locator("ins.proposal-insert").first());
     const bar = window.getByTestId("change-bar");
     await expect(bar.getByTestId("change-bar-author")).toHaveText("Proposed by Research agent");
+    await expect(bar.getByTestId("change-bar-uncited")).toHaveText("1 sentence with no Citation");
     await shot(window, "agent-proposals-waiting-en");
 
     await pointAndClick(window, bar.getByTestId("change-accept"));
-    await expect(editor.locator(":scope > p")).toHaveText(["Tides rise and fall two times a day."]);
-    await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
+    await expect(editor.locator(":scope > p").first()).toHaveText(
+      "Tides rise and fall two times a day.",
+    );
+    await expect(window.getByTestId("proposals-count")).toHaveText("1 change waiting");
     await expect
       .poll(() =>
         window.evaluate(async () =>
@@ -182,16 +193,31 @@ test("an agent the User lets propose changes: its change waits in the Note with 
 
     await editor.focus();
     await window.keyboard.press("ControlOrMeta+z");
-    await expect(window.getByTestId("proposals-count")).toHaveText("1 change waiting");
+    await expect(window.getByTestId("proposals-count")).toHaveText("2 changes waiting");
     await expect(editor.locator("del.proposal-delete")).toHaveText("twice");
+
+    // Each click on the count selects the next sentence with no Citation, then the first again.
+    const added = editor.locator("p.proposal-node--insert");
+    const selected = () => window.evaluate(() => document.getSelection()?.toString().trim() ?? "");
+    const cycles = async (count: string) => {
+      await pointAndClick(window, added);
+      const uncited = bar.getByTestId("change-bar-uncited");
+      await expect(uncited).toHaveText(count);
+      for (const sentence of [NEAP, RANGE, NEAP]) {
+        await pointAndClick(window, uncited);
+        await expect.poll(selected).toBe(sentence);
+      }
+    };
+    await cycles("2 sentences with no Citation");
+    await shot(window, "agent-proposals-uncited-en");
 
     await setLanguage(window, "zh-CN");
     await expect(window.getByTestId("proposals-agents")).toHaveText("Research agent 建议");
-    await pointAndClick(window, editor.locator("ins.proposal-insert").first());
+    await cycles("2 句没有引用");
     await expect(bar.getByTestId("change-bar-author")).toHaveText("Research agent 建议");
-    await shot(window, "agent-proposals-waiting-zh");
+    await shot(window, "agent-proposals-uncited-zh");
 
-    // The User edits the word it replaces: out of date, it can only be rejected, since
+    // The User edits the word the rewrite replaces: out of date, it can only be rejected, since
     // IncarnaMind can't ask the agent to make it again.
     await pointAndClick(window, editor.locator("del.proposal-delete"));
     await window.keyboard.type("x");
@@ -200,7 +226,7 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await expect(stale.getByTestId("change-regenerate")).toHaveCount(0);
     await shot(window, "agent-proposals-out-of-date-zh");
     await pointAndClick(window, stale.getByTestId("change-reject"));
-    await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
+    await expect(window.getByTestId("proposals-count")).toHaveText("1 处修订待处理");
   } finally {
     await app.close();
   }

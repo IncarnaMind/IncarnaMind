@@ -212,7 +212,7 @@ export interface Pending {
   id: string;
   /** When it was asked for, or made, ISO 8601; null when the Mind doesn't say. */
   at: string | null;
-  /** Who made it, for someone's change in a Word file (#108); otherwise IncarnaMind's. */
+  /** Who made it: someone in a Word file (#108), or an outside agent (#352); else IncarnaMind. */
   by?: string;
 }
 
@@ -459,9 +459,13 @@ export function theirChangesReading(doc: Y.Doc): ReviewReading {
   };
 }
 
-/** When a request's changes were made, and by whom if not by IncarnaMind: someone's from a Word file. */
+/**
+ * When a request's changes were made, and by whom if not by IncarnaMind: someone's from a Word
+ * file, or an outside agent, by its name (#352).
+ */
 export function madeBy(made: ProposalRequest | null): Omit<Pending, "id"> {
   if (made?.source === "word-change") return { at: made.date, by: made.author ?? "" };
+  if (made?.source === "outside-agent") return { at: made.createdAt, by: made.agent };
   return { at: made?.createdAt ?? null };
 }
 

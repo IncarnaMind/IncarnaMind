@@ -8,27 +8,33 @@
  * it was read: `version` changes with any paragraph, and changes named for an older read are
  * refused before anything is written.
  *
- * The agent's text is third-party text, and only IncarnaMind marks a Citation in it: a token
- * IncarnaMind minted for this agent becomes one (`cited`), and every "[" that could start one
- * of IncarnaMind's own markers gets a word joiner after it, so a `[^1]`, `[1]` or `[=1]` the
- * agent wrote stays words.
+ * Only IncarnaMind marks a Citation in the agent's text: a token IncarnaMind minted for this
+ * agent becomes one (`cited`), and nothing else does, whatever the agent wrote around a "["
+ * (ADR-0026, decision 4). New paragraphs are parsed first, with each token held by characters
+ * no parsing makes or takes, and only then do those become Citations and every "[" left in the
+ * words get a word joiner after it. A rewrite is read by Edit with AI's own reading, which
+ * this module can't parse ahead of, so there every "[" the agent wrote gets one before it is
+ * read: a bracket that parsing could join to a number (`[**1**]`, `[_^1_]`) never becomes a
+ * marker. Who made the changes is recorded with them; their text is marked third-party once
+ * the User accepts it (`decideProposals`), and read as such while it waits.
  */
 import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
-import { type NodeJSON, withCitations } from "../../shared/blockJson";
+import { type NodeJSON, replaceMarkers } from "../../shared/blockJson";
 import {
   readProposalAttribute,
   recordProposalRequest,
   targetHash,
   waitingChanges,
 } from "../../shared/proposals";
-import { setTextOrigin } from "../../shared/textOrigins";
 import { createElement } from "../answers/blocks";
 import { escapeRemovedMark, markdownToBlocks } from "../answers/markdown";
 import {
   BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
+  FOOTNOTE_NODE,
   type OutsideAgentRequest,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
@@ -86,12 +92,16 @@ const unescapeNames = (text: string) => text.replace(/\\¶/g, "¶");
 
 const WORD_JOINER = "\u2060";
 
-/**
- * The agent's words with a word joiner after each "[" that could start one of IncarnaMind's
- * markers ("[^1]", "[1]", "[=1]"), however escaped: no parsing takes it out, so no marker
- * forms from them (ADR-0026, decision 4).
- */
-const inert = (text: string) => text.replace(/\[(?=\\*[\^=\d])/g, `[${WORD_JOINER}`);
+/** Words with a word joiner after every "[": no parsing takes it out, so no marker forms there. */
+const inert = (text: string) => text.replaceAll("[", `[${WORD_JOINER}`);
+
+/** Where a token stands in new paragraphs while they are parsed: characters no parsing makes or takes. */
+const HELD_TOKEN = /\uE000(\d{1,4})\uE001/g;
+const heldToken = (n: number) => `\uE000${n}\uE001`;
+const HOLDING = /[\uE000\uE001]/g;
+
+/** Inline nodes that cite or stand for a cited figure: only IncarnaMind's own may be in new text. */
+const CITING: ReadonlySet<string> = new Set([CITATION_NODE, FOOTNOTE_NODE, CALCULATED_FIGURE_NODE]);
 
 /** A Block an unaccepted Proposal adds, or one inside it: not in the Note yet. */
 function addedByProposal(element: Y.XmlElement): boolean {
@@ -279,39 +289,47 @@ function withTokens(
   return out + words(text.slice(at));
 }
 
-/** New paragraphs as Blocks: Markdown, their tokens as Citations, their words AI text. */
+/**
+ * New paragraphs as Blocks: Markdown, parsed with each token held apart, then each token this
+ * agent may cite a Citation, and their words AI text with every "[" inert. A citing node the
+ * parse made itself, and a token's place parsing left in code, are only words.
+ */
 function newBlocks(written: string, options: ProposeOptions): NodeJSON[] {
-  const cited: Attributes[] = [];
-  const markers = new Map<string, string>();
-  const marker = (token: string): string => {
-    const known = markers.get(token);
+  const tokens: { token: string; attributes: Attributes | null }[] = [];
+  const held = new Map<string, string>();
+  const hold = (token: string): string => {
+    const known = held.get(token);
     if (known) return known;
     const found = options.cited(token);
-    let shown = inert(options.notFound);
-    if (found?.citable) {
-      cited.push(found.attributes);
-      shown = `[^${cited.length}]`;
-    }
-    markers.set(token, shown);
-    return shown;
+    const place = heldToken(tokens.length);
+    tokens.push({ token, attributes: found?.citable ? found.attributes : null });
+    held.set(token, place);
+    return place;
   };
   const markdown = withTokens(
     written.replace(LEADING_NAME, ""),
-    (part) => inert(unescapeNames(part)),
-    marker,
+    (part) => unescapeNames(part).replace(HOLDING, ""),
+    hold,
   );
-  const blocks = withCitations(markdownToBlocks(markdown), (n) => {
-    const attributes = cited[n - 1];
-    return attributes
-      ? {
-          type: CITATION_NODE,
-          attrs: Object.fromEntries(
-            Object.entries(attributes).filter(([, value]) => value !== null),
-          ),
-        }
-      : null;
+  const placed = new Set<NodeJSON>();
+  const cited = replaceMarkers(markdownToBlocks(markdown), HELD_TOKEN, (match, before) => {
+    const attributes = tokens[Number(match[1])]?.attributes;
+    if (!attributes) return { before, put: options.notFound };
+    const node: NodeJSON = {
+      type: CITATION_NODE,
+      attrs: Object.fromEntries(Object.entries(attributes).filter(([, value]) => value !== null)),
+    };
+    placed.add(node);
+    return { before, put: node };
   });
-  return asGenerated(blocks).filter(
+  const words = (text: string) =>
+    inert(text.replace(HELD_TOKEN, (_, n: string) => `[cite:${tokens[Number(n)]?.token ?? ""}]`));
+  const own = (node: NodeJSON): NodeJSON[] => {
+    if (CITING.has(node.type) && !placed.has(node)) return [];
+    if (node.type === "text") return [{ ...node, text: words(node.text ?? "") }];
+    return [node.content ? { ...node, content: node.content.flatMap(own) } : node];
+  };
+  return asGenerated(cited.flatMap(own)).filter(
     (block) => !(block.type === "paragraph" && (block.content?.length ?? 0) === 0),
   );
 }
@@ -329,44 +347,35 @@ function proposedElement(node: NodeJSON, options: ProposeOptions): Y.XmlElement 
 
 /**
  * Puts new Blocks after a paragraph: items of a list of its own kind go into its list, right
- * after its item; anything else goes after the top-level Block it is in. Returns their ids.
+ * after its item; anything else goes after the top-level Block it is in.
  */
 function addAfter(
   blocks: Y.XmlFragment,
   paragraph: Y.XmlElement,
   nodes: readonly NodeJSON[],
   options: ProposeOptions,
-): string[] {
+): void {
   const item = paragraph.parent instanceof Y.XmlElement ? paragraph.parent : null;
   const list =
     item?.nodeName === "listItem" && item.parent instanceof Y.XmlElement ? item.parent : null;
-  let elements: Y.XmlElement[];
   if (item && list && nodes.every((node) => node.type === list.nodeName)) {
-    elements = nodes.flatMap((node) =>
+    const items = nodes.flatMap((node) =>
       (node.content ?? []).map((each) => proposedElement(each, options)),
     );
-    list.insert(list.toArray().indexOf(item) + 1, elements);
-  } else {
-    let top: Y.XmlElement = paragraph;
-    while (top.parent instanceof Y.XmlElement) top = top.parent;
-    elements = nodes.map((node) => proposedElement(node, options));
-    blocks.insert(blocks.toArray().indexOf(top) + 1, elements);
+    list.insert(list.toArray().indexOf(item) + 1, items);
+    return;
   }
-  return elements.flatMap(idsIn);
-}
-
-/** The Block ids in an element, its own first, at any depth. */
-function idsIn(element: Y.XmlElement): string[] {
-  const id = element.getAttribute(BLOCK_ID_ATTRIBUTE);
-  return [
-    ...(typeof id === "string" ? [id] : []),
-    ...element.toArray().flatMap((child) => (child instanceof Y.XmlElement ? idsIn(child) : [])),
-  ];
+  let top: Y.XmlElement = paragraph;
+  while (top.parent instanceof Y.XmlElement) top = top.parent;
+  blocks.insert(
+    blocks.toArray().indexOf(top) + 1,
+    nodes.map((node) => proposedElement(node, options)),
+  );
 }
 
 /**
  * Writes the agent's changes into the Note as Proposals of `options.request`, waiting for the
- * User, and records who made them and that their text is third-party. `note` must be the Note
+ * User, and records who made them. `note` must be the Note
  * as named in this same Yjs transaction. Nothing is written unless every change can be: a
  * paragraph held is refused (`HeldParagraph`). Returns how many changes wait.
  */
@@ -391,7 +400,6 @@ export function proposeNamed(
   // Everything is read and turned into what it writes first: a refusal leaves the Note as it was.
   const rewrites: { selection: Selection; text: string; fresh: Map<number, Attributes> }[] = [];
   const adds = new Map<number, NodeJSON[]>();
-  const touched: string[] = [];
   for (const change of changes) {
     if (change.kind === "add") {
       adds.set(change.after, [
@@ -410,7 +418,6 @@ export function proposeNamed(
         ? { text: "", fresh: new Map<number, Attributes>() }
         : rewriteText(change.text, read.selection, options);
     rewrites.push({ selection: read.selection, ...written });
-    touched.push(paragraph.blockId);
   }
   const placed = [...adds.entries()].map(([after, nodes]) => ({ ...elementAt(after), nodes }));
 
@@ -418,13 +425,10 @@ export function proposeNamed(
     proposeRewrite(selection, text, options.request, options.newId, fresh);
   }
   for (const { element, nodes } of placed) {
-    if (nodes.length > 0) touched.push(...addAfter(blocks, element, nodes, options));
+    if (nodes.length > 0) addAfter(blocks, element, nodes, options);
   }
   const doc = blocks.doc;
   const count = waitingChanges(blocks, (each) => each.request === options.request);
-  if (doc && count > 0) {
-    recordProposalRequest(doc, options.request, options.made);
-    setTextOrigin(doc, touched, "outside-agent");
-  }
+  if (doc && count > 0) recordProposalRequest(doc, options.request, options.made);
   return count;
 }

@@ -6,6 +6,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { beforeAll, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import type { Core } from "../../src/core";
@@ -30,6 +31,7 @@ import {
   waitForDocuments,
   writeSourceFile,
 } from "../helpers/documents";
+import { unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { replyingModel } from "../helpers/models";
@@ -120,6 +122,33 @@ async function tokenFor(agent: Agent, query: string, quote: string): Promise<str
   return cite;
 }
 
+/** Where a Citation is in a Block's text, as `shown` writes it. */
+const CITED = "‹C›";
+
+/** A Block's text, each Citation as `CITED` and each footnote as "‹F›", word joiners kept. */
+function shown(block: ProseMirrorNode): string {
+  let text = "";
+  block.descendants((node) => {
+    if (node.isText) text += node.text ?? "";
+    else if (node.type.name === CITATION_NODE) text += CITED;
+    else if (node.type.name === "footnote") {
+      text += "‹F›";
+      return false;
+    }
+    return true;
+  });
+  return text;
+}
+
+/** How many nodes of a kind the editor's copy of the Note holds. */
+function nodesNamed(client: MindClient, name: string): number {
+  let count = 0;
+  readMind(client).descendants((node) => {
+    if (node.type.name === name) count++;
+  });
+  return count;
+}
+
 /** The Citation nodes in the editor's copy of the Note, with their attributes. */
 function citationsIn(client: MindClient): Record<string, unknown>[] {
   const found: Record<string, unknown>[] = [];
@@ -184,10 +213,22 @@ function removalIn(client: MindClient, text: string): string {
   throw new Error(`Nothing proposes taking out “${text}”.`);
 }
 
+/** As the editor's Undo takes a decision back: its Blocks, its counts and the third-party marks. */
 const undoOf = (client: MindClient) =>
-  new Y.UndoManager([client.blocks, client.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD)], {
-    trackedOrigins: new Set(["user"]),
-  });
+  new Y.UndoManager(
+    [
+      client.blocks,
+      client.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD),
+      client.doc.getMap(MIND_TEXT_ORIGINS_FIELD),
+    ],
+    { trackedOrigins: new Set(["user"]) },
+  );
+
+/** The Blocks marked as holding an outside agent's text. */
+const agentText = (client: MindClient): string[] =>
+  Object.entries(client.doc.getMap(MIND_TEXT_ORIGINS_FIELD).toJSON())
+    .filter(([, source]) => source === "outside-agent")
+    .map(([id]) => id);
 
 const settle = async (core: Core, client: MindClient) => {
   await client.settled();
@@ -267,10 +308,8 @@ describe("an outside agent's proposed changes (#352)", () => {
     expect(before).toContain("Tides rise twice a day.");
     expect(before).toContain("The moon is made of cheese.");
     expect(before).not.toContain("King tides");
-    // Its text is third-party text, as an imported file's or a web page's is.
-    expect(Object.values(client.doc.getMap(MIND_TEXT_ORIGINS_FIELD).toJSON())).toContain(
-      "outside-agent",
-    );
+    // Waiting, its text marks nothing as third-party: only what the User accepts is in the Note.
+    expect(agentText(client)).toEqual([]);
     // The new list item goes into the list, right after the item it names.
     const text = readMind(client).textContent;
     expect(text.indexOf("King tides")).toBeGreaterThan(text.indexOf("Neap tides are small."));
@@ -287,6 +326,10 @@ describe("an outside agent's proposed changes (#352)", () => {
       aiUseOfAccepted(client.doc, mind.id, accepted, "2026-11-01T09:00:00.000Z"),
     );
     await settle(core, client);
+    // Accepted, the Blocks holding its words are third-party text, as an imported file's are.
+    const marked = agentText(client);
+    expect(marked.length).toBeGreaterThan(0);
+    expect(marked).toEqual(expect.arrayContaining(accepted.flatMap((each) => each.blockIds)));
 
     const after = await asItReads(agent, mind.id);
     expect(after).toContain("Spring tides come twice a month");
@@ -317,6 +360,7 @@ describe("an outside agent's proposed changes (#352)", () => {
     await client.settled();
     expect(pendingProposals(client.blocks)).toHaveLength(waiting.length);
     expect(await asItReads(agent, mind.id)).toBe(before);
+    expect(agentText(client)).toEqual([]);
   });
 
   it("check every Citation again as they propose it, and keep what isn't a token theirs as words", async () => {
@@ -381,7 +425,7 @@ describe("an outside agent's proposed changes (#352)", () => {
     // up are words, the made-up one saying its quote wasn't found.
     // A word joiner after each "[" that could start a marker keeps it words, unseen.
     const first = readMind(client).firstChild?.textContent ?? "";
-    expect(first.match(/\[\u2060/g)).toHaveLength(3);
+    expect(first.match(/\[\u2060/g)).toHaveLength(4);
     expect(first.replaceAll("\u2060", "")).toBe(
       "Spring tides come twice a month , as the harbour says [^1] and [=1] and [^2] and [quote not found].",
     );
@@ -470,9 +514,12 @@ describe("an outside agent's proposed changes (#352)", () => {
 
     // Names the Note hasn't, or names written wrong, change nothing.
     for (const [changes, said] of [
-      [[{ paragraph: "¶9", text: "x" }], "¶9 isn't in the Note: its paragraphs are ¶1 to ¶2."],
-      [[{ paragraph: "¶2a", text: "x" }], /"¶2a" isn't a paragraph's name/],
-      [[{ paragraph: "¶+", text: "x" }], "¶+ adds after the change before it: name one first."],
+      [[{ paragraph: "¶9", text: "x" }], "¶9 isn’t in the note: its paragraphs are ¶1 to ¶2."],
+      [[{ paragraph: "¶2a", text: "x" }], /“¶2a” isn’t a paragraph’s name/],
+      [
+        [{ paragraph: "¶+", text: "x" }],
+        "¶+ adds after the change before it: name a paragraph first.",
+      ],
       [
         [
           { paragraph: "¶2", text: "x" },
@@ -564,6 +611,27 @@ describe("an outside agent's proposed changes (#352)", () => {
         }),
       ),
     ).toBe("¶2 已有修订待处理。先在 IncarnaMind 中接受或拒绝。");
+    // What it got wrong, it reads in Chinese too.
+    for (const [paragraph, said] of [
+      [
+        "¶2a",
+        "“¶2a”不是段落名称。用 ¶3 指 read_mind 列出的段落，用 ¶3+ 在其后添加，用 ¶+ 在上一处修改之后添加。",
+      ],
+      ["¶9", "笔记中没有 ¶9：段落为 ¶1 到 ¶2。"],
+    ] as const) {
+      expect(
+        refusal(
+          await agent.callTool({
+            name: "propose_changes",
+            arguments: {
+              mindId: mind.id,
+              version: again.version,
+              changes: [{ paragraph, text: "潮水" }],
+            },
+          }),
+        ),
+      ).toBe(said);
+    }
     await core.updateAgent(pairing.id, { propose: false });
     expect(
       refusal(
@@ -617,5 +685,196 @@ describe("an outside agent's proposed changes (#352)", () => {
     const stale = outOfDateProposals(client.blocks);
     expect(stale.has(first?.id ?? "")).toBe(true);
     expect(stale.has(second?.id ?? "")).toBe(false);
+  });
+
+  // What parsing could join to a number: emphasis, escapes and their mixes, around a bracket.
+  const BRACKETS = [
+    "[**1**]",
+    "[*1*]",
+    "[_1_]",
+    "[__1__]",
+    "[~~1~~]",
+    "[1]",
+    "\\[1]",
+    "[_^1_]",
+    "[**^1**]",
+    "[^1]",
+    "\\[^1]",
+    "[\\^1]",
+    "[=1]",
+    "[=**1**]",
+  ];
+
+  for (const language of ["en", "zh-CN"] as const) {
+    const madeUp =
+      language === "en"
+        ? (bracket: string) => `The moon is made of green cheese ${bracket}.`
+        : (bracket: string) => `月亮是绿色奶酪做的${bracket}。`;
+
+    it(`attach no Citation or footnote they didn't get, whatever parsing makes of a bracket: in a rewrite (${language})`, async () => {
+      const { core, agent, mind, client, tides } = await pairedWithNote([], { language });
+      const [passage] = structured<{ passages: { passageId: string }[] }>(
+        await agent.callTool({ name: "search", arguments: { query: "spring tides new moon" } }),
+      ).passages;
+      if (!passage) throw new Error("Tides wasn't found.");
+      // The User's own Note, each line with a real Citation of Tides and a footnote of theirs.
+      writeMind(
+        client,
+        BRACKETS.map((_, index) => ({
+          type: "paragraph",
+          attrs: { id: randomUUID() },
+          content: [
+            { type: "text", text: `Line ${index + 1}: spring tides come at new moon ` },
+            {
+              type: "citation",
+              attrs: {
+                passageId: passage.passageId,
+                documentId: tides.id,
+                documentName: "Tides",
+                contentHash: tides.contentHash,
+                quote: SPRING,
+                check: "found",
+              },
+            },
+            {
+              type: "footnote",
+              attrs: { id: randomUUID() },
+              content: [{ type: "text", text: "The User's own note." }],
+            },
+          ],
+        })),
+      );
+      await client.settled();
+      // Another agent, which may change this Note but can't read Tides.
+      const notes = await core.createLibraryGroup({ name: "Notes", description: "Mine." });
+      await core.moveToFolder({ mindIds: [mind.id], folderId: notes.id });
+      const other = await core.connectAgent({
+        name: "Codex",
+        folderIds: [notes.id],
+        propose: true,
+      });
+      const codex = await connectLegacyAgent(other.launch);
+      const { markdown, version } = await readNamed(codex, mind.id);
+      expect(markdown).not.toContain("[cite:");
+      structured<Proposed>(
+        await codex.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: mind.id,
+            version,
+            changes: BRACKETS.map((bracket, index) => ({
+              paragraph: `¶${index + 1}`,
+              text: madeUp(bracket),
+            })),
+          },
+        }),
+      );
+      await client.settled();
+      decide(client, undoOf(client), () => true, "accept");
+      await client.settled();
+
+      // Every line is the agent's sentence alone: the User's Citation and footnote went with
+      // their words, and none came back on the made-up claim.
+      expect(citationsIn(client)).toEqual([]);
+      expect(nodesNamed(client, "footnote")).toBe(0);
+      const lines = [...readMind(client).children].map((each) => each.textContent);
+      expect(lines.map((line) => line.includes("[\u2060"))).toEqual(BRACKETS.map(() => true));
+    });
+
+    it(`attach no Citation they didn't get, whatever parsing makes of a bracket: in new paragraphs (${language})`, async () => {
+      const { agent, mind, client } = await pairedWithNote([paragraph("Tides rise twice a day.")], {
+        language,
+      });
+      const spring = await tokenFor(agent, "spring tides new moon", SPRING);
+      const { version } = await readNamed(agent, mind.id);
+      const real = language === "en" ? "Spring tides come twice a month" : "大潮每月出现两次";
+      // A place a token held while parsing, written by the agent itself, is only words too.
+      const forged = "\uE0000\uE001";
+      structured<Proposed>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: mind.id,
+            version,
+            changes: [
+              {
+                paragraph: "¶1+",
+                text: [`${real} ${spring}.`, ...BRACKETS.map(madeUp), madeUp(forged)].join(" "),
+              },
+            ],
+          },
+        }),
+      );
+      await client.settled();
+      decide(client, undoOf(client), () => true, "accept");
+      await client.settled();
+
+      // One Citation, on the claim the token was given for, and nothing on the made-up ones.
+      const added = shown(readMind(client).child(1));
+      expect(added.split(CITED)).toHaveLength(2);
+      expect(added.startsWith(`${real} ${CITED}.`)).toBe(true);
+      expect(nodesNamed(client, "footnote")).toBe(0);
+      // Every "[" the agent wrote stays words, a word joiner after it.
+      expect(added.match(/\[(?!\u2060)/g)).toBeNull();
+      expect(added.match(/\[\u2060/g)).toHaveLength(BRACKETS.length);
+    });
+  }
+
+  it("cite with a token only while its Document is in their Folders", async () => {
+    const { core, agent, mind, client, pairing, coast } = await pairedWithNote([
+      paragraph("Tides rise twice a day."),
+    ]);
+    const notes = await core.createLibraryGroup({ name: "Notes", description: "Mine." });
+    await core.moveToFolder({ mindIds: [mind.id], folderId: notes.id });
+    await core.updateAgent(pairing.id, { folderIds: [coast.id, notes.id] });
+    const spring = await tokenFor(agent, "spring tides new moon", SPRING);
+    const propose = async (text: string) =>
+      structured<Proposed>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: mind.id,
+            version: (await readNamed(agent, mind.id)).version,
+            changes: [{ paragraph: "¶1+", text }],
+          },
+        }),
+      );
+
+    expect((await propose(`Spring tides come twice a month ${spring}.`)).citations).toEqual([
+      expect.objectContaining({ cite: spring, check: "found" }),
+    ]);
+    await client.settled();
+    expect(citationsIn(client)).toHaveLength(1);
+
+    // Tides' Folder is no longer shared: the same token cites nothing.
+    await core.updateAgent(pairing.id, { folderIds: [notes.id] });
+    expect((await propose(`Spring tides again ${spring}.`)).citations).toEqual([
+      expect.objectContaining({ cite: spring, check: "unknown", document: null }),
+    ]);
+    await client.settled();
+    expect(citationsIn(client)).toHaveLength(1);
+  });
+
+  it("are tracked under the agent's name in a Word export, and IncarnaMind's own changes under its own", async () => {
+    const { core, agent, mind, client } = await pairedWithNote([
+      paragraph("Tides rise twice a day."),
+    ]);
+    const { version } = await readNamed(agent, mind.id);
+    structured<Proposed>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version,
+          changes: [{ paragraph: "¶1", text: "Tides rise two times a day." }],
+        },
+      }),
+    );
+    await client.settled();
+    const exported = await core.exportMind(mind.id, { format: "docx" });
+    const document = unzip(exported.data).get("word/document.xml")?.toString("utf8") ?? "";
+    expect(document).toMatch(/<w:del [^>]*w:author="Claude Code"[^>]*>.*twice/);
+    expect(document).toMatch(/<w:ins [^>]*w:author="Claude Code"[^>]*>.*two times/);
+    expect(document).not.toContain('w:author="IncarnaMind"');
   });
 });

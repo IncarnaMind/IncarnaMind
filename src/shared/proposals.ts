@@ -28,6 +28,7 @@ import {
   type RecordAiUseInput,
 } from "../core/api";
 import { originOf, restoreOrigins } from "./blockOrigins";
+import { setTextOrigin } from "./textOrigins";
 
 const isText = (value: unknown): value is string => typeof value === "string" && value !== "";
 
@@ -565,8 +566,10 @@ const DECISION_KEYS = { accept: "accepted", reject: "rejected" } as const;
 /**
  * `resolveProposals` for what the User decides, which the Mind also remembers
  * per request (how many were accepted and how many rejected), so a later
- * Question knows what became of an Answer's changes. In the caller's
- * transaction, as `resolveProposals` is.
+ * Question knows what became of an Answer's changes. What an outside agent
+ * wrote is third-party text once accepted, in the Blocks that hold it (#352);
+ * rejected, it leaves no mark. In the caller's transaction, as
+ * `resolveProposals` is.
  */
 export function decideProposals(
   blocks: Y.XmlFragment,
@@ -574,8 +577,15 @@ export function decideProposals(
   outcome: "accept" | "reject",
 ): ResolvedProposal[] {
   const resolved = resolveProposals(blocks, picked, outcome);
-  const requests = blocks.doc ? requestsOf(blocks.doc) : null;
-  if (!requests) return resolved;
+  const { doc } = blocks;
+  if (!doc) return resolved;
+  const requests = requestsOf(doc);
+  if (outcome === "accept") {
+    const agents = resolved
+      .filter((each) => proposalRequestOf(doc, each.request)?.source === "outside-agent")
+      .flatMap((each) => each.blockIds);
+    if (agents.length > 0) setTextOrigin(doc, agents, "outside-agent");
+  }
   const key = DECISION_KEYS[outcome];
   const counts = new Map<string, number>();
   for (const each of resolved) counts.set(each.request, (counts.get(each.request) ?? 0) + 1);
