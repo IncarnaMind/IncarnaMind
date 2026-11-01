@@ -15,7 +15,7 @@ import type { DrawnPage } from "../../shared/citedPage";
 import { comparisonQuestionsOf } from "../../shared/comparisons";
 import { formatDate } from "../../shared/dates";
 import { titleWithoutSite } from "../../shared/documentNames";
-import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
+import { translate } from "../../shared/i18n";
 import type { Translate } from "../../shared/locations";
 import { mindScopeOf } from "../../shared/mindScope";
 import { mindName, withoutTrailingMarks } from "../../shared/naming";
@@ -25,16 +25,10 @@ import type { ScopeKind } from "../../shared/searchScope";
 import { citationMarksNow, signOffsOf } from "../../shared/signOffs";
 import { type SourceDocument, sourcesOf } from "../../shared/sources";
 import type { UnitText } from "../../shared/units";
-import {
-  checkUnreadOf,
-  unreadFileNamesOf,
-  unreadPartsCounts,
-  unreadSection,
-} from "../../shared/unreadFiles";
 import { verificationOf } from "../../shared/verification";
 import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
-import { checkRequests, citationSentences } from "../answers/checks/sentences";
+import { citationSentences } from "../answers/checks/sentences";
 import {
   CITATION_PLACES,
   type CitationAttributes,
@@ -49,13 +43,11 @@ import {
   type FormattedCitations,
   type KeptCitationText,
   MIND_CONTENT_FIELD,
-  MIND_SETTINGS_FIELD,
   type Mind,
   type MindExport,
   type MindExportPreview,
   type SharedDocument,
   type SharePagePreview,
-  type UnreadFile,
   WORD_CHANGE_ID,
 } from "../api";
 import { checkedByLine } from "../checkRecord/labels";
@@ -70,7 +62,6 @@ import {
   type FailedSentence,
   type Footnote,
   footnotesIn,
-  NO_MARKS,
   namedLineOf,
   type ReadOptions,
   readBlocks,
@@ -187,34 +178,6 @@ function withoutEmptyTitle(blocks: Block[]): Block[] {
   return empty ? blocks.slice(1) : blocks;
 }
 
-// The count alone unless the Mind names the files: an export usually goes to someone else, and a
-// file's name can be private.
-function unreadBlocks(unread: readonly UnreadFile[], language: Language, names: boolean): Block[] {
-  if (unread.length === 0) return [];
-  const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
-  const line = (text: string) => ({ kind: "text" as const, text, marks: NO_MARKS });
-  const section = unreadSection(unread, t, names, unreadPartsCounts(unread, t));
-  return [
-    { kind: "heading", level: 2, content: [line(section.heading)] },
-    { kind: "paragraph", content: [line(section.count)] },
-    ...(names
-      ? [
-          {
-            kind: "list" as const,
-            ordered: false,
-            start: 1,
-            items: section.items.map((item) => [
-              { kind: "paragraph" as const, content: [line(item)] },
-            ]),
-          },
-        ]
-      : section.counts.map((count) => ({
-          kind: "paragraph" as const,
-          content: [line(count)],
-        }))),
-  ];
-}
-
 /** What an export holds, read once for both its preview and its file. */
 interface Prepared {
   format: ExportFormat;
@@ -225,9 +188,6 @@ interface Prepared {
   /** For a Mind imported from a Word file: whether its import is still going. */
   word: { importing: boolean } | null;
   blocks: Block[];
-  /** What the Mind's checks couldn't read when they ran (#740); empty when all was read. */
-  unread: readonly UnreadFile[];
-  unreadNames: boolean;
   preview: MindExportPreview;
   failedSentences: FailedSentence[];
   trackedChanges: number;
@@ -286,8 +246,6 @@ export function createExports(deps: ExportsDependencies) {
     };
     const {
       read,
-      unread,
-      unreadNames,
       questions,
       hiddenColumns,
       word,
@@ -315,8 +273,6 @@ export function createExports(deps: ExportsDependencies) {
       const waiting = pendingProposals(fragment);
       return {
         read: readBlocks(fragment, readOptions),
-        unread: doc ? checkUnreadOf(doc, checkRequests(fragment)) : [],
-        unreadNames: doc ? unreadFileNamesOf(doc.getMap(MIND_SETTINGS_FIELD)) : false,
         questions: countQuestions(fragment),
         hiddenColumns: fragment.toArray().reduce((count, child) => {
           if (!(child instanceof Y.XmlElement) || child.nodeName !== COMPARISON_TABLE_NODE) {
@@ -344,11 +300,8 @@ export function createExports(deps: ExportsDependencies) {
     const options: Required<ExportMindOptions> =
       commentsNow !== null ? { ...parsed, commentFailedChecks: commentsNow } : parsed;
     const shown = withoutEmptyTitle(read);
-    const withUnread = [...shown, ...unreadBlocks(unread, language, unreadNames)];
     const blocks =
-      format !== "docx" && options.theirChanges === "accepted"
-        ? withChangesAccepted(withUnread)
-        : withUnread;
+      format !== "docx" && options.theirChanges === "accepted" ? withChangesAccepted(shown) : shown;
     // A source pack holds the Citations the Mind numbers; the others, every footnote.
     const footnotes =
       format === "source-pack"
@@ -372,8 +325,6 @@ export function createExports(deps: ExportsDependencies) {
       hiddenColumns,
       fromWord: word !== null,
       theirChanges,
-      unreadFiles: unread.length,
-      unreadFileNames: unreadNames,
       citationPlace: listedPlace,
       markAiText: format === "docx" ? options.markAiText === true : null,
       othersFile,
@@ -389,8 +340,6 @@ export function createExports(deps: ExportsDependencies) {
       readOptions,
       word,
       blocks,
-      unread,
-      unreadNames,
       preview,
       failedSentences: [...failed.values()],
       trackedChanges,
@@ -408,7 +357,7 @@ export function createExports(deps: ExportsDependencies) {
 
   /** The source pack's PDF: the Mind's cited pages, as saved, with their quotes marked. */
   const sourcePack = async (prepared: Prepared): Promise<MindExport> => {
-    const { title, blocks, style, language, attributesOf, preview, unread, unreadNames } = prepared;
+    const { title, blocks, style, language, attributesOf, preview } = prepared;
     const citations = numberCitations(blocks, style.form, attributesOf);
     if (citations.length === 0) throw new Error(translate(language, "export.pack.empty"));
     const pages = await packPages(citations, deps.citedPage);
@@ -416,7 +365,7 @@ export function createExports(deps: ExportsDependencies) {
       language,
       paper: deps.paper(),
       title: preview.fileName.slice(0, -".pdf".length),
-      body: renderSourcePack(title, pages, language, deps.readableQuote, unread, unreadNames),
+      body: renderSourcePack(title, pages, language, deps.readableQuote),
       notes: [],
     });
     return {

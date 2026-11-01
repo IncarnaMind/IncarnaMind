@@ -1231,14 +1231,40 @@ export function createCitationSession(
       record.range.pageTo,
     );
 
-  /** The Units a record's Passage covers: what the model was shown, the cited ones or a neighbour's (#2358). */
-  const passageText = (record: Pick<Accepted, "source">) =>
-    documents.pageTexts(
-      record.source.documentId,
-      record.source.contentHash,
-      record.source.pageFrom,
-      record.source.pageTo,
+  /**
+   * The text of a sheet's title rows, above its header, by Document version
+   * and sheet: the rows that name the table a Citation's rows are in, which an
+   * Answer may quote as the table's title while citing one of its rows (#2358).
+   * A sheet read in one block keeps its title rows in the cited Unit itself.
+   */
+  const titles = new Map<string, string>();
+  function titleRows(record: Pick<Accepted, "source">, sheet: string | null): string {
+    const key = `${record.source.documentId}\n${record.source.contentHash}\n${sheet ?? ""}`;
+    const known = titles.get(key);
+    if (known !== undefined) return known;
+    const units = documents
+      .pageTexts(record.source.documentId, record.source.contentHash, null, null)
+      .filter((unit) => unit.kind === "rows" && (unit.label?.sheet ?? null) === sheet);
+    const header = units.find((unit) => unit.label?.header)?.label?.rows?.[0] ?? null;
+    const first = units.reduce<PageText | null>(
+      (earliest, unit) =>
+        !earliest || (unit.label?.from ?? 0) < (earliest.label?.from ?? 0) ? unit : earliest,
+      null,
     );
+    const rows = first?.label?.rows ?? [];
+    const text =
+      header === null || !first
+        ? ""
+        : first.text
+            .split("\n")
+            .filter((_, at) => {
+              const row = rows[at] ?? 0;
+              return row > 0 && row < header;
+            })
+            .join("\n");
+    titles.set(key, text);
+    return text;
+  }
 
   /**
    * The check, with the Document as it is now: it may have been deleted since
@@ -1965,16 +1991,29 @@ export function createCitationSession(
     /**
      * Checks the words an Answer put in quotation marks (#483), after `check`:
      * each span (see ./quotedWords) is looked for with the Citation check's own
-     * matching in the Units of the Passage its Citation names, not only the
-     * cited ones: a title the Passage's first Unit holds is the Document's own
-     * words though the row cited is on its second (#2358). One found changes
-     * nothing. One not found makes the Citation whose Units are nearest it "not
-     * found", with the Answer's words and the Document's nearest for its card.
-     * Where a Citation of the sentence couldn't be checked, no span of it is.
-     * Words in another language than every page cited are a translation: they
-     * aren't checked, and are returned to lose their quotation marks.
+     * matching in the Units its Citation cites, and, in a sheet, in its title
+     * rows: the rows above the header, which name the table the Citation's
+     * rows are in, as a Document's name is not a quote (#2358). One found
+     * changes nothing. One not found makes the Citation whose Units are nearest
+     * it "not found", with the Answer's words and the Document's nearest for
+     * its card. Where a Citation of the sentence couldn't be checked, no span
+     * of it is. Words in another language than every page cited are a
+     * translation: they aren't checked, and are returned to lose their
+     * quotation marks.
      */
     checkQuotedWords(quoted: readonly { words: string; markers: readonly number[] }[]): string[] {
+      /** Whether the words are the title rows of the sheet a record's rows are in (#2358). */
+      const titled = (
+        record: Accepted,
+        units: readonly PageText[],
+        words: string,
+        matching: Matching,
+      ) => {
+        const rows = units.find((unit) => unit.kind === "rows");
+        if (!rows) return false;
+        const text = titleRows(record, rows.label?.sheet ?? null);
+        return text !== "" && findQuote(text, words, { ...matching, numbers: true }) !== null;
+      };
       const translated: string[] = [];
       // A Document's name in quotation marks, as an Answer gives a title, is a name, not a quote.
       const names = new Set(
@@ -1989,14 +2028,15 @@ export function createCitationSession(
                 {
                   record,
                   units: citedText(record),
-                  passage: passageText(record),
                   matching: matchingFor(record.source),
                 },
               ]
             : [];
         });
         if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
-        if (cited.some(({ passage, matching }) => quoteInUnits(passage, words, matching))) continue;
+        if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
+        if (cited.some(({ record, units, matching }) => titled(record, units, words, matching)))
+          continue;
         const inCjk = writtenInCjk(words);
         if (
           cited.length > 0 &&
