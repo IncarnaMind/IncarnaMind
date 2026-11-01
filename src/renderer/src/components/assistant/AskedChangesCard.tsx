@@ -286,12 +286,6 @@ export function AppliedLine({
           </span>
         </>
       )}
-      {!appliedLeft && countRoom && (
-        <span className="mind-changes-count whitespace-nowrap invisible" aria-hidden="true">
-          {" "}
-          {countRoom}
-        </span>
-      )}
       {appliedInNote && (
         <>
           {" "}
@@ -319,6 +313,12 @@ export function AppliedLine({
         </span>
       )}
       <AppliedActions answerId={answerId} row={row} name={name} live={shown} />
+      {!appliedLeft && countRoom && (
+        <span className="mind-changes-count whitespace-nowrap invisible" aria-hidden="true">
+          {" "}
+          {countRoom}
+        </span>
+      )}
     </p>
   );
 }

@@ -134,7 +134,12 @@ test("a Word file whose font comes only from its theme is drawn with the viewer'
   expect(drawn.map((font) => font.name.toLowerCase()).some((name) => name.includes("times"))).toBe(
     false,
   );
-  // Calibri itself on a computer that has Office's font, and Carlito where it doesn't.
+  // Calibri itself on a computer that has Office's font, and Carlito where it doesn't: either way
+  // the viewer's own @font-face draws it, not a system font the theme's plain name happens to match.
+  expect(
+    drawn.some((font) => font.bundled),
+    drawn.map((font) => `${font.family}${font.bundled ? " (bundled)" : ""}`).join(", "),
+  ).toBe(true);
   expect(
     drawn.some((font) => /carlito|calibri/i.test(font.family)),
     drawn.map((font) => font.family).join(", "),

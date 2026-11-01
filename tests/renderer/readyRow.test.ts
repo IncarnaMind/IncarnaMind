@@ -9,7 +9,7 @@ import { readyRowOf } from "../../src/renderer/src/readyRow";
 
 const waiting = (patch: Partial<Parameters<typeof readyRowOf>[0]> = {}) =>
   readyRowOf({
-    question: "What's the leverage cap?",
+    question: "What’s the leverage cap?",
     waitingFor: "Northwind Retail · Q3 2026 results",
     asking: false,
     pressedFor: null,

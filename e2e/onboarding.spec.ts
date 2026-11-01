@@ -169,7 +169,7 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   const ready = step(window, "question").getByTestId("first-open-ready");
   // The whole Question is the line's name and its tooltip; a narrower line would cut it at a
   // word's end, and clicking asks it whole.
-  const askLabel = "Ask: “What's the leverage cap?”";
+  const askLabel = "Ask: “What’s the leverage cap?”";
   await expect(ready).toHaveAttribute("aria-label", askLabel);
   await expect(ready).toHaveAttribute("title", askLabel);
   const shownAsk = await ready.innerText();
@@ -181,7 +181,7 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await pointAndClick(window, ready);
   await expect(assistant).toBeVisible();
   await expect(assistant.getByTestId("assistant-question")).toContainText(
-    "What's the leverage cap?",
+    "What’s the leverage cap?",
   );
   const readyAnswer = assistantAnswers(window).last();
   await expect(readyAnswer).toHaveAttribute("data-status", "done");

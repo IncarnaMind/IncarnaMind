@@ -211,7 +211,7 @@ test.each(["opens another conversation", "starts a New chat"] as const)(
     const reading = held<ExampleReadyAsked>();
     exampleAsk = () => reading.promise;
     const asking = conversations.askReadyQuestion({
-      question: "What's the leverage cap?",
+      question: "What’s the leverage cap?",
       scope: null,
       waitingFor: "Northwind Retail · Q3 2026 results",
     });
@@ -231,7 +231,7 @@ test("the example's ready Question shows its conversation when the User stayed",
     stopped: false,
   });
   await conversations.askReadyQuestion({
-    question: "What's the leverage cap?",
+    question: "What’s the leverage cap?",
     scope: null,
     waitingFor: null,
   });

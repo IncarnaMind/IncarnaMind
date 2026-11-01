@@ -555,7 +555,7 @@ test("the English example's Question shows whole on one line at 900 px (#2084)",
     await expectReadyDocuments(window, 2);
     await markSteps(window, { indexed: true });
     const button = step(window, "question").getByTestId("first-open-ready");
-    const whole = "Ask: “What's the leverage cap?”";
+    const whole = "Ask: “What’s the leverage cap?”";
     await expect(button).toHaveAttribute("aria-label", whole, { timeout: 30_000 });
     await expect(button).toHaveText(whole);
     await shot(window, "ask-line-example-900");

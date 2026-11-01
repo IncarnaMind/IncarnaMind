@@ -97,9 +97,17 @@ const heightsOf = (frames: readonly Frame[], pick: (frame: Frame) => number | nu
   ...new Set(frames.map(pick).filter((each): each is number => each !== null)),
 ];
 
-async function writeShift(language: "en" | "zh-CN", mindName: string) {
+async function writeShift(
+  language: "en" | "zh-CN",
+  mindName: string,
+  {
+    width = 1440,
+    question = true,
+    finalWaiting = false,
+  }: { width?: number; question?: boolean; finalWaiting?: boolean } = {},
+) {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  await setWindowSize(app, window, 1440, 900);
+  await setWindowSize(app, window, width, 900);
   await dismissChatSetup(window);
   // biome-ignore lint/correctness/useHookAtTopLevel: an e2e helper whose name begins with "use", not a React hook.
   await useLocalChatModel(window);
@@ -132,8 +140,6 @@ async function writeShift(language: "en" | "zh-CN", mindName: string) {
   expect(frames.some((frame) => frame.card !== null && !frame.undo)).toBe(true);
   expect(frames.some((frame) => frame.card !== null && frame.undo)).toBe(true);
   expect(frames.some((frame) => frame.card === null)).toBe(true);
-  const questions = frames.filter((frame) => frame.question !== null);
-  expect(questions.some((frame) => frame.card === null)).toBe(true);
 
   // The Mind's top line is one line high whether it says "Writing…" or shows the change, and the
   // text under it never moves.
@@ -149,14 +155,26 @@ async function writeShift(language: "en" | "zh-CN", mindName: string) {
   expect(applied).toEqual(writing);
   expect(heightsOf(frames, (frame) => frame.first)).toHaveLength(1);
 
-  // The Question stays where it was while the Answer's card arrives.
-  expect(questions.some((frame) => frame.card !== null)).toBe(true);
-  expect(heightsOf(questions, (frame) => frame.question)).toHaveLength(1);
+  // At 1,440 px the Question stays where it was while the Answer's card arrives. At 900 px the
+  // assistant's pane scrolls as the Answer grows and the Question moves with the thread: that
+  // relation belongs to the 1,440 px layout, so it is asked there; the card's is asked below.
+  if (question) {
+    const questions = frames.filter((frame) => frame.question !== null);
+    expect(questions.some((frame) => frame.card === null)).toBe(true);
+    expect(questions.some((frame) => frame.card !== null)).toBe(true);
+    expect(heightsOf(questions, (frame) => frame.question)).toHaveLength(1);
+  }
 
   // The card keeps its height as its waiting row becomes the applied one, so nothing under it
-  // moves: its two rows share one cell and it is as tall as the taller.
+  // moves: its two rows share one cell and it is as tall as the taller. Where the request says so,
+  // the waiting height is the last frame before the apply: at 900 px the panel is wide, the first
+  // count fits one line and the next does not, and the words a still-arriving count will take are
+  // not known in advance; the apply is what must not move the card.
+  const waitingFrames = frames.filter(
+    (frame) => frame.card !== null && !frame.undo && frame.counted,
+  );
   const waiting = heightsOf(
-    frames.filter((frame) => frame.card !== null && !frame.undo && frame.counted),
+    finalWaiting ? waitingFrames.slice(-1) : waitingFrames,
     (frame) => frame.cardHeight,
   );
   const done = heightsOf(
@@ -185,3 +203,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await writeShift(language, LONG_NAME[language]);
   });
 }
+
+test("at 900px in en, the changes card keeps its height as its waiting row becomes the applied one", async () => {
+  test.setTimeout(90_000);
+  await writeShift("en", "Q3 review", { width: 900, question: false, finalWaiting: true });
+});
