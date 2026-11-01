@@ -6,12 +6,13 @@
  * Cursor and Zed confine the commands their agents run.
  *
  * A program, and every process it starts:
- * - can't read the folders in `denyRead` (the User's home and IncarnaMind's
- *   data folder), except the folders its request allows (a Skill script's
- *   Skill folder and working folder) and its interpreter's own install when
- *   that is inside one (pyenv, conda, the app itself in ~/Applications). The
- *   rest of the disk stays readable, as sandbox-runtime leaves it: the
- *   system's libraries and interpreters;
+ * - can't read the folders in `denyRead` (the User's home, IncarnaMind's data
+ *   folder, the shared and per-user temporary folders, and the roots volumes
+ *   are mounted under), except the folders its request allows (a Skill
+ *   script's Skill folder and working folder) and its interpreter's own
+ *   install when that is inside one (pyenv, conda, the app itself in
+ *   ~/Applications). The rest of the disk stays readable, as sandbox-runtime
+ *   leaves it: the system's libraries and interpreters;
  * - can write only the folders its request allows (its working folder),
  *   which is its TMPDIR too. sandbox-runtime hands out /tmp/claude, Claude
  *   Code's, which is denied here;
@@ -63,7 +64,7 @@ export interface OsExecutorOptions {
   tempDir: string;
   /**
    * Folders no program may read, except the folders inside them its request
-   * allows: the User's home and IncarnaMind's data folder.
+   * allows, as `readDeniedFolders` builds them.
    */
   denyRead: readonly string[];
   /** Told when a run's temporary working folder can't be removed. */
@@ -82,6 +83,48 @@ export type OsSandbox =
  * with every other program sandbox-runtime confines on this computer.
  */
 const SANDBOX_RUNTIME_TEMP = ["/tmp/claude", "/private/tmp/claude"];
+
+/** What a run is denied reading, whatever its request allows (#2350). */
+export interface ReadDeniedOptions {
+  platform: NodeJS.Platform;
+  /** The User's home folder. */
+  home: string;
+  /** IncarnaMind's data folder. */
+  dataDir: string;
+  /** Where a run without a `cwd` gets its working folder (`os.tmpdir()`). */
+  temporaryFolder: string;
+  /** The User's id, where the system has one: on Linux this User's mounts land under `/run/user/<uid>`. */
+  uid?: number;
+}
+
+/**
+ * The folders no program may read, except the folders inside them its request
+ * allows: the User's own, the shared temporary folders every app on the
+ * computer writes to, and the roots this system mounts volumes under (#2350).
+ * A run's working folder is inside the temporary folder, and its request's
+ * allow rules re-open it within the deny. Windows has no OS sandbox, so
+ * nothing is denied there.
+ */
+export function readDeniedFolders(options: ReadDeniedOptions): string[] {
+  const { platform, home, dataDir, temporaryFolder, uid } = options;
+  if (platform !== "darwin" && platform !== "linux") return [];
+  const folders = [home, dataDir, temporaryFolder];
+  if (temporaryFolder !== "/tmp") folders.push("/tmp");
+  if (platform === "linux") {
+    folders.push("/var/tmp", "/media", "/mnt", "/run/media");
+    if (uid !== undefined) folders.push(`/run/user/${uid}/gvfs`);
+    return folders;
+  }
+  // The User's other temporary and cache folders beside T (.../C, .../0), where
+  // T is the system's per-user temporary folder: never the parent of a TMPDIR
+  // someone pointed at, which could be /opt or /var itself.
+  const beside = dirname(temporaryFolder);
+  if (beside.startsWith("/var/folders/") || beside.startsWith("/private/var/folders/")) {
+    folders.push(beside);
+  }
+  folders.push("/private/tmp", "/var/tmp", "/private/var/tmp", "/Volumes");
+  return folders;
+}
 
 /** No network: an empty allowlist, and no proxy to let anything through. */
 const NO_NETWORK = { allowedDomains: [], deniedDomains: [] };

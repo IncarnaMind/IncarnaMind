@@ -363,6 +363,44 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
+test.each(["en", "zh-CN"] as const)(
+  "%s card says which line stated a currency written on an amount, and opens it",
+  async (language) => {
+    state.language = language;
+    const unit = input.unitStatement as NonNullable<FigureInput["unitStatement"]>;
+    const statement = {
+      ...unit,
+      citation: { ...unit.citation, quote: "Sale price £385,000.00" },
+      currencyChars: "£",
+    };
+    const withUnit: CalculatedFigure = {
+      ...formula,
+      inputs: [{ ...input, unitStatement: statement }],
+    };
+    await card({
+      figure: withUnit,
+      shown: { state: "not-checked", reason: "unread" },
+      replayed: false,
+      sources: calculatedSources(attrs(withUnit), null),
+      problem: false,
+      onCopyFormula: () => {},
+    });
+    expect(container.textContent).toContain(
+      language === "en" ? "£ stated on Sale price £385,000.00" : "“£”来自“Sale price £385,000.00”",
+    );
+    const opens = [...container.querySelectorAll("button")].filter(
+      (button) => button.textContent === translate(language, "figures.inline.openInput"),
+    );
+    await act(() => {
+      opens.at(-1)?.click();
+    });
+    expect(state.open).toHaveBeenCalledWith(statement.citation, {
+      check: "found",
+      withQuote: true,
+    });
+  },
+);
+
 test("a retained Analysis card never becomes a fresh execution claim", async () => {
   const sources = calculatedSources(attrs(analysis), receiptDoc());
   await card({

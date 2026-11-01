@@ -99,7 +99,7 @@ The figures shown in a Note, each beside its source value, Citation, difference 
 _Avoid_: second check, audit table
 
 **Input**:
-A number a Calculated figure or an Analysis is worked out from: a number in a Citation's quote (with the line that states its scale or currency, when only a heading does), a cell of a sheet (the number it stores, not the one it shows rounded), or a range of a sheet or CSV, in the version of its Document it was read from.
+A number a Calculated figure or an Analysis is worked out from: a number in a Citation's quote (with the line that states its scale or currency when the number has none of its own), a cell of a sheet (the number it stores, not the one it shows rounded), or a range of a sheet or CSV, in the version of its Document it was read from.
 _Avoid_: argument, variable, source
 
 **Footnote**:

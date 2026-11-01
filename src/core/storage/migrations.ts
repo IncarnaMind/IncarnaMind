@@ -2128,6 +2128,17 @@ export const migrations: readonly Migration[] = [
   {
     version: 120,
     description:
+      "A Unit keeps a currency written next to a scale in its text before running headers were stripped (#1001)",
+    sql: `
+      -- A PDF's running header such as "(£'000)" repeats on its pages and is stripped before the
+      -- pages are stored. The marker found before the strip keeps it, so a later calculation can
+      -- refuse to read a bare number under a Document that scales its amounts anywhere (#1001).
+      ALTER TABLE document_pages ADD COLUMN scale_marker TEXT;
+    `,
+  },
+  {
+    version: 121,
+    description:
       "The preset Invoice Tag says what isn't an invoice, unless the User edited it, what IncarnaMind saw arrive new, and where the User's Organize sent a Document, are recorded (#2308)",
     sql: `
       -- When IncarnaMind first saw each Document arrive new: the User's own add, a Linked

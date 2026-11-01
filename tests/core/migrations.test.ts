@@ -101,7 +101,7 @@ describe("Migrations", () => {
     const db = openDatabase(join(await createTempDataFolder(), "test.db"));
     migrate(
       db,
-      migrations.filter((migration) => migration.version < 120),
+      migrations.filter((migration) => migration.version < 121),
     );
     const at = "2026-10-29T09:00:00.000Z";
     const seeded = [
@@ -141,7 +141,7 @@ describe("Migrations", () => {
     migrate(db, migrations);
     const after = descriptions();
     expect(baselines()).toEqual(["00000000-0000-4000-8000-000000000004"]);
-    db.exec(migrations.find((migration) => migration.version === 120)?.sql ?? "");
+    db.exec(migrations.find((migration) => migration.version === 121)?.sql ?? "");
     expect(baselines()).toEqual(["00000000-0000-4000-8000-000000000004"]);
 
     expect(after).toEqual([

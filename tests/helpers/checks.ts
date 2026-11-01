@@ -58,6 +58,8 @@ interface PlannedFigure {
     label: string;
     quote: string;
     number: string;
+    /** The line of the same Passage that states the number's unit, when its own doesn't. */
+    unitQuote?: string;
     bracketedCost?: boolean;
   }[];
   formula: string;
