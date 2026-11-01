@@ -138,6 +138,8 @@ describe("the rows a quote covers, each with its name", () => {
       "FALSE",
       "1,200",
       "2026",
+      "无",
+      "不适用",
     ]) {
       const sheet = sheetOf([text(4, 0, "Rent"), text(4, 1, filler), figure(4, 2, "10.00")]);
       expect(citedRowNames(sheet, ["C4"]), filler).toEqual([{ row: 4, name: "Rent" }]);
@@ -161,6 +163,17 @@ describe("the rows a quote covers, each with its name", () => {
     expect(citedRowNames(sheet, ["B4"])).toEqual([{ row: 4, name: "Cash at bank" }]);
   });
 
+  test("a number never joins, even shown with letters, and counts as a figure", () => {
+    const sheet = sheetOf([
+      figure(4, 0, "15 Mar 2026"),
+      text(4, 1, "Rent"),
+      figure(4, 2, "1,200 Dr"),
+      text(4, 3, "Note 3"),
+      figure(4, 4, "10.00"),
+    ]);
+    expect(citedRowNames(sheet, ["C4", "E4"])).toEqual([{ row: 4, name: "Rent" }]);
+  });
+
   test("a merged cell's text counts once, for each row the merge covers", () => {
     const merged = sheetOf(
       [text(3, 0, "Accruals"), figure(3, 2, "10.00"), figure(4, 2, "20.00")],
@@ -181,7 +194,20 @@ describe("a row's name on its mark", () => {
   });
 
   test("a long Chinese name cut anywhere, a character taking two columns", () => {
-    expect(shortRowName("应收关联方及参与权益单位的款项合计数额")).toBe("应收关联方及参与权益单…");
+    expect(shortRowName("应收关联方及参与权益单位的款项合计数额")).toBe(
+      "应收关联方及参与权益单位…",
+    );
+  });
+
+  test("28 columns show whole; one more is cut", () => {
+    expect(shortRowName("Abcdefghij Abcdefghij Abcdef")).toBe("Abcdefghij Abcdefghij Abcdef");
+    expect(shortRowName("Abcdefghij Abcdefghij Abcdefg")).toBe("Abcdefghij Abcdefghij…");
+  });
+
+  test("a cut never ends on the dot between two cells", () => {
+    expect(shortRowName("Current liabilities due · Value added tax")).toBe(
+      "Current liabilities due…",
+    );
   });
 });
 
@@ -198,6 +224,29 @@ describe("a sheet Citation's mark with its rows' names", () => {
       label: "Trial balance, row 7 · Cash at bank",
       shown: "Cash at bank",
     });
+  });
+
+  test("the decided labels show whole on the mark", () => {
+    const labels: [string[], string][] = [
+      [["Current liabilities", "VAT"], "Current liabilities · VAT"],
+      [["AR01", "Receivables"], "AR01 · Receivables"],
+      [["Trade receivables", "Note 12"], "Trade receivables · Note 12"],
+      [["Cash at bank", "USD"], "Cash at bank · USD"],
+      [["流动负债", "增值税"], "流动负债 · 增值税"],
+    ];
+    for (const [texts, label] of labels) {
+      const sheet = sheetOf([
+        ...texts.map((each, column) => text(4, column, each)),
+        figure(4, texts.length, "1,200.00"),
+      ]);
+      const marked = withRowNames(
+        { ...mark, label: "Trial balance, row 4" },
+        sheet,
+        found("C4"),
+        ", ",
+      );
+      expect(marked?.shown, label).toBe(label);
+    }
   });
 
   test("a long label: the mark shows its start, cut with an ellipsis; the tooltip the whole", () => {

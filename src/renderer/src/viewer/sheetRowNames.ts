@@ -4,11 +4,14 @@ import { fitName, textColumns } from "../../../shared/naming";
 import { parseCellRef } from "../../../shared/units";
 import { joinMeta } from "../cost";
 
-/** How wide a row's name may be on a Citation's mark, in columns, before it is cut (#2388). */
-const NAME_COLUMNS = 24;
+/**
+ * How wide a row's name may be on a Citation's mark, in columns, before it is cut: "about 24"
+ * (#2388), with room for the decided "Trade receivables · Note 12" whole.
+ */
+const NAME_COLUMNS = 28;
 
-/** Text with a letter that still names nothing: an Excel error, a boolean, or "n/a", "nil", "n/m". */
-const NOT_A_NAME = /^(#[A-Z0-9/_]+[!?]?|TRUE|FALSE|N\/?A|N\.A\.?|NIL|N\/?M)$/i;
+/** Text with a letter that still names nothing: an Excel error, a boolean, or "n/a", "nil", "n/m", 无, 不适用. */
+const NOT_A_NAME = /^(#[A-Z0-9/_]+[!?]?|TRUE|FALSE|N\/?A|N\.A\.?|NIL|N\/?M|无|不适用)$/i;
 
 const lettersIn = (text: string): number => text.match(/\p{L}/gu)?.length ?? 0;
 
@@ -24,7 +27,6 @@ export const cellsOn = (found: FoundCells): string[] =>
     key.startsWith(`${found.sheet}!`) ? [key.slice(found.sheet.length + 1)] : [],
   );
 
-/** A cited row and its name, or null when it has none. */
 export interface CitedRow {
   row: number;
   name: string | null;
@@ -93,9 +95,15 @@ export function citedRowNames(sheet: Sheet, cited: Iterable<string>): CitedRow[]
     });
 }
 
-/** A row's name as its mark shows it: cut at the end, with "…", past about 24 columns. */
+/**
+ * A row's name as its mark shows it: cut at the end, with "…", past about 24 columns, never
+ * ending on the " · " between two of its cells.
+ */
 export const shortRowName = (name: string): string =>
-  fitName(name, (text) => textColumns(text) <= NAME_COLUMNS, !/\p{Script=Han}/u.test(name));
+  fitName(name, (text) => textColumns(text) <= NAME_COLUMNS, !/\p{Script=Han}/u.test(name)).replace(
+    /\s*·\s*…$/u,
+    "…",
+  );
 
 /**
  * A sheet Citation's mark with its rows' names (#2388): a one-row quote shows
