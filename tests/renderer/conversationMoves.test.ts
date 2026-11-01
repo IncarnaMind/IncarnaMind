@@ -47,6 +47,9 @@ const conversation = (id: string): Conversation => ({
 });
 
 const reads = new Map<string, Promise<{ messages: ConversationMessage[] }>>();
+const readsAsked: string[] = [];
+const stopped: string[] = [];
+const listeners = new Map<string, (payload: unknown) => void>();
 let ask: () => Promise<ConversationAskResult> = async () => {
   throw new Error("No Question is asked in this test.");
 };
@@ -57,11 +60,19 @@ let exampleAsk: () => Promise<ExampleReadyAsked> = async () => {
 
 const bridge = new Proxy(
   {
-    on: () => () => undefined,
+    on: (event: string, listener: (payload: unknown) => void) => {
+      listeners.set(event, listener);
+      return () => listeners.delete(event);
+    },
     listConversations: async () => [],
-    getConversation: (id: string) => reads.get(id) ?? Promise.resolve({ messages: [question(id)] }),
+    getConversation: (id: string) => {
+      readsAsked.push(id);
+      return reads.get(id) ?? Promise.resolve({ messages: [question(id)] });
+    },
     getSettings: async () => ({ device: {} }),
     askInConversation: () => ask(),
+    stopConversationAnswer: async ({ answerId }: { answerId: string }) =>
+      void stopped.push(answerId),
     deleteConversation: () => deleting,
     askExampleReadyQuestion: () => exampleAsk(),
   },
@@ -92,6 +103,8 @@ afterAll(() => {
 
 beforeEach(() => {
   reads.clear();
+  readsAsked.length = 0;
+  stopped.length = 0;
   conversations.startNewChat();
 });
 
@@ -184,14 +197,19 @@ test("clearing a conversation starts a new chat when the User stayed", async () 
   expect(shown()).toBeNull();
 });
 
+/** Lets the ask's reply be handled until it has asked for the new conversation's messages. */
+async function untilRead(id: string) {
+  for (let turn = 0; turn < 10 && !readsAsked.includes(id); turn++) await Promise.resolve();
+  expect(readsAsked).toContain(id);
+}
+
 test("a new conversation's first read doesn't replace a newer one the User opened it with since", async () => {
   const first = held<{ messages: ConversationMessage[] }>();
   reads.set("new", first.promise);
   const { reply, asked } = askHeld();
   reply.settle(askedIn("new"));
-  for (let turn = 0; turn < 10 && shown() !== "new"; turn++) await Promise.resolve();
-  expect(shown()).toBe("new");
-  // The User goes to another conversation and back, which reads it again, before the first read.
+  await untilRead("new");
+  // The User opens another conversation, then this one, which reads it again, before the first read.
   await conversations.openConversation("other");
   reads.set("new", Promise.resolve({ messages: [question("new"), question("later")] }));
   await conversations.openConversation("new");
@@ -237,4 +255,52 @@ test("the example's ready Question shows its conversation when the User stayed",
   });
 
   expect(shown()).toBe("example");
+});
+
+const answerTo = (conversationId: string): ConversationMessage =>
+  ({
+    kind: "answer",
+    id: `answer in ${conversationId}`,
+    conversationId,
+    questionId: `question in ${conversationId}`,
+    status: "streaming",
+    text: "The first words",
+  }) as unknown as ConversationMessage;
+
+test("an Answer written while a new conversation is read never shows above its Question (#1741)", async () => {
+  const first = held<{ messages: ConversationMessage[] }>();
+  reads.set("new", first.promise);
+  const drawn: (readonly ConversationMessage[])[] = [];
+  const unsubscribe = conversations.useConversations.subscribe(({ messages }) =>
+    drawn.push(messages),
+  );
+  const { reply, asked } = askHeld();
+  reply.settle(askedIn("new"));
+  await untilRead("new");
+  // Written before the core read the conversation, its first words come ahead of the read.
+  listeners.get("conversation.message")?.(answerTo("new"));
+  first.settle({ messages: [question("new"), answerTo("new")] });
+  await asked;
+  unsubscribe();
+
+  // The thread draws its messages, then the Question still on its way: never an Answer before it.
+  expect(drawn.filter((messages) => messages.at(0)?.kind === "answer")).toEqual([]);
+  expect(shown()).toBe("new");
+  expect(conversations.useConversations.getState().messages).toEqual([
+    question("new"),
+    answerTo("new"),
+  ]);
+});
+
+test("Stop pressed while a new conversation is read stops its Answer", async () => {
+  const first = held<{ messages: ConversationMessage[] }>();
+  reads.set("new", first.promise);
+  const { reply, asked } = askHeld();
+  reply.settle(askedIn("new"));
+  await untilRead("new");
+  conversations.stopWriting();
+  first.settle({ messages: [question("new"), answerTo("new")] });
+  await asked;
+
+  expect(stopped).toEqual(["answer in new"]);
 });
