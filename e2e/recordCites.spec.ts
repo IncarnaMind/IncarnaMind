@@ -395,8 +395,11 @@ test("the narrow Chinese card keeps raw English cites and picker keyboard focus 
 
   const fits = await card.evaluate((element) => {
     const box = element.getBoundingClientRect();
+    // The card scrolls inside its popover, so its own width is where a sideways overflow shows.
+    const inner = element.querySelector(".claim-card");
+    if (!inner) throw new Error("The claim card isn't showing.");
     return {
-      horizontal: element.scrollWidth <= element.clientWidth,
+      horizontal: inner.scrollWidth <= inner.clientWidth,
       left: box.left >= 0,
       right: box.right <= globalThis.innerWidth,
       top: box.top >= 0,
