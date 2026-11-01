@@ -151,6 +151,8 @@ interface Segment {
   /** Where those tokens start and end (`from`..`to` with the spaces left out). */
   start: number;
   end: number;
+  /** How many characters of it the selection shows: what `Selection.characters` counts. */
+  characters: number;
   /**
    * The kind of Block the model was shown it as (`blockMarker`): its own,
    * when the selection starts at the Block's start; a plain paragraph's
@@ -411,6 +413,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       tokens: kept,
       start: kept[0]?.from ?? start,
       end: kept.at(-1)?.to ?? start,
+      characters: shownText.length,
       kind,
     });
     plain.push(tokens.map((token) => token.text ?? NODE_CHARACTER).join(""));
@@ -446,6 +449,68 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       characters,
     },
   };
+}
+
+/** A stretch of a Mind's text as `readSelection` takes it: one part of an edit made in parts (#2348). */
+export interface PartPlace {
+  from: TextPlace;
+  to: TextPlace;
+}
+
+/** A selection edited in parts, at the boundaries between its Blocks. */
+export type PartsResult =
+  | { ok: true; parts: PartPlace[] }
+  /** `block`: one Block alone is more than the model takes at once. `changed`: the text can't be read now. */
+  | { ok: false; reason: "block" | "changed" };
+
+/**
+ * The parts a selection too long for the model is edited in (#2348): each a run of whole
+ * Blocks that `fits`, in order, and no part left out. A Block that alone doesn't fit is
+ * the whole answer: a Block can't be split.
+ */
+export function selectionParts(
+  blocks: Y.XmlFragment,
+  selection: Selection,
+  fits: (part: Selection) => boolean,
+): PartsResult {
+  const placeOf = (segment: Segment, edge: "from" | "to"): TextPlace | null => {
+    const blockId = segment.element.getAttribute(BLOCK_ID_ATTRIBUTE);
+    if (typeof blockId !== "string" || blockId === "") return null;
+    return { blockId, offset: edge === "from" ? segment.from : segment.to };
+  };
+  const read = (first: Segment, last: Segment): Selection | null => {
+    const from = placeOf(first, "from");
+    const to = placeOf(last, "to");
+    if (!from || !to) return null;
+    const result = readSelection(blocks, from, to);
+    return result.ok ? result.selection : null;
+  };
+  const { segments } = selection;
+  const parts: PartPlace[] = [];
+  let start = 0;
+  while (start < segments.length) {
+    const first = segments[start];
+    if (!first) return { ok: false, reason: "changed" };
+    const alone = read(first, first);
+    if (!alone) return { ok: false, reason: "changed" };
+    if (!fits(alone)) return { ok: false, reason: "block" };
+    let end = start;
+    for (;;) {
+      const last = segments[end + 1];
+      if (!last) break;
+      const next = read(first, last);
+      if (!next) return { ok: false, reason: "changed" };
+      if (!fits(next)) break;
+      end += 1;
+    }
+    const to = segments[end];
+    const from = placeOf(first, "from");
+    const place = to && placeOf(to, "to");
+    if (!from || !place) return { ok: false, reason: "changed" };
+    parts.push({ from, to: place });
+    start = end + 1;
+  }
+  return { ok: true, parts };
 }
 
 /** A word's key with its look; spaces have none, since a run's edges are written outside its marks. */
@@ -725,7 +790,8 @@ export const someNotes = ({ unmatchedMarkers, unlinkedSources, extraCells }: Not
   ...(extraCells > 0 && { extraCells }),
 });
 
-const addNotes = (to: Notes, from: Notes): void => {
+/** Adds one request's notes to another's: the notes of all the parts of an edit (#2348). */
+export const addNotes = (to: Notes, from: Notes): void => {
   to.unmatchedMarkers += from.unmatchedMarkers;
   to.unlinkedSources += from.unlinkedSources;
   to.extraCells += from.extraCells;
@@ -3262,6 +3328,7 @@ function writeBlocks(
         tokens,
         start: 0,
         end: size,
+        characters: size,
         kind: kindOf(element),
       };
       writeHunks(segment, jsonTokens(node.content ?? []), writer.next, writer.newId, writer.notes);

@@ -46,9 +46,11 @@ import {
   type ChatModelChoice,
   type ChatReadiness,
   type EditAction,
+  type EditPart,
   type EditWithAiResult,
   type ExternalService,
   editActions,
+  type LeftOutPart,
   MIND_CONTENT_FIELD,
   type ProposalRequest,
   type RequestedChange,
@@ -76,8 +78,10 @@ import {
 } from "../proposals/ownWaiting";
 import {
   acceptedText,
+  addNotes,
   createRewriteStream,
   layout,
+  type Notes,
   proposeAfter,
   proposeRewrite,
   type ReadResult,
@@ -85,6 +89,7 @@ import {
   type RewriteStream,
   readSelection,
   type Selection,
+  selectionParts,
   someNotes,
   takeBackForRegenerate,
   textBlocks,
@@ -162,8 +167,11 @@ export interface EditsOptions {
   localOnly(): boolean;
   /** A Citation's attributes checked again now, or null when its check comes out the same. */
   recheck(attributes: Attributes): Attributes | null;
-  /** Says where a request writes next in a Mind as its changes come in (#202); null once it has stopped. */
-  writing(mindId: string, place: WritingPlace | null): void;
+  /**
+   * Says where a request writes next in a Mind as its changes come in (#202); null once it has
+   * stopped. `part`: a long selection edited in parts says which of how many is written now (#2348).
+   */
+  writing(mindId: string, place: WritingPlace | null, part?: EditPart): void;
   /** A Checkpoint just before an edit that applies at once writes (#113). */
   checkpoint(mindId: string): void;
   now(): Date;
@@ -517,6 +525,13 @@ export function createEdits(options: EditsOptions) {
     },
   });
 
+  /** The part being written, while a long selection is edited in parts (#2348). */
+  let partNow: { mindId: string; part: EditPart } | null = null;
+
+  /** Says where a request writes next, and which part of how many, while it does (#202, #2348). */
+  const noteWriting = (mindId: string, place: WritingPlace | null): void =>
+    options.writing(mindId, place, partNow?.mindId === mindId ? partNow.part : undefined);
+
   const readinessOf = (choice: ChatModelChoice | null) =>
     chat.readiness(choice ?? undefined, "edits");
 
@@ -533,7 +548,11 @@ export function createEdits(options: EditsOptions) {
     signal: AbortSignal,
     hooks: Hooks = {},
   ): Promise<EditWithAiResult> {
-    if (draft.selection.characters > MAX_SELECTION_CHARACTERS) return { kind: "too-long" };
+    // A Block alone over what one request edits can't be edited in parts (#2348): said before
+    // anything is sent, and before a model is asked for.
+    if (draft.selection.segments.some((part) => part.characters > MAX_SELECTION_CHARACTERS)) {
+      return { kind: "block-too-long" };
+    }
 
     const choice = ask.model ?? options.defaultModel();
     const readiness = await readinessOf(choice);
@@ -556,7 +575,134 @@ export function createEdits(options: EditsOptions) {
       throw error;
     }
     if (signal.aborted) return { kind: "cancelled" };
-    return (await rewrite(prepared, ask, draft, signal, hooks)).result;
+    // One request takes the whole selection when it fits: in characters, and in the model's
+    // window with the room its reply needs. More than that is edited in parts (#2348).
+    const fits =
+      draft.selection.characters <= MAX_SELECTION_CHARACTERS &&
+      editCall(prepared, ask, { ...draft.selection, quotes: quotesOf(draft.selection) }) !== null;
+    if (fits) return (await rewrite(prepared, ask, draft, signal, hooks)).result;
+    // Only an edit the User asked for is made in parts: one made again, or by the assistant,
+    // is asked of them another way.
+    if (hooks.requestId === undefined) return { kind: "too-long" };
+    return rewriteInParts(prepared, ask, draft, signal, hooks);
+  }
+
+  /**
+   * A selection the model can't take at once, edited in parts at Block boundaries (#2348): each
+   * part is asked with the same instruction and the text around it, and streams in place as it
+   * finishes (#202). The parts' changes are one request's, so the window applies them as one
+   * step, with one Undo. Stopped, what is finished stays; a part that fails takes all back.
+   */
+  async function rewriteInParts(
+    prepared: PreparedChatModel,
+    ask: Ask,
+    draft: Draft,
+    signal: AbortSignal,
+    hooks: Hooks,
+  ): Promise<EditWithAiResult> {
+    const { mindId } = draft;
+    const split = selectionParts(
+      draft.fork.getXmlFragment(MIND_CONTENT_FIELD),
+      draft.selection,
+      (part) =>
+        part.characters <= MAX_SELECTION_CHARACTERS &&
+        editCall(prepared, ask, { ...part, quotes: quotesOf(part) }) !== null,
+    );
+    if (!split.ok) return { kind: split.reason === "block" ? "block-too-long" : "changed" };
+    const request = randomUUID();
+    const total = split.parts.length;
+    // How many, before the first part streams: a cloud model's estimate shows first (#83).
+    options.writing(mindId, null, { at: 1, of: total });
+    const leftOut: LeftOutPart[] = [];
+    const notes: Notes = { unmatchedMarkers: 0, unlinkedSources: 0, extraCells: 0 };
+    let droppedCitations = 0;
+    let held = false;
+    let made = 0;
+    let said: string | undefined;
+    // One Checkpoint for the whole edit, as for one request (#113).
+    let marked = false;
+    const once: Hooks = {
+      ...hooks,
+      beforeWriting: () => {
+        if (marked) return;
+        marked = true;
+        hooks.beforeWriting?.();
+      },
+    };
+    try {
+      for (const [index, place] of split.parts.entries()) {
+        if (signal.aborted) break;
+        const read = readForEdit(mindId, place.from, place.to);
+        if (!read.ok) {
+          return takeBackAll(mindId, request, {
+            kind: read.reason === "has-proposals" ? "has-proposals" : "changed",
+          });
+        }
+        partNow = { mindId, part: { at: index + 1, of: total } };
+        let result: EditWithAiResult;
+        try {
+          ({ result } = await rewrite(prepared, ask, read.draft, signal, once, request));
+        } finally {
+          partNow = null;
+          read.draft.fork.destroy();
+        }
+        if (result.kind === "proposed") {
+          made += 1;
+          held ||= result.held === true;
+          droppedCitations += result.droppedCitations;
+          leftOut.push(...(result.leftOut ?? []));
+          addNotes(notes, {
+            unmatchedMarkers: result.unmatchedMarkers ?? 0,
+            unlinkedSources: result.unlinkedSources ?? 0,
+            extraCells: result.extraCells ?? 0,
+          });
+          continue;
+        }
+        if (result.kind === "unchanged") {
+          said ||= result.said;
+          continue;
+        }
+        // Stopped between two parts: what is finished stays, as for a request stopped midway.
+        if (result.kind === "cancelled" || signal.aborted) break;
+        return takeBackAll(mindId, request, result);
+      }
+    } finally {
+      options.writing(mindId, null);
+    }
+    const now = content.read(mindId, (mind) => {
+      const stale = outOfDateProposals(mind);
+      const waiting = pendingProposals(mind).filter((each) => each.request === request);
+      return { count: waiting.length, outOfDate: waiting.filter((each) => stale.has(each.id)) };
+    });
+    if (now.count === 0) {
+      if (signal.aborted) return { kind: "cancelled" };
+      return said === undefined ? { kind: "unchanged" } : { kind: "unchanged", said };
+    }
+    return {
+      kind: "proposed",
+      request,
+      // How many parts the changes came from: all of them, unless the User stopped it partway.
+      ...(made > 1 && { parts: made }),
+      proposals: now.count,
+      droppedCitations,
+      outOfDate: now.outOfDate.length,
+      ...someNotes(notes),
+      ...(held && { held: true as const }),
+      ...(leftOut.length > 0 && { leftOut }),
+      stateVector: content.stateVector(mindId),
+    };
+  }
+
+  /** A part that failed takes back every part's changes: the edit is one step, or none. */
+  function takeBackAll(
+    mindId: string,
+    request: string,
+    result: EditWithAiResult,
+  ): EditWithAiResult {
+    content.edit(mindId, (mind) => {
+      resolveProposals(mind, (each) => each.request === request, "reject");
+    });
+    return result;
   }
 
   /**
@@ -570,6 +716,8 @@ export function createEdits(options: EditsOptions) {
     draft: Draft,
     signal: AbortSignal,
     hooks: Hooks,
+    /** The request all the Proposals are written under: one per edit, or for all its parts (#2348). */
+    request: string = randomUUID(),
   ): Promise<{ result: EditWithAiResult; reply: string; reason: string | null }> {
     const { mindId, fork, selection } = draft;
     const explain = ask.action === "explain";
@@ -580,7 +728,6 @@ export function createEdits(options: EditsOptions) {
     const passage = passageFor(ask.action, selection);
     const named = NAMES_SHOWN.has(ask.action);
 
-    const request = randomUUID();
     const blocks = fork.getXmlFragment(MIND_CONTENT_FIELD);
     const { requestId } = hooks;
     // Explain's few sentences go in once they are all there.
@@ -689,7 +836,7 @@ export function createEdits(options: EditsOptions) {
       });
     };
     const showWriting = () => {
-      if (stream) options.writing(mindId, placeOf(stream.writingAt()));
+      if (stream) noteWriting(mindId, placeOf(stream.writingAt()));
     };
     /**
      * Which paragraph a rewrite replaces can't be trusted, or it would drop a tag the User typed:
@@ -726,7 +873,7 @@ export function createEdits(options: EditsOptions) {
         return false;
       });
     } finally {
-      if (stream) options.writing(mindId, null);
+      if (stream) noteWriting(mindId, null);
     }
     const { raw, failure } = streamed;
 

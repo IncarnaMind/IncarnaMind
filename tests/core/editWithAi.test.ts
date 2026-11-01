@@ -71,7 +71,7 @@ const textOf = (prompt: Prompt, role: "user" | "system") =>
 function editingModel(
   edit: (call: EditCall) => string | Promise<string>,
   calls: EditCall[] = [],
-  { finished = "stop" }: { finished?: "stop" | "length" } = {},
+  { finished = "stop", chunkSize = 4 }: { finished?: "stop" | "length"; chunkSize?: number } = {},
 ): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     doGenerate: async () => ({
@@ -89,7 +89,7 @@ function editingModel(
         system: textOf(prompt, "system"),
       };
       calls.push(call);
-      return { stream: streamedReply(await edit(call), abortSignal, { finished }) };
+      return { stream: streamedReply(await edit(call), abortSignal, { finished, chunkSize }) };
     },
   });
 }
@@ -2058,7 +2058,7 @@ describe("Edit with AI and the model's service", () => {
   });
 
   // protects=a selection whose rewrite can't fit Edit with AI's output limit is turned away before anything is sent, with the shared "too much text" line in English and Chinese, while a long one that fits is sent; fails_when=it is sent and its rewrite comes back cut short (#2275).
-  test("a selection whose rewrite would pass the output limit isn't sent; a long one that fits is", async () => {
+  test("a selection whose rewrite would pass the output limit isn't sent, and a Block over it says the model is too small; a long one that fits is", async () => {
     const calls: EditCall[] = [];
     const core = startCore(await createTempDataFolder(), {
       createChatModel: scriptedModels(editingModel(() => "潮汐。", calls)).createChatModel,
@@ -2079,14 +2079,19 @@ describe("Edit with AI and the model's service", () => {
     expect(calls).toHaveLength(1);
     await resolveChanges(client, "reject");
 
+    // One Block can't be split: the model that can't take it is the one to change (#2348).
     expect(
       await core.editWithAi(wholeParagraph(client, mind.id, over.attrs.id, "improve")),
-    ).toEqual({ kind: "too-long" });
+    ).toEqual({ kind: "block-too-long" });
     expect(calls).toHaveLength(1);
-    expect(translate("en", "edit.problem.too-long")).toBe(
-      "Too much text for the model: select less.",
+    expect(translate("en", "edit.problem.block-too-long", { model: "GPT" })).toBe(
+      "This paragraph is too long for GPT",
     );
-    expect(translate("zh-CN", "edit.problem.too-long")).toBe("选中的文字太长，请少选一些。");
+    expect(translate("zh-CN", "edit.problem.block-too-long", { model: "GPT" })).toBe(
+      "这一段对 GPT 来说太长了",
+    );
+    expect(translate("en", "edit.problem.chooseAnotherModel")).toBe("Choose another model");
+    expect(translate("zh-CN", "edit.problem.chooseAnotherModel")).toBe("换一个模型");
   });
 
   test("Local mode turned on while the edit waits for consent: the prompt closes, nothing is sent, and the edit says Local mode (#1120)", async () => {
@@ -5701,4 +5706,142 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       expect(await acceptThenUndo(client, before)).toEqual(each.after);
     },
   );
+});
+
+describe("A selection too long for the model is edited in parts (#2348)", () => {
+  // The most one request edits is 12,000 characters (`MAX_SELECTION_CHARACTERS`): more is done
+  // in parts at Block boundaries, each asked with the same instruction and its own text around it.
+  const LINE = "Sailors kept their own tables of the tides and the times of high water. ";
+  /** A paragraph of about 10,800 characters: one part, and two of them take more than one request. */
+  const body = (index: number) =>
+    `Tide table ${index}, the water is very high. ${LINE.repeat(150)}`;
+
+  /** Edit with AI over all of the Mind's text, as Shorten or the like, which shows no names. */
+  function wholeOf(
+    client: MindClient,
+    mindId: string,
+    action: EditWithAiInput["action"],
+    instruction?: string,
+  ): EditWithAiInput {
+    const input = wholeMind(client, mindId, instruction ?? "");
+    return { ...input, action, ...(instruction !== undefined && { instruction }) };
+  }
+
+  test("three times one request's text is edited in three parts, one after another, each with its own text around it, all one request's changes", async () => {
+    const calls: EditCall[] = [];
+    const { core, mind, client } = await setUp(
+      editingModel(({ passage }) => passage.replaceAll(" very", ""), calls, { chunkSize: 512 }),
+    );
+    const notes = [0, 1, 2].map((index) => paragraph(text(body(index))));
+    writeMind(client, notes);
+    await client.settled();
+    const asked = [0, 1, 2].map((index) => String(index));
+    expect(asked).toHaveLength(3);
+    const parts: { at: number; of: number }[] = [];
+    core.on("mind.writing", (writing) => {
+      const part = writing.part;
+      const last = parts.at(-1);
+      if (part && (!last || last.at !== part.at || last.of !== part.of)) parts.push(part);
+    });
+
+    const result = await core.editWithAi(wholeOf(client, mind.id, "shorten"));
+
+    // Three requests, each the next Block's own text, with the same task.
+    expect(calls).toHaveLength(3);
+    expect(calls.map((call) => call.action)).toEqual(["shorten", "shorten", "shorten"]);
+    expect(calls.map((call) => call.passage)).toEqual([0, 1, 2].map((index) => body(index).trim()));
+    // Each said which part it wrote, before its own text came.
+    expect(parts).toEqual([
+      { at: 1, of: 3 },
+      { at: 2, of: 3 },
+      { at: 3, of: 3 },
+    ]);
+    // All three parts' changes are one request's: the window applies them as one step, one Undo.
+    expect(result).toMatchObject({ kind: "proposed", parts: 3 });
+    const request = result.kind === "proposed" ? result.request : "";
+    const made = pendingProposals(client.blocks).filter((each) => each.request === request);
+    expect(made.length).toBe(result.kind === "proposed" ? result.proposals : 0);
+    expect(new Set(pendingProposals(client.blocks).map((each) => each.request))).toEqual(
+      new Set([request]),
+    );
+    // Each part's change is in the Note, over the words it changed.
+    expect(shownWithChanges(client)[0]).toContain("Tide table 0, the water is [-very -]high.");
+    expect(shownWithChanges(client)[2]).toContain("Tide table 2, the water is [-very -]high.");
+  });
+
+  test("stopped partway, the parts already written stay, and nothing after them is asked", async () => {
+    const controlled = controlledModel();
+    const { core, mind, client } = await setUp(controlled.model);
+    const notes = [0, 1, 2].map((index) => paragraph(text(body(index))));
+    writeMind(client, notes);
+    await client.settled();
+    const input = wholeOf(client, mind.id, "shorten");
+
+    const editing = core.editWithAi(input);
+    await controlled.requested(1);
+    controlled.push(body(0).replaceAll(" very", ""));
+    controlled.finish();
+    await controlled.requested(2);
+    await core.cancelEdit(input.requestId);
+
+    // What the first part wrote stays; the other parts were never asked.
+    expect(await editing).toMatchObject({ kind: "proposed" });
+    const shown = shownWithChanges(client);
+    expect(shown[0]).toContain("Tide table 0, the water is [-very -]high.");
+    expect(shown[1]).toBe(body(1));
+    expect(shown[2]).toBe(body(2));
+    expect(controlled.model.doStreamCalls).toHaveLength(2);
+  });
+
+  test("one Block over the limit is said so, with nothing sent: a Block can't be split", async () => {
+    const calls: EditCall[] = [];
+    const { core, mind, client } = await setUp(
+      editingModel(({ passage }) => passage.replaceAll(" very", ""), calls),
+    );
+    const huge = paragraph(text(`The water is very high. ${LINE.repeat(180)}`));
+    writeMind(client, [huge]);
+    await client.settled();
+
+    expect(await core.editWithAi(wholeOf(client, mind.id, "shorten"))).toEqual({
+      kind: "block-too-long",
+    });
+    expect(calls).toHaveLength(0);
+    expect(pendingProposals(client.blocks)).toHaveLength(0);
+  });
+
+  test("a part that fails takes every part back: the edit is one step, or none", async () => {
+    const calls: EditCall[] = [];
+    const { core, mind, client } = await setUp(
+      editingModel(
+        ({ passage }) => {
+          // The second part fails, as a provider does now and then.
+          if (passage.startsWith("Tide table 1")) {
+            throw new APICallError({
+              message: "Overloaded",
+              url: "https://fake.invalid/chat",
+              requestBodyValues: {},
+              statusCode: 529,
+            });
+          }
+          return passage.replaceAll(" very", "");
+        },
+        calls,
+        { chunkSize: 512 },
+      ),
+    );
+    const notes = [0, 1, 2].map((index) => paragraph(text(body(index))));
+    writeMind(client, notes);
+    await client.settled();
+
+    const result = await core.editWithAi(wholeOf(client, mind.id, "shorten"));
+
+    expect([...new Set(calls.map((call) => call.passage.trim()))]).toEqual([
+      body(0).trim(),
+      body(1).trim(),
+    ]);
+    expect(result.kind).toBe("failed");
+    // The first part's changes, applied before the second failed, are gone with it.
+    expect(pendingProposals(client.blocks)).toHaveLength(0);
+    expect(shownWithChanges(client)).toEqual([body(0), body(1), body(2)]);
+  });
 });

@@ -11,8 +11,10 @@ import type * as Y from "yjs";
 import { create } from "zustand";
 import {
   ANSWER_BLOCK,
+  type ChatModelChoice,
   type ChatReadiness,
   type EditAction,
+  type EditPart,
   type EditWithAiResult,
   type ProviderError,
 } from "../../core/api";
@@ -20,6 +22,7 @@ import { aiUseOfAccepted, proposalRequestOf } from "../../shared/proposals";
 import { useAnswers } from "./answers";
 import { type Applying, appliedMessage, finishApplying, startApplying } from "./appliedEdits";
 import { core } from "./core";
+import { type EstimateLine, estimateLine } from "./cost";
 import { appliedLineIn } from "./editor/appliedEditLine";
 import { offerEditorUndo } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
@@ -35,9 +38,10 @@ import {
 import { keepDecisions } from "./editor/theirChanges";
 import { failedEdit } from "./editProblems";
 import { errorMessage } from "./errors";
-import { translateNow } from "./i18n";
+import { languageNow, translateNow } from "./i18n";
 import type { Words } from "./lineNames";
 import { modelInUseOf } from "./modelInUse";
+import { shownModelNow } from "./modelNames";
 import { useAppStore } from "./store";
 
 /** The languages Translate… offers: each in its own name, and as the model is told it. */
@@ -59,6 +63,7 @@ export type EditProblem = (
         | "changed"
         | "has-proposals"
         | "too-long"
+        | "block-too-long"
         | "local-mode"
         | "cant-regenerate"
         | "no-table"
@@ -74,7 +79,11 @@ export type EditProblem = (
   | { kind: "not-ready"; readiness: Extract<ChatReadiness, { ready: false }> }
   | { kind: "failed"; message: string; retry: () => void }
   | { kind: "consent-revoked"; error: ProviderError }
-) & { menu?: MenuEdit };
+) & {
+  menu?: MenuEdit;
+  /** What names the model, for a line about what it can't take at once (#2348). */
+  model?: string;
+};
 
 /** An edit asked in the selection menu: where the first Block of its text is, for the line that reports it once the menu is closed. */
 export interface MenuEdit {
@@ -88,6 +97,12 @@ interface Pending {
   action: EditAction;
   /** The language, for "translate". */
   language: string | null;
+  /** The model it is asked with, for a long selection's estimate on a cloud model (#83). */
+  model: ChatModelChoice | null;
+  /** A selection too long for the model, edited in parts: which of how many is written now (#2348). */
+  part?: EditPart;
+  /** What the parts are about to cost, on a cloud model whose price is known (#83). Undefined: not asked yet. */
+  estimate?: EstimateLine | null;
   /** Stopped by the User: it still settles before another edit can start, so its Undo stays its own. */
   stopped?: boolean;
   menu?: MenuEdit;
@@ -139,6 +154,42 @@ export function speak(mindId: string, text: string, about?: string): void {
 }
 
 export const dismissEditProblem = (mindId: string) => set("problems", mindId, null);
+
+/**
+ * A selection too long for the model, edited in parts (#2348): as the core says which part it
+ * writes, the line says so, and on a cloud model whose price is known the whole run's estimate
+ * shows before the first part is written (#83).
+ */
+core.on("mind.writing", ({ mindId, part }) => {
+  const pending = useEdits.getState().pending[mindId];
+  if (!pending || !part) return;
+  const still = () => {
+    const now = useEdits.getState().pending[mindId];
+    return now?.requestId === pending.requestId ? now : null;
+  };
+  const known = still();
+  if (!known) return;
+  set("pending", mindId, { ...known, part });
+  if (part.of < 2 || pending.estimate !== undefined) return;
+  core
+    .estimateRun({ items: part.of, each: "edit", ...(pending.model && { model: pending.model }) })
+    .then((run) => {
+      const now = still();
+      if (now)
+        set("pending", mindId, {
+          ...now,
+          estimate: estimateLine(run, translateNow, languageNow()),
+        });
+    })
+    .catch((error: unknown) => {
+      console.warn(
+        `Couldn't estimate the edit of Mind ${mindId}; its line goes without one.`,
+        error,
+      );
+      const now = still();
+      if (now) set("pending", mindId, { ...now, estimate: null });
+    });
+});
 
 export const setMenuShows = (mindId: string, shown: boolean) =>
   set("menuShows", mindId, shown ? true : null);
@@ -211,6 +262,7 @@ export async function requestEdit(
     requestId,
     action,
     language: action === "translate" ? (instruction ?? null) : null,
+    model: modelInUseOf(doc),
     ...(from === "menu" && { menu: { blockId: selection.from.blockId, at: Date.now() } }),
   });
   setEditTarget(editor, selection.range);
@@ -322,6 +374,15 @@ async function arrived(
     return;
   }
   if (result.kind === "cancelled") return;
+  if (result.kind === "too-long" || result.kind === "block-too-long") {
+    // What can't fit names the model to change: the Mind's own, else the one the app asks with.
+    const inUse = modelInUseOf(editorDoc(editor) ?? null);
+    problem({
+      ...result,
+      ...(inUse && { model: shownModelNow(inUse.modelId, inUse.providerId).name }),
+    });
+    return;
+  }
   problem(result.kind === "failed" ? failedEdit(result.error, () => void retry()) : result);
 }
 
@@ -358,6 +419,7 @@ export async function regenerateChange(
     requestId,
     action,
     language: action === "translate" ? (made.instruction ?? null) : null,
+    model: modelInUseOf(doc),
   });
   setEditTarget(editor, { from: proposal.from, to: proposal.to });
   const watch = watchMovedOn(editor);

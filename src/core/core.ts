@@ -2443,7 +2443,8 @@ export function createCore(adapters: CoreAdapters): Core {
     consent,
     localOnly: () => embedding.localOnly(),
     recheck: (attributes) => recheckKept(documents, attributes),
-    writing: (mindId, place) => events.emit("mind.writing", { mindId, place }),
+    writing: (mindId, place, part) =>
+      events.emit("mind.writing", { mindId, place, ...(part && { part }) }),
     checkpoint: (mindId) => {
       checkpoints.save(mindId, "accept");
     },
@@ -5071,7 +5072,7 @@ export function createCore(adapters: CoreAdapters): Core {
     estimateRun: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError("estimateRun expects an object.");
       const { items, model, searches = 0, each = "answer" } = input;
-      if (each !== "answer" && each !== "check") {
+      if (each !== "answer" && each !== "check" && each !== "edit") {
         throw new InvalidInputError({ key: "error.estimate.each" });
       }
       if (typeof items !== "number" || !Number.isInteger(items) || items < 0 || items > 100_000) {

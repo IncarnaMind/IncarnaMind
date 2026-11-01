@@ -37,9 +37,20 @@ export function useMenuEditLine(editor: Editor, mindId: string, readOnly: boolea
         clear();
         return;
       }
-      const { blockId, at } = pending.menu;
+      const { at } = pending.menu;
       const timer = setTimeout(
-        () => setAppliedLine(editor, { kind: "running", blockId, stop: () => stopEdit(mindId) }),
+        () => {
+          // As the store holds it now: a part, or its estimate, may have come since (#2348, #83).
+          const now = useEdits.getState().pending[mindId];
+          if (!now?.menu) return;
+          setAppliedLine(editor, {
+            kind: "running",
+            blockId: now.menu.blockId,
+            stop: () => stopEdit(mindId),
+            ...(now.part && { part: now.part }),
+            ...(now.estimate !== undefined && { estimate: now.estimate }),
+          });
+        },
         Math.max(0, at + SHOWN_AFTER_MS - Date.now()),
       );
       return () => clearTimeout(timer);

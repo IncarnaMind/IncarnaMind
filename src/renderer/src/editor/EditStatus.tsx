@@ -33,10 +33,14 @@ export function EditStatus({ mindId }: { mindId: string }) {
         role="status"
         testId="edit-pending"
         className="composer-problem"
+        details={pending.estimate?.parts ?? []}
+        title={pending.estimate?.title}
         action={{ label: t("edit.stop"), testId: "edit-stop", onClick: () => stopEdit(mindId) }}
       >
         <span className="edit-pending-dot" aria-hidden="true" />
-        {t(`edit.pending.${pending.action}`, { language })}
+        {pending.part
+          ? t("edit.pending.part", { at: pending.part.at, of: pending.part.of })
+          : t(`edit.pending.${pending.action}`, { language })}
       </ProblemLine>
     );
   }
@@ -82,6 +86,21 @@ export function editProblemParts(
         role: "alert",
       };
     }
+    case "block-too-long":
+      return {
+        // A Block can't be split: the model that can't take it is the one to change.
+        text: t("edit.problem.block-too-long", {
+          model: problem.model ?? t("answer.error.thisModel"),
+        }),
+        action: {
+          label: t("edit.problem.chooseAnotherModel"),
+          run: () => {
+            dismissEditProblem(mindId);
+            openSettings("models");
+          },
+        },
+        role: "alert",
+      };
     case "local-mode":
       return {
         text: t("edit.problem.local-mode"),

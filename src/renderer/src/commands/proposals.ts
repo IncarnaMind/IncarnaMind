@@ -19,6 +19,7 @@ import {
   toggleAppliedOriginal,
 } from "../editor/appliedEditLine";
 import { selectionForEdit } from "../editor/editSelection";
+import { explainSelection } from "../editor/explainSelection";
 import { noteHolding } from "../editor/noteKeymap";
 import { pendingAtSelection, pendingIn } from "../editor/proposalReview";
 import { proposalOriginalAt, toggleProposalOriginal } from "../editor/proposalRewrites";
@@ -126,7 +127,10 @@ const editAction = (
   when: () => withSelection() !== null,
   run() {
     const note = withSelection();
-    if (note) void requestEdit(note.editor, note.mindId, note.doc, action);
+    if (!note) return;
+    // Explain answers in the assistant, as the selection menu's does, and changes nothing (#2348).
+    if (action === "explain") void explainSelection(note.editor, note.mindId, note.doc);
+    else void requestEdit(note.editor, note.mindId, note.doc, action);
   },
 });
 

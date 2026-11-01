@@ -1297,6 +1297,14 @@ export type WritingPlace = { after: string | null } | { over: string };
 export interface MindWriting {
   mindId: string;
   place: WritingPlace | null;
+  /** A selection too long for the model is edited in parts: which of how many is written now (#2348). */
+  part?: EditPart;
+}
+
+/** A part of a selection edited in parts (#2348): `at` counts from 1, of `of` parts in all. */
+export interface EditPart {
+  at: number;
+  of: number;
 }
 
 /**
@@ -5472,8 +5480,11 @@ export interface TaskShown {
 /** A large run to estimate: so many items (a comparison table's cells, verify's sentences…). */
 export interface RunEstimateInput {
   items: number;
-  /** What each item is: about an Answer (the default), or a sentence checked against Documents (#973). */
-  each?: "answer" | "check";
+  /**
+   * What each item is: about an Answer (the default), a sentence checked against Documents
+   * (#973), or a part of an Edit with AI too long for one request (#2348).
+   */
+  each?: "answer" | "check" | "edit";
   /** The web searches it makes (#128), each billed by the model's provider, on top of its items. */
   searches?: number;
   /** The model it would use; the default model when left out. */
@@ -5807,6 +5818,8 @@ export type EditWithAiResult =
       kind: "proposed";
       request: string;
       proposals: number;
+      /** The parts a selection too long for the model was edited in, one after another (#2348). Absent: one. */
+      parts?: number;
       droppedCitations: number;
       outOfDate: number;
       /** Markers the text had for none of the passage's Citations, left out. Absent: none. */
@@ -5845,6 +5858,11 @@ export type EditWithAiResult =
   | { kind: "has-proposals" }
   /** Nothing was sent: the selected text is more than the model can take at once. */
   | { kind: "too-long" }
+  /**
+   * Nothing was sent: one Block of the selection is more than the model takes at once, and a
+   * Block can't be edited in parts (#2348).
+   */
+  | { kind: "block-too-long" }
   /** The User stopped it (`cancelEdit`). */
   | { kind: "cancelled" }
   /**

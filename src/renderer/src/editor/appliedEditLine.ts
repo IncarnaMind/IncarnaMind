@@ -21,12 +21,13 @@ import {
   ySyncPluginKey,
 } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
-import { BLOCK_ID_ATTRIBUTE } from "../../../core/api";
+import { BLOCK_ID_ATTRIBUTE, type EditPart } from "../../../core/api";
 import type { Language } from "../../../core/language";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import { type ChangeKind, countChanged } from "../../../shared/proposals";
 import { type ChangeCounts, changeFact } from "../changeFacts";
 import { SPARK_PATH } from "../components/iconPaths";
+import type { EstimateLine } from "../cost";
 import { anchorOf } from "./arrivedChanges";
 import {
   type ChangedBlock,
@@ -108,6 +109,8 @@ export type AppliedLine = (
       reason: string | null;
       changes: readonly AppliedChange[];
       kept: KeptLine | null;
+      /** The parts a selection too long for the model was edited in (#2348). Absent: one. */
+      parts?: number;
     }
   | {
       kind: "review";
@@ -128,7 +131,15 @@ export type AppliedLine = (
       asked?: { mindId: string; requests: readonly string[]; facts: ChangeCounts };
     }
   // An edit asked in the selection menu, once the menu is closed: it holds the spot its Undo line lands in.
-  | { kind: "running"; blockId: string | null; stop(): void }
+  | {
+      kind: "running";
+      blockId: string | null;
+      stop(): void;
+      /** A selection too long for the model is edited in parts: which of how many (#2348). */
+      part?: EditPart;
+      /** What a run on a cloud model is about to cost, when the model's price is known (#83). */
+      estimate?: EstimateLine | null;
+    }
   | {
       kind: "failed";
       blockId: string | null;
@@ -575,12 +586,22 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
     const pulse = document.createElement("span");
     pulse.className = "edit-pending-dot";
     pulse.setAttribute("aria-hidden", "true");
-    const element = lineElement("menu-edit-line", "applied-line", [
+    const parts: (Node | string)[] = [
       pulse,
-      text("min-w-0", t("edit.pending.instruction")),
-      dot(),
-      actionButton(t("edit.stop"), "menu-edit-stop", line.stop),
-    ]);
+      text(
+        "min-w-0",
+        line.part
+          ? t("edit.pending.part", { at: line.part.at, of: line.part.of })
+          : t("edit.pending.instruction"),
+      ),
+    ];
+    if (line.estimate) {
+      const cost = text("min-w-0", line.estimate.parts.join(" · "), "edit-estimate");
+      cost.title = line.estimate.title;
+      parts.push(dot(), cost);
+    }
+    parts.push(dot(), actionButton(t("edit.stop"), "menu-edit-stop", line.stop));
+    const element = lineElement("menu-edit-line", "applied-line", parts);
     element.setAttribute("role", "status");
     return element;
   }
@@ -603,13 +624,14 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
       line.facts ? changeFact(t, line.facts, null) : appliedText(t, line.blocks),
       "applied-count",
     );
-    const parts: (Node | string)[] = [
-      sparkle(),
-      what,
-      dot(),
-      button("undo", t("edit.applied.undo")),
-      keys(options.undoKeys()),
-    ];
+    const parts: (Node | string)[] = [sparkle(), what];
+    if (line.parts !== undefined && line.parts > 1) {
+      parts.push(
+        dot(),
+        text("min-w-0", t("edit.applied.parts", { count: line.parts }), "applied-parts"),
+      );
+    }
+    parts.push(dot(), button("undo", t("edit.applied.undo")), keys(options.undoKeys()));
     if (line.changes.length > 0) parts.push(dot(), button("review", t("edit.applied.review")));
     // What the assistant wrote comes in the page's top margin; an edit asked on the text keeps its line over its Block.
     const element = lineElement(
