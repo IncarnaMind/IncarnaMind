@@ -242,6 +242,7 @@ import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createTranscripts } from "./meetings/transcript";
+import { meetingWords } from "./meetings/words";
 import { accessFor, isKnownKind, parseKind } from "./mindAccess";
 import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
@@ -331,6 +332,7 @@ import {
   QWEN3_ASR_0_6B,
   TRANSCRIPTION_SPEED,
 } from "./transcription/model";
+import { inScript } from "./transcription/script";
 import { createSpeakerModel } from "./transcription/speakerModel";
 import { createUnsavedChanges } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
@@ -4049,6 +4051,16 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       health: captureHealth,
       memo: (meetingId) => isMemo(db, meetingId),
+      wordsOf: (meetingId) =>
+        meetingWords({
+          db,
+          meetingId,
+          userWords: settings.get().user.meetingWords,
+          folderName: (folderId) =>
+            library.folders().find((folder) => folder.id === folderId)?.name ?? null,
+          folderDocuments: (folderId) => library.documentIds(folderId),
+        }),
+      lineText: (text, words) => inScript(text, settings.get().chineseScript, words),
       purgedPaths: () =>
         db
           .all<{ path: string }>(

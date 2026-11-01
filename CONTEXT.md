@@ -341,6 +341,10 @@ _Avoid_: captions, subtitles, minutes
 A person in a Transcript who is told apart from the others. A Speaker is named by the User, and a Citation to a Transcript names who said the quote. Before that, a live Meeting's lines are "Me" (the microphone) or "Them" (the computer's sound), or "Speaker ?" with no computer sound. After the call, the speaker pass numbers several voices "Speaker 1, 2…"; one other voice stays "Them", and "Me" stays "Me".
 _Avoid_: voice, participant, user
 
+**Words to know**:
+Names and terms the User lists in Settings › Meetings so that a Meeting's Transcript writes them as the User does. At a Meeting's start the transcriber on this computer is told them, with the names in its Note and its Folder's Documents.
+_Avoid_: hotwords, vocabulary, dictionary
+
 ### Files
 
 **Granted folder**:

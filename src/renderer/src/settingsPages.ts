@@ -23,6 +23,7 @@ export type SettingsTarget =
   | "chat-model"
   | "add-provider"
   | "tagging"
+  | "meeting-words"
   | SignInRoute;
 
 export const offeredSettingsPages: readonly SettingsPage[] = settingsPages.filter(

@@ -261,6 +261,8 @@ export const en = {
   "command.palette.open": "Search…",
   "command.settings.page": "Settings: {page}",
   "command.settings.addProvider": "Add a model provider…",
+  "command.settings.meetingWords.keywords":
+    "names hotwords vocabulary transcription spelling meetings",
   "command.settings.localMode.keywords": "local offline private cloud off settings privacy",
   "palette.label": "Search",
   "palette.placeholder": "Search notes, conversations, Documents, Folders, Tags and actions…",
@@ -5870,6 +5872,22 @@ export const en = {
   "meetings.settings.route": "Transcribe on",
   "meetings.settings.whatBoth": "Your microphone and the other people (the computer’s sound).",
   "meetings.settings.whatMe": "Only your microphone.",
+  "meetings.words.title": "Words to know",
+  "meetings.words.body":
+    "Names and terms that transcription on this computer writes as you do: people, companies, products. Each meeting adds the names in its note and its folder.",
+  "meetings.words.field": "Add a word to know",
+  "meetings.words.placeholder": "A name or a term",
+  "meetings.words.add": "Add",
+  "meetings.words.rename": "Rename “{word}”",
+  "meetings.words.remove": "Remove “{word}”",
+  "meetings.words.removed": "Removed “{word}” from Words to know",
+  "meetings.words.renamed": "Renamed “{from}” to “{to}”",
+  "meetings.words.known": "“{word}” is in the list already.",
+  "meetings.words.full": "The list holds {count} words. Remove one to add another.",
+  "meetings.script.title": "Chinese in transcripts",
+  "meetings.script.body": "Written in this script, whichever the speech model wrote.",
+  "meetings.script.simplified": "Simplified",
+  "meetings.script.traditional": "Traditional",
 
   "sources.title": "Find sources",
   "sources.intro":
