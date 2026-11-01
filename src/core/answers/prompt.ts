@@ -115,10 +115,20 @@ export function webInstructions(offered: boolean): string {
 export function workbookInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    "A figure in an Excel workbook is worked out by the workbook's own formulas, and its Passages show only the values Excel saved, never the formulas. So before the Answer says how a workbook's figure relates to other cells or to its assumptions, call trace_formulas for that figure, even when the rows seem to show it; when the Question changes one of the workbook's inputs, call what_if. Write the marker each gives in the Answer where its figure's number goes.",
+    "A figure in an Excel workbook is worked out by the workbook's own formulas, which its Passages never show: a Passage marked formulas=\"…\" names the rows whose values its formulas worked out. Before the Answer says how such a figure is worked out, names the cells or assumptions it is worked out from, or compares their effect on it, call trace_formulas for that figure: the rows' labels and values only suggest the formulas, and a guess from them would read as fact. When the Question supposes a different value for one of the workbook's inputs, call what_if, which works the figure out again through every formula between them. Write the marker each gives in the Answer where its figure's number goes.",
     "- Never work a what-if out yourself, with calculate or in words, from the values a Passage shows, and never say how a figure is worked out, or that a sheet doesn't show its formulas, without trace_formulas. When either says a formula can't be worked out, say so in the Answer.",
   ].join("\n");
 }
+
+/**
+ * Asked again when an Answer recorded figures from a workbook's formulas and writes none of their
+ * markers (#2372): Claude Haiku 5.5 traced a figure, then wrote its number with a Citation instead,
+ * which leaves the figure uncalculated and unchecked against its cell.
+ */
+export const unplacedWorkbookFiguresNote = (
+  figures: readonly { marker: number; shown: string; label: string }[],
+) =>
+  `You recorded ${figures.map(({ marker, shown, label }) => `[=${marker}] = ${shown} (${label})`).join(", ")} from the workbook's formulas, but your reply writes none of these markers. Write your whole reply again with each marker in place of its figure's number wherever the reply gives that figure, with no number or Citation marker beside it; leave out a figure the reply doesn't give. The User will not read your earlier reply: don't mention it.`;
 
 export function analysisInstructions(offered: boolean): string {
   if (!offered) return "";
@@ -249,6 +259,7 @@ export function withPassageNotes(
     fileDatesNote(passages),
     notCitedNote(passages),
     bracketedAmountsNote(passages),
+    formulaRowsNote(passages),
     unreadDocumentsNote(unread),
     stillReadingNote(reading),
   ]
@@ -453,6 +464,18 @@ const NOT_CITED_PASSAGE = new RegExp(`<passage [^>]*${NOT_CITED_ATTRIBUTE}`);
 export function notCitedNote(passages: string): string {
   if (!NOT_CITED_PASSAGE.test(passages)) return "";
   return `A Passage marked cite="never" is from the User's own working file. Read it to understand the Question, but never cite it, never offer it as support for or agreement with another Document, and rest nothing on it: a record naming it is refused. Where only such a Passage states something, say in one sentence that only the User's own working file says it, with no marker.`;
+}
+
+const FORMULA_ROWS_PASSAGE = /<passage [^>]*\bformulas="/;
+
+/**
+ * A reminder after a workbook's Passages that name the rows its formulas work out (#2372): told
+ * only in its instructions, Claude Haiku 5.5 answered from the rows' labels how such figures are
+ * worked out. Empty when no Passage names any.
+ */
+export function formulaRowsNote(passages: string): string {
+  if (!FORMULA_ROWS_PASSAGE.test(passages)) return "";
+  return "In a Passage marked formulas=\"…\", the rows it names hold values the workbook's own formulas worked out, and no Passage shows those formulas. Before saying how such a figure is worked out, which cells or assumptions it comes from, or how much each one counts, call trace_formulas for the figure; for the figure with one of the workbook's inputs at another value, call what_if.";
 }
 
 const ROW_CONTEXT = "Revision worksheets need every item row and its revision, no bare values";

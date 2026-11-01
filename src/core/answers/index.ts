@@ -51,7 +51,7 @@ import { appliedAsAsked } from "../../shared/askedChanges";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { yoursLine } from "../../shared/commands";
-import { withFigures, withFigureText } from "../../shared/figureMarkers";
+import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { translate } from "../../shared/i18n";
 import { citationLocation, englishLocation, englishPlace } from "../../shared/locations";
@@ -194,6 +194,7 @@ import { commandTools } from "../tools/commands/tools";
 import { type MindsForTools, type MindToolsOptions, mindTools } from "../tools/minds/tools";
 import { asksForWeb } from "../tools/web/intent";
 import { type SavedPage, webTools } from "../tools/web/tools";
+import { formulaCells } from "../workbooks/formulaCells";
 import { workbookTools } from "../workbooks/tool";
 import {
   contentHash,
@@ -326,6 +327,7 @@ import {
   sourcesInstructions,
   stillReadingNote,
   THIS_DOCUMENT_RULE,
+  unplacedWorkbookFiguresNote,
   unrecordedMarkersNote,
   webInstructions,
   withPassageNotes,
@@ -1452,11 +1454,14 @@ export function createAnswers(options: AnswersOptions) {
       options.documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
     const ids = input.ids ?? contextCitationsFor(mindIn, input.assistant?.wallId);
     const notKept = translate(answerLanguage(context.question), "answer.sourceNotKept");
+    /** Whether the Answer offers a workbook's formula Tools, decided with its Tools. */
+    let workbookToolsOffered = false;
     const session = createCitationSession(
       searched,
       {
         onRecord: (marker, citation) =>
           announce("answer.citationAdded", { ...place, answerId, marker, citation }),
+        marksFormulas: () => workbookToolsOffered,
       },
       original
         ? {
@@ -1476,10 +1481,15 @@ export function createAnswers(options: AnswersOptions) {
     let calculated: AnswerToolCall | null = null;
     const recordedFigures = new Set<number>();
     const analyses: AnswerAnalysis[] = [];
+    const inFormulas = formulaCells((documentId, contentHash) =>
+      searched.pageTexts(documentId, contentHash, null, null),
+    );
     const figures = createCalculationSession({
       documents: searched,
       quotes: session.quotes,
       language: answerLanguage(context.question),
+      partOfFormulas: (citation, sheet, ref) =>
+        workbookToolsOffered && inFormulas(citation.documentId, citation.contentHash, sheet, ref),
       onRecord: (marker) => {
         recordedFigures.add(marker);
         if (!calculated) {
@@ -1531,6 +1541,8 @@ export function createAnswers(options: AnswersOptions) {
       }
       return told;
     };
+    /** The markers a workbook's Tools gave their figures, which the model never chose itself. */
+    const workbookMarkers: number[] = [];
     /**
      * A workbook's figure, cited as an input quoted directly is (#2347): to its cell, or a
      * what-if to the input it changed, never to the cell whose number it isn't.
@@ -1554,6 +1566,7 @@ export function createAnswers(options: AnswersOptions) {
           : [],
       );
       recordInputQuotes(marker);
+      workbookMarkers.push(marker);
       return marker;
     };
     const citeRecords = (records: readonly CitationRecordInput[], citeOptions?: CiteOptions) => {
@@ -2286,6 +2299,11 @@ export function createAnswers(options: AnswersOptions) {
         return;
       }
       calculating = offersCalculate(prepared.capabilities);
+      workbookToolsOffered =
+        calculating &&
+        input.toolSet === undefined &&
+        !help &&
+        options.documents.searchableHasSheets(documentIds, true);
       const within = input.mind?.within(mindLimit(prepared));
       if (within) {
         ({ messages } = within.context);
@@ -2789,20 +2807,16 @@ export function createAnswers(options: AnswersOptions) {
         };
       };
       // A workbook's own formulas, traced and worked out again (#2347): offered with calculate.
-      const fromWorkbooks: Tool[] =
-        calculating &&
-        input.toolSet === undefined &&
-        !help &&
-        options.documents.searchableHasSheets(documentIds, true)
-          ? workbookTools({
-              passage: shownPassage,
-              passageOf: (documentId, page) =>
-                options.documents.passagesCovering(documentId, page, page, true)[0]?.passageId ??
-                null,
-              figure: recordWorkbookFigure,
-              language: answerLanguage(context.question),
-            })
-          : [];
+      const fromWorkbooks: Tool[] = workbookToolsOffered
+        ? workbookTools({
+            passage: shownPassage,
+            passageOf: (documentId, page) =>
+              options.documents.passagesCovering(documentId, page, page, true)[0]?.passageId ??
+              null,
+            figure: recordWorkbookFigure,
+            language: answerLanguage(context.question),
+          })
+        : [];
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
         calculating &&
@@ -3039,6 +3053,23 @@ export function createAnswers(options: AnswersOptions) {
             );
             return unrecorded.length > 0
               ? { claims: [], note: unrecordedMarkersNote(unrecorded) }
+              : null;
+          },
+        },
+        {
+          name: "unplaced-workbook-figures",
+          check: (text) => {
+            const written = new Set(
+              [...text.matchAll(FIGURE_MARKER)].map((each) => Number(each[1])),
+            );
+            if (text.trim() === "" || workbookMarkers.some((marker) => written.has(marker)))
+              return null;
+            const recorded = workbookMarkers.flatMap((marker) => {
+              const figure = figures.figure(marker);
+              return figure ? [{ marker, shown: figure.shown, label: figure.label }] : [];
+            });
+            return recorded.length > 0
+              ? { claims: [], writeOnly: true, note: unplacedWorkbookFiguresNote(recorded) }
               : null;
           },
         },
