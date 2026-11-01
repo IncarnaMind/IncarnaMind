@@ -8,11 +8,14 @@ import type {
   LibraryGroup,
   LibrarySnapshot,
   OllamaStatus,
+  Skill,
+  SkillDraft,
 } from "../../src/core/api";
 
 /*
  * A reply that comes after a newer one, in a row of Settings, doesn't put the older state back
- * (#2302): the Ollama card's look, and an agent's Folders after a refused change.
+ * (#2302): the Ollama card's look, an agent's Folders after a refused change, and the Skill
+ * editor a draft read opens.
  */
 
 let root: Root | null = null;
@@ -186,5 +189,79 @@ describe("A connected agent's Folders", () => {
 
     expect(reads()).toContain("Tides, Ports");
     expect(reads()).not.toContain("Harbours");
+  });
+});
+
+const skill = (name: string): Skill => ({
+  id: name,
+  name,
+  description: `When ${name} helps.`,
+  license: null,
+  compatibility: null,
+  enabled: true,
+  builtIn: false,
+  files: [{ path: "SKILL.md", size: 120, script: false }],
+  createdAt: "2026-11-01T09:00:00.000Z",
+  updatedAt: "2026-11-01T09:00:00.000Z",
+});
+
+const tideTables: SkillDraft = { name: "tide-tables", description: "When tides.", steps: "Read." };
+
+describe("Settings › Skills", () => {
+  /** Shows Skills with the User's own `tide-tables`, whose draft is read when it is edited. */
+  async function showSkills(draftRead: Promise<SkillDraft>) {
+    // The editor puts the cursor in it and scrolls it into view, which this document can't do.
+    Object.assign(window.HTMLElement.prototype, {
+      scrollIntoView: () => undefined,
+      select: () => undefined,
+    });
+    // This document draws no animation: the menu's opening shows at once.
+    Object.assign(window, { reportError: () => undefined });
+    calls.set("getSkillDraft", () => draftRead);
+    calls.set("listRemovedBuiltInSkills", async () => []);
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    useAppStore.setState({ skills: [skill("tide-tables")] });
+    const settingsPath = "../../src/renderer/src/components/SkillsSettings.tsx";
+    const { SkillsSettings } = (await import(settingsPath)) as { SkillsSettings: ComponentType };
+    await act(async () => root?.render(createElement(SkillsSettings)));
+  }
+  const press = async (testId: string) => {
+    const button = container.querySelector(`[data-testid="${testId}"]`);
+    if (!button) throw new Error(`Nothing to press: ${testId}.`);
+    await act(async () => button.dispatchEvent(new window.Event("click", { bubbles: true })));
+  };
+  /** Edit in the Skill's ⋯ menu. */
+  const edit = async () => {
+    // The browser shows the popover; this document can't, so the menu hears that it opens.
+    const menu = container.querySelector<HTMLElement>('[data-testid="skill-actions"]');
+    if (!menu) throw new Error("The Skill has no menu.");
+    Object.assign(menu, { hidePopover: () => undefined, matches: () => false });
+    const opens = Object.assign(new window.Event("beforetoggle"), { newState: "open" });
+    await act(async () => menu.dispatchEvent(opens));
+    await press("skill-edit");
+  };
+  /** Each Skill editor shown, by its title. */
+  const editors = () =>
+    [...container.querySelectorAll('[data-testid="skill-editor"]')].map(
+      (each) => each.querySelector("span")?.textContent,
+    );
+
+  test("a Skill's draft read before New Skill was pressed doesn't replace the new one's editor", async () => {
+    const reading = Promise.withResolvers<SkillDraft>();
+    await showSkills(reading.promise);
+    await edit();
+    await press("skill-new");
+    expect(editors()).toEqual(["New Skill"]);
+
+    await act(async () => reading.resolve(tideTables));
+
+    expect(editors()).toEqual(["New Skill"]);
+  });
+
+  test("Edit opens the Skill's editor with its draft when nothing was opened meanwhile", async () => {
+    await showSkills(Promise.resolve(tideTables));
+    await edit();
+
+    expect(editors()).toEqual(["Edit tide-tables"]);
   });
 });

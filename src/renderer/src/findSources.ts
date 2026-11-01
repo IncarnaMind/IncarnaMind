@@ -197,7 +197,10 @@ export const useFindSources = create<FindSourcesState>()((set, get) => ({
   async setKey(providerId, key) {
     try {
       await core.setSourceProviderKey(providerId, key);
-      set({ providers: await core.listSourceProviders(), keyOpen: null });
+      const providers = await core.listSourceProviders();
+      // Another provider's field, opened while this key was kept, stays open with what is typed
+      // in it.
+      set((state) => ({ providers, keyOpen: state.keyOpen === providerId ? null : state.keyOpen }));
       // A search that wanted this key is asked again with it.
       if (key !== null && keyProblems(get().result).includes(providerId)) void get().search();
       return null;

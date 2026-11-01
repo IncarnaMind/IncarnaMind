@@ -5,6 +5,7 @@ import type {
   ConversationMessage,
   ConversationQuestion,
   ExampleReadyAsked,
+  Meeting,
 } from "../../src/core/api";
 
 /*
@@ -57,6 +58,9 @@ let deleting: Promise<void> = Promise.resolve();
 let exampleAsk: () => Promise<ExampleReadyAsked> = async () => {
   throw new Error("No ready Question is asked in this test.");
 };
+let helpAsk: () => Promise<ConversationAskResult> = async () => {
+  throw new Error("No help is asked in this test.");
+};
 
 const bridge = new Proxy(
   {
@@ -75,6 +79,7 @@ const bridge = new Proxy(
       void stopped.push(answerId),
     deleteConversation: () => deleting,
     askExampleReadyQuestion: () => exampleAsk(),
+    askMeetingHelp: () => helpAsk(),
   },
   {
     get: (target: object, name: string) =>
@@ -84,21 +89,31 @@ const bridge = new Proxy(
 
 let conversations: typeof import("../../src/renderer/src/conversations");
 
+/** Kept by the browser: localStorage for good, sessionStorage through a reload of the page. */
+function storage(): Storage {
+  const kept = new Map<string, string>();
+  return {
+    getItem: (key: string) => kept.get(key) ?? null,
+    setItem: (key: string, value: string) => void kept.set(key, value),
+    removeItem: (key: string) => void kept.delete(key),
+  } as Storage;
+}
+
 beforeAll(async () => {
-  const store = new Map<string, string>();
   Object.assign(globalThis, {
     window: { incarnamind: bridge, incarnamindFiles: bridge },
-    localStorage: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => void store.set(key, value),
-      removeItem: (key: string) => void store.delete(key),
-    },
+    localStorage: storage(),
+    sessionStorage: storage(),
   });
   conversations = await import("../../src/renderer/src/conversations");
 });
 
 afterAll(() => {
-  Object.assign(globalThis, { window: undefined, localStorage: undefined });
+  Object.assign(globalThis, {
+    window: undefined,
+    localStorage: undefined,
+    sessionStorage: undefined,
+  });
 });
 
 beforeEach(() => {
@@ -303,4 +318,65 @@ test("Stop pressed while a new conversation is read stops its Answer", async () 
   await asked;
 
   expect(stopped).toEqual(["answer in new"]);
+});
+
+/** A call being recorded, whose help buttons ask in the assistant. */
+async function inACall() {
+  const { useMeetings } = await import("../../src/renderer/src/meetings");
+  const call = { id: "call", mindId: "notes", kind: "meeting", status: "recording" };
+  useMeetings.setState({ meetings: [call as Meeting] });
+  return import("../../src/renderer/src/meetingHelp");
+}
+
+test.each(["open another conversation", "start a New chat"] as const)(
+  "help asked during a call doesn't take the User away when they %s while it is asked",
+  async (move) => {
+    const { askHelpInAssistant } = await inACall();
+    const reply = held<ConversationAskResult>();
+    helpAsk = () => reply.promise;
+    const asking = askHelpInAssistant("sum");
+    if (move === "open another conversation") await conversations.openConversation("other");
+    else conversations.startNewChat();
+    reply.settle(askedIn("help"));
+    await asking;
+
+    expect(shown()).toBe(move === "open another conversation" ? "other" : null);
+    expect(readsAsked).not.toContain("help");
+  },
+);
+
+test("help asked during a call shows its conversation when the User stayed", async () => {
+  const { askHelpInAssistant } = await inACall();
+  helpAsk = async () => askedIn("help");
+  await askHelpInAssistant("sum");
+
+  expect(shown()).toBe("help");
+});
+
+/** The window as a reload of its page leaves it, with the conversation it showed kept. */
+async function reloadedShowing(conversationId: string) {
+  sessionStorage.setItem("incarnamind.window.conversation", JSON.stringify(conversationId));
+  const { installWindowMemory } = await import("../../src/renderer/src/windowMemory");
+  installWindowMemory();
+}
+
+test("a New chat clicked while a reload shows the conversation again stays a New chat", async () => {
+  await conversations.openConversation("other");
+  const restoring = held<{ messages: ConversationMessage[] }>();
+  reads.set("kept", restoring.promise);
+  await reloadedShowing("kept");
+  conversations.startNewChat();
+  restoring.settle({ messages: [question("kept")] });
+  for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+
+  expect(readsAsked).toContain("kept");
+  expect(shown()).toBeNull();
+});
+
+test("a reload shows the conversation it showed again when the User stayed", async () => {
+  await reloadedShowing("kept");
+  for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+
+  expect(shown()).toBe("kept");
+  expect(conversations.useConversations.getState().messages).toEqual([question("kept")]);
 });

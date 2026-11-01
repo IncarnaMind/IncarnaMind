@@ -145,10 +145,10 @@ export async function watchSentencesNow(
  * once.
  */
 export async function startContradictionCheck(mindId: string): Promise<void> {
-  const running = useChecks.getState().running[mindId];
   try {
     await useAppStore.getState().openMind(mindId);
-    if (running) return;
+    // Read once the Note is shown: a check that ended while it opened doesn't hold this one back.
+    if (useChecks.getState().running[mindId]) return;
     const plan = await core.planContradictionCheck(mindId);
     if (plan.kind !== "ready") {
       dismissContradictions(mindId);
@@ -159,6 +159,9 @@ export async function startContradictionCheck(mindId: string): Promise<void> {
       .estimateRun({ items: plan.claims, each: "check", ...(plan.model && { model: plan.model }) })
       .catch(() => null);
     if (estimate === null || estimate.billing !== "per-token") return checkContradictions(mindId);
+    // A check that started while this one was planned has the badge, with Stop: no question
+    // beside it.
+    if (useChecks.getState().running[mindId]) return;
     setFor("asking", mindId, {
       claims: plan.claims,
       estimate: estimateLine(estimate, translateNow, languageNow()),

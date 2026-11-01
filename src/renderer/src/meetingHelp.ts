@@ -18,7 +18,7 @@ import { keysForm } from "../../shared/keyForms";
 import { type HelpShortcut, helpKeysOf, helpLabel, isHelpShortcut } from "../../shared/meetingHelp";
 import type { PanelState } from "../../shared/meetingPanel";
 import { keysHere } from "./commands/keymap";
-import { openConversation, useConversations } from "./conversations";
+import { noMoveSince, openConversation, useConversations } from "./conversations";
 import { core, files } from "./core";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
@@ -120,8 +120,10 @@ export const liveMeetingNow = (): Meeting | undefined =>
 export async function askHelpInAssistant(kind: MeetingHelpKind): Promise<void> {
   const meeting = liveMeetingNow();
   if (!meeting) return;
+  const stayed = noMoveSince();
   const asked = await askHelp(meeting, kind, useConversations.getState().openId);
-  if (asked && useConversations.getState().openId !== asked.conversationId) {
+  // Moved to another conversation, or a new chat, while it was asked: the help waits in History.
+  if (asked && stayed() && useConversations.getState().openId !== asked.conversationId) {
     await openConversation(asked.conversationId);
   }
 }

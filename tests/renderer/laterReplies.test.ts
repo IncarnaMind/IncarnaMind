@@ -279,3 +279,32 @@ describe("Signing in from Settings keeps the default model", () => {
     expect(useCopilot.getState().providerSaved).toBe(false);
   });
 });
+
+describe("Find sources", () => {
+  test("a key kept for one provider doesn't close the key field opened for another meanwhile", async () => {
+    const { useFindSources } = await import("../../src/renderer/src/findSources");
+    const keeping = Promise.withResolvers<void>();
+    method("setSourceProviderKey").mockReturnValue(keeping.promise);
+    method("listSourceProviders").mockResolvedValue([]);
+
+    useFindSources.getState().openKey("govinfo");
+    const kept = useFindSources.getState().setKey("govinfo", "govinfo key");
+    useFindSources.getState().openKey("openfda");
+    keeping.resolve();
+
+    expect(await kept).toBeNull();
+    expect(useFindSources.getState().keyOpen).toBe("openfda");
+  });
+
+  test("a key kept closes its own field", async () => {
+    const { useFindSources } = await import("../../src/renderer/src/findSources");
+    method("setSourceProviderKey").mockResolvedValue(undefined);
+    method("listSourceProviders").mockResolvedValue([]);
+
+    useFindSources.getState().openKey("govinfo");
+    expect(await useFindSources.getState().setKey("govinfo", "govinfo key")).toBeNull();
+
+    expect(method("setSourceProviderKey")).toHaveBeenCalledWith("govinfo", "govinfo key");
+    expect(useFindSources.getState().keyOpen).toBeNull();
+  });
+});

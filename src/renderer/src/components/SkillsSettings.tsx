@@ -7,6 +7,7 @@ import {
   type SkillImportError,
   type SkillImportPreview,
 } from "../../../core/api";
+import { newestReads } from "../../../core/newest";
 import type { SkillPickKind } from "../../../shared/bridge";
 import { core, files } from "../core";
 import { errorMessage } from "../errors";
@@ -69,6 +70,13 @@ export function SkillsSettings() {
   const [preview, setPreview] = useState<SkillImportPreview | null>(null);
   const [error, setError] = useState<SkillImportError | string | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
+  // The editor the User chose last stays open: a Skill's draft read before that choice doesn't
+  // replace it (#2302).
+  const [editorChoice] = useState(() => newestReads());
+  const openEditor = (next: Editing | null) => {
+    editorChoice();
+    setEditing(next);
+  };
   const [exported, setExported] = useState<Exported | null>(null);
   // A preview left open when Settings closes is forgotten.
   const pending = useRef<string | null>(null);
@@ -123,9 +131,11 @@ export function SkillsSettings() {
   };
 
   const edit = async (skill: Skill) => {
+    const newest = editorChoice();
     setError(null);
     try {
-      setEditing({ kind: "edit", skill, draft: await core.getSkillDraft(skill.id) });
+      const draft = await core.getSkillDraft(skill.id);
+      if (newest()) setEditing({ kind: "edit", skill, draft });
     } catch (failure) {
       setError(errorMessage(failure, t));
     }
@@ -162,8 +172,8 @@ export function SkillsSettings() {
           initial={editing.draft}
           title={t("skills.edit.edit", { name: skillTitle(skill.name, t) })}
           save={(draft) => core.updateSkill(skill.id, draft)}
-          onSaved={() => setEditing(null)}
-          onCancel={() => setEditing(null)}
+          onSaved={() => openEditor(null)}
+          onCancel={() => openEditor(null)}
         />
       </li>
     ) : (
@@ -184,7 +194,7 @@ export function SkillsSettings() {
           type="button"
           data-testid="skill-new"
           disabled={editing?.kind === "new"}
-          onClick={() => setEditing({ kind: "new" })}
+          onClick={() => openEditor({ kind: "new" })}
           className={buttonClass}
         >
           <PlusLineIcon className="size-4" />
@@ -256,8 +266,8 @@ export function SkillsSettings() {
           initial={NEW_SKILL}
           title={t("skills.edit.new")}
           save={(draft) => core.createSkill(draft)}
-          onSaved={() => setEditing(null)}
-          onCancel={() => setEditing(null)}
+          onSaved={() => openEditor(null)}
+          onCancel={() => openEditor(null)}
         />
       )}
 

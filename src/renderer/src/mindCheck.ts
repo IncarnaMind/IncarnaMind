@@ -197,11 +197,13 @@ export async function checkMind(
   { allDocuments = false, figureIds }: { allDocuments?: boolean; figureIds?: string[] } = {},
 ): Promise<void> {
   if (useChecks.getState().running[mindId]) return;
-  await freeAskedNote(mindId);
-  dismissCheckProblem(mindId);
   const requestId = crypto.randomUUID();
+  // Recorded before the asked Note is freed, which waits on the core: a second press meanwhile
+  // must find this run on, as in `runCheck` (#2302).
   setCheckRunning(mindId, { requestId, action: "whole-mind" });
   try {
+    await freeAskedNote(mindId);
+    dismissCheckProblem(mindId);
     await checkMindNow(mindId, mode, allDocuments, requestId, figureIds);
   } finally {
     setCheckRunning(mindId, null);
@@ -567,6 +569,9 @@ async function askOrCheck(
     started();
     return runCheck(mindId, requestId, run);
   }
+  // A check of this Note that started while this one was planned has the badge, with Stop: no
+  // question beside it (#2302).
+  if (useChecks.getState().running[mindId]) return { kind: "running" };
   const estimate = estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
   waitForAnswer(requestId);
   useMindCheck.setState((state) => ({
