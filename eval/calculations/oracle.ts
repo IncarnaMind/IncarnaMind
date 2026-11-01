@@ -13,7 +13,6 @@ import { NORTHWIND_DECK } from "./documents";
 
 const squeezed = (text: string) => text.replace(/\s+/g, " ").trim();
 
-/** A Document is named after its file, without the extension. */
 const withoutExtension = (name: string) => name.replace(/\.[^.]+$/, "");
 
 const derivedWithInputs = (result: ExpectedResult) =>

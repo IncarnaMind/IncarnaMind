@@ -250,7 +250,7 @@ describe("one requested result", () => {
     expect(score.results.map((result) => result.outcome)).toEqual(["written", "written"]);
   });
 
-  test("a year, or an amount a Document states, written beside a result left out is no attempt at it", () => {
+  test("a year, or an amount a Document states, written beside a result left out is no attempt at it (far from the result, or stated)", () => {
     const score = scoreCase(
       caseOf("en-07"),
       answer({
@@ -732,6 +732,174 @@ describe("the second review's probes", () => {
       bar.name.startsWith("Clearly more right"),
     );
     expect(clearly?.met).toBe(false);
+  });
+});
+
+describe("the third review's probes", () => {
+  test("an Answer is scored on the value it gives first; a trap that is the result's own input comes first as working", () => {
+    const led = scoreCase(
+      caseOf("en-01"),
+      answer({
+        text: "Revenue grew 11.1% against 2024 as first reported, or 12.6% against the restated 2024.",
+        written: [written("11.1%", 0.111, "percent"), written("12.6%", 0.126, "percent")],
+      }),
+    );
+    expect(led.results[0]).toMatchObject({ outcome: "wrong-written", got: "11.1%" });
+    const working = scoreCase(
+      caseOf("en-28"),
+      answer({
+        text: "Other income was 1.2亿元; less the 0.45亿元 one-off, it was 0.75亿元.",
+        written: [
+          written("1.2亿元", 120_000_000, "currency", "CNY"),
+          written("0.45亿元", 45_000_000, "currency", "CNY"),
+          written("0.75亿元", 75_000_000, "currency", "CNY"),
+        ],
+      }),
+    );
+    expect(working.results[0]?.outcome).toBe("written");
+  });
+
+  test.each([
+    ["青岚食品营业总收入比Kestrel折算后的净销售额多13,683.48万元。", "written"],
+    ["Kestrel折合848,631.92万元，比青岚多13,683.48万元。", "wrong-written"],
+  ] as const)("in A比B多, A is said to be more: %s", (text, outcome) => {
+    const score = scoreCase(
+      caseOf("zh-20"),
+      answer({ text, written: [written("13,683.48万元", 136_834_800, "currency", "CNY")] }),
+    );
+    expect(score.results[1]?.outcome).toBe(outcome);
+  });
+
+  test.each([
+    "Qinglan's revenue exceeded Kestrel's net sales by US$19.1 million.",
+    "Kestrel's net sales were US$19.1 million smaller than Qinglan's revenue.",
+  ])("the larger said with another word is right: %s", (text) => {
+    const score = scoreCase(
+      caseOf("en-20"),
+      answer({ text, written: [written("US$19.1 million", 19_100_000, "currency", "USD")] }),
+    );
+    expect(score.results[1]?.outcome).toBe("written");
+  });
+
+  test("a checked gap whose words name the wrong party is wrong, but no false check", () => {
+    const { yuan, rate, kestrel } = inputsOf("en-20", 1) as Record<string, ExpectedInput>;
+    const score = scoreCase(
+      caseOf("en-20"),
+      answer({
+        text: "Qinglan Foods' 2025 revenue was about US$19.1 million.",
+        figures: [
+          {
+            ...figure(
+              19_129_707.8,
+              "currency",
+              [yuan, rate, kestrel].map((each) => inputOf(each as ExpectedInput)),
+              "US$19.1 million",
+            ),
+            currency: "USD",
+          },
+        ],
+      }),
+    );
+    expect(score.results[1]?.outcome).toBe("wrong-calculated");
+    expect(score.falseChecked).toEqual([]);
+  });
+
+  test.each([
+    "No exchange rate is given, so I can't compare them exactly, but Qinglan's revenue is probably larger.",
+    "文档没有汇率，无法精确比较，但青岚的营业总收入很可能更大。",
+    "文档没有汇率，无法判断具体差额，不过青岚明显领先。",
+    "没有汇率，不能说精确数，但青岚高于Kestrel。",
+  ])("a comparison after 'but' is a claim whatever came before: %s", (text) => {
+    expect(scoreCase(caseOf("en-19"), answer({ text })).refusal?.refused).toBe(false);
+  });
+
+  test("a refusal must say it can't", () => {
+    expect(
+      scoreCase(caseOf("en-19"), answer({ text: "Here are the two figures." })).refusal?.refused,
+    ).toBe(false);
+  });
+
+  test.each([
+    ["受成本下降，净利润增加了6,078.75万元。", "written"],
+    ["净利润下降了6,078.75万元。", "wrong-written"],
+  ] as const)(
+    "only a word for a fall right before a number makes it negative: %s",
+    (text, outcome) => {
+      const score = scoreCase(
+        caseOf("zh-17"),
+        answer({ text, written: [written("6,078.75万元", 60_787_500, "currency", "CNY")] }),
+      );
+      expect(score.results[0]?.outcome).toBe(outcome);
+    },
+  );
+
+  test("an English fall before a number makes it negative", () => {
+    const score = scoreCase(
+      caseOf("en-07"),
+      answer({
+        text: "Net income dropped by $53.5 million.",
+        written: [written("$53.5 million", 53_500_000, "currency", "USD")],
+      }),
+    );
+    expect(score.results[0]?.outcome).not.toBe("written");
+  });
+
+  test("yuan written for a dollar result is not right", () => {
+    const score = scoreCase(
+      caseOf("en-07"),
+      answer({ written: [written("53.5 million yuan", 53_500_000, "currency", "CNY")] }),
+    );
+    expect(score.results[0]?.outcome).toBe("wrong-written");
+  });
+
+  test("what 亿 means is an aside; a line of a Document outside the Question's scope isn't", () => {
+    const scale = scoreCase(
+      caseOf("zh-13"),
+      answer({ written: [written("100,000,000元", 100_000_000, "currency", "CNY")] }),
+    );
+    expect(scale.results[0]?.outcome).toBe("omitted");
+    const outside = scoreCase(
+      caseOf("zh-21"),
+      answer({ written: [written("356,812.45万元", 3_568_124_500, "currency", "CNY")] }),
+    );
+    expect(outside.results[0]?.outcome).toBe("wrong-written");
+  });
+
+  test.each([
+    [
+      "Kestrel's 1,186.4 million in yuan",
+      written("1,186.4 million yuan", 1_186_400_000, "currency", "CNY"),
+    ],
+    ["a large plain number", written("1,205,529,707", 1_205_529_707, "plain")],
+  ] as const)("a refusal that gives %s gave an amount no Document states", (_, number) => {
+    const score = scoreCase(
+      caseOf("en-19"),
+      answer({
+        text: "The documents give no exchange rate, so they can't be compared.",
+        written: [number],
+      }),
+    );
+    expect(score.refusal?.refused).toBe(false);
+  });
+
+  test("a refusal whose figure, of a stated amount, used a rate the model knew is a false check", () => {
+    const qinglan = caseOf("en-19").refuse?.stated.find(
+      (each) => each.number === "862,315.40",
+    ) as ExpectedInput;
+    const score = scoreCase(
+      caseOf("en-19"),
+      answer({
+        text: "The documents give no exchange rate, so they can't be compared.",
+        figures: [
+          {
+            ...figure(1_186_400_000, "currency", [inputOf(qinglan)], "$1,186.4 million", [7.2685]),
+            currency: "USD",
+          },
+        ],
+      }),
+    );
+    expect(score.refusal?.refused).toBe(false);
+    expect(score.falseChecked).toHaveLength(1);
   });
 });
 

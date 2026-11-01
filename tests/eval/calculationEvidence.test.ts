@@ -38,6 +38,7 @@ function table(name: string): string[] {
         counts(score.toolCoverage),
         counts(score.refusals),
         score.falseChecked,
+        counts(score.questionsRight),
       ].join(" ");
     }),
   );
@@ -46,26 +47,26 @@ function table(name: string): string[] {
 describe("the published results, scored again from the kept Answers", () => {
   test("Claude Haiku 5.5", () => {
     expect(table("claude-haiku-5-5")).toEqual([
-      "on en 40/41 39/40 35/35 35/38 2/2 0",
-      "on zh 36/36 36/36 34/34 34/34 2/2 0",
-      "off en 40/41 40/40 0/0 0/38 2/2 0",
-      "off zh 36/36 34/36 0/0 0/34 2/2 0",
+      "on en 40/41 38/40 35/35 35/38 2/2 0 32/34",
+      "on zh 36/36 35/36 33/33 33/34 2/2 0 33/34",
+      "off en 40/41 39/40 0/0 0/38 2/2 0 32/34",
+      "off zh 36/36 33/36 0/0 0/34 2/2 0 32/34",
     ]);
   });
 
   test("DeepSeek Flash", () => {
     expect(table("deepseek-flash")).toEqual([
-      "on en 41/41 41/41 39/39 39/39 2/2 0",
-      "on zh 36/36 35/36 33/33 33/34 2/2 0",
-      "off en 41/41 40/41 0/0 0/39 2/2 0",
-      "off zh 36/36 36/36 0/0 0/34 2/2 0",
+      "on en 41/41 40/41 38/38 38/39 2/2 0 33/34",
+      "on zh 36/36 35/36 33/33 33/34 2/2 0 33/34",
+      "off en 41/41 40/41 0/0 0/39 2/2 0 33/34",
+      "off zh 36/36 35/36 0/0 0/34 2/2 0 33/34",
     ]);
   });
 
   test("Claude Sonnet 5.5, three Questions with the Tools", () => {
     expect(table("claude-sonnet-5-5")).toEqual([
-      "on en 3/3 3/3 3/3 3/3 0/0 0",
-      "on zh 2/2 2/2 2/2 2/2 0/0 0",
+      "on en 3/3 3/3 3/3 3/3 0/0 0 2/2",
+      "on zh 2/2 2/2 2/2 2/2 0/0 0 1/1",
     ]);
   });
 });

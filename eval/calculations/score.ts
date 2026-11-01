@@ -128,12 +128,16 @@ const UNDECIDED =
 const sentencesOf = (text: string) => text.split(/(?<=[.!?])\s+|(?<=[。！？])/);
 /** Sentences putting one of `parties` above or below the other; "one is larger" names neither. */
 const comparisons = (text: string, parties: readonly string[]): string[] =>
-  sentencesOf(text).filter(
-    (sentence) =>
-      ORDERS.test(sentence) &&
-      !UNDECIDED.test(sentence) &&
-      parties.some((party) => sentence.includes(party)),
-  );
+  sentencesOf(text)
+    .flatMap((sentence) =>
+      sentence.split(/\b(?:but|however|though|although|yet)\b|不过|但是|但|然而|可是/i),
+    )
+    .filter(
+      (clause) =>
+        ORDERS.test(clause) &&
+        !UNDECIDED.test(clause) &&
+        parties.some((party) => clause.includes(party)),
+    );
 
 /**
  * The last place a written number is shown to, in base units: 10,000,000 for "$1.19 billion",
@@ -169,8 +173,10 @@ function lineCurrency(line: ExpectedInput): string | null {
 /** A number the Answer wrote, with a sign when the words before it say it fell: "减少了6,078.75万元". */
 function signed(number: ObservedNumber, text: string): number {
   const at = text.indexOf(number.chars);
-  const before = at < 0 ? "" : text.slice(Math.max(0, at - 16), at);
-  return /\b(?:fell|decreased|declined|dropped|down by|shrank)\b|减少|下降|下滑|降低/i.test(before)
+  const before = at < 0 ? "" : text.slice(Math.max(0, at - 24), at);
+  return /(?:\b(?:fell|decreased|declined|dropped|down|shrank|decrease|decline|drop|fall)(?: by| of)?|减少了?|下降了?|下滑了?|降低了?)\s*(?:about|roughly|around|approximately|约|大约)?\s*$/i.test(
+    before,
+  )
     ? -Math.abs(number.value)
     : number.value;
 }
@@ -195,24 +201,31 @@ const writtenTolerance = (result: ExpectedResult, number: ObservedNumber) =>
       )
     : result.tolerance;
 
+/** Words that put the party named just before them above the other, or below it. */
 const MORE =
-  /\b(?:larger|bigger|greater|higher|more|above|exceeds?|ahead)\b|大于|高于|多于|超过|高出|更大|更高|更多|较大|多\s*\d/gi;
+  /\b(?:larger|bigger|greater|higher|more|above|exceeds?|exceeded|ahead|beats?|beating|outsells?)\b|大于|高于|多于|超过|高出|更大|更高|更多|较大|多\s*\d/gi;
+const LESS =
+  /\b(?:smaller|lower|less|below|behind|fewer|short of)\b|小于|低于|少于|更小|更低|更少|较小/gi;
 
 /**
- * Whether the Answer says the expected larger party is the larger: the party named last before
- * a word for "more" is it. "Qinglan's revenue was $19.1 million larger than Kestrel's" does;
- * "Kestrel更大" doesn't.
+ * Whether the Answer says the expected larger party is the larger: the party named last before a
+ * word for "more" is it, or the one before a word for "less" is the other. In "A比B多", A, before
+ * 比, is the one said to be more.
  */
 function namesTheLarger(result: ExpectedResult, text: string): boolean {
   const larger = result.larger;
   if (!larger) return true;
-  const lastAt = (before: string, names: readonly string[]) =>
-    Math.max(...names.map((name) => before.lastIndexOf(name)));
-  return [...text.matchAll(MORE)].some((match) => {
-    const before = text.slice(Math.max(0, match.index - 120), match.index);
-    const big = lastAt(before, larger.names);
-    return big >= 0 && big > lastAt(before, larger.than);
-  });
+  const said = (words: RegExp, party: readonly string[], other: readonly string[]) =>
+    [...text.matchAll(words)].some((match) => {
+      const window = text.slice(Math.max(0, match.index - 120), match.index);
+      const clause = window.slice(Math.max(window.lastIndexOf("。"), window.lastIndexOf(". ")) + 1);
+      const comparing = clause.lastIndexOf("比");
+      const before = comparing >= 0 ? clause.slice(0, comparing) : clause;
+      const lastAt = (names: readonly string[]) =>
+        Math.max(...names.map((name) => before.lastIndexOf(name)));
+      return lastAt(party) >= 0 && lastAt(party) > lastAt(other);
+    });
+  return said(MORE, larger.names, larger.than) || said(LESS, larger.than, larger.names);
 }
 
 /**
@@ -335,13 +348,12 @@ function tableScale(result: ExpectedResult): number | null {
 }
 
 /**
- * A number an Answer may write beside its results without it being an attempt at one: a year,
- * what a scale word means, or a number a Document in the Question's scope states, as far as it
+ * A number an Answer may write beside its results without it being an attempt at one: what a
+ * scale word means, or a number a Document in the Question's scope states, as far as it
  * is shown.
  */
 function isAside(number: ObservedNumber, scope: readonly string[] | null): boolean {
   const { value } = number;
-  if (Number.isInteger(value) && value >= 1900 && value <= 2100) return true;
   if (definesAScale(number)) return true;
   // A number shown coarsely ("约1亿元") matches too many lines to be taken for any of them.
   if (shownPlace(number) > 0.01 * Math.abs(value)) return false;
@@ -439,8 +451,9 @@ function scoreResults(
     }
     return null;
   });
-  // A trap's value given beside the right one: shown, not counted wrong, since an Answer may set
-  // the reported figure beside the restated one on purpose.
+  // A trap's value given beside the right one: the Answer is scored on the one it gives first,
+  // and the other is listed, since an Answer may set the reported figure beside the restated one.
+  const led: (ResultScore | null)[] = results.map(() => null);
   const hedges = results.flatMap((result, at) =>
     found[at]
       ? result.traps.flatMap((trap) => {
@@ -457,12 +470,34 @@ function scoreResults(
                   reaches(result, each.value, trap.value, tolerance),
               );
           const given = figure?.shown ?? number?.chars;
-          return given ? [`${result.label}: also ${given} (${trap.why})`] : [];
+          if (!given) return [];
+          const rightAt = answer.text.indexOf(found[at]?.got ?? "");
+          const trapAt = answer.text.indexOf(given);
+          // A trap that is one of the result's own inputs ("1.2亿元, less 0.45亿元") comes first as working.
+          const working = Object.values(result.inputs).some((input) =>
+            near(
+              Math.abs(input.value),
+              Math.abs(trap.value),
+              DOCUMENT_VALUE_PRECISION * Math.abs(trap.value),
+            ),
+          );
+          if (!working && trapAt >= 0 && rightAt >= 0 && trapAt < rightAt && !led[at]) {
+            if (figure) falseChecked.push(`${result.label}: ${given} first (${trap.why})`);
+            led[at] = {
+              label: result.label,
+              kind: result.kind,
+              outcome: figure ? "wrong-calculated" : "wrong-written",
+              inputsRight: figure ? inputsRight(result, figure) : null,
+              trap: trap.why,
+              got: given,
+            };
+          }
+          return [`${result.label}: also ${given} (${trap.why})`];
         })
       : [],
   );
   const scores = results.map((result, at): ResultScore => {
-    const settled = found[at] ?? trapped[at];
+    const settled = led[at] ?? found[at] ?? trapped[at];
     if (settled) return settled;
     const base = { label: result.label, kind: result.kind };
     // A calculated figure of the result's kind standing where the result should be is an attempt at
@@ -499,9 +534,13 @@ function scoreResults(
   const directed = scores.map((score, at): ResultScore => {
     const result = results[at];
     const given = score.outcome === "calculated" || score.outcome === "written";
-    return result && given && !namesTheLarger(result, answer.text)
-      ? { ...score, outcome: "wrong-written", trap: "Names the smaller as the larger, or neither" }
-      : score;
+    if (!result || !given || namesTheLarger(result, answer.text)) return score;
+    // Its words, not its arithmetic, are wrong: a calculated figure stays one, and isn't a false check.
+    return {
+      ...score,
+      outcome: score.outcome === "calculated" ? "wrong-calculated" : "wrong-written",
+      trap: "Names the smaller as the larger, or neither",
+    };
   });
   const unmatched = answer.figures
     .filter((_, at) => !usedFigures.has(at))
