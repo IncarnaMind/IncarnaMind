@@ -34,7 +34,7 @@ import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/do
 import { askAndEnd, isAnswer, QWEN35, setUpLocalModel } from "../helpers/localModels";
 import { answerIn, question, writeMind } from "../helpers/minds";
 import { answerRequests, promptOf, scriptedModel, scriptedModels } from "../helpers/models";
-import { xlsxPackage } from "../helpers/office";
+import { docxOf, xlsxOf, xlsxPackage } from "../helpers/office";
 import { type OllamaChatReply, startOllamaServer } from "../helpers/ollama";
 import { buildPdf } from "../helpers/pdf";
 
@@ -94,10 +94,12 @@ const citeStatement =
   (name: string, lines: readonly string[], calls: (cited: number[]) => Call[]) =>
   (passages: ShownPassage[]): Call[] => {
     const passage = passageOf(passages, name);
+    // A PDF's Passage is shown with its pages, any other's with its location.
+    const location = passages.find((each) => each.id === passage)?.location ?? "p. 1";
     const citations = lines.map((quote, index) => ({
       marker: index + 1,
       passage,
-      location: "p. 1",
+      location,
       quote,
     }));
     return [{ tool: "cite", input: { citations } }, ...calls(lines.map((_, index) => index + 1))];
@@ -1732,6 +1734,1781 @@ describe("A currency on a statement's first amount (#1001)", { timeout: 60_000 }
     expect(answer.figures).toEqual([]);
     expect(finished.uncalculated).toBe(2);
   });
+});
+
+/** A scale a Document states in one of the forms #2365 found the reader missing, and what 1,200 − 300 under it is worth. */
+interface ScaleForm {
+  /** A word only this Document has, for its search. */
+  code: string;
+  line: string;
+  value: number;
+}
+
+const ENGLISH_FORMS: readonly ScaleForm[] = [
+  { code: "Alpha", line: "Amounts in £'000", value: 900_000 },
+  { code: "Bravo", line: "All amounts in '000", value: 900_000 },
+  { code: "Charlie", line: "Figures in 000s", value: 900_000 },
+  { code: "Delta", line: "(000 omitted)", value: 900_000 },
+  { code: "Echo", line: "Angaben in TEUR", value: 900_000 },
+  { code: "Foxtrot", line: "Angaben in T€", value: 900_000 },
+  { code: "Golf", line: "Amounts in k€", value: 900_000 },
+  { code: "Hotel", line: "Amounts in $K", value: 900_000 },
+  { code: "India", line: "Amounts in MEUR", value: 900_000_000 },
+  { code: "Juliett", line: "(in $MM)", value: 900_000_000 },
+  { code: "Lima", line: "USD MM", value: 900_000_000 },
+];
+const CHINESE_FORMS: readonly ScaleForm[] = [
+  { code: "Mike", line: "金额（万）", value: 9_000_000 },
+  { code: "November", line: "單位：新台幣仟元", value: 900_000 },
+  { code: "Oscar", line: "單位：港幣百萬", value: 900_000_000 },
+  { code: "Papa", line: "金額（萬）", value: 9_000_000 },
+];
+
+/**
+ * Where a Document states its scale: on the figures' PDF page or Word section, only in its Word
+ * header, in a sheet's cell, or apart from the figures, on the PDF page or under the Word heading
+ * before theirs.
+ */
+type ScaleFormat =
+  | "pdf"
+  | "word"
+  | "word header"
+  | "sheet"
+  | "pdf page before"
+  | "word section before";
+
+/** Enough text that the part stating the scale is a Passage of its own. */
+const fillerLines = (chinese: boolean) =>
+  Array.from({ length: 40 }, (_, index) =>
+    chinese
+      ? `董事会第${index + 1}次审阅了集团的经营情况、现金状况以及来年的展望。`
+      : `The directors reviewed item ${index + 1} of the group's trading, cash and outlook in detail.`,
+  );
+
+/**
+ * The rows a form's Document writes: its title, then revenue and costs, in its language. An English
+ * "1,200" alone could group thousands or mark decimals, so its amounts have a decimal point.
+ */
+const scaleRows = (form: ScaleForm, chinese: boolean) =>
+  chinese
+    ? { title: `${form.code} 公司账目`, revenue: ["收入", "1,200"], costs: ["成本", "300"] }
+    : {
+        title: `${form.code} Holdings accounts`,
+        revenue: ["Revenue", "1,234.5"],
+        costs: ["Costs", "334.5"],
+      };
+
+/** A Document of `format` stating `form`'s scale: on its page, in its body, only in its header, or in a cell. */
+function scaleDocument(form: ScaleForm, format: ScaleFormat, chinese: boolean) {
+  const { title, revenue, costs } = scaleRows(form, chinese);
+  const line = ([label, number]: string[]) => `${label} ${number}`;
+  const cells = ([label = "", number = ""]: string[]) => [label, Number(number.replace(",", ""))];
+  switch (format) {
+    case "pdf":
+      return {
+        name: `${form.code} accounts.pdf`,
+        contents: buildPdf([
+          chinese
+            ? { chineseLines: [title, form.line, line(revenue), line(costs)] }
+            : { lines: [title, form.line, line(revenue), line(costs)] },
+        ]),
+      };
+    case "word":
+    case "word header":
+      return {
+        name: `${form.code} accounts.docx`,
+        contents: docxOf(
+          [
+            { text: title, heading: 1 },
+            ...(format === "word" ? [{ text: form.line }] : []),
+            { text: line(revenue) },
+            { text: line(costs) },
+          ],
+          format === "word header" ? { header: form.line } : {},
+        ),
+      };
+    case "pdf page before": {
+      const page = (lines: string[]) => (chinese ? { chineseLines: lines } : { lines });
+      return {
+        name: `${form.code} accounts.pdf`,
+        contents: buildPdf([
+          page([`${form.code} notes`, form.line, ...fillerLines(chinese)]),
+          page([title, line(revenue), line(costs)]),
+        ]),
+      };
+    }
+    case "word section before":
+      return {
+        name: `${form.code} accounts.docx`,
+        contents: docxOf([
+          { text: `${form.code} notes`, heading: 1 },
+          { text: form.line },
+          ...fillerLines(chinese).map((text) => ({ text })),
+          { text: title, heading: 2 },
+          { text: line(revenue) },
+          { text: line(costs) },
+        ]),
+      };
+    case "sheet":
+      return {
+        name: `${form.code} accounts.xlsx`,
+        contents: xlsxOf([
+          {
+            name: form.code,
+            rows: [[title], [form.line], cells(revenue), cells(costs)],
+          },
+        ]),
+      };
+  }
+}
+
+/** Where a form's revenue and costs are quoted from, and their numbers as written. */
+function scaleQuotes(form: ScaleForm, format: ScaleFormat, chinese: boolean) {
+  const { revenue, costs } = scaleRows(form, chinese);
+  const quote = ([label, number]: string[]) =>
+    format === "sheet" ? `${label}\t${number?.replace(",", "")}` : `${label} ${number}`;
+  const number = (written: string | undefined) =>
+    format === "sheet" ? (written ?? "").replace(",", "") : (written ?? "");
+  return {
+    revenue: { quote: quote(revenue), number: number(revenue[1]) },
+    costs: { quote: quote(costs), number: number(costs[1]) },
+  };
+}
+
+/**
+ * A model that searches for every form's Document at once, cites its revenue and costs, works
+ * out revenue − costs for each with no unitQuote, then again, when `withUnitQuote`, with its
+ * scale line as unitQuote.
+ */
+function scaleModel(
+  forms: readonly ScaleForm[],
+  format: ScaleFormat,
+  chinese: boolean,
+  withUnitQuote: boolean,
+) {
+  const figures = (unitQuote: boolean) =>
+    forms.map((form, index) => {
+      const { revenue, costs } = scaleQuotes(form, format, chinese);
+      const scale = unitQuote ? { unitQuote: form.line } : {};
+      return {
+        marker: index + 1,
+        label: `${form.code} margin`,
+        formula: "rev - cost",
+        inputs: [
+          {
+            name: "rev",
+            label: "Revenue",
+            citation: 2 * index + 1,
+            number: revenue.number,
+            ...scale,
+          },
+          { name: "cost", label: "Costs", citation: 2 * index + 2, number: costs.number, ...scale },
+        ],
+      };
+    });
+  const steps: ((passages: ShownPassage[]) => Call[])[] = [
+    (passages) => {
+      const citations = forms.flatMap((form, index) => {
+        const { revenue, costs } = scaleQuotes(form, format, chinese);
+        const passage = passages.find(
+          (each) =>
+            each.document.startsWith(`${form.code} accounts`) && each.text.includes(revenue.quote),
+        );
+        if (!passage) throw new Error(`No Passage of ${form.code} was shown.`);
+        const location =
+          passage.location ??
+          (passage.pages?.includes("-")
+            ? `pp. ${passage.pages.replace("-", "–")}`
+            : `p. ${passage.pages}`);
+        return [
+          { marker: 2 * index + 1, passage: passage.id, location, quote: revenue.quote },
+          { marker: 2 * index + 2, passage: passage.id, location, quote: costs.quote },
+        ];
+      });
+      return [
+        { tool: "cite", input: { citations } },
+        { tool: "calculate", input: { figures: figures(false) } },
+      ];
+    },
+    ...(withUnitQuote ? [() => [{ tool: "calculate", input: { figures: figures(true) } }]] : []),
+  ];
+  return scriptedModel((call) => {
+    const searches = call.results.filter((result) => result.tool === "search_documents");
+    if (searches.length === 0) {
+      return {
+        calls: forms.map((form) => ({
+          tool: "search_documents",
+          input: {
+            query: `${form.code} ${chinese ? "公司账目 收入 成本" : "Holdings accounts revenue costs"}`,
+          },
+        })),
+      };
+    }
+    const step = steps[call.index - 1];
+    if (step) return { calls: step(searches.flatMap((each) => shownPassages(each.text))) };
+    return { text: forms.map((_, index) => `[=${index + 1}]`).join(" ") };
+  });
+}
+
+/** Runs `scaleModel` over every form's Document of `format`; returns what the model was told and the figures recorded, by marker. */
+async function calculateUnderScales(
+  forms: readonly ScaleForm[],
+  format: ScaleFormat,
+  chinese: boolean,
+  withUnitQuote: boolean,
+) {
+  const model = scaleModel(forms, format, chinese, withUnitQuote);
+  const { core } = await setUpCalculating(
+    model,
+    forms.map((form) => scaleDocument(form, format, chinese)),
+  );
+  const { answer } = await askAndRead(
+    core,
+    chinese ? "各公司的利润是多少？" : "What is each margin?",
+  );
+  core.close();
+  return {
+    told: told(model, "calculate"),
+    recorded: answer.figures.map((figure) => [figure.marker, figure.value]),
+  };
+}
+
+// protects=#2365; fails_when=a figure from a Document whose scale is written as "'000", "000s", "(000 omitted)", "TEUR", "T€", "k€", "$K", "MEUR", "$MM", "USD MM", "金额（万）", "新台幣仟元" or "港幣百萬" is calculated unscaled, 1,000 to 1,000,000 times too small; no_claim=the Answer's wording, which the scripted model writes.
+describe("A scale written in a form the reader didn't know is applied or refused, never left out (#2365)", {
+  timeout: 120_000,
+}, () => {
+  const each = [
+    ...(["pdf", "word", "sheet"] as const).flatMap((format) => [
+      { format, language: "English", forms: ENGLISH_FORMS, chinese: false },
+      { format, language: "Chinese", forms: CHINESE_FORMS, chinese: true },
+    ]),
+  ];
+
+  test.each(each)(
+    "$format, $language: refused with no unitQuote, then worked out at the scale its line states",
+    async ({ format, forms, chinese }) => {
+      const {
+        told: [asked, fixed],
+        recorded,
+      } = await calculateUnderScales(forms, format, chinese, true);
+
+      const number = scaleQuotes(forms[0] as ScaleForm, format, chinese).revenue.number;
+      for (const marker of forms.map((_, index) => index + 1)) {
+        expect(asked).toContain(`[=${marker}] rev: ${number} has no unit, and `);
+        expect(asked).not.toContain(`Recorded [=${marker}]`);
+        expect(fixed).toContain(`Recorded [=${marker}]`);
+      }
+      expect(recorded).toEqual(forms.map((form, index) => [index + 1, form.value]));
+    },
+  );
+
+  // protects=#2365; fails_when=a scale stated only in a Word file's header is never read, so its figures are calculated unscaled.
+  test.each([
+    { language: "English", forms: ENGLISH_FORMS, chinese: false },
+    { language: "Chinese", forms: CHINESE_FORMS, chinese: true },
+  ])(
+    "a scale only in a Word file's header refuses the figure, as no Passage can quote it: $language",
+    async ({ forms, chinese }) => {
+      const {
+        told: [asked],
+        recorded,
+      } = await calculateUnderScales(forms, "word header", chinese, false);
+
+      for (const [index, form] of forms.entries()) {
+        expect(asked).toContain(
+          `[=${index + 1}] rev: ${chinese ? "1,200" : "1,234.5"} has no unit, and a running header or footer at § ${scaleRows(form, chinese).title} states a scale ("`,
+        );
+      }
+      expect(asked).toContain("it can't be calculated without guessing its scale.");
+      expect(recorded).toEqual([]);
+    },
+  );
+});
+
+// protects=#2365; fails_when=a scale form that reads more than one way ("in MM": millions, millimetres or months) is guessed either way, or ordinary text ("order 000123", "1,000s of users", "(000) 123-4567", "一万人", "万一") is read as a scale and changes or refuses a figure from a Document that states none.
+describe("A scale form that reads two ways is refused; text that states no scale changes nothing (#2365)", {
+  timeout: 120_000,
+}, () => {
+  test("“(in MM)” refuses the figure with no unitQuote and with it; Documents with no scale give the plain difference", async () => {
+    const unsure = { code: "Quebec", line: "Revenue (in MM)", value: 0 };
+    const plain: ScaleForm[] = [
+      { code: "Romeo", line: "Customer order 000123", value: 900 },
+      { code: "Sierra", line: "Used by 1,000s of users", value: 900 },
+      { code: "Tango", line: "Call (000) 123-4567", value: 900 },
+      { code: "Uniform", line: "Thousands of people attended.", value: 900 },
+    ];
+    const {
+      told: [asked, fixed],
+      recorded,
+    } = await calculateUnderScales([unsure, ...plain], "pdf", false, true);
+
+    expect(asked).toContain(
+      `[=1] rev: 1,234.5 has no unit, and p. 1 writes "in MM", which can be read as more than one scale or unit; it can't be calculated without guessing its scale.`,
+    );
+    expect(fixed).toContain(
+      `[=1] rev: the unitQuote "Revenue (in MM)" writes "in MM", which can be read as more than one scale or unit; 1,234.5 can't be calculated without guessing its scale.`,
+    );
+    expect(recorded).toEqual([
+      [2, 900],
+      [3, 900],
+      [4, 900],
+      [5, 900],
+    ]);
+  });
+
+  test("Chinese text with 万 in its words, not as a column's unit, leaves the difference as it is", async () => {
+    const plain: ScaleForm[] = [
+      { code: "Victor", line: "万一成本超支，另行通知", value: 900 },
+      { code: "Whiskey", line: "员工一万人", value: 900 },
+    ];
+    const { recorded } = await calculateUnderScales(plain, "pdf", true, false);
+
+    expect(recorded).toEqual([
+      [1, 900],
+      [2, 900],
+    ]);
+  });
+});
+
+// protects=#2365; fails_when=a two-decimal statement's currency is carried to bare fees under a scale written "000s", "(000 omitted)" or "金额（万）", so the User sees an amount a thousand or ten thousand times too small.
+describe("A statement's first-amount currency isn't carried under a scale form the reader now knows (#2365)", {
+  timeout: 60_000,
+}, () => {
+  test.each([
+    { scale: "Figures in 000s", chinese: false },
+    { scale: "(000 omitted)", chinese: false },
+    { scale: "金额（万）", chinese: true },
+    { scale: "Amounts (in MM)", chinese: false },
+  ])("$scale", async ({ scale, chinese }) => {
+    const lines = chinese
+      ? ["成交价 ¥385.00", "减：中介费 （4.62）"]
+      : ["Sale price £385.00", "Less: agent's fee (4.62)"];
+    const document = {
+      name: "Completion statement 14 Mill Lane.pdf",
+      contents: buildPdf([
+        chinese
+          ? { chineseLines: ["房产交易结算表", scale, ...lines] }
+          : { lines: ["Completion statement: 14 Mill Lane", scale, ...lines] },
+      ]),
+    };
+    const numbers = chinese ? ["¥385.00", "（4.62）"] : ["£385.00", "(4.62)"];
+    const model = calculatingModel({
+      queries: [chinese ? "成交价 中介费" : "sale price deductions"],
+      steps: [
+        citeStatement("Completion statement", lines, (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  label: "Net",
+                  formula: "price + agent",
+                  inputs: [
+                    { name: "price", label: "Price", citation: cited[0], number: numbers[0] },
+                    {
+                      name: "agent",
+                      label: "Fee",
+                      citation: cited[1],
+                      number: numbers[1],
+                      unitQuote: lines[0],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [document]);
+
+    const { answer, finished } = await askAndRead(core, "What are the net proceeds?");
+
+    expect(told(model, "calculate")[0]).toContain("but the Document states a scale (");
+    expect(answer.figures).toEqual([]);
+    expect(finished.uncalculated).toBe(1);
+  });
+});
+
+// protects=#2365; fails_when=a line that only looks like a scale (a share class, "M&A", "Series M", a wrapped "million", "000s of users") changes a figure, or one that reads two ways ("ending in 000", "Call (000)", "TUSD") is read either way instead of refused.
+describe("Text that only looks like a scale changes nothing, and one that reads two ways is refused (#2365)", {
+  timeout: 120_000,
+}, () => {
+  test.each([
+    {
+      language: "English",
+      chinese: false,
+      plain: [
+        "Share class USD B Acc",
+        "USD M&A advisory fees",
+        "Series M USD notes",
+        "Millions",
+        "Thousands of 000s of users",
+      ],
+      refused: [
+        "Accounts ending in 000",
+        "Call (000)",
+        "Holdings of TUSD stablecoin",
+        "We hold Class USD B",
+      ],
+    },
+    {
+      language: "Chinese",
+      chinese: true,
+      plain: ["美元B类份额", "账户尾号000"],
+      refused: ["客户热线（000）", "持有份额类别：USD B。"],
+    },
+  ])("$language", async ({ chinese, plain, refused }) => {
+    const codes = [
+      "Alpha",
+      "Bravo",
+      "Charlie",
+      "Delta",
+      "Echo",
+      "Foxtrot",
+      "Golf",
+      "Hotel",
+      "India",
+    ];
+    const forms = [...plain, ...refused].map((line, index) => ({
+      code: codes[index] as string,
+      line,
+      value: 900,
+    }));
+    const {
+      told: [asked],
+      recorded,
+    } = await calculateUnderScales(forms, "pdf", chinese, false);
+
+    expect(recorded).toEqual(plain.map((_, index) => [index + 1, 900]));
+    for (const marker of refused.map((_, index) => plain.length + index + 1)) {
+      expect(asked).toContain(
+        `[=${marker}] rev: ${chinese ? "1,200" : "1,234.5"} has no unit, and p. 1 writes "`,
+      );
+    }
+  });
+});
+
+// protects=#2365; fails_when=a number under one column of a table's head row takes another column's unit or scale when the whole row is given as unitQuote: a 12.5% margin recorded as £25.0 thousand, or EPS £1.25 as £1,250.
+test.each([
+  {
+    language: "English, a percent",
+    head: ["Segment", "Revenue (£000)", "Margin (%)"],
+    row: ["Clothing", 4620, 12.5],
+  },
+  {
+    language: "Chinese, a percent",
+    head: ["分部", "收入（万元）", "毛利率（%）"],
+    row: ["服装", 4620, 12.5],
+  },
+  {
+    language: "English, one currency at two scales",
+    head: ["Segment", "Revenue (£000)", "EPS (£)"],
+    row: ["Clothing", 4620, 12.5],
+  },
+  {
+    language: "English, a currency column beside a count's",
+    head: ["Segment", "Revenue ($000)", "Shares (000s)"],
+    row: ["Group", 4620, 12.5],
+  },
+  {
+    language: "Chinese, one currency at two scales",
+    head: ["分部", "收入（万元）", "每股收益（元）"],
+    row: ["服装", 4620, 12.5],
+  },
+])(
+  "a head row that states a unit for each column doesn't give one of them to a number: $language",
+  {
+    timeout: 60_000,
+  },
+  async ({ head, row }) => {
+    const headLine = head.join("\t");
+    const rowLine = row.join("\t");
+    const model = calculatingModel({
+      queries: ["Segments margin 分部"],
+      steps: [
+        (passages) => [
+          {
+            tool: "cite",
+            input: {
+              citations: [
+                {
+                  marker: 1,
+                  passage: passageOf(passages, "Segments"),
+                  location: "Segments, rows 1–2",
+                  quote: rowLine,
+                },
+              ],
+            },
+          },
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  label: "Double the margin",
+                  formula: "m * 2",
+                  inputs: [
+                    {
+                      name: "m",
+                      label: "Margin",
+                      citation: 1,
+                      number: "12.5",
+                      unitQuote: headLine,
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      { name: "Segments.xlsx", contents: xlsxOf([{ name: "Segments", rows: [head, row] }]) },
+    ]);
+
+    const { answer } = await askAndRead(core, "What is twice the margin?");
+
+    expect(told(model, "calculate")[0]).toContain(
+      `[=1] m: the unitQuote "${headLine}" states more than one unit or scale; give the line or column head that states the unit of 12.5 alone.`,
+    );
+    expect(answer.figures).toEqual([]);
+  },
+);
+
+// protects=#2365; fails_when=a number under a Word heading whose parent section states the scale, or on a PDF page after the one that does, is calculated plain, 1,000 to 1,000,000 times too small.
+describe("A scale stated in another part of the Document refuses a bare number, never leaves it out (#2365)", {
+  timeout: 120_000,
+}, () => {
+  test.each([
+    ...(["pdf page before", "word section before"] as const).flatMap((format) => [
+      { format, language: "English", forms: ENGLISH_FORMS.slice(0, 4), chinese: false },
+      { format, language: "Chinese", forms: CHINESE_FORMS.slice(0, 2), chinese: true },
+    ]),
+  ])("$format, $language", async ({ format, forms, chinese }) => {
+    const {
+      told: [asked],
+      recorded,
+    } = await calculateUnderScales(forms, format, chinese, false);
+
+    for (const marker of forms.map((_, index) => index + 1)) {
+      expect(asked).toContain(
+        `[=${marker}] rev: ${chinese ? "1,200" : "1,234.5"} has no unit, and `,
+      );
+    }
+    // A Word heading's section is a Unit of its own; a short PDF page shares a Passage with the one
+    // before it, whose scale line the Passage's Units then hold.
+    if (format === "word section before")
+      expect(asked).toContain(
+        "it can't be calculated without guessing whether that scale applies.",
+      );
+    expect(recorded).toEqual([]);
+  });
+});
+
+// protects=#2365; fails_when=a Word header in a form that reads two ways ("(in MM)") leaves no scale marker, so the figure under it is calculated plain.
+test("a Word header that writes a scale two ways refuses the figure", {
+  timeout: 60_000,
+}, async () => {
+  const form = { code: "Quebec", line: "Revenue (in MM)", value: 0 };
+  const {
+    told: [asked],
+    recorded,
+  } = await calculateUnderScales([form], "word header", false, false);
+
+  expect(asked).toContain(
+    `[=1] rev: 1,234.5 has no unit, and a running header or footer at § Quebec Holdings accounts states a scale ("in MM")`,
+  );
+  expect(recorded).toEqual([]);
+});
+
+// protects=#2365; fails_when=a Document of a kind not read again (here plain text) keeps the empty marker an earlier build stored, and a scale it writes two ways ("in MM") is then missed, so a statement's currency is carried to bare fees unscaled.
+test("a stored empty marker still finds a scale the page writes two ways", {
+  timeout: 60_000,
+}, async () => {
+  const dataDir = await createTempDataFolder();
+  const lines = ["Sale price £385.00", "Less: agent's fee (4.62)"];
+  const document = {
+    name: "Completion statement 14 Mill Lane.txt",
+    contents: ["Completion statement: 14 Mill Lane", "Amounts (in MM)", ...lines].join("\n"),
+  };
+  const first = await setUpCalculating(
+    calculatingModel({ queries: [], steps: [], answer: "Nothing." }),
+    [document],
+    dataDir,
+  );
+  first.core.close();
+  // As a build before this one stored it: the page's marker read without the forms that read two ways.
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  db.run("UPDATE document_pages SET scale_marker = ''");
+  db.close();
+
+  const model = calculatingModel({
+    queries: ["sale price deductions"],
+    steps: [
+      citeStatement("Completion statement", lines, (cited) => [
+        {
+          tool: "calculate",
+          input: {
+            figures: [
+              {
+                marker: 1,
+                label: "Net",
+                formula: "price + agent",
+                inputs: [
+                  { name: "price", label: "Price", citation: cited[0], number: "£385.00" },
+                  {
+                    name: "agent",
+                    label: "Fee",
+                    citation: cited[1],
+                    number: "(4.62)",
+                    unitQuote: lines[0],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ]),
+    ],
+    answer: "[=1][^1]",
+  });
+  const { core } = await setUpCalculating(model, [], dataDir);
+
+  const { answer } = await askAndRead(core, "What are the net proceeds?");
+
+  expect(told(model, "calculate")[0]).toContain('but the Document states a scale ("in MM")');
+  expect(answer.figures).toEqual([]);
+});
+
+// protects=#2365; fails_when=a PDF read before this build keeps no scale for a running header in a form the reader didn't know ("(000 omitted)"), so its pages' bare figures are read plain.
+test("a PDF read before this build is read again and keeps a running header's “(000 omitted)”", {
+  timeout: 60_000,
+}, async () => {
+  const dataDir = await createTempDataFolder();
+  const pages = [
+    "Revenue 1,234.5",
+    "Notes continue here.",
+    "More notes here.",
+    "The notes end.",
+  ].map((line) => ({ lines: ["Holdings Ltd (000 omitted)", line] }));
+  const model = calculatingModel({ queries: [], steps: [], answer: "Nothing." });
+  const { core } = await setUpCalculating(
+    model,
+    [{ name: "Holdings accounts.pdf", contents: buildPdf(pages) }],
+    dataDir,
+  );
+  const saved = (await core.listDocuments())[0];
+  if (!saved) throw new Error("Missing Document.");
+  core.close();
+
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  db.run("UPDATE document_pages SET scale_marker = '' WHERE document_id = ?", [saved.id]);
+  db.run("UPDATE documents SET processing_version = 19 WHERE id = ?", [saved.id]);
+  db.close();
+
+  const again = startCore(dataDir);
+  expect((await again.listDocuments())[0]).toMatchObject({ id: saved.id, status: "queued" });
+  await waitForProcessing(again, [saved.id]);
+  expect(
+    queryDatabase<{ scale_marker: string }>(
+      dataDir,
+      "SELECT DISTINCT scale_marker FROM document_pages WHERE document_id = ? AND deleted_at IS NULL",
+      [saved.id],
+    ).map((row) => row.scale_marker),
+  ).toEqual(["(000 omitted)"]);
+  again.close();
+});
+
+// protects=#2365; fails_when=a per-share figure, or a share count, under "(in millions, except per share data)" or "（除每股数据外）" is scaled with the amounts, so earnings per share come out a million times too large.
+test.each([
+  {
+    language: "English",
+    lines: [
+      "Results (in millions, except share and per share data)",
+      "Revenue 1,482.6",
+      "Diluted earnings per share 2.15",
+      "Weighted average shares outstanding 412.5",
+    ],
+    question: "What are twice the revenue, EPS and shares?",
+    chinese: false,
+  },
+  {
+    language: "Chinese",
+    lines: [
+      "单位：百万元（除股数及每股数据外）",
+      "营业收入 1,482.6",
+      "基本每股收益 2.15",
+      "发行在外普通股加权平均股份 412.5",
+    ],
+    question: "营业收入、每股收益和股数的两倍各是多少？",
+    chinese: true,
+  },
+])(
+  "a scale that leaves out per-share data and share counts applies to the amounts alone: $language",
+  {
+    timeout: 60_000,
+  },
+  async ({ lines, question, chinese }) => {
+    const [head = "", ...rows] = lines;
+    const document = {
+      name: "Results 2025.pdf",
+      contents: buildPdf([chinese ? { chineseLines: lines } : { lines }]),
+    };
+    const twice = (marker: number, citation: number, number: string, unitQuote?: string) => ({
+      marker,
+      label: `Twice ${number}`,
+      formula: "x * 2",
+      inputs: [{ name: "x", label: number, citation, number, ...(unitQuote && { unitQuote }) }],
+    });
+    const model = calculatingModel({
+      queries: [chinese ? "营业收入 每股收益" : "revenue earnings per share"],
+      steps: [
+        citeStatement("Results 2025", rows, (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                twice(1, cited[0] as number, "1,482.6", head),
+                twice(2, cited[1] as number, "2.15"),
+                twice(3, cited[1] as number, "2.15", head),
+                twice(4, cited[2] as number, "412.5", head),
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "[=1] [=2] [=3] [=4][^1]",
+    });
+    const { core } = await setUpCalculating(model, [document]);
+
+    const { answer } = await askAndRead(core, question);
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 2_965_200_000],
+      [2, 4.3],
+      [3, 4.3],
+      [4, 825],
+    ]);
+  },
+);
+
+// protects=#2365; fails_when=the amounts on a joined line after "单位：千元，每股收益除外" or "(in thousands, except per share data)" are taken for per-share figures, because the statement's own words are read as their row's label, and come out a thousand times too small.
+test.each([
+  {
+    language: "Chinese PDF, its rows joined",
+    document: {
+      name: "Pelican 利润表.pdf",
+      contents: buildPdf([
+        {
+          chineseLines: [
+            "Pelican 利润表",
+            "单位：千元，每股收益除外",
+            "营业收入 1,234.5",
+            "营业成本 334.5",
+            "基本每股收益 0.52",
+          ],
+        },
+      ]),
+    },
+    head: "单位：千元，每股收益除外",
+    quotes: ["营业收入 1,234.5", "营业成本 334.5", "基本每股收益 0.52"],
+  },
+  {
+    language: "Chinese Word file, its rows apart",
+    document: {
+      name: "Pelican 利润表.docx",
+      contents: docxOf(
+        [
+          "Pelican 利润表",
+          "单位：千元，每股收益除外",
+          "营业收入 1,234.5",
+          "营业成本 334.5",
+          "基本每股收益 0.52",
+        ].map((text) => ({ text })),
+      ),
+    },
+    head: "单位：千元，每股收益除外",
+    quotes: ["营业收入 1,234.5", "营业成本 334.5", "基本每股收益 0.52"],
+  },
+  {
+    language: "English PDF, all on one line",
+    document: {
+      name: "Pelican results.pdf",
+      contents: buildPdf([
+        {
+          lines: [
+            "Pelican Inc (in thousands, except per share data) Revenue 1,234.5 Costs 334.5 Diluted EPS 0.52",
+          ],
+        },
+      ]),
+    },
+    head: "(in thousands, except per share data)",
+    quotes: ["Revenue 1,234.5", "Costs 334.5", "Diluted EPS 0.52"],
+  },
+])(
+  "the amounts beside a per-share exception are scaled; the per-share row isn't: $language",
+  {
+    timeout: 60_000,
+  },
+  async ({ document, head, quotes }) => {
+    const [revenue = "", costs = "", eps = ""] = quotes;
+    const number = (quote: string) => quote.split(" ").at(-1) ?? "";
+    const model = calculatingModel({
+      queries: ["Pelican 营业收入 revenue"],
+      steps: [
+        (passages) => {
+          const passage = passageOf(passages, "Pelican");
+          const location = passages.find((each) => each.id === passage)?.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: quotes.map((quote, index) => ({
+                  marker: index + 1,
+                  passage,
+                  location,
+                  quote,
+                })),
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Margin",
+                    formula: "rev - cost",
+                    inputs: [
+                      {
+                        name: "rev",
+                        label: "Revenue",
+                        citation: 1,
+                        number: number(revenue),
+                        unitQuote: head,
+                      },
+                      {
+                        name: "cost",
+                        label: "Costs",
+                        citation: 2,
+                        number: number(costs),
+                        unitQuote: head,
+                      },
+                    ],
+                  },
+                  {
+                    marker: 2,
+                    label: "Twice the revenue",
+                    formula: "rev * 2",
+                    inputs: [
+                      { name: "rev", label: "Revenue", citation: 1, number: number(revenue) },
+                    ],
+                  },
+                  {
+                    marker: 3,
+                    label: "Twice the EPS",
+                    formula: "eps * 2",
+                    inputs: [
+                      {
+                        name: "eps",
+                        label: "EPS",
+                        citation: 3,
+                        number: number(eps),
+                        unitQuote: head,
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1] [=2] [=3][^1]",
+    });
+    const { core } = await setUpCalculating(model, [document]);
+
+    const { answer } = await askAndRead(core, "What is the margin?");
+
+    expect(told(model, "calculate")[0]).toContain(`[=2] rev: ${number(revenue)} has no unit, and `);
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 900_000],
+      [3, 1.04],
+    ]);
+  },
+);
+
+// protects=#2365; fails_when=a fund's share class in a sheet's row ("USD B") is read as the row's unit, so a NAV of 12.34 is recorded as $24.68 billion.
+test("a share class in a sheet's row is no unit for its NAV, which is refused rather than scaled", {
+  timeout: 60_000,
+}, async () => {
+  const row = ["USD B", "LU0123456789", 12.34];
+  const model = calculatingModel({
+    queries: ["Funds NAV"],
+    steps: [
+      (passages) => [
+        {
+          tool: "cite",
+          input: {
+            citations: [
+              {
+                marker: 1,
+                passage: passageOf(passages, "Funds"),
+                location: "Funds, rows 1–2",
+                quote: row.join("\t"),
+              },
+            ],
+          },
+        },
+        {
+          tool: "calculate",
+          input: {
+            figures: [
+              {
+                marker: 1,
+                label: "Twice the NAV",
+                formula: "nav * 2",
+                inputs: [{ name: "nav", label: "NAV", citation: 1, number: "12.34" }],
+              },
+            ],
+          },
+        },
+      ],
+    ],
+    answer: "[=1][^1]",
+  });
+  const { core } = await setUpCalculating(model, [
+    {
+      name: "Funds.xlsx",
+      contents: xlsxOf([{ name: "Funds", rows: [["Share class", "ISIN", "NAV"], row] }]),
+    },
+  ]);
+
+  const { answer } = await askAndRead(core, "What is twice the NAV?");
+
+  expect(told(model, "calculate")[0]).toContain(
+    `[=1] nav: 12.34 has no unit, and Funds, row 2 writes "USD B", which can be read as more than one scale or unit`,
+  );
+  expect(answer.figures).toEqual([]);
+});
+
+// protects=#2365; fails_when=a per-share row under "In millions of dollars, except where noted" is scaled with the amounts when the model quotes that line, so EPS $1.25 comes out $1.25 million.
+test.each([
+  {
+    language: "English",
+    lines: [
+      "Pelican In millions of dollars, except where noted",
+      "Revenue 1,234.5",
+      "Earnings per share 1.25",
+    ],
+    chinese: false,
+  },
+  {
+    language: "Chinese",
+    lines: ["Pelican 单位：百万元（除另有说明外）", "营业收入 1,234.5", "每股收益 1.25"],
+    chinese: true,
+  },
+])(
+  "a per-share row under “except where noted” is refused, the amounts scaled: $language",
+  {
+    timeout: 60_000,
+  },
+  async ({ lines, chinese }) => {
+    const [title = "", revenue = "", eps = ""] = lines;
+    const head = title.replace("Pelican ", "");
+    const number = (quote: string) => quote.split(" ").at(-1) ?? "";
+    const twice = (marker: number, citation: number, quote: string, unitQuote?: string) => ({
+      marker,
+      label: `Twice ${quote}`,
+      formula: "x * 2",
+      inputs: [
+        {
+          name: "x",
+          label: quote,
+          citation,
+          number: number(quote),
+          ...(unitQuote && { unitQuote }),
+        },
+      ],
+    });
+    const model = calculatingModel({
+      queries: ["Pelican revenue 营业收入"],
+      steps: [
+        citeStatement("Pelican", [revenue, eps], (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                twice(1, cited[0] as number, revenue, head),
+                twice(2, cited[1] as number, eps),
+                twice(3, cited[1] as number, eps, head),
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "[=1] [=2] [=3][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "Pelican results.pdf",
+        contents: buildPdf([chinese ? { chineseLines: lines } : { lines }]),
+      },
+    ]);
+
+    const { answer } = await askAndRead(core, "What are the figures doubled?");
+
+    const [asked] = told(model, "calculate");
+    expect(asked).toContain(
+      `[=2] x: 1.25 is on a per-share row, and "${head.replace(/（.*$|, except.*$/, "")}`,
+    );
+    expect(asked).toContain(
+      `[=3] x: 1.25 is on a per-share row, and the unitQuote "${head}" scales its Document's amounts except where it notes otherwise; it can't be calculated without guessing its scale.`,
+    );
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 2_469_000_000],
+    ]);
+  },
+);
+
+/**
+ * Every kind of row a scale line must not scale, under each form of the line (#2365): an amount
+ * is scaled; a per-share figure is left plain only where the line excepts it; a percent, ratio,
+ * multiple, basis points, count, year or identifier is refused. Each row is doubled with the line
+ * as its unitQuote. `null` is a refusal.
+ */
+const ROW_KINDS_EN: readonly [string, string][] = [
+  ["Revenue 1,234.5", "1,234.5"],
+  ["Diluted EPS ($) 1.25", "1.25"],
+  ["Gross margin (%) 27.4", "27.4"],
+  ["Current ratio 1.8", "1.8"],
+  ["Net debt to EBITDA (x) 2.5", "2.5"],
+  ["Interest spread (bps) 125", "125"],
+  ["Employees 4250", "4250"],
+  ["Stores 312", "312"],
+  ["Customer ID 5512", "5512"],
+  ["Year founded 1998", "1998"],
+  ["Weighted average shares 412.5", "412.5"],
+  ["Dividend per share 0.35", "0.35"],
+  ["Payment date 15", "15"],
+  ["ISIN 4471", "4471"],
+  ["Phone 5550123", "5550123"],
+  ["Revenue per unit 12.34", "12.34"],
+  ["Average revenue per user 12.34", "12.34"],
+  ["Cash cost per tonne 85.2", "85.2"],
+];
+const ROW_KINDS_ZH: readonly [string, string][] = [
+  ["营业收入 1,234.5", "1,234.5"],
+  ["基本每股收益（元） 0.52", "0.52"],
+  ["毛利率（%） 27.4", "27.4"],
+  ["流动比率 1.8", "1.8"],
+  ["净负债/EBITDA（倍） 2.5", "2.5"],
+  ["利差（基点） 125", "125"],
+  ["员工人数 4250", "4250"],
+  ["门店数量 312", "312"],
+  ["客户编号 5512", "5512"],
+  ["成立年份 1998", "1998"],
+  ["发行在外普通股加权平均股份 412.5", "412.5"],
+  ["每股股利（元） 0.35", "0.35"],
+  ["付款日期 15", "15"],
+  ["证券代码 4471", "4471"],
+  ["联系电话 5550123", "5550123"],
+  ["每单位收入 12.34", "12.34"],
+  ["人均收入 12.34", "12.34"],
+  ["每吨现金成本 85.2", "85.2"],
+];
+
+/**
+ * What each row of the tables above doubles to under a line that scales 1,234.5 to `revenue`: only
+ * the amount is scaled, and the per-share rows are left plain where the line excepts them.
+ */
+const doubledRows = (revenue: number, perShare: [number, number] | null) => [
+  revenue,
+  perShare?.[0] ?? null,
+  ...Array<null>(9).fill(null),
+  perShare?.[1] ?? null,
+  ...Array<null>(6).fill(null),
+];
+
+// protects=#2365; fails_when=a row that isn't an amount (earnings per share, a percent, a ratio, a multiple, basis points, a count, an identifier) is scaled by its Document's scale line when the model quotes it, under any form of that line, in English or Chinese.
+test.each([
+  { head: "(in thousands)", chinese: false, doubled: doubledRows(2_469_000, null) },
+  { head: "(in billions)", chinese: false, doubled: doubledRows(2_469_000_000_000, null) },
+  {
+    head: "(in millions, except per share data)",
+    chinese: false,
+    doubled: doubledRows(2_469_000_000, [2.5, 0.7]),
+  },
+  { head: "Amounts in £'000", chinese: false, doubled: doubledRows(2_469_000, null) },
+  {
+    head: "All figures in £'000 unless otherwise stated",
+    chinese: false,
+    doubled: doubledRows(2_469_000, null),
+  },
+  {
+    head: "In millions of dollars, except where noted",
+    chinese: false,
+    doubled: doubledRows(2_469_000_000, null),
+  },
+  { head: "(000 omitted)", chinese: false, doubled: doubledRows(2_469_000, null) },
+  { head: "单位：千元", chinese: true, doubled: doubledRows(2_469_000, null) },
+  { head: "单位：万元", chinese: true, doubled: doubledRows(24_690_000, null) },
+  { head: "单位：亿元", chinese: true, doubled: doubledRows(246_900_000_000, null) },
+  {
+    head: "单位：千元，每股收益除外",
+    chinese: true,
+    doubled: doubledRows(2_469_000, [1.04, 0.7]),
+  },
+  { head: "金额（万）", chinese: true, doubled: doubledRows(24_690_000, null) },
+  {
+    head: "单位：百万元（除另有说明外）",
+    chinese: true,
+    doubled: doubledRows(2_469_000_000, null),
+  },
+])(
+  "each kind of row under “$head” is scaled only when it is an amount",
+  {
+    timeout: 60_000,
+  },
+  async ({ head, chinese, doubled }) => {
+    const rows = chinese ? ROW_KINDS_ZH : ROW_KINDS_EN;
+    const lines = ["Pelican accounts", head, ...rows.map(([line]) => line)];
+    const model = calculatingModel({
+      queries: ["Pelican accounts"],
+      steps: [
+        citeStatement(
+          "Pelican",
+          rows.map(([line]) => line),
+          (cited) => [
+            {
+              tool: "calculate",
+              input: {
+                figures: rows.map(([line, number], index) => ({
+                  marker: index + 1,
+                  label: line,
+                  formula: "x * 2",
+                  inputs: [
+                    { name: "x", label: line, citation: cited[index], number, unitQuote: head },
+                  ],
+                })),
+              },
+            },
+          ],
+        ),
+      ],
+      answer: rows.map((_, index) => `[=${index + 1}]`).join(" "),
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "Pelican accounts.docx",
+        contents: docxOf(lines.map((text) => ({ text }))),
+      },
+    ]);
+
+    const { answer } = await askAndRead(
+      core,
+      chinese ? "各项的两倍是多少？" : "What is each doubled?",
+    );
+
+    const byMarker = new Map(answer.figures.map((figure) => [figure.marker, figure.value]));
+    expect(rows.map((_, index) => byMarker.get(index + 1) ?? null)).toEqual(doubled);
+  },
+);
+
+/** Twice each of `quotes`, from a Word file of `lines` under `head`, with `head` as unitQuote; `null` where refused. */
+async function doubledUnder(
+  head: string,
+  lines: readonly string[],
+  quotes: readonly string[],
+  format: "word" | "text" = "word",
+) {
+  const model = calculatingModel({
+    queries: ["Pelican statement"],
+    steps: [
+      citeStatement("Pelican", quotes, (cited) => [
+        {
+          tool: "calculate",
+          input: {
+            figures: quotes.map((quote, index) => ({
+              marker: index + 1,
+              label: quote,
+              formula: "x * 2",
+              inputs: [
+                {
+                  name: "x",
+                  label: quote,
+                  citation: cited[index],
+                  number: quote.split(" ").at(-1),
+                  unitQuote: head,
+                },
+              ],
+            })),
+          },
+        },
+      ]),
+    ],
+    answer: quotes.map((_, index) => `[=${index + 1}]`).join(" "),
+  });
+  const all = ["Pelican statement", head, ...lines];
+  const { core } = await setUpCalculating(model, [
+    format === "word"
+      ? { name: "Pelican statement.docx", contents: docxOf(all.map((text) => ({ text }))) }
+      : { name: "Pelican statement.txt", contents: all.join("\n") },
+  ]);
+  const { answer } = await askAndRead(core, "What is each doubled?");
+  const byMarker = new Map(answer.figures.map((figure) => [figure.marker, figure.value]));
+  return quotes.map((_, index) => byMarker.get(index + 1) ?? null);
+}
+
+const TEN_YEAR_EPS = [
+  "1.25",
+  "1.20",
+  "1.15",
+  "1.10",
+  "1.05",
+  "1.00",
+  "0.95",
+  "0.90",
+  "0.85",
+  "0.80",
+];
+const THIRTEEN_YEAR_EPS = [...TEN_YEAR_EPS, "0.75", "0.70", "0.65"];
+
+/**
+ * Where a number's row label is (#2365): on its line, on the line above, above a column of like
+ * numbers (a record read one cell per line), or nowhere the page shows. Each figure is doubled
+ * with the scale line as its unitQuote; `null` is a refusal, the default when the row is unknown.
+ */
+// protects=#2365; fails_when=a number whose row the page doesn't show (past a long column, under a sentence, a blank line, a number written otherwise or the scale line itself) is scaled as an amount, or a per-share figure, a percent or a per-unit figure in a column is scaled with the amounts.
+test.each([
+  {
+    layout: "labels on their own lines, and a per annum amount",
+    head: "(in thousands, except per share data)",
+    lines: ["Revenue 1,234.5", "Diluted EPS 1.25", "Rent payable per annum 334.5"],
+    quotes: ["1,234.5", "1.25", "334.5"],
+    doubled: [2_469_000, 2.5, 669_000],
+  },
+  {
+    layout: "a second year's column under the first, in English",
+    head: "(in thousands, except per share data)",
+    lines: [
+      "Revenue",
+      "1,234.5",
+      "1,100.5",
+      "Diluted earnings per share",
+      "1.25",
+      "1.10",
+      "Gross margin (%)",
+      "27.4",
+      "26.1",
+    ],
+    quotes: ["1,100.5", "1.10", "26.1"],
+    doubled: [2_201_000, 2.2, null],
+  },
+  {
+    layout: "a second year's column under the first, in Chinese",
+    head: "单位：千元，每股收益除外",
+    lines: [
+      "营业收入",
+      "1,234.5",
+      "1,100.5",
+      "稀释每股收益",
+      "0.52",
+      "0.48",
+      "毛利率（%）",
+      "27.4",
+      "26.1",
+    ],
+    quotes: ["1,100.5", "0.48", "26.1"],
+    doubled: [2_201_000, 0.96, null],
+  },
+  {
+    layout: "a ten-year record of EPS, its 9th and 10th years",
+    head: "(in thousands, except per share data)",
+    lines: ["Diluted earnings per share", ...TEN_YEAR_EPS],
+    quotes: ["0.85", "0.80"],
+    doubled: [1.7, 1.6],
+  },
+  {
+    layout: "a thirteen-year record: the 12th year is read, the 13th is past the lines looked in",
+    head: "(in thousands, except per share data)",
+    lines: ["Diluted earnings per share", ...THIRTEEN_YEAR_EPS],
+    quotes: ["0.70", "0.65"],
+    doubled: [1.4, null],
+  },
+  {
+    layout: "a ten-year record of a percent",
+    head: "(in thousands)",
+    lines: [
+      "Operating margin (%)",
+      "20.0",
+      "19.9",
+      "19.8",
+      "19.7",
+      "19.6",
+      "19.5",
+      "19.4",
+      "19.3",
+      "19.2",
+      "19.1",
+    ],
+    quotes: ["19.1"],
+    doubled: [null],
+  },
+  {
+    layout: "a sentence above a lone number",
+    head: "(in thousands, except per share data)",
+    lines: ["Earnings per share are shown in note 9.", "1,234.5"],
+    quotes: ["1,234.5"],
+    doubled: [null],
+  },
+  {
+    layout: "a total written otherwise under per-share rows",
+    head: "(in thousands, except per share data)",
+    lines: ["Earnings per share", "1.25", "1.10", "1,234.5"],
+    quotes: ["1,234.5"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head that states its own scale, above its number",
+    head: "Net debt (£m)",
+    lines: ["528.9"],
+    quotes: ["528.9"],
+    doubled: [1_057_800_000],
+  },
+  {
+    layout: "a row head in 亿元 that states its own scale, above its number",
+    head: "净负债（亿元）",
+    lines: ["5.2"],
+    quotes: ["5.2"],
+    doubled: [1_040_000_000],
+  },
+  {
+    layout: "a row head in £m under a scale line in thousands, above its number",
+    head: "(in thousands)",
+    lines: ["Net debt (£m)", "528.9"],
+    quotes: ["528.9"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head in £m under a scale line in thousands, on its number's line",
+    head: "(in thousands)",
+    lines: ["Net debt (£m) 528.9"],
+    quotes: ["528.9"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head in 亿元 under 单位：万元, above its number",
+    head: "单位：万元",
+    lines: ["净负债（亿元）", "5.2"],
+    quotes: ["5.2"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head in 亿元 under 单位：万元, on its number's line",
+    head: "单位：万元",
+    lines: ["净负债（亿元） 5.2"],
+    quotes: ["5.2"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head with words after its scale, quoted as the scale line",
+    head: "Revenue (£000) - UK",
+    lines: ["1,234.5"],
+    quotes: ["1,234.5"],
+    doubled: [2_469_000],
+  },
+  {
+    layout: "a row head with words after its scale, under another scale line, above its number",
+    head: "(in millions)",
+    lines: ["Revenue (£000) - UK", "1,234.5"],
+    quotes: ["1,234.5"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head with words after its scale, under another scale line, on its number's line",
+    head: "(in millions)",
+    lines: ["Revenue (£000) - UK 1,234.5"],
+    quotes: ["1,234.5"],
+    doubled: [null],
+  },
+  {
+    layout: "收入（百万元）合计 under 单位：万元, above its number",
+    head: "单位：万元",
+    lines: ["收入（百万元）合计", "1,234.5"],
+    quotes: ["1,234.5"],
+    doubled: [null],
+  },
+  {
+    layout: "收入（百万元）合计 under 单位：万元, on its number's line",
+    head: "单位：万元",
+    lines: ["收入（百万元）合计 1,234.5"],
+    quotes: ["1,234.5"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head in £'000 under another scale line, its zeros kept with it",
+    head: "(in millions)",
+    lines: ["Net debt (£'000) 528.9"],
+    quotes: ["528.9"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head in (bn) under a scale line in millions, above its number",
+    head: "(in millions)",
+    lines: ["Loans (bn)", "12.3"],
+    quotes: ["12.3"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head in (bn) under a scale line in millions, on its number's line",
+    head: "(in millions)",
+    lines: ["Loans (bn) 12.3"],
+    quotes: ["12.3"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head in (bn) quoted as the scale line",
+    head: "Loans (bn)",
+    lines: ["12.3"],
+    quotes: ["12.3"],
+    doubled: [24_600_000_000],
+  },
+  {
+    layout: "a row head in 亿 under 单位：万元, on its number's line",
+    head: "单位：万元",
+    lines: ["营业收入（亿） 12.3"],
+    quotes: ["12.3"],
+    doubled: [null],
+  },
+  {
+    layout: "row heads in units of measure under a scale line",
+    head: "(in thousands)",
+    lines: ["Capacity (MW) 1,234.5", "Sales area (m2) 334.5", "Output (tonnes) 412.5"],
+    quotes: ["1,234.5", "334.5", "412.5"],
+    doubled: [null, null, null],
+  },
+  {
+    layout: "row heads in Chinese units of measure under 单位：千元",
+    head: "单位：千元",
+    lines: ["装机容量（兆瓦） 1,234.5", "销售面积（平方米） 334.5", "产量（吨） 412.5"],
+    quotes: ["1,234.5", "334.5", "412.5"],
+    doubled: [null, null, null],
+  },
+  {
+    layout: "a lone number right under the scale line",
+    head: "(in thousands)",
+    lines: ["1,234.5"],
+    quotes: ["1,234.5"],
+    doubled: [null],
+  },
+])(
+  "a row's label decides its scale: $layout",
+  { timeout: 60_000 },
+  async ({ head, lines, quotes, doubled }) => {
+    expect(await doubledUnder(head, lines, quotes)).toEqual(doubled);
+  },
+);
+
+// protects=#2365; fails_when=a number after a blank line takes the label of the block above it.
+test("a blank line ends the lines a lone number's label is looked for in", {
+  timeout: 60_000,
+}, async () => {
+  const head = "(in thousands, except per share data)";
+  const lines = ["Diluted earnings per share", "", "1.25"];
+  expect(await doubledUnder(head, lines, ["1.25"], "text")).toEqual([null]);
+  expect(
+    await doubledUnder(head, ["Diluted earnings per share", "1.25"], ["1.25"], "text"),
+  ).toEqual([2.5]);
+});
+
+// protects=#2365; fails_when="unless otherwise stated" isn't read as the line's exception, so a per-share row under it is refused for being per-share rather than for the line's own words.
+test("a per-share row under “unless otherwise stated” is refused for the line's exception", {
+  timeout: 60_000,
+}, async () => {
+  const head = "All figures in £'000 unless otherwise stated";
+  const model = calculatingModel({
+    queries: ["Pelican statement"],
+    steps: [
+      citeStatement("Pelican", ["Diluted EPS 1.25"], (cited) => [
+        {
+          tool: "calculate",
+          input: {
+            figures: [
+              {
+                marker: 1,
+                label: "Twice the EPS",
+                formula: "x * 2",
+                inputs: [
+                  { name: "x", label: "EPS", citation: cited[0], number: "1.25", unitQuote: head },
+                ],
+              },
+            ],
+          },
+        },
+      ]),
+    ],
+    answer: "[=1][^1]",
+  });
+  const { core } = await setUpCalculating(model, [
+    {
+      name: "Pelican statement.docx",
+      contents: docxOf(["Pelican statement", head, "Diluted EPS 1.25"].map((text) => ({ text }))),
+    },
+  ]);
+
+  await askAndRead(core, "What is twice the EPS?");
+
+  expect(told(model, "calculate")[0]).toContain(
+    `[=1] x: 1.25 is on a per-share row, and the unitQuote "${head}" scales its Document's amounts except where it notes otherwise`,
+  );
+});
+
+/** Ordinary rows of UK/IFRS, US GAAP and Chinese (CAS) statements: amounts a scale line covers. */
+const AMOUNT_ROWS_EN = [
+  "Revenue",
+  "Cost of sales",
+  "Gross profit",
+  "Distribution costs",
+  "Administrative expenses",
+  "Other operating income",
+  "Operating profit",
+  "Finance income",
+  "Finance costs",
+  "Profit before tax",
+  "Income tax expense",
+  "Profit for the year",
+  "Total comprehensive income for the year",
+  "Staff costs",
+  "Depreciation and amortisation",
+  "Trade and other receivables",
+  "Amounts due from customers",
+  "Cash and cash equivalents",
+  "Inventories",
+  "Property, plant and equipment",
+  "Trade and other payables",
+  "Borrowings",
+  "Share capital",
+  "Retained earnings",
+  "Net revenues",
+  "Cost of units sold",
+  "Selling, general and administrative",
+  "Research and development",
+  "Net income",
+  "Interest income",
+  "Dividends paid",
+  "Revenue from stores",
+  "Accounts receivable",
+  "Accrued liabilities",
+  "Long-term debt",
+  "Total stockholders' equity",
+  "Goodwill",
+  "Deferred revenue",
+  "Operating lease liabilities",
+  "Capital expenditure",
+];
+const AMOUNT_ROWS_ZH = [
+  "营业收入",
+  "营业成本",
+  "税金及附加",
+  "销售费用",
+  "管理费用",
+  "研发费用",
+  "财务费用",
+  "其中：利息费用",
+  "利息收入",
+  "其他收益",
+  "投资收益",
+  "公允价值变动收益",
+  "信用减值损失",
+  "资产减值损失",
+  "营业利润",
+  "营业外收入",
+  "营业外支出",
+  "利润总额",
+  "所得税费用",
+  "净利润",
+  "归属于母公司股东的净利润",
+  "货币资金",
+  "应收账款",
+  "存货",
+  "固定资产",
+  "无形资产",
+  "商誉",
+  "短期借款",
+  "应付账款",
+  "应付职工薪酬",
+  "应交税费",
+  "长期借款",
+  "实收资本（或股本）",
+  "资本公积",
+  "盈余公积",
+  "未分配利润",
+  "汇率变动对现金的影响",
+  "员工薪酬",
+  "经营活动产生的现金流量净额",
+  "购建固定资产支付的现金",
+];
+
+// protects=#2365; fails_when=an ordinary amount row ("Profit for the year", "Staff costs", "Cost of units sold", 员工薪酬, 汇率变动的影响) is taken for a year, a count or a rate and refused, so a scaled statement can't be calculated.
+test.each([
+  { part: "English, 1–20", head: "(in thousands)", rows: AMOUNT_ROWS_EN.slice(0, 20) },
+  { part: "English, 21–40", head: "(in thousands)", rows: AMOUNT_ROWS_EN.slice(20) },
+  { part: "Chinese, 1–20", head: "单位：千元", rows: AMOUNT_ROWS_ZH.slice(0, 20) },
+  { part: "Chinese, 21–40", head: "单位：千元", rows: AMOUNT_ROWS_ZH.slice(20) },
+])(
+  "every ordinary amount row is scaled by its line: $part",
+  {
+    timeout: 60_000,
+  },
+  async ({ head, rows }) => {
+    const lines = rows.map((row) => `${row} 1,234.5`);
+    const doubled = await doubledUnder(head, lines, lines);
+    expect(rows.map((row, index) => [row, doubled[index]])).toEqual(
+      rows.map((row) => [row, 2_469_000]),
+    );
+  },
+);
+
+// protects=#2365; fails_when=a per-share row labelled with its own currency ("Diluted EPS ($)", "基本每股收益（元）"), or with its label on the line above its number, is scaled with the amounts, so EPS comes out a thousand times too large.
+test.each([
+  {
+    language: "English PDF, the label's own ($)",
+    document: buildPdf([
+      {
+        lines: [
+          "Pelican results",
+          "(in thousands, except per share data)",
+          "Revenue 1,234.5",
+          "Diluted EPS ($) 1.25",
+        ],
+      },
+    ]),
+    name: "Pelican results.pdf",
+    head: "(in thousands, except per share data)",
+    quote: "Diluted EPS ($) 1.25",
+    number: "1.25",
+    doubled: 2.5,
+  },
+  {
+    language: "Chinese PDF, the label's own （元）, rows joined",
+    document: buildPdf([
+      {
+        chineseLines: [
+          "Pelican 利润表",
+          "单位：千元，每股收益除外",
+          "营业收入 1,234.5",
+          "基本每股收益（元） 0.52",
+        ],
+      },
+    ]),
+    name: "Pelican 利润表.pdf",
+    head: "单位：千元，每股收益除外",
+    quote: "基本每股收益（元） 0.52",
+    number: "0.52",
+    doubled: 1.04,
+  },
+  {
+    language: "Chinese Word file, the label on the line above",
+    document: docxOf(
+      [
+        "Pelican 利润表",
+        "单位：千元，每股收益除外",
+        "营业收入 1,234.5",
+        "基本每股收益",
+        "0.52",
+      ].map((text) => ({ text })),
+    ),
+    name: "Pelican 利润表.docx",
+    head: "单位：千元，每股收益除外",
+    quote: "0.52",
+    number: "0.52",
+    doubled: 1.04,
+  },
+])(
+  "a per-share row is left out of the scale however its label is written: $language",
+  {
+    timeout: 60_000,
+  },
+  async ({ document, name, head, quote, number, doubled }) => {
+    const model = calculatingModel({
+      queries: ["Pelican 利润表 results"],
+      steps: [
+        citeStatement("Pelican", [quote], (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  label: "Twice the EPS",
+                  formula: "eps * 2",
+                  inputs: [
+                    { name: "eps", label: "EPS", citation: cited[0], number, unitQuote: head },
+                  ],
+                },
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [{ name, contents: document }]);
+
+    const { answer } = await askAndRead(core, "What is twice the EPS?");
+
+    expect(answer.figures.map((figure) => figure.value)).toEqual([doubled]);
+  },
+);
+
+// protects=#2365; fails_when=a Word file read before this build keeps no header scale until it is added again, or re-reading it holds up the start or changes its Passages.
+test("a Word file read before this build is read again in the background, keeps its Passages, and gains its header's scale", {
+  timeout: 60_000,
+}, async () => {
+  const dataDir = await createTempDataFolder();
+  const model = calculatingModel({ queries: [], steps: [], answer: "Nothing." });
+  const { core } = await setUpCalculating(
+    model,
+    [scaleDocument(ENGLISH_FORMS[0] as ScaleForm, "word header", false)],
+    dataDir,
+  );
+  const saved = (await core.listDocuments())[0];
+  if (!saved) throw new Error("Missing Document.");
+  core.close();
+  const passages = () =>
+    queryDatabase<{ id: string; text: string }>(
+      dataDir,
+      "SELECT id, text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY seq",
+      [saved.id],
+    );
+  const before = passages();
+
+  // As the build before left it: the header never read, and the older pipeline's version.
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  db.run("UPDATE document_pages SET scale_marker = '' WHERE document_id = ?", [saved.id]);
+  db.run("UPDATE documents SET processing_version = 20 WHERE id = ?", [saved.id]);
+  db.close();
+
+  const again = startCore(dataDir);
+  // The start doesn't wait for it: the Word file is only queued.
+  expect((await again.listDocuments())[0]).toMatchObject({ id: saved.id, status: "queued" });
+  await waitForProcessing(again, [saved.id]);
+  expect(
+    queryDatabase<{ scale_marker: string }>(
+      dataDir,
+      "SELECT DISTINCT scale_marker FROM document_pages WHERE document_id = ? AND deleted_at IS NULL",
+      [saved.id],
+    ).map((row) => row.scale_marker),
+  ).toEqual(["£'000"]);
+  expect(passages()).toEqual(before);
+  again.close();
 });
 
 describe("Calculated figures with conversations (ADR-0017)", { timeout: 60_000 }, () => {
