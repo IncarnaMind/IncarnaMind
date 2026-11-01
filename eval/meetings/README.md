@@ -116,3 +116,16 @@ What this leaves different, on purpose or for want of a rule: a Chinese numeral 
 - The worst case, `zh-room-R8007_M8010` (CER 49.4%), is four people talking over each other in a room: the reference has 1,181 turns, the engine returns 117 lines with 10,121 characters against the reference's 17,028, and the engine's log reports a line cut at its 128-token limit three times in the run.
 - Per-case scores are in the report that `npm run eval:meetings:score` writes (`score.md` and `score.json`).
 - Numbers from one run on one busy machine: a check that the set works and a baseline to beat, not a ranking. #137's bake-off runs the whole set on three machines.
+
+**Words to know (#1031),** the same engine on the whole set, 2026-11-01, Apple M2 Max (load average 15 to 40), told nothing and told each case's words in `words.json`. Told, each final stretch is read as before and again told the words, and keeps the first reading but the told words the second one wrote (`src/core/transcription/context.ts`):
+
+| Language | Told words said | Not written exactly, told nothing | Told | Other units' errors, told nothing | Told | Error rate, told nothing | Told |
+|---|---|---|---|---|---|---|---|
+| English | 74 | 48 (64.9%) | 22 (29.7%) | 7,174 of 24,152 | 7,175 | WER 25.9% (6,269 of 24,226) | WER 25.8% (6,243) |
+| Chinese | 241 | 91 (37.8%) | 89 (36.9%) | 14,543 of 43,152 | 14,544 | CER 29.1% (12,709 of 43,642) | CER 29.1% (12,707) |
+| Mixed | 3 | 0 | 0 | 2,600 of 7,504 | 2,600 | MER 33.6% (2,523 of 7,507) | MER 33.6% (2,523) |
+
+- A word told and never said was written once in the whole set: on an English call, a stretch read as "Francis，就。" became "Francis，转正。", one wrong word for another.
+- The model wrote out the list instead of the speech 28 times; each time the stretch kept its first reading.
+- Reading the final stretches twice costs time: the real-time factor went from 0.09–0.22× to 0.11–0.47× on this busy machine.
+- The Chinese words this rule picks are mostly everyday internet words (抖音, 主播, 淘宝) that the model already writes; the gain is in names it doesn't know. On the two calls full of names (`npm run eval:meetings -- names`), told their own names, English names not written exactly went from 5 of 14 to 1, Chinese from 2 of 6 to 0, and every other word's error rate stayed the same (9.4% and 13.3%); told only the other call's names, nothing changed.
