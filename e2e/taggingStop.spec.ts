@@ -91,7 +91,11 @@ async function pasteKey(window: Page): Promise<void> {
   // A cloud model starts with tagging off: the User turns it on.
   await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
   });
 }
 
@@ -198,7 +202,11 @@ test("in Chinese, the status names the company, and Stop names the Folder", asyn
       apiKey: "sk-ant-not-a-real-key",
       modelId: "claude-sonnet-5-5",
     });
-    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
   });
   await addToFolder(
     window,
@@ -233,7 +241,11 @@ async function saveAnthropicKey(window: Page): Promise<string> {
       apiKey: "sk-ant-not-a-real-key",
       modelId: "claude-sonnet-5-5",
     });
-    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
     return provider.id;
   });
 }
@@ -337,6 +349,7 @@ test("while Organize runs, the status names the company too, with Stop", async (
     await core.saveLibrarySettings({
       classifier: { kind: "chat", choice: { providerId, modelId: "claude-sonnet-5-5" } },
       automatic: true,
+      turnOn: true,
     });
     // Page images of a scan go only where the User allows them.
     await core.allowDataFlow("scan-images", "https://api.anthropic.com");
@@ -371,7 +384,11 @@ async function saveLocalTagger(window: Page): Promise<void> {
   await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await core.saveChatProvider({ kind: "ollama", modelId: "fake-model" });
-    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
   });
 }
 
@@ -459,6 +476,7 @@ for (const language of ["en", "zh-CN"] as const) {
               },
             },
             automatic: true,
+            turnOn: true,
           });
           await core.allowDataFlow("scan-images", "https://api.anthropic.com");
         }, localText);

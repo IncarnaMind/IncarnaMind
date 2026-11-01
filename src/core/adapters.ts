@@ -711,6 +711,11 @@ export type CloudLoss = "dropped" | "refused";
 export interface Transcriber {
   /** Starts the engine with these files, if it isn't running them already. Rejects if it can't start. */
   load(model: TranscriptionModelFiles): Promise<void>;
+  /**
+   * The words a stream's speech may hold (the names in the call, #1031), told to an engine on this
+   * computer that can lean towards them, before the stream's audio. A cloud stream isn't told.
+   */
+  words(stream: string, words: readonly string[]): void;
   /** Audio for a stream, `MEETING_SAMPLE_RATE` mono, signed 16-bit, in order. */
   push(stream: string, samples: Int16Array): void;
   /**

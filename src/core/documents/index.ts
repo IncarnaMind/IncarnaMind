@@ -71,6 +71,7 @@ import { referenceOf, writeFileReference } from "../referenceRecords/store";
 import { foundSourceOf } from "../sources/store";
 import type { Database, SqlValue } from "../storage";
 import { tagsOfDocument } from "../tags";
+import { markArrived } from "../tags/held";
 import type { StoredTaggingState } from "../tags/tagger";
 import { isPlaceholderDate } from "./creationDate";
 import { createEmbeddingQueue } from "./embedding";
@@ -670,6 +671,7 @@ export function createDocuments(options: DocumentsOptions) {
           deletedAt,
         ],
       );
+      markArrived(db, id, at);
       record();
     });
   }

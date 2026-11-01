@@ -2,7 +2,7 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { type Core, GENERATED_MARK } from "../../src/core";
-import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
+import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { waitingProblemOf } from "../../src/renderer/src/changeProblems";
 import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import { waitsForUser } from "../../src/shared/askedChanges";
@@ -51,7 +51,7 @@ const asked = ({ options }: ModelCall): string => {
 
 /** Edit with AI's request, and the passage it asks to rewrite; null for any other request. */
 const editPassage = (call: ModelCall): string | null =>
-  call.system === EDIT_INSTRUCTIONS
+  [EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED].includes(call.system)
     ? (/<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? null)
     : null;
 
@@ -270,6 +270,49 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     expect(revised).toMatchObject({ revised: true, proposals: 0 });
     expect(pendingProposals(page.blocks)).toHaveLength(2);
     expect(waitingFrom(page, changesIn(first)[0]?.request ?? "")).toBe(2);
+  });
+
+  // protects=a revision of the assistant's own waiting text whose reply names only the paragraph it changes is told the length of the whole text once revised, and isn't told the paragraphs it left as they were were taken out (#2356); fails_when=the heading it didn't name is reported as gone, or the length counts the reply alone; no_claim=how the model words its reply.
+  test("a named revision of one paragraph is told the whole text's length, and what it left is not reported gone", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      if (editPassage(call) !== null) {
+        return { text: "¶2 They come at new moon and at full moon.\n<why>Says both.</why>" };
+      }
+      if (asked(call).endsWith("write a page on tides")) {
+        const content = "## Spring tides\n\nThey come at new moon.";
+        return called(call, "create_mind")
+          ? { text: "Made “Tide notes”." }
+          : { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
+      }
+      return called(call, "edit_mind")
+        ? { text: "Done." }
+        : {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: { mind: "Tide notes", part: "Spring tides", instruction: "Add full moon" },
+              },
+            ],
+          };
+    });
+    const { core, mind } = await setUp(model);
+    const first = await askAssistant(core, { text: "write a page on tides", mindId: mind.id });
+    const page = await madeBy(core, first);
+
+    await askAssistant(core, {
+      text: "say they also come at full moon",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+
+    await page.settled();
+    expect(shownWithChanges(page)).toEqual([
+      "+ Spring tides",
+      "+ They come at new moon and at full moon.",
+    ]);
+    const told = lastResult(model);
+    expect(told).toContain("from 7 to 11 words");
+    expect(told).not.toContain("“Spring tides”");
   });
 
   // protects=edit_mind with new text replaces the assistant's own waiting section with it, as one version; fails_when=both versions stay, or it is refused; no_claim=none beyond protects.
@@ -615,7 +658,7 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
         return {
           text:
             revisions === 1
-              ? `${passage.replace(/\b(?:very|really) /g, "")}\n\nAdded sentence.`
+              ? `${passage.replace(/\b(?:very|really) /g, "")}\n\n¶+ Added sentence.`
               : "## Summary\n\nThe quarter was good.",
         };
       }

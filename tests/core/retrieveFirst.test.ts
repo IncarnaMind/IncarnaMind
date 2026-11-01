@@ -19,6 +19,7 @@ import {
 } from "../helpers/citations";
 import { heading, note, question, writeMind } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import { buildPdf } from "../helpers/pdf";
 
 const SPRING = "Spring tides happen at new moon and at full moon.";
 const NEAP = "Neap tides happen at the quarter moons.";
@@ -56,6 +57,43 @@ const callsWith = (model: ReturnType<typeof scriptedModel>, instructions: string
   );
 
 describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
+  // Answered in one call from these Passages, a model took a page the search didn't reach for
+  // one the Document doesn't have (#1443).
+  test.each([
+    ["English", "What were consolidated results?"],
+    ["Chinese", "合并经营业绩是多少？Consolidated results"],
+  ])("tells the model which pages the Question's own search covered (%s)", async (_, asked) => {
+    const model = scriptedModel(() => ({ text: "Read the result." }));
+    const filing = buildPdf(
+      Array.from({ length: 30 }, (_, index) => ({
+        lines: [
+          `Page ${index + 1}`,
+          index === 7 ? "Consolidated results" : "Segment note",
+          ...Array.from(
+            { length: 40 },
+            (_, line) =>
+              `note${line} ${Array.from({ length: 15 }, (_, word) => `word${word}`).join(" ")}`,
+          ),
+        ],
+      })),
+    );
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Filing.pdf", contents: filing }],
+      { answerPaths: { retrievesFirst: () => true } },
+    );
+
+    await askAndFinish(core, client, mind.id, asked);
+
+    expect(model.doStreamCalls).toHaveLength(1);
+    const prompt = JSON.stringify(model.doStreamCalls[0]?.prompt);
+    expect(prompt).toContain("Consolidated results");
+    expect(prompt).toMatch(/These results cover pages [0-9, –]+ of 30 of “Filing”/);
+    expect(prompt).toContain(
+      "A miss in these results is not evidence that the other pages lack the answer.",
+    );
+  });
+
   test("on Claude Haiku 5.5, as the list names it, answers from the Question's own search in one call", async () => {
     const model = answering();
     const { core, client, mind } = await setUpWithDocuments(model, [

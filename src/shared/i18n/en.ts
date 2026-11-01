@@ -36,6 +36,11 @@ export const en = {
   "library.organize.setUp": "Set up a model on this computer",
   "library.organize.done.one": "Organize suggested a Folder for 1 Document",
   "library.organize.done": "Organize suggested a Folder for {count} Documents",
+  "library.organize.doneFolders": "Organize suggested Folders for {count} Documents",
+  "library.organize.noneFit": "Organize found no Folder to suggest for these Documents",
+  "library.organize.reading": "Reading what they say…",
+  "library.organize": "Organize Documents not in a Folder",
+  "library.organize.keywords": "organize sort folders tags suggest",
   "library.review.title": "To review",
   "library.review.summary": "Sorted {count} Documents: {parts}",
   "library.review.summary.one": "Sorted 1 Document: {parts}",
@@ -178,8 +183,6 @@ export const en = {
   "library.automaticOff.turnOn": "Turn it on in Settings",
   "library.automaticOff.dismiss": "Got it",
   "tagging.automatic.switch": "Tag and sort new Documents automatically",
-  "tagging.automatic.sends":
-    "Sends each new Document’s name and first passages, and your Folder and Tag names, to {service}.",
   "tagging.automatic.local": "Runs on this computer.",
   "library.preset.research": "Research papers",
   "library.preset.research.description": "Academic papers, experiments and research methods.",
@@ -261,6 +264,8 @@ export const en = {
   "command.palette.open": "Search…",
   "command.settings.page": "Settings: {page}",
   "command.settings.addProvider": "Add a model provider…",
+  "command.settings.meetingWords.keywords":
+    "names hotwords vocabulary transcription spelling meetings",
   "command.settings.localMode.keywords": "local offline private cloud off settings privacy",
   "palette.label": "Search",
   "palette.placeholder": "Search notes, conversations, Documents, Folders, Tags and actions…",
@@ -796,6 +801,21 @@ export const en = {
   "figures.inline.analysisNote":
     "These are the inputs and steps saved with this figure. Keeping the record doesn’t run the Analysis again.",
   "figures.inline.analysis": "Saved Analysis: {title}",
+  "figures.analysisRows.worked.one": "{how} of {label} in {count} row of {input}: {rows}",
+  "figures.analysisRows.worked.other": "{how} of {label} in {count} rows of {input}: {rows}",
+  "figures.analysisRows.how.sum": "Sum",
+  "figures.analysisRows.how.mean": "Average",
+  "figures.analysisRows.how.min": "Lowest value",
+  "figures.analysisRows.how.max": "Highest value",
+  "figures.analysisRows.how.count": "Count",
+  "figures.analysisRows.recalculated":
+    "When the Analysis ran, IncarnaMind worked this out again from these cells and got the same number.",
+  "figures.analysisRows.used.one": "Worked out from {count} row of {input}: {rows}, using {names}",
+  "figures.analysisRows.used.other":
+    "Worked out from {count} rows of {input}: {rows}, using {names}",
+  "figures.analysisRows.list.one": "row {runs}",
+  "figures.analysisRows.list.other": "rows {runs}",
+  "figures.analysisRows.separator": ", ",
   "figures.inline.code": "Show saved code",
   "figures.inline.literal": "{value}, written in the formula",
   "figures.inline.raw": "Cell’s stored value: {value}",
@@ -1141,6 +1161,8 @@ export const en = {
     "A sentence that says something is absent needs its Document read whole.",
   "claim.reason.absence-unconfirmed":
     "Verdict hidden: the quote the model gave doesn’t show what the sentence says is absent.",
+  "claim.reason.absence-other-document":
+    "Verdict hidden: the quote the model gave is from another Document than the one the sentence is about.",
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.read-budget": "Stopped after {spent}; this read may spend up to {most}.",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
@@ -1408,6 +1430,11 @@ export const en = {
     "The AI’s reply ran too long, so nothing changed. Select less text and try again.",
   "edit.problem.unplaced":
     "The AI marked text to remove that doesn’t match the selection word for word in one place, so nothing changed. Try again.",
+  "edit.problem.unchanged.said": "Nothing changed. The AI said: “{said}”",
+  "edit.problem.typed-tag":
+    "The AI’s rewrite left out a <removed> tag you typed, so nothing changed. Try again.",
+  "edit.problem.misnamed":
+    "The AI didn’t say clearly which paragraph each change replaces, so nothing changed. Try again.",
   "edit.problem.late": "This edit arrived too late to apply. Accept or reject its changes.",
   "edit.problem.busy": "Another edit is still running. Wait for it, or stop it.",
   "composer.edit.placeholder": "Say what to change…",
@@ -2537,7 +2564,13 @@ export const en = {
   "setup.sorting.here":
     "Tags, Folders and meeting hints run on this computer \u00b7 free \u00b7 nothing leaves",
   "setup.sorting.sends":
-    "Documents’ names and excerpts, and Folder and Tag names and descriptions, go to {service}",
+    "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, go to {service}. Documents already in the Library go only when you run Organize.",
+  "setup.sorting.sendsWhenOn":
+    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, to {service}. Documents already in the Library go only when you run Organize.",
+  "models.sorting.off": "Tagging new Documents is off",
+  "models.sorting.turnOn": "Turn on…",
+  "command.tagging.turnOn": "Turn on tagging new Documents…",
+  "command.tagging.turnOn.keywords": "tags automatic tagging sorting switch on settings",
   "setup.sorting.chat": "Tags and Folders use {model}",
   "setup.sorting.chatHere": "Tags and Folders use {model} on this computer \u00b7 nothing leaves",
   "setup.sorting.chat.hints": "Meeting hints stay off until a decision model is chosen",
@@ -3811,6 +3844,8 @@ export const en = {
   "citation.reason.monthly-limit":
     "Not checked: your monthly limit of {cap} was reached before this sentence.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
+  "citation.reason.small-model":
+    "This model on this computer is too small to judge whether the quote supports the sentence.",
   "citation.where": "{document}, {location}",
   "citation.scan": "Text read from a scan",
   "citation.scan.unsure.one": "Text read from a scan · 1 word may be misread",
@@ -5076,6 +5111,8 @@ export const en = {
   "error.library.noClassifier": "Choose a classification model first.",
   "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",
   "error.library.noFolders": "Create or choose Folders first.",
+  "error.library.cantPropose":
+    "The model Organize uses can sort into Folders but can’t name them. Make a Folder first, or choose an AI model for Organize.",
   "error.library.scanImagesOff":
     "No text in this scan, and its page images aren’t sent to {service}. Allow them to sort it.",
   "scan.images.allow": "Allow page images",
@@ -5556,13 +5593,13 @@ export const en = {
   "examples.chip": "Example",
   "firstOpen.title": "Welcome to IncarnaMind",
   "firstOpen.step.citation.title": "Check a Citation",
-  "firstOpen.step.citation.done": "Checked a Citation",
-  "firstOpen.step.citation.body": "Click a ✓ under an Answer: it opens the quote in its file.",
+  "firstOpen.step.citation.done": "Opened a checked Citation",
+  "firstOpen.step.citation.body":
+    "Click a Citation: its card says whether its quote was checked, and its Open button shows it in the file.",
   "firstOpen.step.citation.example": "or see it on the example",
   "firstOpen.step.question.title": "Ask",
   "firstOpen.step.question.done": "Asked a question",
-  "firstOpen.step.question.body":
-    "Ask your files anything, or the question below. Every quote is checked.",
+  "firstOpen.step.question.body": "Ask your files anything, or the question below.",
   "firstOpen.step.question.ready": "Ask: “{question}”",
   "firstOpen.step.question.own": "or {shortcut} to type your own",
   "firstOpen.step.question.ownOnly": "Press {shortcut} to ask your own Question.",
@@ -5580,6 +5617,9 @@ export const en = {
   "firstOpen.next.meeting": "Record a meeting",
   "firstOpen.next.export": "Export to Word",
   "firstOpen.hide": "Hide this",
+  "firstOpen.hideSteps": "Hide the getting-started steps",
+  "firstOpen.hideKeywords": "welcome steps getting started",
+  "firstOpen.hidden": "Hid the getting-started steps",
   "assistant.pill": "Ask anything",
   "sidebar.examples": "Examples",
   "sidebar.documents": "Documents",
@@ -5855,6 +5895,22 @@ export const en = {
   "meetings.settings.route": "Transcribe on",
   "meetings.settings.whatBoth": "Your microphone and the other people (the computer’s sound).",
   "meetings.settings.whatMe": "Only your microphone.",
+  "meetings.words.title": "Words to know",
+  "meetings.words.body":
+    "Names and terms that transcription on this computer writes as you do: people, companies, products. Each meeting adds the names in its note and its folder.",
+  "meetings.words.field": "Add a word to know",
+  "meetings.words.placeholder": "A name or a term",
+  "meetings.words.add": "Add",
+  "meetings.words.rename": "Rename “{word}”",
+  "meetings.words.remove": "Remove “{word}”",
+  "meetings.words.removed": "Removed “{word}” from Words to know",
+  "meetings.words.renamed": "Renamed “{from}” to “{to}”",
+  "meetings.words.known": "“{word}” is in the list already.",
+  "meetings.words.full": "The list holds {count} words. Remove one to add another.",
+  "meetings.script.title": "Chinese in transcripts",
+  "meetings.script.body": "Written in this script, whichever the speech model wrote.",
+  "meetings.script.simplified": "Simplified",
+  "meetings.script.traditional": "Traditional",
 
   "sources.title": "Find sources",
   "sources.intro":
@@ -6474,6 +6530,10 @@ export const en = {
   "mindCall.failed.noTable": "Couldn’t make the table, so nothing was added to “{mind}”",
   "mindCall.failed.unplaced":
     "The text marked to remove doesn’t match “{mind}” word for word in one place, so nothing changed",
+  "mindCall.failed.typedTag":
+    "The rewrite left out a <removed> tag you typed in “{mind}”, so nothing changed",
+  "mindCall.failed.misnamed":
+    "The rewrite didn’t say clearly which paragraph of “{mind}” each change replaces, so nothing changed",
   "mindCall.failed.uncited": "Didn’t add to “{mind}”: its sources weren’t cited",
   "mindCall.failed.noChart.noTable": "No chart: “{mind}” has no table",
   "mindCall.failed.noChart.several":

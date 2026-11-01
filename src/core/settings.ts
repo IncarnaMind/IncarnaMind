@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { isRecentStyles } from "../shared/citationStyles";
 import { isHelpKeys } from "../shared/meetingHelp";
+import {
+  type ChineseScript,
+  isChineseScript,
+  isMeetingWords,
+  transcriptScript,
+} from "../shared/meetingWords";
 import { DEFAULT_MIND_STYLE, isMindStyle } from "../shared/mindStyle";
 import {
   type ChatModelChoice,
@@ -173,6 +179,8 @@ const userScope: Scope<UserSettings> = {
     taskNotifications: true,
     recentCitationStyles: [],
     newMindStyle: DEFAULT_MIND_STYLE,
+    meetingWords: [],
+    transcriptScript: null,
   },
   validators: {
     language: isLanguagePreference,
@@ -190,6 +198,9 @@ const userScope: Scope<UserSettings> = {
     taskNotifications: isBoolean,
     recentCitationStyles: isRecentStyles,
     newMindStyle: isMindStyle,
+    meetingWords: isMeetingWords,
+    transcriptScript: (value): value is ChineseScript | null =>
+      value === null || isChineseScript(value),
   },
 };
 
@@ -381,7 +392,8 @@ export function createSettings(
     };
     const language = resolveLanguage(user.language, systemLanguages());
     const author = user.authorName ?? systemUserName().trim();
-    return { user, device, language, scriptSandbox, meetingAudio, author };
+    const chineseScript = transcriptScript(user.transcriptScript, user.language, systemLanguages());
+    return { user, device, language, scriptSandbox, meetingAudio, author, chineseScript };
   };
 
   return {

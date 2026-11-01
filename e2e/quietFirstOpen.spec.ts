@@ -73,23 +73,24 @@ test("the quiet first open keeps the example's marks to its margin, but a check 
   await app.close();
 });
 
-test("the tab strip comes with the second tab, and the Library with the first own Document (#123)", async () => {
+test("the tab strip comes with the second tab, and the Library with the User's first Note or Document (#123, #2376)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await expect(window.getByTestId("tab-list")).toHaveCount(0);
   await newMind(window);
   await expect(window.getByTestId("tab-list")).toBeVisible();
   await expect(window.getByTestId("tab-title")).toHaveCount(2);
 
+  // A Note of the User's own brings the Library too, even while the steps still show.
   const sidebar = window.getByTestId("sidebar");
-  await expect(sidebar.getByTestId("open-library")).toHaveCount(0);
+  await expect(sidebar.getByTestId("open-library")).toBeVisible();
   await writeFile(join(sources, "Harbour notes.md"), "# Harbour notes\n\nTide tables.\n");
   await window
     .getByTestId("add-documents-input")
     .setInputFiles([join(sources, "Harbour notes.md")]);
-  // On day one the Library row waits: it is one flat list called Documents (#1942).
+  // On day one the list stays one flat list called Documents (#1942), and the Library stays there.
   await expect(sidebar.getByTestId("not-in-a-folder-title")).toContainText("Documents");
-  await expect(sidebar.getByTestId("open-library")).toHaveCount(0);
-  // It comes once the first open's steps are put away.
+  await expect(sidebar.getByTestId("open-library")).toBeVisible();
+  // It stays once the first open's steps are put away.
   await leaveFirstOpen(window);
   await expect(sidebar.getByTestId("open-library")).toBeVisible();
   await app.close();
@@ -216,7 +217,11 @@ test("Tagging paused by a rate limit shows in the footer on the first open, with
   await window.evaluate(async () => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await bridge.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
-    await bridge.saveLibrarySettings({ ...(await bridge.getLibrary()).settings, automatic: true });
+    await bridge.saveLibrarySettings({
+      ...(await bridge.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
   });
   const sidebar = window.getByTestId("sidebar");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();

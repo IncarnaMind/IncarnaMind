@@ -52,6 +52,7 @@ import type {
   AnalysisEnd,
   AnalysisLanguage,
   AnalysisOutput,
+  AnalysisRecalculation,
   AnalysisUnavailableReason,
   AnalysisValue,
   AnalysisVersions,
@@ -64,6 +65,7 @@ import type { FigureFooting } from "../shared/figureFooting";
 import type { Figure } from "../shared/figures";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
 import type { HelpKeys, MeetingHelpKind, MeetingHelpTemplate } from "../shared/meetingHelp";
+import type { ChineseScript } from "../shared/meetingWords";
 import type { MindStyle } from "../shared/mindStyle";
 import type { TagColour } from "../shared/tagColours";
 import type { Anchor, UnitKind, UnitLabel } from "../shared/units";
@@ -297,8 +299,15 @@ export interface CreateMindInput {
  *   changed input, with no formula of its own. An older version's reader
  *   refuses a figure with no formula and no Analysis, so it opens these
  *   Notes read-only. Older content is version 45 content as it is.
+ * - 46: an Analysis figure's kept value names the rows of the input it was
+ *   worked out from (`of` on a value of the Note's Analysis records, #2346):
+ *   which rows and columns, and for `figure()` how IncarnaMind worked it out
+ *   again. An older version would keep the record again without it, so it
+ *   opens these Notes read-only.
+ *   Older content is version 46 content as it is: a figure kept before names
+ *   no rows.
  */
-export const CONTENT_SCHEMA_VERSION = 45;
+export const CONTENT_SCHEMA_VERSION = 46;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1242,6 +1251,8 @@ export interface AnalysisCall {
  * model failed, as `message` says. "no-table": a table it wrote couldn't be
  * made, so none of its text went in (#961). "unplaced": text it marked to take
  * out isn't in the Mind word for word, so none of its text went in (#2180).
+ * "misnamed": the rewrite named a paragraph wrongly, so none of its text went in (#2356).
+ * "typed-tag": the rewrite left out a <removed> tag the User typed, so none of its text went in (#2356).
  */
 export type MindProblem =
   | { kind: "waiting"; mindId: string; count: number; mixed: boolean }
@@ -1262,6 +1273,8 @@ export type MindProblem =
         | "stopped"
         | "no-table"
         | "unplaced"
+        | "misnamed"
+        | "typed-tag"
         | "uncited"
         // Only in Answers written before #1559.
         | "new-mind";
@@ -1990,7 +2003,12 @@ export type CitationCheckReason =
   /** Not checked: judging the Answer's sentences reached its own limit before this one's (#2311). */
   | "answer-limit"
   /** Not checked: judging the Answer's sentences reached the monthly cap before this one's (#2311). */
-  | "monthly-limit";
+  | "monthly-limit"
+  /**
+   * Not checked: the model that wrote the Answer runs on this computer and is too small to judge
+   * its sentences, so their check never ran (#2375).
+   */
+  | "small-model";
 
 /**
  * What to re-check a Citation with against its Document's current version
@@ -2468,13 +2486,19 @@ export interface AnswerAnalysis {
   ranAt: string;
   /**
    * The markers the Answer writes its results with: each figure's "[=3]", and
-   * each table's and chart's number, "[=table 1]", "[=chart 1]", counted across the Answer.
+   * each table's, chart's and picture's number, "[=table 1]", "[=chart 1]",
+   * "[=picture 1]", counted across the Answer. A `figure()` figure has one only
+   * when IncarnaMind worked it out again to the same number. `pictures` is
+   * absent in an Analysis run before pictures came back (#2346).
    */
   markers: {
     figures: { result: string; marker: number }[];
     tables: { result: string; marker: number }[];
     charts: number[];
+    pictures?: number[];
   };
+  /** What IncarnaMind made of each `figure()` figure, by its result's name (ADR-0025). */
+  recalculations?: { result: string; check: AnalysisRecalculation }[];
 }
 
 /** A successful run kept once by a Note, with only the results its figures still use (ADR-0021). */
@@ -2656,6 +2680,13 @@ export interface UserSettings {
    * Mind's Style. Minds already made keep theirs.
    */
   newMindStyle: MindStyle;
+  /**
+   * Words to know (#1031): names and terms the User wants Meetings' Transcripts to get right,
+   * newest first. The transcriber on this computer is told them at each Meeting's start.
+   */
+  meetingWords: string[];
+  /** The script Transcripts write Chinese in; null follows the interface (#1031). */
+  transcriptScript: ChineseScript | null;
 }
 
 /**
@@ -2842,6 +2873,8 @@ export interface Settings {
    * (#107): `UserSettings.authorName`, or the name the computer knows them by.
    */
   author: string;
+  /** The script Transcripts write Chinese in: `UserSettings.transcriptScript`, or the interface's. */
+  chineseScript: ChineseScript;
 }
 
 export interface SettingsPatch {
@@ -3165,8 +3198,10 @@ export interface DocumentScanProgress {
  * - "tagging": the tagger is deciding the Document's Tags.
  * - "tagged": its automatic Tags are up to date. With none, the tagger asked
  *   and none fit.
- * - "no-tags": there were no Tags to choose from, so no model was asked. It is
- *   tagged once a Tag exists.
+ * - "no-tags": there were no Tags to choose from and the tagger only chooses
+ *   (Jev, a decision model), so no model was asked. It is tagged once a Tag
+ *   exists. The chat model names Tags of its own, so it is asked anyway; a
+ *   Document it gives none is "no-tags" too.
  * - "failed": the tagger's provider failed (see `taggingError`); a re-tag, a
  *   change of model or a restart tries again.
  * - "skipped": the Document has no text to tag (processing failed, or found none).
@@ -3174,8 +3209,9 @@ export interface DocumentScanProgress {
  *   a Folder (see `stopTagging`): nothing is sent until it is turned back on.
  * - "off": the Document came in while automatic tagging and sorting was off
  *   (`LibrarySettings.automatic`, off for a cloud model until the User turns
- *   it on): nothing is sent for it, and turning the switch on doesn't tag
- *   it. A re-tag the User asks for does.
+ *   it on): nothing is sent for it, and turning the switch on, or reading
+ *   it again (a newer pipeline, its file changed), doesn't tag it. Organize,
+ *   or a re-tag the User asks for, does.
  */
 export type TaggingState =
   | "pending"
@@ -5790,8 +5826,12 @@ export type EditWithAiResult =
        */
       stateVector: Uint8Array;
     }
-  /** The model gave the text back as it was: there is nothing to propose. */
-  | { kind: "unchanged" }
+  /**
+   * The model gave the text back as it was: there is nothing to propose. `said`: what it wrote
+   * instead, when it named no paragraph and changed none ("I found no typos"), which never goes
+   * into the Mind (#2356).
+   */
+  | { kind: "unchanged"; said?: string }
   /** Nothing was sent: the model can't be used now, and `readiness` says why. */
   | { kind: "not-ready"; readiness: Extract<ChatReadiness, { ready: false }> }
   /** Nothing was sent: local mode is on, and the model isn't on this computer. */
@@ -5817,6 +5857,16 @@ export type EditWithAiResult =
    * place (#2180): nothing was written. `quotes`: that text, as it wrote it.
    */
   | { kind: "unplaced"; quotes: string[] }
+  /**
+   * The model named a paragraph the passage hasn't, named one twice, or named one and wrote no
+   * words for it (#2356): which paragraph its text replaces can't be told, so nothing was written.
+   */
+  | { kind: "misnamed" }
+  /**
+   * The model rewrote a paragraph without a <removed> tag the User typed in it, which would take
+   * their words out (#2356): nothing was written.
+   */
+  | { kind: "typed-tag" }
   /** The model failed, or gave nothing back. */
   | { kind: "failed"; error: ProviderError };
 
@@ -5857,8 +5907,10 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "consent-revoked": the User turned off sending checks to the model's service while it ran.
  * - "local-mode": "Keep everything on this computer" came on while it ran.
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
- * - "absence-unconfirmed": a whole read's window said what the sentence calls absent is there,
- *   but a look at its quote found it doesn't state that (#1554).
+ * - "absence-unconfirmed": a whole read said what the sentence calls absent is there, but a look
+ *   at its quote found it doesn't state that (#1554, #1443).
+ * - "absence-other-document": a whole read's quote states what the sentence calls absent, but in
+ *   another Document than the one the sentence is about (#1443).
  * - "read-budget": a whole read reached the most it may spend before this part was judged, so
  *   nothing more was sent (`detail`: that most and what it had spent, as JSON of
  *   `{ most: Money; spent: Money }`).
@@ -5887,6 +5939,7 @@ export type ClaimCheckFailure =
   | "local-mode"
   | "absence-read-limit"
   | "absence-unconfirmed"
+  | "absence-other-document"
   | "kept-inside"
   | "cut-short"
   | "read-budget"
@@ -10367,11 +10420,18 @@ export interface CoreApi {
    * Saves the Tagging setting: the model for automatic tagging and Organize,
    * and whether new and changed Documents are organized automatically. A
    * classifier of null is Automatic; `organizeWith` left out stays as it was.
+   * `automatic` is the switch as shown, and a save can only turn it off.
+   * `turnOn` turns it on, and records when, as the consent for the services
+   * it sends to now (ADR-0022): only where the line says what goes, as
+   * setup's Use this, Settings › Models' Tagging section and Turn on… do.
+   * Turned on for one service, it reads off for another until it is turned
+   * on there (#2308).
    */
   saveLibrarySettings(
     settings: Omit<LibrarySettings, "classifier" | "organizeWith" | "taggingStopped"> & {
       classifier: LibraryClassifier | null;
       organizeWith?: TaggingClassifier | null;
+      turnOn?: boolean;
     },
   ): Promise<void>;
   /**
@@ -10387,6 +10447,15 @@ export interface CoreApi {
    * whether the User allowed the service.
    */
   getTaggingRoute(flow?: TaggingFlow): Promise<TaggingRoute>;
+  /**
+   * Organize where there are no Folders to sort into (#2308): asks Organize's model, once, for
+   * a few Folders that would hold these Documents, named from what they say in the interface
+   * language, and makes them. `classifyDocuments` then suggests one for each. Returns the
+   * Folders made, none when no Document has text to read. Throws InvalidInputError with no
+   * model for Organize, or one that can't name Folders (a decision model), and what the
+   * provider throws; nothing is made then.
+   */
+  proposeFolders(documentIds: string[]): Promise<LibraryGroup[]>;
   /**
    * Queues selected documents, or all. Organize suggests a Folder for each
    * (a Suggested Folder) and its Tags; manual assignments are preserved, and
@@ -12789,6 +12858,7 @@ const methods: Record<CoreApiMethod, true> = {
   saveLibrarySettings: true,
   getTaggingModels: true,
   getTaggingRoute: true,
+  proposeFolders: true,
   classifyDocuments: true,
   stopTagging: true,
   setTaggingWithAi: true,

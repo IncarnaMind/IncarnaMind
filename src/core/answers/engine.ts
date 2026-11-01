@@ -1407,12 +1407,12 @@ function searchResultText(
 
 function fittedResultText(
   found: SearchResultForModel,
-  fitted: SearchResultForModel,
+  fitted: string,
   documents: AnswerTools,
   languageNote: (() => string | null) | undefined,
 ): string {
-  const text = searchResultText(fitted.text, documents, languageNote);
-  const coverage = found.coverage?.(fitted.text);
+  const text = searchResultText(fitted, documents, languageNote);
+  const coverage = found.coverage?.(fitted);
   return coverage ? `${text}\n\n${coverage}` : text;
 }
 
@@ -1476,7 +1476,7 @@ export function documentTools(
         const result = hooks.fit(found);
         hooks.fitted?.(fittedPassageIds(found, result.text));
         hooks.searched(toolCallId, result.passageCount, found.passageIds);
-        return fittedResultText(found, result, documents, hooks.languageNote);
+        return fittedResultText(found, result.text, documents, hooks.languageNote);
       },
     },
     read:
@@ -1540,7 +1540,7 @@ export function documentTools(
               for (const source of found.thirdParty ?? []) readThirdParty?.(source);
               const result = hooks.fit(found);
               hooks.searched(toolCallId, result.passageCount, found.passageIds);
-              return fittedResultText(found, result, documents, hooks.languageNote);
+              return fittedResultText(found, result.text, documents, hooks.languageNote);
             },
           }
         : null,
@@ -1634,7 +1634,7 @@ function presearchMessages(
   const id = "question-search";
   const input = { query };
   const read = (passages: string) =>
-    `${searchResultText(passages, request.documents, request.languageNote)}\n\n${PRESEARCH_NOTE}`;
+    `${fittedResultText(result, passages, request.documents, request.languageNote)}\n\n${PRESEARCH_NOTE}`;
   const fitted = loop
     ? loop.carried(result.text, result.passageCount, result.ranks, (passages) => [
         JSON.stringify(input),

@@ -11,7 +11,7 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
-import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
+import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { DRAFT_INSTRUCTIONS } from "../../src/core/skills/draft";
 import { askAssistant } from "../helpers/assistant";
 import {
@@ -361,10 +361,9 @@ describe("A model no list names, or one in a flow no list admits it to", {
 
       const retried = scriptedModel(
         (call: ModelCall): ScriptedReply => {
-          const passage =
-            call.system === EDIT_INSTRUCTIONS
-              ? /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1]
-              : undefined;
+          const passage = [EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED].includes(call.system)
+            ? /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1]
+            : undefined;
           if (passage !== undefined) return { text: passage.replace("visted", "visited") };
           if (!call.results.some((result) => result.tool === "edit_mind")) {
             return { calls: [{ tool: "edit_mind", input: { instruction: "Fix the typos" } }] };

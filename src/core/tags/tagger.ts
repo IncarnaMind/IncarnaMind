@@ -25,10 +25,13 @@
  * - While Organize files new Documents by itself, the Documents it holds are
  *   its own. One it doesn't hold, such as one this tagger had when Organize
  *   began filing new Documents, is still tagged here.
- * - With no Tags defined the model is skipped and a Document is "no-tags", not
- *   "tagged", so it is checked once a Tag exists (see `tagsDefined`).
+ * - With no Tags defined, a tagger that only chooses from the list (Jev, a
+ *   decision model) is skipped and a Document is "no-tags", not "tagged", so it
+ *   is checked once a Tag exists (see `tagsDefined`). The chat model names Tags
+ *   from what the Document says (./suggest), so it is asked anyway; one it
+ *   gives no Tag is "no-tags" too.
  */
-import type { DocumentKind, ProviderError } from "../api";
+import type { DocumentKind, ExternalService, ProviderError } from "../api";
 import type { BackgroundCall, BackgroundJob, BackgroundQueue } from "../backgroundQueue";
 import {
   ChatNotReadyError,
@@ -47,11 +50,13 @@ import type { Database } from "../storage";
 import {
   type DocumentExcerpt,
   excerptFromPassages,
+  type TagChoice,
   type TagClassifier,
-  type TagDecision,
 } from "./classify";
-import type { TagsStore } from "./index";
+import { clearForService } from "./held";
+import { type TagsStore, tagsOfDocument } from "./index";
 import { type RateLimitPause, rateLimitError } from "./rateLimit";
+import { fallbackLine } from "./suggest";
 import { isTransient, RETRY_WAIT_MS } from "./transient";
 
 /** What the "tagging" flow sends to the tagger's service: the chat model's or Jev's. */
@@ -83,6 +88,11 @@ export interface TaggerOptions {
   organizing?(id: string): boolean;
   stopped(id: string): boolean;
   now: () => string;
+  /**
+   * Whether this Document may go by itself to the service a prepared tagger sends to
+   * (`mayBackgroundSend` in ./held); one that may not waits for the User, "off".
+   */
+  maySend(id: string, service: ExternalService): boolean;
   tags: TagsStore;
   /** Whether the tagger in use can take a request now. Asks the User nothing. */
   canRun(): Promise<boolean>;
@@ -98,8 +108,15 @@ export interface TaggerOptions {
    * nothing is sent then.
    */
   prepare(): Promise<TagClassifier>;
+  /**
+   * Whether the tagger in use names Tags of its own (the chat model), with no waiting: then a
+   * Document is tagged even while no Tag exists.
+   */
+  namesTags?(): boolean;
   /** Pushes "documents.tagged" for these Documents. */
   announce(documentIds: readonly string[]): void;
+  /** Tagging made new Tags: the list of Tags is to be read again. */
+  tagsMade?(): void;
   reportError(error: unknown): void;
   /** The background model queue, in which tagging each Document takes one turn. */
   background: BackgroundQueue;
@@ -220,8 +237,11 @@ export function createTagger(options: TaggerOptions) {
     const definitions = tags.list();
     if (setState(id, "tagging")) announce([id]);
 
-    let decisions: TagDecision[] = [];
-    if (definitions.length > 0) {
+    let choice: TagChoice = { decisions: [], newTags: [] };
+    let modelAsked = false;
+    /** The service the User's own re-tag of it went to, once it is tagged. */
+    let askedOf: ExternalService | null = null;
+    if (definitions.length > 0 || options.namesTags?.() === true) {
       let tagger: TagClassifier;
       try {
         tagger = await options.prepare();
@@ -242,22 +262,35 @@ export function createTagger(options: TaggerOptions) {
         }
         return;
       }
+      modelAsked = definitions.length > 0 || tagger.namesTags === true;
+      // Checked on the service this request resolved to: Automatic may pick another meanwhile.
+      const service = tagger.service ?? null;
+      if (modelAsked && service) {
+        if (asked.has(id)) {
+          askedOf = service;
+        } else if (!options.maySend(id, service)) {
+          if (setState(id, "off")) announce([id]);
+          return;
+        }
+      }
       // A model on this computer serves one request at a time: an Answer goes first.
       if (tagger.local) call.runsLocally();
       if (stale()) return;
       const signal = AbortSignal.any([lifetime.signal, call.signal]);
-      const decide = () =>
-        tagger.decide({ tags: definitions, excerpt: excerptOf(id, row), signal });
+      const decide = async () =>
+        modelAsked
+          ? tagger.decide({ tags: definitions, excerpt: excerptOf(id, row), signal })
+          : choice;
       try {
         try {
-          decisions = await decide();
+          choice = await decide();
         } catch (error) {
           if (!isTransient(error)) throw error;
           await options.timers.sleep(
             RETRY_WAIT_MS.least + Math.random() * RETRY_WAIT_MS.jitter,
             signal,
           );
-          decisions = await decide();
+          choice = await decide();
         }
       } catch (error) {
         if (stale()) return;
@@ -289,12 +322,19 @@ export function createTagger(options: TaggerOptions) {
       options.rateLimit.succeeded();
     }
     if (stale()) return;
+    if (choice.fallback) console.info(fallbackLine(id));
 
-    const changed = db.transaction(() => {
-      if (rowOf(id)?.status !== "ready") return false; // deleted, or processed again, meanwhile
-      const tagsChanged = tags.applyAutomatic(id, decisions);
-      return setState(id, definitions.length === 0 ? "no-tags" : "tagged") || tagsChanged;
+    const { changed, made } = db.transaction(() => {
+      // Deleted, or processed again, meanwhile.
+      if (rowOf(id)?.status !== "ready") return { changed: false, made: 0 };
+      const applied = tags.applyAutomatic(id, choice.decisions, choice.newTags);
+      // Asked with no Tag to offer and given none, it is checked again once a Tag exists.
+      const found = definitions.length > 0 || tagsOfDocument(db, id).length > 0;
+      const settled = setState(id, modelAsked && found ? "tagged" : "no-tags");
+      if (askedOf) clearForService(db, id, [askedOf], now());
+      return { changed: settled || applied.changed, made: applied.made };
     });
+    if (made > 0) options.tagsMade?.();
     if (changed) announce([id]);
   }
 
@@ -514,10 +554,19 @@ export function createTagger(options: TaggerOptions) {
         if (!row) throw new NotFoundError({ key: "error.document.notFound" });
         return { id, row };
       });
-      if (input !== undefined) for (const { id } of rows) asked.add(id);
+      // Re-tagging these Documents is the User's request for each. Re-tagging all of them is their
+      // request for every Document where tagging is on and not stopped; the others are left as
+      // they are (#2308).
+      const askedFor =
+        input !== undefined
+          ? rows
+          : automatic()
+            ? rows.filter(({ id }) => !options.stopped(id))
+            : [];
+      for (const { id } of askedFor) asked.add(id);
       const changed: string[] = [];
       const ready = options.mightBeReady();
-      for (const { id, row } of rows) {
+      for (const { id, row } of askedFor) {
         if (row.status !== "ready") {
           // Being processed again: tagged afresh once ready. Failed or without text: nothing to tag.
           if (row.tagging_status === "tagged" && setState(id, "pending")) changed.push(id);
@@ -527,7 +576,7 @@ export function createTagger(options: TaggerOptions) {
       }
       if (changed.length > 0) announce(changed);
       if (!ready) return;
-      for (const { id, row } of rows) if (row.status === "ready") enqueue(id, true);
+      for (const { id, row } of askedFor) if (row.status === "ready") enqueue(id, true);
     },
 
     /** The ready Documents whose tagging, or Organize's, couldn't reach the AI model, unless stopped. */

@@ -75,6 +75,7 @@ import {
   waitingIn,
 } from "../proposals/ownWaiting";
 import {
+  acceptedText,
   createRewriteStream,
   layout,
   proposeAfter,
@@ -96,14 +97,18 @@ import { inFlow } from "../timing/flows";
 import { waitsForUser } from "./applies";
 import {
   EDIT_INSTRUCTIONS,
+  EDIT_INSTRUCTIONS_NAMED,
   EXPLAIN_INSTRUCTIONS,
   editPrompt,
+  NAMES_SHOWN,
   passageSoFar,
   readEditReply,
   readRemovals,
   reasonOf,
   sameText,
   unclearTypedTags,
+  unnameRemovals,
+  withoutNames,
 } from "./prompt";
 
 /** The tasks whose reply may take text out by quoting it: the User's words, and a Citation's checks. */
@@ -113,8 +118,15 @@ const QUOTES_TAKE_OUT: ReadonlySet<EditAction> = new Set([
   "follow-citation",
 ]);
 
-/** The new text a reply gives, without what it quotes as taken out. */
-const textOf = (reply: string) => readRemovals(reply).text.trim();
+/** The new text a reply gives, without what it quotes as taken out, nor its paragraphs' names when the passage was shown with them. */
+const textOf = (reply: string, named = false) =>
+  named
+    ? withoutNames(readRemovals(unnameRemovals(reply)).text).trim()
+    : readRemovals(reply).text.trim();
+
+/** The passage as the model is shown it for `action`: with its paragraphs' names, for a request in the User's words (#2356). */
+const passageFor = (action: EditAction, selection: Pick<Selection, "text" | "named">) =>
+  NAMES_SHOWN.has(action) ? selection.named : selection.text;
 
 const failedEdit = (failure: unknown): EditWithAiResult =>
   gateStop(failure) instanceof LocalModeError
@@ -362,20 +374,32 @@ interface EditCall {
 const quotesOf = (selection: Selection): string[] =>
   selection.citations.map((citation) => (typeof citation.quote === "string" ? citation.quote : ""));
 
-/** The request for `ask` over `selection`; null when it is more than the model can take at once. */
+/**
+ * The request for `ask` over `selection`; null when it is more than the model can take at once.
+ * A selection with `named` is shown with its paragraphs' names when the task is in the User's words.
+ */
 function editCall(
   prepared: PreparedChatModel,
   ask: Pick<Ask, "action" | "instruction">,
   selection: Pick<Selection, "text" | "context" | "before" | "after" | "characters"> & {
+    named?: string;
     quotes?: readonly string[];
   },
 ): EditCall | null {
   const explain = ask.action === "explain";
-  const instructions = explain ? EXPLAIN_INSTRUCTIONS : EDIT_INSTRUCTIONS;
+  const passage =
+    selection.named === undefined
+      ? selection.text
+      : passageFor(ask.action, { text: selection.text, named: selection.named });
+  const instructions = explain
+    ? EXPLAIN_INSTRUCTIONS
+    : passage === selection.text
+      ? EDIT_INSTRUCTIONS
+      : EDIT_INSTRUCTIONS_NAMED;
   const prompt = editPrompt({
     action: ask.action,
     instruction: ask.instruction,
-    passage: selection.text,
+    passage,
     context: selection.context,
     // Explain writes under the passage, not into it: the words around it don't matter.
     ...(!explain && { before: selection.before, after: selection.after }),
@@ -386,8 +410,8 @@ function editCall(
   const { window } = prepared;
   const budget = window ? createWindowBudget(window) : null;
   // The reply is about as long as the passage; a translation into Chinese can count more.
-  const passage = budget ? budget.tokens(selection.text) : estimateTokens(selection.text);
-  const expected = explain ? 512 : Math.ceil(passage * 1.5) + 64;
+  const tokens = budget ? budget.tokens(passage) : estimateTokens(passage);
+  const expected = explain ? 512 : Math.ceil(tokens * 1.5) + 64;
   // A rewrite that can't fit would come back cut short: it isn't sent (#2275).
   if (expected > Math.min(outputTokens("edit"), window?.outputTokens ?? Number.POSITIVE_INFINITY))
     return null;
@@ -552,6 +576,9 @@ export function createEdits(options: EditsOptions) {
     const ended = (result: EditWithAiResult) => ({ result, reply: "", reason: null });
     const call = editCall(prepared, ask, { ...selection, quotes: quotesOf(selection) });
     if (!call) return ended({ kind: "too-long" });
+    // The reply is read against the passage as the model saw it.
+    const passage = passageFor(ask.action, selection);
+    const named = NAMES_SHOWN.has(ask.action);
 
     const request = randomUUID();
     const blocks = fork.getXmlFragment(MIND_CONTENT_FIELD);
@@ -571,6 +598,7 @@ export function createEdits(options: EditsOptions) {
               (requestId !== undefined || ask.requested === "edit") && ask.action === "instruction"
                 ? "keep"
                 : "remove",
+            named,
           },
         );
     let held = false;
@@ -663,6 +691,16 @@ export function createEdits(options: EditsOptions) {
     const showWriting = () => {
       if (stream) options.writing(mindId, placeOf(stream.writingAt()));
     };
+    /**
+     * Which paragraph a rewrite replaces can't be trusted, or it would drop a tag the User typed:
+     * none of it goes in.
+     */
+    const untrusted = (): EditWithAiResult | null => {
+      const written = stream?.written();
+      if (written?.misnamed) return { kind: "misnamed" };
+      if (written?.droppedTypedTag) return { kind: "typed-tag" };
+      return null;
+    };
 
     let shown = false;
     let afterBreak = false;
@@ -675,7 +713,7 @@ export function createEdits(options: EditsOptions) {
         const reread = piece.includes("\n") || afterBreak;
         afterBreak = piece.includes("\n");
         if (shown && !reread) return false;
-        const sofar = passageSoFar(raw, selection.text);
+        const sofar = passageSoFar(raw, passage);
         if (sofar === null) return false;
         if (!shown) {
           shown = true;
@@ -683,7 +721,7 @@ export function createEdits(options: EditsOptions) {
         }
         if (!reread) return false;
         step(() => stream.write(sofar));
-        if (refused) return true;
+        if (refused || untrusted()) return true;
         showWriting();
         return false;
       });
@@ -693,6 +731,11 @@ export function createEdits(options: EditsOptions) {
     const { raw, failure } = streamed;
 
     if (signal.aborted && closing) return ended({ kind: "cancelled" });
+    const early = failure === null ? untrusted() : null;
+    if (early) {
+      takeBackWritten();
+      return ended(early);
+    }
     if (signal.aborted && !refused) {
       // Stopped: what is finished stays.
       if (stream) {
@@ -705,16 +748,16 @@ export function createEdits(options: EditsOptions) {
       takeBackWritten();
       return ended(failedEdit(failure));
     }
-    const reply = readEditReply(raw, selection.text);
+    const reply = readEditReply(raw, passage);
     // A tag that may be the User's typed one or the model's mark: read either way, it may take their words (#2333).
-    const unclear = explain ? [] : unclearTypedTags(reply, selection.text);
+    const unclear = explain ? [] : unclearTypedTags(reply, passage);
     if (unclear.length > 0) {
       takeBackWritten();
       return ended({ kind: "unplaced", quotes: unclear });
     }
     // No text back and nothing quoted as taken out: its reason ("I can't do this") is why it failed.
     // A fixed task (Shorten, Improve…) never asks for text to go, so only quotes are no text either.
-    const empty = reply === "" || (!QUOTES_TAKE_OUT.has(ask.action) && textOf(reply) === "");
+    const empty = reply === "" || (!QUOTES_TAKE_OUT.has(ask.action) && textOf(reply, named) === "");
     if (empty && !wrote && !refused) {
       return ended({
         kind: "failed",
@@ -724,7 +767,7 @@ export function createEdits(options: EditsOptions) {
         },
       });
     }
-    if (!explain && !wrote && !refused && sameText(reply, selection.text)) {
+    if (!explain && !wrote && !refused && sameText(reply, passage)) {
       hooks.settle?.();
       return ended({ kind: "unchanged" });
     }
@@ -738,6 +781,7 @@ export function createEdits(options: EditsOptions) {
       const more = stream.write(reply, true);
       if (stream.written().unmadeTable) return false;
       const finished = stream.finish();
+      if (stream.written().onlyAside) return false;
       if (requestId !== undefined) held = holdsBack(stream);
       // Written before the reason came: recorded again with it.
       return finished || more || held || (wrote && reason !== null);
@@ -748,7 +792,12 @@ export function createEdits(options: EditsOptions) {
     }
     if (stream?.written().unmadeTable) {
       takeBackWritten();
-      return ended({ kind: "no-table", text: textOf(reply) });
+      return ended({ kind: "no-table", text: textOf(reply, named) });
+    }
+    const late = untrusted();
+    if (late) {
+      takeBackWritten();
+      return ended(late);
     }
     // Text marked to go that isn't there: what else it wrote may lean on that going, so none of it goes in.
     const unplaced = stream?.written().unplaced;
@@ -756,8 +805,13 @@ export function createEdits(options: EditsOptions) {
       takeBackWritten();
       return ended({ kind: "unplaced", quotes: unplaced });
     }
-    if (!wrote) return ended({ kind: "unchanged" });
-    return { result: arrived(), reply: textOf(reply), reason };
+    // What the model said beside the paragraphs it names, or instead of any, is shown, never written (#2356).
+    const aside = stream?.written().aside;
+    if (!wrote || stream?.written().onlyAside) {
+      takeBackWritten();
+      return ended({ kind: "unchanged", ...(aside && { said: aside.join(" ") }) });
+    }
+    return { result: arrived(), reply: textOf(reply, named), reason };
   }
 
   /**
@@ -874,6 +928,12 @@ export function createEdits(options: EditsOptions) {
       const { selection } = read;
       if (selection.text === "") return nothing({ kind: "unchanged" });
       if (selection.characters > MAX_SELECTION_CHARACTERS) return nothing({ kind: "too-long" });
+      // Its length is told from its Blocks: a reply that names its paragraphs may write only some.
+      const stretch = () => {
+        const top = topLevelBlocks(blocks);
+        return top.slice(bounds.before, top.length - bounds.after);
+      };
+      const before = acceptedText(stretch(), "");
       const call = editCall(input.prepared, askOf(input), selection);
       if (!call) return nothing({ kind: "too-long" });
       let streamed: { raw: string; failure: unknown };
@@ -887,25 +947,29 @@ export function createEdits(options: EditsOptions) {
       if (streamed.failure !== null) {
         return nothing(failedEdit(streamed.failure));
       }
-      const reply = readEditReply(streamed.raw, selection.text);
-      const unclear = unclearTypedTags(reply, selection.text);
+      const ask = askOf(input);
+      const passage = passageFor(ask.action, selection);
+      const named = NAMES_SHOWN.has(ask.action);
+      const reply = readEditReply(streamed.raw, passage);
+      const unclear = unclearTypedTags(reply, passage);
       if (unclear.length > 0) return nothing({ kind: "unplaced", quotes: unclear });
-      if (sameText(reply, selection.text)) return nothing({ kind: "unchanged" });
+      if (sameText(reply, passage)) return nothing({ kind: "unchanged" });
       const request = randomUUID();
       const written = fork.transact(() => {
         const fresh = freshCitations(selection, options.recheck)(reply);
-        const rewritten = proposeRewrite(selection, reply, request, randomUUID, fresh);
+        const rewritten = proposeRewrite(selection, reply, request, randomUUID, fresh, { named });
         resolveProposals(blocks, (each) => each.request === request, "accept");
         return rewritten;
       });
-      if (written.unmadeTable) return nothing({ kind: "no-table", text: textOf(reply) });
+      const after = acceptedText(stretch(), request);
+      if (written.unmadeTable) return nothing({ kind: "no-table", text: textOf(reply, named) });
+      if (written.misnamed) return nothing({ kind: "misnamed" });
+      if (written.droppedTypedTag) return nothing({ kind: "typed-tag" });
       if (written.unplaced) return nothing({ kind: "unplaced", quotes: written.unplaced });
-      if (written.proposals.length === 0) return nothing({ kind: "unchanged" });
+      if (written.proposals.length === 0 || written.onlyAside)
+        return nothing({ kind: "unchanged" });
       const { droppedCitations, notes } = written;
-      const top = topLevelBlocks(blocks);
-      const revised = top
-        .slice(bounds.before, top.length - bounds.after)
-        .map((element) => element.clone());
+      const revised = stretch().map((element) => element.clone());
       const made: ProposalRequest = {
         source: "answer-added",
         providerId: input.prepared.provider.id,
@@ -940,7 +1004,7 @@ export function createEdits(options: EditsOptions) {
           ...someNotes(notes),
           stateVector: content.stateVector(input.mindId),
         },
-        length: { before: selection.text, after: textOf(reply) },
+        length: { before, after },
         reason: reasonOf(streamed.raw),
         revised: { blockIds },
       };

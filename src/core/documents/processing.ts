@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { currencyScaleMarker, readStatedUnits, unsettledScales } from "../../shared/figures";
+import { statedScale, unsettledScale } from "../../shared/figures";
 import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
 import type { DocumentFailureReason, DocumentKind, UnreadParts } from "../api";
@@ -616,11 +616,7 @@ async function processBytes(
     // The running header a page had before it was stripped, or a Word section's header or footer,
     // kept as its scale marker: a page that wrote "(£'000)" there scaled its amounts, which the
     // stored text doesn't show (#1001, #2365).
-    const markerOf = (written: string) =>
-      currencyScaleMarker(written) ??
-      readStatedUnits(written, {}).find((each) => each.scale !== 1)?.chars ??
-      unsettledScales(written)[0] ??
-      "";
+    const markerOf = (written: string) => statedScale(written) ?? unsettledScale(written) ?? "";
     const pages = laid.map(({ runningText, ...unit }, index) => {
       const scaleMarker =
         markerOf(runningText ?? "") || markerOf(extracted.units[index]?.text ?? "");

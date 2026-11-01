@@ -370,7 +370,7 @@ test("an empty Mind of one's own shows no second start guide, the example's step
   await expect(steps.locator('[data-testid="first-open-step"][data-state="done"]')).toHaveText([
     /Added your Documents/,
     /Asked a question/,
-    /Checked a Citation/,
+    /Opened a checked Citation/,
   ]);
   await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
   await pointAndClick(window, steps.getByTestId("first-open-hide"));
@@ -967,7 +967,11 @@ test("on the quiet first open the tagging question still shows, with Allow, in t
       apiKey: "sk-test",
       modelId: "gpt-6-luna",
     });
-    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
     if (provider.service) await core.revokeConsent("tagging", provider.service.id);
   });
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
