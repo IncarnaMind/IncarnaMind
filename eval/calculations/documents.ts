@@ -328,7 +328,7 @@ export const SURVEY_LINES: readonly string[] = (() => {
     const recommend = satisfaction >= 4 || next() < 0.2 ? "yes" : "no";
     if (id % 97 === 0) lines.push(`${id},${region},five,${recommend}`);
     else if (id % 151 === 0) lines.push(`${id},${region}`);
-    else if (id % 233 === 0) lines.push(`${id},${region},${satisfaction},${recommend},,extra`);
+    else if (id % 233 === 0) lines.push(`${id},${region},,${recommend}`);
     else lines.push(`${id},${region},${satisfaction},${recommend}`);
   }
   return lines;
@@ -338,7 +338,13 @@ export const SURVEY_LINES: readonly string[] = (() => {
 export const SURVEY_RESPONSES: readonly SurveyResponse[] = SURVEY_LINES.slice(1).flatMap((line) => {
   const fields = line.split(",");
   const satisfaction = Number(fields[2]);
-  if (fields.length !== 4 || !Number.isInteger(satisfaction)) return [];
+  if (
+    fields.length !== 4 ||
+    !Number.isInteger(satisfaction) ||
+    satisfaction < 1 ||
+    satisfaction > 5
+  )
+    return [];
   return [
     {
       id: Number(fields[0]),

@@ -39,7 +39,8 @@ export interface ArmRun {
 }
 
 export interface CalculationsReport {
-  run: { startedAt: string; seconds: number; commit: string; runs: number };
+  /** `rescoredFrom`: the report whose Answers were scored again (rescore.ts). */
+  run: { startedAt: string; seconds: number; commit: string; runs: number; rescoredFrom?: string };
   arms: ArmRun[];
 }
 
@@ -86,15 +87,15 @@ function markdown(report: CalculationsReport): string {
   const lines = [
     "# Calculations evaluation",
     "",
-    `Started ${report.run.startedAt}, ${Math.round(report.run.seconds)} s, commit ${report.run.commit}, ${report.run.runs} run(s) of each Question.`,
+    `Started ${report.run.startedAt}, ${Math.round(report.run.seconds)} s, commit ${report.run.commit}, ${report.run.runs} run(s) of each Question.${report.run.rescoredFrom ? ` Scored again from ${report.run.rescoredFrom}.` : ""}`,
     "",
-    "| Model | Tools | Questions | Language | Failed | Complete | Right | Inputs right | Right where inputs right | Tool coverage | Stated kept | Refused rightly | Left out | Refused | Traps | False checked | s / Answer | s / request |",
-    "|---|---|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
+    "| Model | Tools | Questions | Language | Failed | Complete | Right | Inputs right | Right where inputs right | Tool coverage | Stated kept | Refused rightly | Left out | Refused | Traps | Hedged | False checked | s / Answer | s / request |",
+    "|---|---|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
   ];
   for (const arm of report.arms) {
     for (const { language, analysis, score } of groupRows(arm)) {
       lines.push(
-        `| ${arm.model}${arm.scripted ? " (scripted)" : ""} | ${arm.arm} | ${analysis ? "analysis" : "calculation"} | ${language} | ${score.failed} | ${percent(score.completeness)} | ${percent(score.figureCorrectness)} | ${percent(score.inputCorrectness)} | ${percent(score.correctWhereInputsRight)} | ${percent(score.toolCoverage)} | ${percent(score.quotedKept)} | ${percent(score.refusals)} | ${score.omitted} | ${score.refused} | ${score.trapsHit} | ${score.falseChecked} | ${score.meanSeconds?.toFixed(1) ?? "n/a"} | ${score.meanSecondsPerRequest?.toFixed(1) ?? "n/a"} |`,
+        `| ${arm.model}${arm.scripted ? " (scripted)" : ""} | ${arm.arm} | ${analysis ? "analysis" : "calculation"} | ${language} | ${score.failed} | ${percent(score.completeness)} | ${percent(score.figureCorrectness)} | ${percent(score.inputCorrectness)} | ${percent(score.correctWhereInputsRight)} | ${percent(score.toolCoverage)} | ${percent(score.quotedKept)} | ${percent(score.refusals)} | ${score.omitted} | ${score.refused} | ${score.trapsHit} | ${score.hedged} | ${score.falseChecked} | ${score.meanSeconds?.toFixed(1) ?? "n/a"} | ${score.meanSecondsPerRequest?.toFixed(1) ?? "n/a"} |`,
       );
     }
   }
@@ -138,11 +139,12 @@ function markdown(report: CalculationsReport): string {
       const refusal = each.refusal
         ? `${each.refusal.refused ? "refused" : "not refused"}${each.refusal.gave.length ? `, gave ${each.refusal.gave.join(", ")}` : ""}`
         : "";
+      const hedged = each.hedges.length ? `; also gave ${each.hedges.join("; ")}` : "";
       const checked = each.falseChecked.length
         ? `; false checked: ${each.falseChecked.join("; ")}`
         : "";
       lines.push(
-        `- ${each.id}${each.failed ? " (failed)" : ""}: ${results}${refusal}${checked}, ${each.seconds.toFixed(1)} s`,
+        `- ${each.id}${each.failed ? " (failed)" : ""}: ${results}${refusal}${hedged}${checked}, ${each.seconds.toFixed(1)} s`,
       );
     }
     lines.push("");

@@ -90,25 +90,56 @@ export interface CaseScore {
   refusal: { refused: boolean; gave: string[] } | null;
   /** Calculated figures whose value or inputs are wrong: each must be zero. */
   falseChecked: string[];
+  /** A trap's value given beside the right one, which the reader must tell apart. */
+  hedges: string[];
   seconds: number;
   requests: number;
 }
 
 const DOCUMENT_VALUE_PRECISION = 1e-9;
+/** How near an amount an Answer gives must be to one a Document states to count as that one: "$1.19 billion" for 1,186.4 million. */
+const STATED_PRECISION = 0.01;
 
+/**
+ * Says a result can't be given. A rough reading of the prose: it only tells a refusal from a
+ * silent omission, and decides nothing on its own.
+ */
 const isRefusal = (text: string): boolean =>
-  /\b(?:can(?:no|'|’)t|cannot|could(?:n(?:'|’)t| not)|unable|not able|not possible|isn(?:'|’)t possible|no (?:\w+ )?(?:exchange|conversion|currency) rate|without (?:an? |the )?(?:\w+ )?(?:exchange|conversion|currency) rate|(?:does|do)n(?:'|’)t (?:give|provide|state|include|have|contain)|(?:is|are) not (?:given|provided|stated|available)|not in the (?:documents?|reports?))/i.test(
+  /\b(?:can(?:no|'|’)t|cannot|could(?:n(?:'|’)t| not)|unable|not able|not possible|(?:would|will) need|needs? an? (?:[\w/]+ )?rate|no (?:[\w/]+ )?(?:exchange |conversion |currency )?rate|without (?:an? |the )?(?:[\w/]+ )?(?:exchange |conversion |currency )?rate|(?:does|do)(?: not|n(?:'|’)t) (?:give|provide|state|include|have|contain)|(?:is|are)(?: not|n(?:'|’)t) (?:given|provided|stated|available|included)|none of the (?:documents?|reports?)|not in the (?:documents?|reports?))/i.test(
     text,
   ) ||
-  /无法|不能|没有(?:给出|提供|列出|披露|找到)?[^。]{0,12}(?:汇率|数据|信息)|缺少[^。]{0,8}汇率|未(?:给出|提供|披露|列出)/.test(
+  /无法|不能|不可以|没法|无从|缺乏|缺少|需要[^。]{0,8}汇率|没有(?:给出|提供|列出|披露|找到)?[^。]{0,12}(?:汇率|数据|信息)|不包含[^。]{0,8}汇率|未(?:给出|提供|披露|列出)/.test(
     text,
   );
 
+/**
+ * Sentences saying one amount is larger or smaller than another. One that only asks which, or
+ * whether, claims nothing: "I can't tell whether A is larger than B".
+ */
+const COMPARES =
+  /\b(?:larger|bigger|greater|higher|smaller|lower|less|more)\s+than\b|\bexceed(?:s|ed)?\b|大于|高于|超过|多于|小于|低于|少于/i;
+const ASKS_WHICH = /\b(?:whether|which|if)\b|哪个|哪一|是否/i;
+const comparisons = (text: string): string[] =>
+  text
+    .split(/(?<=[.!?。！？])\s*/)
+    .filter((sentence) => COMPARES.test(sentence) && !ASKS_WHICH.test(sentence));
+
 const near = (a: number, b: number, tolerance: number) => Math.abs(a - b) <= tolerance;
+
+const numeric = (figure: ObservedFigure): number | null =>
+  typeof figure.value === "number" ? figure.value : null;
+
+const isAmount = (unit: ExpectedUnit) => unit === "USD" || unit === "CNY";
+
+/** Close enough to `value`: an amount in either sign, since "A less B" and "B less A" give the same gap. */
+const reaches = (unit: ExpectedUnit, got: number, value: number, tolerance: number) =>
+  isAmount(unit) ? near(Math.abs(got), Math.abs(value), tolerance) : near(got, value, tolerance);
+
+const RATE_KINDS = ["percent", "points", "ratio", "times"];
+const AMOUNT_KINDS = ["currency", "plain", "ratio"];
 
 /** Whether a calculated figure's unit can be the expected result's. */
 function figureFits(unit: ExpectedUnit, figure: ObservedFigure): boolean {
-  if (typeof figure.value !== "number") return false;
   switch (unit) {
     case "percent":
       return figure.unit === "percent" || figure.unit === "ratio";
@@ -137,6 +168,13 @@ function numberFits(unit: ExpectedUnit, number: ObservedNumber): boolean {
       return (number.unit === "currency" && number.currency === unit) || number.unit === "plain";
   }
 }
+
+/**
+ * Whether a figure or number could be an attempt at the result, in any unit of its kind: a pp
+ * change given as a percent, or dollars given for yuan, is a wrong attempt, not another result.
+ */
+const sameKind = (unit: ExpectedUnit, observed: string) =>
+  (isAmount(unit) ? AMOUNT_KINDS : RATE_KINDS).includes(observed);
 
 /** The digits of a number as written, without its scale: 2346.8 for "2,346.8" under "in millions". */
 const asWritten = (number: string): number | null => {
@@ -180,16 +218,25 @@ const inputsRight = (result: ExpectedResult, figure: ObservedFigure): boolean =>
 const sharesAnInput = (result: ExpectedResult, figure: ObservedFigure): boolean =>
   figure.inputs.some((got) => acceptedInputs(result).some((expected) => sameInput(expected, got)));
 
+/** A trap's own window: as wide as the result's for a rate, and as wide relative to it for an amount. */
+const trapTolerance = (result: ExpectedResult, trap: number) =>
+  isAmount(result.unit)
+    ? (result.tolerance / Math.abs(result.value)) * Math.abs(trap)
+    : result.tolerance;
+
 function scoreResults(
   results: readonly ExpectedResult[],
   answer: ObservedAnswer,
-): { scores: ResultScore[]; falseChecked: string[] } {
+): { scores: ResultScore[]; falseChecked: string[]; hedges: string[] } {
   const usedFigures = new Set<number>();
   const usedNumbers = new Set<number>();
   const falseChecked: string[] = [];
   const refused = isRefusal(answer.text);
-  const takeFigure = (test: (figure: ObservedFigure) => boolean) => {
-    const index = answer.figures.findIndex((figure, at) => !usedFigures.has(at) && test(figure));
+  const takeFigure = (test: (figure: ObservedFigure, value: number) => boolean) => {
+    const index = answer.figures.findIndex((figure, at) => {
+      const value = numeric(figure);
+      return !usedFigures.has(at) && value !== null && test(figure, value);
+    });
     if (index >= 0) usedFigures.add(index);
     return answer.figures[index];
   };
@@ -198,13 +245,13 @@ function scoreResults(
     if (index >= 0) usedNumbers.add(index);
     return answer.written[index];
   };
-  const numberOf = (figure: ObservedFigure) => figure.value as number;
   // Right values first, for every result, so a wrong attempt at one never takes another's figure.
   const found = results.map((result): ResultScore | null => {
     const base = { label: result.label, kind: result.kind };
     const right = takeFigure(
-      (figure) =>
-        figureFits(result.unit, figure) && near(numberOf(figure), result.value, result.tolerance),
+      (figure, value) =>
+        figureFits(result.unit, figure) &&
+        reaches(result.unit, value, result.value, result.tolerance),
     );
     if (right) {
       const inputs = result.kind === "quoted" ? null : inputsRight(result, right);
@@ -214,7 +261,8 @@ function scoreResults(
     }
     const written = takeNumber(
       (number) =>
-        numberFits(result.unit, number) && near(number.value, result.value, result.tolerance),
+        numberFits(result.unit, number) &&
+        reaches(result.unit, number.value, result.value, result.tolerance),
     );
     return written
       ? { ...base, outcome: "written", inputsRight: null, trap: null, got: written.chars }
@@ -224,12 +272,10 @@ function scoreResults(
     if (found[at]) return null;
     const base = { label: result.label, kind: result.kind };
     for (const trap of result.traps) {
-      const tolerance = Math.max(
-        result.tolerance,
-        (result.tolerance / Math.abs(result.value || 1)) * Math.abs(trap.value),
-      );
+      const tolerance = trapTolerance(result, trap.value);
       const figure = takeFigure(
-        (each) => figureFits(result.unit, each) && near(numberOf(each), trap.value, tolerance),
+        (each, value) =>
+          sameKind(result.unit, each.unit) && reaches(result.unit, value, trap.value, tolerance),
       );
       if (figure) {
         falseChecked.push(`${result.label}: ${figure.shown} (${trap.why})`);
@@ -242,7 +288,9 @@ function scoreResults(
         };
       }
       const number = takeNumber(
-        (each) => numberFits(result.unit, each) && near(each.value, trap.value, tolerance),
+        (each) =>
+          sameKind(result.unit, each.unit) &&
+          reaches(result.unit, each.value, trap.value, tolerance),
       );
       if (number)
         return {
@@ -255,13 +303,38 @@ function scoreResults(
     }
     return null;
   });
+  // A trap's value given beside the right one: shown, not counted wrong, since an Answer may set
+  // the reported figure beside the restated one on purpose.
+  const hedges = results.flatMap((result, at) =>
+    found[at]
+      ? result.traps.flatMap((trap) => {
+          const tolerance = trapTolerance(result, trap.value);
+          const figure = takeFigure(
+            (each, value) =>
+              sameKind(result.unit, each.unit) &&
+              reaches(result.unit, value, trap.value, tolerance),
+          );
+          const number = figure
+            ? undefined
+            : takeNumber(
+                (each) =>
+                  sameKind(result.unit, each.unit) &&
+                  reaches(result.unit, each.value, trap.value, tolerance),
+              );
+          const given = figure?.shown ?? number?.chars;
+          return given ? [`${result.label}: also ${given} (${trap.why})`] : [];
+        })
+      : [],
+  );
   const scores = results.map((result, at): ResultScore => {
     const settled = found[at] ?? trapped[at];
     if (settled) return settled;
     const base = { label: result.label, kind: result.kind };
-    const attempt = takeFigure(
-      (figure) => figureFits(result.unit, figure) && sharesAnInput(result, figure),
-    );
+    // A calculated figure of the result's kind standing where the result should be is an attempt at
+    // it: one that reads its inputs first, else any.
+    const attempt =
+      takeFigure((figure) => sameKind(result.unit, figure.unit) && sharesAnInput(result, figure)) ??
+      takeFigure((figure) => sameKind(result.unit, figure.unit));
     if (attempt) {
       falseChecked.push(`${result.label}: ${attempt.shown}, not ${result.value}`);
       return {
@@ -280,24 +353,31 @@ function scoreResults(
       got: null,
     };
   });
-  return { scores, falseChecked };
+  return { scores, falseChecked, hedges };
 }
 
-/** Amounts an Answer gave that its scope's Documents don't state: a conversion or a comparison made without a rate. */
-function unstatedAmounts(test: CalculationCase, answer: ObservedAnswer): string[] {
+/**
+ * What an Answer to a Question it must refuse gave that its scope's Documents don't state: an
+ * amount converted or compared with no rate, a multiple of one amount by the other, or a
+ * sentence saying which is larger.
+ */
+function unstated(test: CalculationCase, answer: ObservedAnswer): string[] {
   const stated = test.refuse?.stated ?? [];
   const isStated = (value: number) =>
+    // "1万元 = 10,000 yuan" says what a scale word means, not an amount.
+    Number.isInteger(Math.log10(Math.abs(value))) ||
     stated.some((each) =>
-      near(Math.abs(value), Math.abs(each.value), 0.003 * Math.abs(each.value)),
+      [each.value, asWritten(each.number)].some(
+        (amount) =>
+          amount !== null && near(Math.abs(value), Math.abs(amount), STATED_PRECISION * amount),
+      ),
     );
   return [
     ...answer.figures
-      .filter(
-        (figure) =>
-          typeof figure.value === "number" &&
-          (figure.unit === "currency" || figure.unit === "plain"),
-      )
-      .filter((figure) => !isStated(figure.value as number))
+      .filter((figure) => {
+        const value = numeric(figure);
+        return value !== null && AMOUNT_KINDS.includes(figure.unit) && !isStated(value);
+      })
       .map((figure) => figure.shown),
     ...answer.figures
       .filter(
@@ -307,8 +387,14 @@ function unstatedAmounts(test: CalculationCase, answer: ObservedAnswer): string[
       )
       .map((figure) => figure.shown),
     ...answer.written
-      .filter((number) => number.unit === "currency" && !isStated(number.value))
+      .filter(
+        (number) =>
+          number.unit === "times" ||
+          (number.unit === "currency" && !isStated(number.value)) ||
+          (number.unit === "plain" && Math.abs(number.value) >= 10_000 && !isStated(number.value)),
+      )
       .map((number) => number.chars),
+    ...comparisons(answer.text),
   ];
 }
 
@@ -323,7 +409,7 @@ export function scoreCase(test: CalculationCase, answer: ObservedAnswer): CaseSc
     requests: answer.requests,
   };
   if (test.refuse) {
-    const gave = [...new Set(unstatedAmounts(test, answer))];
+    const gave = [...new Set(unstated(test, answer))];
     const checked = answer.figures
       .filter((figure) => gave.includes(figure.shown))
       .map((figure) => `${figure.shown}, with no rate in scope`);
@@ -332,9 +418,10 @@ export function scoreCase(test: CalculationCase, answer: ObservedAnswer): CaseSc
       results: [],
       refusal: { refused: !failed && isRefusal(answer.text) && gave.length === 0, gave },
       falseChecked: checked,
+      hedges: [],
     };
   }
-  const { scores, falseChecked } = failed
+  const { scores, falseChecked, hedges } = failed
     ? {
         scores: test.results.map(
           (result): ResultScore => ({
@@ -347,9 +434,10 @@ export function scoreCase(test: CalculationCase, answer: ObservedAnswer): CaseSc
           }),
         ),
         falseChecked: [],
+        hedges: [],
       }
     : scoreResults(test.results, answer);
-  return { ...common, results: scores, refusal: null, falseChecked };
+  return { ...common, results: scores, refusal: null, falseChecked, hedges };
 }
 
 /** A share, or null when there is nothing to share out. */
@@ -386,6 +474,8 @@ export interface GroupScore {
   omitted: number;
   refused: number;
   trapsHit: number;
+  /** Answers that also gave a trap's value beside the right one. */
+  hedged: number;
   falseChecked: number;
   meanSeconds: number | null;
   meanSecondsPerRequest: number | null;
@@ -432,6 +522,7 @@ export function scoreGroup(cases: readonly CaseScore[]): GroupScore {
     omitted: results.filter((each) => each.outcome === "omitted").length,
     refused: results.filter((each) => each.outcome === "refused").length,
     trapsHit: results.filter((each) => each.trap !== null).length,
+    hedged: cases.filter((each) => each.hedges.length > 0).length,
     falseChecked: cases.reduce((total, each) => total + each.falseChecked.length, 0),
     meanSeconds: cases.length === 0 ? null : seconds / cases.length,
     meanSecondsPerRequest: requests === 0 ? null : seconds / requests,

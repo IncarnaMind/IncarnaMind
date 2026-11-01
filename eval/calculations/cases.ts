@@ -109,6 +109,7 @@ function derived(
     Object.entries(inputs).map(([name, each]) => [name, each.value]),
   );
   const value = compute(values);
+  const accepted = [...(alsoAccepted ?? []), ...sameFacts(Object.values(inputs))];
   return {
     label,
     unit,
@@ -117,7 +118,7 @@ function derived(
       unit === "percent" || unit === "points" ? RATE_TOLERANCE : AMOUNT_TOLERANCE * Math.abs(value),
     kind: "derived",
     inputs,
-    ...(alsoAccepted && { alsoAccepted }),
+    ...(accepted.length > 0 && { alsoAccepted: accepted }),
     formula,
     traps,
   };
@@ -423,6 +424,26 @@ const ht = {
   oneOff: input(HUATUO, null, "其中一次性搬迁补偿0.45亿元，不具有持续性。", "0.45亿元", 0.45 * YI),
 };
 
+/** Lines of one Document that state the same fact on two pages: either is a right input. */
+const SAME_FACTS: readonly (readonly ExpectedInput[])[] = [
+  [nw.rev25, nw.rev25Five],
+  [nw.rev24, nw.rev24Five],
+];
+
+function sameFacts(inputs: readonly ExpectedInput[]): ExpectedInput[] {
+  return SAME_FACTS.flatMap((group) =>
+    group.some((each) => inputs.includes(each))
+      ? group.filter((each) => !inputs.includes(each))
+      : [],
+  );
+}
+
+/** Every amount the Documents in `scope` state: what an Answer may still give when it must refuse. */
+const statedIn = (scope: readonly string[]): ExpectedInput[] =>
+  [nw, deck, ks, yf, ql, ht].flatMap((lines) =>
+    Object.values(lines).filter((each) => scope.includes(each.document) && each.value > 1),
+  );
+
 const RESTATED = "2024 as originally reported ($2,112.5 million), not as restated";
 const REPORTED_GROWTH = "Revenue growth as reported, not on the comparable basis asked for";
 
@@ -665,7 +686,7 @@ const english: CalculationCase[] = [
     results: [],
     refuse: {
       why: "The two are in US dollars and in yuan, and no Document in scope gives an exchange rate.",
-      stated: [ks.sales25, ks.sales24, ql.rev25, ql.rev24],
+      stated: statedIn([KESTREL, QINGLAN]),
     },
   },
   {
@@ -730,7 +751,7 @@ const english: CalculationCase[] = [
     results: [],
     refuse: {
       why: "The report is in yuan and no Document in scope gives an exchange rate.",
-      stated: [yf.rev25, yf.rev24, yf.q1, yf.q2, yf.q3, yf.q4],
+      stated: statedIn([YUNFAN]),
     },
   },
   {
@@ -755,10 +776,18 @@ const english: CalculationCase[] = [
     scope: null,
     tags: ["scale", "cross-lingual"],
     results: [
-      derived("Revenue 2025", "CNY", { revenue: yf.rev25 }, "revenue", (x) => v(x, "revenue"), [
-        { value: 356812.45, why: "The 万元 figure read as yuan" },
-        { value: 356812.45 * 1e8, why: "The 万元 figure read as 亿元" },
-      ]),
+      derived(
+        "Revenue 2025",
+        "CNY",
+        { revenue: yf.rev25 },
+        "revenue",
+        (x) => v(x, "revenue"),
+        [
+          { value: 356812.45, why: "The 万元 figure read as yuan" },
+          { value: 356812.45 * 1e8, why: "The 万元 figure read as 亿元" },
+        ],
+        [yf.q1, yf.q2, yf.q3, yf.q4],
+      ),
     ],
   },
   {
@@ -994,10 +1023,18 @@ const chinese: CalculationCase[] = [
     scope: null,
     tags: ["scale"],
     results: [
-      derived("2025年营业收入", "CNY", { revenue: yf.rev25 }, "revenue", (x) => v(x, "revenue"), [
-        { value: 356812.45 * YI, why: "万元读成亿元" },
-        { value: 356812.45, why: "万元读成元" },
-      ]),
+      derived(
+        "2025年营业收入",
+        "CNY",
+        { revenue: yf.rev25 },
+        "revenue",
+        (x) => v(x, "revenue"),
+        [
+          { value: 356812.45 * YI, why: "万元读成亿元" },
+          { value: 356812.45, why: "万元读成元" },
+        ],
+        [yf.q1, yf.q2, yf.q3, yf.q4],
+      ),
     ],
   },
   {
@@ -1085,7 +1122,7 @@ const chinese: CalculationCase[] = [
     results: [],
     refuse: {
       why: "一个是人民币，一个是美元，范围内的文档都没有给出汇率。",
-      stated: [ks.sales25, ks.sales24, ql.rev25, ql.rev24],
+      stated: statedIn([KESTREL, QINGLAN]),
     },
   },
   {
@@ -1253,7 +1290,7 @@ const chinese: CalculationCase[] = [
     results: [],
     refuse: {
       why: "报告只有人民币金额，范围内的文档没有给出汇率。",
-      stated: [yf.rev25, yf.rev24, yf.q1, yf.q2, yf.q3, yf.q4],
+      stated: statedIn([YUNFAN]),
     },
   },
   {

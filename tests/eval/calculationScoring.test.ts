@@ -259,6 +259,134 @@ describe("one requested result", () => {
   });
 });
 
+describe("figures that must not pass", () => {
+  test("a checked figure from the wrong Document, reading none of the result's inputs, is a false check", () => {
+    const nw = inputsOf("en-01") as { now: ExpectedInput; before: ExpectedInput };
+    const score = scoreCase(
+      caseOf("en-16"),
+      answer({
+        figures: [
+          figure(0.12599558583629222, "percent", [inputOf(nw.now), inputOf(nw.before)], "12.6%"),
+        ],
+      }),
+    );
+    expect(score.results[0]?.outcome).toBe("wrong-calculated");
+    expect(score.falseChecked).toHaveLength(1);
+  });
+
+  test("the trap's value beside the right one is shown as a hedge, not counted wrong", () => {
+    const { now, before } = inputsOf("en-01") as { now: ExpectedInput; before: ExpectedInput };
+    const original = {
+      document: now.document,
+      value: 2_112_500_000,
+      currency: null,
+      pageFrom: 3,
+      pageTo: 3,
+    };
+    const score = scoreCase(
+      caseOf("en-01"),
+      answer({
+        figures: [
+          figure(0.12599558583629222, "percent", [inputOf(now), inputOf(before)], "12.6%"),
+          figure(0.11091124260355034, "percent", [inputOf(now), original], "11.1%"),
+        ],
+      }),
+    );
+    expect(score.results[0]?.outcome).toBe("calculated");
+    expect(score.hedges).toEqual([
+      "Revenue growth 2025: also 11.1% (2024 as originally reported ($2,112.5 million), not as restated)",
+    ]);
+    expect(scoreGroup([score]).hedged).toBe(1);
+  });
+
+  test("operating profit growth given for a margin's change in points is the trap, in whatever unit", () => {
+    const { p1, p0 } = inputsOf("en-31") as { p1: ExpectedInput; p0: ExpectedInput };
+    const score = scoreCase(
+      caseOf("en-31"),
+      answer({ figures: [figure(0.2586, "percent", [inputOf(p1), inputOf(p0)], "25.9%")] }),
+    );
+    expect(score.results[0]).toMatchObject({
+      outcome: "wrong-calculated",
+      trap: "Operating profit growth, not the margin's change",
+    });
+    expect(score.falseChecked).toHaveLength(1);
+  });
+
+  test("dollars given for yuan are not right", () => {
+    const { a, b } = inputsOf("en-07") as { a: ExpectedInput; b: ExpectedInput };
+    const score = scoreCase(
+      caseOf("en-07"),
+      answer({
+        figures: [
+          {
+            ...figure(53_500_000, "currency", [inputOf(a), inputOf(b)], "5,350万元"),
+            currency: "CNY",
+          },
+        ],
+      }),
+    );
+    expect(score.results[0]?.outcome).toBe("wrong-calculated");
+  });
+
+  test("an input on a page that doesn't state it is wrong, the same fact on another page is right", () => {
+    const { now, before } = inputsOf("en-01") as { now: ExpectedInput; before: ExpectedInput };
+    const onPage = (input: ExpectedInput, page: number) => ({
+      ...inputOf(input),
+      pageFrom: page,
+      pageTo: page,
+    });
+    const elsewhere = scoreCase(
+      caseOf("en-01"),
+      answer({ figures: [figure(0.126, "percent", [inputOf(now), onPage(before, 3)], "12.6%")] }),
+    );
+    expect(elsewhere.results[0]?.inputsRight).toBe(false);
+    const fiveYear = scoreCase(
+      caseOf("en-01"),
+      answer({ figures: [figure(0.126, "percent", [onPage(now, 4), onPage(before, 4)], "12.6%")] }),
+    );
+    expect(fiveYear.results[0]?.inputsRight).toBe(true);
+  });
+
+  test("a figure with no inputs, or a scale written into its formula, has its inputs wrong", () => {
+    const { a, b } = inputsOf("en-07") as { a: ExpectedInput; b: ExpectedInput };
+    const bare = scoreCase(
+      caseOf("en-07"),
+      answer({ figures: [figure(53_500_000, "plain", [], "53,500,000")] }),
+    );
+    expect(bare.results[0]?.inputsRight).toBe(false);
+    const scaled = scoreCase(
+      caseOf("en-07"),
+      answer({
+        figures: [
+          figure(53_500_000, "plain", [inputOf(a, 268.4), inputOf(b, 214.9)], "53,500,000", [1000]),
+        ],
+      }),
+    );
+    expect(scaled.results[0]?.inputsRight).toBe(false);
+  });
+
+  test("a difference written the other way round is the same gap", () => {
+    const { yuan, rate, kestrel } = inputsOf("en-20", 1) as Record<string, ExpectedInput>;
+    const score = scoreCase(
+      caseOf("en-20"),
+      answer({
+        figures: [
+          {
+            ...figure(
+              -19_129_707.8,
+              "currency",
+              [kestrel, yuan, rate].map((each) => inputOf(each as ExpectedInput)),
+              "−$19.1 million",
+            ),
+            currency: "USD",
+          },
+        ],
+      }),
+    );
+    expect(score.results[1]).toMatchObject({ outcome: "calculated", inputsRight: true });
+  });
+});
+
 describe("a Question of several results", () => {
   test("an Answer that leaves one out loses completeness although every figure it gave is right", () => {
     const score = scoreCase(
@@ -320,6 +448,81 @@ describe("a Question that must be refused", () => {
     expect(scoreGroup([score]).refusals.rate).toBe(1);
   });
 
+  test.each([
+    "I would need an exchange rate to compare them.",
+    "The documents do not give a USD/CNY rate.",
+    "The rate isn't stated anywhere.",
+    "None of the documents provides a rate.",
+    "文件缺乏汇率，不可以直接比较。",
+    "需要汇率才能比较。",
+    "文档不包含汇率，没法比较。",
+    "没有汇率，无从比较。",
+  ])("%s is a refusal", (text) => {
+    expect(scoreCase(caseOf("en-19"), answer({ text })).refusal?.refused).toBe(true);
+  });
+
+  test("saying what 万元 means is not an amount converted", () => {
+    const score = scoreCase(
+      caseOf("en-22"),
+      answer({
+        text: "The report is in 万元 (1万元 = 10,000 yuan) and gives no exchange rate, so it can't be converted to dollars.",
+        written: [written("10,000 yuan", 10_000, "currency", "CNY")],
+      }),
+    );
+    expect(score.refusal?.refused).toBe(true);
+  });
+
+  test("an amount the Documents state, rounded or another line of them, may still be given", () => {
+    const score = scoreCase(
+      caseOf("en-19"),
+      answer({
+        text: "Without an exchange rate they can't be compared. Kestrel's sales were $1.19 billion and its operating income $142.9 million.",
+        written: [
+          written("$1.19 billion", 1_190_000_000, "currency", "USD"),
+          written("$142.9 million", 142_900_000, "currency", "USD"),
+        ],
+      }),
+    );
+    expect(score.refusal?.refused).toBe(true);
+  });
+
+  test.each([
+    ["Qinglan's revenue was larger than Kestrel's, though I can't say by exactly how much.", []],
+    [
+      "No rate is given, but Qinglan's revenue is about 7.27 times Kestrel's.",
+      [written("7.27 times", 7.27, "times")],
+    ],
+  ] as const)("a comparison made with no rate is not a refusal: %s", (text, numbers) => {
+    expect(
+      scoreCase(caseOf("en-19"), answer({ text, written: [...numbers] })).refusal?.refused,
+    ).toBe(false);
+  });
+
+  test("a figure over amounts in two currencies, with no rate in scope, is a false check", () => {
+    const stated = caseOf("en-19").refuse?.stated ?? [];
+    const kestrel = stated.find((each) => each.number === "1,186.4") as ExpectedInput;
+    const qinglan = stated.find((each) => each.number === "862,315.40") as ExpectedInput;
+    const score = scoreCase(
+      caseOf("en-19"),
+      answer({
+        text: "The documents give no exchange rate, so I can't convert either.",
+        figures: [
+          figure(
+            0.000137,
+            "ratio",
+            [
+              { ...inputOf(kestrel), currency: "USD" },
+              { ...inputOf(qinglan), currency: "CNY" },
+            ],
+            "0.000137",
+          ),
+        ],
+      }),
+    );
+    expect(score.refusal?.refused).toBe(false);
+    expect(score.falseChecked).toHaveLength(1);
+  });
+
   test("an amount converted at a rate no Document gives is not a refusal, and marked calculated it is a false check", () => {
     const rev25 = caseOf("en-19").refuse?.stated[2] as ExpectedInput;
     const score = scoreCase(
@@ -354,6 +557,16 @@ describe("the bars", () => {
       ["No false checked figure", true],
       ["Unchecked-figure detection: precision at least 90%, recall at least 95%", null],
     ]);
+  });
+
+  test("figure correctness equal to the baseline's is not above it", () => {
+    const right = scoreGroup([
+      scoreCase(caseOf("zh-16"), answer({ written: [written("9.09%", 0.0909, "percent")] })),
+    ]);
+    const above = bars(right, right).find(
+      (bar) => bar.name === "Figure correctness above the baseline",
+    );
+    expect(above?.met).toBe(false);
   });
 });
 
