@@ -51,6 +51,7 @@ import type {
 import { InvalidInputError, NotFoundError } from "../errors";
 import { type Folders, folderIdFor } from "../folders";
 import type { Database } from "../storage";
+import { markArrived } from "../tags/held";
 import {
   createIgnore,
   type FileIdentity,
@@ -371,6 +372,11 @@ export function createLibrary(options: LibraryOptions) {
 
   // --- Linked folder rows -------------------------------------------------
 
+  const baselineScanned = (id: string) =>
+    db.get<{ id: string }>(
+      "SELECT id FROM linked_folder_baselines WHERE linked_folder_id = ? AND deleted_at IS NULL",
+      [id],
+    ) !== undefined;
   const liveFolders = () =>
     db.all<LinkedFolderRow>(
       `SELECT ${FOLDER_COLUMNS} FROM linked_folders WHERE deleted_at IS NULL ORDER BY path`,
@@ -1013,6 +1019,8 @@ export function createLibrary(options: LibraryOptions) {
     changes: Changes,
     explicit: boolean,
     twins: ReadonlySet<string>,
+    /** When IncarnaMind saw it arrive new (see `arrivalOf`); null when a later scan found it. */
+    arrival: string | null,
   ): Promise<string | undefined> {
     if (!explicit && file.owner && removedByUser(file.path, file.owner)) return undefined;
     let hashed: Awaited<ReturnType<typeof hashFile>>;
@@ -1065,6 +1073,7 @@ export function createLibrary(options: LibraryOptions) {
         at,
       ],
     );
+    if (arrival !== null) markArrived(db, id, arrival);
     hooks.announce(id);
     (changes.added ?? hooks.added)(id);
     hooks.process(id);
@@ -1168,6 +1177,14 @@ export function createLibrary(options: LibraryOptions) {
     for (const id of scanned) {
       const row = folderRow(id);
       if (!row) continue;
+      if (!baselineScanned(id)) {
+        const at = now();
+        db.run(
+          `INSERT INTO linked_folder_baselines (id, linked_folder_id, scanned_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [randomUUID(), id, at, at, at],
+        );
+      }
       if (row.layout === null) {
         const relatives = db
           .all<{ path: string }>(
@@ -1337,11 +1354,21 @@ export function createLibrary(options: LibraryOptions) {
       if (file.owner) pendingNew.set(file.owner.id, (pendingNew.get(file.owner.id) ?? 0) + 1);
     }
     const twins = repeatedNames([...fresh, ...arrivals].map((file) => file.path));
+    /**
+     * When IncarnaMind saw a file arrive new (#2308): a Linked folder's first scan finds what the
+     * User linked, as they linked it; after that, its watcher reports a file the moment it arrives.
+     * A later scan, on a resume or a restart, finds files that were there before: null.
+     */
+    const arrivalOf = (owner: LinkedFolderRow | null): string | null => {
+      if (!owner) return null;
+      if (!baselineScanned(owner.id)) return owner.created_at;
+      return scanned.has(owner.id) ? null : now();
+    };
     announceFolders();
     try {
       for (const file of fresh) {
         if (closed) return;
-        await addFound(file, removed, changes, false, twins);
+        await addFound(file, removed, changes, false, twins, arrivalOf(file.owner));
         if (file.owner) {
           pendingNew.set(file.owner.id, (pendingNew.get(file.owner.id) ?? 1) - 1);
           announceProgress();
@@ -1843,7 +1870,7 @@ export function createLibrary(options: LibraryOptions) {
             }
             continue;
           }
-          results.push((await addFound(file, [], changes, true, twins)) ?? "unreadable");
+          results.push((await addFound(file, [], changes, true, twins, now())) ?? "unreadable");
         }
         finish(changes, new Set());
         return results;

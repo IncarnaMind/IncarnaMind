@@ -97,7 +97,7 @@ describe("Migrations", () => {
     db.close();
   });
 
-  test("the preset Invoice Tag gets its new description only where it is still as seeded, and running it again changes nothing (#2308)", async () => {
+  test("the preset Invoice Tag gets its new description only where it is still as seeded, a Linked folder already there counts as scanned, and running it again changes nothing (#2308)", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "test.db"));
     migrate(
       db,
@@ -123,14 +123,26 @@ describe("Migrations", () => {
         [id ?? "", name ?? "", description ?? "", at, at],
       );
     }
+    db.run(
+      "INSERT INTO linked_folders (id, path, created_at, updated_at) VALUES (?, '/Users/a/Reports', ?, ?)",
+      ["00000000-0000-4000-8000-000000000004", at, at],
+    );
     const descriptions = () =>
       db
         .all<{ description: string }>("SELECT description FROM tags ORDER BY id")
         .map((row) => row.description);
+    const baselines = () =>
+      db
+        .all<{ linked_folder_id: string }>(
+          "SELECT linked_folder_id FROM linked_folder_baselines WHERE deleted_at IS NULL",
+        )
+        .map((row) => row.linked_folder_id);
 
     migrate(db, migrations);
     const after = descriptions();
+    expect(baselines()).toEqual(["00000000-0000-4000-8000-000000000004"]);
     db.exec(migrations.find((migration) => migration.version === 120)?.sql ?? "");
+    expect(baselines()).toEqual(["00000000-0000-4000-8000-000000000004"]);
 
     expect(after).toEqual([
       "A bill or receipt that asks for or confirms payment for goods or services supplied, with items, amounts and dates. Not a quote, an estimate, a price list, an order, a registration, or a donation or gift receipt, for which nothing is supplied.",

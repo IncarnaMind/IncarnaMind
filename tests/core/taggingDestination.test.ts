@@ -19,6 +19,7 @@ import {
 } from "../../src/core";
 import { PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
+import type { WatchFolder, WatchListener } from "../../src/core/documents/watcher";
 import type { ChatModelSpec } from "../../src/core/providers/models";
 import { openDatabase } from "../../src/core/storage";
 import {
@@ -441,6 +442,31 @@ describe("Every Document already here is held, whatever its state", () => {
   });
 });
 
+/**
+ * A Linked folder watcher the test drives: it reports a path when told, as the system's watcher
+ * does when a file arrives or changes, so no test waits on the system's timing.
+ */
+function scriptedWatcher() {
+  const listeners = new Map<string, WatchListener>();
+  const watch: WatchFolder = (root, listener) => {
+    listeners.set(root, listener);
+    return { close: () => listeners.delete(root) };
+  };
+  return {
+    watch,
+    /** Resolves once the folder's watcher is on, after its scan. */
+    watching: (folder: string) => vi.waitFor(() => expect(listeners.has(folder)).toBe(true)),
+    report(folder: string, ...paths: string[]) {
+      const listener = listeners.get(folder);
+      if (!listener) throw new Error(`Nothing watches ${folder}.`);
+      listener.onChange(paths);
+    },
+  };
+}
+
+/** How long the forty-Document test waits for a state at most, on a loaded machine. */
+const FORTY_WAIT_MS = 60_000;
+
 /** A file already on disk before tagging was turned on: written an hour ago. */
 async function writtenBefore(folder: string, name: string, text: string) {
   const path = await writeSourceFile(folder, name, text);
@@ -484,8 +510,8 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     await core.reconcileDocuments();
     const ids = (await core.listDocuments({ linkedFolderId: linked.id })).map((each) => each.id);
     expect(ids).toHaveLength(40);
-    await waitForProcessing(core, ids);
-    await waitForTagging(core, ids, (each) => each.tagging === "off");
+    await waitForProcessing(core, ids, FORTY_WAIT_MS);
+    await waitForTagging(core, ids, (each) => each.tagging === "off", FORTY_WAIT_MS);
     expect(providers.sent("anthropic")).toBe(0);
 
     await rename(join(folder, "Report 1.txt"), join(folder, "Report one.txt"));
@@ -493,19 +519,21 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     await waitForDocuments(core, (documents) => {
       expect(documentAt(documents, join(folder, "Report one.txt")).status).toBe("ready");
     });
-    await waitForTagging(core, ids, (each) => each.tagging === "off");
+    await waitForTagging(core, ids, (each) => each.tagging === "off", FORTY_WAIT_MS);
     expect(providers.sent("anthropic")).toBe(0);
 
     await core.createLibraryGroup({ name: "Finance", description: "Reports." });
     await core.classifyDocuments(ids);
-    await waitForTagging(core, ids);
+    await waitForTagging(core, ids, undefined, FORTY_WAIT_MS);
     expect(providers.sent("anthropic")).toBe(40);
-  });
+  }, 180_000);
 
-  test("a paused Linked folder resumed after the turn-on: the files already there wait, one written after goes", async () => {
+  test("a paused Linked folder resumed after the turn-on: the file already there and one written while paused wait, one its watcher sees after goes", async () => {
     const providers = perProvider();
+    const watcher = scriptedWatcher();
     const core = startCore(await createTempDataFolder(), {
       createChatModel: providers.createChatModel,
+      linkedFolders: { watch: watcher.watch },
     });
     const anthropic = await core.saveChatProvider(ANTHROPIC);
     const folder = await createSourceFolder();
@@ -513,7 +541,7 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     const [first] = await linkAndProcess(core, folder);
     if (!first?.linkedFolderId) throw new Error("Not linked.");
     await core.setLinkedFolderPaused(first.linkedFolderId, true);
-    const pausedPath = await writtenBefore(folder, "While paused.txt", "Written while paused.");
+    const pausedPath = await writeSourceFile(folder, "While paused.txt", "Written while paused.");
     await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
 
     await core.setLinkedFolderPaused(first.linkedFolderId, false);
@@ -524,8 +552,9 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     await waitForTagging(core, [already?.id ?? ""], (each) => each.tagging === "off");
     expect(providers.sent("anthropic")).toBe(0);
 
+    await watcher.watching(folder);
     const afterPath = await writeSourceFile(folder, "After resume.txt", "Written after resume.");
-    await core.reconcileDocuments();
+    watcher.report(folder, afterPath);
     const [after] = await waitForDocuments(core, (documents) => {
       expect(documentAt(documents, afterPath).status).toBe("ready");
     }).then((documents) => [documentAt(documents, afterPath)]);
@@ -535,8 +564,10 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
 
   test("a Linked folder linked after the turn-on is new: its files and one added later each go once", async () => {
     const providers = perProvider();
+    const watcher = scriptedWatcher();
     const core = startCore(await createTempDataFolder(), {
       createChatModel: providers.createChatModel,
+      linkedFolders: { watch: watcher.watch },
     });
     const anthropic = await core.saveChatProvider(ANTHROPIC);
     await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
@@ -549,8 +580,9 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     );
     expect(providers.sent("anthropic")).toBe(1);
 
+    await watcher.watching(folder);
     const newPath = await writeSourceFile(folder, "New file.txt", "Written after.");
-    await core.reconcileDocuments();
+    watcher.report(folder, newPath);
     const [added] = await waitForDocuments(core, (documents) => {
       expect(documentAt(documents, newPath).status).toBe("ready");
     }).then((documents) => [documentAt(documents, newPath)]);
@@ -581,5 +613,81 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     expect(stored()).toEqual(since);
     expect(held.tagging).toBe("off");
     expect(providers.sent("anthropic")).toBe(0);
+  });
+});
+
+describe("New means IncarnaMind saw it arrive, whatever the file's times say", () => {
+  test("in a folder linked before the turn-on: an edit, a save by rename, and files a scan finds (a copy keeping its old date, one synced in with today's) wait; a file its watcher sees arrive goes", async () => {
+    const dataDir = await createTempDataFolder();
+    const keychain = createMemoryKeychain();
+    const providers = perProvider();
+    const watcher = scriptedWatcher();
+    const options = {
+      keychain,
+      createChatModel: providers.createChatModel,
+      linkedFolders: { watch: watcher.watch },
+    };
+    let core = startCore(dataDir, options);
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    const folder = await createSourceFolder();
+    const editedPath = await writtenBefore(folder, "Report 1.txt", "Quarterly report 1.");
+    const renamedPath = await writtenBefore(folder, "Report 2.txt", "Quarterly report 2.");
+    const linked = await linkAndProcess(core, folder);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    await watcher.watching(folder);
+
+    // Edited after the turn-on: a new file time, the same Document.
+    const editedText = "Quarterly report 1, edited after.";
+    await writeSourceFile(folder, "Report 1.txt", editedText);
+    watcher.report(folder, editedPath);
+    await waitForDocuments(core, (documents) => {
+      expect(documentAt(documents, editedPath)).toMatchObject({
+        status: "ready",
+        contentHash: sha256(editedText),
+      });
+    });
+    // Saved as an app saves: a new file, renamed over the old one.
+    const savedText = "Quarterly report 2, saved by rename.";
+    const temporary = await writeSourceFile(folder, "Report 2.txt.tmp", savedText);
+    await rename(temporary, renamedPath);
+    watcher.report(folder, temporary, renamedPath);
+    await waitForDocuments(core, (documents) => {
+      expect(documentAt(documents, renamedPath)).toMatchObject({
+        status: "ready",
+        contentHash: sha256(savedText),
+      });
+    });
+    const held = linked.map((each) => each.id);
+    await waitForTagging(core, held, (each) => each.tagging === "off");
+    expect(providers.sent("anthropic")).toBe(0);
+
+    // A file the watcher sees arrive is new.
+    const arrivedPath = await writeSourceFile(folder, "Arrived.txt", "Written after the turn-on.");
+    watcher.report(folder, arrivedPath);
+    const [arrived] = await waitForDocuments(core, (documents) => {
+      expect(documentAt(documents, arrivedPath).status).toBe("ready");
+    }).then((documents) => [documentAt(documents, arrivedPath)]);
+    await waitForTagging(core, [arrived?.id ?? ""]);
+    expect(providers.sent("anthropic")).toBe(1);
+
+    // Copied in keeping its old date, and synced in with today's, while the app was closed: the
+    // scan at the next start finds both. Neither file's time makes it new.
+    core.close();
+    const copiedPath = await writtenBefore(folder, "Copied.txt", "Copied in, keeping its date.");
+    const syncedPath = await writeSourceFile(folder, "Synced.txt", "Synced in while closed.");
+    core = startCore(dataDir, options);
+    const found = await waitForDocuments(core, (documents) => {
+      expect(documentAt(documents, copiedPath).status).toBe("ready");
+      expect(documentAt(documents, syncedPath).status).toBe("ready");
+    }).then((documents) => [documentAt(documents, copiedPath), documentAt(documents, syncedPath)]);
+    const scanned = found.map((each) => each.id);
+    await waitForTagging(core, scanned, (each) => each.tagging === "off");
+    expect(providers.sent("anthropic")).toBe(1);
+
+    await core.createLibraryGroup({ name: "Finance", description: "Reports." });
+    await core.classifyDocuments([...held, ...scanned]);
+    await waitForTagging(core, [...held, ...scanned]);
+    expect(providers.sent("anthropic")).toBe(5);
+    core.close();
   });
 });

@@ -2128,20 +2128,45 @@ export const migrations: readonly Migration[] = [
   {
     version: 120,
     description:
-      "The preset Invoice Tag says what isn't an invoice, unless the User edited it, and the User's Organize or re-tag of a Document is recorded (#2308)",
+      "The preset Invoice Tag says what isn't an invoice, unless the User edited it, and what IncarnaMind saw arrive new is recorded (#2308)",
     sql: `
-      -- When the User last organized or re-tagged a Document: from then it may go to the
-      -- services tagging was turned on for by itself (src/core/tags/held.ts).
-      CREATE TABLE IF NOT EXISTS tagging_clearances (
+      -- For each Document, when IncarnaMind first saw it arrive new (the User's own add, a
+      -- Linked folder's first scan, or a watcher event after it), and when the User last
+      -- organized or re-tagged it: only then may it go by itself to the services tagging was
+      -- turned on for (src/core/tags/held.ts). A Document without a row was here before.
+      CREATE TABLE IF NOT EXISTS tagging_marks (
         id TEXT PRIMARY KEY NOT NULL,
         document_id TEXT NOT NULL,
-        cleared_at TEXT NOT NULL,
+        arrived_at TEXT,
+        cleared_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         deleted_at TEXT
       ) STRICT;
-      CREATE UNIQUE INDEX IF NOT EXISTS tagging_clearances_by_document
-        ON tagging_clearances (document_id) WHERE deleted_at IS NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS tagging_marks_by_document
+        ON tagging_marks (document_id) WHERE deleted_at IS NULL;
+      -- When a Linked folder's first scan finished: a file found by a later scan was there
+      -- before. The folders already linked have been scanned.
+      CREATE TABLE IF NOT EXISTS linked_folder_baselines (
+        id TEXT PRIMARY KEY NOT NULL,
+        linked_folder_id TEXT NOT NULL,
+        scanned_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX IF NOT EXISTS linked_folder_baselines_by_folder
+        ON linked_folder_baselines (linked_folder_id) WHERE deleted_at IS NULL;
+      INSERT INTO linked_folder_baselines (id, linked_folder_id, scanned_at, created_at, updated_at)
+        SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4'
+            || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', 1 + (random() & 3), 1)
+            || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))),
+          l.id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM linked_folders l
+        WHERE l.deleted_at IS NULL AND NOT EXISTS (
+          SELECT 1 FROM linked_folder_baselines b
+          WHERE b.linked_folder_id = l.id AND b.deleted_at IS NULL);
       -- Its first description let a quote, a registration or notes with prices read as "asks for or
       -- confirms a payment", and the tagger tagged them Invoice (#2308). Only a description still
       -- as it was seeded changes (src/core/tags/presets.ts has the same text); one the User wrote
