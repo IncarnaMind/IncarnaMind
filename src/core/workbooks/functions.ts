@@ -25,6 +25,7 @@ import {
   at,
   type CellError,
   compare,
+  DATE_LIKE,
   DIV0,
   equal,
   finite,
@@ -228,9 +229,6 @@ type Matcher = (value: Scalar) => boolean;
 
 const ISO_DATE = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
 const SLASHED_DATE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
-/** What Excel would read as a date or time in a condition, in a form not read here. */
-const DATE_LIKE =
-  /:|\d[/.-]\d|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|[年月日]/i;
 
 /**
  * A date a condition writes ("2025-01-31", "1/31/2025"), as its serial;
@@ -509,7 +507,7 @@ function assertSorted(values: readonly Scalar[], direction: 1 | -1): void {
     if (previous !== undefined) {
       if (typeof previous !== typeof value) throw new Refusal("unsorted");
       const order = compare(previous, value);
-      if (direction > 0 ? order >= 0 : order <= 0) throw new Refusal("unsorted");
+      if (direction > 0 ? order > 0 : order < 0) throw new Refusal("unsorted");
     }
     previous = value;
   }
@@ -804,6 +802,9 @@ function assertCalendar(serial: number, date1904: boolean): void {
 }
 
 export function serialOf(year: number, month: number, day: number, date1904: boolean): number {
+  // A day counted from a month before March 1900 crosses Excel's 29 February 1900, so it lands a
+  // day off wherever it ends up: DATE(1900,1,100) is 100 in Excel and 101 on the calendar.
+  if (!date1904 && year * 12 + month < 1900 * 12 + 2) throw new Refusal("early-date");
   const serial = Math.round((utc(year, month, day) - epoch(date1904)) / DAY);
   assertCalendar(serial, date1904);
   return serial;
@@ -1212,7 +1213,11 @@ function text(args: Arg[], context: Evaluation): Value {
     const number = toNumber(value ?? null);
     if (isError(number)) return number;
     if (isDateFormat(code)) assertCalendar(Math.floor(number), context.date1904);
-    return displayNumber(number, code, { date1904: context.date1904 }).text;
+    const shown = displayNumber(number, code, { date1904: context.date1904 }).text;
+    // Excel keeps the sign of a negative number its one section rounds to zero: "-0.00".
+    return number < 0 && !code.includes(";") && !isDateFormat(code) && !shown.includes("-")
+      ? `-${shown}`
+      : shown;
   }).call(args, context);
 }
 

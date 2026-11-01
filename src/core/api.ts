@@ -2332,7 +2332,8 @@ export type WorkbookKeptReason =
   | "unsorted"
   | "early-date"
   | "criterion"
-  | "text-order";
+  | "text-order"
+  | "date-text";
 
 export interface WorkbookKeptCell {
   sheet: string;
@@ -5863,6 +5864,11 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  *   `{ most: Money; spent: Money }`).
  * - "workbook-changed": a figure worked out from a workbook's formulas (#2347) no longer reads the
  *   same from its cells, or no longer works out the same from them.
+ * - "workbook-differs", "-external", "-volatile", "-circular", "-not-read", "-no-saved-value" and
+ *   "-unsupported": a figure the workbook gives depends on a cell IncarnaMind can't work out (its
+ *   saved value differs from its formulas, it links to another file, it changes each time, its
+ *   formulas refer to each other, it reads a sheet or rows that weren't read, Excel saved no value
+ *   for it, or any other formula IncarnaMind can't work out), so its cell's number backs nothing.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -5884,7 +5890,14 @@ export type ClaimCheckFailure =
   | "kept-inside"
   | "cut-short"
   | "read-budget"
-  | "workbook-changed";
+  | "workbook-changed"
+  | "workbook-differs"
+  | "workbook-external"
+  | "workbook-volatile"
+  | "workbook-circular"
+  | "workbook-not-read"
+  | "workbook-no-saved-value"
+  | "workbook-unsupported";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {

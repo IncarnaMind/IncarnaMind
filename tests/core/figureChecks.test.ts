@@ -19,7 +19,7 @@ import { MAX_CHART_VALUES } from "../../src/shared/charts";
 import { readFigures } from "../../src/shared/figures";
 import { translate } from "../../src/shared/i18n";
 import type { UnitText } from "../../src/shared/units";
-import { WorkbookBuilder } from "../helpers/financeWorkbooks";
+import { unsupportedWorkbook, WorkbookBuilder } from "../helpers/financeWorkbooks";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 
 const claim = "Revenue was £20 and the licence is valid.";
@@ -1548,8 +1548,8 @@ async function planUnits(growth: number): Promise<UnitText[]> {
   return (await extractXlsx(new Uint8Array(book.xlsx()))).units;
 }
 
-/** The plan's 2027 sales as `trace_formulas` records it, and with growth at 10% as `what_if` does. */
-async function planFigures(units: UnitText[], language: "en" | "zh-CN") {
+/** A workbook's Tools over `units`, read as one Passage, and the figures they record. */
+function workbookPassage(units: UnitText[], language: "en" | "zh-CN") {
   const source: CitationSource = {
     passageId: "passage-1",
     documentId: "document-1",
@@ -1571,6 +1571,12 @@ async function planFigures(units: UnitText[], language: "en" | "zh-CN") {
   });
   if (!trace || !whatIf) throw new Error("No workbook Tools.");
   const context = { toolCallId: "call", signal: new AbortController().signal };
+  return { trace, whatIf, context, recorded };
+}
+
+/** The plan's 2027 sales as `trace_formulas` records it, and with growth at 10% as `what_if` does. */
+async function planFigures(units: UnitText[], language: "en" | "zh-CN") {
+  const { trace, whatIf, context, recorded } = workbookPassage(units, language);
   await trace.call({ passage: "P1", cell: "Plan!C2", label: "Sales 2027" }, context);
   await whatIf.call(
     { passage: "P1", cell: "Plan!C2", label: "Sales 2027", input: "Plan!B4", value: "10%" },
@@ -1906,5 +1912,54 @@ test.each([
     expect(result.verdict).toBe("contradicted");
     expect(result.figures?.[0]?.result.verdict).toBe("contradicted");
     expect(correctionOf(result)?.choices[0]?.wording).toBe(each.wording);
+  },
+);
+
+// The figure the Check reads its number from is backed only when every formula behind it was
+// worked out here and gave the value Excel saved (#2347).
+describe.each(["en", "zh-CN"] as const)(
+  "%s: a workbook's figure built on a cell IncarnaMind can't work out",
+  (language) => {
+    test.each([
+      { name: "a stale saved value", cell: "Cases!D10", reason: "workbook-differs" },
+      { name: "a link to another file", cell: "Cases!D6", reason: "workbook-external" },
+      { name: "a value that changes each time", cell: "Cases!D2", reason: "workbook-volatile" },
+      { name: "formulas that refer to each other", cell: "Cases!D8", reason: "workbook-circular" },
+      { name: "a hidden sheet not read", cell: "Cases!D11", reason: "workbook-not-read" },
+      {
+        name: "a formula with no saved value",
+        cell: "Cases!D9",
+        reason: "workbook-no-saved-value",
+      },
+      { name: "nothing it can't work out", cell: "Cases!D13", reason: null },
+    ] as const)("$name: is $reason", async ({ cell, reason }) => {
+      const units = (await extractXlsx(new Uint8Array(unsupportedWorkbook().xlsx()))).units;
+      const { trace, context, recorded } = workbookPassage(units, language);
+      await trace.call({ passage: "P1", cell, label: "Figure" }, context);
+      const [figure] = recorded;
+      if (!figure) throw new Error(`${cell} wasn't recorded.`);
+      const claim =
+        language === "en" ? `The figure is ${figure.shown}.` : `该数字为 ${figure.shown}。`;
+      const { result } = await checkWith({
+        figures: [
+          {
+            ...target("f1", figure.shown, "Figure", language),
+            calculated: { id: "f1", figure, analysisId: null },
+          },
+        ],
+        claim,
+        units,
+        body: units.map((unit) => unit.text).join("\n"),
+        text: reply([{ ...item("f1"), source: null }]),
+      });
+      if (reason === null) {
+        expect(result.figures?.[0]?.result.verdict).toBe("supported");
+        expect(result.verdict).toBe("supported");
+        return;
+      }
+      expect(result.figures?.[0]?.result).toMatchObject({ verdict: "not-checked", reason });
+      expect(result.verdict).toBe("not-checked");
+      expect(translate(language, `claim.reason.${reason}`)).not.toBe(`claim.reason.${reason}`);
+    });
   },
 );

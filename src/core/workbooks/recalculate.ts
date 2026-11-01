@@ -72,7 +72,8 @@ export type CellProblem =
   | { kind: "unsorted" }
   | { kind: "early-date" }
   | { kind: "criterion" }
-  | { kind: "text-order" };
+  | { kind: "text-order" }
+  | { kind: "date-text" };
 
 /** A cell a result depends on that keeps its saved value, and why. */
 export interface Dependence {

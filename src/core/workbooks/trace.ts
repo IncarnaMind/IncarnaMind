@@ -6,6 +6,7 @@
  */
 import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 import { parseCellRef, type UnitText } from "../../shared/units";
+import type { WorkbookKeptReason } from "../api";
 import {
   cellIndex,
   definedName,
@@ -105,7 +106,15 @@ export function cellLabel(sheet: WorkbookSheet, row: number, column: number): st
     const cell = sheet.cells.get(cellIndex(above, column));
     if (!cell) continue;
     if (yearLike(cell.saved) && headingRow(sheet, above)) {
-      columnHeading = shownHeading(cell);
+      // A period names only a row that runs across periods: an assumption alone in its row, under
+      // the first year's heading, holds for every year ("Tax rate", never "Tax rate 2025").
+      const acrossPeriods = cells.some(
+        (each) =>
+          each.column !== column &&
+          typeof each.saved === "number" &&
+          yearLike(sheet.cells.get(cellIndex(above, each.column))?.saved ?? null),
+      );
+      if (!rowHeading || acrossPeriods) columnHeading = shownHeading(cell);
       break;
     }
     if (isText(cell.saved)) {
@@ -348,13 +357,46 @@ export async function whatIf(
 }
 
 type CellPlace = { sheet: string | null; ref: string };
+type StoredBook = { documentId: string; contentHash: string; units: readonly UnitText[] };
+
+/** Why a cell keeps its saved value, as a figure records it. */
+export function keptReason(problem: CellProblem): WorkbookKeptReason {
+  if (problem.kind !== "formula") return problem.kind;
+  return problem.part === "external" || problem.part === "table" || problem.part === "three-d"
+    ? problem.part
+    : "unreadable";
+}
+
+function cellKeyOf(model: WorkbookModel, cell: CellPlace): number | null {
+  const sheet = cell.sheet === null ? undefined : model.byName.get(cell.sheet.toUpperCase());
+  const at = parseCellRef(cell.ref);
+  return sheet && at ? placeKey(sheet, at.row, at.column) : null;
+}
+
+/**
+ * A figure the workbook gives, worked out again from the Units its version is stored as now, as a
+ * Check does: the cells it depends on that keep their saved values, empty when the whole chain
+ * is worked out and matches what Excel saved; null when its cell is gone.
+ */
+export async function figureAgain(
+  book: StoredBook,
+  figure: CellPlace,
+  signal?: AbortSignal,
+): Promise<Dependence[] | null> {
+  const model = workbookModel(book.documentId, book.contentHash, book.units);
+  const target = model ? cellKeyOf(model, figure) : null;
+  if (!model || target === null) return null;
+  const engine = new WorkbookEngine(model);
+  if (!engine.cellAt(target)) return null;
+  return (await traceChain(engine, target, signal)).dependsOn;
+}
 
 /**
  * A what-if worked out again from the Units its workbook version is stored as now, as a Check
  * does: the figure's value, or null when it no longer works out.
  */
 export async function whatIfAgain(
-  book: { documentId: string; contentHash: string; units: readonly UnitText[] },
+  book: StoredBook,
   figure: CellPlace,
   changed: CellPlace,
   value: number,
@@ -362,13 +404,8 @@ export async function whatIfAgain(
 ): Promise<number | null> {
   const model = workbookModel(book.documentId, book.contentHash, book.units);
   if (!model) return null;
-  const keyOf = (cell: CellPlace) => {
-    const sheet = cell.sheet === null ? undefined : model.byName.get(cell.sheet.toUpperCase());
-    const at = parseCellRef(cell.ref);
-    return sheet && at ? placeKey(sheet, at.row, at.column) : null;
-  };
-  const target = keyOf(figure);
-  const input = keyOf(changed);
+  const target = cellKeyOf(model, figure);
+  const input = cellKeyOf(model, changed);
   if (target === null || input === null) return null;
   const outcome = await whatIf(new WorkbookEngine(model), target, input, value, signal);
   return outcome.ok ? outcome.after : null;

@@ -56,6 +56,13 @@ export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = [
   "cut-short",
   "read-budget",
   "workbook-changed",
+  "workbook-differs",
+  "workbook-external",
+  "workbook-volatile",
+  "workbook-circular",
+  "workbook-not-read",
+  "workbook-no-saved-value",
+  "workbook-unsupported",
 ];
 const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
 const CITATION_REASONS: readonly CitationCheckReason[] = [

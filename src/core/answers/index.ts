@@ -1529,9 +1529,15 @@ export function createAnswers(options: AnswersOptions) {
       }
       return told;
     };
-    /** A workbook's figure, cited to its cell as an input quoted directly is (#2347). */
+    /**
+     * A workbook's figure, cited as an input quoted directly is (#2347): to its cell, or a
+     * what-if to the input it changed, never to the cell whose number it isn't.
+     */
     const recordWorkbookFigure = (figure: CalculatedFigure): number => {
-      const cell = figure.workbook?.cell.input.citation;
+      const change = figure.workbook?.change;
+      const cell = change
+        ? figure.inputs.find((input) => input.name === change.input)?.citation
+        : figure.workbook?.cell.input.citation;
       const location = cell ? citationLocation(cell) : null;
       const marker = figures.record(
         figure,

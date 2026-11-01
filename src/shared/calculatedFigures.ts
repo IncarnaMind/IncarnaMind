@@ -301,6 +301,7 @@ const KEPT_REASONS: readonly WorkbookKeptReason[] = [
   "early-date",
   "criterion",
   "text-order",
+  "date-text",
 ];
 
 function keptOf(value: unknown): WorkbookKeptCell | null {

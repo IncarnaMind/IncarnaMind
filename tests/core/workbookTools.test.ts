@@ -189,6 +189,28 @@ describe("a workbook's formulas in an Answer", () => {
     );
   });
 
+  test("a what-if is cited to the input it changed, never to the cell whose number it isn't", async () => {
+    const model = modelling({
+      query: "EBITDA revenue growth",
+      calls: [growthAt3],
+      answer: "At 3% growth, 2027 EBITDA would be [=1].",
+    });
+    const { core } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
+    const answer = await ask(core, "What would 2027 EBITDA be at 3% growth?");
+    const [changed] = answer.figures;
+    const growth = changed?.inputs.find((input) => input.name === changed.workbook?.change?.input);
+    expect(growth?.citation.location).toEqual({
+      kind: "rows",
+      sheet: "Assumptions",
+      from: 4,
+      to: 4,
+    });
+    const cited = answer.citations.map((citation) => citation.quote);
+    expect(cited).toEqual([growth?.citation.quote]);
+    expect(cited).not.toContain(changed?.workbook?.cell.input.citation.quote);
+    expect(answer.steps?.notCitedAfterAsking).toBeUndefined();
+  });
+
   test("a what-if over a volatile formula is refused, named; the figure traced keeps its saved value, marked", async () => {
     const model = modelling({
       query: "Volatile Today Offset",

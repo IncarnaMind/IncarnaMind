@@ -145,6 +145,9 @@ describe("Excel's documented results", () => {
     expect(await excel('"a"<"B"')).toBe(true);
     expect(await excel('"10"<"9"')).toBe(true);
     expect(await excel('" z"<"a"')).toBe(true);
+    // A space before a digit, as LibreOffice compares them too.
+    expect(await excel('" "<"1"')).toBe(true);
+    expect(await excel('"1"<" "')).toBe(false);
     expect(await excel('"_"<"A"')).toEqual({ refused: "text-order" });
     expect(await excel('"é"="E"')).toBe(false);
   });
@@ -154,6 +157,35 @@ describe("Excel's documented results", () => {
     expect(await excel("DATE(1900,2,28)")).toEqual({ refused: "early-date" });
     expect(await excel("MONTH(61)")).toBe(3);
     expect(await excel("DAY(61)")).toBe(1);
+  });
+
+  test("a day counted from a month before March 1900 is refused, wherever it lands", async () => {
+    // Excel gives 60 and 100, counting its 29 February 1900; the calendar gives 61 and 101.
+    expect(await excel("DATE(1900,2,29)")).toEqual({ refused: "early-date" });
+    expect(await excel("DATE(1900,1,100)")).toEqual({ refused: "early-date" });
+    expect(await excel("DATE(1901,-10,1)")).toEqual({ refused: "early-date" });
+    expect(await excel("DATE(1900,3,1)")).toBe(61);
+    expect(await excel("DATE(1900,14,1)")).toBe(398);
+  });
+
+  test("TEXT keeps the sign of a negative number its format rounds to zero", async () => {
+    expect(await excel('TEXT(-0.004,"0.00")')).toBe("-0.00");
+    expect(await excel('TEXT(-0.5,"0.00")')).toBe("-0.50");
+    expect(await excel('TEXT(0.004,"0.00")')).toBe("0.00");
+  });
+
+  test("a date written as text in arithmetic is refused; other text is #VALUE!", async () => {
+    expect(await excel('"2025-01-31"+0')).toEqual({ refused: "date-text" });
+    expect(await excel("A1*2", { A1: "1/31/2025" })).toEqual({ refused: "date-text" });
+    expect(await excel('"abc"+0')).toBe("#VALUE!");
+    expect(await excel('"12"+0')).toBe(12);
+  });
+
+  test("an approximate lookup over sorted keys that repeat finds the last of them, as LibreOffice does", async () => {
+    const cells = { B1: 1, B2: 2, B3: 2, B4: 3, B5: 4, C1: 10, C2: 20, C3: 21, C4: 30, C5: 40 };
+    expect(await excel("MATCH(2,B1:B5,1)", cells)).toBe(3);
+    expect(await excel("MATCH(2.5,B1:B5,1)", cells)).toBe(3);
+    expect(await excel("VLOOKUP(2,B1:C5,2,TRUE)", cells)).toBe(21);
   });
 
   test("an approximate lookup over an unsorted range is refused; over a sorted one it is found", async () => {

@@ -320,7 +320,8 @@ export function quotedSourceText(figure: FigureFinding): string | null {
 
 /** A row's source value in the note's terms, or null when there is none. */
 export function sourceValueText(row: FigureScheduleRow): string | null {
-  if (row.sourceValue === null) return null;
+  // A what-if is no Document's number (#2347), whatever an older row kept as its source value.
+  if (row.sourceValue === null || row.calculated?.figure.workbook?.change) return null;
   if (!row.sourceInput) return row.sourceShown;
   return writtenLike(row.reading, row.sourceValue, sourceDecimals(row));
 }

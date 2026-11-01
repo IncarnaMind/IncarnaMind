@@ -31,7 +31,15 @@ import {
   placeKey,
   WorkbookEngine,
 } from "./recalculate";
-import { type Chain, type ChainCell, cellOfChain, namedCell, traceChain, whatIf } from "./trace";
+import {
+  type Chain,
+  type ChainCell,
+  cellOfChain,
+  keptReason,
+  namedCell,
+  traceChain,
+  whatIf,
+} from "./trace";
 import { isError, type Scalar, textNumber } from "./values";
 
 /** The rules a workbook figure is worked out by: the functions and how they read cells. */
@@ -103,6 +111,8 @@ export function problemText(problem: CellProblem): string {
       return "uses a condition IncarnaMind can't read the way Excel does (a time, or a date written another way)";
     case "text-order":
       return "orders text with punctuation or letters outside A to Z, which Excel orders by rules of its own";
+    case "date-text":
+      return "reads a date or time written as text, which Excel reads by the computer's date settings";
   }
 }
 
@@ -117,12 +127,7 @@ function scalarText(value: Scalar): string {
 /** A cell that kept its saved value, as a figure records it for its card. */
 export function keptCell(each: Dependence): WorkbookKeptCell {
   const { problem } = each;
-  const reason: WorkbookKeptCell["reason"] =
-    problem.kind === "formula"
-      ? problem.part === "external" || problem.part === "table" || problem.part === "three-d"
-        ? problem.part
-        : "unreadable"
-      : problem.kind;
+  const reason = keptReason(problem);
   const name =
     problem.kind === "volatile" ||
     problem.kind === "finds-cells" ||
@@ -284,7 +289,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
   const readingOf = (book: Opened, shownText: string) =>
     readFigures(shownText, { ...book.figures, dates: false, midLine: true, header: null })[0];
 
-  /** A cell the model named: "D12", "Plan!D12", or a defined name; null with why when it isn't one. */
+  /** A cell the model named: "D12", "Model!D12", or a defined name; null with why when it isn't one. */
   const cellNamed = (
     book: Opened,
     written: string,
@@ -295,7 +300,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
       return { key: placeKey(named.sheet, named.row, named.column), sheet: named.sheet.name };
     const node = parseFormula(written.replace(/^=/, ""));
     if (node.kind !== "reference")
-      return `"${written}" isn't a cell such as "Plan!D12" or a defined name.`;
+      return `"${written}" isn't a cell such as "Model!D12" or a defined name.`;
     const { range } = node;
     if (range.top !== range.bottom || range.left !== range.right)
       return `"${written}" is a range; give one cell.`;
@@ -471,14 +476,14 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     provider: PROVIDER,
     providerTool: WORKBOOK_TOOLS.trace,
     description:
-      'Show how a figure in an Excel workbook is worked out from the workbook\'s own formulas: the formulas from its cell down to the inputs (cells holding numbers, such as assumptions) that drive it, worked out again and checked against the values Excel saved. Give the figure as calculate takes an input, its Passage, its row copied as quote and the number: {"passage": "P3", "quote": "Sales\\t410.0\\t455.2\\t503.8", "number": "455.2", "label": "Sales 2026"}; or a cell a result of this Tool named, {"passage": "P3", "cell": "Plan!D12", "label": "Sales 2026"}. It records the figure as [=n], its inputs cited to their cells: write [=n] where the number goes, and name the inputs that drive it.',
+      'A workbook\'s Passages show the values Excel saved, never its formulas: only this Tool shows how a figure in an Excel workbook is worked out. Call it before you answer whenever the Question asks what drives a figure, what it depends on or is built from, why it is what it is, or how it is worked out, even when the rows seem to show it. It gives the formulas from the figure\'s cell down to the inputs (cells holding numbers, such as assumptions) that drive it, worked out again and checked against the values Excel saved. Give the figure as calculate takes an input, its Passage, its row copied as quote and the number: {"passage": "P3", "quote": "Sales\\t410.0\\t455.2\\t503.8", "number": "455.2", "label": "Sales 2026"}; or a cell a result of this Tool named, {"passage": "P3", "cell": "Model!D12", "label": "Sales 2026"}. It records the figure as [=n], its inputs cited to their cells: write [=n] in the Answer where the figure\'s number goes, and name the inputs that drive it.',
     inputSchema: {
       type: "object",
       properties: {
         passage: { type: "string" },
         cell: {
           type: "string",
-          description: 'The figure\'s cell, as a result named it: "Plan!D12".',
+          description: 'The figure\'s cell, as a result named it: "Model!D12".',
         },
         quote: { type: "string" },
         number: { type: "string" },
@@ -573,25 +578,25 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     name: WORKBOOK_TOOLS.whatIf,
     provider: PROVIDER,
     providerTool: WORKBOOK_TOOLS.whatIf,
-    description: `Work a figure of an Excel workbook out again with one input changed (what-if), from the workbook's own formulas, on a copy in memory: the User's file is never changed. Give the figure as ${WORKBOOK_TOOLS.trace} takes it, the input to change (its cell as ${WORKBOOK_TOOLS.trace} lists it, "Inputs!C7", or its defined name, "Price") and its new value ("4%", "1250"). It records the result as [=n], naming the input changed; it refuses when the figure depends on a formula it can't work out.`,
+    description: `Work a figure of an Excel workbook out again with one input changed (what-if), from the workbook's own formulas, on a copy in memory: the User's file is never changed. Call it, never calculate, whenever the Question changes one of a workbook's inputs: arithmetic on the values a Passage shows leaves out the formulas that use that input. Give the figure as ${WORKBOOK_TOOLS.trace} takes it, the input to change (its cell as ${WORKBOOK_TOOLS.trace} lists it, "Inputs!C7", or its defined name, "Rate") and its new value ("4%", "1250"). It records the result as [=n], naming the input changed; it refuses when the figure depends on a formula it can't work out.`,
     inputSchema: {
       type: "object",
       properties: {
         passage: { type: "string" },
         cell: {
           type: "string",
-          description: 'The figure\'s cell, as a result named it: "Plan!D12".',
+          description: 'The figure\'s cell, as a result named it: "Model!D12".',
         },
         quote: { type: "string" },
         number: { type: "string" },
         citation: { type: "number" },
         label: {
           type: "string",
-          description: 'What the figure is, with the change: "Sales 2026 at a 4% price".',
+          description: 'What the figure is, with the change: "Sales 2026 at a 4% rate".',
         },
         input: {
           type: "string",
-          description: 'The input to change: "Inputs!C7" or "Price".',
+          description: 'The input to change: "Inputs!C7" or "Rate".',
         },
         value: { type: "string", description: 'Its new value: "4%".' },
       },

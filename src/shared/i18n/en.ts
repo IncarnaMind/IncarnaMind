@@ -849,6 +849,8 @@ export const en = {
     "{cell} uses a date before 1 March 1900, where Excel counts a 29 February 1900 that never was, so its saved value is used",
   "figures.workbook.kept.criterion":
     "{cell} uses a condition IncarnaMind can’t read the way Excel does, such as a time, so its saved value is used",
+  "figures.workbook.kept.date-text":
+    "{cell} reads a date or time written as text, which Excel reads by the computer’s date settings, so its saved value is used",
   "figures.workbook.kept.text-order":
     "{cell} orders text with punctuation or letters outside A to Z, which Excel orders by rules of its own, so its saved value is used",
   "figures.workbook.kept.too-large":
@@ -1142,6 +1144,20 @@ export const en = {
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.read-budget": "Stopped after {spent}; this read may spend up to {most}.",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
+  "claim.reason.workbook-differs":
+    "The value Excel saved differs from what the workbook’s formulas give, so this figure can’t be checked. Open the workbook in Excel and save it.",
+  "claim.reason.workbook-external":
+    "It uses a link to another file, which IncarnaMind can’t read, so this figure can’t be checked.",
+  "claim.reason.workbook-volatile":
+    "It uses a value that changes each time the workbook is worked out, so this figure can’t be checked.",
+  "claim.reason.workbook-circular":
+    "Its formulas refer to each other, so this figure can’t be checked.",
+  "claim.reason.workbook-not-read":
+    "It uses a hidden sheet, or rows, that weren’t read, so this figure can’t be checked.",
+  "claim.reason.workbook-no-saved-value":
+    "A formula it uses has no value saved by Excel, so this figure can’t be checked.",
+  "claim.reason.workbook-unsupported":
+    "It uses a formula IncarnaMind can’t work out, so this figure can’t be checked.",
   "claim.reason.workbook-changed":
     "The workbook’s cells no longer give this figure. Ask again to work it out from the workbook as it is now.",
   "claim.readBudget.continue": "Continue",

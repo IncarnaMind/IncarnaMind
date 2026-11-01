@@ -92,7 +92,12 @@ export function toNumber(value: Scalar): number | CellError {
   if (value === null) return 0;
   if (typeof value === "number") return value;
   if (typeof value === "boolean") return value ? 1 : 0;
-  if (typeof value === "string") return textNumber(value) ?? VALUE;
+  if (typeof value === "string") {
+    const number = textNumber(value);
+    if (number !== null) return number;
+    if (DATE_LIKE.test(value)) throw new Refusal("date-text");
+    return VALUE;
+  }
   return value;
 }
 
@@ -130,7 +135,17 @@ export function toBoolean(value: Scalar): boolean | CellError {
 }
 
 /** What a formula met as it ran that IncarnaMind can't work out with confidence. */
-export type Unsure = "unsorted" | "early-date" | "criterion" | "text-order" | "too-large";
+export type Unsure =
+  | "unsorted"
+  | "early-date"
+  | "criterion"
+  | "text-order"
+  | "too-large"
+  | "date-text";
+
+/** What Excel would read as a date or time, by the computer's settings, in a form not read here. */
+export const DATE_LIKE =
+  /:|\d[/.-]\d|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|[年月日]/i;
 
 /** Stops working a formula out: its cell keeps the value Excel saved, named with why. */
 export class Refusal extends Error {

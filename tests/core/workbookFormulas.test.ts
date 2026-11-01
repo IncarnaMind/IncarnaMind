@@ -117,6 +117,18 @@ describe("a workbook's formulas, worked out again", () => {
     ]);
   });
 
+  test("an assumption alone in its row is named by its row; one that runs across the years keeps each year", async () => {
+    const { model, engine } = await modelOf(libreOfficeFixture("three-statements"));
+    const chain = await traceChain(engine, at(model, "IS", 13, 4));
+    const labelOf = (ref: string) =>
+      chain.inputs.find((input) => `${input.sheet}!${input.ref}` === ref)?.label;
+    expect(chain.target.label).toBe("Net income 2027");
+    expect(labelOf("Inputs!B8")).toBe("Tax rate");
+    expect(labelOf("Inputs!B6")).toBe("Depreciation rate");
+    expect(labelOf("Inputs!B2")).toBe("Revenue growth 2025");
+    expect(labelOf("Inputs!D2")).toBe("Revenue growth 2027");
+  });
+
   test("a what-if on growth works the figure out again, in memory, and leaves the model as it was", async () => {
     const { model, engine } = await modelOf(libreOfficeFixture("dcf"));
     const growth = at(model, "Assumptions", 4, 1);

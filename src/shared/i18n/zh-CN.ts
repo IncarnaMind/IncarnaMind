@@ -827,6 +827,8 @@ export const zhCN = {
     "{cell} 使用了 1900 年 3 月 1 日之前的日期，Excel 会计入并不存在的 1900 年 2 月 29 日，因此使用其保存的值",
   "figures.workbook.kept.criterion":
     "{cell} 使用的条件无法按 Excel 的方式读取（例如时间），因此使用其保存的值",
+  "figures.workbook.kept.date-text":
+    "{cell} 把以文本写的日期或时间当作数字读取，Excel 会按电脑的日期设置来读，因此使用其保存的值",
   "figures.workbook.kept.text-order":
     "{cell} 对含标点或 A 到 Z 以外字母的文本排序，Excel 有自己的排序规则，因此使用其保存的值",
   "figures.workbook.kept.too-large": "{cell} 引用的区域过大，无法在此计算，因此使用其保存的值",
@@ -1109,6 +1111,16 @@ export const zhCN = {
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
   "claim.reason.read-budget": "已花 {spent} 后停止，这次读取最多可花 {most}。",
   "claim.reason.read-budget.unknown": "已停止：已达到这次读取最多可花的费用。",
+  "claim.reason.workbook-differs":
+    "Excel 保存的值与工作簿公式算出的不同，因此无法核对这个数。请在 Excel 中打开工作簿并保存。",
+  "claim.reason.workbook-external":
+    "它用到了指向另一个文件的链接，IncarnaMind 无法读取，因此无法核对这个数。",
+  "claim.reason.workbook-volatile": "它用到了每次计算都会变化的值，因此无法核对这个数。",
+  "claim.reason.workbook-circular": "它的公式相互引用，因此无法核对这个数。",
+  "claim.reason.workbook-not-read": "它用到了未读取的隐藏工作表或行，因此无法核对这个数。",
+  "claim.reason.workbook-no-saved-value":
+    "它用到的某个公式没有 Excel 保存的值，因此无法核对这个数。",
+  "claim.reason.workbook-unsupported": "它用到了 IncarnaMind 无法计算的公式，因此无法核对这个数。",
   "claim.reason.workbook-changed":
     "按工作簿现在的单元格，已得不出这个数。请重新提问，按工作簿现在的内容再算一次。",
   "claim.readBudget.continue": "继续",

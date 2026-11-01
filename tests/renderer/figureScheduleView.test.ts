@@ -666,6 +666,9 @@ test.each(["en", "zh-CN"] as const)(
       value: 254.7,
     };
     const whatIf = row("what-if", 3, {
+      sourceInput: null,
+      sourceValue: 240.4,
+      sourceShown: "240.4",
       calculated: {
         id: "what-if",
         analysisId: null,
@@ -695,6 +698,8 @@ test.each(["en", "zh-CN"] as const)(
         ? "What-if: DCF!E5 = E4*Margin, with Revenue growth (Growth) at 3.0% (5.0% in the workbook)"
         : "假设情形：DCF!E5 = E4*Margin，其中“Revenue growth (Growth)”取 3.0%（工作簿中为 5.0%）",
     );
+    // A what-if is no Document's number: it has no source value, in the schedule or its export.
+    expect(lineShows({ id: "what-if", parent: whatIf }, language).value).toBeNull();
     expect(lineShows({ id: "kid", parent: whatIf, input: growth }, language)).toMatchObject({
       value: "3.0%",
       status: { glyph: "not-checked", word: "figures.workbook.whatIfInput", why: null },
@@ -709,6 +714,11 @@ test.each(["en", "zh-CN"] as const)(
       sheet?.rows
         .find((each) => each.id === id)
         ?.cells.flatMap((cell) => (cell.value.kind === "text" ? [cell.value.text] : []));
+    expect(
+      sheet?.rows
+        .find((each) => each.id === "what-if")
+        ?.cells.find((cell) => cell.column === "sourceValue")?.value,
+    ).toEqual({ kind: "empty" });
     expect(texts("what-if")?.[1]).toContain(
       language === "en" ? "What-if: DCF!E5" : "假设情形：DCF!E5",
     );
