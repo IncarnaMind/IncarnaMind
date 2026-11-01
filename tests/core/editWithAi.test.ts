@@ -5557,7 +5557,7 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     expect(await acceptThenUndo(client, before)).toEqual([reply, lines[1], lines[2]]);
   });
 
-  // protects=a reply that names any of its paragraphs is read by their names, and its plain lines with none are its own words, shown when nothing else changes (#2356): a line before the first name ("Here is the text:") never goes in, and a rewrite given no name writes over nothing; fails_when=a line with no name lands in the Note or over a paragraph, or a name is left in the Note as text; no_claim=how often a model leaves a name out.
+  // protects=a reply is read the way its first paragraph that names or reads much like one of the selection's says (#2356): a line like none before a name ("Here is the text:"), or before a removal it names, never goes in, while a reply that starts with a rewrite given no name is paired by its words as #2344 pairs it, its names taken off; English and Chinese; fails_when=a line with no name lands in the Note or over a paragraph, or a name is left in the Note as text; no_claim=how often a model leaves a name out.
   test.each([
     {
       reply: "Here is the revised text:\n\n¶1 Rent is 1,250 a month.",
@@ -5566,8 +5566,8 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     },
     {
       reply: "Rent is 1,250 a month.\n\n¶2 Water is 30 a month.",
-      result: { kind: "unchanged", said: "Rent is 1,250 a month." },
-      after: ["Rent is 1,200 a month.", "Water is 30 a month."],
+      result: { kind: "proposed" },
+      after: ["Rent is 1,250 a month.", "Water is 30 a month."],
     },
     {
       reply: "修改如下：\n\n¶1 房租每月1250元。",
@@ -5575,14 +5575,29 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       result: { kind: "proposed" },
       after: ["房租每月1250元。", "水费每月30元。"],
     },
-  ])("a line with no name in a reply that names others is never written: $reply", async (each) => {
-    const lines = each.lines ?? ["Rent is 1,200 a month.", "Water is 30 a month."];
-    const { core, mind, client, before } = await noteOf(plain(lines), () => each.reply);
+    {
+      reply:
+        "The task is to take out the water line.\n\n¶2 <removed>Water is 30 a month.</removed>",
+      result: { kind: "proposed" },
+      after: ["Rent is 1,200 a month."],
+    },
+    {
+      reply: "The task is to delete this line.\n\n¶2 <removed>水费每月30元。</removed>",
+      lines: ["房租每月1200元。", "水费每月30元。"],
+      result: { kind: "proposed" },
+      after: ["房租每月1200元。"],
+    },
+  ])(
+    "a reply is read by its first line that names or rewrites a paragraph: $reply",
+    async (each) => {
+      const lines = each.lines ?? ["Rent is 1,200 a month.", "Water is 30 a month."];
+      const { core, mind, client, before } = await noteOf(plain(lines), () => each.reply);
 
-    expect(await core.editWithAi(wholeMind(client, mind.id, "Rent is 1,250"))).toMatchObject(
-      each.result,
-    );
+      expect(await core.editWithAi(wholeMind(client, mind.id, "Rent is 1,250"))).toMatchObject(
+        each.result,
+      );
 
-    expect(await acceptThenUndo(client, before)).toEqual(each.after);
-  });
+      expect(await acceptThenUndo(client, before)).toEqual(each.after);
+    },
+  );
 });

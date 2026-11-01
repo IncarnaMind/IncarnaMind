@@ -92,13 +92,18 @@ export const NAME_LINE = String.raw`[ \t]*¶\S`;
 /** The name a line starts with, and the spaces after it. */
 export const NAME_AT_LINE = /^[ \t]*¶\S*[ \t]*/;
 
+/** A name written just before a <removed> mark at a line's start. */
+const NAMED_REMOVAL = /(^|\n)[ \t]*¶(?:\d+\+?|\+)[ \t]*(?=<removed[\s/>])/gi;
+
 /**
  * The reply with a name written just before a <removed> mark at a line's start taken off, so the
  * mark starts its line and quotes paragraphs (`readRemovals`); names inside a quote are read off
  * with its paragraphs.
  */
-export const unnameRemovals = (text: string) =>
-  text.replace(/(^|\n)[ \t]*¶(?:\d+\+?|\+)[ \t]*(?=<removed[\s/>])/gi, "$1");
+export const unnameRemovals = (text: string) => text.replace(NAMED_REMOVAL, "$1");
+
+/** Whether the reply names a paragraph it quotes as taken out, as only a reply read by names does. */
+export const namesRemoval = (text: string) => new RegExp(NAMED_REMOVAL.source, "i").test(text);
 
 /** A reply's text as it reads, without the names its lines start with, and escaped names made words again. */
 export const withoutNames = (text: string) =>

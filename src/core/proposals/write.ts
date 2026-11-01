@@ -72,6 +72,7 @@ import {
   escapeNames,
   NAME_AT_LINE,
   NAME_LINE,
+  namesRemoval,
   type ParagraphName,
   paragraphName,
   readName,
@@ -2068,8 +2069,9 @@ export type RewritePlace = { over: Y.XmlElement } | { after: Y.XmlElement };
  * with none is new. A paragraph it doesn't name is never written over or taken out, nor counted
  * as left out: only a quote takes one out. A name twice, one the passage hasn't, or one with no
  * words after it is `misnamed`: nothing more is written, for the edit to be refused. A text that
- * names none is paired as above, and is `onlyAside` when it would only add plain lines. Until a
- * name comes or the text ends, nothing is written. A rewrite that leaves out a <removed> the
+ * names none is paired as above, and is `onlyAside` when it would only add plain lines. Which
+ * way a text is read is told by its first paragraph that has a name or reads much like one of the
+ * selection's; nothing is written before it. A rewrite that leaves out a <removed> the
  * User typed is `droppedTypedTag`, refused too.
  */
 export function createRewriteStream(
@@ -2208,7 +2210,7 @@ export function createRewriteStream(
   let droppedTypedTag = false;
   const aside: string[] = [];
   let onlyAside = false;
-  /** Finished paragraphs of a text not yet known to name any: none is written until one does, or it ends. */
+  /** Finished paragraphs before any that names or reads as one of the selection's: none is written until one does, or the text ends. */
   let waiting: NewParagraph[] = [];
   let waited = false;
   /** The name of the paragraph being written now. */
@@ -2769,11 +2771,15 @@ export function createRewriteStream(
           misnamed = true;
           return;
         }
-        // A text names the paragraph each of its own replaces once any of them carries a name;
-        // until one does, or it ends, none is written.
+        // The first paragraph that names one of the selection's or reads much like one says how
+        // the text is read, else a removal it names; lines before, like none ("Here is the
+        // text:"), wait for it.
         if (byName === null) {
-          if (paragraphs.slice(0, finished).some((paragraph) => paragraph.name !== undefined))
-            byName = true;
+          const telling = paragraphs
+            .slice(0, finished)
+            .find((paragraph) => paragraph.name !== undefined || resembles(paragraph));
+          if (telling) byName = telling.name !== undefined;
+          else if (namesRemoval(text)) byName = true;
           else if (done) byName = false;
           else {
             waiting = paragraphs.slice(0, finished);

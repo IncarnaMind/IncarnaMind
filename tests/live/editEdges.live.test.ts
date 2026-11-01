@@ -208,6 +208,16 @@ function textsOf(client: MindClient): string[] {
   return texts;
 }
 
+/**
+ * Whether `text` says `said`: a <removed>…</removed> the User typed is said when its tags and the
+ * word between them stand in order, as a formal rewrite may set the word in quotation marks.
+ */
+function says(text: string, said: string): boolean {
+  const typed = /^<removed>(.+)<\/removed>$/.exec(said)?.[1];
+  if (typed === undefined) return text.includes(said);
+  return new RegExp(`<removed>[^<>\\n]*${typed}[^<>\\n]*<\\/removed>`, "i").test(text);
+}
+
 /** What went wrong, if anything: `lost` when a word of the User's is gone, else `not as asked`. */
 function verdict(asked: Case, before: string[], after: string[], result: EditWithAiResult) {
   const missing = asked.kept.filter((line) => !after.includes(line));
@@ -223,7 +233,7 @@ function verdict(asked: Case, before: string[], after: string[], result: EditWit
   if ((asked.gone ?? []).some((line) => after.includes(line))) return "not as asked: still there";
   const fresh = after.filter((line) => !before.includes(line));
   const joined = after.join("\n").toLowerCase();
-  if (!(asked.says ?? []).every((word) => joined.includes(word.toLowerCase())))
+  if (!(asked.says ?? []).every((word) => says(joined, word.toLowerCase())))
     return `${asked.kind === "typed" ? "lost" : "not as asked"}: doesn't say ${JSON.stringify(asked.says)}`;
   if (asked.added !== undefined && fresh.length !== asked.added)
     return `not as asked: ${fresh.length} new lines`;
