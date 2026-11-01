@@ -93,18 +93,29 @@ describe("the rows a quote covers, each with its name", () => {
     expect(citedRowNames(trialBalance, ["B8"])).toEqual([{ row: 8, name: null }]);
   });
 
-  test("a text code, a note reference and a currency beside the name don't stand in for it", () => {
+  test("a category left of the account: the nearest, the account, names the row", () => {
     const sheet = sheetOf([
-      text(4, 0, "AR01"),
-      text(4, 1, "Rent"),
+      text(4, 0, "Current liabilities"),
+      text(4, 1, "VAT"),
+      figure(4, 2, "1,200.00"),
+    ]);
+    expect(citedRowNames(sheet, ["A4", "B4", "C4"])).toEqual([{ row: 4, name: "VAT" }]);
+    const chinese = sheetOf([
+      text(4, 0, "流动负债"),
+      text(4, 1, "应交税费"),
+      figure(4, 2, "1,200.00"),
+    ]);
+    expect(citedRowNames(chinese, ["C4"])).toEqual([{ row: 4, name: "应交税费" }]);
+  });
+
+  test("a note between two figures: the text nearest left of the leftmost figure names the row", () => {
+    const sheet = sheetOf([
+      text(4, 0, "Rent"),
+      figure(4, 1, "100.00"),
       text(4, 2, "Note 12"),
-      text(4, 3, "USD"),
-      text(4, 4, "BS-1200"),
-      figure(4, 5, "10.00"),
+      figure(4, 3, "200.00"),
     ]);
-    expect(citedRowNames(sheet, ["A4", "B4", "C4", "D4", "E4", "F4"])).toEqual([
-      { row: 4, name: "Rent" },
-    ]);
+    expect(citedRowNames(sheet, ["A4", "B4", "C4", "D4"])).toEqual([{ row: 4, name: "Rent" }]);
   });
 
   test("figures stored as text are figures", () => {

@@ -31,14 +31,14 @@ export interface CitedRow {
 }
 
 /**
- * The rows a quote covers on `sheet`, in row order, each with its name: of
- * the text left of its cited figures, the cell with the most letters (the
- * leftmost of equals), so an account code, a note reference or a currency
- * beside the name ("AR01", "Note 12", "USD") never stands in for it. A figure
- * stored as text counts as a figure. A merged cell's text counts where the
- * merge covers that place. Hidden columns, text the cell's number format
- * hides, and text that names nothing (no letter, as a figure or year typed as
- * text, "-", or else "n/a", an Excel error or a boolean) are passed over.
+ * The rows a quote covers on `sheet`, in row order, each with its name: the
+ * nearest text left of its leftmost cited figure, or of the next figure when
+ * none is (an account code stored as a number, in column A, has nothing left
+ * of it). A figure stored as text counts as a figure. A merged cell's text
+ * counts where the merge covers that place. Hidden columns, text the cell's
+ * number format hides, and text that names nothing (no letter, as a figure or
+ * year typed as text, "-", or else "n/a", an Excel error or a boolean) are
+ * passed over.
  */
 export function citedRowNames(sheet: Sheet, cited: Iterable<string>): CitedRow[] {
   const cells = new Map(sheet.cells.map((cell) => [`${cell.row}:${cell.column}`, cell]));
@@ -69,24 +69,24 @@ export function citedRowNames(sheet: Sheet, cited: Iterable<string>): CitedRow[]
     }
     return found.text;
   };
-  const figures = new Map<number, number>();
-  const rows = new Set<number>();
+  const figures = new Map<number, Set<number>>();
   for (const ref of cited) {
     const at = parseCellRef(ref);
     if (!at) continue;
-    rows.add(at.row);
-    if (!textAt(at.row, at.column)?.figure) continue;
-    figures.set(at.row, Math.max(figures.get(at.row) ?? at.column, at.column));
+    const columns = figures.get(at.row) ?? new Set<number>();
+    if (textAt(at.row, at.column)?.figure) columns.add(at.column);
+    figures.set(at.row, columns);
   }
-  return [...rows]
-    .sort((a, b) => a - b)
-    .map((row) => {
-      let best: string | null = null;
-      for (let column = 0; column < (figures.get(row) ?? 0); column++) {
-        const name = nameAt(row, column);
-        if (name && lettersIn(name) > (best === null ? 0 : lettersIn(best))) best = name;
+  return [...figures.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([row, columns]) => {
+      for (const figure of [...columns].sort((a, b) => a - b)) {
+        for (let column = figure - 1; column >= 0; column--) {
+          const name = nameAt(row, column);
+          if (name) return { row, name };
+        }
       }
-      return { row, name: best };
+      return { row, name: null };
     });
 }
 
