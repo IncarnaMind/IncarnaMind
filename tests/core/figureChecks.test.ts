@@ -1564,7 +1564,8 @@ test("a quoted heading states the scale and currency the bare digits lack", asyn
   const { result } = await checkWith({
     figures: [target("f1", "£528.9m", "Net debt")],
     body,
-    quotes: ["528.9"],
+    // Bare digits outside a table's row name no measure: the quote takes its label line (#2255).
+    quotes: [body],
     text: reply([{ ...item(), source: { ...item().source, unitQuote: "Net debt (£m)" } }]),
   });
   expect(result.figures?.[0]?.sourceInput?.unitStatement).not.toBeNull();

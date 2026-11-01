@@ -11,6 +11,7 @@
 import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
+import { measureFinding } from "../../src/core/answers/checks/figureMeasures";
 import type { FigureCheckAttributes } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -60,6 +61,29 @@ const ZH_DOCUMENT = {
     "| 指标 | 2025年 |",
     "| --- | --- |",
     "| 毛利率 | 31% |",
+    "",
+  ].join("\n"),
+};
+
+/** A heading that names a measure above a line about another (#2255's review). */
+const HEADED = {
+  en: {
+    name: "Harbour results 2025.md",
+    contents: "## Operating margin\n\nRevenue grew 12% in 2025, to £48.2m.\n",
+  },
+  zh: { name: "港口业绩2025.md", contents: "## 营业利润率\n\n2025年收入增长12%，达到4.82亿元。\n" },
+};
+
+/** Rows whose numbers start the same, and two rows with one number. */
+const ROWS = {
+  name: "Depot measures 2025.md",
+  contents: [
+    "| Measure | 2025 |",
+    "| --- | --- |",
+    "| Operating margin | 21.5% |",
+    "| Revenue growth | 21% |",
+    "| Headcount growth | 7% |",
+    "| Depot growth | 7% |",
     "",
   ].join("\n"),
 };
@@ -262,31 +286,59 @@ describe.each([
     ]);
   });
 
-  // protects=the check finds the measure's words where the reply says it copied them, so words the quote doesn't hold, a measure left out or the number alone never make a figure Supported (#2255); fails_when=any of these is Supported; no_claim=which words a real model copies.
+  // protects=the check finds the measure's words where the reply says it copied them, so words the quote doesn't hold, a measure left out, the number alone, or a match that is neither same nor differs never make a figure Supported (#2255); fails_when=any of these is Supported; no_claim=which words a real model copies.
   test.each([
     { name: "words the quote doesn't hold", quote: "operating margin", sentence: null },
     { name: "words the sentence doesn't hold", quote: null, sentence: "gross margin" },
     { name: "the number alone", quote: "12%", sentence: "12%" },
     { name: "no measure", quote: undefined, sentence: undefined },
-  ])("a measure it can't find, $name, is never Supported", async ({ quote, sentence }) => {
-    const measure =
-      quote === undefined
-        ? null
-        : {
-            sentence: sentence ?? example.claimed,
-            quote: quote ?? example.measured,
-            match: "same",
-          };
+    { name: "a match of yes", quote: null, sentence: null, match: "yes" },
+  ])(
+    "a measure it can't find, $name, is never Supported",
+    async ({ quote, sentence, match = "same" }) => {
+      const measure =
+        quote === undefined
+          ? null
+          : {
+              sentence: sentence ?? example.claimed,
+              quote: quote ?? example.measured,
+              match,
+            };
+      const { figures } = await checkNote(
+        example.language,
+        example.document,
+        [paragraph("wrong", example.wrong)],
+        one(example.wrong, { quote: example.quote, number: "12%", measure }),
+      );
+      expect(figures).toMatchObject([
+        { sentence: example.wrong, state: "not-checked", reason: "malformed" },
+      ]);
+      expect(figures[0]?.sentenceState).not.toBe("supported");
+    },
+  );
+
+  // protects=a number quoted alone from prose has its measure in its own sentence, so the reply names it from there: with no words, or empty ones, it is never Supported, as only a table's cell may name nothing; with its sentence's words it is (#2255); fails_when=a bare prose quote is Supported on no words, or not on its sentence's; no_claim=none beyond protects.
+  test.each([
+    { sentence: example.wrong, words: null, said: example.claimed, state: "not-checked" },
+    { sentence: example.wrong, words: "", said: example.claimed, state: "not-checked" },
+    {
+      sentence: example.right,
+      words: example.measured,
+      said: example.measured,
+      state: "supported",
+    },
+  ])("a number quoted alone from prose: $words", async ({ sentence, words, said, state }) => {
     const { figures } = await checkNote(
       example.language,
       example.document,
-      [paragraph("wrong", example.wrong)],
-      one(example.wrong, { quote: example.quote, number: "12%", measure }),
+      [paragraph("bare", sentence)],
+      one(sentence, {
+        quote: "12%",
+        number: "12%",
+        measure: { sentence: said, quote: words, match: "same" },
+      }),
     );
-    expect(figures).toMatchObject([
-      { sentence: example.wrong, state: "not-checked", reason: "malformed" },
-    ]);
-    expect(figures[0]?.sentenceState).not.toBe("supported");
+    expect(figures).toMatchObject([{ sentence, state }]);
   });
 
   // protects=the card gives the plain reason when the model itself calls the figure unsupported for another measure, as the check's instructions ask, and a figure it calls contradicted on another measure's number, even with the sentence's measure paraphrased, is Unsupported, never Contradicted (#2255); fails_when=the reason shows only on a wrong Supported reply, or another measure's number contradicts the figure; no_claim=none beyond protects.
@@ -486,4 +538,106 @@ describe("a table's row label and headings say what a cell measures (#2255)", ()
       expect(figures).toMatchObject([{ sentence, state }]);
     },
   );
+});
+
+describe("where a quote's words may come from (#2255's review)", () => {
+  // protects=a heading is never part of a quote's sentence: words above the quote's line don't name its number, in English and Chinese, while a clause still takes its sentence's subject (#2255); fails_when=a heading's measure makes another measure's figure Supported, or the clause loses its subject; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "en" as const,
+      document: HEADED.en,
+      sentence: "Operating margin was 12% in 2025.",
+      quote: "Revenue grew 12% in 2025",
+      number: "12%",
+      measure: { sentence: "Operating margin", quote: "Operating margin", match: "same" },
+      state: "not-checked",
+    },
+    {
+      language: "en" as const,
+      document: HEADED.en,
+      sentence: "Revenue reached £48.2m in 2025.",
+      quote: "to £48.2m",
+      number: "£48.2m",
+      measure: { sentence: "Revenue", quote: "Revenue", match: "same" },
+      state: "supported",
+    },
+    {
+      language: "zh-CN" as const,
+      document: HEADED.zh,
+      sentence: "2025年营业利润率为12%。",
+      quote: "2025年收入增长12%",
+      number: "12%",
+      measure: { sentence: "营业利润率", quote: "营业利润率", match: "same" },
+      state: "not-checked",
+    },
+  ])("a heading above the quote: $sentence", async ({ language, document, sentence, ...reply }) => {
+    const { figures } = await checkNote(language, document, [paragraph("h", sentence)], () => ({
+      quote: reply.quote,
+      number: reply.number,
+      measure: reply.measure,
+    }));
+    expect(figures).toMatchObject([{ sentence, state: reply.state }]);
+  });
+
+  // protects=a cell's row is found by the quote's text, so "21%" is the "21%" row's, never the "21.5%" row's, and a quote two rows hold is in neither (#2255); fails_when=another row's label makes a figure Supported; no_claim=none beyond protects.
+  test.each([
+    {
+      sentence: "Operating margin was 21% in 2025.",
+      quote: "21%",
+      row: "Operating margin",
+      state: "not-checked",
+    },
+    {
+      sentence: "Revenue growth was 21% in 2025.",
+      quote: "21%",
+      row: "Revenue growth",
+      state: "supported",
+    },
+    {
+      sentence: "Headcount growth was 7% in 2025.",
+      quote: "7%",
+      row: "Headcount growth",
+      state: "not-checked",
+    },
+  ])("a cell's own row: $quote for $row", async ({ sentence, quote, row, state }) => {
+    const { figures } = await checkNote("en", ROWS, [paragraph("r", sentence)], () => ({
+      quote,
+      number: quote,
+      measure: { sentence: row, quote: row, match: "same" },
+    }));
+    expect(figures).toMatchObject([{ sentence, state }]);
+  });
+
+  // protects=the sentence's words for its measure may be in its paragraph, where "It" gets its subject, and are then the sentence's own (#2255); fails_when=a figure whose measure only its paragraph names can't be Supported; no_claim=that words from another sentence of the paragraph name the right figure.
+  test("the paragraph names the measure a sentence refers to", async () => {
+    const text = "Revenue was the year's story. It grew 12% in 2025.";
+    const { figures } = await checkNote("en", EN_DOCUMENT, [paragraph("p", text)], () => ({
+      quote: "Revenue grew 12% in 2025, to £48.2m.",
+      number: "12%",
+      measure: { sentence: "Revenue", quote: "Revenue", match: "same" },
+    }));
+    expect(figures).toMatchObject([{ sentence: "It grew 12% in 2025.", state: "supported" }]);
+  });
+
+  // protects=a quote is placed by the first text that holds it, its cited pages before the rest of its Document, so a number its page holds once is placed there though the Document holds it twice; a Document's second "12%" never lends its words (#2255); fails_when=the cited page doesn't decide; no_claim=none beyond protects.
+  test("the cited page places a quote its Document holds twice", () => {
+    const page = "Revenue grew 12% in 2025.";
+    const document = `${page}\n\nOperating margin was 12% in 2024.`;
+    const sentence = (said: string) => [`${said} was 12% in 2025.`];
+    const finding = (said: string) =>
+      measureFinding({ sentence: said, quote: null, match: "same" }, sentence(said), "12%", () => [
+        page,
+        document,
+      ]).kind;
+    const named = (said: string) =>
+      measureFinding({ sentence: said, quote: said, match: "same" }, sentence(said), "12%", () => [
+        page,
+        document,
+      ]).kind;
+    expect([named("Revenue"), named("Operating margin"), finding("Revenue")]).toEqual([
+      "same",
+      "unread",
+      "unread",
+    ]);
+  });
 });

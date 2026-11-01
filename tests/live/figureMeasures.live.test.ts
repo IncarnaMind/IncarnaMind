@@ -273,6 +273,12 @@ for (const language of LANGUAGES) {
       };
       if (process.env.INCARNAMIND_LIVE_REPORT)
         await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${JSON.stringify(report)}\n`);
+      // A run that checked nothing would pass the bar below: every sentence must have a check.
+      expect(result.kind, JSON.stringify(report)).toBe("checked");
+      expect(
+        [...wrong, ...right, ...swaps].filter((each) => each.state === "missing"),
+        JSON.stringify(report),
+      ).toEqual([]);
       expect([...wrong, ...swaps].filter(supported), JSON.stringify(report)).toEqual([]);
     },
   );

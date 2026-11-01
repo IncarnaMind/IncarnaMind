@@ -1212,7 +1212,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           deps.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
         around: (citation) => {
           const text = checkedTextOf(citation, scoped.pageTexts);
-          return [text.cited(), text.document()];
+          // With no pages cited, the cited text is the quote alone, which places it nowhere.
+          return citation.pageFrom === null ? [text.document()] : [text.cited(), text.document()];
         },
         otherMeasure: (amount, measure, claimed) => ({
           reason: translate(deps.language(), "claim.unsupported.otherMeasure", {

@@ -14,6 +14,7 @@
  */
 
 import { WHOLE_READ } from "../../core/answers/checks/absence";
+import { namesSomething } from "../../core/answers/checks/figureMeasures";
 import {
   PRESENCE_INSTRUCTIONS,
   STRICT_PRESENCE_INSTRUCTIONS,
@@ -393,6 +394,12 @@ function figuresReply(
       verdict: "supported",
       topic: "found",
       ...judged,
+      // What the number measures, in words copied whole: a cell's row, else its sentence, and its line.
+      measure: {
+        sentence: rowOf(figure) ?? sentence,
+        quote: namesSomething(line.quote) ? line.quote : null,
+        match: "same",
+      },
       reading: own ? (own.kind === "scale" && unitQuote ? 2 : 1) : null,
       // A lone number's separators settle nothing in its Document: it reads as written.
       source: { citation: line.marker, position: nearest + 1, reading: 1, unitQuote },
