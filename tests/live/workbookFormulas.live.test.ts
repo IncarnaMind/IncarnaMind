@@ -51,6 +51,22 @@ const QUESTIONS: {
     cell: "IS!E13",
     change: { value: 0.25, result: 245.532546 },
   },
+  {
+    question: "How is the LBO's MOIC worked out, and from which inputs?",
+    cell: "LBO!B30",
+    change: null,
+  },
+  {
+    question: "What would the LBO's term loan payment be if the interest rate were 7%?",
+    cell: "LBO!B34",
+    change: { value: 0.07, result: 121.94534722068695 },
+  },
+  { question: "三表模型中，2027 年末的现金余额取决于什么？", cell: "BS!E3", change: null },
+  {
+    question: "如果 2026 年的收入增长率是 10%，三表模型里 2027 年末的现金是多少？",
+    cell: "BS!E3",
+    change: { value: 0.1, result: 638.7805408328768 },
+  },
 ];
 
 /** Whether an Answer gives the Question's figure from its cell, and a what-if with LibreOffice's result. */

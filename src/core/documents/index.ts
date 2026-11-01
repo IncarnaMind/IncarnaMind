@@ -206,6 +206,13 @@ function parseJson<T>(json: string | null): T | null {
   }
 }
 
+/** A Unit's label as the viewer gets it: a workbook's formulas and saved values stay in the core, which alone reads them (#2347). */
+function viewedLabel(label: UnitLabel | null | undefined): UnitLabel | null {
+  if (!label) return null;
+  const { formulas: _formulas, saved: _saved, workbook: _workbook, ...viewed } = label;
+  return viewed;
+}
+
 const toUnitText = (row: UnitRow): PageText => ({
   page: row.page,
   text: row.text,
@@ -2594,7 +2601,7 @@ export function createDocuments(options: DocumentsOptions) {
           page: unit.page ?? 1,
           text: unit.text,
           kind: unit.kind ?? "page",
-          label: unit.label ?? null,
+          label: viewedLabel(unit.label),
         })),
       };
     },
@@ -2640,7 +2647,7 @@ export function createDocuments(options: DocumentsOptions) {
           page: unit.page ?? 1,
           text: unit.text,
           kind: unit.kind ?? "page",
-          label: unit.label ?? null,
+          label: viewedLabel(unit.label),
         })),
       };
     },

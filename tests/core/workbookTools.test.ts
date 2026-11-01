@@ -63,7 +63,7 @@ async function setUp(
   const file = await writeSourceFile(await createTempDataFolder(), name, contents);
   const [document] = await addAndProcess(core, [file]);
   if (ownWorkings && document) await core.setNotCited(document.id, true);
-  return { core, file };
+  return { core, file, document };
 }
 
 async function ask(core: Core, text: string) {
@@ -176,6 +176,17 @@ describe("a workbook's formulas in an Answer", () => {
       );
     },
   );
+
+  test("the viewer gets a workbook's text without the formulas and saved values only the core reads", async () => {
+    const model = modelling({ query: "EBITDA", calls: [], answer: "Answered." });
+    const { core, document } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
+    if (!document) throw new Error("The workbook wasn't added.");
+    const labels = (await core.readDocumentText(document.id)).pages.map((page) => page.label);
+    expect(labels.map((label) => label?.sheet)).toContain("DCF");
+    expect(labels.filter((label) => label?.formulas || label?.saved || label?.workbook)).toEqual(
+      [],
+    );
+  });
 
   test("a what-if over a volatile formula is refused, named; the figure traced keeps its saved value, marked", async () => {
     const model = modelling({
