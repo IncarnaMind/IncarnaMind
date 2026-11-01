@@ -55,6 +55,8 @@ interface AskedChangesState {
    * wait only once this Mind's copy no longer holds them, so a count never shows what was applied.
    */
   accepted: Readonly<Record<string, readonly string[]>>;
+  /** The Answers this window is still answering, or applying the changes of. */
+  arriving: ReadonlySet<string>;
 }
 
 export const useAskedChanges = create<AskedChangesState>()(() => ({
@@ -62,7 +64,13 @@ export const useAskedChanges = create<AskedChangesState>()(() => ({
   facts: {},
   onTop: {},
   accepted: {},
+  arriving: new Set(),
 }));
+
+/** Keeps the Answers still on their way, as the cards count what waits around them (#1325). */
+function syncArriving(): void {
+  useAskedChanges.setState({ arriving: new Set([...askedHere, ...finishing.keys()]) });
+}
 
 type ApplicationRef = Pick<AskedChangeApplication, "undoId" | "held">;
 
@@ -307,6 +315,13 @@ async function makeWayForAnswer(
 /** An Answer this window has just asked for: what it was asked to write or change applies here. */
 export function applyWhatIsAsked(answerId: string): void {
   askedHere.add(answerId);
+  syncArriving();
+}
+
+/** An Answer this window asked for that nothing will be written for: nothing of it is on its way. */
+export function applyNotAsked(answerId: string): void {
+  if (!askedHere.delete(answerId)) return;
+  syncArriving();
 }
 
 /**
@@ -320,6 +335,7 @@ export async function applyWhatWasAsked(
   { keepWritten = false } = {},
 ): Promise<void> {
   askedHere.add(answerId);
+  syncArriving();
   await undoSettled();
   const pending = finishing.get(answerId);
   if (pending) await pending.catch(useAppStore.getState().reportError);
@@ -357,6 +373,10 @@ export async function applyWhatWasAsked(
 
 export const useWrittenOnTop = (answerId: string, mindId: string): boolean =>
   useAskedChanges((state) => state.onTop[keyOf(answerId, mindId)] === true);
+
+/** The Answers this window is still answering, or applying the changes of: what its cards leave out. */
+export const useArrivingAnswers = (): ReadonlySet<string> =>
+  useAskedChanges((state) => state.arriving);
 
 const askedOf = (doc: Y.Doc, row: ChangedMind): Set<string> =>
   new Set(row.requests.filter((request) => askedFor(doc, request)));
@@ -470,8 +490,10 @@ const finish = (answer: ConversationAnswer): Promise<unknown> => {
     }
   });
   finishing.set(answer.id, task);
+  syncArriving();
   return task.finally(() => {
     if (finishing.get(answer.id) === task) finishing.delete(answer.id);
+    syncArriving();
   });
 };
 
@@ -693,5 +715,6 @@ core.on("conversation.message", (message) => {
   for (const row of changedMinds(answer)) follow(row);
   if (answer.status === "streaming") return;
   askedHere.delete(answer.id);
+  syncArriving();
   finish(answer).catch(useAppStore.getState().reportError);
 });
