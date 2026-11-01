@@ -5821,6 +5821,41 @@ describe("A rewrite of text marked as code (#2362)", () => {
     expect(await acceptThenUndo(client, before)).toEqual([after]);
   });
 
+  // protects=an export while a change to code waits writes the code as it was, one span, in Markdown, and Word and HTML export it; once accepted, the new code; fails_when=two code spans touch ("`npm ``test`"), which Markdown reads as one holding backticks, or an export fails; no_claim=how other formats draw code.
+  test.each([
+    {
+      content: [text("Run "), code("npm test"), text(" before you push.")],
+      reply: "Run npm ci before you push.",
+      was: "Run `npm test` before you push.",
+      now: "Run `npm ci` before you push.",
+    },
+    {
+      content: [text("Start it with "), code("npm run dev --open"), text(" in a terminal.")],
+      reply: "Start it with npm run dev in a terminal.",
+      was: "Start it with `npm run dev --open` in a terminal.",
+      now: "Start it with `npm run dev `in a terminal.",
+    },
+    {
+      content: [text("推送之前运行"), code("npm test"), text("。")],
+      reply: "推送之前运行npm ci。",
+      was: "推送之前运行`npm test`。",
+      now: "推送之前运行`npm ci`。",
+    },
+  ])("exports while a change to code waits: $was", async ({ content, reply, was, now }) => {
+    const note = paragraph(...content);
+    const { core, mind, client } = await noteOf([note], () => reply);
+    await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+    expect(pendingProposals(client.blocks).length).toBeGreaterThan(0);
+
+    const pending = await exported(core, mind.id);
+    expect(pending.split("\n")).toContain(was);
+    for (const format of ["docx", "html"] as const) {
+      expect((await core.exportMind(mind.id, { format })).data.byteLength).toBeGreaterThan(0);
+    }
+    await resolveChanges(client, "accept");
+    expect((await exported(core, mind.id)).split("\n")).toContain(now);
+  });
+
   // protects=code the reply quotes as taken out (#2192) is struck with its code look and goes on Accept, the space beside it with it; English and Chinese; fails_when=the Note can't be read, or Undo then Reject leave it changed; no_claim=how a model quotes code.
   test.each([
     {
