@@ -43,6 +43,7 @@
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
+import { withAnalysisPictures } from "../../shared/analysisPictures";
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
 import { runsByDefault } from "../../shared/approvalRules";
@@ -81,7 +82,7 @@ import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import { unrunToolNotes } from "../../shared/unrunTools";
 import type { AnalysisRuntime } from "../adapters";
-import { withAnalysisResults } from "../analysis/markers";
+import { withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
 import { analysisTool } from "../analysis/tool";
 import {
   ANSWER_BLOCK,
@@ -1628,7 +1629,9 @@ export function createAnswers(options: AnswersOptions) {
       const final = outcome !== undefined;
       // Turned into their Citations when the Answer ends (`finish`): till then none shows.
       const text = withAnalysisResults(
-        withoutFootnoteDefinitions(final ? markdown : withoutWrittenIds(markdown, ids)),
+        withoutFootnoteDefinitions(
+          final ? withEveryChartPlaced(markdown, analyses) : withoutWrittenIds(markdown, ids),
+        ),
         analyses,
         answerLanguage(context.question),
       );
@@ -1646,13 +1649,14 @@ export function createAnswers(options: AnswersOptions) {
                   ? (marker) => session.finalNode(marker)
                   : (marker) => session.streamingNode(marker),
               );
+              const drawn = withAnalysisPictures(blocks, analyses);
               return asGenerated(
                 calculating
-                  ? withCalculatedFigures(blocks, (marker) => figures.figure(marker), {
+                  ? withCalculatedFigures(drawn, (marker) => figures.figure(marker), {
                       id: answerId,
                       analyses,
                     })
-                  : blocks,
+                  : drawn,
               );
             },
             citations: () => {

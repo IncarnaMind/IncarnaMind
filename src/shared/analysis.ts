@@ -53,6 +53,12 @@ export const ANALYSIS_LIMITS = {
   figures: 100,
   charts: 5,
   chartRows: MAX_CHART_VALUES,
+  pictures: 5,
+  /** A picture's PNG, and its longest side in pixels: what a Note keeps of a pasted picture. */
+  pictureBytes: 1_500_000,
+  pictureEdge: 1600,
+  /** The runs of consecutive rows a figure's rows are kept as: rows scattered wider aren't traced. */
+  figureRowRuns: 2000,
   printed: 20_000,
   steps: 100,
   merges: 50,
@@ -74,10 +80,57 @@ export interface AnalysisTable {
   columnCount: number;
 }
 
-/** A result the code gave with `result(name, value, label, unit)`: a figure or a table. */
+/** How `figure()` works a figure out from its column, which the app does again from the cells. */
+export const FIGURE_HOW = ["sum", "mean", "min", "max", "count"] as const;
+export type FigureHow = (typeof FIGURE_HOW)[number];
+
+/**
+ * The rows of an input a figure was worked out from (#2346): `figure(name,
+ * column, how)`'s one column, or the rows and columns `result(..., of=)` names,
+ * such as those a model was fitted on.
+ */
+export interface AnalysisFigureRows {
+  /** The input, by the name the code reads it by. */
+  input: string;
+  /** The headings of the columns it used. */
+  columns: string[];
+  /** Its rows' numbers in the sheet, as runs of consecutive rows in order: [[2, 9], [11, 41]]. */
+  rows: [number, number][];
+  /** How many rows. */
+  count: number;
+  /** `figure()`'s; null for `result(..., of=)`, which the app doesn't work out again. */
+  how: FigureHow | null;
+}
+
+/** A result the code gave with `result(name, value, label, unit)` or `figure(...)`: a figure or a table. */
 export type AnalysisValue =
-  | { kind: "figure"; name: string; label: string; unit: string | null; value: number }
+  | {
+      kind: "figure";
+      name: string;
+      label: string;
+      unit: string | null;
+      value: number;
+      /** The rows it was worked out from; absent when the code didn't name them. */
+      of?: AnalysisFigureRows;
+    }
   | { kind: "table"; name: string; label: string; unit: string | null; table: AnalysisTable };
+
+/** What IncarnaMind's own arithmetic made of a `figure()` figure, from the cells it read (ADR-0025). */
+export type AnalysisRecalculation =
+  | { kind: "same"; value: number }
+  | { kind: "differs"; value: number }
+  | { kind: "unchecked"; reason: string };
+
+/** A plot matplotlib drew, as a PNG (#2346). */
+export interface AnalysisPicture {
+  /** Its title, or its first chart's; "" when it has none. */
+  title: string;
+  /** The PNG, in base64. */
+  png: string;
+  /** In pixels. */
+  width: number;
+  height: number;
+}
 
 /** A step the code recorded with `step(label, data)`, and the rows and columns after it. */
 export interface AnalysisStep {
@@ -133,6 +186,9 @@ export interface AnalysisCut {
   figures: number;
   tables: number;
   charts: number;
+  pictures: number;
+  /** Plots left out for their characters past the titles `withoutGlyphs` lists; absent before #2346. */
+  withoutGlyphs?: number;
   steps: number;
   merges: number;
   notNumbers: number;
@@ -145,6 +201,14 @@ export interface AnalysisOutput {
   steps: AnalysisStep[];
   results: AnalysisValue[];
   charts: AnalysisChart[];
+  /** Absent in an Analysis run before pictures came back (#2346). */
+  pictures?: AnalysisPicture[];
+  /**
+   * The titles of plots left out because their text has characters no bundled
+   * font draws, such as Japanese, Korean or a Chinese one outside GB2312, which
+   * would show as boxes.
+   */
+  withoutGlyphs?: string[];
   merges: AnalysisMerge[];
   notNumbers: AnalysisNotNumbers[];
   /** Listed before the code ran, so also when it failed. */
@@ -224,6 +288,8 @@ export const noAnalysisOutput = (): AnalysisOutput => ({
   steps: [],
   results: [],
   charts: [],
+  pictures: [],
+  withoutGlyphs: [],
   merges: [],
   notNumbers: [],
   literals: [],
@@ -232,6 +298,7 @@ export const noAnalysisOutput = (): AnalysisOutput => ({
     figures: 0,
     tables: 0,
     charts: 0,
+    pictures: 0,
     steps: 0,
     merges: 0,
     notNumbers: 0,
@@ -301,6 +368,35 @@ function table(value: unknown, rowLimit: number): AnalysisTable | null {
 
 const label = (value: unknown) => text(value, ANALYSIS_LIMITS.labelCharacters);
 
+/** A label, heading or name as the helper cuts it to `ANALYSIS_LIMITS.labelCharacters`. */
+export const analysisLabel = (value: string): string => label(value);
+
+const rowNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+
+/** The rows a figure names, as the helper writes them: runs in order, apart; null for anything else. */
+export function readFigureRows(raw: unknown): AnalysisFigureRows | null {
+  if (!isRecord(raw) || !Array.isArray(raw.columns) || !Array.isArray(raw.rows)) return null;
+  const input = label(raw.input);
+  const how = raw.how === null ? null : FIGURE_HOW.find((each) => each === raw.how);
+  if (!input || how === undefined || raw.rows.length > ANALYSIS_LIMITS.figureRowRuns) return null;
+  if (raw.columns.length === 0 || raw.columns.length > ANALYSIS_LIMITS.columns) return null;
+  if (!raw.columns.every((heading) => typeof heading === "string")) return null;
+  const rows: [number, number][] = [];
+  let count = 0;
+  for (const run of raw.rows) {
+    if (!Array.isArray(run) || run.length !== 2) return null;
+    const [from, to] = run;
+    if (!rowNumber(from) || !rowNumber(to) || to < from) return null;
+    const last = rows.at(-1);
+    if (last && from <= last[1] + 1) return null;
+    rows.push([from, to]);
+    count += to - from + 1;
+  }
+  if (rows.length === 0 || raw.count !== count) return null;
+  return { input, columns: raw.columns.map(label), rows, count, how };
+}
+
 function value(item: unknown): AnalysisValue | null {
   if (!isRecord(item)) return null;
   const named = {
@@ -309,8 +405,13 @@ function value(item: unknown): AnalysisValue | null {
     unit: typeof item.unit === "string" ? label(item.unit) : null,
   };
   if (!named.name) return null;
-  if (item.kind === "figure")
-    return finite(item.value) ? { kind: "figure", ...named, value: item.value } : null;
+  if (item.kind === "figure") {
+    if (!finite(item.value)) return null;
+    if (item.of === undefined || item.of === null)
+      return { kind: "figure", ...named, value: item.value };
+    const of = readFigureRows(item.of);
+    return of ? { kind: "figure", ...named, value: item.value, of } : null;
+  }
   if (item.kind !== "table") return null;
   const read = table(item.table, ANALYSIS_LIMITS.rows);
   return read ? { kind: "table", ...named, table: read } : null;
@@ -330,6 +431,29 @@ function chartOf(item: unknown): AnalysisChart | null {
     y: item.y.slice(0, ANALYSIS_LIMITS.columns).map(label),
     table: read,
   };
+}
+
+/** The start of every PNG, in base64. */
+const PNG_BASE64 = "iVBORw0KGgo";
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+function pictureOf(item: unknown): AnalysisPicture | null {
+  if (!isRecord(item) || typeof item.png !== "string") return null;
+  const { png, width, height } = item;
+  const edge = (side: unknown): side is number =>
+    typeof side === "number" &&
+    Number.isSafeInteger(side) &&
+    side > 0 &&
+    side <= ANALYSIS_LIMITS.pictureEdge;
+  if (
+    !png.startsWith(PNG_BASE64) ||
+    png.length > Math.ceil(ANALYSIS_LIMITS.pictureBytes / 3) * 4 ||
+    !BASE64.test(png) ||
+    !edge(width) ||
+    !edge(height)
+  )
+    return null;
+  return { title: label(item.title), png, width, height };
 }
 
 const counted = (value: unknown): number | null =>
@@ -387,11 +511,17 @@ export function readAnalysisOutput(raw: unknown): AnalysisOutput {
       : null,
   );
   const charts = listOf(raw.charts, ANALYSIS_LIMITS.charts, chartOf);
+  const pictures = listOf(raw.pictures, ANALYSIS_LIMITS.pictures, pictureOf);
   const merges = listOf(raw.merges, ANALYSIS_LIMITS.merges, mergeOf);
   const notNumbers = listOf(raw.notNumbers, ANALYSIS_LIMITS.notNumbers, notNumbersOf);
   const literals = listOf(raw.literals, ANALYSIS_LIMITS.literals, literalOf);
   output.steps = steps.items;
   output.charts = charts.items;
+  output.pictures = pictures.items;
+  const withoutGlyphs = listOf(raw.withoutGlyphs, ANALYSIS_LIMITS.pictures, (item) =>
+    typeof item === "string" ? label(item) : null,
+  );
+  output.withoutGlyphs = withoutGlyphs.items;
   output.merges = merges.items;
   output.notNumbers = notNumbers.items;
   output.literals = literals.items;
@@ -401,6 +531,8 @@ export function readAnalysisOutput(raw: unknown): AnalysisOutput {
     figures: count(given.figures) + left.figure,
     tables: count(given.tables) + left.table,
     charts: count(given.charts) + charts.left,
+    pictures: count(given.pictures) + pictures.left,
+    withoutGlyphs: count(given.withoutGlyphs) + withoutGlyphs.left,
     steps: count(given.steps) + steps.left,
     merges: count(given.merges) + merges.left,
     notNumbers: count(given.notNumbers) + notNumbers.left,

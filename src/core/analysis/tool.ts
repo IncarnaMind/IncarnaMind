@@ -20,6 +20,7 @@ import type { CitationSource } from "../documents";
 import type { Language } from "../language";
 import { ANALYSIS_TOOLS, type Tool, type ToolProviderInfo } from "../tools";
 import { runAnalysis, sha256 } from ".";
+import { recalculate } from "./figureRows";
 import { parseRange, readRange, sheetRows, sheetsOf } from "./ranges";
 import { analysisReport } from "./report";
 
@@ -50,8 +51,14 @@ const fields = (value: unknown): Record<string, unknown> =>
 
 const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
+/** What models give as a figure's unit to say it has none, taking unit for its type. */
+const NO_UNIT = /^(?:number|numeric|float|int|integer|value|none|null|unitless|-)$/i;
+
+/** A figure statistics give far below 0.01, such as a p-value, which two decimals show as 0.00. */
+const TINY = 0.005;
+
 function unitOf(unit: string | null): ResultUnit {
-  if (!unit) return { kind: "plain" };
+  if (!unit || NO_UNIT.test(unit.trim())) return { kind: "plain" };
   if (/^[A-Z]{3}$/.test(unit)) return { kind: "currency", code: unit };
   if (unit === "%" || /^percent$/i.test(unit)) return { kind: "percent" };
   return { kind: "other", word: unit };
@@ -67,10 +74,46 @@ type Read =
     }
   | { ok: false; problem: string };
 
+type ReadInput = Extract<Read, { ok: true }>;
+
+/**
+ * Two inputs that read the same cells of one sheet. Every Passage of a sheet reads the whole
+ * sheet, so a model that gives each Passage it found as an input, then joins them, counts each
+ * row as often (#2346): such inputs are refused before anything runs.
+ */
+function readTwice(reads: readonly ReadInput[]): string | null {
+  const ranges = reads.flatMap((read) =>
+    read.job.kind === "table" && read.record.kind === "range"
+      ? [{ job: read.job, citation: read.record.citation }]
+      : [],
+  );
+  const rowsOf = (job: (typeof ranges)[number]["job"]) =>
+    job.rowNumbers ?? job.rows.map((_, index) => job.firstRow + index);
+  for (const [at, first] of ranges.entries()) {
+    const rows = new Set(rowsOf(first.job));
+    for (const second of ranges.slice(at + 1)) {
+      const sameSheet =
+        first.citation.documentId === second.citation.documentId &&
+        sheetOf(first.citation) === sheetOf(second.citation);
+      if (!sameSheet) continue;
+      const sharesRows = rowsOf(second.job).some((row) => rows.has(row));
+      const sharesColumns = second.job.columns.some((column) => first.job.columns.includes(column));
+      if (!sharesRows || !sharesColumns) continue;
+      const sheet = sheetOf(first.citation);
+      return `"${first.job.name}" and "${second.job.name}" read the same rows of ${sheet ? `the sheet "${sheet}" in ` : ""}"${first.citation.documentName}", so joined they would count each row twice. Every Passage of a sheet reads the whole sheet: give the sheet once, as one input, and pick its rows in the code`;
+    }
+  }
+  return null;
+}
+
+const sheetOf = (citation: Citation): string | null =>
+  citation.location?.kind === "rows" ? citation.location.sheet : null;
+
 export function analysisTool(options: AnalysisToolOptions): Tool {
   let runs = 0;
   let tables = 0;
   let charts = 0;
+  let pictures = 0;
 
   const readRangeInput = (name: string, given: Record<string, unknown>): Read => {
     const passageId = text(given.passage);
@@ -185,7 +228,9 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       literals: [],
       scales: [],
     };
-    const show = { language: options.language, as: null, decimals: null, scale: null };
+    // A count a model gives (its observations, a cluster's size) is whole: "29", not "29.00".
+    const whole = unit.kind === "plain" && Number.isInteger(result.value);
+    const show = { language: options.language, as: null, decimals: whole ? 0 : null, scale: null };
     const shown = showResult(worked, show);
     const figure: CalculatedFigure = {
       label: result.label,
@@ -196,9 +241,11 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       approximate: false,
       shown: rawColumn(result.label)
         ? String(result.value)
-        : shown.ok
-          ? shown.shown
-          : figureText(options.language, result.value),
+        : unit.kind === "plain" && result.value !== 0 && Math.abs(result.value) < TINY
+          ? String(Number(result.value.toPrecision(2)))
+          : shown.ok
+            ? shown.shown
+            : figureText(options.language, result.value),
       show,
       literals: [],
       engine: FORMULA_VERSION,
@@ -213,7 +260,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     provider: ANALYSIS_PROVIDER,
     providerTool: ANALYSIS_TOOLS.run,
     description:
-      'Run Python with pandas over sheets and CSV files you found, to work out totals, groups, changes and tables. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, reads inputs["sales"] (a DataFrame) and inputs["rate"] (a number), and gives results with result(name, value, label, unit), each a number or a table. For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, and chart(kind, df, x, y, title) a bar, line, pie or scatter chart. The result says each figure\'s marker [=n], each table\'s [=table n] and each chart\'s [=chart n].',
+      'Run Python over sheets and CSV files you found, to work out totals, groups, changes, tables, statistics and models. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings; every Passage of a sheet reads the whole sheet, so give each sheet once), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, can import scipy, statsmodels, sklearn and matplotlib, and reads inputs["sales"] (a DataFrame whose index is each row\'s number in the sheet, named row) and inputs["rate"] (a number). Give each sum, mean, min, max or count of an input\'s column with figure(name, df["Revenue"], "sum", label, unit), after any filtering: IncarnaMind works it out again from the cells. Give any other figure or table with result(name, value, label, unit), each a number or a table; a figure a model or test works out (a coefficient, a forecast, a p-value) also names the input\'s rows it used: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, chart(kind, df, x, y, title) draws a bar, line, pie or scatter chart, and a plot drawn with matplotlib.pyplot comes back as a picture (its text in Latin letters or common Chinese characters). The result says each figure\'s marker [=n], each table\'s [=table n], each chart\'s [=chart n] and each picture\'s [=picture n].',
     inputSchema: {
       type: "object",
       properties: {
@@ -236,7 +283,11 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
             required: ["name"],
           },
         },
-        code: { type: "string", description: "Python 3 with pandas and numpy." },
+        code: {
+          type: "string",
+          description:
+            "Python 3 with pandas and numpy; scipy, statsmodels, sklearn and matplotlib can be imported.",
+        },
       },
       required: ["title", "inputs", "code"],
     },
@@ -260,6 +311,8 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       const names = reads.flatMap((read) => (read.ok ? [read.job.name] : []));
       const twice = names.filter((name, index) => names.indexOf(name) !== index);
       if (twice.length > 0) problems.push(`${twice[0]}: two inputs have this name`);
+      const same = readTwice(reads.flatMap((read) => (read.ok ? [read] : [])));
+      if (same) problems.push(same);
       if (problems.length > 0) {
         return `Nothing ran. Fix the inputs and run it again:\n- ${problems.join("\n- ")}`;
       }
@@ -272,16 +325,29 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       );
       const output = run.result.end.kind === "unavailable" ? noAnalysisOutput() : run.result.output;
       const usable = run.result.end.kind === "done";
-      const markers: AnswerAnalysis["markers"] = { figures: [], tables: [], charts: [] };
+      const markers: AnswerAnalysis["markers"] = {
+        figures: [],
+        tables: [],
+        charts: [],
+        pictures: [],
+      };
+      const recalculations: NonNullable<AnswerAnalysis["recalculations"]> = [];
       if (usable) {
+        const jobInputs = ok.map((read) => read.job);
         for (const result of output.results) {
-          if (result.kind === "figure") {
-            markers.figures.push({ result: result.name, marker: shownFigure(result, number) });
-          } else {
+          if (result.kind === "table") {
             markers.tables.push({ result: result.name, marker: ++tables });
+            continue;
           }
+          if (result.of?.how) {
+            const check = recalculate(result.value, result.of, jobInputs);
+            recalculations.push({ result: result.name, check });
+            if (check.kind !== "same") continue;
+          }
+          markers.figures.push({ result: result.name, marker: shownFigure(result, number) });
         }
         for (const _chart of output.charts) markers.charts.push(++charts);
+        for (const _picture of output.pictures ?? []) markers.pictures?.push(++pictures);
       }
       const analysis: AnswerAnalysis = {
         number,
@@ -306,6 +372,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         ms: run.result.ms,
         ranAt: options.now().toISOString(),
         markers,
+        ...(recalculations.length > 0 && { recalculations }),
       };
       options.ran(toolCallId, analysis);
       return analysisReport(analysis, options.language);

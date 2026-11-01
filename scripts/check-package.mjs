@@ -7,7 +7,8 @@
 //      other, unpacked beside app.asar. On Windows its ONNX Runtime library is the app's own, byte
 //      for byte (#2152).
 //   4. Each app has what Analyses run with (ADR-0023) in python/ beside app.asar, as
-//      packages.json lists it.
+//      packages.json lists it, each wheel and font audited for what it bundles, and the notices
+//      beside it credit each of those with its licence text (scripts/pythonNotices.mjs).
 //   5. macOS is Apple silicon only (#2199): no app that runs on Intel Macs (lipo reads each one's
 //      architectures on macOS), no Intel or universal installer, and latest-mac.yml, which the
 //      auto-updater reads, offers arm64 files and nothing else.
@@ -15,21 +16,27 @@
 // Exit code 1 when a check fails.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { listPackage } from "@electron/asar";
 import { speechRuntimes } from "./afterPack.mjs";
+import { noticeProblems } from "./pythonNotices.mjs";
 
 const ALLOWED_TOP_LEVEL = new Set(["out", "node_modules", "package.json"]);
 
 // Set from the fixed macOS arm64 build (app.asar 130.8 MB) plus about 20%. The asar holds
 // JavaScript and pure-JS dependencies; the native libraries are unpacked beside it.
 const MAX_ASAR_BYTES = 157_000_000;
-// The largest installer, the Linux AppImage with what Analyses run with (231.3 MB, ADR-0023),
-// plus about 14 MB: the next real growth trips it, to be argued for. The macOS and Windows
-// installers are checked against the same limit.
-const MAX_INSTALLER_BYTES = 245_000_000;
-// The .deb of the Linux x64 build (170 MB before Analyses, which add about 14 MB) plus about 15 MB.
-const MAX_DEB_BYTES = 199_000_000;
+// Each installer's limit: its size in 0.1.0-alpha.5, the 37.5 MB that ADR-0025's packages and
+// plot font added to the macOS dmg (229.9 to 267.4 MB, built locally from main and from #2346),
+// and about 5 MB, so a mistake of that size trips it. A PR's CI builds no installers; the release
+// build is the first to measure the others.
+const MAX_INSTALLER_BYTES = {
+	".AppImage": 275_000_000,
+	".dmg": 270_000_000,
+	".zip": 263_000_000,
+	".exe": 242_000_000,
+	".deb": 226_000_000,
+};
 
 const distDir = resolve(process.argv[2] ?? "dist");
 const INSTALLER_EXT = /\.(dmg|zip|exe|AppImage|deb)$/;
@@ -128,10 +135,13 @@ for (const asar of asars) {
 for (const asar of asars) {
 	const python = join(dirname(asar), "python");
 	let listed = [];
+	let packages = [];
+	let fonts = [];
 	try {
-		listed = JSON.parse(readFileSync(join(python, "packages.json"), "utf8")).packages.map(
-			(each) => each.file,
-		);
+		const listing = JSON.parse(readFileSync(join(python, "packages.json"), "utf8"));
+		packages = listing.packages;
+		fonts = listing.fonts ?? [];
+		listed = [...packages.map((each) => each.file), ...fonts];
 	} catch {
 		failures.push(`${asar} has no python/packages.json beside it`);
 		continue;
@@ -142,12 +152,15 @@ for (const asar of asars) {
 	);
 	if (missing.length > 0) {
 		failures.push(`${asar} is missing Python files beside it: ${missing.join(", ")}`);
+		continue;
 	}
+	const notice = readFileSync(join(dirname(asar), "notices", "python.txt"), "utf8");
+	for (const problem of noticeProblems(notice, packages, fonts)) failures.push(`${asar}: ${problem}`);
 }
 
 for (const file of files.filter(isInstaller)) {
 	const size = statSync(file).size;
-	const budget = file.endsWith(".deb") ? MAX_DEB_BYTES : MAX_INSTALLER_BYTES;
+	const budget = MAX_INSTALLER_BYTES[extname(file)];
 	console.log(`${file}: ${mb(size)}`);
 	if (size > budget) {
 		failures.push(`${file} is ${mb(size)}, over the ${mb(budget)} installer budget`);

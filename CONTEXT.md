@@ -188,7 +188,7 @@ What a Tool call can do beyond the conversation it is part of: read data, write 
 _Avoid_: permission, capability, side effect
 
 **Analysis**:
-Python an Answer wrote and IncarnaMind ran in its sandbox, with no network or files, over Inputs cited from Documents, kept in a Note with its steps, Inputs, code and results.
+Python an Answer wrote and IncarnaMind ran in its sandbox, with no network or files, over Inputs cited from Documents, kept in a Note with its steps, Inputs, code and results. Its results are figures, tables, charts and pictures of the plots it drew; a figure names the rows of its Input it was worked out from, and a sum, average, lowest, highest or count is worked out again by IncarnaMind from those cells before the Answer may use it.
 _Avoid_: notebook, script, code interpreter (in the interface), Skill script
 
 **Third-party text**:
@@ -340,6 +340,10 @@ _Avoid_: captions, subtitles, minutes
 **Speaker**:
 A person in a Transcript who is told apart from the others. A Speaker is named by the User, and a Citation to a Transcript names who said the quote. Before that, a live Meeting's lines are "Me" (the microphone) or "Them" (the computer's sound), or "Speaker ?" with no computer sound. After the call, the speaker pass numbers several voices "Speaker 1, 2…"; one other voice stays "Them", and "Me" stays "Me".
 _Avoid_: voice, participant, user
+
+**Words to know**:
+Names and terms the User lists in Settings › Meetings so that a Meeting's Transcript writes them as the User does. At a Meeting's start the transcriber on this computer is told them, with the names in its Note and its Folder's Documents.
+_Avoid_: hotwords, vocabulary, dictionary
 
 ### Files
 

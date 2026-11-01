@@ -557,6 +557,42 @@ export function searchParts(tool: string, query: string): StreamPart[] {
 }
 
 const BY_REGION = /\bby region\b|按地区/i;
+const AGAINST_SPEND = /\bad spend\b|广告投入/i;
+
+/** A regression of revenue on ad spend, its plot, and the total IncarnaMind works out again. */
+function regressionReply(prompt: Prompt, question: string, searched: string): Reply | null {
+  const chinese = /\p{Script=Han}/u.test(question);
+  if (toolResults(prompt, "run_analysis").length > 0) {
+    return {
+      text: chinese
+        ? "广告投入每增加 1，收入增加 [=1]，收入合计 [=2]。\n\n[=picture 1]"
+        : "Each unit of ad spend adds [=1] of revenue, out of [=2] in total.\n\n[=picture 1]",
+    };
+  }
+  const marketing = passagesIn(searched).find((passage) =>
+    /marketing|营销/i.test(passage.document),
+  );
+  if (!marketing) return null;
+  const code = [
+    "import statsmodels.formula.api as smf",
+    "import matplotlib.pyplot as plt",
+    'df = inputs["marketing"].dropna(subset=["Revenue"])',
+    'fit = smf.ols("Revenue ~ AdSpend", data=df).fit()',
+    `result("slope", fit.params["AdSpend"], "${chinese ? "每单位广告投入带来的收入" : "Revenue per unit of ad spend"}", of=df[["AdSpend", "Revenue"]])`,
+    `figure("total", df["Revenue"], "sum", "${chinese ? "收入合计" : "Total revenue"}")`,
+    "fig, ax = plt.subplots()",
+    'ax.scatter(df["AdSpend"], df["Revenue"])',
+    'ax.set_title("Revenue against ad spend")',
+  ].join("\n");
+  return {
+    tool: "run_analysis",
+    input: {
+      title: chinese ? "收入对广告投入的回归" : "Revenue against ad spend",
+      inputs: [{ name: "marketing", passage: marketing.id }],
+      code,
+    },
+  };
+}
 const WITH_MANAGERS = /\bmanager|负责人/i;
 
 function analysisReply(prompt: Prompt, question: string, searched: string): Reply | null {
@@ -647,6 +683,10 @@ function answerFrom(
     return workbookWhatIf(prompt, question, searches.at(-1) ?? "");
   if (tools.includes("run_analysis") && BY_REGION.test(question)) {
     const reply = analysisReply(prompt, question, searches.at(-1) ?? "");
+    if (reply) return reply;
+  }
+  if (tools.includes("run_analysis") && AGAINST_SPEND.test(question)) {
+    const reply = regressionReply(prompt, question, searches.at(-1) ?? "");
     if (reply) return reply;
   }
   const claimed = prompt
