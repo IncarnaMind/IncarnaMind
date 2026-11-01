@@ -1231,6 +1231,15 @@ export function createCitationSession(
       record.range.pageTo,
     );
 
+  /** The Units a record's Passage covers: what the model was shown, the cited ones or a neighbour's (#2358). */
+  const passageText = (record: Pick<Accepted, "source">) =>
+    documents.pageTexts(
+      record.source.documentId,
+      record.source.contentHash,
+      record.source.pageFrom,
+      record.source.pageTo,
+    );
+
   /**
    * The check, with the Document as it is now: it may have been deleted since
    * the record. The text read is that of the version the Passage was built
@@ -1956,12 +1965,14 @@ export function createCitationSession(
     /**
      * Checks the words an Answer put in quotation marks (#483), after `check`:
      * each span (see ./quotedWords) is looked for with the Citation check's own
-     * matching in the Units cited in its sentence. One found changes nothing.
-     * One not found makes the Citation whose Units are nearest it "not found",
-     * with the Answer's words and the Document's nearest for its card. Where a
-     * Citation of the sentence couldn't be checked, no span of it is. Words in
-     * another language than every page cited are a translation: they aren't
-     * checked, and are returned to lose their quotation marks.
+     * matching in the Units of the Passage its Citation names, not only the
+     * cited ones: a title the Passage's first Unit holds is the Document's own
+     * words though the row cited is on its second (#2358). One found changes
+     * nothing. One not found makes the Citation whose Units are nearest it "not
+     * found", with the Answer's words and the Document's nearest for its card.
+     * Where a Citation of the sentence couldn't be checked, no span of it is.
+     * Words in another language than every page cited are a translation: they
+     * aren't checked, and are returned to lose their quotation marks.
      */
     checkQuotedWords(quoted: readonly { words: string; markers: readonly number[] }[]): string[] {
       const translated: string[] = [];
@@ -1974,11 +1985,18 @@ export function createCitationSession(
         const cited = [...new Set(markers)].flatMap((marker) => {
           const record = records.get(marker);
           return record
-            ? [{ record, units: citedText(record), matching: matchingFor(record.source) }]
+            ? [
+                {
+                  record,
+                  units: citedText(record),
+                  passage: passageText(record),
+                  matching: matchingFor(record.source),
+                },
+              ]
             : [];
         });
         if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
-        if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
+        if (cited.some(({ passage, matching }) => quoteInUnits(passage, words, matching))) continue;
         const inCjk = writtenInCjk(words);
         if (
           cited.length > 0 &&

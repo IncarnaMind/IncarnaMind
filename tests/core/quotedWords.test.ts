@@ -1,20 +1,24 @@
 /**
- * Words an Answer puts in quotation marks are checked against the Units its
- * Citations cite (#483). First how an Answer's Markdown is read: which spans
- * count, and which Citations are in their sentence; then, through the core
- * with scripted models, what a User sees.
+ * Words an Answer puts in quotation marks are checked against the Units of
+ * the Passage its Citations name (#483, #2358). First how an Answer's Markdown
+ * is read: which spans count, and which Citations are in their sentence; then,
+ * through the core with scripted models, what a User sees.
  */
 import { describe, expect, test } from "vitest";
 import type { QuotedWords } from "../../src/core";
 import { quotedWordsIn, withoutQuotationMarks } from "../../src/core/answers/quotedWords";
+import { extractCsv } from "../../src/core/documents/formats/csv";
+import { extractXlsx } from "../../src/core/documents/formats/xlsx";
 import {
   askAndFinish,
   citationsIn,
   citingModel,
   onlyCitation,
   type ShownPassage,
+  type SourceFile,
   setUpWithDocuments,
 } from "../helpers/citations";
+import { xlsxPackage } from "../helpers/office";
 
 describe("Reading the words an Answer puts in quotation marks", () => {
   test("a span of four words, with the Citations of its sentence", () => {
@@ -285,4 +289,190 @@ describe.each(["en", "zh"] as const)("Quoted words in an Answer's sentence (%s)"
     expect(citations).toHaveLength(1);
     expect(citations[0]).toMatchObject({ check: "found", checkReason: null });
   });
+});
+
+/** A sheet's title, header and quoted row, and what a quote of the row reads as in the Passage. */
+const STORE = {
+  en: {
+    name: "Stores.csv",
+    title: "2026 Q3 store sales",
+    header: "Store,City,Sales",
+    row: 'Changjiang Road Flagship,Wenzhou,"¥621,383"',
+    filler: (index: number) => `Store ${index + 1},Hangzhou,${1000 + index}`,
+    holds: "Changjiang Road Flagship",
+    quote: "Changjiang Road Flagship Wenzhou ¥621,383",
+    query: "Changjiang Road Flagship sales",
+    question: "What were the Changjiang Road Flagship's Q3 sales?",
+  },
+  zh: {
+    name: "门店销售.xlsx",
+    title: "2026年第三季度门店销售",
+    header: ["门店", "城市", "销售额"],
+    row: ["长江路旗舰店", "温州", "¥621,383"],
+    filler: (index: number) => [`门店${index + 1}`, "杭州", `¥${1000 + index}`],
+    holds: "长江路旗舰店",
+    quote: "长江路旗舰店 温州 ¥621,383",
+    query: "长江路旗舰店 第三季度 销售额",
+    question: "长江路旗舰店第三季度的销售额是多少？",
+  },
+} as const;
+
+/** Another Document's row, for a quote that is not in the Passage a Citation names. */
+const STOCK = {
+  en: {
+    name: "Stock.csv",
+    contents: () => "Item,Warehouse,Units\nFrozen dumplings,Xiaoshan cold store,6300",
+    quote: "Frozen dumplings Xiaoshan cold store 6300",
+  },
+  zh: {
+    name: "库存.xlsx",
+    contents: () =>
+      xlsxPackage({
+        sheets: [
+          {
+            name: "库存",
+            xml: `<sheetData>${sheetRow(1, ["商品", "仓库", "库存量"])}${sheetRow(2, ["冷冻水饺", "萧山冷链仓", "6300"])}</sheetData>`,
+          },
+        ],
+      }),
+    quote: "冷冻水饺 萧山冷链仓 6300",
+  },
+} as const;
+
+const cellRef = (column: number, row: number) => `${String.fromCharCode(65 + column)}${row}`;
+const sheetRow = (row: number, values: readonly string[]) =>
+  `<row r="${row}">${values
+    .map(
+      (value, column) =>
+        `<c r="${cellRef(column, row)}" t="inlineStr"><is><t>${value}</t></is></c>`,
+    )
+    .join("")}</row>`;
+
+/** A sheet whose first Unit is its first 100 rows (a title, the header, 99 stores). */
+function storeRows(): (readonly string[])[] {
+  const { title, header, filler, row } = STORE.zh;
+  return [
+    [title],
+    [...header],
+    ...Array.from({ length: 99 }, (_, at) => [...filler(at)]),
+    [...row],
+  ];
+}
+
+/** The stores as a CSV, for English. */
+function storeCsv(): string {
+  const { title, header, filler, row } = STORE.en;
+  return [title, header, ...Array.from({ length: 99 }, (_, at) => filler(at)), row].join("\n");
+}
+
+/** The stores as a workbook, for Chinese. */
+function storeWorkbook(): Buffer {
+  return xlsxPackage({
+    sheets: [
+      {
+        name: "销售",
+        xml: `<sheetData>${storeRows()
+          .map((values, at) => sheetRow(at + 1, values))
+          .join("")}</sheetData>`,
+      },
+    ],
+  });
+}
+
+/**
+ * The Unit each text is on in the fixture: the title and the quoted row are on
+ * different ones, which is what the Passage's quote check has to survive (#2358).
+ */
+async function unitOf(language: "en" | "zh", needle: string): Promise<number | null> {
+  const units =
+    language === "en"
+      ? extractCsv(new TextEncoder().encode(storeCsv())).units
+      : (await extractXlsx(new Uint8Array(storeWorkbook()))).units;
+  return units.find((unit) => unit.text.includes(needle))?.page ?? null;
+}
+
+/** Asks a Question, citing `quote` from the Passage that holds `holds`; gives the Answer's Citations. */
+async function askStore(
+  language: "en" | "zh",
+  answer: string,
+  { quote = STORE[language].quote, stock = false }: { quote?: string; stock?: boolean } = {},
+) {
+  const store = STORE[language];
+  const model = citingModel({
+    query: store.query,
+    records: (passages: ShownPassage[]) => [
+      {
+        marker: 1,
+        passage: passages.find((passage) => passage.text.includes(store.holds))?.id,
+        quote,
+      },
+    ],
+    answer,
+  });
+  const contents = language === "en" ? storeCsv() : storeWorkbook();
+  const files: SourceFile[] = [{ name: store.name, contents }];
+  if (stock) files.push({ name: STOCK[language].name, contents: STOCK[language].contents() });
+  const { core, client, mind } = await setUpWithDocuments(model, files);
+  const { answerId } = await askAndFinish(core, client, mind.id, store.question);
+  core.close();
+  return citationsIn(client, answerId);
+}
+
+describe("Quoted words on a sheet's rows (#2358)", { timeout: 60_000 }, () => {
+  test.each(["en", "zh"] as const)(
+    "%s: a quoted row is found on the Unit it cites, and a title the Passage's first Unit holds too",
+    async (language) => {
+      const answer =
+        language === "en"
+          ? `The “${STORE.en.title}” table gives Changjiang Road Flagship’s sales as ¥621,383 [^1].`
+          : `长江路旗舰店（温州）第三季度销售额为 ¥621,383，见“${STORE.zh.title}”表格[^1]。`;
+
+      // The title and the row the Citation names start different Units.
+      expect(await unitOf(language, STORE[language].title)).not.toBe(
+        await unitOf(language, STORE[language].holds),
+      );
+      expect(await unitOf(language, STORE[language].title)).not.toBeNull();
+
+      const [citation] = await askStore(language, answer);
+
+      expect(citation).toMatchObject({
+        quote: STORE[language].quote,
+        check: "found",
+        checkReason: null,
+      });
+      expect(citation?.quotedWords).toBeUndefined();
+    },
+  );
+
+  test.each(["en", "zh"] as const)(
+    "%s: a paraphrase the Passage doesn't hold is still not found",
+    async (language) => {
+      const answer =
+        language === "en"
+          ? "The “2026 Q3 store takings” table gives Changjiang Road Flagship’s sales as ¥621,383 [^1]."
+          : "长江路旗舰店（温州）第三季度销售额为 ¥621,383，见“2026年第四季度门店销售”表格[^1]。";
+
+      const [citation] = await askStore(language, answer);
+
+      expect(citation).toMatchObject({
+        check: "not-found",
+        checkReason: "quoted-words-not-on-pages",
+      });
+    },
+  );
+
+  test.each(["en", "zh"] as const)(
+    "%s: a Citation quoting another Document's row is still not found",
+    async (language) => {
+      const [citation] = await askStore(language, STORE[language].quote, {
+        quote: STOCK[language].quote,
+        stock: true,
+      });
+
+      expect(citation).toMatchObject({
+        check: "not-found",
+        checkReason: "quote-not-on-pages",
+      });
+    },
+  );
 });
