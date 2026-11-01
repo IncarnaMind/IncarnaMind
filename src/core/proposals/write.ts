@@ -75,6 +75,7 @@ import {
   paragraphName,
   readName,
   readRemovals,
+  unescapeNames,
   unnameRemovals,
 } from "../edits/prompt";
 import { diffSteps, hunksOf, type Step, splitWords } from "./diff";
@@ -878,6 +879,8 @@ function newParagraphs(
   /** A name off the start of a paragraph, when the passage was shown with names. */
   const nameOff = (written: string): { name: ParagraphName | null; rest: string } =>
     named ? readName(written) : { name: null, rest: written };
+  /** A paragraph's words with the names the passage showed escaped made words again. */
+  const unescaped = (paragraph: string) => (named ? unescapeNames(paragraph) : paragraph);
   type Part = { name?: ParagraphName } & (
     | TableText
     | { marker: ReturnType<typeof readBlockMarker>; paragraph: string; asOther?: boolean }
@@ -900,7 +903,7 @@ function newParagraphs(
               return {
                 ...name,
                 marker: null,
-                paragraph: unescapeNames(first.rest, named),
+                paragraph: unescaped(first.rest),
                 asOther: readBlockMarker(first.rest) !== null,
               };
             }
@@ -912,7 +915,7 @@ function newParagraphs(
               ...name,
               ...(second.name !== null && { name: second.name }),
               marker,
-              paragraph: unescapeNames(unescapeMarkers(second.rest, marker !== null), named),
+              paragraph: unescaped(unescapeMarkers(second.rest, marker !== null)),
             };
           }),
   );
@@ -960,10 +963,6 @@ function newParagraphs(
     };
   });
 }
-
-/** Names the passage showed escaped (`escapeNames`), words again. */
-const unescapeNames = (text: string, named: boolean) =>
-  named ? text.replace(/\\¶(?=\d|\+)/g, "¶") : text;
 
 /**
  * The words of each paragraph a <removed>…</removed> quotes (#2180), to tell which of the
@@ -2124,6 +2123,8 @@ export function createRewriteStream(
   let byName: boolean | null = named ? null : false;
   /** The selection's paragraphs the text names, by index. */
   const namedSoFar = new Set<number>();
+  /** Those it names with their words as they were, which it leaves as they are. */
+  const unchangedNamed = new Set<Segment>();
   /** The last of the selection's paragraphs written in its place: one named before it has moved. */
   let lastInPlace = -1;
   /** New paragraphs before any the text names: they go just before the first it names. */
@@ -2335,6 +2336,10 @@ export function createRewriteStream(
   const takeNamed = (paragraph: NewParagraph) => {
     const name = paragraph.name ?? { follows: null };
     const words = paragraph.tokens.some((token) => token.node || token.text?.trim());
+    if ("unclear" in name) {
+      misnamed = true;
+      return;
+    }
     const named = "replaces" in name ? name.replaces : name.follows;
     if (named === null) {
       if (!words) return;
@@ -2342,7 +2347,8 @@ export function createRewriteStream(
       else comingFirst.push(paragraph);
       return;
     }
-    const index = named - 1;
+    // One numbered just past the last follows the last: the reply counted it as one of them.
+    const index = "follows" in name && named === segments.length + 1 ? named - 2 : named - 1;
     const segment = segments[index];
     if (!segment || !words || ("replaces" in name && namedSoFar.has(index))) {
       misnamed = true;
@@ -2363,7 +2369,6 @@ export function createRewriteStream(
     const moved = index < lastInPlace;
     if (!moved) place = { element: segment.element, kind: segment.kind, side: "before" };
     for (const each of comingFirst.splice(0)) addNew(each);
-    writtenOver.set(segment, newCharsOf(paragraph.tokens));
     if (
       !moved &&
       !paragraph.table &&
@@ -2371,13 +2376,18 @@ export function createRewriteStream(
     ) {
       addNotes(notesWritten, paragraph.notes);
       notes.characters.written += lengthOf(paragraph.tokens);
+      const before = proposals.length;
       writeHunks(segment, paragraph.tokens, next, newId, notes);
+      // Named with its words as they were, it is left as it is, and a quote may still take it out.
+      if (proposals.length === before) unchangedNamed.add(segment);
+      else writtenOver.set(segment, newCharsOf(paragraph.tokens));
       place = { element: segment.element, kind: segment.kind, side: "after" };
       placedAny = true;
       lastInPlace = index;
       return;
     }
     // Moved, or written as a Block of another kind: it goes where the text has it, and the paragraph it names goes.
+    writtenOver.set(segment, newCharsOf(paragraph.tokens));
     addNew(paragraph);
     remove([segment]);
     if (!moved) lastInPlace = index;
@@ -2602,6 +2612,15 @@ export function createRewriteStream(
           unmade = true;
           return;
         }
+        // A name written wrong says no paragraph: which one the text replaces can't be told.
+        if (
+          paragraphs
+            .slice(taken, finished)
+            .some((paragraph) => paragraph.name && "unclear" in paragraph.name)
+        ) {
+          misnamed = true;
+          return;
+        }
         if (byName === null && finished > 0) byName = paragraphs[0]?.name !== undefined;
         if (byName) {
           for (; taken < finished && !misnamed; taken++) {
@@ -2661,7 +2680,9 @@ export function createRewriteStream(
           placeComingFirst();
           kept.push(
             ...segments.filter(
-              (segment, index) => !namedSoFar.has(index) && segment.tokens.length > 0,
+              (segment, index) =>
+                (!namedSoFar.has(index) || unchangedNamed.has(segment)) &&
+                segment.tokens.length > 0,
             ),
           );
         } else {

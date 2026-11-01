@@ -18,10 +18,12 @@
  * Citation now quotes, with its markers. The
  * new text streams in word by word, slowly when the instruction or the passage
  * says "slowly", or not at all until it is stopped when it says "forever", then
- * a line saying why (#202).
+ * a line saying why (#202). It reads a passage shown with its paragraphs' names
+ * without them, and names none of its own, so its rewrites are paired by their
+ * words (#2356).
  */
 
-import { QUOTE_WHAT_GOES } from "../../core/edits/prompt";
+import { NAME_WHAT_YOU_WRITE, QUOTE_WHAT_GOES, withoutNames } from "../../core/edits/prompt";
 import { appliedEditReply } from "./appliedEdits";
 import { PARTLY } from "./checks";
 import { type Prompt, SHORTEN, SLOWLY, type StreamPart, USAGE } from "./prompt";
@@ -98,10 +100,13 @@ export function fakeEdit(prompt: Prompt): { text: string; slow: boolean; holds: 
     .join("\n");
   const task = /<task action="([^"]+)">([\s\S]*?)<\/task>/.exec(request);
   if (!task) return null;
-  const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(request)?.[1] ?? "";
+  const shown = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(request)?.[1] ?? "";
+  // Its paragraphs' names (#2356) are left out of what it reads and writes: its replies carry none.
+  const passage = /^¶1 /.test(shown) ? withoutNames(shown) : shown;
   const asked = (task[2] ?? "")
     .replace(/^Do what the User asks: /, "")
-    .replace(`\n${QUOTE_WHAT_GOES}`, "");
+    .replace(`\n${QUOTE_WHAT_GOES}`, "")
+    .replace(`\n${NAME_WHAT_YOU_WRITE}`, "");
   const action = task[1] ?? "";
   const text = editedText(action, passage, asked.replace(/\s+slowly\.?$/i, ""));
   // In the passage's language, as the instructions ask.

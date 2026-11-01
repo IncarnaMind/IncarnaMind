@@ -4906,6 +4906,14 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     },
     { lines: ["房租每月1200元。", "水费每月30元。"], reply: "¶3 网费每月40元。" },
     { lines: ["房租每月1200元。", "水费每月30元。"], reply: "¶5+ 网费每月40元。" },
+    {
+      lines: ["房租每月1200元。", "水费每月30元。"],
+      reply: "¶2a 水费每月30元。\n\n¶+ 网费每月40元。",
+    },
+    {
+      lines: ["Rent is 1,200 a month.", "Water is 30 a month."],
+      reply: "Rent is 1,250 a month.\n\n¶2a Water is 35 a month.",
+    },
   ])("a reply that names a paragraph wrongly changes nothing: $reply", async ({ lines, reply }) => {
     const { core, mind, client, before } = await noteOf(plain(lines), () => reply);
 
@@ -4915,6 +4923,31 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     expect(pendingProposals(client.blocks)).toEqual([]);
     expect(readMind(client).toJSON()).toEqual(before);
     expect(shownWithChanges(client)).toEqual(lines);
+  });
+
+  // protects=only a request in the User's words shows the passage's names, and the rule for them is said in its task, so a fixed action such as Shorten is shown no name and told of none; fails_when=the shared instructions or Shorten's prompt mention names, or the request in words isn't told; no_claim=how a model reads the rule.
+  test("the names and their rule go to a request in the User's words, not to Shorten", async () => {
+    const lines = ["Rent is very high.", "Water is really cheap."];
+    const { core, mind, client, calls } = await noteOf(plain(lines), ({ passage }) => passage);
+    const ids = readMind(client)
+      .toJSON()
+      .content?.map((block: JSONContent) => String(block.attrs?.id));
+    const whole = (action: "shorten" | "instruction") => ({
+      ...wholeMind(client, mind.id, "Shorter"),
+      action,
+      ...(action === "shorten" && { instruction: undefined }),
+      to: { blockId: ids?.[1] ?? "", offset: (lines[1] ?? "").length },
+    });
+
+    await core.editWithAi(whole("shorten"));
+    await core.editWithAi(whole("instruction"));
+
+    const [shorten, asked] = calls;
+    expect(shorten?.passage).toBe(lines.join("\n\n"));
+    expect(`${shorten?.system}${shorten?.prompt}`).not.toContain("¶");
+    expect(asked?.passage).toBe(`¶1 ${lines[0]}\n\n¶2 ${lines[1]}`);
+    expect(asked?.prompt).toContain("Start each paragraph you write with the name");
+    expect(asked?.system).not.toContain("¶");
   });
 
   // protects=a name alone on its line names the words after it, on the next line or after a blank one, so a model that breaks the line after a name isn't refused; fails_when=it is refused or the words are added beside; no_claim=none beyond protects.
@@ -5026,6 +5059,57 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     expect(await acceptThenUndo(client, before)).toEqual([lines[0]]);
   });
 
+  // protects=a paragraph the reply names with its words as they were, then quotes as taken out, goes with the rest it quotes, as Claude Haiku 5.5 writes a section's removal; English and Chinese; fails_when=the edit is refused as unplaced, or the heading stays; no_claim=how often a model writes it so.
+  test.each([
+    {
+      lines: [
+        "Hours",
+        "Work is full time.",
+        "Core hours are 9:30 to 15:30.",
+        "Pay",
+        "Paid monthly.",
+      ],
+      reply:
+        "¶1 ## Hours\n<removed>## Hours</removed>\n<removed>Work is full time.</removed>\n<removed>Core hours are 9:30 to 15:30.</removed>",
+    },
+    {
+      lines: ["工时", "全职。", "核心工作时间为9:30至15:30。", "薪酬", "按月发放。"],
+      reply:
+        "¶1 ## 工时\n\n<removed>## 工时</removed>\n\n¶2 <removed>全职。</removed>\n\n¶3 <removed>核心工作时间为9:30至15:30。</removed>",
+    },
+  ])(
+    "a paragraph named as it was and quoted as taken out goes: $reply",
+    async ({ lines, reply }) => {
+      const { core, mind, client, before } = await noteOf(
+        [
+          headingOf(lines[0] ?? ""),
+          ...plain(lines.slice(1, 3)),
+          headingOf(lines[3] ?? ""),
+          paragraph(text(lines[4] ?? "")),
+        ],
+        () => reply,
+      );
+
+      expect(await core.editWithAi(wholeMind(client, mind.id, "Drop the hours"))).toMatchObject({
+        kind: "proposed",
+      });
+      expect(await acceptThenUndo(client, before)).toEqual([lines[3], lines[4]]);
+    },
+  );
+
+  // protects=a new paragraph numbered just past the selection's last (¶4+ in a Note of three, as Claude Haiku 5.5 numbers a new line) goes after the last, the only place past it; fails_when=it is refused or lands elsewhere; no_claim=none beyond protects.
+  test("a new paragraph numbered just past the last goes after the last", async () => {
+    const lines = ["房租每月1200元。", "停车每月100元。", "物业每月30元。"];
+    const { core, mind, client, before } = await noteOf(plain(lines), () =>
+      ["¶3 物业每月30元。", "¶4+ 网络每月40元。"].join("\n\n"),
+    );
+
+    expect(await core.editWithAi(wholeMind(client, mind.id, "加一行网络费用"))).toMatchObject({
+      kind: "proposed",
+    });
+    expect(await acceptThenUndo(client, before)).toEqual([...lines, "网络每月40元。"]);
+  });
+
   // protects=a paragraph the User started with what reads as a name is shown with it escaped, and comes back as their words whether the reply keeps the escape or names the paragraph first; "¶ 12", with a space, reads as no name and needs no escape; fails_when=the typed name is read as a name, lost, or a backslash is left in the Note; no_claim=none beyond protects.
   test.each([
     { reply: "¶1 \\¶12 of the lease says rent rises in May.\n\n¶2 ¶ 3 covers water." },
@@ -5057,11 +5141,9 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       await core.editWithAi(wholeMind(client, mind.id, "Make the costs a table"));
       await resolveChanges(client, "accept");
 
-      expect(
-        readMind(client)
-          .toJSON()
-          .content?.map((block) => block.type),
-      ).toEqual(["paragraph", "table", "paragraph"]);
+      const kinds: string[] = [];
+      readMind(client).forEach((block) => kinds.push(block.type.name));
+      expect(kinds).toEqual(["paragraph", "table", "paragraph"]);
       expect(shownWithChanges(client)).toEqual([
         "Costs",
         "Cost",

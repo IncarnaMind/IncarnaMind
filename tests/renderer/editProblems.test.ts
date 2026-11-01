@@ -70,3 +70,16 @@ describe("an Edit with AI whose reply was cut off at its output limit (#2333)", 
     );
   });
 });
+
+describe("an Edit with AI whose reply named a paragraph wrongly (#2356)", () => {
+  // protects=a reply that names a paragraph twice, one the selection hasn't, or one with no words has its own line in English and Chinese, saying nothing changed and to try again; fails_when=the line is missing in a language, or reads as the removal line; no_claim=where the line sits.
+  test("has a line of its own in English and Chinese", () => {
+    expect(say("en")("edit.problem.misnamed")).toBe(
+      "The AI didn’t say clearly which paragraph each change replaces, so nothing changed. Try again.",
+    );
+    expect(say("zh-CN")("edit.problem.misnamed")).toBe(
+      "AI 没有说清每处修改替换哪一段，没有改动。请重试。",
+    );
+    expect(say("en")("edit.problem.misnamed")).not.toBe(say("en")("edit.problem.unplaced"));
+  });
+});

@@ -394,6 +394,7 @@ function editCall(
     action: ask.action,
     instruction: ask.instruction,
     passage,
+    named: passage !== selection.text,
     context: selection.context,
     // Explain writes under the passage, not into it: the words around it don't matter.
     ...(!explain && { before: selection.before, after: selection.after }),

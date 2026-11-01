@@ -33,7 +33,6 @@ export const EDIT_INSTRUCTIONS = [
   "- Write in the passage's language, unless the task is to translate it.",
   "- Change only what the task asks for. Keep names, numbers and facts as they are.",
   "- When the task names text to go, write each paragraph that goes between <removed> and </removed>, word for word, on lines of its own where it stood: a paragraph left out of your reply stays. So to take out a list item, write <removed>- the item, word for word</removed> where it stood, and only that item. A heading, a list item and a table each count as a paragraph, and a section is its heading with all the paragraphs under it. Shortening, improving, rewriting or translating text takes none of it out: for those, never write <removed>. A backslash before <removed makes it words of the passage, not the mark: keep the backslash. Never explain a removal outside <why>.",
-  "- When each paragraph of the passage starts with a name, such as ¶1 or ¶2: start each paragraph of your reply with the name of the passage's paragraph it replaces, as in ¶3 - The new words, and a new paragraph with ¶+, right after the paragraph it follows, which you write too, as it is. Name a paragraph once at most. A paragraph you don't write stays as it is, so write only those you change or add, and no line of your own besides. A backslash before ¶ makes it words of the passage: keep the backslash.",
 ].join("\n");
 
 /**
@@ -45,14 +44,21 @@ export const NAMES_SHOWN: ReadonlySet<EditAction> = new Set(["instruction"]);
 /** A passage paragraph's name, by its place: ¶1 is the first. */
 export const paragraphName = (index: number) => `¶${index + 1}`;
 
-/** Typed text that reads as a name, escaped as Markdown escapes a mark, so it stays words. */
-export const escapeNames = (text: string) => text.replace(/¶(?=\d|\+)/g, "\\¶");
+/** Typed text that reads as a name, or as one written wrong, escaped as Markdown escapes a mark, so it stays words. */
+export const escapeNames = (text: string) => text.replace(/¶(?=\S)/g, "\\¶");
+
+/** Escaped names (`escapeNames`), words again. */
+export const unescapeNames = (text: string) => text.replace(/\\¶(?=\S)/g, "¶");
 
 /**
  * What a reply's paragraph says it is by its name: the passage's paragraph it `replaces` (¶3), or a
  * new one that `follows` one of them (¶3+) or the reply's paragraph before it (¶+, null).
  */
-export type ParagraphName = { replaces: number } | { follows: number | null };
+export type ParagraphName =
+  | { replaces: number }
+  | { follows: number | null }
+  /** Written as a name but none, as "¶2a": which paragraph it is can't be told. */
+  | { unclear: string };
 
 /** A name where a reply's paragraph starts, ended by a space or the line's end: "¶3+" is never ¶3. */
 const NAME_HERE = /^¶(?:(\d+)(\+?)|\+)(?=\s|$)\s*/;
@@ -60,7 +66,12 @@ const NAME_HERE = /^¶(?:(\d+)(\+?)|\+)(?=\s|$)\s*/;
 /** The name a reply's paragraph starts with, and the rest of it; null for none. */
 export function readName(paragraph: string): { name: ParagraphName | null; rest: string } {
   const found = NAME_HERE.exec(paragraph);
-  if (!found) return { name: null, rest: paragraph };
+  if (!found) {
+    const unclear = /^¶\S+\s*/.exec(paragraph)?.[0];
+    return unclear
+      ? { name: { unclear: unclear.trim() }, rest: paragraph.slice(unclear.length) }
+      : { name: null, rest: paragraph };
+  }
   const [all, number, plus] = found;
   const name =
     number === undefined
@@ -88,7 +99,7 @@ export const withoutNames = (text: string) =>
     .split("\n")
     .map((line) => readName(line.replace(/^[ \t]+(?=¶)/, "")).rest)
     .join("\n")
-    .replace(/\\¶(?=\d|\+)/g, "¶");
+    .replace(/\\¶(?=\S)/g, "¶");
 
 /** For "explain": a few sentences to go under the passage. */
 export const EXPLAIN_INSTRUCTIONS = [
@@ -102,8 +113,23 @@ export const EXPLAIN_INSTRUCTIONS = [
 export const QUOTE_WHAT_GOES =
   "If that names text to go, write each paragraph that goes between <removed> and </removed>, word for word, where it stood: leaving it out doesn't take it out.";
 
-/** What each action asks for; `instruction` is the language, the User's words or the unsupported part; `cited`, what the passage's markers quote. */
-function taskFor(action: EditAction, instruction: string, cited: string): string {
+/**
+ * Said after that when the passage shows its paragraphs' names (#2356): the task's own words, not
+ * the instructions every edit shares, as a model shown no names would write some.
+ */
+export const NAME_WHAT_YOU_WRITE = [
+  "Each paragraph of the passage starts with its name: ¶1, ¶2 and so on.",
+  "Start each paragraph you write with the name of the passage's paragraph it is, as in ¶3 - The new words, and a new paragraph with ¶+.",
+  "A paragraph that goes is its name, then its words between <removed> and </removed>, as in ¶4 <removed>- The item</removed>.",
+  "Name a paragraph once at most, and only one the passage has.",
+  "A backslash before ¶ makes it words of the passage: keep the backslash.",
+].join(" ");
+
+/**
+ * What each action asks for; `instruction` is the language, the User's words or the unsupported
+ * part; `cited`, what the passage's markers quote; `named`, the passage shows its paragraphs' names.
+ */
+function taskFor(action: EditAction, instruction: string, cited: string, named: boolean): string {
   switch (action) {
     case "improve":
       return "Improve the writing: make it clearer, smoother and correct, with the same meaning and tone. Leave what is fine as it is.";
@@ -114,7 +140,9 @@ function taskFor(action: EditAction, instruction: string, cited: string): string
     case "explain":
       return "Explain what the passage says.";
     case "instruction":
-      return `Do what the User asks: ${instruction}\n${QUOTE_WHAT_GOES}`;
+      return [`Do what the User asks: ${instruction}`, QUOTE_WHAT_GOES]
+        .concat(named ? [NAME_WHAT_YOU_WRITE] : [])
+        .join("\n");
     case "follow-citation":
       return [
         ...(cited ? [`Its markers' Documents now say only this: ${cited}.`] : []),
@@ -141,6 +169,8 @@ export function editPrompt(input: {
   after?: string;
   /** What each Citation marker quotes: marker n is `quotes[n - 1]`. */
   quotes?: readonly string[];
+  /** The passage shows its paragraphs' names (`NAMES_SHOWN`). */
+  named?: boolean;
 }): string {
   const near = (tag: "before" | "after", words: string | undefined) =>
     words ? [`<${tag}>`, words, `</${tag}>`, ""] : [];
@@ -160,7 +190,7 @@ export function editPrompt(input: {
     "</passage>",
     "",
     ...near("after", input.after),
-    `<task action="${input.action}">${taskFor(input.action, input.instruction, cited)}</task>`,
+    `<task action="${input.action}">${taskFor(input.action, input.instruction, cited, input.named ?? false)}</task>`,
   ].join("\n");
 }
 
