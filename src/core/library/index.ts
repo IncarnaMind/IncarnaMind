@@ -325,8 +325,12 @@ export function createLibrary(options: {
   }): ExternalService[];
   /** When the User allowed tagging or Organize to send to this service (../consent); null if not. */
   consentedAt(service: ExternalService): string | null;
-  /** The services an Organize request with these settings sends a Document to. */
-  organizeServices(settings: LibrarySettings): ExternalService[];
+  /**
+   * The service an Organize request with these settings sends a Document to; none on this
+   * computer. A scan's page images may go to the image model's too, which the User allows for
+   * itself (the "scan-images" flow).
+   */
+  organizeService(settings: LibrarySettings): ExternalService | null;
   /**
    * The service that would read a scan's pages for this classifier if the User
    * allowed it, while they haven't; null when it reads them, or can't.
@@ -813,7 +817,8 @@ export function createLibrary(options: {
           if (classifier.local) call.runsLocally();
           if (stale()) return;
           // Checked on where this request goes, as prepared; the User's own Organize goes.
-          const services = options.organizeServices(settingsNow);
+          const service = options.organizeService(settingsNow);
+          const services = service ? [service] : [];
           if (!asked.has(id) && !mayBackgroundSend(db, id, services, turnedOnAt)) {
             holdBack(id, initial);
             return;

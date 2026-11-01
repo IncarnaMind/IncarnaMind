@@ -235,7 +235,7 @@ import {
 import { documentCitedPages, documentPageImages } from "./library/pageImages";
 import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
-import type { LibrarySettings, TaggingClassifier } from "./library/types";
+import type { TaggingClassifier } from "./library/types";
 import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
@@ -3242,7 +3242,10 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return [...services.values()];
     },
-    organizeServices: (settings) => organizeServicesOf(settings),
+    organizeService: (settings) => {
+      const classifier = organizeModelOf(settings);
+      return classifier && tagging.service(classifier);
+    },
     consentedAt: (service) =>
       consent.acceptedAt("tagging", service) ?? consent.acceptedAt("classification", service),
     pagesWaitFor: (classifier) => {
@@ -3325,10 +3328,8 @@ export function createCore(adapters: CoreAdapters): Core {
     return !service || consent.allows("scan-images", service);
   }
   /** The services Organize sends to: its model's, and the image model's for the scans it can't read. */
-  const classificationServices = async (): Promise<ExternalService[]> =>
-    organizeServicesOf(library.settings());
-  function organizeServicesOf(settings: LibrarySettings): ExternalService[] {
-    const classifier = organizeModelOf(settings);
+  const classificationServices = async (): Promise<ExternalService[]> => {
+    const classifier = organizeModelOf(library.settings());
     const service = classifier && tagging.service(classifier);
     const reader =
       classifier?.kind === "chat" && !chat.readsImages(classifier.choice)
@@ -3336,7 +3337,7 @@ export function createCore(adapters: CoreAdapters): Core {
         : null;
     const pages = reader && chat.describeModel(reader)?.service;
     return [...(service ? [service] : []), ...(pages && pages.id !== service?.id ? [pages] : [])];
-  }
+  };
   consent.registry.register({
     id: "classification",
     sends: CLASSIFICATION_FLOW_SENDS,
