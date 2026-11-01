@@ -6690,7 +6690,7 @@ export const en = {
   "agents.sentence.other": "your agent",
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
-  "agents.pairing.proposes": "May propose changes to their notes, which wait for you",
+  "agents.pairing.proposes": "Can propose changes to notes there, which wait for you",
   "agents.pairing.lastUsed": "Last used {when}",
   "agents.pairing.notUsed": "Not used yet",
   "agents.pairing.renameLabel": "Name of {agent}",
