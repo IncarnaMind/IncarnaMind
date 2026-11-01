@@ -230,16 +230,50 @@ export interface DocxCommentInput {
   mark?: "reference" | "start";
 }
 
-/** A .docx of these paragraphs; a heading has its level, and a paragraph may have a comment. */
+/** A Word section's header and footer, each one paragraph of text; Word shows them on its every page. */
+export interface DocxRunning {
+  header?: string;
+  footer?: string;
+}
+
+/** Parts of a .docx, by name ("word/header1.xml"), written as broken XML, as a damaged file has them. */
+interface DocxDamage {
+  broken?: readonly string[];
+}
+
+/**
+ * A .docx of these paragraphs; a heading has its level, and a paragraph may have a comment. A
+ * paragraph may end a Word section with its own header and footer (`endsSection`); the last
+ * section's are `options`' `header` and `footer`.
+ */
 export function docxOf(
-  paragraphs: readonly { text: string; heading?: number; comment?: DocxCommentInput }[],
-  options: PackageOptions = {},
+  paragraphs: readonly {
+    text: string;
+    heading?: number;
+    comment?: DocxCommentInput;
+    endsSection?: DocxRunning;
+  }[],
+  options: PackageOptions & DocxRunning & DocxDamage = {},
 ): Buffer {
   const W = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
+  const R = `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"`;
   const comments: (DocxCommentInput & { id: number })[] = [];
+  const runningParts: { name: string; id: string; tag: "hdr" | "ftr"; text: string }[] = [];
+  const sectionProperties = (running: DocxRunning) => {
+    const references = (["header", "footer"] as const).flatMap((kind) => {
+      const text = running[kind];
+      if (text === undefined) return [];
+      const id = `rIdRunning${runningParts.length + 1}`;
+      const name = `${kind}${runningParts.length + 1}.xml`;
+      runningParts.push({ name, id, tag: kind === "header" ? "hdr" : "ftr", text });
+      return [`<w:${kind}Reference w:type="default" r:id="${id}"/>`];
+    });
+    return `<w:sectPr>${references.join("")}</w:sectPr>`;
+  };
   const body = paragraphs
-    .map(({ text, heading, comment }) => {
-      const style = heading ? `<w:pPr><w:pStyle w:val="Heading${heading}"/></w:pPr>` : "";
+    .map(({ text, heading, comment, endsSection }) => {
+      const properties = `${heading ? `<w:pStyle w:val="Heading${heading}"/>` : ""}${endsSection ? sectionProperties(endsSection) : ""}`;
+      const style = properties ? `<w:pPr>${properties}</w:pPr>` : "";
       const run = text ? `<w:r><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>` : "";
       if (!comment) return `<w:p>${style}${run}</w:p>`;
       const id = comments.push({ ...comment, id: comments.length }) - 1;
@@ -250,6 +284,8 @@ export function docxOf(
       return `<w:p>${style}<w:commentRangeStart w:id="${id}"/>${run}${reference}</w:p>`;
     })
     .join("");
+  const lastSection =
+    options.header !== undefined || options.footer !== undefined ? sectionProperties(options) : "";
   const styles = [1, 2, 3]
     .map(
       (level) =>
@@ -263,37 +299,52 @@ export function docxOf(
     )
     .join("");
   const core = coreProperties(options);
-  return buildZip([
-    { name: "[Content_Types].xml", data: CONTENT_TYPES("") },
-    {
-      name: "_rels/.rels",
-      data: packageRelationships([
-        `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>`,
-        ...(core.relationship ? [core.relationship] : []),
-      ]),
-    },
-    {
-      name: "word/_rels/document.xml.rels",
-      data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
-    },
-    {
-      name: "word/document.xml",
-      data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W}><w:body>${body}</w:body></w:document>`,
-    },
-    {
-      name: "word/styles.xml",
-      data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${W}>${styles}</w:styles>`,
-    },
-    ...(comments.length > 0
-      ? [
-          {
-            name: "word/comments.xml",
-            data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:comments ${W}>${commentsXml}</w:comments>`,
-          },
-        ]
-      : []),
-    ...(core.part ? [core.part] : []),
-  ]);
+  return buildZip(
+    [
+      { name: "[Content_Types].xml", data: CONTENT_TYPES("") },
+      {
+        name: "_rels/.rels",
+        data: packageRelationships([
+          `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>`,
+          ...(core.relationship ? [core.relationship] : []),
+        ]),
+      },
+      {
+        name: "word/_rels/document.xml.rels",
+        data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>${runningParts
+          .map(
+            ({ id, name, tag }) =>
+              `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${tag === "hdr" ? "header" : "footer"}" Target="${name}"/>`,
+          )
+          .join("")}</Relationships>`,
+      },
+      {
+        name: "word/document.xml",
+        data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W} ${R}><w:body>${body}${lastSection}</w:body></w:document>`,
+      },
+      ...runningParts.map(({ name, tag, text }) => ({
+        name: `word/${name}`,
+        data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:${tag} ${W}><w:p><w:r><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p></w:${tag}>`,
+      })),
+      {
+        name: "word/styles.xml",
+        data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${W}>${styles}</w:styles>`,
+      },
+      ...(comments.length > 0
+        ? [
+            {
+              name: "word/comments.xml",
+              data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:comments ${W}>${commentsXml}</w:comments>`,
+            },
+          ]
+        : []),
+      ...(core.part ? [core.part] : []),
+    ].map((entry) =>
+      options.broken?.includes(entry.name)
+        ? { ...entry, data: '<?xml version="1.0"?><!-- ' }
+        : entry,
+    ),
+  );
 }
 
 /**
