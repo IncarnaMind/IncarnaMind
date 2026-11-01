@@ -44,7 +44,7 @@ interface AbsenceContext {
 }
 
 export type Presence =
-  | { kind: "there" | "not" | "malformed" | "stopped" }
+  | { kind: "there" | "elsewhere" | "not" | "malformed" | "stopped" }
   | { failed: ProviderError };
 
 /** What a whole read's judgement is asked about: the sentence, then the text it reads. */
@@ -250,6 +250,8 @@ export async function checkAbsence({
     if (presence.kind === "stopped") return notChecked("stopped");
     if (presence.kind === "malformed") return notChecked("malformed");
     if (presence.kind === "not") return notChecked("absence-unconfirmed");
+    // A clause of another Document can't contradict a sentence about this one (#1443).
+    if (presence.kind === "elsewhere") return notChecked("absence-other-document");
     absence = judgment("contradicted", evidence);
   } else return notChecked("malformed");
   const figures = request.figures ?? [];

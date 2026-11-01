@@ -142,7 +142,7 @@ export function fakeAbsence(options: GenerateOptions): string | null {
 export function fakePresence(options: GenerateOptions): string | null {
   const system = systemOf(options.prompt);
   if (system !== PRESENCE_INSTRUCTIONS && system !== STRICT_PRESENCE_INSTRUCTIONS) return null;
-  const quote = /<quote>\n([\s\S]*?)\n<\/quote>/.exec(lastUserText(options.prompt))?.[1];
+  const quote = /<quote[^>]*>\n([\s\S]*?)\n<\/quote>/.exec(lastUserText(options.prompt))?.[1];
   return `Judgement: ${quote === BREAK_CLAUSE ? "there" : "not"}`;
 }
 

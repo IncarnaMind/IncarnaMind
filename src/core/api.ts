@@ -5888,6 +5888,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
  * - "absence-unconfirmed": a whole read said what the sentence calls absent is there, but a look
  *   at its quote found it doesn't state that (#1554, #1443).
+ * - "absence-other-document": a whole read's quote states what the sentence calls absent, but in
+ *   another Document than the one the sentence is about (#1443).
  * - "read-budget": a whole read reached the most it may spend before this part was judged, so
  *   nothing more was sent (`detail`: that most and what it had spent, as JSON of
  *   `{ most: Money; spent: Money }`).
@@ -5916,6 +5918,7 @@ export type ClaimCheckFailure =
   | "local-mode"
   | "absence-read-limit"
   | "absence-unconfirmed"
+  | "absence-other-document"
   | "kept-inside"
   | "cut-short"
   | "read-budget"

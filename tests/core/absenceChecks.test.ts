@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { fitsWholeRead, WHOLE_READ } from "../../src/core/answers/checks/absence";
+import { readPresence } from "../../src/core/answers/checks/prompt";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readFigures } from "../../src/shared/figures";
@@ -315,7 +316,7 @@ describe("Checking an absence sentence", () => {
       const model = scriptedModel((call) => checkReply(call, sentences), {
         generate: (call) => {
           if (looks(call)) {
-            const quote = /<quote>\n([\s\S]*?)\n<\/quote>/.exec(call.prompt)?.[1] ?? "";
+            const quote = /<quote[^>]*>\n([\s\S]*?)\n<\/quote>/.exec(call.prompt)?.[1] ?? "";
             looked.push(quote);
             return { text: `Judgement: ${quote === clause ? "there" : "not"}` };
           }
@@ -346,6 +347,76 @@ describe("Checking an absence sentence", () => {
         evidence: { quote: clause, check: "found", pageFrom: 2, pageTo: 2 },
       });
       expect(looked).toEqual([unrelated, clause, clause]);
+    },
+  );
+
+  // A staff handbook's dog contradicted a lease's "nothing about pets" when the looks couldn't see
+  // which Document a quote is in (#1443).
+  test.each([
+    {
+      language: "en",
+      lease: "The lease says nothing about pets.",
+      handbook: "The staff handbook says nothing about dogs.",
+      dog: "Staff may bring one dog to the office.",
+      pages: (dog: string) => ({
+        lease: [{ lines: ["Rent", "The Tenant pays rent monthly."] }],
+        handbook: [{ lines: ["Office", dog] }],
+      }),
+    },
+    {
+      language: "zh-CN",
+      lease: "租约对养宠物只字未提。",
+      handbook: "员工手册对养狗只字未提。",
+      dog: "员工可携带一只狗到办公室。",
+      pages: (dog: string) => ({
+        lease: [{ chineseLines: ["租金", "乙方按月支付租金。"] }],
+        handbook: [{ chineseLines: ["办公室", dog] }],
+      }),
+    },
+  ])(
+    "a quote from another Document than the sentence's is Not checked, and one from its own contradicts it ($language)",
+    async ({ lease, handbook, dog, pages }) => {
+      const sentences = {
+        [lease]: { verdict: "supported", absence: true },
+        [handbook]: { verdict: "supported", absence: true },
+      } as const;
+      const looked: string[] = [];
+      const model = scriptedModel((call) => checkReply(call, sentences), {
+        generate: (call) => {
+          if (looks(call)) {
+            const document = /<quote document="([^"]*)">/.exec(call.prompt)?.[1] ?? "";
+            looked.push(document);
+            return { text: `Judgement: ${call.prompt.includes(lease) ? "elsewhere" : "there"}` };
+          }
+          if (call.system.startsWith("Read the whole Documents")) {
+            const passage = [
+              ...call.prompt.matchAll(/<passage id="([^"]+)"[^>]*>\n([\s\S]*?)<\/passage>/g),
+            ].find(([, , text]) => text?.includes(dog))?.[1];
+            return {
+              text: JSON.stringify({
+                absent: "it",
+                absence: "contained",
+                citations: [{ marker: 1, passage, quote: dog }],
+              }),
+            };
+          }
+          return checkGenerate(sentences)(call);
+        },
+      });
+      const { core } = await setUpWithDocuments(model, [
+        { name: "Lease.pdf", contents: buildPdf(pages(dog).lease) },
+        { name: "Staff handbook.pdf", contents: buildPdf(pages(dog).handbook) },
+      ]);
+
+      const other = await core.checkClaim({ claim: lease });
+      const own = await core.checkClaim({ claim: handbook });
+
+      expect(other).toMatchObject({ verdict: "not-checked", reason: "absence-other-document" });
+      expect(own).toMatchObject({
+        verdict: "contradicted",
+        evidence: { quote: dog, check: "found" },
+      });
+      expect(looked).toEqual(["Staff handbook", "Staff handbook", "Staff handbook"]);
     },
   );
 
@@ -1215,5 +1286,21 @@ describe("An absence is one part of its sentence, judged by the whole read alone
     expect(WHOLE_READ).not.toContain("rest");
     expect(WHOLE_READ).not.toContain('"marker":2');
     expect(WHOLE_READ).not.toContain("Figures:");
+  });
+});
+
+describe("A look at a whole read's quote is read from its form", () => {
+  test.each([
+    ["there", "there"],
+    ["**Not.**", "not"],
+    ["elsewhere", "elsewhere"],
+    ["Absent: pets in the lease\nQuote: a dog in the handbook\nJudgement: elsewhere", "elsewhere"],
+    ["Judgement: there\nJudgement: not", "not"],
+    ["There is no rent review in this quote.", null],
+    ["Not stated in the quote, so the sentence holds.", null],
+    ["Judgement: there, the quote states it", null],
+    ["", null],
+  ])("%j reads as %s", (reply, word) => {
+    expect(readPresence(reply)).toBe(word);
   });
 });

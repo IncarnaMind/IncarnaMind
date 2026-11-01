@@ -1640,7 +1640,7 @@ describe("A whole read's windows, on a sentence that says something is absent", 
           }
           if (call.system.startsWith("A sentence the User wrote says something is absent")) {
             looks.push({ system: call.system, prompt: call.prompt });
-            const quote = /<quote>\n([\s\S]*?)\n<\/quote>/.exec(call.prompt)?.[1] ?? "";
+            const quote = /<quote[^>]*>\n([\s\S]*?)\n<\/quote>/.exec(call.prompt)?.[1] ?? "";
             return { text: `Judgement: ${look(quote)}` };
           }
           if (!call.system.startsWith("Read the whole Documents")) return checkGenerate(plan)(call);
