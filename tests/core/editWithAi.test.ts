@@ -5078,6 +5078,90 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     expect(shownWithChanges(client)).toEqual(lines);
   });
 
+  // protects=a name that reads clearly more like another paragraph the reply hasn't named than like the one it names is refused, with the Note exactly as it was (#2356): a miscount, as Claude Haiku 5.5 named ¶7 for ¶6, though the line shares "The" and "is" with the one it names; and the User's own "¶3 of the lease…" come back with its escape dropped, read as a name; English and Chinese; fails_when=the line is written over the paragraph its name says; no_claim=how often a real model miscounts.
+  test.each([
+    {
+      lines: [
+        "The kickoff is in Leeds.",
+        "The designer is Dana.",
+        "The budget is 40,000 euros.",
+        "The report is due in June.",
+      ],
+      reply: "¶3 The designer is Dana, with Ben helping.",
+    },
+    {
+      lines: ["启动会在利兹召开。", "达娜负责设计工作。", "我们负责预算工作。", "报告六月提交。"],
+      reply: "¶3 达娜负责设计工作，本协助。",
+    },
+    {
+      lines: [
+        "The rent is 1,200 a month.",
+        "¶3 of the lease is void.",
+        "The deposit is due in May.",
+      ],
+      reply: "¶3 of the lease is void.",
+    },
+    {
+      lines: ["房租每月1200元。", "¶3 租约条款无效。", "租约押金五月付清。"],
+      reply: "¶3 租约条款无效。",
+    },
+  ])("a name its line reads clearly against is refused: $reply", async ({ lines, reply }) => {
+    const { core, mind, client, before } = await noteOf(plain(lines), () => reply);
+
+    const result = await core.editWithAi(wholeMind(client, mind.id, "Ben helps Dana"));
+
+    expect(result).toEqual({ kind: "misnamed" });
+    expect(readMind(client).toJSON()).toEqual(before);
+  });
+
+  // protects=a paragraph that starts with an unescaped ¶ that is no name (after spaces or a quote mark) is refused, never written with the ¶ as text (#2356); English and Chinese; fails_when="¶ 2 " or "> ¶2 " lands in the Note, or the edit reads as done; no_claim=names written in words, such as 段1.
+  test.each([
+    { lines: ["Ana leads data.", "Dana leads design."], reply: "¶ 2 Dana leads the design work." },
+    { lines: ["Ana leads data.", "Dana leads design."], reply: "> ¶2 Dana leads the design work." },
+    { lines: ["安娜负责数据。", "达娜负责设计。"], reply: "¶ 2 达娜负责全部设计。" },
+    { lines: ["安娜负责数据。", "达娜负责设计。"], reply: "> ¶2 达娜负责全部设计。" },
+  ])("a name written wrong at a line's start is refused: $reply", async ({ lines, reply }) => {
+    const { core, mind, client, before } = await noteOf(plain(lines), () => reply);
+
+    expect(await core.editWithAi(wholeMind(client, mind.id, "Dana leads all design"))).toEqual({
+      kind: "misnamed",
+    });
+    expect(readMind(client).toJSON()).toEqual(before);
+  });
+
+  // protects=a heading the reply names comes back as a heading, at any level, or the change is refused (#2356): Claude Haiku 5.5's "¶1 is a heading and no mistakes…" wrote its own sentence over a heading; English and Chinese; fails_when=a named heading is written over with plain text, or a heading renamed as a heading is refused; no_claim=how a model words a heading.
+  test.each([
+    {
+      heading: "Plot",
+      reply: "¶1 is a heading and no mistakes; the passage has no spelling errors to fix.",
+      result: "misnamed",
+    },
+    { heading: "Plot", reply: "¶1 Garden plot", result: "misnamed" },
+    { heading: "Plot", reply: "¶1 ## Garden plot", result: "proposed" },
+    { heading: "Plot", reply: "¶1 ### Garden plot", result: "proposed" },
+    { heading: "安排", reply: "¶1 是标题，没有错别字。", result: "misnamed" },
+    { heading: "安排", reply: "¶1 ## 活动安排", result: "proposed" },
+  ])("a named heading comes back as a heading: $reply", async ({ heading, reply, result }) => {
+    const title: JSONContent = {
+      type: "heading",
+      attrs: { id: `block-${++ids}`, level: 2 },
+      content: [text(heading)],
+    };
+    const { core, mind, client, before } = await noteOf(
+      [title, ...plain(["The club garden is behind the library."])],
+      () => reply,
+    );
+
+    expect(await core.editWithAi(wholeMind(client, mind.id, "Check the spelling"))).toMatchObject({
+      kind: result,
+    });
+    if (result === "misnamed") expect(readMind(client).toJSON()).toEqual(before);
+    else {
+      await resolveChanges(client, "accept");
+      expect(readMind(client).toJSON().content?.[0]?.type).toBe("heading");
+    }
+  });
+
   // protects=only a request in the User's words shows the passage's names and is told how to name its own, in its instructions, so a fixed action such as Shorten is shown no name and told of none; fails_when=Shorten's instructions or prompt mention names, or the request in words isn't told; no_claim=how a model reads the rule.
   test("the names and their rule go to a request in the User's words, not to Shorten", async () => {
     const lines = ["Rent is very high.", "Water is really cheap."];
@@ -5366,8 +5450,9 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     expect(await acceptThenUndo(client, before)).toEqual([...lines, "网络每月40元。"]);
   });
 
-  // protects=a paragraph the User started with what reads as a name is shown with it escaped, and comes back as their words whether the reply keeps the escape or names the paragraph first; "¶ 12", with a space, reads as no name and needs no escape; fails_when=the typed name is read as a name, lost, or a backslash is left in the Note; no_claim=none beyond protects.
+  // protects=every ¶ the User typed is shown escaped, "¶ 3" with a space too, and comes back as their words whether the reply keeps the escape or names the paragraph first; fails_when=the typed ¶ is read as a name, lost, or a backslash is left in the Note; no_claim=none beyond protects.
   test.each([
+    { reply: "¶1 \\¶12 of the lease says rent rises in May.\n\n¶2 \\¶ 3 covers water." },
     { reply: "¶1 \\¶12 of the lease says rent rises in May.\n\n¶2 ¶ 3 covers water." },
     { reply: "¶1 ¶12 of the lease says rent rises in May." },
   ])("typed text that reads as a name stays words: $reply", async ({ reply }) => {
@@ -5377,7 +5462,7 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     await core.editWithAi(wholeMind(client, mind.id, "Say it rises in May"));
 
     expect(calls[0]?.passage).toBe(
-      "¶1 \\¶12 of the lease says rent rises.\n\n¶2 ¶ 3 covers water.",
+      "¶1 \\¶12 of the lease says rent rises.\n\n¶2 \\¶ 3 covers water.",
     );
     expect(await acceptThenUndo(client, before)).toEqual([
       "¶12 of the lease says rent rises in May.",

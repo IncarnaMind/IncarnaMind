@@ -44,11 +44,11 @@ export const NAMES_SHOWN: ReadonlySet<EditAction> = new Set(["instruction"]);
 /** A passage paragraph's name, by its place: ¶1 is the first. */
 export const paragraphName = (index: number) => `¶${index + 1}`;
 
-/** Typed text that reads as a name, or as one written wrong, escaped as Markdown escapes a mark, so it stays words. */
-export const escapeNames = (text: string) => text.replace(/¶(?=\S)/g, "\\¶");
+/** Every ¶ the User typed escaped as Markdown escapes a mark, so it stays words: one that reads as a name, or as one written wrong. */
+export const escapeNames = (text: string) => text.replace(/¶/g, "\\¶");
 
 /** Escaped names (`escapeNames`), words again. */
-export const unescapeNames = (text: string) => text.replace(/\\¶(?=\S)/g, "¶");
+export const unescapeNames = (text: string) => text.replace(/\\¶/g, "¶");
 
 /**
  * What a reply's paragraph says it is by its name: the passage's paragraph it `replaces` (¶3), or a
@@ -86,6 +86,14 @@ export function readName(paragraph: string): { name: ParagraphName | null; rest:
   return { name, rest: paragraph.slice(all.length) };
 }
 
+/**
+ * A ¶ not escaped where a reply's paragraph starts, after spaces or quote marks, that no name was
+ * read from: a name written wrong ("¶ 2", "> ¶2"), as the User's own ¶ was shown escaped. Null
+ * when there is none.
+ */
+export const strayName = (paragraph: string): string | null =>
+  /^[\s>"'“‘「『(]*¶\S*/.exec(paragraph)?.[0].trim() ?? null;
+
 /** A name a line of a reply starts with, written well or not, for telling where its paragraphs start. */
 export const NAME_LINE = String.raw`[ \t]*¶\S`;
 
@@ -111,7 +119,7 @@ export const withoutNames = (text: string) =>
     .split("\n")
     .map((line) => readName(line.replace(/^[ \t]+(?=¶)/, "")).rest)
     .join("\n")
-    .replace(/\\¶(?=\S)/g, "¶");
+    .replace(/\\¶/g, "¶");
 
 /**
  * For a passage shown with its paragraphs' names (#2356): the shared instructions and how a reply

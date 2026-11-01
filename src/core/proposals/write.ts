@@ -77,6 +77,7 @@ import {
   paragraphName,
   readName,
   readRemovals,
+  strayName,
   unescapeNames,
   unnameRemovals,
 } from "../edits/prompt";
@@ -892,6 +893,11 @@ function newParagraphs(
   /** A name off the start of a paragraph, when the passage was shown with names. */
   const nameOff = (written: string): { name: ParagraphName | null; rest: string } =>
     named ? readName(written) : { name: null, rest: written };
+  /** No name read, but a ¶ where the paragraph starts: a name written wrong, refused. */
+  const strayOf = (rest: string): { name?: ParagraphName } => {
+    const stray = named ? strayName(rest) : null;
+    return stray === null ? {} : { name: { unclear: stray } };
+  };
   /** A paragraph's words with the names the passage showed escaped made words again. */
   const unescaped = (paragraph: string) => (named ? unescapeNames(paragraph) : paragraph);
   type Part = { name?: ParagraphName } & (
@@ -917,7 +923,7 @@ function newParagraphs(
           .filter((paragraph) => paragraph !== "")
           .map((written) => {
             const first = nameOff(written);
-            const name = first.name === null ? {} : { name: first.name };
+            const name = first.name === null ? strayOf(first.rest) : { name: first.name };
             if (!selection.marked) {
               return {
                 ...name,
@@ -932,7 +938,8 @@ function newParagraphs(
             // A name written after the paragraph's mark, as in "- ¶3 …".
             const second = first.name === null ? nameOff(after) : { name: null, rest: after };
             return {
-              ...name,
+              ...(first.name === null ? {} : name),
+              ...(first.name === null && second.name === null && strayOf(second.rest)),
               ...(second.name !== null && { name: second.name }),
               marker,
               paragraph: unescaped(unescapeMarkers(second.rest, marker !== null)),
@@ -2464,21 +2471,22 @@ export function createRewriteStream(
     typedTagsIn(paragraph.tokens) < typedTagsIn(segment.tokens);
 
   /**
-   * A name the paragraph's own words contradict: they share no word with the paragraph it names,
-   * and read as another the text hasn't named. A model can miscount (Claude Haiku 5.5 named ¶7
+   * A name the paragraph's own words contradict: they read clearly more as another paragraph the
+   * text hasn't named than as the one it names. A model can miscount (Claude Haiku 5.5 named ¶7
    * for a rewrite of ¶6, #2356), and that paragraph would be written over; this refuses, and pairs
    * nothing.
    */
-  const namesAnother = (paragraph: NewParagraph, index: number): boolean => {
-    const segment = segments[index];
-    if (!segment || likeness(segment.tokens, paragraph.tokens) > 0) return false;
-    return segments.some(
+  const namesAnother = (paragraph: NewParagraph, index: number): boolean =>
+    segments.some(
       (other, at) =>
         at !== index &&
         !namedSoFar.has(at) &&
         readsAs(other, paragraph, { least: COUNTERPART_LIKENESS }),
     );
-  };
+
+  /** A heading named and written as something else: a model's own sentence about it, as "¶1 is a heading…" (#2356). */
+  const headingLost = (segment: Segment, paragraph: NewParagraph) =>
+    segment.kind.startsWith("heading") && !paragraph.kind?.startsWith("heading");
 
   /** A paragraph of a text that names the one each replaces (#2356), written where its name says. */
   const takeNamed = (paragraph: NewParagraph) => {
@@ -2526,7 +2534,7 @@ export function createRewriteStream(
       if (place) following.set(segment, place);
       return;
     }
-    if (namesAnother(paragraph, index)) {
+    if (namesAnother(paragraph, index) || headingLost(segment, paragraph)) {
       misnamed = true;
       return;
     }
