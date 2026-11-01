@@ -503,8 +503,6 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
   const t = useT();
   const bar = useRef<HTMLDivElement>(null);
   const over = useRef(false);
-  /** The uncited sentence of the shown change last selected from its bar. */
-  const lastUncited = useRef<{ id: string; at: number } | null>(null);
   const shown = useEditorState({
     editor,
     selector: ({ editor: current }): Shown | null => {
@@ -570,14 +568,15 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
 
   if (!shown) return null;
   const removedSources = sourcesRemoved(shown, documents, kept);
-  // Each click selects the next one, back to the first after the last; none are selected at once.
+  // Each click selects the one after the sentence selected, the first after the last or after
+  // any other selection; never all of them at once.
   const selectNextUncited = () => {
+    if (editor.isDestroyed) return;
     const { uncited } = shown;
-    const last = lastUncited.current;
-    const at = last?.id === shown.id ? (last.at + 1) % uncited.length : 0;
-    const sentence = uncited[at];
-    if (!sentence || editor.isDestroyed) return;
-    lastUncited.current = { id: shown.id, at };
+    const { from, to } = editor.state.selection;
+    const at = uncited.findIndex((each) => each.from === from && each.to === to);
+    const sentence = uncited[(at + 1) % uncited.length];
+    if (!sentence) return;
     editor.chain().setTextSelection(sentence).scrollIntoView().run();
     editor.view.focus();
   };
