@@ -1,6 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { useEffect } from "react";
-import { dismissEditProblem, stopEdit, useEdits } from "../editWithAi";
+import { estimateLine } from "../cost";
+import { answerEditAsk, dismissEditProblem, stopEdit, useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { appliedLineIn, setAppliedLine } from "./appliedEditLine";
@@ -26,10 +27,25 @@ export function useMenuEditLine(editor: Editor, mindId: string, readOnly: boolea
     if (readOnly || editor.isDestroyed) return;
     const clear = () => {
       const kind = appliedLineIn(editor.state)?.kind;
-      if (kind === "running" || kind === "failed") setAppliedLine(editor, null);
+      if (kind === "ask" || kind === "running" || kind === "failed") setAppliedLine(editor, null);
     };
     if (menuShown) {
       clear();
+      return;
+    }
+    if (pending?.ask && pending.menu) {
+      // It waits for the User's go, with its estimate, where its Undo line will land (#2348).
+      const { blockId } = pending.menu;
+      setAppliedLine(editor, {
+        kind: "ask",
+        blockId,
+        parts: pending.ask.parts,
+        estimate: pending.ask.estimate
+          ? estimateLine(pending.ask.estimate, t, language, { always: true })
+          : null,
+        start: () => answerEditAsk(mindId, true),
+        cancel: () => answerEditAsk(mindId, false),
+      });
       return;
     }
     if (pending?.menu) {
@@ -48,7 +64,9 @@ export function useMenuEditLine(editor: Editor, mindId: string, readOnly: boolea
             blockId: now.menu.blockId,
             stop: () => stopEdit(mindId),
             ...(now.part && { part: now.part }),
-            ...(now.estimate !== undefined && { estimate: now.estimate }),
+            ...(now.runEstimate !== undefined && {
+              estimate: now.runEstimate ? estimateLine(now.runEstimate, t, language) : null,
+            }),
           });
         },
         Math.max(0, at + SHOWN_AFTER_MS - Date.now()),
@@ -93,10 +111,12 @@ export function useMenuEditLine(editor: Editor, mindId: string, readOnly: boolea
     const onKey = (event: KeyboardEvent) => {
       const running = useEdits.getState().pending[mindId];
       if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
-      if (!running?.menu || running.stopped || useEdits.getState().menuShows[mindId]) return;
+      if (!running || (!running.menu && !running.ask) || running.stopped) return;
+      if (useEdits.getState().menuShows[mindId]) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      stopEdit(mindId);
+      if (running.ask) answerEditAsk(mindId, false);
+      else stopEdit(mindId);
     };
     // Ahead of the editor's own use of Esc.
     dom.addEventListener("keydown", onKey, true);

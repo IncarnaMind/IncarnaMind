@@ -130,6 +130,16 @@ export type AppliedLine = (
       /** Asked of the assistant: all of its requests in the Mind, held as they would rewrite most of the User's text. */
       asked?: { mindId: string; requests: readonly string[]; facts: ChangeCounts };
     }
+  // An edit too long for one request, on a model billed per token, waits for the User here (#2348).
+  | {
+      kind: "ask";
+      blockId: string | null;
+      parts: number;
+      /** What the run would cost, shown, never asked about (#83). */
+      estimate: EstimateLine | null;
+      start(): void;
+      cancel(): void;
+    }
   // An edit asked in the selection menu, once the menu is closed: it holds the spot its Undo line lands in.
   | {
       kind: "running";
@@ -156,6 +166,7 @@ const LINE_KINDS: ReadonlySet<unknown> = new Set<AppliedLine["kind"]>([
   "applied",
   "review",
   "held",
+  "ask",
   "running",
   "failed",
 ]);
@@ -582,6 +593,23 @@ function actionButton(label: string, testId: string, run: () => void): HTMLButto
 
 function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): HTMLElement {
   const t = options.translate;
+  if (line.kind === "ask") {
+    const parts: (Node | string)[] = [text("min-w-0", t("edit.ask.parts", { count: line.parts }))];
+    if (line.estimate) {
+      const cost = text("min-w-0", line.estimate.parts.join(" · "), "edit-estimate");
+      cost.title = line.estimate.title;
+      parts.push(dot(), cost);
+    }
+    parts.push(
+      dot(),
+      actionButton(t("edit.ask.start"), "edit-ask-start", line.start),
+      dot(),
+      actionButton(t("edit.ask.cancel"), "edit-ask-cancel", line.cancel),
+    );
+    const element = lineElement("applied-line", "applied-line", parts);
+    element.setAttribute("role", "status");
+    return element;
+  }
   if (line.kind === "running") {
     const pulse = document.createElement("span");
     pulse.className = "edit-pending-dot";

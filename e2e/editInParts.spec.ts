@@ -10,6 +10,7 @@ import {
   dismissChatSetup,
   launchApp,
   newMind,
+  pointAndClick,
   removeDataFolder,
   setWindowSize,
 } from "./app";
@@ -264,7 +265,7 @@ for (const { language, block, instruction, said, choose } of CAP) {
   });
 }
 
-test("on a cloud model with a monthly cap, the estimate of the parts shows before the applied line", async () => {
+test("on a cloud model, a run in parts asks first with the estimate of all of them; Cancel leaves the Note as it was", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1_280, 820);
   await dismissChatSetup(window);
@@ -286,21 +287,32 @@ test("on a cloud model with a monthly cap, the estimate of the parts shows befor
 
   await askOnAll(window, "Shorten this");
 
-  // Three parts, each measured at 6,900 tokens in and 3,000 out: 29,700 tokens, shown first —
-  // read in one go, so the estimate showing while the line already applied would be seen.
-  const pending = window.getByTestId("edit-pending");
-  const line = window.getByTestId("mind-editor").getByTestId("applied-line");
-  await expect
-    .poll(
-      async () =>
-        (await pending.count()) > 0 && (await pending.innerText()).includes("29.7K tokens")
-          ? await line.count()
-          : -1,
-      { timeout: 30_000 },
-    )
-    .toBe(0);
-  await expect(pending).toContainText("of $20.00 used this month");
+  // Nothing is sent until the User says so: three parts, each measured at 6,900 tokens in and
+  // 3,000 out, 29,700 tokens in all, with the month so far.
+  const ask = window.getByTestId("edit-ask");
+  const editor = window.getByTestId("mind-editor");
+  const line = editor.getByTestId("applied-line");
+  await expect(ask).toContainText("This edit is long: it is made in 3 parts");
+  await expect(ask).toContainText("29.7K tokens");
+  await expect(ask).toContainText("of $20.00 used this month");
+  await expect(line).toHaveCount(0);
+  await expect(editor.locator(":scope > p").first()).toHaveText(big(0));
+  await screenshot(window, "parts-ask-en");
+
+  // Cancelled, the Note is as it was and nothing runs.
+  await pointAndClick(window, ask.getByTestId("edit-ask-cancel"));
+  await expect(ask).toHaveCount(0);
+  await expect(editor.locator(":scope > p").first()).toHaveText(big(0));
+  await expect(line).toHaveCount(0);
+
+  // Asked again and allowed, the parts run.
+  await askOnAll(window, "Shorten this");
+  await expect(window.getByTestId("edit-ask")).toBeVisible();
+  await pointAndClick(window, window.getByTestId("edit-ask-start"));
   await expect(line.getByTestId("applied-parts")).toHaveText("3 parts", { timeout: 30_000 });
-  await screenshot(window, "parts-estimate-en");
+  await expect(editor.locator(":scope > p").first()).toContainText(
+    "今天的水位非常的高。".replace("非常", ""),
+  );
+  await screenshot(window, "parts-asked-runs-en");
   await app.close();
 });

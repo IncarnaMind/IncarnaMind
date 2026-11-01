@@ -7,8 +7,9 @@ import type { Editor } from "@tiptap/core";
 import type * as Y from "yjs";
 import { mindSearchScope } from "../../../shared/searchScope";
 import { useComposer } from "../composer";
-import { askInAssistant, whenNoAnswerWritten } from "../conversations";
+import { answerBeingWritten, askInAssistant } from "../conversations";
 import { core } from "../core";
+import { queueExplain } from "../explainQueue";
 import { translateNow } from "../i18n";
 import { modelInUseOf } from "../modelInUse";
 import { revealAssistant } from "../quietAssistant";
@@ -22,9 +23,9 @@ import { closeSelectionMenu } from "./selectionDismissal";
 /**
  * Asks the assistant to explain what is selected in a Note, as the prototype does: the
  * selection goes with the Question as a chip, the assistant opens where the User left it
- * (revealed and unfolded, docked as it was), and nothing in the Note changes. An Answer
- * being written is waited for, as the composer waits: one Answer at a time, one Stop.
- * False when nothing is selected.
+ * (revealed and unfolded, docked as it was), and nothing in the Note changes. Asked while an
+ * Answer is being written, it waits in view, cancellable, until that Answer is done: one
+ * Answer at a time, one Stop. False when nothing is selected.
  */
 export async function explainSelection(
   editor: Editor,
@@ -46,8 +47,7 @@ export async function explainSelection(
   closeSelectionMenu(editor);
   revealAssistant();
   const wall = await core.wallOfTurn({ mindId, conversationId: null }).catch(() => null);
-  await whenNoAnswerWritten();
-  return askInAssistant({
+  const question = {
     mindId,
     text: translateNow("editor.ai.explain.ask", {
       quote: quoteOf(focus.selection === "" ? selection.text : focus.selection),
@@ -55,5 +55,11 @@ export async function explainSelection(
     focus,
     scope: scopeWithin(wall, scope),
     model: modelInUseOf(doc),
-  });
+  };
+  // An Answer being written goes first: the Question waits in view, and can be cancelled.
+  if (answerBeingWritten() !== null) {
+    queueExplain(question);
+    return true;
+  }
+  return askInAssistant(question);
 }

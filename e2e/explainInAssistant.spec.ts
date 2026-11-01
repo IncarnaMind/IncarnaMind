@@ -143,7 +143,7 @@ test("with the assistant folded, Explain opens it where the User left it", async
   await app.close();
 });
 
-test("Explain while an Answer is being written waits for it: one Answer at a time, one Stop", async () => {
+test("Explain while an Answer is being written waits in view: one Answer at a time, one Stop", async () => {
   const words = WORDS.en;
   const { app, window } = await start("en", 1_280);
   const note = await writeNote(window, words.title, words.line);
@@ -160,12 +160,17 @@ test("Explain while an Answer is being written waits for it: one Answer at a tim
   await slideSelect(window, note, words.selected);
   await pointAndClick(window, explainRow(window));
 
-  // Asked while it streams, Explain is not asked yet: one Question, one Answer, while the
-  // first is still being written.
+  // It waits in view: one Question, one Answer, while the first is still being written.
+  const queued = window.getByTestId("explain-queued");
+  await expect(queued).toContainText("Explain will be asked when this Answer is done");
   await expect(answers.first()).toHaveAttribute("data-status", "streaming");
-  await window.waitForTimeout(1_500);
   await expect(questions).toHaveCount(1);
   await expect(answers).toHaveCount(1);
+
+  // A second Explain replaces the first: one waits at most.
+  await slideSelect(window, note, words.selected);
+  await pointAndClick(window, explainRow(window));
+  await expect(queued).toHaveCount(1);
 
   // When its Question comes, the Answer before it is already done.
   await expect(questions).toHaveCount(2, { timeout: 40_000 });
@@ -175,5 +180,42 @@ test("Explain while an Answer is being written waits for it: one Answer at a tim
   await expect(questions.last().getByTestId("assistant-question-quote")).toHaveText(
     new RegExp(`“${words.selected}”`),
   );
+  await app.close();
+});
+
+test("a queued Explain can be cancelled, and stopping the Answer cancels it too", async () => {
+  const words = WORDS.en;
+  const { app, window } = await start("en", 1_280);
+  const note = await writeNote(window, words.title, words.line);
+  const answers = assistantAnswers(window);
+  const questions = window.getByTestId("assistant-question");
+  const queued = window.getByTestId("explain-queued");
+  const slowQuestion = async () => {
+    await pointAndClick(window, window.getByTestId("composer-input"));
+    await window.keyboard.type("Summarise my notes slowly");
+    await window.keyboard.press("Enter");
+    await expect(answers.last()).toHaveAttribute("data-status", "streaming");
+  };
+  const explain = async () => {
+    await slideSelect(window, note, words.selected);
+    await pointAndClick(window, explainRow(window));
+    await expect(queued).toBeVisible();
+  };
+
+  // Cancelled, it is not asked when the Answer ends.
+  await slowQuestion();
+  await explain();
+  await pointAndClick(window, window.getByTestId("explain-queued-cancel"));
+  await expect(queued).toHaveCount(0);
+  await expect(answers.first()).toHaveAttribute("data-status", "done", { timeout: 40_000 });
+  await expect(questions).toHaveCount(1);
+
+  // Stopping the Answer cancels it too: stopping isn't asking.
+  await slowQuestion();
+  await explain();
+  await pointAndClick(window, window.getByTestId("composer-stop"));
+  await expect(queued).toHaveCount(0);
+  await expect(questions).toHaveCount(2);
+  await screenshot(window, "explain-cancelled");
   await app.close();
 });

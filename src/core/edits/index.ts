@@ -54,6 +54,7 @@ import {
   MIND_CONTENT_FIELD,
   type ProposalRequest,
   type RequestedChange,
+  type RunEstimate,
   type TextPlace,
   type WritingPlace,
 } from "../api";
@@ -93,6 +94,7 @@ import {
   someNotes,
   takeBackForRegenerate,
   textBlocks,
+  withBlocksAround,
 } from "../proposals/write";
 import type { PreparedChatModel } from "../providers/chat";
 import { outputTokens } from "../providers/outputLimits";
@@ -143,6 +145,9 @@ export const EDITS_FLOW_SENDS = ["selection"] as const;
 
 /** The most text one request edits, in characters: more is better done a part at a time. */
 export const MAX_SELECTION_CHARACTERS = 12_000;
+/** The most parts one edit is: more is a selection to make shorter before it is edited. */
+export const MAX_EDIT_PARTS = 24;
+
 /** The most a request may say in the User's own words. */
 const MAX_INSTRUCTION_CHARACTERS = 2_000;
 /** A request that takes longer than this (a local model loading a long text) fails. */
@@ -172,6 +177,22 @@ export interface EditsOptions {
    * stopped. `part`: a long selection edited in parts says which of how many is written now (#2348).
    */
   writing(mindId: string, place: WritingPlace | null, part?: EditPart): void;
+  /**
+   * What a run of `parts` would cost, one call a part, for the estimate shown before it starts
+   * (#83); null for a model no estimate is known of.
+   */
+  estimate?(choice: ChatModelChoice | null, parts: number): RunEstimate | null;
+  /**
+   * Asks the User to let a run of `parts` on a model billed per token start, with its estimate:
+   * resolves true to go on, false to stop. A run that is small, or on this computer, never asks.
+   */
+  ask?(
+    mindId: string,
+    requestId: string,
+    parts: number,
+    estimate: RunEstimate | null,
+    signal: AbortSignal,
+  ): Promise<boolean>;
   /** A Checkpoint just before an edit that applies at once writes (#113). */
   checkpoint(mindId: string): void;
   now(): Date;
@@ -609,7 +630,7 @@ export function createEdits(options: EditsOptions) {
     // Only an edit the User asked for is made in parts: one made again, or by the assistant,
     // is asked of them another way.
     if (hooks.requestId === undefined) return { kind: "too-long" };
-    return rewriteInParts(prepared, ask, draft, signal, hooks);
+    return rewriteInParts(prepared, ask, choice, draft, signal, hooks);
   }
 
   /**
@@ -621,6 +642,7 @@ export function createEdits(options: EditsOptions) {
   async function rewriteInParts(
     prepared: PreparedChatModel,
     ask: Ask,
+    choice: ChatModelChoice | null,
     draft: Draft,
     signal: AbortSignal,
     hooks: Hooks,
@@ -640,6 +662,17 @@ export function createEdits(options: EditsOptions) {
     }
     const request = randomUUID();
     const total = split.parts.length;
+    if (total > MAX_EDIT_PARTS) return { kind: "too-long" };
+    // What the whole run would cost, before the first request: shown, and asked when it isn't
+    // small, as for any large run on a model billed per token (#83).
+    const estimate = options.estimate?.(choice, total) ?? null;
+    // A model on this computer is free and never asks; a run billed per token does, with its
+    // estimate, before its first request (#83, #2348).
+    if (estimate?.billing === "per-token") {
+      const go =
+        (await options.ask?.(mindId, hooks.requestId ?? request, total, estimate, signal)) ?? true;
+      if (!go || signal.aborted) return { kind: "cancelled" };
+    }
     // How many, before the first part streams: a cloud model's estimate shows first (#83).
     options.writing(mindId, null, { at: 1, of: total });
     const leftOut: LeftOutPart[] = [];
@@ -647,6 +680,7 @@ export function createEdits(options: EditsOptions) {
     let droppedCitations = 0;
     let held = false;
     let stopped = false;
+    let changed = false;
     let made = 0;
     let said: string | undefined;
     // One Checkpoint for the whole edit, as for one request (#113).
@@ -671,6 +705,18 @@ export function createEdits(options: EditsOptions) {
             kind: read.reason === "has-proposals" ? "has-proposals" : "changed",
           });
         }
+        // The User typed here while the earlier parts ran: their words stay as they are, the
+        // parts already written stay, and this one and the rest are not asked (#2348).
+        if (read.draft.selection.plain !== place.plain) {
+          read.draft.fork.destroy();
+          stopped = true;
+          changed = true;
+          break;
+        }
+        read.draft.selection = withBlocksAround(
+          read.draft.fork.getXmlFragment(MIND_CONTENT_FIELD),
+          read.draft.selection,
+        );
         partNow = { mindId, part: { at: index + 1, of: total } };
         let result: EditWithAiResult;
         try {
@@ -711,6 +757,7 @@ export function createEdits(options: EditsOptions) {
       return { count: waiting.length, outOfDate: waiting.filter((each) => stale.has(each.id)) };
     });
     if (now.count === 0) {
+      if (changed) return { kind: "changed" };
       if (signal.aborted) return { kind: "cancelled" };
       return said === undefined ? { kind: "unchanged" } : { kind: "unchanged", said };
     }
@@ -725,6 +772,7 @@ export function createEdits(options: EditsOptions) {
       ...someNotes(notes),
       ...(held && { held: true as const }),
       ...(leftOut.length > 0 && { leftOut }),
+      ...(changed && { stopped: "changed" as const }),
       stateVector: content.stateVector(mindId),
     };
   }

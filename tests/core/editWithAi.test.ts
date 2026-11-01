@@ -25,7 +25,7 @@ import {
 import { setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, nextEvent, saveProviderUnasked, startCore } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
+import { editMind, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import { controlledModel, scriptedModels, streamedReply } from "../helpers/models";
 
 const TIDES = {
@@ -5775,6 +5775,41 @@ describe("A selection too long for the model is edited in parts (#2348)", () => 
     expect(shownWithChanges(client)[2]).toContain("Tide table 2, the water is [-very -]high.");
   });
 
+  test("typing in a later part while an earlier one runs stops the edit there, and their words stay", async () => {
+    const controlled = controlledModel();
+    const { core, mind, client } = await setUp(controlled.model);
+    writeMind(
+      client,
+      [0, 1, 2].map((index) => paragraph(text(body(index)))),
+    );
+    await client.settled();
+    const input = wholeOf(client, mind.id, "shorten");
+
+    const editing = core.editWithAi(input);
+    await controlled.requested(1);
+    controlled.push(body(0).replaceAll(" very", ""));
+    controlled.finish();
+    await controlled.requested(2);
+    // While the second part is written, the User types at the start of the third.
+    editMind(client, (blocks) =>
+      blocks.map((block, index) =>
+        index === 2
+          ? { ...block, content: [{ type: "text", text: `MY NEW WORDS. ${body(2)}` }] }
+          : block,
+      ),
+    );
+    controlled.push(body(1).replaceAll(" very", ""));
+    controlled.finish();
+
+    // The third part isn't asked: its text is not what the split read, and the User's words stay.
+    expect(await editing).toMatchObject({ kind: "proposed", stopped: "changed", parts: 2 });
+    expect(controlled.model.doStreamCalls).toHaveLength(2);
+    const shown = shownWithChanges(client);
+    expect(shown[0]).toContain("Tide table 0, the water is [-very -]high.");
+    expect(shown[1]).toContain("Tide table 1, the water is [-very -]high.");
+    expect(shown[2]).toBe(`MY NEW WORDS. ${body(2)}`);
+  });
+
   test("stopped partway, the parts already written stay, and nothing after them is asked", async () => {
     const controlled = controlledModel();
     const { core, mind, client } = await setUp(controlled.model);
@@ -5883,6 +5918,90 @@ describe("A selection too long for the model is edited in parts (#2348)", () => 
       false,
       true,
     ]);
+  });
+
+  test("a run in parts on a model billed per token asks first, with its estimate, and sends nothing until the answer", async () => {
+    const calls: EditCall[] = [];
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(
+        editingModel(({ passage }) => passage.replaceAll(" very", ""), calls, { chunkSize: 512 }),
+      ).createChatModel,
+    });
+    await saveProviderUnasked(core, { kind: "openai", apiKey: "sk-test", modelId: "gpt-test" });
+    await core.allowDataFlow("edits", "https://api.openai.com");
+    const mind = await core.createMind({ title: "Long" });
+    const client = await connectToMind(core, mind.id);
+    writeMind(
+      client,
+      [0, 1, 2].map((index) => paragraph(text(body(index)))),
+    );
+    await client.settled();
+    const input = wholeOf(client, mind.id, "shorten");
+
+    // Declined: nothing is sent.
+    const offered = nextEvent(core, "edits.ask");
+    const editing = core.editWithAi(input);
+    const ask = await offered;
+    expect(ask).toMatchObject({ mindId: mind.id, requestId: input.requestId, parts: 3 });
+    expect(ask.estimate).toMatchObject({ billing: "per-token", calls: 3 });
+    expect(calls).toHaveLength(0);
+    await core.respondToEditAsk({ requestId: ask.requestId, accept: false });
+    expect(await editing).toEqual({ kind: "cancelled" });
+    expect(calls).toHaveLength(0);
+
+    // Allowed: the three parts are written.
+    const again = nextEvent(core, "edits.ask");
+    const second = core.editWithAi(wholeOf(client, mind.id, "shorten"));
+    const next = await again;
+    await core.respondToEditAsk({ requestId: next.requestId, accept: true });
+    expect(await second).toMatchObject({ kind: "proposed", parts: 3 });
+    expect(calls).toHaveLength(3);
+  });
+
+  test("more parts than one edit is asked for the whole selection: nothing is sent", async () => {
+    const calls: EditCall[] = [];
+    const { core, mind, client } = await setUp(
+      editingModel(({ passage }) => passage.replaceAll(" very", ""), calls, { chunkSize: 512 }),
+    );
+    // 25 Blocks of about 10,800 characters: one part each, more than `MAX_EDIT_PARTS` (24).
+    writeMind(
+      client,
+      Array.from({ length: 25 }, (_, index) => paragraph(text(body(index)))),
+    );
+    await client.settled();
+
+    expect(await core.editWithAi(wholeOf(client, mind.id, "shorten"))).toEqual({
+      kind: "too-long",
+    });
+    expect(calls).toHaveLength(0);
+    expect(pendingProposals(client.blocks)).toHaveLength(0);
+  });
+
+  test("each part is read with the Blocks just before and after it, which it never changes", async () => {
+    const calls: EditCall[] = [];
+    const { core, mind, client } = await setUp(
+      editingModel(({ passage }) => passage.replaceAll(" very", ""), calls, { chunkSize: 512 }),
+    );
+    writeMind(client, [
+      paragraph(text(`${body(0)} END OF THE FIRST.`)),
+      paragraph(text(`${body(1)} END OF THE SECOND.`)),
+      paragraph(text(`START OF THE THIRD. ${body(2)}`)),
+    ]);
+    await client.settled();
+
+    await core.editWithAi(wholeOf(client, mind.id, "shorten"));
+
+    expect(calls).toHaveLength(3);
+    // The second part reads the first and third Blocks around it, for meaning only.
+    expect(calls[1]?.prompt).toContain("END OF THE FIRST.");
+    expect(calls[1]?.prompt).toContain("START OF THE THIRD.");
+    expect(calls[1]?.passage).not.toContain("END OF THE FIRST.");
+    expect(calls[1]?.passage).not.toContain("START OF THE THIRD.");
+    // The first and last parts have the second Block beside them, and nothing beyond the selection.
+    expect(calls[0]?.prompt).toContain("Tide table 1, the water is very high.");
+    expect(calls[2]?.prompt).toContain("END OF THE SECOND.");
+    expect(calls[0]?.prompt).not.toContain("START OF THE THIRD.");
+    expect(calls[2]?.prompt).not.toContain("END OF THE FIRST.");
   });
 
   test("one Block over the limit is said so, with nothing sent: a Block can't be split", async () => {

@@ -22,6 +22,7 @@ import { offeredCommands } from "./assistantWindow";
 import { clientId } from "./clientId";
 import { composerKey, useComposer } from "./composer";
 import { core } from "./core";
+import { cancelExplain } from "./explainQueue";
 import { translateNow } from "./i18n";
 import { documentsOnScreenOf, groupsMerged } from "./layoutSlice";
 import { returnQuestion, useModelSetup, waitForModel } from "./modelSetup";
@@ -527,6 +528,8 @@ export function stopWriting(): void {
   const answerId = answerBeingWritten();
   if (answerId) stopAnswer(answerId);
   else if (answerId === "") useConversations.setState({ stopWanted: true });
+  // A Question that waited for this Answer isn't asked by stopping it (#2348).
+  cancelExplain();
 }
 
 /**

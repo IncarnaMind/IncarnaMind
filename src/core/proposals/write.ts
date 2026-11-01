@@ -459,7 +459,7 @@ export interface PartPlace {
 
 /** A selection edited in parts, at the boundaries between its Blocks. */
 export type PartsResult =
-  | { ok: true; parts: PartPlace[] }
+  | { ok: true; parts: (PartPlace & { plain: string })[] }
   /**
    * `block`: one Block alone is more than the model takes at once, `part` being it.
    * `changed`: the text can't be read now.
@@ -514,7 +514,7 @@ export function selectionParts(
     else runs.push({ first: segment, last: segment });
   }
   const editable = runs.filter((run) => (read(run.first, run.last)?.text ?? "") !== "");
-  const parts: PartPlace[] = [];
+  const parts: (PartPlace & { plain: string })[] = [];
   let start = 0;
   while (start < editable.length) {
     const first = editable[start];
@@ -534,13 +534,57 @@ export function selectionParts(
     const to = editable[end];
     const from = placeOf(first.first, "from");
     const place = to && placeOf(to.last, "to");
-    if (!from || !place) return { ok: false, reason: "changed" };
-    parts.push({ from, to: place });
+    const plain = to && read(first.first, to.last)?.plain;
+    if (!from || !place || plain === undefined) return { ok: false, reason: "changed" };
+    parts.push({ from, to: place, plain });
     start = end + 1;
   }
   // Nothing the model could edit: the selection is empty lines.
   if (parts.length === 0) return { ok: false, reason: "changed" };
   return { ok: true, parts };
+}
+
+/** About how much of the Block before and after a part the model reads: meaning, not the passage. */
+const AROUND_CHARACTERS = 600;
+
+/** The end of `text` nearest the part, `characters` of it at most, cut at a word's edge. */
+function endingWith(text: string, characters: number): string {
+  if (text.length <= characters) return text;
+  const cut = text.slice(text.length - characters);
+  const space = cut.search(/\s/);
+  return space < 0 ? cut : cut.slice(space + 1);
+}
+
+/** The start of `text` nearest the part, `characters` of it at most, cut at a word's edge. */
+function startingWith(text: string, characters: number): string {
+  if (text.length <= characters) return text;
+  const cut = text.slice(0, characters);
+  const space = cut.search(/\s\S*$/);
+  return space < 0 ? cut : cut.slice(0, space);
+}
+
+/**
+ * `selection` with the Blocks just before and after it added to its context (#2348): a part is
+ * read with the text around it, as the whole selection is, and never changes those Blocks.
+ */
+export function withBlocksAround(blocks: Y.XmlFragment, selection: Selection): Selection {
+  const all = textBlocks(blocks).map((each) => each.element);
+  const first = selection.segments[0]?.element;
+  const last = selection.segments.at(-1)?.element;
+  const from = first ? all.indexOf(first) : -1;
+  const to = last ? all.indexOf(last) : -1;
+  if (from < 0 || to < from) return selection;
+  const before =
+    from > 0 ? endingWith(blockText(all[from - 1] as Y.XmlElement), AROUND_CHARACTERS) : "";
+  const after =
+    to < all.length - 1
+      ? startingWith(blockText(all[to + 1] as Y.XmlElement), AROUND_CHARACTERS)
+      : "";
+  if (before === "" && after === "") return selection;
+  return {
+    ...selection,
+    context: [before, selection.context, after].filter((each) => each !== "").join("\n\n"),
+  };
 }
 
 /** A word's key with its look; spaces have none, since a run's edges are written outside its marks. */

@@ -1308,6 +1308,19 @@ export interface EditPart {
 }
 
 /**
+ * A run of an edit too long for one request, on a model billed per token, asking the User to
+ * start it: its parts, and what they would cost (#83, #2348). Answered with `respondToEditAsk`.
+ */
+export interface EditAsk {
+  mindId: string;
+  /** The edit's request, as `cancelEdit` takes it. */
+  requestId: string;
+  parts: number;
+  /** Null when nothing is known of the model's price. */
+  estimate: RunEstimate | null;
+}
+
+/**
  * Why a chart the User asked the assistant for wasn't drawn (#1091): no table to draw it from,
  * no column of numbers, one column for a scatter chart, or figures with no Citation and no
  * calculation.
@@ -5830,6 +5843,11 @@ export type EditWithAiResult =
       extraCells?: number;
       /** An edit the User asked for that waits for them instead of applying (#880). */
       held?: true;
+      /**
+       * The edit stopped partway because the User typed in a later part while it ran: what the
+       * earlier parts wrote stays, and the rest was not asked (#2348).
+       */
+      stopped?: "changed";
       /** What its new text left out of the selection, kept; absent when nothing. */
       leftOut?: LeftOutPart[];
       /**
@@ -11567,6 +11585,8 @@ export interface CoreApi {
   regenerateProposal(input: RegenerateProposalInput): Promise<EditWithAiResult>;
   /** Stops an Edit with AI request: it gives "cancelled". Stopping one that ended does nothing. */
   cancelEdit(requestId: string): Promise<void>;
+  /** Says whether an edit waiting on its estimate (`EditAsk`) goes on, or stops (#2348). */
+  respondToEditAsk(input: { requestId: string; accept: boolean }): Promise<void>;
   /**
    * Check against Documents (#96): checks each sentence the
    * selection touches against the Mind's Folder (or every Document), one at a
@@ -12431,6 +12451,8 @@ export interface CoreEvents {
   "mind.update": MindUpdate;
   /** The assistant is writing changes into a Mind as they come (#202), or has stopped. */
   "mind.writing": MindWriting;
+  /** An edit too long for one request, on a model billed per token, waits for the User's go (#2348). */
+  "edits.ask": EditAsk;
   /** Changes storage refused wait in memory, or (null) all of them are stored now (#1119). */
   "minds.unsaved": UnsavedChanges | null;
   /** A Mind's Checkpoints changed: one was saved, kept for good, or thinned out. Read `listCheckpoints` again. */
@@ -12806,6 +12828,7 @@ const methods: Record<CoreApiMethod, true> = {
   editWithAi: true,
   regenerateProposal: true,
   cancelEdit: true,
+  respondToEditAsk: true,
   checkSentences: true,
   planDocumentCheck: true,
   cancelCheck: true,

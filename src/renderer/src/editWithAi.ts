@@ -17,12 +17,13 @@ import {
   type EditPart,
   type EditWithAiResult,
   type ProviderError,
+  type RunEstimate,
 } from "../../core/api";
 import { aiUseOfAccepted, proposalRequestOf } from "../../shared/proposals";
 import { useAnswers } from "./answers";
 import { type Applying, appliedMessage, finishApplying, startApplying } from "./appliedEdits";
 import { core } from "./core";
-import { type EstimateLine, estimateLine } from "./cost";
+
 import { appliedLineIn } from "./editor/appliedEditLine";
 import { offerEditorUndo } from "./editor/editorUndo";
 import { quoteOf, selectionForEdit } from "./editor/editSelection";
@@ -38,7 +39,7 @@ import {
 import { keepDecisions } from "./editor/theirChanges";
 import { failedEdit } from "./editProblems";
 import { errorMessage } from "./errors";
-import { languageNow, translateNow } from "./i18n";
+import { translateNow } from "./i18n";
 import type { Words } from "./lineNames";
 import { modelInUseOf } from "./modelInUse";
 import { shownModelNow } from "./modelNames";
@@ -72,6 +73,7 @@ export type EditProblem = (
         | "typed-tag"
         | "cut-short"
         | "late"
+        | "part-changed"
         | "busy";
     }
   /** `said`: the AI's own words, when it wrote them instead of a change (#2356). */
@@ -103,8 +105,10 @@ interface Pending {
   model: ChatModelChoice | null;
   /** A selection too long for the model, edited in parts: which of how many is written now (#2348). */
   part?: EditPart;
-  /** What the parts are about to cost, on a cloud model whose price is known (#83). Undefined: not asked yet. */
-  estimate?: EstimateLine | null;
+  /** What the whole run would cost, as the core worked it out before its first request (#83). */
+  runEstimate?: RunEstimate | null;
+  /** The run waits for the User's go, with its estimate: it isn't small, and the model is billed (#83). */
+  ask?: { requestId: string; parts: number; estimate: RunEstimate | null };
   /** Stopped by the User: it still settles before another edit can start, so its Undo stays its own. */
   stopped?: boolean;
   menu?: MenuEdit;
@@ -159,39 +163,37 @@ export const dismissEditProblem = (mindId: string) => set("problems", mindId, nu
 
 /**
  * A selection too long for the model, edited in parts (#2348): as the core says which part it
- * writes, the line says so, and on a cloud model whose price is known the whole run's estimate
- * shows before the first part is written (#83).
+ * writes, the line says so; and on a model billed per token the run, with its estimate, waits
+ * for the User's go before its first request (#83).
  */
 core.on("mind.writing", ({ mindId, part }) => {
   const pending = useEdits.getState().pending[mindId];
   if (!pending || !part) return;
-  const still = () => {
-    const now = useEdits.getState().pending[mindId];
-    return now?.requestId === pending.requestId ? now : null;
-  };
-  const known = still();
-  if (!known) return;
-  set("pending", mindId, { ...known, part });
-  if (part.of < 2 || pending.estimate !== undefined) return;
-  core
-    .estimateRun({ items: part.of, each: "edit", ...(pending.model && { model: pending.model }) })
-    .then((run) => {
-      const now = still();
-      if (now)
-        set("pending", mindId, {
-          ...now,
-          estimate: estimateLine(run, translateNow, languageNow()),
-        });
-    })
-    .catch((error: unknown) => {
-      console.warn(
-        `Couldn't estimate the edit of Mind ${mindId}; its line goes without one.`,
-        error,
-      );
-      const now = still();
-      if (now) set("pending", mindId, { ...now, estimate: null });
-    });
+  const now = useEdits.getState().pending[mindId];
+  if (now?.requestId === pending.requestId) set("pending", mindId, { ...now, part });
 });
+
+core.on("edits.ask", ({ mindId, requestId, parts, estimate }) => {
+  const pending = useEdits.getState().pending[mindId];
+  if (!pending || pending.requestId !== requestId) return;
+  set("pending", mindId, {
+    ...pending,
+    runEstimate: estimate,
+    ask: { requestId, parts, estimate },
+  });
+});
+
+/** The User's answer to an edit that waits on its estimate and its parts (#83, #2348). */
+export function answerEditAsk(mindId: string, accept: boolean): void {
+  const pending = useEdits.getState().pending[mindId];
+  const ask = pending?.ask;
+  if (!pending || !ask) return;
+  // The line shows what it is doing next: the parts, or the edit stopping.
+  set("pending", mindId, { ...pending, ask: undefined });
+  void core
+    .respondToEditAsk({ requestId: ask.requestId, accept })
+    .catch(useAppStore.getState().reportError);
+}
 
 export const setMenuShows = (mindId: string, shown: boolean) =>
   set("menuShows", mindId, shown ? true : null);
@@ -340,6 +342,9 @@ async function arrived(
   if (outcome !== null && outcome !== "held") {
     const { paragraphs, tables } = outcome.applied;
     if (paragraphs + tables > 0) speak(mindId, appliedMessage(outcome.applied));
+    // The parts already written stay: what stopped is said beside them (#2348).
+    if (result.kind === "proposed" && result.stopped === "changed")
+      problem({ kind: "part-changed" });
     return;
   }
   if (stopped) return;

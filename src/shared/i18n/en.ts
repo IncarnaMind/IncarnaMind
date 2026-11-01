@@ -1415,6 +1415,11 @@ export const en = {
   "edit.pending.cut-unsupported": "Cutting the unsupported part…",
   "edit.pending.follow-citation": "Updating the sentence…",
   "edit.pending.part": "Writing part {at} of {of}…",
+  "edit.ask.parts": "This edit is long: it is made in {count} parts",
+  "edit.ask.start": "Edit it",
+  "edit.ask.cancel": "Cancel",
+  "explain.queued": "Explain will be asked when this Answer is done",
+  "explain.queued.cancel": "Cancel",
   "edit.stop": "Stop",
   "edit.close": "Close",
   "edit.problem.unchanged": "Nothing to change: the model gave the text back as it was.",
@@ -1423,6 +1428,8 @@ export const en = {
     "The selection holds changes that are waiting: accept or reject them first.",
   "edit.problem.too-long": "Too much text for the model: select less.",
   "edit.problem.block-too-long": "This paragraph is too long for {model}",
+  "edit.problem.part-changed":
+    "You typed in a later part while the edit ran, so it stopped there. What it already changed stays.",
   "edit.problem.block-too-long.cap":
     "This paragraph is longer than one edit can take. Split it into shorter paragraphs.",
   "edit.problem.chooseAnotherModel": "Choose another model",
