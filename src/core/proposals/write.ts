@@ -1081,7 +1081,7 @@ export interface Written {
 const refOf = ({ id, request, target }: ProposalRef): ProposalRef =>
   target === undefined ? { id, request } : { id, request, target };
 
-/** The marks of words a Proposal adds: AI text, unless they are inline code, which holds no other mark. */
+/** The marks of words a Proposal adds: AI text, unless they are inline code, which can't hold it. */
 const asAiText = (marks: Attributes): Attributes =>
   INLINE_CODE_MARK in marks ? marks : { ...marks, [GENERATED_MARK]: {} };
 
@@ -1251,8 +1251,12 @@ const sameMarks = (a: Attributes, b: Attributes) => JSON.stringify(a) === JSON.s
 
 const LOOK_MARKS = ["bold", "italic", "strike"] as const;
 
-/** Words as the model wrote them: bold, italic and strikethrough exactly as it gave them, whatever the words they replace had. */
+/**
+ * Words as the model wrote them: bold, italic and strikethrough exactly as it gave them, whatever
+ * the words they replace had; but code, which holds no other look, stays as it is (#2362).
+ */
 function withLook(marks: Attributes, look: Look): Attributes {
+  if (INLINE_CODE_MARK in marks) return marks;
   const own = { ...marks };
   for (const name of LOOK_MARKS) {
     if (look[name]) own[name] = {};
@@ -1578,20 +1582,21 @@ function rewritten(steps: readonly Step[], old: readonly OldToken[]) {
 }
 
 /**
- * Writes the changes from a segment's tokens to `tokens`, each place that
+ * Writes the changes from a segment's tokens to `written`, each place that
  * changed a Proposal of its own (`next`, given the text it changes), from the
  * end, so the places read before each are still right. A whole heading that
  * changed at all, or a whole paragraph written anew, is one change.
  */
 function writeHunks(
   segment: Segment,
-  tokens: readonly NewToken[],
+  written: readonly NewToken[],
   next: (target: string) => ProposalRef,
   newId: () => string,
   notes: CitationNotes,
 ): void {
   // Once the reply gives words a look, a word that only changed its look is a change.
-  const looked = tokens.some((token) => token.look);
+  const looked = written.some((token) => token.look);
+  const tokens = looked ? withoutLookOnCode(segment.tokens, written) : written;
   const steps = diffSteps(
     segment.tokens.map((token) =>
       looked ? lookedKey(token.key, token.text, lookOf(token.attributes)) : token.key,
@@ -1624,6 +1629,30 @@ function writeHunks(
     notes.characters.removed += lengthOf(removed);
     notes.characters.added += lengthOf(added);
   }
+}
+
+/**
+ * The reply's words with no look where they keep words that are code: code holds no other look,
+ * so a word the reply only made bold, italic or struck there is no change (#2362).
+ */
+function withoutLookOnCode(old: readonly OldToken[], tokens: readonly NewToken[]): NewToken[] {
+  const steps = diffSteps(
+    old.map((token) => token.key),
+    tokens.map((token) => token.key),
+  );
+  const kept = [...tokens];
+  let from = 0;
+  let to = 0;
+  for (const step of steps) {
+    const was = old[from];
+    const now = kept[to];
+    if (step === "equal" && now?.look && was?.attributes && INLINE_CODE_MARK in was.attributes) {
+      kept[to] = { ...now, look: {} };
+    }
+    if (step !== "insert") from++;
+    if (step !== "delete") to++;
+  }
+  return kept;
 }
 
 /** A Proposal maker: each new Proposal of `request`, recording the text it changes, in order. */
