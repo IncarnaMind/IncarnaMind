@@ -55,7 +55,6 @@ const windowLine = (entry: OfferedCommand) =>
 
 const yoursLine = (entry: OfferedCommand) => `${entry.id} (“${entry.label}”)`;
 
-/** The commands of the User's alone are still the model's to run: the refusal shows the User where. */
 const YOURS_RUN = "alone, run all the same to show them where";
 
 const yoursFor = (kind: CommandTarget, offered: readonly OfferedCommand[]): string | null => {

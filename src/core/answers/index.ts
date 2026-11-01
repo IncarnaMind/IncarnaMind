@@ -3243,10 +3243,10 @@ export function createAnswers(options: AnswersOptions) {
             : readByUser && { turnChecks: [claimedTools] }),
         // Every Answer, in the assistant or a Note, says why work of its stayed out of a Folder,
         // worded by the wall as it is now: a wall lifted meanwhile is no wall (#2250). It says
-        // each command it was asked for that is the User's alone in the card's own words, however
-        // the turn ends, so the reply and the card never disagree and the card keeps only its
-        // button (#2252).
-        refusalSuffix: () => {
+        // each command it was asked for that is the User's alone in the card's own words, after
+        // the model's reply, after none, and after a reply asked again that then failed, so the
+        // reply and the card never disagree and the card keeps only its button (#2252).
+        refusalSuffix: (reply) => {
           const language = answerLanguage(context.question);
           const lifted = turnWall !== null && options.walledFolderId(turnWall) === null;
           const lines = [
@@ -3254,7 +3254,7 @@ export function createAnswers(options: AnswersOptions) {
               .map((key) => (key === "folder.wall.refusal" && lifted ? "folder.wall.changed" : key))
               .map((key) => translate(language, key)),
             ...refusedCommands().map(({ yours, folder }) => yoursLine(language, yours, folder)),
-          ];
+          ].filter((line) => !reply.includes(line));
           return lines.length === 0 ? null : lines.join(language === "zh-CN" ? "" : " ");
         },
         signal: controller.signal,

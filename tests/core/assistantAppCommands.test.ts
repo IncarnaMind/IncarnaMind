@@ -1591,7 +1591,34 @@ describe("A refusal is said, and the commands a request names are within reach (
 
     expect(answerRequests(model)).toHaveLength(5);
     expect(answer.text).toContain("I opened the lease beside your note.");
-    expect(answer.text.endsWith(`\n\n${translate("en", "commands.yours.privacy")}`)).toBe(true);
+    const said = translate("en", "commands.yours.privacy");
+    expect(answer.text.endsWith(`\n\n${said}`)).toBe(true);
+    expect(answer.text.split(said)).toHaveLength(2);
+    core.close();
+  });
+
+  // protects=a reply that already holds the refusal's own line, as a model copying an earlier Answer writes it, isn't given it again, in English and Chinese; fails_when=the line shows twice; no_claim=how often a real model copies it.
+  test.each([
+    {
+      text: "Turn on Local mode, then open Harbour Street beside my note",
+      language: "en" as const,
+    },
+    { text: "打开本地模式，再在旁边打开 Harbour Street", language: "zh-CN" as const },
+  ])("“$text”: a reply that holds the line doesn't get it twice", async ({ text, language }) => {
+    const said = translate(language, "commands.yours.privacy");
+    const model = callingThen(
+      `${said} Harbour Street is open beside your note.`,
+      run("settings.change", { setting: "localMode", value: "on" }, false),
+      find("Harbour Street"),
+      run("document.openBeside"),
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    windowOf(core, () => ({ ran: true, changed: false }));
+
+    const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
+
+    expect(answer.text).toBe(`${said} Harbour Street is open beside your note.`);
+    expect(answer.text.split(said)).toHaveLength(2);
     core.close();
   });
 

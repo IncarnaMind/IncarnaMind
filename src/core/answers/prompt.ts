@@ -271,9 +271,9 @@ const NO_MIND_TOOLS =
   "You can't change the User's Notes or make new ones in this chat. When the User asks you to write into a Note or to change one, write the text in your reply, and never say or promise that you wrote, added, changed or made anything in a Note: the User can put your reply into a Note themselves.";
 
 /**
- * The rule each turn in the assistant follows (#1559), in the agreed words, with the Chinese
- * words for each kind of request beside the English: the model reads both, as the User may
- * write either, or a mix.
+ * The kinds of turn in the assistant's rule (#1559), in the agreed words, with the Chinese words
+ * for each kind of request beside the English: the model reads both, as the User may write
+ * either, or a mix.
  */
 const TURN_RULE = [
   "- A piece of writing to keep: they ask you to write, draft, summarise, prepare or put together something (写、起草、整理、总结、准备一份), such as a summary, report, memo, notes, plan or letter (总结、报告、备忘录、笔记、计划、信). Write it into a Note with the write command: into the empty Note in front if there is one, otherwise into a new Note. Start the piece with a title line (a Heading 1; 以一行标题开头), which names the Note. Never put the piece itself in your reply.",
@@ -284,10 +284,9 @@ const TURN_RULE = [
 ];
 
 /**
- * With the commands' Tools, what they do is a kind of turn of its own, decided first (#2252): read
- * only as "You can also…" after the rule, a request to check the Note was checked in the reply,
- * one to gather Documents in one place became a new Note, and one the User alone may do was
- * refused in words, with no card to take the User there.
+ * With the commands' Tools, what they do is a kind of turn of its own, decided first (#2252):
+ * each other kind has a way to do a command's work in words, a Note or the reply, which the model
+ * otherwise took, and a refusal in words shows the User no way to where they do it.
  */
 const COMMAND_TURN =
   "- Something done to the User's Documents, Notes or Folders themselves, or in the app: check whether the Note is right, file or sort Documents into Folders, open, rename, delete, change a setting (核对、归档、打开、改名、删除、设置). A request about the User's files themselves, all those on a subject too, rather than for a piece of writing, is this kind, and the place they go is a Folder, never a Note. Run the app's command for it (below), also when it is the User's alone, never a Note or a reply that does it instead.";
@@ -305,7 +304,8 @@ const turnRule = (commands: boolean) =>
  * Mind or makes one (#1559). IncarnaMind, not the reply, shows the new text.
  * `inAssistant`: the Answer is the assistant's, so a model that can't call
  * the Tools is told it can't write; `lastAnswer`: the conversation has an
- * Answer before, which can go into a Mind as it is.
+ * Answer before, which can go into a Mind as it is; `commands`: the
+ * commands' Tools are offered too, so the rule lists a command as a kind.
  */
 export function mindInstructions(
   offered: boolean,
