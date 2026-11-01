@@ -512,7 +512,7 @@ describe("The monthly cap", () => {
     expect(rows(first.dataDir)[0]?.reserved).toBeGreaterThan(0);
     first.core.close();
 
-    const again = startCore(first.dataDir, { createChatModel: () => hung });
+    const again = startCore(first.dataDir, { createChatModel: () => hung, now: first.clock.now });
 
     expect(rows(first.dataDir)).toEqual([
       expect.objectContaining({ status: "interrupted", cost: 0, input_tokens: null }),
@@ -545,7 +545,7 @@ describe("The monthly cap", () => {
     const [open] = rows(first.dataDir);
     first.core.close();
 
-    const again = startCore(first.dataDir, { createChatModel: () => hung });
+    const again = startCore(first.dataDir, { createChatModel: () => hung, now: first.clock.now });
 
     const price = haikuPrice();
     const expected = (counted.input * price.input + counted.output * price.output) / 1_000_000;
