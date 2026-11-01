@@ -73,6 +73,7 @@ import {
   quoteInUnits,
 } from "../../shared/locations";
 import { memoized } from "../../shared/memo";
+import { misreadDigits, numberDigits } from "../../shared/misreadWords";
 import { findQuote, type TextRange } from "../../shared/quoteMatch";
 import { anchorsOf, cellNumber } from "../../shared/units";
 import type {
@@ -82,7 +83,7 @@ import type {
   FigureShowOptions,
   InputNumber,
 } from "../api";
-import { unsureSpansIn } from "../documents/scan/layout";
+import { mixedNumberWord, unsureSpansIn } from "../documents/scan/layout";
 import { detectLanguage } from "../documents/textLanguage";
 import type { Language } from "../language";
 import { WORKBOOK_TOOLS } from "../tools";
@@ -183,6 +184,10 @@ export function quotedLines(quoted: QuotedText): string {
   const end = text.indexOf("\n", to);
   return text.slice(text.lastIndexOf("\n", from - 1) + 1, end < 0 ? text.length : end);
 }
+
+/** The one line a figure read from a scan's unsure word is refused with (#535). */
+const UNSURE_INPUT =
+  "That number was read from a scan and may be misread; it can't be an input until the User confirms it.";
 
 /** The parts of a quote around its ellipses, with where each starts in it. */
 function quoteParts(quote: string): TextRange[] {
@@ -684,6 +689,18 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return null;
   }
 
+  /**
+   * Whether `number` is what one of the quote's unsure words reads as (#535). The
+   * figure reader finds no number in "7a;45o", so the word itself has to say.
+   */
+  function readsFromUnsureWord(quoted: Quoted, number: string): boolean {
+    const digits = numberDigits(number);
+    if (digits === "") return false;
+    return (quoted.check().unsure ?? []).some(
+      (word) => mixedNumberWord(word) && misreadDigits(word) === digits,
+    );
+  }
+
   /** Whether an input's quote, recorded with cite or given inline, is where the check can't read it. */
   function onUnreadPage(given: GivenInput): boolean {
     const quoted =
@@ -928,7 +945,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       const inChars =
         exact.length > 0 ? exact : figures.filter((each) => namedIn(each.chars, named));
       const found = inChars.length > 0 ? inChars : figures.filter((each) => writtenAs(each, named));
-      if (found.length === 0) return `the quote has no number "${named}"; ${has}.`;
+      if (found.length === 0) {
+        if (readsFromUnsureWord(quoted, named)) return UNSURE_INPUT;
+        return `the quote has no number "${named}"; ${has}.`;
+      }
       if (found.length > 1)
         return `"${named}" is in the quote ${found.length} times; give its position (${either(found.map((each) => figures.indexOf(each) + 1))}).`;
       figure = found[0];
@@ -937,9 +957,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     }
     if (!figure) return `the quote has no number "${given.number}"; ${has}.`;
 
-    if (unsureWordAt(quoted, figure) !== null) {
-      return "That number was read from a scan and may be misread; it can't be an input until the User confirms it.";
-    }
+    if (unsureWordAt(quoted, figure) !== null) return UNSURE_INPUT;
 
     const currency = figure.ambiguous.find((each) => each.kind === "currency");
     if (currency) {

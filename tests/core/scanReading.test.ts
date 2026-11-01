@@ -190,6 +190,9 @@ describe("Reading a scanned page's lines (#397)", () => {
       "5G",
       "12b",
       "9.Termination",
+      "10bps-20bps",
+      "10am-12pm",
+      "1990s-2000s",
     ]) {
       expect(unsureWords(line(word, [0, 0, 100, 10])), word).toEqual([]);
       expect(unsureWords(line(word, [0, 0, 100, 10], 0.4)), word).toEqual([[0, word.length]]);
@@ -214,6 +217,27 @@ describe("Reading a scanned page's lines (#397)", () => {
     };
     expect(unsureSpansIn(stored).map(([from, to]) => page.text.slice(from, to))).toEqual([
       "The",
+      "2o25",
+    ]);
+  });
+
+  test("a Chinese line's numbers are judged on their own, so clean ones stay sure and a misread one is found (#535)", () => {
+    const clean = scannedUnit(
+      1,
+      [line("2025年3月，租金调整为74,450元。", [100, 120, 600, 150])],
+      { width: 1000, height: 2000 },
+      "PP-OCRv5 mobile/1",
+    );
+    const cleanPage: TextUnit = { ...clean, label: { scan: { reader: "PP-OCRv5 mobile/1" } } };
+    expect(unsureSpansIn(cleanPage)).toEqual([]);
+    const old = scannedUnit(
+      1,
+      [line("租金为2o25元。", [100, 120, 600, 150])],
+      { width: 1000, height: 2000 },
+      "PP-OCRv5 mobile/1",
+    );
+    const oldPage: TextUnit = { ...old, label: { scan: { reader: "PP-OCRv5 mobile/1" } } };
+    expect(unsureSpansIn(oldPage).map(([from, to]) => oldPage.text.slice(from, to))).toEqual([
       "2o25",
     ]);
   });

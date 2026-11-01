@@ -28,12 +28,18 @@ const STRAY_MARK = /[;!?=~^&*#@_|\\]/;
  * "3S.6", "74;450". Always unsure, whatever the recognizer's score (#535).
  * A code's letters come first ("Q3", "A4", "H2O", "FY2025", "No.7"), a
  * number's unit or scale follows its digits ("2.5bn", "10bps", "1990s",
- * "10am", "50kg", "100ml", "4GB", "5G", "12b"), and an ordinal's suffix is a
- * word's own ("1st", "2nd"): all follow the recognizer's score.
+ * "10am", "50kg", "100ml", "4GB", "5G", "12b"), a range is its ends
+ * ("10am-12pm"), and an ordinal's suffix is a word's own ("1st", "2nd"): all
+ * follow the recognizer's score.
  */
 export function mixedNumberWord(text: string): boolean {
   const word = text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
-  if (!/\d/.test(word) || /^\d+(?:st|nd|rd|th)$/iu.test(word)) return false;
+  if (!/\d/.test(word)) return false;
+  // A range's ends are numbers of their own, and their units belong to them ("10bps-20bps").
+  if (/[-–—]/u.test(word)) {
+    return word.split(/[-–—]/u).some((part) => part !== "" && mixedNumberWord(part));
+  }
+  if (/^\d+(?:st|nd|rd|th)$/iu.test(word)) return false;
   // A lower-case l or a capital I in front of digits is a 1 the recognizer missed.
   if (/^[lI]\d/u.test(word)) return true;
   if (!/^\d/u.test(word)) return false;
@@ -57,7 +63,7 @@ export function unsureSpansIn(unit: {
 }): [number, number][] {
   if (!unit.label?.scan) return [];
   const spans: [number, number][] = (unit.label.scan.unsure ?? []).map(([from, to]) => [from, to]);
-  for (const match of unit.text.matchAll(/\S+/gu)) {
+  for (const match of unit.text.matchAll(NUMBER_RUN)) {
     if (!mixedNumberWord(match[0])) continue;
     const start = match.index ?? 0;
     spans.push([start, start + match[0].length]);
@@ -72,6 +78,9 @@ export function unsureSpansIn(unit: {
   }
   return merged;
 }
+
+/** A stretch of a scanned line that can be a number: not a space, and not a character of Chinese, Japanese or Korean text. */
+const NUMBER_RUN = /[^\s\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]+/gu;
 
 /** Lines at least this much longer than tall show the page's slant. */
 const SLANT_LINE_RATIO = 4;

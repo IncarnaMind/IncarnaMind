@@ -9,8 +9,10 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { ANSWER_BLOCK, CITATION_NODE, type CitationAttributes } from "../../../core/api";
+import { citationState } from "../../../shared/citations";
 import { readFigures } from "../../../shared/figures";
 import { memoized } from "../../../shared/memo";
+import { misreadDigits, numberDigits } from "../../../shared/misreadWords";
 import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
 import { translateNow } from "../i18n";
 import { openCited } from "../openCited";
@@ -19,27 +21,6 @@ interface FigureSource {
   word: string;
   citation: CitationAttributes;
 }
-
-/** The digit a letter may stand for in a misread number ("o" or "O" for 0, "S" for 5). */
-const DIGIT_READING: Record<string, string> = {
-  O: "0",
-  o: "0",
-  I: "1",
-  i: "1",
-  l: "1",
-  S: "5",
-  s: "5",
-  B: "8",
-  b: "8",
-  Z: "2",
-  z: "2",
-  G: "6",
-  g: "6",
-};
-
-/** A number's digits, with a letter that stands for one read as it: "7a;45o" reads 7450. */
-const digitsOf = (text: string): string =>
-  Array.from(text, (char) => (/\d/u.test(char) ? char : (DIGIT_READING[char] ?? ""))).join("");
 
 /** Whether `numeral` is written whole in the quote from `from` to `to`, not as part of a longer number. */
 function wholeIn(quote: string, from: number, to: number, numeral: string): boolean {
@@ -61,25 +42,24 @@ function wholeIn(quote: string, from: number, to: number, numeral: string): bool
  * figure's do ("7a;45o" and "7,450" both read 7450, while "2" doesn't read as
  * "2o25").
  */
-function sourceOf(figure: string, citations: readonly CitationAttributes[]): FigureSource | null {
+export function sourceOf(
+  figure: string,
+  citations: readonly CitationAttributes[],
+): FigureSource | null {
   const numeral = /[\d.,]+/u.exec(figure)?.[0] ?? "";
-  const digits = digitsOf(numeral);
+  const digits = numberDigits(numeral);
   if (digits === "") return null;
   for (const citation of citations) {
-    // The User's own look at the page settles the word: the figure is no longer unchecked.
-    if (
-      citation.check !== "cant-check" ||
-      citation.checkReason !== "unsure-word" ||
-      citation.pageChecked === true
-    )
-      continue;
+    // The Citation's state settles a page the User confirmed: the figure is then no longer unchecked.
+    const state = citationState(citation, null);
+    if (state.check !== "cant-check" || state.reason !== "unsure-word") continue;
     const quote = citation.quote ?? "";
     for (const word of citation.unsure ?? []) {
       if (!word) continue;
       for (let at = quote.indexOf(word); at >= 0; at = quote.indexOf(word, at + 1)) {
         if (wholeIn(quote, at, at + word.length, numeral)) return { word, citation };
       }
-      if (digitsOf(word) === digits) return { word, citation };
+      if (misreadDigits(word) === digits) return { word, citation };
     }
   }
   return null;

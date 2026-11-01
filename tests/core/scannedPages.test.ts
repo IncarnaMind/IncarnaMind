@@ -602,6 +602,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
 
   test("a number's shape is applied when checking, so a page read before the rule asks for a look (#535)", async () => {
     const line = "The gauge read 2o25 at the harbour.";
+    const chinese = "租金为2o25元。";
     const model = citingModel({
       query: "gauge",
       records: (passages) => [
@@ -615,7 +616,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
       ],
       answer: "The gauge read 2025 [^1].",
     });
-    const { recognizer } = countingRecognizer({ pages: { 1: { lines: [line] } } });
+    const { recognizer } = countingRecognizer({ pages: { 1: { lines: [line, chinese] } } });
     const { core, client, mind, documents, dataDir } = await setUpWithDocuments(
       model,
       [{ name: "Gauge.pdf", contents: buildPdf([{ scan: picture("en-clean") }]) }],
@@ -651,6 +652,18 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
         quote: line,
       }),
     ).toEqual({ unsure: ["2o25"], from: "scan" });
+    // A Chinese line's number is judged on its own too: the characters around it aren't one word with it.
+    expect(
+      checkedResult(
+        await core.recheckCitation({
+          mindId: null,
+          documentId: document.id,
+          quote: chinese,
+          pageFrom: 1,
+          pageTo: 1,
+        }),
+      ),
+    ).toMatchObject({ check: "cant-check", checkReason: "unsure-word", unsure: ["2o25"] });
     // The model saw which word not to trust, though the page was read before the rule.
     const shown: string[] = [];
     for (const message of model.doStreamCalls[1]?.prompt ?? []) {
@@ -820,6 +833,99 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
       check: "cant-check",
       checkReason: "unsure-word",
       unsure: ["61,200"],
+    });
+  });
+
+  test("calculate refuses the issue's own misread word with its one line, though it reads no number (#438, #535)", async () => {
+    const line = "The gauge read 7a;45o at the harbour.";
+    const quote = line;
+    let told = "";
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "gauge" } }] };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: shownPassages(searches.at(-1)?.text ?? "")[0]?.id ?? "",
+                    pageFrom: 1,
+                    pageTo: 1,
+                    quote,
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      const calculated = call.results.filter((result) => result.tool === "calculate");
+      if (calculated.length === 0) {
+        return {
+          calls: [
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Reading",
+                    inputs: [{ name: "a", label: "The gauge", citation: 1, number: "7,450" }],
+                    formula: "a",
+                    as: "number",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      told = calculated.at(-1)?.text ?? "";
+      return { text: "The scan is unclear, so I can't work that figure out [^1]." };
+    });
+    const { recognizer } = countingRecognizer({
+      pages: {
+        1: {
+          lines: linesOf("en-noisy").map((each, index) => (index === 2 ? line : each)),
+          unsure: ["7a;45o"],
+        },
+      },
+    });
+    const core = startCore(await createTempDataFolder(), {
+      ...scanning(recognizer),
+      createChatModel: () => model,
+      answerPaths: { retrievesFirst: () => false },
+    });
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Gauge report.pdf",
+        buildPdf([{ scan: picture("en-noisy") }]),
+      ),
+    ]);
+    const mind = await core.createMind({ title: "Gauge" });
+    const client = await connectToMind(core, mind.id);
+    const { answerId } = await askAndFinish(core, client, mind.id, "What did the gauge read?");
+    expect(told).toContain(
+      "That number was read from a scan and may be misread; it can't be an input until the User confirms it.",
+    );
+    expect(onlyCitation(client, answerId)).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["7a;45o"],
     });
   });
 

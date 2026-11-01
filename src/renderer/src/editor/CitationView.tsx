@@ -922,7 +922,10 @@ function CitationCard({
           <figcaption className="sr-only">{t("citation.quote")}</figcaption>
           <blockquote>
             <span className="citation-card-wash">
-              <QuoteWithUnsureWords quote={quote} unsure={scanned?.unsure ?? []} />
+              <QuoteWithUnsureWords
+                quote={quote}
+                unsure={scanned?.unsure ?? attributes.unsure ?? []}
+              />
             </span>
           </blockquote>
         </figure>
