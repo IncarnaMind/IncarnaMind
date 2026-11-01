@@ -5821,6 +5821,64 @@ describe("A rewrite of text marked as code (#2362)", () => {
     expect(await acceptThenUndo(client, before)).toEqual([after]);
   });
 
+  // protects=a reply that makes code words bold, italic or struck, all of them, part, or new words in their place, changes only the other words it changed, and the code stays code with no other look, as it holds none; English and Chinese; fails_when=bold, italic or strike lands on code and the Note can't be read, the code is struck and written again, or the words after it become code; no_claim=how often a model marks code.
+  test.each([
+    {
+      content: [text("Run "), code("make docs"), text(" to build the pages.")],
+      reply: "Run **make docs** to rebuild the pages.",
+      shown: "Run make docs to [-build-]{+rebuild+} the pages.",
+      runs: ["make docs"],
+      after: "Run make docs to rebuild the pages.",
+    },
+    {
+      content: [text("Run "), code("make docs"), text(" to build the pages.")],
+      reply: "Run *make docs* to rebuild the pages.",
+      shown: "Run make docs to [-build-]{+rebuild+} the pages.",
+      runs: ["make docs"],
+      after: "Run make docs to rebuild the pages.",
+    },
+    {
+      content: [text("Run "), code("make docs"), text(" to build the pages.")],
+      reply: "Run ~~make docs~~ to rebuild the pages.",
+      shown: "Run make docs to [-build-]{+rebuild+} the pages.",
+      runs: ["make docs"],
+      after: "Run make docs to rebuild the pages.",
+    },
+    {
+      content: [text("Run "), code("make docs"), text(" now to build the pages.")],
+      reply: "Run make **docs** now to rebuild the pages.",
+      shown: "Run make docs now to [-build-]{+rebuild+} the pages.",
+      runs: ["make docs"],
+      after: "Run make docs now to rebuild the pages.",
+    },
+    {
+      content: [text("推送之前先运行"), code("npm test"), text("，然后检查测试结果和全部日志。")],
+      reply: "推送之前先运行**npm test**，然后检查全部日志。",
+      shown: "推送之前先运行npm test，然后检查[-测试结果和-]全部日志。",
+      runs: ["npm test"],
+      after: "推送之前先运行npm test，然后检查全部日志。",
+    },
+    {
+      content: [text("Run "), code("make docs"), text(" now to build the pages.")],
+      reply: "Run **make site** now to build the pages.",
+      shown: "Run make [-docs-]{+site+} now to build the pages.",
+      runs: ["make ", "-docs", "+site"],
+      after: "Run make site now to build the pages.",
+    },
+  ])(
+    "code given a look by the reply stays code: $reply",
+    async ({ content, reply, shown, runs, after }) => {
+      const note = paragraph(...content);
+      const { core, mind, client, before } = await noteOf([note], () => reply);
+
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+
+      expect(shownWithChanges(client)).toEqual([shown]);
+      expect(codeRuns(client)).toEqual(runs);
+      expect(await acceptThenUndo(client, before)).toEqual([after]);
+    },
+  );
+
   // protects=an export while a change to code waits writes the code as it was, one span, in Markdown, and Word and HTML export it; once accepted, the new code; fails_when=two code spans touch ("`npm ``test`"), which Markdown reads as one holding backticks, or an export fails; no_claim=how other formats draw code.
   test.each([
     {
@@ -5849,9 +5907,12 @@ describe("A rewrite of text marked as code (#2362)", () => {
 
     const pending = await exported(core, mind.id);
     expect(pending.split("\n")).toContain(was);
-    for (const format of ["docx", "html"] as const) {
-      expect((await core.exportMind(mind.id, { format })).data.byteLength).toBeGreaterThan(0);
-    }
+    const html = new TextDecoder().decode(
+      (await core.exportMind(mind.id, { format: "html" })).data,
+    );
+    expect(html).not.toContain("</code><code>");
+    expect(html).toContain(`<code>${/`(.*)`/.exec(was)?.[1]}</code>`);
+    expect((await core.exportMind(mind.id, { format: "docx" })).data.byteLength).toBeGreaterThan(0);
     await resolveChanges(client, "accept");
     expect((await exported(core, mind.id)).split("\n")).toContain(now);
   });

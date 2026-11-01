@@ -1223,6 +1223,18 @@ export const readInlineNodes = (
   options: ReadOptions,
 ): Inline[] => readInline(children, options);
 
+/**
+ * Adds a run of text, joined to the one before when it reads the same: a change left out of this
+ * reading still splits the Note's runs, and a writer would write one code span as two (#2362).
+ */
+function addText(content: Inline[], text: TextInline): void {
+  const last = content.at(-1);
+  const alike = (item: TextInline) => JSON.stringify({ ...item, text: "" });
+  if (last?.kind === "text" && alike(last) === alike(text)) {
+    content[content.length - 1] = { ...last, text: last.text + text.text };
+  } else content.push(text);
+}
+
 function readInline(
   children: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[],
   options: ReadOptions,
@@ -1243,7 +1255,7 @@ function readInline(
           const checkId = readClaimCheck(attributes[CLAIM_CHECK_MARK])?.id;
           const sentenceCheck =
             checkId === undefined ? undefined : options.sentenceChecks?.get(checkId);
-          content.push({
+          addText(content, {
             kind: "text",
             text: run.insert,
             marks: marksOf(run.attributes),

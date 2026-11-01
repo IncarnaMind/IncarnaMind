@@ -374,7 +374,7 @@ class MarkdownWriter {
       open = open.slice(0, from);
     };
 
-    for (const item of joinedCode(content)) {
+    for (const item of content) {
       if (item.kind === "break") {
         closeFrom(0);
         out += context.table ? "<br>" : "\\\n";
@@ -512,26 +512,6 @@ function escapeText(text: string, table: boolean): string {
     .replace(/&(?=#?\w+;)/g, "\\&")
     .replace(/^=|=(?==|[ \t]*$)/g, "\\=");
   return table ? escaped.replace(/\|/g, "\\|") : escaped;
-}
-
-/**
- * Neighbouring runs of code as one: a change waiting in code splits it into runs that read as one
- * once its marks are left out, and two code spans side by side read as one holding backticks (#2362).
- */
-function joinedCode(content: readonly Inline[]): Inline[] {
-  const joined: Inline[] = [];
-  for (const item of content) {
-    const last = joined.at(-1);
-    if (
-      item.kind === "text" &&
-      item.marks.code &&
-      last?.kind === "text" &&
-      JSON.stringify(last.marks) === JSON.stringify(item.marks)
-    ) {
-      joined[joined.length - 1] = { ...last, text: last.text + item.text };
-    } else joined.push(item);
-  }
-  return joined;
 }
 
 function codeSpan(text: string, context: Context): string {
