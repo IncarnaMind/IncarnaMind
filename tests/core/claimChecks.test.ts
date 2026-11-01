@@ -919,6 +919,93 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
     },
   );
 
+  // protects=#1001; fails_when=a bare fee under the sale price's £ is refused, or the sentence is judged by the model's own verdict rather than the net proceeds; no_claim=how a real model words its verdict.
+  test.each([
+    ["supported", "Net sale proceeds £378,076."],
+    ["contradicted", "Net sale proceeds £391,924."],
+  ])("a statement with £ on its first amount only: “%s”", async (verdict, claim) => {
+    const completion = {
+      name: "Completion statement 14 Mill Lane.md",
+      contents: [
+        "# Completion statement",
+        "",
+        "Sale price £385,000.00",
+        "Less: agent's fee (4,620.00)",
+        "Less: legal fees (1,500.00)",
+        "Less: search and other costs (804.00)",
+      ].join("\n"),
+    };
+    const stated = claim.slice("Net sale proceeds ".length).replace(/\.$/, "");
+    const calculation = {
+      inputs: [
+        {
+          name: "price",
+          label: "Sale price",
+          quote: "Sale price £385,000.00",
+          number: "£385,000.00",
+        },
+        {
+          name: "agent",
+          label: "Agent's fee",
+          quote: "Less: agent's fee (4,620.00)",
+          number: "(4,620.00)",
+          unitQuote: "Sale price £385,000.00",
+          bracketedCost: true,
+        },
+        {
+          name: "legal",
+          label: "Legal fees",
+          quote: "Less: legal fees (1,500.00)",
+          number: "(1,500.00)",
+          unitQuote: "Sale price £385,000.00",
+          bracketedCost: true,
+        },
+        {
+          name: "other",
+          label: "Other costs",
+          quote: "Less: search and other costs (804.00)",
+          number: "(804.00)",
+          unitQuote: "Sale price £385,000.00",
+          bracketedCost: true,
+        },
+      ],
+      formula: "price + agent + legal + other",
+      stated,
+    };
+    // The model's own verdict is the other one: the calculation decides, not the model.
+    const said = verdict === "supported" ? "contradicted" : "supported";
+    const plans = { [claim]: { verdict: said, calculation } } as const;
+    const setup = await setUpWithDocuments(checkingModel(plans), [completion]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+    const board = setup.documents[0] as Document;
+
+    const result = await setup.core.checkClaim({ claim });
+
+    expect(result).toMatchObject({
+      verdict,
+      says: null,
+      evidence: { documentId: board.id, check: "found" },
+      calculation: { stated, figure: { shown: "£378,076.00" } },
+    });
+    if (result.verdict === "not-checked") throw new Error("Not checked.");
+    expect(
+      result.calculation?.figure.inputs.map((input) => [input.number.chars, input.number.value]),
+    ).toEqual([
+      ["£385,000.00", 385_000],
+      ["(4,620.00)", -4_620],
+      ["(1,500.00)", -1_500],
+      ["(804.00)", -804],
+    ]);
+    expect(
+      result.calculation?.figure.inputs.slice(1).map((input) => input.unitStatement?.currency),
+    ).toEqual(["GBP", "GBP", "GBP"]);
+  });
+
   test.each([
     ["en", "Revenue was 7,509,964.", ["Customer", "Revenue"], "7509964", "North", "Ledger.xlsx"],
     ["zh-CN", "收入为 7,509,964。", ["客户", "收入"], "7509964", "北方", "台账.xlsx"],

@@ -2413,14 +2413,16 @@ export interface FigureInput {
   cell: { sheet: string | null; ref: string; stored: number | null } | null;
   /**
    * The line of the same Passage that states the number's scale or currency
-   * ("单位：万元"), given as `unitQuote` when the number has none of its own;
-   * null when none was needed.
+   * ("单位：万元", or "Sale price £385,000.00" above bare figures), given as
+   * `unitQuote` when the number has none of its own; null when none was needed.
    */
   unitStatement: {
     citation: Citation;
     scale: number;
     scaleWord: string | null;
     currency: string | null;
+    /** The currency's characters as the line writes them ("£", "US$") when it writes them on a figure; absent for a heading's. */
+    currencyChars?: string | null;
   } | null;
 }
 

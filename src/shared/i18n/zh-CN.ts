@@ -798,6 +798,7 @@ export const zhCN = {
   "figures.export.documentPlace": "文档和位置",
   "figures.export.recordHeading": "数字",
   "figures.unitQuote": "单位说明",
+  "figures.unitFrom": "“{currency}”来自“{quote}”",
   "figures.command": "核对数字",
   "figures.title": "数字核对表",
   "figures.tab": "数字核对表 – {name}",
