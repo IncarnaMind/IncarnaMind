@@ -92,8 +92,9 @@ function judgmentOf(value: unknown): ReadVerdict | null {
  */
 export function figureReplyText(reply: string, setAside: readonly string[]): string {
   if (readsAsRefusal(reply) || readVerdict(reply)) return reply;
-  const earlier = setAside.findLast((text) => readVerdict(text) !== null);
-  return earlier === undefined ? reply : `${earlier}\n${reply}`;
+  // A refusal set aside after the verdict is the model's last word on it.
+  const earlier = setAside.findLast((text) => readVerdict(text) !== null || readsAsRefusal(text));
+  return earlier === undefined || readsAsRefusal(earlier) ? reply : `${earlier}\n${reply}`;
 }
 
 /** The markers the reply's own words carry, in order: its Figures line's are its figures'. */

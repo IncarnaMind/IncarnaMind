@@ -56,6 +56,8 @@ const EN: Language = {
         "",
         "Raising the barrier crest by 40 centimetres halves the expected annual damage in the northern estuary.",
         "",
+        "Rock armour should replace the timber groynes along the southern shore.",
+        "",
       ].join("\n"),
     },
   ],
@@ -94,9 +96,14 @@ const ZH: Language = {
     },
     {
       name: "灌区情况简报.md",
-      contents: ["# 灌区情况简报", "", "新渠道通水后，灌区内水稻亩产提高到510公斤。", ""].join(
-        "\n",
-      ),
+      contents: [
+        "# 灌区情况简报",
+        "",
+        "新渠道通水后，灌区内水稻亩产提高到510公斤。",
+        "",
+        "下游村庄的饮用水已改由新建水厂统一供应。",
+        "",
+      ].join("\n"),
     },
   ],
   stated: { sentence: "新渠道通水后，灌区内水稻亩产提高到510公斤。", number: "510" },
@@ -136,6 +143,8 @@ interface Split {
   remainder: boolean;
   /** Its last turn: the Figures line, or a refusal in its place. */
   last?: "figures" | "refusal";
+  /** A refusal beside a second `cite` call, after the verdict and before the Figures line. */
+  refusesBetween?: boolean;
 }
 
 function splitting(language: Language, split: Split, calls: ModelCall[]) {
@@ -199,6 +208,21 @@ function splitting(language: Language, split: Split, calls: ModelCall[]) {
           ? { text: verdictLines(says), calls: [cite] }
           : { calls: [cite] };
       }
+      const cites = call.results.filter((result) => result.tool === "cite").length;
+      if (split.refusesBetween && cites === 1) {
+        const [first] = shownPassages(searches.at(-1)?.text ?? "").filter((each) =>
+          each.text.includes(quote(sentence)),
+        );
+        return {
+          text: "I'm sorry, I can't help with that.",
+          calls: [
+            {
+              tool: "cite",
+              input: { citations: [{ marker: 3, passage: first?.id, quote: quote(sentence) }] },
+            },
+          ],
+        };
+      }
       return {
         text: split.last === "refusal" ? "I'm sorry, I can't help with that." : figuresLine,
       };
@@ -258,7 +282,12 @@ const check = (language: Language, sentence: string, split: Split) =>
  * A model that writes its quote into its reply instead of calling `cite`, as Claude Haiku 5.5 did,
  * then, asked for that marker's record, gives the record alone with `given` as its quote.
  */
-function writingItsRecord(sentence: string, given: string) {
+/**
+ * With `second`, the model records marker 1 with `cite`, names markers 1 and 2 on its Evidence
+ * line and writes only marker 2's record into its reply; asked for marker 2, it gives a record
+ * alone (copying marker 1's quote), or the list the ask names with the second Passage's quote.
+ */
+function writingItsRecord(sentence: string, given: string, second?: "alone" | "list") {
   return (calls: ModelCall[]) =>
     scriptedModel(
       (call): ScriptedReply => {
@@ -267,25 +296,49 @@ function writingItsRecord(sentence: string, given: string) {
         const searches = call.results.filter((result) => result.tool === "search_documents");
         if (searches.length === 0)
           return { calls: [{ tool: "search_documents", input: { query: sentenceOf(call) } }] };
-        const passage = shownPassages(searches.at(-1)?.text ?? "").find((each) =>
+        const [first, other] = shownPassages(searches.at(-1)?.text ?? "").filter((each) =>
           each.text.includes(sentence),
         );
+        if (second && !call.results.some((result) => result.tool === "cite"))
+          return {
+            calls: [
+              {
+                tool: "cite",
+                input: { citations: [{ marker: 1, passage: first?.id, quote: sentence }] },
+              },
+            ],
+          };
+        const marker = second ? 2 : 1;
         return {
           text: [
             verdictLines(`The Documents say: ${sentence} [^1]`).replace(
               "Evidence: [1, 2]",
-              "Evidence: [1]",
+              second ? "Evidence: [1, 2]" : "Evidence: [1]",
             ),
             "",
-            `Cite: marker 1 → passage ${passage?.id}, quote "${sentence}"`,
+            `Cite: marker ${marker} → passage ${(second ? other : first)?.id}, quote "${sentence}"`,
           ].join("\n"),
         };
       },
       {
         generate(call) {
           if (!call.system.startsWith("You checked a sentence")) return checkGenerate({})(call);
-          const passage = /<passage id="([^"]+)">/.exec(call.prompt)?.[1];
-          return { text: JSON.stringify({ passage, location: "§ Results", quote: given }) };
+          const passages = [
+            ...call.prompt.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g),
+          ]
+            .filter((each) => each[2]?.includes(sentence))
+            .map((each) => each[1]);
+          if (second === "list")
+            return {
+              text: JSON.stringify({
+                citations: [
+                  { marker: 2, passage: passages[1], location: "§ Results", quote: given },
+                ],
+              }),
+            };
+          return {
+            text: JSON.stringify({ passage: passages[0], location: "§ Results", quote: given }),
+          };
         },
       },
     );
@@ -337,6 +390,14 @@ describe.each([
       last: "refusal",
     });
     expect(refused).toMatchObject({ state: "not-checked", reason: "refused" });
+
+    const { check: refusedBetween } = await check(language, language.stated.sentence, {
+      verdict: "cite",
+      remainder: true,
+      refusesBetween: true,
+    });
+    expect(refusedBetween).toMatchObject({ state: "not-checked", reason: "malformed" });
+    expect(refusedBetween?.figures?.map((figure) => figure.state)).toEqual(["supported"]);
   });
 });
 
@@ -361,6 +422,23 @@ describe.each([
         writingItsRecord(sentence, paraphrase),
       );
       expect(unheld).toMatchObject({ state: "not-checked", reason: "no-evidence" });
+    });
+
+    test("is never filed under one of two markers the reply names, which the list the ask names is", async () => {
+      const { sentence } = language.plain;
+      const { check: alone } = await checkWith(
+        language,
+        sentence,
+        writingItsRecord(sentence, sentence, "alone"),
+      );
+      expect(alone).toMatchObject({ state: "not-checked", reason: "no-evidence" });
+
+      const { check: listed } = await checkWith(
+        language,
+        sentence,
+        writingItsRecord(sentence, sentence, "list"),
+      );
+      expect(listed).toMatchObject({ state: "supported", evidence: { quote: sentence } });
     });
   },
 );

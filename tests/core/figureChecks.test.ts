@@ -165,6 +165,12 @@ test("a last turn of only its Figures line is read after the verdict set aside b
     "Verdict: supported\nAbsence: no\nThe accounts give revenue of £20.\nCite records:";
   expect(figureReplyText(figuresLine, [verdict])).toBe(`${verdict}\n${figuresLine}`);
   expect(figureReplyText(figuresLine, [])).toBe(figuresLine);
+  expect(figureReplyText(figuresLine, [verdict, "I'm sorry, I can't help with that."])).toBe(
+    figuresLine,
+  );
+  expect(figureReplyText(figuresLine, ["I'm sorry, I can't help with that.", verdict])).toBe(
+    `${verdict}\n${figuresLine}`,
+  );
 });
 
 function target(

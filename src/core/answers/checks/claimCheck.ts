@@ -1823,9 +1823,19 @@ async function askForEvidence(
     return { failed: classifyProviderError(error) };
   }
   const records: CitationRecordInput[] = [];
-  // Asked for one marker's record, Claude Haiku 5.5 gave the record alone, as an ask for no marker
-  // takes it, for a quote it had written into its reply instead of calling cite (#2184).
-  const [only] = markers.length === 1 ? markers : [];
+  // Asked for the one marker its reply names, Claude Haiku 5.5 gave the record alone, as an ask for
+  // no marker takes it, for a quote it had written into its reply instead of calling cite (#2184).
+  // Beside other markers, a record alone may be another one's copied.
+  const named = new Set([
+    ...(verdict.evidence ?? []),
+    ...(verdict.coverage?.members.flatMap((member) => member.evidence) ?? []),
+    ...(verdict.coverage?.domainEvidence ?? []),
+  ]);
+  const [asked] = markers;
+  const only =
+    markers.length === 1 && asked !== undefined && named.size === 1 && named.has(asked)
+      ? asked
+      : undefined;
   const alone = markers.length === 0 || only !== undefined ? readEvidence(reply) : null;
   if (alone) {
     records.push({ marker: only ?? EVIDENCE_MARKER, ...alone });
