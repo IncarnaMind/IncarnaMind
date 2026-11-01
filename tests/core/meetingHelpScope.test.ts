@@ -6,6 +6,7 @@ import type {
   MeetingHelpTemplate,
 } from "../../src/core";
 import { translate } from "../../src/shared/i18n";
+import { isCheckRun } from "../helpers/checks";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -57,23 +58,26 @@ async function setup(language: "en" | "zh-CN", heard = true) {
       : "未问及的笔记：董事会将在十一月开会。";
   const name = language === "en" ? "Interview guide" : "访谈提纲";
   const models = scriptedModels(
-    scriptedModel((call) => {
-      calls.push(call);
-      const passages = shownPassages(call.prompt);
-      const library = passages.find((passage) => passage.document === name);
-      const source = library ?? passages.find((passage) => passage.text.includes(spoken));
-      if (!source)
-        return { text: language === "en" ? "Not enough call content yet." : "通话内容还不够。" };
-      const quote = library ? fact : spoken;
-      if (!call.results.some((result) => result.tool === "cite")) {
-        return {
-          calls: [
-            { tool: "cite", input: { citations: [{ marker: 1, passage: source.id, quote }] } },
-          ],
-        };
-      }
-      return { text: `- ${quote} [^1]` };
-    }),
+    scriptedModel(
+      (call) => {
+        calls.push(call);
+        const passages = shownPassages(call.prompt);
+        const library = passages.find((passage) => passage.document === name);
+        const source = library ?? passages.find((passage) => passage.text.includes(spoken));
+        if (!source)
+          return { text: language === "en" ? "Not enough call content yet." : "通话内容还不够。" };
+        const quote = library ? fact : spoken;
+        if (!call.results.some((result) => result.tool === "cite")) {
+          return {
+            calls: [
+              { tool: "cite", input: { citations: [{ marker: 1, passage: source.id, quote }] } },
+            ],
+          };
+        }
+        return { text: `- ${quote} [^1]` };
+      },
+      { judgesItsAnswers: true },
+    ),
   );
   const { core, record } = await transcribingCore(await createTempDataFolder(), {
     createChatModel: models.createChatModel,
@@ -124,13 +128,16 @@ for (const language of ["en", "zh-CN"] as const) {
       language === "en"
         ? "Zircon vessels stabilize in forty-five days"
         : "锆石容器在四十五天内稳定";
-    const model = scriptedModel((call) => {
-      if (call.tools.length > 0) {
-        return { error: { status: 400, message: "This model does not support tools" } };
-      }
-      const answer = call.prompt.includes(fact) ? fact : "No readable source.";
-      return { text: call.json ? JSON.stringify({ answer, citations: [] }) : answer };
-    });
+    const model = scriptedModel(
+      (call) => {
+        if (call.tools.length > 0) {
+          return { error: { status: 400, message: "This model does not support tools" } };
+        }
+        const answer = call.prompt.includes(fact) ? fact : "No readable source.";
+        return { text: call.json ? JSON.stringify({ answer, citations: [] }) : answer };
+      },
+      { judgesItsAnswers: true },
+    );
     const { core } = await transcribingCore(await createTempDataFolder(), { model });
     await core.updateSettings({ user: { language } });
     const provider = await core.saveChatProvider({
@@ -194,7 +201,12 @@ for (const language of ["en", "zh-CN"] as const) {
           expect(answer.citations[0]?.check).toBe("found");
         }
       }
-      expect(calls.every((call) => call.prompt.includes("<live-transcript>"))).toBe(true);
+      // The Answer's sentence is then checked against its quote alone (#2311).
+      expect(
+        calls
+          .filter((call) => !isCheckRun(call))
+          .every((call) => call.prompt.includes("<live-transcript>")),
+      ).toBe(true);
       expect(calls.some((call) => call.prompt.includes(fact))).toBe(false);
     });
   }

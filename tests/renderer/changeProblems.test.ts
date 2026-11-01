@@ -170,6 +170,7 @@ describe("Why a call changed nothing, on its row", () => {
     { kind: "content-not-own", mindId: "a" },
     { kind: "stopped", mindId: "a" },
     { kind: "no-table", mindId: "a" },
+    { kind: "unplaced", mindId: "a" },
     { kind: "uncited", mindId: "a" },
     { kind: "new-mind", mindId: "a" },
     { kind: "local-mode" },
@@ -235,6 +236,17 @@ describe("Why a call changed nothing, on its row", () => {
     );
     expect(problemText(zh, problem, "Q3 review")).toBe(
       "未能生成表格，因此没有向“Q3 review”添加内容",
+    );
+  });
+
+  // protects=text marked to remove that the Note doesn't have word for word says so, and that nothing changed (#2180); fails_when=the line blames the model vaguely or loses the Mind's name; no_claim=none beyond protects.
+  test("text marked to remove that isn't there says nothing changed", () => {
+    const problem: MindProblem = { kind: "unplaced", mindId: "a" };
+    expect(problemText(en, problem, "Q3 review")).toBe(
+      "The text marked to remove doesn’t match “Q3 review” word for word in one place, so nothing changed",
+    );
+    expect(problemText(zh, problem, "Q3 review")).toBe(
+      "标出要删除的文字在“Q3 review”里找不到唯一一处原文，因此没有改动",
     );
   });
 });

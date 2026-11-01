@@ -8,7 +8,12 @@ import {
 import { heldBackFrom, takeToolText, toolTextIn } from "../../src/core/answers/toolText";
 import { askAssistant } from "../helpers/assistant";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  answerRequests,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 
 const FIRST =
   "Tea drinking began in southwest China, where it was first used as a medicinal drink.";
@@ -28,16 +33,19 @@ const record = (passage: string | undefined) =>
 
 /** A model that searches once, then writes `reply` for the Passage it was shown, never calling `cite`. */
 function writingModel(reply: (passage: string | undefined) => string) {
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    if (call.json) return { text: JSON.stringify({ citations: [] }) };
-    const search = call.results.find((result) => result.tool === "search_documents");
-    if (!search) return { calls: [{ tool: "search_documents", input: { query: "tea" } }] };
-    return { text: reply(shownPassages(search.text)[0]?.id) };
-  });
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      if (call.json) return { text: JSON.stringify({ citations: [] }) };
+      const search = call.results.find((result) => result.tool === "search_documents");
+      if (!search) return { calls: [{ tool: "search_documents", input: { query: "tea" } }] };
+      return { text: reply(shownPassages(search.text)[0]?.id) };
+    },
+    { judgesItsAnswers: true },
+  );
 }
 
 const requestsForCitations = (model: ReturnType<typeof scriptedModel>) =>
-  model.doStreamCalls.length - 2;
+  answerRequests(model).length - 2;
 
 describe("A cite record written as text", { timeout: 30_000 }, () => {
   // protects=a <cite> block written in the reply is never shown, and its record becomes the Citation the sentence's marker names, without asking the model; fails_when=the block shows, the Citation is lost, or the model is asked for it; no_claim=what a real model writes.
@@ -132,16 +140,19 @@ function citingThenWriting(
   records: (passage: string | undefined) => unknown[],
   reply: (passage: string | undefined) => string,
 ) {
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    if (call.json) return { text: JSON.stringify({ citations: [] }) };
-    const search = call.results.find((result) => result.tool === "search_documents");
-    if (!search) return { calls: [{ tool: "search_documents", input: { query: "tea" } }] };
-    const passage = shownPassages(search.text)[0]?.id;
-    if (!call.results.some((result) => result.tool === "cite")) {
-      return { calls: [{ tool: "cite", input: { citations: records(passage) } }] };
-    }
-    return { text: reply(passage) };
-  });
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      if (call.json) return { text: JSON.stringify({ citations: [] }) };
+      const search = call.results.find((result) => result.tool === "search_documents");
+      if (!search) return { calls: [{ tool: "search_documents", input: { query: "tea" } }] };
+      const passage = shownPassages(search.text)[0]?.id;
+      if (!call.results.some((result) => result.tool === "cite")) {
+        return { calls: [{ tool: "cite", input: { citations: records(passage) } }] };
+      }
+      return { text: reply(passage) };
+    },
+    { judgesItsAnswers: true },
+  );
 }
 
 describe("A cite record written as text, beside what the model did right", {
@@ -204,7 +215,7 @@ describe("While the reply streams", () => {
   // protects=tool-call text never shows, not even while it comes in, and what shows at the end is the text without it; its records are given to cite; fails_when=a moment of the shown text holds a tag, or the records are lost; no_claim=none beyond protects.
   test("the block is held back as it is typed, and its record is recorded", async () => {
     const reply = `Tea began in China [^1].\n\n<cite>\n[{"marker":1,"passage":"P1","quote":"Tea began."}]\n</cite>`;
-    const model = scriptedModel(() => ({ text: reply }));
+    const model = scriptedModel(() => ({ text: reply }), { judgesItsAnswers: true });
     const given: CitationRecordInput[] = [];
     const events: AnswerEngineEvent[] = [];
     for await (const event of createAiSdkAnswerEngine().generate({
@@ -399,15 +410,20 @@ describe("An Answer with no Tools, or written as JSON", () => {
     const block =
       '<tool_call>{"name": "search_documents", "arguments": {"query": "tea"}}</tool_call>';
     const plain = await generate(
-      scriptedModel(() => ({ text: `Tea began in China.\n\n${block}` })),
+      scriptedModel(() => ({ text: `Tea began in China.\n\n${block}` }), {
+        judgesItsAnswers: true,
+      }),
       "none",
     );
     expect(written(plain)).toBe("Tea began in China.");
 
     const json = await generate(
-      scriptedModel(() => ({
-        text: JSON.stringify({ answer: `茶起源于中国。\n\n${block}`, citations: [] }),
-      })),
+      scriptedModel(
+        () => ({
+          text: JSON.stringify({ answer: `茶起源于中国。\n\n${block}`, citations: [] }),
+        }),
+        { judgesItsAnswers: true },
+      ),
       "structured-output",
     );
     expect(written(json)).toBe("茶起源于中国。");

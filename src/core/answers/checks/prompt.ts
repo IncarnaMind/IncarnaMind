@@ -46,7 +46,6 @@ const rules = (calculate = false) => [
   "Use complementary Passages together: no individual Passage has to state the whole factual part when their checked quotes establish all of it. Record every quote used, including distinct Passages from the same Document. A missing clause remains unsupported.",
   "An asserted cause requires evidence for the causal link, not merely separate evidence that both events happened. An isolated value does not establish a superlative, first/only occurrence or a comparison across periods. Historical outcomes do not establish a conditional rule. Preserve every condition, comparison domain, negation and certainty qualification.",
   "A prediction is not a certain future event. If the sentence asserts that an event will happen but the Document only forecasts it, the verdict is unsupported and Reason kind is forecast-certainty. A sentence accurately attributing the forecast to its author is a fact about that forecast and may be supported. If both events are stated but their causal link is absent, use unsupported and Reason kind unbacked-cause.",
-  "A passage's date attribute is the file's own metadata, not something the Document states: never mention it unless the sentence itself is about a date or a period.",
   "Say what the Document says about the sentence's own detail, in plain words, quoting its words where that helps. Never mention the index, the search, the passages, the Document's metadata or how you found it.",
   "",
   "A near miss is unsupported, not contradicted:",
@@ -71,6 +70,9 @@ const reply = (language: Language, calculate: boolean) =>
     // Claude Haiku 5.5 still called "must" for "may" and "可" for "须" Supported in up to 8 to 10 of
     // 20 checks, against 1 or 2 with them (#1668).
     'Roles: who does it, for or to whom, and its own obligation or permission word copied as written (such as 须, 可, must, may; none when it has none), first as the sentence says it, then " / " and as the Passage says it, then same or differs ("Roles: the Tenant must repaint / the Tenant may repaint, differs"; "Roles: the deposit must be returned / the deposit may be returned, differs"; "Roles: the Landlord insures for the Tenant / the Tenant insures for the Landlord, differs"). "differs" only when the other party does it, the two parties are the other way round, or one says must where the other says may. Anything else is "same": another word for a party (Scope weighs that), a side with no such word, a condition one of them adds, or no party and no such word ("Roles: none, same").',
+    // Weighed inside the verdict, a Chinese "并已安装好" (already installed) passed as an English price
+    // line's "installed", which is installation included, while the Passage scheduled it later (#2311).
+    'Time: whether it has already happened or is still to happen, with the words that say so copied as written (such as 已, 将, already, will, scheduled; none when it says neither), first as the sentence says it, then " / " and as the Passage says it, then same or differs ("Time: already signed / to be signed on 3 May, differs"; "Time: 已于 3 月完成 / completed in March, same"; "Time: none / none, same"). "differs" only when one says it has happened and the other that it is still to happen. Anything else is "same": a date only one of them gives, or a side that says neither.',
     `Then, for supported or contradicted, one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in, saying what the Document says, with the markers of the deciding checked quotes at its end. For contradicted, name the thing, and give the Document's value and the sentence's.`,
     `For unsupported, one plain sentence in ${LANGUAGE_NAMES[language]} saying what the Documents don't say.`,
     // Asked for "the old words", Claude Haiku 5.5 named the whole sentence for a lease's base rent
@@ -547,6 +549,8 @@ export interface ReadVerdict {
   topic: "found" | "not found" | null;
   /** "differs": another party does it, the parties are the other way round, or must is may; null when the reply doesn't say. */
   roles: "same" | "differs" | null;
+  /** "differs": one says it has happened and the other that it is still to happen; absent when the reply doesn't say. */
+  time?: "same" | "differs";
   calculations?: string[];
   evidence?: number[] | null;
   coverage?: ReadCoverage | null;
@@ -578,6 +582,7 @@ const TOPIC = /^[\s>*_#`"'“”-]*(?:topic|主题)[\s*_]*[:：][\s*_"'“”`]*
 const ROLES = /^[\s>*_#`"'“”-]*(?:roles|角色)[\s*_]*[:：](.*)$/i;
 const CHANGE = /^[\s>*_#`"'“”-]*change[\s*_]*(\d+)[\s*_]*[:：][\s*_]*(.*)$/i;
 const TO = /^[\s>*_#`"'“”-]*to[\s*_]*(\d+)[\s*_]*[:：][\s*_]*(.*)$/i;
+const TIME = /^[\s>*_#`"'“”-]*(?:time|时间)[\s*_]*[:：](.*)$/i;
 const ABSENCE = /^[\s>*_#`"'“”-]*(?:absence|缺失)[\s*_]*[:：](.*)$/i;
 const CALCULATION = /^[\s>*_#`'"“”-]*(?:calculation|计算)[\s*_]*[:：][\s*_]*(.*)$/i;
 export const FIGURES = /^\s*Figures:\s*(.*)$/i;
@@ -594,6 +599,7 @@ const FIELDS = [
   ROLES,
   CHANGE,
   TO,
+  TIME,
   ABSENCE,
   CALCULATION,
   EVIDENCE,
@@ -680,6 +686,7 @@ function jsonVerdict(reply: string): ReadVerdict | null {
       scope,
       topic,
       roles,
+      time,
       asserts_absence: asserted,
       calculations,
       evidence,
@@ -705,6 +712,7 @@ function jsonVerdict(reply: string): ReadVerdict | null {
       scope: scopeOf(typeof scope === "string" ? `Scope: ${scope}` : undefined),
       topic: topicOf(typeof topic === "string" ? `Topic: ${topic}` : undefined),
       roles: rolesOf(typeof roles === "string" ? `Roles: ${roles}` : undefined),
+      ...timeOf(typeof time === "string" ? `Time: ${time}` : undefined),
       ...(evidence !== undefined && { evidence: markersOf(evidence) }),
       ...(declaresCoverage(coverage) && { coverage: coverageOf(coverage) }),
       ...((reasonKind === "forecast-certainty" || reasonKind === "unbacked-cause") && {
@@ -741,14 +749,22 @@ const scopeOf = (line: string | undefined): ReadVerdict["scope"] => {
   return word === "same" || word === "wider" ? word : null;
 };
 
-// The field's last word: the parties' own words come first and may hold "same".
-const rolesOf = (line: string | undefined): ReadVerdict["roles"] => {
-  const word = (line === undefined ? undefined : ROLES.exec(line)?.[1])
+// The field's last word: the words of each side come first and may hold "same".
+const lastWordOf = (label: RegExp, line: string | undefined): "same" | "differs" | null => {
+  const word = (line === undefined ? undefined : label.exec(line)?.[1])
     ?.match(/\b(?:same|differs?)\b/gi)
     ?.at(-1)
     ?.toLowerCase();
   if (word === "same") return "same";
   return word === "differs" || word === "differ" ? "differs" : null;
+};
+
+const rolesOf = (line: string | undefined): ReadVerdict["roles"] => lastWordOf(ROLES, line);
+
+/** Only a reply that gives the field says it: a reply read before it was asked for has none. */
+const timeOf = (line: string | undefined): Pick<ReadVerdict, "time"> => {
+  const time = lastWordOf(TIME, line);
+  return time ? { time } : {};
 };
 
 const topicOf = (line: string | undefined): ReadVerdict["topic"] => {
@@ -950,6 +966,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
       topic: topicOf(fields.findLast((each) => TOPIC.test(each))),
       // A model that corrects its Roles line writes it again: its last one counts.
       roles: rolesOf(fields.findLast((each) => ROLES.test(each))),
+      ...timeOf(fields.findLast((each) => TIME.test(each))),
       ...(calculationFields.some((line) => CALCULATION.test(line)) && {
         calculations: calculationFields.reduce<string[]>((values, line) => {
           const value = CALCULATION.exec(line)?.[1]?.trim();
