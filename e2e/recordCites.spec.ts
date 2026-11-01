@@ -358,7 +358,8 @@ test("the narrow Chinese card keeps raw English cites and picker keyboard focus 
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
-  await setWindowSize(app, window, 900, 760);
+  // Shorter than the card with all four cites: it must fit the room under its mark (#1741).
+  await setWindowSize(app, window, 900, 640);
   const { duplicateA, duplicateB } = await setup(window, "zh-CN");
   const card = await openCard(window);
   const t = (key: MessageKey, params?: MessageParams) => translate("zh-CN", key, params);
