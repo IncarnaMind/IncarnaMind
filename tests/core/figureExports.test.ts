@@ -255,6 +255,29 @@ describe("a figure an Analysis gave", () => {
       );
     },
   );
+
+  test.each(["en", "zh-CN"] as const)(
+    "%s: in a citation style, a figure whose Analysis record is missing is written as its value with a note",
+    async (language) => {
+      const { core, mind, client, acme } = await setUp(language);
+      await core.setMindCitationStyle(mind.id, "apa");
+      const { node } = fromAnalysis(acme);
+      writeMind(client, [
+        paragraph(text(language === "en" ? "Revenue was " : "营收为 "), node, text(".")),
+      ]);
+      await client.settled();
+
+      const { markdown, word } = await exported(core, mind.id);
+      const note =
+        language === "en"
+          ? "The saved inputs for 1,482.6 aren't available, so IncarnaMind writes it as its value."
+          : "“1,482.6”保存的输入暂不可用，IncarnaMind 按数值写出。";
+      expect(markdown).toContain("1,482.6");
+      expect(markdown).toContain(note);
+      expect(word.join(" ")).toContain("1,482.6");
+      expect(word.join(" ")).toContain(note);
+    },
+  );
 });
 
 const ACME: ReferencePatch = {

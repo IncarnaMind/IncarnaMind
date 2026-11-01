@@ -116,7 +116,7 @@ export function figureCited(
       { kind: "text", text: note ? shown : `${shown} `, marks: NO_MARKS, ...change },
       {
         kind: "cite",
-        runs: [{ text: labels.figureUnavailable(shown) }],
+        runs: [{ text: ` ${labels.figureUnavailable(shown)}` }],
         note,
         unverified: false,
         ...change,
