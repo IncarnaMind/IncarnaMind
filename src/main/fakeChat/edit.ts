@@ -4,7 +4,8 @@
  * of" as "many", Translate… puts the text in capitals, Explain says what the
  * passage starts with, and an instruction to "replace X with Y" (把 X 换成 Y)
  * does so, or "drop the citations" (去掉引用) leaves their markers out.
- * "Restructure" (重新组织) cuts a plain last paragraph and puts the last
+ * "Restructure" (重新组织) cuts a plain last paragraph, quoting it between
+ * <removed> and </removed> as a model does (#2180), and puts the last
  * section, from its heading (a "#" paragraph) on, first, keeping each
  * paragraph's mark, as a model restructuring a whole Mind does (#703). One
  * that asks for a table (表格) adds a Markdown table after the passage, a
@@ -20,6 +21,7 @@
  * a line saying why (#202).
  */
 
+import { QUOTE_WHAT_GOES } from "../../core/edits/prompt";
 import { appliedEditReply } from "./appliedEdits";
 import { PARTLY } from "./checks";
 import { type Prompt, SHORTEN, SLOWLY, type StreamPart, USAGE } from "./prompt";
@@ -31,12 +33,13 @@ const FILLER = /(?:\b(?:very|really|truly|quite|actually|basically)\s+|非常|�
 /** A passage restructured (see the top of this file): its last section first, a plain last paragraph cut. */
 function restructured(passage: string): string {
   const paragraphs = passage.split(/\n\n+/);
-  if (paragraphs.length > 1 && !/^(?:#|- |\d+\. |> )/.test(paragraphs.at(-1) ?? "")) {
-    paragraphs.pop();
-  }
+  const cut =
+    paragraphs.length > 1 && !/^(?:#|- |\d+\. |> )/.test(paragraphs.at(-1) ?? "")
+      ? [`<removed>${paragraphs.pop()}</removed>`]
+      : [];
   const last = paragraphs.findLastIndex((paragraph) => paragraph.startsWith("#"));
-  if (last <= 0) return paragraphs.join("\n\n");
-  return [...paragraphs.slice(last), ...paragraphs.slice(0, last)].join("\n\n");
+  if (last <= 0) return [...paragraphs, ...cut].join("\n\n");
+  return [...paragraphs.slice(last), ...paragraphs.slice(0, last), ...cut].join("\n\n");
 }
 
 function rewrittenSection(passage: string): string {
@@ -96,7 +99,9 @@ export function fakeEdit(prompt: Prompt): { text: string; slow: boolean; holds: 
   const task = /<task action="([^"]+)">([\s\S]*?)<\/task>/.exec(request);
   if (!task) return null;
   const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(request)?.[1] ?? "";
-  const asked = (task[2] ?? "").replace(/^Do what the User asks: /, "");
+  const asked = (task[2] ?? "")
+    .replace(/^Do what the User asks: /, "")
+    .replace(`\n${QUOTE_WHAT_GOES}`, "");
   const action = task[1] ?? "";
   const text = editedText(action, passage, asked.replace(/\s+slowly\.?$/i, ""));
   // In the passage's language, as the instructions ask.
