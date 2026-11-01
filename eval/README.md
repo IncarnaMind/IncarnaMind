@@ -498,6 +498,7 @@ The check now ignores letter case, reads "[^3]" as "[3]", and finds a quote with
   - `retrieval/formats.json`: the every-format set's Questions.
   - `retrieval/formats/`: its Documents (`files/`), the script that writes them, and `ATTRIBUTION.md`.
 - **The checks evaluation:** `checks/`, with its labels, Documents and README.
+- **The calculations evaluation:** `calculations/`, with its Questions, Documents, scoring and README.
 - **Tests of the evaluation itself:** these run with `npm test`, without the model.
   - `tests/eval/scoring.test.ts` checks how the evaluation scores sentences, Citations, hits and the reviewer sheet.
   - `tests/eval/citations.test.ts` runs the Citation part through a core with a scripted model.
@@ -506,11 +507,17 @@ The check now ignores letter case, reads "[^3]" as "[3]", and finds a quote with
   - `tests/eval/smallModelCitations.test.ts` shows, without a model, the ways a small model's Citations of the gating set's long PDFs aren't found (#67): records written by hand, through the core's citation session, over the stored text of their pages.
   - `tests/eval/formatSet.test.ts` checks the every-format set against the stored text; `tests/eval/formatScoring.test.ts`, its figures and reports; `tests/eval/formatCitations.test.ts`, the Citation check on every Location kind.
   - `tests/eval/checkSet.test.ts` checks the checks evaluation's labels against the stored text; `tests/eval/checkScoring.test.ts`, its scoring; `tests/eval/checkPipeline.test.ts`, its pipeline through a core with a scripted model.
+  - `tests/eval/calculationScoring.test.ts` checks the calculations evaluation's scoring and its set.
+  - `tests/eval/calculationEvidence.test.ts` scores the calculations evaluation's kept Answers again and checks its published results.
   - `tests/eval/skillCases.test.ts` checks the finance and law Skills' case table: six Skills, each in both languages, with its invented Documents.
 
 ## The checks evaluation
 
 `npm run eval` also runs the checks evaluation when a chat model is given (`npm run eval -- eval/checks` runs it alone): Find support's 200 labelled sentences and verify's 10 received documents, run end to end against one Folder and scored against the labels, with the bars of #86, #96 and #97 reported until those exist (#86). See `checks/README.md`.
+
+## The calculations evaluation
+
+`npm run eval` also runs the calculations evaluation (`npm run eval -- eval/calculations` runs it alone): 80 Questions in English and Chinese whose Answers work figures out from made-up reports, a deck, a Word file, a workbook and a survey, each result scored on its own, with the calculate Tool offered and withheld (#441). With no chat model, a scripted model answers as the set says, with no key and no network. See `calculations/README.md`.
 
 ## Repeated checks
 

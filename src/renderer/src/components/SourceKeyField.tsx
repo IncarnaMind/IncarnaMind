@@ -21,9 +21,11 @@ export function SourceKeyField({ provider }: { provider: SourceProviderInfo }) {
   const { key: text, stray } = checkApiKey(key);
   const [problem, setProblem] = useState<string | null>(null);
   const save = async (value: string | null) => {
+    const sent = key;
     const failed = await useFindSources.getState().setKey(provider.id, value);
     setProblem(failed);
-    if (!failed) setKey("");
+    // Typed after the key was sent, in the field opened again meanwhile, it stays (#2302).
+    if (!failed) setKey((now) => (now === sent ? "" : now));
   };
   const name = { provider: provider.name };
   return (
