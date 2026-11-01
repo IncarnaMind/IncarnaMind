@@ -2128,23 +2128,34 @@ export const migrations: readonly Migration[] = [
   {
     version: 120,
     description:
-      "The preset Invoice Tag says what isn't an invoice, unless the User edited it, and what IncarnaMind saw arrive new is recorded (#2308)",
+      "The preset Invoice Tag says what isn't an invoice, unless the User edited it, what IncarnaMind saw arrive new, and where the User's Organize sent a Document, are recorded (#2308)",
     sql: `
-      -- For each Document, when IncarnaMind first saw it arrive new (the User's own add, a
-      -- Linked folder's first scan, or a watcher event after it), and when the User last
-      -- organized or re-tagged it: only then may it go by itself to the services tagging was
-      -- turned on for (src/core/tags/held.ts). A Document without a row was here before.
-      CREATE TABLE IF NOT EXISTS tagging_marks (
+      -- When IncarnaMind first saw each Document arrive new: the User's own add, a Linked
+      -- folder's first scan, or a watcher event after it. A Document without a row was here
+      -- before. Only a new one may go by itself (src/core/tags/held.ts).
+      CREATE TABLE IF NOT EXISTS document_arrivals (
         id TEXT PRIMARY KEY NOT NULL,
         document_id TEXT NOT NULL,
-        arrived_at TEXT,
-        cleared_at TEXT,
+        arrived_at TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         deleted_at TEXT
       ) STRICT;
-      CREATE UNIQUE INDEX IF NOT EXISTS tagging_marks_by_document
-        ON tagging_marks (document_id) WHERE deleted_at IS NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS document_arrivals_by_document
+        ON document_arrivals (document_id) WHERE deleted_at IS NULL;
+      -- The services the User's own Organize or re-tag sent a Document to: it may go by itself
+      -- to those, and only those.
+      CREATE TABLE IF NOT EXISTS tagging_clearances (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        service_id TEXT NOT NULL,
+        cleared_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX IF NOT EXISTS tagging_clearances_by_document_and_service
+        ON tagging_clearances (document_id, service_id) WHERE deleted_at IS NULL;
       -- When a Linked folder's first scan finished: a file found by a later scan was there
       -- before. The folders already linked have been scanned.
       CREATE TABLE IF NOT EXISTS linked_folder_baselines (

@@ -31,7 +31,7 @@
  *   from what the Document says (./suggest), so it is asked anyway; one it
  *   gives no Tag is "no-tags" too.
  */
-import type { DocumentKind, ProviderError } from "../api";
+import type { DocumentKind, ExternalService, ProviderError } from "../api";
 import type { BackgroundCall, BackgroundJob, BackgroundQueue } from "../backgroundQueue";
 import {
   ChatNotReadyError,
@@ -53,7 +53,7 @@ import {
   type TagChoice,
   type TagClassifier,
 } from "./classify";
-import { clearForUser } from "./held";
+import { clearForService } from "./held";
 import { type TagsStore, tagsOfDocument } from "./index";
 import { type RateLimitPause, rateLimitError } from "./rateLimit";
 import { fallbackLine } from "./suggest";
@@ -89,10 +89,10 @@ export interface TaggerOptions {
   stopped(id: string): boolean;
   now: () => string;
   /**
-   * Whether this Document may go by itself to where tagging sends now (`mayBackgroundSend` in
-   * ./held); one that may not waits for the User, "off".
+   * Whether this Document may go by itself to the service a prepared tagger sends to
+   * (`mayBackgroundSend` in ./held); one that may not waits for the User, "off".
    */
-  maySend(id: string): boolean;
+  maySend(id: string, service: ExternalService): boolean;
   tags: TagsStore;
   /** Whether the tagger in use can take a request now. Asks the User nothing. */
   canRun(): Promise<boolean>;
@@ -234,15 +234,13 @@ export function createTagger(options: TaggerOptions) {
     const row = rowOf(id);
     // Tagged meanwhile: Organize did it, in its own turn.
     if (row?.status !== "ready" || row.tagging_status === "tagged") return;
-    if (!asked.has(id) && !options.maySend(id)) {
-      if (setState(id, "off")) announce([id]);
-      return;
-    }
     const definitions = tags.list();
     if (setState(id, "tagging")) announce([id]);
 
     let choice: TagChoice = { decisions: [], newTags: [] };
     let modelAsked = false;
+    /** The service the User's own re-tag of it went to, once it is tagged. */
+    let askedOf: ExternalService | null = null;
     if (definitions.length > 0 || options.namesTags?.() === true) {
       let tagger: TagClassifier;
       try {
@@ -265,6 +263,16 @@ export function createTagger(options: TaggerOptions) {
         return;
       }
       modelAsked = definitions.length > 0 || tagger.namesTags === true;
+      // Checked on the service this request resolved to: Automatic may pick another meanwhile.
+      const service = tagger.service ?? null;
+      if (modelAsked && service) {
+        if (asked.has(id)) {
+          askedOf = service;
+        } else if (!options.maySend(id, service)) {
+          if (setState(id, "off")) announce([id]);
+          return;
+        }
+      }
       // A model on this computer serves one request at a time: an Answer goes first.
       if (tagger.local) call.runsLocally();
       if (stale()) return;
@@ -323,6 +331,7 @@ export function createTagger(options: TaggerOptions) {
       // Asked with no Tag to offer and given none, it is checked again once a Tag exists.
       const found = definitions.length > 0 || tagsOfDocument(db, id).length > 0;
       const settled = setState(id, modelAsked && found ? "tagged" : "no-tags");
+      if (askedOf) clearForService(db, id, [askedOf], now());
       return { changed: settled || applied.changed, made: applied.made };
     });
     if (made > 0) options.tagsMade?.();
@@ -545,12 +554,7 @@ export function createTagger(options: TaggerOptions) {
         if (!row) throw new NotFoundError({ key: "error.document.notFound" });
         return { id, row };
       });
-      if (input !== undefined) for (const { id } of rows) asked.add(id);
-      clearForUser(
-        db,
-        rows.map(({ id }) => id),
-        now(),
-      );
+      for (const { id } of rows) asked.add(id);
       const changed: string[] = [];
       const ready = options.mightBeReady();
       for (const { id, row } of rows) {

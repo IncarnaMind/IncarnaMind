@@ -1,60 +1,72 @@
 import { randomUUID } from "node:crypto";
+import type { ExternalService } from "../api";
 import type { Database } from "../storage";
 
 /**
- * When tagging was turned on for every service automatic tagging and Organize send to now: the
- * latest of their times. "here" when nothing leaves the computer; null when one of them wasn't
- * turned on.
+ * Whether automatic tagging or Organize may send this Document by itself to these services, the
+ * ones the request it is about to make resolved to (#2308). Each one must have been turned on
+ * for itself (`turnedOnAt`, null if it wasn't); then the Document must have arrived new at or
+ * after that (`markArrived`: added by the User, found by the first scan of a Linked folder they
+ * linked then, or reported by its watcher after that scan), or the User's own Organize or re-tag
+ * must have sent it to that same service before (`clearForService`). Everything else waits for
+ * them, whatever its file's times say and whatever brought it back, so a way in nobody listed
+ * stays closed. With no service, nothing leaves the computer.
  */
-export type SendsSince = string | null | "here";
-
-/**
- * Whether automatic tagging or Organize may send this Document by itself (#2308). Only one
- * IncarnaMind saw arrive new at or after tagging was turned on (`since`) goes: added by the User,
- * found by the first scan of a Linked folder they linked then, or reported by its watcher after
- * that scan (`markArrived`). One the User has organized or re-tagged since goes too. Everything
- * else waits for them, whatever its file's times say (an edit, a save by rename, a copy keeping
- * its date) and whatever brought it back (restored, read again, found by a later scan), so a way
- * in nobody listed stays closed.
- */
-export function mayBackgroundSend(db: Database, documentId: string, since: SendsSince): boolean {
-  if (since === "here") return true;
-  const row = db.get<{ arrived_at: string | null; cleared_at: string | null }>(
-    `SELECT arrived_at, cleared_at FROM tagging_marks
-     WHERE document_id = ? AND deleted_at IS NULL`,
-    [documentId],
-  );
-  // What the User asked for goes, also while waiting to be allowed: only they start it then.
-  if (row?.cleared_at != null && (since === null || row.cleared_at >= since)) return true;
-  if (since === null) return false;
-  return row?.arrived_at != null && row.arrived_at >= since;
-}
-
-function mark(
+export function mayBackgroundSend(
   db: Database,
-  documentIds: readonly string[],
-  column: "arrived_at" | "cleared_at",
-  at: string,
-): void {
-  db.transaction(() => {
-    for (const id of documentIds) {
-      db.run(
-        `INSERT INTO tagging_marks (id, document_id, ${column}, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT (document_id) WHERE deleted_at IS NULL
-         DO UPDATE SET ${column} = excluded.${column}, updated_at = excluded.updated_at`,
-        [randomUUID(), id, at, at, at],
-      );
-    }
+  documentId: string,
+  services: readonly ExternalService[],
+  turnedOnAt: (service: ExternalService) => string | null,
+): boolean {
+  const arrivedAt =
+    db.get<{ arrived_at: string }>(
+      "SELECT arrived_at FROM document_arrivals WHERE document_id = ? AND deleted_at IS NULL",
+      [documentId],
+    )?.arrived_at ?? null;
+  return services.every((service) => {
+    const since = turnedOnAt(service);
+    if (since === null) return false;
+    if (arrivedAt !== null && arrivedAt >= since) return true;
+    return (
+      db.get<{ id: string }>(
+        `SELECT id FROM tagging_clearances
+         WHERE document_id = ? AND service_id = ? AND deleted_at IS NULL`,
+        [documentId, service.id],
+      ) !== undefined
+    );
   });
 }
 
 /** IncarnaMind saw this Document arrive new at `at` (see `mayBackgroundSend`). */
 export function markArrived(db: Database, documentId: string, at: string): void {
-  mark(db, [documentId], "arrived_at", at);
+  db.run(
+    `INSERT INTO document_arrivals (id, document_id, arrived_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (document_id) WHERE deleted_at IS NULL
+     DO UPDATE SET arrived_at = excluded.arrived_at, updated_at = excluded.updated_at`,
+    [randomUUID(), documentId, at, at, at],
+  );
 }
 
-/** The User organized or re-tagged these Documents at `at`: they may go by themselves from then. */
-export function clearForUser(db: Database, documentIds: readonly string[], at: string): void {
-  mark(db, documentIds, "cleared_at", at);
+/**
+ * The User's own Organize or re-tag sent this Document to these services at `at`: from then it
+ * may go to them, and only to them, by itself.
+ */
+export function clearForService(
+  db: Database,
+  documentId: string,
+  services: readonly ExternalService[],
+  at: string,
+): void {
+  db.transaction(() => {
+    for (const service of services) {
+      db.run(
+        `INSERT INTO tagging_clearances (id, document_id, service_id, cleared_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (document_id, service_id) WHERE deleted_at IS NULL
+         DO UPDATE SET cleared_at = excluded.cleared_at, updated_at = excluded.updated_at`,
+        [randomUUID(), documentId, service.id, at, at, at],
+      );
+    }
+  });
 }

@@ -7,7 +7,7 @@
  * each provider gets.
  */
 import { readFileSync } from "node:fs";
-import { rename, utimes } from "node:fs/promises";
+import { lstat, open, rename, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
@@ -497,8 +497,10 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
 
   test("a Linked folder linked before the turn-on: the 40 files its scan adds after, and one renamed, go only with the User's Organize", async () => {
     const providers = perProvider();
+    // A watcher that reports nothing: the rescans below find the rename, whatever the system's timing.
     const core = startCore(await createTempDataFolder(), {
       createChatModel: providers.createChatModel,
+      linkedFolders: { watch: scriptedWatcher().watch },
     });
     const anthropic = await core.saveChatProvider(ANTHROPIC);
     const folder = await createSourceFolder();
@@ -707,5 +709,103 @@ describe("New means IncarnaMind saw it arrive, whatever the file's times say", (
     await waitForTagging(core, [...held, ...scanned]);
     expect(providers.sent("anthropic")).toBe(5);
     core.close();
+  });
+});
+
+describe("Everything is per service: a turn-on and a clearance", () => {
+  test("a Document the User organized on Anthropic isn't sent by itself to OpenAI, never turned on, after a restart and an edit", async () => {
+    const dataDir = await createTempDataFolder();
+    const keychain = createMemoryKeychain();
+    const providers = perProvider();
+    const options = { keychain, createChatModel: providers.createChatModel };
+    let core = startCore(dataDir, options);
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await core.createLibraryGroup({ name: "Finance", description: "Reports." });
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    const folder = await createSourceFolder();
+    const path = await writeSourceFile(folder, "X.txt", "Quarterly report X.");
+    const [x] = await addAndProcess(core, [path]);
+    if (!x) throw new Error("Nothing was added.");
+    await waitForTagging(core, [x.id]);
+    await core.classifyDocuments([x.id]);
+    await waitForTagging(core, [x.id]);
+    const sentToAnthropic = providers.sent("anthropic");
+    core.close();
+
+    core = startCore(dataDir, options);
+    await core.setLocalOnly(true);
+    await writeSourceFile(folder, "X.txt", "Quarterly report X, edited.");
+    await core.reconcileDocuments();
+    await vi.waitFor(async () =>
+      expect((await unassigned(core, [x.id]))[0]?.status).toBe("waiting"),
+    );
+    const openai = await core.saveChatProvider(OPENAI);
+    await chooseInModels(core, chatModel(openai.id, OPENAI.modelId));
+    await core.setLocalOnly(false);
+    await waitForTagging(core, [x.id], (each) => each.tagging === "off");
+
+    expect((await core.getLibrary()).settings.automatic).toBe(false);
+    expect(providers.sent("openai")).toBe(0);
+    expect(providers.sent("anthropic")).toBe(sentToAnthropic);
+    core.close();
+  });
+
+  test("Organize the User sent to Anthropic doesn't let the Document go to OpenAI by itself, though OpenAI was turned on", async () => {
+    const providers = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+    });
+    await core.createLibraryGroup({ name: "Finance", description: "Reports." });
+    const folder = await createSourceFolder();
+    const path = await writeSourceFile(folder, "X.txt", "Quarterly report X.");
+    const [x] = await addAndProcess(core, [path]);
+    if (!x) throw new Error("Nothing was added.");
+    const openai = await core.saveChatProvider(OPENAI);
+    await turnOn(core, chatModel(openai.id, OPENAI.modelId));
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    await core.classifyDocuments([x.id]);
+    await waitForTagging(core, [x.id]);
+    expect(providers.sent("anthropic")).toBe(1);
+
+    await chooseInModels(core, chatModel(openai.id, OPENAI.modelId));
+    expect((await core.getLibrary()).settings.automatic).toBe(true);
+    await writeSourceFile(folder, "X.txt", "Quarterly report X, edited.");
+    await core.reconcileDocuments();
+    await waitForTagging(core, [x.id], (each) => each.tagging === "off");
+
+    expect(providers.sent("openai")).toBe(0);
+  });
+
+  test("an online-only file that downloads after the turn-on was there before: nobody sends it", async (context) => {
+    const providers = perProvider();
+    const watcher = scriptedWatcher();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+      linkedFolders: { watch: watcher.watch, detectDatalessFiles: true },
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    const folder = await createSourceFolder();
+    await writtenBefore(folder, "Local.txt", "Quarterly report, on this computer.");
+    // A file whose size is set but none of whose blocks are stored: a cloud drive's placeholder.
+    const placeholder = join(folder, "Online.txt");
+    const handle = await open(placeholder, "w");
+    await handle.truncate(4_000);
+    await handle.close();
+    if ((await lstat(placeholder)).blocks !== 0) context.skip(); // no sparse files here
+    const linked = await linkAndProcess(core, folder);
+    expect(linked).toHaveLength(1);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    await watcher.watching(folder);
+
+    // The cloud drive downloads it, and the watcher says so.
+    await writeSourceFile(folder, "Online.txt", "Quarterly report, downloaded after.");
+    watcher.report(folder, placeholder);
+    const [downloaded] = await waitForDocuments(core, (documents) => {
+      expect(documentAt(documents, placeholder).status).toBe("ready");
+    }).then((documents) => [documentAt(documents, placeholder)]);
+    await waitForTagging(core, [downloaded?.id ?? ""], (each) => each.tagging === "off");
+
+    expect(providers.sent("anthropic")).toBe(0);
   });
 });

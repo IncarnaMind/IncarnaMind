@@ -235,7 +235,7 @@ import {
 import { documentCitedPages, documentPageImages } from "./library/pageImages";
 import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
-import type { TaggingClassifier } from "./library/types";
+import type { LibrarySettings, TaggingClassifier } from "./library/types";
 import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
@@ -315,7 +315,7 @@ import { createSourceProviders, sourceKeySecret } from "./sources/providers";
 import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
 import { createTags, tagsOfDocument } from "./tags";
-import { chatClassifier } from "./tags/classify";
+import { chatClassifier, type TagClassifier } from "./tags/classify";
 import { mayBackgroundSend } from "./tags/held";
 import { createJevTagging, decisionModelTagger } from "./tags/jev";
 import { createRateLimitPause } from "./tags/rateLimit";
@@ -3109,8 +3109,41 @@ export function createCore(adapters: CoreAdapters): Core {
       key:
         classifier.kind === "auto" ? "error.library.autoNotLocal" : "error.library.ollamaNotLocal",
     });
+  /** The tagger for a resolved choice of model (see `prepare` below). */
+  const prepareTagger = async (classifier: TaggingClassifier): Promise<TagClassifier> => {
+    switch (classifier.kind) {
+      case "jev":
+        return jev.prepare();
+      case "auto": {
+        const model = await tagging.textDecisionModel(classifier.baseUrl);
+        if (!model)
+          throw new TaggingNotReadyError({
+            key: "error.tagging.installModel",
+            values: { model: "tev1:4b" },
+          });
+        return decisionModelTagger({ baseUrl: classifier.baseUrl, model });
+      }
+      case "ollama":
+        return decisionModelTagger({ baseUrl: classifier.baseUrl, model: classifier.modelId });
+      case "chat": {
+        const prepared = await chat.prepareModel(classifier.choice, "tagging");
+        if (embedding.localOnly() && prepared.provider.service)
+          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+        // No service to send to: the model runs on a server on this computer.
+        const chosen = chatClassifier(prepared.model, {
+          local: prepared.provider.service === null,
+        });
+        const plan = planPaceOf(prepared.provider.kind);
+        if (!plan) return chosen;
+        return {
+          ...chosen,
+          decide: (input) => plan.run(() => chosen.decide(input), input.signal),
+        };
+      }
+    }
+  };
   const tagger = createTagger({
-    maySend: (id) => mayBackgroundSend(db, id, library.sendsSince()),
+    maySend: (id, service) => mayBackgroundSend(db, id, [service], library.turnedOnAt),
     db,
     now,
     tags,
@@ -3142,36 +3175,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (decisionModelElsewhere(classifier)) throw notOnThisComputer(classifier);
       if (embedding.localOnly() && tagging.service(classifier))
         throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      switch (classifier.kind) {
-        case "jev":
-          return jev.prepare();
-        case "auto": {
-          const model = await tagging.textDecisionModel(classifier.baseUrl);
-          if (!model)
-            throw new TaggingNotReadyError({
-              key: "error.tagging.installModel",
-              values: { model: "tev1:4b" },
-            });
-          return decisionModelTagger({ baseUrl: classifier.baseUrl, model });
-        }
-        case "ollama":
-          return decisionModelTagger({ baseUrl: classifier.baseUrl, model: classifier.modelId });
-        case "chat": {
-          const prepared = await chat.prepareModel(classifier.choice, "tagging");
-          if (embedding.localOnly() && prepared.provider.service)
-            throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-          // No service to send to: the model runs on a server on this computer.
-          const chosen = chatClassifier(prepared.model, {
-            local: prepared.provider.service === null,
-          });
-          const plan = planPaceOf(prepared.provider.kind);
-          if (!plan) return chosen;
-          return {
-            ...chosen,
-            decide: (input) => plan.run(() => chosen.decide(input), input.signal),
-          };
-        }
-      }
+      return { ...(await prepareTagger(classifier)), service: tagging.service(classifier) };
     },
     // A hint only: the tagger prepared decides whether it names Tags.
     namesTags: () => tagsWith()?.kind === "chat",
@@ -3238,6 +3242,7 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return [...services.values()];
     },
+    organizeServices: (settings) => organizeServicesOf(settings),
     consentedAt: (service) =>
       consent.acceptedAt("tagging", service) ?? consent.acceptedAt("classification", service),
     pagesWaitFor: (classifier) => {
@@ -3320,8 +3325,10 @@ export function createCore(adapters: CoreAdapters): Core {
     return !service || consent.allows("scan-images", service);
   }
   /** The services Organize sends to: its model's, and the image model's for the scans it can't read. */
-  const classificationServices = async (): Promise<ExternalService[]> => {
-    const classifier = organizeModelOf(library.settings());
+  const classificationServices = async (): Promise<ExternalService[]> =>
+    organizeServicesOf(library.settings());
+  function organizeServicesOf(settings: LibrarySettings): ExternalService[] {
+    const classifier = organizeModelOf(settings);
     const service = classifier && tagging.service(classifier);
     const reader =
       classifier?.kind === "chat" && !chat.readsImages(classifier.choice)
@@ -3329,7 +3336,7 @@ export function createCore(adapters: CoreAdapters): Core {
         : null;
     const pages = reader && chat.describeModel(reader)?.service;
     return [...(service ? [service] : []), ...(pages && pages.id !== service?.id ? [pages] : [])];
-  };
+  }
   consent.registry.register({
     id: "classification",
     sends: CLASSIFICATION_FLOW_SENDS,

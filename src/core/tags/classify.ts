@@ -6,7 +6,7 @@
  * descriptions, and a bounded excerpt of the Document.
  */
 import { generateText, jsonSchema, Output } from "ai";
-import type { DocumentKind } from "../api";
+import type { DocumentKind, ExternalService } from "../api";
 import { approximateTokens } from "../documents/passages";
 import type { ChatLanguageModel } from "../providers/models";
 import { outputTokens } from "../providers/outputLimits";
@@ -61,6 +61,8 @@ export interface TagChoice {
 
 /** What decides a Document's Tags: the chat model, or Jev. */
 export interface TagClassifier {
+  /** The service its requests go to; none for a model on this computer. */
+  readonly service?: ExternalService | null;
   /**
    * Whether its requests go to a model server on this computer (Ollama, or
    * another local endpoint), which serves one request at a time: then a

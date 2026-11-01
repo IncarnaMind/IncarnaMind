@@ -33,7 +33,7 @@ import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
 import { sameName, type TagsStore } from "../tags";
 import { documentType, excerptFromPassages } from "../tags/classify";
-import { clearForUser, mayBackgroundSend, type SendsSince } from "../tags/held";
+import { clearForService, mayBackgroundSend } from "../tags/held";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
 import { fallbackLine } from "../tags/suggest";
 import type { FolderSample, GroupClassifier } from "./classifier";
@@ -325,6 +325,8 @@ export function createLibrary(options: {
   }): ExternalService[];
   /** When the User allowed tagging or Organize to send to this service (../consent); null if not. */
   consentedAt(service: ExternalService): string | null;
+  /** The services an Organize request with these settings sends a Document to. */
+  organizeServices(settings: LibrarySettings): ExternalService[];
   /**
    * The service that would read a scan's pages for this classifier if the User
    * allowed it, while they haven't; null when it reads them, or can't.
@@ -395,15 +397,12 @@ export function createLibrary(options: {
     const since = sinceOf(saved);
     return options.sendsTo(saved).every((service) => since[service.id] !== undefined);
   };
-  /** When tagging was turned on for every service it and Organize send to now (`SendsSince`). */
-  const sendsSince = (): SendsSince => {
+  /** When the User turned tagging on for this service; null if they haven't. */
+  const turnedOnAt = (service: ExternalService): string | null => {
     const saved = savedSettings();
-    const services = options.sendsTo(saved);
-    if (services.length === 0) return "here";
-    const since = sinceOf(saved);
-    const times = services.map((service) => since[service.id]);
-    if (times.some((at) => at === undefined)) return null;
-    return times.reduce<string>((latest, at) => (at && at > latest ? at : latest), "");
+    return saved.automaticSince
+      ? (saved.automaticSince[service.id] ?? null)
+      : options.consentedAt(service);
   };
   const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => {
     const { automaticSince: _automaticSince, ...shown } = saved;
@@ -783,10 +782,6 @@ export function createLibrary(options: {
           assignment(id)?.request_id !== initial?.request_id;
         try {
           if (!initial || initial.status === "classified") return;
-          if (!asked.has(id) && !mayBackgroundSend(db, id, sendsSince())) {
-            holdBack(id, initial);
-            return;
-          }
           const current = document(id);
           if (!hasContent(current)) {
             state(id, "waiting", scanWaits(current));
@@ -813,9 +808,16 @@ export function createLibrary(options: {
             return;
           }
           state(id, "classifying");
-          const classifier = await options.prepare(getSettings());
+          const settingsNow = getSettings();
+          const classifier = await options.prepare(settingsNow);
           if (classifier.local) call.runsLocally();
           if (stale()) return;
+          // Checked on where this request goes, as prepared; the User's own Organize goes.
+          const services = options.organizeServices(settingsNow);
+          if (!asked.has(id) && !mayBackgroundSend(db, id, services, turnedOnAt)) {
+            holdBack(id, initial);
+            return;
+          }
           const declined = rejected(id);
           const offered = definitions.filter((item) => !declined.has(item.id));
           const read = source(current);
@@ -861,6 +863,7 @@ export function createLibrary(options: {
             );
             const applied = options.tags.applyAutomatic(id, result.tags, result.newTags);
             tagState(id, "classified");
+            if (asked.has(id)) clearForService(db, id, services, now());
             return applied;
           });
           if (made > 0) options.tagsMade?.();
@@ -894,8 +897,10 @@ export function createLibrary(options: {
             if (assignment(id)?.status === "classifying") state(id, "pending");
             if (!call.gaveWay) {
               queued.delete(id);
-              if (assignment(id)?.status === "pending") enqueue(id);
-              else asked.delete(id);
+              const status = assignment(id)?.status;
+              // Waiting to be allowed, it is still the User's request when it goes.
+              if (status === "pending") enqueue(id);
+              else if (status !== "waiting") asked.delete(id);
             }
           }
         }
@@ -1025,7 +1030,7 @@ export function createLibrary(options: {
 
   return {
     settings: getSettings,
-    sendsSince,
+    turnedOnAt,
     taggingStoppedFor,
     isOrganizing,
     taggingPlaces(): (string | null)[] {
@@ -1416,11 +1421,6 @@ export function createLibrary(options: {
       ).filter((id) => !options.isExampleDocument?.(id));
       const docs = ids.map(document);
       for (const doc of docs) asked.add(doc.id);
-      clearForUser(
-        db,
-        docs.map((doc) => doc.id),
-        now(),
-      );
       db.transaction(() => {
         for (const doc of docs) {
           const existing = assignment(doc.id);
