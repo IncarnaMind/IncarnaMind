@@ -5,8 +5,8 @@
  * AI text it no longer shows as generated, so the record is kept from the
  * start. In the alpha it only records.
  *
- * What it holds, in the `ai_use` table: the kind of use, the model, the size
- * in characters, when, the stable ids of the Blocks the insertion made (ADR-0003)
+ * What it holds, in the `ai_use` table: the kind of use, the model (or the
+ * outside agent, by its name, #352), the size in characters, when, the stable ids of the Blocks the insertion made (ADR-0003)
  * and a hash of each Block's text as inserted. Never the text itself, of the
  * AI's or of the Mind's. It is never sent anywhere, whatever the usage-data
  * setting (ADR-0014): this module has no network, no data flow and no usage
@@ -53,13 +53,14 @@ interface Row {
   outcome: string;
   provider_id: string | null;
   model_id: string | null;
+  agent: string | null;
   characters: number;
   blocks: string;
   occurred_at: string;
 }
 
 const COLUMNS =
-  "id, mind_id, kind, outcome, provider_id, model_id, characters, blocks, occurred_at";
+  "id, mind_id, kind, outcome, provider_id, model_id, agent, characters, blocks, occurred_at";
 
 const isKind = (value: unknown): value is AiUseKind => aiUseKinds.some((kind) => kind === value);
 
@@ -146,6 +147,7 @@ interface Parsed {
   kind: AiUseKind;
   providerId: string | null;
   modelId: string | null;
+  agent: string | null;
   characters: number;
   blockIds: string[];
   occurredAt: string | null;
@@ -170,6 +172,7 @@ function parseInput(input: unknown): Parsed {
     kind: input.kind,
     providerId: parseText(input.providerId, "providerId"),
     modelId: parseText(input.modelId, "modelId"),
+    agent: parseText(input.agent, "agent"),
     characters,
     // A rejected proposal made no Blocks, so there is nothing to follow.
     blockIds:
@@ -213,6 +216,7 @@ export function createAiUse(options: AiUseOptions) {
     outcome: isOutcome(row.outcome) ? row.outcome : "kept",
     providerId: row.provider_id,
     modelId: row.model_id,
+    agent: row.agent,
     characters: row.characters,
     blockIds: parseBlocks(row.blocks).map((block) => block.id),
     occurredAt: row.occurred_at,
@@ -329,9 +333,9 @@ export function createAiUse(options: AiUseOptions) {
           const occurredAt = each.occurredAt ?? at;
           db.run(
             `INSERT INTO ai_use
-               (id, mind_id, kind, outcome, provider_id, model_id, characters, blocks,
+               (id, mind_id, kind, outcome, provider_id, model_id, agent, characters, blocks,
                 occurred_at, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               id,
               each.mindId,
@@ -339,6 +343,7 @@ export function createAiUse(options: AiUseOptions) {
               outcome,
               each.providerId,
               each.modelId,
+              each.agent,
               each.characters,
               JSON.stringify(blocks),
               occurredAt,
@@ -353,6 +358,7 @@ export function createAiUse(options: AiUseOptions) {
             outcome,
             providerId: each.providerId,
             modelId: each.modelId,
+            agent: each.agent,
             characters: each.characters,
             blockIds: each.blockIds,
             occurredAt,

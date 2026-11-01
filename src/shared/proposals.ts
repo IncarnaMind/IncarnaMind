@@ -28,6 +28,7 @@ import {
   type RecordAiUseInput,
 } from "../core/api";
 import { originOf, restoreOrigins } from "./blockOrigins";
+import { setTextOrigin } from "./textOrigins";
 
 const isText = (value: unknown): value is string => typeof value === "string" && value !== "";
 
@@ -565,8 +566,10 @@ const DECISION_KEYS = { accept: "accepted", reject: "rejected" } as const;
 /**
  * `resolveProposals` for what the User decides, which the Mind also remembers
  * per request (how many were accepted and how many rejected), so a later
- * Question knows what became of an Answer's changes. In the caller's
- * transaction, as `resolveProposals` is.
+ * Question knows what became of an Answer's changes. What an outside agent
+ * wrote is third-party text once accepted, in the Blocks that hold it (#352);
+ * rejected, it leaves no mark. In the caller's transaction, as
+ * `resolveProposals` is.
  */
 export function decideProposals(
   blocks: Y.XmlFragment,
@@ -574,8 +577,15 @@ export function decideProposals(
   outcome: "accept" | "reject",
 ): ResolvedProposal[] {
   const resolved = resolveProposals(blocks, picked, outcome);
-  const requests = blocks.doc ? requestsOf(blocks.doc) : null;
-  if (!requests) return resolved;
+  const { doc } = blocks;
+  if (!doc) return resolved;
+  const requests = requestsOf(doc);
+  if (outcome === "accept") {
+    const agents = resolved
+      .filter((each) => proposalRequestOf(doc, each.request)?.source === "outside-agent")
+      .flatMap((each) => each.blockIds);
+    if (agents.length > 0) setTextOrigin(doc, agents, "outside-agent");
+  }
   const key = DECISION_KEYS[outcome];
   const counts = new Map<string, number>();
   for (const each of resolved) counts.set(each.request, (counts.get(each.request) ?? 0) + 1);
@@ -616,6 +626,11 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
       author: isText(record.author) ? record.author : null,
       date: isText(record.date) ? record.date : null,
     };
+  }
+  if (source === "outside-agent") {
+    return isText(record.agent) && isText(record.pairingId) && isText(createdAt)
+      ? { source, agent: record.agent, pairingId: record.pairingId, createdAt }
+      : null;
   }
   if (!isText(providerId) || !isText(modelId) || !isText(createdAt)) return null;
   const made = { providerId, modelId, createdAt };
@@ -660,8 +675,9 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
  * (an Answer in a Mind is the AI's as it is), nor does someone's change
  * imported from a Word file (#108). An Answer from the assistant made into a
  * new Mind (#201) is recorded as an Answer added, a comparison table (#98) as
- * one accepted, and a Research Task's draft (#130) as the assistant's change
- * accepted.
+ * one accepted, a Research Task's draft (#130) as the assistant's change
+ * accepted, and an outside agent's change (#352) with the agent's name and no
+ * model, which IncarnaMind can't know.
  */
 export function aiUseOfAccepted(
   doc: Y.Doc,
@@ -675,6 +691,20 @@ export function aiUseOfAccepted(
       const made = proposalRequestOf(doc, proposal.request);
       // An Answer is recorded as it is; someone's change in a Word file isn't the AI's at all.
       if (made?.source === "answer" || made?.source === "word-change") return [];
+      if (made?.source === "outside-agent") {
+        return [
+          {
+            mindId,
+            kind: "outside-agent-change-accepted",
+            providerId: null,
+            modelId: null,
+            agent: made.agent,
+            characters: proposal.characters,
+            blockIds: proposal.blockIds,
+            occurredAt,
+          },
+        ];
+      }
       return [
         {
           mindId,

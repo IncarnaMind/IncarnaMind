@@ -23,6 +23,7 @@ import {
 import { AgentFolderList, useAgentFolderRows } from "./AgentFolderList";
 import { activityWords, doneWords, helpUrl, pairingInSentence, timeWords } from "./agentWords";
 import { LaunchDetails } from "./LaunchDetails";
+import { ProposeChoice } from "./ProposeChoice";
 
 /** What setting this agent up just did, shown under it until the page goes. */
 export interface JustSetUp {
@@ -32,7 +33,8 @@ export interface JustSetUp {
 
 /**
  * One connected agent in Settings → Agents (#351): its name, the Folders it
- * may read (changed in place), when it was last used, its activity (every
+ * may read and whether it may propose changes to their notes (#352), both
+ * changed in place, when it was last used, its activity (every
  * call, newest first), the details a technical User needs to set it up again,
  * and Disconnect, which stops it at once, as deleting a Connector does.
  */
@@ -76,6 +78,16 @@ export function AgentPairingRow({
     said.current = pairing.folderIds;
     setChosen(pairing.folderIds);
   }, [pairing.folderIds]);
+  // As the User just ticked it, shown at once; the core's answer then replaces it.
+  const [propose, setPropose] = useState(pairing.propose);
+  useEffect(() => setPropose(pairing.propose), [pairing.propose]);
+  const changePropose = (value: boolean) => {
+    setPropose(value);
+    core.updateAgent(pairing.id, { propose: value }).catch((error: unknown) => {
+      setPropose(pairing.propose);
+      reportError(error);
+    });
+  };
   const rows = useAgentFolderRows(open === "folders");
   const names = [
     ...folders.filter((folder) => chosen.includes(folder.id)).map((folder) => folder.name),
@@ -128,6 +140,11 @@ export function AgentPairingRow({
             ? t("agents.pairing.reads", { folders: names.join(", ") })
             : t("agents.pairing.readsNothing")}
         </span>
+        {propose && (
+          <span data-testid="agent-pairing-proposes" className={rowTextClass}>
+            {t("agents.pairing.proposes")}
+          </span>
+        )}
         <span className={hintClass}>
           {pairing.lastUsedAt
             ? t("agents.pairing.lastUsed", { when: timeWords(pairing.lastUsedAt, language) })
@@ -180,6 +197,9 @@ export function AgentPairingRow({
               chosen={new Set(chosen)}
               onToggle={setFolder}
             />
+            <div className="mt-2">
+              <ProposeChoice checked={propose} onChange={changePropose} />
+            </div>
           </fieldset>
         )}
         {open === "activity" && (

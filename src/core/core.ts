@@ -4425,6 +4425,8 @@ export function createCore(adapters: CoreAdapters): Core {
       recheck: (input) => recheckCitation(documents, input),
       minds: () => minds.list().filter((mind) => isKnownKind(mind.kind)),
       liveDocuments: () => documents.names(),
+      mindBlocks: (mindId, look) => content.peek(mindId, look),
+      editMind: (mindId, change) => content.edit(mindId, change),
       mindMarkdown: (mindId, footnote) => {
         const mind = minds.get(mindId);
         const { language } = settings.get();

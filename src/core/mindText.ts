@@ -52,6 +52,7 @@ import {
 } from "../shared/comparisons";
 import { type CalculatedSources, calculatedSources, labelledCitations } from "../shared/figureRuns";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
+import { withoutInertBrackets } from "../shared/inertBrackets";
 import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
 import { cutTitle } from "../shared/naming";
@@ -212,7 +213,7 @@ export interface Pending {
   id: string;
   /** When it was asked for, or made, ISO 8601; null when the Mind doesn't say. */
   at: string | null;
-  /** Who made it, for someone's change in a Word file (#108); otherwise IncarnaMind's. */
+  /** Who made it: someone in a Word file (#108), or an outside agent (#352); else IncarnaMind. */
   by?: string;
 }
 
@@ -378,6 +379,8 @@ export type Block = (
 
 export interface ReadOptions {
   includeQuestions: boolean;
+  /** For a file that leaves the app: an outside agent's inert brackets read as written (#352). */
+  leavesApp?: boolean;
   /** The footnote for a Citation, from its node's attributes. */
   footnote(attributes: Record<string, unknown>): Footnote;
   /**
@@ -459,9 +462,13 @@ export function theirChangesReading(doc: Y.Doc): ReviewReading {
   };
 }
 
-/** When a request's changes were made, and by whom if not by IncarnaMind: someone's from a Word file. */
+/**
+ * When a request's changes were made, and by whom if not by IncarnaMind: someone's from a Word
+ * file, or an outside agent, by its name (#352).
+ */
 export function madeBy(made: ProposalRequest | null): Omit<Pending, "id"> {
   if (made?.source === "word-change") return { at: made.date, by: made.author ?? "" };
+  if (made?.source === "outside-agent") return { at: made.createdAt, by: made.agent };
   return { at: made?.createdAt ?? null };
 }
 
@@ -824,8 +831,9 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
         .toArray()
         .filter((item): item is Y.XmlElement => item instanceof Y.XmlElement)
         .flatMap((item) => {
-          const change = options.review ? changeOf(item, options) : undefined;
-          if (options.review && !change) return [];
+          // An item a Proposal adds isn't the Mind's until it is accepted, read for review or not.
+          const change = changeOf(item, options);
+          if (!change) return [];
           let inside: ReadOptions = options.outerList
             ? { ...options, outerList: undefined }
             : options;
@@ -841,7 +849,7 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
           const attributes: Record<string, unknown> = item.getAttributes();
           const checked = attributes.checked === true;
           const content = readChildren(item.toArray(), inside);
-          return [{ content: change ? withChange(content, change) : content, checked }];
+          return [{ content: withChange(content, change), checked }];
         });
       return [
         {
@@ -1245,7 +1253,7 @@ function readInline(
             checkId === undefined ? undefined : options.sentenceChecks?.get(checkId);
           content.push({
             kind: "text",
-            text: run.insert,
+            text: options.leavesApp ? withoutInertBrackets(run.insert) : run.insert,
             marks: marksOf(run.attributes),
             ...(ai && { ai: true }),
             ...(sentenceCheck && { sentenceCheck }),

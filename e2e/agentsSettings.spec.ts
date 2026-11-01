@@ -253,7 +253,7 @@ test("an agent set up by pasting its settings searches, its activity shows each 
 
       // Its Folders change in place.
       await row.getByTestId("agent-folders").click();
-      await row.getByTestId("agent-pairing-folders").getByRole("checkbox").uncheck();
+      await row.getByTestId("agent-pairing-folders").getByTestId("agent-folder").uncheck();
       await expect(row.getByTestId("agent-pairing-reads")).toHaveText("Reads no Folders yet");
 
       // Its name renames in place: a double-click, or F2; Esc cancels and leaves Settings open.

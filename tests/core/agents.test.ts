@@ -412,6 +412,7 @@ describe("outside agents", () => {
         "check_citations",
         "cite",
         "list_minds",
+        "propose_changes",
         "read_mind",
         "read_passages",
         "search",
@@ -435,7 +436,9 @@ describe("outside agents", () => {
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);
-      expect(tool.annotations?.readOnlyHint).toBe(true);
+      // Only propose_changes writes, and only Proposals the User decides on.
+      expect(tool.annotations?.readOnlyHint).toBe(tool.name !== "propose_changes");
+      expect(tool.annotations?.destructiveHint).toBe(false);
       expect(tool.outputSchema).toBeDefined();
     }
     const alwaysLoaded = tools.filter((tool) => tool._meta?.["anthropic/alwaysLoad"] === true);
