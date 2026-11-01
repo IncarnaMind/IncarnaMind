@@ -796,6 +796,63 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
     },
   );
 
+  // protects=the assistant's edit sees the Note's paragraphs with names, and a reply that names the one it rewrites changes that one in place while the others stay; one that names a paragraph the Note hasn't refuses the change and the model is told nothing changed (#2356); English and Chinese; fails_when=the passage has no names, another paragraph is written over, or a misnamed reply changes anything or reads as done; no_claim=how the model words its reply.
+  test.each([
+    {
+      asked: "Make the parking line say 120",
+      lines: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 30 a month."],
+      named: "¶2 Parking is 120 a month.",
+      now: "Parking is 120 a month.",
+    },
+    {
+      asked: "把停车那行改成120元",
+      lines: ["房租每月1200元。", "停车每月100元。", "水费每月30元。"],
+      named: "¶2 停车每月120元。",
+      now: "停车每月120元。",
+    },
+  ])(
+    "a named rewrite changes the paragraph it names; a misnamed one changes nothing: $asked",
+    async (each) => {
+      const passages: string[] = [];
+      let misname = false;
+      const model = scriptedModel((call: ModelCall): ScriptedReply => {
+        const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
+        if (passage !== undefined) {
+          passages.push(passage);
+          return {
+            text: `${misname ? each.named.replace("¶2", "¶7") : each.named}\n<why>Done.</why>`,
+          };
+        }
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: each.asked } }] }
+          : { text: "Done." };
+      });
+      const { core, mind, client } = await setUp(model);
+      writeMind(
+        client,
+        each.lines.map((line) => note(line)),
+      );
+      await client.settled();
+
+      misname = true;
+      await ask(core, { text: each.asked, mindId: mind.id });
+      await client.settled();
+      expect(lastResult(model)).toContain(
+        "didn't say clearly which paragraph each of its own replaces",
+      );
+      expect(shownWithChanges(client)).toEqual(each.lines);
+
+      misname = false;
+      await ask(core, { text: each.asked, mindId: mind.id });
+      await client.settled();
+      expect(passages[0]).toBe(
+        each.lines.map((line, index) => `¶${index + 1} ${line}`).join("\n\n"),
+      );
+      await resolveChanges(client, "accept");
+      expect(shownWithChanges(client)).toEqual([each.lines[0], each.now, each.lines[2]]);
+    },
+  );
+
   // protects=the length the model is told is the Note's once the change is in, with the paragraphs the reply left out and kept, not the reply's words alone (#880, #2180); in Chinese too; fails_when=the length counts only the rewritten paragraph; no_claim=how the model words its reply.
   test.each([
     {

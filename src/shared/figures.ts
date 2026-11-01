@@ -36,7 +36,7 @@
  */
 import { graphemeBoundary } from "./graphemes";
 import { SIMPLIFIED } from "./hanVariants";
-import { normaliseWithOffsets } from "./text";
+import { INVISIBLE, normaliseWithOffsets } from "./text";
 
 /** What a figure measures. */
 export type FigureUnit =
@@ -167,7 +167,8 @@ const MARK = "\ue000";
 const NBSP = "\u00a0";
 
 const LINE_BREAK = /[\n\r\v\f\u0085\u2028\u2029]/;
-const SUPERSCRIPT = /^[\u00b2\u00b3\u00b9\u2070-\u207f\u2460-\u24ff\u2776-\u2793]$/u;
+const SUPERSCRIPT_CHARS = "\\u00b2\\u00b3\\u00b9\\u2070-\\u207f\\u2460-\\u24ff\\u2776-\\u2793";
+const SUPERSCRIPT = new RegExp(`^[${SUPERSCRIPT_CHARS}]$`, "u");
 const SPACE_LIKE = /^[\u00a0\u2007\u2009\u202f]$/;
 const FULL_WIDTH_DIGIT = /^[\uff10-\uff19]$/;
 const LATIN_LETTER = /^[A-Za-z]$/;
@@ -1210,6 +1211,10 @@ export function readStatedUnits(
   const statements = asHeader
     ? headerStatements(text, context, settled)
     : statementsIn(prepared, text, settled);
+  return statedUnitsOf(prepared, text, statements);
+}
+
+function statedUnitsOf(prepared: Prepared, text: string, statements: Statement[]): StatedUnit[] {
   return statements.map((statement) => {
     const start = prepared.from[statement.from] as number;
     const end = prepared.to[statement.to - 1] as number;
@@ -1269,6 +1274,154 @@ const CURRENCY_SCALE = new RegExp(
  */
 export function currencyScaleMarker(text: string): string | null {
   return CURRENCY_SCALE.exec(prepare(text).s)?.[0] ?? null;
+}
+
+/** Every currency written next to a scale and every statement of a scale in Chinese holds one. */
+const SCALE_HAN: ReadonlySet<string> = (() => {
+  const chars = new Set(["千", "仟", "万", "萬", "百", "亿", "億"]);
+  for (const word of HAN_CURRENCIES.split("|")) chars.add(word.slice(-1));
+  for (const [traditional, simplified] of SIMPLIFIED) {
+    if (chars.has(simplified)) chars.add(traditional);
+  }
+  return chars;
+})();
+
+/**
+ * What a currency next to a scale or a statement of a scale holds in the text before it is
+ * normalised, with the whitespace and the line-break hyphen the normaliser may take out around
+ * it. A form `CURRENCY_SCALE` or `STATEMENTS` learns adds what each of its matches holds here,
+ * or a page stating only that form is never read for it.
+ */
+const SCALE_HINT = [
+  `[${[...SCALE_HAN].join("")}\\u2e80-\\u2eff]`,
+  "[-\\u2010-\\u2015\\u2212]\\s*[\\n\\r\\v\\f\\u2028\\u2029]",
+  `${CURRENCY_ANY}\\s*(?:in\\s+)?${SCALE_NEAR_CURRENCY}(?![A-Za-z])`,
+  `(?<![A-Za-z])${SCALE_NEAR_CURRENCY}\\.?\\s*${CURRENCY_ANY}`,
+  "illion|housand",
+].join("|");
+const SCALE_HINT_IN = new RegExp(SCALE_HINT, "i");
+// Where the normaliser reads a character as the same character, a hint is found in the text as
+// written; anywhere else, only once the line is roughly normalised.
+const HINT_OR_UNPLAIN = new RegExp(
+  `(?<unplain>[^\\t\\n\\v\\f\\r\\x20-\\x5f\\x61-\\x7e])|${SCALE_HINT}`,
+  "gi",
+);
+const INVISIBLE_CHARS = new RegExp(`[${[...INVISIBLE].join("")}]`, "g");
+const QUOTE_CHARS = /[‘’‚‛′`]/g;
+
+// The reader makes "ⁿ" or "ⓐ" a footnote mark, which NFKC makes a letter: a line holding one is
+// read, since a letter beside "m USD" hides the scale the mark leaves standing.
+const FOOTNOTE_MARK = new RegExp(`[${SUPERSCRIPT_CHARS}]`, "u");
+
+const roughlyNormalised = (text: string): string =>
+  text.normalize("NFKC").replace(INVISIBLE_CHARS, "").replace(QUOTE_CHARS, "'");
+
+const isLineBreak = (code: number): boolean =>
+  (code >= 0x0a && code <= 0x0d) || code === 0x2028 || code === 0x2029;
+const isPrintableAscii = (code: number): boolean => code >= 0x21 && code <= 0x7e;
+const SPACE = /\s/;
+const MARK_CHAR = /\p{M}/u;
+
+interface Run {
+  start: number;
+  end: number;
+}
+
+function spaceRun(text: string, at: number): Run {
+  let start = at;
+  while (start > 0 && SPACE.test(text.charAt(start - 1))) start--;
+  let end = at;
+  while (end < text.length && SPACE.test(text.charAt(end))) end++;
+  return { start, end };
+}
+
+/**
+ * Whether the normaliser makes `run` one line break whatever comes before or after it: it holds a
+ * line break, between two plain ASCII characters that keep it (not a hyphen, which may join the
+ * lines, nor one a mark follows). No statement crosses a line break, so the text on each side
+ * reads alone exactly as it does in the whole.
+ */
+function cuts(text: string, run: Run): boolean {
+  if (run.start === 0 || run.end >= text.length) return false;
+  const before = text.charCodeAt(run.start - 1);
+  if (!isPrintableAscii(before) || before === 0x2d) return false;
+  if (!isPrintableAscii(text.charCodeAt(run.end))) return false;
+  if (MARK_CHAR.test(text.charAt(run.end + 1))) return false;
+  for (let at = run.start; at < run.end; at++) {
+    if (isLineBreak(text.charCodeAt(at))) return true;
+  }
+  return false;
+}
+
+/** The line around `at` between two runs that cut; empty, at the run's end, when `at` is in one. */
+function lineAround(text: string, at: number): Run {
+  if (SPACE.test(text.charAt(at))) {
+    const run = spaceRun(text, at);
+    if (cuts(text, run)) return { start: run.end, end: run.end };
+  }
+  let start = 0;
+  for (let index = at - 1; index >= 0; index--) {
+    if (!isLineBreak(text.charCodeAt(index))) continue;
+    const run = spaceRun(text, index);
+    if (cuts(text, run)) {
+      start = run.end;
+      break;
+    }
+    index = run.start;
+  }
+  let end = text.length;
+  for (let index = at; index < text.length; index++) {
+    if (!isLineBreak(text.charCodeAt(index))) continue;
+    const run = spaceRun(text, index);
+    if (cuts(text, run)) {
+      end = run.start;
+      break;
+    }
+    index = run.end - 1;
+  }
+  return { start, end };
+}
+
+/** The lines of `text` that may state a scale, in order; the others can't. */
+function* linesHintingScales(text: string): Generator<string> {
+  let at = 0;
+  while (at < text.length) {
+    HINT_OR_UNPLAIN.lastIndex = at;
+    const hint = HINT_OR_UNPLAIN.exec(text);
+    if (!hint) return;
+    const line = lineAround(text, hint.index);
+    at = line.end;
+    if (line.start === line.end) continue;
+    const written = text.slice(line.start, line.end);
+    if (
+      hint.groups?.unplain === undefined ||
+      FOOTNOTE_MARK.test(written) ||
+      SCALE_HINT_IN.test(roughlyNormalised(written))
+    ) {
+      yield written;
+    }
+  }
+}
+
+/**
+ * The scale `text` states, as written: the first currency next to a scale token
+ * (`currencyScaleMarker`), else the first statement with a scale (`readStatedUnits`); null when
+ * it states none. Only the lines that may state one are normalised, so a long page that states
+ * none is read in one pass of a regular expression.
+ */
+export function statedScale(text: string, context: FigureContext = {}): string | null {
+  const settled = settle(context);
+  let stated: string | null = null;
+  for (const line of linesHintingScales(text)) {
+    const prepared = prepare(line);
+    const marker = CURRENCY_SCALE.exec(prepared.s)?.[0];
+    if (marker !== undefined) return marker;
+    stated ??=
+      statedUnitsOf(prepared, line, statementsIn(prepared, line, settled)).find(
+        (each) => each.scale !== 1,
+      )?.chars ?? null;
+  }
+  return stated;
 }
 
 // Numerals -------------------------------------------------------------------

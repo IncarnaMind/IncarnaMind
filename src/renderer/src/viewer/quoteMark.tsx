@@ -45,7 +45,7 @@ export function quoteMarkOf(citation: ViewerCitation | undefined): QuoteMark | n
 }
 
 /** The mark's height, as in the Mind's margin. */
-const MARK_HEIGHT = 18;
+export const MARK_HEIGHT = 18;
 
 /** The space the label takes beside the number: its margin, border and padding. */
 const LABEL_SPACING = 3;
@@ -78,13 +78,13 @@ export function CitationMark({
   mark,
   style,
   room,
-  onWidth,
+  onSize,
 }: {
   mark: QuoteMark;
   style: CSSProperties;
   room?: number;
-  /** Told the mark's width as shown, e.g. to keep it inside the page. */
-  onWidth?: (width: number) => void;
+  /** Told the mark's width with its label and without it, to find it a place. */
+  onSize?: (size: { full: number; compact: number }) => void;
 }) {
   const t = useT();
   const own = useRef<HTMLSpanElement>(null);
@@ -111,7 +111,7 @@ export function CitationMark({
     const base = element.offsetWidth - (fits && shown ? labelWidth : 0);
     const next = room === undefined || !shown || base + labelWidth <= room;
     if (next !== fits) setFits(next);
-    else onWidth?.(element.offsetWidth);
+    else onSize?.({ full: base + labelWidth, compact: base });
   }, [room, mark.label, fits]);
 
   const Icon =
