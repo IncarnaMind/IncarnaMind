@@ -176,6 +176,8 @@ describe("Reading a scanned page's lines (#397)", () => {
       "１T５",
       "3H25",
       "2024H3",
+      "5Q99",
+      "1e6x",
     ]) {
       const read = line(word, [0, 0, 100, 10]);
       expect(unsureWords(read), word).toEqual([[0, word.length]]);
@@ -219,6 +221,12 @@ describe("Reading a scanned page's lines (#397)", () => {
       "24/7",
       "3:1",
       "3×4",
+      "10:30am",
+      "3:30pm",
+      "1/2kg",
+      "3x4m",
+      "3/4ths",
+      "10h30",
     ]) {
       expect(unsureWords(line(word, [0, 0, 100, 10])), word).toEqual([]);
       expect(unsureWords(line(word, [0, 0, 100, 10], 0.4)), word).toEqual([[0, word.length]]);
@@ -263,6 +271,8 @@ describe("Reading a scanned page's lines (#397)", () => {
       "The ratio was 3:1 and the split 1/2 of 3×4 units.",
       "The review on 2024/3/1 kept a 24/7 shift.",
       "Revenue rose 1万2千 and costs 3亿5000万.",
+      "The shift starts at 10:30am, ends at 3:30pm, with 1/2kg loads on a 3x4m deck.",
+      "About 3/4ths of it moves in 10h30.",
     ];
     const page = scannedUnit(
       1,

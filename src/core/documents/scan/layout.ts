@@ -23,12 +23,21 @@ export const UNSURE_BELOW = 0.8;
  * Real code and everyday-number shapes whose letters or marks between digits
  * are their own: a quarter ("3Q24", "2024Q3"), a half-year ("1H25", "2024H2"),
  * a size or product ("4x4", "3×4"), scientific notation ("1e6"), a time or a
- * ratio ("10:30", "3:1"), and a fraction or slash date ("1/2", "2024/3/1").
- * They follow the recognizer's score; anything else between a number's digits
- * is a digit it may have misread.
+ * ratio ("10:30", "3:1", "10h30"), and a fraction or slash date ("1/2",
+ * "2024/3/1"). They follow the recognizer's score, with or without a unit
+ * after them ("10:30am", "1/2kg"); anything else between a number's digits is
+ * a digit it may have misread.
  */
 const CODE_SHAPE =
-  /^(?:[1-4]Q\d{2}|\d{4}Q[1-4]|[1-2]H\d{2}|\d{4}H[1-2]|\d+[xX×]\d+|\d+(?:\.\d+)?e[+-]?\d+|\d+:\d+(?::\d+)?|\d+\/\d+(?:\/\d+)?)$/u;
+  /^(?:[1-4]Q\d{2}|\d{4}Q[1-4]|[1-2]H\d{2}|\d{4}H[1-2]|\d+[xX×]\d+|\d+(?:\.\d+)?e[+-]?\d+|\d+:\d+(?::\d+)?|\d{1,2}h\d{2}|\d+\/\d+(?:\/\d+)?)$/u;
+
+/**
+ * A unit or suffix after a number or a shape ("10:30am", "1/2kg", "3x4m",
+ * "3/4ths"): the shape is read without it, as a plain number's unit is. A
+ * bare "x" ("1e6x") isn't one: that is a word the scan may have misread.
+ */
+const TRAILING_UNIT =
+  /(?:am|pm|kg|g|mg|km|cm|mm|m|l|ml|cl|dl|s|sec|secs|min|mins|h|hr|hrs|d|day|days|wk|wks|mo|mos|yr|yrs|th|ths|bps|bp|bn|b|k|GB|MB|TB|KB|Hz|kHz|MHz|GHz|W|kW|MW|GW|V|mA|mAh|kWh|MWh)$/iu;
 
 /**
  * A CJK numeral: between digits ("2〇25") it is a digit the scan may have read
@@ -47,7 +56,7 @@ const CJK_NUMERAL = "〇零一二三四五六七八九两壹贰叁肆伍陆柒�
  * "10bps", "1990s", "10am", "50kg", "100ml", "4GB", "5G", "12b"); those, a
  * code's letters before the number ("Q3", "A4", "H2O", "FY2025", "No.7"), a
  * range's ends ("10am-12pm") and an ordinal's suffix ("1st", "2nd") follow
- * the recognizer's score.
+ * the recognizer's score, as does a shape with a unit after it ("10:30am").
  */
 export function mixedNumberWord(text: string): boolean {
   // Full-width digits and marks read as the ASCII ones a number is written with ("１T５" is "1T5").
@@ -62,7 +71,7 @@ export function mixedNumberWord(text: string): boolean {
   if (/^[lI]\p{Nd}/u.test(word)) return true;
   if (!/^\p{Nd}/u.test(word)) return false;
   const core = word.slice(word.search(/\p{Nd}/u), word.search(/\p{Nd}(?![\s\S]*\p{Nd})/u) + 1);
-  if (/[^\p{Nd}.,]/u.test(core) && !CODE_SHAPE.test(word)) return true;
+  if (/[^\p{Nd}.,]/u.test(core) && !CODE_SHAPE.test(word.replace(TRAILING_UNIT, ""))) return true;
   // An O for a 0 beside the last digit: "1O%", "1o.". A unit's letter ("5l") isn't one.
   return /\p{Nd}[Oo](?!\p{L})/u.test(word);
 }
