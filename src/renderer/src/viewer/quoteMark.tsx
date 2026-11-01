@@ -24,6 +24,8 @@ export interface QuoteMark {
   number: number;
   /** Where the Citation points, e.g. "slide 4" (ADR-0011): shown after the number. */
   label?: string;
+  /** Shown after the number in place of `label`, which the tooltip then holds, e.g. a row's name. */
+  shown?: string;
 }
 
 export function quoteMarkOf(citation: ViewerCitation | undefined): QuoteMark | null {
@@ -99,7 +101,7 @@ export function CitationMark({
     const next = room === undefined || !shown || base + labelWidth <= room;
     if (next !== fits) setFits(next);
     else onSize?.({ full: base + labelWidth, compact: base });
-  }, [room, mark.label, fits]);
+  }, [room, mark.label, mark.shown, fits]);
 
   const Icon =
     mark.tone === "found"
@@ -128,7 +130,7 @@ export function CitationMark({
           aria-hidden={!fits}
           className={`quote-mark-label ${fits ? "" : "quote-mark-label--measured"}`}
         >
-          {mark.label}
+          {mark.shown ?? mark.label}
         </span>
       )}
     </span>

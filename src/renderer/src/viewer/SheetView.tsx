@@ -31,7 +31,7 @@ import { anchorsCovered, quoteInUnits } from "../../../shared/locations";
 import { columnName, parseCellRef, type TextUnit } from "../../../shared/units";
 import { commands } from "../commands/registry";
 import { ProblemLine } from "../components/ProblemLine";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
 import { FileStates } from "./FileStates";
@@ -46,6 +46,7 @@ import {
   rowHeightFor,
 } from "./sheetGeometry";
 import { type MarkPlace, markGutter, placeSheetMark, scrollAcross } from "./sheetMark";
+import { cellsOn, withRowNames } from "./sheetRowNames";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
 import "./officeFonts.css";
@@ -197,7 +198,7 @@ function Sheets({
     const index = sheets.findIndex((sheet) => sheet.name === (citedSheet ?? ""));
     if (index >= 0) setActive(index);
     const refs = found
-      ? [...found.cells].map((key) => parseCellRef(key.slice(key.lastIndexOf("!") + 1)))
+      ? cellsOn(found).map((ref) => parseCellRef(ref))
       : [{ row: citedUnit?.label?.from ?? 1, column: 0 }];
     const rows = refs.map((ref) => ref?.row ?? 1);
     const columns = refs.map((ref) => ref?.column ?? 0);
@@ -211,7 +212,17 @@ function Sheets({
   }, [target.request, target.pageFrom, found, citedSheet, citedUnit, sheets]);
 
   const sheet = sheets[active];
-  const mark = useMemo(() => quoteMarkOf(target.citation), [target.citation]);
+  const language = useLanguage();
+  const mark = useMemo(
+    () =>
+      withRowNames(
+        quoteMarkOf(target.citation),
+        sheets.find((each) => each.name === found?.sheet),
+        found,
+        language === "zh-CN" ? "、" : ", ",
+      ),
+    [target.citation, found, sheets, language],
+  );
   const hasContent =
     sheet &&
     (sheet.cells.length > 0 ||
@@ -551,7 +562,7 @@ function Grid({
   const table = useRef<HTMLTableElement>(null);
   const [view, setView] = useState({ top: 0, height: 600, left: 0, width: 600 });
   const [place, setPlace] = useState<MarkPlace | null>(null);
-  const markLabel = mark?.label;
+  const markLabel = mark?.shown ?? mark?.label;
   const [markSize, setMarkSize] = useState<MarkMeasure | null>(null);
   const measuredMark = useCallback(
     (size: { full: number; compact: number }) =>
@@ -564,7 +575,7 @@ function Grid({
       ),
     [markLabel],
   );
-  const measured = mark && markSize?.label === mark.label ? markSize : null;
+  const measured = mark && markSize?.label === markLabel ? markSize : null;
   const gutter = measured ? markGutter(measured, view.width - ROW_HEADER_WIDTH) : 0;
   const applied = useRef<number | null>(null);
   const model = useMemo(() => buildModel(sheet, book), [sheet, book]);

@@ -36,7 +36,8 @@ const CLAUSE_AFTER_LEAD = /^(.+?)([,:，：])\s*(.+?)[.!?。！？]?$/u;
  * The record for a Passage: its line that shares the most words with the
  * Question, where that line is (the page, or the Unit a mark before it names,
  * or else the Passage's own location), and the line as the quote. A Question
- * that says "rows" quotes that line and the next, so it covers a range of rows.
+ * that says "rows" quotes that line and the next, so it covers a range of rows,
+ * and one that says "three rows" the two after it.
  * One that says "quotation marks" (引号) quotes the clause after the line's
  * colon or comma, and `quoted` is that clause with the word before it joined
  * on, as an Answer that puts it in quotation marks writes it.
@@ -80,8 +81,10 @@ export function recordFor(
   const picked = lines[chosen];
   if (!picked) return null;
   let quote = picked.line;
-  const next = lines[chosen + 1];
-  if (/\brows\b/i.test(question) && next?.line && next.location === picked.location) {
+  const rows = /\bthree rows\b/i.test(question) ? 3 : /\brows\b/i.test(question) ? 2 : 1;
+  for (let index = chosen + 1; index < chosen + rows; index++) {
+    const next = lines[index];
+    if (!next?.line || next.location !== picked.location) break;
     quote = `${quote}\n${next.line}`;
   }
   if (/misquote/i.test(question)) quote = `${quote.replace(/[.!?]$/, "")} and tomorrow.`;
