@@ -17,6 +17,8 @@ export interface UndoStep {
 export interface UndoStack {
   undoStack: UndoStep[];
   redoStack: UndoStep[];
+  /** True while a Redo is being done: the step it adds is the one it brings back, not an edit. */
+  redoing: boolean;
   /** A change soon after the last one joins its step. */
   lastChange: number;
   stopCapturing(): void;
@@ -48,43 +50,80 @@ export function asOneStep<T>(editor: Editor, change: () => T): T {
 
 /**
  * Puts the note's last step on the app's undo stack, with its line ("Accepted
- * 2 changes · Undo", or under an Answer with `shownAt`). Once the User edits
- * again, takes it back in the note, or closes the note, it leaves the stack.
+ * 2 changes · Undo", or under an Answer with `shownAt`). It follows the step
+ * through the note's own history: taken back there or here, ⇧⌘Z here does it
+ * again, as ⌘⇧Z in the note would. Once the User edits again, takes back an
+ * earlier step in the note, or closes the note, it leaves the stack.
  * `onUndone` puts back what the step left behind outside the note's history,
- * such as a check's result the core wrote over (#1247).
+ * such as a check's result the core wrote over (#1247), and `onRedone` makes
+ * that again once the step is done again: without it, only the note's own
+ * ⇧⌘Z does the step again.
  */
 export function offerEditorUndo(
   editor: Editor,
   said: WordsInLine,
   shownAt?: string,
   onUndone?: () => void,
+  onRedone?: () => void,
 ): void {
   const manager = undoStackOf(editor);
-  const step = manager?.undoStack.at(-1);
-  if (!manager || step === undefined) return;
+  const last = manager?.undoStack.at(-1);
+  if (!manager || last === undefined) return;
+  let step = last;
+  /** What brings the step back, on the note's redo stack, while it is taken back. */
+  let reversal: UndoStep | undefined;
+  /** Undo and Redo add the step that reverses the one they pop, just before they pop it. */
+  let added: UndoStep | undefined;
   const change: Undoable = {
     said,
     undo: async () => {
       if (!editor.isDestroyed && manager.undoStack.at(-1) === step) editor.commands.undo();
     },
+    ...((!onUndone || onRedone) && {
+      redo: async () => {
+        if (!editor.isDestroyed && reversal && manager.redoStack.at(-1) === reversal) {
+          editor.commands.redo();
+        }
+      },
+    }),
     ...(shownAt && { shownAt }),
   };
+  /** Moves it to the other stack when the note itself took the step, not ⌘Z or ⇧⌘Z here. */
+  const followHere = (taken: "undo" | "redo") => {
+    if (useUndo.getState().running?.change !== change) useUndo.getState().follow(change, taken);
+  };
   const forget = () => {
-    manager.off("stack-item-added", added);
-    manager.off("stack-item-popped", popped);
+    manager.off("stack-item-added", onAdded);
+    manager.off("stack-item-popped", onPopped);
+    manager.off("stack-cleared", onCleared);
     editor.off("destroy", forget);
     useUndo.getState().withdraw(change);
   };
-  // An Undo puts its reversal on the other stack just before it pops this one: only that isn't an edit.
-  const added = (event: { type: "undo" | "redo" }) => {
-    if (event.type !== "redo") forget();
+  const onAdded = (event: { stackItem: UndoStep; type: "undo" | "redo" }) => {
+    if (event.type === "redo" || manager.redoing) added = event.stackItem;
+    else forget();
   };
-  const popped = (event: { stackItem: UndoStep; type: "undo" | "redo" }) => {
-    forget();
-    if (event.type === "undo" && event.stackItem === step) onUndone?.();
+  const onPopped = (event: { stackItem: UndoStep; type: "undo" | "redo" }) => {
+    if (event.type === "undo" && event.stackItem === step) {
+      if (change.redo) {
+        reversal = added;
+        followHere("undo");
+      } else forget();
+      onUndone?.();
+    } else if (event.type === "redo" && reversal && event.stackItem === reversal) {
+      if (added) step = added;
+      reversal = undefined;
+      onRedone?.();
+      followHere("redo");
+    } else forget();
   };
-  manager.on("stack-item-added", added);
-  manager.on("stack-item-popped", popped);
+  const onCleared = () => {
+    const held = reversal ? manager.redoStack.includes(reversal) : manager.undoStack.includes(step);
+    if (!held) forget();
+  };
+  manager.on("stack-item-added", onAdded);
+  manager.on("stack-item-popped", onPopped);
+  manager.on("stack-cleared", onCleared);
   editor.on("destroy", forget);
   useUndo.getState().push(change);
 }

@@ -107,17 +107,27 @@ export function deleted(
  */
 export function documentsAdded(count: number, take: () => Promise<RestoreRef[]>): Undoable {
   let taken: RestoreRef[] = [];
+  let added = count;
   return {
     said: (t) =>
-      t(count === 1 ? "undo.documentAdded.one" : "undo.documentsAdded", {
-        count: formatCount(count, languageNow()),
+      t(added === 1 ? "undo.documentAdded.one" : "undo.documentsAdded", {
+        count: formatCount(added, languageNow()),
       }),
     name: (t) => t("undo.name.addDocuments"),
+    takenBack: () =>
+      taken.length === 0
+        ? null
+        : (t) =>
+            t(taken.length === 1 ? "undo.documentRemoved.one" : "undo.documentsRemoved", {
+              count: formatCount(taken.length, languageNow()),
+            }),
     undo: async () => {
       taken = await take();
     },
     redo: async () => {
-      if (taken.length > 0) await core.restore(taken);
+      await core.restore(taken);
+      // Some may have been deleted before the Undo: it brought back only the others.
+      added = taken.length;
     },
   };
 }
@@ -131,6 +141,7 @@ export function folderLinked(
   return {
     said: (t) => t("undo.folderLinked", { name: shown() }),
     name: (t) => t("undo.name.linkFolder", { name: shown() }),
+    takenBack: () => (t) => t("undo.folderUnlinked", { name: shown() }),
     undo: async () => {
       await unlink();
     },
