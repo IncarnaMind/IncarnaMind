@@ -129,7 +129,8 @@ function markdown(report: CalculationsReport): string {
   lines.push("## Every Answer", "");
   for (const arm of report.arms) {
     lines.push(`### ${arm.model}, Tools ${arm.arm}`, "");
-    for (const each of arm.cases) {
+    for (const [at, each] of arm.cases.entries()) {
+      const run = report.run.runs > 1 ? `, run ${arm.answers[at]?.run}` : "";
       const results = each.results
         .map(
           (result) =>
@@ -144,7 +145,7 @@ function markdown(report: CalculationsReport): string {
         ? `; false checked: ${each.falseChecked.join("; ")}`
         : "";
       lines.push(
-        `- ${each.id}${each.failed ? " (failed)" : ""}: ${results}${refusal}${hedged}${checked}, ${each.seconds.toFixed(1)} s`,
+        `- ${each.id}${run}${each.failed ? " (failed)" : ""}: ${results}${refusal}${hedged}${checked}, ${each.seconds.toFixed(1)} s`,
       );
     }
     lines.push("");

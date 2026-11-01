@@ -60,3 +60,26 @@ For each cloud model, in each language, on the calculation Questions with the To
 - `INCARNAMIND_EVAL_CALC_ARMS=on` or `off` runs one arm; `INCARNAMIND_EVAL_CALC_CASES=en-01,zh-05` only those Questions; `INCARNAMIND_EVAL_CALC_RUNS=3` each Question three times.
 - A real model skips the Analysis Questions, since no Analysis runtime runs outside the app; `INCARNAMIND_EVAL_CALC_ANALYSIS=on` asks them anyway.
 - The report goes into `eval/results/<start time>-calculations/`: `report.md` with the table, the usage and spend the core's meter recorded, the bars and every Answer's results, and `report.json` with every Answer's text and figures.
+
+## Results
+
+### 2026-11-01: Claude Haiku 5.5 and DeepSeek Flash, the 72 calculation Questions
+
+One run of each Question with the Tool offered (on) and withheld (off), direct to each provider, scored with the scoring as committed after the pre-review (the Haiku run was scored again from its kept Answers with `rescore.ts`). The Analysis Questions were not asked.
+
+| Model | Tools | Language | Complete | Right | Inputs right | Tool coverage | Refused rightly | False checked | s / Answer |
+|---|---|---|--:|--:|--:|--:|--:|--:|--:|
+| Claude Haiku 5.5 | on | en | 41/41 | 41/41 | 39/39 | 39/39 | 2/2 | 0 | 9.7 |
+| Claude Haiku 5.5 | on | zh | 36/36 | 36/36 | 34/34 | 34/34 | 2/2 | 0 | 9.5 |
+| Claude Haiku 5.5 | off | en | 40/41 | 40/40 | – | 0/38 | 2/2 | 0 | 6.5 |
+| Claude Haiku 5.5 | off | zh | 36/36 | 36/36 | – | 0/34 | 2/2 | 0 | 6.3 |
+| DeepSeek Flash | on | en | 41/41 | 41/41 | 39/39 | 39/39 | 2/2 | 0 | 9.7 |
+| DeepSeek Flash | on | zh | 36/36 | 35/36 | 33/33 | 33/34 | 2/2 | 0 | 8.4 |
+| DeepSeek Flash | off | en | 40/41 | 39/40 | – | 0/38 | 2/2 | 0 | 8.5 |
+| DeepSeek Flash | off | zh | 36/36 | 36/36 | – | 0/34 | 2/2 | 0 | 7.1 |
+
+- Both models meet every bar but one with the Tool on: coverage, right where inputs are right, input correctness and no false checked figure. Neither is clearly more often right with the Tool than without it on this set (Haiku 100% both ways; DeepSeek 100% against 97.5% in English, 97.2% against 100% in Chinese). Here the Tool buys checked inputs and arithmetic, not more right numbers; a harder set is needed to show the difference.
+- DeepSeek's one wrong result with the Tool: asked for Yunfan's reported growth in Chinese (zh-01), it gave the comparable-basis 12.4% the chair states. Without the Tool, in English, it gave the same for en-23.
+- Both often set the trap's value beside the right one, labelled (the restated and reported 2024 revenue, reported and comparable growth); the report lists these as hedges.
+- Claude Sonnet 5.5, hard check, three Questions with the Tool (en-20, zh-20, en-31): all five results right, from the right inputs.
+- Spend, from the core's meter: Haiku $0.35 for both arms, DeepSeek ¥1.27 (about $0.18), Sonnet $0.21.
