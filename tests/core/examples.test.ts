@@ -206,7 +206,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const mindId = made?.mindId as string;
     await vi.waitFor(async () =>
       expect((await core.readyQuestion())?.question).toBe(
-        "What leverage does the agreement allow?",
+        "What's the leverage cap?",
       ),
     );
     const answerEvents = vi.fn();
@@ -227,7 +227,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const [question, answer] = messages;
     expect(question).toMatchObject({
       kind: "question",
-      text: "What leverage does the agreement allow?",
+      text: "What's the leverage cap?",
       askedFrom: expect.objectContaining({ mindId }),
     });
     expect(answer).toMatchObject({

@@ -90,7 +90,7 @@ const rendered = {
 
 /** The example's, waiting for the Document still being read. */
 const example = {
-  question: "What leverage does the agreement allow?",
+  question: "What's the leverage cap?",
   scope: null,
   waitingFor: "Northwind Retail · Q3 2026 results",
 };

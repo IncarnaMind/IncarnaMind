@@ -7854,6 +7854,20 @@
     min-width: 0;
     margin: 0;
   }
+  /* The waiting row and the applied row in one cell: the head is as tall as the taller of the two,
+     and neither word change nor name can move what is under it. The one not shown is hidden from
+     sight and from the accessibility tree. */
+  .mind-changes-rows {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+  }
+  .mind-changes-rows > .mind-changes-line {
+    grid-area: 1 / 1;
+  }
+  .mind-changes-rows > .mind-changes-line[data-shown="false"] {
+    visibility: hidden;
+  }
   .mind-changes-name {
     min-width: 0;
     overflow: hidden;

@@ -130,15 +130,15 @@ function AskedRow({
   const accepted = useAcceptedChanges(answerId, row.mindId);
   const settled =
     typeof waiting?.count === "number" ? appliedWaiting(waiting.pending, accepted) : null;
-  const left =
-    outcome === "held"
-      ? leftText(t, row, waiting?.count ?? null)
-      : outcome === "applied" && settled !== null && settled.count > 0
-        ? leftText(t, row, settled.count)
-        : null;
+  const held = outcome === "held";
+  const heldLeft = leftText(t, row, waiting?.count ?? null);
+  const appliedLeft =
+    outcome !== "undone" && settled !== null && settled.count > 0
+      ? leftText(t, row, settled.count)
+      : null;
   // The count keeps its room from the first frame of the applied row; it shows once the Mind's copy
   // has the apply, so it neither shows what was taken nor moves anything when it appears (#1325).
-  const shown = outcome === "held" || settled === null || settled.settled;
+  const shown = held || settled === null || settled.settled;
   const kept = keptText(t, row);
   const total = useWaitingBesidesApplied(row.mindId, arriving);
   // The Note's copy can still hold the changes this apply took for a frame after the Answer stops
@@ -148,76 +148,115 @@ function AskedRow({
     answerArrivingNow || outcome !== "applied" || !settled || !waiting
       ? 0
       : waiting.pending.length - settled.count;
-  const inNote = inNoteText(
-    t,
-    typeof total === "number" ? Math.max(0, total - takenHere) : total,
-    outcome === "held" ? ownWaiting(waiting) : outcome === "applied" ? (settled?.count ?? 0) : null,
-  );
+  const noteTotal = typeof total === "number" ? Math.max(0, total - takenHere) : total;
+  const heldInNote = inNoteText(t, noteTotal, ownWaiting(waiting));
+  const appliedInNote = outcome === "undone" ? null : inNoteText(t, noteTotal, settled?.count ?? 0);
+  // Only the row on show carries the test's hooks; the other is hidden from sight and from the
+  // accessibility tree, as a person would never reach it.
+  const id = (live: boolean, testId: string) => (live ? testId : undefined);
   return (
     <div className="mind-changes-head">
       <PencilLineIcon aria-hidden="true" className="mind-changes-icon" />
-      <p className="mind-changes-line">
-        <span data-testid="mind-changes-title" className="mind-changes-title">
-          {outcome === "held" ? changeFact(t, facts, name) : appliedFact(t, facts, name)}
-        </span>
-        {left && (
-          <>
-            {" "}
-            <span
-              data-testid="mind-changes-left"
-              className={`mind-changes-count whitespace-nowrap${shown ? "" : " invisible"}`}
-            >
-              {left}
-            </span>
-          </>
-        )}
-        {inNote && (
-          <>
-            {" "}
-            <span
-              data-testid="mind-changes-in-note"
-              className="mind-changes-count whitespace-nowrap"
-            >
-              {inNote}
-            </span>
-            {outcome !== "held" && (
-              <>
-                <Dot />
-                <button
-                  type="button"
-                  data-testid="mind-changes-note-review"
-                  onClick={() => showNoteWaiting(row)}
-                  className="mind-changes-review"
-                >
-                  {t("mindChanges.review")}
-                </button>
-              </>
-            )}
-          </>
-        )}
-        {kept && (
-          <span data-testid="mind-changes-kept" className="mind-changes-count">
-            {" "}
-            {kept}
+      {/*
+       * The waiting row and the applied row share one cell, so the head is as tall as the taller
+       * of the two at this width, whatever the Note's name, the font or the language, and nothing
+       * under it moves when its words change (DESIGN.md, a line that changes its words in place).
+       */}
+      <div className="mind-changes-rows">
+        <p
+          className="mind-changes-line"
+          data-shown={held ? "true" : "false"}
+          aria-hidden={held ? undefined : true}
+        >
+          <span data-testid={id(held, "mind-changes-title")} className="mind-changes-title">
+            {changeFact(t, facts, name)}
           </span>
-        )}
-        {(outcome === "applied" || outcome === "undone") && (
-          <AppliedActions answerId={answerId} row={row} name={name} />
-        )}
-        {outcome === "held" && (
-          <>
-            <Dot />
-            <button
-              type="button"
-              data-testid="mind-changes-review"
-              onClick={() => showChanges(row)}
-              className="mind-changes-review"
-            >
-              {t("mindChanges.review")}
-            </button>
-          </>
-        )}
-      </p>
+          {heldLeft && (
+            <>
+              {" "}
+              <span
+                data-testid={id(held, "mind-changes-left")}
+                className="mind-changes-count whitespace-nowrap"
+              >
+                {heldLeft}
+              </span>
+            </>
+          )}
+          {heldInNote && (
+            <>
+              {" "}
+              <span
+                data-testid={id(held, "mind-changes-in-note")}
+                className="mind-changes-count whitespace-nowrap"
+              >
+                {heldInNote}
+              </span>
+            </>
+          )}
+          {kept && (
+            <span data-testid={id(held, "mind-changes-kept")} className="mind-changes-count">
+              {" "}
+              {kept}
+            </span>
+          )}
+          <Dot />
+          <button
+            type="button"
+            data-testid={id(held, "mind-changes-review")}
+            onClick={() => showChanges(row)}
+            className="mind-changes-review"
+          >
+            {t("mindChanges.review")}
+          </button>
+        </p>
+        <p
+          className="mind-changes-line"
+          data-shown={held ? "false" : "true"}
+          aria-hidden={held ? true : undefined}
+        >
+          <span data-testid={id(!held, "mind-changes-title")} className="mind-changes-title">
+            {appliedFact(t, facts, name)}
+          </span>
+          {appliedLeft && (
+            <>
+              {" "}
+              <span
+                data-testid={id(!held, "mind-changes-left")}
+                className={`mind-changes-count whitespace-nowrap${shown ? "" : " invisible"}`}
+              >
+                {appliedLeft}
+              </span>
+            </>
+          )}
+          {appliedInNote && (
+            <>
+              {" "}
+              <span
+                data-testid={id(!held, "mind-changes-in-note")}
+                className="mind-changes-count whitespace-nowrap"
+              >
+                {appliedInNote}
+              </span>
+              <Dot />
+              <button
+                type="button"
+                data-testid={id(!held, "mind-changes-note-review")}
+                onClick={() => showNoteWaiting(row)}
+                className="mind-changes-review"
+              >
+                {t("mindChanges.review")}
+              </button>
+            </>
+          )}
+          {kept && (
+            <span data-testid={id(!held, "mind-changes-kept")} className="mind-changes-count">
+              {" "}
+              {kept}
+            </span>
+          )}
+          <AppliedActions answerId={answerId} row={row} name={name} live={!held} />
+        </p>
+      </div>
     </div>
   );
 }
@@ -226,11 +265,14 @@ function AppliedActions({
   answerId,
   row,
   name,
+  live,
 }: {
   answerId: string;
   row: ChangedMind;
   name: string;
+  live: boolean;
 }) {
+  const id = (testId: string) => (live ? testId : undefined);
   const t = useT();
   const { mindId } = row;
   const state = useAskedState(answerId, mindId);
@@ -241,7 +283,7 @@ function AppliedActions({
     return (
       <>
         <Dot />
-        <span data-testid="mind-changes-undone" className="mind-changes-count">
+        <span data-testid={id("mind-changes-undone")} className="mind-changes-count">
           {t("mindChanges.undone")}
         </span>
       </>
@@ -258,7 +300,7 @@ function AppliedActions({
   return (
     <>
       {onTop && (
-        <span data-testid="mind-changes-on-top" className="mind-changes-count">
+        <span data-testid={id("mind-changes-on-top")} className="mind-changes-count">
           {" "}
           {t("mindChanges.onTop")}
         </span>
@@ -268,7 +310,7 @@ function AppliedActions({
           <Dot />
           <button
             type="button"
-            data-testid="mind-changes-open"
+            data-testid={id("mind-changes-open")}
             aria-label={`${t("mindChanges.open")} ${name}`}
             onClick={() => showChanges(row)}
             className="mind-changes-review"
@@ -280,7 +322,7 @@ function AppliedActions({
       <Dot />
       <button
         type="button"
-        data-testid="mind-changes-undo"
+        data-testid={id("mind-changes-undo")}
         aria-disabled={why !== undefined || undefined}
         title={why}
         onClick={() => undoAsked(answerId, mindId)}
@@ -293,7 +335,7 @@ function AppliedActions({
           <Dot />
           <button
             type="button"
-            data-testid="mind-changes-review"
+            data-testid={id("mind-changes-review")}
             onClick={() => reviewAsked(answerId, mindId)}
             className="mind-changes-review"
           >
