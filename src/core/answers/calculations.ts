@@ -908,10 +908,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
    * figure reader finds no number in "7a;45o", so the word itself has to say.
    */
   function readsFromUnsureWord(quoted: Quoted, number: string): boolean {
-    const digits = numberDigits(number);
-    if (digits === "") return false;
+    // The model may name the number as the page reads it ("7a;45o") or as it means it ("7,450").
+    const readings = new Set([numberDigits(number), misreadDigits(number)]);
+    readings.delete("");
     return (quoted.check().unsure ?? []).some(
-      (word) => mixedNumberWord(word) && misreadDigits(word) === digits,
+      (word) => mixedNumberWord(word) && readings.has(misreadDigits(word)),
     );
   }
 

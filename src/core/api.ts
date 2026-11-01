@@ -4188,7 +4188,14 @@ export interface ReadCitedPageInput {
 export interface ScannedText {
   documentId: string;
   contentHash: string;
-  pages: { page: number; text: string; label: UnitLabel | null; anchors: Anchor[] }[];
+  pages: {
+    page: number;
+    text: string;
+    label: UnitLabel | null;
+    anchors: Anchor[];
+    /** The words a quote may have misread, as spans into `text` (#535). */
+    unsure: [number, number][];
+  }[];
 }
 
 /**

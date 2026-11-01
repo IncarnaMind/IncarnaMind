@@ -186,7 +186,15 @@ interface Cited {
 const figuresOf = memoized(
   2000,
   (text: string, citations: readonly Cited[]) =>
-    `${text}\u0000${JSON.stringify(citations.map((each) => [each.at, each.attributes.check, each.attributes.unsure ?? []]))}`,
+    `${text}\u0000${JSON.stringify(
+      citations.map((each) => [
+        each.at,
+        each.attributes.check,
+        each.attributes.checkReason,
+        each.attributes.pageChecked ?? false,
+        each.attributes.unsure ?? [],
+      ]),
+    )}`,
   (text: string, citations: readonly Cited[]): UncheckedFigure[] => {
     const found: UncheckedFigure[] = [];
     for (const span of sentenceSpans(text)) {

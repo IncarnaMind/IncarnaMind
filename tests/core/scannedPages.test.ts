@@ -652,6 +652,12 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
         quote: line,
       }),
     ).toEqual({ unsure: ["2o25"], from: "scan" });
+    // The page picture outlines the same spans.
+    const [firstPage] = (await core.readScannedText(document.id)).pages;
+    expect(firstPage?.unsure.map(([from, to]) => firstPage.text.slice(from, to))).toEqual([
+      "2o25",
+      "2o25",
+    ]);
     // A Chinese line's number is judged on its own too: the characters around it aren't one word with it.
     expect(
       checkedResult(
@@ -866,7 +872,9 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
         };
       }
       const calculated = call.results.filter((result) => result.tool === "calculate");
-      if (calculated.length === 0) {
+      if (calculated.length < 2) {
+        // The number as the model means it, then as the page writes it.
+        const number = calculated.length === 0 ? "7,450" : "7a;45o";
         return {
           calls: [
             {
@@ -876,7 +884,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
                   {
                     marker: 1,
                     label: "Reading",
-                    inputs: [{ name: "a", label: "The gauge", citation: 1, number: "7,450" }],
+                    inputs: [{ name: "a", label: "The gauge", citation: 1, number }],
                     formula: "a",
                     as: "number",
                   },
@@ -886,7 +894,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
           ],
         };
       }
-      told = calculated.at(-1)?.text ?? "";
+      told = calculated.map((result) => result.text ?? "").join("\n");
       return { text: "The scan is unclear, so I can't work that figure out [^1]." };
     });
     const { recognizer } = countingRecognizer({
@@ -910,18 +918,15 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     if (saved.service) await core.allowDataFlow("chat", saved.service.id);
     const sources = await createTempDataFolder();
     await addAndProcess(core, [
-      await writeSourceFile(
-        sources,
-        "Gauge report.pdf",
-        buildPdf([{ scan: picture("en-noisy") }]),
-      ),
+      await writeSourceFile(sources, "Gauge report.pdf", buildPdf([{ scan: picture("en-noisy") }])),
     ]);
     const mind = await core.createMind({ title: "Gauge" });
     const client = await connectToMind(core, mind.id);
     const { answerId } = await askAndFinish(core, client, mind.id, "What did the gauge read?");
-    expect(told).toContain(
-      "That number was read from a scan and may be misread; it can't be an input until the User confirms it.",
-    );
+    const oneLine =
+      "That number was read from a scan and may be misread; it can't be an input until the User confirms it.";
+    // Both the number as meant and the word as written are refused with the one line.
+    expect(told.split(oneLine)).toHaveLength(3);
     expect(onlyCitation(client, answerId)).toMatchObject({
       check: "cant-check",
       checkReason: "unsure-word",

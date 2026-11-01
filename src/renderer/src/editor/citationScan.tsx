@@ -259,7 +259,7 @@ function useScanPicture(attributes: CitationAttributes, scanned: ScannedText | n
         const box = lineBox(anchor, from, to);
         if (box) quoteBoxes.push(box);
       }
-      for (const [from, to] of page.label?.scan?.unsure ?? []) {
+      for (const [from, to] of page.unsure) {
         if (!ranges.some((range) => range.start < to && range.end > from)) continue;
         const box = lineBox(anchor, Math.max(from, anchor.start), Math.min(to, anchor.end));
         if (box) unsureBoxes.push(box);

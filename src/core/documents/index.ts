@@ -2676,6 +2676,7 @@ export function createDocuments(options: DocumentsOptions) {
           text: unit.text,
           label: unit.label ?? null,
           anchors: unit.anchors ?? [],
+          unsure: unsureSpansIn(unit),
         })),
       };
     },

@@ -1,5 +1,7 @@
+import { getSchema } from "@tiptap/core";
 import { expect, test, vi } from "vitest";
-import type { CitationAttributes } from "../../src/core/api";
+import { ANSWER_BLOCK, CITATION_NODE, type CitationAttributes } from "../../src/core/api";
+import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 
 // The module reads the bridge at load: nothing here reaches the core.
 vi.mock("../../src/renderer/src/core", () => ({
@@ -7,7 +9,9 @@ vi.mock("../../src/renderer/src/core", () => ({
   files: {},
 }));
 
-const { sourceOf } = await import("../../src/renderer/src/editor/uncheckedFigures");
+const { sourceOf, uncheckedFigureDecorations } = await import(
+  "../../src/renderer/src/editor/uncheckedFigures"
+);
 
 /** A Citation of a scanned page, with the words its reading may have misread. */
 const scan = (quote: string, unsure: string[], pageChecked = false): CitationAttributes => ({
@@ -49,4 +53,44 @@ test("a figure that is part of a longer number isn't the scan's", () => {
 
 test("a page the User checked settles the word, so its figure stops being unchecked", () => {
   expect(sourceOf("61,200", [scan("against 61,200 a year earlier", ["61,200"], true)])).toBeNull();
+});
+
+test("the editor's wash and ? go in place once the page is checked", () => {
+  const schema = getSchema(noteExtensions());
+  const answer = (pageChecked: boolean) =>
+    schema.nodeFromJSON({
+      type: "doc",
+      content: [
+        {
+          type: ANSWER_BLOCK,
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                { type: "text", text: "It read 7,450 at the harbour." },
+                {
+                  type: CITATION_NODE,
+                  attrs: {
+                    passageId: "p1",
+                    documentId: "d1",
+                    documentName: "Agreement.pdf",
+                    contentHash: "h1",
+                    pageFrom: 1,
+                    pageTo: 1,
+                    quote: "read 7a;45o at the harbour",
+                    check: "cant-check",
+                    checkReason: "unsure-word",
+                    unsure: ["7a;45o"],
+                    ...(pageChecked && { pageChecked: true }),
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+  // The wash and its "?".
+  expect(uncheckedFigureDecorations(answer(false))).toHaveLength(2);
+  expect(uncheckedFigureDecorations(answer(true))).toEqual([]);
 });
