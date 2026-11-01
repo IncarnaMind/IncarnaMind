@@ -515,6 +515,27 @@ function exceptedBy(statement: StatedUnit, label: string): boolean {
   return PER_SHARE.test(label) || (statement.except === "shares" && SHARE_COUNT.test(label));
 }
 
+// Rows whose numbers aren't amounts a scale line applies to: a percent, a ratio or multiple, basis
+// points, a count of shares, people or things, a year, a date or an identifier, and a per-share
+// figure no exception leaves out. A share count is often in the line's millions, but not always.
+const NOT_AN_AMOUNT: readonly [string, RegExp][] = [
+  ["per-share", PER_SHARE],
+  ["share count", SHARE_COUNT],
+  ["percent", /%|per ?cent|percentage|\bmargin\b|百分比|率/i],
+  ["ratio", /\bratio\b|\(x\)|\btimes\b|\bmultiple\b|倍/i],
+  ["basis points", /\bbps\b|basis points|基点/i],
+  [
+    "count",
+    /\bemployees\b|\bheadcount\b|\bstaff\b|\bcount\b|\bnumber of\b|\bunits\b|\bcustomers\b|\bstores\b|人数|员工|数量|门店|户数|家数/i,
+  ],
+  ["year or date", /\byears?\b|\bdate\b|年份|日期/i],
+  ["identifier", /\bID\b|\bcode\b|\bISIN\b|\bno\.|编号|代码/i],
+];
+
+/** The kind of row `label` names that a scale line's amounts don't include, or null for an amount's. */
+const notAnAmount = (label: string): string | null =>
+  NOT_AN_AMOUNT.find(([, pattern]) => pattern.test(label))?.[0] ?? null;
+
 /** Whether `statement` scales its amounts "except where noted", and `label` is a per-share row it may leave out. */
 const notedOut = (statement: StatedUnit, label: string): boolean =>
   statement.except === "noted" && PER_SHARE.test(label);
@@ -531,11 +552,28 @@ function conflicting(statements: readonly StatedUnit[]): boolean {
     heads.slice(at + 1).some((b) => {
       const [ua, ub] = [unitOf(a), unitOf(b)];
       if (ua !== null && ub !== null && ua !== ub) return true;
+      // "Revenue ($000)	Shares (000s)": a count's column beside a currency's.
+      if ((ua === null) !== (ub === null) && (ua === null ? a : b).scale !== 1) return true;
       if (a.scale !== b.scale && ((a.scale !== 1 && b.scale !== 1) || (ua !== null && ua === ub)))
         return true;
       return false;
     }),
   );
+}
+
+/**
+ * A row's label without the scale statement a joined line puts before it ("单位：千元，每股收益除外
+ * 营业收入"); its own unit ("Diluted EPS ($)", "基本每股收益（元）") stays, as it changes no scale.
+ */
+function withoutStatement(label: string): string {
+  const from = Math.max(
+    0,
+    ...[...label.matchAll(EXCEPTION_WORDS)].map((each) => each.index + each[0].length),
+    ...readStatedUnits(label)
+      .filter((each) => each.scale !== 1 || each.except)
+      .map((each) => each.end),
+  );
+  return label.slice(from);
 }
 
 // The words that end a scale statement's line: ", except per share data)", "，每股收益除外".
@@ -798,18 +836,21 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   function labelOf(quoted: Quoted, figure: Figure): string {
     const before = lineBefore(quoted, figure);
     const { text, at } = onPage(quoted);
-    const end = text.indexOf("\n", at + figure.start);
-    const row = `${before}${text.slice(at + figure.start, end < 0 ? undefined : end)}`;
-    const label = row.includes("\t")
-      ? (row.split("\t")[0] ?? "")
-      : (before.split(/\d[\d,.]*[)）%]?/).at(-1) ?? "");
-    // The scale statement before the first row of a joined line isn't that row's label.
-    const from = Math.max(
-      0,
-      ...[...label.matchAll(EXCEPTION_WORDS)].map((each) => each.index + each[0].length),
-      ...readStatedUnits(label).map((each) => each.end),
+    const start = at + figure.start;
+    const end = text.indexOf("\n", start);
+    const row = `${before}${text.slice(start, end < 0 ? undefined : end)}`;
+    const label = withoutStatement(
+      row.includes("\t")
+        ? (row.split("\t")[0] ?? "")
+        : (before.split(/\d[\d,.]*[)）%]?/).at(-1) ?? ""),
     );
-    return label.slice(from);
+    if (/[\p{L}%]/u.test(label)) return label;
+    // A table read one cell per line puts a row's label on the line above its number.
+    const above = text
+      .slice(0, start - before.length)
+      .split("\n")
+      .findLast((line) => line.trim() !== "");
+    return above && !/\d/.test(above) ? withoutStatement(above) : label;
   }
 
   function lineBefore(quoted: Quoted, figure: Figure): string {
@@ -1081,6 +1122,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
           readings.find((each) => each.scale !== 1) ??
           readings.find((each) => each.unit.kind !== base.unit.kind) ??
           null;
+        const kind = applies && applies.scale !== 1 ? notAnAmount(labelOf(quoted, figure)) : null;
+        if (kind)
+          return `${figure.chars} is on a ${kind} row ("${labelOf(quoted, figure).trim()}"), and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing its scale.`;
         if (applies) stated = { quoted: unit, stated: applies, currencyChars: null };
       }
     } else if (!ownUnit) {

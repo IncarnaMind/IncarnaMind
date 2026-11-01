@@ -94,10 +94,12 @@ const citeStatement =
   (name: string, lines: readonly string[], calls: (cited: number[]) => Call[]) =>
   (passages: ShownPassage[]): Call[] => {
     const passage = passageOf(passages, name);
+    // A PDF's Passage is shown with its pages, any other's with its location.
+    const location = passages.find((each) => each.id === passage)?.location ?? "p. 1";
     const citations = lines.map((quote, index) => ({
       marker: index + 1,
       passage,
-      location: "p. 1",
+      location,
       quote,
     }));
     return [{ tool: "cite", input: { citations } }, ...calls(lines.map((_, index) => index + 1))];
@@ -2207,6 +2209,11 @@ test.each([
     row: ["Clothing", 4620, 12.5],
   },
   {
+    language: "English, a currency column beside a count's",
+    head: ["Segment", "Revenue ($000)", "Shares (000s)"],
+    row: ["Group", 4620, 12.5],
+  },
+  {
     language: "Chinese, one currency at two scales",
     head: ["分部", "收入（万元）", "每股收益（元）"],
     row: ["服装", 4620, 12.5],
@@ -2708,6 +2715,228 @@ test.each([
     expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
       [1, 2_469_000_000],
     ]);
+  },
+);
+
+/**
+ * Every kind of row a scale line must not scale, under each form of the line (#2365): an amount
+ * is scaled; a per-share figure is left plain only where the line excepts it; a percent, ratio,
+ * multiple, basis points, count, year or identifier is refused. Each row is doubled with the line
+ * as its unitQuote. `null` is a refusal.
+ */
+const ROW_KINDS_EN: readonly [string, string][] = [
+  ["Revenue 1,234.5", "1,234.5"],
+  ["Diluted EPS ($) 1.25", "1.25"],
+  ["Gross margin (%) 27.4", "27.4"],
+  ["Current ratio 1.8", "1.8"],
+  ["Net debt to EBITDA (x) 2.5", "2.5"],
+  ["Interest spread (bps) 125", "125"],
+  ["Employees 4250", "4250"],
+  ["Stores 312", "312"],
+  ["Customer ID 5512", "5512"],
+  ["Year founded 1998", "1998"],
+  ["Weighted average shares 412.5", "412.5"],
+];
+const ROW_KINDS_ZH: readonly [string, string][] = [
+  ["营业收入 1,234.5", "1,234.5"],
+  ["基本每股收益（元） 0.52", "0.52"],
+  ["毛利率（%） 27.4", "27.4"],
+  ["流动比率 1.8", "1.8"],
+  ["净负债/EBITDA（倍） 2.5", "2.5"],
+  ["利差（基点） 125", "125"],
+  ["员工人数 4250", "4250"],
+  ["门店数量 312", "312"],
+  ["客户编号 5512", "5512"],
+  ["成立年份 1998", "1998"],
+  ["发行在外普通股加权平均股份 412.5", "412.5"],
+];
+
+// protects=#2365; fails_when=a row that isn't an amount (earnings per share, a percent, a ratio, a multiple, basis points, a count, an identifier) is scaled by its Document's scale line when the model quotes it, under any form of that line, in English or Chinese.
+test.each([
+  {
+    head: "(in thousands)",
+    chinese: false,
+    doubled: [2_469_000, null, null, null, null, null, null, null, null, null, null],
+  },
+  {
+    head: "(in millions, except per share data)",
+    chinese: false,
+    doubled: [2_469_000_000, 2.5, null, null, null, null, null, null, null, null, null],
+  },
+  {
+    head: "Amounts in £'000",
+    chinese: false,
+    doubled: [2_469_000, null, null, null, null, null, null, null, null, null, null],
+  },
+  {
+    head: "In millions of dollars, except where noted",
+    chinese: false,
+    doubled: [2_469_000_000, null, null, null, null, null, null, null, null, null, null],
+  },
+  {
+    head: "(000 omitted)",
+    chinese: false,
+    doubled: [2_469_000, null, null, null, null, null, null, null, null, null, null],
+  },
+  {
+    head: "单位：千元",
+    chinese: true,
+    doubled: [2_469_000, null, null, null, null, null, null, null, null, null, null],
+  },
+  {
+    head: "单位：千元，每股收益除外",
+    chinese: true,
+    doubled: [2_469_000, 1.04, null, null, null, null, null, null, null, null, null],
+  },
+  {
+    head: "金额（万）",
+    chinese: true,
+    doubled: [24_690_000, null, null, null, null, null, null, null, null, null, null],
+  },
+  {
+    head: "单位：百万元（除另有说明外）",
+    chinese: true,
+    doubled: [2_469_000_000, null, null, null, null, null, null, null, null, null, null],
+  },
+])(
+  "each kind of row under “$head” is scaled only when it is an amount",
+  {
+    timeout: 60_000,
+  },
+  async ({ head, chinese, doubled }) => {
+    const rows = chinese ? ROW_KINDS_ZH : ROW_KINDS_EN;
+    const lines = ["Pelican accounts", head, ...rows.map(([line]) => line)];
+    const model = calculatingModel({
+      queries: ["Pelican accounts"],
+      steps: [
+        citeStatement(
+          "Pelican",
+          rows.map(([line]) => line),
+          (cited) => [
+            {
+              tool: "calculate",
+              input: {
+                figures: rows.map(([line, number], index) => ({
+                  marker: index + 1,
+                  label: line,
+                  formula: "x * 2",
+                  inputs: [
+                    { name: "x", label: line, citation: cited[index], number, unitQuote: head },
+                  ],
+                })),
+              },
+            },
+          ],
+        ),
+      ],
+      answer: rows.map((_, index) => `[=${index + 1}]`).join(" "),
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "Pelican accounts.docx",
+        contents: docxOf(lines.map((text) => ({ text }))),
+      },
+    ]);
+
+    const { answer } = await askAndRead(
+      core,
+      chinese ? "各项的两倍是多少？" : "What is each doubled?",
+    );
+
+    const byMarker = new Map(answer.figures.map((figure) => [figure.marker, figure.value]));
+    expect(rows.map((_, index) => byMarker.get(index + 1) ?? null)).toEqual(doubled);
+  },
+);
+
+// protects=#2365; fails_when=a per-share row labelled with its own currency ("Diluted EPS ($)", "基本每股收益（元）"), or with its label on the line above its number, is scaled with the amounts, so EPS comes out a thousand times too large.
+test.each([
+  {
+    language: "English PDF, the label's own ($)",
+    document: buildPdf([
+      {
+        lines: [
+          "Pelican results",
+          "(in thousands, except per share data)",
+          "Revenue 1,234.5",
+          "Diluted EPS ($) 1.25",
+        ],
+      },
+    ]),
+    name: "Pelican results.pdf",
+    head: "(in thousands, except per share data)",
+    quote: "Diluted EPS ($) 1.25",
+    number: "1.25",
+    doubled: 2.5,
+  },
+  {
+    language: "Chinese PDF, the label's own （元）, rows joined",
+    document: buildPdf([
+      {
+        chineseLines: [
+          "Pelican 利润表",
+          "单位：千元，每股收益除外",
+          "营业收入 1,234.5",
+          "基本每股收益（元） 0.52",
+        ],
+      },
+    ]),
+    name: "Pelican 利润表.pdf",
+    head: "单位：千元，每股收益除外",
+    quote: "基本每股收益（元） 0.52",
+    number: "0.52",
+    doubled: 1.04,
+  },
+  {
+    language: "Chinese Word file, the label on the line above",
+    document: docxOf(
+      [
+        "Pelican 利润表",
+        "单位：千元，每股收益除外",
+        "营业收入 1,234.5",
+        "基本每股收益",
+        "0.52",
+      ].map((text) => ({ text })),
+    ),
+    name: "Pelican 利润表.docx",
+    head: "单位：千元，每股收益除外",
+    quote: "0.52",
+    number: "0.52",
+    doubled: 1.04,
+  },
+])(
+  "a per-share row is left out of the scale however its label is written: $language",
+  {
+    timeout: 60_000,
+  },
+  async ({ document, name, head, quote, number, doubled }) => {
+    const model = calculatingModel({
+      queries: ["Pelican 利润表 results"],
+      steps: [
+        citeStatement("Pelican", [quote], (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  label: "Twice the EPS",
+                  formula: "eps * 2",
+                  inputs: [
+                    { name: "eps", label: "EPS", citation: cited[0], number, unitQuote: head },
+                  ],
+                },
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [{ name, contents: document }]);
+
+    const { answer } = await askAndRead(core, "What is twice the EPS?");
+
+    expect(answer.figures.map((figure) => figure.value)).toEqual([doubled]);
   },
 );
 
