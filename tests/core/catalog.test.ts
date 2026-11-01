@@ -348,13 +348,15 @@ describe("The provider catalog", () => {
     ["chatgpt", "gpt-6-sol", true],
     ["openrouter", "openai/gpt-6-luna", false],
     ["google", "gemini-3.8-flash", false],
-    ["deepseek", "deepseek-flash", false],
+    ["deepseek", "deepseek-flash", true],
+    ["deepseek", "deepseek-v4-pro", true],
+    ["openrouter", "deepseek/deepseek-chat", false],
     ["qwen", "qwen3.8-flash", false],
     ["siliconflow", "deepseek-ai/DeepSeek-V4", false],
     ["ollama", "gpt-oss:20b-cloud", false],
     ["ollama", "qwen3.5:4b", false],
   ])("%s %s is offered calculate by the catalog: %s", (kind, modelId, offered) => {
-    // Only models measured to use it well (#438); the evaluation (#441) turns on more.
+    // Only models measured to use it well (#438, then the evaluation #441).
     expect(calculates(fromCatalog(kind, modelId))).toBe(offered);
   });
 
