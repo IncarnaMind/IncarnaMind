@@ -1126,6 +1126,8 @@ export const zhCN = {
   "claim.reason.local-mode": "未核对：所有内容都留在这台电脑上。",
   "claim.reason.absence-read-limit": "说某样东西不存在的句子，需要通读文档才能核对。",
   "claim.reason.absence-unconfirmed": "不显示结论：模型给出的引文并没有写到这句话说不存在的内容。",
+  "claim.reason.absence-other-document":
+    "不显示结论：模型给出的引文出自另一份文档，不是这句话所说的那份。",
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
   "claim.reason.read-budget": "已花 {spent} 后停止，这次读取最多可花 {most}。",
   "claim.reason.read-budget.unknown": "已停止：已达到这次读取最多可花的费用。",

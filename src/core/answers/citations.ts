@@ -1572,7 +1572,13 @@ export function createCitationSession(
   ): Promise<SearchResultForModel> {
     const found = await find(query, signal, within, options);
     if (found.length === 0) {
-      return { text: "No Passages in the User's Documents match this search.", passageCount: 0 };
+      // The miss is the search's, as `coverageOf` says of results that cover only some pages (#1443).
+      return {
+        text: "No Passages in the User's Documents match this search.",
+        passageCount: 0,
+        coverage: () =>
+          "A miss in these results is not evidence that the Documents lack the answer.",
+      };
     }
     return {
       text: show(found),
