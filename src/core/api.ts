@@ -52,6 +52,7 @@ import type {
   AnalysisEnd,
   AnalysisLanguage,
   AnalysisOutput,
+  AnalysisRecalculation,
   AnalysisUnavailableReason,
   AnalysisValue,
   AnalysisVersions,
@@ -297,8 +298,15 @@ export interface CreateMindInput {
  *   changed input, with no formula of its own. An older version's reader
  *   refuses a figure with no formula and no Analysis, so it opens these
  *   Notes read-only. Older content is version 45 content as it is.
+ * - 46: an Analysis figure's kept value names the rows of the input it was
+ *   worked out from (`of` on a value of the Note's Analysis records, #2346):
+ *   which rows and columns, and for `figure()` how IncarnaMind worked it out
+ *   again. An older version would keep the record again without it, so it
+ *   opens these Notes read-only.
+ *   Older content is version 46 content as it is: a figure kept before names
+ *   no rows.
  */
-export const CONTENT_SCHEMA_VERSION = 45;
+export const CONTENT_SCHEMA_VERSION = 46;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2468,13 +2476,19 @@ export interface AnswerAnalysis {
   ranAt: string;
   /**
    * The markers the Answer writes its results with: each figure's "[=3]", and
-   * each table's and chart's number, "[=table 1]", "[=chart 1]", counted across the Answer.
+   * each table's, chart's and picture's number, "[=table 1]", "[=chart 1]",
+   * "[=picture 1]", counted across the Answer. A `figure()` figure has one only
+   * when IncarnaMind worked it out again to the same number. `pictures` is
+   * absent in an Analysis run before pictures came back (#2346).
    */
   markers: {
     figures: { result: string; marker: number }[];
     tables: { result: string; marker: number }[];
     charts: number[];
+    pictures?: number[];
   };
+  /** What IncarnaMind made of each `figure()` figure, by its result's name (ADR-0025). */
+  recalculations?: { result: string; check: AnalysisRecalculation }[];
 }
 
 /** A successful run kept once by a Note, with only the results its figures still use (ADR-0021). */

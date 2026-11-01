@@ -18,6 +18,7 @@ import {
   type MarkedCitation,
 } from "../core/api";
 import { asGenerated } from "./aiText";
+import { withAnalysisPictures } from "./analysisPictures";
 import { citationNode, type NodeJSON, withCitations } from "./blockJson";
 import { calculatedFigureNode, figureShownText } from "./calculatedFigures";
 import { withFigures } from "./figureMarkers";
@@ -44,7 +45,11 @@ export function answerBlocks(
   });
   return asGenerated(
     closeUpCitations(
-      withCalculatedFigures(blocks, (marker) => figures.get(marker) ?? null, answer),
+      withCalculatedFigures(
+        withAnalysisPictures(blocks, answer.analyses),
+        (marker) => figures.get(marker) ?? null,
+        answer,
+      ),
     ),
   );
 }
