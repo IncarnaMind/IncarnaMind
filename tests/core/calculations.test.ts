@@ -2740,6 +2740,9 @@ const ROW_KINDS_EN: readonly [string, string][] = [
   ["Payment date 15", "15"],
   ["ISIN 4471", "4471"],
   ["Phone 5550123", "5550123"],
+  ["Revenue per unit 12.34", "12.34"],
+  ["Average revenue per user 12.34", "12.34"],
+  ["Cash cost per tonne 85.2", "85.2"],
 ];
 const ROW_KINDS_ZH: readonly [string, string][] = [
   ["营业收入 1,234.5", "1,234.5"],
@@ -2757,6 +2760,9 @@ const ROW_KINDS_ZH: readonly [string, string][] = [
   ["付款日期 15", "15"],
   ["证券代码 4471", "4471"],
   ["联系电话 5550123", "5550123"],
+  ["每单位收入 12.34", "12.34"],
+  ["人均收入 12.34", "12.34"],
+  ["每吨现金成本 85.2", "85.2"],
 ];
 
 /**
@@ -2768,9 +2774,7 @@ const doubledRows = (revenue: number, perShare: [number, number] | null) => [
   perShare?.[0] ?? null,
   ...Array<null>(9).fill(null),
   perShare?.[1] ?? null,
-  null,
-  null,
-  null,
+  ...Array<null>(6).fill(null),
 ];
 
 // protects=#2365; fails_when=a row that isn't an amount (earnings per share, a percent, a ratio, a multiple, basis points, a count, an identifier) is scaled by its Document's scale line when the model quotes it, under any form of that line, in English or Chinese.
@@ -2859,7 +2863,12 @@ test.each([
 );
 
 /** Twice each of `quotes`, from a Word file of `lines` under `head`, with `head` as unitQuote; `null` where refused. */
-async function doubledUnder(head: string, lines: readonly string[], quotes: readonly string[]) {
+async function doubledUnder(
+  head: string,
+  lines: readonly string[],
+  quotes: readonly string[],
+  format: "word" | "text" = "word",
+) {
   const model = calculatingModel({
     queries: ["Pelican statement"],
     steps: [
@@ -2887,21 +2896,47 @@ async function doubledUnder(head: string, lines: readonly string[], quotes: read
     ],
     answer: quotes.map((_, index) => `[=${index + 1}]`).join(" "),
   });
+  const all = ["Pelican statement", head, ...lines];
   const { core } = await setUpCalculating(model, [
-    {
-      name: "Pelican statement.docx",
-      contents: docxOf(["Pelican statement", head, ...lines].map((text) => ({ text }))),
-    },
+    format === "word"
+      ? { name: "Pelican statement.docx", contents: docxOf(all.map((text) => ({ text }))) }
+      : { name: "Pelican statement.txt", contents: all.join("\n") },
   ]);
   const { answer } = await askAndRead(core, "What is each doubled?");
   const byMarker = new Map(answer.figures.map((figure) => [figure.marker, figure.value]));
   return quotes.map((_, index) => byMarker.get(index + 1) ?? null);
 }
 
-// protects=#2365; fails_when=a table read one cell per line gives a second year's number no label, so a per-share figure or a percent under the first year's is scaled: 1.10 EPS recorded as 2,200.
+const TEN_YEAR_EPS = [
+  "1.25",
+  "1.20",
+  "1.15",
+  "1.10",
+  "1.05",
+  "1.00",
+  "0.95",
+  "0.90",
+  "0.85",
+  "0.80",
+];
+const FOURTEEN_YEAR_EPS = [...TEN_YEAR_EPS, "0.75", "0.70", "0.65", "0.60"];
+
+/**
+ * Where a number's row label is (#2365): on its line, on the line above, above a column of like
+ * numbers (a record read one cell per line), or nowhere the page shows. Each figure is doubled
+ * with the scale line as its unitQuote; `null` is a refusal, the default when the row is unknown.
+ */
+// protects=#2365; fails_when=a number whose row the page doesn't show (past a long column, under a sentence, a blank line, a number written otherwise or the scale line itself) is scaled as an amount, or a per-share figure, a percent or a per-unit figure in a column is scaled with the amounts.
 test.each([
   {
-    language: "English",
+    layout: "labels on their own lines, and a per annum amount",
+    head: "(in thousands, except per share data)",
+    lines: ["Revenue 1,234.5", "Diluted EPS 1.25", "Rent payable per annum 334.5"],
+    quotes: ["1,234.5", "1.25", "334.5"],
+    doubled: [2_469_000, 2.5, 669_000],
+  },
+  {
+    layout: "a second year's column under the first, in English",
     head: "(in thousands, except per share data)",
     lines: [
       "Revenue",
@@ -2918,7 +2953,7 @@ test.each([
     doubled: [2_201_000, 2.2, null],
   },
   {
-    language: "Chinese",
+    layout: "a second year's column under the first, in Chinese",
     head: "单位：千元，每股收益除外",
     lines: [
       "营业收入",
@@ -2934,15 +2969,128 @@ test.each([
     quotes: ["1,100.5", "0.48", "26.1"],
     doubled: [2_201_000, 0.96, null],
   },
-])(
-  "a second year's number under the first takes the row's label from above: $language",
   {
-    timeout: 60_000,
+    layout: "a ten-year record of EPS, its 9th and 10th years",
+    head: "(in thousands, except per share data)",
+    lines: ["Diluted earnings per share", ...TEN_YEAR_EPS],
+    quotes: ["0.85", "0.80"],
+    doubled: [1.7, 1.6],
   },
+  {
+    layout: "a fourteen-year record, past the lines a label is looked for in",
+    head: "(in thousands, except per share data)",
+    lines: ["Diluted earnings per share", ...FOURTEEN_YEAR_EPS],
+    quotes: ["0.60"],
+    doubled: [null],
+  },
+  {
+    layout: "a ten-year record of a percent",
+    head: "(in thousands)",
+    lines: [
+      "Operating margin (%)",
+      "20.0",
+      "19.9",
+      "19.8",
+      "19.7",
+      "19.6",
+      "19.5",
+      "19.4",
+      "19.3",
+      "19.2",
+      "19.1",
+    ],
+    quotes: ["19.1"],
+    doubled: [null],
+  },
+  {
+    layout: "a sentence above a lone number",
+    head: "(in thousands, except per share data)",
+    lines: ["Earnings per share are shown in note 9.", "1,234.5"],
+    quotes: ["1,234.5"],
+    doubled: [null],
+  },
+  {
+    layout: "a total written otherwise under per-share rows",
+    head: "(in thousands, except per share data)",
+    lines: ["Earnings per share", "1.25", "1.10", "1,234.5"],
+    quotes: ["1,234.5"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head that states its own scale, above its number",
+    head: "Net debt (£m)",
+    lines: ["528.9"],
+    quotes: ["528.9"],
+    doubled: [1_057_800_000],
+  },
+  {
+    layout: "a lone number right under the scale line",
+    head: "(in thousands)",
+    lines: ["1,234.5"],
+    quotes: ["1,234.5"],
+    doubled: [null],
+  },
+])(
+  "a row's label decides its scale: $layout",
+  { timeout: 60_000 },
   async ({ head, lines, quotes, doubled }) => {
     expect(await doubledUnder(head, lines, quotes)).toEqual(doubled);
   },
 );
+
+// protects=#2365; fails_when=a number after a blank line takes the label of the block above it.
+test("a blank line ends the lines a lone number's label is looked for in", {
+  timeout: 60_000,
+}, async () => {
+  const head = "(in thousands, except per share data)";
+  const lines = ["Diluted earnings per share", "", "1.25"];
+  expect(await doubledUnder(head, lines, ["1.25"], "text")).toEqual([null]);
+  expect(
+    await doubledUnder(head, ["Diluted earnings per share", "1.25"], ["1.25"], "text"),
+  ).toEqual([2.5]);
+});
+
+// protects=#2365; fails_when="unless otherwise stated" isn't read as the line's exception, so a per-share row under it is refused for being per-share rather than for the line's own words.
+test("a per-share row under “unless otherwise stated” is refused for the line's exception", {
+  timeout: 60_000,
+}, async () => {
+  const head = "All figures in £'000 unless otherwise stated";
+  const model = calculatingModel({
+    queries: ["Pelican statement"],
+    steps: [
+      citeStatement("Pelican", ["Diluted EPS 1.25"], (cited) => [
+        {
+          tool: "calculate",
+          input: {
+            figures: [
+              {
+                marker: 1,
+                label: "Twice the EPS",
+                formula: "x * 2",
+                inputs: [
+                  { name: "x", label: "EPS", citation: cited[0], number: "1.25", unitQuote: head },
+                ],
+              },
+            ],
+          },
+        },
+      ]),
+    ],
+    answer: "[=1][^1]",
+  });
+  const { core } = await setUpCalculating(model, [
+    {
+      name: "Pelican statement.docx",
+      contents: docxOf(["Pelican statement", head, "Diluted EPS 1.25"].map((text) => ({ text }))),
+    },
+  ]);
+
+  await askAndRead(core, "What is twice the EPS?");
+
+  expect(told(model, "calculate")[0]).toContain(
+    `[=1] x: 1.25 is on a per-share row, and the unitQuote "${head}" scales its Document's amounts except where it notes otherwise`,
+  );
+});
 
 /** Ordinary rows of UK/IFRS, US GAAP and Chinese (CAS) statements: amounts a scale line covers. */
 const AMOUNT_ROWS_EN = [
