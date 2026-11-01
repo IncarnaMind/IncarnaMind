@@ -722,17 +722,6 @@ export function citationSentences(blocks: Y.XmlFragment): Map<
   return found;
 }
 
-/** The requests the checks on a Mind's blocks were made with, each once: what each kept unread (#740). */
-export function checkRequests(blocks: Y.XmlFragment): string[] {
-  return [
-    ...new Set(
-      checkedSentences(blocks)
-        .map(({ check }) => check.request)
-        .filter((request) => request !== ""),
-    ),
-  ];
-}
-
 /** Changes a check's result where its mark is now; false when its mark has gone (its sentence was deleted). */
 export function updateCheck(
   blocks: Y.XmlFragment,
