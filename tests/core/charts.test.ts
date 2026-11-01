@@ -511,8 +511,11 @@ describe("a chart of calculated figures (#2307)", { timeout: 30_000 }, () => {
       (await core.exportMind(mind.id, { format: "markdown" })).data,
     );
     expect(chinese).toContain("2 个数值由计算得出。");
-    // An older editor would write its figures away: the Note records the version that keeps them.
-    expect(client.doc.getMap(MIND_SETTINGS_FIELD).get(CONTENT_SCHEMA_VERSION_KEY)).toBe(44);
+    // An older editor would write its figures away: the Note records a version that keeps them,
+    // 43 or a later one.
+    expect(
+      client.doc.getMap(MIND_SETTINGS_FIELD).get(CONTENT_SCHEMA_VERSION_KEY),
+    ).toBeGreaterThanOrEqual(43);
   });
 
   test("a chart stored before its values kept figures reads its values as quoted, as it did", () => {

@@ -287,13 +287,18 @@ export interface CreateMindInput {
  *   so it opens these Notes read-only. Older content is version 43 content as
  *   it is: a chart drawn before holds no figure, and its values read as
  *   quoted until Update draws it again from its table.
- * - 44: a calculated figure worked out from a workbook's own formulas keeps
+ * - 44: a confirmed contradiction's correction (#1481): `correction` on a
+ *   contradicted part of a `claimCheck` mark (and on its figure or remainder)
+ *   holds the exact old words and up to two Document wordings with their
+ *   Citations, which an older editor would strip. Older content is version 44
+ *   content as it is.
+ * - 45: a calculated figure worked out from a workbook's own formulas keeps
  *   `workbook` (#2347): its cell, formula chain, saved value and a what-if's
  *   changed input, with no formula of its own. An older version's reader
  *   refuses a figure with no formula and no Analysis, so it opens these
- *   Notes read-only. Older content is version 44 content as it is.
+ *   Notes read-only. Older content is version 45 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 44;
+export const CONTENT_SCHEMA_VERSION = 45;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -5949,6 +5954,18 @@ export interface ClaimCalculation {
   agrees: boolean;
 }
 
+/** One Document's wording that can replace the contradicted part of a sentence. */
+export interface ClaimCorrectionChoice {
+  wording: string;
+  evidence: CitationAttributes;
+}
+
+/** A confirmed contradiction's exact old substring and the Document wording choices for it. */
+export interface ClaimCorrection {
+  from: string;
+  choices: ClaimCorrectionChoice[];
+}
+
 /** UTF-16 offsets into the checked sentence; end is exclusive. */
 export interface ClaimPartSpan {
   start: number;
@@ -5998,6 +6015,11 @@ export interface ClaimCheckPart extends ClaimPartPlan {
    * and where it is (#2226).
    */
   currencyClause?: string;
+  /**
+   * For "contradicted": the Document's wording for the part, `from` occurring exactly once in the
+   * part's own words.
+   */
+  correction?: ClaimCorrection;
 }
 
 export type ClaimPartJudgment = (
@@ -6091,6 +6113,8 @@ export type ClaimJudgment =
        * Documents say something different" (#770).
        */
       evidence: Citation | null;
+      /** A finally confirmed contradiction's exact replacement choices; absent for every other result. */
+      correction?: ClaimCorrection;
       /** For "supported" and "contradicted": what the Document says, in one plain sentence. */
       says: string | null;
       /** For "unsupported": why. Null for the other verdicts. */
@@ -6316,6 +6340,8 @@ export interface ClaimCheckBasis {
   text: string;
   /** "supported" and "contradicted": the Passage that decides it, as a Citation found. */
   evidence: CitationAttributes | null;
+  /** A confirmed contradiction's correction; absent for every other result. */
+  correction?: ClaimCorrection;
   /** "supported" and "contradicted": what the Document says, in one plain sentence. */
   says: string | null;
   /** "unsupported": why. */

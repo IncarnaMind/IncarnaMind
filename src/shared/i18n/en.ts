@@ -1012,6 +1012,12 @@ export const en = {
   "claim.useFigure.done": "Changed to {figure}",
   "claim.useFigure.moved":
     "Nothing was changed: the sentence isn’t where its check marked it. Check it again.",
+  "claim.correction": "Change to {wording}",
+  "claim.correction.command": "Change to the Document’s wording",
+  "claim.correction.doneMany": "Corrected {count} from the Documents",
+  "claim.correction.badge": "Correct {count} from the Documents",
+  "claim.correction.conflict":
+    "The newer {newerDocument} says {newerWording}; the {olderDocument} says {olderWording}.",
   "claim.unsupported.notFound": "I didn’t find this in “{scope}”.",
   "claim.unsupported.notFound.more": "I didn’t find this in “{scope}” or {count} more.",
   "claim.readAll.notFound": "I read all of “{scope}” and didn’t find this.",
