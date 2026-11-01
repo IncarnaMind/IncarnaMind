@@ -26,6 +26,7 @@ import { selectionForEdit } from "./editor/editSelection";
 import {
   editorDoc,
   editTarget,
+  outsideAgentOf,
   type PendingProposal,
   pendingIn,
   resolveInEditor,
@@ -477,8 +478,11 @@ export function resolveProposalsIn(
     (doc, done) => keepDecisions(doc, before, done, outcome),
   );
   if (resolved.length === 0) {
-    // Only changes out of date were picked: they can't be accepted, and the User hears why.
-    const theirs = picked.length > 0 && picked.every((each) => each.theirs);
+    // Only changes out of date were picked: they can't be accepted, and the User hears why. One
+    // that can't be made again (someone's, or an outside agent's) can only be rejected.
+    const theirs =
+      picked.length > 0 &&
+      picked.every((each) => each.theirs || outsideAgentOf(editor, each) !== null);
     if (outcome === "accept")
       speak(mindId, t(theirs ? "proposal.cantAccept.theirs" : "proposal.cantAccept"));
     return;

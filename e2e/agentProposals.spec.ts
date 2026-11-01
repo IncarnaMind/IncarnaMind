@@ -151,7 +151,7 @@ test("an agent the User lets propose changes: its change waits in the Note with 
         arguments: {
           mindId,
           version: named.version,
-          changes: [{ paragraph: "¶1", text: "Tides rise and fall twice a day." }],
+          changes: [{ paragraph: "¶1", text: "Tides rise and fall two times a day." }],
         },
       });
       expect(proposed.isError ?? false).toBe(false);
@@ -168,7 +168,7 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await shot(window, "agent-proposals-waiting-en");
 
     await pointAndClick(window, bar.getByTestId("change-accept"));
-    await expect(editor.locator(":scope > p")).toHaveText(["Tides rise and fall twice a day."]);
+    await expect(editor.locator(":scope > p")).toHaveText(["Tides rise and fall two times a day."]);
     await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
     await expect
       .poll(() =>
@@ -183,13 +183,24 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await editor.focus();
     await window.keyboard.press("ControlOrMeta+z");
     await expect(window.getByTestId("proposals-count")).toHaveText("1 change waiting");
-    await expect(editor.locator(":scope > p")).toHaveText(["Tides rise and fall twice a day."]);
+    await expect(editor.locator("del.proposal-delete")).toHaveText("twice");
 
     await setLanguage(window, "zh-CN");
     await expect(window.getByTestId("proposals-agents")).toHaveText("Research agent 建议");
     await pointAndClick(window, editor.locator("ins.proposal-insert").first());
     await expect(bar.getByTestId("change-bar-author")).toHaveText("Research agent 建议");
     await shot(window, "agent-proposals-waiting-zh");
+
+    // The User edits the word it replaces: out of date, it can only be rejected, since
+    // IncarnaMind can't ask the agent to make it again.
+    await pointAndClick(window, editor.locator("del.proposal-delete"));
+    await window.keyboard.type("x");
+    const stale = window.getByTestId("change-out-of-date");
+    await expect(stale.getByTestId("change-reject")).toBeVisible();
+    await expect(stale.getByTestId("change-regenerate")).toHaveCount(0);
+    await shot(window, "agent-proposals-out-of-date-zh");
+    await pointAndClick(window, stale.getByTestId("change-reject"));
+    await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
   } finally {
     await app.close();
   }
