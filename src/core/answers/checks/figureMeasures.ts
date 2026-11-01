@@ -92,6 +92,21 @@ function tableOf(text: string, quote: string): string | null {
 }
 
 /**
+ * The words of `text` from the start of the sentence that holds `quote` to the quote's end: a
+ * clause such as "up from £4,860.0m a year earlier" takes its measure from the words before it
+ * ("Revenue was £4,983.4m, …"). Null when `text` doesn't hold the quote as written.
+ */
+function leadingTo(text: string, quote: string): string | null {
+  const at = text.indexOf(quote);
+  if (at < 0) return null;
+  const before = text.slice(0, at);
+  const ends = [...before.matchAll(/[.!?;](?:\s|$)|[。！？；\n]/gu)];
+  const last = ends.at(-1);
+  const start = last?.index === undefined ? 0 : last.index + last[0].length;
+  return text.slice(start, at + quote.length);
+}
+
+/**
  * The words as a reason shows them: a capital that only starts a sentence, a cell or a heading
  * ("Revenue grew 12%", "| On-time rate |") is lower case in the middle of the reason's.
  */
@@ -138,14 +153,16 @@ export function measureFinding(
   const bare = !namesSomething(quote);
   const quoted = measure.quote;
   // A table's cell is named by its row label and its column's heading, which a quote of the cell
-  // or its row may leave out; a quote of a number alone, by the words its Passage puts around it.
+  // or its row may leave out; a clause, by its sentence's words before it; a quote of a number
+  // alone, by the words its Passage puts around it. Words after the quote, or in another
+  // sentence, name another number.
   const found =
     quoted === null || !namesSomething(quoted)
       ? []
       : namedIn(quote, quoted)
         ? [quote]
         : passage().flatMap((text) => {
-            const around = tableOf(text, quote) ?? (bare ? text : null);
+            const around = tableOf(text, quote) ?? leadingTo(text, quote) ?? (bare ? text : null);
             return around !== null && namedIn(around, quoted) ? [around] : [];
           });
   // A measure the reply itself says differs backs nothing, whatever words it gives the quote's.
