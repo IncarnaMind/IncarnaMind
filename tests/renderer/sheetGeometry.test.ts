@@ -55,7 +55,7 @@ describe("a cell's look", () => {
   const style = (extra: Partial<CellStyle>): CellStyle => ({ font: {}, border: {}, ...extra });
 
   test("Office fonts fall back to the app's own of the same kind", () => {
-    expect(fontFamily("Calibri")).toBe('"Calibri", var(--font-sans)');
+    expect(fontFamily("Calibri")).toBe('"IncarnaMind Office Calibri", var(--font-sans)');
     expect(fontFamily("Times New Roman")).toBe('"Times New Roman", var(--font-serif)');
     expect(fontFamily("Consolas")).toBe('"Consolas", var(--font-mono)');
     expect(fontFamily(undefined)).toBe("var(--font-sans)");

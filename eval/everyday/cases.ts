@@ -562,6 +562,49 @@ const SELECTED: readonly EverydayCase[] = [
   },
 ];
 
+// Several Documents over smaller sets, worded otherwise, with the example made first as on a first
+// run (#894). Asked last in their libraries, so the example is there for none of the others. The
+// example is a facilities agreement too, so over the covenant folder only a Citation of it counts
+// as a mention, not its words.
+const SMALLER_SETS: readonly EverydayCase[] = [
+  {
+    id: "cover-cedar-en",
+    language: "en",
+    library: "cedar",
+    mind: { title: "Covenant review", blocks: ["Notes for the covenant review."] },
+    afterExample: true,
+    request: "Give me an overview of each of these files",
+    expected: EITHER_ALL,
+  },
+  {
+    id: "cover-cedar-zh",
+    language: "zh-CN",
+    library: "cedar-zh",
+    mind: { title: "契约审查", blocks: ["契约审查的笔记。"] },
+    afterExample: true,
+    request: "把这几份文件逐一概括一下",
+    expected: EITHER_ALL,
+  },
+  {
+    id: "cover-dated-en",
+    language: "en",
+    library: "dated",
+    mind: { title: "Contracts", blocks: ["Notes on the contracts and minutes."] },
+    afterExample: true,
+    request: "Write a recap page of all my documents",
+    expected: { ...WRITE_ALL, noExample: true },
+  },
+  {
+    id: "cover-dated-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: { title: "合同", blocks: ["合同和会议纪要的笔记。"] },
+    afterExample: true,
+    request: "帮我写一页所有文档的摘要",
+    expected: { ...WRITE_ALL, noExample: true },
+  },
+];
+
 export const CASES: readonly EverydayCase[] = [
   // The owner's own conversation, 2026-10-15.
   {
@@ -1864,4 +1907,5 @@ export const CASES: readonly EverydayCase[] = [
   ...CEDAR,
   ...THIS_DOCUMENT,
   ...SELECTED,
+  ...SMALLER_SETS,
 ];

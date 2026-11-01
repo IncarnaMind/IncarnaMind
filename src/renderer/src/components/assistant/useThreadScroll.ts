@@ -73,8 +73,21 @@ export function useThreadScroll(
       const room = roomUnder(scroller, element);
       element.style.paddingBottom = `${room}px`;
       if (room > 0) {
-        // A shorter Answer for a moment clamps the scroll before the room is refilled.
-        if (scroller.scrollTop < turn.current.top) scrollThreadTo(scroller, turn.current.top);
+        // A resize, a dock or a float rewraps the messages above the Question, moving it in the
+        // thread; the Question stays at the panel's top by scrolling to where it is now. This also
+        // takes back the clamp a shorter Answer for a moment can make.
+        const question = newestQuestion(element);
+        if (question) {
+          const top =
+            question.getBoundingClientRect().top -
+            scroller.getBoundingClientRect().top +
+            scroller.scrollTop -
+            paddingOf(scroller, "Top");
+          turn.current = { top };
+          scrollThreadTo(scroller, top);
+        } else if (scroller.scrollTop < turn.current.top) {
+          scrollThreadTo(scroller, turn.current.top);
+        }
         return;
       }
       release(turn, scroller);

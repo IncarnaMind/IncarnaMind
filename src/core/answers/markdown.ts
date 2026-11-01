@@ -43,6 +43,9 @@ export function markdownToBlocks(markdown: string, options: MarkdownOptions = {}
 }
 
 const PARTIAL_MARKER = /^[ \t]*(?:[-*+_]{1,2}|\d{1,9}[.)]?|#{1,6}|>|[`~]{1,2}|\$|\\)$/;
+
+/** The level the export writes above a list that starts a level deeper, which its indent alone can't say. */
+const START_LEVEL = /^<!-- start-level: ([1-8]) -->$/;
 const FENCE = /^( {0,3})(`{3,}|~{3,})[ \t]*([^\s`]*)[^`]*$/;
 const MATH_BLOCK = /^ {0,3}(\$\$|\\\[)(.*)$/;
 const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
@@ -120,6 +123,32 @@ function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
     const line = lines[i] as string;
     if (isBlank(line)) {
       i++;
+      continue;
+    }
+    const declared = START_LEVEL.exec(line.trim());
+    if (declared) {
+      // The export indents the list three spaces a level (#1419); only under its comment, so a
+      // model's indented line is never read as a list.
+      const level = Number(declared[1]);
+      const width = 3 * level;
+      let end = i + 1;
+      while (end < lines.length) {
+        if (isBlank(lines[end] as string)) {
+          let next = end;
+          while (next < lines.length && isBlank(lines[next] as string)) next++;
+          if (next < lines.length && indentOf(lines[next] as string) >= width) end = next;
+          else break;
+        } else if (indentOf(lines[end] as string) >= width) end++;
+        else break;
+      }
+      const inner = parseBlocks(
+        lines.slice(i + 1, end).map((each) => dedent(each, width)),
+        open && end >= lines.length,
+      );
+      const [first] = inner;
+      if (first?.type === "orderedList") first.attrs = { ...first.attrs, startLevel: level };
+      blocks.push(...inner);
+      i = end;
       continue;
     }
     const isLast = i === lines.length - 1;
@@ -446,8 +475,21 @@ type Token =
 
 const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/;
 const isWhitespace = (char: string | undefined) => char === undefined || /\s/.test(char);
-const isPunctuation = (char: string | undefined) =>
+const isUnicodePunctuation = (char: string | undefined) =>
   char !== undefined && /[\p{P}\p{S}]/u.test(char);
+/**
+ * Chinese writes its punctuation with no spaces around it. Beside a `**` or `~~` delimiter, a
+ * full-width or CJK punctuation mark counts like a letter, never like the ASCII punctuation
+ * CommonMark would hold the emphasis back for: `**上限：**5000 元` and `每月5000**（含税）**` are bold
+ * (#1774), as markdown-cjk-friendly reads them. A lone `*` and `_`'s intraword rule keep it
+ * punctuation, so `3*（2+1）*4` stays as written and `（_强调_）` is italic.
+ */
+const isCjkPunctuation = (char: string | undefined) =>
+  char !== undefined &&
+  /[\u3000-\u303f\ufe10-\ufe19\ufe30-\ufe4f\uff00-\uffef]/u.test(char) &&
+  /[\p{P}\p{S}]/u.test(char);
+const isPunctuation = (char: string | undefined) =>
+  isUnicodePunctuation(char) && !isCjkPunctuation(char);
 /**
  * Chinese has no spaces, so CommonMark's flanking rule leaves `**仍未确定：**下一步` unclosed
  * (#790). Beside punctuation, a CJK letter counts like a space, as in markdown-cjk-friendly.
@@ -686,22 +728,37 @@ function tokenize(source: string, open: boolean): Token[] {
       }
       const before = i > 0 ? source[i - 1] : undefined;
       const after = source[i + run];
+      // A lone `*` beside CJK punctuation follows CommonMark and counts it as punctuation, so
+      // `3*（2+1）*4` stays as written; `**` and `~~` let it stand like a letter (#1774).
+      const punctuation = char === "*" && run === 1 ? isUnicodePunctuation : isPunctuation;
       const leftFlanking =
         !isWhitespace(after) &&
-        (!isPunctuation(after) || isWhitespace(before) || isPunctuation(before) || isCjk(before));
+        (!punctuation(after) ||
+          isWhitespace(before) ||
+          punctuation(before) ||
+          isCjk(before) ||
+          isCjkPunctuation(before));
       const rightFlanking =
         !isWhitespace(before) &&
-        (!isPunctuation(before) || isWhitespace(after) || isPunctuation(after) || isCjk(after));
+        (!punctuation(before) ||
+          isWhitespace(after) ||
+          punctuation(after) ||
+          isCjk(after) ||
+          isCjkPunctuation(after));
       flush();
       tokens.push({
         kind: "delimiter",
         char,
         count: run,
-        // "_" doesn't emphasise inside words (snake_case).
+        // "_" doesn't emphasise inside words (snake_case), but may open or close beside punctuation.
         canOpen:
-          char === "_" ? leftFlanking && (!rightFlanking || isPunctuation(before)) : leftFlanking,
+          char === "_"
+            ? leftFlanking && (!rightFlanking || isUnicodePunctuation(before))
+            : leftFlanking,
         canClose:
-          char === "_" ? rightFlanking && (!leftFlanking || isPunctuation(after)) : rightFlanking,
+          char === "_"
+            ? rightFlanking && (!leftFlanking || isUnicodePunctuation(after))
+            : rightFlanking,
         marks: [],
       });
       i += run;
@@ -724,11 +781,18 @@ export interface Look {
 
 const withoutDelimiters = (text: string) => text.replace(/[*_~]/g, "");
 
-/** `\*`, `\_`, `\~` and `\\` as the characters they stand for. */
-export const withoutEmphasisEscapes = (text: string) => text.replace(/\\([\\*_~])/g, "$1");
+/** `\*`, `\_`, `\~`, `\\` and `\<removed>` as the characters they stand for. */
+export const withoutEmphasisEscapes = (text: string) =>
+  text.replace(/\\([\\*_~]|<(?=\/?removed[\s/>]))/gi, "$1");
 
 /** The characters that would read as emphasis or an escape in `text`, each escaped, so they stay as typed. */
 export const escapeEmphasis = (text: string) => text.replace(/[\\*_~]/g, "\\$&");
+
+/**
+ * A typed `<removed>` escaped: unescaped, it is the mark around what a rewrite takes out
+ * (#2180). Apart from `escapeEmphasis` because the words it is made of arrive one at a time.
+ */
+export const escapeRemovedMark = (text: string) => text.replace(/<(?=\/?removed[\s/>])/gi, "\\<");
 
 /**
  * A line as its plain words with the look each character has from the

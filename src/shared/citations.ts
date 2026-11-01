@@ -36,6 +36,7 @@ const CITATION_CHECKS: readonly CitationCheck[] = [
   "found",
   "not-found",
   "cant-check",
+  "not-checked",
   "unsupported",
   "contradicted",
 ];
@@ -481,6 +482,14 @@ function placeOf(
   return { where: readsIn(location) ? "in" : "on", params };
 }
 
+/**
+ * Whether a Citation's check gave a result: its quote was found or not, or its sentence came out
+ * unsupported or contradicted. Checking, can't check and not checked have no result, so nothing
+ * may say the Citation was checked (#2375).
+ */
+export const citationCheckRan = (check: CitationCheck): boolean =>
+  check === "found" || check === "not-found" || check === "unsupported" || check === "contradicted";
+
 /** The message key and parameters of a Citation's badge, its Location worded with `t`. */
 export function badgeMessage(
   state: CitationState,
@@ -497,6 +506,8 @@ export function badgeMessage(
       return { key: `citation.badge.notFound.${where}`, params };
     case "cant-check":
       return { key: "citation.badge.cantCheck" };
+    case "not-checked":
+      return { key: "citation.badge.notChecked" };
     case "unsupported":
       return { key: "citation.badge.unsupported" };
     case "contradicted":

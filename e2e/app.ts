@@ -906,12 +906,17 @@ export async function busyOllama() {
 }
 
 /**
- * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): each is one click, and
- * the composer takes the card's place. The Question that waited is asked as step 1 works.
+ * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): they wait as one quiet
+ * line above the composer (#2310), opened from there; each is one click above the composer, and
+ * both the card and its line go when both are done.
  */
 export async function continueSetup(window: Page): Promise<void> {
-  const card = window.getByTestId("model-setup");
-  await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+  const card = await openSetupSteps(window);
+  const step = card
+    .getByTestId("setup-step-transcription")
+    .or(card.getByTestId("setup-step-sorting"))
+    .first();
+  await expect(step).toBeVisible({ timeout: 15_000 });
   const transcription = card.getByTestId("setup-transcription-use");
   if (await transcription.isVisible()) await pointAndClick(window, transcription);
   const sorting = card.getByTestId("setup-sorting-use");
@@ -919,6 +924,7 @@ export async function continueSetup(window: Page): Promise<void> {
   await expect(sorting).toBeEnabled();
   await pointAndClick(window, sorting);
   await expect(card).toBeHidden();
+  await expect(window.getByTestId("assistant-setup-line")).toHaveCount(0);
 }
 
 /**
@@ -933,6 +939,21 @@ export async function askFirstQuestion(window: Page): Promise<Locator> {
   await window.keyboard.press("Enter");
   const card = window.getByTestId("model-setup");
   await expect(card).toBeVisible();
+  return card;
+}
+
+/**
+ * Opens steps 2 and 3, still to do after a model works, from their quiet line above the composer
+ * (#2310). Does nothing when a step is already open above the composer; the composer stays below.
+ */
+export async function openSetupSteps(window: Page): Promise<Locator> {
+  const card = window.getByTestId("model-setup");
+  const line = window.getByTestId("assistant-setup-line");
+  // The line waits once a model works; step 1's card alone means the key is still being checked.
+  // A step already open keeps its card above the line.
+  await expect(line).toBeVisible({ timeout: 15_000 });
+  if (!(await card.isVisible())) await pointAndClick(window, line);
+  await expect(card).toBeVisible({ timeout: 15_000 });
   return card;
 }
 
@@ -2791,7 +2812,7 @@ const answerEnded = (window: Page, known: readonly string[]) =>
 /**
  * Asks a Question as a person does: ⌘J, the words, Enter. It is asked in the
  * assistant's conversation (#201); resolves with its Answer there once the assistant says its
- * stream ended and the page shows it done. The scripted model streams a word every
+ * stream ended, the page shows it done, and its sentences are judged (#2311). The scripted model streams a word every
  * 60 ms, so a wide table takes about 7 s on a quiet computer, and a loaded runner took more than
  * twice the old 15 s ceiling (#1651).
  */
@@ -2825,6 +2846,10 @@ export async function askInAssistant(
   await expect(endedHere).toHaveAttribute(
     "data-status",
     end.status === "closed" ? "done" : end.status,
+    { timeout },
+  );
+  await expect(endedHere.locator('[data-testid="citation"][data-check="checking"]')).toHaveCount(
+    0,
     { timeout },
   );
   return answer;
@@ -2905,6 +2930,10 @@ export async function openSteps(window: Page, answer: Locator): Promise<Locator>
  */
 export async function addToNote(window: Page, answer: Locator): Promise<void> {
   await pointAt(window, answer.getByTestId("assistant-answer-text"));
+  // A Citation marker under the pointer opens its card over the Answer's foot: let it close
+  // before aiming at the button, as a person does, or the card takes the click.
+  await window.mouse.move(0, 0);
+  await expect(window.getByTestId("citation-card")).toHaveCount(0);
   await pointAndClick(window, answer.getByTestId("answer-add"));
   await expect(answer.getByTestId("answer-added")).toBeVisible();
   await expect(window.locator(".block-just-added")).toHaveCount(0);
@@ -3439,4 +3468,78 @@ export async function askToChange(window: Page, instruction: string) {
   await window.keyboard.press("Enter");
   await expect(window.getByTestId("edit-pending")).toHaveCount(0);
   await expect(window.getByTestId("selection-edit-working")).toHaveCount(0);
+}
+
+/**
+ * The core's `channel` as a core that can't always answer would: while `failing`, every call
+ * fails, and the next `failNext` calls fail; the next `hold` calls wait, before the core's handler or, with `after`, after it has
+ * answered; and `settle` ends the oldest one held (`resolveAll`, all of them). Resolves to how
+ * many calls are held.
+ */
+export function controlReads(
+  app: ElectronApplication,
+  channel: string,
+  change: {
+    failing?: boolean;
+    failNext?: number;
+    hold?: number;
+    after?: boolean;
+    settle?: "reject" | "resolve" | "resolveAll";
+  },
+): Promise<number> {
+  return app.evaluate(
+    ({ ipcMain }, { name, what }) => {
+      interface Control {
+        failing: boolean;
+        failNext: number;
+        hold: number;
+        after: boolean;
+        held: ((how: "reject" | "resolve") => void)[];
+      }
+      const store = globalThis as unknown as { readControls?: Record<string, Control> };
+      const controls = store.readControls ?? {};
+      store.readControls = controls;
+      let control = controls[name];
+      if (!control) {
+        const own: Control = { failing: false, failNext: 0, hold: 0, after: false, held: [] };
+        control = own;
+        controls[name] = own;
+        const handlers = (
+          ipcMain as unknown as {
+            _invokeHandlers: Map<string, (event: unknown, ...args: unknown[]) => unknown>;
+          }
+        )._invokeHandlers;
+        const original = handlers.get(name);
+        if (!original) throw new Error(`The ${name} handler is unavailable.`);
+        ipcMain.removeHandler(name);
+        ipcMain.handle(name, (event, ...args) => {
+          if (own.hold > 0) {
+            own.hold -= 1;
+            const answered = own.after ? Promise.resolve(original(event, ...args)) : null;
+            return new Promise((resolve, reject) => {
+              own.held.push((how) =>
+                how === "reject"
+                  ? reject(new Error(`${name} is temporarily unavailable.`))
+                  : resolve(answered ?? original(event, ...args)),
+              );
+            });
+          }
+          if (own.failing || own.failNext > 0) {
+            own.failNext = Math.max(0, own.failNext - 1);
+            throw new Error(`${name} is temporarily unavailable.`);
+          }
+          return original(event, ...args);
+        });
+      }
+      if (what.failing !== undefined) control.failing = what.failing;
+      if (what.failNext !== undefined) control.failNext = what.failNext;
+      if (what.hold !== undefined) control.hold = what.hold;
+      if (what.after !== undefined) control.after = what.after;
+      if (what.settle === "resolveAll") {
+        for (const end of control.held.splice(0)) end("resolve");
+      } else if (what.settle) control.held.shift()?.(what.settle);
+      return control.held.length;
+    },
+    { name: channel, what: change },
+  );
 }

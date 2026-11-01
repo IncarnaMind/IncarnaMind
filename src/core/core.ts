@@ -41,6 +41,7 @@ import {
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
+import { readableQuoteText } from "../shared/readableQuote";
 import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
@@ -53,7 +54,6 @@ import {
   type ScopeKind,
 } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
-import { setUnreadFileNames } from "../shared/unreadFiles";
 import { readVerification, verificationOf, writeVerification } from "../shared/verification";
 import { wordFileOf } from "../shared/wordFiles";
 import { wordFontsOf, wordLookOf } from "../shared/wordLook";
@@ -97,6 +97,7 @@ import {
   type ChatProviderKind,
   type CheckRecordFailure,
   type CheckRecordFormat,
+  type CitationAttributes,
   CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
@@ -234,13 +235,14 @@ import { documentCitedPages, documentPageImages } from "./library/pageImages";
 import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
 import type { TaggingClassifier } from "./library/types";
-import { createMeetings, isMemo } from "./meetings";
+import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createTranscripts } from "./meetings/transcript";
+import { meetingWords } from "./meetings/words";
 import { accessFor, isKnownKind, parseKind } from "./mindAccess";
 import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
@@ -254,6 +256,7 @@ import {
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
+import { newestReads } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
 import { createOutputFiles, fileProblem, fingerprintOf } from "./outputFiles";
@@ -312,7 +315,8 @@ import { createSourceProviders, sourceKeySecret } from "./sources/providers";
 import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
 import { createTags, tagsOfDocument } from "./tags";
-import { chatClassifier } from "./tags/classify";
+import { chatClassifier, type TagClassifier } from "./tags/classify";
+import { mayBackgroundSend } from "./tags/held";
 import { createJevTagging, decisionModelTagger } from "./tags/jev";
 import { createRateLimitPause } from "./tags/rateLimit";
 import { createTagger, TAGGING_FLOW_SENDS } from "./tags/tagger";
@@ -329,6 +333,7 @@ import {
   QWEN3_ASR_0_6B,
   TRANSCRIPTION_SPEED,
 } from "./transcription/model";
+import { inScript } from "./transcription/script";
 import { createSpeakerModel } from "./transcription/speakerModel";
 import { createUnsavedChanges } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
@@ -1870,6 +1875,8 @@ export function createCore(adapters: CoreAdapters): Core {
     liveTranscript: (mindId) => liveTranscriptOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     providerExists: (providerId) => chat.exists(providerId),
+    checkAnswer: (input) => checks.checkAnswer(input),
+    estimateAnswerCheck: (input) => checks.estimateAnswerCheck(input),
     defaultModel: () => settings.get().user.chatModel,
     readsImages: (choice) => chat.readsImages(choice),
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
@@ -1901,7 +1908,8 @@ export function createCore(adapters: CoreAdapters): Core {
       searchableNames: (documentIds, limit) =>
         documents.searchableNames(documentIds ?? undefined, limit),
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
-      searchableHasSheets: (documentIds) => documents.searchableHasSheets(documentIds ?? undefined),
+      searchableHasSheets: (documentIds, workbooksOnly) =>
+        documents.searchableHasSheets(documentIds ?? undefined, workbooksOnly),
       passage: (passageId) => documents.passage(passageId),
       passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
       passagesCovering: (documentId, from, to, overlapping) =>
@@ -2075,6 +2083,12 @@ export function createCore(adapters: CoreAdapters): Core {
         if (answer) events.emit("conversation.message", answer);
         return answer !== null;
       },
+      answer: (answerId) => conversations.answer(answerId),
+      writeCitations: (answerId, text, citations) => {
+        const answer = conversations.writeCitations(answerId, text, citations);
+        if (answer) events.emit("conversation.message", answer);
+        return answer !== null;
+      },
       writeToolCalls: (answerId, toolCalls) => {
         const answer = conversations.writeToolCalls(answerId, toolCalls);
         if (answer) events.emit("conversation.message", answer);
@@ -2241,7 +2255,7 @@ export function createCore(adapters: CoreAdapters): Core {
           confidence: null,
           needsReview: false,
         }));
-        if (tags.applyAutomatic(documentId, decided)) announceTagged([documentId]);
+        if (tags.applyAutomatic(documentId, decided).changed) announceTagged([documentId]);
       },
     },
     notes: {
@@ -2352,22 +2366,32 @@ export function createCore(adapters: CoreAdapters): Core {
     return { style, textLanguage: chineseText ? ("zh-CN" as const) : ("en" as const) };
   };
   const mindCitationStyle = (mindId: string): MindCitationStyle => mindStyleAndText(mindId).style;
-  /** Sends a Mind to Recently deleted; its tabs close. `at`: Undo of a Restore deleting it again. */
-  const removeMind = (mindId: unknown, at: string = now()) => {
-    const deleted = db.transaction(() => {
-      const mind = minds.delete(mindId, at);
-      content.remove(mind.id, at);
-      return mind;
-    });
-    content.removed(deleted.id, at);
-    meetings.mindDeleted(deleted.id);
-    mindsChanged();
-    layouts.forgetDeletedMinds();
-  };
-
   /** Sends a Document or several to Recently deleted. */
   const removeDocuments = (ids: readonly string[], at: string = now()) => {
     for (const deleted of documents.delete(ids, at)) activity.documentDeleted(deleted);
+  };
+
+  /**
+   * Sends a Mind to Recently deleted; its tabs close. `at`: Undo of a Restore deleting it again.
+   * Its Meeting goes with it, stopped first as Stop stops it, and its Transcript Document (#1253).
+   */
+  const removeMind = (mindId: unknown, at: string = now()) => {
+    const recording = typeof mindId === "string" ? meetings.liveOf(mindId) : null;
+    if (recording) stopMeeting(recording.id);
+    const { deleted, meetingIds } = db.transaction(() => {
+      const mind = minds.delete(mindId, at);
+      content.remove(mind.id, at);
+      const meeting = meetings.deletedWith(mind.id, at);
+      removeDocuments(
+        meeting.transcripts.filter((id) => liveDocument(id)),
+        at,
+      );
+      return { deleted: mind, meetingIds: meeting.meetingIds };
+    });
+    for (const meetingId of meetingIds) meetingFill.halt(meetingId);
+    content.removed(deleted.id, at);
+    mindsChanged();
+    layouts.forgetDeletedMinds();
   };
 
   /** Sends a conversation to Recently deleted; what an Answer being written has is kept, before it goes. */
@@ -2625,6 +2649,12 @@ export function createCore(adapters: CoreAdapters): Core {
       return metered && meter.estimateRead(metered, read);
     },
     readSpent: (requestId, currency) => meter.runSpent(requestId, currency),
+    capLeft() {
+      const { cap, spentTowardCap, setAsideTowardCap } = meter.summary();
+      if (!cap) return null;
+      const used = (spentTowardCap?.amount ?? 0) + (setAsideTowardCap?.amount ?? 0);
+      return { currency: cap.currency, amount: cap.amount - used };
+    },
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
@@ -2684,21 +2714,31 @@ export function createCore(adapters: CoreAdapters): Core {
     const marked = ownFiles.record(data, kind, folderId);
     for (const document of documents.getMany(marked)) events.emit("document.status", document);
   };
+  const quoteAsRead = ({
+    documentId,
+    contentHash,
+    pageFrom,
+    pageTo,
+    quote,
+  }: Partial<CitationAttributes>): string | null => {
+    if (!quote) return null;
+    const fromDocument = documentId
+      ? documents.readableQuote({
+          documentId,
+          contentHash: contentHash ?? null,
+          pageFrom: pageFrom ?? null,
+          pageTo: pageTo ?? null,
+          quote,
+        })
+      : null;
+    return fromDocument ?? readableQuoteText(quote);
+  };
   const exportDependencies: ExportsDependencies = {
     mind: (mindId) => minds.get(mindId),
     read: (mindId, look) => content.read(mindId, look),
     liveDocuments: () => documents.list(),
     keptCitationTexts: () => documents.keptCitationTexts(),
-    readableQuote: ({ documentId, contentHash, pageFrom, pageTo, quote }) =>
-      documentId && quote
-        ? documents.readableQuote({
-            documentId,
-            contentHash: contentHash ?? null,
-            pageFrom: pageFrom ?? null,
-            pageTo: pageTo ?? null,
-            quote,
-          })
-        : null,
+    readableQuote: quoteAsRead,
     language: () => settings.get().language,
     scopeItemName,
     citationStyle: (mindId) => {
@@ -2911,6 +2951,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     linkedFolders: () => documents.linkedFolders.list(),
     recordOwnFile,
+    log: adapters.log ?? silentLogger,
   });
   /**
    * The files an export writes beside its own, in the folder it went to (#1937): a Markdown
@@ -3070,7 +3111,41 @@ export function createCore(adapters: CoreAdapters): Core {
       key:
         classifier.kind === "auto" ? "error.library.autoNotLocal" : "error.library.ollamaNotLocal",
     });
+  /** The tagger for a resolved choice of model (see `prepare` below). */
+  const prepareTagger = async (classifier: TaggingClassifier): Promise<TagClassifier> => {
+    switch (classifier.kind) {
+      case "jev":
+        return jev.prepare();
+      case "auto": {
+        const model = await tagging.textDecisionModel(classifier.baseUrl);
+        if (!model)
+          throw new TaggingNotReadyError({
+            key: "error.tagging.installModel",
+            values: { model: "tev1:4b" },
+          });
+        return decisionModelTagger({ baseUrl: classifier.baseUrl, model });
+      }
+      case "ollama":
+        return decisionModelTagger({ baseUrl: classifier.baseUrl, model: classifier.modelId });
+      case "chat": {
+        const prepared = await chat.prepareModel(classifier.choice, "tagging");
+        if (embedding.localOnly() && prepared.provider.service)
+          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+        // No service to send to: the model runs on a server on this computer.
+        const chosen = chatClassifier(prepared.model, {
+          local: prepared.provider.service === null,
+        });
+        const plan = planPaceOf(prepared.provider.kind);
+        if (!plan) return chosen;
+        return {
+          ...chosen,
+          decide: (input) => plan.run(() => chosen.decide(input), input.signal),
+        };
+      }
+    }
+  };
   const tagger = createTagger({
+    maySend: (id, service) => mayBackgroundSend(db, id, [service], library.turnedOnAt),
     db,
     now,
     tags,
@@ -3102,38 +3177,12 @@ export function createCore(adapters: CoreAdapters): Core {
       if (decisionModelElsewhere(classifier)) throw notOnThisComputer(classifier);
       if (embedding.localOnly() && tagging.service(classifier))
         throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      switch (classifier.kind) {
-        case "jev":
-          return jev.prepare();
-        case "auto": {
-          const model = await tagging.textDecisionModel(classifier.baseUrl);
-          if (!model)
-            throw new TaggingNotReadyError({
-              key: "error.tagging.installModel",
-              values: { model: "tev1:4b" },
-            });
-          return decisionModelTagger({ baseUrl: classifier.baseUrl, model });
-        }
-        case "ollama":
-          return decisionModelTagger({ baseUrl: classifier.baseUrl, model: classifier.modelId });
-        case "chat": {
-          const prepared = await chat.prepareModel(classifier.choice, "tagging");
-          if (embedding.localOnly() && prepared.provider.service)
-            throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-          // No service to send to: the model runs on a server on this computer.
-          const chosen = chatClassifier(prepared.model, {
-            local: prepared.provider.service === null,
-          });
-          const plan = planPaceOf(prepared.provider.kind);
-          if (!plan) return chosen;
-          return {
-            ...chosen,
-            decide: (input) => plan.run(() => chosen.decide(input), input.signal),
-          };
-        }
-      }
+      return { ...(await prepareTagger(classifier)), service: tagging.service(classifier) };
     },
+    // A hint only: the tagger prepared decides whether it names Tags.
+    namesTags: () => tagsWith()?.kind === "chat",
     announce: announceTagged,
+    tagsMade: tagsChanged,
     reportError: (error) => console.error(error),
     background,
     rateLimit,
@@ -3146,6 +3195,7 @@ export function createCore(adapters: CoreAdapters): Core {
     db,
     tags,
     tagged: announceTagged,
+    tagsMade: tagsChanged,
     now,
     settings,
     background,
@@ -3174,17 +3224,33 @@ export function createCore(adapters: CoreAdapters): Core {
         }
       }
     },
-    usesCloud: ({ classifier, organizeWith }) => {
-      const sorts = classifier.kind === "automatic" ? organizeWith : classifier;
-      if (sorts && tagging.service(sorts) !== null) return true;
-      if (classifier.kind !== "automatic") return tagging.service(classifier) !== null;
+    sendsTo: ({ classifier, organizeWith }) => {
+      const services = new Map<string, ExternalService>();
+      const add = (service: ExternalService | null | undefined) => {
+        if (service) services.set(service.id, service);
+      };
+      if (classifier.kind !== "automatic") {
+        add(tagging.service(classifier));
+        return [...services.values()];
+      }
+      if (organizeWith) add(tagging.service(organizeWith));
       const picked = tagging.lastResolved();
-      if (picked) return tagging.service(picked) !== null;
-      // Not worked out yet: Jev, else the chat model, where Automatic looks first.
-      if (jev.service()) return true;
-      const chosen = settings.get().user.chatModel;
-      return !!chosen && chat.describeModel(chosen)?.service !== null;
+      if (picked) {
+        add(tagging.service(picked));
+      } else {
+        // Not worked out yet: Jev, else the chat model, where Automatic looks first.
+        const chosen = settings.get().user.chatModel;
+        add(jev.service() ?? (chosen && chat.describeModel(chosen)?.service));
+      }
+      return [...services.values()];
     },
+    organizeService: (settings) => {
+      const classifier = organizeModelOf(settings);
+      return classifier && tagging.service(classifier);
+    },
+    taggingAllowed: (service) => consent.allows("tagging", service),
+    consentedAt: (service) =>
+      consent.acceptedAt("tagging", service) ?? consent.acceptedAt("classification", service),
     pagesWaitFor: (classifier) => {
       if (classifier.kind !== "chat") return null;
       const reader = chat.imageModel(classifier.choice);
@@ -3385,6 +3451,32 @@ export function createCore(adapters: CoreAdapters): Core {
     tags,
     library,
     mindsChanged,
+    meetings: {
+      transcriptsDeletedWith: (mindId, deletedAt) =>
+        meetings.transcriptsDeletedWith(mindId, deletedAt),
+      recordingDeletedWith: (mindId, deletedAt) => meetings.recordingDeletedWith(mindId, deletedAt),
+      restoreWith: (mindId, deletedAt) => meetings.restoreWith(mindId, deletedAt),
+      restored: (restoredMeetings) => {
+        const audio = meetings.restored(restoredMeetings);
+        const meetingIds = restoredMeetings.map((each) => each.meetingId);
+        // One made while its note waited in Recently deleted goes to the note's Folder now.
+        for (const meetingId of meetingIds) {
+          const documentId = meetings.transcriptOf(meetingId);
+          const folderId = minds.get(meetings.get(meetingId).mindId).folderId;
+          if (!documentId || !folderId || !liveDocument(documentId)) continue;
+          const filed = db.get("SELECT 1 FROM document_groups WHERE document_id = ?", [documentId]);
+          if (!filed) library.assign(documentId, folderId);
+        }
+        meetingFill.restored(meetingIds);
+        return {
+          lost: audio.lost,
+          expired: audio.expired.map(({ mindId, meetingId, memo }) => {
+            const documentId = meetings.transcriptOf(meetingId);
+            return { mindId, memo, transcript: !!documentId && !!liveDocument(documentId) };
+          }),
+        };
+      },
+    },
     mindsRestored: (mindIds, reopen) => {
       // A Mind deleted before a restart has no lines in the index's memory, and a restore stores nothing.
       for (const mindId of mindIds) mindIndex.contentStored(mindId);
@@ -3478,10 +3570,12 @@ export function createCore(adapters: CoreAdapters): Core {
   };
 
   const settingsChanged = () => events.emit("settings.changed", settings.get());
+  const readinessRead = newestReads();
   const readinessChanged = async () => {
+    const newest = readinessRead();
     try {
       const readiness = await chat.readiness();
-      if (!lifetime.signal.aborted) events.emit("chatReadiness.changed", readiness);
+      if (!lifetime.signal.aborted && newest()) events.emit("chatReadiness.changed", readiness);
     } catch (error) {
       // Reading the keychain is async, so the core may have closed meanwhile: nobody is listening.
       if (!lifetime.signal.aborted) throw error;
@@ -3489,11 +3583,13 @@ export function createCore(adapters: CoreAdapters): Core {
     // Documents waiting for a chat model may be able to go on now.
     if (!lifetime.signal.aborted) await taggingChanged();
   };
+  const chatGptRead = newestReads();
   chatGptChanged = () => {
     const report = async () => {
+      const newest = chatGptRead();
       const status = await chatGpt.status();
       if (lifetime.signal.aborted) return;
-      events.emit("chatGptPlan.changed", status);
+      if (newest()) events.emit("chatGptPlan.changed", status);
       await readinessChanged();
     };
     report().catch((error: unknown) => {
@@ -3513,20 +3609,23 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   // Not a readiness change: the renderer keeps its model lists.
   chatGptLimitsChanged = () => {
+    const newest = chatGptRead();
     chatGpt.status().then(
       (status) => {
-        if (!lifetime.signal.aborted) events.emit("chatGptPlan.changed", status);
+        if (!lifetime.signal.aborted && newest()) events.emit("chatGptPlan.changed", status);
       },
       (error: unknown) => {
         if (!lifetime.signal.aborted) console.error(error);
       },
     );
   };
+  const copilotRead = newestReads();
   copilotChanged = () => {
     const report = async () => {
+      const newest = copilotRead();
       const status = await copilot.status();
       if (lifetime.signal.aborted) return;
-      events.emit("copilot.changed", status);
+      if (newest()) events.emit("copilot.changed", status);
       await readinessChanged();
     };
     report().catch((error: unknown) => {
@@ -3688,11 +3787,13 @@ export function createCore(adapters: CoreAdapters): Core {
     now: () => (adapters.now?.() ?? new Date()).getTime(),
   });
   usageData.record({ event: "app_opened", fields: { language: settings.get().language } });
+  const dataFlowsRead = newestReads();
   /** After the User allows or revokes a flow: the flows as they are now, and what that changes. */
   const dataFlowsChanged = async () => {
+    const newest = dataFlowsRead();
     const flows = await consent.listRegistered();
     if (lifetime.signal.aborted) return;
-    events.emit("dataFlows.changed", flows);
+    if (newest()) events.emit("dataFlows.changed", flows);
     await readinessChanged();
   };
 
@@ -3859,6 +3960,19 @@ export function createCore(adapters: CoreAdapters): Core {
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
   let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
   let transcriptSaved = (_meetingId: string) => {};
+  /** "Transcript · {meeting}", named for its note, in Recently deleted too, in the interface's language. */
+  const transcriptName = (meeting: ReturnType<typeof meetingRecord>) => {
+    const language = settings.get().language;
+    // A voice memo's Mind is named by its note, which is written from the saved Transcript.
+    const title =
+      (meeting ? (minds.locate(meeting.mindId)?.name ?? "") : "") ||
+      (meeting?.kind === "memo"
+        ? memoTitle(language, Date.parse(meeting.startedAt ?? meeting.createdAt))
+        : "");
+    return title
+      ? translate(language, "meetings.transcript.name", { meeting: title })
+      : translate(language, "meetings.transcript.nameAlone");
+  };
   const meetingsChanged = () => {
     if (listMeetings) events.emit("meetings.changed", listMeetings());
   };
@@ -3924,8 +4038,18 @@ export function createCore(adapters: CoreAdapters): Core {
       cloud: cloudTranscription,
       ...(speakerPass && { speakers: speakerPass }),
       documents: {
-        add: (id, name, file) => documents.addSnapshot(id, name, file, () => {}, "transcript"),
-        file: (documentId, folderId) => library.assign(documentId, folderId),
+        add: (meetingId, id, file) => {
+          const meeting = meetingRecord(db, meetingId);
+          const name = transcriptName(meeting);
+          const link = () => linkTranscript(db, meetingId, id);
+          if (meeting?.deletedAt) {
+            documents.addDeletedTranscript(id, name, file, link, meeting.deletedAt);
+            return;
+          }
+          documents.addSnapshot(id, name, file, link, "transcript");
+          const folderId = meeting ? minds.get(meeting.mindId).folderId : null;
+          if (folderId) library.assign(id, folderId);
+        },
         check: (path) => documents.check(path),
         checkNow: async (documentId, path) => {
           await documents.checkNow(path);
@@ -3938,24 +4062,6 @@ export function createCore(adapters: CoreAdapters): Core {
             return null;
           }
         },
-      },
-      name: (meetingId) => {
-        const meeting = listMeetings?.().find((each) => each.id === meetingId);
-        const mind = meeting ? minds.get(meeting.mindId) : null;
-        const language = settings.get().language;
-        // A voice memo's Mind is named by its note, which is written from the saved Transcript.
-        const title =
-          (mind ? mind.title || mind.autoTitle : "") ||
-          (meeting?.kind === "memo"
-            ? memoTitle(language, Date.parse(meeting.startedAt ?? meeting.createdAt))
-            : "");
-        return title
-          ? translate(language, "meetings.transcript.name", { meeting: title })
-          : translate(language, "meetings.transcript.nameAlone");
-      },
-      folderOf: (meetingId) => {
-        const meeting = listMeetings?.().find((each) => each.id === meetingId);
-        return meeting ? minds.get(meeting.mindId).folderId : null;
       },
       partsOf: (meetingId) => listParts(meetingFolder(dataDir, meetingId)),
       audioDeleted: (meetingId) =>
@@ -3971,6 +4077,16 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       health: captureHealth,
       memo: (meetingId) => isMemo(db, meetingId),
+      wordsOf: (meetingId) =>
+        meetingWords({
+          db,
+          meetingId,
+          userWords: settings.get().user.meetingWords,
+          folderName: (folderId) =>
+            library.folders().find((folder) => folder.id === folderId)?.name ?? null,
+          folderDocuments: (folderId) => library.documentIds(folderId),
+        }),
+      lineText: (text, words) => inScript(text, settings.get().chineseScript, words),
       purgedPaths: () =>
         db
           .all<{ path: string }>(
@@ -4228,6 +4344,12 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   transcriptSaved = (meetingId) => meetingFill.transcriptSaved(meetingId);
   meetingFill.resume();
+  /** Stop: the notes wait for the Transcript, and are filled in from it (#142). */
+  const stopMeeting = (meetingId: unknown): Meeting => {
+    const stopped = meetings.stop(meetingId);
+    meetingFill.stopped(stopped.id);
+    return meetings.get(stopped.id);
+  };
 
   liveTranscriptOf = async (mindId) => {
     // A voice memo's speech isn't a call's: no Question listens to it (#1568).
@@ -4515,6 +4637,8 @@ export function createCore(adapters: CoreAdapters): Core {
       return documents.searchableCount(scopeDocuments(wanted) ?? undefined);
     },
     stopConversationAnswer: async (input) => answers.stopInConversation(input),
+    checkAnswerAgain: (input) => answers.checkAnswerAgain(input),
+    estimateAnswerCheck: (input) => answers.estimateAnswerCheck(input),
     usualAnswerWait: async (answerId) => conversations.usualWait(answerId),
     listConversations: async (options) => conversations.list(options),
     getConversation: async (conversationId) => conversations.content(conversationId),
@@ -4751,6 +4875,7 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteDocument: async (id) => removeDocuments([id]),
     deleteDocuments: async (ids) => removeDocuments(ids),
     retryDocument: async (id) => documents.retry(id),
+    readHiddenSheets: async (id, readHidden) => documents.readHiddenSheets(id, readHidden),
     unlockDocument: async (input) => {
       const { documentId, password } = parseUnlock(input);
       const document = documents.getMany([documentId])[0];
@@ -5121,7 +5246,10 @@ export function createCore(adapters: CoreAdapters): Core {
       return chatGpt.status();
     },
     signInToChatGpt: (input) =>
-      chatGpt.signIn({ anotherAccount: isRecord(input) && input.anotherAccount === true }),
+      chatGpt.signIn({
+        anotherAccount: isRecord(input) && input.anotherAccount === true,
+        replaceUnreadable: isRecord(input) && input.replaceUnreadable === true,
+      }),
     cancelChatGptSignIn: () => chatGpt.cancelSignIn(),
     reopenChatGptSignIn: () => chatGpt.reopenSignInPage(),
     signOutOfChatGpt: () => chatGpt.signOut(),
@@ -5204,22 +5332,21 @@ export function createCore(adapters: CoreAdapters): Core {
       const before = library.settings();
       library.saveSettings(input);
       const after = library.settings();
-      // Choosing the model that tags or organizes Documents, where a line says what goes,
-      // allows it (ADR-0022). Saving the same one again, for another setting, isn't a new choice.
-      const switchedOn = !before.automatic && after.automatic;
+      // Turning tagging on where its line says what goes is the consent for where it sends now
+      // (ADR-0022, #1617). Nothing else is: a save sends the switch as shown (#2308).
+      const turnedOn = isRecord(input) && input.turnOn === true;
       const tagsAnew = JSON.stringify(after.classifier) !== JSON.stringify(before.classifier);
       const organizesAnew =
         JSON.stringify(organizeModelOf(after)) !== JSON.stringify(organizeModelOf(before));
-      // Turning on tagging and sorting by themselves, where a line says what goes, is the consent too (#1617).
-      if (tagsAnew || switchedOn) {
+      if (turnedOn) {
         for (const service of await taggingServices()) consent.choose(["tagging"], service);
       }
-      if (organizesAnew || switchedOn) {
+      if (turnedOn || organizesAnew) {
         for (const service of await classificationServices()) {
           consent.choose(["classification"], service);
         }
       }
-      if (tagsAnew || organizesAnew || switchedOn) await dataFlowsChanged();
+      if (tagsAnew || organizesAnew || turnedOn) await dataFlowsChanged();
       await taggingChanged();
     },
     getTaggingModels: async () => {
@@ -5252,6 +5379,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const service = tagging.service(classifier);
       return service ? { where: "cloud", service } : { where: "local" };
     },
+    proposeFolders: async (ids) => library.propose(ids, settings.get().language),
     classifyDocuments: async (ids) => {
       library.classify(ids);
       const classifier = organizeModelOf(library.settings());
@@ -5306,7 +5434,8 @@ export function createCore(adapters: CoreAdapters): Core {
     redoCommands: async (run) => commandSteps.redo(run),
     listDeleted: async () => recentlyDeleted.list(),
     deletePermanently: async (refs) => {
-      recentlyDeleted.deletePermanently(refs);
+      const purged = recentlyDeleted.deletePermanently(refs);
+      const notRemoved = meetings.dropPurged();
       await Promise.all([
         webPages.dropPurged(),
         sources.dropPurged(),
@@ -5314,6 +5443,10 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.dropPurged(),
       ]);
       transcripts?.dropPurged();
+      // Said for these Notes only: one left from an earlier delete is retried, quietly, as at start.
+      if (notRemoved.some((mindId) => purged.includes(mindId))) {
+        throw new TranslatableError({ key: "error.meeting.purgeFailed" });
+      }
     },
     acceptAssignments: async (ids, checked, wall) => {
       if (checked !== undefined && wall !== undefined) {
@@ -5838,13 +5971,6 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return mindCitationStyle(mind.id);
     },
-    setMindUnreadFileNames: async (mindId, names) => {
-      if (typeof names !== "boolean") {
-        throw new InvalidInputError({ key: "error.mind.unreadFileNames" });
-      }
-      const mind = writableMind(mindId);
-      content.editSettings(mind.id, (mindSettings) => setUnreadFileNames(mindSettings, names));
-    },
     listCitationStyles: async () => citationStyles.list(),
     openCitationStyleLicences: async () => {
       if (!adapters.shell)
@@ -5883,11 +6009,7 @@ export function createCore(adapters: CoreAdapters): Core {
     recordMemo: async (input) => meetings.recordMemo(input),
     pauseMeeting: async (meetingId) => meetings.pause(meetingId),
     resumeMeeting: async (meetingId) => meetings.resume(meetingId),
-    stopMeeting: async (meetingId) => {
-      const stopped = meetings.stop(meetingId);
-      meetingFill.stopped(stopped.id);
-      return meetings.get(stopped.id);
-    },
+    stopMeeting: async (meetingId) => stopMeeting(meetingId),
     fillMeetingNotes: async (meetingId) => meetingFill.retry(meetings.get(meetingId).id),
     undoMeetingFill: async (meetingId) => meetingFill.undo(meetings.get(meetingId).id),
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),

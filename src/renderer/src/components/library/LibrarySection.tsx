@@ -19,8 +19,9 @@ import {
   type LibrarySection as Section,
 } from "../../libraryPage";
 import { formatCount } from "../../linkedFolders";
+import { organizeDocuments, useProposing } from "../../organizeDocuments";
 import { organizeFailedIds, organizeStateOf } from "../../organizeOutcome";
-import { sayWhenOrganized, useOrganizeAsk } from "../../organizeRun";
+import { useOrganizeAsk } from "../../organizeRun";
 import { useRequests } from "../../requests";
 import { useAppStore } from "../../store";
 import { TREE_ROW } from "../../treeKeys";
@@ -282,16 +283,14 @@ const organizeHasModel = (settings: LibrarySettings | undefined) =>
   !!settings && organizeModelOf(settings) !== null;
 
 /**
- * Organize, for the Documents in no Folder (its model is chosen in Settings ›
- * Models until #236 chooses it here), or how it is going, or what it couldn't
- * do, with one action.
+ * Organize, for the Documents in no Folder, Folders or none (#2308), or how it is going, or what
+ * it couldn't do, with one action.
  */
 function Organize({ documents }: { documents: readonly Document[] }) {
   const t = useT();
   const all = useAppStore((state) => state.documents);
   const library = useAppStore((state) => state.library);
-  const hasFolders = (library?.groups.length ?? 0) > 0;
-  const hasModel = organizeHasModel(library?.settings);
+  const proposing = useProposing((state) => state.proposing);
   const states = useMemo(() => {
     const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
     return all.map((doc) => organizeStateOf(doc, held.get(doc.id)));
@@ -299,30 +298,16 @@ function Organize({ documents }: { documents: readonly Document[] }) {
   const pending = states.filter((state) => state.run === "working").length;
   const failed = useMemo(() => organizeFailedIds(all, library?.assignments ?? []), [all, library]);
   const run = (ids: readonly string[]) => {
-    const app = useAppStore.getState();
-    if (!hasModel) {
-      useOrganizeAsk.getState().ask(ids);
-      return;
-    }
-    const before = new Map(
-      (app.library?.assignments ?? [])
-        .filter((item) => ids.includes(item.documentId))
-        .map((item) => [item.documentId, item]),
-    );
-    core
-      .classifyDocuments([...ids])
-      .then(() => app.refreshLibrary())
-      .then(() => sayWhenOrganized(ids, before))
-      .catch(app.reportError);
+    organizeDocuments(ids).catch(useAppStore.getState().reportError);
   };
-  if (pending > 0) {
+  if (proposing || pending > 0) {
     return (
       <span
         role="status"
         data-testid="library-organizing"
         className="shrink-0 text-[13px] text-ink-meta"
       >
-        {t("library.organizing", { count: pending })}
+        {proposing ? t("library.organize.reading") : t("library.organizing", { count: pending })}
       </span>
     );
   }
@@ -344,7 +329,7 @@ function Organize({ documents }: { documents: readonly Document[] }) {
       </span>
     );
   }
-  if (!hasFolders || documents.length === 0) return null;
+  if (documents.length === 0) return null;
   return (
     <button
       type="button"
@@ -407,9 +392,7 @@ function OrganizeNeedsModel() {
       await core.saveLibrarySettings({ ...settings, organizeWith: classifier });
       await useAppStore.getState().refreshLibrary();
       close();
-      await core.classifyDocuments([...ids]);
-      await useAppStore.getState().refreshLibrary();
-      await sayWhenOrganized(ids, undoing);
+      await organizeDocuments(ids, undoing);
     } catch (error) {
       useAppStore.getState().reportError(error);
     }

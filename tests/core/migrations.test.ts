@@ -97,6 +97,124 @@ describe("Migrations", () => {
     db.close();
   });
 
+  test("the preset Invoice Tag gets its new description only where it is still as seeded, a Linked folder already there counts as scanned, and running it again changes nothing (#2308)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 121),
+    );
+    const at = "2026-10-29T09:00:00.000Z";
+    const seeded = [
+      [
+        "00000000-0000-4000-8000-000000000001",
+        "Invoice",
+        "A bill or receipt that asks for or confirms a payment, with items, amounts and dates.",
+      ],
+      [
+        "00000000-0000-4000-8000-000000000002",
+        "发票",
+        "要求或确认付款的账单或收据，列有项目、金额和日期。",
+      ],
+      ["00000000-0000-4000-8000-000000000003", "Invoice", "Supplier bills for the shop."],
+    ];
+    for (const [id, name, description] of seeded) {
+      db.run(
+        "INSERT INTO tags (id, name, description, preset, created_at, updated_at) VALUES (?, ?, ?, 'invoice', ?, ?)",
+        [id ?? "", name ?? "", description ?? "", at, at],
+      );
+    }
+    db.run(
+      "INSERT INTO linked_folders (id, path, created_at, updated_at) VALUES (?, '/Users/a/Reports', ?, ?)",
+      ["00000000-0000-4000-8000-000000000004", at, at],
+    );
+    const descriptions = () =>
+      db
+        .all<{ description: string }>("SELECT description FROM tags ORDER BY id")
+        .map((row) => row.description);
+    const baselines = () =>
+      db
+        .all<{ linked_folder_id: string }>(
+          "SELECT linked_folder_id FROM linked_folder_baselines WHERE deleted_at IS NULL",
+        )
+        .map((row) => row.linked_folder_id);
+
+    migrate(db, migrations);
+    const after = descriptions();
+    expect(baselines()).toEqual(["00000000-0000-4000-8000-000000000004"]);
+    db.exec(migrations.find((migration) => migration.version === 121)?.sql ?? "");
+    expect(baselines()).toEqual(["00000000-0000-4000-8000-000000000004"]);
+
+    expect(after).toEqual([
+      "A bill or receipt that asks for or confirms payment for goods or services supplied, with items, amounts and dates. Not a quote, an estimate, a price list, an order, a registration, or a donation or gift receipt, for which nothing is supplied.",
+      "就已提供的商品或服务要求或确认付款的账单或收据，列有项目、金额和日期。报价单、估价、价目表、订单、报名表，以及没有提供商品或服务的捐赠或赠与收据，都不算。",
+      "Supplier bills for the shop.",
+    ]);
+    expect(descriptions()).toEqual(after);
+    db.close();
+  });
+
+  test("a Meeting recorded before keeps its Transcript Document, found where IncarnaMind keeps it (#1253)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 118),
+    );
+    const at = "2026-10-29T09:00:00.000Z";
+    const mind = "00000000-0000-4000-8000-000000000001";
+    const transcribed = "00000000-0000-4000-8000-000000000002";
+    const silent = "00000000-0000-4000-8000-000000000003";
+    const document = "00000000-0000-4000-8000-000000000004";
+    const older = "00000000-0000-4000-8000-000000000005";
+    const added = "00000000-0000-4000-8000-000000000006";
+    db.run("INSERT INTO minds (id, created_at, updated_at) VALUES (?, ?, ?)", [mind, at, at]);
+    for (const id of [transcribed, silent]) {
+      db.run(
+        `INSERT INTO meetings (id, mind_id, status, created_at, updated_at)
+         VALUES (?, ?, 'stopped', ?, ?)`,
+        [id, mind, at, at],
+      );
+    }
+    db.run(
+      `INSERT INTO documents (id, content_hash, name, kind, size, status, path, source_kind,
+         relative_path, created_at, updated_at)
+       VALUES (?, 'hash', 'Transcript · Weekly call', 'transcript', 1, 'ready', ?, 'data-folder',
+         ?, ?, ?)`,
+      [document, `/data/Transcripts/${transcribed}.vtt`, `Transcripts/${transcribed}.vtt`, at, at],
+    );
+    // An older Document of the same file, and a .vtt the User added of a name like it, aren't it.
+    db.run(
+      `INSERT INTO documents (id, content_hash, name, kind, size, status, path, source_kind,
+         relative_path, created_at, updated_at, deleted_at)
+       VALUES (?, 'old', 'Transcript', 'transcript', 1, 'ready', ?, 'data-folder', ?, ?, ?, ?)`,
+      [
+        older,
+        `/data/Transcripts/${transcribed}.vtt`,
+        `Transcripts/${transcribed}.vtt`,
+        "2026-10-28T09:00:00.000Z",
+        "2026-10-28T09:00:00.000Z",
+        at,
+      ],
+    );
+    db.run(
+      `INSERT INTO documents (id, content_hash, name, kind, size, status, path, source_kind,
+         created_at, updated_at)
+       VALUES (?, 'mine', 'Weekly call.vtt', 'transcript', 1, 'ready', ?, 'file', ?, ?)`,
+      [added, `/Users/me/Transcripts/${silent}.vtt`, at, at],
+    );
+
+    migrate(db);
+
+    expect(
+      db.all<{ id: string; transcript_document_id: string | null; purged_at: string | null }>(
+        "SELECT id, transcript_document_id, purged_at FROM meetings ORDER BY id",
+      ),
+    ).toEqual([
+      { id: transcribed, transcript_document_id: document, purged_at: null },
+      { id: silent, transcript_document_id: null, purged_at: null },
+    ]);
+    db.close();
+  });
+
   test("a migration with a lower number that lands later still runs", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "test.db"));
     const one = { version: 1, description: "one", sql: "CREATE TABLE one (id TEXT) STRICT;" };

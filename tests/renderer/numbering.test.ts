@@ -1,5 +1,5 @@
 import type { Editor, JSONContent } from "@tiptap/core";
-import { DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model";
+import { DOMSerializer, DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import { parseHTML } from "linkedom";
 import { describe, expect, onTestFinished, test } from "vitest";
@@ -308,6 +308,47 @@ describe("Typing a marker", () => {
 });
 
 describe("A list that starts deeper", () => {
+  // protects=a numbered list that states no start level, as every list typed or in an Answer, renders with no start level and no style, as before; fails_when=it gains a data-start-level or a --start-level, which changes its indent; no_claim=how the browser lays it out.
+  test("a list that states no start level renders without one", () => {
+    const editor = editorWith([
+      ordered({}, item("A")),
+      ordered({ numbering: "clauses" }, item("B")),
+    ]);
+    const { document } = parseHTML("<!doctype html><html><body></body></html>");
+    const html = document.createElement("div");
+    html.appendChild(
+      DOMSerializer.fromSchema(editor.schema).serializeFragment(editor.state.doc.content, {
+        document,
+      }),
+    );
+    for (const list of html.querySelectorAll("ol")) {
+      expect(list.hasAttribute("data-start-level")).toBe(false);
+      expect(list.hasAttribute("style")).toBe(false);
+    }
+    expect(html.querySelectorAll("ol").length).toBe(2);
+  });
+
+  // protects=Shift-Tab of a whole list back to the first level stores 0, a level the User chose, and the editor's HTML keeps it with the indent the first level has; fails_when=it stores nothing, which reads the same as a list imported from Word before lists kept their level, so the Word file keeps the deeper level, or it writes no --start-level, so the list loses its indent and its markers hang outside the text column; no_claim=a list that never started deeper, which stores nothing.
+  test("Shift-Tab back to the first level keeps 0 as the list's start level", () => {
+    const editor = editorWith([ordered({ numbering: "chinese", startLevel: 1 }, item("A"))]);
+    caretIn(editor, "A");
+    changeIndent(editor, -1);
+    expect(editor.state.doc.firstChild?.attrs.startLevel).toBe(0);
+    expect(markers(editor)).toEqual(["一、"]);
+    const { document } = parseHTML("<!doctype html><html><body></body></html>");
+    const schema = editor.schema;
+    const html = document.createElement("div");
+    html.appendChild(
+      DOMSerializer.fromSchema(schema).serializeFragment(editor.state.doc.content, { document }),
+    );
+    // The list's indent is computed from --start-level, so 0 must be written too, or it has none.
+    const list = html.querySelector("ol");
+    expect(list?.getAttribute("data-start-level")).toBe("0");
+    expect(list?.getAttribute("style")).toBe("--start-level: 0");
+    const copied = ProseMirrorDOMParser.fromSchema(schema).parse(html);
+    expect(copied.firstChild?.attrs.startLevel).toBe(0);
+  });
+
   // protects=a list that starts at a deeper level draws that level's markers; fails_when=it draws the first level's; no_claim=its indent, which the e2e covers.
   test("a list begun with “(i)” draws the second level's markers", () => {
     const editor = editorWith([

@@ -32,6 +32,8 @@ export const useSignIn = create<{ waiting: boolean; failure: ChatGptSignInFailur
 interface ContinueOptions {
   anotherAccount?: boolean;
   keepDefault?: boolean;
+  /** The User chose to replace a saved sign-in this computer can't read, once this one completes. */
+  replaceUnreadable?: boolean;
 }
 
 /** The ChatGPT provider after a sign-in, and the model to ask with. */
@@ -86,7 +88,14 @@ async function signIn(options: ContinueOptions): Promise<SignedIn | ChatGptSignI
   const result =
     current.account.state === "signed-in" && !options.anotherAccount
       ? { ok: true as const, firstTime: false, status: current }
-      : await core.signInToChatGpt(options.anotherAccount ? { anotherAccount: true } : undefined);
+      : await core.signInToChatGpt(
+          options.anotherAccount || options.replaceUnreadable
+            ? {
+                ...(options.anotherAccount && { anotherAccount: true }),
+                ...(options.replaceUnreadable && { replaceUnreadable: true }),
+              }
+            : undefined,
+        );
   if (!result.ok) return result.error.kind === "cancelled" ? null : result.error;
   if (result.firstTime) useWelcome.setState({ open: true });
   const providers = await core.listChatProviders();
@@ -96,10 +105,12 @@ async function signIn(options: ContinueOptions): Promise<SignedIn | ChatGptSignI
   const modelId = inUse && chatModel ? chatModel.modelId : result.status.models[0]?.id;
   if (!modelId) return { kind: "failed", message: "OpenAI offered no models for this plan." };
   if (existing && (inUse || options.keepDefault)) return { provider: existing, modelId };
-  const provider = await core.saveChatProvider({ kind: "chatgpt", modelId });
-  // Saving makes the plan the default for new Minds; from the model chip, only the Mind changes.
-  if (options.keepDefault && chatModel) {
-    await useAppStore.getState().updateSettings({ user: { chatModel } });
-  }
+  // Saving makes the plan the default for new Minds; from the model chip, only the Mind changes,
+  // and the core keeps the default as it saves, so one chosen meanwhile stays too (#2302).
+  const provider = await core.saveChatProvider({
+    kind: "chatgpt",
+    modelId,
+    keepDefault: options.keepDefault === true,
+  });
   return { provider, modelId };
 }

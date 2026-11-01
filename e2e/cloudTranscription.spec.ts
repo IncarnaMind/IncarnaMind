@@ -164,3 +164,84 @@ test("with a Soniox key, the first recording's sheet offers it under Other ways�
   await expect(dropped).toContainText(/^正在这台电脑上转写（Soniox 在 \d+:\d\d 断开）/);
   await shot(window, "meeting-bar-cloud-dropped-zh");
 });
+
+test("with the Qwen key from Models, Other ways… offers it with its region and what Alibaba Cloud's agreement says; a key the service turns away is one problem in the bar", async () => {
+  const { app, window } = await launchApp(dataDir, { transcriber: { cloud: { refuse: true } } });
+  await setWindowSize(app, window, 1600, 900);
+  await dismissChatSetup(window);
+  await useOutputLocation(window, sources);
+  await acceptPlainTextKeys(window);
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.saveChatProvider({
+      kind: "qwen",
+      apiKey: "sk-qwen-test",
+      modelId: "qwen3.7-plus",
+    });
+  });
+
+  const start = await recordMeeting(window);
+  await start.getByTestId("meeting-start-record").click();
+  const sheet = window.getByTestId("meeting-notice");
+  const line = sheet.getByTestId("meeting-route");
+  await line.getByTestId("meeting-route-other").click();
+  const ways = sheet.getByTestId("meeting-route-ways");
+  await expect(ways).toContainText("Qwen · your key · China (Beijing)");
+  await expect(ways).toContainText("Audio goes to Alibaba Cloud while you record.");
+  await expect(ways).toContainText("isn’t used for model training or optimization");
+  await expect(ways.getByRole("link", { name: "Agreement" })).toHaveAttribute(
+    "href",
+    "https://docs.agent.bailian.aliyun.com/en/resources/agreements",
+  );
+  await shot(window, "route-qwen-other-ways-en-1600");
+
+  await setLanguage(window, "zh-CN");
+  await setWindowSize(app, window, 900, 720);
+  await expect(ways).toContainText("通义千问 · 你的密钥 · 中国内地（北京）");
+  await expect(ways).toContainText("录音期间，音频会发送给阿里云。");
+  await expect(ways.getByRole("link", { name: "协议" })).toHaveAttribute(
+    "href",
+    "https://docs.agent.bailian.aliyun.com/zh/resources/agreements",
+  );
+  const use = ways.getByTestId("meeting-route-use-qwen");
+  await expect(use).toHaveText("使用通义千问");
+  const frame = await sheet.boundingBox();
+  const button = await use.boundingBox();
+  expect(frame && button && button.x + button.width <= frame.x + frame.width).toBe(true);
+  await shot(window, "route-qwen-other-ways-zh-900");
+  await setLanguage(window, "en");
+  await setWindowSize(app, window, 1600, 900);
+
+  // Its button is the consent, for the service at the key's region; the pretend service turns the key away.
+  await use.click();
+  await expect(line).toContainText("Transcribe with Qwen");
+  await expect(line).toContainText("Audio goes to Alibaba Cloud while you record.");
+  const chosen = await core(window);
+  expect(chosen.settings.device.transcriptionRoute).toBe("qwen");
+  expect(chosen.flows).toContainEqual(
+    expect.objectContaining({
+      flow: expect.objectContaining({
+        id: "transcription",
+        service: expect.objectContaining({ id: "https://dashscope.aliyuncs.com" }),
+      }),
+      consent: "accepted",
+    }),
+  );
+  await sheet.getByTestId("meeting-notice-start").click();
+  await expect(sheet).toBeHidden();
+  const bar = window.getByTestId("meeting-bar");
+  const refused = bar.getByTestId("meeting-line-cloud");
+  await expect(refused).toContainText(
+    "Qwen refused the key (wrong, expired or for another region). Check the key and its region in Settings › Models. Transcribing on this computer.",
+    { timeout: 20_000 },
+  );
+  await expect(bar).toHaveAttribute("data-status", "recording");
+  await shot(window, "meeting-bar-qwen-refused-en");
+  await setLanguage(window, "zh-CN");
+  await expect(refused).toContainText(
+    "通义千问拒绝了这个密钥（密钥有误、已过期或属于其他区域）。请在“设置 › 模型”中检查密钥和区域。正在这台电脑上转写。",
+  );
+  await shot(window, "meeting-bar-qwen-refused-zh");
+  await bar.getByTestId("meeting-line-change-key").click();
+  await expect(window.getByTestId("settings")).toBeVisible();
+});

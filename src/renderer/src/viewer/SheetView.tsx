@@ -49,6 +49,7 @@ import { type MarkPlace, markGutter, placeSheetMark, scrollAcross } from "./shee
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
 import "./officeFonts.css";
+import { officeFontName } from "./officeFontNames";
 
 /** The header row's height and the row numbers' width, in CSS pixels; rows drawn past the view. */
 const HEADER_HEIGHT = 24;
@@ -70,10 +71,13 @@ interface Loaded {
   units: TextUnit[];
 }
 
-const readXlsx = async (bytes: Uint8Array): Promise<Loaded> => {
-  const workbook = await readWorkbook(bytes, undefined, {
-    shortDate: shortDatePattern(navigator.language),
-  });
+const readXlsx = async (bytes: Uint8Array, readHiddenSheets: boolean): Promise<Loaded> => {
+  const workbook = await readWorkbook(
+    bytes,
+    undefined,
+    { shortDate: shortDatePattern(navigator.language) },
+    readHiddenSheets,
+  );
   // The workbook's fonts, loaded before text is measured to fit rows and spill over cells.
   const fonts = new Set(
     (workbook.layout?.styles ?? [])
@@ -100,8 +104,9 @@ const readCsv = (bytes: Uint8Array): Loaded => extractCsv(bytes);
 export function SheetView({ document, target }: { document: Document; target: ViewerTarget }) {
   const { loaded, reload } = useDocumentFile(
     document.id,
-    document.contentHash,
-    document.kind === "csv" ? readCsv : readXlsx,
+    // A workbook read with its hidden sheets looks different at the same content hash (#740).
+    `${document.contentHash}:${document.readHiddenSheets ? "hidden" : "visible"}`,
+    document.kind === "csv" ? readCsv : (bytes) => readXlsx(bytes, document.readHiddenSheets),
   );
   return (
     <FileStates
@@ -324,8 +329,8 @@ let measuring: CanvasRenderingContext2D | null = null;
 /** A font as the canvas takes it: concrete families, as `var()` means nothing there. */
 function canvasFont(font: FontStyle, fallbackPoints: number): string {
   const size = ((font.size ?? fallbackPoints) * 4) / 3;
-  const family = font.name ? `"${font.name.replace(/["\\]/g, "")}", ` : "";
-  return `${font.italic ? "italic " : ""}${font.bold ? 700 : 400} ${size}px ${family}"Source Sans 3", sans-serif`;
+  const family = font.name ? `"${officeFontName(font.name).replace(/["\\]/g, "")}", ` : "";
+  return `${font.italic ? "italic " : ""}${font.bold ? 700 : 400} ${size}px ${family}system-ui, sans-serif`;
 }
 
 function measure(text: string, font: string): number {
@@ -353,7 +358,7 @@ function wrappedLines(text: string, font: string, width: number): number {
 }
 
 /** The UI font a CSV's grid is set in (viewer.css), as the canvas takes it. */
-const CSV_FONT = '400 13px "Source Sans 3", sans-serif';
+const CSV_FONT = "400 13px system-ui, sans-serif";
 
 /** A CSV's column widths: fitted to the widest value among its first rows. */
 function csvWidths(sheet: Sheet): Map<number, number> {

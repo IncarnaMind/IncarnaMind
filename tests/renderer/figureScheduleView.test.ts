@@ -3,6 +3,7 @@ import { act, type ComponentType, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { Citation, FigureInput, FigureSchedule, FigureScheduleRow } from "../../src/core/api";
+import { figureScheduleBook } from "../../src/core/exports/figureScheduleBook";
 import type { CommandContext } from "../../src/renderer/src/commands/registry";
 import {
   childrenOf,
@@ -643,6 +644,87 @@ test("a line copies as it reads: an input whose quote isn't found, and a column 
     "Revenue",
   );
 });
+
+test.each(["en", "zh-CN"] as const)(
+  "%s: a what-if's line names its change, and its changed input shows the value it was given, never as found (#2347)",
+  (language) => {
+    const growth: FigureInput = {
+      ...input,
+      name: "Assumptions_B4",
+      label: "Revenue growth (Growth)",
+      number: { ...input.number, chars: "5.0%", value: 0.05, unit: { kind: "percent" } },
+      cell: { sheet: "Assumptions", ref: "B4", stored: 0.05 },
+      unitStatement: null,
+    };
+    const base = calculated.calculated?.figure;
+    if (!base) throw new Error("Missing calculated fixture");
+    const step = {
+      sheet: "DCF",
+      ref: "E5",
+      label: "EBITDA 2027",
+      formula: "E4*Margin",
+      value: 254.7,
+    };
+    const whatIf = row("what-if", 3, {
+      sourceInput: null,
+      sourceValue: 240.4,
+      sourceShown: "240.4",
+      calculated: {
+        id: "what-if",
+        analysisId: null,
+        figure: {
+          ...base,
+          formula: "",
+          inputs: [growth, input],
+          workbook: {
+            cell: {
+              ...step,
+              input: { ...input, cell: { sheet: "DCF", ref: "E5", stored: 254.7 } },
+            },
+            steps: [],
+            formulaCells: 5,
+            moreInputs: 0,
+            saved: 254.7,
+            savedShown: "254.7",
+            change: { input: "Assumptions_B4", value: 0.03, shown: "3.0%" },
+            kept: [],
+            engine: 1,
+          },
+        },
+      },
+    });
+    expect(lineShows({ id: "what-if", parent: whatIf }, language).formula).toBe(
+      language === "en"
+        ? "What-if: DCF!E5 = E4*Margin, with Revenue growth (Growth) at 3.0% (5.0% in the workbook)"
+        : "假设情形：DCF!E5 = E4*Margin，其中“Revenue growth (Growth)”取 3.0%（工作簿中为 5.0%）",
+    );
+    // A what-if is no Document's number: it has no source value, in the schedule or its export.
+    expect(lineShows({ id: "what-if", parent: whatIf }, language).value).toBeNull();
+    expect(lineShows({ id: "kid", parent: whatIf, input: growth }, language)).toMatchObject({
+      value: "3.0%",
+      status: { glyph: "not-checked", word: "figures.workbook.whatIfInput", why: null },
+    });
+    expect(lineShows({ id: "kid", parent: whatIf, input }, language)).toMatchObject({
+      value: "1,200",
+      status: { glyph: "supported" },
+    });
+    const sheet = figureScheduleBook(schedule([whatIf]), { language, modelName: () => "" })
+      .sheets[0];
+    const texts = (id: string) =>
+      sheet?.rows
+        .find((each) => each.id === id)
+        ?.cells.flatMap((cell) => (cell.value.kind === "text" ? [cell.value.text] : []));
+    expect(
+      sheet?.rows
+        .find((each) => each.id === "what-if")
+        ?.cells.find((cell) => cell.column === "sourceValue")?.value,
+    ).toEqual({ kind: "empty" });
+    expect(texts("what-if")?.[1]).toContain(
+      language === "en" ? "What-if: DCF!E5" : "假设情形：DCF!E5",
+    );
+    expect(texts("what-if:input:0")).toContain(translate(language, "figures.workbook.whatIfInput"));
+  },
+);
 
 test("⌘K offers the menu's actions on the figures chosen in the schedule, saying how many", async () => {
   const { figureScheduleCommands } = await import("../../src/renderer/src/commands/figures");

@@ -363,6 +363,44 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
+test.each(["en", "zh-CN"] as const)(
+  "%s card says which line stated a currency written on an amount, and opens it",
+  async (language) => {
+    state.language = language;
+    const unit = input.unitStatement as NonNullable<FigureInput["unitStatement"]>;
+    const statement = {
+      ...unit,
+      citation: { ...unit.citation, quote: "Sale price £385,000.00" },
+      currencyChars: "£",
+    };
+    const withUnit: CalculatedFigure = {
+      ...formula,
+      inputs: [{ ...input, unitStatement: statement }],
+    };
+    await card({
+      figure: withUnit,
+      shown: { state: "not-checked", reason: "unread" },
+      replayed: false,
+      sources: calculatedSources(attrs(withUnit), null),
+      problem: false,
+      onCopyFormula: () => {},
+    });
+    expect(container.textContent).toContain(
+      language === "en" ? "£ stated on Sale price £385,000.00" : "“£”来自“Sale price £385,000.00”",
+    );
+    const opens = [...container.querySelectorAll("button")].filter(
+      (button) => button.textContent === translate(language, "figures.inline.openInput"),
+    );
+    await act(() => {
+      opens.at(-1)?.click();
+    });
+    expect(state.open).toHaveBeenCalledWith(statement.citation, {
+      check: "found",
+      withQuote: true,
+    });
+  },
+);
+
 test("a retained Analysis card never becomes a fresh execution claim", async () => {
   const sources = calculatedSources(attrs(analysis), receiptDoc());
   await card({
@@ -430,3 +468,132 @@ test("the shared hover hook holds across marker-to-card focus and clears pending
   });
   expect(container.textContent).toBe("false");
 });
+
+const growth: FigureInput = {
+  ...input,
+  name: "Assumptions_B4",
+  label: "Revenue growth (Growth)",
+  citation: {
+    ...input.citation,
+    location: { kind: "rows", sheet: "Assumptions", from: 4, to: 4 },
+    quote: "Revenue growth\t5.0%",
+  },
+  number: {
+    ...input.number,
+    chars: "5.0%",
+    at: 15,
+    value: 0.05,
+    unit: { kind: "percent" },
+    decimals: 1,
+  },
+  cell: { sheet: "Assumptions", ref: "B4", stored: 0.05 },
+  unitStatement: null,
+};
+const whatIf: CalculatedFigure = {
+  ...formula,
+  label: "EBITDA 2027 at 3% growth",
+  formula: "",
+  inputs: [growth],
+  value: 240.39994,
+  shown: "240.4",
+  literals: [],
+  workbook: {
+    cell: {
+      sheet: "DCF",
+      ref: "E5",
+      label: "EBITDA 2027",
+      formula: "E4*Margin",
+      value: 240.39994,
+      input: {
+        ...growth,
+        name: "DCF_E5",
+        label: "EBITDA 2027",
+        citation: {
+          ...growth.citation,
+          location: { kind: "rows", sheet: "DCF", from: 5, to: 5 },
+          quote: "EBITDA\t231.0\t242.6\t254.7",
+        },
+        number: {
+          ...growth.number,
+          chars: "254.7",
+          at: 21,
+          value: 254.6775,
+          unit: { kind: "plain" },
+        },
+        cell: { sheet: "DCF", ref: "E5", stored: 254.6775 },
+      },
+    },
+    steps: [
+      { sheet: "DCF", ref: "E4", label: "Revenue 2027", formula: "D4*(1+Growth)", value: 1092.727 },
+    ],
+    formulaCells: 5,
+    moreInputs: 0,
+    saved: 254.6775,
+    savedShown: "254.7",
+    change: { input: "Assumptions_B4", value: 0.03, shown: "3.0%" },
+    kept: [],
+    engine: 1,
+  },
+};
+const keptValue: CalculatedFigure = {
+  ...whatIf,
+  label: "Figure",
+  value: 5.2,
+  shown: "5.2",
+  workbook: {
+    ...(whatIf.workbook as NonNullable<CalculatedFigure["workbook"]>),
+    change: null,
+    saved: 5.2,
+    savedShown: "5.2",
+    kept: [{ sheet: "Cases", ref: "C2", reason: "volatile", name: "RAND" }],
+  },
+};
+
+test.each(["en", "zh-CN"] as const)(
+  "%s: a workbook figure's card shows its formula chain, the input a what-if changed, and the cells that kept saved values",
+  async (language) => {
+    state.language = language;
+    await card({
+      figure: whatIf,
+      shown: { state: "not-checked", reason: "unread" },
+      replayed: false,
+      sources: calculatedSources(attrs(whatIf), null),
+      problem: false,
+      onCopyFormula: () => {},
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain("EBITDA 2027 · DCF!E5 = E4*Margin");
+    expect(text).toContain("Revenue 2027 · DCF!E4 = D4*(1+Growth)");
+    expect(text).toContain(
+      translate(language, "figures.workbook.change", {
+        input: "Revenue growth (Growth)",
+        cell: "Assumptions!B4",
+        from: "5.0%",
+        to: "3.0%",
+      }),
+    );
+    expect(text).toContain(translate(language, "figures.workbook.inWorkbook", { value: "254.7" }));
+    expect(text).toContain(translate(language, "figures.workbook.workedOut"));
+    expect(text).toContain(translate(language, "figures.workbook.note"));
+    expect(text).toContain("Revenue growth\t5.0%");
+    expect(text).not.toContain(translate(language, "figures.workbook.savedValue"));
+    expect(text).not.toContain(translate(language, "figures.inline.recalculated"));
+
+    await card({
+      figure: keptValue,
+      shown: { state: "not-checked", reason: "unread" },
+      replayed: false,
+      sources: calculatedSources(attrs(keptValue), null),
+      problem: false,
+      onCopyFormula: () => {},
+    });
+    const kept = container.textContent ?? "";
+    expect(kept).toContain(
+      translate(language, "figures.workbook.kept.volatile", { cell: "Cases!C2", name: "RAND" }),
+    );
+    expect(kept).toContain(translate(language, "figures.workbook.savedValue"));
+    expect(kept).toContain(translate(language, "figures.workbook.keptNote"));
+    expect(kept).not.toContain(translate(language, "figures.workbook.note"));
+    expect(kept).not.toContain(translate(language, "figures.workbook.workedOut"));
+  },
+);

@@ -71,6 +71,7 @@ import { referenceOf, writeFileReference } from "../referenceRecords/store";
 import { foundSourceOf } from "../sources/store";
 import type { Database, SqlValue } from "../storage";
 import { tagsOfDocument } from "../tags";
+import { markArrived } from "../tags/held";
 import type { StoredTaggingState } from "../tags/tagger";
 import { isPlaceholderDate } from "./creationDate";
 import { createEmbeddingQueue } from "./embedding";
@@ -163,6 +164,7 @@ interface DocumentRow {
   failure_reason: string | null;
   failure_message: string | null;
   unread_parts: string | null;
+  read_hidden_sheets: number;
   folder_id: string | null;
   tagging_status: string;
   tagging_error_kind: string | null;
@@ -192,6 +194,7 @@ interface UnitRow {
   kind: string;
   label: string | null;
   anchors: string | null;
+  scale_marker: string | null;
 }
 
 /** JSON stored by this app; null if it doesn't parse. */
@@ -204,12 +207,20 @@ function parseJson<T>(json: string | null): T | null {
   }
 }
 
+/** A Unit's label as the viewer gets it: a workbook's formulas and saved values stay in the core, which alone reads them (#2347). */
+function viewedLabel(label: UnitLabel | null | undefined): UnitLabel | null {
+  if (!label) return null;
+  const { formulas: _formulas, saved: _saved, workbook: _workbook, ...viewed } = label;
+  return viewed;
+}
+
 const toUnitText = (row: UnitRow): PageText => ({
   page: row.page,
   text: row.text,
   kind: row.kind as UnitKind,
   label: parseJson<UnitLabel>(row.label),
   anchors: parseJson<Anchor[]>(row.anchors),
+  scaleMarker: row.scale_marker,
 });
 
 /**
@@ -223,7 +234,8 @@ const versionMomentOf = (row: Pick<DocumentRow, "file_mtime_ms">, readAt: string
     : new Date(row.file_mtime_ms).toISOString();
 
 const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
-  failure_reason, failure_message, unread_parts, folder_id, tagging_status, tagging_error_kind,
+  failure_reason, failure_message, unread_parts, read_hidden_sheets, folder_id, tagging_status,
+  tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
   source_kind, creation_date, title, own_file, counted_as_evidence, not_cited, processing_version,
   keywords_version, file_mtime_ms, created_at, updated_at`;
@@ -595,6 +607,7 @@ export function createDocuments(options: DocumentsOptions) {
         : null,
       unreadParts,
       unreadPartsUnknown,
+      readHiddenSheets: row.read_hidden_sheets === 1,
       folderId: row.folder_id,
       tags: tagsOfDocument(db, row.id),
       tagging,
@@ -628,6 +641,40 @@ export function createDocuments(options: DocumentsOptions) {
     db.get<DocumentRow>(`SELECT ${COLUMNS} FROM documents WHERE id = ? AND deleted_at IS NULL`, [
       id,
     ]);
+
+  function insertSnapshot(
+    id: string,
+    name: string,
+    file: SnapshotFile,
+    record: () => void,
+    kind: "web" | "transcript",
+    deletedAt: string | null,
+  ): void {
+    const at = now();
+    db.transaction(() => {
+      db.run(
+        `INSERT INTO documents (id, content_hash, name, kind, size, status, path,
+           linked_folder_id, folder_id, source_kind, relative_path, file_status, file_mtime_ms,
+           created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, 'data-folder', ?, 'available', ?, ?, ?, ?)`,
+        [
+          id,
+          file.contentHash,
+          parseName(name.slice(0, MAX_NAME_LENGTH)),
+          kind,
+          file.size,
+          file.path,
+          relativePath(dataDir, file.path),
+          file.mtimeMs,
+          at,
+          at,
+          deletedAt,
+        ],
+      );
+      markArrived(db, id, at);
+      record();
+    });
+  }
 
   // Set below, once the library exists: Linked folders' progress follows their Documents.
   let progressed = (_linkedFolderId: string | null) => {};
@@ -753,12 +800,13 @@ export function createDocuments(options: DocumentsOptions) {
   }
 
   const jobFor = (
-    row: Pick<DocumentRow, "id" | "kind" | "path" | "content_hash">,
+    row: Pick<DocumentRow, "id" | "kind" | "path" | "content_hash" | "read_hidden_sheets">,
   ): ProcessingJob => ({
     task: "process",
     documentId: row.id,
     kind: row.kind as DocumentKind,
     file: row.path,
+    ...(row.read_hidden_sheets === 1 && { readHiddenSheets: true as const }),
     scan:
       textRecognition && row.kind === "pdf"
         ? { reader: textRecognition.reader, keep: keptScans(row) }
@@ -836,11 +884,11 @@ export function createDocuments(options: DocumentsOptions) {
     versionAt: string,
   ): void {
     const at = now();
-    for (const { page, text, kind, label, anchors } of pages) {
+    for (const { page, text, kind, label, anchors, scaleMarker } of pages) {
       db.run(
         `INSERT INTO document_pages (id, document_id, content_hash, page, kind, label, anchors,
-           text, created_at, updated_at, version_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           scale_marker, text, created_at, updated_at, version_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           randomUUID(),
           documentId,
@@ -849,6 +897,7 @@ export function createDocuments(options: DocumentsOptions) {
           kind ?? "page",
           label ? JSON.stringify(label) : null,
           anchors && anchors.length > 0 ? JSON.stringify(anchors) : null,
+          scaleMarker ?? "",
           text,
           at,
           at,
@@ -1554,7 +1603,8 @@ export function createDocuments(options: DocumentsOptions) {
     const params = from === null || to === null ? [] : [BigInt(from), BigInt(to)];
     return db
       .all<UnitRow>(
-        `SELECT dp.page, dp.text, dp.kind, dp.label, dp.anchors FROM document_pages dp
+        `SELECT dp.page, dp.text, dp.kind, dp.label, dp.anchors, dp.scale_marker
+         FROM document_pages dp
          JOIN documents d ON d.id = dp.document_id
          WHERE dp.document_id = ? AND dp.content_hash = ? AND dp.deleted_at IS NULL
            AND d.deleted_at IS NULL ${range}
@@ -2387,12 +2437,16 @@ export function createDocuments(options: DocumentsOptions) {
         .map((row) => ({ id: row.id, name: row.name, size: Number(row.size) }));
     },
 
-    /** Whether any live Document to search (of all of them, or only of these) is a workbook or a CSV file. */
-    searchableHasSheets(documentIds: readonly string[] | undefined): boolean {
+    /** Whether any live Document to search (of all of them, or only of these) is a workbook or a CSV file; or a workbook. */
+    searchableHasSheets(
+      documentIds: readonly string[] | undefined,
+      workbooksOnly = false,
+    ): boolean {
       const { where, params } = searchable(documentIds);
+      const kinds = workbooksOnly ? "('xlsx')" : "('xlsx', 'csv')";
       return (
         db.get<{ found: number }>(
-          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ('xlsx', 'csv') LIMIT 1`,
+          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ${kinds} LIMIT 1`,
           params,
         ) !== undefined
       );
@@ -2549,7 +2603,7 @@ export function createDocuments(options: DocumentsOptions) {
           page: unit.page ?? 1,
           text: unit.text,
           kind: unit.kind ?? "page",
-          label: unit.label ?? null,
+          label: viewedLabel(unit.label),
         })),
       };
     },
@@ -2595,7 +2649,7 @@ export function createDocuments(options: DocumentsOptions) {
           page: unit.page ?? 1,
           text: unit.text,
           kind: unit.kind ?? "page",
-          label: unit.label ?? null,
+          label: viewedLabel(unit.label),
         })),
       };
     },
@@ -2726,33 +2780,26 @@ export function createDocuments(options: DocumentsOptions) {
       record: () => void,
       kind: "web" | "transcript" = "web",
     ): Document {
-      const at = now();
-      db.transaction(() => {
-        db.run(
-          `INSERT INTO documents (id, content_hash, name, kind, size, status, path,
-             linked_folder_id, folder_id, source_kind, relative_path, file_status, file_mtime_ms,
-             created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, 'data-folder', ?, 'available', ?, ?, ?)`,
-          [
-            id,
-            file.contentHash,
-            parseName(name.slice(0, MAX_NAME_LENGTH)),
-            kind,
-            file.size,
-            file.path,
-            relativePath(dataDir, file.path),
-            file.mtimeMs,
-            at,
-            at,
-          ],
-        );
-        record();
-      });
+      insertSnapshot(id, name, file, record, kind, null);
       announce(id);
       process(id);
       const row = find(id);
       if (!row) throw new NotFoundError({ key: "error.document.notFound" });
       return toDocument(row);
+    },
+
+    /**
+     * Adds a Meeting's Transcript made while its note waits in Recently deleted: deleted at the
+     * note's time, so it comes back and is deleted permanently with it, and read once back (#1253).
+     */
+    addDeletedTranscript(
+      id: string,
+      name: string,
+      file: SnapshotFile,
+      record: () => void,
+      deletedAt: string,
+    ): void {
+      insertSnapshot(id, name, file, record, "transcript", deletedAt);
     },
 
     /** Looks at a file again now, as when it is opened: a new version is processed. */
@@ -3032,6 +3079,50 @@ export function createDocuments(options: DocumentsOptions) {
       }
       if (row.file_status !== "available") {
         throw new NotFoundError({ key: "error.document.fileGone" });
+      }
+      process(id);
+      return toDocument(find(id) ?? row);
+    },
+
+    /**
+     * Reads a workbook with its hidden and very hidden sheets (`readHidden`),
+     * or again without them (#740), and keeps that for every version after. Only
+     * a workbook with hidden sheets left out to read, or one that reads them to
+     * leave them out, whose file is there.
+     */
+    readHiddenSheets(idInput: unknown, readInput: unknown = true): Document {
+      const id = parseId(idInput);
+      if (typeof readInput !== "boolean") {
+        throw new InvalidInputError({ key: "error.document.readHiddenSheets" });
+      }
+      const row = find(id);
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      if (row.kind !== "xlsx") {
+        throw new InvalidInputError({ key: "error.document.noHiddenSheets" });
+      }
+      if (readInput) {
+        const parts = parseUnreadParts(row.unread_parts);
+        // The stored parts are the last finished read's. While a read runs, or the latest one
+        // failed, they belong to the setting before it, so they can't say nothing is left out:
+        // Redo straight after Undo must redo (#740).
+        const current =
+          row.status !== "queued" && row.status !== "extracting" && row.failure_reason === null;
+        if (current && (parts === null || parts.hiddenSheets.length === 0)) {
+          throw new InvalidInputError({ key: "error.document.noHiddenSheets" });
+        }
+      } else if (row.read_hidden_sheets !== 1) {
+        return toDocument(row);
+      }
+      if (row.file_status !== "available") {
+        throw new NotFoundError({ key: "error.document.fileGone" });
+      }
+      const wanted = readInput ? 1 : 0;
+      if (row.read_hidden_sheets !== wanted) {
+        db.run("UPDATE documents SET read_hidden_sheets = ?, updated_at = ? WHERE id = ?", [
+          wanted,
+          now(),
+          id,
+        ]);
       }
       process(id);
       return toDocument(find(id) ?? row);

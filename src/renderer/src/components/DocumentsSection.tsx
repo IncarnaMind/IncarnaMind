@@ -11,7 +11,7 @@ import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
-import { useDayOne, useLibraryDocuments } from "../ownDocuments";
+import { useLibraryDocuments, useLibraryShown } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
 import {
@@ -75,21 +75,20 @@ const NO_DOCUMENTS: readonly Document[] = [];
  * the sections, each shown once it has something in it: the Folders, each
  * with its Minds and Documents, and Not in a Folder (see `LibraryFolders`),
  * the Linked folders (see `LinkedFolderRows`), and the Tags in
- * use (see `SidebarTags`). On a first open with nothing of the User's own,
- * the Library waits for their first Document. Each Document is one row: its
- * name, its Tags' colours (see `TagMarks`) and, while it's processed, if it
- * failed, or if its file is missing or can't be reached, its status at the
- * end. Its Tags are in its Tags menu, and the Tags dialog; its "More" menu
- * renames it, moves it, opens its file or shows it in its folder, and
- * deletes it. Clicking a Document opens it in the viewer. Documents and
- * Linked folders are added from the header's New menu, or dropped anywhere
- * on the window (see `FileDrop`).
+ * use (see `SidebarTags`). On a first open it waits, with the rest of the shell, until the User
+ * has a Document or a Note of their own, and then it is there (#2376). Each Document is one
+ * row: its name, its Tags' colours (see `TagMarks`) and, while it's processed, if it failed, or
+ * if its file is missing or can't be reached, its status at the end. Its Tags are in its Tags
+ * menu, and the Tags dialog; its "More" menu renames it, moves it, opens its file or shows it in
+ * its folder, and deletes it. Clicking a Document opens it in the viewer. Documents and Linked
+ * folders are added from the header's New menu, or dropped anywhere on the window (see
+ * `FileDrop`).
  */
 export function DocumentsSection() {
   const t = useT();
   const language = useLanguage();
   const libraryDocuments = useLibraryDocuments();
-  const dayOne = useDayOne();
+  const libraryShown = useLibraryShown();
   const firstOpen = useFirstOpen();
   const hasOwnDocuments = useAppStore((state) =>
     state.documents.some((each) => isOwnDocument(each, allExamples(state))),
@@ -194,7 +193,7 @@ export function DocumentsSection() {
       />
       <SidebarHome />
       <SidebarSearch />
-      {!quiet && !dayOne && (
+      {libraryShown && (
         <div className={rowClass(libraryOpen)}>
           <button
             type="button"

@@ -34,6 +34,7 @@ import {
   afterRun,
   type CheckStart,
   type ClaimCheckRequest,
+  NO_DATE,
   runFailureOf,
 } from "./claimCheck";
 import {
@@ -209,7 +210,7 @@ export function createWholeRead(options: WholeReadOptions) {
         citationSource: (passageId) => documents.citationSource(passageId),
         pageTexts: (documentId, contentHash, from, to) =>
           documents.pageTexts(documentId, contentHash, from, to),
-        documentDate: (documentId) => documents.documentDate(documentId),
+        documentDate: NO_DATE,
       },
       { onRecord: () => undefined },
     );

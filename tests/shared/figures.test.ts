@@ -11,6 +11,8 @@
 import { describe, expect, test } from "vitest";
 import {
   type AmbiguityKind,
+  currencyOnItsFigure,
+  currencyScaleMarker,
   type Figure,
   type FigureContext,
   type FigureUnit,
@@ -1198,6 +1200,70 @@ describe("stated units", () => {
   });
 });
 
+describe("a currency written next to a scale", () => {
+  test.each([
+    "(£'000)",
+    "£000s",
+    "€ Mio.",
+    "Tsd. €",
+    "TEUR",
+    "T€",
+    "k€",
+    "$K",
+    "MEUR",
+    "$MM",
+    "USD MM",
+    "新台幣仟元",
+    "港幣百萬",
+    "金额：人民币万元",
+  ])("is found in %s", (text) => {
+    expect(currencyScaleMarker(text)).not.toBeNull();
+  });
+
+  test.each([
+    "In 2026 the sale completed.",
+    "Unit 4, 12 Mill Lane",
+    "I'm the seller's agent.",
+    "M. Smith",
+    "Room 000",
+    "万科",
+    "一千",
+    "工作单位",
+    "Sale price £385,000.00",
+    "Less: agent's fee (4,620.00)",
+    "Deposit $12,000.00",
+  ])("is not found in %s", (text) => {
+    expect(currencyScaleMarker(text)).toBeNull();
+  });
+});
+
+describe("a currency a line writes on its own figure", () => {
+  test("is the line's statement when no other figure on it writes another", () => {
+    expect(currencyOnItsFigure("Sale price £385,000.00", EN)).toEqual({
+      chars: "£",
+      code: "GBP",
+      at: 11,
+    });
+    expect(currencyOnItsFigure("成交价 ¥3,850,000.00", ZH)).toEqual({
+      chars: "¥",
+      code: "CNY",
+      at: 4,
+    });
+    expect(currencyOnItsFigure("Sale price 385,000.00", EN)).toBeNull();
+    expect(currencyOnItsFigure("Less: agent's fee (4,620.00)", EN)).toBeNull();
+    expect(currencyOnItsFigure("Sale price £385,000.00 deposit $12,000.00", EN)).toBeNull();
+  });
+
+  test("leaves a “¥” the Document doesn't settle unstated", () => {
+    expect(currencyOnItsFigure("Sale price ¥385,000.00", EN)).toBeNull();
+    expect(currencyOnItsFigure("Sale price ¥385,000.00", { language: "ja" })).toEqual({
+      chars: "¥",
+      code: "JPY",
+      at: 11,
+    });
+  });
+});
+
 describe("how a Document writes its numbers", () => {
   test("is read from the numbers that can be read only one way", () => {
     expect(
@@ -1225,6 +1291,17 @@ describe("how a Document writes its numbers", () => {
     expect(figureContextOf("营业收入人民币1.2亿元").yen).toBe("CNY");
     expect(figureContextOf("売上高は1,200億円").yen).toBe("JPY");
     expect(figureContextOf("RMB 1.2bn and JPY 3bn").yen).toBeNull();
+  });
+
+  // protects=#2226; fails_when=a Chinese Document's ¥ is read as the yen because a line names 日元, or a Japanese one's isn't the yen.
+  // protects=#2226; fails_when=a Chinese Document that names 日元 reads its ¥ as the yuan or the yen, or a Japanese one's ¥ isn't the yen.
+  test("leaves ¥ unsettled when the Document names the other currency", () => {
+    expect(figureContextOf("日本子公司（以日元列示）\n收入 ¥120,000,000", "zh-CN").yen).toBe(
+      "unsure",
+    );
+    expect(figureContextOf("营业成本 1,200", "zh-CN").yen).toBe("CNY");
+    expect(figureContextOf("料金は54,000円。売上高 ¥3,850,000", "ja").yen).toBe("JPY");
+    expect(figureContextOf("Fee is 54,000 yen. Sale price ¥3,850,000", "en").yen).toBe("JPY");
   });
 });
 

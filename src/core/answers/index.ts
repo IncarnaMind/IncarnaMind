@@ -43,20 +43,18 @@
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
+import { withAnalysisPictures } from "../../shared/analysisPictures";
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
+import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
 import { runsByDefault } from "../../shared/approvalRules";
-import {
-  askedFor,
-  waitsForUser as heldForUser,
-  requestedRequests,
-} from "../../shared/askedChanges";
+import { appliedAsAsked } from "../../shared/askedChanges";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { yoursLine } from "../../shared/commands";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { translate } from "../../shared/i18n";
-import { englishPlace } from "../../shared/locations";
+import { citationLocation, englishLocation, englishPlace } from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
@@ -72,6 +70,7 @@ import {
   resolveProposals,
   waitingChanges,
 } from "../../shared/proposals";
+import { moneyOf } from "../../shared/readBudget";
 import {
   filingFolder,
   folderScope,
@@ -83,7 +82,7 @@ import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import { unrunToolNotes } from "../../shared/unrunTools";
 import type { AnalysisRuntime } from "../adapters";
-import { withAnalysisResults } from "../analysis/markers";
+import { withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
 import { analysisTool } from "../analysis/tool";
 import {
   ANSWER_BLOCK,
@@ -100,8 +99,10 @@ import {
   type AskedQuote,
   type AskResult,
   BLOCK_ID_ATTRIBUTE,
+  type CalculatedFigure,
   type ChatModelChoice,
   type ChatReadiness,
+  type Citation,
   type CitationRecheck,
   type CitationSupport,
   type CitedSelection,
@@ -110,6 +111,7 @@ import {
   type CommandDone,
   type CommandProblem,
   type CommandsFound,
+  type ConversationAnswer,
   type ConversationAskResult,
   type ConversationMessage,
   type ConversationQuestion,
@@ -124,9 +126,11 @@ import {
   type MindChange,
   type MindFocus,
   type MindProblem,
+  type Money,
   type ProviderError,
   QUESTION_BLOCK,
   type QuoteRetry,
+  type RunEstimate,
   type SearchScope,
   type SkillAvailability,
   type SkillScriptRun,
@@ -153,9 +157,11 @@ import { proposeBlocks } from "../proposals/write";
 import { givesStructuredOutput, calculates as offersCalculate } from "../providers/capabilities";
 import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { PreparedChatModel } from "../providers/chat";
+import type { ModelCallKind } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { WebResult } from "../providers/webSearch";
 import { messageReference } from "../references";
+import { currentTask } from "../runs/current";
 import type { GateDecision } from "../runs/engine";
 import type { SkillScript, SkillSession } from "../skills";
 import {
@@ -188,6 +194,7 @@ import { commandTools } from "../tools/commands/tools";
 import { type MindsForTools, type MindToolsOptions, mindTools } from "../tools/minds/tools";
 import { asksForWeb } from "../tools/web/intent";
 import { type SavedPage, webTools } from "../tools/web/tools";
+import { workbookTools } from "../workbooks/tool";
 import {
   contentHash,
   createElement,
@@ -202,6 +209,12 @@ import {
 import { answerLanguage, createCalculationSession, whole } from "./calculations";
 import { asksToCheckOrCalculate } from "./carefulIntent";
 import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
+import {
+  type AnswerCheckInput,
+  type JudgementStop,
+  judgedMarkers,
+  type SupportResult,
+} from "./checks/answerCheck";
 import {
   type AnswerDocuments,
   createCitationSession,
@@ -316,6 +329,7 @@ import {
   unrecordedMarkersNote,
   webInstructions,
   withPassageNotes,
+  workbookInstructions,
   workingCopyNote,
 } from "./prompt";
 import { quotedWordsIn, withoutQuotationMarks } from "./quotedWords";
@@ -407,6 +421,10 @@ function mindLimit(prepared: PreparedChatModel): number {
 export interface AnswerConversations {
   /** Writes an ended Answer's Tool calls again, one updated since; false if it is gone. */
   writeToolCalls(answerId: string, toolCalls: readonly AnswerToolCall[]): boolean;
+  /** An Answer as stored; null if it is gone. */
+  answer(answerId: string): ConversationAnswer | null;
+  /** Writes an ended Answer's Citations again while it still reads `text`; false if it doesn't. */
+  writeCitations(answerId: string, text: string, citations: readonly MarkedCitation[]): boolean;
   /**
    * Adds a Question, and its conversation with its first one, and its Answer, being
    * written, which reads `read`.
@@ -557,6 +575,13 @@ export interface AnswersOptions {
    */
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
   providerExists(providerId: string): boolean;
+  /**
+   * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
+   * each checked marker's result; null when none could be checked.
+   */
+  checkAnswer?(input: AnswerCheckInput): Promise<Map<number, SupportResult> | null>;
+  /** What judging an Answer's sentences would cost, sending nothing; null when nothing is left. */
+  estimateAnswerCheck?(input: Omit<AnswerCheckInput, "signal">): RunEstimate | null;
   /** The default model, before its readiness is checked. */
   defaultModel(): ChatModelChoice | null;
   /** Whether this model reads pictures: one that can't is sent none, even one the User selected (#1937). */
@@ -798,8 +823,11 @@ export interface DocumentsForAnswers
   ): ListedDocuments & { webPages: string[] };
   /** The Documents to search, the most text first. */
   searchableBySize(documentIds: readonly string[] | null): SizedDocument[];
-  /** Whether a Document to search is a workbook or a CSV file: what an Analysis reads (#447). */
-  searchableHasSheets(documentIds: readonly string[] | null): boolean;
+  /**
+   * Whether a Document to search is a workbook or a CSV file: what an Analysis reads (#447);
+   * with `workbooksOnly`, a workbook, whose formulas its Tools read (#2347).
+   */
+  searchableHasSheets(documentIds: readonly string[] | null, workbooksOnly?: boolean): boolean;
   passage(passageId: string): WindowedPassage | null;
   /** The live Passages of a live Document at positions `from` to `to`, in reading order. */
   passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];
@@ -992,6 +1020,100 @@ export function createAnswers(options: AnswersOptions) {
         ? options.resolveScope(folderScope(wallId))
         : options.resolveScope(NO_SCOPE, mindId);
 
+  /** An Answer's Search scope as it had it, resolved as regenerating it does, for its judgement. */
+  const judgedScope = (question: ConversationQuestion): string[] | null => {
+    const from = question.askedFrom;
+    const mindId = from && !from.deleted ? from.mindId : null;
+    const readsMind = mindId !== null && options.readableMindName(mindId) !== null;
+    return scopeNow(question.scope, mindId, readsMind ? null : wallOfTurn(question)).documentIds;
+  };
+
+  /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
+  const judgements = new Map<
+    string,
+    { controller: AbortController; conversationId: string; model: ChatModelChoice | null }
+  >();
+  /**
+   * Ends the judgement of an Answer's sentences: its waiting Citations are written not checked;
+   * `quietly`, for an Answer written again or going away, it writes nothing more.
+   */
+  const endJudgement = (answerId: string, quietly = false) => {
+    const judgement = judgements.get(answerId);
+    if (!judgement) return;
+    if (quietly) judgements.delete(answerId);
+    judgement.controller.abort();
+  };
+
+  /**
+   * Judges the sentences of a stored Answer whose Citations wait as checking (#2311), and writes
+   * each Citation's result as soon as it has one: found when its sentences are supported,
+   * unsupported or contradicted otherwise, and not checked when the judgement couldn't run or was
+   * stopped. One judged again in the meantime writes nothing more.
+   */
+  async function judgeAnswer(
+    answer: ConversationAnswer,
+    documentIds: readonly string[] | null,
+    limit: Money = ANSWER_CHECKING_LIMIT,
+  ) {
+    const waiting = new Set(
+      answer.citations.filter((each) => each.check === "checking").map((each) => each.marker),
+    );
+    const controller = new AbortController();
+    endJudgement(answer.id, true);
+    judgements.set(answer.id, {
+      controller,
+      conversationId: answer.conversationId,
+      model: answer.model,
+    });
+    let citations = answer.citations;
+    const judged = (
+      marker: number | null,
+      result: SupportResult | null,
+      stop: JudgementStop | null = null,
+    ) => {
+      citations = citations.map((citation): MarkedCitation => {
+        if (citation.check !== "checking" || (marker !== null && citation.marker !== marker)) {
+          return citation;
+        }
+        if (!result) return { ...citation, check: "not-checked", checkReason: stop };
+        return {
+          ...citation,
+          check: result.check,
+          checkReason: null,
+          ...(result.verdict && { verdict: result.verdict }),
+        };
+      });
+      if (judgements.get(answer.id)?.controller === controller) {
+        options.conversations.writeCitations(answer.id, answer.text, citations);
+      }
+    };
+    try {
+      const { checkAnswer } = options;
+      if (checkAnswer && answer.model) {
+        const model = answer.model;
+        // Every request of the judgement counts toward its limit, which the meter never passes.
+        await currentTask.run({ id: randomUUID(), budget: limit }, () =>
+          checkAnswer({
+            text: answer.text,
+            citations: answer.citations,
+            figures: answer.figures,
+            waiting,
+            documentIds,
+            model,
+            signal: controller.signal,
+            onJudged: judged,
+            onStop: (stop) => judged(null, null, stop),
+          }),
+        );
+      }
+    } catch (error) {
+      options.reportError(error);
+    } finally {
+      if (citations.some((citation) => citation.check === "checking")) judged(null, null);
+      if (judgements.get(answer.id)?.controller === controller) judgements.delete(answer.id);
+    }
+  }
+
   const contextCitationsFor = (mindId: string | null, wallId?: string | null): ContextCitations => {
     const allowed = readableAcrossWalls(mindId, wallId);
     return createContextCitations((documentId) => allowed === null || allowed.includes(documentId));
@@ -1046,6 +1168,13 @@ export function createAnswers(options: AnswersOptions) {
     outside?: boolean;
     /** Which Tools its Run is offered (see `ToolSet`); absent: every Tool. */
     toolSet?: ToolSet;
+    /** The output limit of its replies, when it writes more than an Answer (see `AnswerRequest`). */
+    outputKind?: ModelCallKind;
+    /**
+     * How much it thinks first, when not as its kind does. A Meeting's notes think as an Answer
+     * does: at a Task's effort the thinking alone filled their replies' limits (#2306).
+     */
+    thinking?: "answer";
     /** A comparison table's cell (#1798): an amount it writes at another scale than its Citations give is asked about once. */
     checkScales?: boolean;
     /**
@@ -1388,16 +1517,44 @@ export function createAnswers(options: AnswersOptions) {
       quotesRecorded.set(marker, quote);
       return true;
     };
+    const recordInputQuotes = (marker: number) => {
+      for (const source of figures.inputSources(marker)) {
+        if (typeof source !== "number" && !recordedQuotes.has(quoteKey(source)))
+          recordQuote(source, nextMarker());
+      }
+    };
     const calculateFigures = (given: readonly unknown[], calculateOptions?: CiteOptions) => {
       const told = figures.calculate(given, calculateOptions);
       for (const raw of given) {
         const marker = whole((raw as { marker?: unknown } | null)?.marker);
-        for (const source of marker === null ? [] : figures.inputSources(marker)) {
-          if (typeof source !== "number" && !recordedQuotes.has(quoteKey(source)))
-            recordQuote(source, nextMarker());
-        }
+        if (marker !== null) recordInputQuotes(marker);
       }
       return told;
+    };
+    /**
+     * A workbook's figure, cited as an input quoted directly is (#2347): to its cell, or a
+     * what-if to the input it changed, never to the cell whose number it isn't.
+     */
+    const recordWorkbookFigure = (figure: CalculatedFigure): number => {
+      const change = figure.workbook?.change;
+      const cell = change
+        ? figure.inputs.find((input) => input.name === change.input)?.citation
+        : figure.workbook?.cell.input.citation;
+      const location = cell ? citationLocation(cell) : null;
+      const marker = figures.record(
+        figure,
+        cell
+          ? [
+              {
+                passage: cell.passageId,
+                location: location ? englishLocation(location) : null,
+                quote: cell.quote,
+              },
+            ]
+          : [],
+      );
+      recordInputQuotes(marker);
+      return marker;
     };
     const citeRecords = (records: readonly CitationRecordInput[], citeOptions?: CiteOptions) => {
       for (const record of records) {
@@ -1473,7 +1630,9 @@ export function createAnswers(options: AnswersOptions) {
       const final = outcome !== undefined;
       // Turned into their Citations when the Answer ends (`finish`): till then none shows.
       const text = withAnalysisResults(
-        withoutFootnoteDefinitions(final ? markdown : withoutWrittenIds(markdown, ids)),
+        withoutFootnoteDefinitions(
+          final ? withEveryChartPlaced(markdown, analyses) : withoutWrittenIds(markdown, ids),
+        ),
         analyses,
         answerLanguage(context.question),
       );
@@ -1491,13 +1650,14 @@ export function createAnswers(options: AnswersOptions) {
                   ? (marker) => session.finalNode(marker)
                   : (marker) => session.streamingNode(marker),
               );
+              const drawn = withAnalysisPictures(blocks, analyses);
               return asGenerated(
                 calculating
-                  ? withCalculatedFigures(blocks, (marker) => figures.figure(marker), {
+                  ? withCalculatedFigures(drawn, (marker) => figures.figure(marker), {
                       id: answerId,
                       analyses,
                     })
-                  : blocks,
+                  : drawn,
               );
             },
             citations: () => {
@@ -1506,7 +1666,7 @@ export function createAnswers(options: AnswersOptions) {
               withCitations(markdownToBlocks(text, { streaming: !final }), (marker) => {
                 const citation = citationOf(marker);
                 if (citation && !found.some((each) => each.marker === marker)) {
-                  found.push({ marker, ...citation });
+                  found.push({ marker, ...withSupport(marker, citation) });
                 }
                 return null;
               });
@@ -1528,6 +1688,46 @@ export function createAnswers(options: AnswersOptions) {
         return false;
       }
     };
+
+    let settled = false;
+    /** The text as it ends: each quote checked, once, and the markers no Citation backs taken out. */
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      markdown = session.citeWrittenIds(markdown, notKept);
+      // The check runs once, now; its results are stored with each Citation, and each figure's input.
+      try {
+        session.check();
+        figures.check();
+        const translated = session.checkQuotedWords(
+          quotedWordsIn(withoutFootnoteDefinitions(markdown)),
+        );
+        if (translated.length > 0) markdown = withoutQuotationMarks(markdown, new Set(translated));
+      } catch (error) {
+        options.reportError(error);
+      }
+      // A marker no Citation backs is not kept in the text, and each is counted for the summary.
+      markdown = withoutDeadMarkers(markdown, (marker) => session.finalCitation(marker) !== null);
+    };
+
+    /**
+     * The Citations whose sentences an Answer in the assistant has judged once it ends (#2311), by
+     * marker: they wait as checking, never found, so no green check shows before its sentence
+     * earns it.
+     */
+    let waiting: ReadonlySet<number> = new Set();
+    /** Checking while its sentence is judged; not checked when the Answer stopped before that. */
+    let waitingAs: "checking" | "not-checked" = "checking";
+    const withSupport = (marker: number, citation: Citation): Citation =>
+      waiting.has(marker) ? { ...citation, check: waitingAs, checkReason: null } : citation;
+    /**
+     * The User reads an Answer in the assistant by its Citations' checks. An Answer read elsewhere is
+     * checked where it lands: in a Note, by its checks; by an outside agent or a Task, as they do.
+     */
+    const judgesItsSentences = () =>
+      options.checkAnswer !== undefined &&
+      place.conversationId !== undefined &&
+      flow === "question";
 
     const finish = (outcome: Outcome) => {
       if (finished) return;
@@ -1551,20 +1751,21 @@ export function createAnswers(options: AnswersOptions) {
           ]),
         );
       }
-      markdown = session.citeWrittenIds(markdown, notKept);
-      // The check runs once, now; its results are stored with each Citation, and each figure's input.
-      try {
-        session.check();
-        figures.check();
-        const translated = session.checkQuotedWords(
-          quotedWordsIn(withoutFootnoteDefinitions(markdown)),
-        );
-        if (translated.length > 0) markdown = withoutQuotationMarks(markdown, new Set(translated));
-      } catch (error) {
-        options.reportError(error);
+      settle();
+      const judging = judgesItsSentences() && outcome.status !== "failed";
+      if (judging) {
+        // A stopped Answer's sentences aren't judged: they wait for the User's Check again.
+        waitingAs = outcome.status === "done" ? "checking" : "not-checked";
+        const text = withoutFootnoteDefinitions(markdown);
+        waiting = judgedMarkers({
+          text,
+          citations: [...new Set(markersIn(text))].flatMap((marker) => {
+            const citation = session.finalCitation(marker);
+            return citation ? [{ marker, ...citation }] : [];
+          }),
+          figures: placedFigures(text, true).figures,
+        });
       }
-      // A marker no Citation backs is not kept in the text, and each is counted for the summary.
-      markdown = withoutDeadMarkers(markdown, (marker) => session.finalCitation(marker) !== null);
       // Its steps say how many figures it shows, and its end how many it couldn't calculate.
       const placed = placedFigures(withoutFootnoteDefinitions(markdown), true);
       if (placed.figures.length > 0 || placed.missing > 0) {
@@ -1595,6 +1796,10 @@ export function createAnswers(options: AnswersOptions) {
           figureRetry,
           usage,
         });
+      }
+      if (judging && written && waitingAs === "checking" && waiting.size > 0) {
+        const stored = options.conversations.answer(answerId);
+        if (stored) void judgeAnswer(stored, input.documentIds);
       }
     };
 
@@ -2072,7 +2277,9 @@ export function createAnswers(options: AnswersOptions) {
         prepared = await options.prepareModel(
           model,
           // Help during a call is read within seconds: the model answers without thinking first.
-          help ? "off" : input.task ? "summary" : careful ? "careful" : "answer",
+          help
+            ? "off"
+            : (input.thinking ?? (input.task ? "summary" : careful ? "careful" : "answer")),
         );
       } catch (error) {
         finish({ status: "failed", error: failureOf(error) });
@@ -2570,6 +2777,32 @@ export function createAnswers(options: AnswersOptions) {
         }),
       };
       const runtime = outside ? undefined : options.analysisRuntime;
+      /** A Passage the model was given, by its short id, and its version's Units: what a sheet's Tools read. */
+      const shownPassage = (id: string) => {
+        const named = id.trim().toLowerCase();
+        const shown = session.shownPassages().find((each) => each.id.toLowerCase() === named);
+        const source = shown ? searched.citationSource(shown.passageId) : null;
+        if (!source || source.documentDeleted) return null;
+        return {
+          source,
+          units: searched.pageTexts(source.documentId, source.contentHash, null, null),
+        };
+      };
+      // A workbook's own formulas, traced and worked out again (#2347): offered with calculate.
+      const fromWorkbooks: Tool[] =
+        calculating &&
+        input.toolSet === undefined &&
+        !help &&
+        options.documents.searchableHasSheets(documentIds, true)
+          ? workbookTools({
+              passage: shownPassage,
+              passageOf: (documentId, page) =>
+                options.documents.passagesCovering(documentId, page, page, true)[0]?.passageId ??
+                null,
+              figure: recordWorkbookFigure,
+              language: answerLanguage(context.question),
+            })
+          : [];
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
         calculating &&
@@ -2579,18 +2812,7 @@ export function createAnswers(options: AnswersOptions) {
           ? [
               analysisTool({
                 runtime,
-                passage: (id) => {
-                  const named = id.trim().toLowerCase();
-                  const shown = session
-                    .shownPassages()
-                    .find((each) => each.id.toLowerCase() === named);
-                  const source = shown ? searched.citationSource(shown.passageId) : null;
-                  if (!source || source.documentDeleted) return null;
-                  return {
-                    source,
-                    units: searched.pageTexts(source.documentId, source.contentHash, null, null),
-                  };
-                },
+                passage: shownPassage,
                 number: (given) => figures.number(given),
                 figure: (figure) => figures.record(figure),
                 language: answerLanguage(context.question),
@@ -2684,23 +2906,13 @@ export function createAnswers(options: AnswersOptions) {
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
       // Asked again inside the turn, the model reads what applied as applied: the window may not
       // have taken it in yet, and told it waits, the model tells the User so.
-      const appliedInTurn: ChangeStates = (change) => {
-        const asked = new Set(
-          toolCalls.flatMap((call) =>
-            call.mindChange?.mindId === change.mindId ? [call.mindChange.request] : [],
-          ),
-        );
-        return (
-          minds?.read(change.mindId, (blocks) => {
-            const doc = blocks.doc;
-            if (!doc) return null;
-            const requested = requestedRequests(doc, asked);
-            return askedFor(doc, change.request) && !heldForUser(doc, requested)
-              ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
-              : null;
-          }) ?? null
-        );
-      };
+      const appliedInTurn: ChangeStates = (change) =>
+        minds?.read(change.mindId, (blocks) => {
+          const doc = blocks.doc;
+          return doc !== null && appliedAsAsked(doc, change, toolCalls)
+            ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
+            : null;
+        }) ?? null;
       const claimedTools: TurnCheck = {
         name: "claimed-tool",
         check: (text) => {
@@ -2858,6 +3070,7 @@ export function createAnswers(options: AnswersOptions) {
             webTools: withWebTools = false,
             mindTools: withMindTools = false,
             analysisTools: withAnalysisTools = false,
+            workbookTools: withWorkbookTools = false,
             commandTools: withCommandTools = false,
           } = {},
         ) =>
@@ -2883,7 +3096,7 @@ export function createAnswers(options: AnswersOptions) {
             coverageInstructions(
               coverage,
               asked.each,
-              options.documents.searchableCount(documentIds),
+              options.documents.searchableBySize(input.documentIds),
             ),
             skillInstructions(listed, forced, withSkillTools, scripts),
             connectorTools ? connectorInstructions(fromConnectors, mode === "no-documents") : "",
@@ -2899,6 +3112,7 @@ export function createAnswers(options: AnswersOptions) {
             input.assistant && !help ? THIS_DOCUMENT_RULE : "",
             emptyMindNote(withMindTools, focusedEmpty),
             analysisInstructions(withAnalysisTools),
+            workbookInstructions(withWorkbookTools),
             meetingInstructions(heard !== null),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
             help ? "" : language,
@@ -2932,12 +3146,14 @@ export function createAnswers(options: AnswersOptions) {
           ...fromWeb,
           ...(mindsTools?.tools ?? []),
           ...fromAnalysis,
+          ...fromWorkbooks,
           ...(commandsOffered?.tools ?? []),
           ...(asking ? [asking] : []),
         ],
         gate,
         streamsInput,
         toolSet: input.toolSet ?? (help ? "documents" : undefined),
+        ...(input.outputKind && { outputKind: input.outputKind }),
         ...(keepsQuestionsLanguage && {
           languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),
         }),
@@ -3878,6 +4094,7 @@ export function createAnswers(options: AnswersOptions) {
       if ("asked" in ready) return ready;
       if (model) options.conversations.setQuestionModel(question.id, model);
       active.get(answerId)?.finish({ status: "stopped" });
+      endJudgement(answerId, true);
       const changes = toolCalls.flatMap((call) => call.mindChange ?? []);
       // Written again, it proposes its changes again: those still waiting from before go.
       options.withdrawChanges?.(changes);
@@ -3915,10 +4132,59 @@ export function createAnswers(options: AnswersOptions) {
       if (!isRecord(input))
         throw new InvalidInputError("stopConversationAnswer expects an object.");
       const conversationId = parseId(input.conversationId, "A conversation id");
-      const generation = active.get(parseId(input.answerId, "An Answer id"));
+      const answerId = parseId(input.answerId, "An Answer id");
+      const generation = active.get(answerId);
       if (generation?.home.place.conversationId === conversationId) {
         generation.finish({ status: "stopped" });
       }
+      if (judgements.get(answerId)?.conversationId === conversationId) endJudgement(answerId);
+    },
+
+    /**
+     * Judges again the sentences of an ended Answer whose Citations are not checked (#2311): Check
+     * again on such a Citation's card. Resolves once each has a result.
+     */
+    async checkAnswerAgain(input: unknown): Promise<void> {
+      const { answerId, question } = options.conversations.questionOf(input);
+      const answer = options.conversations.answer(answerId);
+      if (!answer || answer.status === "streaming") return;
+      if (!answer.citations.some((each) => each.check === "not-checked")) return;
+      const limit = isRecord(input) ? moneyOf(input.limit) : null;
+      const documentIds = judgedScope(question);
+      const waiting = answer.citations.map(
+        (citation): MarkedCitation =>
+          citation.check === "not-checked" ? { ...citation, check: "checking" } : citation,
+      );
+      if (!options.conversations.writeCitations(answerId, answer.text, waiting)) return;
+      await judgeAnswer({ ...answer, citations: waiting }, documentIds, limit ?? undefined);
+    },
+
+    /**
+     * What judging an ended Answer's sentences whose Citations are not checked would cost, as
+     * Check the rest asks it (#2311); null when nothing is left to judge. Sends nothing.
+     */
+    async estimateAnswerCheck(input: unknown): Promise<RunEstimate | null> {
+      const { answerId, question } = options.conversations.questionOf(input);
+      const answer = options.conversations.answer(answerId);
+      if (!answer?.model || answer.status === "streaming") return null;
+      const waiting = new Set(
+        answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
+      );
+      if (waiting.size === 0) return null;
+      const estimate =
+        options.estimateAnswerCheck?.({
+          text: answer.text,
+          citations: answer.citations,
+          figures: answer.figures,
+          waiting,
+          documentIds: judgedScope(question),
+          model: answer.model,
+        }) ?? null;
+      if (estimate?.billing !== "per-token" || !estimate.upTo?.cost) return estimate;
+      const most = estimate.upTo.cost;
+      // Up to the next cent: the limit it is checked within is never below a request's sum.
+      const amount = Math.ceil(most.amount * 100) / 100;
+      return { ...estimate, upTo: { ...estimate.upTo, cost: { ...most, amount } } };
     },
 
     /**
@@ -4079,6 +4345,8 @@ export function createAnswers(options: AnswersOptions) {
           consentNeeded: false,
           outside: true,
           toolSet: "check",
+          outputKind: "meeting-fill",
+          thinking: "answer",
           task: true,
           transcript: input.passages,
         });
@@ -4147,12 +4415,15 @@ export function createAnswers(options: AnswersOptions) {
       });
     },
 
-    /** Stops every Answer being written in a conversation, e.g. before it is deleted. */
+    /** Stops every Answer being written in a conversation, and its sentences' judgements, e.g. before it is deleted. */
     stopConversation(conversationId: string): void {
       for (const generation of [...active.values()]) {
         if (generation.home.place.conversationId === conversationId) {
           generation.finish({ status: "stopped" });
         }
+      }
+      for (const [answerId, judgement] of [...judgements]) {
+        if (judgement.conversationId === conversationId) endJudgement(answerId, true);
       }
     },
 
@@ -4162,9 +4433,14 @@ export function createAnswers(options: AnswersOptions) {
     /**
      * Local mode just turned on: stops every Answer being written by a model that isn't on
      * this computer, keeping what was written. It ends as failed with the "local-mode"
-     * reason, so the Answer says why.
+     * reason, so the Answer says why. Such a model's judgements of sentences end: not checked.
      */
     async stopCloud(): Promise<void> {
+      for (const [answerId, { model }] of [...judgements]) {
+        if (!model) continue;
+        const readiness = await options.readiness(model);
+        if (!readiness.ready && readiness.reason === "local-mode") endJudgement(answerId);
+      }
       for (const generation of [...active.values()]) {
         const readiness = await options.readiness(generation.model);
         if (readiness.ready || readiness.reason !== "local-mode") continue;
@@ -4178,9 +4454,13 @@ export function createAnswers(options: AnswersOptions) {
       }
     },
 
-    /** Stops every Answer, keeping what was written, e.g. when the app quits. */
+    /**
+     * Stops every Answer, keeping what was written, and every judgement, e.g. when the app quits:
+     * its waiting Citations are left for the next start, which finds them not checked.
+     */
     stopAll(): void {
       for (const generation of [...active.values()]) generation.finish({ status: "stopped" });
+      for (const answerId of [...judgements.keys()]) endJudgement(answerId, true);
     },
   };
 }

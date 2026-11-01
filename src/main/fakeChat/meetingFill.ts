@@ -1,8 +1,8 @@
 /**
  * Filling a Meeting's notes in after Stop (#142): each of the User's lines gets the transcript's
- * first line under it, cited; with no notes, a summary and a decision, each citing it. A voice
- * memo (#1568) gets its first line's first words as its title, and that line, cited. In the
- * call's language, as its lines are said.
+ * first line under it, cited, then a summary and a decision citing it when the prompt asks for
+ * them (#2306). A voice memo (#1568) gets its first line's first words as its title, and that
+ * line, cited. In the call's language, as its lines are said.
  */
 import { passagesIn, recordFor, withSurroundingWords } from "./passages";
 import { lastUserText, type Prompt, type Reply, toolResults } from "./prompt";
@@ -34,8 +34,10 @@ export function fillReply(prompt: Prompt, tools: readonly string[]): Reply | nul
     return { text: `# ${title}\n\n${said}${cite}.` };
   }
   const markers = [...asked.matchAll(/^(L\d+): /gm)].map((match) => match[1] as string);
-  if (markers.length > 0) {
-    return { text: markers.map((marker) => `### ${marker}\n${said}${cite}.`).join("\n\n") };
-  }
-  return { text: `### SUMMARY\n${said}${cite}.\n\n### DECISIONS\n- ${said}${cite}.` };
+  const lines = markers.map((marker) => `### ${marker}\n${said}${cite}.`);
+  const sections = [
+    /^### SUMMARY:/m.test(asked) && `### SUMMARY\n${said}${cite}.`,
+    /^### DECISIONS:/m.test(asked) && `### DECISIONS\n- ${said}${cite}.`,
+  ].filter((part) => part !== false);
+  return { text: [...lines, ...sections].join("\n\n") };
 }

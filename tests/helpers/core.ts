@@ -171,6 +171,33 @@ export function startCore(dataDir: string, overrides: TestAdapters = {}): Core {
  * Reads the data folder's database directly, for checking how things are
  * stored (e.g. that a delete is soft). Everything else goes through the core.
  */
+/**
+ * Each model's requests in a data folder, from the meter's own rows: how many, their tokens in
+ * (cached and written to the cache among them) and out, and what they cost, priced per request
+ * at its prompt's tier. For a live probe's report, so its spend can be recomputed.
+ */
+export function spentBy(dataDir: string): string[] {
+  const rows = queryDatabase<{
+    model: string;
+    requests: number;
+    input: number | null;
+    cached: number | null;
+    written: number | null;
+    output: number | null;
+    cost: number | null;
+  }>(
+    dataDir,
+    `SELECT model_id AS model, COUNT(*) AS requests, SUM(input_tokens) AS input,
+       SUM(cached_input_tokens) AS cached, SUM(cache_write_tokens) AS written,
+       SUM(output_tokens) AS output, SUM(cost) AS cost
+     FROM model_requests WHERE deleted_at IS NULL GROUP BY model_id ORDER BY model_id`,
+  );
+  return rows.map(
+    (row) =>
+      `  ${row.model}: ${row.requests} requests, ${row.input ?? 0} tokens in (${row.cached ?? 0} cached, ${row.written ?? 0} written to the cache), ${row.output ?? 0} out, ${(row.cost ?? 0).toFixed(4)} USD`,
+  );
+}
+
 export function queryDatabase<Row>(
   dataDir: string,
   sql: string,
@@ -243,5 +270,5 @@ export async function saveProviderUnasked(
  */
 export async function turnOnAutomaticTagging(core: Core): Promise<void> {
   const { settings } = await core.getLibrary();
-  await core.saveLibrarySettings({ ...settings, automatic: true });
+  await core.saveLibrarySettings({ ...settings, automatic: true, turnOn: true });
 }

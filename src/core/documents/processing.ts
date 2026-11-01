@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { currencyScaleMarker, readStatedUnits } from "../../shared/figures";
 import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
 import type { DocumentFailureReason, DocumentKind, UnreadParts } from "../api";
@@ -60,9 +61,12 @@ import { unreadMessage } from "./unreadMessage";
  * Passage's row; see `NAME_INDEX_CURRENT_SINCE`). 16: #2110 (a PDF line break
  * beside CJK text or full-width punctuation is joined). 17: #2219 (a line the
  * page ended itself, such as a heading, keeps its break). 18: #1709 (explicit
- * deposition layouts keep their printed page and line anchors).
+ * deposition layouts keep their printed page and line anchors). 19: #1001 (a
+ * PDF's page keeps the scale its running header wrote). 20: #2347 (a
+ * workbook's rows Units keep each cell's formula beside its saved value, and
+ * its first Unit its defined names and what of it wasn't read).
  */
-export const PROCESSING_VERSION = 18;
+export const PROCESSING_VERSION = 20;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -85,14 +89,18 @@ export const PROCESSING_VERSION = 18;
  * only PDFs' too: a deposition's explicit "Page N" layout over numbered lines
  * gains printed page and line anchors and keeps its "Page N" lines, which
  * cleanup took for running headers; other PDFs' pages come out as they were.
+ * Version 19 only PDFs' as well: a page keeps the scale its running header
+ * wrote ("(£'000)", "All figures in thousands") for a calculated figure (#1001).
+ * Version 20 only workbooks', whose Units gain their formulas; their text,
+ * Passages and embeddings come out as they were.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 18,
+  pdf: 19,
   text: 5,
   markdown: 5,
   docx: 7,
   pptx: 5,
-  xlsx: 13,
+  xlsx: 20,
   csv: 5,
   web: 7,
   transcript: 7,
@@ -170,6 +178,8 @@ export interface ProcessingJob {
   file: string;
   /** How a PDF's scanned pages are read; none when they can't be (no model to read them with). */
   scan?: ScanJob | null;
+  /** A workbook's hidden and very hidden sheets are read too, as the User asked (#740). */
+  readHiddenSheets?: true;
 }
 
 /** Reading a PDF's scanned pages from their pictures (#397). */
@@ -450,6 +460,7 @@ export async function processFile(
     reading,
     password,
     readPicture,
+    job.readHiddenSheets === true,
   );
   if (reading?.signal.aborted) return { outcome: "stopped" };
   const firstUnit = processed.outcome === "ready" ? (processed.pages[0]?.text ?? null) : null;
@@ -566,9 +577,17 @@ async function processBytes(
   reading: PageReading | null,
   password: string | undefined,
   readPicture: ((src: string) => Promise<Uint8Array>) | null,
+  readHiddenSheets: boolean,
 ): Promise<{ processed: Processed; firstPages: string[] }> {
   try {
-    const extracted = await extractText(kind, bytes, reading, password, readPicture);
+    const extracted = await extractText(
+      kind,
+      bytes,
+      reading,
+      password,
+      readPicture,
+      readHiddenSheets,
+    );
     const firstPages = extracted.units.slice(0, REFERENCE_PAGES).map((unit) => unit.text);
     // The running headers go while a page's lines are the ones extraction joined as they
     // always were; the wider join comes after, where it reaches the model.
@@ -580,7 +599,7 @@ async function processBytes(
     // Only a page pdf.js read has lines that break a sentence; a scanned page's rows are its
     // layout, as a transcript's numbered lines are, and joining two of them would merge a
     // table's rows or a deposition's lines (and move their anchors).
-    const pages =
+    const laid =
       kind === "pdf"
         ? stripped.map((unit, index) => {
             if (unit.label?.scan || hasPrintedLines(unit)) return unit;
@@ -588,6 +607,16 @@ async function processBytes(
             return { ...unit, text: joinCjkLineWraps(unit.text, moved(kept, starts[index] ?? 0)) };
           })
         : stripped;
+    // The running header a page had before it was stripped, kept as its scale marker: a page
+    // that wrote "(£'000)" there scaled its amounts, which the stored text no longer shows (#1001).
+    const pages = laid.map((unit, index) => {
+      const written = extracted.units[index]?.text ?? "";
+      const scaleMarker =
+        currencyScaleMarker(written) ??
+        readStatedUnits(written, {}).find((each) => each.scale !== 1)?.chars ??
+        "";
+      return { ...unit, scaleMarker };
+    });
     const { pageCount, unread, parts } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
       ...passage,

@@ -7,6 +7,16 @@ const store = () => useAppStore.getState();
 
 export const taggingCommands: readonly Command[] = [
   {
+    // Opens the line that says what goes before anything is turned on (#2308).
+    id: "tagging.turnOn",
+    label: "command.tagging.turnOn",
+    keywords: ["command.tagging.turnOn.keywords"],
+    group: "open",
+    when: () => store().library?.settings.automatic === false,
+    reversible: true,
+    run: () => store().openSettings("models", "turn-on-tagging"),
+  },
+  {
     id: "tagging.stop",
     label: "tagging.stop.command",
     group: "main",

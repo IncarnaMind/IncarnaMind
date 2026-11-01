@@ -60,6 +60,17 @@ export function inNoteText(
   return total === 1 ? t("mindChanges.inNote.one") : t("mindChanges.inNote", { count: total });
 }
 
+/**
+ * How many of a row's changes wait there and aren't being applied at once: what its line counts,
+ * and what the Note's own count leaves out beside it (#1325).
+ */
+export function ownWaiting(
+  row: { count: number | "gone" | null; applying: number } | undefined,
+): number | "gone" | null {
+  if (!row || row.count === null || row.count === "gone") return row?.count ?? null;
+  return Math.max(0, row.count - row.applying);
+}
+
 export function changeFact(t: Translate, row: ChangeCounts, name: string | null): string {
   const count = row.wrote + row.changed;
   if (row.tables > 0 || (row.charts ?? 0) > 0) return tablesFact(t, row, name);

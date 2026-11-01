@@ -70,6 +70,7 @@ import {
   type ClaimCheckPart,
   type ClaimCheckResult,
   type ClaimCheckScope,
+  type ClaimCorrection,
   type ClaimJudgment,
   type ClaimPartSpan,
   type ContradictionCheckPlan,
@@ -113,6 +114,7 @@ import { recordCiteChoiceAlias, resolveChosenRecordCite } from "../../recordCite
 import { currentTask } from "../../runs/current";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
+import { type AnswerCheckInput, createAnswerCheck } from "./answerCheck";
 import {
   type AtomicClaimCheckResult,
   type CheckedCitation,
@@ -166,7 +168,8 @@ export const CHECKS_FLOW_SENDS = ["selection", "passages", "verified-document", 
 /** The longest claim one check takes, in characters: a sentence, not a page. */
 const MAX_CLAIM_CHARACTERS = 2_000;
 
-type CheckFlow = "checks" | "document-check";
+/** The flows a check sends on; "chat" for an Answer's own sentences, judged as part of its request (#2311). */
+type CheckFlow = "checks" | "document-check" | "chat";
 
 export interface ChecksOptions
   extends Pick<
@@ -242,6 +245,8 @@ export interface ChecksOptions
   estimateRead(model: ChatModelChoice | null, read: EstimatedRead): RunEstimate | null;
   /** What a whole read's requests have settled at, by its request id, in `currency`. */
   readSpent(requestId: string, currency: Currency): Money;
+  /** What the monthly cap leaves this month, counting what open requests may cost; null with no cap. */
+  capLeft(): Money | null;
   /** How far a whole read is, as it goes (#1554). */
   documentCheckProgress(event: DocumentCheckProgress): void;
   engine: AnswerEngine;
@@ -365,20 +370,30 @@ function parseClaim(input: unknown) {
 }
 
 /** A Citation as a mark stores it: the Passage that decides a claim, or that covers part of it. */
+const citationAttributes = (citation: CitationAttributes): CitationAttributes => ({
+  passageId: citation.passageId,
+  documentId: citation.documentId,
+  documentName: citation.documentName,
+  contentHash: citation.contentHash,
+  pageFrom: citation.pageFrom,
+  pageTo: citation.pageTo,
+  location: citation.location,
+  quote: citation.quote,
+  check: citation.check,
+  checkReason: citation.checkReason,
+  ...(citation.id && { id: citation.id }),
+});
+
 const evidenceOf = (citation: CitationAttributes | null): CitationAttributes | null =>
-  citation && {
-    passageId: citation.passageId,
-    documentId: citation.documentId,
-    documentName: citation.documentName,
-    contentHash: citation.contentHash,
-    pageFrom: citation.pageFrom,
-    pageTo: citation.pageTo,
-    location: citation.location,
-    quote: citation.quote,
-    check: citation.check,
-    checkReason: citation.checkReason,
-    ...(citation.id && { id: citation.id }),
-  };
+  citation && citationAttributes(citation);
+
+const correctionOf = (correction: ClaimCorrection): ClaimCorrection => ({
+  from: correction.from,
+  choices: correction.choices.map((choice) => ({
+    wording: choice.wording,
+    evidence: citationAttributes(choice.evidence),
+  })),
+});
 
 const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason => {
   const kept = quoted ? evidenceOf(quoted) : null;
@@ -420,6 +435,7 @@ function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string)
           reason: null,
           detail: null,
           evidence: evidenceOf(result.evidence),
+          ...(result.correction && { correction: correctionOf(result.correction) }),
           says: result.says,
           unsupported: result.unsupported && withQuoted(result.unsupported),
           calculation: result.calculation,
@@ -440,12 +456,18 @@ function withResult(
   // Verify anchors a whole row to its first cell (#1368); its contextual claim has different offsets.
   if (result.parts && sourceText !== check.text) {
     const evidence = result.parts.flatMap((part) => part.evidence);
+    // A row's correction names words of its contextual claim, not of the cell it is anchored to.
+    let anchored = result;
+    if (anchored.verdict !== "not-checked") {
+      const { correction: _row, ...judged } = anchored;
+      anchored = judged;
+    }
     result = {
-      ...result,
+      ...anchored,
       ...resultFromParts([
         partWithResult(
           { span: { start: 0, end: check.text.length }, kind: "fact" },
-          result,
+          anchored,
           evidence,
         ),
       ]),
@@ -1447,6 +1469,61 @@ export function createChecks(options: ChecksOptions) {
     claimTimeLimitMs: options.watch.claimTimeLimitMs,
   });
 
+  /**
+   * The model that answered, for its Answer's sentences: they are judged as part of its own
+   * request, on the chat flow the User already allowed, never asking again (#2311).
+   */
+  async function answeringModel(choice: ChatModelChoice): Promise<PreparedChatModel | null> {
+    const readiness = await chat.readiness(choice, "chat");
+    if (!readiness.ready) return null;
+    const { service } = readiness.provider;
+    if (service && (options.localOnly() || options.consent.status("chat", service) !== "accepted"))
+      return null;
+    try {
+      return await chat.prepareModel(choice, "chat");
+    } catch (error) {
+      if (error instanceof ChatNotReadyError || error instanceof ConsentDeclinedError) return null;
+      throw error;
+    }
+  }
+
+  const answerCheck = createAnswerCheck({
+    prepare: answeringModel,
+    scope: (documentIds) => options.evidence.scope(documentIds),
+    searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
+    citedNow,
+    passages: (cited, scope) =>
+      [...new Set(cited.flatMap((each) => (each.passageId ? [each.passageId] : [])))].flatMap(
+        (passageId) => {
+          const source = options.documents.citationSource(passageId);
+          const inScope =
+            source &&
+            !source.documentDeleted &&
+            !source.notCited &&
+            !scope.excluded.has(source.documentId) &&
+            (scope.documentIds === null || scope.documentIds.includes(source.documentId));
+          if (!source || !inScope) return [];
+          const { pageFrom, pageTo } = source;
+          const location =
+            pageFrom === null
+              ? null
+              : pageTo && pageTo !== pageFrom
+                ? `pp. ${pageFrom}–${pageTo}`
+                : `p. ${pageFrom}`;
+          return [{ passageId, documentName: source.documentName, location, text: source.text }];
+        },
+      ),
+    units: (citation) =>
+      options.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
+    claimTimeLimitMs: options.watch.claimTimeLimitMs,
+    mostOf: (model, request) => {
+      const estimate = options.estimateRead(model, { likely: [request], most: [request] });
+      return estimate?.billing === "per-token" ? (estimate.upTo?.cost ?? null) : null;
+    },
+    spent: (runId, currency) => options.readSpent(runId, currency).amount,
+    capLeft: () => options.capLeft(),
+  });
+
   const wholeRead = createWholeRead({
     documents: options.documents,
     pickedDocuments: options.pickedDocuments,
@@ -1464,6 +1541,14 @@ export function createChecks(options: ChecksOptions) {
 
     /** What the assistant wrote in a Mind, checked before it lands (./written). */
     checkWritten,
+
+    /** An Answer's sentences with Citations, checked before it ends (./answerCheck). */
+    checkAnswer: answerCheck.check,
+    /** What judging an Answer's sentences would cost (#2311); null when nothing is left to judge. */
+    estimateAnswerCheck(input: Omit<AnswerCheckInput, "signal">): RunEstimate | null {
+      const read = answerCheck.requests(input);
+      return read && options.estimateRead(input.model, read);
+    },
 
     async checkSentences(input: unknown): Promise<CheckSentencesResult> {
       const parsed = parseCheck(input);

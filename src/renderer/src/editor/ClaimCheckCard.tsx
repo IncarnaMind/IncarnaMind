@@ -47,7 +47,9 @@ import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
+import { applyCorrection, correctionsFor, type PartCorrection } from "../correctionFixes";
 import { reasonText } from "../cost";
+import { useEdits } from "../editWithAi";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
@@ -77,6 +79,7 @@ import { type CitationDecision, citationDecision, citationsOf } from "./alreadyC
 import { ChangedCitations } from "./ChangedSourceNotice";
 import { ClaimOutline } from "./ClaimOutline";
 import { ClaimPartRows, citesMore, type PartCitations } from "./ClaimPartRows";
+import { CorrectButton, CorrectionConflict } from "./CorrectionOffer";
 import { focusFirstAction, keepFocusInside } from "./cardFocus";
 import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
@@ -180,6 +183,9 @@ export function ClaimMark({
     : decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));
+  const editing = useEdits((store) => store.pending[mindId] !== undefined);
+  // A check or an Edit with AI under way would write over the words a correction changes.
+  const corrections = running || editing ? [] : correctionsFor(editor, claim);
   const label = t("claim.mark.label", {
     state: reading ? t("claim.state.checking") : heading,
   });
@@ -355,6 +361,7 @@ export function ClaimMark({
               fixes={offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
               keep={offersKeepAsView(editor, claim)}
+              corrections={corrections}
               editor={editor}
               decision={decision}
               added={added}
@@ -441,6 +448,10 @@ export function ClaimMark({
                 keepAsView(editor, claim);
                 done();
               }}
+              onCorrect={(span) => {
+                applyCorrection(editor, mindId, claim, span);
+                done(true);
+              }}
               use={offersUseFigure(editor, claim)}
               onUse={() => {
                 applyFigure(editor, mindId, doc, claim);
@@ -465,16 +476,27 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
   const documents = useAppStore((store) => store.documents);
   const { figure } = calculation;
   const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
-  const working = formulaText(
-    figure.formula,
-    (name) => byName.get(name.toLowerCase())?.number.chars ?? null,
-  );
+  const { workbook } = figure;
+  const changed = workbook?.change ? byName.get(workbook.change.input.toLowerCase()) : undefined;
+  const working = workbook
+    ? `${workbook.cell.sheet}!${workbook.cell.ref} = ${workbook.cell.formula}`
+    : formulaText(figure.formula, (name) => byName.get(name.toLowerCase())?.number.chars ?? null);
   return (
     <div data-testid="claim-working" className="claim-card-working">
       <p className="citation-card-note">{t("claim.calculated.title")}</p>
       <p data-testid="claim-figure" className="claim-card-figure">
         {working} = {figure.shown}
       </p>
+      {changed?.cell && workbook?.change && (
+        <p className="claim-card-says">
+          {t("figures.workbook.change", {
+            input: changed.label,
+            cell: `${changed.cell.sheet ?? ""}!${changed.cell.ref}`,
+            from: changed.number.chars,
+            to: workbook.change.shown,
+          })}
+        </p>
+      )}
       {!calculation.agrees && (
         <p data-testid="claim-stated" className="claim-card-says">
           {t(
@@ -486,43 +508,53 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
         </p>
       )}
       <ul aria-label={t("claim.calculated.inputs")} className="claim-card-inputs">
-        {figure.inputs.map((input) => {
-          const location = citationLocation(input.citation);
-          const where = location ? formatLocation(location, t) : null;
-          const source = [
-            shownDocumentName(input.citation, documents),
-            where,
-            input.number.value < 0 ? t("claim.calculated.negative") : null,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          return (
-            <li key={input.name}>
-              <button
-                type="button"
-                data-testid="claim-input"
-                className="claim-card-input"
-                title={input.citation.quote}
-                onClick={() => {
-                  void openCited(input.citation, {
-                    check: "found",
-                    withQuote: true,
-                    label: where,
-                  });
-                  onOpen();
-                }}
-              >
-                <span className="claim-card-input-figure">
-                  {input.label ? `${input.label}: ` : ""}
-                  {input.number.chars}
-                </span>
-                <span className="claim-card-input-source">{source}</span>
-              </button>
-            </li>
-          );
-        })}
+        {figure.inputs.map((input) => (
+          <li key={input.name}>
+            <WorkingInput input={input} documents={documents} onOpen={onOpen} />
+          </li>
+        ))}
       </ul>
     </div>
+  );
+}
+
+function WorkingInput({
+  input,
+  documents,
+  onOpen,
+}: {
+  input: ClaimCalculation["figure"]["inputs"][number];
+  documents: ReturnType<typeof useAppStore.getState>["documents"];
+  onOpen(): void;
+}) {
+  const t = useT();
+  const quote = useReadableQuote(input.citation);
+  const location = citationLocation(input.citation);
+  const where = location ? formatLocation(location, t) : null;
+  const source = [
+    shownDocumentName(input.citation, documents),
+    where,
+    input.number.value < 0 ? t("claim.calculated.negative") : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <button
+      type="button"
+      data-testid="claim-input"
+      className="claim-card-input"
+      title={quote}
+      onClick={() => {
+        void openCited(input.citation, { check: "found", withQuote: true, label: where });
+        onOpen();
+      }}
+    >
+      <span className="claim-card-input-figure">
+        {input.label ? `${input.label}: ` : ""}
+        {input.number.chars}
+      </span>
+      <span className="claim-card-input-source">{source}</span>
+    </button>
   );
 }
 
@@ -559,6 +591,7 @@ export function ClaimCard({
   fixes,
   notFound,
   keep,
+  corrections,
   editor,
   decision,
   added,
@@ -578,6 +611,7 @@ export function ClaimCard({
   onCut,
   onCutSentence,
   onKeep,
+  onCorrect,
   use,
   onUse,
 }: {
@@ -593,6 +627,8 @@ export function ClaimCard({
   fixes: boolean;
   notFound: boolean;
   keep: boolean;
+  /** Each contradicted part's correction from the Documents, as `correctionsFor` finds them. */
+  corrections: readonly PartCorrection[];
   editor: Editor;
   decision: CitationDecision;
   added: number;
@@ -612,6 +648,7 @@ export function ClaimCard({
   onCut(): void;
   onCutSentence(): void;
   onKeep(): void;
+  onCorrect(span: ClaimPartSpan | null): void;
   use: boolean;
   onUse(): void;
 }) {
@@ -633,6 +670,8 @@ export function ClaimCard({
   // An unsupported sentence keeps the nearest line when it says something different (#770).
   const differs = state === "unsupported" && check.evidence !== null;
   const partRows = claimPartRows(check);
+  // A sentence whose parts are listed offers each part's correction on its own row.
+  const sole = partRows ? undefined : corrections[0];
   // A one-part sentence takes this card, not the parts rows, and its clause is on its one part.
   const currencyClause =
     !partRows && state === "supported" ? (check.parts?.[0]?.currencyClause ?? null) : null;
@@ -785,7 +824,7 @@ export function ClaimCard({
   return (
     <div
       ref={rootRef}
-      className={`citation-card citation-card--${TONE[mark]} ${partRows ? "citation-card--parts" : ""}`}
+      className={`citation-card citation-card--${TONE[mark]} claim-card`}
       contentEditable={false}
       {...objectMenu.rowProps}
     >
@@ -821,6 +860,8 @@ export function ClaimCard({
             checking={checking}
             onCheck={onCheckPart}
             onUseWording={onUseWording}
+            corrections={corrections}
+            onCorrect={onCorrect}
             scope={check.scope}
             read={pickRead ?? undefined}
             citations={partCitations}
@@ -851,6 +892,7 @@ export function ClaimCard({
               </p>
             )}
             {figureSources}
+            {sole && <CorrectionConflict correction={sole.correction} />}
             {differs && (
               <p data-testid="claim-differs" className="claim-card-says">
                 {t("claim.unsupported.differs")}
@@ -1096,6 +1138,13 @@ export function ClaimCard({
         );
       })}
       <div className="citation-card-actions">
+        {sole && (
+          <CorrectButton
+            correction={sole.correction}
+            onCorrect={() => onCorrect(sole.span)}
+            testId="claim-correct"
+          />
+        )}
         {!partRows && decision.kind === "add" && (
           <button
             type="button"
@@ -1141,7 +1190,7 @@ export function ClaimCard({
             type="button"
             data-testid="claim-open"
             className={`citation-card-action ${
-              !use && (decision.kind === "none" || decision.kind === "already")
+              !sole && !use && (decision.kind === "none" || decision.kind === "already")
                 ? "citation-card-action--primary"
                 : ""
             }`}

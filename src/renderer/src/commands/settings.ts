@@ -38,6 +38,18 @@ export const settingsPageCommands: readonly Command[] = [
     run: () => useAppStore.getState().openSettings("privacy", "local-mode"),
   },
   {
+    id: "settings.meetingWords",
+    label: "meetings.words.title",
+    keywords: [
+      "settings.title",
+      "settings.pages.meetings",
+      "command.settings.meetingWords.keywords",
+    ],
+    group: "open",
+    reversible: true,
+    run: () => useAppStore.getState().openSettings("meetings", "meeting-words"),
+  },
+  {
     id: "settings.addProvider",
     assistant: { never: "keys" },
     label: "command.settings.addProvider",

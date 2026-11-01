@@ -37,12 +37,12 @@ The tables below were scored with the rules of their day, which left numbers as 
 - Load matters. Earlier the same day, with the machine far busier (load average 124 to 183), decoding single clips took 1.3 to 1.7 times their length: slower than real time. Live text then falls behind, the meeting bar says "Recording…", and the rest is transcribed after Stop (#136).
 - The FLEURS clips are recorded quietly (a peak of 0.5% to 2.4% of full scale for most English ones). Before the speech host raised quiet audio (up to 30 dB), Silero VAD missed four of the eight English clips: WER 48.2%.
 
-## Each route: this computer, OpenAI and Soniox (#141)
+## Each route: this computer, OpenAI, Soniox and Qwen (#141, #463)
 
 `routes.transcription.ts` sends the same clips to each place meeting audio can be transcribed. It runs three streams per route: the English clips, the Chinese clips, and the two taking turns. A route runs only with its key in the environment, and `INCARNAMIND_EVAL_ROUTES` picks some of them. The cloud streams go through the app's own adapters (`src/core/transcription/cloud`). The mixed stream counts each Han character and each English word as one unit. `INCARNAMIND_EVAL_RECORD` writes what each service sent back, which is how the adapters' contract-test fixtures were made.
 
 ```sh
-set -a; . ./.env.local; set +a   # OPENAI_API_KEY, SONIOX_API_KEY
+set -a; . ./.env.local; set +a   # OPENAI_API_KEY, SONIOX_API_KEY, QWEN_API_KEY (and QWEN_REGION: cn or intl)
 INCARNAMIND_EVAL_CLIPS=~/.cache/incarnamind-eval/fleurs npx vitest run --config eval/transcription/vitest.config.ts eval/transcription/routes.transcription.ts
 ```
 
@@ -58,3 +58,11 @@ It checks that each route works in both languages, not which is best: 8 clips pe
 
 - OpenAI varies most from run to run. Another run of the same code gave 6.4%, 4.8% and 6.7%.
 - Before its turns started 1.2 s ahead of the detector, OpenAI cut first words, and Chinese was 7.8%.
+
+2026-10-25, the refreshed Qwen branch's local-only control on the same clips:
+
+| Route | English (WER) | Chinese (CER) | Both taking turns |
+|---|---|---|---|
+| This computer, Qwen3-ASR 0.6B | 12.8% (18 of 141) | 1.3% (3 of 231) | 4.0% (15 of 372) |
+
+The Qwen rows remain pending until a real key is available; no cloud result is inferred from the fixtures.

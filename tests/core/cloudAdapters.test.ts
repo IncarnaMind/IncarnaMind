@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { CloudLoss, SpeechSegment } from "../../src/core";
+import { QWEN_REALTIME_MODEL } from "../../src/core/providers/catalog/transcription";
 import { createOpenAiStream, createUpsampler } from "../../src/core/transcription/cloud/openai";
-import type { CloudConnect, CloudSocketEvents } from "../../src/core/transcription/cloud/socket";
+import { createQwenStream } from "../../src/core/transcription/cloud/qwen";
+import {
+  type CloudConnect,
+  type CloudSocketEvents,
+  HANDSHAKE_REFUSED,
+} from "../../src/core/transcription/cloud/socket";
 import { createSonioxStream } from "../../src/core/transcription/cloud/soniox";
 import type { VoiceDetector } from "../../src/core/transcription/speech";
 
@@ -347,6 +353,393 @@ describe("Soniox's real-time transcription, played back as it was recorded", () 
       service.say(message);
       service.drop(1000);
       expect(heard.losses).toEqual([loss]);
+    }
+  });
+});
+
+const QWEN_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/inference";
+
+interface QwenSentence {
+  sentence_id: number;
+  sentence_end?: boolean;
+  text: string;
+  begin_time: number;
+  end_time: number | null;
+}
+
+interface QwenMessage {
+  header: { event: string };
+  payload: { output?: { sentence?: QwenSentence } };
+}
+
+const qwenStream = (name: "qwen-en" | "qwen-zh" | "qwen-mixed"): { messages: QwenMessage[] } =>
+  JSON.parse(
+    readFileSync(new URL(`../fixtures/transcription/${name}.json`, import.meta.url), "utf8"),
+  );
+
+const finalSentences = (messages: readonly QwenMessage[]) =>
+  messages.flatMap((message) => {
+    const sentence = message.payload.output?.sentence;
+    return sentence?.sentence_end ? [sentence] : [];
+  });
+
+const qwenResult = (sentence: QwenSentence): QwenMessage => ({
+  header: { event: "result-generated" },
+  payload: { output: { sentence } },
+});
+
+describe("Qwen's real-time transcription, played back in the format Alibaba documents", () => {
+  function connect() {
+    const service = playback();
+    const heard = collect();
+    const order: string[] = [];
+    const answered: number[] = [];
+    const stream = createQwenStream({
+      stream: "m:system",
+      model: QWEN_REALTIME_MODEL,
+      apiKey: "sk-qwen-test",
+      url: QWEN_URL,
+      connect: service.connect,
+      report: {
+        segment: (each) => {
+          heard.report.segment(each);
+          order.push(`${each.final ? "final" : "partial"} ${each.id}`);
+        },
+        progress: (doneMs, heardMs) => {
+          heard.report.progress(doneMs);
+          answered.push(heardMs ?? doneMs);
+          order.push(`done ${doneMs}`);
+        },
+        lost: heard.report.lost,
+        opened: heard.report.opened,
+      },
+    });
+    return { service, heard, order, answered, stream };
+  }
+
+  /** The service answers as the audio is fed: each message once its time has been said, a second second. */
+  async function play(messages: readonly QwenMessage[], seconds: number) {
+    const { service, heard, order, stream } = connect();
+    service.open();
+    const [started, ...rest] = messages;
+    service.say(started as object);
+    let pending = [...rest];
+    const timeOf = (message: QwenMessage) => {
+      const sentence = message.payload.output?.sentence;
+      if (message.header.event === "task-finished") return Number.POSITIVE_INFINITY;
+      return sentence?.end_time ?? sentence?.begin_time ?? 0;
+    };
+    for (let second = 1; second <= seconds; second++) {
+      feed((samples) => stream.push(samples), 1);
+      const until = pending.findIndex((message) => timeOf(message) > (second - 1) * 1000);
+      const due = until === -1 ? pending : pending.slice(0, until);
+      pending = pending.slice(due.length);
+      for (const message of due) service.say(message);
+    }
+    const finished = stream.finish();
+    for (const message of pending) service.say(message);
+    await finished;
+    return { service, heard, order };
+  }
+
+  test("starts a task for the pinned model on the region's address, with the key; audio waits for the task, then goes as it comes, and the task is finished", async () => {
+    const { service, heard, stream } = connect();
+    feed((samples) => stream.push(samples), 1);
+    service.open();
+    expect(service.sent).toHaveLength(1);
+    // The core holds the audio until the task is ready.
+    expect(heard.opened.count).toBe(0);
+    service.say({ header: { event: "task-started" }, payload: {} });
+    expect(heard.opened.count).toBe(1);
+    feed((samples) => stream.push(samples), 1);
+    const finished = stream.finish();
+    service.say({ header: { event: "task-finished" }, payload: { output: {}, usage: null } });
+    await finished;
+
+    expect(service.url).toBe(QWEN_URL);
+    expect(service.key).toBe("sk-qwen-test");
+    expect(QWEN_REALTIME_MODEL).toBe("fun-asr-realtime");
+    const [task, ...rest] = service.sent;
+    const started = JSON.parse(task as string);
+    expect(started).toEqual({
+      header: { action: "run-task", task_id: expect.any(String), streaming: "duplex" },
+      payload: {
+        task_group: "audio",
+        task: "asr",
+        function: "recognition",
+        model: "fun-asr-realtime",
+        parameters: { format: "pcm", sample_rate: 16_000, heartbeat: true },
+        input: {},
+      },
+    });
+    // What was said before the task started goes once it has, then the rest: 2 s in all.
+    const audio = rest.filter((each) => each instanceof Uint8Array);
+    expect(audio.reduce((sum, each) => sum + each.byteLength, 0)).toBe(2 * RATE * 2);
+    expect(JSON.parse(rest.at(-1) as string)).toEqual({
+      header: { action: "finish-task", task_id: started.header.task_id, streaming: "duplex" },
+      payload: { input: {} },
+    });
+    expect(heard.losses).toEqual([]);
+  });
+
+  test.each([
+    ["English", "qwen-en"],
+    ["Chinese", "qwen-zh"],
+    ["English and Chinese in one stream", "qwen-mixed"],
+  ] as const)(
+    "%s: each sentence's text, as the service gave it, when it was said; partial text comes first",
+    async (_language, name) => {
+      const { messages } = qwenStream(name);
+      const { heard } = await play(messages, 32);
+      expect(heard.finals().map((each) => [each.id, each.text, each.startMs, each.endMs])).toEqual(
+        finalSentences(messages).map((each) => [
+          each.sentence_id,
+          each.text,
+          each.begin_time,
+          each.end_time,
+        ]),
+      );
+      for (const final of heard.finals()) {
+        expect(heard.segments.some((each) => !each.final && each.id === final.id)).toBe(true);
+        expect(final.speaker).toBeUndefined();
+      }
+      expect(heard.segments.every((each) => each.text.length > 0)).toBe(true);
+      expect(heard.losses).toEqual([]);
+    },
+  );
+
+  test("the mixed stream keeps both scripts, in the order said", async () => {
+    const { heard } = await play(qwenStream("qwen-mixed").messages, 32);
+    expect(heard.finals().map((each) => each.text)).toEqual([
+      "When you call someone who is thousands of miles away, you are using a satellite.",
+      expect.stringMatching(/^报告警告称，没有人能保证.*混乱。$/),
+      expect.stringMatching(/^Now widely available/),
+    ]);
+  });
+
+  test("how far the text is done never goes back, stays before the sentence being said, and is the whole audio once the task is finished", async () => {
+    const { order } = await play(qwenStream("qwen-zh").messages, 22);
+    const done = order
+      .filter((each) => each.startsWith("done "))
+      .map((each) => Number(each.slice(5)));
+    expect([...done].sort((a, b) => a - b)).toEqual(done);
+    // From its first words to its final text, the first sentence (from 2.2 s) is not done.
+    const from = order.indexOf("partial 1");
+    const to = order.indexOf("final 1");
+    expect(from).toBeGreaterThan(0);
+    for (const each of order.slice(from, to).filter((entry) => entry.startsWith("done "))) {
+      expect(Number(each.slice(5))).toBeLessThanOrEqual(2200);
+    }
+    // Silence alone moves no boundary: only the final result says what is done.
+    const between = order.slice(order.indexOf("final 1"), order.indexOf("partial 2"));
+    expect([
+      ...new Set(between.filter((e) => e.startsWith("done ")).map((e) => Number(e.slice(5)))),
+    ]).toEqual([10_300, 15_400]);
+    expect(done.at(-1)).toBe(22_000);
+  });
+
+  test("a late first partial never moves done backwards", async () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ header: { event: "task-started" }, payload: {} });
+    feed((samples) => stream.push(samples), 4);
+    expect(heard.progress.at(-1)).toBe(0);
+
+    service.say({
+      header: { event: "result-generated" },
+      payload: {
+        output: {
+          sentence: {
+            sentence_id: 1,
+            begin_time: 1000,
+            end_time: null,
+            text: "Late words",
+            sentence_end: false,
+          },
+        },
+      },
+    });
+    expect(heard.progress.at(-1)).toBe(1000);
+
+    const finished = stream.finish();
+    service.say({ header: { event: "task-finished" }, payload: { output: {}, usage: null } });
+    await finished;
+    expect(heard.progress.at(-1)).toBe(4000);
+  });
+
+  test("a dropped late first sentence leaves all of its unfinalized speech to replay", () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ header: { event: "task-started" }, payload: {} });
+    feed((samples) => stream.push(samples), 10);
+    service.say({
+      header: { event: "result-generated" },
+      payload: {
+        output: {
+          sentence: {
+            sentence_id: 1,
+            begin_time: 1000,
+            end_time: null,
+            text: "Not final yet",
+            sentence_end: false,
+            words: [{ end_time: 2000 }],
+          },
+        },
+      },
+    });
+    service.drop(1006);
+
+    expect(heard.losses).toEqual(["dropped"]);
+    expect(heard.finals()).toEqual([]);
+    expect(heard.progress.at(-1)).toBe(1000);
+  });
+
+  test("later partials and an out-of-order final never pass an unfinished earlier sentence", () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ header: { event: "task-started" }, payload: {} });
+    feed((samples) => stream.push(samples), 10);
+    service.say(
+      qwenResult({
+        sentence_id: 1,
+        begin_time: 1000,
+        end_time: null,
+        text: "First unfinished",
+        sentence_end: false,
+      }),
+    );
+    service.say(
+      qwenResult({
+        sentence_id: 2,
+        begin_time: 5000,
+        end_time: null,
+        text: "Second unfinished",
+        sentence_end: false,
+      }),
+    );
+    service.say(
+      qwenResult({
+        sentence_id: 2,
+        begin_time: 5000,
+        end_time: 9000,
+        text: "Second finishes first",
+        sentence_end: true,
+      }),
+    );
+    expect(heard.progress.at(-1)).toBe(1000);
+
+    service.drop(1006);
+    expect(heard.progress.at(-1)).toBe(1000);
+  });
+
+  test("normal completion settles every open sentence and reports no loss", async () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ header: { event: "task-started" }, payload: {} });
+    feed((samples) => stream.push(samples), 4);
+    for (const [sentence_id, begin_time, text] of [
+      [1, 1000, "First open"],
+      [2, 3000, "Second open"],
+    ] as const) {
+      service.say(
+        qwenResult({ sentence_id, begin_time, end_time: null, text, sentence_end: false }),
+      );
+    }
+
+    const finished = stream.finish();
+    service.say({ header: { event: "task-finished" }, payload: { output: {}, usage: null } });
+    await finished;
+    expect(heard.finals().map((each) => each.id)).toEqual([1, 2]);
+    expect(heard.progress.at(-1)).toBe(4000);
+    expect(heard.losses).toEqual([]);
+  });
+
+  test("a finish timeout leaves the unfinalized sentence to replay", async () => {
+    vi.useFakeTimers();
+    try {
+      const { service, heard, stream } = connect();
+      service.open();
+      service.say({ header: { event: "task-started" }, payload: {} });
+      feed((samples) => stream.push(samples), 4);
+      service.say({
+        header: { event: "result-generated" },
+        payload: {
+          output: {
+            sentence: {
+              sentence_id: 1,
+              begin_time: 1000,
+              end_time: null,
+              text: "Still unfinished",
+              sentence_end: false,
+            },
+          },
+        },
+      });
+
+      const finished = stream.finish();
+      await vi.advanceTimersByTimeAsync(20_000);
+      await finished;
+      expect(heard.finals()).toEqual([]);
+      expect(heard.progress.at(-1)).toBe(1000);
+      expect(heard.losses).toEqual(["dropped"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("heartbeats, which carry no sentence, are ignored", async () => {
+    const heartbeat = {
+      header: { event: "result-generated" },
+      payload: {
+        output: { sentence: { text: "", heartbeat: true, sentence_id: 0, words: [] } },
+      },
+    } as unknown as QwenMessage;
+    const { messages } = qwenStream("qwen-en");
+    const [started, ...rest] = messages;
+    const { heard } = await play([started, heartbeat, ...rest, heartbeat] as QwenMessage[], 24);
+    expect(heard.finals()).toHaveLength(2);
+    expect(heard.segments.every((each) => each.text !== "")).toBe(true);
+  });
+
+  // protects=a heartbeat in a long silence shows the service keeps up with the audio sent, so the core doesn't call live text behind, while text done stays where the last final left it; fails_when=a heartbeat moves done, which a later partial could show was speech, or says nothing, so a quiet track falls behind; no_claim=the real service's heartbeat cadence.
+  test("a heartbeat shows the service answered for the audio sent, and moves no text done", () => {
+    const { service, heard, answered, stream } = connect();
+    service.open();
+    service.say({ header: { event: "task-started" }, payload: {} });
+    feed((samples) => stream.push(samples), 10);
+    service.say({
+      header: { event: "result-generated" },
+      payload: {
+        output: { sentence: { begin_time: null, end_time: null, text: "", heartbeat: true } },
+      },
+    });
+
+    expect(heard.segments).toEqual([]);
+    expect(heard.progress.at(-1)).toBe(0);
+    expect(answered.at(-1)).toBe(10_000);
+  });
+
+  test("a key the service turns away, in either way it does, is refused; any other end is a dropped connection, and nothing more is reported", async () => {
+    const failed = (code: string) => (service: ReturnType<typeof playback>) => {
+      service.open();
+      service.say({
+        header: { event: "task-failed", error_code: code, error_message: "x" },
+        payload: {},
+      });
+    };
+    for (const [end, loss] of [
+      [(service: ReturnType<typeof playback>) => service.drop(HANDSHAKE_REFUSED), "refused"],
+      [failed("InvalidApiKey"), "refused"],
+      [failed("CLIENT_ERROR"), "dropped"],
+      [(service: ReturnType<typeof playback>) => service.drop(1006), "dropped"],
+    ] as const) {
+      const { service, heard, stream } = connect();
+      end(service);
+      feed((samples) => stream.push(samples), 2);
+      service.drop(1006);
+      expect(heard.losses).toEqual([loss]);
+      expect(heard.segments).toEqual([]);
+      await stream.finish();
     }
   });
 });

@@ -22,6 +22,7 @@ import {
   type WholeRead,
 } from "../core/api";
 import { type RecordCiteNote, shortFormsThrough } from "../core/recordCites/referents";
+import { citedInputs } from "./calculatedFigures";
 import {
   CLAIM_CHECK_FAILURES,
   checkWithParts,
@@ -29,6 +30,7 @@ import {
   partCitations,
   readCheckedVersions,
   readClaimCalculation,
+  readClaimCorrection,
   readClaimParts,
   readClaimScope,
   readExcludedDocuments,
@@ -185,6 +187,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     claimCheckActions.find((each) => each === value.action) ?? "find-support";
   const read = readOf(value.read);
   const recordCites = recordCitesOf(value.recordCites);
+  const correction = readClaimCorrection(value.correction);
   const check: ClaimCheckAttributes = {
     id,
     request: text(value.request) ?? "",
@@ -196,6 +199,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     modelId: text(value.modelId),
     text: text(value.text) ?? "",
     evidence: isRecord(value.evidence) ? (value.evidence as unknown as CitationAttributes) : null,
+    ...(state === "contradicted" && correction && { correction }),
     says: text(value.says),
     unsupported: readUnsupportedReason(value.unsupported),
     calculation: readClaimCalculation(value.calculation),
@@ -221,6 +225,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
       check.detail = null;
     } else if (check.state !== "checking") {
       const result = resultFromParts(parts);
+      delete check.correction;
       check.parts = result.parts ?? [];
       check.state = result.verdict;
       check.versions = keepRecordCites(
@@ -235,6 +240,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
         check.reason = null;
         check.detail = null;
         check.evidence = result.evidence;
+        if (result.correction) check.correction = result.correction;
         check.says = result.says;
         check.unsupported = result.unsupported;
         check.calculation = result.calculation;
@@ -408,13 +414,15 @@ function recordEvidence(cite: RecordCiteResult): CitationAttributes | null {
 }
 
 /**
- * What a check's result rests on: its evidence, the Passage quoted for the part of an
- * unsupported sentence it covers, and the quotes a worked-out figure read its numbers from.
+ * What a check's result rests on: its evidence, every correction choice's evidence, the Passage
+ * quoted for the part of an unsupported sentence it covers, and the quotes a worked-out figure
+ * read its numbers from.
  */
 export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Citation)[] {
-  const inputs = check.calculation?.figure.inputs ?? [];
+  const inputs = check.calculation ? citedInputs(check.calculation.figure) : [];
   return [
     check.evidence,
+    ...(check.correction?.choices.map((choice) => choice.evidence) ?? []),
     check.unsupported?.quoted ?? null,
     ...inputs.flatMap((input) => [input.citation, input.unitStatement?.citation ?? null]),
     ...(check.recordCites ?? []).flatMap((cite) => [

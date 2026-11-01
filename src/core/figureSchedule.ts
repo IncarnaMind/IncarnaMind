@@ -772,7 +772,10 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
         ? occurrence.locator.from.blockId
         : occurrence.locator.blockId,
     );
-    const calculation = check?.calculation?.figure;
+    // A what-if is no Document's number (#2347): it has no source value to show.
+    const calculation = check?.calculation?.figure.workbook?.change
+      ? undefined
+      : check?.calculation?.figure;
     const sourceValue =
       finding.sourceInput?.number.value ??
       (typeof calculation?.value === "number" ? calculation.value : null);

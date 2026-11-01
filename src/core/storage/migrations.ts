@@ -2089,15 +2089,135 @@ export const migrations: readonly Migration[] = [
         WHERE source_document_id IS NOT NULL AND deleted_at IS NULL;
     `,
   },
+  {
+    version: 118,
+    description:
+      "A Meeting knows its Transcript Document, and when its files went with its deleted note (#1253)",
+    sql: `
+      -- The Document that is the Meeting's Transcript, so it goes to Recently deleted, comes back
+      -- and is deleted permanently with the Meeting's note even when the Transcript's working
+      -- file is missing. Meetings recorded before this find theirs where IncarnaMind keeps it.
+      ALTER TABLE meetings ADD COLUMN transcript_document_id TEXT;
+      -- One pass over the Documents, each Transcript keyed to its Meeting by its file's name, so
+      -- it takes milliseconds before the window opens however many Documents there are.
+      UPDATE meetings SET transcript_document_id = linked.id
+      FROM (
+        SELECT substr(d.relative_path, 13, length(d.relative_path) - 16) AS meeting_id, d.id,
+          row_number() OVER (PARTITION BY d.relative_path ORDER BY d.created_at DESC, d.rowid DESC)
+            AS newest
+        FROM documents d
+        WHERE d.kind = 'transcript' AND d.source_kind = 'data-folder'
+          AND substr(d.relative_path, 1, 12) = 'Transcripts/'
+          AND substr(d.relative_path, -4) = '.vtt'
+      ) AS linked
+      WHERE linked.meeting_id = meetings.id AND linked.newest = 1;
+      -- When the audio, the Transcript's working file and the recording details of a Meeting
+      -- whose note was deleted permanently were removed: each start looks only at those left.
+      ALTER TABLE meetings ADD COLUMN purged_at TEXT;
+    `,
+  },
+  {
+    version: 119,
+    description: "A workbook is read with its hidden sheets when the User asks (#740)",
+    sql: `
+      -- A workbook's hidden and very hidden sheets are left out of its text by default (#740).
+      -- Set, it is read again with them, and every later version of it too.
+      ALTER TABLE documents ADD COLUMN read_hidden_sheets INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 120,
+    description:
+      "A Unit keeps a currency written next to a scale in its text before running headers were stripped (#1001)",
+    sql: `
+      -- A PDF's running header such as "(£'000)" repeats on its pages and is stripped before the
+      -- pages are stored. The marker found before the strip keeps it, so a later calculation can
+      -- refuse to read a bare number under a Document that scales its amounts anywhere (#1001).
+      ALTER TABLE document_pages ADD COLUMN scale_marker TEXT;
+    `,
+  },
+  {
+    version: 121,
+    description:
+      "The preset Invoice Tag says what isn't an invoice, unless the User edited it, what IncarnaMind saw arrive new, and where the User's Organize sent a Document, are recorded (#2308)",
+    sql: `
+      -- When IncarnaMind first saw each Document arrive new: the User's own add, a Linked
+      -- folder's first scan, or a watcher event after it. A Document without a row was here
+      -- before. Only a new one may go by itself (src/core/tags/held.ts).
+      CREATE TABLE IF NOT EXISTS document_arrivals (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        arrived_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX IF NOT EXISTS document_arrivals_by_document
+        ON document_arrivals (document_id) WHERE deleted_at IS NULL;
+      -- The services the User's own Organize or re-tag sent a Document to: it may go by itself
+      -- to those, and only those.
+      CREATE TABLE IF NOT EXISTS tagging_clearances (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        service_id TEXT NOT NULL,
+        cleared_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX IF NOT EXISTS tagging_clearances_by_document_and_service
+        ON tagging_clearances (document_id, service_id) WHERE deleted_at IS NULL;
+      -- When a Linked folder's first scan finished: a file found by a later scan was there
+      -- before. The folders already linked have been scanned.
+      CREATE TABLE IF NOT EXISTS linked_folder_baselines (
+        id TEXT PRIMARY KEY NOT NULL,
+        linked_folder_id TEXT NOT NULL,
+        scanned_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX IF NOT EXISTS linked_folder_baselines_by_folder
+        ON linked_folder_baselines (linked_folder_id) WHERE deleted_at IS NULL;
+      INSERT INTO linked_folder_baselines (id, linked_folder_id, scanned_at, created_at, updated_at)
+        SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4'
+            || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', 1 + (random() & 3), 1)
+            || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))),
+          l.id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM linked_folders l
+        WHERE l.deleted_at IS NULL AND NOT EXISTS (
+          SELECT 1 FROM linked_folder_baselines b
+          WHERE b.linked_folder_id = l.id AND b.deleted_at IS NULL);
+      -- Its first description let a quote, a registration or notes with prices read as "asks for or
+      -- confirms a payment", and the tagger tagged them Invoice (#2308). Only a description still
+      -- as it was seeded changes (src/core/tags/presets.ts has the same text); one the User wrote
+      -- is theirs.
+      UPDATE tags SET
+        description = 'A bill or receipt that asks for or confirms payment for goods or services supplied, with items, amounts and dates. Not a quote, an estimate, a price list, an order, a registration, or a donation or gift receipt, for which nothing is supplied.',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE preset = 'invoice'
+        AND description = 'A bill or receipt that asks for or confirms a payment, with items, amounts and dates.';
+      UPDATE tags SET
+        description = '就已提供的商品或服务要求或确认付款的账单或收据，列有项目、金额和日期。报价单、估价、价目表、订单、报名表，以及没有提供商品或服务的捐赠或赠与收据，都不算。',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE preset = 'invoice' AND description = '要求或确认付款的账单或收据，列有项目、金额和日期。';
+    `,
+  },
 ];
 
 /**
  * Brings the database up to the latest schema: every migration in the list that
  * isn't recorded as applied runs, in version order, in one transaction. A database
  * recording a migration this build doesn't know was written by a newer version of
- * IncarnaMind, and is refused.
+ * IncarnaMind, and is refused. `ran` hears each version as it runs, before the
+ * transaction commits.
  */
-export function migrate(db: Database, list: readonly Migration[] = migrations): void {
+export function migrate(
+  db: Database,
+  list: readonly Migration[] = migrations,
+  ran?: (version: number) => void,
+): void {
   list.forEach((migration, index) => {
     const previous = list[index - 1];
     if (previous && migration.version <= previous.version) {
@@ -2124,6 +2244,7 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
         migration.version,
         new Date().toISOString(),
       ]);
+      ran?.(migration.version);
     }
     // Kept for tools that read it: the highest migration applied.
     const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;

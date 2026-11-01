@@ -170,7 +170,7 @@ export function NoTabOpen() {
       data-testid="mind-none-open"
       className="flex h-full flex-col items-center justify-center gap-2 px-10 pb-11 text-center"
     >
-      <h1 className="font-serif text-heading font-semibold text-ink">{t("mind.noneOpen.title")}</h1>
+      <h1 className="font-sans text-heading font-semibold text-ink">{t("mind.noneOpen.title")}</h1>
       <p className="max-w-sm text-ui text-ink-secondary">{t("mind.noneOpen.body")}</p>
       <button
         type="button"

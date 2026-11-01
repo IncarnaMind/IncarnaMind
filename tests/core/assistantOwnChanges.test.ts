@@ -170,6 +170,14 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
       shown: "+ Summary / + Total = price*volume*margin, see the note.",
       bold: [],
     },
+    {
+      name: "a Chinese label beside a full-width colon stays bold, and the words beside it stay plain",
+      page: "## Summary\n\n**上限：**每月五千元。",
+      seen: "**上限：**每月五千元。",
+      reply: "## Summary\n\n**上限：**每月五千元，含税。",
+      shown: "+ Summary / + 上限：每月五千元，含税。",
+      bold: ["上限："],
+    },
   ])(
     "“make it longer” over waiting text: $name",
     async ({ page: content, seen, reply, shown, bold }) => {
@@ -646,15 +654,20 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
 
   // Value: protects=independent revision chains in one Answer accumulate their removals; fails_when=only the largest chain counts and two destructive edits auto-apply; why_new=review found cross-chain undercounting; seam=four public edit_mind calls over three original paragraphs; no_claim=other turns or other Minds
   test("independent same-turn revisions add their original-text removals", async () => {
-    const longA = `${"a".repeat(99)}x`;
-    const longB = `${"b".repeat(99)}x`;
+    const longA = `${"alpha ".repeat(16)}x`;
+    const longB = `${"bravo ".repeat(16)}x`;
     const longC = "c".repeat(100);
     let rewrites = 0;
     const model = scriptedModel((call): ScriptedReply => {
       const passage = editPassage(call);
       if (passage !== null) {
         rewrites += 1;
-        return { text: rewrites <= 2 ? passage.replace("x", "") : "new" };
+        return {
+          text:
+            rewrites <= 2
+              ? passage.replace(" x", "")
+              : passage.replace(/\n\n(.+)$/s, "\n\n<removed>$1</removed>"),
+        };
       }
       const edits = call.results.filter((each) => each.tool === "edit_mind").length;
       if (edits < 4) {
@@ -871,7 +884,7 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
 });
 
 describe("Changes it can't revise", { timeout: 30_000 }, () => {
-  // protects=over changes the User asked for (Edit with AI's, here from an earlier edit_mind), the assistant changes nothing, is told to say so first, the card says why, and the next Question knows it failed; fails_when=it changes the Mind another way, the problem isn't recorded, or the record says it worked; no_claim=how the model words it.
+  // protects=when the assistant can't act, its Answer offers Review (the waiting problem the Answer's line reads) and changes nothing: over changes the User asked for, nothing changes, the model is told to say so first and to point at Review under its reply, and the next Question knows it failed; fails_when=it changes the Mind another way, the problem isn't recorded, or the record says it worked; no_claim=how the model words it.
   test("over changes it can't revise, nothing changes, and it says why", async () => {
     let record = "";
     const model = scriptedModel((call): ScriptedReply => {
@@ -882,13 +895,16 @@ describe("Changes it can't revise", { timeout: 30_000 }, () => {
         return { text: "No." };
       }
       return called(call, "edit_mind")
-        ? { text: "Done." }
+        ? {
+            text: "The changes are waiting there; accept or reject them first. Review under my reply shows them.",
+          }
         : { calls: [{ tool: "edit_mind", input: { instruction: "Shorten it" } }] };
     });
     const { core, mind, client } = await setUp(model);
     const first = await askAssistant(core, { text: "shorten the summary", mindId: mind.id });
     await client.settled();
     const before = shownWithChanges(client);
+    const waiting = pendingProposals(client.blocks).map((each) => each.id);
     const checkpoints = (await core.listCheckpoints(mind.id)).checkpoints.length;
 
     const second = await askAssistant(core, {
@@ -903,8 +919,11 @@ describe("Changes it can't revise", { timeout: 30_000 }, () => {
       mindProblem: { kind: "waiting", mindId: mind.id, count: 2, mixed: false },
     });
     expect(lastResult(model)).toContain("Say so first, in one sentence");
+    expect(lastResult(model)).toContain("Review under your reply shows them");
+    expect(second.text).toContain("Review under my reply shows them");
     await client.settled();
     expect(shownWithChanges(client)).toEqual(before);
+    expect(pendingProposals(client.blocks).map((each) => each.id)).toEqual(waiting);
     expect((await core.listCheckpoints(mind.id)).checkpoints).toHaveLength(checkpoints);
     expect(waitingProblemOf(second)).toEqual({ mindId: mind.id, count: 2 });
 
@@ -918,6 +937,33 @@ describe("Changes it can't revise", { timeout: 30_000 }, () => {
       "- edit_mind “Q3 review”: nothing changed: 2 changes the assistant can't revise waited there for the User",
     );
     expect(record).toContain("[waiting change, removes: very ]");
+  });
+
+  // protects=a Chinese Answer is told the Review control's Chinese label, 审阅, which its reply must name as the button reads; fails_when=the tool result names only the English Review; no_claim=how a real model words it.
+  test("in Chinese, the refused change names the Review control 审阅", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      const passage = editPassage(call);
+      if (passage !== null) return { text: passage.replace(/\b(?:very|really) /g, "") };
+      return called(call, "edit_mind")
+        ? { text: "这些修改还在等待你确认。审阅在我回复的下方。" }
+        : { calls: [{ tool: "edit_mind", input: { instruction: "缩短摘要" } }] };
+    });
+    const { core, mind, client } = await setUp(model);
+
+    const first = await askAssistant(core, { text: "缩短摘要", mindId: mind.id });
+    await client.settled();
+    const second = await askAssistant(core, {
+      text: "再短一点",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+
+    expect(mindCalls(second)[0]).toMatchObject({
+      status: "failed",
+      mindProblem: { kind: "waiting" },
+    });
+    expect(lastResult(model)).toContain("审阅 under your reply shows them");
+    expect(second.text).toContain("审阅");
   });
 
   // protects=a failed change keeps why on its card: a heading that isn't there, a Mind that isn't; fails_when=the card has no reason; no_claim=none beyond protects.
@@ -973,6 +1019,44 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
     expect(pendingProposals(client.blocks)).toEqual([]);
   });
 
+  // protects=a change that takes out most of the User's text reads as waiting to the claim check, so its claim is flagged and the model is asked again; fails_when=the record marks it applied (a `return true` in appliedAsAsked) and the claim stands; no_claim=how a real model words it.
+  test("a held change isn't read as applied when its claim is checked", async () => {
+    const claim = "I've shortened the summary in “Q3 review”.";
+    const waiting = "The shortened summary waits for you to apply it.";
+    let askedAgain = false;
+    let sawWaiting = false;
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        const passage = editPassage(call);
+        if (passage !== null) return { text: "## Summary\n\nThe quarter was good." };
+        if (call.prompt.includes(ASKED_AGAIN)) {
+          askedAgain = true;
+          return { text: waiting };
+        }
+        if (called(call, "edit_mind")) return { text: claim };
+        return {
+          calls: [{ tool: "edit_mind", input: { part: "Summary", instruction: "Shorten it" } }],
+        };
+      },
+      {
+        generate: (call) => {
+          if (call.prompt.includes('"state": null')) sawWaiting = true;
+          return claimCheckReply(call, (prompt) =>
+            prompt.includes('"applied": true') ? [] : [{ sentence: claim, kind: "changed" }],
+          );
+        },
+      },
+    );
+    const { core, mind } = await setUp(model);
+
+    const answer = await askAssistant(core, { text: "shorten the summary", mindId: mind.id });
+
+    expect(sawWaiting).toBe(true);
+    expect(askedAgain).toBe(true);
+    expect(answer.text).toBe(waiting);
+    expect(answer.steps?.unbackedClaims).toBeUndefined();
+  });
+
   // protects=the judge the core asks is sent the instructions that decide what counts and what it calls a Note, and the honest second reply is what the User reads; fails_when=the core stops sending one of those rules, or the claim stands; no_claim=how a real model judges.
   test("the judge is sent the instructions, through the core", async () => {
     let instructions = "";
@@ -995,7 +1079,7 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
     expect(instructions).toContain("The record's Tool names and fields say mind for a Note.");
     expect(instructions).not.toContain("A Note is called a Mind in the record.");
     expect(instructions).toContain(
-      "A revision of text the assistant wrote into a Mind earlier is a change",
+      "A revision of text the assistant wrote into a Note earlier is a change",
     );
     expect(instructions).not.toContain("A revision of the assistant's own text is a change");
     expect(answer.text).toBe(HONEST);

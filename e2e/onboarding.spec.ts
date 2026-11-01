@@ -169,7 +169,7 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   const ready = step(window, "question").getByTestId("first-open-ready");
   // The whole Question is the line's name and its tooltip; a narrower line would cut it at a
   // word's end, and clicking asks it whole.
-  const askLabel = "Ask: “What leverage does the agreement allow?”";
+  const askLabel = "Ask: “What’s the leverage cap?”";
   await expect(ready).toHaveAttribute("aria-label", askLabel);
   await expect(ready).toHaveAttribute("title", askLabel);
   const shownAsk = await ready.innerText();
@@ -181,7 +181,7 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await pointAndClick(window, ready);
   await expect(assistant).toBeVisible();
   await expect(assistant.getByTestId("assistant-question")).toContainText(
-    "What leverage does the agreement allow?",
+    "What’s the leverage cap?",
   );
   const readyAnswer = assistantAnswers(window).last();
   await expect(readyAnswer).toHaveAttribute("data-status", "done");
@@ -370,7 +370,7 @@ test("an empty Mind of one's own shows no second start guide, the example's step
   await expect(steps.locator('[data-testid="first-open-step"][data-state="done"]')).toHaveText([
     /Added your Documents/,
     /Asked a question/,
-    /Checked a Citation/,
+    /Opened a checked Citation/,
   ]);
   await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
   await pointAndClick(window, steps.getByTestId("first-open-hide"));
@@ -930,7 +930,15 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   await expect(setup.getByTestId("setup-key")).toBeFocused();
   await window.keyboard.insertText("sk-ant-a-key-from-the-company");
   await window.keyboard.press("Enter");
-  // Steps 2 and 3 follow, each one key away: Tab to Use this, Enter, and on to the next step.
+  // A saved model brings the cursor to the composer: the steps left wait as one line above it
+  // (#2310), a Shift+Tab (past its ✕) away, and each is one key further.
+  await expect(window.getByTestId("composer-input")).toBeFocused();
+  await window.keyboard.press("Shift+Tab");
+  await expect(window.getByTestId("assistant-setup-skip")).toBeFocused();
+  await window.keyboard.press("Shift+Tab");
+  const line = window.getByTestId("assistant-setup-line");
+  await expect(line).toBeFocused();
+  await window.keyboard.press("Enter");
   const transcription = setup.getByTestId("setup-transcription");
   await expect(transcription).toBeFocused();
   await window.keyboard.press("Tab");
@@ -959,7 +967,11 @@ test("on the quiet first open the tagging question still shows, with Allow, in t
       apiKey: "sk-test",
       modelId: "gpt-6-luna",
     });
-    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
     if (provider.service) await core.revokeConsent("tagging", provider.service.id);
   });
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
