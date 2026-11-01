@@ -1,16 +1,20 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
 import { figureReplyText, readFigureReply } from "../../src/core/answers/checks/figureChecks";
 import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
-import type { ChatProviderKind, CheckFigure } from "../../src/core/api";
+import type { CalculatedFigure, ChatProviderKind, CheckFigure } from "../../src/core/api";
 import type { CitationSource } from "../../src/core/documents";
+import { extractXlsx } from "../../src/core/documents/formats/xlsx";
 import { resolveCapabilities } from "../../src/core/providers/capabilities";
 import type { PreparedChatModel } from "../../src/core/providers/chat";
+import { workbookTools } from "../../src/core/workbooks/tool";
 import { MAX_CHART_VALUES } from "../../src/shared/charts";
 import { readFigures } from "../../src/shared/figures";
+import { translate } from "../../src/shared/i18n";
 import type { UnitText } from "../../src/shared/units";
+import { WorkbookBuilder } from "../helpers/financeWorkbooks";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 
 const claim = "Revenue was £20 and the licence is valid.";
@@ -1502,4 +1506,121 @@ test("a quoted heading states the scale and currency the bare digits lack", asyn
   });
   expect(result.figures?.[0]?.sourceInput?.unitStatement).not.toBeNull();
   expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+/** A plan whose 2027 sales are worked out from its growth assumption (#2347). */
+async function planUnits(growth: number): Promise<UnitText[]> {
+  const book = new WorkbookBuilder();
+  book
+    .sheet("Plan")
+    .text("A1", "Line")
+    .text("B1", "2026")
+    .text("C1", "2027")
+    .text("A2", "Sales")
+    .number("B2", 400)
+    .formula("C2", "B2*(1+B4)", 400 * (1 + growth))
+    .text("A4", "Growth")
+    .number("B4", growth, "percent");
+  return (await extractXlsx(new Uint8Array(book.xlsx()))).units;
+}
+
+/** The plan's 2027 sales as `trace_formulas` records it, and with growth at 10% as `what_if` does. */
+async function planFigures(units: UnitText[], language: "en" | "zh-CN") {
+  const source: CitationSource = {
+    passageId: "passage-1",
+    documentId: "document-1",
+    documentName: "Accounts",
+    documentKind: "xlsx",
+    contentHash: "hash-1",
+    text: units.map((unit) => unit.text).join("\n"),
+    pageFrom: 1,
+    pageTo: 1,
+    documentDeleted: false,
+    notCited: false,
+  };
+  const recorded: CalculatedFigure[] = [];
+  const [trace, whatIf] = workbookTools({
+    passage: (id) => (id === "P1" ? { source, units } : null),
+    passageOf: () => source.passageId,
+    figure: (figure) => recorded.push(figure),
+    language,
+  });
+  if (!trace || !whatIf) throw new Error("No workbook Tools.");
+  const context = { toolCallId: "call", signal: new AbortController().signal };
+  await trace.call({ passage: "P1", cell: "Plan!C2", label: "Sales 2027" }, context);
+  await whatIf.call(
+    { passage: "P1", cell: "Plan!C2", label: "Sales 2027", input: "Plan!B4", value: "10%" },
+    context,
+  );
+  const [traced, changed] = recorded;
+  if (!traced || !changed) throw new Error("The workbook's figures weren't recorded.");
+  return { traced, changed };
+}
+
+describe.each([
+  { language: "en" as const, claim: "Sales in 2027 were 420, or 440 at 10% growth." },
+  { language: "zh-CN" as const, claim: "2027 年销售额为 420，增长率为 10% 时为 440。" },
+])("$language: a workbook's figure is checked against its cell (#2347)", ({ language, claim }) => {
+  const saved = (id: string, figure: CalculatedFigure, shown = figure.shown): CheckFigure => ({
+    ...target(id, shown, figure.label, language),
+    calculated: { id, figure, analysisId: null },
+  });
+  const check = async (figures: CheckFigure[], units: UnitText[]) =>
+    checkWith({
+      figures,
+      claim,
+      units,
+      body: units.map((unit) => unit.text).join("\n"),
+      text: reply(figures.map((figure) => ({ ...item(figure.id), source: null }))),
+    });
+
+  test("a figure the workbook gives is Supported by its cell, and a what-if by working it out again", async () => {
+    const units = await planUnits(0.05);
+    const { traced, changed } = await planFigures(units, language);
+    expect([traced.shown, changed.shown]).toEqual(["420", "440"]);
+    const { result } = await check([saved("f1", traced), saved("f2", changed)], units);
+    const [cell, whatIf] = result.figures ?? [];
+    expect(cell?.result.verdict).toBe("supported");
+    expect(cell?.sourceInput).toMatchObject({
+      number: { chars: "420", value: 420 },
+      cell: { sheet: "Plan", ref: "C2" },
+      citation: {
+        check: "found",
+        quote: "Sales\t400\t420",
+        location: { kind: "rows", sheet: "Plan", from: 2, to: 2 },
+      },
+    });
+    expect(whatIf?.result.verdict).toBe("supported");
+    expect(whatIf?.sourceInput).toBeNull();
+    const worked = whatIf?.result.verdict === "supported" ? whatIf.result.calculation : null;
+    expect(worked?.figure.value).toBeCloseTo(440, 9);
+    expect(worked?.figure.workbook?.change).toEqual({
+      input: "Plan_B4",
+      value: 0.1,
+      shown: "10.0%",
+    });
+  });
+
+  test("a figure its cell doesn't give is Contradicted, with the cell's number beside it", async () => {
+    const units = await planUnits(0.05);
+    const { traced } = await planFigures(units, language);
+    const { result } = await check([saved("f1", traced, "425")], units);
+    expect(result.figures?.[0]?.result.verdict).toBe("contradicted");
+    expect(result.figures?.[0]?.sourceInput?.number.chars).toBe("420");
+  });
+
+  test("once the workbook's cells no longer give a figure, it isn't checked, and says why", async () => {
+    const { traced, changed } = await planFigures(await planUnits(0.05), language);
+    const { result } = await check(
+      [saved("f1", traced), saved("f2", changed)],
+      await planUnits(0.06),
+    );
+    expect(result.figures?.map((figure) => figure.result)).toEqual([
+      expect.objectContaining({ verdict: "not-checked", reason: "workbook-changed" }),
+      expect.objectContaining({ verdict: "not-checked", reason: "workbook-changed" }),
+    ]);
+    expect(translate(language, "claim.reason.workbook-changed")).toContain(
+      language === "en" ? "workbook’s cells" : "工作簿现在的单元格",
+    );
+  });
 });

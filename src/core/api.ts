@@ -2358,8 +2358,11 @@ export interface WorkbookFigureStep {
  * drive it, each cited to its cell.
  */
 export interface FigureFromWorkbook {
-  /** The figure's cell, with its formula and a Citation to it. */
-  cell: WorkbookFigureStep & { citation: Citation };
+  /**
+   * The figure's cell, with its formula and the number it shows read as an input is, cited to
+   * the cell: a Check reads it again there.
+   */
+  cell: WorkbookFigureStep & { input: FigureInput };
   /** The formulas it is worked out through, nearest first, its own excluded. */
   steps: WorkbookFigureStep[];
   /** How many formula cells were worked out for it, and its inputs past those listed. */
@@ -5853,6 +5856,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "read-budget": a whole read reached the most it may spend before this part was judged, so
  *   nothing more was sent (`detail`: that most and what it had spent, as JSON of
  *   `{ most: Money; spent: Money }`).
+ * - "workbook-changed": a figure worked out from a workbook's formulas (#2347) no longer reads the
+ *   same from its cells, or no longer works out the same from them.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -5873,7 +5878,8 @@ export type ClaimCheckFailure =
   | "absence-unconfirmed"
   | "kept-inside"
   | "cut-short"
-  | "read-budget";
+  | "read-budget"
+  | "workbook-changed";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {

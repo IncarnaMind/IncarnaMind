@@ -540,7 +540,8 @@ export function figureShownIn(
     const now = { ...context, text: span.sentence.text };
     if (span.check.kept) return claimCheckShown(span.check, now);
     const shown = figureCheckShown(child, now);
-    return shown.state === "supported" && child.calculation
+    // A workbook's figure shows how it was worked out on its own card (#2347).
+    return shown.state === "supported" && child.calculation && !child.calculation.figure.workbook
       ? { ...shown, recalculated: true }
       : shown;
   }

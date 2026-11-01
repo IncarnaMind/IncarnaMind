@@ -320,7 +320,7 @@ function workbookOf(
   if (value == null) return null;
   if (!isRecord(value) || !isRecord(value.cell) || !Array.isArray(value.steps)) return undefined;
   const cell = workbookStepOf(value.cell);
-  const citation = readFigureCitation(value.cell.citation);
+  const own = readFigureInput(value.cell.input);
   const steps = value.steps.map(workbookStepOf);
   const kept = Array.isArray(value.kept) ? value.kept.map(keptOf) : null;
   const change = value.change;
@@ -336,7 +336,7 @@ function workbookOf(
         : undefined;
   if (
     !cell ||
-    !citation ||
+    !own ||
     steps.length > MAX_WORKBOOK_STEPS ||
     steps.some((step) => step === null) ||
     !index(value.formulaCells) ||
@@ -351,7 +351,7 @@ function workbookOf(
   )
     return undefined;
   return {
-    cell: { ...cell, citation },
+    cell: { ...cell, input: own },
     steps: steps as FigureFromWorkbook["steps"],
     formulaCells: value.formulaCells,
     moreInputs: value.moreInputs,
@@ -362,6 +362,12 @@ function workbookOf(
     engine: value.engine,
   };
 }
+
+/** The numbers a figure is read from, each cited: its inputs and, for a workbook's figure, its own cell (#2347). */
+export const citedInputs = (
+  figure: Pick<CalculatedFigure, "inputs" | "workbook">,
+): FigureInput[] =>
+  figure.workbook ? [figure.workbook.cell.input, ...figure.inputs] : figure.inputs;
 
 export function readCalculatedFigure(value: unknown): CalculatedFigure | null {
   if (!isRecord(value)) return null;

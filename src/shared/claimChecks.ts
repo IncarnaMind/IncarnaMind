@@ -22,6 +22,7 @@ import {
   type WholeRead,
 } from "../core/api";
 import { type RecordCiteNote, shortFormsThrough } from "../core/recordCites/referents";
+import { citedInputs } from "./calculatedFigures";
 import {
   CLAIM_CHECK_FAILURES,
   checkWithParts,
@@ -412,7 +413,7 @@ function recordEvidence(cite: RecordCiteResult): CitationAttributes | null {
  * unsupported sentence it covers, and the quotes a worked-out figure read its numbers from.
  */
 export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Citation)[] {
-  const inputs = check.calculation?.figure.inputs ?? [];
+  const inputs = check.calculation ? citedInputs(check.calculation.figure) : [];
   return [
     check.evidence,
     check.unsupported?.quoted ?? null,

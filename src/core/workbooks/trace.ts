@@ -5,6 +5,7 @@
  * figure worked out again with one input changed, in memory.
  */
 import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
+import { parseCellRef, type UnitText } from "../../shared/units";
 import {
   cellIndex,
   definedName,
@@ -12,6 +13,7 @@ import {
   type WorkbookCell,
   type WorkbookModel,
   type WorkbookSheet,
+  workbookModel,
 } from "./model";
 import { cellName } from "./parse";
 import {
@@ -24,7 +26,7 @@ import {
   type Run,
   recalculate,
   untrustedOf,
-  type WorkbookEngine,
+  WorkbookEngine,
 } from "./recalculate";
 import { isError, type Scalar } from "./values";
 
@@ -343,6 +345,33 @@ export async function whatIf(
     formulaCells: after.order.length,
     ms: base.ms + after.ms,
   };
+}
+
+type CellPlace = { sheet: string | null; ref: string };
+
+/**
+ * A what-if worked out again from the Units its workbook version is stored as now, as a Check
+ * does: the figure's value, or null when it no longer works out.
+ */
+export async function whatIfAgain(
+  book: { documentId: string; contentHash: string; units: readonly UnitText[] },
+  figure: CellPlace,
+  changed: CellPlace,
+  value: number,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  const model = workbookModel(book.documentId, book.contentHash, book.units);
+  if (!model) return null;
+  const keyOf = (cell: CellPlace) => {
+    const sheet = cell.sheet === null ? undefined : model.byName.get(cell.sheet.toUpperCase());
+    const at = parseCellRef(cell.ref);
+    return sheet && at ? placeKey(sheet, at.row, at.column) : null;
+  };
+  const target = keyOf(figure);
+  const input = keyOf(changed);
+  if (target === null || input === null) return null;
+  const outcome = await whatIf(new WorkbookEngine(model), target, input, value, signal);
+  return outcome.ok ? outcome.after : null;
 }
 
 /** A constant cell a defined name is, for a what-if: "Growth" → Assumptions!C5. */

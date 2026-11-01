@@ -504,7 +504,24 @@ const whatIf: CalculatedFigure = {
       label: "EBITDA 2027",
       formula: "E4*Margin",
       value: 240.39994,
-      citation: { ...growth.citation, quote: "EBITDA\t231.0\t242.6\t254.7" },
+      input: {
+        ...growth,
+        name: "DCF_E5",
+        label: "EBITDA 2027",
+        citation: {
+          ...growth.citation,
+          location: { kind: "rows", sheet: "DCF", from: 5, to: 5 },
+          quote: "EBITDA\t231.0\t242.6\t254.7",
+        },
+        number: {
+          ...growth.number,
+          chars: "254.7",
+          at: 21,
+          value: 254.6775,
+          unit: { kind: "plain" },
+        },
+        cell: { sheet: "DCF", ref: "E5", stored: 254.6775 },
+      },
     },
     steps: [
       { sheet: "DCF", ref: "E4", label: "Revenue 2027", formula: "D4*(1+Growth)", value: 1092.727 },

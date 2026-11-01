@@ -805,6 +805,10 @@ export const en = {
   "figures.workbook.formulas": "{count} formulas worked out in all",
   "figures.workbook.change": "Changed {input} ({cell}) from {from} to {to}",
   "figures.workbook.inWorkbook": "In the workbook as it is: {value}",
+  "figures.workbook.whatIfFormula":
+    "What-if: {cell} = {formula}, with {input} at {to} ({from} in the workbook)",
+  "figures.workbook.whatIfInput": "Changed for the what-if",
+  "figures.workbook.whatIfLabel": "{label} (what-if: {input} at {value})",
   "figures.workbook.moreInputs": "{count} more inputs not listed",
   "figures.workbook.keptNote":
     "This is the value the workbook saved: IncarnaMind couldn’t work it out again, for the reason above. Each input is cited to its cell.",
@@ -1132,6 +1136,8 @@ export const en = {
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.read-budget": "Stopped after {spent}; this read may spend up to {most}.",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
+  "claim.reason.workbook-changed":
+    "The workbook’s cells no longer give this figure. Ask again to work it out from the workbook as it is now.",
   "claim.readBudget.continue": "Continue",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",

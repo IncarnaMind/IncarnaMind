@@ -156,6 +156,17 @@ describe("a workbook's formulas in an Answer", () => {
       });
       expect(changed?.workbook?.saved).toBeCloseTo(254.6775, 9);
       expect(changed?.workbook?.savedShown).toBe("254.7");
+      expect(changed?.label).toContain("3.0%");
+      // Each figure is cited to its cell, so the Answer is never called uncited.
+      expect(answer.steps?.notCitedAfterAsking).toBeUndefined();
+      expect(answer.citations.map((citation) => citation.quote)).toContain(
+        traced?.workbook?.cell.input.citation.quote,
+      );
+      expect(traced?.workbook?.cell.input).toMatchObject({
+        number: { chars: "254.7" },
+        cell: { sheet: "DCF", ref: "E5" },
+        citation: { check: "found", location: { kind: "rows", sheet: "DCF", from: 5, to: 5 } },
+      });
       expect(told(model, "what_if")).toContain("the User's file is unchanged");
       expect(await sha256(file)).toBe(before);
 

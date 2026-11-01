@@ -53,7 +53,7 @@ import { yoursLine } from "../../shared/commands";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { translate } from "../../shared/i18n";
-import { englishPlace } from "../../shared/locations";
+import { citationLocation, englishLocation, englishPlace } from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
@@ -98,6 +98,7 @@ import {
   type AskedQuote,
   type AskResult,
   BLOCK_ID_ATTRIBUTE,
+  type CalculatedFigure,
   type ChatModelChoice,
   type ChatReadiness,
   type Citation,
@@ -1514,16 +1515,38 @@ export function createAnswers(options: AnswersOptions) {
       quotesRecorded.set(marker, quote);
       return true;
     };
+    const recordInputQuotes = (marker: number) => {
+      for (const source of figures.inputSources(marker)) {
+        if (typeof source !== "number" && !recordedQuotes.has(quoteKey(source)))
+          recordQuote(source, nextMarker());
+      }
+    };
     const calculateFigures = (given: readonly unknown[], calculateOptions?: CiteOptions) => {
       const told = figures.calculate(given, calculateOptions);
       for (const raw of given) {
         const marker = whole((raw as { marker?: unknown } | null)?.marker);
-        for (const source of marker === null ? [] : figures.inputSources(marker)) {
-          if (typeof source !== "number" && !recordedQuotes.has(quoteKey(source)))
-            recordQuote(source, nextMarker());
-        }
+        if (marker !== null) recordInputQuotes(marker);
       }
       return told;
+    };
+    /** A workbook's figure, cited to its cell as an input quoted directly is (#2347). */
+    const recordWorkbookFigure = (figure: CalculatedFigure): number => {
+      const cell = figure.workbook?.cell.input.citation;
+      const location = cell ? citationLocation(cell) : null;
+      const marker = figures.record(
+        figure,
+        cell
+          ? [
+              {
+                passage: cell.passageId,
+                location: location ? englishLocation(location) : null,
+                quote: cell.quote,
+              },
+            ]
+          : [],
+      );
+      recordInputQuotes(marker);
+      return marker;
     };
     const citeRecords = (records: readonly CitationRecordInput[], citeOptions?: CiteOptions) => {
       for (const record of records) {
@@ -2765,7 +2788,7 @@ export function createAnswers(options: AnswersOptions) {
               passageOf: (documentId, page) =>
                 options.documents.passagesCovering(documentId, page, page, true)[0]?.passageId ??
                 null,
-              figure: (figure) => figures.record(figure),
+              figure: recordWorkbookFigure,
               language: answerLanguage(context.question),
             })
           : [];

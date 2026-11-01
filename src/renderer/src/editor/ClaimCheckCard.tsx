@@ -465,16 +465,27 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
   const documents = useAppStore((store) => store.documents);
   const { figure } = calculation;
   const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
-  const working = formulaText(
-    figure.formula,
-    (name) => byName.get(name.toLowerCase())?.number.chars ?? null,
-  );
+  const { workbook } = figure;
+  const changed = workbook?.change ? byName.get(workbook.change.input.toLowerCase()) : undefined;
+  const working = workbook
+    ? `${workbook.cell.sheet}!${workbook.cell.ref} = ${workbook.cell.formula}`
+    : formulaText(figure.formula, (name) => byName.get(name.toLowerCase())?.number.chars ?? null);
   return (
     <div data-testid="claim-working" className="claim-card-working">
       <p className="citation-card-note">{t("claim.calculated.title")}</p>
       <p data-testid="claim-figure" className="claim-card-figure">
         {working} = {figure.shown}
       </p>
+      {changed?.cell && workbook?.change && (
+        <p className="claim-card-says">
+          {t("figures.workbook.change", {
+            input: changed.label,
+            cell: `${changed.cell.sheet ?? ""}!${changed.cell.ref}`,
+            from: changed.number.chars,
+            to: workbook.change.shown,
+          })}
+        </p>
+      )}
       {!calculation.agrees && (
         <p data-testid="claim-stated" className="claim-card-says">
           {t(

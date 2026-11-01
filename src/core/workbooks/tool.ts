@@ -8,6 +8,7 @@
  */
 import { readFigures } from "../../shared/figures";
 import { FORMULA_VERSION, type ResultUnit, showResult } from "../../shared/formula";
+import { translate } from "../../shared/i18n";
 import { cellNumber, type UnitText } from "../../shared/units";
 import { documentFigureContext } from "../answers/calculations";
 import type {
@@ -410,8 +411,9 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     const target = chain.target;
     if (typeof target.saved !== "number")
       return `${where(target.sheet, target.ref)} holds ${scalarText(target.saved)}, not a number.`;
-    const cited = cellCitation(options, book.source, target.sheet, target.cell);
-    if (!cited) return `${where(target.sheet, target.ref)} has no text to cite.`;
+    const own = inputOf(book, target, new Set());
+    if (!own)
+      return `${where(target.sheet, target.ref)} shows ${target.shown || "nothing"}, which can't be cited as one number.`;
     const look = shown(book, target, value);
     const figure: CalculatedFigure = {
       label,
@@ -426,7 +428,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
       engine: FORMULA_VERSION,
       written: null,
       workbook: {
-        cell: { ...stepOf(target), citation: cited.citation },
+        cell: { ...stepOf(target), input: own },
         steps: chain.steps.map(stepOf),
         formulaCells: chain.formulaCells,
         moreInputs: chain.moreInputs,
@@ -666,7 +668,15 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
         .flatMap((each) => inputOf(book, each, taken) ?? [])
         .slice(0, 29);
       const after = shown(book, changedChain, value).shown;
-      const label = text(input.label) || `${chain.target.label}, ${changedInput.label} at ${after}`;
+      const given = text(input.label) || chain.target.label;
+      // A what-if must never read as the workbook's own figure, whatever label the model gave.
+      const label = given.includes(after)
+        ? given
+        : translate(options.language, "figures.workbook.whatIfLabel", {
+            label: given,
+            input: changedInput.label,
+            value: after,
+          });
       const recorded = record(book, chain, label, outcome.after, [changedInput, ...others], {
         input: changedInput.name,
         value,

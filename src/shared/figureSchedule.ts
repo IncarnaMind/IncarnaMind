@@ -1,5 +1,6 @@
 import type {
   AnalysisRangeInput,
+  CalculatedFigure,
   Citation,
   FigureFinding,
   FigureInput,
@@ -428,8 +429,42 @@ export function checkedByText(row: Pick<FigureScheduleRow, "signOff">, language:
 export const notCheckedYet = (row: FigureScheduleRow): boolean =>
   row.shown.state === "not-checked" || row.shown.state === "checking";
 
+/**
+ * A workbook figure's formula (#2347), naming a what-if's change so it never reads as the
+ * workbook's own figure: "What-if: DCF!E5 = E4*Margin, with Revenue growth at 3.0% (5.0% in the
+ * workbook)". Null for any other figure.
+ */
+export function workbookFormulaText(figure: CalculatedFigure, language: Language): string | null {
+  const book = figure.workbook;
+  if (!book) return null;
+  const cell = `${book.cell.sheet}!${book.cell.ref}`;
+  const changed = book.change
+    ? figure.inputs.find((input) => input.name === book.change?.input)
+    : undefined;
+  if (!book.change || !changed) return `${cell} = ${book.cell.formula}`;
+  return translate(language, "figures.workbook.whatIfFormula", {
+    cell,
+    formula: book.cell.formula,
+    input: changed.label,
+    from: changed.number.chars,
+    to: book.change.shown,
+  });
+}
+
 export function lineShows(line: ScheduleLine, language: Language): LineShows {
   const { parent } = line;
+  const change = parent.calculated?.figure.workbook?.change;
+  if (line.input && change?.input === line.input.name) {
+    // A what-if's changed input: the value it was given, never the cell's as if it were found.
+    return {
+      name: line.input.label,
+      value: change.shown,
+      citation: line.input.citation,
+      formula: null,
+      difference: null,
+      status: { glyph: "not-checked", word: "figures.workbook.whatIfInput", why: null },
+    };
+  }
   if (line.input) {
     return {
       name: line.input.label,
@@ -480,7 +515,7 @@ export function lineShows(line: ScheduleLine, language: Language): LineShows {
         ? null
         : (parent.sourceInput?.citation ?? parent.source ?? null),
     formula: parent.calculated?.figure.workbook
-      ? `${parent.calculated.figure.workbook.cell.sheet}!${parent.calculated.figure.workbook.cell.ref} = ${parent.calculated.figure.workbook.cell.formula}`
+      ? workbookFormulaText(parent.calculated.figure, language)
       : parent.calculated
         ? formulaText(
             parent.calculated.figure.formula,

@@ -16,6 +16,7 @@ import {
   reasonKey,
   sourceValueText,
   statusKey,
+  workbookFormulaText,
 } from "../../shared/figureSchedule";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import type { ChatModelChoice, Citation, FigureSchedule, FigureScheduleRow } from "../api";
@@ -137,7 +138,12 @@ export function figureScheduleBook(
       id: row.id,
       cells: [
         text("number", String(row.number)),
-        text("figure", `${row.calculated ? "= " : ""}${row.reading.chars}`),
+        text(
+          "figure",
+          row.calculated?.figure.workbook?.change
+            ? `= ${row.reading.chars} · ${workbookFormulaText(row.calculated.figure, language)}`
+            : `${row.calculated ? "= " : ""}${row.reading.chars}`,
+        ),
         text("where", figurePlaceText(row, language), true),
         amount("sourceValue", unchecked ? null : sourceValueText(row)),
         {
