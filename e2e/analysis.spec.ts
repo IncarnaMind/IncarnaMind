@@ -520,6 +520,16 @@ test("a job loads only the packages its code uses: one that needs only pandas lo
   expect(correlation.result.end).toEqual({ kind: "done" });
   expect(correlation.result.output.printed).toBe("['scipy']\n");
 
+  // Rows keep their row number in the sheet: a position taken for one says to use .iloc.
+  const position = await run(app, python('inputs["sales"].loc[0, "Revenue"]', [SALES]));
+  expect(position.result.end.kind === "error" && position.result.end.message).toContain(
+    "An input's rows are indexed by their row number in the sheet, from row 2: take a row by its position with .iloc.",
+  );
+  const row = await run(app, python('result("first", inputs["sales"].loc[2, "Revenue"])', [SALES]));
+  expect(row.result.output.results).toEqual([
+    { kind: "figure", name: "first", label: "first", unit: null, value: 120 },
+  ]);
+
   // A library's own import the code can't show: the error says how to load it.
   const hidden = await run(app, python('import importlib\nimportlib.import_module("scipy")'));
   expect(hidden.result.end).toMatchObject({ kind: "error" });

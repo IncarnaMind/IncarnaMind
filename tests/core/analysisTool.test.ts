@@ -572,6 +572,43 @@ describe("an Analysis an Answer runs", () => {
     },
   );
 
+  test("a statistic far below 0.01 shows its digits, not 0.00, a whole count no decimals, and a unit that only says it is a number is no unit", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun('result("p", 2.3e-14, "p-value", "number")')],
+      answer: "The slope is [=1], with p = [=2], over [=3] months.",
+    });
+    const { core } = await setUp(model, () => ({
+      output: {
+        results: [
+          {
+            kind: "figure",
+            name: "slope",
+            label: "Slope",
+            unit: "number",
+            value: 2.999615514509133,
+          },
+          {
+            kind: "figure",
+            name: "p",
+            label: "p-value",
+            unit: "number",
+            value: 2.3042123624685662e-14,
+          },
+          { kind: "figure", name: "n", label: "Months used", unit: "number", value: 29 },
+        ],
+      },
+    }));
+
+    const { answer } = await askAndRead(core, "Is revenue's slope significant?");
+
+    expect(answer.figures.map((figure) => [figure.shown, figure.unit])).toEqual([
+      ["3.00", { kind: "plain" }],
+      ["2.3e-14", { kind: "plain" }],
+      ["29", { kind: "plain" }],
+    ]);
+  });
+
   test("a figure() figure gets its marker only when IncarnaMind's own arithmetic over its cells gives the same number, and the model reads what the cells come to when it doesn't", async () => {
     const model = analysingModel({
       query: "revenue",
@@ -726,7 +763,9 @@ describe("an Analysis an Answer runs", () => {
     });
     const reader = await connectToMind(core, mind.id);
     expect(
-      (readMind(reader).toJSON().content ?? []).filter((block) => block.type === "picture"),
+      (readMind(reader).toJSON().content ?? []).filter(
+        (block: { type: string }) => block.type === "picture",
+      ),
     ).toEqual([expect.objectContaining({ attrs: expect.objectContaining(picture.attrs) })]);
   });
 

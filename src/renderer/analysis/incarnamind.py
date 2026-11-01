@@ -711,6 +711,12 @@ def _error_of(error, limit):
         [frame for frame in summary.stack if frame.filename != __file__]
     )
     text = "".join(summary.format()).strip()
+    if isinstance(error, KeyError) and _read and _is_position(error.args[0] if error.args else None):
+        text += (
+            "\nAn input's rows are indexed by their row number in the sheet, from row "
+            f"{min((min(read['rows']) for read in _read.values() if read['rows']), default=2)}: "
+            "take a row by its position with .iloc."
+        )
     missing = _not_loaded(error)
     if missing:
         module, package = missing
@@ -721,6 +727,15 @@ def _error_of(error, limit):
     if len(text) > limit:
         text = "…\n" + text[-(limit - 2) :]
     return {"kind": "error", "message": text, "line": line}
+
+
+def _is_position(key):
+    """A whole number no input has as a row: likely a position taken for a row number."""
+    return (
+        isinstance(key, numbers.Integral)
+        and not isinstance(key, bool)
+        and all(key not in read["rows"] for read in _read.values())
+    )
 
 
 def _not_loaded(error):

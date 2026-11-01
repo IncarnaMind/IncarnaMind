@@ -86,6 +86,22 @@ On the M2 Max used for ADR-0023, with macOS 26.5, Electron 44.9.1 and Pyodide 31
 - In Pyodide's file system, the four packages and their dependencies unpack to 119 MB more. The whole set, numpy and pandas included, is 148 MB.
 - Every load fetched only the bundled scheme: 0 requests cancelled and 0 policy violations in 18 Workers.
 
+**In the built app** (#2346: a build for testing, with Chromium's sandbox on, on the same M2 Max, beside `main`'s build measured the same way; each the median of 3, with the machine's 1-minute load between 7 and 15):
+
+| | `main` | With the four packages |
+|---|---|---|
+| The first job: the window and Python started, a pandas job | 3.1 s | 3.2–3.4 s |
+| A pandas job once the spare is ready | 18 ms | 22–30 ms |
+| A pandas job straight after another, waiting for the spare | 3.0 s | 2.9 s |
+| A scipy job (`stats.linregress`), once the spare is ready | — | 2.6 s |
+| A statsmodels job (OLS from a formula) | — | 3.6 s |
+| A scikit-learn job (KMeans) | — | 4.1 s |
+| A matplotlib job (a bar chart, as a PNG) | — | 1.8 s |
+| A job that imports all four | — | 6.8 s |
+
+- A job's time is its packages loading, then its code: of a scipy job's 2.6 s, its code (the import and the work) took 1.9 s. matplotlib is imported before the code starts, so its code took 0.15 s.
+- Python's files (`resources/python`) are 21.4 MB unpacked and 13.0 MB compressed today (`xz -9`, as installers compress), and 57.9 MB and 48.7 MB with the four packages: 35.8 MB more compressed. The installers themselves were not built for this record.
+
 **The OS sandbox and `run_code`** (`tests/main/runCode.bench.test.ts`, python-build-standalone 3.14.10 with numpy 2.5.4 and pandas 3.1.0):
 
 | | Plain | In the OS sandbox |
@@ -157,8 +173,17 @@ On the M2 Max used for ADR-0023, with macOS 26.5, Electron 44.9.1 and Pyodide 31
 
 ## Consequences
 
-- **Installer size.** It grows by about 36.5 MB (Pyodide's wheels) on every system, so Python's files total about 51 MB compressed.
-- **Licences.** The third-party licences list gains: scipy, statsmodels, scikit-learn, joblib, threadpoolctl and contourpy (BSD-3-Clause); patsy (BSD-2-Clause); kiwisolver and cycler (BSD); packaging (Apache-2.0 or BSD-2-Clause); fonttools and pyparsing (MIT); pillow (MIT-CMU); and matplotlib (the Matplotlib License, PSF-based, with its fonts' notices). All are permissive.
+Of what #2346 built:
+
+- **Installer size.** It grows by about 36 MB on every system (35.8 MB compressed, measured above), so Python's files total about 49 MB compressed.
+- **Licences.** `resources/notices/python.txt` gains, with their licence texts from the wheels: scipy, statsmodels, scikit-learn, joblib, threadpoolctl, contourpy, kiwisolver and cycler (BSD-3-Clause); patsy (BSD-2-Clause); packaging (Apache-2.0 or BSD-2-Clause); fonttools and pyparsing (MIT); pillow (MIT-CMU); and matplotlib (the Matplotlib License, PSF-based, with the DejaVu and STIX fonts' notices). All are permissive.
+- **A job that uses them waits for them.** A job that imports one of the four takes 2–7 s more on this Mac than a pandas job, most of it importing the package; more on a slower computer.
+- **matplotlib has no font for Chinese, Japanese or Korean.** Its own fonts are DejaVu and STIX. A plot whose text has such characters would show boxes, so it is left out, and the model reads why and to use `chart()`, which the app draws in any language, or to write the plot's text in English. A font for Simplified Chinese would add several MB to every installer, and isn't bundled.
+- **Content schema 44.** A Note keeps an Analysis figure's rows with its kept value, so an older version opens a Note written since read-only.
+- **The packaged app's engine check** runs a regression, a forecast, a clustering and a plot in the Analyses window, on macOS, Windows and Linux.
+
+Of the rest, once built (#2351):
+
 - **The Executor.**
   - `ExecRequest` gains `limits`.
   - The local Executor measures memory and the folder's size every 250 ms and stops the program with every process it started. macOS refuses a memory rlimit, so a fast allocation can run past the limit for up to that long.

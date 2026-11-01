@@ -51,8 +51,14 @@ const fields = (value: unknown): Record<string, unknown> =>
 
 const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
+/** What models give as a figure's unit to say it has none, taking unit for its type. */
+const NO_UNIT = /^(?:number|numeric|float|int|integer|value|none|null|unitless|-)$/i;
+
+/** A figure statistics give far below 0.01, such as a p-value, which two decimals show as 0.00. */
+const TINY = 0.005;
+
 function unitOf(unit: string | null): ResultUnit {
-  if (!unit) return { kind: "plain" };
+  if (!unit || NO_UNIT.test(unit.trim())) return { kind: "plain" };
   if (/^[A-Z]{3}$/.test(unit)) return { kind: "currency", code: unit };
   if (unit === "%" || /^percent$/i.test(unit)) return { kind: "percent" };
   return { kind: "other", word: unit };
@@ -187,7 +193,9 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       literals: [],
       scales: [],
     };
-    const show = { language: options.language, as: null, decimals: null, scale: null };
+    // A count a model gives (its observations, a cluster's size) is whole: "29", not "29.00".
+    const whole = unit.kind === "plain" && Number.isInteger(result.value);
+    const show = { language: options.language, as: null, decimals: whole ? 0 : null, scale: null };
     const shown = showResult(worked, show);
     const figure: CalculatedFigure = {
       label: result.label,
@@ -198,9 +206,11 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       approximate: false,
       shown: rawColumn(result.label)
         ? String(result.value)
-        : shown.ok
-          ? shown.shown
-          : figureText(options.language, result.value),
+        : unit.kind === "plain" && result.value !== 0 && Math.abs(result.value) < TINY
+          ? String(Number(result.value.toPrecision(2)))
+          : shown.ok
+            ? shown.shown
+            : figureText(options.language, result.value),
       show,
       literals: [],
       engine: FORMULA_VERSION,
@@ -215,7 +225,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     provider: ANALYSIS_PROVIDER,
     providerTool: ANALYSIS_TOOLS.run,
     description:
-      'Run Python over sheets and CSV files you found, to work out totals, groups, changes, tables, statistics and models. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, can import scipy, statsmodels, sklearn and matplotlib, and reads inputs["sales"] (a DataFrame whose index is each row\'s number in the sheet, named row) and inputs["rate"] (a number). Give each sum, mean, min, max or count of an input\'s column with figure(name, df["Revenue"], "sum", label, unit), after any filtering: IncarnaMind works it out again from the cells. Give any other figure or table with result(name, value, label, unit), each a number or a table; for a figure a model or test works out (a coefficient, a forecast, a p-value), add of=df, the input\'s rows it used. For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, chart(kind, df, x, y, title) draws a bar, line, pie or scatter chart, and a plot drawn with matplotlib.pyplot comes back as a picture (its text in Latin letters only). The result says each figure\'s marker [=n], each table\'s [=table n], each chart\'s [=chart n] and each picture\'s [=picture n].',
+      'Run Python over sheets and CSV files you found, to work out totals, groups, changes, tables, statistics and models. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, can import scipy, statsmodels, sklearn and matplotlib, and reads inputs["sales"] (a DataFrame whose index is each row\'s number in the sheet, named row) and inputs["rate"] (a number). Give each sum, mean, min, max or count of an input\'s column with figure(name, df["Revenue"], "sum", label, unit), after any filtering: IncarnaMind works it out again from the cells. Give any other figure or table with result(name, value, label, unit), each a number or a table; a figure a model or test works out (a coefficient, a forecast, a p-value) also names the input\'s rows it used: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, chart(kind, df, x, y, title) draws a bar, line, pie or scatter chart, and a plot drawn with matplotlib.pyplot comes back as a picture (its text in Latin letters only). The result says each figure\'s marker [=n], each table\'s [=table n], each chart\'s [=chart n] and each picture\'s [=picture n].',
     inputSchema: {
       type: "object",
       properties: {

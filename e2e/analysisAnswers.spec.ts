@@ -236,6 +236,14 @@ for (const language of ["en", "zh-CN"] as const) {
       }));
       expect(drawn).toEqual({ loaded: true, sharp: true, fits: true });
       await expect(text).not.toContainText("[=");
+      if (evidence) {
+        await picture.scrollIntoViewIfNeeded();
+        await window.screenshot({ path: join(evidence, `${language}-picture-wide.png`) });
+        await setWindowSize(app, window, 900, 660);
+        await picture.scrollIntoViewIfNeeded();
+        await window.screenshot({ path: join(evidence, `${language}-picture-narrow.png`) });
+        await setWindowSize(app, window, 1200, 660);
+      }
 
       const markers = text.getByTestId("calculated-figure-marker");
       await expect(markers).toHaveCount(2);
@@ -250,7 +258,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.locator(".calculated-figure-state")).toContainText(
         t("figures.inline.retained"),
       );
-      if (evidence) await window.screenshot({ path: join(evidence, `${language}-total-card.png`) });
+      if (evidence) {
+        await expect(card).toHaveCSS("opacity", "1");
+        await window.screenshot({ path: join(evidence, `${language}-total-card.png`) });
+      }
       await window.mouse.move(0, 0);
       await expect(card).toBeHidden();
 
@@ -265,7 +276,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.locator(".calculated-figure-input")).toHaveCount(2);
       await pointAndClick(window, card.locator(".calculated-figure-code summary"));
       await expect(card.locator(".calculated-figure-code pre")).toContainText("smf.ols");
-      if (evidence) await window.screenshot({ path: join(evidence, `${language}-slope-card.png`) });
+      if (evidence) {
+        await expect(card).toHaveCSS("opacity", "1");
+        await window.screenshot({ path: join(evidence, `${language}-slope-card.png`) });
+      }
       await window.keyboard.press("Escape");
       await expect(card).toBeHidden();
 
