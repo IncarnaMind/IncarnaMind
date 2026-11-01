@@ -166,10 +166,10 @@ async function writeShift(
   }
 
   // The card keeps its height as its waiting row becomes the applied one, so nothing under it
-  // moves: its two rows share one cell and it is as tall as the taller. Where the request says so,
-  // the waiting height is the last frame before the apply: at 900 px the panel is wide, the first
-  // count fits one line and the next does not, and the words a still-arriving count will take are
-  // not known in advance; the apply is what must not move the card.
+  // moves: its two rows share one cell and it is as tall as the taller. The waiting height is the
+  // last frame before the apply: while the Answer streams, its own count and the paragraph it says
+  // were changed grow with the words arriving, and neither they nor the room they will need are
+  // known in advance; the apply is what must not move the card.
   const waitingFrames = frames.filter(
     (frame) => frame.card !== null && !frame.undo && frame.counted,
   );
@@ -195,12 +195,12 @@ const LONG_NAME = {
 for (const language of ["en", "zh-CN"] as const) {
   test(`at 1440px in ${language}, the assistant's write leaves the Mind's top line and the Question where they were`, async () => {
     test.setTimeout(90_000);
-    await writeShift(language, "Q3 review");
+    await writeShift(language, "Q3 review", { finalWaiting: true });
   });
 
   test(`at 1440px in ${language}, a long Note name leaves the changes card's height where it was`, async () => {
     test.setTimeout(90_000);
-    await writeShift(language, LONG_NAME[language]);
+    await writeShift(language, LONG_NAME[language], { finalWaiting: true });
   });
 }
 

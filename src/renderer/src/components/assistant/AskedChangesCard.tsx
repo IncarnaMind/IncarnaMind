@@ -241,9 +241,8 @@ export function AppliedLine({
   const accepted = useAcceptedChanges(answerId, row.mindId);
   const settled =
     typeof waiting?.count === "number" ? appliedWaiting(waiting.pending, accepted) : null;
-  // On show, the count is the changes still waiting after this apply took its share. Hidden, the
-  // applied row keeps no count of its own: the waiting row beside it already says its count, and a
-  // count kept there would leave a line for words that never show (#400).
+  // The applied row keeps no count of its own while hidden: the waiting row beside it already says
+  // its count, and a count kept there would leave a line for words that never show (#400).
   const appliedLeft =
     shown && outcome !== "undone" && settled !== null && settled.count > 0
       ? leftText(t, row, settled.count)
