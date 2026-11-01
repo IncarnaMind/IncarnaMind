@@ -4522,6 +4522,7 @@ export const zhCN = {
   "error.question.analyseChoice": "问题是否可以分析数据只能是 true 或 false。",
   "error.estimate.searches": "估算的联网搜索次数应在 0 到 {max} 之间。",
   "error.estimate.each": "估算只能针对回答或核对。",
+  "error.edit.ask": "回答这次修改需要一个请求编号。",
   "error.task.tell": "这个任务现在无法接收消息。",
   "error.task.message": "告诉任务的内容应在 1 到 {max} 个字符之间。",
   "error.research.notFound": "这个研究任务不存在。",

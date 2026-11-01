@@ -4743,6 +4743,7 @@ export const en = {
   "error.question.analyseChoice": "Whether a Question may analyse data must be true or false.",
   "error.estimate.searches": "An estimate counts from 0 to {max} web searches.",
   "error.estimate.each": "An estimate is for Answers or for checks.",
+  "error.edit.ask": "An answer to an edit needs the id of the request it answers.",
   "error.task.tell": "This Task can’t be told anything now.",
   "error.task.message": "Tell a Task something in 1 to {max} characters.",
   "error.research.notFound": "That Research Task doesn’t exist.",

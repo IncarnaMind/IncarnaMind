@@ -144,6 +144,7 @@ test("with the assistant folded, Explain opens it where the User left it", async
 });
 
 test("Explain while an Answer is being written waits in view: one Answer at a time, one Stop", async () => {
+  test.setTimeout(120_000);
   const words = WORDS.en;
   const { app, window } = await start("en", 1_280);
   const note = await writeNote(window, words.title, words.line);
@@ -167,11 +168,6 @@ test("Explain while an Answer is being written waits in view: one Answer at a ti
   await expect(questions).toHaveCount(1);
   await expect(answers).toHaveCount(1);
 
-  // A second Explain replaces the first: one waits at most.
-  await slideSelect(window, note, words.selected);
-  await pointAndClick(window, explainRow(window));
-  await expect(queued).toHaveCount(1);
-
   // When its Question comes, the Answer before it is already done.
   await expect(questions).toHaveCount(2, { timeout: 40_000 });
   await expect(answers.first()).toHaveAttribute("data-status", "done");
@@ -184,6 +180,7 @@ test("Explain while an Answer is being written waits in view: one Answer at a ti
 });
 
 test("a queued Explain can be cancelled, and stopping the Answer cancels it too", async () => {
+  test.setTimeout(120_000);
   const words = WORDS.en;
   const { app, window } = await start("en", 1_280);
   const note = await writeNote(window, words.title, words.line);

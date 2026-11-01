@@ -5175,7 +5175,7 @@ export function createCore(adapters: CoreAdapters): Core {
     cancelEdit: async (requestId) => edits.cancel(requestId),
     respondToEditAsk: async (input) => {
       if (!isRecord(input) || typeof input.requestId !== "string") {
-        throw new InvalidInputError("respondToEditAsk expects a request id and an answer.");
+        throw new InvalidInputError({ key: "error.edit.ask" });
       }
       editAsks.get(input.requestId)?.(input.accept === true);
     },
