@@ -283,6 +283,24 @@ describe.each([
   });
 });
 
+// protects=a Chinese sentence checked against an English Document gets the reason in Chinese, the quote's English words spaced from the Chinese around them (docs/agents/zh-CN.md), and its own Chinese measure in its place (#2255); fails_when=the reason runs Latin words into Chinese or names the measures the wrong way round; no_claim=how a real model words either measure.
+test("the reason names an English quote's measure in a Chinese sentence's reason", async () => {
+  const sentence = "2025年营业利润率为12%。";
+  const { figures } = await checkNote(
+    "zh-CN",
+    EN_DOCUMENT,
+    [paragraph("mixed", sentence)],
+    one(sentence, {
+      quote: "Revenue grew 12% in 2025, to £48.2m.",
+      number: "12%",
+      measure: { sentence: "营业利润率", quote: "Revenue", match: "differs" },
+    }),
+  );
+  expect(figures).toMatchObject([
+    { sentence, state: "unsupported", why: "文档中的 12% 指的是 revenue，而不是营业利润率。" },
+  ]);
+});
+
 describe("a table's row label and headings say what a cell measures (#2255)", () => {
   // protects=a Note's table cell is named by its row label, so the label is the sentence's words for what the cell measures: the row that names the quote's measure is Supported, the row that names another is not (#2255); fails_when=a cell's label can't serve as its measure, or the other row's cell shows Supported; no_claim=how a real model names a row.
   test.each([
@@ -337,13 +355,14 @@ describe("a table's row label and headings say what a cell measures (#2255)", ()
     ]);
   });
 
-  // protects=a quote that is a Document's bare table cell names nothing but its number, so its row label, copied from its Passage, says what it measures, and with no words named the check keeps the table's headings to the model's judgement as before; a row label the Document doesn't hold is never Supported (#2255); fails_when=a bare cell can't be Supported on its row label or on no words, or is Supported on a label its Document lacks; no_claim=none beyond protects.
+  // protects=a quote that is a Document's bare table cell names nothing but its number, so its row label, copied from its Passage, says what it measures, and with no words named the check keeps the table's headings to the model's judgement as before, its "differs" included; a row label the Document doesn't hold is never Supported (#2255); fails_when=a bare cell can't be Supported on its row label or on no words, or is Supported on a label its Document lacks or on a measure the model says differs; no_claim=none beyond protects.
   test.each([
     {
       measure: { sentence: "Gross margin", quote: "Gross margin", match: "same" },
       state: "supported",
     },
     { measure: { sentence: "Gross margin", quote: null, match: "same" }, state: "supported" },
+    { measure: { sentence: "Gross margin", quote: null, match: "differs" }, state: "unsupported" },
     {
       measure: { sentence: "Gross margin", quote: "Operating margin", match: "same" },
       state: "not-checked",

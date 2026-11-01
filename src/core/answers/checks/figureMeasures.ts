@@ -81,7 +81,8 @@ function shown(words: string, texts: readonly string[]): string {
 
 export type MeasureFinding =
   | { kind: "same" }
-  | { kind: "differs"; measured: string; claimed: string }
+  /** `measured`: null when the quote is a bare number the reply names nothing for. */
+  | { kind: "differs"; measured: string | null; claimed: string }
   /** The quote is a bare number and the reply names nothing for it: its table's headings decide. */
   | { kind: "unnamed" }
   /** Words the reply doesn't give, or that aren't where it says it copied them. */
@@ -104,7 +105,11 @@ export function measureFinding(
     return { kind: "unread" };
   const bare = !namesSomething(quote);
   const quoted = measure.quote;
-  if (quoted === null) return bare ? { kind: "unnamed" } : { kind: "unread" };
+  if (quoted === null && !bare) return { kind: "unread" };
+  if (quoted === null)
+    return measure.match === "same"
+      ? { kind: "unnamed" }
+      : { kind: "differs", measured: null, claimed: shown(said, sentence) };
   const found = holds(quote, quoted)
     ? [quote]
     : bare

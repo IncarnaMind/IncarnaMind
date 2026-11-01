@@ -667,11 +667,14 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     // A number that measures something else neither backs the figure nor contradicts it.
     if (bound && measure?.kind === "differs") {
       const judged = unbacked(evidence);
-      const why = options.otherMeasure(bound.number.chars, measure.measured, measure.claimed);
+      const why =
+        measure.measured === null
+          ? null
+          : options.otherMeasure(bound.number.chars, measure.measured, measure.claimed);
       rows.push({
         ...base,
         sourceInput,
-        result: judged.verdict === "unsupported" ? { ...judged, unsupported: why } : judged,
+        result: why && judged.verdict === "unsupported" ? { ...judged, unsupported: why } : judged,
       });
       continue;
     }
