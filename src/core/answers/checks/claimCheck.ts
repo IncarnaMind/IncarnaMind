@@ -2190,78 +2190,53 @@ const NUMBERS =
 /** Where a clause ends: "," or ";" before a space, a sentence's stop, or their Chinese forms. */
 const CLAUSE_END = /[,;](?=\s)|\.(?=\s|$)|[，；。！？!?]/gu;
 
-/** Words that carry no meaning of their own; a repeat of one at the seam is trimmed (`inPlace`). */
-const FUNCTION_WORDS = new Set([
-  "a",
-  "an",
-  "the",
-  "of",
-  "to",
-  "in",
-  "on",
-  "at",
-  "by",
-  "for",
-  "from",
-  "with",
-  "and",
-  "or",
-  "as",
-  "is",
-  "are",
-  "was",
-  "were",
-  "be",
-]);
+/** A word at a seam: a number, a Latin word, a run of Chinese numerals, or one other character. */
+const SEAM_TOKEN =
+  /\p{Nd}+(?:[.,]\p{Nd}+)*|\p{Script=Latin}+|[〇零一二两三四五六七八九十百千万亿]+|\S/gu;
 
-/** An English word as one with its plural: "invoices" is "invoice", "companies" "company". */
-const singular = (word: string) =>
-  word.length > 3 && !word.endsWith("ss") && word.endsWith("s")
-    ? word.endsWith("ies")
-      ? `${word.slice(0, -3)}y`
-      : word.slice(0, -1)
-    : word;
+const isNumeral = (token: string) => /^[\p{Nd}〇零一二两三四五六七八九十百千万亿]/u.test(token);
 
-/** A text's words: its Latin words but function words, and its Han characters but numerals. */
-function wordsOf(text: string): Set<string> {
-  const words = new Set<string>();
-  for (const [word] of text.matchAll(/\p{Script=Latin}+/gu)) {
-    const lower = word.toLocaleLowerCase();
-    if (!FUNCTION_WORDS.has(lower)) words.add(singular(lower));
-  }
-  for (const [char] of text.matchAll(/\p{Script=Han}/gu)) {
-    if (!/[〇零一二两三四五六七八九十百千万亿]/u.test(char)) words.add(char);
-  }
-  return words;
+/** What stands just before `index`: a word, or "" where a clause starts. */
+function wordBefore(text: string, index: number): string {
+  const head = text.slice(0, index).trimEnd();
+  if (head === "" || /[,;:.，；：。！？!?]$/u.test(head)) return "";
+  return (head.match(SEAM_TOKEN)?.at(-1) ?? "").toLocaleLowerCase();
+}
+
+/** What stands just after `index`: a word, or "" where a clause ends. */
+function wordAfter(text: string, index: number): string {
+  const tail = text.slice(index).trimStart();
+  if (tail === "" || /^(?:[，；：。！？!?]|[,;:.](?:\s|$))/u.test(tail)) return "";
+  return (tail.match(SEAM_TOKEN)?.[0] ?? "").toLocaleLowerCase();
 }
 
 /**
- * Whether the wording starts or ends on a word that joins it to something it doesn't hold: after
- * the trim, "Westmarch of the" before "of London", "Westmarch with" before "in London", 西境公司的
- * (#1481). Inside the wording a function word is the Document's own.
+ * Whether each end of the wording joins the sentence as the Document's words join their own: it
+ * keeps the old words' word at that end (any number for a number), or the sentence goes on from
+ * it as the quote does, with the same word or a clause's end. "Westmarch but" before "of London",
+ * "monthly rent of $14,250" after "The base rent is" and 的西境公司 after 出租人为 don't (#1481).
  */
-function endsOnAFunctionWord(wording: string): boolean {
-  const words = wording.replace(/^[\p{P}\s]+|[\p{P}\s]+$/gu, "");
-  const [head] = /^\p{Script=Latin}+/u.exec(words) ?? [];
-  const [tail] = /\p{Script=Latin}+$/u.exec(words) ?? [];
+function seamsHold(
+  claim: string,
+  first: number,
+  from: string,
+  wording: string,
+  quote: string,
+  at: number,
+): boolean {
+  const corrected = claim.slice(0, first) + wording + claim.slice(first + from.length);
+  const old = from.match(SEAM_TOKEN) ?? [];
+  const now = wording.match(SEAM_TOKEN) ?? [];
+  const keeps = (a: string | undefined, b: string | undefined) =>
+    a !== undefined &&
+    b !== undefined &&
+    ((isNumeral(a) && isNumeral(b)) || a.toLocaleLowerCase() === b.toLocaleLowerCase());
+  const end = at + wording.length;
   return (
-    [head, tail].some(
-      (word) => word !== undefined && FUNCTION_WORDS.has(word.toLocaleLowerCase()),
-    ) || /[的之和与及或]$/u.test(words)
+    (keeps(old[0], now[0]) || wordBefore(corrected, first) === wordBefore(quote, at)) &&
+    (keeps(old.at(-1), now.at(-1)) ||
+      wordAfter(corrected, first + wording.length) === wordAfter(quote, end))
   );
-}
-
-/**
- * Whether the wording says again a word its clause already has outside the old words, so the
- * corrected clause would say it twice: "monthly rent of $14,250" after "The base rent is",
- * 租赁期限为8至10个月 after 租期为, "45 days of the invoice" before "of invoice" (#1481).
- */
-function repeatsItsClause(claim: string, first: number, end: number, wording: string): boolean {
-  const ends = [...claim.matchAll(CLAUSE_END)].map((match) => match.index);
-  const start = Math.max(0, ...ends.filter((at) => at < first).map((at) => at + 1));
-  const stop = Math.min(claim.length, ...ends.filter((at) => at >= end));
-  const around = wordsOf(`${claim.slice(start, first)} ${claim.slice(end, stop)}`);
-  return [...wordsOf(wording)].some((word) => around.has(word));
 }
 
 /** Text as compared for a range: one space for any run of them, and one dash for any dash. */
@@ -2458,7 +2433,8 @@ function correctionFor(
     const choice = { ...stated, wording: same.length === 1 && same[0] ? same[0].chars : fitted };
     // Another Document's words in another language are left out, as a choice no one could take.
     if (!inLanguageAt(claim, first, end, choice.wording)) continue;
-    if (repeatsItsClause(claim, first, end, choice.wording) || endsOnAFunctionWord(choice.wording))
+    const place = placeIn(citation.quote, choice.wording);
+    if (place < 0 || !seamsHold(claim, first, read.from, choice.wording, citation.quote, place))
       return null;
     if (
       markers.has(choice.marker) ||
