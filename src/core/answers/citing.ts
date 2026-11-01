@@ -157,10 +157,12 @@ export function createCiting(documents: CitingDocuments): Citing {
       ...matching,
     });
     const hasUnits = own.pageFrom !== null && own.pageTo !== null;
+    // A scan's unsure word was still found: its place is where the quote is (#535).
+    const held = result.check === "found" || result.checkReason === "unsure-word";
     const location: CitationLocation | null = !hasUnits
       ? null
       : pages.length > 0
-        ? locationOf(pages, result.check === "found" ? quoteInUnits(pages, quote, matching) : null)
+        ? locationOf(pages, held ? quoteInUnits(pages, quote, matching) : null)
         : source.documentKind === "pdf" && range.pageFrom !== null && range.pageTo !== null
           ? { kind: "page", from: range.pageFrom, to: range.pageTo }
           : null;

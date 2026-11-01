@@ -812,6 +812,8 @@ function CitationCard({
     web?.versions.find((each) => each.contentHash === attributes.contentHash)?.fetchedAt ??
     web?.fetchedAt;
   const checked = state.check === "found" || state.check === "not-found";
+  // A scan's unsure word: the page is shown with the quote, so the User can check it (#535).
+  const showsQuote = quoteSaysSo(state.check) || state.reason === "unsure-word";
   // A scan's quote says the Document is a scan, and the page the User should look at (#535).
   const scanWhere =
     state.reason === "unsure-word" && where
@@ -1060,7 +1062,7 @@ function CitationCard({
             data-testid="citation-open"
             className={`citation-card-action${checkAgainOf || onPageChecked ? "" : " citation-card-action--primary"}`}
             // A deleted Document's view shows the quote it kept.
-            onClick={() => onOpen(removed || quoteSaysSo(state.check))}
+            onClick={() => onOpen(removed || showsQuote)}
           >
             {t(removed ? "citation.open.removed" : `citation.open.${opens}`)}
           </button>

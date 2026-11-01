@@ -306,8 +306,13 @@ export interface CreateMindInput {
  *   opens these Notes read-only.
  *   Older content is version 46 content as it is: a figure kept before names
  *   no rows.
+ * - 47: a Citation of a scanned page marks the words its reading may have
+ *   misread (`unsure`) and records the User's own look at the page
+ *   (`pageChecked`, #535). An older editor would strip both, so it opens
+ *   these Notes read-only. Older content is version 47 content as it is: a
+ *   Citation written before holds neither.
  */
-export const CONTENT_SCHEMA_VERSION = 46;
+export const CONTENT_SCHEMA_VERSION = 47;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content

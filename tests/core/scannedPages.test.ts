@@ -12,6 +12,8 @@ import {
   type RecognizedLine,
   type TextRecognizer,
 } from "../../src/core";
+import { recheckWhereSelected } from "../../src/core/answers/citations";
+import type { PageText } from "../../src/core/documents/passages";
 import { SCAN_CURRENT_SINCE } from "../../src/core/documents/processing";
 import { createFakeTextRecognizer, type FakeScanScript } from "../../src/core/documents/scan/fake";
 import { BUILT_IN_TEXT_RECOGNITION_MODEL } from "../../src/core/documents/scan/model";
@@ -595,6 +597,218 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
       check: "cant-check",
       checkReason: "unsure-word",
       unsure: ["74,450"],
+    });
+  });
+
+  test("a number's shape is applied when checking, so a page read before the rule asks for a look (#535)", async () => {
+    const line = "The gauge read 2o25 at the harbour.";
+    const model = citingModel({
+      query: "gauge",
+      records: (passages) => [
+        {
+          marker: 1,
+          passage: passages[0]?.id ?? "",
+          pageFrom: 1,
+          pageTo: 1,
+          quote: line,
+        },
+      ],
+      answer: "The gauge read 2025 [^1].",
+    });
+    const { recognizer } = countingRecognizer({ pages: { 1: { lines: [line] } } });
+    const { core, client, mind, documents, dataDir } = await setUpWithDocuments(
+      model,
+      [{ name: "Gauge.pdf", contents: buildPdf([{ scan: picture("en-clean") }]) }],
+      scanning(recognizer),
+    );
+    const document = documents[0] as Document;
+    // As an older reader left it: the word stored with nothing saying it was unsure.
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(
+        "UPDATE document_pages SET label = json_remove(label, '$.scan.unsure') WHERE document_id = ?",
+        [document.id],
+      );
+    } finally {
+      db.close();
+    }
+    const [stored] = unitsOf(dataDir, document);
+    expect(JSON.parse(stored?.label ?? "null")).toEqual({ scan: { reader: READER } });
+    const { answerId } = await askAndFinish(core, client, mind.id, "What did the gauge read?");
+    expect(onlyCitation(client, answerId)).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["2o25"],
+    });
+    // The model saw which word not to trust, though the page was read before the rule.
+    const shown: string[] = [];
+    for (const message of model.doStreamCalls[1]?.prompt ?? []) {
+      if (typeof message.content === "string") continue;
+      for (const part of message.content) {
+        if (part.type === "tool-result" && part.output.type === "text")
+          shown.push(part.output.value);
+      }
+    }
+    expect(shown.join("\n")).toContain("⟦2o25⟧");
+  });
+
+  test("a selection that covers a scan's unsure word is cited as Check the page, not refused (#535)", async () => {
+    const line = "Ferry passengers rose to 74,450 against 61,200 a year earlier.";
+    const { recognizer } = countingRecognizer({
+      pages: { 1: { lines: [line], unsure: ["61,200"] } },
+    });
+    const { core, documents } = await setUpWithDocuments(
+      citingModel({ query: "ferry", records: () => [], answer: "Nothing [^1]." }),
+      [{ name: "Harbour.pdf", contents: buildPdf([{ scan: picture("en-noisy") }]) }],
+      scanning(recognizer),
+    );
+    const document = documents[0] as Document;
+    const cited = await core.citeSelection({
+      documentId: document.id,
+      parts: [
+        {
+          unit: 1,
+          text: "Ferry passengers rose to 74,450 against 61,200",
+          linesBefore: 0,
+          linesAfter: 0,
+        },
+      ],
+    });
+    expect(cited).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["61,200"],
+      pageFrom: 1,
+      pageTo: 1,
+      location: { kind: "page", from: 1, to: 1 },
+    });
+  });
+
+  test("a Question's quote is re-checked as Check the page where its unsure word was selected (#535)", () => {
+    const text = "Ferry passengers rose to 74,450 against 61,200 a year earlier.";
+    const from = text.indexOf("61,200");
+    const unit: PageText = {
+      page: 1,
+      kind: "page",
+      text,
+      label: { scan: { reader: READER, unsure: [[from, from + "61,200".length]] } },
+    };
+    const documents = {
+      currentVersion: () => "hash",
+      pageTexts: () => [unit],
+      passagesCovering: () => [{ id: "passage-1", text }],
+    };
+    const cited = recheckWhereSelected(documents, {
+      documentId: "document",
+      quote: "against 61,200 a year earlier",
+      pageFrom: 1,
+      pageTo: 1,
+      location: { kind: "page", from: 1, to: 1 },
+    });
+    expect(cited).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["61,200"],
+    });
+    expect(cited.quote).toBe("against 61,200 a year earlier");
+  });
+
+  test("calculate reads a figure in a quote's second part, so an ellipsis can't hide a misread number (#535)", async () => {
+    const line =
+      "Ferry passengers rose to 74,450 between June and August, against 61,200 a year earlier.";
+    const quote = "Ferry passengers rose … against 61,200 a year earlier";
+    let told = "";
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "ferry passengers" } }] };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: shownPassages(searches.at(-1)?.text ?? "")[0]?.id ?? "",
+                    pageFrom: 1,
+                    pageTo: 1,
+                    quote,
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      const calculated = call.results.filter((result) => result.tool === "calculate");
+      if (calculated.length === 0) {
+        return {
+          calls: [
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Passengers",
+                    inputs: [{ name: "a", label: "A year earlier", citation: 1, number: "61,200" }],
+                    formula: "a",
+                    as: "number",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      told = calculated.at(-1)?.text ?? "";
+      return { text: "The scan is unclear, so I can't work that figure out [^1]." };
+    });
+    const { recognizer } = countingRecognizer({
+      pages: {
+        1: {
+          lines: linesOf("en-noisy").map((each, index) => (index === 2 ? line : each)),
+          unsure: ["61,200"],
+        },
+      },
+    });
+    const core = startCore(await createTempDataFolder(), {
+      ...scanning(recognizer),
+      createChatModel: () => model,
+      answerPaths: { retrievesFirst: () => false },
+    });
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Harbour report.pdf",
+        buildPdf([{ scan: picture("en-noisy") }]),
+      ),
+    ]);
+    const mind = await core.createMind({ title: "Harbour" });
+    const client = await connectToMind(core, mind.id);
+    const { answerId } = await askAndFinish(
+      core,
+      client,
+      mind.id,
+      "How many ferry passengers were there a year earlier?",
+    );
+    expect(told).toContain(
+      "That number was read from a scan and may be misread; it can't be an input until the User confirms it.",
+    );
+    expect(onlyCitation(client, answerId)).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["61,200"],
     });
   });
 

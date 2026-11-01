@@ -3,7 +3,12 @@ import { describe, expect, test } from "vitest";
 import type { RecognizedLine } from "../../src/core";
 import { stripBoilerplate } from "../../src/core/documents/boilerplate";
 import { convexHull, minAreaRect, textBoxes } from "../../src/core/documents/scan/detect";
-import { readingOrder, scannedUnit, unsureWords } from "../../src/core/documents/scan/layout";
+import {
+  readingOrder,
+  scannedUnit,
+  unsureSpansIn,
+  unsureWords,
+} from "../../src/core/documents/scan/layout";
 import { onnxMetadata } from "../../src/core/documents/scan/onnxMetadata";
 import { pictureShare } from "../../src/core/documents/scan/pages";
 import { decodeLine, lineFrame } from "../../src/core/documents/scan/recognize";
@@ -150,15 +155,67 @@ describe("Reading a scanned page's lines (#397)", () => {
   });
 
   test("a number-shaped word mixing digits with letters or stray marks is always unsure, whatever the score (#535)", () => {
-    for (const word of ["2o25", "7a;45o", "1O%", "l2,000", "3S.6"]) {
+    for (const word of [
+      "2o25",
+      "7a;45o",
+      "1O%",
+      "l2,000",
+      "3S.6",
+      "74;450",
+      "1O0",
+      "(6O)",
+      "1o.",
+    ]) {
       const read = line(word, [0, 0, 100, 10]);
       expect(unsureWords(read), word).toEqual([[0, word.length]]);
     }
-    // Codes that mix them as they should follow the recognizer's score: sure here, unsure of at 0.4.
-    for (const word of ["Q3", "A4", "H2O", "FY2025", "No.7"]) {
+    // Codes, ordinals, and numbers whose letters follow their digits as a unit or
+    // scale does, follow the recognizer's score: sure here, unsure of at 0.4.
+    for (const word of [
+      "Q3",
+      "A4",
+      "H2O",
+      "FY2025",
+      "No.7",
+      "1st",
+      "2nd",
+      "5bn",
+      "2.5bn",
+      "10bps",
+      "1990s",
+      "10am",
+      "50kg",
+      "100ml",
+      "4GB",
+      "5G",
+      "12b",
+      "9.Termination",
+    ]) {
       expect(unsureWords(line(word, [0, 0, 100, 10])), word).toEqual([]);
       expect(unsureWords(line(word, [0, 0, 100, 10], 0.4)), word).toEqual([[0, word.length]]);
     }
+  });
+
+  test("a page read before the word-shape rule still marks its misread numbers, once each (#535)", () => {
+    const read = scannedUnit(
+      1,
+      [line("The gauge read 2o25 on 14 May.", [100, 120, 600, 150])],
+      { width: 1000, height: 2000 },
+      "PP-OCRv5 mobile/1",
+    );
+    // As an older reader left it: its label holds no unsure words, and the shape still says so.
+    const page = { ...read, label: { scan: { reader: "PP-OCRv5 mobile/1" } } };
+    expect(page.label?.scan?.unsure).toBeUndefined();
+    expect(unsureSpansIn(page).map(([from, to]) => page.text.slice(from, to))).toEqual(["2o25"]);
+    // A word stored as unsure, and one the shape finds, are both returned, once.
+    const stored = {
+      ...page,
+      label: { scan: { reader: "PP-OCRv5 mobile/1", unsure: [[0, 3]] as [number, number][] } },
+    };
+    expect(unsureSpansIn(stored).map(([from, to]) => page.text.slice(from, to))).toEqual([
+      "The",
+      "2o25",
+    ]);
   });
 
   test("taking a running header off a scanned page keeps its anchors and unsure words in step", () => {

@@ -20,21 +20,60 @@ interface FigureSource {
   citation: CitationAttributes;
 }
 
-const digitsOf = (text: string): string => text.replace(/\D+/gu, "");
+/** The digit a letter may stand for in a misread number ("o" or "O" for 0, "S" for 5). */
+const DIGIT_READING: Record<string, string> = {
+  O: "0",
+  o: "0",
+  I: "1",
+  i: "1",
+  l: "1",
+  S: "5",
+  s: "5",
+  B: "8",
+  b: "8",
+  Z: "2",
+  z: "2",
+  G: "6",
+  g: "6",
+};
+
+/** A number's digits, with a letter that stands for one read as it: "7a;45o" reads 7450. */
+const digitsOf = (text: string): string =>
+  Array.from(text, (char) => (/\d/u.test(char) ? char : (DIGIT_READING[char] ?? ""))).join("");
+
+/** Whether `numeral` is written whole in the quote from `from` to `to`, not as part of a longer number. */
+function wholeIn(quote: string, from: number, to: number, numeral: string): boolean {
+  for (
+    let at = quote.indexOf(numeral, from);
+    at >= 0 && at + numeral.length <= to;
+    at = quote.indexOf(numeral, at + 1)
+  ) {
+    const before = quote[at - 1] ?? "";
+    const after = quote[at + numeral.length] ?? "";
+    if (!/[\p{L}\p{N}]/u.test(before) && !/[\p{L}\p{N}]/u.test(after)) return true;
+  }
+  return false;
+}
 
 /**
- * The unsure word a figure was read from, by the Citation in its sentence: the
- * word holds the figure as it is written, or its digits are the figure's.
+ * The unsure word a figure was read from, by the Citation in its sentence:
+ * the word holds the figure's numeral whole, or its digits read as the
+ * figure's do ("7a;45o" and "7,450" both read 7450, while "2" doesn't read as
+ * "2o25").
  */
 function sourceOf(figure: string, citations: readonly CitationAttributes[]): FigureSource | null {
-  const digits = digitsOf(figure);
+  const numeral = /[\d.,]+/u.exec(figure)?.[0] ?? "";
+  const digits = digitsOf(numeral);
+  if (digits === "") return null;
   for (const citation of citations) {
-    if (citation.check !== "cant-check") continue;
+    if (citation.check !== "cant-check" || citation.checkReason !== "unsure-word") continue;
+    const quote = citation.quote ?? "";
     for (const word of citation.unsure ?? []) {
       if (!word) continue;
-      if (word.includes(figure) || (digits !== "" && digitsOf(word) === digits)) {
-        return { word, citation };
+      for (let at = quote.indexOf(word); at >= 0; at = quote.indexOf(word, at + 1)) {
+        if (wholeIn(quote, at, at + word.length, numeral)) return { word, citation };
       }
+      if (digitsOf(word) === digits) return { word, citation };
     }
   }
   return null;

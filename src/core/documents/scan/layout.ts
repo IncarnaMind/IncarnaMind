@@ -19,21 +19,17 @@ import type { RecognizedLine } from "../../adapters";
 /** A word the recognizer is less sure of than this, at its least sure character, is marked unsure. */
 export const UNSURE_BELOW = 0.8;
 
-/**
- * Letters a recognizer reads for digits: a for 4, o and O for 0, l, I and i
- * for 1, S for 5, B for 8, Z for 2, G for 6.
- */
-const DIGIT_LETTER = /[aAoOlIiSsBbZzGg]/;
-
 /** Marks that never belong in a number: a separator or sign the recognizer made up. */
 const STRAY_MARK = /[;!?=~^&*#@_|\\]/;
 
 /**
- * Whether a word starts like a number and mixes its digits with a letter a
- * recognizer reads for one, or with a stray mark: "2o25", "7a;45o", "1O%",
- * "l2,000", "3S.6". Always unsure, whatever the recognizer's score (#535).
- * A code's letters come first ("Q3", "A4", "H2O", "FY2025", "No.7"), and an
- * ordinal's suffix is a word's own ("1st", "2nd"): both follow the score.
+ * Whether a word starts like a number and mixes its digits with a letter or a
+ * mark no number holds between them: "2o25", "7a;45o", "1O%", "l2,000",
+ * "3S.6", "74;450". Always unsure, whatever the recognizer's score (#535).
+ * A code's letters come first ("Q3", "A4", "H2O", "FY2025", "No.7"), a
+ * number's unit or scale follows its digits ("2.5bn", "10bps", "1990s",
+ * "10am", "50kg", "100ml", "4GB", "5G", "12b"), and an ordinal's suffix is a
+ * word's own ("1st", "2nd"): all follow the recognizer's score.
  */
 export function mixedNumberWord(text: string): boolean {
   const word = text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
@@ -41,7 +37,39 @@ export function mixedNumberWord(text: string): boolean {
   // A lower-case l or a capital I in front of digits is a 1 the recognizer missed.
   if (/^[lI]\d/u.test(word)) return true;
   if (!/^\d/u.test(word)) return false;
-  return DIGIT_LETTER.test(word) || STRAY_MARK.test(word);
+  // Between the number's first and last digit, anything but a digit or a full
+  // stop or comma is a misread: a letter ("3S.6"), a made-up mark ("74;450").
+  const core = word.slice(word.search(/\d/u), word.search(/\d(?![\s\S]*\d)/u) + 1);
+  if (/\p{L}/u.test(core) || STRAY_MARK.test(core)) return true;
+  // An O for a 0 beside the last digit: "1O%", "1o.". A unit's letter ("5l") isn't one.
+  return /\d[Oo](?!\p{L})/u.test(word);
+}
+
+/**
+ * The words of a scanned Unit that may have been misread: those stored when it
+ * was read, and those a number's shape shows (#535), so a page read before
+ * that rule is covered without reading it again. Spans are into the Unit's
+ * text, in order, each once.
+ */
+export function unsureSpansIn(unit: {
+  text: string;
+  label?: TextUnit["label"];
+}): [number, number][] {
+  if (!unit.label?.scan) return [];
+  const spans: [number, number][] = (unit.label.scan.unsure ?? []).map(([from, to]) => [from, to]);
+  for (const match of unit.text.matchAll(/\S+/gu)) {
+    if (!mixedNumberWord(match[0])) continue;
+    const start = match.index ?? 0;
+    spans.push([start, start + match[0].length]);
+  }
+  spans.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const merged: [number, number][] = [];
+  for (const span of spans) {
+    const last = merged.at(-1);
+    if (last && span[0] <= last[1]) last[1] = Math.max(last[1], span[1]);
+    else merged.push(span);
+  }
+  return merged;
 }
 
 /** Lines at least this much longer than tall show the page's slant. */

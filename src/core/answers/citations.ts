@@ -70,6 +70,7 @@ import {
 import type { CitationSource, DocumentDate } from "../documents";
 import { BOILERPLATE_PARAMETERS } from "../documents/boilerplate";
 import type { PageText } from "../documents/passages";
+import { unsureSpansIn } from "../documents/scan/layout";
 import type { WindowedPassage } from "../documents/search";
 import { writtenInCjk } from "../documents/textLanguage";
 import { diffSteps, splitWords } from "../proposals/diff";
@@ -311,9 +312,10 @@ export interface CheckResult {
 }
 
 /**
- * The words of `units` a text recognizer wasn't sure of that `ranges` (in
- * their joined text) cover, in order: a quote of one isn't on the page for
- * certain, so it asks the User to look (#535).
+ * The words of `units` a text recognizer wasn't sure of, or that a number's
+ * shape says it misread (#535), that `ranges` (in their joined text) cover, in
+ * order: a quote of one isn't on the page for certain, so it asks the User to
+ * look. The rule is applied here too, so a page read before it is covered.
  */
 export function unsureWordsCovered(
   units: readonly PageText[],
@@ -324,7 +326,7 @@ export function unsureWordsCovered(
   const words: string[] = [];
   units.forEach((unit, index) => {
     const offset = starts[index] ?? 0;
-    for (const [from, to] of unit.label?.scan?.unsure ?? []) {
+    for (const [from, to] of unsureSpansIn(unit)) {
       if (!ranges.some((range) => offset + from < range.end && offset + to > range.start)) continue;
       const word = unit.text.slice(from, to);
       if (word !== "") words.push(word);
@@ -472,6 +474,8 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
     found?: readonly TextRange[],
   ): CitationRecheck => {
     const covered = inRange(range);
+    // A scan's unsure word was still found: its place is where the quote is (#535).
+    const held = check.check === "found" || check.checkReason === "unsure-word";
     return {
       ...check,
       contentHash,
@@ -480,10 +484,7 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
       location:
         range.pageFrom === null || range.pageTo === null
           ? null
-          : locationOf(
-              covered,
-              check.check === "found" ? (found ?? quoteInUnits(covered, quote, matching)) : null,
-            ),
+          : locationOf(covered, held ? (found ?? quoteInUnits(covered, quote, matching)) : null),
     };
   };
   return { units, matching, inRange, result };
@@ -1098,12 +1099,14 @@ function withUnitMarks(text: string, units: readonly PageText[]): string {
 }
 
 /**
- * `text` with each word a scan's recognizer was unsure of wrapped in ⟦ ⟧
- * (#535), so the model can see which figures not to trust. The marks are
- * never stored: `shownTexts` keeps the text without them.
+ * `text` with each word a scan's recognizer was unsure of, or a number's
+ * shape says it misread (#535), wrapped in ⟦ ⟧, so the model can see which
+ * figures not to trust. The marks are never stored: `shownTexts` keeps the
+ * text without them.
  */
 function withUnsureMarks(text: string, units: readonly PageText[]): string {
   const marks: { start: number; end: number }[] = [];
+  const seen = new Set<string>();
   let cursor = 0;
   for (const unit of units) {
     for (const anchor of unit.anchors ?? []) {
@@ -1113,10 +1116,13 @@ function withUnsureMarks(text: string, units: readonly PageText[]): string {
       const at = inOrder >= 0 ? inOrder : text.indexOf(line);
       if (at < 0) continue;
       cursor = at + line.length;
-      for (const [wordFrom, wordTo] of unit.label?.scan?.unsure ?? []) {
+      for (const [wordFrom, wordTo] of unsureSpansIn(unit)) {
         const from = Math.max(wordFrom, anchor.start);
         const to = Math.min(wordTo, anchor.end);
         if (from >= to) continue;
+        const key = `${at + (from - anchor.start)}:${at + (to - anchor.start)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         marks.push({ start: at + (from - anchor.start), end: at + (to - anchor.start) });
       }
     }

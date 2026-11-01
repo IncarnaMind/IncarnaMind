@@ -81,6 +81,7 @@ import type {
   FigureShowOptions,
   InputNumber,
 } from "../api";
+import { unsureSpansIn } from "../documents/scan/layout";
 import { detectLanguage } from "../documents/textLanguage";
 import type { Language } from "../language";
 import {
@@ -89,6 +90,7 @@ import {
   type Quoted,
   type QuoteInput,
   quotePlaceProblem,
+  unsureWordsCovered,
 } from "./citations";
 import type { CiteOptions } from "./engine";
 
@@ -178,6 +180,19 @@ export function quotedLines(quoted: QuotedText): string {
   const to = Math.max(...ranges.map((range) => range.end));
   const end = text.indexOf("\n", to);
   return text.slice(text.lastIndexOf("\n", from - 1) + 1, end < 0 ? text.length : end);
+}
+
+/** The parts of a quote around its ellipses, with where each starts in it. */
+function quoteParts(quote: string): TextRange[] {
+  const parts: TextRange[] = [];
+  let from = 0;
+  for (const match of quote.matchAll(/(?:\.{3,}|…)/gu)) {
+    const at = match.index ?? 0;
+    if (at > from) parts.push({ start: from, end: at });
+    from = at + match[0].length;
+  }
+  if (from < quote.length) parts.push({ start: from, end: quote.length });
+  return parts;
 }
 
 const beforeOnLine = (text: string, at: number) =>
@@ -618,15 +633,33 @@ export function createCalculationSession(options: CalculationSessionOptions) {
    * the User has checked the page.
    */
   function unsureWordAt(quoted: Quoted, figure: Figure): string | null {
-    const ranges = quoteInUnits(quoted.units, quoted.citation.quote, quoted.matching);
-    const start = ranges?.[0]?.start;
-    if (start === undefined) return null;
-    const from = start + figure.start;
-    const to = start + figure.end;
+    const quote = quoted.citation.quote;
+    const ranges = quoteInUnits(quoted.units, quote, quoted.matching);
+    const first = ranges?.[0];
+    if (!ranges || !first) return null;
+    // The quote's parts around an ellipsis match its ranges in order: the figure lies in one of them.
+    const parts = quoteParts(quote);
+    const pairs =
+      ranges.length === 1
+        ? [{ part: { start: 0, end: quote.length }, range: first }]
+        : ranges.length === parts.length
+          ? parts.map((part, index) => ({ part, range: ranges[index] as TextRange }))
+          : [];
+    const pair = pairs.find(({ part }) => figure.start >= part.start && figure.end <= part.end);
+    if (!pair) {
+      // The parts can't be paired where they should be: refuse a figure the quote's unsure words hold.
+      return (
+        unsureWordsCovered(quoted.units, ranges).find(
+          (word) => word.includes(figure.chars) || figure.chars.includes(word),
+        ) ?? null
+      );
+    }
+    const from = pair.range.start + (figure.start - pair.part.start);
+    const to = pair.range.start + (figure.end - pair.part.start);
     const { starts } = joinUnits(quoted.units);
     for (const [index, unit] of quoted.units.entries()) {
       const offset = starts[index] ?? 0;
-      for (const [wordFrom, wordTo] of unit.label?.scan?.unsure ?? []) {
+      for (const [wordFrom, wordTo] of unsureSpansIn(unit)) {
         if (offset + wordFrom < to && offset + wordTo > from) {
           return unit.text.slice(wordFrom, wordTo);
         }
@@ -643,7 +676,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         : given.record
           ? quotes.quote(given.record)
           : null;
-    return quoted !== null && !("problem" in quoted) && quoted.check().check === "cant-check";
+    if (quoted === null || "problem" in quoted) return false;
+    const check = quoted.check();
+    // A scan's unsure word is no unread page: the number itself is refused above (#535).
+    return check.check === "cant-check" && check.checkReason !== "unsure-word";
   }
 
   /** The quote an input reads from; or why it can't. */
@@ -835,12 +871,19 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         { passage: quoted.passage, quote: given.unitQuote },
         { structured: true },
       );
-      if ("problem" in line || line.check().check !== "found")
+      if ("problem" in line) {
         unitProblem = `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
-      else {
-        const yen = figureContextOf(line.citation.quote, context.language).yen ?? context.yen;
-        context = { ...context, yen };
-        unit = line;
+      } else {
+        const check = line.check();
+        if (check.check === "found") {
+          const yen = figureContextOf(line.citation.quote, context.language).yen ?? context.yen;
+          context = { ...context, yen };
+          unit = line;
+        } else if (check.checkReason === "unsure-word") {
+          unitProblem = `the unitQuote may include a word the scan misread; quote a line that states the unit clearly, from the same Passage.`;
+        } else {
+          unitProblem = `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
+        }
       }
     }
 

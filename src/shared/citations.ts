@@ -212,10 +212,15 @@ export function citationState(
   kept: readonly KeptCitationText[] = [],
   keptInside: string | null = null,
 ): CitationState {
-  // Matches the page makes it found on the User's word, though a word of it may have been misread (#535).
-  const pageChecked = attributes.pageChecked === true;
-  const check = pageChecked ? "found" : (attributes.check ?? "checking");
-  const reason = pageChecked ? null : (attributes.checkReason ?? null);
+  // Matches the page makes it found on the User's word, though a word of it may have been misread
+  // (#535). It stands only for the check it was given for: a later check that isn't that one isn't
+  // found by it.
+  const confirmed =
+    attributes.pageChecked === true &&
+    attributes.check === "cant-check" &&
+    attributes.checkReason === "unsure-word";
+  const check = confirmed ? "found" : (attributes.check ?? "checking");
+  const reason = confirmed ? null : (attributes.checkReason ?? null);
   const own = attributes.documentId ?? null;
   if (documents === null) {
     return {
@@ -223,7 +228,7 @@ export function citationState(
       reason,
       documentId: own,
       changedAfterCited: false,
-      ...(pageChecked && { pageChecked: true as const }),
+      ...(confirmed && { pageChecked: true as const }),
     };
   }
   const live = liveDocumentOf(attributes, documents);
@@ -242,7 +247,7 @@ export function citationState(
       documentId: live?.id ?? own,
       changedAfterCited: false,
       keptInside,
-      ...(pageChecked && { pageChecked: true as const }),
+      ...(confirmed && { pageChecked: true as const }),
     };
   }
   if (!live && citedTextKept(attributes, kept)) {
@@ -251,7 +256,7 @@ export function citationState(
       reason,
       documentId: null,
       changedAfterCited: false,
-      ...(pageChecked && { pageChecked: true as const }),
+      ...(confirmed && { pageChecked: true as const }),
     };
   }
   if (!live) {
@@ -262,7 +267,7 @@ export function citationState(
     reason,
     documentId: live.id,
     changedAfterCited,
-    ...(pageChecked && { pageChecked: true as const }),
+    ...(confirmed && { pageChecked: true as const }),
   };
 }
 
@@ -454,6 +459,9 @@ export function newVersionCitation(
     quote: now.quote,
     check: now.check,
     checkReason: now.checkReason,
+    // The confirmation was for the quote and page the User looked at, and those changed.
+    pageChecked: null,
+    unsure: now.unsure ?? null,
     quotedWords: null,
     verdict: null,
     keptOver: null,

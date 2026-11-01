@@ -71,7 +71,14 @@ const isId = (value: unknown): value is string =>
 const isUnit = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value >= 1;
 
-const CHECKS: readonly CitationCheck[] = [
+/** True when `List` holds every member of `T` and nothing else: keeps a list here in step with its type. */
+type Exactly<List extends readonly string[], T extends string> = [T] extends [List[number]]
+  ? [List[number]] extends [T]
+    ? true
+    : never
+  : never;
+
+const CHECKS = [
   "checking",
   "found",
   "not-found",
@@ -79,9 +86,9 @@ const CHECKS: readonly CitationCheck[] = [
   "not-checked",
   "unsupported",
   "contradicted",
-];
+] as const satisfies readonly CitationCheck[];
 
-const REASONS: readonly CitationCheckReason[] = [
+const REASONS = [
   "quote-not-on-pages",
   "quoted-words-not-on-pages",
   "pages-outside-passage",
@@ -94,7 +101,14 @@ const REASONS: readonly CitationCheckReason[] = [
   "monthly-limit",
   "small-model",
   "unsure-word",
-];
+] as const satisfies readonly CitationCheckReason[];
+
+// The lists follow their types: a new check or reason fails the type-check until it is listed.
+const _inStep: [
+  Exactly<typeof CHECKS, CitationCheck>,
+  Exactly<typeof REASONS, CitationCheckReason>,
+] = [true, true];
+void _inStep;
 
 function parseItem(value: unknown): TabItem {
   if (isRecord(value)) {
