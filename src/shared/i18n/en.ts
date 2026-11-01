@@ -4504,7 +4504,7 @@ export const en = {
   "export.citation.separator": ", ",
   "export.citation.accessed": "accessed {date}",
   "export.figure.unavailable":
-    "The saved inputs for {figure} aren't available, so IncarnaMind writes it as its value.",
+    "The saved inputs for {figure} aren’t available, so IncarnaMind writes it as its value.",
   "export.figure.calculated": "Calculated: {formula} = {figure}.",
   "export.figure.analysis": "Calculated by the Analysis “{title}”: {figure}.",
   "export.figure.workbook":

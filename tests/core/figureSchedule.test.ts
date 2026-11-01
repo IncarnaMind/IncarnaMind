@@ -1120,9 +1120,10 @@ test("a figure whose Analysis record is missing keeps the Note's other citations
     "missing-run",
   );
   blocks.push([createElement({ type: "paragraph", attrs: { id: "b" }, content: [lost] })]);
+  expect(() => figureCitations(blocks)).toThrow(/Analysis record/);
   const logged = vi.spyOn(console, "error").mockImplementation(() => {});
   try {
-    expect(figureCitations(blocks)).toContainEqual(
+    expect(figureCitations(blocks, { tolerateLost: true })).toContainEqual(
       expect.objectContaining({ documentId: "accounts", contentHash: "v1" }),
     );
   } finally {

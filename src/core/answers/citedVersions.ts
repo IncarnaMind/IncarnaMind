@@ -114,7 +114,10 @@ const figureBlock = perBlock((block) => {
  * Analyses they came from, and of its figure Checks. A Note's Blocks are read once while they
  * stay the same, since this is worked out again with every change stored.
  */
-export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): CitationFields[] {
+export function figureCitations(
+  fragment: Y.XmlFragment | Y.XmlElement,
+  { tolerateLost = false }: { tolerateLost?: boolean } = {},
+): CitationFields[] {
   if (
     fragment.doc &&
     readContentVersion(fragment.doc.getMap(MIND_SETTINGS_FIELD).get(CONTENT_SCHEMA_VERSION_KEY)) >
@@ -143,14 +146,15 @@ export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): Citatio
     const runs: RetainedFigureAnalysis[] = [];
     try {
       runs.push(...figureRunsFor(doc, blocks));
-    } catch {
-      // A figure whose Analysis record is missing still cites what its own attributes hold, and
-      // neither it nor one Note's figure may keep another figure's citations out (#2378).
+    } catch (error) {
+      // Retention must keep what a Note's lost record can't read; a language switch only asks
+      // whether another Document is cited, so there it may go on without that figure's inputs (#2378).
+      if (!tolerateLost) throw error;
       for (const block of blocks) {
         try {
           runs.push(...figureRunsFor(doc, [block]));
-        } catch (error) {
-          console.error("A Note figure's Analysis record couldn't be read", error);
+        } catch (lost) {
+          console.error("A Note figure's Analysis record couldn't be read", lost);
         }
       }
     }
@@ -176,11 +180,13 @@ export function addCitedUnits(
   fragment: Y.XmlFragment | Y.XmlElement,
   documentIds: ReadonlySet<string>,
   cited: CitedUnits[],
+  options?: { tolerateLost?: boolean },
 ): void {
   eachCitation(fragment, (citation) => addCitedUnit(citation, documentIds, cited), {
     charts: true,
   });
-  for (const citation of figureCitations(fragment)) addCitedUnit(citation, documentIds, cited);
+  for (const citation of figureCitations(fragment, options))
+    addCitedUnit(citation, documentIds, cited);
 }
 
 /** The versions Citations quote: each Document's cited content hashes, or "any" for every version. */

@@ -241,7 +241,7 @@ describe("a figure an Analysis gave", () => {
       expect(markdown).toContain("1,482.6");
       expect(markdown).toContain(
         language === "en"
-          ? "The saved inputs for 1,482.6 aren't available, so IncarnaMind writes it as its value."
+          ? "The saved inputs for 1,482.6 aren’t available, so IncarnaMind writes it as its value."
           : "“1,482.6”保存的输入暂不可用，IncarnaMind 按数值写出。",
       );
       const files = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
@@ -260,13 +260,13 @@ describe("a figure an Analysis gave", () => {
     [
       "en",
       "apa",
-      "Only lost: 1,482.6 (The saved inputs for 1,482.6 aren't available, so IncarnaMind writes it as its value).",
+      "Only lost: 1,482.6 (The saved inputs for 1,482.6 aren’t available, so IncarnaMind writes it as its value).",
     ],
     ["zh-CN", "apa", "Only lost: 1,482.6（“1,482.6”保存的输入暂不可用，IncarnaMind 按数值写出）。"],
     [
       "en",
       "chicago-notes",
-      "Only lost: 1,482.6[^1].\n\n[^1]: The saved inputs for 1,482.6 aren't available, so IncarnaMind writes it as its value.",
+      "Only lost: 1,482.6[^1].\n\n[^1]: The saved inputs for 1,482.6 aren’t available, so IncarnaMind writes it as its value.",
     ],
     [
       "zh-CN",
@@ -291,7 +291,7 @@ describe("a figure an Analysis gave", () => {
   test.each([
     [
       "en",
-      "| Lost |\n| --- |\n| 1,482.6 (The saved inputs for 1,482.6 aren't available, so IncarnaMind writes it as its value) |",
+      "| Lost |\n| --- |\n| 1,482.6 (The saved inputs for 1,482.6 aren’t available, so IncarnaMind writes it as its value) |",
     ],
     [
       "zh-CN",
