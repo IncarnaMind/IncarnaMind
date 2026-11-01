@@ -152,6 +152,7 @@ export function AssistantAnswer({
           label={t("answer.label")}
           streaming={streaming}
           regenerate={regenerate}
+          judged={answer}
           onOpenTable={(table) => keeping.openTable(answer, table)}
         />
       )}

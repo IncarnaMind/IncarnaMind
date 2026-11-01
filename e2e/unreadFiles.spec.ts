@@ -550,6 +550,39 @@ for (const language of ["en", "zh-CN"] as const) {
         : /隐藏工作表“Q3 raw”、“Q4 raw”未读取；“Big”：第 20,000 行及之后的内容未读取；“After”：整张工作表未读取/,
     );
     await screenshot(window, `answer-workbook-${language}`);
+
+    // The Document's menu reads it again with the hidden sheets, and the line says only the rows.
+    const document = window.getByTestId("document-list-item").filter({ hasText: "Budget 2026" });
+    await pointAndClick(window, document.getByTestId("document-file-menu"));
+    const menu = window.getByTestId("document-file-actions").filter({ visible: true });
+    await expect(menu.getByTestId("document.readHiddenSheets")).toBeVisible();
+    // The screenshot waits for the menu's own motion to rest, not a time.
+    await menu.evaluate((element) =>
+      Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished)),
+    );
+    await screenshot(window, `document-menu-hidden-sheets-${language}`);
+    await pointAndClick(window, menu.getByTestId("document.readHiddenSheets"));
+    await expect(row).not.toContainText(language === "en" ? "hidden sheet" : "隐藏工作表", {
+      timeout: 60_000,
+    });
+    await expect(row).toHaveText(
+      language === "en"
+        ? /“Big”: rows 20,000\+ weren’t read; “After”: the whole sheet wasn’t read/
+        : /“Big”：第 20,000 行及之后的内容未读取；“After”：整张工作表未读取/,
+    );
+    await screenshot(window, `answer-workbook-hidden-read-${language}`);
+
+    // The viewer shows the sheets that were hidden too, so their cells can be cited and read.
+    await pointAndClick(window, document.getByTestId("open-document"));
+    await expect(
+      window.getByTestId("viewer-sheet-tab").filter({ hasText: "Q3 raw" }),
+    ).toBeVisible();
+
+    // Undo reads it again without them, and the list says so.
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(row).toContainText(language === "en" ? "hidden sheet" : "隐藏工作表", {
+      timeout: 60_000,
+    });
     await app.close();
   });
 }

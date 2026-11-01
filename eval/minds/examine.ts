@@ -48,7 +48,11 @@ export async function examine(
   const rows = changedMinds(answer);
   const waiting = await readWorkspace(core);
   const titleOf = (id: string) => waiting.find((mind) => mind.id === id)?.title ?? null;
-  const calls = toolRecordLines(answer.toolCalls, titleOf, await changeStatesOf(core, rows));
+  const calls = toolRecordLines(
+    answer.toolCalls,
+    titleOf,
+    await changeStatesOf(core, rows, answer.toolCalls),
+  );
   const said = saidOf(answer);
   const unbacked = await judge(said, calls);
 

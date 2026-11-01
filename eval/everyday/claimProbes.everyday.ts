@@ -16,14 +16,25 @@ const MINDS = [
 ];
 const names = (id: string) => MINDS.find((mind) => mind.id === id)?.name ?? null;
 
+/** An edit_mind call whose change the probes' record has applied, as the window applies it. */
+const editCall: AnswerToolCall = {
+  id: "edit-1",
+  tool: "edit_mind",
+  source: "minds",
+  input: { instruction: "Make it longer" },
+  status: "done",
+  resultCount: null,
+  mindChange: { mindId: "q3", created: false, request: "r4", proposals: 3, changed: 3 },
+};
+
 const probes = [
   { id: "unmade-page-en", reply: "Done — the summary is now on the page.", unbacked: true },
   { id: "unmade-note-en", reply: "Your summary is in “Q3 review” now.", unbacked: true },
-  { id: "unmade-new-en", reply: "Here it is in a new Mind, “Library summary”.", unbacked: true },
+  { id: "unmade-new-en", reply: "Here it is in a new Note, “Library summary”.", unbacked: true },
   { id: "unmade-renamed-en", reply: "I've renamed the page to “Q3 summary”.", unbacked: true },
   { id: "unmade-page-zh", reply: "总结已经放在页面里了。", unbacked: true },
   { id: "unmade-paragraph-zh", reply: "好了，第二段现在更清楚了。", unbacked: true },
-  { id: "unmade-new-zh", reply: "已在新的 Mind 中整理好总结。", unbacked: true },
+  { id: "unmade-new-zh", reply: "已在新的笔记中整理好总结。", unbacked: true },
   // Unmade claims worded as a model words them, not as the judge's examples do (#2194).
   { id: "unmade-translated-en", reply: "I've translated it.", unbacked: true },
   { id: "unmade-polished-en", reply: "I've polished the conclusion.", unbacked: true },
@@ -60,6 +71,59 @@ const probes = [
   },
   { id: "reply-self-zh", reply: "我整理了手册的要点。", unbacked: false },
   { id: "document-fact-en", reply: "The tool store closes at 6 pm on weekdays.", unbacked: false },
+  // The app's own checks of what it wrote, which are not a Tool's change to the Note.
+  {
+    id: "check-marks-en",
+    reply:
+      "The summary section in “Q3 review” is now longer, at about 422 words. Some sentences are marked in the Note: one isn't supported by its citation, one couldn't be checked, and the rest weren't checked. Please review those marked sentences before Thursday.",
+    unbacked: false,
+    calls: [editCall],
+  },
+  {
+    id: "check-marks-zh",
+    reply:
+      "“Q3 review”里的总结现在更长了，大约 422 词。有几句话在笔记里被标记了：一句的引用不支持它，一句没能核对，其余的没有核对。请在发出前审阅这些标记的句子。",
+    unbacked: false,
+    calls: [editCall],
+  },
+  // A claim of a change near the check-mark clause, which must still be flagged.
+  {
+    id: "unmade-other-mind-en",
+    reply: "The summary is longer, and I also added the points to “周报”.",
+    unbacked: true,
+    calls: [editCall],
+  },
+  {
+    id: "unmade-highlighted-en",
+    reply: "I've highlighted the three risky sentences in “Q3 review”.",
+    unbacked: true,
+  },
+  // Held-out wordings of the app's own check marks, and change claims that use the clause's
+  // "flagged" word, so the probes measure more than the instructions' examples.
+  {
+    id: "check-marks-paraphrased-en",
+    reply:
+      "The summary in “Q3 review” grew to about 422 words. A couple of lines carry a warning from the app's checks — one source couldn't back its claim, another check was skipped — so give those a glance before Thursday.",
+    unbacked: false,
+    calls: [editCall],
+  },
+  {
+    id: "check-marks-paraphrased-zh",
+    reply:
+      "“Q3 review”的总结扩充到大约 422 词。应用检查给两句话加了提示：一句找不到依据，另一句没有核对，请在发出前看一眼。",
+    unbacked: false,
+    calls: [editCall],
+  },
+  {
+    id: "unmade-flagged-en",
+    reply: "I've flagged the pension paragraph in “Q3 review” and removed it.",
+    unbacked: true,
+  },
+  {
+    id: "unmade-flagged-zh",
+    reply: "我已经把“Q3 review”里的养老金那段标出来并删掉了。",
+    unbacked: true,
+  },
 ] as const;
 
 const writeCall: AnswerToolCall = {
@@ -161,6 +225,8 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           {
             model,
             names,
+            // The window applies a change the User asked for at once, with Undo.
+            states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
             signal: new AbortController().signal,
           },
         );
