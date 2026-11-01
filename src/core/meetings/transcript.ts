@@ -274,8 +274,11 @@ export interface TranscriptsOptions {
    * told to the engine on this computer for each of its streams.
    */
   wordsOf?(meetingId: string): readonly string[];
-  /** A line's text as the Transcript keeps it: Chinese in the User's script (#1031). */
-  lineText?(text: string): string;
+  /**
+   * A line's text as the Transcript keeps it: Chinese in the User's script, but for the Meeting's
+   * words, kept as the User writes them (#1031).
+   */
+  lineText?(text: string, words: readonly string[]): string;
   /** The cloud service the User chose for meeting audio (#141). Absent: always this computer. */
   cloud?: Pick<CloudTranscription, "start" | "sending" | "refuse">;
   changed(): void;
@@ -605,7 +608,9 @@ export function createTranscripts(options: TranscriptsOptions) {
         ? voiceOf(state, segment.stream, found.source, found.callSound, segment.speaker)
         : found.speaker;
     const startMs = baseMs + segment.startMs;
-    const text = options.lineText ? options.lineText(segment.text) : segment.text;
+    const text = options.lineText
+      ? options.lineText(segment.text, meetingWords(state))
+      : segment.text;
     if (!segment.final) {
       if (!live || state.state !== "live") return;
       state.partials.set(segment.stream, { startMs, text, id: segment.id, speaker });
@@ -832,7 +837,7 @@ export function createTranscripts(options: TranscriptsOptions) {
 
   // ---- Live ----
 
-  function tellWords(state: State, stream: string): void {
+  function meetingWords(state: State): readonly string[] {
     if (state.words === null) {
       try {
         state.words = options.wordsOf?.(state.meetingId) ?? [];
@@ -844,7 +849,12 @@ export function createTranscripts(options: TranscriptsOptions) {
         state.words = [];
       }
     }
-    if (state.words.length > 0) transcriber.words(stream, state.words);
+    return state.words;
+  }
+
+  function tellWords(state: State, stream: string): void {
+    const words = meetingWords(state);
+    if (words.length > 0) transcriber.words(stream, words);
   }
 
   /** Starts the engine for the live stream, once the model is downloaded; the audio waits meanwhile. */

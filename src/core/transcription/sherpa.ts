@@ -26,14 +26,6 @@ const WINDOW = 512;
 const STRETCH_MIN_SPEECH = WINDOW / MEETING_SAMPLE_RATE;
 const TURN_MIN_SPEECH = 0.25;
 
-/**
- * A stretch is read again, told its words (#1031), only where its first reading took at most this
- * share of its length: the two then take at most half of it, and the partial readings keep their
- * time, so live text keeps up with the call on a slower computer too. There the Transcript is as
- * it was without the words.
- */
-const READ_AGAIN_WITHIN = 0.25;
-
 /** The engine id the model definitions use (./model). */
 export const QWEN3_ASR = "qwen3-asr";
 
@@ -165,11 +157,8 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
     recognizer: {
       async decode(samples, _stream, given) {
         const words = contextWords(given);
-        const started = performance.now();
         const plain = await read(samples, []);
         if (words.length === 0) return plain;
-        const took = (performance.now() - started) / 1000;
-        if (took > (samples.length / MEETING_SAMPLE_RATE) * READ_AGAIN_WITHIN) return plain;
         let told: string;
         try {
           told = await read(samples, words);

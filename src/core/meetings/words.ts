@@ -11,7 +11,10 @@ import { namesIn } from "./names";
 
 /** More than the engine takes: it keeps those that fit, in this order. */
 const MAX_WORDS = 40;
-/** A Folder's name longer than this is a sentence, not a name. */
+/**
+ * A name found longer than this is a heading or a sentence: told, it would take the room of
+ * several names.
+ */
 const MAX_NAME_LENGTH = 40;
 /** The Documents read, newest first, and the Passages of each from its start. */
 const DOCUMENTS_READ = 20;
@@ -40,6 +43,9 @@ export function meetingWords(sources: MeetingWordSources): string[] {
     seen.add(key);
     words.push(word);
   };
+  const addFound = (name: string) => {
+    if (name.length <= MAX_NAME_LENGTH) add(name);
+  };
 
   const note = db.get<{ mind_id: string; title: string; folder_id: string | null }>(
     `SELECT m.id AS mind_id, m.title, m.folder_id FROM meetings AS meeting
@@ -53,13 +59,12 @@ export function meetingWords(sources: MeetingWordSources): string[] {
         [note.mind_id],
       )
       .map((row) => row.text);
-    for (const name of namesIn([note.title, ...text].join("\n")).keys()) add(name);
+    for (const name of namesIn([note.title, ...text].join("\n")).keys()) addFound(name);
   }
   for (const word of sources.userWords) add(word);
   if (!note?.folder_id) return words;
 
-  const folderName = sources.folderName(note.folder_id)?.trim() ?? "";
-  if (folderName.length <= MAX_NAME_LENGTH) add(folderName);
+  addFound(sources.folderName(note.folder_id)?.trim() ?? "");
   const ids = new Set(sources.folderDocuments(note.folder_id));
   // A Transcript holds the names as the engine heard them, wrong ones too.
   const newest = db
@@ -79,7 +84,7 @@ export function meetingWords(sources: MeetingWordSources): string[] {
       .map((passage) => passage.text),
   );
   for (const [name, count] of namesIn(texts.join("\n"))) {
-    if (count >= DOCUMENT_MENTIONS) add(name);
+    if (count >= DOCUMENT_MENTIONS) addFound(name);
   }
   return words;
 }

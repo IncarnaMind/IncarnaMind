@@ -4060,7 +4060,7 @@ export function createCore(adapters: CoreAdapters): Core {
             library.folders().find((folder) => folder.id === folderId)?.name ?? null,
           folderDocuments: (folderId) => library.documentIds(folderId),
         }),
-      lineText: (text) => inScript(text, settings.get().chineseScript),
+      lineText: (text, words) => inScript(text, settings.get().chineseScript, words),
       purgedPaths: () =>
         db
           .all<{ path: string }>(

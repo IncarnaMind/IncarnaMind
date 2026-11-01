@@ -22,7 +22,33 @@ function converterOf(script: ChineseScript): (text: string) => string {
   return converters[script];
 }
 
-/** Text with its Chinese in `script`; text with none is returned as it is. */
-export function inScript(text: string, script: ChineseScript): string {
-  return HAN.test(text) ? converterOf(script)(text) : text;
+/**
+ * Text with its Chinese in `script`, but for the `kept` words, written as the User writes them:
+ * a name isn't a word, and OpenCC would write the surname 于 as 於 and 余 as 餘. Text with no Chinese
+ * is returned as it is.
+ */
+export function inScript(
+  text: string,
+  script: ChineseScript,
+  kept: readonly string[] = [],
+): string {
+  if (!HAN.test(text)) return text;
+  const convert = converterOf(script);
+  const names = kept.filter((word) => HAN.test(word)).sort((a, b) => b.length - a.length);
+  let out = "";
+  let rest = text;
+  for (;;) {
+    let at = -1;
+    let name = "";
+    for (const each of names) {
+      const found = rest.indexOf(each);
+      if (found >= 0 && (at < 0 || found < at)) {
+        at = found;
+        name = each;
+      }
+    }
+    if (at < 0) return out + convert(rest);
+    out += convert(rest.slice(0, at)) + name;
+    rest = rest.slice(at + name.length);
+  }
 }

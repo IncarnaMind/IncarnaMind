@@ -111,7 +111,7 @@ describe("The sherpa-onnx recognizer", () => {
     const words = ["陈经理", "星河科技", "王丽", "王总", "李明"];
     STREAMS.length = 0;
     RESULTS.push(
-      '{"lang": "", "text": "我们的项目经理李林会把施工图发给你，下周三之前。", "tokens": []}',
+      '{"lang": "", "text": "我们的项目经理李名会把施工图发给你，下周三之前。", "tokens": []}',
     );
     toldResult = '{"lang": "", "text": "我们的项目经理李明会把施工图发给你。", "tokens": []}';
 
@@ -139,32 +139,6 @@ describe("The sherpa-onnx recognizer", () => {
       "神经理，你好，我是星河科技的王丽。",
     );
     expect(STREAMS).toEqual([{}]);
-    toldResult = null;
-  });
-
-  test("reads a stretch again told its words only where its first reading took at most a quarter of its length (#1031)", async () => {
-    const engine = await createSherpaEngine(model);
-    const words = ["李明"];
-    RESULTS.push('{"lang": "", "text": "项目经理李林会把施工图发给你。", "tokens": []}');
-    toldResult = '{"lang": "", "text": "项目经理李明会把施工图发给你。", "tokens": []}';
-    const clock = vi.spyOn(performance, "now");
-
-    // A second of speech read in 0.3 s: no time for a second reading.
-    STREAMS.length = 0;
-    clock.mockReturnValueOnce(1000).mockReturnValueOnce(1300);
-    expect(await engine.recognizer.decode(samples, "meeting:1:mic", words)).toBe(
-      "项目经理李林会把施工图发给你。",
-    );
-    expect(STREAMS).toEqual([{}]);
-
-    // Read in 0.2 s: read again, and the told name is kept.
-    STREAMS.length = 0;
-    clock.mockReturnValueOnce(1000).mockReturnValueOnce(1200);
-    expect(await engine.recognizer.decode(samples, "meeting:1:mic", words)).toBe(
-      "项目经理李明会把施工图发给你。",
-    );
-    expect(STREAMS).toEqual([{}, { hotwords: "李明" }]);
-    clock.mockRestore();
     toldResult = null;
   });
 

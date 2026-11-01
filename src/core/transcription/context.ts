@@ -6,6 +6,7 @@
  * and once with, and the first reading takes only the told names from the second
  * (`withToldWords`).
  */
+import { isNameMisheard } from "./sounds";
 
 /**
  * Qwen3-ASR holds its prompt, the audio and what it writes in 512 tokens: a stretch of 20 seconds
@@ -38,11 +39,15 @@ export function contextWords(words: readonly string[]): string[] {
   const seen = new Set<string>();
   let tokens = 0;
   for (const given of words) {
-    const word = given.replace(/[,\s]+/gu, " ").trim();
+    // The model's own tokens ("<|im_end|>") would end or change its prompt.
+    const word = given
+      .replace(/<[^>]*>|[<>|]/gu, " ")
+      .replace(/[,\s]+/gu, " ")
+      .trim();
     const key = plain(word);
     if (!key || seen.has(key)) continue;
     const cost = tokensOf(word);
-    if (tokens + cost > CONTEXT_TOKENS) break;
+    if (tokens + cost > CONTEXT_TOKENS) continue;
     seen.add(key);
     kept.push(word);
     tokens += cost;
@@ -163,16 +168,6 @@ function writtenAt(
   return found;
 }
 
-const lettersIn = (units: readonly string[]) =>
-  units.reduce((sum, unit) => sum + (WORDLIKE.test(unit) ? [...unit].length : 0), 0);
-
-/**
- * The plain text, with the told words the model wrote when it was told them put in their places
- * (#1031): every other word stays as the model heard it without the list, which a told list can
- * change for the worse (on a Chinese call it dropped words mid-sentence). A told word goes in only
- * where the two texts line up and the plain one heard something about as long in its place, never
- * where it heard nothing.
- */
 /**
  * The told words, and the capitalised parts of a name of several words: a call says "Priya" as
  * often as "Priya Raman". A part counts only where the model wrote it capitalised too: "harbor"
@@ -189,6 +184,13 @@ function namesAndParts(words: readonly string[]): { word: string; capitalised: b
   ];
 }
 
+/**
+ * The plain text, with the told names the model wrote when it was told them put in their places
+ * (#1031): every other word stays as the model heard it without the list, which a told list can
+ * change for the worse (on a Chinese call it dropped words mid-sentence). A told name goes in only
+ * where the two texts line up and the plain one wrote that name misheard (`isNameMisheard`), never
+ * where it heard nothing, another name or a common word.
+ */
 export function withToldWords(plain: string, told: string, words: readonly string[]): string {
   if (words.length === 0 || echoes(told, words)) return plain;
   const plainUnits = unitsOf(plain);
@@ -203,18 +205,26 @@ export function withToldWords(plain: string, told: string, words: readonly strin
   }
   const swaps: { from: number; to: number; units: string[] }[] = [];
   for (const { first, last, word } of writtenAt(toldUnits, namesAndParts(words))) {
-    const heard = linedUp
+    const aligned = linedUp
       .slice(first, last + 1)
       .filter((at, k) => at >= 0 && WORDLIKE.test(toldUnits[first + k] as string));
-    if (heard.length === 0) continue;
-    const from = Math.min(...heard);
-    const to = Math.max(...heard);
-    // Written as the User writes it, which the model may not have: "harbor logistics".
+    if (aligned.length === 0) continue;
+    const from = Math.min(...aligned);
+    const to = Math.max(...aligned);
     const said = unitsOf(word);
     const was = plainUnits.slice(from, to + 1);
-    if (was.join("") === word) continue;
-    const ratio = lettersIn(was) / Math.max(1, lettersIn(said));
-    if (ratio < 0.5 || ratio > 2) continue;
+    const heard = was.filter((unit) => WORDLIKE.test(unit));
+    // A word that is the name already, whatever its case, stays as the engine wrote it.
+    if (
+      heard.map(fold).join("") ===
+      said
+        .filter((unit) => WORDLIKE.test(unit))
+        .map(fold)
+        .join("")
+    ) {
+      continue;
+    }
+    if (!isNameMisheard(heard, word)) continue;
     if (swaps.some((swap) => swap.from <= to && from <= swap.to)) continue;
     swaps.push({ from, to, units: said });
   }

@@ -32,6 +32,16 @@ describe("Chinese in a Transcript, in the User's script (#1031)", () => {
     expect(inScript("Priya 说 48,500 dollars。", "traditional")).toBe("Priya 說 48,500 dollars。");
   });
 
+  test("a name the User told is written as they write it, not converted as a word", () => {
+    const names = ["于丽", "余总", "游先生", "朴先生", "于麗"];
+    expect(inScript("于丽说余总和游先生都同意，朴先生也来。", "traditional", names)).toBe(
+      "于丽說余总和游先生都同意，朴先生也來。",
+    );
+    expect(inScript("于麗的报价发给你们了。", "traditional", names)).toBe("于麗的報價發給你們了。");
+    // Without the names, OpenCC writes the surnames as words.
+    expect(inScript("于丽说余总同意。", "traditional")).toBe("於麗說餘總同意。");
+  });
+
   test("the script follows the interface unless the User chose one", () => {
     expect(transcriptScript(null, "zh-CN", ["zh-TW"])).toBe("simplified");
     expect(transcriptScript(null, "system", ["zh-TW", "en-US"])).toBe("traditional");

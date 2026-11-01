@@ -101,4 +101,17 @@ describe("Chinese in a Transcript follows the User's script (#1031)", { timeout:
     expect(traditional).toContain("會議室需要能坐二十四個人。");
     expect(traditional.join("")).not.toContain("会议室");
   });
+
+  test("in Traditional, a name the meeting was told stays as the User writes it", async () => {
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      engine: { lines: ["我们下周一开会。"], theirLines: ["于丽说余总同意。"] },
+    });
+    await core.updateSettings({
+      user: { language: "zh-CN", transcriptScript: "traditional", meetingWords: ["于丽"] },
+    });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+
+    expect(await linesOf(core, meeting.id, record)).toContain("于丽說餘總同意。");
+  });
 });

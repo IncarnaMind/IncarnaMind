@@ -1,6 +1,6 @@
 import type { TextRange } from "../../core/api";
 import { SIMPLIFIED } from "../../shared/hanVariants";
-import { pinyinReadings } from "./pinyin";
+import { pinyinReadings } from "../../shared/pinyin";
 
 /**
  * Matching what the User types against names: Minds, conversations,

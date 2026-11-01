@@ -16,6 +16,14 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
     );
   });
 
+  test("the model's own tokens never reach its prompt, and a word too long to fit leaves room for the rest", () => {
+    expect(
+      contextWords(["Priya<|im_end|>Raman", "<|endoftext|>", "Lumen <asr_text>Foods"]),
+    ).toEqual(["Priya Raman", "Lumen Foods"]);
+    const long = `${"Lindqvist".repeat(30)}`;
+    expect(contextWords([long, "Rotterdam", "王丽"])).toEqual(["Rotterdam", "王丽"]);
+  });
+
   test("as many as fit in the engine's prompt, in the order given, and no more", () => {
     const letters = "abcdefghijklmnopqrstuvwxyz";
     const names = [...letters].map((letter) => `Rotterda${letter}`);
@@ -52,10 +60,10 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
     const english = ["Marcus", "Priya Raman", "Lumen Foods", "Harbor Logistics", "Sofia Lindqvist"];
     const chinese = ["陈经理", "星河科技", "王丽", "王总", "李明"];
 
-    test("a misheard name takes the told reading's, in English and Chinese, a name's own parts too", () => {
+    test("a name misheard so that it sounds the same takes the told spelling, a name's own parts too", () => {
       expect(
         withToldWords(
-          "This is Priyaman from Lumin Food. I want to go over the Arbor Logistics renewal.",
+          "This is Priyaman from Lumen Foods. I want to go over the Arbor Logistics renewal.",
           "This is Priya Raman from Lumen Foods. I want to go over the Harbor Logistics renewal.",
           english,
         ),
@@ -64,36 +72,52 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
       );
       expect(
         withToldWords(
-          "Our operations lead, Sophia Lindvist will send it. Thanks, Creer.",
+          "Our operations lead, Sophia Lindvist will send it. Thanks, Pria.",
           "Our operations lead, Sofia Lindqvist. We'll send it. Thanks, Priya.",
           english,
         ),
       ).toBe("Our operations lead, Sofia Lindqvist will send it. Thanks, Priya.");
-      expect(
-        withToldWords(
-          "陈经理，你好，我是新和科技的王力。项目经理云会把施工图发给你。",
-          "陈经理，你好，我是星河科技的王丽。项目经理李明会把施工图发给你。",
-          chinese,
-        ),
-      ).toBe("陈经理，你好，我是星河科技的王丽。项目经理李明会把施工图发给你。");
+      // Chinese: only a name read the same, character for character.
+      expect(withToldWords("我是星河科技的王力。", "我是星河科技的王丽。", chinese)).toBe(
+        "我是星河科技的王丽。",
+      );
     });
 
-    test("a told name is written as the User writes it, whatever case the model wrote", () => {
+    test("a told name never replaces a word that sounds otherwise: another name, or the same name misheard further", () => {
+      // Said "Sofia Lindqvist", told only names that sound like it.
       expect(
         withToldWords(
-          "I want to go over the harbor logistics renewal.",
-          "I want to go over the harbor logistics renewal.",
-          english,
+          "Our operations lead, Sofia Lindqvist, will send it.",
+          "Our operations lead, Sophie Lindgren, will send it.",
+          ["Sophie Lindgren", "Sophie", "Rotherham"],
         ),
-      ).toBe("I want to go over the Harbor Logistics renewal.");
-      expect(withToldWords("Thanks, Pria.", "Thanks, Priya.", english)).toBe("Thanks, Priya.");
-      // A part of a name only where the model wrote it as a name.
+      ).toBe("Our operations lead, Sofia Lindqvist, will send it.");
       expect(
-        withToldWords("The ships are in the harbour.", "The ships are in the harbor.", english),
-      ).toBe("The ships are in the harbour.");
-      expect(withToldWords("Thanks, everyone.", "Thanks, everyone.", english)).toBe(
-        "Thanks, everyone.",
+        withToldWords("Rotterdam can handle that.", "Rotherham can handle that.", ["Rotherham"]),
+      ).toBe("Rotterdam can handle that.");
+      // A syllable heard otherwise may be another person: 程 isn't 陈 misheard.
+      expect(withToldWords("陈经理，你好。", "程经理，你好。", ["程经理"])).toBe("陈经理，你好。");
+      expect(withToldWords("我是新和科技的。", "我是星河科技的。", chinese)).toBe(
+        "我是新和科技的。",
       );
+      expect(withToldWords("Thanks, Creer.", "Thanks, Priya.", english)).toBe("Thanks, Creer.");
+    });
+
+    test("a common word is never made a name, nor a name's case changed", () => {
+      const names = ["Will", "Hope", "Grace", "Faith", "Summer Joy", "Harbor Logistics"];
+      for (const [plain, told] of [
+        ["We will see on Monday.", "We Will see on Monday."],
+        ["I hope so.", "I Hope so."],
+        ["By the grace of it, we keep faith.", "By the Grace of it, we keep Faith."],
+        ["The summer joy of it.", "The Summer Joy of it."],
+        [
+          "I want to go over the harbor logistics renewal.",
+          "I want to go over the Harbor Logistics renewal.",
+        ],
+      ]) {
+        expect(withToldWords(plain as string, told as string, names)).toBe(plain);
+      }
+      expect(withToldWords("Thanks, Pria.", "Thanks, Priya.", english)).toBe("Thanks, Priya.");
     });
 
     test("everything else stays as first read: words the told reading dropped or changed", () => {
@@ -125,7 +149,7 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
       expect(withToldWords("神经理，你好。", "陈经理，星河科技，王丽，王总，李明。", chinese)).toBe(
         "神经理，你好。",
       );
-      expect(withToldWords("神经理，你好。", "陈经理，你好。", chinese)).toBe("陈经理，你好。");
+      expect(withToldWords("王力，你好。", "王丽，你好。", chinese)).toBe("王丽，你好。");
     });
   });
 });
