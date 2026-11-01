@@ -98,12 +98,22 @@ describe("What a write's check left to do", () => {
         new Date("2026-10-18T09:00:00.000Z"),
         left,
       ).filter((line) => line.kind === "left");
+    // The 2 the failed line counts are not counted again: 2 + 8 = the 10 the write left (#2313).
     expect(live(10)).toEqual([
       {
         kind: "left",
-        text: "Checked 10 sentences · 10 claims not checked yet",
+        text: "Checked 10 sentences · 8 claims not checked yet",
         details: [],
         action: { label: "Check", does: "check" },
+      },
+    ]);
+    // Nothing left beyond them: the line says so, once, with no action.
+    expect(live(2)).toEqual([
+      {
+        kind: "left",
+        text: "Checked 10 sentences · 0 claims not checked yet",
+        details: [],
+        action: null,
       },
     ]);
     expect(live(0)).toEqual([

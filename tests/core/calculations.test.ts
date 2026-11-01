@@ -898,7 +898,12 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
       { marker: 2, shown: "2.3 percentage points", written: "2.3%" },
     ]);
     expect(finished.uncalculated).toBe(1);
-    expect(calculateCall(answer)).toMatchObject({ resultCount: 2, uncalculated: 1 });
+    // Its end names the marker, and no number was written before it (#2313).
+    expect(calculateCall(answer)).toMatchObject({
+      resultCount: 2,
+      uncalculated: 1,
+      uncalculatedFigures: [{ marker: 9, written: null }],
+    });
     expect(translate("en", "answer.figures.uncalculated.one")).toBe(
       "1 figure couldn’t be calculated",
     );

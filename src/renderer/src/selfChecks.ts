@@ -94,7 +94,9 @@ export function selfCheckLines(
   }
   const checkable = checkableOf(check);
   if (check.sent < checkable) {
-    const remaining = left ?? null;
+    // A failure line above counts its sentences already: this line adds only what it left
+    // beyond them, so the two add up to this write's claims (#2313).
+    const remaining = left == null ? null : failed === 0 ? left : Math.max(0, left - failed);
     lines.push({
       kind: "left",
       text:

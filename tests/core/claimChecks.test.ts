@@ -3,7 +3,9 @@ import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import type { ClaimCheckAction, ClaimCheckAttributes, Core, Document } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
 import { claimCheckShown } from "../../src/shared/claimChecks";
+import { translate } from "../../src/shared/i18n";
 import {
   checkGenerate,
   checkingModel as checkingModelOf,
@@ -30,6 +32,10 @@ import {
   scriptedModels,
 } from "../helpers/models";
 import { xlsxOf } from "../helpers/office";
+
+const fail = (): never => {
+  throw new Error("The Note's state is null.");
+};
 
 const TIDES = {
   name: "Tides.md",
@@ -2708,17 +2714,70 @@ describe("Needs re-check", () => {
     expect(retained()).toEqual([{ deleted: 1 }]);
   });
 
-  test("moving the Mind to another Folder makes its checks need a re-check", async () => {
-    const { core, client, check, mind } = await mindWith([SUPPORTED]);
-    await check();
-    const folder = await core.createLibraryGroup({ name: "Coasts", description: "" });
-    await core.moveToFolder({ mindIds: [mind.id], folderId: folder.id });
+  // protects=#2313: filing a checked Note in a Folder that holds the Documents its Citations quote keeps every result, and the Note reads Checked in English and Chinese; fails_when=the move makes its checks need a re-check, or anything but the Documents' own change does; no_claim=what a new check's Search scope is after the move (checkScope.test.ts).
+  test.each(["en", "zh-CN"] as const)(
+    "moving the Mind to another Folder keeps its checks, in %s",
+    async (language) => {
+      const { core, client, check, mind, tides } = await mindWith([SUPPORTED]);
+      await core.updateSettings({ user: { language } });
+      await check();
+      const before = noteStateParts(
+        readNoteState({
+          cellFigures: [],
+          doc: client.doc,
+          documents: await core.listDocuments(),
+          keptCitationTexts: [],
+          folderId: null,
+        }).state ?? fail(),
+        (key, params) => translate(language, key, params),
+        language,
+      );
+      expect(before[0]).toMatch(language === "en" ? /^Checked / : /^已核对 /);
 
-    expect((await shownChecks(core, client, folder.id))[0]?.shown).toEqual({
-      state: "needs-recheck",
-      why: "scope",
-    });
-  });
+      const folder = await core.createLibraryGroup({ name: "Coasts", description: "" });
+      await core.moveToFolder({ documentIds: [tides.id], folderId: folder.id });
+      await core.moveToFolder({ mindIds: [mind.id], folderId: folder.id });
+
+      expect((await shownChecks(core, client, folder.id))[0]?.shown).toEqual({
+        state: "supported",
+      });
+      const after = readNoteState({
+        cellFigures: [],
+        doc: client.doc,
+        documents: await core.listDocuments(),
+        keptCitationTexts: [],
+        folderId: folder.id,
+      });
+      expect(after.state).toMatchObject({ kind: "checked", look: 0 });
+      expect(
+        noteStateParts(
+          after.state ?? fail(),
+          (key, params) => translate(language, key, params),
+          language,
+        )[0],
+      ).toBe(before[0]);
+
+      // The pair: a new version of the Document it quotes makes it need a re-check again.
+      const changed = `${TIDES.contents}\n\nNeap tides come in between.`;
+      await writeFile(tides.path, changed);
+      await core.reconcileDocuments();
+      const [processed] = await waitForProcessing(core, [tides.id]);
+      expect(processed?.contentHash).toBe(sha256(changed));
+      expect((await shownChecks(core, client, folder.id))[0]?.shown).toMatchObject({
+        state: "needs-recheck",
+        why: "new-version",
+      });
+      expect(
+        readNoteState({
+          cellFigures: [],
+          doc: client.doc,
+          documents: await core.listDocuments(),
+          keptCitationTexts: [],
+          folderId: folder.id,
+        }).state,
+      ).toMatchObject({ kind: "not-checked" });
+    },
+  );
 });
 
 describe("Stopping", () => {

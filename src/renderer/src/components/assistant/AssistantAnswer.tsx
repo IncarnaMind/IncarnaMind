@@ -4,6 +4,7 @@ import type { ConversationAnswer, ConversationQuestion } from "../../../../core/
 import { answerBlocks, hasText } from "../../../../shared/answerBlocks";
 import type { NodeJSON } from "../../../../shared/blockJson";
 import { figureRunsOfAnswer } from "../../../../shared/figureRuns";
+import { figuresOf } from "../../answerFigures";
 import { useAnswers } from "../../answers";
 import { useAnswerWait } from "../../answerWait";
 import { useApprovals, waitingFor } from "../../approvals";
@@ -12,7 +13,6 @@ import { regenerateAnswer } from "../../conversations";
 import {
   AnswerError,
   ApprovalCard,
-  figuresOf,
   NoCitationsLine,
   UncalculatedLine,
 } from "../../editor/AnswerView";
@@ -106,7 +106,7 @@ export function AssistantAnswer({
   const modelNow = useModelInUse(doc);
   const regenerate = () => void regenerateAnswer(answer.id);
   const written = hasText(blocks);
-  const { uncalculated } = figuresOf(answer.toolCalls);
+  const figureSummary = figuresOf(answer.toolCalls);
   const scopeEmpty = useScopeEmpty(question?.scope ?? null);
   const scopeName = useStepsScopeOf(question)(0);
   const unread = useUnreadFiles(question?.scope ?? null);
@@ -180,7 +180,7 @@ export function AssistantAnswer({
           {t("scope.empty.line", { scope: scopeName })}
         </ProblemLine>
       )}
-      {!streaming && uncalculated > 0 && <UncalculatedLine count={uncalculated} />}
+      {!streaming && figureSummary.uncalculated > 0 && <UncalculatedLine figures={figureSummary} />}
       {!streaming && status !== "failed" && <StillReadingLine answer={answer} />}
       {!streaming && status !== "failed" && <UnreadFilesLine files={unread} />}
       {!streaming && status === "failed" && !planModel && (

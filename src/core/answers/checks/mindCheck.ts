@@ -23,12 +23,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
-import {
-  addedCouldChange,
-  checkedSentence,
-  claimCheckShown,
-  restsOn,
-} from "../../../shared/claimChecks";
+import { addedCouldChange, checkedSentence, claimCheckShown } from "../../../shared/claimChecks";
 import { withFigureFacts } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
@@ -454,19 +449,6 @@ export function createMindCheck(options: MindCheckOptions) {
       const fresh: SelectedSentence[] = [];
       const again: SelectedSentence[] = [];
       const held: string[] = [];
-      const inScope = new Map<boolean, ReadonlySet<string> | null>();
-      const leftScope = (check: ClaimCheckAttributes) => {
-        const { widened: everyDocument } = check.scope;
-        if (!inScope.has(everyDocument)) {
-          const ids = options.scopeOf(mindId, everyDocument).check.scope.documentIds;
-          inScope.set(everyDocument, ids && new Set(ids));
-        }
-        const ids = inScope.get(everyDocument);
-        return (
-          !!ids &&
-          restsOn(check).some((cited) => cited.documentId !== null && !ids.has(cited.documentId))
-        );
-      };
       for (const sentence of sentences) {
         const mark = markOf(sentence);
         if (added) {
@@ -500,8 +482,7 @@ export function createMindCheck(options: MindCheckOptions) {
           continue;
         }
         if (state.kind !== "covered" || !mark) continue;
-        if (leftScope(mark.check)) again.push(sentence);
-        else held.push(mark.check.checkedAt);
+        held.push(mark.check.checkedAt);
       }
       return { fresh, again, keys, skipped, widened, held };
     });
