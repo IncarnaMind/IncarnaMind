@@ -204,6 +204,21 @@ describe("an Analysis an Answer runs", () => {
     },
   );
 
+  test("the report asks a figure worked out from an input's rows to name them, so its Citation leads to them (#2378)", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun()],
+      answer: "Revenue [=1].",
+    });
+    const { core } = await setUp(model, totalOf);
+
+    await askAndRead(core, "What was the total revenue?");
+
+    expect(told(model, "run_analysis")[0]).toContain(
+      "A figure worked out from an input's rows names them with of= that input's DataFrame or column.",
+    );
+  });
+
   test("a percent figure keeps its fraction and shows 0.081 as 8.1%", async () => {
     const model = analysingModel({
       query: "revenue",

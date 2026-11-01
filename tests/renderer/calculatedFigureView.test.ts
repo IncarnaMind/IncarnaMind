@@ -508,26 +508,6 @@ test.each(["en", "zh-CN"] as const)(
 );
 
 test.each(["en", "zh-CN"] as const)(
-  "%s card's Citation opens at the rows the figure named, not the whole input",
-  async (language) => {
-    state.language = language;
-    await tracedCard({ kind: "same", value: 300 });
-    const open = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === translate(language, "figures.inline.openInput"),
-    );
-    await act(() => {
-      open?.click();
-    });
-    expect(state.open).toHaveBeenCalledWith(
-      expect.objectContaining({
-        location: { kind: "rows", sheet: "Sales", from: 2, to: 9 },
-      }),
-      { check: "found", withQuote: true },
-    );
-  },
-);
-
-test.each(["en", "zh-CN"] as const)(
   "%s card never shows a figure the core didn't work out again as checked",
   async (language) => {
     state.language = language;

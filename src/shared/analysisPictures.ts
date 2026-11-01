@@ -24,10 +24,11 @@ export function withAnalysisPictures(
   analyses: readonly Pick<AnswerAnalysis, "markers" | "output">[] | undefined,
 ): NodeJSON[] {
   const pictures = new Map<number, AnalysisPicture>();
+  // The first Analysis that gave a marker names it: this Answer's, when it is listed first.
   for (const analysis of analyses ?? []) {
     (analysis.markers.pictures ?? []).forEach((marker, index) => {
       const picture = analysis.output.pictures?.[index];
-      if (picture) pictures.set(marker, picture);
+      if (picture && !pictures.has(marker)) pictures.set(marker, picture);
     });
   }
   if (pictures.size === 0) return [...blocks];

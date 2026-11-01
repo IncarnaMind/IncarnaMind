@@ -8,11 +8,7 @@ import type {
 import type { AnalysisFigureRows, AnalysisRecalculation } from "../../../shared/analysis";
 import { badgeMessage, citationState } from "../../../shared/citations";
 import type { ClaimCheckShown } from "../../../shared/claimChecks";
-import {
-  type CalculatedSources,
-  figureRowsCitation,
-  retainedCheck,
-} from "../../../shared/figureRuns";
+import { type CalculatedSources, retainedCheck } from "../../../shared/figureRuns";
 import { shownNumber } from "../../../shared/figureSchedule";
 import { figureText } from "../../../shared/figures";
 import { formulaText } from "../../../shared/formula";
@@ -130,9 +126,7 @@ export function CalculatedFigureCard({
           <strong>
             {range.name} · {range.range}
           </strong>
-          <CalculationQuote
-            citation={traced ? figureRowsCitation(range.citation, traced) : range.citation}
-          />
+          <CalculationQuote citation={range.citation} />
         </div>
       ))}
       {!figure.analysis &&

@@ -1651,7 +1651,10 @@ export function createAnswers(options: AnswersOptions) {
                   ? (marker) => session.finalNode(marker)
                   : (marker) => session.streamingNode(marker),
               );
-              const drawn = withAnalysisPictures(blocks, analyses);
+              const drawn = withAnalysisTableCitations(
+                withAnalysisPictures(blocks, analyses),
+                analyses,
+              );
               return asGenerated(
                 calculating
                   ? withCalculatedFigures(drawn, (marker) => figures.figure(marker), {
@@ -2636,19 +2639,18 @@ export function createAnswers(options: AnswersOptions) {
                 const written = withoutSearchTalk(
                   session.citeWrittenIds(withoutFootnoteDefinitions(text), notKept),
                 );
-                // A marker this Answer's Analysis gave is the Analysis's own table, not text the
-                // model typed again; the last Answer's, for a marker that names none of this one's.
-                const lastAnalyses = input.assistant?.lastAnswer?.answer.analyses ?? [];
+                // A marker is the Analysis's own table, not text typed again. This Answer's
+                // Analyses name their markers first; the last Answer's stand for the rest, as
+                // its markers can be written into a Note in a later turn.
+                const markerAnalyses = [
+                  ...analyses,
+                  ...(input.assistant?.lastAnswer?.answer.analyses ?? []),
+                ];
                 const markdown = withAnalysisResults(
-                  withAnalysisResults(
-                    calculating ? citeFigures(written.markdown) : written.markdown,
-                    analyses,
-                    answerLanguage(context.question),
-                  ),
-                  lastAnalyses,
+                  calculating ? citeFigures(written.markdown) : written.markdown,
+                  markerAnalyses,
                   answerLanguage(context.question),
                 );
-                const analysisPictures = [...analyses, ...lastAnalyses];
                 const link = (source: NamedSource) => {
                   const marker = session.markerFor(source);
                   return marker === null ? null : `[^${marker}]`;
@@ -2664,7 +2666,7 @@ export function createAnswers(options: AnswersOptions) {
                 const tables = linkTableSources(sourced.text, link);
                 const drawn = withAnalysisPictures(
                   markdownToBlocks(tables.markdown),
-                  analysisPictures,
+                  markerAnalyses,
                 );
                 const cited = drawn.flatMap((block, index) =>
                   withCitations([block], (marker) => {
@@ -2684,7 +2686,7 @@ export function createAnswers(options: AnswersOptions) {
                     })
                   : cited;
                 // An Analysis's table cites the rows it read, so content that gives one isn't uncited.
-                const analysisTables = withAnalysisTableCitations(uncited, analysisPictures);
+                const analysisTables = withAnalysisTableCitations(uncited, markerAnalyses);
                 const blocks = asGenerated(analysisTables);
                 return {
                   blocks,

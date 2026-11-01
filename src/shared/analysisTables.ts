@@ -39,11 +39,14 @@ const textOf = (node: NodeJSON): string =>
 const gridOf = (table: NodeJSON): string[][] =>
   (table.content ?? []).map((row) => (row.content ?? []).map((cell) => textOf(cell).trim()));
 
+/** The languages the interface writes numbers in: a table matches as it reads in either. */
+const LANGUAGES = ["en", "zh-CN"] as const;
+
 /** How an Analysis's table reads as a grid of cells, its first row the headings. */
-const analysisGrid = (table: AnalysisTable): string[][] => {
+const analysisGrid = (table: AnalysisTable, language: (typeof LANGUAGES)[number]): string[][] => {
   const raw = table.columns.map(rawColumn);
   const cell = (value: AnalysisCell, at: number) =>
-    figureCellText("en", value, raw[at] ?? false).replaceAll("\n", " ");
+    figureCellText(language, value, raw[at] ?? false).replaceAll("\n", " ");
   return [table.columns, ...table.rows.map((row) => row.map((value, at) => cell(value, at)))];
 };
 
@@ -90,13 +93,13 @@ export function withAnalysisTableCitations(
   if (!analyses || analyses.length === 0) return [...blocks];
   const tables = analyses.flatMap((analysis) => {
     const made: {
-      grid: string[][];
+      grids: string[][][];
       numeric: number[];
       citations: Citation[];
     }[] = [];
     const add = (table: AnalysisTable) =>
       made.push({
-        grid: analysisGrid(table),
+        grids: LANGUAGES.map((language) => analysisGrid(table, language)),
         numeric: numericColumns(table),
         citations: analysisInputCitations(analysis.inputs),
       });
@@ -111,8 +114,11 @@ export function withAnalysisTableCitations(
     const found = tables.find(
       (table) =>
         table.citations.length > 0 &&
-        table.grid.length === grid.length &&
-        grid.every((row, at) => row.join("\u0000") === (table.grid[at] ?? []).join("\u0000")),
+        table.grids.some(
+          (cells) =>
+            cells.length === grid.length &&
+            grid.every((row, at) => row.join("\u0000") === (cells[at] ?? []).join("\u0000")),
+        ),
     );
     if (!found) return block;
     const headingRow = block.content?.[0];

@@ -16,7 +16,6 @@ import {
 import { InvalidInputError, isRecord } from "../core/errors";
 import {
   ANALYSIS_LIMITS,
-  type AnalysisFigureRows,
   type AnalysisRecalculation,
   type AnalysisVersions,
   readFigureRows,
@@ -426,15 +425,4 @@ export function retainedCheck(
 ): AnalysisRecalculation | null {
   if (!sources?.analysis || result === undefined) return null;
   return sources.analysis.values.find((value) => value.name === result)?.check ?? null;
-}
-
-/**
- * A range's Citation, as the figure that named its rows cites it: the first and last
- * rows the figure used, where its input's Location is one of rows.
- */
-export function figureRowsCitation(citation: Citation, of: AnalysisFigureRows): Citation {
-  const first = of.rows[0];
-  const last = of.rows.at(-1);
-  if (!first || !last || citation.location?.kind !== "rows") return citation;
-  return { ...citation, location: { ...citation.location, from: first[0], to: last[1] } };
 }
