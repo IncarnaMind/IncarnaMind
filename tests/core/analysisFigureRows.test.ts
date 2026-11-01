@@ -71,11 +71,6 @@ describe("a figure() figure worked out again from the cells", () => {
       kind: "unchecked",
       reason: "sales has no row 7",
     });
-    // A run far longer than the input stops at its first row the input doesn't have.
-    expect(recalculate(1, of([[2, 4_294_967_300]], "sum"), [SALES])).toEqual({
-      kind: "unchecked",
-      reason: "sales has no row 7",
-    });
     expect(recalculate(1, of([[2, 2]], "sum", ["Profit"]), [SALES])).toEqual({
       kind: "unchecked",
       reason: 'sales has no one column "Profit"',

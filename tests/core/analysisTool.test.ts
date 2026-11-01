@@ -650,6 +650,15 @@ describe("an Analysis an Answer runs", () => {
             value: 1,
             of: sales([[9, 9]], "max"),
           },
+          // A run far longer than the sheet: worked out only as far as the sheet's own rows.
+          {
+            kind: "figure",
+            name: "huge",
+            label: "Huge",
+            unit: null,
+            value: 1,
+            of: sales([[2, 4_294_967_300]], "sum"),
+          },
           {
             kind: "figure",
             name: "slope",
@@ -679,6 +688,7 @@ describe("an Analysis an Answer runs", () => {
       { result: "total", check: { kind: "same", value: 350.5 } },
       { result: "north", check: { kind: "differs", value: 270.5 } },
       { result: "late", check: { kind: "unchecked", reason: "sales has no row 9" } },
+      { result: "huge", check: { kind: "unchecked", reason: "sales has no row 6" } },
     ]);
     expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
       [1, 350.5],
@@ -693,6 +703,9 @@ describe("an Analysis an Answer runs", () => {
     );
     expect(report).toContain(
       "- late: no marker, so it can't be used: IncarnaMind couldn't work it out again: sales has no row 9.",
+    );
+    expect(report).toContain(
+      "- huge: no marker, so it can't be used: IncarnaMind couldn't work it out again: sales has no row 6.",
     );
     expect(report).toContain(
       "- [=2] Slope: 1.25 (from 3 rows of sales (rows 2–3, 5): Quarter, Revenue)",
