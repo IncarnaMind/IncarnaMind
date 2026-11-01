@@ -15,11 +15,13 @@ interface Asked {
 }
 
 const asked: Asked[] = [];
+const reads: ((layout: WindowLayout) => void)[] = [];
 const bridge = {
   changeLayout: vi.fn(
     (_windowId: string, change: LayoutChange) =>
       new Promise<WindowLayout>((resolve) => asked.push({ change, answer: resolve })),
   ),
+  getLayout: vi.fn(() => new Promise<WindowLayout>((resolve) => reads.push(resolve))),
 };
 
 const layoutOf = (width: number, tabIds: string[]): WindowLayout => ({
@@ -66,6 +68,7 @@ afterAll(() => {
 
 beforeEach(() => {
   asked.length = 0;
+  reads.length = 0;
   store.setState({ layout: layoutOf(320, ["a", "b"]) });
   widths = [];
   stopWatching = store.subscribe((state) => {
@@ -125,6 +128,30 @@ describe("a tab operation's answer", () => {
     const closing = store.getState().changeLayout({ type: "close", tabId: "b" });
     answer(0, layoutOf(400, ["a"]));
     await closing;
+    expect(store.getState().layout).toEqual(layoutOf(400, ["a"]));
+  });
+});
+
+describe("a read of the layout", () => {
+  test("keeps the assistant where it was placed while it was read, and takes the tabs", async () => {
+    const { loadLayout, placeAssistant } = store.getState();
+    const loading = loadLayout();
+    const placing = placeAssistant({ width: 360 });
+    reads[0]?.(layoutOf(320, ["a"]));
+    await loading;
+
+    expect(tabIdsOf(store.getState().layout), "the tabs follow the read").toEqual(["a"]);
+    expect(store.getState().layout?.assistant.width, "the width stays at the press").toBe(360);
+    answer(0, layoutOf(360, ["a"]));
+    await placing;
+    expect(widths, "the width never steps back").toEqual([360]);
+  });
+
+  test("is taken whole when the assistant was not placed meanwhile", async () => {
+    const loading = store.getState().loadLayout();
+    reads[0]?.(layoutOf(400, ["a"]));
+    await loading;
+
     expect(store.getState().layout).toEqual(layoutOf(400, ["a"]));
   });
 });
