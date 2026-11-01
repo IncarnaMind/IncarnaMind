@@ -264,7 +264,7 @@ for (const { language, block, instruction, said, choose } of CAP) {
   });
 }
 
-test("on a cloud model with a monthly cap, the estimate of the parts shows before they are written", async () => {
+test("on a cloud model with a monthly cap, the estimate of the parts shows before the applied line", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1_280, 820);
   await dismissChatSetup(window);
