@@ -3856,7 +3856,7 @@ export const en = {
   "citation.picture.unsure.one": "Read from a picture · 1 word may be misread",
   "citation.picture.unsure.other": "Read from a picture · {count} words may be misread",
   "citation.scan.unsureWord": "May be misread: check it on the page",
-  "citation.scan.picture": "The page this scan's text was read from: {document}",
+  "citation.scan.picture": "The page this scan’s text was read from: {document}",
   "uncheckedFigure.heading": "Not checked",
   "uncheckedFigure.mark": "Not checked: a word a scan may have misread",
   "uncheckedFigure.why":
