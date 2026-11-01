@@ -554,7 +554,15 @@ export function createTagger(options: TaggerOptions) {
         if (!row) throw new NotFoundError({ key: "error.document.notFound" });
         return { id, row };
       });
-      for (const { id } of rows) asked.add(id);
+      // Re-tagging these Documents is the User's request for each. Re-tagging all of them goes
+      // only as tagging by itself would: not while it is off, nor where it is stopped (#2308).
+      const askedFor =
+        input !== undefined
+          ? rows
+          : automatic()
+            ? rows.filter(({ id }) => !options.stopped(id))
+            : [];
+      for (const { id } of askedFor) asked.add(id);
       const changed: string[] = [];
       const ready = options.mightBeReady();
       for (const { id, row } of rows) {

@@ -809,3 +809,48 @@ describe("Everything is per service: a turn-on and a clearance", () => {
     expect(providers.sent("anthropic")).toBe(0);
   });
 });
+
+describe("Re-tagging all goes only as tagging by itself would", () => {
+  test("with tagging turned off, Re-tag all sends nothing; re-tagging one Document sends it", async () => {
+    const providers = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    const report = await add(core, "Report.txt");
+    await waitForTagging(core, [report.id]);
+    expect(providers.sent("anthropic")).toBe(1);
+    const { settings } = await core.getLibrary();
+    await core.saveLibrarySettings({ ...settings, automatic: false });
+
+    await core.retagDocuments();
+    await waitForTagging(core, [report.id], (each) => each.tagging === "off");
+    expect(providers.sent("anthropic")).toBe(1);
+
+    await core.retagDocuments([report.id]);
+    await waitForTagging(core, [report.id]);
+    expect(providers.sent("anthropic")).toBe(2);
+  });
+
+  test("Re-tag all skips where the User stopped tagging; re-tagging there by hand sends", async () => {
+    const providers = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    const report = await add(core, "Report.txt");
+    await waitForTagging(core, [report.id]);
+    expect(providers.sent("anthropic")).toBe(1);
+    await core.setTaggingWithAi(null, false);
+
+    await core.retagDocuments();
+    await waitForTagging(core, [report.id], (each) => each.tagging === "stopped");
+    expect(providers.sent("anthropic")).toBe(1);
+
+    await core.retagDocuments([report.id]);
+    await waitForTagging(core, [report.id]);
+    expect(providers.sent("anthropic")).toBe(2);
+  });
+});
