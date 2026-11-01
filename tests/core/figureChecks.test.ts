@@ -138,7 +138,6 @@ test("the Figures line is the JSON one, not a line of prose that starts the same
 
 test.each([
   { final: "Verdict: unsupported", aside: [reply([item()])] },
-  { final: "The quote states the revenue.", aside: [reply([item()]), "Verdict: unsupported"] },
   { final: "I'm sorry, I can't help with that.", aside: [reply([item()])] },
   {
     final: "The quote states the revenue.",
@@ -152,8 +151,20 @@ test("only the last verdict-bearing preamble can supply its own Figures envelope
   const final = "The quote states the revenue.";
   const latest = reply([item()]);
   expect(figureReplyText(final, ["Verdict: unsupported", latest])).toBe(`${latest}\n${final}`);
+  expect(figureReplyText(final, [latest, "Verdict: unsupported"])).toBe(
+    `Verdict: unsupported\n${final}`,
+  );
   const superseding = reply([item("unknown")]);
   expect(figureReplyText(superseding, [latest])).toBe(superseding);
+});
+
+test("a last turn of only its Figures line is read after the verdict set aside beside cite (#2184)", () => {
+  const figuresLine = reply([item()]).split("\n").at(-1) ?? "";
+  expect(figuresLine).toMatch(/^Figures: /);
+  const verdict =
+    "Verdict: supported\nAbsence: no\nThe accounts give revenue of £20.\nCite records:";
+  expect(figureReplyText(figuresLine, [verdict])).toBe(`${verdict}\n${figuresLine}`);
+  expect(figureReplyText(figuresLine, [])).toBe(figuresLine);
 });
 
 function target(

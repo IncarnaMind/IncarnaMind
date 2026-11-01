@@ -84,13 +84,16 @@ function judgmentOf(value: unknown): ReadVerdict | null {
   return readVerdict(JSON.stringify(value));
 }
 
+/**
+ * A check Run's reply for a sentence with figures, read across its turns: a last turn that gives
+ * no verdict is read after the last turn set aside with one. Claude Haiku 5.5 wrote its whole
+ * reply in the turn that calls `cite` and prose after it, or only its verdict lines there and its
+ * Figures line alone after it (#2184).
+ */
 export function figureReplyText(reply: string, setAside: readonly string[]): string {
-  if (reply.split(/\r?\n/).some((line) => FIGURES.test(line))) return reply;
   if (readsAsRefusal(reply) || readVerdict(reply)) return reply;
   const earlier = setAside.findLast((text) => readVerdict(text) !== null);
-  return earlier?.split(/\r?\n/).some((line) => FIGURES.test(line))
-    ? `${earlier}\n${reply}`
-    : reply;
+  return earlier === undefined ? reply : `${earlier}\n${reply}`;
 }
 
 /** The markers the reply's own words carry, in order: its Figures line's are its figures'. */

@@ -333,7 +333,8 @@ function figuresReplied(
   return [
     {
       name: "figures-line",
-      check(text) {
+      check(last, setAside = []) {
+        const text = figureReplyText(last, setAside);
         if (!asked(text)) return null;
         const read = readFigureReply(text, figures, request.claim);
         if (!read) return ask(text, { claims: [], note: FIGURES_LINE });
@@ -345,7 +346,8 @@ function figuresReplied(
     },
     {
       name: "figures-sources",
-      check(text) {
+      check(last, setAside = []) {
+        const text = figureReplyText(last, setAside);
         const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
         if (!read) return null;
         const problems = read.items.flatMap((item) => {

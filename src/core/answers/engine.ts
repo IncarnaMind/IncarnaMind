@@ -2180,7 +2180,13 @@ async function* toolLoop(
             );
           }
         }
-        const settled = await settleReply(request.turnChecks ?? [], taken.text, nudges);
+        const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
+        const settled = await settleReply(
+          request.turnChecks ?? [],
+          taken.text,
+          nudges,
+          afterSearch,
+        );
         if ("nudge" in settled) {
           if (settled.tools) yield { type: "asked-again", tools: settled.tools };
           standing = taken.text;
@@ -2196,7 +2202,6 @@ async function* toolLoop(
           writeOnly = settled.writeOnly === true;
           break;
         }
-        const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
         if (afterSearch.length > 0) yield { type: "text-set-aside", texts: afterSearch };
         // A turn that ends with no reply after a refused Tool says why in the app's words.
         const text = taken.text.trim() === "" ? (request.blankReply?.() ?? taken.text) : taken.text;
