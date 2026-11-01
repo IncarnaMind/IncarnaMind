@@ -66,7 +66,13 @@ function sourceOf(figure: string, citations: readonly CitationAttributes[]): Fig
   const digits = digitsOf(numeral);
   if (digits === "") return null;
   for (const citation of citations) {
-    if (citation.check !== "cant-check" || citation.checkReason !== "unsure-word") continue;
+    // The User's own look at the page settles the word: the figure is no longer unchecked.
+    if (
+      citation.check !== "cant-check" ||
+      citation.checkReason !== "unsure-word" ||
+      citation.pageChecked === true
+    )
+      continue;
     const quote = citation.quote ?? "";
     for (const word of citation.unsure ?? []) {
       if (!word) continue;
