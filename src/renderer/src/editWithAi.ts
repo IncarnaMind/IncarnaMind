@@ -64,12 +64,12 @@ export type EditProblem = (
         | "cant-regenerate"
         | "no-table"
         | "unplaced"
+        | "cut-short"
         | "late"
         | "busy";
     }
   | { kind: "not-ready"; readiness: Extract<ChatReadiness, { ready: false }> }
   | { kind: "failed"; message: string; retry: () => void }
-  | { kind: "cut-short"; retry: () => void }
   | { kind: "consent-revoked"; error: ProviderError }
 ) & { menu?: MenuEdit };
 

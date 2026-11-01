@@ -50,23 +50,23 @@ describe("an Edit with AI stopped by turned-off sending", () => {
 });
 
 describe("an Edit with AI whose reply was cut off at its output limit (#2333)", () => {
-  // protects=a reply cut short gets its own line, in the interface's words in English and Chinese, saying nothing changed, and keeps Try again; fails_when=it shows the core's English sentence with its token count, or loses the retry; no_claim=where the line sits.
-  test("has a line of its own in English and Chinese, with Try again", () => {
+  // protects=a reply cut short gets its own line, in the interface's words in English and Chinese, saying nothing changed and what to do, with no Try again, which would meet the same limit; fails_when=it shows the core's English sentence with its token count, or offers a retry; no_claim=where the line sits.
+  test("has a line of its own in English and Chinese, and nothing to try again", () => {
     let retried = false;
     const problem = failedEdit(classifyProviderError(new CutShortError(1024, true)), () => {
       retried = true;
     });
 
-    expect(problem.kind).toBe("cut-short");
-    if (problem.kind !== "cut-short") return;
+    expect(problem).toEqual({ kind: "cut-short" });
     expect(say("en")("edit.problem.cut-short")).toBe(
-      "The AI’s reply reached its length limit and was cut short, so nothing changed.",
+      "The AI’s reply ran too long, so nothing changed. Select less and try again.",
     );
     expect(say("zh-CN")("edit.problem.cut-short")).toBe(
-      "AI 的回复达到长度上限，已截断，没有改动。",
+      "AI 的回复太长，没有改动。请少选一些文字再试。",
     );
-    expect(problem).not.toHaveProperty("message");
-    problem.retry();
-    expect(retried).toBe(true);
+    expect(retried).toBe(false);
+    expect(failedEdit({ kind: "network", message: "Offline." }, () => undefined)).toHaveProperty(
+      "retry",
+    );
   });
 });

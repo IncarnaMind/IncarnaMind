@@ -95,12 +95,8 @@ export function editProblemParts(
         role: "alert",
       };
     case "failed":
-    case "cut-short":
       return {
-        text:
-          problem.kind === "failed"
-            ? t("edit.problem.failed", { message: problem.message })
-            : t("edit.problem.cut-short"),
+        text: t("edit.problem.failed", { message: problem.message }),
         action: {
           label: t("edit.problem.retry"),
           run: () => {

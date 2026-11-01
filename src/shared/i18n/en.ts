@@ -1327,7 +1327,7 @@ export const en = {
   "edit.problem.cant-regenerate": "Can’t be made again: reject it, then edit the text with AI.",
   "edit.problem.no-table": "The AI’s table wasn’t complete, so nothing changed. Try again.",
   "edit.problem.cut-short":
-    "The AI’s reply reached its length limit and was cut short, so nothing changed.",
+    "The AI’s reply ran too long, so nothing changed. Select less and try again.",
   "edit.problem.unplaced":
     "The AI marked text to remove that doesn’t match the selection word for word in one place, so nothing changed. Try again.",
   "edit.problem.late": "This edit arrived too late to apply. Accept or reject its changes.",
