@@ -76,6 +76,7 @@ describe("the files Analyses run with", () => {
     const packages = packagesFor(lock);
 
     expect(noticeProblems(notice, packages, [PLOT_FONT])).toEqual([]);
+    expect(noticeProblems(notice.replaceAll("\n", "\r\n"), packages, [PLOT_FONT])).toEqual([]);
     expect(AUDITED_WHEELS["scipy 1.18.0"]).toEqual(
       expect.arrayContaining([
         "SuperLU",

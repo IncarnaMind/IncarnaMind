@@ -126,7 +126,9 @@ const listed = (notice, name) =>
  * What the notice lacks for these packages and fonts (packages.json's), each as a sentence; empty
  * when it credits all of them.
  */
-export function noticeProblems(notice, packages, fonts) {
+export function noticeProblems(given, packages, fonts) {
+  // A Windows checkout has the notice with CRLF line ends.
+  const notice = given.replaceAll("\r\n", "\n");
   const problems = [];
   const needed = [...PYODIDE];
   for (const { name, version } of packages) {
