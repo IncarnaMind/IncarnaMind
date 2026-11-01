@@ -605,17 +605,42 @@ function conflicting(statements: readonly StatedUnit[]): boolean {
  * head states its own scale ("Net debt (£m)"). Its own unit ("Diluted EPS ($)", "基本每股收益（元）")
  * stays, as it changes no scale.
  */
-function withoutStatement(label: string): string {
+function withoutStatement(label: string): RowLabel {
+  const scales = readStatedUnits(label).filter((each) => each.scale !== 1 || each.except);
   const spans = [
     ...[...label.matchAll(EXCEPTION_WORDS)].map((each) => ({
       start: each.index,
       end: each.index + each[0].length,
     })),
-    ...readStatedUnits(label).filter((each) => each.scale !== 1 || each.except),
+    ...scales,
   ];
-  if (spans.length === 0) return label;
+  if (spans.length === 0) return { label, ownScales: [] };
   const after = label.slice(Math.max(...spans.map((each) => each.end)));
-  return WORDS.test(after) ? after : label.slice(0, Math.min(...spans.map((each) => each.start)));
+  if (WORDS.test(after)) return { label: after, ownScales: [] };
+  return {
+    label: label.slice(0, Math.min(...spans.map((each) => each.start))),
+    ownScales: scales.filter((each) => each.scale !== 1).map((each) => each.scale),
+  };
+}
+
+/** A row's label, and the scales its head states for itself ("Net debt (£m)"). */
+interface RowLabel {
+  label: string;
+  ownScales: number[];
+}
+
+/** The pieces of `text` between its numbers, a stated scale's digits ("£'000") kept whole. */
+function betweenNumbers(text: string): string[] {
+  const kept = readStatedUnits(text);
+  const pieces: string[] = [];
+  let from = 0;
+  for (const match of text.matchAll(new RegExp(NUMBER.source, "g"))) {
+    if (kept.some((each) => each.start <= match.index && match.index < each.end)) continue;
+    pieces.push(text.slice(from, match.index));
+    from = match.index + match[0].length;
+  }
+  pieces.push(text.slice(from));
+  return pieces;
 }
 
 // The words that end a scale statement's line: ", except per share data)", "，每股收益除外".
@@ -878,19 +903,18 @@ export function createCalculationSession(options: CalculationSessionOptions) {
    * numbers written like it (a five- or ten-year record read one cell per line); a blank line, a
    * sentence, a number written otherwise or the scale line itself leaves its row unknown.
    */
-  function labelOf(quoted: Quoted, figure: Figure): string | null {
+  function rowOf(quoted: Quoted, figure: Figure): RowLabel | null {
     const before = lineBefore(quoted, figure);
     const { text, at } = onPage(quoted);
     const start = at + figure.start;
     const end = text.indexOf("\n", start);
     const row = `${before}${text.slice(start, end < 0 ? undefined : end)}`;
+    const named = (each: RowLabel) => WORDS.test(each.label);
     if (row.includes("\t")) {
       const cell = withoutStatement(row.split("\t")[0] ?? "");
-      return WORDS.test(cell) ? cell : null;
+      return named(cell) ? cell : null;
     }
-    const own = withoutStatement(before)
-      .split(NUMBER)
-      .findLast((each) => WORDS.test(each));
+    const own = betweenNumbers(before).map(withoutStatement).findLast(named);
     if (own !== undefined) return own;
     const lines = text
       .slice(0, start - before.length)
@@ -904,10 +928,13 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         return null;
       }
       const label = withoutStatement(line);
-      return WORDS.test(label) && LABEL_LIKE.test(label) ? label : null;
+      return named(label) && LABEL_LIKE.test(label.label) ? label : null;
     }
     return null;
   }
+
+  const labelOf = (quoted: Quoted, figure: Figure): string | null =>
+    rowOf(quoted, figure)?.label ?? null;
 
   function lineBefore(quoted: Quoted, figure: Figure): string {
     const { text, at } = onPage(quoted);
@@ -1129,7 +1156,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     else if (unit && !ownUnit) {
       const row = onLine(unit.citation.quote);
       const statedLine = readStatedUnits(unit.citation.quote, context, true);
-      const label = labelOf(quoted, figure);
+      const ownRow = rowOf(quoted, figure);
+      const label = ownRow?.label ?? null;
       const [unsure] =
         row || statedLine.length > 0 ? [] : unsettledScales(unit.citation.quote, context);
       if (unsure)
@@ -1158,6 +1186,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         };
       } else if (label === null && row === null && statedLine.some((each) => each.scale !== 1)) {
         return `${figure.chars} has no label on its line or above it that says what its row is, and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing its scale.`;
+      } else if (
+        ownRow?.ownScales.length &&
+        statedLine.some((each) => each.scale !== 1 && !ownRow.ownScales.includes(each.scale))
+      ) {
+        return `${figure.chars} is on a row whose head states its own scale, and the unitQuote "${unit.citation.quote}" states another; quote the row's head as unitQuote.`;
       } else if (statedLine.some((each) => notedOut(each, label ?? ""))) {
         return `${figure.chars} is on a per-share row, and the unitQuote "${unit.citation.quote}" scales its Document's amounts except where it notes otherwise; it can't be calculated without guessing its scale.`;
       } else if (statedLine.some((each) => exceptedBy(each, label ?? ""))) {

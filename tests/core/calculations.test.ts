@@ -2919,7 +2919,7 @@ const TEN_YEAR_EPS = [
   "0.85",
   "0.80",
 ];
-const FOURTEEN_YEAR_EPS = [...TEN_YEAR_EPS, "0.75", "0.70", "0.65", "0.60"];
+const THIRTEEN_YEAR_EPS = [...TEN_YEAR_EPS, "0.75", "0.70", "0.65"];
 
 /**
  * Where a number's row label is (#2365): on its line, on the line above, above a column of like
@@ -2977,11 +2977,11 @@ test.each([
     doubled: [1.7, 1.6],
   },
   {
-    layout: "a fourteen-year record, past the lines a label is looked for in",
+    layout: "a thirteen-year record: the 12th year is read, the 13th is past the lines looked in",
     head: "(in thousands, except per share data)",
-    lines: ["Diluted earnings per share", ...FOURTEEN_YEAR_EPS],
-    quotes: ["0.60"],
-    doubled: [null],
+    lines: ["Diluted earnings per share", ...THIRTEEN_YEAR_EPS],
+    quotes: ["0.70", "0.65"],
+    doubled: [1.4, null],
   },
   {
     layout: "a ten-year record of a percent",
@@ -3022,6 +3022,41 @@ test.each([
     lines: ["528.9"],
     quotes: ["528.9"],
     doubled: [1_057_800_000],
+  },
+  {
+    layout: "a row head in 亿元 that states its own scale, above its number",
+    head: "净负债（亿元）",
+    lines: ["5.2"],
+    quotes: ["5.2"],
+    doubled: [1_040_000_000],
+  },
+  {
+    layout: "a row head in £m under a scale line in thousands, above its number",
+    head: "(in thousands)",
+    lines: ["Net debt (£m)", "528.9"],
+    quotes: ["528.9"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head in £m under a scale line in thousands, on its number's line",
+    head: "(in thousands)",
+    lines: ["Net debt (£m) 528.9"],
+    quotes: ["528.9"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head in 亿元 under 单位：万元, above its number",
+    head: "单位：万元",
+    lines: ["净负债（亿元）", "5.2"],
+    quotes: ["5.2"],
+    doubled: [null],
+  },
+  {
+    layout: "a row head in 亿元 under 单位：万元, on its number's line",
+    head: "单位：万元",
+    lines: ["净负债（亿元） 5.2"],
+    quotes: ["5.2"],
+    doubled: [null],
   },
   {
     layout: "a lone number right under the scale line",
