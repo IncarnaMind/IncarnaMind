@@ -206,6 +206,13 @@ function parseJson<T>(json: string | null): T | null {
   }
 }
 
+/** A Unit's label as the viewer gets it: a workbook's formulas and saved values stay in the core, which alone reads them (#2347). */
+function viewedLabel(label: UnitLabel | null | undefined): UnitLabel | null {
+  if (!label) return null;
+  const { formulas: _formulas, saved: _saved, workbook: _workbook, ...viewed } = label;
+  return viewed;
+}
+
 const toUnitText = (row: UnitRow): PageText => ({
   page: row.page,
   text: row.text,
@@ -2428,12 +2435,16 @@ export function createDocuments(options: DocumentsOptions) {
         .map((row) => ({ id: row.id, name: row.name, size: Number(row.size) }));
     },
 
-    /** Whether any live Document to search (of all of them, or only of these) is a workbook or a CSV file. */
-    searchableHasSheets(documentIds: readonly string[] | undefined): boolean {
+    /** Whether any live Document to search (of all of them, or only of these) is a workbook or a CSV file; or a workbook. */
+    searchableHasSheets(
+      documentIds: readonly string[] | undefined,
+      workbooksOnly = false,
+    ): boolean {
       const { where, params } = searchable(documentIds);
+      const kinds = workbooksOnly ? "('xlsx')" : "('xlsx', 'csv')";
       return (
         db.get<{ found: number }>(
-          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ('xlsx', 'csv') LIMIT 1`,
+          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ${kinds} LIMIT 1`,
           params,
         ) !== undefined
       );
@@ -2590,7 +2601,7 @@ export function createDocuments(options: DocumentsOptions) {
           page: unit.page ?? 1,
           text: unit.text,
           kind: unit.kind ?? "page",
-          label: unit.label ?? null,
+          label: viewedLabel(unit.label),
         })),
       };
     },
@@ -2636,7 +2647,7 @@ export function createDocuments(options: DocumentsOptions) {
           page: unit.page ?? 1,
           text: unit.text,
           kind: unit.kind ?? "page",
-          label: unit.label ?? null,
+          label: viewedLabel(unit.label),
         })),
       };
     },

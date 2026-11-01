@@ -23,6 +23,7 @@
  */
 
 import { generateText } from "ai";
+import { citedInputs } from "../../../shared/calculatedFigures";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
 import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
@@ -1133,7 +1134,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           request.figures
             .flatMap((figure) =>
               figure.calculated && !figure.calculated.figure.analysis
-                ? figure.calculated.figure.inputs
+                ? citedInputs(figure.calculated.figure)
                 : [],
             )
             .flatMap((input) => [
@@ -1206,6 +1207,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         costs: (marker) => stated.get(marker)?.costs ?? new Set(),
         unitReason: (figure, citations, bound) =>
           unstatedUnit(citations, figure, bound)?.why ?? null,
+        units: (citation) =>
+          deps.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
         signal,
         remainder: (remainder) =>
           judged(
