@@ -2501,7 +2501,7 @@ describe("A parent heading's scale line is quoted from another Passage, and a si
     const asked = told(model, "calculate")[0] ?? "";
     expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
     expect(asked).toContain(`[=2] rev:`);
-    expect(asked).toContain("is in another section");
+    expect(asked).toContain("is in a section that doesn't state");
     const input = answer.figures[0]?.inputs[0];
     const unit = input?.unitStatement;
     expect(unit?.citation.quote).toBe(fixture.scale);
@@ -2578,7 +2578,7 @@ describe("A parent heading's scale line is quoted from another Passage, and a si
     );
 
     expect(answer.figures).toEqual([]);
-    expect(asked).toContain("is in another section");
+    expect(asked).toContain("is in a section that doesn't state");
   });
 
   test("a table's caption inside the ancestor section is refused", {
@@ -2606,7 +2606,79 @@ describe("A parent heading's scale line is quoted from another Passage, and a si
     );
 
     expect(answer.figures).toEqual([]);
-    expect(asked).toContain("is in another section");
+    expect(asked).toContain("is in a section that doesn't state");
+  });
+
+  test("a short file's sibling section is refused inside one Passage", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const contents = docxOf([
+      { text: "Notes", heading: 1 },
+      { text: "Revenue", heading: 2 },
+      { text: "Amounts in €'000" },
+      { text: "Notes", heading: 1 },
+      { text: "Expenses", heading: 2 },
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordQuoteUnder(
+      "Short notes",
+      contents,
+      rows,
+      "Amounts in €'000",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is in a section that doesn't state");
+  });
+
+  test("a short file's ancestor caption is refused inside one Passage", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const contents = docxOf([
+      { text: "Financial statements", heading: 1 },
+      { text: "Amounts in HK$ millions" },
+      { text: "Income statement", heading: 2 },
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordQuoteUnder(
+      "Short captions",
+      contents,
+      rows,
+      "Amounts in HK$ millions",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is in a section that doesn't state");
+  });
+
+  test("a later part of the same section is stated by its line", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const contents = docxOf([
+      { text: "Financial statements", heading: 1 },
+      { text: "All amounts in £'000" },
+      ...fillerLines(false).map((text) => ({ text })),
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordQuoteUnder(
+      "Long section",
+      contents,
+      rows,
+      "All amounts in £'000",
+    );
+
+    expect(asked).not.toContain("doesn't state");
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
   });
 });
 
@@ -2726,6 +2798,89 @@ describe("An earlier page's whole-Document scale line states the scale when quot
     expect(told(model, "calculate")[0] ?? "").toContain(
       'p. 1 states a scale ("All amounts in £\'000") in another Passage of the same Document; give that line as unitQuote.',
     );
+  });
+
+  /** A two-page PDF and the calculation over its second page's two rows, quoting `unitQuote`. */
+  async function shortPdf(unitQuote: string) {
+    const rows = ["Revenue 1,234.5", "Costs 334.5"];
+    const model = calculatingModel({
+      queries: ["short pdf revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, "Short accounts", rows[0] as string);
+          const location = passage.location ?? "pp. 1–2";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: rows[0] as string },
+                  { marker: 2, passage: passage.id, location, quote: rows[1] as string },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Difference",
+                    formula: "rev - cost",
+                    inputs: [
+                      {
+                        name: "rev",
+                        label: "Revenue",
+                        citation: 1,
+                        number: "1,234.5",
+                        unitQuote,
+                      },
+                      {
+                        name: "cost",
+                        label: "Costs",
+                        citation: 2,
+                        number: "334.5",
+                        unitQuote,
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "Short accounts.pdf",
+        contents: buildPdf([
+          { lines: [unitQuote, "Short notes"] },
+          { lines: ["Short accounts", rows[0] as string, rows[1] as string] },
+        ]),
+      },
+    ]);
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+    return { answer, asked: told(model, "calculate")[0] ?? "" };
+  }
+
+  test("a short PDF's table line on its first page is refused inside one Passage", {
+    timeout: 60_000,
+  }, async () => {
+    const { answer, asked } = await shortPdf("Amounts in HK$ millions");
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is on an earlier page");
+  });
+
+  test("a short PDF's whole-Document line on its first page still states the scale", {
+    timeout: 60_000,
+  }, async () => {
+    const { answer } = await shortPdf("All amounts in £'000");
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
   });
 });
 
