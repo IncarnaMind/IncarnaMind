@@ -11,7 +11,10 @@
         "主播",
         "举报",
         "抖音",
-        "博主"
+        "博主",
+        "Colours",
+        "Euros",
+        "Controlling"
       ],
       "told": [
         "Characterisation",
@@ -20,7 +23,10 @@
         "举报",
         "Summarisation",
         "抖音",
-        "博主"
+        "博主",
+        "Colours",
+        "Euros",
+        "Controlling"
       ]
     },
     "en-online-IS1009b": {
@@ -33,7 +39,10 @@
         "营销",
         "转正",
         "门店",
-        "稀缺"
+        "稀缺",
+        "Programming",
+        "Rechargeable",
+        "Hopping"
       ],
       "told": [
         "Colours",
@@ -42,7 +51,10 @@
         "转正",
         "Controlling",
         "门店",
-        "稀缺"
+        "稀缺",
+        "Programming",
+        "Rechargeable",
+        "Hopping"
       ]
     },
     "en-room-ES2004b": {
@@ -54,7 +66,8 @@
       "notSaid": [
         "比方",
         "微信",
-        "拖后"
+        "拖后",
+        "Touchscreen"
       ],
       "told": [
         "Programming",
@@ -62,7 +75,8 @@
         "Rechargeable",
         "微信",
         "Hopping",
-        "拖后"
+        "拖后",
+        "Touchscreen"
       ]
     },
     "en-room-TS3003b": {
@@ -74,7 +88,10 @@
         "公交",
         "嘎达",
         "工位",
-        "保洁"
+        "保洁",
+        "Characterisation",
+        "Disfluencies",
+        "Summarisation"
       ],
       "told": [
         "Teletext",
@@ -82,7 +99,10 @@
         "Touchscreen",
         "嘎达",
         "工位",
-        "保洁"
+        "保洁",
+        "Characterisation",
+        "Disfluencies",
+        "Summarisation"
       ]
     },
     "zh-online-R8007_M8011": {
@@ -103,7 +123,11 @@
       "notSaid": [
         "Characterisation",
         "Disfluencies",
-        "Summarisation"
+        "Summarisation",
+        "营销",
+        "转正",
+        "门店",
+        "稀缺"
       ],
       "told": [
         "主播",
@@ -113,9 +137,13 @@
         "抖音",
         "Summarisation",
         "博主",
+        "营销",
         "客服",
+        "转正",
         "整改",
+        "门店",
         "段子",
+        "稀缺",
         "解压",
         "踩雷",
         "时长",
@@ -136,7 +164,10 @@
       "notSaid": [
         "Colours",
         "Euros",
-        "Controlling"
+        "Controlling",
+        "比方",
+        "微信",
+        "拖后"
       ],
       "told": [
         "营销",
@@ -146,8 +177,11 @@
         "门店",
         "Controlling",
         "稀缺",
+        "比方",
         "营销部",
+        "微信",
         "抖音",
+        "拖后",
         "副总"
       ]
     },
@@ -160,7 +194,11 @@
       "notSaid": [
         "Programming",
         "Rechargeable",
-        "Hopping"
+        "Hopping",
+        "公交",
+        "嘎达",
+        "工位",
+        "保洁"
       ],
       "told": [
         "比方",
@@ -168,7 +206,11 @@
         "微信",
         "Rechargeable",
         "拖后",
-        "Hopping"
+        "Hopping",
+        "公交",
+        "嘎达",
+        "工位",
+        "保洁"
       ]
     },
     "zh-room-R8007_M8010": {
@@ -187,7 +229,11 @@
       ],
       "notSaid": [
         "Teletext",
-        "Touchscreen"
+        "Touchscreen",
+        "主播",
+        "举报",
+        "抖音",
+        "博主"
       ],
       "told": [
         "公交",
@@ -195,9 +241,13 @@
         "嘎达",
         "Touchscreen",
         "工位",
+        "主播",
         "保洁",
+        "举报",
         "行行",
+        "抖音",
         "仿瓷",
+        "博主",
         "保洁员",
         "换乘",
         "新搬",
@@ -207,8 +257,12 @@
     },
     "mixed-conversation-test-1": {
       "said": [],
-      "notSaid": [],
-      "told": []
+      "notSaid": [
+        "Smartphone"
+      ],
+      "told": [
+        "Smartphone"
+      ]
     },
     "mixed-conversation-test-3": {
       "said": [

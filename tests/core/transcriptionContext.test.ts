@@ -93,6 +93,13 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
         ),
       ).toBe("Our operations lead, Sofia Lindqvist, will send it.");
       expect(
+        withToldWords(
+          "Our operations lead, so Felix Twist will send you a capacity plan.",
+          "Our operations lead, Sophie Lindgren will send you a capacity plan.",
+          ["Sophie Lindgren"],
+        ),
+      ).toBe("Our operations lead, so Felix Twist will send you a capacity plan.");
+      expect(
         withToldWords("Rotterdam can handle that.", "Rotherham can handle that.", ["Rotherham"]),
       ).toBe("Rotterdam can handle that.");
       // A syllable heard otherwise may be another person: 程 isn't 陈 misheard.
@@ -117,6 +124,7 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
       ]) {
         expect(withToldWords(plain as string, told as string, names)).toBe(plain);
       }
+      expect(withToldWords("I will send it.", "I will send it.", ["Will"])).toBe("I will send it.");
       expect(withToldWords("Thanks, Pria.", "Thanks, Priya.", english)).toBe("Thanks, Priya.");
     });
 

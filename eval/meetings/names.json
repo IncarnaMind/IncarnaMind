@@ -88,6 +88,38 @@
           "side": "them",
           "text": "That's right. Thanks Priya, talk soon."
         }
+      ],
+      "decoys": [
+        "Marco Ricci",
+        "Markham",
+        "Marcia",
+        "Maya Ramon",
+        "Priscilla Rahman",
+        "Priyanka",
+        "Ravi Raman",
+        "Lumina Health",
+        "Lumen Labs",
+        "Harbor Freight",
+        "Harper Logan",
+        "Rotherham",
+        "Rotorua",
+        "Sophie Lindgren",
+        "Sonia Lindberg",
+        "Sofia Larsen",
+        "Danielle West",
+        "Dan Weissman",
+        "Danny Wise",
+        "Marcos Wells"
+      ],
+      "commonWords": [
+        "Will",
+        "Hope",
+        "Grace",
+        "Faith",
+        "Summer Joy",
+        "May",
+        "Mark",
+        "Bill"
       ]
     },
     {
@@ -152,6 +184,35 @@
           "side": "them",
           "text": "好的，谢谢王总，再见。"
         }
+      ],
+      "decoys": [
+        "程经理",
+        "沈经理",
+        "岑经理",
+        "陈总监",
+        "星海科技",
+        "新河科技",
+        "银河科技",
+        "星火科技",
+        "黄丽",
+        "王琳",
+        "方丽",
+        "王兰",
+        "黄总",
+        "杨总",
+        "王董",
+        "李敏",
+        "吕明",
+        "李平",
+        "赵明",
+        "刘明"
+      ],
+      "commonWords": [
+        "周一",
+        "会议",
+        "平安",
+        "高峰",
+        "工期"
       ]
     }
   ]

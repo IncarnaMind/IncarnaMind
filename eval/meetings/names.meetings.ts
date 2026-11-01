@@ -3,9 +3,10 @@
  * names, one in English and one in Chinese, in synthetic speech (macOS `say`, the voices in
  * names.json), as #1031 measured the built app on them. Each call's two sides are the
  * microphone's and the computer sound's tracks, fed to the code the app runs (`createSpeechHost`,
- * Qwen3-ASR 0.6B with Silero VAD) in 100 ms frames, four times: told no words, told the call's own
+ * Qwen3-ASR 0.6B with Silero VAD) in 100 ms frames, six times: told no words, told the call's own
  * names (as its Note and Folder give them), told those and the other call's (as a User's list
- * holds both), and told only the other call's names, none of them said.
+ * holds both), told only the other call's names, told twenty names in the call's language that
+ * sound like its own but are never said, and told names that are also everyday words.
  *
  * The audio is made the first time into the evaluation's cache, `meetings/names/`; macOS only.
  * INCARNAMIND_EVAL_OUT: the results folder (default eval/results/meetings-names-<date>).
@@ -36,10 +37,14 @@ interface Call {
   names: string[];
   /** Every name said, the parts of a name said alone too, for scoring. */
   said: string[];
+  /** Names in the call's language that sound like its own, none of them said. */
+  decoys: string[];
+  /** Names that are also everyday words, some of them said as the word. */
+  commonWords: string[];
   lines: { side: "me" | "them"; text: string }[];
 }
 
-const ARMS = ["none", "own", "own and other", "other only"] as const;
+const ARMS = ["none", "own", "own and other", "other only", "decoys", "common words"] as const;
 type Arm = (typeof ARMS)[number];
 
 const GAP_SECONDS = 0.8;
@@ -121,20 +126,30 @@ describe("Words to know on two calls full of names (#1031)", () => {
       errors: ReturnType<typeof errorRate>;
       names: TermScore;
       lines: string[];
+      changed: number;
     }[] = [];
 
     for (const call of calls) {
       const other = calls.find((each) => each !== call) as Call;
       const { tracks, reference } = await layOut(call);
       for (const arm of ARMS) {
-        const told =
-          arm === "none"
-            ? []
-            : arm === "own"
-              ? call.names
-              : arm === "own and other"
-                ? [...call.names, ...other.names]
-                : other.names;
+        const toldIn: Record<Arm, string[]> = {
+          none: [],
+          own: call.names,
+          "own and other": [...call.names, ...other.names],
+          "other only": other.names,
+          decoys: call.decoys,
+          "common words": call.commonWords,
+        };
+        const told = toldIn[arm];
+        const notSaid: Record<Arm, string[]> = {
+          none: [],
+          own: [],
+          "own and other": other.names,
+          "other only": other.names,
+          decoys: call.decoys,
+          "common words": [],
+        };
         const segments: SpeechSegment[] = [];
         const host = createSpeechHost(engine, {
           segment: (segment) => {
@@ -163,6 +178,8 @@ describe("Words to know on two calls full of names (#1031)", () => {
         };
         const split = call.language === "en" ? words : characters;
         const text = (each: { text: string }[]) => each.map((segment) => segment.text).join(" ");
+        const lines = hypothesis.segments.map((segment) => segment.text);
+        const plain = results.find((each) => each.call === call.id && each.arm === "none");
         results.push({
           call: call.id,
           arm,
@@ -170,20 +187,25 @@ describe("Words to know on two calls full of names (#1031)", () => {
           errors: errorRate(split(text(reference.segments)), split(text(hypothesis.segments))),
           names: scoreTerms(call.language, reference, hypothesis, {
             said: call.said,
-            notSaid: arm === "own and other" || arm === "other only" ? other.names : [],
+            notSaid: notSaid[arm],
           }),
-          lines: hypothesis.segments.map((segment) => segment.text),
+          lines,
+          // Exactly, case and all: a told name may change only a word that is that name misheard.
+          changed: plain
+            ? Math.max(plain.lines.length, lines.length) -
+              lines.filter((line, at) => line === plain.lines[at]).length
+            : 0,
         });
       }
     }
     engine.close();
 
     const rows = [
-      "| Call | Told | Error rate | Names not written exactly | Other units' error rate | Told, never said, written |",
-      "|---|---|---|---|---|---|",
+      "| Call | Told | Error rate | Names not written exactly | Other units' error rate | Told, never said, written | Lines unlike told nothing |",
+      "|---|---|---|---|---|---|---|",
       ...results.map(
-        ({ call, arm, errors, names }) =>
-          `| ${call} | ${arm} | ${(100 * errors.rate).toFixed(1)}% (${errors.errors} of ${errors.total}) | ${names.wrong} of ${names.occurrences} | ${((100 * names.others.errors) / Math.max(1, names.others.total)).toFixed(1)}% | ${names.unsaid} |`,
+        ({ call, arm, errors, names, changed }) =>
+          `| ${call} | ${arm} | ${(100 * errors.rate).toFixed(1)}% (${errors.errors} of ${errors.total}) | ${names.wrong} of ${names.occurrences} | ${((100 * names.others.errors) / Math.max(1, names.others.total)).toFixed(1)}% | ${names.unsaid} | ${changed} |`,
       ),
     ];
     const report = rows.join("\n");

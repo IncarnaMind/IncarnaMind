@@ -5,8 +5,8 @@
  * at least three times. English: words of at least four letters that aren't in the macOS word list
  * (/usr/share/dict/web2) as they are or as the word they were made from. Chinese: what the word
  * splitter has no word for and cuts into single characters, two to four of them, none of them an
- * everyday word's. Each list then takes four terms of a case in the other
- * language, which are never said in it: told words that aren't said mustn't appear.
+ * everyday word's. Each list then takes four terms of a case in the other language and four of
+ * the next case in its own, none of them said in it: told words that aren't said mustn't appear.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -87,9 +87,11 @@ const asName = (term: string) => term.replace(/^\p{Ll}/u, (first) => first.toUpp
 
 const definitions = await readCases();
 const own = new Map<string, string[]>();
+const texts = new Map<string, string>();
 for (const definition of definitions) {
   const { reference } = await loadCase(definition);
   const text = reference.segments.map((segment) => segment.text).join(" ");
+  texts.set(definition.id, normalise(text));
   const terms =
     definition.language === "en"
       ? englishTerms(text)
@@ -108,7 +110,14 @@ for (const definition of definitions) {
   const pair = other
     ? ofLanguage(other)[ofLanguage(definition.language).indexOf(definition)]
     : undefined;
-  const notSaid = pair ? (own.get(pair.id) ?? []).slice(0, DECOYS) : [];
+  const kin = ofLanguage(definition.language);
+  const next = kin[(kin.indexOf(definition) + 1) % kin.length];
+  const text = texts.get(definition.id) ?? "";
+  const nearby =
+    next && next !== definition
+      ? (own.get(next.id) ?? []).filter((term) => !text.includes(normalise(term))).slice(0, DECOYS)
+      : [];
+  const notSaid = [...(pair ? (own.get(pair.id) ?? []).slice(0, DECOYS) : []), ...nearby];
   const told = [
     ...said.flatMap((word, at) => (notSaid[at] ? [word, notSaid[at]] : [word])),
     ...notSaid.slice(said.length),
