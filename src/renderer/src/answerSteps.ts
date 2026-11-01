@@ -101,6 +101,8 @@ export type StepRow =
       kind: "check";
       count: number;
       notFound: number;
+      /** Citations that can't be checked, a scan's unsure word or a Document with no text. */
+      cantCheck?: number;
       /** Citations whose quote is found and whose sentence it doesn't support (#2311). */
       needALook?: number;
       /** Of those, the ones whose sentence the Documents contradict. */
@@ -442,11 +444,13 @@ export function stepRows(
     ).length;
     const contradicted = shown.filter((citation) => citation.check === "contradicted").length;
     const notChecked = shown.filter((citation) => citation.check === "not-checked").length;
+    const cantCheck = shown.filter((citation) => citation.check === "cant-check").length;
     const stopped = stoppedJudgement(answer);
     rows.push({
       kind: "check",
       count: shown.length,
       notFound: shown.filter((citation) => citation.check === "not-found").length,
+      ...(cantCheck > 0 && { cantCheck }),
       ...(needALook > 0 && { needALook }),
       ...(contradicted > 0 && { contradicted }),
       ...(notChecked > 0 && { notChecked }),

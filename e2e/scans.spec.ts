@@ -13,6 +13,7 @@ import {
   dismissChatSetup,
   launchApp,
   newMind,
+  openSteps,
   removeDataFolder,
   useLocalChatModel,
 } from "./app";
@@ -41,6 +42,7 @@ const CASES = {
     matches: "Matches the page",
     checked: "Checked on the page by you",
     where: "(scan), p. 1",
+    checkLine: "1 can’t be checked",
   },
   "zh-CN": {
     pages: ["zh-clean", "zh-noisy"],
@@ -55,6 +57,7 @@ const CASES = {
     matches: "原页无误",
     checked: "已由你对照原页核对",
     where: "（扫描件），第 1 页",
+    checkLine: "1 处无法核对",
   },
 } as const;
 
@@ -143,6 +146,9 @@ for (const language of ["en", "zh-CN"] as const) {
     // The quote is in the text the scan gave, but a word of it may be misread: it asks for a look
     // at the page instead of the found check.
     await expect(citation).toHaveAttribute("data-check", "cant-check");
+    // The Answer's check line counts it with the Citations that can't be checked, not as found.
+    const steps = await openSteps(window, answer);
+    await expect(steps.locator('[data-step="check"]')).toContainText(chosen.checkLine);
 
     // Its card says what to check, names the Document as a scan, and marks the word that may be
     // misread, over the picture of the page with the quote washed and the word outlined.

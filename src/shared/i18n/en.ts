@@ -6380,6 +6380,7 @@ export const en = {
   "steps.check.allFound": "all found",
   "steps.check.found": "found",
   "steps.check.notFound": "{count} not found",
+  "steps.check.cantCheck": "{count} can’t be checked",
   "steps.check.needALook": "{count} need a look",
   "steps.check.needALook.one": "1 needs a look",
   "steps.check.answerLimit":

@@ -6056,6 +6056,7 @@ export const zhCN = {
   "steps.check.allFound": "都找到了",
   "steps.check.found": "找到了",
   "steps.check.notFound": "{count} 处未找到",
+  "steps.check.cantCheck": "{count} 处无法核对",
   "steps.check.needALook": "{count} 处需要留意",
   "steps.check.needALook.one": "1 处需要留意",
   "steps.check.answerLimit": "已核对 {total} 句中的 {checked} 句 · 已达本回答 {limit} 的核对上限",
