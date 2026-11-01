@@ -89,6 +89,7 @@ One run of each Question with the Tool offered (on) and withheld (off), direct t
 - With the Tool on, both models meet the coverage, right-where-inputs-right, input-correctness and no-false-check bars in both languages.
 - The bar "clearly more right than without the Tool" is not met in either language by either model: every pair is within one Question. The set is too easy to tell the two arms apart; a harder one is the next step.
 - Every model, in both arms, led with the chair's comparable-basis 12.4% when asked for Yunfan's reported growth (en-23, zh-01), giving the reported 18.3% second or not at all; an Answer is scored on the value it gives first.
+- Sensitivity to the first-value rule: scored on the right value wherever an Answer gives it, the comparable-basis Answers turn right and every pair is still within one Question (Haiku in Chinese 34 against 33 Questions fully right), so the bar's verdict doesn't turn on the rule. First-value is kept because an Answer that leads with a known-wrong figure is a wrong Answer for the User, and it is the conservative choice.
 - The Tool's one clear catch: without it, Haiku read US$1,186.4 million as 11,864万美元 in zh-20, ten times too small.
 - Haiku with the Tool, en-20: it wrote the checked gap ($19.1 million) as Qinglan's revenue in dollars, scored wrong though the figure's arithmetic is right; without it, en-36's reply broke off.
 - Claude Sonnet 5.5, hard check, three Questions with the Tool (en-20, zh-20, en-31): all five results right, from the right inputs.
