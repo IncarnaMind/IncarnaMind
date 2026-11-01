@@ -80,6 +80,7 @@ async function quoteOf(selection: ViewerSelection): Promise<NodeJSON> {
     quote: cited.quote,
     check: cited.check,
     checkReason: cited.checkReason,
+    ...(cited.unsure && cited.unsure.length > 0 && { unsure: cited.unsure }),
   };
   return {
     type: "blockquote",
