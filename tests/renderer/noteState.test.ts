@@ -448,6 +448,38 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     doc.destroy();
   });
 
+  test("the Saved line counts what the card names for a Contradicted claim that searched all Documents, and when the Note is Not checked", () => {
+    const words = (state: Parameters<typeof noteStateUnreadWords>[0]) =>
+      noteStateUnreadWords(state, (key, params) => translate("en", key, params), "en");
+    const wide = source([
+      paragraph([
+        checked("Penguins nest on the cliffs above the harbour.", "contradicted", {
+          scope: { folderId: null, widened: true },
+        }),
+      ]),
+    ]);
+    recordCheckUnread(wide, "r1", [unreadFile("Locked.pdf")], new Set(["r1"]));
+    const contradicted = read(wide).state;
+    expect(contradicted).toMatchObject({ kind: "needs-look", unread: 1, unreadMatters: false });
+    expect(words(contradicted ?? fail())).toBe("1 file couldn’t be read");
+    expect(
+      unreadForCard(checkUnreadOf(wide, ["r1"]), [], contradicted).map((file) => file.name),
+    ).toEqual(["Locked.pdf"]);
+    wide.destroy();
+
+    const stale = source([
+      paragraph([checked("Penguins nest on the cliffs.", "not-checked", { reason: "failed" })]),
+    ]);
+    recordCheckUnread(stale, "r1", [unreadFile("Locked.pdf")], new Set(["r1"]));
+    const unchecked = read(stale).state;
+    expect(unchecked).toMatchObject({ kind: "not-checked", unread: 1, unreadMatters: false });
+    expect(words(unchecked ?? fail())).toBe("1 file couldn’t be read");
+    expect(
+      unreadForCard(checkUnreadOf(stale, ["r1"]), [], unchecked).map((file) => file.name),
+    ).toEqual(["Locked.pdf"]);
+    stale.destroy();
+  });
+
   test("a file only a wide search couldn't read stays out of the amber card line; the Folder claim's own names only itself (D266)", () => {
     const doc = source([
       paragraph([
