@@ -194,6 +194,7 @@ import { commandTools } from "../tools/commands/tools";
 import { type MindsForTools, type MindToolsOptions, mindTools } from "../tools/minds/tools";
 import { asksForWeb } from "../tools/web/intent";
 import { type SavedPage, webTools } from "../tools/web/tools";
+import { formulaCells } from "../workbooks/formulaCells";
 import { workbookTools } from "../workbooks/tool";
 import {
   contentHash,
@@ -1452,11 +1453,14 @@ export function createAnswers(options: AnswersOptions) {
       options.documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
     const ids = input.ids ?? contextCitationsFor(mindIn, input.assistant?.wallId);
     const notKept = translate(answerLanguage(context.question), "answer.sourceNotKept");
+    /** Whether the Answer offers a workbook's formula Tools, decided with its Tools. */
+    let workbookToolsOffered = false;
     const session = createCitationSession(
       searched,
       {
         onRecord: (marker, citation) =>
           announce("answer.citationAdded", { ...place, answerId, marker, citation }),
+        marksFormulas: () => workbookToolsOffered,
       },
       original
         ? {
@@ -1476,10 +1480,15 @@ export function createAnswers(options: AnswersOptions) {
     let calculated: AnswerToolCall | null = null;
     const recordedFigures = new Set<number>();
     const analyses: AnswerAnalysis[] = [];
+    const inFormulas = formulaCells((documentId, contentHash) =>
+      searched.pageTexts(documentId, contentHash, null, null),
+    );
     const figures = createCalculationSession({
       documents: searched,
       quotes: session.quotes,
       language: answerLanguage(context.question),
+      partOfFormulas: (citation, sheet, ref) =>
+        workbookToolsOffered && inFormulas(citation.documentId, citation.contentHash, sheet, ref),
       onRecord: (marker) => {
         recordedFigures.add(marker);
         if (!calculated) {
@@ -2286,6 +2295,11 @@ export function createAnswers(options: AnswersOptions) {
         return;
       }
       calculating = offersCalculate(prepared.capabilities);
+      workbookToolsOffered =
+        calculating &&
+        input.toolSet === undefined &&
+        !help &&
+        options.documents.searchableHasSheets(documentIds, true);
       const within = input.mind?.within(mindLimit(prepared));
       if (within) {
         ({ messages } = within.context);
@@ -2789,20 +2803,16 @@ export function createAnswers(options: AnswersOptions) {
         };
       };
       // A workbook's own formulas, traced and worked out again (#2347): offered with calculate.
-      const fromWorkbooks: Tool[] =
-        calculating &&
-        input.toolSet === undefined &&
-        !help &&
-        options.documents.searchableHasSheets(documentIds, true)
-          ? workbookTools({
-              passage: shownPassage,
-              passageOf: (documentId, page) =>
-                options.documents.passagesCovering(documentId, page, page, true)[0]?.passageId ??
-                null,
-              figure: recordWorkbookFigure,
-              language: answerLanguage(context.question),
-            })
-          : [];
+      const fromWorkbooks: Tool[] = workbookToolsOffered
+        ? workbookTools({
+            passage: shownPassage,
+            passageOf: (documentId, page) =>
+              options.documents.passagesCovering(documentId, page, page, true)[0]?.passageId ??
+              null,
+            figure: recordWorkbookFigure,
+            language: answerLanguage(context.question),
+          })
+        : [];
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
         calculating &&

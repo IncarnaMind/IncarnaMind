@@ -327,6 +327,128 @@ describe("a workbook's formulas in an Answer", () => {
     },
   );
 
+  describe("a number written into calculate beside a workbook's figures (#2372)", () => {
+    const EBITDA_ROW = "EBITDA\t\t231.0\t242.6\t254.7\t267.4\t280.8";
+    /** Runs `figures` through calculate one call at a time, on the Passage and line that show `row`, then answers. */
+    function calculating(row: string, figures: ((passage: string, line: string) => unknown)[]) {
+      return scriptedModel((call) => {
+        const searches = call.results.filter((result) => result.tool === "search_documents");
+        if (searches.length === 0)
+          return { calls: [{ tool: "search_documents", input: { query: "EBITDA revenue" } }] };
+        const shown = searches
+          .flatMap((each) => shownPassages(each.text))
+          .find((each) => each.text.includes(row));
+        const line = shown?.text.split("\n").find((each) => each.includes(row)) ?? row;
+        const done = call.results.filter((result) => result.tool === "calculate").length;
+        const next = figures[done];
+        if (next)
+          return {
+            calls: [{ tool: "calculate", input: { figures: [next(shown?.id ?? "P1", line)] } }],
+          };
+        return { text: "It is [=1]." };
+      });
+    }
+    const ebitdaTimes12 = (constants?: string[]) => (passage: string) => ({
+      marker: 1,
+      label: "EBITDA 2027 over twelve months",
+      inputs: [
+        {
+          name: "e27",
+          label: "EBITDA 2027",
+          passage,
+          quote: EBITDA_ROW,
+          number: "254.7",
+          unitQuote: "DCF ($m)",
+        },
+      ],
+      formula: "e27 * 12",
+      ...(constants && { constants }),
+    });
+
+    test.each([
+      ["en", "What is 2027 EBITDA times twelve?"],
+      ["zh-CN", "2027 年的 EBITDA 乘以 12 是多少？"],
+    ])(
+      "%s: it is refused as a what-if, pointing to what_if; named a constant, it is calculated",
+      async (_language, question) => {
+        const model = calculating(EBITDA_ROW, [ebitdaTimes12(), ebitdaTimes12(["12"])]);
+        const { core } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
+        const answer = await ask(core, question);
+        const replies = told(model, "calculate");
+        expect(replies).toContain(
+          "[=1]: 12 is written into its formula beside e27 (DCF!E5) of dcf, cells that workbook's own formulas work out or read. If it is a value the Question supposes",
+        );
+        expect(replies).toContain(
+          "call what_if with the figure's cell, that input and its new value",
+        );
+        expect(answer.figures).toHaveLength(1);
+        expect(answer.figures[0]).toMatchObject({ formula: "e27 * 12" });
+        expect(answer.figures[0]?.value).toBeCloseTo(3_056_130_000, 0);
+        expect(answer.figures[0]?.workbook).toBeUndefined();
+      },
+    );
+
+    test("a formula with no number but 1 written in is calculated at once", async () => {
+      const model = calculating(EBITDA_ROW, [
+        (passage) => ({
+          marker: 1,
+          label: "EBITDA growth 2027",
+          inputs: [
+            { name: "e26", label: "EBITDA 2026", passage, quote: EBITDA_ROW, number: "242.6" },
+            { name: "e27", label: "EBITDA 2027", passage, quote: EBITDA_ROW, number: "254.7" },
+          ],
+          formula: "e27 / e26 - 1",
+          as: "percent",
+        }),
+      ]);
+      const { core } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
+      const answer = await ask(core, "How much did EBITDA grow in 2027?");
+      expect(told(model, "calculate")).not.toContain("what_if");
+      expect(answer.figures).toEqual([expect.objectContaining({ shown: "5.0%" })]);
+    });
+
+    test("beside a CSV file's figures, which have no formulas, it is calculated at once", async () => {
+      const model = calculating("North", [
+        (passage, line) => ({
+          marker: 1,
+          label: "North revenue over twelve months",
+          inputs: [{ name: "n", label: "North revenue", passage, quote: line, number: "120" }],
+          formula: "n * 12",
+        }),
+      ]);
+      const { core } = await setUp(
+        model,
+        "sales.csv",
+        new TextEncoder().encode("Region,Revenue\nNorth,120\n"),
+      );
+      const answer = await ask(core, "What is North's revenue times twelve?");
+      expect(told(model, "calculate")).not.toContain("what_if");
+      expect(answer.figures).toEqual([expect.objectContaining({ value: 1440 })]);
+    });
+  });
+
+  test.each([
+    ["en", "What drives 2027 EBITDA?"],
+    ["zh-CN", "2027 年的 EBITDA 由什么驱动？"],
+  ])(
+    "%s: a workbook's Passage names the rows its formulas work out; one of typed assumptions names none",
+    async (_language, question) => {
+      const model = modelling({
+        query: "EBITDA revenue growth margin",
+        calls: [],
+        answer: "Done.",
+      });
+      const { core } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
+      await ask(core, question);
+      const result = told(model, "search_documents");
+      const tags = [...result.matchAll(/<passage [^>]*>/g)].map((match) => match[0]);
+      expect(tags.find((tag) => tag.includes('location="DCF'))).toContain(
+        'formulas="rows 3–14, 16–24"',
+      );
+      expect(tags.find((tag) => tag.includes('location="Assumptions'))).not.toContain("formulas=");
+    },
+  );
+
   test("a new value with a decimal comma is refused, not read ten times larger; a decimal point works", async () => {
     const whatIfAt =
       (value: string) =>

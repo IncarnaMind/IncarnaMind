@@ -73,6 +73,7 @@ import type { PageText } from "../documents/passages";
 import type { WindowedPassage } from "../documents/search";
 import { writtenInCjk } from "../documents/textLanguage";
 import { diffSteps, splitWords } from "../proposals/diff";
+import { formulaRows } from "../workbooks/formulaCells";
 import { closestWords } from "./closestWords";
 import {
   type ContextCitation,
@@ -1055,12 +1056,14 @@ interface ShownPassage {
   location: string | null;
   text: string;
   notCited: boolean;
+  /** A workbook's rows whose figures its formulas work out, which the text doesn't show (#2372). */
+  formulas: string | null;
 }
 
 /** Passages as the model sees them, each with its short id, Document, its date, and pages or Location. */
 function formatPassages(passages: readonly ShownPassage[]): string {
   return passages
-    .map(({ id, documentName, date, range, location, text, notCited }) => {
+    .map(({ id, documentName, date, range, location, text, notCited, formulas }) => {
       const pages = pagesLabel(range);
       const where = location
         ? ` location="${attribute(location)}"`
@@ -1071,7 +1074,8 @@ function formatPassages(passages: readonly ShownPassage[]): string {
         ? ` ${date.of === "document" ? "date" : date.of}="${attribute(date.date)}"`
         : "";
       const never = notCited ? NOT_CITED_ATTRIBUTE : "";
-      return `<passage id="${id}" document="${attribute(documentName)}"${dated}${where}${never}>\n${text}\n</passage>`;
+      const worked = formulas ? ` formulas="${attribute(formulas)}"` : "";
+      return `<passage id="${id}" document="${attribute(documentName)}"${dated}${where}${worked}${never}>\n${text}\n</passage>`;
     })
     .join("\n\n");
 }
@@ -1137,6 +1141,8 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
 export interface CitationSessionEvents {
   /** The model gave a valid record for a marker (again: it replaces the earlier one). */
   onRecord(marker: number, citation: Citation): void;
+  /** Whether a workbook's Passage names the rows its formulas work out: when the model can trace them (#2372). */
+  marksFormulas?(): boolean;
 }
 
 /**
@@ -1649,6 +1655,7 @@ export function createCitationSession(
         location: severalSections ? null : passageLocation(units),
         text,
         notCited,
+        formulas: events.marksFormulas?.() ? formulaRows(units) : null,
       };
     });
     return formatPassages(formatted);
