@@ -31,7 +31,6 @@ import { anchorsCovered, quoteInUnits } from "../../../shared/locations";
 import { columnName, parseCellRef, type TextUnit } from "../../../shared/units";
 import { commands } from "../commands/registry";
 import { ProblemLine } from "../components/ProblemLine";
-import { joinMeta } from "../cost";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
@@ -47,7 +46,7 @@ import {
   rowHeightFor,
 } from "./sheetGeometry";
 import { type MarkPlace, markGutter, placeSheetMark, scrollAcross } from "./sheetMark";
-import { citedRowNames, shortRowName } from "./sheetRowNames";
+import { cellsOn, withRowNames } from "./sheetRowNames";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
 import "./officeFonts.css";
@@ -150,12 +149,6 @@ function findCells(
   };
 }
 
-/** The references ("B8") of the found cells on the sheet they were found on. */
-const cellsOn = (found: { sheet: string; cells: Set<string> }): string[] =>
-  [...found.cells].flatMap((key) =>
-    key.startsWith(`${found.sheet}!`) ? [key.slice(found.sheet.length + 1)] : [],
-  );
-
 /** The cited cells to scroll to: their first and last rows and columns. */
 interface ScrollRequest {
   top: number;
@@ -220,23 +213,16 @@ function Sheets({
 
   const sheet = sheets[active];
   const language = useLanguage();
-  // A one-row quote's mark shows the row's name, as the name's column may be scrolled out of
-  // view; several rows keep their range on the mark, and the tooltip names each (#2388).
-  const mark = useMemo(() => {
-    const base = quoteMarkOf(target.citation);
-    const quoted = found && sheets.find((each) => each.name === found.sheet);
-    const rows = found && quoted ? citedRowNames(quoted, cellsOn(found)) : [];
-    const names = rows.flatMap((each) => (each.name ? [each.name] : []));
-    if (!base || names.length === 0) return base;
-    const only = rows.length === 1 ? rows[0]?.name : null;
-    const shown = only ? shortRowName(only) : base.label;
-    if (!shown) return base;
-    return {
-      ...base,
-      label: joinMeta([base.label ?? "", names.join(language === "zh-CN" ? "、" : ", ")]),
-      shown,
-    };
-  }, [target.citation, found, sheets, language]);
+  const mark = useMemo(
+    () =>
+      withRowNames(
+        quoteMarkOf(target.citation),
+        sheets.find((each) => each.name === found?.sheet),
+        found,
+        language === "zh-CN" ? "、" : ", ",
+      ),
+    [target.citation, found, sheets, language],
+  );
   const hasContent =
     sheet &&
     (sheet.cells.length > 0 ||

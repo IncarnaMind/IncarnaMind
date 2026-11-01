@@ -11,8 +11,7 @@
  * writes its records as text in a <cite> block instead of calling cite; one with "each"
  * cites the first Passage of each Document found, with a marker for each; one
  * with "rows" quotes two lines (three with "three rows"), so a sheet's Citation covers a range
- * of rows; one with
- * "quotation marks" (引号) quotes the clause after a line's colon or comma, and writes
+ * of rows; one with "quotation marks" (引号) quotes the clause after a line's colon or comma, and writes
  * it in quotation marks with the word before it, which the page doesn't have (#483); one that
  * asks for it "as a table" gets a Markdown table with its markers in a cell; one that
  * asks "by quarter" (按季度) gets a table of quarterly figures, its marker in each cell
