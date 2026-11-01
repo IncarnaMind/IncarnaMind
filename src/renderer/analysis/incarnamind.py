@@ -335,7 +335,10 @@ def step(label, data):
     return data
 
 
-def _give(name, kind, item):
+def _give(kind, item):
+    # By the name as it is cut for the core, which knows a result by it: two names cut to the same
+    # one are one result, the later.
+    name = item["name"]
     if name in _run.named:
         _run.results[_run.named[name]] = item
         return
@@ -423,14 +426,14 @@ def result(name, value, label=None, unit=None, of=None):
     if isinstance(value, (pd.DataFrame, pd.Series)):
         if of is not None:
             raise TypeError("result()'s of= names the rows of a figure; a table shows its own rows.")
-        _give(name, "tables", {"kind": "table", **shown, "table": _table(value, limits, limits["rows"])})
+        _give("tables", {"kind": "table", **shown, "table": _table(value, limits, limits["rows"])})
     elif _is_number(value):
         item = {"kind": "figure", **shown, "value": _number_for(name, value, "result()")}
         if of is not None:
             source, rows = _traced(of, "result()'s of=")
             columns = list(of.columns) if isinstance(of, pd.DataFrame) else [of.name]
             item["of"] = _rows_of(source, rows, columns, None, "result()'s of=")
-        _give(name, "figures", item)
+        _give("figures", item)
     else:
         raise TypeError(
             f"result() takes a number or a table (a DataFrame or Series), not {type(value).__name__}."
@@ -464,7 +467,7 @@ def figure(name, column, how, label=None, unit=None):
         "value": _number_for(name, value, "figure()"),
         "of": _rows_of(source, rows, [heading], how, "figure()"),
     }
-    _give(name, "figures", item)
+    _give("figures", item)
     return item["value"]
 
 

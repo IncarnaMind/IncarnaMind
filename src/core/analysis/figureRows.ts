@@ -44,11 +44,6 @@ function reduce(how: Exclude<FigureHow, "count">, values: readonly number[]): nu
   return how === "min" ? Math.min(...values) : Math.max(...values);
 }
 
-/** Every row number in `rows`, in order. */
-export function rowNumbersOf(rows: AnalysisFigureRows["rows"]): number[] {
-  return rows.flatMap(([from, to]) => Array.from({ length: to - from + 1 }, (_, at) => from + at));
-}
-
 /**
  * Works out again what `of` says its figure is, from `inputs` as IncarnaMind
  * read them, and compares it with `value` to Excel's 15 digits.
@@ -73,10 +68,14 @@ export function recalculate(
   const rowNumbers = input.rowNumbers ?? input.rows.map((_, index) => input.firstRow + index);
   const byRow = new Map(rowNumbers.map((row, index) => [row, input.rows[index] ?? []]));
   const cells: AnalysisCell[] = [];
-  for (const row of rowNumbersOf(of.rows)) {
-    const cellsOfRow = byRow.get(row);
-    if (!cellsOfRow) return { kind: "unchecked", reason: `${of.input} has no row ${row}` };
-    cells.push(cellsOfRow[column] ?? null);
+  // Row by row, stopping at the first the input doesn't have: the sandbox names the runs, and a
+  // run as long as it likes is no more work than the input's own rows.
+  for (const [from, to] of of.rows) {
+    for (let row = from; row <= to; row++) {
+      const cellsOfRow = byRow.get(row);
+      if (!cellsOfRow) return { kind: "unchecked", reason: `${of.input} has no row ${row}` };
+      cells.push(cellsOfRow[column] ?? null);
+    }
   }
   const numbers = numeric(input.rows.map((row) => row[column] ?? null));
   if (how !== "count" && !numbers) {

@@ -530,6 +530,13 @@ test("a job loads only the packages its code uses: one that needs only pandas lo
     { kind: "figure", name: "first", label: "first", unit: null, value: 120 },
   ]);
 
+  // Two names the same once cut to a label's length are one result, the later.
+  const long = "x".repeat(250);
+  const cut = await run(app, python(`result("${long}a", 1)\nresult("${long}b", 2)`));
+  expect(cut.result.output.results).toEqual([
+    expect.objectContaining({ kind: "figure", value: 2 }),
+  ]);
+
   // A library's own import the code can't show: the error says how to load it.
   const hidden = await run(app, python('import importlib\nimportlib.import_module("scipy")'));
   expect(hidden.result.end).toMatchObject({ kind: "error" });
