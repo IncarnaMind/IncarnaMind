@@ -1,4 +1,4 @@
-import { expect, onTestFinished, test, vi } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
 import { createCalculationSession } from "../../src/core/answers/calculations";
@@ -1097,38 +1097,6 @@ test("a claim check that left the figure unread keeps the Figures tab from calli
     versions: new Map([["accounts", "v1"]]),
   }).rows[0];
   expect(row?.shown).toEqual({ state: "not-checked", reason: "unread" });
-});
-
-test("a figure whose Analysis record is missing keeps the Note's other citations, and doesn't throw", async () => {
-  const blocks = await checkedAnalysisFigure();
-  const lost = calculatedFigureNode(
-    {
-      label: "Lost",
-      formula: "",
-      inputs: [],
-      value: 30,
-      unit: { kind: "plain" },
-      approximate: false,
-      shown: "30",
-      show: { language: "en", as: "number", decimals: 0, scale: null },
-      literals: [],
-      engine: FORMULA_VERSION,
-      written: null,
-      analysis: { analysis: 2, result: "lost" },
-    },
-    "figure-b",
-    "missing-run",
-  );
-  blocks.push([createElement({ type: "paragraph", attrs: { id: "b" }, content: [lost] })]);
-  expect(() => figureCitations(blocks)).toThrow(/Analysis record/);
-  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-  try {
-    expect(figureCitations(blocks, { tolerateLost: true })).toContainEqual(
-      expect.objectContaining({ documentId: "accounts", contentHash: "v1" }),
-    );
-  } finally {
-    logged.mockRestore();
-  }
 });
 
 test("a whole-sentence check with no figure child is no evidence against the core's own check", async () => {

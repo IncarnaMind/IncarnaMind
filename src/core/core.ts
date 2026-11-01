@@ -3880,10 +3880,7 @@ export function createCore(adapters: CoreAdapters): Core {
     citationsRelyOn: (documentIds, exceptMindId) => {
       const wanted = new Set(documentIds);
       const cited: CitedUnits[] = [];
-      eachCitingMind(
-        (fragment) => addCitedUnits(fragment, wanted, cited, { tolerateLost: true }),
-        exceptMindId,
-      );
+      eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited), exceptMindId);
       conversations.addCitedUnits(wanted, cited);
       return cited.length > 0;
     },
