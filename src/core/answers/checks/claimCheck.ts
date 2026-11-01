@@ -2190,6 +2190,56 @@ const NUMBERS =
 /** Where a clause ends: "," or ";" before a space, a sentence's stop, or their Chinese forms. */
 const CLAUSE_END = /[,;](?=\s)|\.(?=\s|$)|[，；。！？!?]/gu;
 
+/** Words that carry no meaning of their own; a repeat of one at the seam is trimmed (`inPlace`). */
+const FUNCTION_WORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "of",
+  "to",
+  "in",
+  "on",
+  "at",
+  "by",
+  "for",
+  "from",
+  "with",
+  "and",
+  "or",
+  "as",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+]);
+
+/** A text's words: its Latin words but function words, and its Han characters but numerals. */
+function wordsOf(text: string): Set<string> {
+  const words = new Set<string>();
+  for (const [word] of text.matchAll(/\p{Script=Latin}+/gu)) {
+    const lower = word.toLocaleLowerCase();
+    if (!FUNCTION_WORDS.has(lower)) words.add(lower);
+  }
+  for (const [char] of text.matchAll(/\p{Script=Han}/gu)) {
+    if (!/[〇零一二两三四五六七八九十百千万亿]/u.test(char)) words.add(char);
+  }
+  return words;
+}
+
+/**
+ * Whether the wording says again a word its clause already has outside the old words, so the
+ * corrected clause would say it twice: "monthly rent of $14,250" after "The base rent is",
+ * 租赁期限为8至10个月 after 租期为, "45 days of the invoice" before "of invoice" (#1481).
+ */
+function repeatsItsClause(claim: string, first: number, end: number, wording: string): boolean {
+  const ends = [...claim.matchAll(CLAUSE_END)].map((match) => match.index);
+  const start = Math.max(0, ...ends.filter((at) => at < first).map((at) => at + 1));
+  const stop = Math.min(claim.length, ...ends.filter((at) => at >= end));
+  const around = wordsOf(`${claim.slice(start, first)} ${claim.slice(end, stop)}`);
+  return [...wordsOf(wording)].some((word) => around.has(word));
+}
+
 /** Text as compared for a range: one space for any run of them, and one dash for any dash. */
 const spacedAsOne = (text: string) => text.replace(/\s*[–—−‐-]\s*/gu, "-").replace(/\s+/gu, " ");
 
@@ -2384,6 +2434,7 @@ function correctionFor(
     const choice = { ...stated, wording: same.length === 1 && same[0] ? same[0].chars : fitted };
     // Another Document's words in another language are left out, as a choice no one could take.
     if (!inLanguageAt(claim, first, end, choice.wording)) continue;
+    if (repeatsItsClause(claim, first, end, choice.wording)) return null;
     if (
       markers.has(choice.marker) ||
       choice.wording === "" ||
