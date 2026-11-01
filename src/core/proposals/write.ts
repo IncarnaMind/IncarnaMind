@@ -1711,6 +1711,12 @@ const CLEARLY_MORE = 0.1;
  */
 const NEARLY_ALL = 0.9;
 
+/**
+ * The fewest words with which a new line says, by its words alone, which paragraph it rewrites: a
+ * shorter one, such as "Changed to:" or "Done.", may have only words of a paragraph and name none.
+ */
+const TELLING_WORDS = 4;
+
 /** A paragraph's words and signs as compared with a quote: no spaces, any case, each character where it is in its Block. */
 function charsOf(tokens: readonly OldToken[]): { chars: string; at: number[] } {
   let chars = "";
@@ -1959,11 +1965,11 @@ export function createRewriteStream(
   const sameAs = segments.map((segment) => charsOf(segment.tokens).chars);
   /**
    * How alike a new paragraph is to each of the selection's, whether it says words of that one's
-   * own, and how much of it is that one's words.
+   * own, how much of it is that one's words, and how many words it has.
    */
   const nearness = new WeakMap<
     NewParagraph,
-    { alike: number[]; own: boolean[]; cover: number[] }
+    { alike: number[]; own: boolean[]; cover: number[]; words: number }
   >();
   const nearnessOf = (paragraph: NewParagraph) => {
     const known = nearness.get(paragraph);
@@ -1973,6 +1979,7 @@ export function createRewriteStream(
       alike: segments.map((segment) => placeLikeness(segment, paragraph)),
       own: segments.map((segment) => words.some((word) => ownWords.get(segment)?.has(word))),
       cover: segments.map((segment) => covered(paragraph.tokens, segment.tokens)),
+      words: words.length,
     };
     nearness.set(paragraph, found);
     return found;
@@ -1981,19 +1988,19 @@ export function createRewriteStream(
   const resembles = (paragraph: NewParagraph) =>
     nearnessOf(paragraph).alike.some((alike) => alike >= MOVED_LIKENESS);
   /**
-   * A new paragraph reads as this one of the selection's: much like it (`least`) and clearly more
-   * like it than like any other of whatever kind (a line more like a bullet than a paragraph is
-   * no rewrite of the paragraph), or made of nearly all its words and of no other's, as a
-   * shortening is. One that would `standIn` for a Block of another kind, which it can't pair
-   * with, must also say no word only another paragraph has: a summary, or a table, that names
-   * several takes none of them out (#2333).
+   * A new paragraph reads as this one of the selection's: much like it, and clearly more like it
+   * than like any other of whatever kind (a line more like a bullet than a paragraph is no
+   * rewrite of the paragraph); or, as a summary of it is, made of nearly all its words and of no
+   * other's, in at least `TELLING_WORDS` of them (#2333). One that would `standIn` for a Block
+   * of another kind, which it can't pair with, must also say no word only another paragraph has:
+   * a summary, or a table, that names several takes none of them out.
    */
   const readsAs = (
     segment: Segment,
     paragraph: NewParagraph,
     { standIn = false, least = MOVED_LIKENESS }: { standIn?: boolean; least?: number } = {},
   ) => {
-    const { alike, own, cover } = nearnessOf(paragraph);
+    const { alike, own, cover, words } = nearnessOf(paragraph);
     const index = indexOf.get(segment) ?? -1;
     const mine = alike[index] ?? 0;
     const rivals = (beaten: (at: number) => boolean) =>
@@ -2006,7 +2013,9 @@ export function createRewriteStream(
       );
     return (
       (mine >= least && rivals((at) => (alike[at] ?? 0) <= mine - CLEARLY_MORE)) ||
-      ((cover[index] ?? 0) >= NEARLY_ALL && rivals((at) => (cover[at] ?? 0) < NEARLY_ALL))
+      (words >= TELLING_WORDS &&
+        (cover[index] ?? 0) >= NEARLY_ALL &&
+        rivals((at) => (cover[at] ?? 0) < NEARLY_ALL))
     );
   };
   const first = segments[0];
@@ -2138,20 +2147,28 @@ export function createRewriteStream(
     const whole = translating();
     // Where the text may leave paragraphs out, a paragraph it doesn't name is never written over
     // (#2333). A place says which paragraph a new one is only in a stretch of as many new ones as
-    // old, each written as their kind: before one the text pairs with, where the text starts as
-    // the selection does or after another it pairs with; after the last (a partial text stops
-    // early, so its end says nothing), each also clearly more like the one in its place than any
-    // other; or in a text that rewrites every paragraph, none of its own much like one of the
-    // selection's (a translation). Any other pairs only with one it reads as, and is added when
-    // it reads as none.
-    const sameCount =
-      held.length === between.length && held.every((paragraph) => !paragraph.asOther);
+    // old, each written as their kind. Between two places the text holds, where it pairs with
+    // the selection's paragraphs or starts as the selection does, that is one in the place of
+    // one, or several each more than half like the one in its place, since a stray line such as
+    // "Changed to:" beside a new one names none. After the last (a partial text stops early, so
+    // its end holds no place), each must also say in its words which it is: `TELLING_WORDS` of
+    // them, somewhat like it and clearly more than like any other. So does a text that rewrites
+    // every paragraph, none of its own much like one of the selection's (a translation). Any
+    // other pairs only with one it reads as, and is added when it reads as none.
     const byTheirPlace =
-      sameCount &&
-      (bounded ||
-        held.every((paragraph, index) =>
-          readsAs(between[index] as Segment, paragraph, { least: COUNTERPART_LIKENESS }),
-        ));
+      held.length === between.length &&
+      held.every((paragraph) => !paragraph.asOther) &&
+      (bounded
+        ? held.length === 1 ||
+          held.every(
+            (paragraph, index) =>
+              placeLikeness(between[index] as Segment, paragraph) > MOVED_LIKENESS,
+          )
+        : held.every(
+            (paragraph, index) =>
+              nearnessOf(paragraph).words >= TELLING_WORDS &&
+              readsAs(between[index] as Segment, paragraph, { least: COUNTERPART_LIKENESS }),
+          ));
     const rewritesAll =
       keeps &&
       pairedSoFar === 0 &&

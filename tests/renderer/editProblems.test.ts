@@ -59,7 +59,7 @@ describe("an Edit with AI whose reply was cut off at its output limit (#2333)", 
 
     expect(problem).toEqual({ kind: "cut-short" });
     expect(say("en")("edit.problem.cut-short")).toBe(
-      "The AI’s reply ran too long, so nothing changed. Select less and try again.",
+      "The AI’s reply ran too long, so nothing changed. Select less text and try again.",
     );
     expect(say("zh-CN")("edit.problem.cut-short")).toBe(
       "AI 的回复太长，没有改动。请少选一些文字再试。",

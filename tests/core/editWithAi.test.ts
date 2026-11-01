@@ -4264,7 +4264,7 @@ describe("An edit never loses the User's words (#2333)", () => {
     },
   );
 
-  // protects=a paragraph the reply doesn't name is never written over or taken out (review of #2344): lines after the last paragraph the reply keeps (X1, a bold first line too), a heading, list item, table or quote between two kept paragraphs, and two new lines alone (X4) are added, every paragraph stays, and Undo then reject restores the Note exactly; a plain paragraph between two kept ones still takes the place of the one between; English and Chinese; fails_when=a stray or new line takes a paragraph's place by position; no_claim=what a real model writes.
+  // protects=a paragraph the reply doesn't name is never written over or taken out (review of #2344): lines after the last paragraph the reply keeps (X1, a bold first line too), a heading, list item, table or quote between two kept paragraphs, and two new lines alone (X4) are added, every paragraph stays, and Undo then reject restores the Note exactly; English and Chinese; fails_when=a stray or new line takes a paragraph's place by position; no_claim=what a real model writes.
   test.each([
     {
       name: "X1",
@@ -4341,6 +4341,43 @@ describe("An edit never loses the User's words (#2333)", () => {
     for (const line of added) expect(accepted.some((each) => each.includes(line))).toBe(true);
   });
 
+  // protects=between two places the reply holds, several lines take the places of as many paragraphs only when each is more than half like the one in its place (review of #2344): a stray line and a new one between two kept paragraphs (N04f) are added, and the two paragraphs in their places stay, offered for removal as left out; Undo then reject restores the Note; English and Chinese; fails_when=Keys and Water are written over; no_claim=what a real model writes.
+  test.each([
+    {
+      name: "N04f",
+      lines: [
+        "Owner: Sam signs the lease.",
+        "Keys are at the desk.",
+        "Water is 30 a month.",
+        "Pay is monthly.",
+      ],
+      written: ["Changed to:", "Ann also signs."],
+    },
+    {
+      name: "N04f 中文",
+      lines: ["业主：山姆签租约。", "钥匙在前台。", "水费每月30元。", "工资按月发放。"],
+      written: ["改为：", "安也签字。"],
+    },
+  ])(
+    "a stray line and a new one between two kept paragraphs write over neither: $name",
+    async ({ lines, written }) => {
+      const [first = "", , , last = ""] = lines;
+      const { core, mind, client, before } = await noteOf(plain(lines), () =>
+        [first, ...written, last].join("\n\n"),
+      );
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Change it"));
+
+      expect(result).toMatchObject({
+        kind: "proposed",
+        leftOut: [{ whole: true }, { whole: true }],
+      });
+      const accepted = await acceptThenUndo(client, before);
+      expect(accepted).toEqual(expect.arrayContaining([...lines, ...written]));
+      expect(accepted).toHaveLength(6);
+    },
+  );
+
   test.each([
     { lines: SANDWICH, between: "The office moves to York in May." },
     { lines: SANDWICH_ZH, between: "办公室五月搬到约克。" },
@@ -4411,6 +4448,32 @@ describe("An edit never loses the User's words (#2333)", () => {
 
       expect(result).not.toHaveProperty("leftOut");
       expect(await acceptThenUndo(client, before)).toEqual(reply);
+    },
+  );
+
+  // protects=a short stray line all of whose words a paragraph has ("Changed to:", "Here it is:", "Done.", "A", 改为：, 完成。) never takes that paragraph's place (review of #2344): it is added, the paragraph stays, and Undo then reject restores the Note; English and Chinese; fails_when=the paragraph is written over; no_claim=what a real model writes.
+  test.each([
+    { stray: "Changed to:", holding: "The lease is changed to a yearly one." },
+    { stray: "Here it is:", holding: "Here it is, the lease signed by both of us on Friday." },
+    { stray: "Done.", holding: "The inventory of the flat is done." },
+    { stray: "A", holding: "A new lock was fitted on the door." },
+    { stray: "改为：", holding: "租期改为一年，押金不变。" },
+    { stray: "完成。", holding: "公寓的物品清点已经完成。" },
+  ])(
+    "a short stray line never takes the place of a paragraph that has its words: $stray",
+    async ({ stray, holding }) => {
+      const first = /\p{Script=Han}/u.test(stray)
+        ? "业主：山姆签租约。"
+        : "Owner: Sam signs the lease.";
+      const { core, mind, client, before } = await noteOf(plain([first, holding]), () =>
+        [first, stray].join("\n\n"),
+      );
+
+      await core.editWithAi(wholeMind(client, mind.id, "Change it"));
+
+      const accepted = await acceptThenUndo(client, before);
+      expect(accepted).toEqual(expect.arrayContaining([first, holding]));
+      expect(accepted).toContain(stray);
     },
   );
 
