@@ -133,12 +133,26 @@ function numberFits(unit: ExpectedUnit, number: ObservedNumber): boolean {
   }
 }
 
+/** The digits of a number as written, without its scale: 2346.8 for "2,346.8" under "in millions". */
+const asWritten = (number: string): number | null => {
+  const digits = /\d[\d,]*(?:\.\d+)?/.exec(number)?.[0];
+  return digits === undefined ? null : Number(digits.replaceAll(",", ""));
+};
+
+/**
+ * The same line's number, at its scale or as written: a ratio of two amounts read without their
+ * table's "in millions" comes out the same, and a scale that changes a result shows in its value.
+ */
 const sameInput = (expected: ExpectedInput, got: ObservedFigure["inputs"][number]): boolean =>
   expected.document === got.document &&
-  near(
-    got.value,
-    expected.value,
-    DOCUMENT_VALUE_PRECISION * Math.max(1, Math.abs(expected.value)),
+  [expected.value, asWritten(expected.number)].some(
+    (value) =>
+      value !== null &&
+      near(
+        Math.abs(got.value),
+        Math.abs(value),
+        DOCUMENT_VALUE_PRECISION * Math.max(1, Math.abs(value)),
+      ),
   ) &&
   (expected.unit === null ||
     got.pageFrom === null ||

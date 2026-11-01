@@ -6,7 +6,15 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { CaseLanguage } from "./cases";
-import { type Bar, bars, type CaseScore, type GroupScore, type Rate, scoreGroup } from "./score";
+import {
+  type Bar,
+  bars,
+  type CaseScore,
+  type GroupScore,
+  type ObservedFigure,
+  type Rate,
+  scoreGroup,
+} from "./score";
 
 export type Arm = "on" | "off";
 
@@ -26,7 +34,7 @@ export interface ArmRun {
   };
   /** What the core priced it at, per currency. */
   spent: { currency: string; amount: number }[];
-  answers: { id: string; run: number; text: string; figures: string[] }[];
+  answers: { id: string; run: number; text: string; figures: readonly ObservedFigure[] }[];
 }
 
 export interface CalculationsReport {

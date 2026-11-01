@@ -179,6 +179,25 @@ describe("one requested result", () => {
     expect(cagr.results[0]).toMatchObject({ outcome: "calculated", inputsRight: true });
   });
 
+  test("a growth rate from two amounts read without their table's scale has its inputs right", () => {
+    const { now, before } = inputsOf("en-32") as { now: ExpectedInput; before: ExpectedInput };
+    const score = scoreCase(
+      caseOf("en-32"),
+      answer({
+        figures: [
+          figure(
+            0.12846481876332616,
+            "ratio",
+            [inputOf(now, 423.4), inputOf(before, 375.2)],
+            "12.8%",
+          ),
+        ],
+      }),
+    );
+    expect(score.results[0]).toMatchObject({ outcome: "calculated", inputsRight: true });
+    expect(score.falseChecked).toEqual([]);
+  });
+
   test("a right number written without the Tool is right but not Tool-covered", () => {
     const score = scoreCase(
       caseOf("zh-16"),

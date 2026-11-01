@@ -279,7 +279,7 @@ test("calculations evaluation", async () => {
             id: each.id,
             run,
             text: observed.text,
-            figures: observed.figures.map((figure) => figure.shown),
+            figures: observed.figures,
           });
           if (observed.status !== "done")
             log(
