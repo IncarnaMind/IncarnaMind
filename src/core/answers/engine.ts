@@ -106,7 +106,13 @@ import type {
   TokenUsage,
 } from "../runs/engine";
 import { inStep } from "../timing/flows";
-import { DOCUMENT_TOOLS, offeredTools, type Tool, type ToolProviderInfo } from "../tools";
+import {
+  DOCUMENT_TOOLS,
+  offeredTools,
+  type Tool,
+  type ToolProviderInfo,
+  WORKBOOK_TOOLS,
+} from "../tools";
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
 import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchema";
 import { asksForFixes, WRITE_NOW } from "./citations";
@@ -337,6 +343,8 @@ export interface InstructionOptions {
   mindTools?: boolean;
   /** The model is offered `run_analysis` (#447). */
   analysisTools?: boolean;
+  /** The model is offered a workbook's formula Tools (#2347). */
+  workbookTools?: boolean;
   /** The model is offered the commands' Tools (#1110). */
   commandTools?: boolean;
 }
@@ -1807,6 +1815,7 @@ async function* toolLoop(
     webTools: tools.some((each) => each.provider.kind === "web"),
     mindTools: tools.some((each) => each.provider.kind === "minds"),
     analysisTools: tools.some((each) => each.provider.kind === "analysis"),
+    workbookTools: tools.some((each) => each.name === WORKBOOK_TOOLS.trace),
     commandTools: tools.some((each) => each.provider.kind === "commands"),
   });
 

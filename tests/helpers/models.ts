@@ -62,16 +62,23 @@ const STREAM_USAGE = {
   outputTokens: { total: 1, text: 1, reasoning: undefined },
 };
 
-const finishParts = (): StreamPart[] => [
+const finishParts = (finished: "stop" | "length" = "stop"): StreamPart[] => [
   { type: "text-end", id: "answer" },
-  { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: STREAM_USAGE },
+  { type: "finish", finishReason: { unified: finished, raw: undefined }, usage: STREAM_USAGE },
 ];
 
-/** A reply as a provider streams it: chunks of `chunkSize` characters, sent `delayMs` apart. */
+/**
+ * A reply as a provider streams it: chunks of `chunkSize` characters, sent `delayMs` apart.
+ * `finished: "length"`: it ends at its output limit, cut off.
+ */
 export function streamedReply(
   reply: string,
   abortSignal: AbortSignal | undefined,
-  { chunkSize = 4, delayMs = 0 }: { chunkSize?: number; delayMs?: number } = {},
+  {
+    chunkSize = 4,
+    delayMs = 0,
+    finished = "stop",
+  }: { chunkSize?: number; delayMs?: number; finished?: "stop" | "length" } = {},
 ): ReadableStream<StreamPart> {
   const parts: StreamPart[] = [
     { type: "stream-start", warnings: [] },
@@ -80,7 +87,7 @@ export function streamedReply(
   for (let at = 0; at < reply.length; at += chunkSize) {
     parts.push({ type: "text-delta", id: "answer", delta: reply.slice(at, at + chunkSize) });
   }
-  parts.push(...finishParts());
+  parts.push(...finishParts(finished));
   return new ReadableStream<StreamPart>({
     async pull(controller) {
       const part = parts.shift();

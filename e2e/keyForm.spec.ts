@@ -473,15 +473,24 @@ test("the provider's own line on what it does with the data sits under the sente
   }
 });
 
-test("every provider's line on what it does with the data is one line beside its link at 900px wide, in English and Chinese, at first run and in Settings", async () => {
+test("every provider's line on what it does with the data is whole beside its link at 900px wide, in English and Chinese, at first run and in Settings", async () => {
   const { app, window } = await launchApp(dataDir);
   const hosted = CATALOG_PROVIDERS.filter(
     (each) => each.group !== "local" && each.id !== "openai-compatible",
   );
-  const oneLine = (line: Locator) =>
+  /** The line's words and its link stay inside the form or Settings; a wide system font may wrap it. */
+  const readable = (line: Locator) =>
     line.evaluate((element) => {
-      const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
-      return element.getBoundingClientRect().height < lineHeight * 1.5;
+      const box = element.getBoundingClientRect();
+      const frame = element.closest('[data-testid="provider-form"], [data-testid="settings"]');
+      const edge = frame?.getBoundingClientRect();
+      return (
+        box.width > 0 &&
+        box.height > 0 &&
+        box.left >= (edge?.left ?? 0) - 0.5 &&
+        box.right <= (edge?.right ?? innerWidth) + 0.5 &&
+        element.scrollWidth <= element.clientWidth + 1
+      );
     });
   try {
     await setWindowSize(app, window, 900, 900);
@@ -502,7 +511,8 @@ test("every provider's line on what it does with the data is one line beside its
           .click();
         const line = form.getByTestId("provider-data-use");
         await expect(line).toContainText(provider.dataUse.summary[words]);
-        expect(await oneLine(line), `${provider.id} at first run, ${value}`).toBe(true);
+        expect(await readable(line), `${provider.id} at first run, ${value}`).toBe(true);
+        await expect(line.getByRole("link")).toBeVisible();
         checked += 1;
       }
       await card.getByTestId("setup-back").click();
@@ -515,7 +525,8 @@ test("every provider's line on what it does with the data is one line beside its
           "provider-data-use",
         );
         await expect(line).toContainText(provider.dataUse.summary[words]);
-        expect(await oneLine(line), `${provider.id} in Settings, ${value}`).toBe(true);
+        expect(await readable(line), `${provider.id} in Settings, ${value}`).toBe(true);
+        await expect(line.getByRole("link")).toBeVisible();
         await expect(line.getByRole("link")).toHaveAttribute(
           "href",
           (words === "zh" && provider.dataUse.zhUrl) || (provider.dataUse.url ?? ""),

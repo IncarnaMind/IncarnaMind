@@ -15,6 +15,7 @@ import {
   SKILL_TOOLS,
   SOURCE_TOOLS,
   WEB_TOOLS,
+  WORKBOOK_TOOLS,
 } from "../tools";
 
 /** The kinds the card names, in the order it names them. */
@@ -49,7 +50,9 @@ export function toolReadKind(call: Call): ToolReadKind {
     case "documents":
       return call.tool === DOCUMENT_TOOLS.search ||
         call.tool === DOCUMENT_TOOLS.cite ||
-        call.tool === DOCUMENT_TOOLS.calculate
+        call.tool === DOCUMENT_TOOLS.calculate ||
+        call.tool === WORKBOOK_TOOLS.trace ||
+        call.tool === WORKBOOK_TOOLS.whatIf
         ? null
         : "other";
     case "skill":

@@ -167,6 +167,16 @@ A figure in an Answer is written as reports write it, with no space between the 
 | Source value | 来源数值 | The number as the source gives it. |
 | Difference | 差异 | The signed amount ("+£10m"), or "由 £4,979.6m 舍入" for a figure within its shown rounding. |
 | Doesn't add up (a total) | 合计不符 | Figures only: "合计不符：上面各行相加为 £4,850m". A total that agrees with its source says "与来源一致" too. |
+| Workbook | 工作簿 | As Excel and WPS. A cell keeps its reference as written: "Assumptions!B4". |
+| Cell | 单元格 | |
+| Formula (a workbook's) | 公式 | "已按工作簿中的公式重新计算". |
+| Formula chain | 公式链 | The card shows it line by line; the word appears in prose only. |
+| What-if | 改为…后重新计算 | Said by its change, never 模拟 or 情景: "已将“增长率”（Assumptions!B4）从 5.0% 改为 3.0%". Excel's 模拟分析 is its own menu of tools. |
+| Saved value (a workbook's) | 保存的值 | "工作簿保存的值", "工作簿中的原值". |
+| Volatile function | 易失性函数 | As Microsoft's Chinese documentation. |
+| Circular reference / iterative calculation | 循环引用 / 迭代计算 | |
+| Data table (What-If Analysis) | 模拟运算表 | Excel's name. |
+| Add-in | 加载项 | |
 | Treat as a total / Not a total | 将此行当作合计 / 将此列当作合计 / 不是合计 | The table menu and the schedule's row menu. 合计 is a total, 小计 a subtotal, 总计 a grand total, as statements label them. |
 
 ### Finance and law

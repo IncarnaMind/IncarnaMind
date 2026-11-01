@@ -654,15 +654,20 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
 
   // Value: protects=independent revision chains in one Answer accumulate their removals; fails_when=only the largest chain counts and two destructive edits auto-apply; why_new=review found cross-chain undercounting; seam=four public edit_mind calls over three original paragraphs; no_claim=other turns or other Minds
   test("independent same-turn revisions add their original-text removals", async () => {
-    const longA = `${"a".repeat(99)}x`;
-    const longB = `${"b".repeat(99)}x`;
+    const longA = `${"alpha ".repeat(16)}x`;
+    const longB = `${"bravo ".repeat(16)}x`;
     const longC = "c".repeat(100);
     let rewrites = 0;
     const model = scriptedModel((call): ScriptedReply => {
       const passage = editPassage(call);
       if (passage !== null) {
         rewrites += 1;
-        return { text: rewrites <= 2 ? passage.replace("x", "") : "new" };
+        return {
+          text:
+            rewrites <= 2
+              ? passage.replace(" x", "")
+              : passage.replace(/\n\n(.+)$/s, "\n\n<removed>$1</removed>"),
+        };
       }
       const edits = call.results.filter((each) => each.tool === "edit_mind").length;
       if (edits < 4) {
