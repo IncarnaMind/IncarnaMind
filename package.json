@@ -49,6 +49,7 @@
     "eval:meetings": "vitest run --config eval/meetings/vitest.config.ts",
     "eval:meetings:fetch": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs eval/meetings/fetch.ts",
     "eval:meetings:score": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs eval/meetings/score.ts",
+    "eval:meetings:words": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs eval/meetings/pickWords.ts",
     "eval:speakers": "vitest run --config eval/speakers/vitest.config.ts",
     "eval:score": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON eval/score.ts",
     "nightly:real-model": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs scripts/nightlyRealModel.ts",
@@ -121,6 +122,7 @@
     "motion": "14.1.0",
     "ollama-ai-provider-v2": "4.0.1",
     "onnxruntime-node": "1.30.0",
+    "opencc-js": "1.4.2",
     "pdfjs-dist": "6.4.299",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -135,7 +137,6 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@electron/asar": "3.4.1",
-    "@fontsource-variable/source-sans-3": "5.3.0",
     "@fontsource-variable/source-serif-4": "5.3.0",
     "@fontsource/caladea": "5.3.0",
     "@fontsource/carlito": "5.3.0",

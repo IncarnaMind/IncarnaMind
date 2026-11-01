@@ -112,7 +112,7 @@ function UnreadFileRow({ file }: { file: UnreadFile }) {
             {t("unread.file.reason", {
               reason:
                 file.reason === "parts" && file.parts
-                  ? unreadPartsText(file.parts, t, true)
+                  ? unreadPartsText(file.parts, t)
                   : lockedPdf
                     ? t("unread.reason.passwordPdf")
                     : t(UNREAD_REASON_KEYS[file.reason], { extension: file.extension ?? "" }),

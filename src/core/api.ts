@@ -52,6 +52,7 @@ import type {
   AnalysisEnd,
   AnalysisLanguage,
   AnalysisOutput,
+  AnalysisRecalculation,
   AnalysisUnavailableReason,
   AnalysisValue,
   AnalysisVersions,
@@ -64,6 +65,7 @@ import type { FigureFooting } from "../shared/figureFooting";
 import type { Figure } from "../shared/figures";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
 import type { HelpKeys, MeetingHelpKind, MeetingHelpTemplate } from "../shared/meetingHelp";
+import type { ChineseScript } from "../shared/meetingWords";
 import type { MindStyle } from "../shared/mindStyle";
 import type { TagColour } from "../shared/tagColours";
 import type { Anchor, UnitKind, UnitLabel } from "../shared/units";
@@ -292,8 +294,20 @@ export interface CreateMindInput {
  *   holds the exact old words and up to two Document wordings with their
  *   Citations, which an older editor would strip. Older content is version 44
  *   content as it is.
+ * - 45: a calculated figure worked out from a workbook's own formulas keeps
+ *   `workbook` (#2347): its cell, formula chain, saved value and a what-if's
+ *   changed input, with no formula of its own. An older version's reader
+ *   refuses a figure with no formula and no Analysis, so it opens these
+ *   Notes read-only. Older content is version 45 content as it is.
+ * - 46: an Analysis figure's kept value names the rows of the input it was
+ *   worked out from (`of` on a value of the Note's Analysis records, #2346):
+ *   which rows and columns, and for `figure()` how IncarnaMind worked it out
+ *   again. An older version would keep the record again without it, so it
+ *   opens these Notes read-only.
+ *   Older content is version 46 content as it is: a figure kept before names
+ *   no rows.
  */
-export const CONTENT_SCHEMA_VERSION = 44;
+export const CONTENT_SCHEMA_VERSION = 46;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1985,7 +1999,12 @@ export type CitationCheckReason =
   /** Not checked: judging the Answer's sentences reached its own limit before this one's (#2311). */
   | "answer-limit"
   /** Not checked: judging the Answer's sentences reached the monthly cap before this one's (#2311). */
-  | "monthly-limit";
+  | "monthly-limit"
+  /**
+   * Not checked: the model that wrote the Answer runs on this computer and is too small to judge
+   * its sentences, so their check never ran (#2375).
+   */
+  | "small-model";
 
 /**
  * What to re-check a Citation with against its Document's current version
@@ -2301,6 +2320,87 @@ export interface CalculatedFigure {
   written: string | null;
   /** Given by an Analysis of the Answer, not worked out from a formula (#447). */
   analysis?: FigureFromAnalysis;
+  /** Worked out from a workbook's own formulas (#2347): its `formula` is empty. */
+  workbook?: FigureFromWorkbook;
+}
+
+/** Why a workbook's cell keeps the value the workbook saved rather than one worked out again (#2347). */
+export type WorkbookKeptReason =
+  | "volatile"
+  | "finds-cells"
+  | "function"
+  | "add-in"
+  | "data-table"
+  | "external"
+  | "table"
+  | "three-d"
+  | "unreadable"
+  | "circular"
+  | "iterative"
+  | "not-read"
+  | "array"
+  | "no-saved-value"
+  | "differs"
+  | "too-large"
+  | "too-many"
+  | "unsorted"
+  | "early-date"
+  | "criterion"
+  | "text-order"
+  | "date-text";
+
+export interface WorkbookKeptCell {
+  sheet: string;
+  /** "C5"; null for a whole sheet that wasn't read. */
+  ref: string | null;
+  reason: WorkbookKeptReason;
+  /** The function it uses (NOW, OFFSET), the sheet it reads that wasn't read, or the most formulas worked out at once. */
+  name: string | null;
+}
+
+/** A cell of a workbook as a figure's formula chain shows it (#2347). */
+export interface WorkbookFigureStep {
+  sheet: string;
+  /** "E5". */
+  ref: string;
+  /** Its row's heading and its column's, as the sheet writes them: "EBITDA 2027". */
+  label: string;
+  /** As the workbook writes it, without "=". */
+  formula: string;
+  /** As worked out, a number, text or TRUE or FALSE; null when empty. */
+  value: number | string | boolean | null;
+}
+
+/**
+ * A figure worked out from a workbook's own formulas (#2347): a cell of it, or
+ * that cell worked out again with one input changed (what-if), in memory,
+ * never in the User's file. Its inputs are the cells holding numbers that
+ * drive it, each cited to its cell.
+ */
+export interface FigureFromWorkbook {
+  /**
+   * The figure's cell, with its formula and the number it shows read as an input is, cited to
+   * the cell: a Check reads it again there.
+   */
+  cell: WorkbookFigureStep & { input: FigureInput };
+  /** The formulas it is worked out through, nearest first, its own excluded. */
+  steps: WorkbookFigureStep[];
+  /** How many formula cells were worked out for it, and its inputs past those listed. */
+  formulaCells: number;
+  moreInputs: number;
+  /** The value the workbook saved for the cell, which IncarnaMind's own result matched. */
+  saved: number;
+  /** That value as the cell shows it: "254.7". */
+  savedShown: string;
+  /** A what-if's one changed input: its name among the inputs, and the value it was given. */
+  change: { input: string; value: number; shown: string } | null;
+  /**
+   * The cells it depends on that can't be worked out here, so they and it keep the values the
+   * workbook saved, the first few; empty when every formula was worked out again.
+   */
+  kept: WorkbookKeptCell[];
+  /** The rules it was worked out by (`WORKBOOK_ENGINE_VERSION`). */
+  engine: number;
 }
 
 /** How a calculated figure's result was shown (see `showResult` in src/shared/formula.ts). */
@@ -2382,13 +2482,19 @@ export interface AnswerAnalysis {
   ranAt: string;
   /**
    * The markers the Answer writes its results with: each figure's "[=3]", and
-   * each table's and chart's number, "[=table 1]", "[=chart 1]", counted across the Answer.
+   * each table's, chart's and picture's number, "[=table 1]", "[=chart 1]",
+   * "[=picture 1]", counted across the Answer. A `figure()` figure has one only
+   * when IncarnaMind worked it out again to the same number. `pictures` is
+   * absent in an Analysis run before pictures came back (#2346).
    */
   markers: {
     figures: { result: string; marker: number }[];
     tables: { result: string; marker: number }[];
     charts: number[];
+    pictures?: number[];
   };
+  /** What IncarnaMind made of each `figure()` figure, by its result's name (ADR-0025). */
+  recalculations?: { result: string; check: AnalysisRecalculation }[];
 }
 
 /** A successful run kept once by a Note, with only the results its figures still use (ADR-0021). */
@@ -2570,6 +2676,13 @@ export interface UserSettings {
    * Mind's Style. Minds already made keep theirs.
    */
   newMindStyle: MindStyle;
+  /**
+   * Words to know (#1031): names and terms the User wants Meetings' Transcripts to get right,
+   * newest first. The transcriber on this computer is told them at each Meeting's start.
+   */
+  meetingWords: string[];
+  /** The script Transcripts write Chinese in; null follows the interface (#1031). */
+  transcriptScript: ChineseScript | null;
 }
 
 /**
@@ -2756,6 +2869,8 @@ export interface Settings {
    * (#107): `UserSettings.authorName`, or the name the computer knows them by.
    */
   author: string;
+  /** The script Transcripts write Chinese in: `UserSettings.transcriptScript`, or the interface's. */
+  chineseScript: ChineseScript;
 }
 
 export interface SettingsPatch {
@@ -5779,6 +5894,13 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "read-budget": a whole read reached the most it may spend before this part was judged, so
  *   nothing more was sent (`detail`: that most and what it had spent, as JSON of
  *   `{ most: Money; spent: Money }`).
+ * - "workbook-changed": a figure worked out from a workbook's formulas (#2347) no longer reads the
+ *   same from its cells, or no longer works out the same from them.
+ * - "workbook-differs", "-external", "-volatile", "-circular", "-not-read", "-no-saved-value" and
+ *   "-unsupported": a figure the workbook gives depends on a cell IncarnaMind can't work out (its
+ *   saved value differs from its formulas, it links to another file, it changes each time, its
+ *   formulas refer to each other, it reads a sheet or rows that weren't read, Excel saved no value
+ *   for it, or any other formula IncarnaMind can't work out), so its cell's number backs nothing.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -5799,7 +5921,15 @@ export type ClaimCheckFailure =
   | "absence-unconfirmed"
   | "kept-inside"
   | "cut-short"
-  | "read-budget";
+  | "read-budget"
+  | "workbook-changed"
+  | "workbook-differs"
+  | "workbook-external"
+  | "workbook-volatile"
+  | "workbook-circular"
+  | "workbook-not-read"
+  | "workbook-no-saved-value"
+  | "workbook-unsupported";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -9356,10 +9486,6 @@ export interface MindExportPreview {
   fromWord: boolean;
   /** Someone's changes from that Word file still waiting (#734), shown or accepted as `theirChanges` says. */
   theirChanges: number;
-  /** The files in the Mind's Search scope that couldn't be read (#740); 0 when everything in it was read. */
-  unreadFiles: number;
-  /** Whether the export names those files, or only counts them: the Mind's choice, off until the User ticks it. */
-  unreadFileNames: boolean;
   /**
    * Where the file puts its Citations, for the Saved line (#1945): footnotes or a list at the end,
    * for a Numbered Mind with Citations that Word or PDF writes. Null when nothing placed them.
@@ -12072,12 +12198,6 @@ export interface CoreApi {
     options?: SetMindCitationStyleOptions,
   ): Promise<MindCitationStyle>;
   /**
-   * Whether this Mind's exports name the files in its Search scope that couldn't be read, or only
-   * count them (#740). Off until the User ticks it in the export options; the export and its
-   * preview ask this.
-   */
-  setMindUnreadFileNames(mindId: string, names: boolean): Promise<void>;
-  /**
    * Every style the app ships but the common ones, for the picker, read from the style pack the
    * first time it is asked for.
    */
@@ -12810,7 +12930,6 @@ const methods: Record<CoreApiMethod, true> = {
   formatCitations: true,
   getMindCitationStyle: true,
   setMindCitationStyle: true,
-  setMindUnreadFileNames: true,
   listCitationStyles: true,
   openCitationStyleLicences: true,
   getMindStyle: true,

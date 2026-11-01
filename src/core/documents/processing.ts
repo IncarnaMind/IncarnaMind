@@ -61,9 +61,12 @@ import { unreadMessage } from "./unreadMessage";
  * Passage's row; see `NAME_INDEX_CURRENT_SINCE`). 16: #2110 (a PDF line break
  * beside CJK text or full-width punctuation is joined). 17: #2219 (a line the
  * page ended itself, such as a heading, keeps its break). 18: #1709 (explicit
- * deposition layouts keep their printed page and line anchors).
+ * deposition layouts keep their printed page and line anchors). 19: #1001 (a
+ * PDF's page keeps the scale its running header wrote). 20: #2347 (a
+ * workbook's rows Units keep each cell's formula beside its saved value, and
+ * its first Unit its defined names and what of it wasn't read).
  */
-export const PROCESSING_VERSION = 19;
+export const PROCESSING_VERSION = 20;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -88,6 +91,8 @@ export const PROCESSING_VERSION = 19;
  * cleanup took for running headers; other PDFs' pages come out as they were.
  * Version 19 only PDFs' as well: a page keeps the scale its running header
  * wrote ("(£'000)", "All figures in thousands") for a calculated figure (#1001).
+ * Version 20 only workbooks', whose Units gain their formulas; their text,
+ * Passages and embeddings come out as they were.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 19,
@@ -95,7 +100,7 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   markdown: 5,
   docx: 7,
   pptx: 5,
-  xlsx: 13,
+  xlsx: 20,
   csv: 5,
   web: 7,
   transcript: 7,

@@ -13,7 +13,7 @@ import {
   type RetainedFigureAnalysis,
 } from "../core/api";
 import { InvalidInputError, isRecord } from "../core/errors";
-import { ANALYSIS_LIMITS, type AnalysisVersions } from "./analysis";
+import { ANALYSIS_LIMITS, type AnalysisVersions, readFigureRows } from "./analysis";
 import type { NodeJSON } from "./blockJson";
 import {
   calculatedFigureNode,
@@ -154,6 +154,8 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
       !Number.isFinite(result.value)
     )
       return null;
+    const of = result.of === undefined ? undefined : readFigureRows(result.of);
+    if (of === null) return null;
     names.add(result.name);
     values.push({
       kind: "figure",
@@ -161,6 +163,7 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
       label: result.label,
       unit: result.unit,
       value: result.value,
+      ...(of && { of }),
     });
   }
   const versions = value.versions === null ? null : readVersions(value.versions);

@@ -111,13 +111,23 @@ export function webInstructions(offered: boolean): string {
   ].join("\n");
 }
 
+/** A workbook's own formulas, when its Tools are offered (#2347). */
+export function workbookInstructions(offered: boolean): string {
+  if (!offered) return "";
+  return [
+    "A figure in an Excel workbook is worked out by the workbook's own formulas, and its Passages show only the values Excel saved, never the formulas. So before the Answer says how a workbook's figure relates to other cells or to its assumptions, call trace_formulas for that figure, even when the rows seem to show it; when the Question changes one of the workbook's inputs, call what_if. Write the marker each gives in the Answer where its figure's number goes.",
+    "- Never work a what-if out yourself, with calculate or in words, from the values a Passage shows, and never say how a figure is worked out, or that a sheet doesn't show its formulas, without trace_formulas. When either says a formula can't be worked out, say so in the Answer.",
+  ].join("\n");
+}
+
 export function analysisInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
     "A search shows only some rows of a sheet or CSV file. For any total, count, average, share, change or join over its rows, call run_analysis: it runs your Python with pandas over every row. Never answer such a question from the rows you were shown, or say you saw only part of the sheet.",
     '- Read data only from inputs["name"]: a Passage of a sheet reads all of it (one input per sheet; a range only for part), or a number quoted from a Passage. A number a calculation uses must be an input, cited, never written in the code.',
-    "- Call step(label, df) after each change to the rows, and result(name, value, label, unit) for each figure or table the Answer uses: a number or a table, never text. For a percent figure, unit % takes a fraction: 0.081 shows 8.1%. Each run starts clean, with no clock: take a date as an input.",
-    "- In the Answer, put each [=table n] on a line of its own where the table goes, and don't write the table yourself.",
+    '- Call step(label, df) after each change to the rows. Give each sum, mean, min, max or count of an input\'s column with figure(name, df[column], how, label, unit), which IncarnaMind works out again from the cells, and each other figure or table the Answer uses with result(name, value, label, unit): a number or a table, never text. A figure a model or a test works out also names the input\'s rows it used, as of=: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, unit % takes a fraction: 0.081 shows 8.1%. Each run starts clean, with no clock: take a date as an input.',
+    "- For statistics, models and forecasts, import scipy, statsmodels or sklearn. Draw a simple series with chart(); plot with matplotlib.pyplot what chart() can't draw, such as points coloured by group, a fitted line or a distribution.",
+    "- In the Answer, put each [=table n], [=chart n] and [=picture n] on a line of its own where it goes, and don't write the table yourself.",
     "- When it stops with an error, fix the code and run it again.",
   ].join("\n");
 }

@@ -16,6 +16,7 @@ import {
   badgeMessage,
   type CitationState,
   changedSourceLines,
+  citationCheckRan,
   citationSource,
   citationState,
   needsRecheck,
@@ -95,6 +96,21 @@ useAppStore.subscribe((state) => {
   const mindId = pinnedMind();
   if (mindId !== null && !staysPinned(currentTabOf(state.layout)?.item, mindId)) unpinCitation();
 });
+
+/**
+ * The Citations the User opened while their sentence was still judged, by the source and words
+ * they quote: each ticks step 3 when its check arrives, though the card may have been drawn again
+ * meanwhile (#2375).
+ */
+const awaitingCheck = new Set<string>();
+const checkKeyOf = (attributes: Partial<CitationAttributes>) =>
+  [
+    attributes.documentId ?? "",
+    attributes.passageId ?? "",
+    attributes.pageFrom ?? "",
+    attributes.pageTo ?? "",
+    attributes.quote ?? "",
+  ].join("\u0000");
 
 /** The Answer a Citation sits in, if it does (it may have been copied into a Note). */
 function answerAround(
@@ -247,10 +263,39 @@ export function CitationView({
     );
   };
 
+  /**
+   * What every way of opening it records. A Citation whose check ran ticks step 3; one opened
+   * while its sentence is still judged is remembered here, so its result ticks when it arrives,
+   * whichever way opened it (#2375).
+   */
+  const recordStep = useCallback(() => {
+    if (citationCheckRan(state.check)) {
+      useAppStore.getState().updateGettingStarted({ citationChecked: true });
+      return;
+    }
+    if (state.check === "checking") awaitingCheck.add(checkKeyOf(attributes));
+  }, [attributes, state.check]);
+
+  // A card the User pinned records itself: at once when its check is there, and as awaiting when
+  // the sentence is still judged.
+  useEffect(() => {
+    if (pinned) recordStep();
+  }, [pinned, recordStep]);
+
+  // A check that arrives after its card was opened ticks step 3, though the card may have been
+  // drawn again meanwhile and no longer pinned. A Citation that can't be checked forgets it.
+  useEffect(() => {
+    const key = checkKeyOf(attributes);
+    if (state.check === "checking") return;
+    if (state.check === "not-checked" || state.check === "cant-check") {
+      awaitingCheck.delete(key);
+      return;
+    }
+    if (awaitingCheck.delete(key)) recordStep();
+  }, [recordStep, state.check, attributes]);
+
   const onClick = () => {
     setPinned(true);
-    // Step 3 of the steps in an empty Mind.
-    useAppStore.getState().updateGettingStarted({ citationChecked: true });
     if (groupsMerged()) return;
     if (quoteSaysSo(state.check)) openCited(true);
     // A deleted Document: the viewer shows the stored quote with "Document removed".
@@ -260,6 +305,7 @@ export function CitationView({
 
   /** What the card's Open does: the cited place, the quote washed where the check found it. */
   const openFromCard = (withQuote = quoteSaysSo(state.check)) => {
+    recordStep();
     openCited(withQuote, true);
     dismiss();
     if (!groupsMerged()) {
@@ -516,7 +562,11 @@ export function CitationView({
               onOpen={openFromCard}
               onUpdate={choices.update}
               onKeep={choices.keepOld}
-              checkAgainOf={state.check === "not-checked" ? judgedAnswer : null}
+              checkAgainOf={
+                state.check === "not-checked" && state.reason !== "small-model"
+                  ? judgedAnswer
+                  : null
+              }
               onRemove={
                 editor.isEditable
                   ? () => {
@@ -730,11 +780,13 @@ function CitationCard({
         ? t("citation.reason.answer-limit", { limit: stoppedAt.limit })
         : state.reason === "monthly-limit"
           ? t("citation.reason.monthly-limit", { cap: stoppedAt.cap })
-          : state.check === "not-checked"
-            ? t("citation.reason.notChecked")
-            : state.reason
-              ? t(`citation.reason.${state.reason}`)
-              : null;
+          : state.reason === "small-model"
+            ? t("citation.reason.small-model")
+            : state.check === "not-checked"
+              ? t("citation.reason.notChecked")
+              : state.reason
+                ? t(`citation.reason.${state.reason}`)
+                : null;
   const removed = state.reason === "document-removed";
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);

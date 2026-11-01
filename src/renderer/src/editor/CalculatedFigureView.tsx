@@ -91,7 +91,11 @@ export function CalculatedFigureView({
   };
   const copyFormula = () => {
     if (attributes)
-      void copyText(attributes.figure.formula).catch(useAppStore.getState().reportError);
+      void copyText(
+        attributes.figure.workbook
+          ? `=${attributes.figure.workbook.cell.formula}`
+          : attributes.figure.formula,
+      ).catch(useAppStore.getState().reportError);
   };
   const actions: FigureHandle = {
     id: attributes?.id ?? "",

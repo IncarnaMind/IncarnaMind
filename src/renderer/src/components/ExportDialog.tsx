@@ -418,11 +418,8 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     othersFile: boolean;
     othersComments: boolean;
     theirChanges: number;
-    unreadFiles: number;
-    unreadFileNames: boolean;
     hiddenColumns: number;
   } | null>(null);
-  const [nameUnreadFiles, setNameUnreadFiles] = useState<boolean | null>(null);
   /** This Note's own comment choice, for someone else's file (#110); null until changed here. */
   const [othersComments, setOthersComments] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
@@ -473,11 +470,8 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           othersFile: preview.othersFile,
           othersComments: preview.othersComments,
           theirChanges: preview.theirChanges,
-          unreadFiles: preview.unreadFiles,
-          unreadFileNames: preview.unreadFileNames,
           hiddenColumns: preview.hiddenColumns,
         });
-        setNameUnreadFiles((chosen) => chosen ?? preview.unreadFileNames);
       },
       (error: unknown) => useAppStore.getState().reportError(error),
     );
@@ -493,13 +487,6 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     try {
       const settings = await core.updateSettings({ user: { exportOptions: draft } });
       useAppStore.setState({ settings });
-      if (
-        nameUnreadFiles !== null &&
-        counts !== null &&
-        nameUnreadFiles !== counts.unreadFileNames
-      ) {
-        await core.setMindUnreadFileNames(mind.id, nameUnreadFiles);
-      }
       if (othersComments !== null && othersComments !== counts?.othersComments) {
         await core.setCheckComments(mind.id, othersComments);
       }
@@ -653,17 +640,6 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
             }
             onChange={(docx) => setDraft({ ...draft, docx })}
             onOthersChange={setOthersComments}
-          />
-        )}
-
-        {/* A Word round trip writes back into the imported file, which gets no unread section. */}
-        {!(format === "docx" && counts?.fromWord) && (counts?.unreadFiles ?? 0) > 0 && (
-          <SwitchRow
-            label={t("export.unreadNames")}
-            hint={t("export.unreadNames.hint")}
-            checked={nameUnreadFiles ?? false}
-            onChange={setNameUnreadFiles}
-            testId="export-unread-names"
           />
         )}
 

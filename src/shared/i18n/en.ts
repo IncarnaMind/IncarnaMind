@@ -264,6 +264,8 @@ export const en = {
   "command.palette.open": "Search…",
   "command.settings.page": "Settings: {page}",
   "command.settings.addProvider": "Add a model provider…",
+  "command.settings.meetingWords.keywords":
+    "names hotwords vocabulary transcription spelling meetings",
   "command.settings.localMode.keywords": "local offline private cloud off settings privacy",
   "palette.label": "Search",
   "palette.placeholder": "Search notes, conversations, Documents, Folders, Tags and actions…",
@@ -799,10 +801,80 @@ export const en = {
   "figures.inline.analysisNote":
     "These are the inputs and steps saved with this figure. Keeping the record doesn’t run the Analysis again.",
   "figures.inline.analysis": "Saved Analysis: {title}",
+  "figures.analysisRows.worked.one": "{how} of {label} in {count} row of {input}: {rows}",
+  "figures.analysisRows.worked.other": "{how} of {label} in {count} rows of {input}: {rows}",
+  "figures.analysisRows.how.sum": "Sum",
+  "figures.analysisRows.how.mean": "Average",
+  "figures.analysisRows.how.min": "Lowest value",
+  "figures.analysisRows.how.max": "Highest value",
+  "figures.analysisRows.how.count": "Count",
+  "figures.analysisRows.recalculated":
+    "When the Analysis ran, IncarnaMind worked this out again from these cells and got the same number.",
+  "figures.analysisRows.used.one": "Worked out from {count} row of {input}: {rows}, using {names}",
+  "figures.analysisRows.used.other":
+    "Worked out from {count} rows of {input}: {rows}, using {names}",
+  "figures.analysisRows.list.one": "row {runs}",
+  "figures.analysisRows.list.other": "rows {runs}",
+  "figures.analysisRows.separator": ", ",
   "figures.inline.code": "Show saved code",
   "figures.inline.literal": "{value}, written in the formula",
   "figures.inline.raw": "Cell’s stored value: {value}",
   "figures.inline.original": "Original input",
+  "figures.workbook.workedOut": "Worked out again from the workbook’s formulas",
+  "figures.workbook.savedValue": "The workbook’s saved value",
+  "figures.workbook.formulas": "{count} formulas worked out in all",
+  "figures.workbook.change": "Changed {input} ({cell}) from {from} to {to}",
+  "figures.workbook.inWorkbook": "In the workbook as it is: {value}",
+  "figures.workbook.whatIfFormula":
+    "What-if: {cell} = {formula}, with {input} at {to} ({from} in the workbook)",
+  "figures.workbook.whatIfInput": "Changed for the what-if",
+  "figures.workbook.whatIfLabel": "{label} (what-if: {input} at {value})",
+  "figures.workbook.moreInputs": "{count} more inputs not listed",
+  "figures.workbook.keptNote":
+    "This is the value the workbook saved: IncarnaMind couldn’t work it out again, for the reason above. Each input is cited to its cell.",
+  "figures.workbook.note":
+    "IncarnaMind worked this out again from the workbook’s own formulas, in memory: the file is unchanged. Each input is cited to its cell. This doesn’t show that the workbook’s assumptions are right.",
+  "figures.workbook.kept.volatile":
+    "{cell} uses {name}, which gives a new value each time, so its saved value is used",
+  "figures.workbook.kept.finds-cells":
+    "{cell} uses {name} to find its cells as it runs, so its saved value is used",
+  "figures.workbook.kept.function":
+    "IncarnaMind can’t work out {name} in {cell} (a macro’s, perhaps), so its saved value is used",
+  "figures.workbook.kept.add-in":
+    "{cell} uses {name}, an add-in’s function, so its saved value is used",
+  "figures.workbook.kept.data-table": "{cell} is part of a data table, so its saved value is used",
+  "figures.workbook.kept.external": "{cell} links to another workbook, so its saved value is used",
+  "figures.workbook.kept.table":
+    "{cell} refers to a table by its column names, so its saved value is used",
+  "figures.workbook.kept.three-d":
+    "{cell} reads the same cells across several sheets, so its saved value is used",
+  "figures.workbook.kept.unreadable":
+    "IncarnaMind can’t read the formula in {cell}, so its saved value is used",
+  "figures.workbook.kept.circular": "{cell} is in a circular reference, so its saved value is used",
+  "figures.workbook.kept.iterative":
+    "{cell} is in a circular reference that Excel works out by iterating, so its saved value is used",
+  "figures.workbook.kept.not-read":
+    "{cell} reads “{name}”, which wasn’t read (hidden, or past the reading limit), so its saved value is used",
+  "figures.workbook.kept.array":
+    "{cell} is an array formula over several cells, so its saved value is used",
+  "figures.workbook.kept.no-saved-value":
+    "The workbook saved no result for {cell}: perhaps it was written by a program and not opened in Excel since",
+  "figures.workbook.kept.differs":
+    "IncarnaMind’s result for {cell} differs from the value the workbook saved, so the saved value is used. The workbook may not have been recalculated since an input changed: open it in Excel and save it",
+  "figures.workbook.kept.too-many":
+    "{cell} depends on more than {name} formulas, more than IncarnaMind works out at once, so its saved value is used",
+  "figures.workbook.kept.unsorted":
+    "{cell} looks a value up approximately in a range that isn’t sorted, where Excel’s answer can’t be told, so its saved value is used",
+  "figures.workbook.kept.early-date":
+    "{cell} uses a date before 1 March 1900, where Excel counts a 29 February 1900 that never was, so its saved value is used",
+  "figures.workbook.kept.criterion":
+    "{cell} uses a condition IncarnaMind can’t read the way Excel does, such as a time, so its saved value is used",
+  "figures.workbook.kept.date-text":
+    "{cell} reads a date or time written as text, which Excel reads by the computer’s date settings, so its saved value is used",
+  "figures.workbook.kept.text-order":
+    "{cell} orders text Excel’s rules leave unclear (punctuation, letters outside A to Z, or a space against a digit), so its saved value is used",
+  "figures.workbook.kept.too-large":
+    "{cell} reads a block too large to work out here, so its saved value is used",
   "figures.card.source": "{figure}: the source gives {value} ({source})",
   "figures.inline.openInput": "Open",
   "figures.export.sheet": "Schedule",
@@ -1092,6 +1164,22 @@ export const en = {
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.read-budget": "Stopped after {spent}; this read may spend up to {most}.",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
+  "claim.reason.workbook-differs":
+    "The value Excel saved differs from what the workbook’s formulas give, so this figure can’t be checked. Open the workbook in Excel and save it.",
+  "claim.reason.workbook-external":
+    "It uses a link to another file, which IncarnaMind can’t read, so this figure can’t be checked.",
+  "claim.reason.workbook-volatile":
+    "It uses a value that changes each time the workbook is worked out, so this figure can’t be checked.",
+  "claim.reason.workbook-circular":
+    "Its formulas refer to each other, so this figure can’t be checked.",
+  "claim.reason.workbook-not-read":
+    "It uses a hidden sheet, or rows, that weren’t read, so this figure can’t be checked.",
+  "claim.reason.workbook-no-saved-value":
+    "A formula it uses has no value saved by Excel, so this figure can’t be checked.",
+  "claim.reason.workbook-unsupported":
+    "It uses a formula IncarnaMind can’t work out, so this figure can’t be checked.",
+  "claim.reason.workbook-changed":
+    "The workbook’s cells no longer give this figure. Ask again to work it out from the workbook as it is now.",
   "claim.readBudget.continue": "Continue",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
@@ -1336,6 +1424,8 @@ export const en = {
   "edit.problem.retry": "Try again",
   "edit.problem.cant-regenerate": "Can’t be made again: reject it, then edit the text with AI.",
   "edit.problem.no-table": "The AI’s table wasn’t complete, so nothing changed. Try again.",
+  "edit.problem.cut-short":
+    "The AI’s reply ran too long, so nothing changed. Select less text and try again.",
   "edit.problem.unplaced":
     "The AI marked text to remove that doesn’t match the selection word for word in one place, so nothing changed. Try again.",
   "edit.problem.late": "This edit arrived too late to apply. Accept or reject its changes.",
@@ -3747,6 +3837,8 @@ export const en = {
   "citation.reason.monthly-limit":
     "Not checked: your monthly limit of {cap} was reached before this sentence.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
+  "citation.reason.small-model":
+    "This model on this computer is too small to judge whether the quote supports the sentence.",
   "citation.where": "{document}, {location}",
   "citation.scan": "Text read from a scan",
   "citation.scan.unsure.one": "Text read from a scan · 1 word may be misread",
@@ -4106,9 +4198,6 @@ export const en = {
   "export.commentFailedChecks.hint":
     "Contradicted, Unsupported, Not found, Quote not found or Needs re-check",
   "export.commentFailedChecks.hint.others": "Comments quote your Documents and name them",
-  "export.unreadNames": "Name the files",
-  "export.unreadNames.hint":
-    "The section about what couldn’t be read lists the files by name. Off, it says how many.",
   "aiStatement.command": "Export AI use statement",
   "aiStatement.keywords": "AI use disclosure declaration thesis dissertation paper record",
   "aiStatement.title": "AI use statement: {name}",
@@ -4172,12 +4261,8 @@ export const en = {
     "Each sentence checked, cut after its first {count} words, with the latest result of its check:",
   "aiStatement.sentences.column.sentence": "Sentence",
   "aiStatement.sentences.column.checked": "Checked",
-  "aiStatement.unread.one":
-    "When these sentences were checked, 1 file they were checked against couldn’t be read, so the checks didn’t search it:",
   "aiStatement.unread.one.fullStop":
     "When these sentences were checked, 1 file they were checked against couldn’t be read, so the checks didn’t search it.",
-  "aiStatement.unread":
-    "When these sentences were checked, {count} files they were checked against couldn’t be read, so the checks didn’t search them:",
   "aiStatement.unread.fullStop":
     "When these sentences were checked, {count} files they were checked against couldn’t be read, so the checks didn’t search them.",
   "aiStatement.note":
@@ -4413,6 +4498,10 @@ export const en = {
   "export.citation.accessed": "accessed {date}",
   "export.figure.calculated": "Calculated: {formula} = {figure}.",
   "export.figure.analysis": "Calculated by the Analysis “{title}”: {figure}.",
+  "export.figure.workbook":
+    "Worked out from the workbook’s formulas ({cell} = {formula}): {figure}.",
+  "export.figure.whatIf":
+    "Worked out from the workbook’s formulas ({cell} = {formula}) with {input} changed to {value}: {figure}.",
   "export.figure.inputs": "{inputs}: {source}.",
   "export.figure.cluster": "calculated from {cluster}",
   "export.figure.cluster.note": "Calculated from {cluster}",
@@ -4546,8 +4635,6 @@ export const en = {
   "error.document.nameEmpty": "A Document’s name can’t be empty.",
   "error.document.nameTooLong": "A Document’s name can’t be longer than {max} characters.",
   "error.document.notCitedChoice": "Whether a Document is cited must be true or false.",
-  "error.mind.unreadFileNames":
-    "Whether an export names the files it couldn’t read must be true or false.",
   "error.document.fileMissing": "The Document’s file is missing.",
   "error.verify.request": "That isn’t a request to verify a document that IncarnaMind can read.",
   "error.verify.notVerifying": "This note doesn’t verify a document.",
@@ -5499,15 +5586,15 @@ export const en = {
   "examples.chip": "Example",
   "firstOpen.title": "Welcome to IncarnaMind",
   "firstOpen.step.citation.title": "Check a Citation",
-  "firstOpen.step.citation.done": "Checked a Citation",
-  "firstOpen.step.citation.body": "Click a ✓ under an Answer: it opens the quote in its file.",
+  "firstOpen.step.citation.done": "Opened a checked Citation",
+  "firstOpen.step.citation.body":
+    "Click a Citation: its card says whether its quote was checked, and its Open button shows it in the file.",
   "firstOpen.step.citation.example": "or see it on the example",
   "firstOpen.step.question.title": "Ask",
   "firstOpen.step.question.done": "Asked a question",
-  "firstOpen.step.question.body":
-    "Ask your files anything, or the question below. Every quote is checked.",
+  "firstOpen.step.question.body": "Ask your files anything, or the question below.",
   "firstOpen.step.question.ready": "Ask: “{question}”",
-  "firstOpen.step.question.own": "or press {shortcut} to type your own",
+  "firstOpen.step.question.own": "or {shortcut} to type your own",
   "firstOpen.step.question.ownOnly": "Press {shortcut} to ask your own Question.",
   "firstOpen.step.question.reading": "Reading “{document}”…",
   "firstOpen.step.question.stop": "Stop",
@@ -5523,6 +5610,9 @@ export const en = {
   "firstOpen.next.meeting": "Record a meeting",
   "firstOpen.next.export": "Export to Word",
   "firstOpen.hide": "Hide this",
+  "firstOpen.hideSteps": "Hide the getting-started steps",
+  "firstOpen.hideKeywords": "welcome steps getting started",
+  "firstOpen.hidden": "Hid the getting-started steps",
   "assistant.pill": "Ask anything",
   "sidebar.examples": "Examples",
   "sidebar.documents": "Documents",
@@ -5798,6 +5888,22 @@ export const en = {
   "meetings.settings.route": "Transcribe on",
   "meetings.settings.whatBoth": "Your microphone and the other people (the computer’s sound).",
   "meetings.settings.whatMe": "Only your microphone.",
+  "meetings.words.title": "Words to know",
+  "meetings.words.body":
+    "Names and terms that transcription on this computer writes as you do: people, companies, products. Each meeting adds the names in its note and its folder.",
+  "meetings.words.field": "Add a word to know",
+  "meetings.words.placeholder": "A name or a term",
+  "meetings.words.add": "Add",
+  "meetings.words.rename": "Rename “{word}”",
+  "meetings.words.remove": "Remove “{word}”",
+  "meetings.words.removed": "Removed “{word}” from Words to know",
+  "meetings.words.renamed": "Renamed “{from}” to “{to}”",
+  "meetings.words.known": "“{word}” is in the list already.",
+  "meetings.words.full": "The list holds {count} words. Remove one to add another.",
+  "meetings.script.title": "Chinese in transcripts",
+  "meetings.script.body": "Written in this script, whichever the speech model wrote.",
+  "meetings.script.simplified": "Simplified",
+  "meetings.script.traditional": "Traditional",
 
   "sources.title": "Find sources",
   "sources.intro":

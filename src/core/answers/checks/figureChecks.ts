@@ -3,6 +3,7 @@ import { aggregateFigureResults } from "../../../shared/figureChecks";
 import { readFigures } from "../../../shared/figures";
 import { evaluateFormula, sameNumber, showResult } from "../../../shared/formula";
 import { escapedInStrings } from "../../../shared/jsonText";
+import type { UnitText } from "../../../shared/units";
 import type {
   CalculatedFigure,
   CheckFigure,
@@ -14,8 +15,10 @@ import type {
   FigureInput,
   LimitRelation,
   UnsupportedReason,
+  WorkbookKeptReason,
 } from "../../api";
 import { isRecord } from "../../errors";
+import { figureAgain, keptReason, whatIfAgain } from "../../workbooks/trace";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
 import { agreesAtShownPrecision } from "./calculated";
 import { FIGURES, type ReadVerdict, readsAsRefusal, readVerdict } from "./prompt";
@@ -319,12 +322,70 @@ export interface FigureCheckOptions {
     citations: readonly Citation[],
     bound: readonly BoundNumber[],
   ): UnsupportedReason | null;
+  /** A cited Document version's Units, for a workbook's figure worked out again (#2347). */
+  units(citation: Citation): readonly UnitText[];
   signal: AbortSignal;
+}
+
+/**
+ * A workbook's figure checked again (#2347): its cell and its inputs read again where they are
+ * cited, and a what-if worked out again from the workbook's formulas. A figure the workbook gives
+ * is then compared with its cell, as a figure a Document states is; a what-if with its own result.
+ */
+/** Why a workbook's figure can't be checked, by why a cell it depends on keeps its saved value. */
+const KEPT_FAILURES: Partial<Record<WorkbookKeptReason, ClaimCheckFailure>> = {
+  differs: "workbook-differs",
+  external: "workbook-external",
+  volatile: "workbook-volatile",
+  circular: "workbook-circular",
+  iterative: "workbook-circular",
+  "not-read": "workbook-not-read",
+  "no-saved-value": "workbook-no-saved-value",
+};
+
+async function replayWorkbook(
+  saved: CalculatedFigure,
+  options: Pick<FigureCheckOptions, "calculations" | "units" | "signal">,
+): Promise<{ cell: FigureInput; figure: CalculatedFigure } | ClaimCheckFailure> {
+  const book = saved.workbook;
+  if (!book) return "workbook-changed";
+  const found = (input: FigureInput) => {
+    const checked = options.calculations.recheck(input);
+    return "problem" in checked || checked.input.citation.check !== "found" ? null : checked.input;
+  };
+  const cell = found(book.cell.input);
+  if (!cell || cell.number.value !== book.saved) return "workbook-changed";
+  const inputs: FigureInput[] = [];
+  for (const input of saved.inputs) {
+    const checked = found(input);
+    if (!checked) return "workbook-changed";
+    inputs.push(checked);
+  }
+  const { documentId, contentHash } = cell.citation;
+  const stored = { documentId, contentHash, units: options.units(cell.citation) };
+  const { change } = book;
+  if (change) {
+    const changed = inputs.find((input) => input.name === change.input)?.cell;
+    if (!changed) return "workbook-changed";
+    const value = await whatIfAgain(stored, book.cell, changed, change.value, options.signal);
+    if (value !== saved.value) return "workbook-changed";
+  } else {
+    // Its cell's number backs it only when every formula behind it is worked out here and gives
+    // the value Excel saved: one kept at its saved value could be stale, linked or volatile.
+    const kept = await figureAgain(stored, book.cell, options.signal);
+    if (!kept) return "workbook-changed";
+    const [first] = kept;
+    if (first) return KEPT_FAILURES[keptReason(first.problem)] ?? "workbook-unsupported";
+  }
+  return {
+    cell,
+    figure: { ...saved, inputs, workbook: { ...book, cell: { ...book.cell, input: cell } } },
+  };
 }
 
 function replay(target: CheckFigure, calculations: CalculationSession): CalculatedFigure | null {
   const saved = target.calculated?.figure;
-  if (!saved || saved.analysis || saved.inputs.length === 0) return null;
+  if (!saved || saved.analysis || saved.workbook || saved.inputs.length === 0) return null;
   const inputs: FigureInput[] = [];
   for (const input of saved.inputs) {
     const checked = calculations.recheck(input);
@@ -479,7 +540,16 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     // A saved calculation is checked by working it out again from its own inputs: a source or a
     // calculation the model names beside it would give the verdict one number and the card another.
     const replayed = target.calculated !== null && !target.calculated.figure.analysis;
-    if (replayed) {
+    const savedFigure = target.calculated?.figure;
+    if (replayed && savedFigure?.workbook) {
+      const again = await replayWorkbook(savedFigure, options);
+      if (typeof again === "string") {
+        rows.push({ ...finding(target), result: unavailable(again) });
+        continue;
+      }
+      if (savedFigure.workbook.change) calculation = again.figure;
+      else sourceInput = again.cell;
+    } else if (replayed) {
       calculation = replay(target, calculations);
       if (!calculation) {
         rows.push({ ...finding(target), result: unavailable() });
@@ -522,7 +592,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     target = framed;
     const base = {
       ...finding(target),
-      source: replayed ? null : (cited ?? sourceInput?.citation ?? null),
+      source: replayed ? (sourceInput?.citation ?? null) : (cited ?? sourceInput?.citation ?? null),
     };
     const evidence = sourceInput?.citation ?? calculation?.inputs[0]?.citation ?? null;
     const inputs = sourceInput ? [sourceInput] : (calculation?.inputs ?? []);
@@ -568,7 +638,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       continue;
     }
     const compared =
-      target.calculated && !target.calculated.figure.analysis
+      target.calculated && !target.calculated.figure.analysis && !sourceInput
         ? calculation
         : sourceInput
           ? {
