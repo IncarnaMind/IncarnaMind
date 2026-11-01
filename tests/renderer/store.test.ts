@@ -12,6 +12,7 @@ import {
   type MovedDocument,
   type WindowLayout,
 } from "../../src/core/api";
+import { saidInLine } from "../../src/renderer/src/lineNames";
 import type { Translate } from "../../src/renderer/src/objects";
 import { translate } from "../../src/shared/i18n";
 import { isFreed } from "../helpers/freed";
@@ -320,9 +321,10 @@ describe("changes the User can take back", () => {
     updatedAt: "",
   };
   let useUndo: typeof import("../../src/renderer/src/undo").useUndo;
+  let undoSettled: typeof import("../../src/renderer/src/undo").undoSettled;
 
   beforeAll(async () => {
-    ({ useUndo } = await import("../../src/renderer/src/undo"));
+    ({ useUndo, undoSettled } = await import("../../src/renderer/src/undo"));
   });
 
   beforeEach(() => {
@@ -430,6 +432,120 @@ describe("changes the User can take back", () => {
     await useUndo.getState().redo();
     expect(method("renameMind")).toHaveBeenLastCalledWith("m", "Budget");
   });
+
+  // protects=an Undo that reaches an older add of Documents says on the undo line which it took out, with Redo, in English and Chinese, and Redo brings back the very Documents it took (#2402); fails_when=the Documents leave with no line, the line has no Redo, or Redo adds them again as new ones; no_claim=how the core restores them.
+  test.each([
+    { language: "en", added: "Added 3 Documents", removed: "Removed 3 Documents", redo: "Redo" },
+    { language: "zh-CN", added: "已添加 3 个文档", removed: "已移除 3 个文档", redo: "重做" },
+  ] as const)(
+    "an Undo that reaches an older add says which Documents it took out, and its Redo brings the same ones back ($language)",
+    async ({ language, added, removed, redo }) => {
+      useAppStore.setState({ settings: { language } as never });
+      const brought = [doc("x"), doc("y"), doc("z")];
+      method("addDocuments").mockResolvedValue({
+        documents: brought,
+        skipped: [],
+        added: ["x", "y", "z"],
+      });
+      method("listDocuments").mockResolvedValue(brought);
+      await useAppStore.getState().addPaths(["/s/x.txt", "/s/y.txt", "/s/z.txt"]);
+      expect(said(top())).toBe(added);
+      expect(ids()).toEqual(["z", "y", "x", "a", "b", "c"]);
+      // A later change in the note, taken back: the next ⌘Z reaches the add.
+      useUndo.getState().push({
+        said: () => "Changed to what the Document says",
+        undo: async () => undefined,
+        redo: async () => undefined,
+      });
+      await useUndo.getState().undo();
+      await useUndo.getState().undo();
+
+      expect(method("deleteDocument").mock.calls).toEqual([["x"], ["y"], ["z"]]);
+      expect(ids()).toEqual(["a", "b", "c"]);
+      const told = useUndo.getState().line?.told;
+      expect(told && saidInLine(words, told.says).message).toBe(removed);
+      expect(told?.action?.label(words)).toBe(redo);
+
+      told?.action?.run();
+      await undoSettled();
+      expect(method("restore")).toHaveBeenCalledWith([
+        { kind: "document", id: "x" },
+        { kind: "document", id: "y" },
+        { kind: "document", id: "z" },
+      ]);
+      expect(said(useUndo.getState().line?.change)).toBe(added);
+    },
+  );
+
+  // protects=an Undo of an add that finds one of its Documents deleted since says it took out the one it did, and its Redo line says the same count (#2402); fails_when=the line counts the Documents first added, or says it removed none; no_claim=which Documents count as the add's own.
+  test("an Undo of an add that finds one of its Documents deleted since says the one it took, and Redo says the same", async () => {
+    const brought = [doc("x"), doc("y")];
+    method("addDocuments").mockResolvedValue({
+      documents: brought,
+      skipped: [],
+      added: ["x", "y"],
+    });
+    await useAppStore.getState().addPaths(["/s/x.txt", "/s/y.txt"]);
+    expect(said(top())).toBe("Added 2 Documents");
+    method("listDocuments").mockResolvedValue([doc("y")]);
+    await useUndo.getState().undo();
+    expect(method("deleteDocument").mock.calls).toEqual([["y"]]);
+    const told = useUndo.getState().line?.told;
+    expect(told && saidInLine(words, told.says).message).toBe("Removed 1 Document");
+    await useUndo.getState().redo();
+    expect(method("restore")).toHaveBeenCalledWith([{ kind: "document", id: "y" }]);
+    expect(said(useUndo.getState().line?.change)).toBe("Added 1 Document");
+  });
+
+  // protects=an add whose Documents were all deleted before its Undo leaves nothing to redo, so ⇧⌘Z never says it added them (#2402); fails_when=Redo restores nothing yet says "Added 2 Documents · Undo", or the Edit menu offers to redo it; no_claim=which Documents count as the add's own.
+  test("an add whose Documents were all deleted since: its Undo takes nothing, and leaves no Redo that says it added them", async () => {
+    const brought = [doc("x"), doc("y")];
+    method("addDocuments").mockResolvedValue({
+      documents: brought,
+      skipped: [],
+      added: ["x", "y"],
+    });
+    await useAppStore.getState().addPaths(["/s/x.txt", "/s/y.txt"]);
+    expect(said(top())).toBe("Added 2 Documents");
+    method("listDocuments").mockResolvedValue([]);
+    await useUndo.getState().undo();
+    expect(method("deleteDocument")).not.toHaveBeenCalled();
+    expect(useUndo.getState().line).toBeNull();
+    expect(useUndo.getState().undone).toEqual([]);
+    await useUndo.getState().redo();
+    expect(method("restore")).not.toHaveBeenCalled();
+    expect(useUndo.getState().line).toBeNull();
+  });
+
+  // protects=an Undo of Link a folder, whose Documents leave the Library with it, says so on the undo line with Redo, in English and Chinese (#2402); fails_when=the folder's Documents leave with no line; no_claim=how the core unlinks it.
+  test.each([
+    { language: "en", unlinked: "Unlinked “Deals”" },
+    { language: "zh-CN", unlinked: "已移除关联文件夹“Deals”" },
+  ] as const)(
+    "an Undo of Link a folder says it unlinked it, and its Redo links it again ($language)",
+    async ({ language, unlinked }) => {
+      useAppStore.setState({ settings: { language } as never });
+      const { folderLinked } = await import("../../src/renderer/src/changes");
+      const log: string[] = [];
+      useUndo.getState().push(
+        folderLinked(
+          () => "Deals",
+          async () => {
+            log.push("unlink");
+          },
+          async () => {
+            log.push("link");
+          },
+        ),
+      );
+      await useUndo.getState().undo();
+      const told = useUndo.getState().line?.told;
+      expect(told && saidInLine(words, told.says).message).toBe(unlinked);
+      told?.action?.run();
+      await undoSettled();
+      expect(log).toEqual(["unlink", "link"]);
+    },
+  );
 
   test("a delete asks nothing, says it went to Recently deleted, is undone by restoring it and done again", async () => {
     await useAppStore.getState().deleteDocuments(["a"]);
