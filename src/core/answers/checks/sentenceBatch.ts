@@ -100,7 +100,8 @@ function sentenceNumber(value: unknown): number | null {
 
 /**
  * A batch's reply, by the sentence's number from 1. A sentence it gave nothing readable for is
- * missing, and so is one it gave two verdicts for.
+ * missing, and so is one it gave two entries for; when an entry's number can't be read as a
+ * whole number, every sentence is.
  */
 export async function readBatchReply(
   reply: string,
@@ -116,7 +117,9 @@ export async function readBatchReply(
     if (!isRecord(entry)) continue;
     const { kind, verdict, roles, time, says } = entry;
     const number = sentenceNumber(entry.number);
-    if (number === null || number < 1 || number > count) continue;
+    // An entry whose sentence can't be told might be any of them: none of the batch is judged.
+    if (number === null) return new Map();
+    if (number < 1 || number > count) continue;
     if (seen.has(number)) twice.add(number);
     seen.add(number);
     if (typeof verdict !== "string" || !VERDICTS.has(verdict)) continue;

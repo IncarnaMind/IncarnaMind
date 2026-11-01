@@ -1,6 +1,7 @@
 /**
  * A batch's reply read back (#2311): each sentence's verdict by its number, and nothing for a
- * sentence the reply gave no readable verdict, or two entries, readable or not.
+ * sentence the reply gave no readable verdict, or two entries, readable or not; nothing at all when
+ * an entry's number can't be read.
  */
 import { describe, expect, test } from "vitest";
 import { readBatchReply } from "../../src/core/answers/checks/sentenceBatch";
@@ -50,6 +51,32 @@ describe("a batch's reply", () => {
 
     expect(read.has(1)).toBe(false);
     expect(read.get(2)).toMatchObject({ verdict: "supported" });
+  });
+
+  test.each(["1.0", null, "0x1"])(
+    "an entry numbered %j, which can't be read as a sentence's, leaves the whole batch unjudged",
+    async (number) => {
+      const reply = JSON.stringify({
+        sentences: [
+          { ...entry(1, "contradicted"), number },
+          entry(1, "supported"),
+          entry(2, "supported"),
+        ],
+      });
+
+      expect((await readBatchReply(reply, 2)).size).toBe(0);
+    },
+  );
+
+  test("a clean batch's entries are each judged", async () => {
+    const reply = JSON.stringify({
+      sentences: [entry(1, "supported"), { ...entry(2, "contradicted"), number: "2" }],
+    });
+
+    const read = await readBatchReply(reply, 2);
+
+    expect(read.get(1)).toMatchObject({ verdict: "supported" });
+    expect(read.get(2)).toMatchObject({ verdict: "contradicted" });
   });
 
   test("a reply in another order, with a number past the batch, maps each verdict to its sentence", async () => {
