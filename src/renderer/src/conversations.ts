@@ -299,16 +299,16 @@ export async function askInAssistant(
     applyWhatIsAsked(result.answerId);
     watchCommands(result.answerId);
     const id = result.conversation.id;
+    if (move === moves && useConversations.getState().openId !== id) {
+      // A new conversation shows only with its messages read: an Answer write arriving before
+      // them would be drawn above the Question still on its way (#1741). Each write after the
+      // read comes as an event.
+      const { messages } = await core.getConversation(id);
+      if (move === moves) useConversations.setState({ openId: id, messages });
+    }
+    // After the read, so a Stop pressed while it was on its way is not lost.
     if (useConversations.getState().stopWanted) {
       core.stopConversationAnswer({ conversationId: id, answerId: result.answerId }).catch(report);
-    }
-    if (move === moves && useConversations.getState().openId !== id) {
-      // A new conversation: its messages as they are now; each write after this comes as an event.
-      useConversations.setState({ openId: id, messages: [] });
-      const { messages } = await core.getConversation(id);
-      if (move === moves && useConversations.getState().openId === id) {
-        useConversations.setState({ messages });
-      }
     }
     return true;
   } catch (error) {
