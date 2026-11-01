@@ -14,7 +14,6 @@
  */
 
 import { WHOLE_READ } from "../../core/answers/checks/absence";
-import { namesSomething } from "../../core/answers/checks/figureMeasures";
 import {
   PRESENCE_INSTRUCTIONS,
   STRICT_PRESENCE_INSTRUCTIONS,
@@ -324,7 +323,14 @@ function figuresReply(
       unitLine: best.unitLine,
     };
     lines.set(best.quote, known);
-    return { figure, line: { quote: best.quote, marker: known.marker, unitLine: known.unitLine } };
+    // What the number measures: the quote's first word its sentence (or its cell's row) shares.
+    const named = best.quote
+      .split(/[^\p{L}]+/u)
+      .find((word) => word.length > 2 && about.toLowerCase().includes(word.toLowerCase()));
+    return {
+      figure,
+      line: { quote: best.quote, marker: known.marker, unitLine: known.unitLine, named },
+    };
   });
   if (lines.size > 0 && toolResults(prompt, "cite").length === 0) {
     return { tool: "cite", input: { citations: [...lines.values()].map((line) => line.record) } };
@@ -394,12 +400,7 @@ function figuresReply(
       verdict: "supported",
       topic: "found",
       ...judged,
-      // What the number measures, in words copied whole: a cell's row, else its sentence, and its line.
-      measure: {
-        sentence: rowOf(figure) ?? sentence,
-        quote: namesSomething(line.quote) ? line.quote : null,
-        match: "same",
-      },
+      measure: { sentence: line.named ?? sentence, quote: line.named ?? null, match: "same" },
       reading: own ? (own.kind === "scale" && unitQuote ? 2 : 1) : null,
       // A lone number's separators settle nothing in its Document: it reads as written.
       source: { citation: line.marker, position: nearest + 1, reading: 1, unitQuote },
