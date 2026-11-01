@@ -52,6 +52,7 @@ import {
   evaluateFormula,
   FORMULA_VERSION,
   type FormulaInput,
+  type FormulaLiteral,
   type FormulaProblem,
   type FormulaResult,
   formulaText,
@@ -83,6 +84,7 @@ import type {
 } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import type { Language } from "../language";
+import { WORKBOOK_TOOLS } from "../tools";
 import {
   type AnswerDocuments,
   type Matching,
@@ -309,6 +311,8 @@ interface GivenFigure {
   as: string | null;
   decimals: number | null;
   scale: string | null;
+  /** The numbers written in its formula that the model says are constants of the arithmetic, not supposed values. */
+  constants: number[];
 }
 
 const text = (value: unknown): string | null =>
@@ -377,7 +381,20 @@ function givenFigure(value: unknown): GivenFigure {
     as: text(figure.as)?.trim() || null,
     decimals: typeof figure.decimals === "number" ? figure.decimals : whole(figure.decimals),
     scale: text(figure.scale)?.trim() || null,
+    constants: givenConstants(figure.constants),
   };
+}
+
+/** Numbers as written ("12", "5%", 0.05), alone or in a list. */
+function givenConstants(value: unknown): number[] {
+  const list = Array.isArray(value) || typeof value === "string" ? givenList(value) : [value];
+  const written = list.length === 0 && typeof value === "string" ? [value] : list;
+  return written.flatMap((each) => {
+    const match = /^([-+]?(?:\d+\.?\d*|\.\d+))(%?)$/.exec((text(each) ?? "").replace(/[\s,]/g, ""));
+    if (!match) return [];
+    const number = Number(match[1]);
+    return [match[2] === "%" ? number / 100 : number];
+  });
 }
 
 /** Text as numbers are compared: full-width as half-width, no spaces. */
@@ -539,6 +556,11 @@ export interface CalculationSessionOptions {
   language: Language;
   /** A figure was recorded for a marker (again: it replaces the earlier one). */
   onRecord?(marker: number, figure: CalculatedFigure): void;
+  /**
+   * Whether a cell an input is read from takes part in its workbook's formulas, when the Answer
+   * offers `what_if` (#2372): only then is a number written in beside it refused as a what-if.
+   */
+  partOfFormulas?(citation: Citation, sheet: string, ref: string): boolean;
 }
 
 /** One Answer's calculated figures: what `calculate` takes, and the figures by marker. */
@@ -1124,6 +1146,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       return {
         problems: changes.map((change) => `${lead}: ${scaleChangeProblem(change, language)}`),
       };
+    const supposed = options.structured ? null : whatIfProblem(lead, given, reads, result.literals);
+    if (supposed) return { problems: [supposed] };
     const sum = sumOf(given.formula);
     const nameIs = (name: string, other?: string) => name.toLowerCase() === other?.toLowerCase();
     const totalValue = inputs.find((input) => nameIs(input.name, sum?.total))?.value ?? -1;
@@ -1180,6 +1204,49 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         })),
       },
     };
+  }
+
+  /**
+   * A number written into a formula beside a workbook's own figures or inputs may be a value the
+   * Question supposes for one of its inputs (#2372): worked out here, that what-if would leave out
+   * every formula between the input and the figure. 0 and 1 are the arithmetic's own; any other
+   * number passes once the model names it a constant.
+   */
+  function whatIfProblem(
+    lead: string,
+    given: GivenFigure,
+    reads: readonly ReadInput[],
+    literals: readonly FormulaLiteral[],
+  ): string | null {
+    const { partOfFormulas } = options;
+    if (!partOfFormulas) return null;
+    const written = literals.filter(
+      (literal) =>
+        literal.value !== 0 &&
+        literal.value !== 1 &&
+        !given.constants.some((constant) => sameValue(constant, literal.value)),
+    );
+    if (written.length === 0) return null;
+    const cells = reads.flatMap((read) => {
+      const sheet = read.cell?.sheet;
+      return read.cell && sheet && partOfFormulas(read.quoted.citation, sheet, read.cell.ref)
+        ? [
+            {
+              name: read.given.name,
+              at: `${sheet}!${read.cell.ref}`,
+              book: read.quoted.citation.documentName,
+            },
+          ]
+        : [];
+    });
+    const [first] = cells;
+    if (!first) return null;
+    const texts = [...new Set(written.map((literal) => literal.text))];
+    const numbers =
+      texts.length < 2 ? texts.join("") : `${texts.slice(0, -1).join(", ")} and ${texts.at(-1)}`;
+    const beside = cells.map((cell) => `${cell.name} (${cell.at})`).join(", ");
+    const one = texts.length === 1;
+    return `${lead}: ${numbers} ${one ? "is" : "are"} written into its formula beside ${beside} of ${first.book}, cells that workbook's own formulas work out or read. If ${one ? "it" : "one of them"} is a value the Question supposes for one of the workbook's inputs, this figure is a what-if, and calculate would leave out every formula between that input and the figure: call ${WORKBOOK_TOOLS.whatIf} with the figure's cell, that input and its new value instead. Only if ${one ? "it" : "each"} is a constant of the arithmetic itself (12 months in a year, say), give ${one ? "it" : "them"} as "constants" on this figure and call calculate again.`;
   }
 
   /** What the model is told a recorded figure came to: "[=1] = 20.4% (Revenue growth: $1,482.6 million ÷ $1,231.0 million − 1)". */
