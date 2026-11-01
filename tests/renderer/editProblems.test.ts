@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { ConsentRevokedError } from "../../src/core/errors";
+import { CutShortError } from "../../src/core/providers/outputLimits";
 import { classifyProviderError } from "../../src/core/providers/providerErrors";
 import { failedEdit } from "../../src/renderer/src/editProblems";
 import { providerErrorText } from "../../src/renderer/src/errors";
@@ -45,5 +46,27 @@ describe("an Edit with AI stopped by turned-off sending", () => {
     expect(problem).toMatchObject({ kind: "failed", message: "Offline." });
     if (problem.kind === "failed") problem.retry();
     expect(retried).toBe(true);
+  });
+});
+
+describe("an Edit with AI whose reply was cut off at its output limit (#2333)", () => {
+  // protects=a reply cut short gets its own line, in the interface's words in English and Chinese, saying nothing changed and what to do, with no Try again, which would meet the same limit; fails_when=it shows the core's English sentence with its token count, or offers a retry; no_claim=where the line sits.
+  test("has a line of its own in English and Chinese, and nothing to try again", () => {
+    let retried = false;
+    const problem = failedEdit(classifyProviderError(new CutShortError(1024, true)), () => {
+      retried = true;
+    });
+
+    expect(problem).toEqual({ kind: "cut-short" });
+    expect(say("en")("edit.problem.cut-short")).toBe(
+      "The AI’s reply ran too long, so nothing changed. Select less text and try again.",
+    );
+    expect(say("zh-CN")("edit.problem.cut-short")).toBe(
+      "AI 的回复太长，没有改动。请少选一些文字再试。",
+    );
+    expect(retried).toBe(false);
+    expect(failedEdit({ kind: "network", message: "Offline." }, () => undefined)).toHaveProperty(
+      "retry",
+    );
   });
 });

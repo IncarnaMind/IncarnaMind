@@ -15,6 +15,7 @@ import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import {
   noteStateOf,
   noteStateParts,
+  noteStateUnreadWords,
   readNoteState,
   unreadForCard,
 } from "../../src/renderer/src/noteState";
@@ -152,11 +153,27 @@ describe("A note's state (D266)", () => {
     });
   });
 
-  test("names only the narrow-scope unread files: a wide search's stay out of an amber state", () => {
-    expect(
-      noteStateOf(health({ checkable: 1, contradicted: [0], lookClaims: [0] }), 3)?.unread,
-    ).toBe(0);
-    expect(noteStateOf(health({ checkable: 1, toCheck: [0] }), 3)?.unread).toBe(0);
+  test("counts the card's list in an amber or Not checked state, though a wide search's stay out of the state's line", () => {
+    const words = (state: Parameters<typeof noteStateParts>[0]) =>
+      noteStateUnreadWords(state, (key, params) => translate("en", key, params), "en");
+    const parts = (state: Parameters<typeof noteStateParts>[0]) =>
+      noteStateParts(state, (key, params) => translate("en", key, params), "en");
+    // A Contradicted claim whose check searched all Documents: the card names the file, so the Saved line counts it.
+    const wide =
+      noteStateOf(health({ checkable: 1, contradicted: [0], lookClaims: [0] }), 1) ?? fail();
+    expect(wide).toMatchObject({ kind: "needs-look", unread: 1, unreadMatters: false });
+    expect(words(wide)).toBe("1 file couldn’t be read");
+    expect(parts(wide)).toEqual(["1 needs a look"]);
+    // A narrow check's file keeps the amber line's count, as before.
+    const narrow =
+      noteStateOf(health({ checkable: 1, contradicted: [0], lookClaims: [0] }), 3, 1) ?? fail();
+    expect(narrow).toMatchObject({ kind: "needs-look", unread: 1, unreadMatters: true });
+    expect(words(narrow)).toBe("1 file couldn’t be read");
+    // Not checked: the state's line says only that, and the card still names the files.
+    const unchecked = noteStateOf(health({ checkable: 1, toCheck: [0] }), 2) ?? fail();
+    expect(unchecked).toMatchObject({ kind: "not-checked", unread: 2, unreadMatters: false });
+    expect(words(unchecked)).toBe("2 files couldn’t be read");
+    expect(parts(unchecked)).toEqual(["Not checked"]);
   });
 
   test("says the words of each state in English and Chinese, the times from dates.ts", () => {
@@ -431,6 +448,38 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     doc.destroy();
   });
 
+  test("the Saved line counts what the card names for a Contradicted claim that searched all Documents, and when the Note is Not checked", () => {
+    const words = (state: Parameters<typeof noteStateUnreadWords>[0]) =>
+      noteStateUnreadWords(state, (key, params) => translate("en", key, params), "en");
+    const wide = source([
+      paragraph([
+        checked("Penguins nest on the cliffs above the harbour.", "contradicted", {
+          scope: { folderId: null, widened: true },
+        }),
+      ]),
+    ]);
+    recordCheckUnread(wide, "r1", [unreadFile("Locked.pdf")], new Set(["r1"]));
+    const contradicted = read(wide).state;
+    expect(contradicted).toMatchObject({ kind: "needs-look", unread: 1, unreadMatters: false });
+    expect(words(contradicted ?? fail())).toBe("1 file couldn’t be read");
+    expect(
+      unreadForCard(checkUnreadOf(wide, ["r1"]), [], contradicted).map((file) => file.name),
+    ).toEqual(["Locked.pdf"]);
+    wide.destroy();
+
+    const stale = source([
+      paragraph([checked("Penguins nest on the cliffs.", "not-checked", { reason: "failed" })]),
+    ]);
+    recordCheckUnread(stale, "r1", [unreadFile("Locked.pdf")], new Set(["r1"]));
+    const unchecked = read(stale).state;
+    expect(unchecked).toMatchObject({ kind: "not-checked", unread: 1, unreadMatters: false });
+    expect(words(unchecked ?? fail())).toBe("1 file couldn’t be read");
+    expect(
+      unreadForCard(checkUnreadOf(stale, ["r1"]), [], unchecked).map((file) => file.name),
+    ).toEqual(["Locked.pdf"]);
+    stale.destroy();
+  });
+
   test("a file only a wide search couldn't read stays out of the amber card line; the Folder claim's own names only itself (D266)", () => {
     const doc = source([
       paragraph([
@@ -562,6 +611,23 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     const { state } = read(doc);
     expect(state).toMatchObject({ kind: "checked", unread: 1, unreadMatters: false });
     doc.destroy();
+  });
+
+  test("the Saved line's words for unread files are singular, plural, and nothing when none", () => {
+    const checked = (unread: number) =>
+      noteStateOf(health({ checkable: 2, supported: 2, checkedAt: CHECKED_AT }), unread);
+    const words = (language: "en" | "zh-CN", unread: number) =>
+      noteStateUnreadWords(
+        checked(unread) ?? fail(),
+        (key, params) => translate(language, key, params),
+        language,
+      );
+    expect(words("en", 1)).toBe("1 file couldn’t be read");
+    expect(words("en", 3)).toBe("3 files couldn’t be read");
+    expect(words("zh-CN", 1)).toBe("1 个文件未能读取");
+    expect(words("zh-CN", 3)).toBe("3 个文件未能读取");
+    expect(words("en", 0)).toBeNull();
+    expect(words("zh-CN", 0)).toBeNull();
   });
 
   test("names the Answers its live Blocks hold, not one whose Block was deleted since", () => {

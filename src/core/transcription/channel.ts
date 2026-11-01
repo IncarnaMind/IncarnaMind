@@ -5,12 +5,13 @@
  * (src/main/transcriber.ts); the evaluation and the tests run it in this one.
  *
  * Requests: { type: "load", id, model }, { type: "open", stream, cloud },
- * { type: "audio", stream, samples }, { type: "finish", id, stream } and
- * { type: "drop", stream }. The other end answers a load or a finish with
- * { type: "done", id } or { type: "error", id, message }, and reports
- * { type: "segment", segment }, { type: "progress", stream, doneMs },
- * { type: "failed", stream, message }, { type: "switched", change },
- * { type: "lost", stream, loss } and { type: "opened", stream } as they happen.
+ * { type: "words", stream, words }, { type: "audio", stream, samples },
+ * { type: "finish", id, stream } and { type: "drop", stream }. The other end
+ * answers a load or a finish with { type: "done", id } or { type: "error", id,
+ * message }, and reports { type: "segment", segment }, { type: "progress",
+ * stream, doneMs }, { type: "failed", stream, message }, { type: "switched",
+ * change }, { type: "lost", stream, loss } and { type: "opened", stream } as
+ * they happen.
  *
  * A stream opened with a cloud service (#141) goes to it instead of the engine, from the same
  * process: OpenAI's live model needs Silero VAD, which runs here.
@@ -40,6 +41,7 @@ import {
 export type TranscriberRequest =
   | { type: "load"; id: number; model: TranscriptionModelFiles }
   | { type: "open"; stream: string; cloud: CloudStream }
+  | { type: "words"; stream: string; words: readonly string[] }
   | { type: "audio"; stream: string; samples: Int16Array }
   | { type: "finish"; id: number; stream: string }
   | { type: "drop"; stream: string };
@@ -161,6 +163,11 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
       channel ??= open();
       clouds.add(stream);
       channel.send({ type: "open", stream, cloud });
+    },
+
+    words(stream, words) {
+      if (!channel || loadedKey === undefined || clouds.has(stream)) return;
+      channel.send({ type: "words", stream, words });
     },
 
     push(stream, samples) {
@@ -315,6 +322,9 @@ export function serveTranscriber(
             port.respond({ type: "error", id: request.id, message: messageOf(error) });
           }
         });
+        return;
+      case "words":
+        void ready.then(() => host?.words(request.stream, request.words));
         return;
       case "audio":
         void ready.then(() => host?.push(request.stream, toFloat(request.samples)));
