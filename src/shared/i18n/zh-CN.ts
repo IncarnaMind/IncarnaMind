@@ -944,6 +944,12 @@ export const zhCN = {
   "claim.useFigure.command": "改为计算得出的数字",
   "claim.useFigure.done": "已改为 {figure}",
   "claim.useFigure.moved": "未做修改：这句话不在核对标记的位置了。请重新核对。",
+  "claim.correction": "改为 {wording}",
+  "claim.correction.command": "改为文档的说法",
+  "claim.correction.doneMany": "已按文档更正 {count} 处",
+  "claim.correction.badge": "按文档更正 {count} 处",
+  "claim.correction.conflict":
+    "较新的“{newerDocument}”写的是 {newerWording}；“{olderDocument}”写的是 {olderWording}。",
   "claim.unsupported.notFound": "未在“{scope}”中找到。",
   "claim.unsupported.notFound.more": "未在“{scope}”等 {total} 项中找到。",
   "claim.readAll.notFound": "我已通读“{scope}”，没有找到。",
