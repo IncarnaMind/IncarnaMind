@@ -97,6 +97,62 @@ describe("Migrations", () => {
     db.close();
   });
 
+  test("the preset Invoice Tag gets its new description only where it is still as seeded, a Linked folder already there counts as scanned, and running it again changes nothing (#2308)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 121),
+    );
+    const at = "2026-10-29T09:00:00.000Z";
+    const seeded = [
+      [
+        "00000000-0000-4000-8000-000000000001",
+        "Invoice",
+        "A bill or receipt that asks for or confirms a payment, with items, amounts and dates.",
+      ],
+      [
+        "00000000-0000-4000-8000-000000000002",
+        "发票",
+        "要求或确认付款的账单或收据，列有项目、金额和日期。",
+      ],
+      ["00000000-0000-4000-8000-000000000003", "Invoice", "Supplier bills for the shop."],
+    ];
+    for (const [id, name, description] of seeded) {
+      db.run(
+        "INSERT INTO tags (id, name, description, preset, created_at, updated_at) VALUES (?, ?, ?, 'invoice', ?, ?)",
+        [id ?? "", name ?? "", description ?? "", at, at],
+      );
+    }
+    db.run(
+      "INSERT INTO linked_folders (id, path, created_at, updated_at) VALUES (?, '/Users/a/Reports', ?, ?)",
+      ["00000000-0000-4000-8000-000000000004", at, at],
+    );
+    const descriptions = () =>
+      db
+        .all<{ description: string }>("SELECT description FROM tags ORDER BY id")
+        .map((row) => row.description);
+    const baselines = () =>
+      db
+        .all<{ linked_folder_id: string }>(
+          "SELECT linked_folder_id FROM linked_folder_baselines WHERE deleted_at IS NULL",
+        )
+        .map((row) => row.linked_folder_id);
+
+    migrate(db, migrations);
+    const after = descriptions();
+    expect(baselines()).toEqual(["00000000-0000-4000-8000-000000000004"]);
+    db.exec(migrations.find((migration) => migration.version === 121)?.sql ?? "");
+    expect(baselines()).toEqual(["00000000-0000-4000-8000-000000000004"]);
+
+    expect(after).toEqual([
+      "A bill or receipt that asks for or confirms payment for goods or services supplied, with items, amounts and dates. Not a quote, an estimate, a price list, an order, a registration, or a donation or gift receipt, for which nothing is supplied.",
+      "就已提供的商品或服务要求或确认付款的账单或收据，列有项目、金额和日期。报价单、估价、价目表、订单、报名表，以及没有提供商品或服务的捐赠或赠与收据，都不算。",
+      "Supplier bills for the shop.",
+    ]);
+    expect(descriptions()).toEqual(after);
+    db.close();
+  });
+
   test("a Meeting recorded before keeps its Transcript Document, found where IncarnaMind keeps it (#1253)", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "test.db"));
     migrate(

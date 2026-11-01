@@ -35,6 +35,7 @@ import {
   linkAndProcess,
   writeSourceFile,
 } from "../helpers/documents";
+import { startFakeJev } from "../helpers/jev";
 import { scriptedModels } from "../helpers/models";
 import { taggingModel, tagNamed, tagNamesOf, waitForTagging } from "../helpers/tags";
 
@@ -432,9 +433,29 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
     expect(tagging.requests).toHaveLength(1);
   });
 
-  test("with no Tags to choose from, no model is asked and the Document is checked once a Tag exists", async () => {
-    const { core, tagging } = await startTagging(["Paper"]);
+  test("with no Tags to choose from, the chat model names one from what the Document says", async () => {
+    const { core, tagging } = await startTagging([]);
+    tagging.name([{ name: "Attention", description: "Attention in neural networks." }]);
     await core.saveChatProvider(LOCAL);
+    for (const tag of await core.listTags()) await core.deleteTag(tag.id);
+
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    const [tagged] = await waitForTagging(core, [document.id]);
+
+    expect(tagged?.tagging).toBe("tagged");
+    expect(await tagNamesOf(core, document.id)).toEqual(["Attention"]);
+    expect(tagging.requests[0]?.text).toContain("Tags: none yet.");
+    expect(names(await core.listTags())).toEqual(["Attention"]);
+  });
+
+  test("with no Tags to choose from, a decision model is skipped and the Document is checked once a Tag exists", async () => {
+    const jev = await startFakeJev({ apiKey: "ollama" });
+    jev.answer({ Paper: 0.9 });
+    const { core } = await startTagging([]);
+    await core.saveLibrarySettings({
+      classifier: { kind: "ollama", baseUrl: jev.url, modelId: "tev1:4b" },
+      automatic: true,
+    });
     for (const tag of await core.listTags()) await core.deleteTag(tag.id);
 
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
@@ -443,43 +464,26 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
       [document.id],
       (each) => each.tagging === "no-tags",
     );
-
     expect(waiting).toMatchObject({ status: "ready", tags: [] });
-    expect(tagging.requests).toEqual([]);
+    expect(jev.requests).toEqual([]);
 
     await core.createTag({ name: "Paper", description: "A research paper." });
     const [tagged] = await waitForTagging(core, [document.id]);
 
     expect(tagged?.tagging).toBe("tagged");
     expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
-    expect(tagging.requests).toHaveLength(1);
-  });
-
-  test("while Organize files new Documents by itself, a Document the tagger checked with no Tags is checked once a Tag exists", async () => {
-    const { core } = await startTagging(["Paper"]);
-    const provider = await core.saveChatProvider(LOCAL);
-    const classifier = {
-      kind: "chat",
-      choice: { providerId: provider.id, modelId: "local-model" },
-    } as const;
-    await core.saveLibrarySettings({ classifier, automatic: true });
-    for (const tag of await core.listTags()) await core.deleteTag(tag.id);
-    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
-    await waitForTagging(core, [document.id], (each) => each.tagging === "no-tags");
-
-    // With a Folder, Organize files new Documents by itself and takes them over.
-    await core.createLibraryGroup({ name: "Papers", description: "Research papers" });
-    await core.createTag({ name: "Paper", description: "A research paper." });
-    const [tagged] = await waitForTagging(core, [document.id]);
-
-    expect(tagged?.tagging).toBe("tagged");
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(jev.requests).toHaveLength(1);
   });
 
   test("a Document still waiting for a Tag when the app quits is checked at the next start, if a Tag exists by then", async () => {
+    const jev = await startFakeJev({ apiKey: "ollama" });
+    jev.answer({ Paper: 0.9 });
     const dataDir = await createTempDataFolder();
-    const first = await startTagging(["Paper"], dataDir);
-    await first.core.saveChatProvider(LOCAL);
+    const first = await startTagging([], dataDir);
+    await first.core.saveLibrarySettings({
+      classifier: { kind: "ollama", baseUrl: jev.url, modelId: "tev1:4b" },
+      automatic: true,
+    });
     for (const tag of await first.core.listTags()) await first.core.deleteTag(tag.id);
     const document = await addDocument(first.core, "Attention.md", PAPER_TEXT);
     await waitForTagging(first.core, [document.id], (each) => each.tagging === "no-tags");
@@ -495,7 +499,7 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
       db.close();
     }
 
-    const second = await startTagging(["Paper"], dataDir);
+    const second = await startTagging([], dataDir);
     const [tagged] = await waitForTagging(second.core, [document.id]);
 
     expect(tagged?.tagging).toBe("tagged");
@@ -679,7 +683,7 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
     ]);
   });
 
-  test("a declined tagging flow sends nothing, until choosing the model again replaces the decline", async () => {
+  test("a declined tagging flow sends nothing, until choosing the model again replaces the decline for new Documents", async () => {
     const dataDir = await createTempDataFolder();
     const { core, tagging } = await startTagging(["Paper"], dataDir);
     const provider = await core.saveChatProvider(OPENAI);
@@ -706,8 +710,13 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
     await core.saveLibrarySettings({
       classifier: { kind: "chat", choice: { providerId: provider.id, modelId: OPENAI.modelId } },
       automatic: true,
+      turnOn: true,
     });
-    await waitForTagging(core, [document.id]);
+    // The Document waiting from before isn't sent by the choice: only new ones are (#2308).
+    await waitForTagging(core, [document.id], (each) => each.tagging === "off");
+    expect(tagging.requests).toEqual([]);
+    const next = await addDocument(core, "Report.md", PAPER_TEXT);
+    await waitForTagging(core, [next.id]);
     expect(tagging.requests).toHaveLength(1);
     expect(await core.listDataFlows()).toContainEqual(
       expect.objectContaining({

@@ -16,6 +16,7 @@ import type { Language } from "../language";
 import type { Database } from "../storage";
 import type { TagDecision } from "./classify";
 import { PRESET_TAGS } from "./presets";
+import { NEW_TAG_LIMIT, type NewTag, tagKey } from "./suggest";
 
 const MAX_NAME_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 500;
@@ -195,6 +196,54 @@ export function createTags(db: Database, now: () => string) {
       ],
     );
 
+  const insertTag = (name: string, description: string, colour: TagColour, at: string) => {
+    const id = randomUUID();
+    db.run(
+      `INSERT INTO tags (id, name, description, preset, colour, created_at, updated_at)
+       VALUES (?, ?, ?, NULL, ?, ?, ?)`,
+      [id, name, description, colour, at, at],
+    );
+    return id;
+  };
+
+  /**
+   * The ids of the Tags these new ones are: a live Tag of the same name (see `tagKey`), or one
+   * made for it. None is made under the name of a Tag the User deleted, nor past `NEW_TAG_LIMIT`.
+   */
+  const tagsNamed = (newTags: readonly NewTag[], at: string) => {
+    const live = list();
+    const deleted = new Set(
+      db
+        .all<{ name: string }>("SELECT name FROM tags WHERE deleted_at IS NOT NULL")
+        .map((row) => tagKey(row.name)),
+    );
+    const ids: string[] = [];
+    let made = 0;
+    for (const tag of newTags) {
+      const key = tagKey(tag.name);
+      const same = live.find((each) => tagKey(each.name) === key);
+      if (same) {
+        ids.push(same.id);
+        continue;
+      }
+      if (deleted.has(key) || live.length >= NEW_TAG_LIMIT) continue;
+      const colour = nextTagColour(live.map((each) => each.colour));
+      const id = insertTag(tag.name, tag.description, colour, at);
+      live.push({
+        id,
+        name: tag.name,
+        description: tag.description,
+        preset: false,
+        colour,
+        createdAt: at,
+        updatedAt: at,
+      });
+      ids.push(id);
+      made++;
+    }
+    return { ids, made };
+  };
+
   return {
     get,
     list,
@@ -228,14 +277,9 @@ export function createTags(db: Database, now: () => string) {
       const chosen = input.colour === undefined ? null : parseColour(input.colour);
       return db.transaction(() => {
         checkUnique(name);
-        const id = randomUUID();
         const at = now();
         const colour = chosen ?? nextTagColour(list().map((tag) => tag.colour));
-        db.run(
-          `INSERT INTO tags (id, name, description, preset, colour, created_at, updated_at)
-           VALUES (?, ?, ?, NULL, ?, ?, ?)`,
-          [id, name, description, colour, at, at],
-        );
+        const id = insertTag(name, description, colour, at);
         return { id, name, description, preset: false, colour, createdAt: at, updatedAt: at };
       });
     },
@@ -503,14 +547,21 @@ export function createTags(db: Database, now: () => string) {
     },
 
     /**
-     * Sets a Document's automatic Tags to those in `decisions`: automatic
-     * links not decided on are taken off, decided Tags not on it are added,
-     * and those kept take the new confidence and review mark. Tags the User
-     * added or removed on the Document, and deleted Tags, are left alone.
-     * Returns whether the Document's Tags changed. Run it in the caller's transaction.
+     * Sets a Document's automatic Tags to those in `decisions` and `newTags`: automatic
+     * links not decided on are taken off, decided Tags not on it are added, and those kept
+     * take the new confidence and review mark. A new Tag is the live Tag of its name, or is
+     * made (see `tagsNamed`). Tags the User added or removed on the Document, and deleted
+     * Tags, are left alone. Returns whether the Document's Tags changed and how many Tags
+     * were made. Run it in the caller's transaction.
      */
-    applyAutomatic(documentId: string, decisions: readonly TagDecision[]): boolean {
+    applyAutomatic(
+      documentId: string,
+      decisions: readonly TagDecision[],
+      newTags: readonly NewTag[] = [],
+    ): { changed: boolean; made: number } {
       return db.transaction(() => {
+        const at = now();
+        const named = tagsNamed(newTags, at);
         const owned = new Set(
           db
             .all<{ tag_id: string }>(
@@ -521,7 +572,10 @@ export function createTags(db: Database, now: () => string) {
         );
         const live = new Set(list().map((tag) => tag.id));
         const wanted = new Map(
-          decisions
+          [
+            ...decisions,
+            ...named.ids.map((tagId) => ({ tagId, confidence: null, needsReview: false })),
+          ]
             .filter((decision) => live.has(decision.tagId) && !owned.has(decision.tagId))
             .map((decision) => [decision.tagId, decision]),
         );
@@ -530,7 +584,6 @@ export function createTags(db: Database, now: () => string) {
            WHERE document_id = ? AND deleted_at IS NULL AND source = 'automatic'`,
           [documentId],
         );
-        const at = now();
         let changed = false;
         for (const link of links) {
           const decision = wanted.get(link.tag_id);
@@ -559,7 +612,7 @@ export function createTags(db: Database, now: () => string) {
           insertLink(documentId, tagId, "automatic", at, null, decision);
           changed = true;
         }
-        return changed;
+        return { changed, made: named.made };
       });
     },
   };

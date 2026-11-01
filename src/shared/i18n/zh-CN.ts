@@ -33,6 +33,11 @@ export const zhCN = {
   "library.organize.setUp": "在这台电脑上设置模型",
   "library.organize.done.one": "已为 1 个文档推荐文件夹",
   "library.organize.done": "已为 {count} 个文档推荐文件夹",
+  "library.organize.doneFolders": "已为 {count} 个文档推荐文件夹",
+  "library.organize.noneFit": "未能为这些文档推荐文件夹",
+  "library.organize.reading": "正在读取文档内容…",
+  "library.organize": "整理不在文件夹中的文档",
+  "library.organize.keywords": "zhengli 整理 文件夹 标签 归类 推荐",
   "library.review.title": "待确认",
   "library.review.summary": "已整理 {count} 个文档：{parts}",
   "library.review.summary.one": "已整理 1 个文档：{parts}",
@@ -170,8 +175,6 @@ export const zhCN = {
   "library.automaticOff.turnOn": "在设置中开启",
   "library.automaticOff.dismiss": "知道了",
   "tagging.automatic.switch": "自动为新文档打标签并整理",
-  "tagging.automatic.sends":
-    "会把每个新文档的名称和开头的段落，以及你的文件夹和标签名称，发送给 {service}。",
   "tagging.automatic.local": "在这台电脑上运行。",
   "library.preset.research": "研究论文",
   "library.preset.research.description": "学术论文、实验和研究方法。",
@@ -1123,6 +1126,8 @@ export const zhCN = {
   "claim.reason.local-mode": "未核对：所有内容都留在这台电脑上。",
   "claim.reason.absence-read-limit": "说某样东西不存在的句子，需要通读文档才能核对。",
   "claim.reason.absence-unconfirmed": "不显示结论：模型给出的引文并没有写到这句话说不存在的内容。",
+  "claim.reason.absence-other-document":
+    "不显示结论：模型给出的引文出自另一份文档，不是这句话所说的那份。",
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
   "claim.reason.read-budget": "已花 {spent} 后停止，这次读取最多可花 {most}。",
   "claim.reason.read-budget.unknown": "已停止：已达到这次读取最多可花的费用。",
@@ -2432,7 +2437,14 @@ export const zhCN = {
   "models.sorting.chat": "用你的 AI 模型",
   "setup.sorting.uses": "标签、文件夹和会议提示都使用这个模型",
   "setup.sorting.here": "标签、文件夹和会议提示都在本机运行 · 免费 · 不离开这台电脑",
-  "setup.sorting.sends": "文档名称和摘录，以及文件夹和标签的名称与描述，会发送给 {service}",
+  "setup.sorting.sends":
+    "选择后会自动为新文档打标签，包括关联文件夹中的新文档：每个文档的名称、类型和开头的一段摘录（约 1,500 token），以及你的标签和文件夹的名称及描述，会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
+  "setup.sorting.sendsWhenOn":
+    "开启自动给新文档打标签后，每个新文档（包括关联文件夹中的新文档）的名称、类型和开头的一段摘录（约 1,500 token），以及你的标签和文件夹的名称及描述，会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
+  "models.sorting.off": "自动给新文档打标签已关闭",
+  "models.sorting.turnOn": "开启…",
+  "command.tagging.turnOn": "开启自动给新文档打标签…",
+  "command.tagging.turnOn.keywords": "zidong dabiaoqian 自动打标签 标签 开启 设置",
   "setup.sorting.chat": "标签和文件夹使用 {model}",
   "setup.sorting.chatHere": "标签和文件夹在本机使用 {model} · 不会离开这台电脑",
   "setup.sorting.chat.hints": "选择分类模型前，会议提示不会开启",
@@ -4845,6 +4857,8 @@ export const zhCN = {
   "error.library.noClassifier": "先选择分类模型。",
   "error.library.flow": "这不是打标签、整理或页面图片的数据流。",
   "error.library.noFolders": "先新建或选择文件夹。",
+  "error.library.cantPropose":
+    "整理所用的模型只能把文档放进已有的文件夹，无法为文件夹命名。先新建文件夹，或为整理选择 AI 模型。",
   "error.library.scanImagesOff":
     "这份扫描件没有文字，页面图片不会发送给 {service}。允许后才能整理。",
   "scan.images.allow": "允许发送页面图片",

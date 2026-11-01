@@ -14,6 +14,10 @@
  */
 
 import { WHOLE_READ } from "../../core/answers/checks/absence";
+import {
+  PRESENCE_INSTRUCTIONS,
+  STRICT_PRESENCE_INSTRUCTIONS,
+} from "../../core/answers/checks/prompt";
 import { SEARCH_AGAIN } from "../../core/answers/checks/searchAgain";
 import { SENTENCE_BATCH_INSTRUCTIONS } from "../../core/answers/checks/sentenceBatch";
 import { readFigures } from "../../shared/figures";
@@ -78,6 +82,8 @@ export const PARTLY_UNCITED = [
 
 export const ABSENCE_WORDS = /(?:has no|never|没有|从未)/i;
 
+const BREAK_CLAUSE = "Either party may end this lease with 30 days' notice.";
+
 /**
  * A batch of an Answer's sentences (#2311): each supported by what it cites, as the scripted
  * Answers keep to their quotes, but one that says more than its quote (`BEYOND_ITS_QUOTE`).
@@ -125,11 +131,19 @@ export function fakeAbsence(options: GenerateOptions): string | null {
         {
           marker: 1,
           passage: /id="([^"]+)"/.exec(prompt)?.[1],
-          quote: "Either party may end this lease with 30 days' notice.",
+          quote: BREAK_CLAUSE,
         },
       ],
     }),
   });
+}
+
+/** Each look at a whole read's quote (#1554, #1443) finds the clause the whole read quoted there. */
+export function fakePresence(options: GenerateOptions): string | null {
+  const system = systemOf(options.prompt);
+  if (system !== PRESENCE_INSTRUCTIONS && system !== STRICT_PRESENCE_INSTRUCTIONS) return null;
+  const quote = /<quote[^>]*>\n([\s\S]*?)\n<\/quote>/.exec(lastUserText(options.prompt))?.[1];
+  return `Judgement: ${quote === BREAK_CLAUSE ? "there" : "not"}`;
 }
 
 const absenceLine = (sentence: string) => `Absence: ${ABSENCE_WORDS.test(sentence) ? "yes" : "no"}`;
