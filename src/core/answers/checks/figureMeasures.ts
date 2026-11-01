@@ -41,16 +41,16 @@ const wordsOf = (text: string): string[] =>
     .toLowerCase()
     .match(/\p{Script=Han}|(?:(?!\p{Script=Han})[\p{L}\p{N}\p{M}])+/gu) ?? [];
 
-/** Whether `text` holds `words`, word for word. */
-function holds(text: string, words: string): boolean {
-  const all = wordsOf(text);
-  const part = wordsOf(words);
+/** Whether `all` holds `part`, word for word. */
+function inOrder(all: readonly string[], part: readonly string[]): boolean {
   if (part.length === 0) return false;
   for (let at = 0; at + part.length <= all.length; at++) {
     if (part.every((word, index) => all[at + index] === word)) return true;
   }
   return false;
 }
+
+const holds = (text: string, words: string): boolean => inOrder(wordsOf(text), wordsOf(words));
 
 /** `text` with its figures and stated units taken out: what is left says what they are. */
 function withoutNumbers(text: string): string {
@@ -67,11 +67,13 @@ function withoutNumbers(text: string): string {
 export const namesSomething = (text: string): boolean => /\p{L}/u.test(withoutNumbers(text));
 
 /**
- * Whether `text` holds the measure's `words`, numbers left out of both: Claude Haiku 5.5 named
- * "employed drivers" for "employed 1,840 drivers", and "drove 96 million kilometres" for it too.
+ * Whether `text` holds the measure's `words`, their digits left out of both: Claude Haiku 5.5 named
+ * "employed drivers" for "employed 1,840 drivers", and "kilometres" for "96 million kilometres".
  */
-const namedIn = (text: string, words: string): boolean =>
-  holds(withoutNumbers(text), withoutNumbers(words));
+const namedIn = (text: string, words: string): boolean => {
+  const named = (each: string) => wordsOf(each).filter((word) => !/^\p{N}+$/u.test(word));
+  return inOrder(named(text), named(words));
+};
 
 /** A table's row as text: its cells apart by tabs or bars. */
 const isRow = (line: string): boolean => line.includes("\t") || /\S\s*\|\s*\S/.test(line);
