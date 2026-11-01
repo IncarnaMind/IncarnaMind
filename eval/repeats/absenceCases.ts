@@ -14,8 +14,13 @@ export interface AbsenceSentence {
   text: string;
   /** The Document it names, by file. */
   document: string;
-  /** "holds": the Document never mentions it; "there": the Document has it; "fact": no absence at all. */
-  kind: "holds" | "there" | "fact";
+  /**
+   * "holds": the Document never mentions it; "there": the Document has it; "fact": no absence at
+   * all; "elsewhere": the Document never mentions it, but `other`, checked with it, does.
+   */
+  kind: "holds" | "there" | "fact" | "elsewhere";
+  /** For "elsewhere": the other Document of the scope, by file, which has the thing. */
+  other?: string;
   /** For "there" and "fact": words of the clause that states it, as the Document writes them. */
   clause?: string;
 }
@@ -316,6 +321,27 @@ export const ABSENCE_SENTENCES: Record<AbsenceLanguage, readonly AbsenceSentence
       clause: "free from defects for 12 months",
       text: "Brightline warrants the motors for 12 months from delivery.",
     },
+    {
+      key: "pets-elsewhere",
+      kind: "elsewhere",
+      document: SUPPLY,
+      other: LEASE,
+      text: "The Brightline supply agreement says nothing about pets.",
+    },
+    {
+      key: "warranty-elsewhere",
+      kind: "elsewhere",
+      document: REPORT,
+      other: SUPPLY,
+      text: "Corvid Labs' 2026 annual report gives no warranty on any product.",
+    },
+    {
+      key: "force-majeure-elsewhere",
+      kind: "elsewhere",
+      document: LEASE,
+      other: SUPPLY,
+      text: "The Willow Street lease has no force majeure clause.",
+    },
   ],
   "zh-CN": [
     {
@@ -409,6 +435,27 @@ export const ABSENCE_SENTENCES: Record<AbsenceLanguage, readonly AbsenceSentence
       document: SUPPLY_ZH,
       clause: "自交货之日起 12 个月内无质量缺陷",
       text: "明线元件对伺服电机提供自交货起 12 个月的质保。",
+    },
+    {
+      key: "pets-elsewhere",
+      kind: "elsewhere",
+      document: SUPPLY_ZH,
+      other: LEASE_ZH,
+      text: "明线元件供货合同对养宠物只字未提。",
+    },
+    {
+      key: "warranty-elsewhere",
+      kind: "elsewhere",
+      document: REPORT_ZH,
+      other: SUPPLY_ZH,
+      text: "鸦岭科技 2026 年年报没有提到任何产品质保。",
+    },
+    {
+      key: "force-majeure-elsewhere",
+      kind: "elsewhere",
+      document: LEASE_ZH,
+      other: SUPPLY_ZH,
+      text: "柳巷住房租赁合同没有不可抗力条款。",
     },
   ],
 };

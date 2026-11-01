@@ -34,7 +34,7 @@ const spentOf = async (core: Core) => dollarsOf((await core.getCostSummary()).sp
 interface AbsenceRow {
   model: string;
   language: AbsenceLanguage;
-  scope: "document" | "library";
+  scope: "document" | "library" | "pair";
   repeat: number;
   key: string;
   kind: AbsenceSentence["kind"];
@@ -54,6 +54,9 @@ const squeezed = (text: string) => text.replace(/\s+/g, "");
 /** What a row's result is, against what its sentence is. */
 function judged(row: AbsenceRow): "right" | "wrong" | "not-checked" {
   if (row.verdict === "not-checked") return "not-checked";
+  // A quote from the other Document can never contradict a sentence about this one (#1443).
+  if (row.kind === "elsewhere")
+    return row.verdict === "supported" && row.read.length > 0 ? "right" : "wrong";
   if (row.kind === "holds")
     return row.verdict === "supported" && row.read.length > 0 ? "right" : "wrong";
   if (row.kind === "there")
@@ -92,6 +95,15 @@ function report(rows: readonly AbsenceRow[], commit: string): string {
         "right",
       )} of ${group.filter((row) => row.kind === "there").length}; not checked ${count(
         group.filter((row) => row.kind === "there"),
+        "not-checked",
+      )}`,
+      `- Absent from the Document named, there in the other one checked with it: Contradicted ${
+        group.filter((row) => row.kind === "elsewhere" && row.verdict === "contradicted").length
+      } of ${group.filter((row) => row.kind === "elsewhere").length}; Supported after a whole read ${count(
+        group.filter((row) => row.kind === "elsewhere"),
+        "right",
+      )}; not checked ${count(
+        group.filter((row) => row.kind === "elsewhere"),
         "not-checked",
       )}`,
       `- Plain facts Supported with their clause: ${count(
@@ -184,7 +196,9 @@ test("sentences that say something is absent", async () => {
         for (const sentence of ABSENCE_SENTENCES[language].filter(
           (each) => !keys || keys.includes(each.key),
         )) {
-          for (const scope of scopes) {
+          const other = sentence.other ? library.documents.get(sentence.other) : null;
+          if (sentence.other && !other) throw new Error(`${sentence.other} was not added.`);
+          for (const scope of other ? (["pair"] as const) : scopes) {
             if (spent > budget) break;
             const named = library.documents.get(sentence.document);
             if (!named) throw new Error(`${sentence.document} was not added.`);
@@ -193,9 +207,13 @@ test("sentences that say something is absent", async () => {
             const result = await core.checkClaim({
               claim: sentence.text,
               scope:
-                scope === "document"
-                  ? { folderIds: [], tagIds: [], documentIds: [named.id] }
-                  : null,
+                scope === "library"
+                  ? null
+                  : {
+                      folderIds: [],
+                      tagIds: [],
+                      documentIds: other ? [named.id, other.id] : [named.id],
+                    },
               model: choice,
             });
             const cost = (await spentOf(core)) - before;

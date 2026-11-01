@@ -5,7 +5,8 @@ import { createAiSdkChatModel } from "../../src/core/providers/models";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL = process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-sonnet-5-5";
-const CASES = [
+/** The reply, the metric, the request, and whether it says the Documents lack the metric, or the very sentences that do. */
+const CASES: readonly (readonly [string, string, string, boolean | readonly string[]])[] = [
   [
     "The release doesn't state the operating margin.",
     "operating margin",
@@ -43,7 +44,7 @@ const CASES = [
     "I didn't find a cash conversion cycle in the 10-Q. The filing doesn't state one.",
     "cash conversion cycle",
     "What was the cash conversion cycle?",
-    true,
+    ["The filing doesn't state one."],
   ],
   [
     "Operating margin was 38.2% without other income [^1].",
@@ -81,12 +82,15 @@ test.skipIf(KEY === undefined)(
     const failures: string[] = [];
     for (const [reply, metric, request, expected] of CASES) {
       const judged = await judgeDocumentAbsence(model, reply, metric, request);
-      const actual = judged.length > 0;
+      // A list names the very sentences to flag: a search miss beside an absence is never one.
+      const right =
+        typeof expected === "boolean"
+          ? judged.length > 0 === expected
+          : JSON.stringify(judged) === JSON.stringify(expected);
       lines.push(
-        `- ${reply} [${expected ? "absence" : "not absence"}] → ${JSON.stringify(judged)}`,
+        `- ${reply} [${expected === false ? "not absence" : "absence"}] → ${JSON.stringify(judged)}`,
       );
-      if (actual !== expected)
-        failures.push(`${reply}: expected ${expected}, got ${JSON.stringify(judged)}`);
+      if (!right) failures.push(`${reply}: expected ${expected}, got ${JSON.stringify(judged)}`);
     }
     if (process.env.INCARNAMIND_LIVE_REPORT) {
       await appendFile(

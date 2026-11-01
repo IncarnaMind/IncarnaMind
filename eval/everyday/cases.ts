@@ -605,6 +605,16 @@ const SMALLER_SETS: readonly EverydayCase[] = [
   },
 ];
 
+/**
+ * The 10-Q's comparable sales rose 2.1%: an Answer gives 2.1% as a whole figure, not inside 12.1%,
+ * and never as a decline ("fell 2.1%", "a 2.1% decrease", "下跌 2.1%"); "growth fell to 2.1%"
+ * is the rise, slower.
+ */
+const COMPARABLE_ROSE =
+  /^(?![\s\S]*\b(?:declin\w*|fell|fall\w*|dropp?\w*|decreas\w*|lower)\s+(?:by\s+)?(?:about\s+)?(?<![\d.])2\.1\s?%)(?![\s\S]*(?<![\d.])2\.1\s?%\s+(?:declin|decreas|drop|fall))[\s\S]*(?<![\d.])2\.1\s?%/i;
+const COMPARABLE_ROSE_ZH =
+  /^(?![\s\S]*(?:下降|下跌|减少|降低|下滑)了?\s?(?:约\s?)?(?<![\d.])2\.1\s?%)[\s\S]*(?<![\d.])2\.1\s?%/;
+
 export const CASES: readonly EverydayCase[] = [
   // The owner's own conversation, 2026-10-15.
   {
@@ -1764,7 +1774,7 @@ export const CASES: readonly EverydayCase[] = [
       "In Northmart's Q2 2026 10-Q, what was the consolidated comparable-sales change? Answer with the figure and cite it.",
     expected: {
       ...ANSWER,
-      answerWith: /^(?![\s\S]*declin\w*[^.!?\n]{0,20}2\.1\s?%)[\s\S]*2\.1\s?%/i,
+      answerWith: COMPARABLE_ROSE,
       answerEvidence: {
         document: /Northmart Q2 2026 10-Q/,
         quote: /2\.1%/,
@@ -1781,7 +1791,7 @@ export const CASES: readonly EverydayCase[] = [
     request: "北域零售2026年第二季度季报中，集团同店销售额变化了多少？请给出数字并注明出处。",
     expected: {
       ...ANSWER,
-      answerWith: /^(?![\s\S]*下降[^。！？\n]{0,12}2\.1\s?%)[\s\S]*2\.1\s?%/,
+      answerWith: COMPARABLE_ROSE_ZH,
       answerEvidence: {
         document: /北域零售 2026年第二季度季报/,
         quote: /2\.1%/,

@@ -88,13 +88,20 @@ describe("The filing evaluation", () => {
     }
   });
 
-  test("the comparable-sales guard requires the rise the 10-Q states, not a decline", () => {
-    const english = CASES.find((each) => each.id === "filing-comparable-en");
-    const chinese = CASES.find((each) => each.id === "filing-comparable-zh");
+  test("the comparable-sales guard requires the rise the 10-Q states, as a whole figure", () => {
+    const english = CASES.find((each) => each.id === "filing-comparable-en")?.expected.answerWith;
+    const chinese = CASES.find((each) => each.id === "filing-comparable-zh")?.expected.answerWith;
 
-    expect(english?.expected.answerWith?.test("Comparable sales rose **2.1%** [^1].")).toBe(true);
-    expect(english?.expected.answerWith?.test("Comparable sales declined 2.1%.")).toBe(false);
-    expect(chinese?.expected.answerWith?.test("集团同店销售额增长 2.1%。")).toBe(true);
-    expect(chinese?.expected.answerWith?.test("集团同店销售额下降 2.1%。")).toBe(false);
+    expect(english?.test("Comparable sales rose **2.1%** [^1].")).toBe(true);
+    expect(english?.test("Comparable-sales growth fell to 2.1% from 2.4% [^1].")).toBe(true);
+    expect(english?.test("Comparable sales declined 2.1%.")).toBe(false);
+    expect(english?.test("Comparable sales fell 2.1%.")).toBe(false);
+    expect(english?.test("Comparable sales fell by 2.1%.")).toBe(false);
+    expect(english?.test("Comparable sales showed a 2.1% decrease.")).toBe(false);
+    expect(english?.test("Comparable sales rose 12.1%.")).toBe(false);
+    expect(chinese?.test("集团同店销售额增长 2.1%。")).toBe(true);
+    expect(chinese?.test("集团同店销售额下降 2.1%。")).toBe(false);
+    expect(chinese?.test("集团同店销售额下跌 2.1%。")).toBe(false);
+    expect(chinese?.test("集团同店销售额增长 12.1%。")).toBe(false);
   });
 });
