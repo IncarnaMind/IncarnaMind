@@ -260,7 +260,8 @@ export function createAgents(options: AgentsOptions) {
 
   const parsePropose = (value: unknown, fallback: boolean): boolean => {
     if (value === undefined) return fallback;
-    if (typeof value !== "boolean") throw new InvalidInputError("propose must be true or false.");
+    if (typeof value !== "boolean")
+      throw new InvalidInputError({ key: "error.agent.proposeChoice" });
     return value;
   };
 

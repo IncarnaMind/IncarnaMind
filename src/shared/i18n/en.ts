@@ -5099,6 +5099,7 @@ export const en = {
     "“{file}” is already in IncarnaMind. Delete it, then locate the folder again.",
   "error.agent.notConnected": "That agent isn’t connected.",
   "error.agent.nameEmpty": "Give the agent a name.",
+  "error.agent.proposeChoice": "Whether an agent may propose changes must be true or false.",
   "error.agent.nameTooLong": "An agent’s name can be at most {max} characters.",
   "error.agent.nameTaken": "An agent named “{name}” is already connected.",
   "error.agent.noFolders": "Choose at least one Folder for the agent to read.",
@@ -6751,8 +6752,7 @@ export const en = {
   "agents.connect.empty.body": "Add Documents for {agent} to read. They appear here.",
   "agents.connect.pickOne": "Choose at least one Folder.",
   "agents.propose.label": "Let it propose changes to the notes in these Folders",
-  "agents.propose.hint":
-    "Its changes wait for you to accept or reject. It never changes a note itself.",
+  "agents.propose.hint": "Its changes wait until you accept or reject them.",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",
