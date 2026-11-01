@@ -459,7 +459,10 @@ const checkFinding = (
 });
 
 /** The Note's own check of the sentence holding the figure, with the figure's own child as given. */
-function checkedFigureInText(child: Partial<FigureCheckAttributes> | null) {
+function checkedFigureInText(
+  child: Partial<FigureCheckAttributes> | null,
+  checkedText: string | null = null,
+) {
   const doc = new Y.Doc();
   docs.push(doc);
   const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
@@ -477,7 +480,7 @@ function checkedFigureInText(child: Partial<FigureCheckAttributes> | null) {
   const element = blocks.get(0);
   const occurrence = figuresInMind(blocks)[0];
   if (!(element instanceof Y.XmlElement) || !occurrence) throw new Error("Missing fixture");
-  const parent = checkBasis(wordsOf(element));
+  const parent = checkBasis(checkedText ?? wordsOf(element));
   markSentence(
     element,
     0,
@@ -516,6 +519,14 @@ test("a claim check that left the figure unread keeps the figure in the text fro
 
 test("a whole-sentence check with no figure child is no evidence against the core's own check", () => {
   expect(checkedFigureInText(null)).toEqual({ state: "supported" });
+});
+
+test("a whole-sentence check that no longer holds shows on the figure in the text", () => {
+  // The check was made on other words: its result must show, not the core's own check (#2378).
+  expect(checkedFigureInText(null, "Total revenue 300 kg, as checked.")).toEqual({
+    state: "needs-recheck",
+    why: "edited",
+  });
 });
 
 const rangeCitation: Citation = {

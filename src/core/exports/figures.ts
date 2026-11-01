@@ -113,10 +113,14 @@ export function figureCited(
   const change = changeOf(figure);
   if (figure.sources === null) {
     return [
-      { kind: "text", text: note ? shown : `${shown} `, marks: NO_MARKS, ...change },
+      { kind: "text", text: shown, marks: NO_MARKS, ...change },
       {
         kind: "cite",
-        runs: [{ text: ` ${labels.figureUnavailable(shown)}` }],
+        runs: [
+          {
+            text: note ? labels.figureUnavailable(shown) : labels.figureUnavailableInText(shown),
+          },
+        ],
         note,
         unverified: false,
         ...change,

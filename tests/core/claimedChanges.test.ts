@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindChange } from "../../src/core";
 import { unbackedClaims } from "../../src/core/answers/claimedChanges";
+import { toolRecordLines } from "../../src/core/answers/toolRecord";
 import { scriptedModel } from "../helpers/models";
 
 const MINDS = [
@@ -108,7 +109,17 @@ describe("The quick model's verdict", () => {
     expect(result.claims).toEqual(["added"]);
     const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
     expect(prompt).toContain('\\"chartNotDrawn\\": \\"noTable\\"');
-    expect(prompt).toContain("nothing was written as a table");
+  });
+
+  test("the turn's record names a chart drawn, and one asked for but not drawn (#2378)", () => {
+    expect(toolRecordLines([mindCall("add_to_mind", { tables: 1, charts: 1 })], names)).toEqual([
+      "- add_to_mind “Q3 review”: proposed 2 new Blocks, waiting for the User, 1 table among them, 1 chart among them",
+    ]);
+    expect(
+      toolRecordLines([mindCall("add_to_mind", { tables: 1, chartNotDrawn: "noTable" })], names),
+    ).toEqual([
+      "- add_to_mind “Q3 review”: proposed 2 new Blocks, waiting for the User, 1 table among them; the chart asked for was not drawn: nothing was written as a table",
+    ]);
   });
 
   test("a chart the record says was drawn is named in it", async () => {

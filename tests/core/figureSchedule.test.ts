@@ -3,7 +3,12 @@ import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
 import { createCalculationSession } from "../../src/core/answers/calculations";
 import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
-import { markSentence, textOf, wordsOf } from "../../src/core/answers/checks/sentences";
+import {
+  everySentence,
+  markSentence,
+  textOf,
+  wordsOf,
+} from "../../src/core/answers/checks/sentences";
 import { type AnswerDocuments, createCitationSession } from "../../src/core/answers/citations";
 import { figureCitations } from "../../src/core/answers/citedVersions";
 import type {
@@ -1135,6 +1140,18 @@ test("a whole-sentence check with no figure child is no evidence against the cor
     versions: new Map([["accounts", "v1"]]),
   }).rows[0];
   expect(row?.shown).toEqual({ state: "supported" });
+});
+
+test("a Note Check reads no sentence in a table's header cell (#2378)", () => {
+  const blocks = note(
+    table(
+      row(cell("h0", "Item", true), cell("h1", "Revenue", true)),
+      row(cell("l1", "North"), cell("a1", "10")),
+    ),
+  );
+  const every = everySentence(blocks).map((sentence) => sentence.text);
+  expect(every).not.toContain("Revenue");
+  expect(every).toContain("North");
 });
 
 function scheduleInput(blocks: Y.XmlFragment) {
