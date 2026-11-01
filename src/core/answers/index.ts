@@ -314,6 +314,7 @@ import {
   unrecordedMarkersNote,
   webInstructions,
   withPassageNotes,
+  workbookInstructions,
   workingCopyNote,
 } from "./prompt";
 import { quotedWordsIn, withoutQuotationMarks } from "./quotedWords";
@@ -2596,7 +2597,6 @@ export function createAnswers(options: AnswersOptions) {
         options.documents.searchableHasSheets(documentIds)
           ? workbookTools({
               passage: shownPassage,
-              number: (given) => figures.number(given),
               passageOf: (documentId, page) =>
                 options.documents.passagesCovering(documentId, page, page, true)[0]?.passageId ??
                 null,
@@ -2871,6 +2871,7 @@ export function createAnswers(options: AnswersOptions) {
             webTools: withWebTools = false,
             mindTools: withMindTools = false,
             analysisTools: withAnalysisTools = false,
+            workbookTools: withWorkbookTools = false,
             commandTools: withCommandTools = false,
           } = {},
         ) =>
@@ -2912,6 +2913,7 @@ export function createAnswers(options: AnswersOptions) {
             input.assistant && !help ? THIS_DOCUMENT_RULE : "",
             emptyMindNote(withMindTools, focusedEmpty),
             analysisInstructions(withAnalysisTools),
+            workbookInstructions(withWorkbookTools),
             meetingInstructions(heard !== null),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
             help ? "" : language,

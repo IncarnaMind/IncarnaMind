@@ -111,6 +111,15 @@ export function webInstructions(offered: boolean): string {
   ].join("\n");
 }
 
+/** A workbook's own formulas, when its Tools are offered (#2347). */
+export function workbookInstructions(offered: boolean): string {
+  if (!offered) return "";
+  return [
+    'A figure in an Excel workbook is worked out by the workbook\'s own formulas. For what drives it or how it is worked out, call trace_formulas with its Passage and cell; for the figure with one input changed ("if growth were 3%"), call what_if. Write the markers they give where the numbers go.',
+    "- Never work a what-if out yourself from the values a Passage shows, and never say how a figure is worked out without trace_formulas. When either says a formula can't be worked out, say so in the Answer.",
+  ].join("\n");
+}
+
 export function analysisInstructions(offered: boolean): string {
   if (!offered) return "";
   return [

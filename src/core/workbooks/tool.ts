@@ -25,7 +25,7 @@ import { hasFormulas, type WorkbookCell, type WorkbookModel, workbookModel } fro
 import { parseFormula } from "./parse";
 import { type CellProblem, type Dependence, placeKey, WorkbookEngine } from "./recalculate";
 import { type Chain, type ChainCell, cellOfChain, namedCell, traceChain, whatIf } from "./trace";
-import { isError, type Scalar } from "./values";
+import { isError, type Scalar, textNumber } from "./values";
 
 /** The rules a workbook figure is worked out by: the functions and how they read cells. */
 export const WORKBOOK_ENGINE_VERSION = 1;
@@ -38,8 +38,6 @@ const MAX_CALLS = 8;
 export interface WorkbookToolOptions {
   /** A Passage the model was given, by its id ("P3"), and the Units of the Document version it is of. */
   passage(id: string): { source: CitationSource; units: UnitText[] } | null;
-  /** A number in a quote, read as `calculate` reads an input; or why it can't be. */
-  number(given: unknown): { input: FigureInput } | { problem: string };
   /** The id of a live Passage of the Document that holds its Unit `page`; null when none does. */
   passageOf(documentId: string, page: number): string | null;
   /** Records a figure as one of the Answer's calculated figures: its marker. */
@@ -178,6 +176,37 @@ function cellCitation(
 
 const NAME_PART = /[^\p{L}\p{N}_]+/gu;
 
+const squeezed = (value: string) => value.replace(/\s+/g, " ").trim();
+
+/** The cells of `units` that show `number`, in a row holding `quote` (any row, when it is empty). */
+function cellsShowing(
+  units: readonly UnitText[],
+  quote: string,
+  number: string,
+): { sheet: string; row: number; column: number }[] {
+  const wanted = squeezed(number);
+  const value = textNumber(wanted);
+  const found = new Map<string, { sheet: string; row: number; column: number }>();
+  for (const unit of units) {
+    const sheet = unit.label?.sheet;
+    if (unit.kind !== "rows" || sheet === undefined) continue;
+    const rows = unit.label?.rows ?? [];
+    const first = unit.label?.column ?? 0;
+    unit.text.split("\n").forEach((line, index) => {
+      const row = rows[index];
+      if (row === undefined || (quote !== "" && !squeezed(line).includes(quote))) return;
+      line.split("\t").forEach((shown, offset) => {
+        const cell = squeezed(shown);
+        const same =
+          cell === wanted || (value !== null && cell !== "" && textNumber(cell) === value);
+        if (same)
+          found.set(`${sheet}!${row},${first + offset}`, { sheet, row, column: first + offset });
+      });
+    });
+  }
+  return [...found.values()];
+}
+
 function inputName(sheet: string, ref: string, taken: Set<string>): string {
   const base = `${sheet.replace(NAME_PART, "_").replace(/^(?=[\p{N}])/u, "_")}_${ref}`;
   let name = base;
@@ -256,7 +285,10 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     return { key: placeKey(found, range.top, range.left), sheet: found.name };
   };
 
-  /** The figure's cell, from a cell the model named or a number in a quote of the Passage. */
+  /**
+   * The figure's cell: one the model named, or the cell showing its number in the row it quoted,
+   * in the Passage's Units first and then in the rest of the workbook.
+   */
   const figureCell = (
     book: Opened,
     input: Record<string, unknown>,
@@ -264,16 +296,29 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     const own = book.units.find((unit) => unit.page === book.source.pageFrom)?.label?.sheet ?? null;
     const cell = text(input.cell);
     if (cell) return cellNamed(book, cell, own);
-    const read = options.number({ name: "figure", label: text(input.label), ...input });
-    if ("problem" in read) return `the figure: ${read.problem}`;
-    const found = read.input.cell;
-    if (!found)
-      return "the figure's number isn't one cell of a sheet; give its cell, such as \"DCF!E5\".";
-    return cellNamed(
-      book,
-      `${found.sheet ? `'${found.sheet.replaceAll("'", "''")}'!` : ""}${found.ref}`,
-      found.sheet,
-    );
+    const number = text(input.number);
+    if (!number)
+      return "give the figure's cell, or its row as quote and its number as the cell shows it.";
+    const quote = squeezed(text(input.quote));
+    const { pageFrom, pageTo } = book.source;
+    const inPassage = (unit: UnitText) =>
+      pageFrom === null ||
+      pageTo === null ||
+      (unit.page !== null && unit.page >= pageFrom && unit.page <= pageTo);
+    for (const units of [book.units.filter(inPassage), book.units]) {
+      const found = cellsShowing(units, quote, number);
+      const [only] = found;
+      if (found.length === 1 && only) {
+        const sheet = book.model.byName.get(only.sheet.toUpperCase());
+        if (sheet) return { key: placeKey(sheet, only.row, only.column), sheet: sheet.name };
+      }
+      if (found.length > 1)
+        return `${number} is in ${found.length} cells (${found
+          .slice(0, 6)
+          .map((each) => where(each.sheet, `${columnLetters(each.column)}${each.row}`))
+          .join(", ")}); give the figure's cell.`;
+    }
+    return `no cell shows ${number}${quote ? " in the row quoted" : ""}; copy the row as the Passage shows it, or give the cell.`;
   };
 
   /** A cell holding a number, as one of a figure's inputs, cited to its cell. */
@@ -403,12 +448,15 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     provider: PROVIDER,
     providerTool: WORKBOOK_TOOLS.trace,
     description:
-      'Show how a figure in an Excel workbook is worked out from the workbook\'s own formulas: the formulas from its cell down to the inputs (cells holding numbers, such as assumptions) that drive it, worked out again and checked against the values Excel saved. Give the figure\'s Passage and its cell, {"passage": "P3", "cell": "DCF!E5", "label": "EBITDA 2027"}, or its number as calculate takes one, {"passage": "P3", "quote": "<its row, copied>", "number": "254.7", "label": "EBITDA 2027"}. It records the figure as [=n], with its inputs cited to their cells: write [=n] where the number goes, and name the inputs that drive it.',
+      'Show how a figure in an Excel workbook is worked out from the workbook\'s own formulas: the formulas from its cell down to the inputs (cells holding numbers, such as assumptions) that drive it, worked out again and checked against the values Excel saved. Give the figure as calculate takes an input, its Passage, its row copied as quote and the number: {"passage": "P3", "quote": "EBITDA\\t231.0\\t242.6\\t254.7", "number": "254.7", "label": "EBITDA 2027"}; or a cell a result of this Tool named, {"passage": "P3", "cell": "DCF!E5", "label": "EBITDA 2027"}. It records the figure as [=n], its inputs cited to their cells: write [=n] where the number goes, and name the inputs that drive it.',
     inputSchema: {
       type: "object",
       properties: {
         passage: { type: "string" },
-        cell: { type: "string", description: 'The figure\'s cell: "E5" or "DCF!E5".' },
+        cell: {
+          type: "string",
+          description: 'The figure\'s cell, as a result named it: "DCF!E5".',
+        },
         quote: { type: "string" },
         number: { type: "string" },
         citation: { type: "number" },
@@ -458,37 +506,55 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
       return [
         head,
         ...chainLines(book, chain, inputs),
-        `Write [=${recorded.marker}] where the number goes. To see the figure with one input changed, call ${WORKBOOK_TOOLS.whatIf} with that input's cell.`,
+        `Write [=${recorded.marker}] in the Answer where ${recorded.figure.shown} goes, never the number itself and never a Citation marker for it. To see the figure with one input changed, call ${WORKBOOK_TOOLS.whatIf} with that input's cell.`,
       ].join("\n");
     },
   };
 
+  /**
+   * A what-if's new value, written as its cell shows its own: a percent for a cell that shows
+   * one ("3%" for 5.0%), a plain number for one that doesn't. A percent given for a cell that
+   * shows none, or the other way round, is the wrong cell or a slip: neither is guessed at.
+   */
   const parseValue = (given: unknown, cell: ChainCell): number | string => {
     const percentCell = cell.shown.trim().endsWith("%");
-    if (typeof given === "number" && Number.isFinite(given)) {
-      return percentCell
-        ? `${where(cell.sheet, cell.ref)} shows a percent (${cell.shown}): give the new value as a percent, such as "3%".`
-        : given;
-    }
-    const written = text(given).replace(/[\s,$€£¥]/g, "");
+    const here = `${where(cell.sheet, cell.ref)} (${cell.label}) shows ${cell.shown}`;
+    const written =
+      typeof given === "number" && Number.isFinite(given)
+        ? String(given)
+        : text(given).replace(/[\s,$€£¥]/g, "");
     const match = /^([-+]?(?:\d+\.?\d*|\.\d+))(%?)$/.exec(written);
     if (!match) return `give the new value as a number, such as "3%" or "1250".`;
     if (percentCell && match[2] !== "%")
-      return `${where(cell.sheet, cell.ref)} shows a percent (${cell.shown}): give the new value as a percent, such as "3%".`;
+      return `${here}, a percent: give the new value as a percent, such as "3%".`;
+    if (!percentCell && match[2] === "%")
+      return `${here}, not a percent: give its new value as a number like it, or change the input you meant.`;
     const number = Number(match[1]);
     return match[2] === "%" ? number / 100 : number;
   };
+
+  /** The figure's inputs, for the model to choose the one it meant. */
+  const inputsList = (chain: Chain) =>
+    chain.inputs.length === 0
+      ? ""
+      : ` Its inputs: ${chain.inputs
+          .slice(0, 12)
+          .map((each) => `${where(each.sheet, each.ref)} ${each.label} ${each.shown}`)
+          .join("; ")}.`;
 
   const whatIfTool: Tool = {
     name: WORKBOOK_TOOLS.whatIf,
     provider: PROVIDER,
     providerTool: WORKBOOK_TOOLS.whatIf,
-    description: `Work a figure of an Excel workbook out again with one input changed (what-if), from the workbook's own formulas, on a copy in memory: the User's file is never changed. Give the figure as ${WORKBOOK_TOOLS.trace} takes it, the input to change (its cell, "Assumptions!B4", or its defined name, "Growth") and its new value ("3%", "1250"). It records the result as [=n], naming the input changed; it refuses when the figure depends on a formula it can't work out.`,
+    description: `Work a figure of an Excel workbook out again with one input changed (what-if), from the workbook's own formulas, on a copy in memory: the User's file is never changed. Give the figure as ${WORKBOOK_TOOLS.trace} takes it, the input to change (its cell as ${WORKBOOK_TOOLS.trace} lists it, "Assumptions!B4", or its defined name, "Growth") and its new value ("3%", "1250"). It records the result as [=n], naming the input changed; it refuses when the figure depends on a formula it can't work out.`,
     inputSchema: {
       type: "object",
       properties: {
         passage: { type: "string" },
-        cell: { type: "string", description: 'The figure\'s cell: "E5" or "DCF!E5".' },
+        cell: {
+          type: "string",
+          description: 'The figure\'s cell, as a result named it: "DCF!E5".',
+        },
         quote: { type: "string" },
         number: { type: "string" },
         citation: { type: "number" },
@@ -539,7 +605,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
       const changedChain: ChainCell = { ...listed, label: listed.label };
       const inputCell = listed.cell;
       const value = parseValue(input.value, changedChain);
-      if (typeof value === "string") return `Nothing was recorded: ${value}`;
+      if (typeof value === "string") return `Nothing was recorded: ${value}${inputsList(chain)}`;
       const outcome = await whatIf(book.engine, target.key, changed.key, value, signal);
       const inputRef = where(changedChain.sheet, changedChain.ref);
       if (!outcome.ok) {
@@ -557,7 +623,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
           case "not-a-number":
             return `Nothing was recorded: ${ref} doesn't work out to a number.`;
           case "unrelated":
-            return `Nothing was recorded: ${ref} (${chain.target.label}) doesn't depend on ${inputRef}, so changing it leaves the figure as it is. Its inputs are listed by ${WORKBOOK_TOOLS.trace}.`;
+            return `Nothing was recorded: ${ref} (${chain.target.label}) doesn't depend on ${inputRef}, so changing it leaves the figure as it is.${inputsList(chain)}`;
           case "depends":
             return `Nothing was recorded: ${chain.target.label} (${ref}) depends on cells that keep the values the workbook saved, so a what-if would mix values worked out again with values that should have changed: ${why.on.map(dependenceText).join("; ")}. Say so in the Answer rather than working it out.`;
           case "manual":
@@ -583,7 +649,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
       if (typeof recorded === "string") return `Nothing was recorded: ${recorded}`;
       counted?.(1);
       const before = shown(book, chain.target, outcome.before).shown;
-      return `Recorded [=${recorded.marker}] = ${recorded.figure.shown}: ${chain.target.label} (${ref}) with ${changedInput.label} (${inputRef}) at ${after} instead of ${changedChain.shown}, worked out again from the workbook's ${outcome.formulaCells} formula${outcome.formulaCells === 1 ? "" : "s"} on a copy in memory; the User's file is unchanged, and the workbook as it is gives ${before}. Write [=${recorded.marker}] where the number goes, and say which input was changed.`;
+      return `Recorded [=${recorded.marker}] = ${recorded.figure.shown}: ${chain.target.label} (${ref}) with ${changedInput.label} (${inputRef}) at ${after} instead of ${changedChain.shown}, worked out again from the workbook's ${outcome.formulaCells} formula${outcome.formulaCells === 1 ? "" : "s"} on a copy in memory; the User's file is unchanged, and the workbook as it is gives ${before}. Write [=${recorded.marker}] in the Answer where ${recorded.figure.shown} goes, never the number itself, and say which input was changed.`;
     },
   };
 

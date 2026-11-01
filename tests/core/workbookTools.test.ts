@@ -191,4 +191,45 @@ describe("a workbook's formulas in an Answer", () => {
       }),
     ]);
   });
+
+  test("a percent given for a cell that shows none is refused, listing the figure's inputs; the input meant works", async () => {
+    const model = modelling({
+      query: "EBITDA revenue growth",
+      calls: [
+        (passage) => ({
+          tool: "what_if",
+          input: {
+            passage,
+            quote: "EBITDA\t231.0\t242.6\t254.7\t267.4\t280.8",
+            number: "254.7",
+            label: "EBITDA 2027 at 3% growth",
+            input: "Assumptions!B3",
+            value: "3%",
+          },
+        }),
+        (passage) => ({
+          tool: "what_if",
+          input: {
+            passage,
+            quote: "EBITDA\t231.0\t242.6\t254.7\t267.4\t280.8",
+            number: "254.7",
+            label: "EBITDA 2027 at 3% growth",
+            input: "Assumptions!B4",
+            value: "3%",
+          },
+        }),
+      ],
+      answer: "At 3% growth, 2027 EBITDA would be [=1].",
+    });
+    const { core } = await setUp(model, "dcf.xlsx", new Uint8Array(dcfWorkbook().xlsx()));
+    const answer = await ask(core, "What would 2027 EBITDA be at 3% growth?");
+    const results = told(model, "what_if");
+    expect(results).toContain(
+      "Nothing was recorded: Assumptions!B3 (Revenue 2024) shows 1,000.0, not a percent",
+    );
+    expect(results).toContain("Assumptions!B4 Revenue growth 5.0%");
+    expect(answer.figures).toHaveLength(1);
+    expect(answer.figures[0]?.value).toBeCloseTo(240.39994, 9);
+    expect(answer.figures[0]?.workbook?.change).toMatchObject({ value: 0.03, shown: "3.0%" });
+  });
 });
