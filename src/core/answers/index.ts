@@ -149,7 +149,7 @@ import type { WindowedPassage } from "../documents/search";
 import { ChatNotReadyError, InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { createEventHub } from "../events";
 import type { ExecAccess } from "../execution";
-import type { Language } from "../language";
+import { LANGUAGES, type Language } from "../language";
 import type { MindContent } from "../mindContent";
 import { plainText } from "../mindText";
 import { docOf } from "../proposals/merge";
@@ -3249,12 +3249,19 @@ export function createAnswers(options: AnswersOptions) {
         refusalSuffix: (reply) => {
           const language = answerLanguage(context.question);
           const lifted = turnWall !== null && options.walledFolderId(turnWall) === null;
+          // Said in either language, a line is said: a reply can copy an earlier Answer's.
           const lines = [
             ...[...wallRefusals]
               .map((key) => (key === "folder.wall.refusal" && lifted ? "folder.wall.changed" : key))
-              .map((key) => translate(language, key)),
-            ...refusedCommands().map(({ yours, folder }) => yoursLine(language, yours, folder)),
-          ].filter((line) => !reply.includes(line));
+              .map((key) => (each: Language) => translate(each, key)),
+            ...refusedCommands().map(
+              ({ yours, folder }) =>
+                (each: Language) =>
+                  yoursLine(each, yours, folder),
+            ),
+          ]
+            .filter((line) => !LANGUAGES.some((each) => reply.includes(line(each))))
+            .map((line) => line(language));
           return lines.length === 0 ? null : lines.join(language === "zh-CN" ? "" : " ");
         },
         signal: controller.signal,
