@@ -6,8 +6,11 @@ import {
   type CitationCheckReason,
   type CitationLocation,
   type FigureFromAnalysis,
+  type FigureFromWorkbook,
   type FigureInput,
   type FigureShowOptions,
+  type WorkbookKeptCell,
+  type WorkbookKeptReason,
 } from "../core/api";
 import { isRecord } from "../core/errors";
 import type { NodeJSON } from "./blockJson";
@@ -246,20 +249,142 @@ function analysisOf(value: unknown): FigureFromAnalysis | null | undefined {
     : undefined;
 }
 
+/** The most formula steps a workbook figure keeps, and the longest formula it keeps of one. */
+const MAX_WORKBOOK_STEPS = 40;
+const MAX_WORKBOOK_FORMULA = 8_192;
+
+function workbookStepOf(value: unknown): FigureFromWorkbook["steps"][number] | null {
+  if (
+    !isRecord(value) ||
+    typeof value.sheet !== "string" ||
+    typeof value.ref !== "string" ||
+    !parseCellRef(value.ref) ||
+    typeof value.label !== "string" ||
+    typeof value.formula !== "string" ||
+    value.formula.length > MAX_WORKBOOK_FORMULA ||
+    !(
+      value.value === null ||
+      typeof value.value === "string" ||
+      typeof value.value === "boolean" ||
+      finite(value.value)
+    )
+  )
+    return null;
+  return {
+    sheet: value.sheet,
+    ref: value.ref,
+    label: value.label,
+    formula: value.formula,
+    value: value.value,
+  };
+}
+
+const KEPT_REASONS: readonly WorkbookKeptReason[] = [
+  "volatile",
+  "finds-cells",
+  "function",
+  "add-in",
+  "data-table",
+  "external",
+  "table",
+  "three-d",
+  "unreadable",
+  "circular",
+  "iterative",
+  "not-read",
+  "array",
+  "no-saved-value",
+  "differs",
+  "too-large",
+  "too-many",
+  "unsorted",
+  "early-date",
+  "criterion",
+  "text-order",
+  "date-text",
+];
+
+function keptOf(value: unknown): WorkbookKeptCell | null {
+  if (!isRecord(value) || typeof value.sheet !== "string") return null;
+  const reason = KEPT_REASONS.find((each) => each === value.reason);
+  const ref = optionalText(value.ref);
+  const name = optionalText(value.name);
+  if (!reason || ref === undefined || name === undefined || (ref !== null && !parseCellRef(ref)))
+    return null;
+  return { sheet: value.sheet, ref, reason, name };
+}
+
+function workbookOf(
+  value: unknown,
+  inputs: readonly FigureInput[],
+): FigureFromWorkbook | null | undefined {
+  if (value == null) return null;
+  if (!isRecord(value) || !isRecord(value.cell) || !Array.isArray(value.steps)) return undefined;
+  const cell = workbookStepOf(value.cell);
+  const own = readFigureInput(value.cell.input);
+  const steps = value.steps.map(workbookStepOf);
+  const kept = Array.isArray(value.kept) ? value.kept.map(keptOf) : null;
+  const change = value.change;
+  const changed =
+    change == null
+      ? null
+      : isRecord(change) &&
+          named(change.input) &&
+          finite(change.value) &&
+          named(change.shown) &&
+          inputs.some((input) => input.name === change.input)
+        ? { input: change.input, value: change.value, shown: change.shown }
+        : undefined;
+  if (
+    !cell ||
+    !own ||
+    steps.length > MAX_WORKBOOK_STEPS ||
+    steps.some((step) => step === null) ||
+    !index(value.formulaCells) ||
+    !index(value.moreInputs) ||
+    !finite(value.saved) ||
+    !named(value.savedShown) ||
+    changed === undefined ||
+    !kept ||
+    kept.length > MAX_WORKBOOK_STEPS ||
+    kept.some((each) => each === null) ||
+    !count(value.engine)
+  )
+    return undefined;
+  return {
+    cell: { ...cell, input: own },
+    steps: steps as FigureFromWorkbook["steps"],
+    formulaCells: value.formulaCells,
+    moreInputs: value.moreInputs,
+    saved: value.saved,
+    savedShown: value.savedShown,
+    change: changed,
+    kept: kept as WorkbookKeptCell[],
+    engine: value.engine,
+  };
+}
+
+/** The numbers a figure is read from, each cited: its inputs and, for a workbook's figure, its own cell (#2347). */
+export const citedInputs = (
+  figure: Pick<CalculatedFigure, "inputs" | "workbook">,
+): FigureInput[] =>
+  figure.workbook ? [figure.workbook.cell.input, ...figure.inputs] : figure.inputs;
+
 export function readCalculatedFigure(value: unknown): CalculatedFigure | null {
   if (!isRecord(value)) return null;
   const unit = readCalculationUnit(value.unit);
   const show = showOf(value.show);
   const analysis = analysisOf(value.analysis);
   const written = optionalText(value.written);
+  const fromWorkbook = isRecord(value.workbook);
   if (
     typeof value.label !== "string" ||
     typeof value.formula !== "string" ||
     value.formula.length > FORMULA_MAX_LENGTH ||
-    (!analysis && value.formula.trim() === "") ||
+    (!analysis && !fromWorkbook && value.formula.trim() === "") ||
     !Array.isArray(value.inputs) ||
     value.inputs.length > MAX_INPUTS_PER_FIGURE ||
-    (!analysis && value.inputs.length === 0) ||
+    (!analysis && !fromWorkbook && value.inputs.length === 0) ||
     (!finite(value.value) && typeof value.value !== "boolean") ||
     !unit ||
     (typeof value.value === "boolean") !== (unit.kind === "yes-no") ||
@@ -293,6 +418,8 @@ export function readCalculatedFigure(value: unknown): CalculatedFigure | null {
       return null;
     literals.push({ text: literal.text, value: literal.value, at: literal.at });
   }
+  const workbook = workbookOf(value.workbook, inputs);
+  if (workbook === undefined || (workbook && analysis)) return null;
   return {
     label: value.label,
     formula: value.formula,
@@ -306,6 +433,7 @@ export function readCalculatedFigure(value: unknown): CalculatedFigure | null {
     engine: value.engine,
     written,
     ...(analysis && { analysis }),
+    ...(workbook && { workbook }),
   };
 }
 

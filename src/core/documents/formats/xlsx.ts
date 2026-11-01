@@ -15,8 +15,9 @@
  * each value as Excel's own format shows it (./sheetLayout). Indexing never
  * asks for it.
  */
-import { parseCellRef, type TextUnit } from "../../../shared/units";
+import { parseCellRef, type TextUnit, type WorkbookFacts } from "../../../shared/units";
 import type { UnreadParts } from "../../api";
+import { cellName, ERROR_CODES, moveFormula, parseFormula } from "../../workbooks/parse";
 import { ExtractionError } from "./errors";
 import { type Cell, gridUnits, MAX_CELLS, MAX_ROWS, type Sheet, type Workbook } from "./grid";
 import { displayNumber, displayText } from "./numberDisplay";
@@ -86,6 +87,8 @@ interface ReadCell extends Pick<Cell, "value" | "numeric" | "raw"> {
   number?: number;
   /** A shared string's index. */
   shared?: number;
+  /** A number shown as a date: its value is ISO text, its number the serial. */
+  date?: true;
 }
 
 /** The parts the elements of a sheet's stream are read from. */
@@ -112,6 +115,7 @@ export async function readWorkbook(
   }
   const workbook = parseXml(workbookXml);
   const date1904 = ["1", "true"].includes(child(workbook, "workbookPr")?.attrs.date1904 ?? "");
+  const calc = child(workbook, "calcPr")?.attrs ?? {};
 
   const relsXml = await zip.readText("xl/_rels/workbook.xml.rels");
   const targets = new Map<string, string>();
@@ -206,7 +210,10 @@ export async function readWorkbook(
       rowCount: 0,
       columnCount: 0,
       columnWidths: [],
+      formulas: new Map(),
+      saved: new Map(),
     };
+    const formulas = new SheetFormulas(sheet);
     const look = looks ? emptyLayout() : undefined;
     if (look) sheet.layout = look;
     sheets.push(sheet);
@@ -250,6 +257,7 @@ export async function readWorkbook(
         if (look && looks) {
           lookOfCell(c, cell, rowNumber, column, look, looks, sharedRuns, { ...layout, date1904 });
         }
+        formulas.read(c, cell, rowNumber, column);
         if (!cell) continue;
         cellsLeft--;
         sheet.cells.push({
@@ -273,12 +281,24 @@ export async function readWorkbook(
       sheet.columnCount = Math.max(sheet.columnCount, end.column + 1);
     }
   }
+  const facts: WorkbookFacts = {
+    ...(date1904 ? { date1904: true as const } : {}),
+    ...(["1", "true"].includes(calc.iterate ?? "") ? { iterate: true as const } : {}),
+    ...(calc.calcMode === "manual" ? { manual: true as const } : {}),
+    ...(rowsCut.length > 0 ? { cut: rowsCut } : {}),
+    ...(hiddenSheets.length + sheetsNotRead.length > 0
+      ? { unread: [...hiddenSheets, ...sheetsNotRead] }
+      : {}),
+  };
+  const names = definedNames(workbook, entries);
+  if (names.length > 0) facts.names = names;
   const read = {
     sheets,
     truncated: visibleTruncated || truncated,
     hiddenSheets,
     rowsCut,
     sheetsNotRead,
+    facts,
   };
   if (!looks) return read;
   const budget: ImageBudget = { left: MAX_WORKBOOK_IMAGE_BYTES };
@@ -458,6 +478,7 @@ function readCell(
   let number: number | undefined;
   let stored: number | undefined;
   let sharedIndex: number | undefined;
+  let date: true | undefined;
   if (type === "s") {
     sharedIndex = Number(raw);
     value = shared[sharedIndex] ?? "";
@@ -474,6 +495,7 @@ function readCell(
       value = format ? formatNumber(parsed, format, date1904) : generalNumber(parsed);
       const isDate = format !== undefined && isDateFormat(format);
       numeric = !isDate;
+      if (isDate) date = true;
       // Excel computes with the stored number; a date stays its ISO text.
       if (!isDate && value.trim() !== generalNumber(parsed)) stored = parsed;
     }
@@ -488,6 +510,7 @@ function readCell(
     ...(stored !== undefined ? { raw: stored } : {}),
     ...(number !== undefined ? { number } : {}),
     ...(sharedIndex !== undefined ? { shared: sharedIndex } : {}),
+    ...(date ? { date } : {}),
   };
 }
 
@@ -498,7 +521,7 @@ export interface XlsxResult {
 
 export async function extractXlsx(bytes: Uint8Array, readHidden = false): Promise<XlsxResult> {
   const workbook = await readWorkbook(bytes, undefined, undefined, readHidden);
-  return { units: gridUnits(workbook.sheets, true), workbook };
+  return { units: gridUnits(workbook.sheets, true, 1, workbook.facts), workbook };
 }
 
 /** The parts of the workbook that weren't read, for the unread list (#740); null when all of it was. */
@@ -507,4 +530,119 @@ export function unreadPartsOf(workbook: Workbook): UnreadParts | null {
   return hiddenSheets.length === 0 && rowsCut.length === 0 && sheetsNotRead.length === 0
     ? null
     : { hiddenSheets, rowsCut, sheetsNotRead };
+}
+
+/** Text a cell holds that its shown text alone would read as a number, TRUE or an error. */
+const READS_AS_OTHER = new RegExp(
+  `^(?:-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?|TRUE|FALSE|${ERROR_CODES.map((code) =>
+    code.replace(/[/?!]/g, "\\$&"),
+  ).join("|")})$`,
+);
+
+/**
+ * A sheet's formulas as its cells are read (#2347): a shared formula is
+ * written once and filled across its range, so each cell's own is worked
+ * out from its first cell's; an array formula and a data table cover a
+ * block, every cell of which gets it, in braces.
+ */
+class SheetFormulas {
+  private readonly shared = new Map<string, { formula: string; row: number; column: number }>();
+  private readonly blocks: {
+    top: number;
+    left: number;
+    bottom: number;
+    right: number;
+    formula: string;
+  }[] = [];
+
+  constructor(private readonly sheet: Sheet) {}
+
+  read(c: XmlElement, cell: ReadCell | null, row: number, column: number): void {
+    const ref = cellName(row, column);
+    const formula = this.formulaOf(c, row, column);
+    if (formula === null) {
+      if (
+        cell &&
+        cell.type !== "n" &&
+        cell.type !== "b" &&
+        cell.type !== "e" &&
+        READS_AS_OTHER.test(cell.value)
+      )
+        this.sheet.saved?.set(ref, cell.value);
+      if (cell?.date && cell.number !== undefined) this.sheet.saved?.set(ref, cell.number);
+      // General shows 15 digits; an input worked from keeps every digit the file stores.
+      else if (
+        cell?.number !== undefined &&
+        cell.raw === undefined &&
+        Number(cell.value) !== cell.number
+      )
+        this.sheet.saved?.set(ref, cell.number);
+      return;
+    }
+    this.sheet.formulas?.set(ref, formula);
+    if (cell) {
+      if (cell.date && cell.number !== undefined) this.sheet.saved?.set(ref, cell.number);
+      else if (cell.type === "str" && READS_AS_OTHER.test(cell.value))
+        this.sheet.saved?.set(ref, cell.value);
+      return;
+    }
+    if (savedNoResult(c)) return;
+    const v = child(c, "v");
+    if (!v) return;
+    const raw = textOf(v);
+    const type = c.attrs.t ?? "n";
+    if (type === "n" && Number.isFinite(Number(raw)) && raw.trim() !== "")
+      this.sheet.saved?.set(ref, Number(raw));
+    else if (type === "b") this.sheet.saved?.set(ref, raw === "1");
+    else if (type === "str" || type === "inlineStr") this.sheet.saved?.set(ref, raw.trim());
+  }
+
+  private formulaOf(c: XmlElement, row: number, column: number): string | null {
+    const f = child(c, "f");
+    if (!f) {
+      const block = this.blocks.find(
+        (each) =>
+          row >= each.top && row <= each.bottom && column >= each.left && column <= each.right,
+      );
+      return block ? block.formula : null;
+    }
+    const kind = f.attrs.t ?? "normal";
+    const text = textOf(f).trim();
+    if (kind === "shared") {
+      const id = f.attrs.si ?? "";
+      if (text !== "") {
+        this.shared.set(id, { formula: text, row, column });
+        return text;
+      }
+      const first = this.shared.get(id);
+      return first ? moveFormula(first.formula, row - first.row, column - first.column) : null;
+    }
+    if (kind === "array" || kind === "dataTable") {
+      const formula =
+        kind === "dataTable" ? `{TABLE(${f.attrs.r1 ?? ""},${f.attrs.r2 ?? ""})}` : `{${text}}`;
+      const range = parseFormula(f.attrs.ref ?? "");
+      if (range.kind === "reference") {
+        const { top, left, bottom, right } = range.range;
+        if (top !== bottom || left !== right)
+          this.blocks.push({ top, left, bottom, right, formula });
+      }
+      return formula;
+    }
+    return text === "" ? null : text;
+  }
+}
+
+/** A workbook's defined names, but Excel's own (print areas, filters: "_xlnm."). */
+function definedNames(
+  workbook: XmlElement,
+  sheets: readonly XmlElement[],
+): NonNullable<WorkbookFacts["names"]> {
+  return descendants(workbook, "definedName").flatMap((each) => {
+    const name = each.attrs.name ?? "";
+    const refersTo = textOf(each).trim();
+    if (name === "" || refersTo === "" || /^_xlnm\./i.test(name)) return [];
+    const local = each.attrs.localSheetId;
+    const sheet = local === undefined ? null : (sheets[Number(local)]?.attrs.name ?? null);
+    return [{ name, sheet, refersTo }];
+  });
 }

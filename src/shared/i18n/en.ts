@@ -800,6 +800,61 @@ export const en = {
   "figures.inline.literal": "{value}, written in the formula",
   "figures.inline.raw": "Cell’s stored value: {value}",
   "figures.inline.original": "Original input",
+  "figures.workbook.workedOut": "Worked out again from the workbook’s formulas",
+  "figures.workbook.savedValue": "The workbook’s saved value",
+  "figures.workbook.formulas": "{count} formulas worked out in all",
+  "figures.workbook.change": "Changed {input} ({cell}) from {from} to {to}",
+  "figures.workbook.inWorkbook": "In the workbook as it is: {value}",
+  "figures.workbook.whatIfFormula":
+    "What-if: {cell} = {formula}, with {input} at {to} ({from} in the workbook)",
+  "figures.workbook.whatIfInput": "Changed for the what-if",
+  "figures.workbook.whatIfLabel": "{label} (what-if: {input} at {value})",
+  "figures.workbook.moreInputs": "{count} more inputs not listed",
+  "figures.workbook.keptNote":
+    "This is the value the workbook saved: IncarnaMind couldn’t work it out again, for the reason above. Each input is cited to its cell.",
+  "figures.workbook.note":
+    "IncarnaMind worked this out again from the workbook’s own formulas, in memory: the file is unchanged. Each input is cited to its cell. This doesn’t show that the workbook’s assumptions are right.",
+  "figures.workbook.kept.volatile":
+    "{cell} uses {name}, which gives a new value each time, so its saved value is used",
+  "figures.workbook.kept.finds-cells":
+    "{cell} uses {name} to find its cells as it runs, so its saved value is used",
+  "figures.workbook.kept.function":
+    "IncarnaMind can’t work out {name} in {cell} (a macro’s, perhaps), so its saved value is used",
+  "figures.workbook.kept.add-in":
+    "{cell} uses {name}, an add-in’s function, so its saved value is used",
+  "figures.workbook.kept.data-table": "{cell} is part of a data table, so its saved value is used",
+  "figures.workbook.kept.external": "{cell} links to another workbook, so its saved value is used",
+  "figures.workbook.kept.table":
+    "{cell} refers to a table by its column names, so its saved value is used",
+  "figures.workbook.kept.three-d":
+    "{cell} reads the same cells across several sheets, so its saved value is used",
+  "figures.workbook.kept.unreadable":
+    "IncarnaMind can’t read the formula in {cell}, so its saved value is used",
+  "figures.workbook.kept.circular": "{cell} is in a circular reference, so its saved value is used",
+  "figures.workbook.kept.iterative":
+    "{cell} is in a circular reference that Excel works out by iterating, so its saved value is used",
+  "figures.workbook.kept.not-read":
+    "{cell} reads “{name}”, which wasn’t read (hidden, or past the reading limit), so its saved value is used",
+  "figures.workbook.kept.array":
+    "{cell} is an array formula over several cells, so its saved value is used",
+  "figures.workbook.kept.no-saved-value":
+    "The workbook saved no result for {cell}: perhaps it was written by a program and not opened in Excel since",
+  "figures.workbook.kept.differs":
+    "IncarnaMind’s result for {cell} differs from the value the workbook saved, so the saved value is used. The workbook may not have been recalculated since an input changed: open it in Excel and save it",
+  "figures.workbook.kept.too-many":
+    "{cell} depends on more than {name} formulas, more than IncarnaMind works out at once, so its saved value is used",
+  "figures.workbook.kept.unsorted":
+    "{cell} looks a value up approximately in a range that isn’t sorted, where Excel’s answer can’t be told, so its saved value is used",
+  "figures.workbook.kept.early-date":
+    "{cell} uses a date before 1 March 1900, where Excel counts a 29 February 1900 that never was, so its saved value is used",
+  "figures.workbook.kept.criterion":
+    "{cell} uses a condition IncarnaMind can’t read the way Excel does, such as a time, so its saved value is used",
+  "figures.workbook.kept.date-text":
+    "{cell} reads a date or time written as text, which Excel reads by the computer’s date settings, so its saved value is used",
+  "figures.workbook.kept.text-order":
+    "{cell} orders text Excel’s rules leave unclear (punctuation, letters outside A to Z, or a space against a digit), so its saved value is used",
+  "figures.workbook.kept.too-large":
+    "{cell} reads a block too large to work out here, so its saved value is used",
   "figures.card.source": "{figure}: the source gives {value} ({source})",
   "figures.inline.openInput": "Open",
   "figures.export.sheet": "Schedule",
@@ -1089,6 +1144,22 @@ export const en = {
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.read-budget": "Stopped after {spent}; this read may spend up to {most}.",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
+  "claim.reason.workbook-differs":
+    "The value Excel saved differs from what the workbook’s formulas give, so this figure can’t be checked. Open the workbook in Excel and save it.",
+  "claim.reason.workbook-external":
+    "It uses a link to another file, which IncarnaMind can’t read, so this figure can’t be checked.",
+  "claim.reason.workbook-volatile":
+    "It uses a value that changes each time the workbook is worked out, so this figure can’t be checked.",
+  "claim.reason.workbook-circular":
+    "Its formulas refer to each other, so this figure can’t be checked.",
+  "claim.reason.workbook-not-read":
+    "It uses a hidden sheet, or rows, that weren’t read, so this figure can’t be checked.",
+  "claim.reason.workbook-no-saved-value":
+    "A formula it uses has no value saved by Excel, so this figure can’t be checked.",
+  "claim.reason.workbook-unsupported":
+    "It uses a formula IncarnaMind can’t work out, so this figure can’t be checked.",
+  "claim.reason.workbook-changed":
+    "The workbook’s cells no longer give this figure. Ask again to work it out from the workbook as it is now.",
   "claim.readBudget.continue": "Continue",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
@@ -4397,6 +4468,10 @@ export const en = {
   "export.citation.accessed": "accessed {date}",
   "export.figure.calculated": "Calculated: {formula} = {figure}.",
   "export.figure.analysis": "Calculated by the Analysis “{title}”: {figure}.",
+  "export.figure.workbook":
+    "Worked out from the workbook’s formulas ({cell} = {formula}): {figure}.",
+  "export.figure.whatIf":
+    "Worked out from the workbook’s formulas ({cell} = {formula}) with {input} changed to {value}: {figure}.",
   "export.figure.inputs": "{inputs}: {source}.",
   "export.figure.cluster": "calculated from {cluster}",
   "export.figure.cluster.note": "Calculated from {cluster}",

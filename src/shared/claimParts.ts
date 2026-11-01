@@ -27,6 +27,7 @@ import type {
   UnsupportedReason,
 } from "../core/api";
 import { claimCheckActions } from "../core/api";
+import { citedInputs } from "./calculatedFigures";
 import { citationAttributesOf, parseQuotedWords } from "./citations";
 import { aggregateFigureResults, readFigureFinding } from "./figureChecks";
 import { graphemeBoundary } from "./graphemes";
@@ -54,6 +55,14 @@ export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = [
   "absence-unconfirmed",
   "cut-short",
   "read-budget",
+  "workbook-changed",
+  "workbook-differs",
+  "workbook-external",
+  "workbook-volatile",
+  "workbook-circular",
+  "workbook-not-read",
+  "workbook-no-saved-value",
+  "workbook-unsupported",
 ];
 const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
 const CITATION_REASONS: readonly CitationCheckReason[] = [
@@ -1178,7 +1187,7 @@ export function partCitations(part: ClaimCheckPart): (CitationAttributes | Citat
               : []),
           ]
         : []),
-      ...(figure.calculated?.figure.inputs ?? []).flatMap((input) => [
+      ...(figure.calculated ? citedInputs(figure.calculated.figure) : []).flatMap((input) => [
         input.citation,
         ...(input.unitStatement ? [input.unitStatement.citation] : []),
       ]),
@@ -1189,8 +1198,8 @@ export function partCitations(part: ClaimCheckPart): (CitationAttributes | Citat
         ]),
       ),
       ...("evidence" in figure.result && figure.result.evidence ? [figure.result.evidence] : []),
-      ...("calculation" in figure.result
-        ? (figure.result.calculation?.figure.inputs.flatMap((input) => [
+      ...("calculation" in figure.result && figure.result.calculation
+        ? (citedInputs(figure.result.calculation.figure).flatMap((input) => [
             input.citation,
             ...(input.unitStatement ? [input.unitStatement.citation] : []),
           ]) ?? [])

@@ -12,7 +12,7 @@
  */
 import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import type { AnswerToolCall, ClaimedTool } from "../api";
-import { DOCUMENT_TOOLS, SOURCE_TOOLS, WEB_TOOLS } from "../tools";
+import { DOCUMENT_TOOLS, SOURCE_TOOLS, WEB_TOOLS, WORKBOOK_TOOLS } from "../tools";
 import { thisAnswersRecord, UNSEEN_REPLY } from "./claimedChanges";
 import { sentencesOf } from "./claimStream";
 import type { ChangeStates, MindNames } from "./toolRecord";
@@ -224,7 +224,9 @@ export function toolClaimsIn(reply: string): ClaimedTool[] {
 const RAN: Record<ClaimedTool, (call: AnswerToolCall) => boolean> = {
   calculate: (call) =>
     call.source === "documents" &&
-    call.tool === DOCUMENT_TOOLS.calculate &&
+    (call.tool === DOCUMENT_TOOLS.calculate ||
+      call.tool === WORKBOOK_TOOLS.trace ||
+      call.tool === WORKBOOK_TOOLS.whatIf) &&
     (call.resultCount ?? 0) > 0,
   search: (call) =>
     call.status === "done" &&

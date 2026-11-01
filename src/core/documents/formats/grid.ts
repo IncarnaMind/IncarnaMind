@@ -10,7 +10,13 @@
  * a block or two. Every block after a sheet's first repeats its header row
  * at the top, so each Passage knows its columns. Pure.
  */
-import { columnName, type TextUnit } from "../../../shared/units";
+import {
+  columnName,
+  parseCellRef,
+  type TextUnit,
+  type UnitLabel,
+  type WorkbookFacts,
+} from "../../../shared/units";
 import type { SheetLayout, WorkbookLayout } from "./sheetLayout";
 
 /** The most rows a block holds. */
@@ -55,6 +61,10 @@ export interface Sheet {
   columnWidths: number[];
   /** How the sheet looks, when the sheet preview asked for it (./sheetLayout). */
   layout?: SheetLayout;
+  /** A workbook's formulas by cell, without "=" (#2347); see `UnitLabel.formulas`. */
+  formulas?: Map<string, string>;
+  /** Values its cells saved that their shown text doesn't give, by cell (#2347); see `UnitLabel.saved`. */
+  saved?: Map<string, number | string | boolean>;
 }
 
 export interface Workbook {
@@ -69,6 +79,8 @@ export interface Workbook {
   sheetsNotRead: string[];
   /** The workbook's styles, when the sheet preview asked for them. */
   layout?: WorkbookLayout;
+  /** What its formulas need beyond its cells (#2347). */
+  facts?: WorkbookFacts;
 }
 
 const NUMERIC = /^[-+(]?[£$€¥]?\d[\d,.]*%?\)?$/;
@@ -95,12 +107,47 @@ function rowLine(cells: readonly Cell[], firstColumn: number): string {
 }
 
 /**
+ * Puts a sheet's formulas and saved values (#2347) in the labels of the Units
+ * that hold their rows; a cell whose row has nothing to show goes in the
+ * nearest Unit above it, or the sheet's first.
+ */
+function placeCellFacts(
+  sheet: Sheet,
+  labels: readonly { rows: number[]; label: UnitLabel }[],
+): void {
+  if (labels.length === 0) return;
+  const byRow = new Map<number, UnitLabel>();
+  for (const { rows, label } of labels) for (const row of rows) byRow.set(row, label);
+  const labelOf = (ref: string): UnitLabel | undefined => {
+    const row = parseCellRef(ref)?.row ?? 0;
+    const own = byRow.get(row);
+    if (own) return own;
+    return (labels.findLast((each) => (each.rows[0] ?? 0) <= row) ?? labels[0])?.label;
+  };
+  for (const [ref, formula] of sheet.formulas ?? []) {
+    const label = labelOf(ref);
+    if (label) label.formulas = { ...label.formulas, [ref]: formula };
+  }
+  for (const [ref, value] of sheet.saved ?? []) {
+    const label = labelOf(ref);
+    if (label) label.saved = { ...label.saved, [ref]: value };
+  }
+}
+
+/**
  * Units for sheets: blocks of rows, numbered on from `firstUnit`. `named`:
  * the sheets have names to show (a workbook's), unlike a CSV's one sheet.
+ * A workbook's `facts` go in its first Unit's label.
  */
-export function gridUnits(sheets: readonly Sheet[], named: boolean, firstUnit = 1): TextUnit[] {
+export function gridUnits(
+  sheets: readonly Sheet[],
+  named: boolean,
+  firstUnit = 1,
+  facts?: WorkbookFacts,
+): TextUnit[] {
   const units: TextUnit[] = [];
   for (const sheet of sheets) {
+    const labels: { rows: number[]; label: UnitLabel }[] = [];
     const rows = new Map<number, Cell[]>();
     let firstColumn = Number.POSITIVE_INFINITY;
     for (const cell of sheet.cells) {
@@ -138,22 +185,27 @@ export function gridUnits(sheets: readonly Sheet[], named: boolean, firstUnit = 
         }
       }
       const repeatHeader = header !== null && headerLine !== null && first > header;
+      const label: UnitLabel = {
+        ...(named ? { sheet: sheet.name } : {}),
+        from: first,
+        to: block.at(-1) as number,
+        rows: repeatHeader ? [header, ...block] : block,
+        column: firstColumn,
+        ...(repeatHeader ? { header: true } : {}),
+        ...(Object.keys(values).length > 0 ? { values } : {}),
+      };
+      labels.push({ rows: block, label });
       units.push({
         page: firstUnit + units.length,
         kind: "rows",
-        label: {
-          ...(named ? { sheet: sheet.name } : {}),
-          from: first,
-          to: block.at(-1) as number,
-          rows: repeatHeader ? [header, ...block] : block,
-          column: firstColumn,
-          ...(repeatHeader ? { header: true } : {}),
-          ...(Object.keys(values).length > 0 ? { values } : {}),
-        },
+        label,
         text: (repeatHeader ? [headerLine, ...lines] : lines).join("\n"),
         anchors: null,
       });
     }
+    placeCellFacts(sheet, labels);
   }
+  const head = units[0];
+  if (facts && head?.label) head.label.workbook = facts;
   return units;
 }
