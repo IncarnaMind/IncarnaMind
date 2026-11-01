@@ -160,7 +160,14 @@ test("Explain while an Answer is being written waits for it: one Answer at a tim
   await slideSelect(window, note, words.selected);
   await pointAndClick(window, explainRow(window));
 
-  // Its Question waits its turn: when it comes, the Answer before it is already done.
+  // Asked while it streams, Explain is not asked yet: one Question, one Answer, while the
+  // first is still being written.
+  await expect(answers.first()).toHaveAttribute("data-status", "streaming");
+  await window.waitForTimeout(1_500);
+  await expect(questions).toHaveCount(1);
+  await expect(answers).toHaveCount(1);
+
+  // When its Question comes, the Answer before it is already done.
   await expect(questions).toHaveCount(2, { timeout: 40_000 });
   await expect(answers.first()).toHaveAttribute("data-status", "done");
   await expect(questions.last()).toContainText(words.question);

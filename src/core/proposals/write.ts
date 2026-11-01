@@ -469,17 +469,18 @@ export type PartsResult =
 
 /**
  * The Block a text segment is part of, as a part may end between it and the next: a table is
- * one Block however many cells it has, and so is each list item.
+ * one Block however many cells it has, and so is each list item — the nearest one, so an item
+ * of a nested list is a Block of its own.
  */
 function blockOf(segment: Segment, blocks: Y.XmlFragment): unknown {
-  let block: Y.XmlElement = segment.element;
+  let block: Y.XmlElement | null = null;
   for (let at: unknown = segment.element; at instanceof Y.XmlElement; at = at.parent) {
     if (at.nodeName === "table") return at;
-    if (at.nodeName === "listItem") block = at;
+    if (at.nodeName === "listItem" && block === null) block = at;
     // An XmlElement is an XmlFragment too: only the Mind's own fragment is the top.
-    if (at.parent === blocks) return block;
+    if (at.parent === blocks) return block ?? segment.element;
   }
-  return block;
+  return block ?? segment.element;
 }
 
 /**

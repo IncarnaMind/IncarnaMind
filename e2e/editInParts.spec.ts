@@ -141,10 +141,13 @@ test("a selection three times the model's limit is edited in parts, streamed Blo
   await askOnAll(window, "Shorten this");
 
   // Part by part, said where the edit reports and where it writes: the first Block changes
-  // while the last is still as it was.
+  // while the last is still as it was. The first Block is done once the second is being written.
   await expect(window.getByTestId("edit-pending")).toContainText("Writing part 1 of 3…");
   await expect(editor.getByTestId("mind-writing")).toContainText(/Writing part \d of 3…/, {
     timeout: 20_000,
+  });
+  await expect(window.getByTestId("edit-pending")).toContainText("Writing part 2 of 3…", {
+    timeout: 30_000,
   });
   await expect(paragraphs.first()).toHaveText(EN(0).replaceAll(" very", ""), {
     useInnerText: true,
@@ -283,11 +286,20 @@ test("on a cloud model with a monthly cap, the estimate of the parts shows befor
 
   await askOnAll(window, "Shorten this");
 
-  // Three parts, each measured at 6,900 tokens in and 3,000 out: 29,700 tokens, shown first.
+  // Three parts, each measured at 6,900 tokens in and 3,000 out: 29,700 tokens, shown first —
+  // read in one go, so the estimate showing while the line already applied would be seen.
   const pending = window.getByTestId("edit-pending");
-  await expect(pending).toContainText("29.7K tokens");
-  await expect(pending).toContainText("of $20.00 used this month");
   const line = window.getByTestId("mind-editor").getByTestId("applied-line");
+  await expect
+    .poll(
+      async () =>
+        (await pending.count()) > 0 && (await pending.innerText()).includes("29.7K tokens")
+          ? await line.count()
+          : -1,
+      { timeout: 30_000 },
+    )
+    .toBe(0);
+  await expect(pending).toContainText("of $20.00 used this month");
   await expect(line.getByTestId("applied-parts")).toHaveText("3 parts", { timeout: 30_000 });
   await screenshot(window, "parts-estimate-en");
   await app.close();

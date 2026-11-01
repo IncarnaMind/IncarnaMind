@@ -5843,6 +5843,48 @@ describe("A selection too long for the model is edited in parts (#2348)", () => 
     expect(calls[1]?.passage).toContain("Water very even");
   });
 
+  test("a nested list's items are Blocks of their own: each item goes to the model as its own part", async () => {
+    const calls: EditCall[] = [];
+    const { core, mind, client } = await setUp(
+      editingModel(({ passage }) => passage.replaceAll(" very", ""), calls, { chunkSize: 512 }),
+    );
+    /** About 10,800 characters: under the limit alone, over it with another. */
+    const item = (index: number) =>
+      `Nested item ${index}, the water is very high. ${LINE.repeat(150)}`;
+    writeMind(client, [
+      {
+        type: "bulletList",
+        content: [
+          {
+            type: "listItem",
+            content: [
+              paragraph(text("Nested lists, the water is very high.")),
+              {
+                type: "bulletList",
+                content: [0, 1, 2].map((index) => ({
+                  type: "listItem",
+                  content: [paragraph(text(item(index)))],
+                })),
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    await client.settled();
+
+    const result = await core.editWithAi(wholeOf(client, mind.id, "shorten"));
+
+    // The bullets and the item above them are each a Block, so they are edited in three parts.
+    expect(result).toMatchObject({ kind: "proposed", parts: 3 });
+    expect(calls).toHaveLength(3);
+    expect(calls.map((each) => each.passage.includes("Nested item 2"))).toEqual([
+      false,
+      false,
+      true,
+    ]);
+  });
+
   test("one Block over the limit is said so, with nothing sent: a Block can't be split", async () => {
     const calls: EditCall[] = [];
     const { core, mind, client } = await setUp(
