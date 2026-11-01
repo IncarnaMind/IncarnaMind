@@ -822,7 +822,13 @@ const APPLIES =
 const held = (name: string) =>
   `It would take out most of the User's own text in “${name}”, so it waits there for them to apply or discard; nothing of their text has changed yet. Say that it waits for them, not that it changed.`;
 
-function waitingMessage(name: string, count: number, mixed: boolean, applies: boolean): string {
+function waitingMessage(
+  name: string,
+  count: number,
+  mixed: boolean,
+  applies: boolean,
+  review: string,
+): string {
   const how =
     "Make no other change for this request: don't add the text elsewhere or make a new Note.";
   if (applies || count === 0) {
@@ -833,7 +839,7 @@ function waitingMessage(name: string, count: number, mixed: boolean, applies: bo
   }
   return mixed
     ? `Nothing was changed in “${name}”: the text you named holds the User's text and your own changes still waiting. To revise only your waiting text, call edit_mind again naming its section's heading in part. To change the User's text, the User needs to accept or reject the ${changes(count)} waiting first: if that is what they asked, say so first, in one sentence. ${how}`
-    : `Nothing was changed in “${name}”: ${changes(count)} wait there for the User, and the text you asked to change holds some that you can't revise (the User's own requests, or someone's from a Word file). Say so first, in one sentence: the User needs to accept or reject them first, and Review under your reply shows them. ${how}`;
+    : `Nothing was changed in “${name}”: ${changes(count)} wait there for the User, and the text you asked to change holds some that you can't revise (the User's own requests, or someone's from a Word file). Say so first, in one sentence: the User needs to accept or reject them first, and ${review} under your reply shows them. ${how}`;
 }
 
 /** What `edit_mind`'s model reads of a result that proposed nothing, and what its card says. */
@@ -2137,7 +2143,13 @@ export function mindTools(options: MindToolsOptions): {
       waiting.applies || waiting.count === 0
         ? { kind: "content-not-own", mindId: mind.id }
         : { kind: "waiting", mindId: mind.id, ...waiting },
-      waitingMessage(mind.name, waiting.count, waiting.mixed, waiting.applies),
+      waitingMessage(
+        mind.name,
+        waiting.count,
+        waiting.mixed,
+        waiting.applies,
+        translate(options.language, "mindChanges.review"),
+      ),
     );
 
   const edit: Tool = {
