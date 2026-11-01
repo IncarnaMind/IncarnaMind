@@ -13,6 +13,7 @@ import type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+import type { Localized } from "./providers/catalog/types";
 import type { UiUsageEvent } from "./usageEvents";
 
 export type {
@@ -2417,14 +2418,16 @@ export interface FigureInput {
   cell: { sheet: string | null; ref: string; stored: number | null } | null;
   /**
    * The line of the same Passage that states the number's scale or currency
-   * ("单位：万元"), given as `unitQuote` when the number has none of its own;
-   * null when none was needed.
+   * ("单位：万元", or "Sale price £385,000.00" above bare figures), given as
+   * `unitQuote` when the number has none of its own; null when none was needed.
    */
   unitStatement: {
     citation: Citation;
     scale: number;
     scaleWord: string | null;
     currency: string | null;
+    /** The currency's characters as the line writes them ("£", "US$") when it writes them on a figure; absent for a heading's. */
+    currencyChars?: string | null;
   } | null;
 }
 
@@ -2666,10 +2669,10 @@ export interface DeviceSettings {
 
 /**
  * Where a Meeting's audio is turned into text: on this computer, or by a cloud service with the
- * User's own key (#141): OpenAI with the key of the OpenAI provider in Settings › Models, Soniox
- * with a key of its own. #463 adds Qwen.
+ * User's own key (#141): OpenAI and Qwen (Alibaba Cloud Model Studio, for mainland China) with
+ * the key of their provider in Settings › Models, Soniox with a key of its own.
  */
-export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox"] as const;
+export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox", "qwen"] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];
 export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 
@@ -2677,13 +2680,23 @@ export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 export interface TranscriptionServiceStatus {
   route: CloudTranscriptionRoute;
   name: string;
+  /** Who gets the audio, as the consent line names it ("Alibaba Cloud" for Qwen). */
+  recipient: Localized;
   model: string;
   perHour: Money;
+  /** The region the key is for, named as in Settings › Models. */
+  region: Localized | null;
+  dataUse: { summary: Localized; url: Localized } | null;
   /** "provider": it uses the key of the chat provider of the same name in Settings › Models. */
   key: "provider" | "own";
   hasKey: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
+  /**
+   * It was chosen, and set back to this computer when its key began to send the audio somewhere
+   * the User hadn't chosen (a Qwen key for another region): choosing it again sends it there.
+   */
+  chooseAgain: boolean;
 }
 
 /**
@@ -9979,12 +9992,13 @@ export interface MeetingTranscript {
    * This computer took over from the cloud service the User chose, during this stretch of
    * recording: where, in the Meeting's time, and why. "dropped": the connection was lost;
    * "refused": the service didn't accept the key; "cap": the month reached the cap;
-   * "local-mode": “Keep everything on this computer” is on. Null otherwise.
+   * "local-mode": “Keep everything on this computer” is on; "moved": the key now sends the
+   * audio somewhere the User hasn't chosen (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
    */
   fellBack: {
     route: CloudTranscriptionRoute;
     atMs: number;
-    reason: "dropped" | "refused" | "cap" | "local-mode";
+    reason: "dropped" | "refused" | "cap" | "local-mode" | "moved";
   } | null;
   /** Its own file in the data folder, once saved: kept for the Library, never shown as a path (#763). */
   savedPath: string | null;

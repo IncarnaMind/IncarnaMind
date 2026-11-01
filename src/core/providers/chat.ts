@@ -940,12 +940,14 @@ export function createChat(options: {
       );
     },
 
-    /** The key of the saved provider of a hosted catalog entry, for another service of its (#141). */
-    async apiKeyOf(catalogId: string): Promise<{ providerId: string; apiKey: string } | null> {
+    /** The key of the saved provider of a hosted catalog entry, with its region, for another service of its (#141). */
+    async apiKeyOf(
+      catalogId: string,
+    ): Promise<{ providerId: string; apiKey: string; endpoint: string | null } | null> {
       for (const row of knownRows()) {
         if ((row.catalog_id ?? row.kind) !== catalogId || row.base_url !== null) continue;
         const apiKey = await secrets.tryGet(keyName(row.id));
-        if (apiKey) return { providerId: row.id, apiKey };
+        if (apiKey) return { providerId: row.id, apiKey, endpoint: row.endpoint };
       }
       return null;
     },

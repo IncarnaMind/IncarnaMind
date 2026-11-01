@@ -815,6 +815,7 @@ export const en = {
   "figures.export.documentPlace": "Document and location",
   "figures.export.recordHeading": "Figures",
   "figures.unitQuote": "Unit statement",
+  "figures.unitFrom": "{currency} stated on {quote}",
   "figures.command": "Tie out figures",
   "figures.title": "Figure schedule",
   "figures.tab": "Figure schedule – {name}",
@@ -3179,15 +3180,17 @@ export const en = {
   "meetings.route.local": "On this computer",
   "meetings.route.openai": "OpenAI",
   "meetings.route.soniox": "Soniox",
+  "meetings.route.qwen": "Qwen",
   "meetings.route.here": "Transcribe on this computer",
   "meetings.route.hereLine": "Private and free",
   "meetings.route.otherWays": "Other ways…",
-  "meetings.route.wayRow": "{service} · your key",
-  "meetings.route.use": "Use {service}",
+  "meetings.route.wayRow": "{provider} · your key",
+  "meetings.route.use": "Use {provider}",
   "meetings.route.waysNote":
     "Choosing one sends the meeting’s audio to that service while you record. Change it in Settings › Meetings.",
-  "meetings.route.cloudOn": "Transcribe with {service}",
-  "meetings.route.cloudLine": "Audio goes to {service} while you record",
+  "meetings.route.cloudOn": "Transcribe with {provider}",
+  "meetings.route.cloudLine": "Audio goes to {provider} while you record.",
+  "meetings.route.agreement": "Agreement",
   "meetings.route.useHere": "Use this computer",
   "meetings.route.slow":
     "This computer may not keep up live; a cloud service keeps live text smooth.",
@@ -3195,12 +3198,14 @@ export const en = {
   "meetings.route.settingsLink": "Settings › Meetings",
   "meetings.route.consent": "A cloud service gets the meeting’s audio while you record.",
   "meetings.route.paused": "Paused: “Keep everything on this computer” is on.",
+  "meetings.route.chooseAgain":
+    "Audio now stays on this computer. Choose {provider} again to send it to {region}.",
   "meetings.route.perHour": "about {price} an hour",
   "meetings.route.perHourFirst": "About {price} an hour",
-  "meetings.route.providerKey": "uses your {service} key",
-  "meetings.route.ownKey": "your {service} key",
+  "meetings.route.providerKey": "uses your {provider} key",
+  "meetings.route.ownKey": "your {provider} key",
   "meetings.route.speakers": "names speakers live",
-  "meetings.key.title": "{service} key",
+  "meetings.key.title": "{provider} key",
   "meetings.key.line": "Kept on this computer and never shown again.",
   "meetings.key.get": "Get a key",
   "meetings.key.placeholder": "Paste the key",
@@ -3944,7 +3949,7 @@ export const en = {
   "scripts.settings.body": "No sandbox: scripts run here and ask before each run.",
   "scripts.settings.bodySandboxed": "Scripts run in a sandbox and ask before each run.",
   "scripts.settings.bodySandboxed.details":
-    "They can’t open your home folder or IncarnaMind’s data, can only write in their own working folder, and have no internet. Unless you chose “Always run” for a Skill, each run asks first.",
+    "They can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in their own working folder, and have no internet. Unless you chose “Always run” for a Skill, each run asks first.",
   "scripts.settings.timeout": "Stop a script that runs longer than",
   "scripts.settings.seconds": "seconds",
 
@@ -3976,7 +3981,7 @@ export const en = {
     "No sandbox: it can read, change or delete your files and use the internet.",
   "scripts.card.sandboxed": "Runs in a sandbox: no internet, no home folder.",
   "scripts.card.sandboxed.details":
-    "It can’t open your home folder or IncarnaMind’s data, can only write in its own working folder, and has no internet.",
+    "It can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in its own working folder, and has no internet.",
   "scripts.card.allowOnce": "Allow once",
   "scripts.card.alwaysRun": "Always run",
   "scripts.card.alwaysRunHint": "Run {skill}’s scripts without asking from now on",
@@ -3985,9 +3990,9 @@ export const en = {
   "scripts.alwaysRun.body":
     "From now on, {skill}’s scripts run without asking. With no sandbox, they can delete your files and send your data online.",
   "scripts.alwaysRun.bodySandboxed":
-    "From now on, {skill}’s scripts run without asking. They run in a sandbox, but can still read files on other drives.",
+    "From now on, {skill}’s scripts run without asking. They run in a sandbox, but can still read some files on this computer.",
   "scripts.alwaysRun.bodySandboxed.details":
-    "They can’t open your home folder or IncarnaMind’s data, can only write in their own working folder, and have no internet.",
+    "They can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in their own working folder, and have no internet.",
   "scripts.alwaysRun.trust": "Only for a Skill you trust. Reset in Settings › Approvals.",
   "scripts.alwaysRun.confirm": "Always run {skill}’s scripts",
   "scripts.alwaysRun.cancel": "Cancel",
@@ -5594,9 +5599,14 @@ export const en = {
   "meetings.line.systemSilent": "No sound from the call for a minute: recording may be blocked.",
   "meetings.line.systemEnded": "The computer’s sound stopped. Your microphone is still recorded.",
   "meetings.line.systemUnavailable": "This computer records only your microphone.",
-  "meetings.line.cloudDropped": "Transcribing on this computer ({service} dropped at {time})",
+  "meetings.line.cloudDropped": "Transcribing on this computer ({provider} dropped at {time})",
   "meetings.line.cloudCap": "Transcribing on this computer (the monthly cap was reached at {time})",
-  "meetings.line.cloudRefused": "{service} didn’t accept the key. Transcribing on this computer.",
+  "meetings.line.cloudRefused": "{provider} didn’t accept the key. Transcribing on this computer.",
+  "meetings.line.cloudRefusedRegion":
+    "{provider} refused the key (wrong, expired or for another region). Check the key and its region in Settings › Models. Transcribing on this computer.",
+  "meetings.line.cloudMoved":
+    "Transcribing on this computer: your {provider} key is for another region now. Choose {provider} again to send the audio there.",
+  "meetings.line.chooseAgain": "Choose again",
   "meetings.line.cloudLocalMode":
     "Transcribing on this computer: “Keep everything on this computer” is on.",
   "meetings.line.openSettings.mac": "Open System Settings",

@@ -5,7 +5,7 @@ import type { Core } from "../../src/core";
 import { hashBytes } from "../../src/core/documents/files";
 import { readVtt, writeVtt } from "../../src/core/documents/formats/vtt";
 import { InvalidInputError } from "../../src/core/errors";
-import { FAKE_LINES } from "../../src/core/transcription/fake";
+import { FAKE_LINES, FAKE_THEIR_LINES } from "../../src/core/transcription/fake";
 import { FAKE_CLOUD_LINES } from "../../src/core/transcription/fakeCloud";
 import { askAndFinish, citingModel, onlyCitation, type ShownPassage } from "../helpers/citations";
 import { createMemoryKeychain, createTempDataFolder } from "../helpers/core";
@@ -14,10 +14,22 @@ import { fakeSeparator, transcribingCore, transcriptOf, until } from "../helpers
 
 const SECOND = 1000;
 const SONIOX_KEY = "soniox-test-key-0123456789";
+const QWEN_KEY = "sk-qwen-test-key-0123456789";
 
 async function chooseSoniox(core: Core) {
   await core.setTranscriptionKey({ route: "soniox", apiKey: SONIOX_KEY });
   await core.updateSettings({ device: { transcriptionRoute: "soniox" } });
+}
+
+/** The Qwen key in Models, for a region ("cn": Beijing, the first; "intl": Singapore), and Qwen chosen for meetings. */
+async function chooseQwen(core: Core, endpoint?: "cn" | "intl") {
+  await core.saveChatProvider({
+    kind: "qwen",
+    ...(endpoint && { endpoint }),
+    apiKey: QWEN_KEY,
+    modelId: "qwen3.7-plus",
+  });
+  await core.updateSettings({ device: { transcriptionRoute: "qwen" } });
 }
 
 /** The Transcript's lines as its Document shows them, once the saved file's text is indexed: the first's start, and each line's speaker. */
@@ -385,6 +397,7 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     expect((await core.listTranscriptionServices()).services).toEqual([
       expect.objectContaining({ route: "openai", key: "provider", hasKey: false }),
       expect.objectContaining({ route: "soniox", key: "own", hasKey: false, liveSpeakers: true }),
+      expect.objectContaining({ route: "qwen", key: "provider", hasKey: false }),
     ]);
 
     await chooseSoniox(core);
@@ -488,5 +501,308 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     const live = await until(core, meeting.id, (transcript) => transcript.lines >= 2);
     expect(live.cloud).toBe("openai");
     expect((await transcriptOf(core, meeting.id)).fellBack).toBeNull();
+  });
+
+  describe("Qwen, with the key of the Qwen provider in Models", () => {
+    test("a Meeting transcribed by Qwen: its lines come as sentences, with no speakers of its own", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core, record } = await transcribingCore(dataDir);
+      await chooseQwen(core);
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      await until(core, meeting.id, (transcript) => transcript.cloud === "qwen");
+
+      record(9 * SECOND);
+      const live = await until(core, meeting.id, (transcript) => transcript.lines >= 4);
+      expect(live).toMatchObject({ state: "live", cloud: "qwen", fellBack: null });
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+      expect(cues.every((cue) => FAKE_CLOUD_LINES.includes(cue.text))).toBe(true);
+      // Qwen tells no speakers apart: the microphone is "Me" and the call "Them", until #140.
+      expect(new Set(cues.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
+    });
+
+    test("it is offered with the region of the Qwen provider the key is from, and the price there; the consent is for that region's service", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core } = await transcribingCore(dataDir);
+      const qwen = async () =>
+        (await core.listTranscriptionServices()).services.find((each) => each.route === "qwen");
+      expect(await qwen()).toMatchObject({
+        hasKey: false,
+        region: null,
+        model: "fun-asr-realtime",
+      });
+
+      await chooseQwen(core, "intl");
+      expect(await qwen()).toMatchObject({
+        hasKey: true,
+        model: "fun-asr-realtime",
+        region: { en: "International (Singapore)", zh: "国际（新加坡）" },
+        perHour: { currency: "USD", amount: 0.324 },
+        recipient: { en: "Alibaba Cloud", zh: "阿里云" },
+        dataUse: {
+          summary: { en: expect.stringContaining("isn’t used for model training") },
+          url: { en: expect.stringMatching(/^https:\/\/docs\.agent\.bailian\.aliyun\.com\//) },
+        },
+      });
+      expect(await core.listDataFlows()).toContainEqual(
+        expect.objectContaining({
+          flow: expect.objectContaining({
+            id: "transcription",
+            service: { id: "https://dashscope-intl.aliyuncs.com", name: "Qwen (Alibaba Cloud)" },
+          }),
+          consent: "accepted",
+          chosen: true,
+        }),
+      );
+
+      const beijing = await transcribingCore(await createTempDataFolder());
+      await chooseQwen(beijing.core);
+      expect(
+        (await beijing.core.listTranscriptionServices()).services.find(
+          (each) => each.route === "qwen",
+        ),
+      ).toMatchObject({
+        region: { en: "China (Beijing)", zh: "中国内地（北京）" },
+        perHour: { currency: "CNY", amount: 1.188 },
+      });
+      expect(await beijing.core.listDataFlows()).toContainEqual(
+        expect.objectContaining({
+          flow: expect.objectContaining({
+            service: { id: "https://dashscope.aliyuncs.com", name: "Qwen (Alibaba Cloud)" },
+          }),
+          consent: "accepted",
+        }),
+      );
+    });
+
+    test("the key never leaves the keychain: it is in no file of the data folder", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core } = await transcribingCore(dataDir);
+      await chooseQwen(core);
+      expect(filesUnder(dataDir).filter((file) => file.text.includes(QWEN_KEY))).toEqual([]);
+    });
+
+    test("the connection dropping hands the live audio to this computer: the gap is marked, the bar says when, and Stop fills it in", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core, record } = await transcribingCore(dataDir, {
+        engine: { cloud: { dropAfterMs: 5 * SECOND } },
+      });
+      await chooseQwen(core);
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      await until(core, meeting.id, (transcript) => transcript.cloud === "qwen");
+
+      record(4 * SECOND);
+      await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+      record(3 * SECOND);
+      const fellBack = await until(core, meeting.id, (transcript) => transcript.fellBack !== null);
+      expect(fellBack).toMatchObject({
+        cloud: null,
+        fellBack: { route: "qwen", reason: "dropped" },
+      });
+
+      record(6 * SECOND);
+      await until(
+        core,
+        meeting.id,
+        (transcript, each) =>
+          each.status === "recording" && transcript.state === "live" && transcript.lines >= 4,
+      );
+      const working = readFileSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`), "utf8");
+      expect(working).toMatch(/^NOTE gap .* cloud$/m);
+
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const final = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+      expect(final.gaps).toEqual([]);
+      const texts = final.cues.map((cue) => cue.text);
+      expect(texts.some((text) => FAKE_CLOUD_LINES.includes(text))).toBe(true);
+      expect(texts.some((text) => FAKE_LINES.includes(text))).toBe(true);
+    });
+
+    test("a drop after a late first partial replays every unfinished second", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core, record } = await transcribingCore(dataDir, {
+        engine: {
+          cloud: {
+            latePartial: { atMs: SECOND, beginMs: SECOND, text: "Unfinished cloud words" },
+            dropAfterMs: 10 * SECOND,
+          },
+        },
+      });
+      await chooseQwen(core);
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      await until(core, meeting.id, (transcript) => transcript.cloud === "qwen");
+
+      record(11 * SECOND);
+      await until(core, meeting.id, (transcript) => transcript.fellBack !== null);
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const final = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+      expect(final.gaps).toEqual([]);
+      expect(Math.min(...final.cues.map((cue) => cue.startMs))).toBeLessThanOrEqual(SECOND);
+      expect(final.cues.some((cue) => FAKE_LINES.includes(cue.text))).toBe(true);
+      expect(final.cues.some((cue) => cue.text === "Unfinished cloud words")).toBe(false);
+    });
+
+    test("a socket drop while finishing replays the unfinished sentence", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core, record } = await transcribingCore(dataDir, {
+        engine: {
+          cloud: {
+            latePartial: {
+              atMs: SECOND,
+              beginMs: SECOND,
+              text: "Unfinished cloud words",
+              dropOnFinish: true,
+            },
+          },
+        },
+      });
+      await chooseQwen(core);
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      record(4 * SECOND);
+      await until(core, meeting.id, (transcript) => transcript.partial !== null);
+
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const final = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+      expect(final.gaps).toEqual([]);
+      expect(Math.min(...final.cues.map((cue) => cue.startMs))).toBeLessThanOrEqual(SECOND);
+      expect(final.cues.some((cue) => FAKE_LINES.includes(cue.text))).toBe(true);
+    });
+
+    // protects=a healthy Qwen connection, whose heartbeats show it keeps up, stays live through a silence longer than the lag allows, and speech after it is in the saved Transcript when the connection then drops; fails_when=the silence reads as falling behind and closes the socket, or the drop leaves the speech out; no_claim=how often the real service sends heartbeats, which needs a real key.
+    test("a silence longer than the lag allows stays live on Qwen, and speech after it survives a dropped connection", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core, record } = await transcribingCore(dataDir, {
+        capture: { system: "silent" },
+        engine: { cloud: { dropAfterMs: 40 * SECOND } },
+      });
+      // The time between chunks, in which the service and the transcription process answer.
+      const answered = async () => {
+        for (let turn = 0; turn < 10; turn++) await new Promise((done) => setTimeout(done, 0));
+      };
+      await chooseQwen(core);
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      await until(core, meeting.id, (transcript) => transcript.cloud === "qwen");
+
+      for (let second = 0; second < 36; second++) {
+        record(SECOND, ["system"]);
+        await answered();
+      }
+      expect(await transcriptOf(core, meeting.id)).toMatchObject({
+        state: "live",
+        cloud: "qwen",
+        fellBack: null,
+      });
+
+      for (let second = 0; second < 6; second++) {
+        record(SECOND);
+        await answered();
+      }
+      await until(core, meeting.id, (transcript) => transcript.fellBack !== null);
+      record(4 * SECOND);
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const final = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+      expect(final.gaps).toEqual([]);
+      expect(
+        final.cues.some((cue) => cue.startMs >= 36 * SECOND && FAKE_LINES.includes(cue.text)),
+      ).toBe(true);
+    });
+
+    test("the monthly cap counts Qwen's price from the catalog and hands the live audio to this computer; recording never stops", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core, record } = await transcribingCore(dataDir);
+      await chooseQwen(core);
+      // ¥1.188 an hour: about 20 seconds of the two streams' audio fit.
+      await core.updateSettings({ user: { monthlyCap: { currency: "USD", amount: 0.001 } } });
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      await until(core, meeting.id, (transcript) => transcript.cloud === "qwen");
+
+      record(20 * SECOND);
+      const capped = await until(core, meeting.id, (transcript) => transcript.fellBack !== null);
+      expect(capped).toMatchObject({ cloud: null, fellBack: { route: "qwen", reason: "cap" } });
+      record(4 * SECOND);
+      await until(
+        core,
+        meeting.id,
+        (transcript, each) => each.status === "recording" && transcript.state === "live",
+      );
+      const summary = await core.getCostSummary();
+      expect(summary.spentTowardCap?.amount ?? 0).toBeLessThanOrEqual(0.001);
+      expect(summary.spent.some((each) => each.currency === "CNY" && each.amount > 0)).toBe(true);
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      expect(readVtt(readFileSync(saved.savedPath as string, "utf8")).gaps).toEqual([]);
+    });
+
+    test("a key made in the other region is turned away: one problem in the bar, this computer takes over, and recording goes on", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core, record } = await transcribingCore(dataDir, {
+        engine: { cloud: { refuse: true } },
+      });
+      await chooseQwen(core, "intl");
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      await until(core, meeting.id, (transcript) => transcript.cloud === "qwen");
+
+      record(3 * SECOND);
+      const refused = await until(core, meeting.id, (transcript) => transcript.fellBack !== null);
+      expect(refused).toMatchObject({
+        cloud: null,
+        fellBack: { route: "qwen", reason: "refused" },
+      });
+      record(6 * SECOND);
+      await until(
+        core,
+        meeting.id,
+        (transcript, each) =>
+          each.status === "recording" && transcript.state === "live" && transcript.lines >= 2,
+      );
+      const health = (await core.listMeetings())[0]?.health.events;
+      expect(health).toContainEqual(
+        expect.objectContaining({ kind: "switched", from: "cloud", to: "local", reason: "failed" }),
+      );
+    });
+
+    test("Local mode keeps the route off: it can't be chosen, and a Meeting goes to this computer, none of its audio sent", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core, record } = await transcribingCore(dataDir);
+      await chooseQwen(core);
+      await core.setLocalOnly(true);
+      await core.updateSettings({ device: { transcriptionRoute: "local" } });
+      await expect(core.updateSettings({ device: { transcriptionRoute: "qwen" } })).rejects.toThrow(
+        InvalidInputError,
+      );
+      expect((await core.getSettings()).device.transcriptionRoute).toBe("local");
+
+      // Chosen before Local mode was turned on, it still sends nothing.
+      await core.setLocalOnly(false);
+      await core.updateSettings({ device: { transcriptionRoute: "qwen" } });
+      await core.setLocalOnly(true);
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      record(5 * SECOND);
+      const live = await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+      expect(live).toMatchObject({
+        cloud: null,
+        fellBack: { route: "qwen", reason: "local-mode", atMs: 0 },
+      });
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+      expect(cues.some((cue) => FAKE_CLOUD_LINES.includes(cue.text))).toBe(false);
+      expect(
+        cues.every((cue) => FAKE_LINES.includes(cue.text) || FAKE_THEIR_LINES.includes(cue.text)),
+      ).toBe(true);
+    });
   });
 });
