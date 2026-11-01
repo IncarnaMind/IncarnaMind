@@ -99,7 +99,6 @@ import { needsCalculation } from "./calculationGate";
 import {
   checkFigureReply,
   figureJudgment,
-  figureReplyText,
   givesItsOwnNumber,
   readFigureReply,
   readFigureSource,
@@ -129,6 +128,7 @@ import {
   readPresence,
   readsAsRefusal,
   readVerdict,
+  replyAcrossTurns,
   STRICT_INSTRUCTIONS,
   STRICT_PRESENCE_INSTRUCTIONS,
 } from "./prompt";
@@ -334,7 +334,7 @@ function figuresReplied(
     {
       name: "figures-line",
       check(last, setAside = []) {
-        const text = figureReplyText(last, setAside);
+        const text = replyAcrossTurns(last, setAside);
         if (!asked(text)) return null;
         const read = readFigureReply(text, figures, request.claim);
         if (!read) return ask(text, { claims: [], note: FIGURES_LINE });
@@ -347,7 +347,7 @@ function figuresReplied(
     {
       name: "figures-sources",
       check(last, setAside = []) {
-        const text = figureReplyText(last, setAside);
+        const text = replyAcrossTurns(last, setAside);
         const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
         if (!read) return null;
         const problems = read.items.flatMap((item) => {
@@ -1115,7 +1115,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (failed) return failedCheck(failed);
     if (request.figures?.length) {
       if (!finished || reply.trim() === "") return notChecked("empty");
-      const written = figureReplyText(reply, setAside);
+      const written = replyAcrossTurns(reply, setAside);
       // Asked about its Figures line, a model that can't do what it was asked may write prose
       // in place of its reply ("I can't rewrite that Figures entry…"): the reply asked about stands.
       // One that writes only its Figures line again leaves its verdict on the sentence standing.
@@ -1407,17 +1407,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       };
     }
     if (!finished || reply.trim() === "") return notChecked("empty");
-    // Claude Haiku 5.5 may write the verdict lines in the turn that calls `cite` after its search,
-    // with no marker, and only the sentence after it: the Answer sets that turn aside as a
-    // preamble (#1673). Only the last such turn with a verdict counts, so another one's preamble
-    // never becomes what the Document says, and a refusal after it is the reply's last word.
     const refused = readsAsRefusal(reply);
-    const withVerdict = refused
-      ? undefined
-      : setAside.findLast((text) => readVerdict(text) !== null);
-    let verdict =
-      readVerdict(reply) ??
-      (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
+    let verdict = readVerdict(replyAcrossTurns(reply, setAside));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
     if (!looked()) return notChecked("unread");
     session.check();

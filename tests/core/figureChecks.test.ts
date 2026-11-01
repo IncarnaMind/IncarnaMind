@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "vitest";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
-import { figureReplyText, readFigureReply } from "../../src/core/answers/checks/figureChecks";
+import { readFigureReply } from "../../src/core/answers/checks/figureChecks";
+import { replyAcrossTurns } from "../../src/core/answers/checks/prompt";
 import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
 import type {
   CalculatedFigure,
@@ -144,18 +145,18 @@ test.each([
     aside: [reply([item()]).replace("Verdict: supported\nAbsence: no\n", "")],
   },
 ])("a stale or refused preamble cannot replace $final", ({ final, aside }) => {
-  expect(figureReplyText(final, aside)).toBe(final);
+  expect(replyAcrossTurns(final, aside)).toBe(final);
 });
 
 test("only the last verdict-bearing preamble can supply its own Figures envelope", () => {
   const final = "The quote states the revenue.";
   const latest = reply([item()]);
-  expect(figureReplyText(final, ["Verdict: unsupported", latest])).toBe(`${latest}\n${final}`);
-  expect(figureReplyText(final, [latest, "Verdict: unsupported"])).toBe(
-    `Verdict: unsupported\n${final}`,
+  expect(replyAcrossTurns(final, ["Verdict: unsupported", latest])).toBe(`${latest}\n\n${final}`);
+  expect(replyAcrossTurns(final, [latest, "Verdict: unsupported"])).toBe(
+    `Verdict: unsupported\n\n${final}`,
   );
   const superseding = reply([item("unknown")]);
-  expect(figureReplyText(superseding, [latest])).toBe(superseding);
+  expect(replyAcrossTurns(superseding, [latest])).toBe(superseding);
 });
 
 test("a last turn of only its Figures line is read after the verdict set aside beside cite (#2184)", () => {
@@ -163,13 +164,13 @@ test("a last turn of only its Figures line is read after the verdict set aside b
   expect(figuresLine).toMatch(/^Figures: /);
   const verdict =
     "Verdict: supported\nAbsence: no\nThe accounts give revenue of £20.\nCite records:";
-  expect(figureReplyText(figuresLine, [verdict])).toBe(`${verdict}\n${figuresLine}`);
-  expect(figureReplyText(figuresLine, [])).toBe(figuresLine);
-  expect(figureReplyText(figuresLine, [verdict, "I'm sorry, I can't help with that."])).toBe(
+  expect(replyAcrossTurns(figuresLine, [verdict])).toBe(`${verdict}\n\n${figuresLine}`);
+  expect(replyAcrossTurns(figuresLine, [])).toBe(figuresLine);
+  expect(replyAcrossTurns(figuresLine, [verdict, "I'm sorry, I can't help with that."])).toBe(
     figuresLine,
   );
-  expect(figureReplyText(figuresLine, ["I'm sorry, I can't help with that.", verdict])).toBe(
-    `${verdict}\n${figuresLine}`,
+  expect(replyAcrossTurns(figuresLine, ["I'm sorry, I can't help with that.", verdict])).toBe(
+    `${verdict}\n\n${figuresLine}`,
   );
 });
 

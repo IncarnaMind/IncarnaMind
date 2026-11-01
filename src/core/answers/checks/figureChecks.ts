@@ -21,7 +21,7 @@ import { isRecord } from "../../errors";
 import { figureAgain, keptReason, whatIfAgain } from "../../workbooks/trace";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
 import { agreesAtShownPrecision } from "./calculated";
-import { FIGURES, type ReadVerdict, readsAsRefusal, readVerdict } from "./prompt";
+import { FIGURES, type ReadVerdict, readVerdict } from "./prompt";
 import type { BoundNumber } from "./units";
 
 export interface FigureReplyItem extends ReadVerdict {
@@ -82,19 +82,6 @@ function judgmentOf(value: unknown): ReadVerdict | null {
   )
     return null;
   return readVerdict(JSON.stringify(value));
-}
-
-/**
- * A check Run's reply for a sentence with figures, read across its turns: a last turn that gives
- * no verdict is read after the last turn set aside with one. Claude Haiku 5.5 wrote its whole
- * reply in the turn that calls `cite` and prose after it, or only its verdict lines there and its
- * Figures line alone after it (#2184).
- */
-export function figureReplyText(reply: string, setAside: readonly string[]): string {
-  if (readsAsRefusal(reply) || readVerdict(reply)) return reply;
-  // A refusal set aside after the verdict is the model's last word on it.
-  const earlier = setAside.findLast((text) => readVerdict(text) !== null || readsAsRefusal(text));
-  return earlier === undefined || readsAsRefusal(earlier) ? reply : `${earlier}\n${reply}`;
 }
 
 /** The markers the reply's own words carry, in order: its Figures line's are its figures'. */
