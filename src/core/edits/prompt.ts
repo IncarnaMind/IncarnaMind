@@ -32,7 +32,7 @@ export const EDIT_INSTRUCTIONS = [
   "- A source is only ever one of the passage's markers. Never write a Document's name as a source, such as [Report, p. 2] or (Report, p. 2).",
   "- Write in the passage's language, unless the task is to translate it.",
   "- Change only what the task asks for. Keep names, numbers and facts as they are.",
-  "- When the task names text to go, write each paragraph that goes between <removed> and </removed>, word for word, on lines of its own where it stood: a paragraph left out of your reply stays. So to take out one of several list items, write the others as they are and, where it stood, <removed>- that item, word for word</removed>. A heading, a list item and a table each count as a paragraph, and a section is its heading with all the paragraphs under it. Shortening, improving, rewriting or translating text takes none of it out: for those, never write <removed>. A backslash before <removed makes it words of the passage, not the mark: keep the backslash. Never explain a removal outside <why>.",
+  "- When the task names text to go, write each paragraph that goes between <removed> and </removed>, word for word, on lines of its own where it stood: a paragraph left out of your reply stays. So to take out the second of three list items, write the first, then <removed>- the second, word for word</removed>, then the third. A heading, a list item and a table each count as a paragraph, and a section is its heading with all the paragraphs under it. Shortening, improving, rewriting or translating text takes none of it out: for those, never write <removed>. A backslash before <removed makes it words of the passage, not the mark: keep the backslash. Never explain a removal outside <why>.",
 ].join("\n");
 
 /**
@@ -107,8 +107,12 @@ export const withoutNames = (text: string) =>
  */
 export const EDIT_INSTRUCTIONS_NAMED = [
   ...EDIT_INSTRUCTIONS.split("\n").slice(0, -1),
-  "- When the task names text to go, write each paragraph that goes after its name, between <removed> and </removed>, word for word, as in ¶4 <removed>- The item, word for word</removed>: a paragraph you don't write stays. A heading, a list item and a table each count as a paragraph, and a section is its heading with all the paragraphs under it. Shortening, improving, rewriting or translating text takes none of it out: for those, never write <removed>. A backslash before <removed makes it words of the passage, not the mark: keep the backslash. Never explain a removal outside <why>.",
-  "- Each paragraph of the passage starts with its name, such as ¶1 or ¶2. Write only the paragraphs you change or add, and those the task names to go, each starting with a name copied from the passage, never counted: one you rewrite with the name of the passage's paragraph it replaces, as in ¶3 - The new words; one that goes as said above; a new one with ¶+, right after the paragraph it follows, which you write too, as it is. Name a paragraph once at most. A paragraph you don't write stays as it is. Write nothing else: no line on what you did, didn't do or got wrong. When nothing needs to change, your whole reply is <why> alone, such as <why>Nothing needed changing.</why> A backslash before ¶ makes it words of the passage: keep the backslash.",
+  // An example of an item by its place made Claude Haiku 5.5 quote that item unasked (#2356).
+  (EDIT_INSTRUCTIONS.split("\n").at(-1) ?? "").replace(
+    "So to take out the second of three list items, write the first, then <removed>- the second, word for word</removed>, then the third.",
+    "So to take out a list item, write <removed>- the item, word for word</removed> where it stood, and only that item.",
+  ),
+  "- Each paragraph of the passage starts with its name, such as ¶1 or ¶2. Write only the paragraphs you change or add, and those the task names to go, each starting with a name copied from the passage, never counted: one you rewrite with the name of the passage's paragraph it replaces, as in ¶3 - The new words; one that goes with its name and then its words, word for word, between <removed> and </removed>, as in ¶4 <removed>- The item</removed>; a new one with ¶+, right after the paragraph it follows, which you write too, as it is. Name a paragraph once at most. A paragraph you don't write stays as it is. Write nothing else: no line on what you did, didn't do or got wrong. When nothing needs to change, your whole reply is <why> alone, such as <why>Nothing needed changing.</why> A backslash before ¶ makes it words of the passage: keep the backslash.",
 ].join("\n");
 
 /** For "explain": a few sentences to go under the passage. */
