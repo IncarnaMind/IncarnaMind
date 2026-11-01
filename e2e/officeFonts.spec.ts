@@ -131,10 +131,13 @@ test("a Word file whose font comes only from its theme is drawn with the viewer'
   const viewer = window.getByTestId("viewer");
   await expect(viewer.getByText("Theme font memo")).toBeVisible();
   const drawn = await fontsDrawing(window, '[data-testid="viewer"] .docx-view p');
-  expect(drawn.map((font) => font.name.toLowerCase())).not.toContain("timesnewromanpsmt");
   expect(drawn.map((font) => font.name.toLowerCase()).some((name) => name.includes("times"))).toBe(
     false,
   );
-  expect(drawn.some((font) => font.bundled && /carlito/i.test(font.family))).toBe(true);
+  // Calibri itself on a computer that has Office's font, and Carlito where it doesn't.
+  expect(
+    drawn.some((font) => /carlito|calibri/i.test(font.family)),
+    drawn.map((font) => font.family).join(", "),
+  ).toBe(true);
   await app.close();
 });
