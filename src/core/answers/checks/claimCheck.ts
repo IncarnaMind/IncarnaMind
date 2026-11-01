@@ -2214,17 +2214,41 @@ const FUNCTION_WORDS = new Set([
   "be",
 ]);
 
+/** An English word as one with its plural: "invoices" is "invoice", "companies" "company". */
+const singular = (word: string) =>
+  word.length > 3 && !word.endsWith("ss") && word.endsWith("s")
+    ? word.endsWith("ies")
+      ? `${word.slice(0, -3)}y`
+      : word.slice(0, -1)
+    : word;
+
 /** A text's words: its Latin words but function words, and its Han characters but numerals. */
 function wordsOf(text: string): Set<string> {
   const words = new Set<string>();
   for (const [word] of text.matchAll(/\p{Script=Latin}+/gu)) {
     const lower = word.toLocaleLowerCase();
-    if (!FUNCTION_WORDS.has(lower)) words.add(lower);
+    if (!FUNCTION_WORDS.has(lower)) words.add(singular(lower));
   }
   for (const [char] of text.matchAll(/\p{Script=Han}/gu)) {
     if (!/[〇零一二两三四五六七八九十百千万亿]/u.test(char)) words.add(char);
   }
   return words;
+}
+
+/**
+ * Whether the wording starts or ends on a word that joins it to something it doesn't hold: after
+ * the trim, "Westmarch of the" before "of London", "Westmarch with" before "in London", 西境公司的
+ * (#1481). Inside the wording a function word is the Document's own.
+ */
+function endsOnAFunctionWord(wording: string): boolean {
+  const words = wording.replace(/^[\p{P}\s]+|[\p{P}\s]+$/gu, "");
+  const [head] = /^\p{Script=Latin}+/u.exec(words) ?? [];
+  const [tail] = /\p{Script=Latin}+$/u.exec(words) ?? [];
+  return (
+    [head, tail].some(
+      (word) => word !== undefined && FUNCTION_WORDS.has(word.toLocaleLowerCase()),
+    ) || /[的之和与及或]$/u.test(words)
+  );
 }
 
 /**
@@ -2434,7 +2458,8 @@ function correctionFor(
     const choice = { ...stated, wording: same.length === 1 && same[0] ? same[0].chars : fitted };
     // Another Document's words in another language are left out, as a choice no one could take.
     if (!inLanguageAt(claim, first, end, choice.wording)) continue;
-    if (repeatsItsClause(claim, first, end, choice.wording)) return null;
+    if (repeatsItsClause(claim, first, end, choice.wording) || endsOnAFunctionWord(choice.wording))
+      return null;
     if (
       markers.has(choice.marker) ||
       choice.wording === "" ||
