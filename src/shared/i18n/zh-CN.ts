@@ -3939,8 +3939,6 @@ export const zhCN = {
   "export.commentFailedChecks": "为需要留意的说法添加批注",
   "export.commentFailedChecks.hint": "与文档矛盾、无依据、未找到、未找到引文或需重新核对",
   "export.commentFailedChecks.hint.others": "批注会引用你的文档原文并写出文档名",
-  "export.unreadNames": "列出文件名",
-  "export.unreadNames.hint": "“未能读取的文件”会列出文件名。关闭时只说明有几个文件。",
   "aiStatement.command": "导出 AI 使用声明",
   "aiStatement.keywords": "AI 使用声明 学位论文 论文 披露 说明 记录",
   "aiStatement.title": "AI 使用声明：{name}",
@@ -4003,9 +4001,7 @@ export const zhCN = {
     "已核对的每条句子（只列开头的 {count} 个字），附最新的核对结果：",
   "aiStatement.sentences.column.sentence": "句子",
   "aiStatement.sentences.column.checked": "核对日期",
-  "aiStatement.unread.one": "核对这些说法时，有 1 个文件未能读取，因此没有检索这个文件：",
   "aiStatement.unread.one.fullStop": "核对这些说法时，有 1 个文件未能读取，因此没有检索这个文件。",
-  "aiStatement.unread": "核对这些说法时，有 {count} 个文件未能读取，因此没有检索这些文件：",
   "aiStatement.unread.fullStop":
     "核对这些说法时，有 {count} 个文件未能读取，因此没有检索这些文件。",
   "aiStatement.note":
@@ -4353,7 +4349,6 @@ export const zhCN = {
   "error.document.nameEmpty": "文档名称不能为空。",
   "error.document.nameTooLong": "文档名称不能超过 {max} 个字符。",
   "error.document.notCitedChoice": "是否将文档作为引用来源只能是 true 或 false。",
-  "error.mind.unreadFileNames": "是否在导出中列出文件名只能是 true 或 false。",
   "error.document.fileMissing": "找不到这个文档的文件。",
   "error.verify.request": "无法读取这个核对文档的请求。",
   "error.verify.notVerifying": "这篇笔记没有在核对文档。",

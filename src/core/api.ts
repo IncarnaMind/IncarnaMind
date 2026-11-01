@@ -9367,10 +9367,6 @@ export interface MindExportPreview {
   fromWord: boolean;
   /** Someone's changes from that Word file still waiting (#734), shown or accepted as `theirChanges` says. */
   theirChanges: number;
-  /** The files in the Mind's Search scope that couldn't be read (#740); 0 when everything in it was read. */
-  unreadFiles: number;
-  /** Whether the export names those files, or only counts them: the Mind's choice, off until the User ticks it. */
-  unreadFileNames: boolean;
   /**
    * Where the file puts its Citations, for the Saved line (#1945): footnotes or a list at the end,
    * for a Numbered Mind with Citations that Word or PDF writes. Null when nothing placed them.
@@ -12067,12 +12063,6 @@ export interface CoreApi {
     options?: SetMindCitationStyleOptions,
   ): Promise<MindCitationStyle>;
   /**
-   * Whether this Mind's exports name the files in its Search scope that couldn't be read, or only
-   * count them (#740). Off until the User ticks it in the export options; the export and its
-   * preview ask this.
-   */
-  setMindUnreadFileNames(mindId: string, names: boolean): Promise<void>;
-  /**
    * Every style the app ships but the common ones, for the picker, read from the style pack the
    * first time it is asked for.
    */
@@ -12804,7 +12794,6 @@ const methods: Record<CoreApiMethod, true> = {
   formatCitations: true,
   getMindCitationStyle: true,
   setMindCitationStyle: true,
-  setMindUnreadFileNames: true,
   listCitationStyles: true,
   openCitationStyleLicences: true,
   getMindStyle: true,

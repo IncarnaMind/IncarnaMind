@@ -38,68 +38,43 @@ const withThousandSeparators = (number: number) =>
 
 /**
  * What of a workbook wasn't read (#740): its hidden sheets, and the sheets its rows were cut
- * short in. `names`: name the sheets, as the app and the check record do; an export that goes to
- * someone else counts them instead.
+ * short in, named.
  */
-export function unreadPartsText(parts: UnreadParts, t: Translate, names: boolean): string {
+export function unreadPartsText(parts: UnreadParts, t: Translate): string {
   const segments: string[] = [];
   if (parts.hiddenSheets.length > 0) {
     segments.push(
-      names
-        ? t(
-            parts.hiddenSheets.length === 1
-              ? "unread.parts.hiddenNames.one"
-              : "unread.parts.hiddenNames.other",
-            {
-              names: parts.hiddenSheets
-                .map((name) => `“${name}”`)
-                .join(t("unread.parts.names.separator")),
-            },
-          )
-        : t(
-            parts.hiddenSheets.length === 1
-              ? "unread.parts.hidden.one"
-              : "unread.parts.hidden.other",
-            {
-              count: parts.hiddenSheets.length,
-            },
-          ),
+      t(
+        parts.hiddenSheets.length === 1
+          ? "unread.parts.hiddenNames.one"
+          : "unread.parts.hiddenNames.other",
+        {
+          names: parts.hiddenSheets
+            .map((name) => `“${name}”`)
+            .join(t("unread.parts.names.separator")),
+        },
+      ),
     );
   }
-  const cut = parts.rowsCut.length + parts.sheetsNotRead.length;
-  if (cut > 0) {
-    if (names) {
-      for (const each of parts.rowsCut) {
-        segments.push(
-          t("unread.parts.rows", { names: each.sheet, from: withThousandSeparators(each.from) }),
-        );
-      }
-      for (const sheet of parts.sheetsNotRead) {
-        segments.push(t("unread.parts.notRead", { names: sheet }));
-      }
-    } else {
-      segments.push(
-        t(cut === 1 ? "unread.parts.rowsCount.one" : "unread.parts.rowsCount.other", {
-          count: cut,
-        }),
-      );
-    }
+  for (const each of parts.rowsCut) {
+    segments.push(
+      t("unread.parts.rows", { names: each.sheet, from: withThousandSeparators(each.from) }),
+    );
+  }
+  for (const sheet of parts.sheetsNotRead) {
+    segments.push(t("unread.parts.notRead", { names: sheet }));
   }
   return segments.join(t("unread.parts.separator"));
 }
 
-/**
- * "Contract.doc: Format not read yet (.doc)…", as the list and an export's own text say it.
- * `names`: name a workbook's sheets; an export that goes to someone else counts them instead.
- */
+/** "Contract.doc: Format not read yet (.doc)…", as the list and the check record say it. */
 export function unreadFileText(
   file: Pick<UnreadFile, "name" | "reason" | "extension" | "parts">,
   t: Translate,
-  names = true,
 ): string {
   const reason =
     file.reason === "parts" && file.parts
-      ? unreadPartsText(file.parts, t, names)
+      ? unreadPartsText(file.parts, t)
       : t(UNREAD_REASON_KEYS[file.reason], { extension: file.extension ?? "" });
   return `${file.name}${t("unread.file.reason", { reason })}`;
 }
@@ -184,47 +159,6 @@ export function unreadRecordLines(files: readonly UnreadFile[], t: Translate): s
     ...shown,
     ...(left > 0 ? [t("unread.more", { count: left })] : []),
   ];
-}
-
-/** The words of an export's section about what couldn't be read (#740). */
-export interface UnreadSection {
-  heading: string;
-  count: string;
-  /** A line for each file, when the Mind names them. */
-  items: string[];
-  /** What a workbook left unread, counted, when it doesn't. */
-  counts: string[];
-}
-
-/** An export's words about what its Mind's checks couldn't read (#740): its heading, count and, at the Mind's word, each file's line. */
-export function unreadSection(
-  files: readonly UnreadFile[],
-  t: Translate,
-  names: boolean,
-  counts: readonly string[] = [],
-): UnreadSection {
-  return {
-    heading: t("unread.heading"),
-    count: unreadCountText(files, t),
-    items: names ? files.map((file) => unreadFileText(file, t, true)) : [],
-    counts: names ? [] : [...counts],
-  };
-}
-
-/** The Mind settings key that says its exports name the files they couldn't read; absent: count only. */
-const NAMES_KEY = "unreadFileNames";
-
-/** Whether this Mind's exports name the files that couldn't be read, or only count them (#740). */
-export function unreadFileNamesOf(settings: Y.Map<unknown>): boolean {
-  return settings.get(NAMES_KEY) === true;
-}
-
-export function setUnreadFileNames(settings: Y.Map<unknown>, names: boolean): void {
-  if (names) {
-    if (settings.get(NAMES_KEY) !== true) settings.set(NAMES_KEY, true);
-  } else if (settings.has(NAMES_KEY)) {
-    settings.delete(NAMES_KEY);
-  }
 }
 
 const unreadOf = (doc: Y.Doc): Y.Map<unknown> => doc.getMap(MIND_CHECK_UNREAD_FIELD);
