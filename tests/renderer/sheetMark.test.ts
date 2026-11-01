@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { placeSheetMark, scrollAcross } from "../../src/renderer/src/viewer/sheetMark";
+import { markGutter, placeSheetMark, scrollAcross } from "../../src/renderer/src/viewer/sheetMark";
 
 /** A view under a 24px header row, right of 48px of row numbers. */
 const view = { left: 48, top: 24, right: 600, bottom: 500 };
@@ -82,34 +82,44 @@ describe("where a sheet Citation's mark goes", () => {
   });
 });
 
+describe("the room kept after cited columns for the mark", () => {
+  test("the mark with its label and a gap either side, when that leaves the cells half the view", () => {
+    expect(markGutter({ full: 150, compact: 34 }, 700)).toBe(166);
+  });
+
+  test("the mark without its label in a view too narrow for it", () => {
+    expect(markGutter({ full: 150, compact: 34 }, 300)).toBe(50);
+  });
+});
+
 describe("how far a sheet scrolls across to cited columns", () => {
   test("not at all when the cells and the mark's room fit, keeping column A in view", () => {
-    expect(scrollAcross({ left: 0, right: 500 }, 0, 700)).toBe(0);
-    expect(scrollAcross({ left: 400, right: 500 }, 0, 700)).toBe(0);
+    expect(scrollAcross({ left: 0, right: 500 }, 0, 700, 104)).toBe(0);
+    expect(scrollAcross({ left: 400, right: 500 }, 0, 700, 104)).toBe(0);
   });
 
   test("to cells off to the right, with the mark's room after them", () => {
-    expect(scrollAcross({ left: 1200, right: 1300 }, 0, 700)).toBe(704);
+    expect(scrollAcross({ left: 1200, right: 1300 }, 0, 700, 104)).toBe(704);
   });
 
-  test("a narrow view keeps a narrower room for the mark", () => {
-    expect(scrollAcross({ left: 1200, right: 1300 }, 0, 500)).toBe(848);
+  test("a narrower room for the mark scrolls less", () => {
+    expect(scrollAcross({ left: 1200, right: 1300 }, 0, 500, 48)).toBe(848);
   });
 
   test("the cells whole, without the room, when only they fit", () => {
-    expect(scrollAcross({ left: 0, right: 650 }, 0, 700)).toBe(0);
-    expect(scrollAcross({ left: 100, right: 750 }, 0, 700)).toBe(50);
+    expect(scrollAcross({ left: 0, right: 650 }, 0, 700, 104)).toBe(0);
+    expect(scrollAcross({ left: 100, right: 750 }, 0, 700, 104)).toBe(50);
   });
 
   test("the right end, where a row's figure is, and the mark's room, when the cells are wider than the view", () => {
     // A wide label column and its figure: the figure, then the mark, at the view's right edge.
-    expect(scrollAcross({ left: 0, right: 545 }, 0, 470)).toBe(123);
-    expect(scrollAcross({ left: 0, right: 1550 }, 0, 700)).toBe(954);
+    expect(scrollAcross({ left: 0, right: 545 }, 0, 470, 48)).toBe(123);
+    expect(scrollAcross({ left: 0, right: 1550 }, 0, 700, 104)).toBe(954);
   });
 
   test("frozen columns stay in view and leave less room", () => {
-    expect(scrollAcross({ left: 0, right: 900 }, 200, 700)).toBe(304);
-    expect(scrollAcross({ left: 0, right: 650 }, 200, 700)).toBe(0);
-    expect(scrollAcross({ left: 900, right: 1000 }, 200, 700)).toBe(404);
+    expect(scrollAcross({ left: 0, right: 900 }, 200, 700, 104)).toBe(304);
+    expect(scrollAcross({ left: 0, right: 650 }, 200, 700, 104)).toBe(0);
+    expect(scrollAcross({ left: 900, right: 1000 }, 200, 700, 104)).toBe(404);
   });
 });

@@ -27,27 +27,32 @@ const ROW_GAP = 2;
 
 /**
  * The room kept after the cited cells for the mark when a sheet is scrolled to
- * them: the slides' gutter, narrower in a narrow viewer.
+ * them, in a `body` that many pixels wide: the mark with its label and a gap
+ * either side, or without its label when that would take more than half the
+ * body from the cells.
  */
-export const markGutter = (body: number): number => (body < 520 ? 48 : 104);
+export function markGutter(size: { full: number; compact: number }, body: number): number {
+  const full = size.full + GAP * 2;
+  return full <= body / 2 ? full : size.compact + GAP * 2;
+}
 
 /**
  * How far to scroll a sheet across to show cited columns, from `left` to
  * `right` in the grid's coordinates, in a `body` that many pixels wide whose
- * first `frozen` pixels are frozen columns. The least scroll that shows them
- * all with the mark's gutter after them, so column A stays in view when it
- * can; without the gutter when only the cells fit; and, when they are wider
- * than the view, their right end and the gutter, as a row's figures sit right
- * of its label.
+ * first `frozen` pixels are frozen columns, keeping a `gutter` for the mark.
+ * The least scroll that shows them all with the gutter after them, so column A
+ * stays in view when it can; without the gutter when only the cells fit; and,
+ * when they are wider than the view, their right end and the gutter, as a
+ * row's figures sit right of its label.
  */
 export function scrollAcross(
   cited: { left: number; right: number },
   frozen: number,
   body: number,
+  gutter: number,
 ): number {
   const width = cited.right - Math.max(cited.left, frozen);
   const room = body - frozen;
-  const gutter = markGutter(body);
   const after = width <= room && width + gutter > room ? 0 : gutter;
   return Math.max(0, cited.right + after - body);
 }

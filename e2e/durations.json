@@ -224,6 +224,7 @@
   "settingsInfoTips.spec.ts": 28,
   "settingsWords.spec.ts": 4,
   "sharePage.spec.ts": 47,
+  "sheetCitationView.spec.ts": 60,
   "shell.spec.ts": 39,
   "sidebarDot.spec.ts": 10,
   "sidebarHide.spec.ts": 60,
@@ -303,6 +304,5 @@
   "writeAsNote.spec.ts": 152,
   "writeIntoMind.spec.ts": 13,
   "writtenFrom.spec.ts": 36,
-  "xlsxNoValue.spec.ts": 6,
-  "sheetCitationView.spec.ts": 60
+  "xlsxNoValue.spec.ts": 6
 }

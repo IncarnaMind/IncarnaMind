@@ -517,6 +517,13 @@ function edgeCss(edge: Edge, side: "right" | "bottom", css: CSSProperties, shado
   }
 }
 
+/** The Citation's mark as measured, with its label and without, and the label it was measured with. */
+interface MarkMeasure {
+  full: number;
+  compact: number;
+  label: string | undefined;
+}
+
 /** Rows not drawn, above or below the view: one empty row of their height. */
 function Spacer({ height, columns }: { height: number; columns: number }) {
   return height > 0 ? (
@@ -544,14 +551,21 @@ function Grid({
   const table = useRef<HTMLTableElement>(null);
   const [view, setView] = useState({ top: 0, height: 600, left: 0, width: 600 });
   const [place, setPlace] = useState<MarkPlace | null>(null);
-  const [markSize, setMarkSize] = useState({ full: 120, compact: 34 });
+  const markLabel = mark?.label;
+  const [markSize, setMarkSize] = useState<MarkMeasure | null>(null);
   const measuredMark = useCallback(
     (size: { full: number; compact: number }) =>
       setMarkSize((previous) =>
-        previous.full === size.full && previous.compact === size.compact ? previous : size,
+        previous?.full === size.full &&
+        previous.compact === size.compact &&
+        previous.label === markLabel
+          ? previous
+          : { ...size, label: markLabel },
       ),
-    [],
+    [markLabel],
   );
+  const measured = mark && markSize?.label === mark.label ? markSize : null;
+  const gutter = measured ? markGutter(measured, view.width - ROW_HEADER_WIDTH) : 0;
   const applied = useRef<number | null>(null);
   const model = useMemo(() => buildModel(sheet, book), [sheet, book]);
   const csv = model.look === null;
@@ -562,7 +576,7 @@ function Grid({
     const used = new Axis(0, model.usedColumns, model.defaultColumn, model.columnSizes);
     const room = view.width - ROW_HEADER_WIDTH - used.total;
     const more = Math.max(
-      Math.ceil(markGutter(view.width - ROW_HEADER_WIDTH) / model.defaultColumn),
+      Math.ceil(gutter / model.defaultColumn),
       room > 0 ? Math.ceil(room / model.defaultColumn) : 0,
     );
     return new Axis(
@@ -571,7 +585,7 @@ function Grid({
       model.defaultColumn,
       model.columnSizes,
     );
-  }, [model, view.width]);
+  }, [model, view.width, gutter]);
   const rows = useMemo(() => {
     const used = new Axis(1, model.usedRows, model.defaultRow, model.rowSizes);
     // A long sheet gets rows past its last too, so a Citation to its last rows scrolls them a
@@ -622,10 +636,13 @@ function Grid({
   }, [updateView]);
 
   // Scroll the cited rows into view a third of the way down, below any frozen rows, and
-  // across to their columns, as far as a merged cell among them reaches.
+  // across to their columns, as far as a merged cell among them reaches. It waits for the view's
+  // own size, as the rows past the sheet's last are counted from it, and for the mark's width.
   useLayoutEffect(() => {
     const element = scroller.current;
     if (!element || !scrollTo || applied.current === scrollTo.request) return;
+    if (view.height !== element.clientHeight || view.width !== element.clientWidth) return;
+    if (mark && !measured) return;
     applied.current = scrollTo.request;
     const frozenHeight = rows.start(model.frozen.rows + 1);
     const body = element.clientHeight - HEADER_HEIGHT - frozenHeight;
@@ -643,9 +660,21 @@ function Grid({
       },
       columns.start(model.frozen.columns),
       element.clientWidth - ROW_HEADER_WIDTH,
+      gutter,
     );
     updateView();
-  }, [scrollTo, updateView, rows, columns, model.frozen, model.merges]);
+  }, [
+    scrollTo,
+    updateView,
+    rows,
+    columns,
+    model.frozen,
+    model.merges,
+    view,
+    mark,
+    measured,
+    gutter,
+  ]);
 
   const firstBody = model.frozen.rows + 1;
   const first = Math.max(firstBody, rows.indexAt(view.top) - OVERSCAN);
@@ -656,7 +685,7 @@ function Grid({
   useLayoutEffect(() => {
     const grid = table.current;
     const box = grid?.parentElement;
-    if (!grid || !box || !mark || !highlighted) {
+    if (!grid || !box || !mark || !measured || !highlighted) {
       setPlace(null);
       return;
     }
@@ -692,10 +721,10 @@ function Grid({
           right: view.left + view.width,
           bottom: view.top + view.height,
         },
-        { ...markSize, height: MARK_HEIGHT },
+        { ...measured, height: MARK_HEIGHT },
       ),
     );
-  }, [mark, highlighted, first, last, view, markSize, rows, columns, model.frozen]);
+  }, [mark, highlighted, first, last, view, measured, rows, columns, model.frozen]);
 
   const styleOf = (row: number, column: number): CellStyle | undefined =>
     model.book?.styles[styleIndexAt(model, row, column)];
@@ -1005,6 +1034,13 @@ function Grid({
             room={place.label ? undefined : 0}
             onSize={measuredMark}
             style={{ top: place.top, left: place.left, zIndex: 5 }}
+          />
+        )}
+        {mark && !place && !measured && (
+          <CitationMark
+            mark={mark}
+            onSize={measuredMark}
+            style={{ top: 0, left: 0, visibility: "hidden" }}
           />
         )}
       </div>

@@ -113,7 +113,7 @@ const within = (inner: Box, outer: Box) =>
 
 /**
  * Opens the Citation of `answer` and checks the cited figure in `figureRef` is in view with the
- * mark beside the cells, in view and over none of them.
+ * mark beside the cells, in view and over none of them; with `scrolledAcross`, with its label.
  */
 async function expectCitedFigureInView(
   window: Page,
@@ -122,6 +122,7 @@ async function expectCitedFigureInView(
   figureRef: string,
   figure: string,
   shot: string,
+  scrolledAcross = false,
 ) {
   // From the Citation's card, as the accountant did: "Open the rows".
   await window.mouse.move(0, 0);
@@ -139,11 +140,16 @@ async function expectCitedFigureInView(
   await expect(cell).toHaveText(figure);
   const mark = viewer.getByTestId("viewer-quote-mark");
   await expect(mark).toBeVisible();
+  // Scrolled across to a figure, the mark keeps room for its label, which says where it is.
+  if (scrolledAcross) await expect(mark).toHaveAttribute("data-label-shown", "true");
 
   await expect(async () => {
     const body = await bodyOf(grid);
-    // The cited figure is wholly in the grid's view, not off to the right or below.
-    expect(within(await boxOf(cell), body)).toBe(true);
+    // The cited figure is wholly in the grid's view, not off to the right or below, and no lower
+    // than 40% of the way down, as the cited rows are scrolled a third of the way down.
+    const cellBox = await boxOf(cell);
+    expect(within(cellBox, body)).toBe(true);
+    expect(cellBox.y - body.y).toBeLessThan(body.height * 0.4);
     // The mark is in view too, beside the cells and over none of them.
     const markBox = await boxOf(mark);
     expect(within(markBox, body)).toBe(true);
@@ -218,6 +224,7 @@ for (const width of [1440, 1100, 900]) {
       "O8",
       "84,317.52",
       `sheet-citation-right-${width}`,
+      true,
     );
 
     // On another sheet, past a wide label column: the sheet switches, and the figure shows. The
@@ -242,6 +249,7 @@ for (const width of [1440, 1100, 900]) {
       "O380",
       "12.48",
       `sheet-citation-down-${width}`,
+      true,
     );
 
     // In Chinese the mark's words change, and it still keeps clear of the cells.
@@ -253,6 +261,7 @@ for (const width of [1440, 1100, 900]) {
       "O8",
       "84,317.52",
       `sheet-citation-right-${width}-zh`,
+      true,
     );
     await expectCitedFigureInView(
       window,
