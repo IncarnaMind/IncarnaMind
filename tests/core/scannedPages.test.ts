@@ -635,11 +635,22 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     const [stored] = unitsOf(dataDir, document);
     expect(JSON.parse(stored?.label ?? "null")).toEqual({ scan: { reader: READER } });
     const { answerId } = await askAndFinish(core, client, mind.id, "What did the gauge read?");
-    expect(onlyCitation(client, answerId)).toMatchObject({
+    const citation = onlyCitation(client, answerId);
+    expect(citation).toMatchObject({
       check: "cant-check",
       checkReason: "unsure-word",
       unsure: ["2o25"],
     });
+    // The card's page picture outlines the word it may have misread too.
+    expect(
+      await core.readScannedQuote({
+        documentId: citation.documentId as string,
+        contentHash: citation.contentHash ?? null,
+        pageFrom: 1,
+        pageTo: 1,
+        quote: line,
+      }),
+    ).toEqual({ unsure: ["2o25"], from: "scan" });
     // The model saw which word not to trust, though the page was read before the rule.
     const shown: string[] = [];
     for (const message of model.doStreamCalls[1]?.prompt ?? []) {
