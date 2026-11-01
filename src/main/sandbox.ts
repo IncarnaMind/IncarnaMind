@@ -76,8 +76,13 @@ export interface OsExecutorOptions {
 export interface AgentProfile {
   /** Folders it may not read: IncarnaMind's data folder, the Linked folders, Documents' own files, the Output location. */
   denyRead: readonly string[];
-  /** Folders it may write: its working folder, and its own settings and cache. */
+  /** What it may write: its working folder, and its own sign-in, sessions, cache and logs. */
   allowWrite: readonly string[];
+  /**
+   * Its own config, settings and hooks: never writable, even inside a folder it may write,
+   * since the User's own copy of the agent runs them outside any sandbox.
+   */
+  denyWrite: readonly string[];
   /** The one local socket it may connect to: the one IncarnaMind's MCP shim reaches the app through. */
   socket: string;
 }
@@ -363,7 +368,7 @@ async function confineAgent(
         denyRead: [...profile.denyRead],
         allowRead: [],
         allowWrite: [...profile.allowWrite],
-        denyWrite: SANDBOX_RUNTIME_TEMP,
+        denyWrite: [...SANDBOX_RUNTIME_TEMP, ...profile.denyWrite],
       },
     });
     return { ...program, ...wrapped };

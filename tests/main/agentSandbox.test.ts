@@ -1,4 +1,4 @@
-import { readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, onTestFinished, test } from "vitest";
@@ -32,6 +32,21 @@ const confineIn = (profile: AgentProfile) => (program: AgentProgram) =>
   sandbox.available
     ? sandbox.confineAgent(program, profile)
     : Promise.reject(new Error("no sandbox"));
+
+/** Whether `file` could be written in the sandbox `profile` describes, by a shell in `cwd`. */
+async function writes(profile: AgentProfile, file: string, cwd: string): Promise<boolean> {
+  const program = await confineIn(profile)({
+    command: "/bin/sh",
+    args: ["-c", 'printf planted > "$1"', "sh", file],
+    cwd,
+    env: {},
+  });
+  const child = await processes.spawn(program.command, program.args, {
+    cwd: program.cwd,
+    env: program.env,
+  });
+  return (await new Promise<number | null>((resolve) => child.once("close", resolve))) === 0;
+}
 
 /** The scripted agent, in the sandbox `profile` describes, asked to use the MCP server `launch` starts. */
 async function useIncarnaMind(launch: AgentLaunch, profile: AgentProfile, workingFolder: string) {
@@ -91,12 +106,41 @@ describe.skipIf(unavailable !== undefined)(
       };
       await writeFile(files.inDataFolder, "DATA CANARY");
       await writeFile(files.inWorkingFolder, "OWN FILE");
-      const profile = { denyRead: [data], allowWrite: [working], socket: join(working, "a.sock") };
+      const profile = {
+        denyRead: [data],
+        allowWrite: [working],
+        denyWrite: [],
+        socket: join(working, "a.sock"),
+      };
 
       expect(await agentSandboxHolds(processes, confineIn(profile), files)).toBeUndefined();
       expect(
         await agentSandboxHolds(processes, confineIn({ ...profile, denyRead: [] }), files),
       ).toBe("a file in IncarnaMind's data folder could be read in the sandbox");
+    });
+
+    test("an agent can write its own cache, never its settings, which its unsandboxed copy would run", async () => {
+      const home = await createTempDataFolder();
+      const working = await createTempDataFolder();
+      const settings = join(home, ".qwen/settings.json");
+      const cache = join(home, ".qwen/tmp");
+      await mkdir(cache, { recursive: true });
+      await writeFile(settings, "{}");
+      const profile = {
+        denyRead: [],
+        allowWrite: [working, cache],
+        denyWrite: [settings],
+        socket: join(working, "a.sock"),
+      };
+
+      expect(await writes(profile, join(cache, "cache.json"), working)).toBe(true);
+      expect(await readFile(join(cache, "cache.json"), "utf8")).toBe("planted");
+      expect(await writes(profile, settings, working)).toBe(false);
+      // Inside a folder it may write, the settings file stays closed too.
+      expect(
+        await writes({ ...profile, allowWrite: [working, join(home, ".qwen")] }, settings, working),
+      ).toBe(false);
+      expect(await readFile(settings, "utf8")).toBe("{}");
     });
 
     test("the MCP shim reaches the app through the one socket the profile allows, outside the data folder", async () => {
@@ -112,7 +156,12 @@ describe.skipIf(unavailable !== undefined)(
       await core.setAgentsEnabled(true);
       const { launch } = await core.connectAgent({ name: "Codex" });
       const working = await createTempDataFolder();
-      const profile = { denyRead: [dataDir], allowWrite: [working], socket: socketPath };
+      const profile = {
+        denyRead: [dataDir],
+        allowWrite: [working],
+        denyWrite: [],
+        socket: socketPath,
+      };
 
       const allowed = await useIncarnaMind(launch, profile, working);
 
