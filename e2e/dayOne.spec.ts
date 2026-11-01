@@ -344,7 +344,11 @@ async function tagAutomatically(window: Window, apiKey: string): Promise<string 
       apiKey: key,
       modelId: "gpt-6-luna",
     });
-    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
     return provider.service?.id ?? null;
   }, apiKey);
 }
@@ -483,6 +487,7 @@ test("an example's stored Organize assignment owes no progress on restart (#1942
           choice: { providerId: provider.id, modelId: "gpt-6-luna" },
         },
         automatic: true,
+        turnOn: true,
       });
     });
     // The example's Documents are copied in as the app starts: wait for the first.

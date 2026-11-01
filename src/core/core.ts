@@ -315,7 +315,8 @@ import { createSourceProviders, sourceKeySecret } from "./sources/providers";
 import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
 import { createTags, tagsOfDocument } from "./tags";
-import { chatClassifier } from "./tags/classify";
+import { chatClassifier, type TagClassifier } from "./tags/classify";
+import { mayBackgroundSend } from "./tags/held";
 import { createJevTagging, decisionModelTagger } from "./tags/jev";
 import { createRateLimitPause } from "./tags/rateLimit";
 import { createTagger, TAGGING_FLOW_SENDS } from "./tags/tagger";
@@ -2254,7 +2255,7 @@ export function createCore(adapters: CoreAdapters): Core {
           confidence: null,
           needsReview: false,
         }));
-        if (tags.applyAutomatic(documentId, decided)) announceTagged([documentId]);
+        if (tags.applyAutomatic(documentId, decided).changed) announceTagged([documentId]);
       },
     },
     notes: {
@@ -3110,7 +3111,41 @@ export function createCore(adapters: CoreAdapters): Core {
       key:
         classifier.kind === "auto" ? "error.library.autoNotLocal" : "error.library.ollamaNotLocal",
     });
+  /** The tagger for a resolved choice of model (see `prepare` below). */
+  const prepareTagger = async (classifier: TaggingClassifier): Promise<TagClassifier> => {
+    switch (classifier.kind) {
+      case "jev":
+        return jev.prepare();
+      case "auto": {
+        const model = await tagging.textDecisionModel(classifier.baseUrl);
+        if (!model)
+          throw new TaggingNotReadyError({
+            key: "error.tagging.installModel",
+            values: { model: "tev1:4b" },
+          });
+        return decisionModelTagger({ baseUrl: classifier.baseUrl, model });
+      }
+      case "ollama":
+        return decisionModelTagger({ baseUrl: classifier.baseUrl, model: classifier.modelId });
+      case "chat": {
+        const prepared = await chat.prepareModel(classifier.choice, "tagging");
+        if (embedding.localOnly() && prepared.provider.service)
+          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+        // No service to send to: the model runs on a server on this computer.
+        const chosen = chatClassifier(prepared.model, {
+          local: prepared.provider.service === null,
+        });
+        const plan = planPaceOf(prepared.provider.kind);
+        if (!plan) return chosen;
+        return {
+          ...chosen,
+          decide: (input) => plan.run(() => chosen.decide(input), input.signal),
+        };
+      }
+    }
+  };
   const tagger = createTagger({
+    maySend: (id, service) => mayBackgroundSend(db, id, [service], library.turnedOnAt),
     db,
     now,
     tags,
@@ -3142,38 +3177,12 @@ export function createCore(adapters: CoreAdapters): Core {
       if (decisionModelElsewhere(classifier)) throw notOnThisComputer(classifier);
       if (embedding.localOnly() && tagging.service(classifier))
         throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      switch (classifier.kind) {
-        case "jev":
-          return jev.prepare();
-        case "auto": {
-          const model = await tagging.textDecisionModel(classifier.baseUrl);
-          if (!model)
-            throw new TaggingNotReadyError({
-              key: "error.tagging.installModel",
-              values: { model: "tev1:4b" },
-            });
-          return decisionModelTagger({ baseUrl: classifier.baseUrl, model });
-        }
-        case "ollama":
-          return decisionModelTagger({ baseUrl: classifier.baseUrl, model: classifier.modelId });
-        case "chat": {
-          const prepared = await chat.prepareModel(classifier.choice, "tagging");
-          if (embedding.localOnly() && prepared.provider.service)
-            throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-          // No service to send to: the model runs on a server on this computer.
-          const chosen = chatClassifier(prepared.model, {
-            local: prepared.provider.service === null,
-          });
-          const plan = planPaceOf(prepared.provider.kind);
-          if (!plan) return chosen;
-          return {
-            ...chosen,
-            decide: (input) => plan.run(() => chosen.decide(input), input.signal),
-          };
-        }
-      }
+      return { ...(await prepareTagger(classifier)), service: tagging.service(classifier) };
     },
+    // A hint only: the tagger prepared decides whether it names Tags.
+    namesTags: () => tagsWith()?.kind === "chat",
     announce: announceTagged,
+    tagsMade: tagsChanged,
     reportError: (error) => console.error(error),
     background,
     rateLimit,
@@ -3186,6 +3195,7 @@ export function createCore(adapters: CoreAdapters): Core {
     db,
     tags,
     tagged: announceTagged,
+    tagsMade: tagsChanged,
     now,
     settings,
     background,
@@ -3214,17 +3224,33 @@ export function createCore(adapters: CoreAdapters): Core {
         }
       }
     },
-    usesCloud: ({ classifier, organizeWith }) => {
-      const sorts = classifier.kind === "automatic" ? organizeWith : classifier;
-      if (sorts && tagging.service(sorts) !== null) return true;
-      if (classifier.kind !== "automatic") return tagging.service(classifier) !== null;
+    sendsTo: ({ classifier, organizeWith }) => {
+      const services = new Map<string, ExternalService>();
+      const add = (service: ExternalService | null | undefined) => {
+        if (service) services.set(service.id, service);
+      };
+      if (classifier.kind !== "automatic") {
+        add(tagging.service(classifier));
+        return [...services.values()];
+      }
+      if (organizeWith) add(tagging.service(organizeWith));
       const picked = tagging.lastResolved();
-      if (picked) return tagging.service(picked) !== null;
-      // Not worked out yet: Jev, else the chat model, where Automatic looks first.
-      if (jev.service()) return true;
-      const chosen = settings.get().user.chatModel;
-      return !!chosen && chat.describeModel(chosen)?.service !== null;
+      if (picked) {
+        add(tagging.service(picked));
+      } else {
+        // Not worked out yet: Jev, else the chat model, where Automatic looks first.
+        const chosen = settings.get().user.chatModel;
+        add(jev.service() ?? (chosen && chat.describeModel(chosen)?.service));
+      }
+      return [...services.values()];
     },
+    organizeService: (settings) => {
+      const classifier = organizeModelOf(settings);
+      return classifier && tagging.service(classifier);
+    },
+    taggingAllowed: (service) => consent.allows("tagging", service),
+    consentedAt: (service) =>
+      consent.acceptedAt("tagging", service) ?? consent.acceptedAt("classification", service),
     pagesWaitFor: (classifier) => {
       if (classifier.kind !== "chat") return null;
       const reader = chat.imageModel(classifier.choice);
@@ -5306,22 +5332,21 @@ export function createCore(adapters: CoreAdapters): Core {
       const before = library.settings();
       library.saveSettings(input);
       const after = library.settings();
-      // Choosing the model that tags or organizes Documents, where a line says what goes,
-      // allows it (ADR-0022). Saving the same one again, for another setting, isn't a new choice.
-      const switchedOn = !before.automatic && after.automatic;
+      // Turning tagging on where its line says what goes is the consent for where it sends now
+      // (ADR-0022, #1617). Nothing else is: a save sends the switch as shown (#2308).
+      const turnedOn = isRecord(input) && input.turnOn === true;
       const tagsAnew = JSON.stringify(after.classifier) !== JSON.stringify(before.classifier);
       const organizesAnew =
         JSON.stringify(organizeModelOf(after)) !== JSON.stringify(organizeModelOf(before));
-      // Turning on tagging and sorting by themselves, where a line says what goes, is the consent too (#1617).
-      if (tagsAnew || switchedOn) {
+      if (turnedOn) {
         for (const service of await taggingServices()) consent.choose(["tagging"], service);
       }
-      if (organizesAnew || switchedOn) {
+      if (turnedOn || organizesAnew) {
         for (const service of await classificationServices()) {
           consent.choose(["classification"], service);
         }
       }
-      if (tagsAnew || organizesAnew || switchedOn) await dataFlowsChanged();
+      if (tagsAnew || organizesAnew || turnedOn) await dataFlowsChanged();
       await taggingChanged();
     },
     getTaggingModels: async () => {
@@ -5354,6 +5379,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const service = tagging.service(classifier);
       return service ? { where: "cloud", service } : { where: "local" };
     },
+    proposeFolders: async (ids) => library.propose(ids, settings.get().language),
     classifyDocuments: async (ids) => {
       library.classify(ids);
       const classifier = organizeModelOf(library.settings());

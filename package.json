@@ -26,6 +26,7 @@
     "eval": "vitest run --config eval/vitest.config.ts",
     "eval:classification": "vitest run --config eval/classification/vitest.config.ts",
     "eval:organize": "vitest run --config eval/organize/vitest.config.ts",
+    "eval:tagging": "vitest run --config eval/tagging/vitest.config.ts",
     "eval:hard": "vitest run --config eval/hard/vitest.config.ts",
     "eval:word": "vitest run --config eval/word/vitest.config.ts",
     "eval:excel": "vitest run --config eval/excel/vitest.config.ts",

@@ -237,8 +237,9 @@ describe("Automatic picks the model that tags", () => {
     expect(tagging?.services.map((each) => each.flow.service.id)).toEqual([
       "http://192.168.1.20:11434",
     ]);
+    // Turned on for this computer, the switch isn't on for another one's address (#2308).
     const document = await addText(core, "Notes.md", "Notes from the first meeting.");
-    expect(document.tagging).toBe("waiting-for-provider");
+    expect(document.tagging).toBe("off");
     core.close();
   });
 
@@ -672,6 +673,7 @@ describe("Local mode", () => {
         choice: { providerId: anthropic.id, modelId: "claude-haiku-5-5" },
       },
       automatic: true,
+      turnOn: true,
     });
     await core.setLocalOnly(true);
     const [text] = await addAndProcess(core, [
