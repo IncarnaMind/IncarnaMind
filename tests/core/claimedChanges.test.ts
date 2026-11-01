@@ -98,6 +98,28 @@ describe("The quick model's verdict", () => {
     ]);
   });
 
+  test("a chart the record says wasn't drawn is in the judge's record, so a reply claiming it is asked again (#2378)", async () => {
+    const reply = "I added the bar chart of total order amount by region to the Note.";
+    const call = mindCall("add_to_mind", { tables: 1, chartNotDrawn: "noTable" });
+    const model = judge({
+      claims: [{ sentence: reply, kind: "added", about: "mind", backed: false }],
+    });
+    const result = await check(model, reply, [call]);
+    expect(result.claims).toEqual(["added"]);
+    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    expect(prompt).toContain('\\"chartNotDrawn\\": \\"noTable\\"');
+    expect(prompt).toContain("nothing was written as a table");
+  });
+
+  test("a chart the record says was drawn is named in it", async () => {
+    const reply = "I added the bar chart to the Note.";
+    const model = judge({
+      claims: [{ sentence: reply, kind: "added", about: "mind", backed: true }],
+    });
+    await check(model, reply, [mindCall("add_to_mind", { charts: 1 })]);
+    expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain('\\"charts\\": 1');
+  });
+
   test("a claim about the focused Mind is checked with its name", async () => {
     const reply = "我已把摘要写进你的笔记里。";
     const model = judge({ claims: [] });

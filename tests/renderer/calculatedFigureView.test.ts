@@ -7,6 +7,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
+import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
+import { markSentence, textOf, wordsOf } from "../../src/core/answers/checks/sentences";
+import type { ClaimCheckAttributes, FigureCheckAttributes } from "../../src/core/api";
 import {
   type CalculatedFigure,
   type Citation,
@@ -21,6 +24,7 @@ import {
   formattingClusters,
 } from "../../src/renderer/src/editor/citationClusters";
 import { citationNumbersPlugin } from "../../src/renderer/src/editor/citationNumbers";
+import { figureShownIn } from "../../src/renderer/src/editor/claimChecks";
 import { FigureEvidence } from "../../src/renderer/src/editor/figureEvidence";
 import { figureHandle } from "../../src/renderer/src/editor/figureHandle";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -417,6 +421,103 @@ test("a retained Analysis card never becomes a fresh execution claim", async () 
   expect(container.textContent).not.toContain("Inputs found · recalculated");
 });
 
+function checkBasis(text: string): ClaimCheckAttributes {
+  return {
+    id: "check",
+    request: "request",
+    action: "check-against-documents",
+    state: "supported",
+    reason: null,
+    detail: null,
+    providerId: "provider",
+    modelId: "model",
+    text,
+    evidence: null,
+    says: null,
+    unsupported: null,
+    calculation: null,
+    citedCaseUnchecked: false,
+    citedCaseFound: false,
+    scope: { folderId: null, widened: true },
+    versions: [],
+    excluded: [],
+    checkedAt: "2026-11-01T00:00:00.000Z",
+  };
+}
+
+const checkFinding = (
+  occurrence: ReturnType<typeof figuresInMind>[number],
+  parent: ClaimCheckAttributes,
+): FigureCheckAttributes => ({
+  ...parent,
+  ...occurrence,
+  sourceInput: null,
+  source: null,
+  roundedFrom: null,
+  difference: null,
+  footing: [],
+});
+
+/** The Note's own check of the sentence holding the figure, with the figure's own child as given. */
+function checkedFigureInText(child: Partial<FigureCheckAttributes> | null) {
+  const doc = new Y.Doc();
+  docs.push(doc);
+  const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+  blocks.push([
+    createElement({
+      type: "paragraph",
+      attrs: { id: "p" },
+      content: [
+        { type: "text", text: "Total revenue " },
+        calculatedFigureNode(summed, "figure", "run"),
+        { type: "text", text: " kg." },
+      ],
+    }),
+  ]);
+  const element = blocks.get(0);
+  const occurrence = figuresInMind(blocks)[0];
+  if (!(element instanceof Y.XmlElement) || !occurrence) throw new Error("Missing fixture");
+  const parent = checkBasis(wordsOf(element));
+  markSentence(
+    element,
+    0,
+    textOf(element).length,
+    child
+      ? {
+          ...parent,
+          figures: [{ ...checkFinding(occurrence, parent), ...child }],
+          remainder: null,
+        }
+      : parent,
+  );
+  const editor = new Editor({
+    element: document.createElement("div"),
+    editorProps: { handleScrollToSelection: () => true },
+    extensions: [
+      ...noteExtensions(),
+      Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
+    ],
+  });
+  editors.push(editor);
+  return figureShownIn(
+    editor.state,
+    "figure",
+    tracedRecords({ kind: "same", value: 300 }),
+    "summed",
+  );
+}
+
+test("a claim check that left the figure unread keeps the figure in the text from showing checked", () => {
+  expect(checkedFigureInText({ state: "not-checked", reason: "unread" })).toEqual({
+    state: "not-checked",
+    reason: "unread",
+  });
+});
+
+test("a whole-sentence check with no figure child is no evidence against the core's own check", () => {
+  expect(checkedFigureInText(null)).toEqual({ state: "supported" });
+});
+
 const rangeCitation: Citation = {
   documentId: "source",
   passageId: "p",
@@ -528,15 +629,11 @@ test.each(["en", "zh-CN"] as const)(
     await tracedCard({ kind: "differs", value: 250 });
     expect(container.textContent).toContain(translate(language, "claim.state.not-checked"));
     expect(container.textContent).not.toContain(translate(language, "claim.state.supported"));
-    expect(container.textContent).toContain(
-      translate(language, "figures.analysisCheck.differs", { value: "250" }),
-    );
 
     await act(() => root?.unmount());
     root = null;
     await tracedCard({ kind: "unchecked", reason: "sales has no row 7" });
     expect(container.textContent).not.toContain(translate(language, "claim.state.supported"));
-    expect(container.textContent).toContain(translate(language, "figures.analysisCheck.unchecked"));
   },
 );
 

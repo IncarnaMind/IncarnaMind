@@ -21,6 +21,7 @@ import {
   CONTENT_SCHEMA_VERSION,
   CONTENT_SCHEMA_VERSION_KEY,
   MIND_SETTINGS_FIELD,
+  type RetainedFigureAnalysis,
 } from "../api";
 import { isRecord } from "../errors";
 import { readContentVersion } from "../mindAccess";
@@ -137,8 +138,23 @@ export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): Citatio
   );
   const cited: CitationFields[] = [];
   if (fragment.doc) {
+    const doc = fragment.doc;
     const blocks = parts.flatMap(({ node }) => (node ? [node] : []));
-    for (const run of figureRunsFor(fragment.doc, blocks)) {
+    const runs: RetainedFigureAnalysis[] = [];
+    try {
+      runs.push(...figureRunsFor(doc, blocks));
+    } catch {
+      // A figure whose Analysis record is missing still cites what its own attributes hold, and
+      // neither it nor one Note's figure may keep another figure's citations out (#2378).
+      for (const block of blocks) {
+        try {
+          runs.push(...figureRunsFor(doc, [block]));
+        } catch (error) {
+          console.error("A Note figure's Analysis record couldn't be read", error);
+        }
+      }
+    }
+    for (const run of runs) {
       for (const input of run.inputs) {
         if (input.kind === "figure") inputs.push(input.input);
         else cited.push({ ...input.citation });

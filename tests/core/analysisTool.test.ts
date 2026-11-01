@@ -7,7 +7,7 @@ import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analy
 import { nodeOf } from "../../src/core/answers/blocks";
 import { plainText } from "../../src/core/mindText";
 import { type AnalysisJob, noAnalysisOutput } from "../../src/shared/analysis";
-import { answerBlocks } from "../../src/shared/answerBlocks";
+import { answerBlocks, pageBlocks } from "../../src/shared/answerBlocks";
 import {
   calculatedFiguresIn,
   figureRunsFor,
@@ -929,6 +929,36 @@ describe("an Analysis an Answer runs", () => {
     expect(answer.text).toContain("| South | 80 | 0.2282 |");
     expect(answer.text).not.toContain("[=table");
     expect(told(model, "run_analysis")[0]).toContain("[=table 1] Revenue by region");
+
+    // The Answer's table and what Add to note writes keep the Analysis's Citations (#2378).
+    for (const blocks of [answerBlocks(answer), pageBlocks(answer, "Revenue by region?")]) {
+      const table = blocks.find((block) => block.type === "table");
+      if (!table) throw new Error("The Answer has no table.");
+      const citations: Record<string, unknown>[] = [];
+      const visit = (node: { content?: unknown[] }) => {
+        for (const child of (node.content ?? []) as {
+          type?: string;
+          attrs?: Record<string, unknown>;
+          content?: unknown[];
+        }[]) {
+          if (child.type === "citation") citations.push(child.attrs ?? {});
+          visit(child);
+        }
+      };
+      visit(table);
+      expect(citations).toEqual([
+        expect.objectContaining({
+          documentId: expect.any(String),
+          location: { kind: "rows", sheet: null, from: 1, to: 5 },
+          check: "found",
+        }),
+        expect.objectContaining({
+          documentId: expect.any(String),
+          location: { kind: "rows", sheet: null, from: 1, to: 5 },
+          check: "found",
+        }),
+      ]);
+    }
   });
 
   test("the model is told the numbers written in the code, the cells that aren't numbers, and an error's own message", async () => {

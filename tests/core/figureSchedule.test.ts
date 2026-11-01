@@ -1,4 +1,4 @@
-import { expect, onTestFinished, test } from "vitest";
+import { expect, onTestFinished, test, vi } from "vitest";
 import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
 import { createCalculationSession } from "../../src/core/answers/calculations";
@@ -1001,7 +1001,8 @@ test.each([
   },
 );
 
-test("a kept Analysis figure shows the core's own recalculation, and needs a re-check once its Document changes", async () => {
+/** A Note with one Analysis figure whose run the core worked out again to the same number. */
+async function checkedAnalysisFigure() {
   const { installFigureRuns } = await import("../../src/shared/figureRuns");
   const source = sourceTable(["Item\tAmount", "A\t10", "B\t20"]);
   const input = source.input(2);
@@ -1060,6 +1061,11 @@ test("a kept Analysis figure shows the core's own recalculation, and needs a re-
       ],
     },
   ]);
+  return blocks;
+}
+
+test("a kept Analysis figure shows the core's own recalculation, and needs a re-check once its Document changes", async () => {
+  const blocks = await checkedAnalysisFigure();
   const shownWith = (versions: ReadonlyMap<string, string>) =>
     figureSchedule({ ...scheduleInput(blocks), versions }).rows[0]?.shown;
   expect(shownWith(new Map([["accounts", "v1"]]))).toEqual({ state: "supported" });
@@ -1068,6 +1074,67 @@ test("a kept Analysis figure shows the core's own recalculation, and needs a re-
     why: "new-version",
   });
   expect(shownWith(new Map())).toEqual({ state: "needs-recheck", why: "document-removed" });
+});
+
+test("a claim check that left the figure unread keeps the Figures tab from calling it supported", async () => {
+  const blocks = await checkedAnalysisFigure();
+  const element = blocks.get(0);
+  const occurrence = figuresInMind(blocks)[0];
+  if (!(element instanceof Y.XmlElement) || !occurrence) throw new Error("Missing fixture");
+  const parent = basis(wordsOf(element));
+  markSentence(element, 0, textOf(element).length, {
+    ...parent,
+    figures: [{ ...parent, ...finding(occurrence), state: "not-checked", reason: "unread" }],
+    remainder: null,
+  });
+  const row = figureSchedule({
+    ...scheduleInput(blocks),
+    versions: new Map([["accounts", "v1"]]),
+  }).rows[0];
+  expect(row?.shown).toEqual({ state: "not-checked", reason: "unread" });
+});
+
+test("a figure whose Analysis record is missing keeps the Note's other citations, and doesn't throw", async () => {
+  const blocks = await checkedAnalysisFigure();
+  const lost = calculatedFigureNode(
+    {
+      label: "Lost",
+      formula: "",
+      inputs: [],
+      value: 30,
+      unit: { kind: "plain" },
+      approximate: false,
+      shown: "30",
+      show: { language: "en", as: "number", decimals: 0, scale: null },
+      literals: [],
+      engine: FORMULA_VERSION,
+      written: null,
+      analysis: { analysis: 2, result: "lost" },
+    },
+    "figure-b",
+    "missing-run",
+  );
+  blocks.push([createElement({ type: "paragraph", attrs: { id: "b" }, content: [lost] })]);
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    expect(figureCitations(blocks)).toContainEqual(
+      expect.objectContaining({ documentId: "accounts", contentHash: "v1" }),
+    );
+  } finally {
+    logged.mockRestore();
+  }
+});
+
+test("a whole-sentence check with no figure child is no evidence against the core's own check", async () => {
+  const blocks = await checkedAnalysisFigure();
+  const element = blocks.get(0);
+  if (!(element instanceof Y.XmlElement)) throw new Error("Missing fixture");
+  markSentence(element, 0, textOf(element).length, basis(wordsOf(element)));
+  const row = figureSchedule({
+    ...scheduleInput(blocks),
+    versions: new Map([["accounts", "v1"]]),
+  }).rows[0];
+  expect(row?.shown).toEqual({ state: "supported" });
 });
 
 function scheduleInput(blocks: Y.XmlFragment) {

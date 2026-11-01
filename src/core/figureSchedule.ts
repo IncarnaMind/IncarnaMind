@@ -727,12 +727,18 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     };
     const check = state?.child ?? state?.owner?.check ?? null;
     let shown: FigureScheduleRow["shown"] = { state: "not-checked", reason: "unread" };
-    if (state?.owner?.check.kept) shown = claimCheckShown(state.owner.check, state.now);
-    else if (state?.child)
+    // A claim check covers the figure through its own child, through a Keep of the sentence, or
+    // through a whole-sentence check's re-check or run — never through its verdict alone (#2378).
+    let claimShown = false;
+    if (state?.owner?.check.kept) {
+      shown = claimCheckShown(state.owner.check, state.now);
+      claimShown = true;
+    } else if (state?.child) {
       shown = !sameIdentity(occurrence, state.child)
         ? { state: "needs-recheck", why: "edited" }
         : figureCheckShown({ ...state.child, ...finding, context: state.child.context }, state.now);
-    else if (state?.owner) {
+      claimShown = true;
+    } else if (state?.owner) {
       const parent = state.owner.check;
       const legacy = claimCheckShown(
         { ...parent, figures: undefined },
@@ -742,11 +748,13 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
         legacy.state === "needs-recheck" ||
         legacy.state === "kept" ||
         legacy.state === "checking"
-      )
+      ) {
         shown = legacy;
+        claimShown = true;
+      }
     }
     shown = analysisFigureShown(shown, {
-      checked: Boolean(state?.child ?? state?.owner),
+      checked: claimShown,
       run:
         retained.analyses.find((analysis) => analysis.id === occurrence.calculated?.analysisId) ??
         null,

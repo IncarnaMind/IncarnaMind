@@ -792,9 +792,6 @@ export const zhCN = {
   "figures.analysisRows.how.count": "计数",
   "figures.analysisRows.recalculated":
     "数据分析运行时，IncarnaMind 已按这些单元格重新计算，结果相同。",
-  "figures.analysisCheck.differs":
-    "数据分析运行时，IncarnaMind 按这些单元格重新计算，得到 {value}。",
-  "figures.analysisCheck.unchecked": "数据分析运行时，IncarnaMind 无法按这些单元格重新计算。",
   "figures.analysisRows.used.one": "根据“{input}”{rows}（共 {count} 行）计算，用到{names}",
   "figures.analysisRows.used.other": "根据“{input}”{rows}（共 {count} 行）计算，用到{names}",
   "figures.analysisRows.list.one": "第 {runs} 行",
@@ -4308,6 +4305,7 @@ export const zhCN = {
   "export.citation.document": "{document}",
   "export.citation.separator": "，",
   "export.citation.accessed": "访问于 {date}",
+  "export.figure.unavailable": "“{figure}”保存的输入暂不可用，IncarnaMind 按数值写出。",
   "export.figure.calculated": "计算得出：{formula} = {figure}。",
   "export.figure.analysis": "由数据分析“{title}”计算得出：{figure}。",
   "export.figure.workbook": "按工作簿中的公式计算得出（{cell} = {formula}）：{figure}。",

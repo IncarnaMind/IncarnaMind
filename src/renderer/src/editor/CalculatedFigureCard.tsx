@@ -10,7 +10,6 @@ import { badgeMessage, citationState } from "../../../shared/citations";
 import type { ClaimCheckShown } from "../../../shared/claimChecks";
 import { type CalculatedSources, retainedCheck } from "../../../shared/figureRuns";
 import { shownNumber } from "../../../shared/figureSchedule";
-import { figureText } from "../../../shared/figures";
 import { formulaText } from "../../../shared/formula";
 import { sourceText } from "../../../shared/sources";
 import { buttonStyle } from "../components/ui";
@@ -183,7 +182,6 @@ function TracedRows({
   check: AnalysisRecalculation | null;
 }) {
   const t = useT();
-  const language = useLanguage();
   const plural = of.count === 1 ? "one" : "other";
   const shown = of.rows
     .slice(0, 6)
@@ -211,14 +209,6 @@ function TracedRows({
       </p>
       {of.how && check?.kind === "same" && (
         <p className="calculated-figure-note">{t("figures.analysisRows.recalculated")}</p>
-      )}
-      {of.how && check?.kind === "differs" && (
-        <p className="calculated-figure-note">
-          {t("figures.analysisCheck.differs", { value: figureText(language, check.value) })}
-        </p>
-      )}
-      {of.how && check?.kind === "unchecked" && (
-        <p className="calculated-figure-note">{t("figures.analysisCheck.unchecked")}</p>
       )}
     </div>
   );

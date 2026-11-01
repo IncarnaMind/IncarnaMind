@@ -221,6 +221,14 @@ export function withoutChecks(records: unknown): unknown {
   });
 }
 
+/** A kept value without what the core made of it: what a clipboard record and the Note's own must share. */
+function withoutCheck(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const copy: Record<string, unknown> = { ...value };
+  delete copy.check;
+  return copy;
+}
+
 export function retainFigureAnalysis(
   analysis: AnswerAnalysis,
   id: string,
@@ -346,8 +354,14 @@ export function installFigureRuns(doc: Y.Doc, records: readonly unknown[]): void
     for (const value of values) {
       const key = valueKey(next.id, value.name);
       const old = planned.get(key) ?? runs.get(key);
-      if (old !== undefined && JSON.stringify(old) !== JSON.stringify(value))
-        throw new Error("The calculated figures name different values from the same Analysis.");
+      if (old !== undefined && JSON.stringify(old) !== JSON.stringify(value)) {
+        // A clipboard record carries no check (#2378): the Note's own record of the same value keeps its own.
+        if (JSON.stringify(withoutCheck(old)) !== JSON.stringify(withoutCheck(value)))
+          throw new Error("The calculated figures name different values from the same Analysis.");
+        if (isRecord(old) && old.check !== undefined && value.check !== undefined)
+          throw new Error("The calculated figures name different values from the same Analysis.");
+        if (value.check === undefined) continue;
+      }
       planned.set(key, value);
     }
     const prefix = `${key.slice(0, -1)},`;

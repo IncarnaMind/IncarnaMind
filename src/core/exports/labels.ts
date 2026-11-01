@@ -30,6 +30,11 @@ export interface ExportLabels {
    * Revenue 2025 and Revenue 2024: Acme Annual Report 2025, p. 4."
    */
   figureNote(worked: FigureWorked, figure: string, sources: readonly FigureNoteSource[]): string;
+  /**
+   * A calculated figure whose saved Analysis is gone, written as its value (#2378): "The saved
+   * inputs for 300 aren't available, so IncarnaMind writes it as its value."
+   */
+  figureUnavailable(figure: string): string;
   /** The words before and after a calculated figure's inputs' cluster in a citation style: "calculated from ", "". */
   figureCluster(note: boolean): [before: string, after: string];
   /** A table of contents' heading: "Contents", "目录". */
@@ -242,6 +247,7 @@ export function exportLabels(language: Language): ExportLabels {
         // No space after full-width punctuation (docs/agents/zh-CN.md).
         FULL_WIDTH_END.test(text) ? text + sentence : `${text} ${sentence}`,
       ),
+    figureUnavailable: (figure) => t("export.figure.unavailable", { figure }),
     figureCluster: (note) => {
       const [before = "", after = ""] = t(
         note ? "export.figure.cluster.note" : "export.figure.cluster",

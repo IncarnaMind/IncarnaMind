@@ -810,10 +810,6 @@ export const en = {
   "figures.analysisRows.how.count": "Count",
   "figures.analysisRows.recalculated":
     "When the Analysis ran, IncarnaMind worked this out again from these cells and got the same number.",
-  "figures.analysisCheck.differs":
-    "When the Analysis ran, IncarnaMind worked this out again from these cells and got {value}.",
-  "figures.analysisCheck.unchecked":
-    "When the Analysis ran, IncarnaMind couldn’t work this out again from these cells.",
   "figures.analysisRows.used.one": "Worked out from {count} row of {input}: {rows}, using {names}",
   "figures.analysisRows.used.other":
     "Worked out from {count} rows of {input}: {rows}, using {names}",
@@ -4507,6 +4503,8 @@ export const en = {
   "export.citation.document": "{document}",
   "export.citation.separator": ", ",
   "export.citation.accessed": "accessed {date}",
+  "export.figure.unavailable":
+    "The saved inputs for {figure} aren't available, so IncarnaMind writes it as its value.",
   "export.figure.calculated": "Calculated: {formula} = {figure}.",
   "export.figure.analysis": "Calculated by the Analysis “{title}”: {figure}.",
   "export.figure.workbook":

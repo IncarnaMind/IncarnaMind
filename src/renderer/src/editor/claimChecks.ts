@@ -540,9 +540,23 @@ export function figureShownIn(
 ): ClaimCheckShown & { recalculated?: true } {
   const context = claimsKey.getState(state)?.context ?? NO_CONTEXT;
   for (const span of claimSpans(state.doc)) {
-    const child = span.check.figures?.find((figure) => figure.id === id);
-    if (!child) continue;
     const now = { ...context, text: span.sentence.text };
+    const child = span.check.figures?.find((figure) => figure.id === id);
+    if (!child) {
+      // A whole-sentence check from before figures were checked one by one still says a re-check, a
+      // Keep or a run of its own; its verdict alone is no figure's evidence (#1932, #2378).
+      if (!span.check.figures?.length) {
+        if (span.check.kept) return claimCheckShown(span.check, now);
+        const legacy = claimCheckShown({ ...span.check, figures: undefined }, now);
+        if (
+          legacy.state === "needs-recheck" ||
+          legacy.state === "kept" ||
+          legacy.state === "checking"
+        )
+          return legacy;
+      }
+      continue;
+    }
     if (span.check.kept) return claimCheckShown(span.check, now);
     const shown = analysisFigureShown(figureCheckShown(child, now), {
       checked: true,
