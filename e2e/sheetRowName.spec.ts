@@ -158,6 +158,28 @@ for (const width of [1600, 900]) {
       { row: 8, shown: "Trade debtors", location: "Trial balance, row 8 · Trade debtors" },
       `row-name-${width}`,
     );
+    // The label comes from the cited row, not from the scroll: scrolled back towards column A,
+    // the mark keeps its words and its width, and still covers no cited cell.
+    const mark = window.getByTestId("viewer").getByTestId("viewer-quote-mark");
+    const before = await mark.boundingBox();
+    const grid = window.getByTestId("viewer").getByTestId("viewer-grid");
+    await grid.evaluate((element) => {
+      element.scrollLeft = Math.max(0, element.scrollLeft - 200);
+    });
+    await expect(async () => {
+      const after = await mark.boundingBox();
+      expect(after?.width).toBe(before?.width);
+      expect(after?.x).not.toBe(before?.x);
+      const cited = await grid.locator("td[data-quote-highlight]").evaluateAll((cells) =>
+        cells.map((cell) => {
+          const rect = cell.getBoundingClientRect();
+          return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+        }),
+      );
+      if (!after) throw new Error("The mark isn't shown.");
+      expect(cited.filter((each) => intersects(after, each))).toEqual([]);
+    }).toPass();
+    await expect(mark.getByTestId("viewer-quote-mark-label")).toHaveText("Trade debtors");
     const chinese = await ask(window, "In each sheet, where is 4010?");
     await expectMark(
       window,

@@ -1,4 +1,4 @@
-import type { Sheet } from "../../../core/documents/formats/grid";
+import type { Cell, Sheet } from "../../../core/documents/formats/grid";
 import { cellIndex } from "../../../core/documents/formats/sheetLayout";
 import { fitName, textColumns } from "../../../shared/naming";
 import { parseCellRef } from "../../../shared/units";
@@ -31,14 +31,15 @@ export interface CitedRow {
 }
 
 /**
- * The rows a quote covers on `sheet`, in row order, each with its name: the
- * nearest text left of its leftmost cited figure, or of the next figure when
- * none is (an account code stored as a number, in column A, has nothing left
- * of it). A figure stored as text counts as a figure. A merged cell's text
- * counts where the merge covers that place. Hidden columns, text the cell's
- * number format hides, and text that names nothing (no letter, as a figure or
- * year typed as text, "-", or else "n/a", an Excel error or a boolean) are
- * passed over.
+ * The rows a quote covers on `sheet`, in row order, each with its name: every
+ * text cell left of its first cited figure, in column order, joined by " · "
+ * ("Current liabilities · VAT"). The first figure is the leftmost cited one
+ * with text left of it, so an account code stored as a number in column A
+ * neither joins the name nor hides it. A figure stored as text counts as a
+ * figure. A merged cell's text counts once, where the merge starts. Hidden
+ * columns, text the cell's number format hides, and text that names nothing
+ * (no letter, as a figure or year typed as text, "-", or else "n/a", an Excel
+ * error or a boolean) are passed over.
  */
 export function citedRowNames(sheet: Sheet, cited: Iterable<string>): CitedRow[] {
   const cells = new Map(sheet.cells.map((cell) => [`${cell.row}:${cell.column}`, cell]));
@@ -54,20 +55,20 @@ export function citedRowNames(sheet: Sheet, cited: Iterable<string>): CitedRow[]
     );
     return cells.get(merge ? `${merge.from.row}:${merge.from.column}` : `${row}:${column}`);
   };
-  const textAt = (row: number, column: number): { text: string; figure: boolean } | null => {
+  const textAt = (row: number, column: number) => {
     const cell = cellAt(row, column);
     if (!cell) return null;
     const shown = layout?.shown.get(cellIndex(cell.row, cell.column))?.text ?? cell.value;
     const text = shown.replace(/\s+/g, " ").trim();
-    return { text, figure: cell.numeric || (/\d/.test(text) && lettersIn(text) === 0) };
+    return { cell, text, figure: cell.numeric || (/\d/.test(text) && lettersIn(text) === 0) };
   };
-  const nameAt = (row: number, column: number): string | null => {
+  const nameAt = (row: number, column: number) => {
     if (layout?.columns.get(column)?.hidden) return null;
     const found = textAt(row, column);
     if (!found || found.figure || lettersIn(found.text) === 0 || NOT_A_NAME.test(found.text)) {
       return null;
     }
-    return found.text;
+    return found;
   };
   const figures = new Map<number, Set<number>>();
   for (const ref of cited) {
@@ -81,10 +82,12 @@ export function citedRowNames(sheet: Sheet, cited: Iterable<string>): CitedRow[]
     .sort(([a], [b]) => a - b)
     .map(([row, columns]) => {
       for (const figure of [...columns].sort((a, b) => a - b)) {
-        for (let column = figure - 1; column >= 0; column--) {
+        const parts = new Map<Cell, string>();
+        for (let column = 0; column < figure; column++) {
           const name = nameAt(row, column);
-          if (name) return { row, name };
+          if (name) parts.set(name.cell, name.text);
         }
+        if (parts.size > 0) return { row, name: joinMeta([...parts.values()]) };
       }
       return { row, name: null };
     });
