@@ -172,6 +172,29 @@ describe("The everyday request guards", () => {
     expect(failures([3])).toEqual([]);
   });
 
+  // protects=asked to make the summary longer, an edit that leaves the Mind no longer fails, and one that grows it passes; fails_when=either is judged the other way; no_claim=none beyond protects.
+  test("a longer summary the edit didn't grow fails", () => {
+    const edited: AnswerToolCall = {
+      ...created,
+      tool: "edit_mind",
+      input: {},
+      mindChange: { mindId: "m1", created: false, request: "r2", proposals: 1 },
+    };
+    const failures = (longer: boolean) =>
+      requestFailures(
+        outcome({
+          expected: { write: true, cite: false, coverAll: false, inPlace: true, longer: true },
+          answer: { text: "", citations: [], toolCalls: [edited], steps: null },
+          changedBlocks: [3],
+          addedBlocks: [3],
+          longer,
+        }),
+      ).map((failure) => failure.kind);
+    expect(failures(false)).toEqual(["not-longer"]);
+    expect(failures(true)).toEqual([]);
+    expect(failureLine({ kind: "not-longer" })).toBe("changed the text but did not make it longer");
+  });
+
   // protects=a translation written into a Mind must use the field's term for a thing, here 大潮 for "spring tides", and fails on the near one, 春潮 (#1635); fails_when=either passes unnoticed; no_claim=other terms.
   test("a translation that doesn't use the term asked for fails, naming the one it used", () => {
     const failures = (writtenInMinds: string[]) =>
