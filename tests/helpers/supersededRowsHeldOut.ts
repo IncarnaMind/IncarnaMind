@@ -415,3 +415,102 @@ export const SUPERSEDED_HELD_OUT_SECOND: readonly HeldOutCase[] = [
     read: "The what-if changes the shown server quantity (C6) and works out the shown total (D7) as 30,000, never the hidden rows' 36,000.",
   },
 ];
+
+const fastenerKits = Array.from({ length: 40 }, (_, index) => `Fastener kit ${index + 1}`);
+const cableReels = Array.from({ length: 30 }, (_, index) => `电缆盘 ${index + 1} 号`);
+
+/**
+ * A third held-out set, written after the review that found the marks lost on sheets laid out as
+ * the issue's worksheet is, and committed before any run of the change that finds each row where
+ * its Passage was cut from the sheet. Its sheets start their rows with an empty cell, a version
+ * named only in column A, or a table from column B under a title in A1, and two are long enough
+ * for several Passages. Two give an earlier figure equal to a current one of another role, as the
+ * issue's worksheet did.
+ */
+export const SUPERSEDED_HELD_OUT_THIRD: readonly HeldOutCase[] = [
+  {
+    name: "bill of materials, versions named in column A, the earlier struck through",
+    language: "en",
+    file: "Bill of materials.xlsx",
+    workbook: () =>
+      sheetWithRows("BOM", [
+        { cells: ["", "Part", "Unit cost", "Quantity", "Cost"] },
+        { cells: ["Version 1", "Hinges", money(2), 12, money(24)], struck: true },
+        { cells: ["", "Screws", money(0.09), 200, money(18)], struck: true },
+        { cells: ["", "Total", "", "", money(42)], struck: true },
+        { cells: ["Version 2", "Hinges", money(1.8), 10, money(18)] },
+        { cells: ["", "Screws", money(0.08), 200, money(16)] },
+        { cells: ["", "Total", "", "", money(34)] },
+      ]),
+    question:
+      "Which version of the bill of materials applies now? Work out its total from each part's unit cost and quantity, and say which inputs changed from the earlier version.",
+    cites: [5, 6],
+    gives: [["34.00", "34"]],
+    never: ["76.00"],
+    read: "Version 2 (rows 5–7) is named as current, its 34.00 worked out from rows 5 and 6, never from struck rows 2–4; the hinges' 18.00 is cited to row 5, never to the struck screws cost of 18.00 in row 3; the hinges' unit cost (2.00 to 1.80) and quantity (12 to 10) and the screws' unit cost (0.09 to 0.08) are named as changed.",
+  },
+  {
+    name: "print quote, versions named in column A, the earlier hidden",
+    language: "zh-CN",
+    file: "印刷报价.xlsx",
+    workbook: () =>
+      sheetWithRows("报价", [
+        { cells: ["", "项目", "单价（元）", "数量", "金额（元）"] },
+        { cells: ["第一版", "设计费", whole(3000), 1, whole(3000)], hidden: true },
+        { cells: ["", "印刷费", money(2.5), whole(2000), whole(5000)], hidden: true },
+        { cells: ["", "合计", "", "", whole(8000)], hidden: true },
+        { cells: ["第二版", "设计费", whole(3500), 1, whole(3500)] },
+        { cells: ["", "印刷费", money(2.5), whole(1800), whole(4500)] },
+        { cells: ["", "合计", "", "", whole(8000)] },
+      ]),
+    question: "现在有效的是哪一版报价？合计多少？和之前的版本比，哪些输入变了？",
+    cites: [5],
+    gives: [["8,000", "8000"]],
+    never: ["16,000", "16000"],
+    read: "The second version (rows 5–7) is named as current and cited, never hidden rows 2–4; the design fee (3,000 to 3,500) and the printing quantity (2,000 to 1,800) are named as changed, though both totals are 8,000.",
+  },
+  {
+    name: "long price list from column B under a title, earlier prices struck through below",
+    language: "en",
+    file: "Fastener prices.xlsx",
+    workbook: () =>
+      sheetWithRows("Prices", [
+        { cells: ["Fastener price list, autumn"] },
+        { cells: ["", "Item", "Unit price", "Pack size"] },
+        ...fastenerKits.map((item, index) => ({
+          cells: ["", item, money(3 + index * 0.25), 50],
+        })),
+        ...fastenerKits.map((item, index) => ({
+          cells: ["", item, money(2.8 + index * 0.25), 50],
+          struck: true,
+        })),
+      ]),
+    question: "What does fastener kit 31 cost now, and what did it cost before?",
+    cites: [33],
+    gives: [["10.50"]],
+    never: [],
+    read: "The current price, 10.50, is cited to row 33, never to struck row 73; the earlier price, 10.30, is named as struck through, not current.",
+  },
+  {
+    name: "long reel list from column B under a title, earlier rows hidden above",
+    language: "zh-CN",
+    file: "电缆盘价格.xlsx",
+    workbook: () =>
+      sheetWithRows("价格", [
+        { cells: ["电缆盘价格表（秋季）"] },
+        { cells: ["", "品名", "单价（元）", "长度（米）"] },
+        ...cableReels.map((item, index) => ({
+          cells: ["", item, whole(420 + index * 10), 100],
+          hidden: true,
+        })),
+        ...cableReels.map((item, index) => ({
+          cells: ["", item, whole(450 + index * 10), 100],
+        })),
+      ]),
+    question: "25 号电缆盘现在的单价是多少？之前是多少？",
+    cites: [57],
+    gives: [["690"]],
+    never: [],
+    read: "The current price, 690, is cited to row 57, never to hidden row 27; the earlier price, 660, is named as hidden, not current.",
+  },
+];
