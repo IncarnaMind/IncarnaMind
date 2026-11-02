@@ -306,8 +306,13 @@ export interface CreateMindInput {
  *   opens these Notes read-only.
  *   Older content is version 46 content as it is: a figure kept before names
  *   no rows.
+ * - 47: a Citation of a scanned page marks the words its reading may have
+ *   misread (`unsure`) and records the User's own look at the page
+ *   (`pageChecked`, #535). An older editor would strip both, so it opens
+ *   these Notes read-only. Older content is version 47 content as it is: a
+ *   Citation written before holds neither.
  */
-export const CONTENT_SCHEMA_VERSION = 46;
+export const CONTENT_SCHEMA_VERSION = 47;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1996,6 +2001,8 @@ export type CitationCheckReason =
   | "in-several-places"
   /** Can't check: the cited Units have no text, e.g. scanned pages. */
   | "no-text"
+  /** Can't check: the quote covers a word the text recognition may have misread (#535). */
+  | "unsure-word"
   /** Can't check from this Note: the Document stays inside a walled Folder. */
   | "kept-inside"
   /** Can't check: the Document was deleted. */
@@ -2066,6 +2073,8 @@ export interface RecheckCitationInput extends CitationToRecheck {
 export interface CitationRecheck {
   check: Exclude<CitationCheck, "checking">;
   checkReason: CitationCheckReason | null;
+  /** The unsure words of a scanned page the quote covers (#535); absent when it covers none. */
+  unsure?: string[];
   /** The version checked: the Document's current `contentHash`; null when it can't be checked. */
   contentHash: string | null;
   /** A Passage of the current version that holds the Units, or null. */
@@ -2078,7 +2087,7 @@ export interface CitationRecheck {
    * in that version, at the Units it cites (ADR-0017's amendment); null once that version's
    * text is no longer kept.
    */
-  inQuotedVersion?: Pick<CitationRecheck, "check" | "checkReason"> | null;
+  inQuotedVersion?: Pick<CitationRecheck, "check" | "checkReason" | "unsure"> | null;
   /**
    * Asked with the version the Citation quotes, which is no longer the current one, and the
    * quote isn't in the current one as cited: its words as they changed at its place; null
@@ -2256,6 +2265,16 @@ export interface CitationAttributes {
   quote: string | null;
   check: CitationCheck;
   checkReason: CitationCheckReason | null;
+  /**
+   * The words of a scanned page's text the quote covers that the text recognition wasn't sure of
+   * (#535): with one, the check asks the User to look at the page.
+   */
+  unsure?: string[] | null;
+  /**
+   * The User compared the quote with the page and it matched (Matches the page, #535): the
+   * Citation is found on their word, though a word of it may have been misread.
+   */
+  pageChecked?: boolean | null;
   /** One line on what the evidence says, when a claim check has one ("The agreement says 31 October 2026, p. 7"). */
   verdict?: string | null;
   /** The Answer's quoted words the check didn't find, when that is why `check` is "not-found" (#483). */
@@ -2284,6 +2303,8 @@ export interface Citation {
   quote: string;
   check: CitationCheck;
   checkReason: CitationCheckReason | null;
+  /** The unsure words of a scanned page the quote covers (#535). */
+  unsure?: string[];
   quotedWords?: QuotedWords;
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
@@ -2900,6 +2921,8 @@ export type TabItem =
 /** What the viewer knows of the Citation a Document was opened from. */
 export interface TabCitation {
   check: CitationCheck;
+  /** Why it can't be checked, when `check` is "cant-check": a scan's unsure word marks the quote's page (#535). */
+  checkReason?: CitationCheckReason;
   /** The number the Citation shows in its Answer, from 1. */
   number?: number;
   /** Its Location's short label, e.g. "slide 4" or "Revenue, rows 12–14": the mark shows it. */
@@ -4165,7 +4188,14 @@ export interface ReadCitedPageInput {
 export interface ScannedText {
   documentId: string;
   contentHash: string;
-  pages: { page: number; text: string; label: UnitLabel | null; anchors: Anchor[] }[];
+  pages: {
+    page: number;
+    text: string;
+    label: UnitLabel | null;
+    anchors: Anchor[];
+    /** The words a quote may have misread, as spans into `text` (#535). */
+    unsure: [number, number][];
+  }[];
 }
 
 /**
