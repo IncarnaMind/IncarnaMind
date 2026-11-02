@@ -11,6 +11,16 @@ const FIGURE =
   /^[<>≈~≤≥]?\s?[-+−–(（]?[$€£¥]?\s?\d[\d,.\s]*(?:%|\s?(?:[kmb]n?|bn|pp|x|×|万|亿|元))?[)）]?$/iu;
 export const CJK_EDGE = /[\u2e80-\u2fdf\u3000-\u9fff\uf900-\ufaff\uff00-\uffef]/u;
 
+const RAISED_DIGITS = "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079";
+const LOWERED_DIGITS = "\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089";
+
+/**
+ * A run's digits set raised or lowered, written as Unicode's superscript or subscript digits:
+ * read as plain digits, a footnote mark "²" after "1,240.50" would make it 1,240.502 (#448).
+ */
+export const shiftedDigits = (text: string, raised: boolean) =>
+  text.replace(/\d/g, (digit) => (raised ? RAISED_DIGITS : LOWERED_DIGITS)[Number(digit)] ?? digit);
+
 /** A footnote's mark set after a figure: "17,347.75²", "4,812*", "(55.8)†". */
 const FOOTNOTE_MARK = /(?<=[\d)）%])(?:[\u00b9\u00b2\u00b3\u2070\u2074-\u2079]+|[*†‡§¶]{1,3})$/u;
 

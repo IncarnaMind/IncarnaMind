@@ -375,7 +375,7 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
   if (headed && headings.slice(1).some((heading) => heading === "")) return null;
   // A register's "Brought forward" or "Total paid" sits under a column of names, not dates: still a label.
   const unlabelled = (row: TableGrid["rows"][number]) =>
-    row.cells.every((text) => text === "" || isFigure(text));
+    row.cells[0] === "" && row.cells.every((text) => text === "" || isFigure(text));
   if (data.filter(unlabelled).length > data.length * 0.3) return null;
   // A table's headings are names and its cells short: columns of prose or references are no table.
   if (headings.some((heading) => heading.length > MAX_HEADING)) return null;
@@ -475,7 +475,7 @@ export function pageTables(rows: readonly Row[]): PageTables {
 }
 
 const CONTINUED = /\bcontinued\b|\bcont(?:'|’)?d\b|[(（]续[)）]|续表|接上页/iu;
-const lineShape = (line: string) => line.toLowerCase().replace(/\d+/g, "#").replace(/\s+/g, " ");
+const pageNumbersFolded = (line: string) => line.toLowerCase().replace(/\d+/g, "#");
 
 /**
  * Each page's tables, by page number, with a page's first table marked as going on from the last
@@ -485,15 +485,29 @@ const lineShape = (line: string) => line.toLowerCase().replace(/\d+/g, "#").repl
  * of its own.
  */
 export function continuedTables(pages: ReadonlyMap<number, PageTables>): Map<number, UnitTable[]> {
-  const shapes = new Map<string, Set<number>>();
-  for (const [page, { before, after }] of pages) {
-    for (const line of [...before, ...after]) {
-      const shape = lineShape(line);
-      shapes.set(shape, (shapes.get(shape) ?? new Set()).add(page));
+  const pagesWith = (shape: (line: string) => string, lines: (page: PageTables) => string[]) => {
+    const seen = new Map<string, Set<number>>();
+    for (const [page, layout] of pages) {
+      for (const line of lines(layout)) {
+        seen.set(shape(line), (seen.get(shape(line)) ?? new Set()).add(page));
+      }
     }
-  }
-  const running = (line: string) =>
-    CONTINUED.test(line) || (shapes.get(lineShape(line))?.size ?? 0) > 1;
+    return (line: string) => (seen.get(shape(line))?.size ?? 0) > 1;
+  };
+  // A line printed as it is on another page is a running one; so is a page's first or last line
+  // printed again with another number (a page's header or footer), but never the line just above
+  // the table, where "Table 4" and "Table 5" differ only by their numbers.
+  const repeated = pagesWith(
+    (line) => line,
+    (page) => [...page.before, ...page.after],
+  );
+  const edges = (page: PageTables) => [
+    ...(page.before.length > 1 ? [page.before[0] ?? ""] : []),
+    ...page.after.slice(-1),
+  ];
+  const renumbered = pagesWith(pageNumbersFolded, edges);
+  const running = (line: string, edge: boolean) =>
+    CONTINUED.test(line) || repeated(line) || (edge && renumbered(line));
   const tables = new Map<number, UnitTable[]>();
   for (const [page, layout] of [...pages].sort(([a], [b]) => a - b)) {
     if (layout.tables.length === 0) continue;
@@ -506,7 +520,8 @@ export function continuedTables(pages: ReadonlyMap<number, PageTables>): Map<num
       last &&
       first.headings.length === last.headings.length &&
       (unheaded || first.headings.join("\t") === last.headings.join("\t")) &&
-      [...(previous?.after ?? []), ...layout.before].every(running);
+      (previous?.after ?? []).every((line, at, after) => running(line, at === after.length - 1)) &&
+      layout.before.every((line, at, before) => running(line, at === 0 && at < before.length - 1));
     tables.set(page, [
       ...(first ? [goesOn ? { ...first, continues: true as const } : first] : []),
       ...rest,

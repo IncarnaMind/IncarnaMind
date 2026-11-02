@@ -20,7 +20,13 @@ import { joinPrintedLines, type PrintedLine, type PrintedText } from "./lineWrap
 import { passwordProblem } from "./pdfPasswords";
 import { printedPageNames } from "./printedPages";
 import { scannedUnit } from "./scan/layout";
-import { type CanvasFactory, isScanned, pagePicture } from "./scan/pages";
+import {
+  type CanvasFactory,
+  isScanned,
+  MIN_PICTURE_SHARE,
+  pagePicture,
+  pictureShare,
+} from "./scan/pages";
 import { anchorsBack, readWithQuarterTurn } from "./scan/rotation";
 import {
   continuedTables,
@@ -568,7 +574,11 @@ async function extractPdf(
       const read = readPageText(content.items);
       if (read.kept.size > 0) keptBreaks.set(number, read.kept);
       pages.push({ page: number, kind: "page", label: null, text: read.text, anchors: null });
-      layouts.set(number, pageTables(textLayerRows(content.items)));
+      const layout = pageTables(textLayerRows(content.items));
+      if (layout.tables.length > 0 && (await pictureShare(page, OPS)) >= MIN_PICTURE_SHARE) {
+        layout.tables = layout.tables.map((table) => ({ ...table, overPicture: true }));
+      }
+      layouts.set(number, layout);
       if (reading && (await isScanned(page, pageText(source.items), OPS))) {
         scanned.push(number);
         if (fields.length > 0) scanFields.set(number, scannedFormFields(page, fields));
@@ -620,8 +630,11 @@ async function extractPdf(
   }
 }
 
+/** `unit` with `tables`, in place of any a kept scanned page had from an earlier read. */
 function withTables(unit: TextUnit, tables: UnitTable[] | undefined): TextUnit {
-  return tables && tables.length > 0 ? { ...unit, label: { ...unit.label, tables } } : unit;
+  const { tables: _earlier, ...label } = unit.label ?? {};
+  const kept = tables && tables.length > 0 ? { ...label, tables } : label;
+  return { ...unit, label: Object.keys(kept).length > 0 ? kept : null };
 }
 
 function withPrintedName(unit: TextUnit, name: string | null): TextUnit {

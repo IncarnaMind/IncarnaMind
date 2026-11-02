@@ -2513,7 +2513,8 @@ export function createDocuments(options: DocumentsOptions) {
         db.get<{ found: number }>(
           `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ('pdf', 'docx', 'pptx')
              AND EXISTS (SELECT 1 FROM document_pages p WHERE p.document_id = d.id
-               AND p.content_hash = d.content_hash AND p.label LIKE '%"tables":[%')
+               AND p.content_hash = d.content_hash AND p.deleted_at IS NULL
+               AND p.label LIKE '%"tables":[%')
            LIMIT 1`,
           params,
         ) !== undefined

@@ -12,7 +12,7 @@
  * office-formats spike.
  */
 import { type TextUnit, UnitBuilder } from "../../../shared/units";
-import { cellTable } from "../tableCells";
+import { cellTable, shiftedDigits } from "../tableCells";
 import { ExtractionError } from "./errors";
 import { dataUrlOf, imageTypeOf } from "./images";
 import { child, descendants, elements, local, parseXml, textOf, type XmlElement } from "./xml";
@@ -44,6 +44,12 @@ async function relationships(zip: ZipArchive, part: string): Promise<Map<string,
 }
 
 /** A DrawingML text body (a:txBody or p:txBody) as lines, one per paragraph. */
+function runText(run: XmlElement): string {
+  const text = textOf(child(run, "a:t") ?? run);
+  const baseline = Number(child(run, "a:rPr")?.attrs.baseline ?? 0);
+  return baseline === 0 || !Number.isFinite(baseline) ? text : shiftedDigits(text, baseline > 0);
+}
+
 function paragraphs(txBody: XmlElement): string[] {
   return elements(txBody)
     .filter((each) => each.name === "a:p")
@@ -53,7 +59,7 @@ function paragraphs(txBody: XmlElement): string[] {
           run.name === "a:br"
             ? "\n"
             : run.name === "a:r" || run.name === "a:fld"
-              ? textOf(child(run, "a:t") ?? run)
+              ? runText(run)
               : "",
         )
         .join("")

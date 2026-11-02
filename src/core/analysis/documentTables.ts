@@ -40,7 +40,7 @@ export interface DocumentTable {
   number: number;
   headings: string[];
   rows: DocumentTableRow[];
-  /** Read from a scan's picture (#397): what was recognized, not the PDF's own text. */
+  /** Its numbers were recognized from a picture of the page (#397): a scan's, or a text layer laid over one. */
   scan: boolean;
 }
 
@@ -96,7 +96,6 @@ function placeRows(unit: UnitText, cursor: { at: number }, rows: readonly string
 /** Every table of a Document version's Units, numbered in reading order, rows across Units joined. */
 export function documentTables(units: readonly UnitText[]): DocumentTable[] {
   const tables: DocumentTable[] = [];
-  /** The Unit the last table read had rows on. */
   let lastUnit: number | null = null;
   for (const unit of units) {
     const stored = unit.label?.tables ?? [];
@@ -119,7 +118,7 @@ export function documentTables(units: readonly UnitText[]): DocumentTable[] {
       for (const row of placeRows(unit, cursor, table.rows)) {
         into.rows.push({ row: into.rows.length + 2, unit: page, ...row });
       }
-      if (unit.label?.scan) into.scan = true;
+      if (unit.label?.scan || table.overPicture) into.scan = true;
       lastUnit = page;
     }
   }
@@ -169,7 +168,7 @@ function chosen(
     const more = tables.length > MAX_LISTED ? `\n- and ${tables.length - MAX_LISTED} more` : "";
     return `${shown.join("\n")}${more}`;
   };
-  if (given !== undefined) {
+  if (given !== undefined && given !== null) {
     const named = tables.find((table) => table.number === Number(given));
     return (
       named ??

@@ -1023,7 +1023,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const row = `${before}${text.slice(start, end < 0 ? undefined : end)}`;
     const named = (each: RowLabel) => WORDS.test(each.label);
     if (row.includes("\t")) {
-      const cell = withoutStatement(row.split("\t")[0] ?? "");
+      // A Word row under a cell merged down from the row above starts with that empty cell.
+      const label = row.split("\t").find((each) => each.trim() !== "");
+      const cell = withoutStatement(label ?? "");
       return named(cell) ? cell : null;
     }
     const own = betweenNumbers(before).map(withoutStatement).findLast(named);

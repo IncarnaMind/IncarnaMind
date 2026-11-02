@@ -30,7 +30,7 @@ import {
   type UnitTable,
 } from "../../../shared/units";
 import { headingLevelOfStyleName } from "../../../shared/wordStyles";
-import { cellTable } from "../tableCells";
+import { cellTable, shiftedDigits } from "../tableCells";
 import { type Relationship, relationshipsOf } from "./docxPackage";
 import { ExtractionError } from "./errors";
 import { child, elements, local, parseXml, type XmlElement } from "./xml";
@@ -100,6 +100,15 @@ function runText(node: XmlElement, marks: CommentMarks): string {
       case "noBreakHyphen":
         text += "-";
         break;
+      case "r": {
+        const align = child(child(element, "w:rPr") ?? element, "w:vertAlign")?.attrs["w:val"];
+        const read = runText(element, marks);
+        text +=
+          align === "superscript" || align === "subscript"
+            ? shiftedDigits(read, align === "superscript")
+            : read;
+        break;
+      }
       case "AlternateContent": {
         // The same content twice (DrawingML and a VML fallback): read the first choice only.
         const choice = elements(element)[0];
@@ -146,11 +155,17 @@ const textOf = (paragraphs: readonly Paragraph[], separator: string) =>
 const cellText = (paragraphs: readonly Paragraph[]) =>
   textOf(paragraphs, " ").replace(/\s+/g, " ").trim();
 
-/** How many of its table's grid columns a cell spans. */
-function spanOf(cell: XmlElement): number {
-  const span = Number(child(child(cell, "w:tcPr") ?? cell, "w:gridSpan")?.attrs["w:val"]);
-  return Number.isInteger(span) && span > 1 ? span : 1;
+/** Word's most columns in a table: a count past it is a damaged file's, not a grid's. */
+const MAX_GRID_COLUMNS = 63;
+
+/** How many grid columns `element` (a gridSpan, gridBefore or gridAfter) counts; `none` without one. */
+function gridCount(element: XmlElement | undefined, none: number): number {
+  const count = Number(element?.attrs["w:val"]);
+  return Number.isInteger(count) && count >= 0 ? Math.min(count, MAX_GRID_COLUMNS) : none;
 }
+
+const spanOf = (cell: XmlElement) =>
+  Math.max(1, gridCount(child(child(cell, "w:tcPr") ?? cell, "w:gridSpan"), 1));
 
 function readBlocks(
   container: XmlElement,
@@ -180,8 +195,12 @@ function readBlocks(
       const table = tables.count++;
       for (const row of elements(element).filter((each) => each.name === "w:tr")) {
         const marks: CommentMarks = { references: [], starts: [] };
+        const trPr = child(row, "w:trPr");
+        const skipped = (name: string) =>
+          Array.from({ length: gridCount(trPr && child(trPr, name), 0) }, () => "");
         // A merged cell keeps its grid's columns (#448): the cells right of one spanning two
-        // columns stay under their own headings, and one merged down from the row above is empty.
+        // columns stay under their own headings, one merged down from the row above is empty, and
+        // a row starting further along the grid starts there.
         const cells = elements(row)
           .filter((each) => each.name === "w:tc")
           .flatMap((cell) => {
@@ -193,6 +212,8 @@ function readBlocks(
             }
             return [cellText(inner), ...Array.from({ length: spanOf(cell) - 1 }, () => "")];
           });
+        cells.unshift(...skipped("w:gridBefore"));
+        cells.push(...skipped("w:gridAfter"));
         const filled = cells.some((cell) => cell !== "");
         const text = filled ? cells.join("\t") : "";
         if (filled) out.push({ text, level: null, ...marks, row: { table, cells } });
@@ -316,9 +337,9 @@ async function runningTexts(
   return texts;
 }
 
-/** A table of the body: its rows' paragraphs, and how the index reads it (null: no column of figures). */
 interface ReadTable {
   rows: Paragraph[];
+  /** Null for a table with no column of figures, which isn't kept. */
   read: UnitTable | null;
 }
 

@@ -12,7 +12,6 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
-import { CURRENT_SINCE } from "../../src/core/documents/processing";
 import { createFakeTextRecognizer, type FakeScanScript } from "../../src/core/documents/scan/fake";
 import { openDatabase } from "../../src/core/storage";
 import type {
@@ -695,10 +694,9 @@ describe("a raised mark after a sheet's number (#448)", { timeout: 60_000 }, () 
 
 describe("Documents read before their tables were kept (#448)", { timeout: 60_000 }, () => {
   test.each([
-    ["Five-year statement.pdf", "pdf" as const, () => incomeStatementPdf()],
+    ["Five-year statement.pdf", () => incomeStatementPdf()],
     [
       "Budget.docx",
-      "docx" as const,
       () =>
         budgetDocx(
           {
@@ -717,7 +715,6 @@ describe("Documents read before their tables were kept (#448)", { timeout: 60_00
     ],
     [
       "Board pack.pptx",
-      "pptx" as const,
       () =>
         deck("Results", [
           ["Region", "Orders"],
@@ -725,7 +722,7 @@ describe("Documents read before their tables were kept (#448)", { timeout: 60_00
           ["South", "30"],
         ]),
     ],
-  ])("are read again at startup, so %s gains its table", async (name, kind, contents) => {
+  ])("are read again at startup, so %s gains its table", async (name, contents) => {
     const dataDir = await createTempDataFolder();
     const first = startCore(dataDir);
     const sources = await createTempDataFolder();
@@ -741,7 +738,7 @@ describe("Documents read before their tables were kept (#448)", { timeout: 60_00
       ).length;
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
-      db.run("UPDATE documents SET processing_version = ?", [BigInt(CURRENT_SINCE[kind] - 1)]);
+      db.run("UPDATE documents SET processing_version = 22");
       db.run("UPDATE document_pages SET label = NULL");
     } finally {
       db.close();
@@ -752,5 +749,176 @@ describe("Documents read before their tables were kept (#448)", { timeout: 60_00
     expect(read?.status).toBe("ready");
     expect(tablesStored()).toBe(1);
     await again.close();
+  });
+});
+
+const sumOf =
+  (column: string) =>
+  (job: AnalysisJob): FakeAnswer => {
+    const [input] = job.inputs;
+    if (input?.kind !== "table") throw new Error("No table.");
+    return { output: { results: [figureOf(input, column, "sum")] } };
+  };
+
+describe("a Word table's own layout (#448)", { timeout: 60_000 }, () => {
+  test("a footnote mark Word sets raised after a number isn't a digit of it", async () => {
+    const raised = (text: string) =>
+      `<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:t>${text}</w:t></w:r>`;
+    const cell = (amount: string, mark: string) =>
+      `<w:p><w:r><w:t>${amount}</w:t></w:r>${raised(mark)}</w:p>`;
+    const { analyses, inputs, reports } = await ask({
+      files: [
+        {
+          name: "Grants.docx",
+          contents: wordFile({
+            body: table([
+              ["Supplier", "Amount"],
+              ["Hollin Pumps", cell("1,240.50", "1")],
+              ["Garth Fencing", "3,980.00"],
+              ["Tarn Electrical", cell("615.25", "2")],
+            ]),
+          }),
+        },
+      ],
+      question: "Total the amounts.",
+      query: "Hollin Pumps Garth Fencing",
+      runs: [run("Grants", [{ name: "grants" }])],
+      helper: sumOf("Amount"),
+    });
+    expect(column(inputs[0], "Amount")).toEqual([1240.5, 3980, 615.25]);
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 5835.75 }]);
+    expect(reports[0]).toContain("2 cells have a footnote mark after its number");
+  });
+
+  test("a row that starts further along the grid keeps its cells under their headings", async () => {
+    const before = (columns: number, cells: string) =>
+      `<w:tr><w:trPr><w:gridBefore w:val="${columns}"/></w:trPr>${cells}</w:tr>`;
+    const tc = (text: string) => `<w:tc>${paragraph(text)}</w:tc>`;
+    const grid = `<w:tbl><w:tblGrid>${'<w:gridCol w:w="2000"/>'.repeat(3)}</w:tblGrid>${[
+      `<w:tr>${tc("Workstream")}${tc("Item")}${tc("Cost")}</w:tr>`,
+      `<w:tr>${tc("Design")}${tc("Surveys")}${tc("3,550")}</w:tr>`,
+      before(1, `${tc("Joinery")}${tc("900")}`),
+    ].join("")}</w:tbl>`;
+    const { analyses, inputs } = await ask({
+      files: [{ name: "Costs.docx", contents: wordFile({ body: grid }) }],
+      question: "Total the costs.",
+      query: "Surveys Joinery",
+      runs: [run("Costs", [{ name: "costs" }])],
+      helper: sumOf("Cost"),
+    });
+    expect(inputs[0]?.rows).toEqual([
+      ["Design", "Surveys", 3550],
+      [null, "Joinery", 900],
+    ]);
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 4450 }]);
+  });
+});
+
+/** Two pages, each a table headed the same under its own caption, as a report's notes set them. */
+function twoTablesPdf(): Uint8Array {
+  const page = (
+    caption: string,
+    rows: readonly (readonly [string, string, string])[],
+  ): PdfPage => ({
+    lines: [caption],
+    placed: [["Region", "2025", "2024"], ...rows].flatMap((cells, index) =>
+      cells.map((text, column) => ({ text, x: [72, 300, 380][column] ?? 72, y: 700 - index * 16 })),
+    ),
+  });
+  return buildPdf([
+    page("Table 4. Revenue by region (GBP thousands)", [
+      ["North", "1,200", "1,100"],
+      ["South", "800", "760"],
+      ["West", "640", "600"],
+    ]),
+    page("Table 5. Operating costs by region (GBP thousands)", [
+      ["North", "420", "400"],
+      ["South", "310", "300"],
+      ["West", "250", "240"],
+    ]),
+  ]);
+}
+
+describe("tables on pages that follow each other (#448)", { timeout: 60_000 }, () => {
+  test("two captioned tables headed the same stay two tables", async () => {
+    const { analyses, inputs } = await ask({
+      files: [{ name: "Regions.pdf", contents: twoTablesPdf() }],
+      question: "Total the 2025 operating costs.",
+      query: "operating costs by region",
+      runs: [run("Regions", [{ name: "costs", table: 2 }])],
+      helper: sumOf("2025"),
+    });
+    expect(column(inputs[0], "2025")).toEqual([420, 310, 250]);
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 980 }]);
+    const [range] = analyses[0]?.inputs ?? [];
+    expect(range?.kind === "range" && range.citation.pageFrom).toBe(2);
+  });
+
+  test("a table whose first column is years is still a table", async () => {
+    const years = buildPdf([
+      {
+        lines: ["Ten-year record"],
+        placed: [
+          ["Year", "Revenue", "Profit"],
+          ["2021", "1,200", "300"],
+          ["2022", "1,350", "320"],
+          ["2023", "1,410", "345"],
+        ].flatMap((cells, index) =>
+          cells.map((text, column) => ({
+            text,
+            x: [72, 220, 320][column] ?? 72,
+            y: 700 - index * 16,
+          })),
+        ),
+      },
+    ]);
+    const { analyses, inputs } = await ask({
+      files: [{ name: "Record.pdf", contents: years }],
+      question: "Total the profit.",
+      query: "ten-year record revenue profit",
+      runs: [run("Record", [{ name: "record" }])],
+      helper: sumOf("Profit"),
+    });
+    expect(inputs[0]?.columns).toEqual(["Year", "Revenue", "Profit"]);
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 965 }]);
+  });
+});
+
+describe("a scan whose recognized text is the PDF's own text layer (#448)", {
+  timeout: 60_000,
+}, () => {
+  test("gives no figure worked out again, as a scan read here doesn't", async () => {
+    const searchable = buildPdf([
+      {
+        scan: readFileSync(join(SCANS, "table.jpg")),
+        lines: ["Table 3. Revenue by product line (USD thousands), as recognized by the scanner"],
+        placed: [
+          ["Product line", "2024", "2025"],
+          ["Freight software", "4,812", "5,330"],
+          ["Warehouse sensors", "2,147", "1,985"],
+          ["Fleet analytics", "3,906", "4,412"],
+          ["Support contracts", "1,268", "1,301"],
+        ].flatMap((cells, index) =>
+          cells.map((text, column) => ({
+            text,
+            x: [72, 300, 380][column] ?? 72,
+            y: 700 - index * 16,
+          })),
+        ),
+      },
+    ]);
+    const { analyses, inputs, reports } = await ask({
+      files: [{ name: "Searchable scan.pdf", contents: searchable }],
+      question: "Add up the 2025 column.",
+      query: "revenue by product line",
+      runs: [run("Searchable scan", [{ name: "lines" }])],
+      helper: sumOf("2025"),
+    });
+    expect(inputs[0]?.readFromScan).toBe(true);
+    expect(column(inputs[0], "2025")).toEqual([5330, 1985, 4412, 1301]);
+    expect(checkOf(analyses[0])).toEqual([
+      { kind: "unchecked", reason: expect.stringContaining("read from a scan") },
+    ]);
+    expect(reports[0]).toContain("Its numbers were read from a scan by text recognition");
   });
 });

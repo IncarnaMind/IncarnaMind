@@ -121,6 +121,11 @@ export interface UnitTable {
   rows: string[][];
   /** It goes on from the last table of the Unit before, as a table running over a page does. */
   continues?: true;
+  /**
+   * A PDF page's text laid over a picture of the page, as a scanner's recognizer writes one: its
+   * numbers were recognized, as a scanned page's are.
+   */
+  overPicture?: true;
 }
 
 /** What a workbook's formulas need beyond its cells (#2347). */

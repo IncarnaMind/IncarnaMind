@@ -2576,7 +2576,7 @@ export interface AnalysisTableRows {
    * there together.
    */
   rows: { row: number; unit: number; quote: string | null }[];
-  /** Read from a scan's picture (#397): no figure of it is worked out again. */
+  /** Its numbers were recognized from a picture of the page (#397): no figure of it is worked out again. */
   scan?: true;
   /** How many of its cells had a footnote mark after a figure, which their values leave out. */
   marks?: number;
