@@ -1,0 +1,49 @@
+{
+  "task": "M03",
+  "inputs": {
+    "en": "80ef4eb37b6d98421f0c17cebb23de5e0f1a91a005aa88a8e9929fcdf9ecaa06",
+    "zh": "1961cfd53fe859772560b85a7263e532704c9229259929d8bd43c8597a6ba0eb"
+  },
+  "values": {
+    "k": 4,
+    "segments": [
+      {
+        "key": "S1",
+        "customers": 300,
+        "mean_spend": 13029.080600000001
+      },
+      {
+        "key": "S2",
+        "customers": 700,
+        "mean_spend": 9505.345357142856
+      },
+      {
+        "key": "S3",
+        "customers": 1400,
+        "mean_spend": 5998.7188642857145
+      },
+      {
+        "key": "S4",
+        "customers": 2600,
+        "mean_spend": 601.3962269230769
+      }
+    ],
+    "k_by_scaling": [
+      4,
+      4,
+      4
+    ],
+    "agreement_by_scaling": [
+      1,
+      1,
+      1
+    ],
+    "stability": [
+      1,
+      1,
+      1,
+      1,
+      1
+    ]
+  }
+}

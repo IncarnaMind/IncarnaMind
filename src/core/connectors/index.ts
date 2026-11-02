@@ -33,6 +33,7 @@
 import { randomUUID } from "node:crypto";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { sameName } from "../../shared/names";
 import type { Browser, ProcessLauncher } from "../adapters";
 import type {
   Connector,
@@ -224,7 +225,6 @@ export interface ConnectorsOptions {
 
 const COLUMNS = "id, name, transport, config, enabled, created_at, updated_at";
 const envSecret = (connectorId: string) => `connector:${connectorId}:env`;
-const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 function storedConfig(row: ConnectorRow): StoredConfig {
   const texts = (value: unknown) =>

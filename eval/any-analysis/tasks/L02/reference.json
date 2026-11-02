@@ -1,0 +1,41 @@
+{
+  "task": "L02",
+  "inputs": {
+    "en": "17c19d8f94702596a2173052b8bb34f0e488429dc40201c76f8698d0e6ad0259"
+  },
+  "values": {
+    "signatures": 5,
+    "errors": [
+      {
+        "key": "SocketTimeoutException",
+        "count": 7118,
+        "first": 180,
+        "last": 697722
+      },
+      {
+        "key": "NullPointerException",
+        "count": 2802,
+        "first": 528,
+        "last": 696941
+      },
+      {
+        "key": "SQLTransientConnectionException",
+        "count": 1401,
+        "first": 461,
+        "last": 697576
+      },
+      {
+        "key": "IllegalStateException",
+        "count": 529,
+        "first": 1569,
+        "last": 695896
+      },
+      {
+        "key": "IOException",
+        "count": 87,
+        "first": 12786,
+        "last": 695736
+      }
+    ]
+  }
+}

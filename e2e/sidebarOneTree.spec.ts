@@ -915,12 +915,20 @@ for (const [language, width] of [
         },
         [ids.Budget ?? "", ids.Ledger ?? ""],
       );
+      // Every Tag the User made is listed, "Unused" with 0 until a Document carries it.
       const tags = window.getByTestId("sidebar-tags");
-      await expect(tags.getByTestId("sidebar-tag")).toHaveCount(1);
-      await expect(tags.getByTestId("sidebar-tag").getByTestId("row-text")).toHaveText("Harbour");
-      await expect(tags.getByTestId("sidebar-tag").getByTestId("browse-count")).toHaveText("2");
+      await expect(tags.getByTestId("sidebar-tag")).toHaveCount(2);
+      await expect(tags.getByTestId("sidebar-tag").getByTestId("row-text")).toHaveText([
+        "Harbour",
+        "Unused",
+      ]);
+      const harbour = tags.getByTestId("sidebar-tag").filter({ hasText: "Harbour" });
+      await expect(harbour.getByTestId("browse-count")).toHaveText("2");
+      await expect(
+        tags.getByTestId("sidebar-tag").filter({ hasText: "Unused" }).getByTestId("browse-count"),
+      ).toHaveText("0");
       // A Tag shows its Documents in the Library.
-      await tags.getByTestId("sidebar-tag").getByRole("treeitem").click();
+      await harbour.getByRole("treeitem").click();
       await expect(window.getByTestId("library")).toBeVisible();
 
       // Folded from its heading, and still folded after a restart.
@@ -935,7 +943,7 @@ for (const [language, width] of [
       await expect(after.getByTestId("tags-toggle")).toHaveAttribute("aria-expanded", "false");
       await expect(after.getByTestId("sidebar-tag")).toHaveCount(0);
       await after.getByTestId("tags-toggle").click();
-      await expect(after.getByTestId("sidebar-tag")).toHaveCount(1);
+      await expect(after.getByTestId("sidebar-tag")).toHaveCount(2);
     } finally {
       await app.close();
     }

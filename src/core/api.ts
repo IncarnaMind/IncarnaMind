@@ -4338,6 +4338,12 @@ export interface Tag {
   description: string;
   /** Created on first run as one of the preset Tags, rather than by the User. Editing one keeps it a preset. */
   preset: boolean;
+  /**
+   * The User made it, or changed its name, colour or description; a Tag
+   * automatic tagging made, and a preset no one edited, is not. The sidebar
+   * lists a Tag with no Documents only when it is the User's.
+   */
+  madeByUser: boolean;
   /** Its colour, from a small fixed palette (src/shared/tagColours.ts); the User can change it. */
   colour: TagColour;
   /** ISO 8601, UTC. */
@@ -9518,11 +9524,33 @@ export interface TagLinkState {
   removedByUser?: boolean;
 }
 
+/** A Tag's name, description and colour: what the User sees of it. */
+export interface TagAsShown {
+  name: string;
+  description: string;
+  colour: TagColour;
+}
+
+/**
+ * Whether a Tag was the User's before an edit or a merge made it so, to put back with its Undo:
+ * only while the Tag still shows what the change left.
+ */
+export interface TagSourceRevert {
+  madeByUser: boolean;
+  /** What the Tag showed when the change finished; a Tag changed since keeps its source. */
+  expected: TagAsShown;
+}
+
 export interface TagMerge {
-  /** The Tag merged into, unchanged. */
+  /** The Tag merged into; it is the User's from the merge on. */
   tag: Tag;
-  /** Restoring it undoes the merge: the merged Tag comes back, and both Tags' links are as they were. */
+  /**
+   * Restoring it undoes the merge: the merged Tag comes back, and both Tags' links are as they
+   * were. `restore`'s `tagSources` puts back whether the Tag merged into was the User's.
+   */
   merged: RestoreRef;
+  /** Whether the Tag merged into was the User's before the merge made it so. */
+  keptMadeByUserBefore: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -10747,7 +10775,14 @@ export interface CoreApi {
    * `RECENTLY_DELETED_DAYS` ago, or that can't come back now (its name taken, its Linked folder
    * unlinked). Never touches the User's files.
    */
-  restore(refs: RestoreRef[], options?: { reopen?: boolean }): Promise<RestoreResult>;
+  restore(
+    refs: RestoreRef[],
+    options?: {
+      reopen?: boolean;
+      /** Tags to put back whether they were the User's, for the Undo of a merge. */
+      tagSources?: readonly (TagSourceRevert & { tagId: string })[];
+    },
+  ): Promise<RestoreResult>;
   /**
    * Undoes a Restore: each item goes back to Recently deleted as it was before it came back, with
    * the rows its Restore brought back, deleted at the time it was deleted then, so the Folder it
@@ -12094,9 +12129,11 @@ export interface CoreApi {
   createTag(input: CreateTagInput): Promise<Tag>;
   /**
    * Changes a Tag's name or description and returns the Tag. Documents keep
-   * their Tags; "Re-tag" applies the new definition to the automatic ones.
+   * their Tags; "Re-tag" applies the new definition to the automatic ones. With
+   * `source`, the Undo of an edit, it also puts back whether the Tag was the
+   * User's, if the Tag still shows what the edit left.
    */
-  updateTag(tagId: string, patch: UpdateTagInput): Promise<Tag>;
+  updateTag(tagId: string, patch: UpdateTagInput, source?: TagSourceRevert): Promise<Tag>;
   /** Soft-deletes a Tag, and takes it off every Document. */
   deleteTag(tagId: string): Promise<void>;
   /**

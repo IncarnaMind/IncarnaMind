@@ -2237,6 +2237,31 @@ export const migrations: readonly Migration[] = [
       CREATE INDEX library_groups_by_parent ON library_groups (parent_id) WHERE deleted_at IS NULL;
     `,
   },
+  {
+    version: 125,
+    description:
+      "A Tag records whether the User made it or changed its name, colour or description, so the sidebar lists a Tag with no Documents only then (#205)",
+    sql: `
+      -- Automatic tagging and the preset Tags leave this 0; createTag, an edit by the User and a
+      -- merge into it set it. A Tag that exists now was the User's if its updated_at moved after
+      -- it was made, by an edit or a restore; otherwise a preset is not, nor one automatic
+      -- tagging linked the moment it made it, nor Research's, which say so in their description.
+      ALTER TABLE tags ADD COLUMN made_by_user INTEGER NOT NULL DEFAULT 0;
+      UPDATE tags SET made_by_user = 1
+      WHERE preset IS NULL
+        AND (
+          updated_at > created_at
+          OR (
+            NOT EXISTS (
+              SELECT 1 FROM document_tags l
+              WHERE l.tag_id = tags.id AND l.created_at = tags.created_at
+            )
+            AND description NOT LIKE 'From Research on “%'
+            AND description NOT LIKE '来自研究“%'
+          )
+        );
+    `,
+  },
 ];
 
 /**
