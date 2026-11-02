@@ -2301,13 +2301,987 @@ describe("A scale stated in another part of the Document refuses a bare number, 
         `[=${marker}] rev: ${chinese ? "1,200" : "1,234.5"} has no unit, and `,
       );
     }
-    // A Word heading's section is a Unit of its own; a short PDF page shares a Passage with the one
-    // before it, whose scale line the Passage's Units then hold.
-    if (format === "word section before")
+    // A Word heading's section is a Unit of its own: a parent's line that says it holds for the
+    // whole Document can be quoted from another Passage; the figure is still refused until it is.
+    if (format === "word section before") {
+      if (!chinese)
+        expect(asked).toContain(
+          "in another Passage of the same Document; give that line as unitQuote.",
+        );
       expect(asked).toContain(
         "it can't be calculated without guessing whether that scale applies.",
       );
+    }
     expect(recorded).toEqual([]);
+  });
+});
+
+/** A Passage of `document` whose text writes `quote`, as a search showed it. */
+function passageWriting(passages: readonly ShownPassage[], document: string, quote: string) {
+  const found = passages.find(
+    (each) => each.document.startsWith(document) && each.text.includes(quote),
+  );
+  if (!found) throw new Error(`No Passage of ${document} writes "${quote}".`);
+  return found;
+}
+
+/** The scale figure both rows are worked out under, as the model gives it. */
+const scaleFigure = (
+  marker: number,
+  numbers: { revenue: string; costs: string },
+  unitQuote: string,
+) => ({
+  marker,
+  label: `Difference ${marker}`,
+  formula: "rev - cost",
+  inputs: [
+    { name: "rev", label: "Revenue", citation: 1, number: numbers.revenue, unitQuote },
+    { name: "cost", label: "Costs", citation: 2, number: numbers.costs, unitQuote },
+  ],
+});
+
+/**
+ * A Word file whose parent heading's section states a scale, with a sibling section that states
+ * another and a filler section between them so neither is in the figures' Passage: the parent's
+ * line is an ancestor heading's, the sibling's is not.
+ */
+function wordParentScale(chinese: boolean) {
+  const parent = chinese ? "财务报表" : "Financial statements";
+  const sibling = chinese ? "资产负债表" : "Balance sheet";
+  const notes = chinese ? "附注" : "Notes";
+  const child = chinese ? "利润表" : "Income statement";
+  const scale = chinese ? "所有金额单位：千元" : "All amounts in £'000";
+  const siblingScale = chinese ? "金额单位：千美元" : "Amounts in HK$'000";
+  const [revenueLabel, revenue] = chinese ? ["收入", "1,200"] : ["Revenue", "1,234.5"];
+  const [costsLabel, costs] = chinese ? ["成本", "300"] : ["Costs", "334.5"];
+  return {
+    title: chinese ? "母公司账目" : "Parent Holdings accounts",
+    scale,
+    siblingScale,
+    revenue: `${revenueLabel} ${revenue}`,
+    costs: `${costsLabel} ${costs}`,
+    numbers: { revenue, costs },
+    contents: docxOf([
+      { text: parent, heading: 1 },
+      { text: scale },
+      ...fillerLines(chinese).map((text) => ({ text })),
+      { text: sibling, heading: 2 },
+      { text: siblingScale },
+      ...fillerLines(chinese).map((text) => ({ text })),
+      { text: notes, heading: 2 },
+      ...fillerLines(chinese).map((text) => ({ text })),
+      { text: child, heading: 2 },
+      { text: `${revenueLabel} ${revenue}` },
+      { text: `${costsLabel} ${costs}` },
+    ]),
+  };
+}
+
+/** A PDF whose earlier page states a whole-Document scale and a table's own scale, with a filler page between it and the figures. */
+function pdfEarlierPage(chinese: boolean) {
+  const whole = chinese ? "所有金额单位：千元" : "All amounts in £'000";
+  const table = chinese ? "金额单位：千美元" : "Amounts in HK$'000";
+  const [revenueLabel, revenue] = chinese ? ["收入", "1,200"] : ["Revenue", "1,234.5"];
+  const [costsLabel, costs] = chinese ? ["成本", "300"] : ["Costs", "334.5"];
+  const page = (lines: string[]) => (chinese ? { chineseLines: lines } : { lines });
+  return {
+    title: chinese ? "母公司账目" : "Parent Holdings accounts",
+    scale: whole,
+    siblingScale: table,
+    revenue: `${revenueLabel} ${revenue}`,
+    costs: `${costsLabel} ${costs}`,
+    numbers: { revenue, costs },
+    contents: buildPdf([
+      page([
+        chinese ? "母公司账目附注" : "Parent Holdings notes",
+        whole,
+        table,
+        ...fillerLines(chinese),
+      ]),
+      page(fillerLines(chinese)),
+      page([
+        chinese ? "母公司账目" : "Parent Holdings accounts",
+        `${revenueLabel} ${revenue}`,
+        `${costsLabel} ${costs}`,
+      ]),
+    ]),
+  };
+}
+
+/** The rows whose head writes a bare "(M)" or "(m)", in each Document kind. */
+function rowHeadDocument(
+  format: "pdf" | "word" | "sheet",
+  chinese: boolean,
+  heads: [string, string],
+) {
+  const title = chinese ? "阿尔法账目" : "Alpha accounts";
+  const scale = chinese ? "单位：千元" : "(in thousands)";
+  const [revenueLabel, revenue] = chinese ? ["收入", "1,200"] : ["Revenue", "1,234.5"];
+  const [costsLabel, costs] = chinese ? ["成本", "300"] : ["Costs", "334.5"];
+  const rows = [`${revenueLabel}${heads[0]} ${revenue}`, `${costsLabel}${heads[1]} ${costs}`];
+  return {
+    title,
+    revenue: rows[0] as string,
+    costs: rows[1] as string,
+    numbers: { revenue, costs },
+    unitQuote: scale,
+    contents:
+      format === "pdf"
+        ? buildPdf([
+            chinese
+              ? { chineseLines: [title, scale, ...rows] }
+              : { lines: [title, scale, ...rows] },
+          ])
+        : format === "word"
+          ? docxOf([
+              { text: title, heading: 1 },
+              { text: scale },
+              ...rows.map((text) => ({ text })),
+            ])
+          : xlsxOf([
+              {
+                name: title,
+                rows: [
+                  [title],
+                  [scale],
+                  [`${revenueLabel}${heads[0]}`, Number(revenue.replace(",", ""))],
+                  [`${costsLabel}${heads[1]}`, Number(costs.replace(",", ""))],
+                ],
+              },
+            ]),
+  };
+}
+
+// protects=#2365; fails_when=a Word file's scale line under a parent heading is refused even when the model quotes it as unitQuote, or a sibling section's scale line is applied to the figures under another child heading.
+describe("A parent heading's scale line is quoted from another Passage, and a sibling's is refused (#2365)", {
+  timeout: 120_000,
+}, () => {
+  test.each([
+    { language: "English", chinese: false },
+    { language: "Chinese", chinese: true },
+  ])("$language", async ({ chinese }) => {
+    const fixture = wordParentScale(chinese);
+    const model = calculatingModel({
+      queries: [chinese ? "利润表 收入 成本" : "Income statement revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, fixture.title, fixture.revenue);
+          const location = passage.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: fixture.revenue },
+                  { marker: 2, passage: passage.id, location, quote: fixture.costs },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  scaleFigure(1, fixture.numbers, fixture.scale),
+                  scaleFigure(2, fixture.numbers, fixture.siblingScale),
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1] [=2][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      { name: `${fixture.title}.docx`, contents: fixture.contents },
+    ]);
+
+    const { answer } = await askAndRead(core, chinese ? "差额是多少？" : "What is the difference?");
+    core.close();
+
+    const asked = told(model, "calculate")[0] ?? "";
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
+    expect(asked).toContain(`[=2] rev:`);
+    expect(asked).toContain("is in a section that doesn't state");
+    const input = answer.figures[0]?.inputs[0];
+    const unit = input?.unitStatement;
+    expect(unit?.citation.quote).toBe(fixture.scale);
+    expect(unit?.citation.check).toBe("found");
+    expect(unit?.citation.passageId).not.toBe(input?.citation.passageId);
+    expect(unit?.scale).toBe(1000);
+  });
+
+  /** Runs `unitQuote` for two rows of a Word Document; returns the Answer and what the model was told. */
+  async function wordQuoteUnder(
+    name: string,
+    contents: Buffer,
+    rows: [string, string],
+    unitQuote: string,
+  ) {
+    const [revenue, costs] = rows.map((row) => row.slice(row.lastIndexOf(" ") + 1)) as [
+      string,
+      string,
+    ];
+    const model = calculatingModel({
+      queries: ["revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, name, rows[0]);
+          const location = passage.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: rows[0] },
+                  { marker: 2, passage: passage.id, location, quote: rows[1] },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: { figures: [scaleFigure(1, { revenue, costs }, unitQuote)] },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [{ name: `${name}.docx`, contents }]);
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+    return { answer, asked: told(model, "calculate")[0] ?? "" };
+  }
+
+  test("a line in another occurrence of the same heading path is refused", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const contents = docxOf([
+      { text: "Notes", heading: 1 },
+      { text: "Revenue", heading: 2 },
+      { text: "All amounts in €'000" },
+      ...fillerLines(false).map((text) => ({ text })),
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Notes", heading: 1 },
+      { text: "Revenue", heading: 2 },
+      ...fillerLines(false).map((text) => ({ text })),
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordQuoteUnder(
+      "Notes accounts",
+      contents,
+      rows,
+      "All amounts in €'000",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is in a section that doesn't state");
+  });
+
+  test("a table's caption inside the ancestor section is refused", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const contents = docxOf([
+      { text: "Financial statements", heading: 1 },
+      { text: "Amounts in HK$ millions" },
+      ...fillerLines(false).map((text) => ({ text })),
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Notes", heading: 2 },
+      ...fillerLines(false).map((text) => ({ text })),
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Income statement", heading: 2 },
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordQuoteUnder(
+      "Caption accounts",
+      contents,
+      rows,
+      "Amounts in HK$ millions",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is in a section that doesn't state");
+  });
+
+  test("a short file's sibling section is refused inside one Passage", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const contents = docxOf([
+      { text: "Notes", heading: 1 },
+      { text: "Revenue", heading: 2 },
+      { text: "Amounts in €'000" },
+      { text: "Notes", heading: 1 },
+      { text: "Expenses", heading: 2 },
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordQuoteUnder(
+      "Short notes",
+      contents,
+      rows,
+      "Amounts in €'000",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is in a section that doesn't state");
+  });
+
+  test("a short file's ancestor caption is refused inside one Passage", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const contents = docxOf([
+      { text: "Financial statements", heading: 1 },
+      { text: "Amounts in HK$ millions" },
+      { text: "Income statement", heading: 2 },
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordQuoteUnder(
+      "Short captions",
+      contents,
+      rows,
+      "Amounts in HK$ millions",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is in a section that doesn't state");
+  });
+
+  test("a later part of the same section is stated by its line", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const contents = docxOf([
+      { text: "Financial statements", heading: 1 },
+      { text: "All amounts in £'000" },
+      ...fillerLines(false).map((text) => ({ text })),
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordQuoteUnder(
+      "Long section",
+      contents,
+      rows,
+      "All amounts in £'000",
+    );
+
+    expect(asked).not.toContain("doesn't state");
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
+  });
+
+  test("a spanning Word quote's sibling line is refused for a figure in the next section", {
+    timeout: 60_000,
+  }, async () => {
+    const contents = docxOf([
+      { text: "Notes", heading: 1 },
+      { text: "Revenue", heading: 2 },
+      { text: "Amounts in €'000" },
+      { text: "Expenses", heading: 2 },
+      { text: "Revenue 1,234.5" },
+      { text: "Costs 334.5" },
+    ]);
+    const quote = "Amounts in €'000\nExpenses\nRevenue 1,234.5";
+    const model = calculatingModel({
+      queries: ["spanning word revenue"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, "Spanning notes", "Amounts in €'000");
+          return [
+            { tool: "cite", input: { citations: [{ marker: 1, passage: passage.id, quote }] } },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Revenue",
+                    formula: "rev * 1",
+                    inputs: [
+                      {
+                        name: "rev",
+                        label: "Revenue",
+                        citation: 1,
+                        number: "1,234.5",
+                        unitQuote: "Amounts in €'000",
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [{ name: "Spanning notes.docx", contents }]);
+
+    const { answer } = await askAndRead(core, "What is the revenue?");
+    core.close();
+
+    expect(answer.figures).toEqual([]);
+    expect(told(model, "calculate")[0] ?? "").toContain("is in a section that doesn't state");
+  });
+});
+
+// protects=#2365; fails_when=a whole-Document scale line on an earlier page is refused when the model quotes it, or a table's own scale line on an earlier page is applied to another page's figures.
+describe("An earlier page's whole-Document scale line states the scale when quoted, and another is refused (#2365)", {
+  timeout: 120_000,
+}, () => {
+  test.each([
+    { language: "English", chinese: false },
+    { language: "Chinese", chinese: true },
+  ])("$language", async ({ chinese }) => {
+    const fixture = pdfEarlierPage(chinese);
+    const model = calculatingModel({
+      queries: [chinese ? "母公司账目 收入 成本" : "Parent Holdings revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, fixture.title, fixture.revenue);
+          const location = passage.location ?? "p. 3";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: fixture.revenue },
+                  { marker: 2, passage: passage.id, location, quote: fixture.costs },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  scaleFigure(1, fixture.numbers, fixture.scale),
+                  scaleFigure(2, fixture.numbers, fixture.siblingScale),
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1] [=2][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      { name: `${fixture.title}.pdf`, contents: fixture.contents },
+    ]);
+
+    const { answer } = await askAndRead(core, chinese ? "差额是多少？" : "What is the difference?");
+    core.close();
+
+    const asked = told(model, "calculate")[0] ?? "";
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
+    expect(asked).toContain(`[=2] rev:`);
+    expect(asked).toContain("doesn't say it holds for the whole Document");
+    const unit = answer.figures[0]?.inputs[0]?.unitStatement;
+    expect(unit?.citation.quote).toBe(fixture.scale);
+    expect(unit?.citation.pageFrom).toBe(1);
+    expect(unit?.citation.check).toBe("found");
+  });
+
+  test("a whole-Document line on another page is offered to the model by its whole line", {
+    timeout: 60_000,
+  }, async () => {
+    const rows = ["Hint revenue 1,234.5", "Hint costs 334.5"];
+    const page = (lines: string[]) => ({ lines });
+    const model = calculatingModel({
+      queries: ["hint revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, "Hint accounts", rows[0] as string);
+          const location = passage.location ?? "p. 3";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: rows[0] as string },
+                  { marker: 2, passage: passage.id, location, quote: rows[1] as string },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Difference",
+                    formula: "rev - cost",
+                    inputs: [
+                      { name: "rev", label: "Revenue", citation: 1, number: "1,234.5" },
+                      { name: "cost", label: "Costs", citation: 2, number: "334.5" },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "Hint accounts.pdf",
+        contents: buildPdf([
+          page(["Hint notes", "All amounts in £'000", ...fillerLines(false)]),
+          page(fillerLines(false)),
+          page(["Hint accounts", rows[0] as string, rows[1] as string]),
+        ]),
+      },
+    ]);
+
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+
+    expect(answer.figures).toEqual([]);
+    expect(told(model, "calculate")[0] ?? "").toContain(
+      'p. 1 states a scale ("All amounts in £\'000") in another Passage of the same Document; give that line as unitQuote.',
+    );
+  });
+
+  /** A two-page PDF and the calculation over its second page's two rows, quoting `unitQuote`. */
+  async function shortPdf(unitQuote: string) {
+    const rows = ["Revenue 1,234.5", "Costs 334.5"];
+    const model = calculatingModel({
+      queries: ["short pdf revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, "Short accounts", rows[0] as string);
+          const location = passage.location ?? "pp. 1–2";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: rows[0] as string },
+                  { marker: 2, passage: passage.id, location, quote: rows[1] as string },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Difference",
+                    formula: "rev - cost",
+                    inputs: [
+                      {
+                        name: "rev",
+                        label: "Revenue",
+                        citation: 1,
+                        number: "1,234.5",
+                        unitQuote,
+                      },
+                      {
+                        name: "cost",
+                        label: "Costs",
+                        citation: 2,
+                        number: "334.5",
+                        unitQuote,
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "Short accounts.pdf",
+        contents: buildPdf([
+          { lines: [unitQuote, "Short notes"] },
+          { lines: ["Short accounts", rows[0] as string, rows[1] as string] },
+        ]),
+      },
+    ]);
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+    return { answer, asked: told(model, "calculate")[0] ?? "" };
+  }
+
+  test("a short PDF's table line on its first page is refused inside one Passage", {
+    timeout: 60_000,
+  }, async () => {
+    const { answer, asked } = await shortPdf("Amounts in HK$ millions");
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is on an earlier page");
+  });
+
+  test("a short PDF's whole-Document line on its first page still states the scale", {
+    timeout: 60_000,
+  }, async () => {
+    const { answer } = await shortPdf("All amounts in £'000");
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
+  });
+
+  /** A PDF quoted across both pages, and a figure in the page named after the quote's start. */
+  async function spanningPdf(name: string, first: string[], second: string[], quote: string) {
+    const model = calculatingModel({
+      queries: ["spanning pdf revenue"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, name, "Revenue 1,234.5");
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [{ marker: 1, passage: passage.id, location: "pp. 1–2", quote }],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Revenue",
+                    formula: "rev * 1",
+                    inputs: [
+                      {
+                        name: "rev",
+                        label: "Revenue",
+                        citation: 1,
+                        number: "1,234.5",
+                        unitQuote: "Amounts in HK$ millions",
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      { name: `${name}.pdf`, contents: buildPdf([{ lines: first }, { lines: second }]) },
+    ]);
+    const { answer } = await askAndRead(core, "What is the revenue?");
+    core.close();
+    return { answer, asked: told(model, "calculate")[0] ?? "" };
+  }
+
+  test("a spanning quote's earlier page line is refused for a figure on the next page", {
+    timeout: 60_000,
+  }, async () => {
+    const { answer, asked } = await spanningPdf(
+      "Spanning accounts",
+      ["Short notes", "Amounts in HK$ millions"],
+      ["Short accounts", "Revenue 1,234.5"],
+      "Short notes\nAmounts in HK$ millions\nShort accounts\nRevenue 1,234.5",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is on an earlier page");
+  });
+
+  test("a spanning quote's line on the figure's own page states its scale", {
+    timeout: 60_000,
+  }, async () => {
+    const { answer } = await spanningPdf(
+      "Same page accounts",
+      ["Short notes"],
+      ["Amounts in HK$ millions", "Revenue 1,234.5"],
+      "Short notes\nAmounts in HK$ millions\nRevenue 1,234.5",
+    );
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 1_234_500_000],
+    ]);
+  });
+});
+
+// protects=#2365; fails_when=a row head's bare "(M)" or "(m)" takes the page's scale, so a floor area in metres or a million-scaled amount is multiplied by 1,000.
+describe("A row head's bare (M) or (m) is a scale of its own, never the page's (#2365)", {
+  timeout: 120_000,
+}, () => {
+  test.each([
+    {
+      format: "pdf",
+      language: "English",
+      chinese: false,
+      heads: [" (M)", " (m)"] as [string, string],
+    },
+    {
+      format: "pdf",
+      language: "Chinese",
+      chinese: true,
+      heads: ["（M）", "（m）"] as [string, string],
+    },
+    {
+      format: "word",
+      language: "English",
+      chinese: false,
+      heads: [" (M)", " (m)"] as [string, string],
+    },
+    {
+      format: "sheet",
+      language: "English",
+      chinese: false,
+      heads: [" (M)", " (m)"] as [string, string],
+    },
+  ])("$format, $language", async ({ format, chinese, heads }) => {
+    const fixture = rowHeadDocument(format as "pdf" | "word" | "sheet", chinese, heads);
+    const quoteOf = (written: string) =>
+      format === "sheet"
+        ? `${written.slice(0, written.lastIndexOf(" ")).trim()}\t${written.slice(written.lastIndexOf(" ")).trim().replace(/,/g, "")}`
+        : written;
+    const number = (written: string) => {
+      const text = written.slice(written.lastIndexOf(" ")).trim();
+      return format === "sheet" ? text.replace(/,/g, "") : text;
+    };
+    const model = calculatingModel({
+      queries: [chinese ? "收入 成本" : "revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, fixture.title, quoteOf(fixture.revenue));
+          const location = passage.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: quoteOf(fixture.revenue) },
+                  { marker: 2, passage: passage.id, location, quote: quoteOf(fixture.costs) },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Difference",
+                    formula: "rev - cost",
+                    inputs: [
+                      {
+                        name: "rev",
+                        label: "Revenue",
+                        citation: 1,
+                        number: number(fixture.revenue),
+                        unitQuote: fixture.unitQuote,
+                      },
+                      {
+                        name: "cost",
+                        label: "Costs",
+                        citation: 2,
+                        number: number(fixture.costs),
+                        unitQuote: fixture.unitQuote,
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const extension = format === "pdf" ? "pdf" : format === "word" ? "docx" : "xlsx";
+    const { core } = await setUpCalculating(model, [
+      { name: `${fixture.title}.${extension}`, contents: fixture.contents },
+    ]);
+
+    const { answer } = await askAndRead(core, chinese ? "差额是多少？" : "What is the difference?");
+    core.close();
+
+    expect(answer.figures).toEqual([]);
+    expect(told(model, "calculate")[0] ?? "").toContain("row whose head writes");
+  });
+
+  test("a capital (M) under a page that states millions is the row's own scale and stands", {
+    timeout: 60_000,
+  }, async () => {
+    const rows = ["Revenue (M) 1,234.5", "Costs (M) 334.5"];
+    const model = calculatingModel({
+      queries: ["revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, "Alpha accounts", rows[0] as string);
+          const location = passage.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: rows[0] },
+                  { marker: 2, passage: passage.id, location, quote: rows[1] },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Difference",
+                    formula: "rev - cost",
+                    inputs: [
+                      {
+                        name: "rev",
+                        label: "Revenue",
+                        citation: 1,
+                        number: "1,234.5",
+                        unitQuote: "(in millions)",
+                      },
+                      {
+                        name: "cost",
+                        label: "Costs",
+                        citation: 2,
+                        number: "334.5",
+                        unitQuote: "(in millions)",
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "Alpha accounts.pdf",
+        contents: buildPdf([{ lines: ["Alpha accounts", "(in millions)", ...rows] }]),
+      },
+    ]);
+
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 900_000_000],
+    ]);
+  });
+});
+
+// protects=#2365; fails_when=a row head's unit of measure inside a longer bracket ("(millions of m2)", "（百万平方米）") is no measure row, so the page's money scale multiplies a square-metre figure by 1,000.
+describe("A unit of measure inside a longer bracket is still a measure row (#2365)", {
+  timeout: 120_000,
+}, () => {
+  test.each([
+    {
+      format: "pdf",
+      language: "English",
+      chinese: false,
+      heads: [" (millions of m2)", " (millions of m2)"] as [string, string],
+    },
+    {
+      format: "pdf",
+      language: "Chinese",
+      chinese: true,
+      heads: ["（百万平方米）", "（百万平方米）"] as [string, string],
+    },
+    {
+      format: "word",
+      language: "English",
+      chinese: false,
+      heads: [" (millions of m2)", " (millions of m2)"] as [string, string],
+    },
+    {
+      format: "sheet",
+      language: "English",
+      chinese: false,
+      heads: [" (millions of m2)", " (millions of m2)"] as [string, string],
+    },
+  ])("$format, $language", async ({ format, chinese, heads }) => {
+    const fixture = rowHeadDocument(format as "pdf" | "word" | "sheet", chinese, heads);
+    const quoteOf = (written: string) =>
+      format === "sheet"
+        ? `${written.slice(0, written.lastIndexOf(" ")).trim()}\t${written.slice(written.lastIndexOf(" ")).trim().replace(/,/g, "")}`
+        : written;
+    const number = (written: string) => {
+      const text = written.slice(written.lastIndexOf(" ")).trim();
+      return format === "sheet" ? text.replace(/,/g, "") : text;
+    };
+    const model = calculatingModel({
+      queries: [chinese ? "销售额 成本" : "sales costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, fixture.title, quoteOf(fixture.revenue));
+          const location = passage.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: quoteOf(fixture.revenue) },
+                  { marker: 2, passage: passage.id, location, quote: quoteOf(fixture.costs) },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Difference",
+                    formula: "rev - cost",
+                    inputs: [
+                      {
+                        name: "rev",
+                        label: "Sales",
+                        citation: 1,
+                        number: number(fixture.revenue),
+                        unitQuote: fixture.unitQuote,
+                      },
+                      {
+                        name: "cost",
+                        label: "Costs",
+                        citation: 2,
+                        number: number(fixture.costs),
+                        unitQuote: fixture.unitQuote,
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const extension = format === "pdf" ? "pdf" : format === "word" ? "docx" : "xlsx";
+    const { core } = await setUpCalculating(model, [
+      { name: `${fixture.title}.${extension}`, contents: fixture.contents },
+    ]);
+
+    const { answer } = await askAndRead(core, chinese ? "差额是多少？" : "What is the difference?");
+    core.close();
+
+    expect(answer.figures).toEqual([]);
+    expect(told(model, "calculate")[0] ?? "").toContain("unit of measure");
   });
 });
 
