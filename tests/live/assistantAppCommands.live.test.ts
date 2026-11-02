@@ -394,6 +394,32 @@ const renamedOnceBack =
     }
   };
 
+/** The window's Export as… entries, which the assistant is never to run (#1421). */
+const EXPORT_AS = [
+  "mind.exportAs.docx",
+  "mind.exportAs.pdf",
+  "mind.exportAs.source-pack",
+  "mind.exportAs.html",
+  "mind.exportAs.share-page",
+  "mind.exportAs.markdown",
+];
+
+/** The Note asked from was saved as a file of this kind, by the core's export, at once. */
+const exportedThisNote =
+  (extension: string): Check =>
+  (seen) => {
+    const done = ran(seen).filter((each) => each.command === "mind.export");
+    expect(done.map((each) => each.items[0]?.name)).toEqual(["Lease review"]);
+    expect(done[0]?.file?.name.endsWith(extension)).toBe(true);
+    expect(windowRan(seen, ...EXPORT_AS)).toBe(false);
+  };
+
+/** Saved into a folder outside the Output location, the export waits for the User: here it is declined. */
+const exportAsked: Check = (seen) => {
+  expect(seen.asked.some((each) => "ask" in each && each.ask.kind === "export")).toBe(true);
+  expect(windowRan(seen, ...EXPORT_AS)).toBe(false);
+};
+
 const REQUESTS: { id: string; text: string; check: Check; choose?: Choose }[] = [
   {
     id: "folder-en",
@@ -648,6 +674,17 @@ const REQUESTS: { id: string; text: string; check: Check; choose?: Choose }[] = 
     check: noCommand,
   },
   { id: "held-question-zh", text: "这篇笔记里哪句话提到了五年？", check: neitherCheckNorOrganize },
+  // Held out for exporting this note (#1421): written before any run of the change. "{folder}" is a
+  // folder outside the Output location.
+  {
+    id: "export-word-en",
+    text: "Export this note as a Word file",
+    check: exportedThisNote(".docx"),
+  },
+  { id: "export-word-zh", text: "把这篇笔记导出成 Word 文件", check: exportedThisNote(".docx") },
+  { id: "export-pdf-en", text: "Save this note as a PDF", check: exportedThisNote(".pdf") },
+  { id: "export-folder-en", text: "Save this note as a PDF in {folder}", check: exportAsked },
+  { id: "export-folder-zh", text: "把这篇笔记导出成 PDF，存到 {folder}", check: exportAsked },
 ];
 
 async function ask(core: Core, text: string, mindId: string, commands: OfferedCommand[]) {
@@ -746,6 +783,7 @@ async function libraryFor(live: (typeof LIVE)[number], choose: Choose) {
   });
   const sources = await createSourceFolder();
   const elsewhere = await createSourceFolder();
+  const exportTo = await createSourceFolder();
   const documents = await addAndProcess(core, [
     ...(await Promise.all(
       DOCUMENTS.map((each) => writeSourceFile(sources, each.name, each.contents)),
@@ -765,7 +803,7 @@ async function libraryFor(live: (typeof LIVE)[number], choose: Choose) {
   );
   await client.settled();
   const commands = await windowCommandsFor(core, mind.id);
-  return { core, dataDir, mind, commands, window, asked, questions };
+  return { core, dataDir, mind, commands, window, asked, questions, exportTo };
 }
 
 describe.each(LIVE)("The assistant does what the User can in the app, live: $name", (live) => {
@@ -781,14 +819,13 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
         record(`${live.name} · ${live.model}: ${passed}/${requests.length} passed\n`),
       );
       for (const request of requests) {
-        const { core, dataDir, mind, commands, window, asked, questions } = await libraryFor(
-          live,
-          request.choose ?? first,
-        );
+        const { core, dataDir, mind, commands, window, asked, questions, exportTo } =
+          await libraryFor(live, request.choose ?? first);
         const before = await libraryOf(core, mind.id);
-        let line = `- ${request.id} “${request.text}”`;
+        const text = request.text.replace("{folder}", exportTo);
+        let line = `- ${request.id} “${text}”`;
         try {
-          const answer = await ask(core, request.text, mind.id, commands);
+          const answer = await ask(core, text, mind.id, commands);
           const seen: Seen = {
             answer,
             window,
