@@ -120,6 +120,8 @@ function tablePending(lines: readonly string[], i: number, open: boolean): boole
 /** `open`: the last line may continue, so what ends there is unfinished. */
 function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
   const blocks: NodeJSON[] = [];
+  /** From this line on there is no "\]" at all, so a "\[" there is text without looking again. */
+  let noCloserFrom = Number.POSITIVE_INFINITY;
   let i = 0;
   while (i < lines.length) {
     const line = lines[i] as string;
@@ -178,24 +180,27 @@ function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
     if (math) {
       const [, opener = "$$", rest = ""] = math;
       const closer = opener === "$$" ? "$$" : "\\]";
+      // A "\[" below a line with no "\]" after it is text at once: rescanning for each is quadratic (#2438).
+      const textOnly = opener === "\\[" && i >= noCloserFrom;
       const body: string[] = [];
       let closed = false;
       let after = "";
       let remaining = rest;
       let end = i;
-      for (;;) {
-        const close = remaining.indexOf(closer);
-        if (close >= 0) {
-          body.push(remaining.slice(0, close));
-          after = remaining.slice(close + closer.length);
-          closed = true;
-          break;
+      if (!textOnly)
+        for (;;) {
+          const close = remaining.indexOf(closer);
+          if (close >= 0) {
+            body.push(remaining.slice(0, close));
+            after = remaining.slice(close + closer.length);
+            closed = true;
+            break;
+          }
+          body.push(remaining);
+          end++;
+          if (end >= lines.length) break;
+          remaining = lines[end] as string;
         }
-        body.push(remaining);
-        end++;
-        if (end >= lines.length) break;
-        remaining = lines[end] as string;
-      }
       // An unclosed formula would show as a KaTeX error until it's complete.
       if (!closed && open) break;
       // A "\[" that never closes is text, not a formula: its paragraph keeps the words (#2422).
@@ -206,6 +211,7 @@ function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
         if (after.trim()) blocks.push(paragraph(after.trim(), open && i >= lines.length));
         continue;
       }
+      noCloserFrom = i;
     }
 
     const heading = HEADING.exec(line);

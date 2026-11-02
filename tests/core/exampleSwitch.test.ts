@@ -27,6 +27,7 @@ const documentOf = (linkedFolderId: string, name: string): Document => ({
   unreadParts: null,
   unreadPartsUnknown: false,
   readHiddenSheets: false,
+  convertedFrom: null,
   folderId: null,
   tags: [],
   tagging: "pending",

@@ -47,6 +47,47 @@ describe("display mathematics in Markdown", () => {
     ]);
   });
 
+  test("100,000 lines that each start with an unclosed \\[ finish, each its own paragraph, in English and Chinese", () => {
+    for (const [line, shown] of [
+      [(n: number) => `\\[note:${n}] is text.`, (n: number) => `[note:${n}] is text.`],
+      [(n: number) => `\\[note:${n}] 是文字。`, (n: number) => `[note:${n}] 是文字。`],
+    ] as const) {
+      const text = Array.from({ length: 100_000 }, (_, n) => line(n)).join("\n");
+      const blocks = markdownToBlocks(text);
+      expect(blocks).toHaveLength(100_000);
+      for (const n of [0, 50_000, 99_999])
+        expect(blocks[n]).toEqual({
+          type: "paragraph",
+          content: [{ type: "text", text: shown(n) }],
+        });
+    }
+  });
+
+  test("a real formula still closes and formats, and the openers after it are text", () => {
+    expect(markdownToBlocks("\\[ x^2 \\]\n\\[note:1] is higher.\n\\[note:2] is lower.")).toEqual([
+      { type: "blockMath", attrs: { latex: "x^2" } },
+      { type: "paragraph", content: [{ type: "text", text: "[note:1] is higher." }] },
+      { type: "paragraph", content: [{ type: "text", text: "[note:2] is lower." }] },
+    ]);
+  });
+
+  test("a real formula after an opener in a list still closes and formats", () => {
+    expect(markdownToBlocks("- \\[note:1] is text.\n\\[ x^2 \\]")).toEqual([
+      {
+        type: "bulletList",
+        content: [
+          {
+            type: "listItem",
+            content: [
+              { type: "paragraph", content: [{ type: "text", text: "[note:1] is text." }] },
+            ],
+          },
+        ],
+      },
+      { type: "blockMath", attrs: { latex: "x^2" } },
+    ]);
+  });
+
   test("real display math is still a formula", () => {
     expect(markdownToBlocks(String.raw`\[ x^2 \]`)).toEqual([
       { type: "blockMath", attrs: { latex: "x^2" } },

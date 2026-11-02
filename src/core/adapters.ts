@@ -522,6 +522,34 @@ export interface PictureRead {
   height: number;
 }
 
+/** What an old Office or WPS file is converted to, with the User's own LibreOffice (#762). */
+export type OfficeTarget = "docx" | "xlsx" | "pptx";
+
+/** A file converted to a format IncarnaMind reads, or why it wasn't. */
+export type OfficeConversion =
+  | {
+      outcome: "converted";
+      /** The copy's file name, with its new extension ("Report.docx"). */
+      name: string;
+      bytes: Uint8Array;
+    }
+  | { outcome: "failed"; message: string };
+
+/**
+ * Converts one of the User's files to a format IncarnaMind reads, with the
+ * LibreOffice installed on this computer (#762): found where it is, by its
+ * real path, never bundled, copied or downloaded, and run headless with a
+ * private profile of its own, so no window shows and the User's LibreOffice
+ * is never touched. Its temporary folder is removed whatever happens.
+ * Absent where the computer has no LibreOffice, or the host has none to run.
+ */
+export interface OfficeConverter {
+  /** Whether one is installed here. The host caches the answer. */
+  available(): Promise<boolean>;
+  /** Converts a copy of `path`; the original is never written, renamed or removed. */
+  convert(path: string, target: OfficeTarget): Promise<OfficeConversion>;
+}
+
 /** One file of a built-in model, as recorded when the app was built. */
 export interface ModelFile {
   /** Relative to the model's folder in the data folder, and to the source's base URL unless `url` says. */
@@ -928,6 +956,14 @@ export interface CoreAdapters {
    * the little text they have.
    */
   textRecognizer?: TextRecognizer;
+  /**
+   * This computer's own decoder for a picture the engine that draws pictures
+   * can't read (a HEIC, #1937), as a PNG (#762). Absent: such a picture
+   * can't be read here. Tests pass a stand-in.
+   */
+  decodePicture?(bytes: Uint8Array): Promise<Uint8Array | null>;
+  /** Converts old Office and WPS files with the User's own LibreOffice (#762). Absent: none is here. */
+  officeConverter?: OfficeConverter;
   /**
    * Where the text recognition model's files come from. Defaults to the
    * pinned Hugging Face revisions; tests give no files for a fake that needs none.
