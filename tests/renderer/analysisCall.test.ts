@@ -57,8 +57,8 @@ const python = (downloadedBytes: number) => ({
 });
 
 test.each([
-  ["en", "Getting Python ready for analyses · 31 of 74 MB", "Getting Python ready for analyses…"],
-  ["zh-CN", "正在准备数据分析所需的 Python：31 / 74 MB", "正在准备数据分析所需的 Python…"],
+  ["en", "Downloading Python: 31 of 74 MB", "Getting Python ready…"],
+  ["zh-CN", "正在下载 Python：31 / 74 MB", "正在准备 Python…"],
 ] as const)(
   "%s: a run_code call waiting on Python says how far its download has come",
   (language, downloading, unpacking) => {
@@ -75,8 +75,8 @@ test.each([
 );
 
 test.each([
-  ["en", "network", "Couldn’t get Python for this analysis: check your internet connection."],
-  ["en", "load", "Couldn’t get Python for this analysis: it couldn’t start on this computer."],
+  ["en", "network", "Analysis couldn’t get Python: check your internet connection."],
+  ["en", "load", "Analysis couldn’t get Python: it couldn’t start on this computer."],
   ["zh-CN", "network", "无法获取数据分析所需的 Python：请检查网络连接。"],
   ["zh-CN", "integrity", "无法获取数据分析所需的 Python：下载的文件已损坏。"],
 ] as const)(

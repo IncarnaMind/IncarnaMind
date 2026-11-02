@@ -170,12 +170,12 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
-  test(`${language}: Settings › Skills says why the sandbox for code can't start, and how to fix it`, async () => {
+  test(`${language}: Settings › Skills says why the sandbox for analyses and scripts can't start, and how to fix it`, async () => {
     const launched = await launchApp(dataDir, {
       extraEnv: {
         INCARNAMIND_TEST_SANDBOX_PROBLEM: JSON.stringify({
           kind: "missing",
-          packages: ["bubblewrap", "socat"],
+          packages: ["bubblewrap", "socat", "ripgrep"],
         }),
       },
     });
@@ -190,11 +190,12 @@ for (const language of ["en", "zh-CN"] as const) {
         language,
       );
       const problem = window.getByTestId("code-sandbox-problem");
+      await problem.scrollIntoViewIfNeeded();
       await expect(problem).toContainText(
         t("scripts.settings.sandboxMissing", {
           packages: t("scripts.settings.sandboxPackages.and", {
-            first: "bubblewrap",
-            last: "socat",
+            first: language === "zh-CN" ? "bubblewrap、socat" : "bubblewrap, socat",
+            last: "ripgrep",
           }),
         }),
       );

@@ -46,7 +46,7 @@ const sandbox = await loadOsSandbox({ seccompHelper: seccomp });
 const unavailable = sandbox.available ? undefined : sandbox.reason;
 const runtimeFolder = process.env.INCARNAMIND_TEST_PYTHON_RUNTIME;
 const repository = join(import.meta.dirname, "..", "..");
-const font = join(repository, "resources", "python", PLOT_FONT);
+const font = join(repository, "resources", "fonts", PLOT_FONT);
 
 const SALES = [
   "region,quarter,revenue",
@@ -193,7 +193,7 @@ function tool(documents: Record<string, CodeDocument>, timeLimitMs?: number) {
     tempDir: join(root, "temp"),
     python,
     helper: analysisHelper,
-    font: existsSync(font) ? font : null,
+    font,
     appVersion: "0.0.0-test",
     ...(timeLimitMs !== undefined && { timeLimitMs }),
   });
@@ -235,7 +235,7 @@ describe.skipIf(unavailable !== undefined)(
           `try home "cat '${homeCanary}'"`,
           `try data "cat '${dataCanary}'"`,
           `try temp "cat '${tempCanary}'"`,
-          `try volumes "ls '${volumes}'"`,
+          `try volumes "ls -A '${volumes}' | grep -q ."`,
           `try system "ls /usr"`,
           `try input "wc -l < ../inputs/sales.csv"`,
           `try change-input "echo x >> ../inputs/sales.csv"`,
@@ -261,7 +261,9 @@ describe.skipIf(unavailable !== undefined)(
         "input: allowed",
         "change-input: denied",
         "write-home: denied",
-        "write-temp: denied",
+        // bubblewrap puts an empty folder of the run's own over /tmp: what is written there never
+        // reaches the real one (checked below). macOS refuses the write.
+        `write-temp: ${process.platform === "linux" ? "allowed" : "denied"}`,
         "write-own: allowed",
         "dns: denied",
         "internet: denied",
@@ -307,7 +309,8 @@ describe.skipIf(unavailable !== undefined)(
       expect(analyses[0]?.output.printed).toBe("swapped");
       expect(analyses[0]?.outFiles).toEqual({ files: [], left: 0 });
       await call("bash", `rm -rf "$PWD" && ln -s '${bait}' "$PWD" && echo moved`);
-      expect(analyses[1]?.output.printed).toBe("moved");
+      // bubblewrap mounts the working folder, which can't then be removed; macOS lets it go.
+      expect(analyses[1]?.output.printed).toBe(process.platform === "linux" ? "" : "moved");
       expect(analyses[1]?.outFiles).toEqual({ files: [], left: 0 });
       await call("bash", "echo kept > out/kept.txt");
       expect(analyses[2]?.outFiles?.files.map((file) => file.name)).toEqual(["kept.txt"]);
@@ -498,7 +501,10 @@ def attempt(name, work):
 attempt("home", lambda: open(${JSON.stringify(homeCanary)}).read())
 attempt("data", lambda: open(${JSON.stringify(dataCanary)}).read())
 attempt("temp", lambda: open(${JSON.stringify(tempCanary)}).read())
-attempt("volumes", lambda: os.listdir(${JSON.stringify(volumes)}))
+def listed(folder):
+    if not os.listdir(folder):
+        raise FileNotFoundError(folder)
+attempt("volumes", lambda: listed(${JSON.stringify(volumes)}))
 attempt("system", lambda: os.listdir("/usr"))
 attempt("input", lambda: open("../inputs/sales.csv").read())
 attempt("change input", lambda: open("../inputs/sales.csv", "a").write("x"))
@@ -513,21 +519,24 @@ print(json.dumps(seen))
         ["P1"],
       );
       const seen = JSON.parse(lastLine(analyses[0]?.output.printed ?? "{}"));
+      // bubblewrap puts an empty folder over each denied one, where nothing is found; macOS refuses.
+      const hidden = process.platform === "linux" ? "FileNotFoundError" : "PermissionError";
       expect(seen).toEqual({
-        home: "PermissionError",
-        data: "PermissionError",
-        temp: "PermissionError",
-        volumes: "PermissionError",
+        home: hidden,
+        data: hidden,
+        temp: hidden,
+        volumes: hidden,
         system: "allowed",
         input: "allowed",
         "change input": "PermissionError",
-        "write home": "PermissionError",
+        "write home": hidden,
         "write own": "allowed",
         dns: expect.not.stringMatching(/^allowed$/),
         internet: expect.not.stringMatching(/^allowed$/),
         loopback: expect.not.stringMatching(/^allowed$/),
         secret: false,
       });
+      expect(existsSync(join(home, "py.txt"))).toBe(false);
     }, 60_000);
 
     test("is stopped at its time, memory and folder limits, and its output is cut", async () => {
