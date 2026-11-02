@@ -15,7 +15,6 @@ import { unsureSpansIn } from "../documents/scan/layout";
 import { isFigure, withoutFootnoteMark } from "../documents/tableCells";
 import { parseRange, readRange } from "./ranges";
 
-/** A cell of a Document's table, as an Analysis reads it. */
 interface TableCell {
   /** Its text, without the footnote mark after a figure. */
   text: string;
@@ -156,7 +155,7 @@ export type TableRead =
 
 const MAX_LISTED = 12;
 
-/** Which of the Document's tables `given` names: by its number, or the one the Passage shows. */
+/** The table `given` numbers, or the one the Passage shows; else what the model is told. */
 function chosen(
   tables: readonly DocumentTable[],
   source: CitationSource,

@@ -1,7 +1,8 @@
 /**
  * A table's cells as text (#448): which hold figures, the footnote mark after one, and a table
  * read from a file that gives its cells (a Word file's, a deck's), headed as a page's table is
- * (./tables). Pure, with no imports: the renderer's viewers read Word files and decks too.
+ * (./tables). Apart from ./tables, which the renderer can't import: its viewers read Word files
+ * and decks with the readers that use this.
  */
 import type { UnitTable } from "../../shared/units";
 

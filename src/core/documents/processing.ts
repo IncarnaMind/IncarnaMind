@@ -71,7 +71,7 @@ import type { PictureProblem } from "./web/pictures";
  * it). 22: #762 (pictures are read as scanned pages are; RTF and HTML files
  * are read). 23: #448 (the tables of a PDF's pages, a Word file's sections and a
  * deck's slides are kept with their Units as rows and columns; a Word table's
- * merged cells keep their columns).
+ * merged cells keep their columns; raised digits stay raised).
  */
 export const PROCESSING_VERSION = 23;
 
@@ -107,9 +107,10 @@ export const PROCESSING_VERSION = 23;
  * Document from #762: a picture's one page read from it, and RTF and HTML
  * files read as text with their headings. No other kind's Passage or Unit
  * changes. Version 23 PDFs', Word files' and decks': their Units keep their
- * tables' rows and columns; a PDF's and a deck's text, Passages and embeddings
- * come out as they were, and a Word table's row keeps a tab for each of its
- * columns, also the empty ones a merged cell leaves (#448).
+ * tables' rows and columns, and a PDF's text comes out as it was. A Word
+ * table's row keeps a tab for each of its grid's columns, also the empty ones
+ * a merged cell leaves, and digits a Word file or a deck sets raised or lowered
+ * are superscript or subscript digits, not plain ones (#448).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 23,
