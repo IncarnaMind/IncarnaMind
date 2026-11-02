@@ -609,9 +609,13 @@ export async function runCase(
         : [{ block, before: before.get(id) ?? "", after: after.get(id) ?? "(removed)" }],
     );
     const headings = headingIdsOf(client.doc);
+    const summaryIds = new Set(
+      (addedBlocks ?? []).flatMap((block) => (ids[block] ? [ids[block]] : [])),
+    );
     const length = (texts: Map<string, string>) =>
       [...texts.entries()].reduce(
-        (total, [id, text]) => total + (headings.has(id) ? 0 : text.trim().length),
+        (total, [id, text]) =>
+          total + (summaryIds.has(id) && !headings.has(id) ? text.trim().length : 0),
         0,
       );
     longer = length(after) > length(before);
