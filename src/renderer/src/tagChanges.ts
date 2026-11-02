@@ -6,7 +6,7 @@
 import type { Tag, UpdateTagInput } from "../../core/api";
 import { deleted } from "./changes";
 import { core } from "./core";
-import { useAppStore } from "./store";
+import { allExamples, isOwnDocument, useAppStore } from "./store";
 import { useUndo } from "./undo";
 
 const tagOf = (id: string) => useAppStore.getState().tags.find((tag) => tag.id === id);
@@ -28,13 +28,28 @@ export async function createTagNamed(name: string): Promise<Tag> {
   return tag;
 }
 
+/** Whether one of the User's own Documents carries the Tag (the examples' not). */
+const carriedByOwnDocument = (tag: Tag) => {
+  const state = useAppStore.getState();
+  const examples = allExamples(state);
+  return state.documents.some(
+    (document) =>
+      isOwnDocument(document, examples) && document.tags.some((link) => link.tagId === tag.id),
+  );
+};
+
+/** Whether the sidebar lists the Tag, as its own rule does: every Tag the User made, and a preset one carried. */
+const listedTag = (tag: Tag) => !tag.preset || carriedByOwnDocument(tag);
+
 /**
  * Changes a Tag's name, description or colour; undone by putting back the ones
  * it had. A new name another Tag has merges the two, as Bear and Apple Notes
- * do: the other Tag keeps its name, and a description or colour changed here
- * goes to it, all taken back by one Undo.
+ * do, when the merge leaves a row the sidebar shows; the Tag kept is returned,
+ * for the place that renamed to focus. A name only a Tag the sidebar hides has,
+ * which no Document of the User's will bring into view, is taken, said by the
+ * core: a merge never makes the row the User just renamed disappear.
  */
-export async function editTag(tagId: string, patch: UpdateTagInput): Promise<void> {
+export async function editTag(tagId: string, patch: UpdateTagInput): Promise<Tag | undefined> {
   const tag = tagOf(tagId);
   const name = patch.name?.trim();
   const into =
@@ -43,15 +58,17 @@ export async function editTag(tagId: string, patch: UpdateTagInput): Promise<voi
       : useAppStore
           .getState()
           .tags.find((each) => each.id !== tagId && each.name.toLowerCase() === name.toLowerCase());
-  if (tag && into) {
-    await mergeOnRename(tag, into, patch);
-    return;
+  // A merge is allowed into a Tag the sidebar shows, or into a hidden preset the source's own
+  // Documents will carry; either way the row the User renamed stays, or becomes the one they named.
+  if (tag && into && (listedTag(into) || carriedByOwnDocument(tag))) {
+    await mergeTags(tag.id, into.id);
+    return into;
   }
   const edited = await core.updateTag(tagId, patch);
-  if (!tag) return;
+  if (!tag) return undefined;
   const before = { name: tag.name, description: tag.description, colour: tag.colour };
   const after = { name: edited.name, description: edited.description, colour: edited.colour };
-  if (JSON.stringify(before) === JSON.stringify(after)) return;
+  if (JSON.stringify(before) === JSON.stringify(after)) return undefined;
   const rename = before.name !== after.name;
   push({
     said: (t) => t(rename ? "object.renamed" : "undo.tagEdited", { name: after.name }),
@@ -63,6 +80,7 @@ export async function editTag(tagId: string, patch: UpdateTagInput): Promise<voi
       await core.updateTag(tagId, after);
     },
   });
+  return undefined;
 }
 
 /** Sends a Tag to Recently deleted; undone with its links. */
@@ -71,38 +89,6 @@ export async function deleteTag(tagId: string): Promise<void> {
   const remove = () => core.deleteTag(tagId);
   await remove();
   push(deleted(name, [{ kind: "tag", id: tagId }], remove));
-}
-
-/**
- * A rename onto another Tag's name: the two merge, the Tag kept keeps the name
- * they share, and any description or colour changed in the same edit goes to it.
- */
-async function mergeOnRename(tag: Tag, into: Tag, patch: UpdateTagInput): Promise<void> {
-  const before = { description: into.description, colour: into.colour };
-  // Only what the User changed here, not the fields a form sends back as they were.
-  const fields = {
-    ...(patch.description !== undefined &&
-      patch.description.trim() !== tag.description && { description: patch.description }),
-    ...(patch.colour !== undefined && patch.colour !== tag.colour && { colour: patch.colour }),
-  };
-  const edited = Object.keys(fields).length > 0;
-  const applyEdit = async () => {
-    if (edited) await core.updateTag(into.id, fields);
-  };
-  await applyEdit();
-  let merge = await core.mergeTags(tag.id, into.id);
-  push({
-    said: (t) => t("undo.tagsMerged", { name: tag.name, into: into.name }),
-    name: (t) => t("undo.name.mergeTags"),
-    undo: async () => {
-      await core.restore([merge.merged]);
-      if (edited) await core.updateTag(into.id, before);
-    },
-    redo: async () => {
-      await applyEdit();
-      merge = await core.mergeTags(tag.id, into.id);
-    },
-  });
 }
 
 /** Merges a Tag into another; undone by bringing it back, both Tags' links as they were. */

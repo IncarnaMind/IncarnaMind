@@ -758,6 +758,59 @@ test("a Tag made with the heading's + is still listed, with 0 Documents, after t
   }
 });
 
+test("renaming a Tag with 0 Documents onto the name of a preset Tag the sidebar hides is taken, and its row stays", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await addTextDocuments(window, { "Tides.txt": "Spring tides happen at new moon." });
+    // "Report" is carried, so the section is there; "Paper" is a preset nothing carries.
+    await tagDocument(window, "Tides", "Report");
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.createTag({ name: "Drafts" });
+    });
+    const drafts = tagRow(window, "Drafts");
+    await expect(drafts.getByTestId("browse-count")).toHaveText("0");
+
+    // A merge into it would make the row the User just renamed vanish, so the name is taken.
+    await drafts.getByRole("treeitem").focus();
+    await window.keyboard.press("F2");
+    const field = window.getByTestId("sidebar-tags").getByRole("textbox");
+    await field.fill("Paper");
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("error-notice")).toContainText("Paper");
+    await expect(drafts.getByTestId("row-text")).toHaveText("Drafts");
+    await expect(drafts.getByTestId("browse-count")).toHaveText("0");
+    await expect(drafts.getByRole("treeitem")).toBeFocused();
+    const names = await tagNames(window);
+    expect(names).toContain("Drafts");
+    expect(names).toContain("Paper");
+
+    // A Tag a Document carries may merge into a preset the sidebar hides: its Documents make
+    // that preset visible, so the row the User named is there, with the focus on it.
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.createTag({ name: "Thesis" });
+    });
+    await tagDocument(window, "Tides", "Thesis");
+    const thesis = tagRow(window, "Thesis");
+    // The link is in the store, so the merge sees the Tag its Document carries.
+    await expect(thesis.getByTestId("browse-count")).toHaveText("1");
+    await thesis.getByRole("treeitem").focus();
+    await window.keyboard.press("F2");
+    await field.fill("Book");
+    await window.keyboard.press("Enter");
+    const book = tagRow(window, "Book");
+    await expect(thesis).toHaveCount(0);
+    await expect(book.getByTestId("browse-count")).toHaveText("1");
+    await expect(book.getByRole("treeitem")).toBeFocused();
+    expect(await tagNames(window)).toContain("Book");
+    expect(await tagNames(window)).not.toContain("Thesis");
+  } finally {
+    await app.close();
+  }
+});
+
 test("a Tag's menu, from a right-click, its ⋯ and the context-menu key, recolours, describes, merges, renames and deletes it, each with Undo", async () => {
   const { app, window } = await launchApp(dataDir);
   try {

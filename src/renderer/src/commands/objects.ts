@@ -604,7 +604,7 @@ export const tagCommands: readonly Command[] = [
     run: () => store().openTagsDialog(),
   },
   {
-    // From anywhere, as ⌘K offers it: the sidebar lists only the Tags in use.
+    // From anywhere: ⌘K offers it with no Tag row focused.
     id: "tags.manage",
     label: "tags.menu.manage",
     group: "main",

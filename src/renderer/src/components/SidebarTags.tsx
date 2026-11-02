@@ -52,14 +52,17 @@ export function SidebarTags() {
   // doesn't vanish at a restart. The presets exist before the User makes anything, so they show
   // only once a Document carries one (#205).
   const listed = tags.filter((tag) => !tag.preset || byTag.has(tag.id));
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the row appears when the Tags, or the Documents' links, change.
   useEffect(() => {
     if (focusing === null) return;
     const row = document.querySelector<HTMLElement>(
       `[data-testid="sidebar-tag"][data-tag-id="${CSS.escape(focusing)}"]`,
     );
-    row?.querySelector<HTMLElement>("[data-tree-row]")?.focus();
+    const button = row?.querySelector<HTMLElement>("[data-tree-row]");
+    if (!button) return;
+    button.focus();
     setFocusing(null);
-  }, [focusing]);
+  }, [focusing, tags, documents]);
   if (listed.length === 0) return null;
 
   const startNew = () => {
@@ -114,7 +117,12 @@ export function SidebarTags() {
     >
       <ul role="none">
         {listed.map((tag) => (
-          <TagRow key={tag.id} tag={tag} count={byTag.get(tag.id)?.length ?? 0} />
+          <TagRow
+            key={tag.id}
+            tag={tag}
+            count={byTag.get(tag.id)?.length ?? 0}
+            onMerged={setFocusing}
+          />
         ))}
         {naming && <NewTagRow onMade={madeOne} onDone={doneNaming} />}
       </ul>
@@ -209,7 +217,16 @@ function NewTagRow({ onMade, onDone }: { onMade(tag: Tag): void; onDone(): void 
   );
 }
 
-function TagRow({ tag, count }: { tag: Tag; count: number }) {
+function TagRow({
+  tag,
+  count,
+  onMerged,
+}: {
+  tag: Tag;
+  count: number;
+  /** The Tag this row merged into, to take the focus after the row goes. */
+  onMerged(id: string): void;
+}) {
   const t = useT();
   const chosen = useAppStore(
     (state) => state.tagFilter.includes(tag.id) && isShown(state.layout, { kind: "library" }),
@@ -260,7 +277,10 @@ function TagRow({ tag, count }: { tag: Tag; count: number }) {
                 value={tag.name}
                 label={t("tag.renameLabel", { name: tag.name })}
                 maxLength={100}
-                {...naming.field((next) => editTag(tag.id, { name: next }))}
+                {...naming.field(async (next) => {
+                  const into = await editTag(tag.id, { name: next });
+                  if (into) onMerged(into.id);
+                })}
               />
             </span>
           </>

@@ -169,6 +169,8 @@ test("a Folder renames in its section of the Library, and a Tag in the sidebar: 
     await window.keyboard.press("Enter");
     await expect(tides).toHaveCount(0);
     await expect(moons.getByTestId("browse-count")).toHaveText("2");
+    // The row the User acted on went, so the focus lands on the Tag it merged into.
+    await expect(moons.getByRole("treeitem")).toBeFocused();
     await expect(window.getByTestId("undo-message")).toHaveText("Merged “Tides” into Moons");
     const merged = await (await coreOf(window)).evaluate(async (core) =>
       (await core.listTags()).map((tag) => tag.name).sort(),
