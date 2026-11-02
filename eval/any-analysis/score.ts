@@ -155,7 +155,7 @@ function kindOf(figure: Pick<Figure, "unit">): NumberKind {
  * leaves out as a period: here it is the result.
  */
 const DURATION =
-  /(\d[\d,]*(?:\.\d+)?)\)?\s*(?:days?|weeks?|months?|years?|hours?|hrs?|minutes?|mins?|seconds?|secs?|ms|天|周|个月|小时|分钟|秒)/gi;
+  /([-−]?\d[\d,]*(?:\.\d+)?)\)?\s*(?:days?|weeks?|months?|years?|hours?|hrs?|minutes?|mins?|seconds?|secs?|ms|天|周|个月|小时|分钟|秒)/gi;
 
 /** A number in scientific notation, as a p-value is often written: "1.4e-15", "1.4 × 10−15" (NFKC's "10⁻¹⁵"). */
 const SCIENTIFIC = /(\d+(?:\.\d+)?)\s*(?:[eE]\s*([-+−]?\d+)|[×x]\s*10\s*\^?\s*([-+−]?\d+))/g;
@@ -252,7 +252,7 @@ function written(text: string, line: number): Candidate[] {
       continue;
     const decimals = digits.split(".")[1]?.length ?? 0;
     read.push({
-      value: Number(digits.replaceAll(",", "")),
+      value: Number(digits.replaceAll(",", "").replace("−", "-")),
       kind: "plain",
       half: 10 ** -decimals / 2,
       text: match[0],
@@ -656,22 +656,16 @@ function listBlock(expected: ExpectedRows, wanted: readonly string[], lines: rea
     }
     blocks.set(line.block, keys);
   }
-  // A block of more than twice the members' keys is a full table beside the list, unless no
-  // other block lists them: then it is the list, and its other keys are extra.
-  const choose = (fits: (keys: readonly string[]) => boolean) => {
-    let best: string[] = [];
-    let members = 0;
-    for (const keys of blocks.values()) {
-      const count = keys.filter((key) => wanted.includes(key)).length;
-      if (count > members && fits(keys)) {
-        best = keys;
-        members = count;
-      }
-    }
-    return best;
-  };
-  const listed = choose((keys) => keys.length <= 2 * wanted.length);
-  const best = listed.length ? listed : choose(() => true);
+  // The list is the block holding most members. A block of more than twice the members' keys is
+  // a full table beside the list only when a shorter block holds as many members: a sentence
+  // naming one member doesn't excuse a long list.
+  const members = (keys: readonly string[]) => keys.filter((key) => wanted.includes(key)).length;
+  const all = [...blocks.values()];
+  const most = Math.max(0, ...all.map(members));
+  const best =
+    all.find((keys) => most > 0 && members(keys) === most && keys.length <= 2 * wanted.length) ??
+    all.find((keys) => most > 0 && members(keys) === most) ??
+    [];
   return {
     extra: best.filter((key) => !wanted.includes(key)).map((key) => written.get(key) ?? key),
     order: best.filter((key) => wanted.includes(key)),

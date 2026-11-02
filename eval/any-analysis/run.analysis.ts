@@ -11,6 +11,7 @@
  * there fails C4.
  */
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
@@ -254,7 +255,8 @@ test("the any-analysis set", async () => {
       { apiKey: key, model: modelId },
     );
     for (const { task, language } of runs) {
-      const spent = dollarsIn(record.answers.flatMap((each) => each.requests));
+      // The app's own meter since the run began: requests between tasks count against the cap too.
+      const spent = dollarsIn(requestsSince(dataDir, record.run.startedAt));
       if (spent >= cap) {
         console.log(
           `Stopped before ${task.id} (${language}): $${spent.toFixed(4)} spent, the cap is $${cap}.`,
@@ -346,8 +348,10 @@ test("the any-analysis set", async () => {
       }, added.ids);
       await rm(folder, { recursive: true, force: true });
     }
-    record.requests = requestsSince(dataDir, record.run.startedAt);
   } finally {
+    // An app that never started has no meter: the error that stopped it is the one to see.
+    if (existsSync(join(dataDir, "incarnamind.db")))
+      record.requests = requestsSince(dataDir, record.run.startedAt);
     record.connections = listener.heard.map((each) => each.line);
     await keep();
     await app.close().catch(() => undefined);

@@ -1311,3 +1311,46 @@ describe("the question's own numbers, exact matches elsewhere, and a Note's cita
     ]);
   });
 });
+
+describe("what the review tried again", () => {
+  test("a sentence naming one member doesn't excuse a long list", () => {
+    const long = [
+      "CC07 stands out.",
+      "",
+      "| Cost centre | Over budget |",
+      "| --- | --- |",
+      ...LIST.slice(2),
+      ...["CC21", "CC22", "CC23", "CC24"].map((key) => `| ${key} | 300.00 |`),
+    ];
+
+    expect(
+      outcomes(scoreAnswer(TASK, REFERENCE, record(answer(long, { figures: [] })))).worst,
+    ).toBe("extra");
+    expect(outcomes(scoreAnswer(TASK, REFERENCE, record(answer(RIGHT)))).worst).toBe("right");
+  });
+
+  test("a duration keeps its sign", () => {
+    const minutes: Task = {
+      ...TASK,
+      expect: [
+        {
+          id: "change",
+          kind: "number",
+          label: "Change in minutes",
+          unit: "plain",
+          tolerance: { abs: 0.01 },
+          near: /change/i,
+        },
+      ],
+    };
+    const reference: Reference = { task: "T00", inputs: {}, values: { change: 0.93 } };
+    const said = (value: string) => answer([`The change is ${value} minutes.`], { figures: [] });
+
+    expect(outcomes(scoreAnswer(minutes, reference, record(said("0.93"))))).toEqual({
+      change: "right",
+    });
+    expect(outcomes(scoreAnswer(minutes, reference, record(said("-0.93"))))).toEqual({
+      change: "wrong",
+    });
+  });
+});
