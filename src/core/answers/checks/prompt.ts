@@ -69,7 +69,7 @@ const reply = (language: Language, calculate: boolean) =>
     // The words are an anchor for the model, not a list the app matches. Worded without them,
     // Claude Haiku 5.5 still called "must" for "may" and "可" for "须" Supported in up to 8 to 10 of
     // 20 checks, against 1 or 2 with them (#1668).
-    'Roles: the words that say who does it, for or to whom, and whether it must or may happen (such as 须, 可, must, may), copied word for word in their own order and language, first from the sentence, then " / " and from the Passage, then same or differs ("Roles: the Tenant must repaint / the Tenant may repaint, differs"; "Roles: the deposit must be returned / the deposit may be returned, differs"; "Roles: the Landlord insures for the Tenant / the Tenant insures for the Landlord, differs"). A side that names no party still has words for what happens: copy those. "differs" only when the other party does it, the two parties are the other way round, or one side says it must happen where the other says it may. Anything else is "same": another word for a party (Scope weighs that), a condition one of them adds, or a side that says neither must nor may.',
+    'Roles: the words that say who does it, for or to whom, and whether it must or may happen (such as 须, 可, must, may), copied word for word in their own order and language, first from the sentence, then " / " and from the Passage, then same, differs or other ("Roles: the Tenant must repaint / the Tenant may repaint, differs"; "Roles: the deposit must be returned / the deposit may be returned, differs"; "Roles: the Landlord insures for the Tenant / the Tenant insures for the Landlord, differs"). The first side holds only words of the sentence, leaving out the words between them, never words of the Passage. A side that names no party still has words for what happens: copy those. "other" when the sentence gives it to someone the Passage gives no part in it (another person, role or group): the Passage says nothing of them. "differs" only when the other party of the Passage does it, the two parties are the other way round, or one side says it must happen where the other says it may. Anything else is "same": another word for a party (Scope weighs that), a condition one of them adds, or a side that says neither must nor may.',
     // Weighed inside the verdict, a Chinese "并已安装好" (already installed) passed as an English price
     // line's "installed", which is installation included, while the Passage scheduled it later (#2311).
     'Time: whether it has already happened or is still to happen, with the words that say so copied as written (such as 已, 将, already, will, scheduled; none when it says neither), first as the sentence says it, then " / " and as the Passage says it, then same or differs ("Time: already signed / to be signed on 3 May, differs"; "Time: 已于 3 月完成 / completed in March, same"; "Time: none / none, same"). "differs" only when one says it has happened and the other that it is still to happen. Anything else is "same": a date only one of them gives, or a side that says neither.',
@@ -109,7 +109,6 @@ const calculationInstructions = (figures: boolean) =>
       : '- call calculate with one figure, marker 1: its inputs, a formula that gives the figure as the sentence states it (for "fell 5%", the fall: (a - b) / a), and stated, the number as the sentence writes it ("1.1x");',
     '- stated must be the exact quantity characters in the sentence, in the sentence\'s original language. For a derived count written in words or as a period, copy that literal quantity: "three" from an English sentence, "三年" from a Chinese sentence. Never translate it or substitute digits. Consecutive increases need a base period and every comparison; count the successful consecutive comparisons with a real formula over the checked annual inputs.',
     '- an input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it (price + fee), never by subtracting it;',
-    "- mark an input bracketedCost when it is a cost or deduction printed in brackets and the sentence's figure is worked out from its size, as a ratio or a cover is;",
     '- an input comes in base units with its unit line\'s scale applied ("248.5" under "单位：人民币百万元" is 248,500,000 yuan), so never convert a scale in the formula;',
     ...(figures
       ? [
@@ -126,8 +125,8 @@ const calculationInstructions = (figures: boolean) =>
 const FIGURE_INSTRUCTIONS = [
   "For the requested figures, append exactly one final line beginning Figures: followed by one JSON object. Do not add more Verdict lines and do not omit a requested id.",
   'Its shape is {"items":[{"id":"the exact requested id","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"reading":null,"relation":"equals","source":{"citation":1,"number":"4979.6","reading":null,"unitQuote":null},"calculation":null}],"remainder":null}.',
-  "Give every requested id exactly once, and no other id. Each verdict is supported, unsupported or contradicted; scope same or wider; topic found or not found; roles same or differs; says is a plain sentence or null. Covered and uncovered may name short parts, or be null.",
-  "Match the exact subject, period, column, unit and obligation of each occurrence from its own context. Equal values alone never support a match. Use topic not found, scope wider or roles differs when appropriate, not a numeric match from another subject or period. For a contradicted occurrence, source is the number the Document gives for that same subject, period, column and unit, never an equal number from another row or column.",
+  "Give every requested id exactly once, and no other id. Each verdict is supported, unsupported or contradicted; scope same or wider; topic found or not found; roles same, differs or other, as the Roles line says them; says is a plain sentence or null. Covered and uncovered may name short parts, or be null.",
+  "Match the exact subject, period, column, unit and obligation of each occurrence from its own context. Equal values alone never support a match. Use topic not found, scope wider, roles differs or roles other when appropriate, not a numeric match from another subject or period. For a contradicted occurrence, source is the number the Document gives for that same subject, period, column and unit, never an equal number from another row or column.",
   'If an occurrence offers one ambiguity with readings, give reading as its one-based offered own reading, choosing only from that list using its context; each reading says what the number would mean, and a table\'s caption or column heading that states a scale or currency ("(£m)", "单位：百万元") says it of the table\'s cells. This is separate from source.reading. Never supply a value yourself. Leave multiple unresolved ambiguities unchecked; never combine choices. A range remains a range, never an endpoint choice. An unambiguous occurrence needs no reading.',
   'For a value stated directly in a quote recorded by cite, source names its citation marker and number, the number exactly as that quote writes it ("4979.6", "1.2亿"); give position, its one-based place among the quote\'s numbers, only when the quote writes the same number twice. reading is the one-based reader choice only when needed. When the quoted number has no unit or scale of its own and its Passage states one ("All figures in £m", "单位：万元"), unitQuote is that line, word for word. Record every quote with cite before you write the Figures line. Never type a value the quote doesn\'t write.',
   "For a calculation made in this run, set calculation to its calculate marker and source to null. A saved formula can instead be checked from its saved inputs when both are null. Retained Analysis code or a receipt is not a newly executed calculation: do not invent a formula or claim it was recalculated.",
@@ -559,8 +558,14 @@ export interface ReadVerdict {
   scope: "same" | "wider" | null;
   /** "not found": no Passage is about the sentence's own subject and detail; null when the reply doesn't say. */
   topic: "found" | "not found" | null;
-  /** "differs": another party does it, the parties are the other way round, or must is may; null when the reply doesn't say. */
-  roles: "same" | "differs" | null;
+  /**
+   * "differs": the Passage's other party does it, the parties are the other way round, or must is
+   * may; "other": the sentence gives it to someone the Passage gives no part in it; null when the
+   * reply doesn't say.
+   */
+  roles: "same" | "differs" | "other" | null;
+  /** The words the reply's Roles line gives as the sentence's own, when it gives them. */
+  rolesWords?: string;
   /** "differs": one says it has happened and the other that it is still to happen; absent when the reply doesn't say. */
   time?: "same" | "differs";
   calculations?: string[];
@@ -643,7 +648,7 @@ function coverageOf(value: unknown): ReadCoverage | null {
     (quantifier !== "all" && quantifier !== "most") ||
     typeof complete !== "boolean" ||
     !Array.isArray(members) ||
-    members.length === 0 ||
+    (members.length === 0 && complete) ||
     members.length > 120 ||
     domain === null
   )
@@ -771,7 +776,44 @@ const lastWordOf = (label: RegExp, line: string | undefined): "same" | "differs"
   return word === "differs" || word === "differ" ? "differs" : null;
 };
 
-const rolesOf = (line: string | undefined): ReadVerdict["roles"] => lastWordOf(ROLES, line);
+const rolesOf = (line: string | undefined): ReadVerdict["roles"] => {
+  const word = (line === undefined ? undefined : ROLES.exec(line)?.[1])
+    ?.match(/\b(?:same|differs?|other)\b/gi)
+    ?.at(-1)
+    ?.toLowerCase();
+  if (word === "same" || word === "other") return word;
+  return word === "differs" || word === "differ" ? "differs" : null;
+};
+
+const OWN_TOKEN = /\p{Script=Han}|(?:(?!\p{Script=Han})[\p{L}\p{N}])+/gu;
+
+/**
+ * Whether a reply's words for the sentence are the sentence's own: each of their words (each Han
+ * character) in the sentence, in the same order, with words left out between them allowed. Words
+ * from the Passage or another language are not: "向人力资源总监汇报" for "人力资源总监向乙方汇报".
+ */
+export function ownWords(words: string, sentence: string): boolean {
+  const tokens = (text: string): string[] => [
+    ...text.normalize("NFKC").toLowerCase().matchAll(OWN_TOKEN),
+  ].map(([token]) => token);
+  const own = tokens(sentence);
+  let at = 0;
+  for (const token of tokens(words)) {
+    at = own.indexOf(token, at) + 1;
+    if (at === 0) return false;
+  }
+  return tokens(words).length > 0;
+}
+
+/** The sentence's side of a Roles line: its words before " / ", without the closing word. */
+const rolesWordsOf = (line: string | undefined): Pick<ReadVerdict, "rolesWords"> => {
+  const field = line === undefined ? undefined : ROLES.exec(line)?.[1];
+  const words = field
+    ?.split(" / ")[0]
+    ?.replace(/,\s*(?:same|differs?|other)\s*$/i, "")
+    .trim();
+  return field?.includes(" / ") && words ? { rolesWords: words } : {};
+};
 
 /** Only a reply that gives the field says it: a reply read before it was asked for has none. */
 const timeOf = (line: string | undefined): Pick<ReadVerdict, "time"> => {
@@ -978,6 +1020,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
       topic: topicOf(fields.findLast((each) => TOPIC.test(each))),
       // A model that corrects its Roles line writes it again: its last one counts.
       roles: rolesOf(fields.findLast((each) => ROLES.test(each))),
+      ...rolesWordsOf(fields.findLast((each) => ROLES.test(each))),
       ...timeOf(fields.findLast((each) => TIME.test(each))),
       ...(calculationFields.some((line) => CALCULATION.test(line)) && {
         calculations: calculationFields.reduce<string[]>((values, line) => {

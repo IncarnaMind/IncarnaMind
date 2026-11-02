@@ -72,7 +72,7 @@ function judgmentOf(value: unknown): ReadVerdict | null {
     !["supported", "unsupported", "contradicted"].includes(String(value.verdict)) ||
     !["same", "wider"].includes(String(value.scope)) ||
     !["found", "not found"].includes(String(value.topic)) ||
-    !["same", "differs"].includes(String(value.roles)) ||
+    !["same", "differs", "other"].includes(String(value.roles)) ||
     !optionalText(value.says)
   )
     return null;
@@ -254,7 +254,8 @@ export function absenceFigureResults(
 
 /**
  * A wider word, another party or another topic takes a Supported verdict's support away; for a
- * contradiction the parties the other way round are what contradicts, and its quote is judged.
+ * contradiction the parties the other way round are what contradicts, and its quote is judged. A
+ * sentence about someone the Passage gives no part in it is neither backed nor contradicted (#1766).
  */
 export function figureJudgment(
   reply: ReadVerdict,
@@ -264,6 +265,7 @@ export function figureJudgment(
 ): ClaimJudgment {
   if (
     reply.verdict === "unsupported" ||
+    reply.roles === "other" ||
     (reply.verdict === "supported" &&
       (reply.scope === "wider" || reply.roles === "differs" || reply.topic === "not found"))
   )

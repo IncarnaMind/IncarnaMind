@@ -117,6 +117,7 @@ import {
   EVIDENCE_INSTRUCTIONS,
   evidencePrompt,
   NEAREST_INSTRUCTIONS,
+  ownWords,
   PRESENCE_INSTRUCTIONS,
   partInstructions,
   presencePrompt,
@@ -1243,6 +1244,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       };
       const sentence = async (verdict: ReadVerdict): Promise<ClaimJudgment> => {
         if (declined && verdict.verdict === "supported") return unchecked("refused");
+        if (comparesOtherWords(verdict, request.claim)) return unchecked("malformed");
         const evidence =
           cited ??
           (verdict.verdict === "contradicted"
@@ -1472,6 +1474,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         verdict = { ...verdict, verdict: "unsupported", says: null };
       }
     }
+    if (comparesOtherWords(verdict, request.claim)) return notChecked("malformed");
     const absence = await absenceFor(verdict.absence ?? null, verdict.verdict);
     if (absence) return absence;
     if (await requiresCalculation(verdict))
@@ -1552,6 +1555,15 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         null,
       );
     }
+    // A sentence about someone the Passage gives no part in it is neither backed nor contradicted by
+    // it: the reply's own Roles line says so, where a contradiction's judgements compared only the
+    // figures ("Managers… 30 days" against the Employee's 27, #1766).
+    if (verdict.roles === "other" && verdict.verdict !== "unsupported")
+      return unsupported(
+        { reason: verdict.says, covered: null, uncovered: null, found: true },
+        null,
+        null,
+      );
     if (verdict.verdict === "unsupported" && !byCalculation) {
       // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
       // field says so, so a neighbouring topic's line is never shown as part of the claim.
@@ -1713,6 +1725,20 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const result = await check(request);
     return result.verdict === "supported" ? withDollarClause(deps, request.claim, result) : result;
   };
+}
+
+/**
+ * A Supported reply whose Roles line gives other words than the sentence's as its own compared
+ * something else: Claude Haiku 5.5 wrote the Passage's direction ("向人力资源总监汇报" for
+ * "人力资源总监向乙方汇报"), "none" for "should be carried over", then called the two the same
+ * (#1766). It can't be read as support.
+ */
+function comparesOtherWords(verdict: ReadVerdict, claim: string): boolean {
+  return (
+    verdict.verdict === "supported" &&
+    verdict.rolesWords !== undefined &&
+    !ownWords(verdict.rolesWords, claim)
+  );
 }
 
 interface StatedNumber {
