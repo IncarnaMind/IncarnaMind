@@ -516,8 +516,11 @@ export interface AnswerRequest {
    * a turn that ended after a refused Tool still says why. Null: end blank.
    */
   blankReply?(): string | null;
-  /** A line to append after a Tool refused the request, without replacing the model's reply. Null: none. */
-  refusalSuffix?(): string | null;
+  /**
+   * What to append after the reply when a Tool refused the request, without replacing it: the
+   * lines `reply` doesn't already hold. Null: none.
+   */
+  refusalSuffix?(reply: string): string | null;
   /** Stops generating. The stream then ends, with neither "finished" nor "failed". */
   signal: AbortSignal;
 }
@@ -1929,7 +1932,8 @@ async function* toolLoop(
     yield* release(keptText.length);
     yield* flag(keptText);
   }
-  async function* endAnswer(suffix: string | null = null): AsyncGenerator<AnswerEngineEvent> {
+  async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
+    const suffix = request.refusalSuffix?.(keptText) ?? null;
     if (keptText.trim() !== "" || suffix === null) {
       if (!request.documents.wroteIntoMind?.()) {
         const figured = request.documents.citeFigures?.(keptText) ?? keptText;
@@ -2130,7 +2134,7 @@ async function* toolLoop(
         // Asked once more, the reply before stands: trying another way now would call its Tools again.
         if (standing !== null) {
           yield* backToFirst(standing);
-          yield* endAnswer(request.refusalSuffix?.() ?? null);
+          yield* endAnswer();
           return;
         }
         // Too long only with a window, so sized to one.
@@ -2149,13 +2153,12 @@ async function* toolLoop(
         if (standing !== null) {
           console.error(`Asking again for a better reply failed: ${event.error.message}`);
           yield* backToFirst(standing);
-          yield* endAnswer(request.refusalSuffix?.() ?? null);
+          yield* endAnswer();
           return;
         }
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
-        const refused = request.refusalSuffix?.() ?? null;
         if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
           keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
@@ -2168,7 +2171,7 @@ async function* toolLoop(
           (request.blankReply?.() ?? null) === null
         ) {
           yield* backToFirst(standing);
-          yield* endAnswer(request.refusalSuffix?.() ?? null);
+          yield* endAnswer();
           return;
         }
         if (mode === "tools" && !request.documents.wroteIntoMind?.()) {
@@ -2211,7 +2214,7 @@ async function* toolLoop(
         }
         yield* release(keptText.length);
         yield* flagged(settled);
-        yield* endAnswer(refused);
+        yield* endAnswer();
         return;
       }
     }
