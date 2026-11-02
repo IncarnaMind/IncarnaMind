@@ -181,7 +181,7 @@ describe("“Longer” at the length the User asked for", { timeout: 30_000 }, (
       .join("\n");
     // "Summary" and two sentences of 9 and 7 words: 17; all four sentences make 30.
     expect(told).toContain(
-      "the new text is 1.8 times as long as the text there now (17 → 30 words), and times_as_long asks for 1.5 times. Write it again at 21 to 28 words",
+      "the new text is 30 words, where the text there now is 17, and times_as_long asks for 1.5 times. Write it again at 21 to 28 words",
     );
     expect(lastResult(model)).toContain("(from 17 to 24 words, not shorter: 1.4 times as long)");
     expect(shownWithChanges(page)).toEqual([
@@ -205,15 +205,21 @@ describe("“Longer” at the length the User asked for", { timeout: 30_000 }, (
     );
   });
 
-  // protects=with no length asked for, new text is never refused for its length, and the result still gives the measured multiple; fails_when=a lengthening with no times_as_long is refused, or its multiple is left out; no_claim=which length a real model picks.
-  test("with no length asked for, the result still gives the measured multiple", async () => {
-    const model = summaryModel("English", [{ content: TOO_LONG }]);
+  // protects=with no length asked for (none given, or 1), new text is never refused for its length, and the result still gives the measured multiple; fails_when=it is refused, or its multiple is left out; no_claim=which length a real model picks.
+  test.each([
+    ["none given", undefined],
+    ["1", 1],
+  ])(
+    "with no length asked for (%s), the result still gives the measured multiple",
+    async (_, times) => {
+      const model = summaryModel("English", [{ content: TOO_LONG, times }]);
 
-    const { answer } = await askBoth(model, "English", "make it longer");
+      const { answer } = await askBoth(model, "English", "make it longer");
 
-    expect(mindCalls(answer).map((call) => call.status)).toEqual(["done"]);
-    expect(lastResult(model)).toContain("(from 17 to 30 words, not shorter: 1.8 times as long)");
-  });
+      expect(mindCalls(answer).map((call) => call.status)).toEqual(["done"]);
+      expect(lastResult(model)).toContain("(from 17 to 30 words, not shorter: 1.8 times as long)");
+    },
+  );
 
   // protects=Chinese is measured in characters, each Han character one, as the Note's count counts; fails_when=it is counted in words, so a Chinese text reads as a few words long; no_claim=Japanese, which counts the same way.
   test("Chinese is measured in characters", async () => {
@@ -248,9 +254,8 @@ describe("What “longer” adds is cited", { timeout: 30_000 }, () => {
     },
     {
       language: "Chinese" as const,
-      added: "这意味着租约对租客的要求比较严格。",
-      content:
-        "## 摘要\n\n房租在每月一日支付[^1]。押金为两个月的房租[^2]。这意味着租约对租客的要求比较严格。",
+      added: "这对租客比较严格。",
+      content: "## 摘要\n\n房租在每月一日支付[^1]。押金为两个月的房租[^2]。这对租客比较严格。",
       shown: [
         "+ 摘要",
         "+ 房租在每月一日支付⟨found⟩。押金为两个月的房租⟨found⟩。租客自付水电费⟨found⟩。",
@@ -348,5 +353,18 @@ describe("A rewrite asked for a length", { timeout: 30_000 }, () => {
       expect(prompt).toContain("Make the whole passage 14 to 18 words long: it is 11 words now.");
     }
     for (const prompt of formal) expect(prompt).not.toContain("Make the whole passage");
+  });
+});
+
+describe("A second change to the text just written", { timeout: 30_000 }, () => {
+  test("is the assistant's own to write anew", async () => {
+    const model = summaryModel("English", [{ content: A_BIT_LONGER }, { content: TOO_LONG }]);
+
+    const { answer } = await askBoth(model, "English", "make it longer");
+
+    expect(mindCalls(answer).map((call) => [call.status, call.mindProblem?.kind])).toEqual([
+      ["done", undefined],
+      ["done", undefined],
+    ]);
   });
 });

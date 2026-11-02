@@ -27,7 +27,7 @@ function sizeOf(text: string): Size {
 /** The most a model may ask for: past it, a multiple is taken for a count of words. */
 const MOST_TIMES = 10;
 
-/** The multiple of the text's length `times_as_long` asks for; null when it asks for none. */
+/** The multiple of the text's length `times_as_long` asks for; null when it asks for none, as 1 does. */
 export function timesAsked(value: unknown): number | null {
   const times =
     typeof value === "number" ? value : typeof value === "string" ? Number(value.trim()) : NaN;
@@ -77,7 +77,8 @@ export function offLength(before: string, markdown: string, times: number): stri
   if (was.count === 0 || was.unit !== now.unit) return null;
   const { least, most } = sizesAsked(was.count, times);
   if (now.count >= least && now.count <= most) return null;
-  return `the new text is ${multipleOf(was.count, now.count)} times as long as the text there now (${was.count} → ${now.count} ${now.unit}), and times_as_long asks for ${times} times. Write it again at ${least} to ${most} ${now.unit}, keeping each Citation it needs, then call edit_mind again with it.`;
+  // Sizes alone, no multiple: a reply repeated the multiple of the text refused.
+  return `the new text is ${now.count} ${now.unit}, where the text there now is ${was.count}, and times_as_long asks for ${times} times. Write it again at ${least} to ${most} ${now.unit}, keeping each Citation it needs, then call edit_mind again with it.`;
 }
 
 /** The length a rewrite is asked to write `before` at, for `times` its size, said to it after its instruction. */
