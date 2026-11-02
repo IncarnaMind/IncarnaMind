@@ -34,7 +34,7 @@ With `INCARNAMIND_LIVE_MEASURES` set, either test also keeps each figure's measu
 read it: its words, the sentence's texts, the quote, the bound number and the texts around the
 quote (`tests/live/measureLog.ts`). `replay-b971c404e.md` runs those lines again through
 `measureFinding` at other commits, so a change to the rule shows what it does to real replies.
-`replay-ccd43a4cd.md` runs the same lines through this change's rules, with the recall it gives
+`replay-4d4001436.md` runs the same lines through this change's rules, with the recall it gives
 on the cells both runs checked.
 
 ## Which code each file ran
@@ -60,4 +60,4 @@ on the cells both runs checked.
 | `tie-out-522d9ef0e.jsonl` | 522d9ef0e |
 | `tie-out-b971c404e.jsonl` | b971c404e |
 | `replay-b971c404e.md` | the b971c404e runs' measures, replayed at 38325e8ca, 1a05b929b and b971c404e |
-| `replay-ccd43a4cd.md` | the same measures, replayed through ccd43a4cd's rules |
+| `replay-4d4001436.md` | the same measures, replayed through 4d4001436's rules |
