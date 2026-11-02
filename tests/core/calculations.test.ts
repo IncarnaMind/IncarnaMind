@@ -38,6 +38,7 @@ import { answerRequests, promptOf, scriptedModel, scriptedModels } from "../help
 import { docxOf, xlsxOf, xlsxPackage } from "../helpers/office";
 import { type OllamaChatReply, startOllamaServer } from "../helpers/ollama";
 import { buildPdf } from "../helpers/pdf";
+import { paragraph, table, wordFile } from "../helpers/word";
 
 const REVENUE = "Revenue was $1,482.6 million in 2025, compared with $1,231.0 million in 2024.";
 const MARGIN = "Gross margin 41.2% 38.9%";
@@ -3222,6 +3223,64 @@ test.each([
     expect(await doubledUnder(head, lines, quotes)).toEqual(doubled);
   },
 );
+
+// protects=#448; fails_when=a Word table row under a cell merged down from the row above loses its label, so a per-share figure is scaled with the amounts; no_claim=none.
+test("a Word table row whose first cell is merged down keeps its label", {
+  timeout: 60_000,
+}, async () => {
+  const head = "(in thousands, except per share data)";
+  const quote = "Diluted EPS\t1.25";
+  const continued = "<w:tcPr><w:vMerge/></w:tcPr>";
+  const restart = (text: string) =>
+    `<w:tcPr><w:vMerge w:val="restart"/></w:tcPr>${paragraph(text)}`;
+  const model = calculatingModel({
+    queries: ["Pelican statement"],
+    steps: [
+      citeStatement("Pelican statement", [quote], (cited) => [
+        {
+          tool: "calculate",
+          input: {
+            figures: [
+              {
+                marker: 1,
+                label: quote,
+                formula: "x * 2",
+                inputs: [
+                  {
+                    name: "x",
+                    label: quote,
+                    citation: cited[0],
+                    number: "1.25",
+                    unitQuote: head,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ]),
+    ],
+    answer: "[=1]",
+  });
+  const { core } = await setUpCalculating(model, [
+    {
+      name: "Pelican statement.docx",
+      contents: wordFile({
+        body: [
+          paragraph("Pelican statement", { style: "Title" }),
+          paragraph(head),
+          table([
+            ["Workstream", "Item", "Amount"],
+            [restart("Design"), "Revenue", "1,234.5"],
+            [continued, "Diluted EPS", "1.25"],
+          ]),
+        ].join(""),
+      }),
+    },
+  ]);
+  const { answer } = await askAndRead(core, "What is the diluted EPS doubled?");
+  expect(answer.figures.map((figure) => figure.value)).toEqual([2.5]);
+});
 
 // protects=#2365; fails_when=a number after a blank line takes the label of the block above it.
 test("a blank line ends the lines a lone number's label is looked for in", {

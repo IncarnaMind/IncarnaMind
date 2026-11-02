@@ -128,6 +128,15 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
 };
 
 /**
+ * For a PDF, the oldest version whose Passages are still what this version
+ * builds: version 23 changes only the labels of a PDF's Units (their tables),
+ * not the text its Passages are built from, so a PDF kept at 21 or 22 keeps
+ * its Passage windows rather than being embedded again (#448). Bump this when
+ * a PDF's Passages change.
+ */
+export const PDF_PASSAGES_CURRENT_SINCE = 21;
+
+/**
  * For a Document with Han characters in its text or name (Chinese, or
  * Japanese kanji), the oldest version whose keyword index is still what this
  * version would build: since version 6, the index reads traditional

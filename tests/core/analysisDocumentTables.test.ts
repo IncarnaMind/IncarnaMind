@@ -295,8 +295,12 @@ function budgetDocx(
 }
 
 function deck(title: string, rows: readonly (readonly string[])[]): Uint8Array {
-  const cell = (text: string) =>
-    `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-GB"/><a:t>${escapeXml(text)}</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>`;
+  const cell = (text: string) => {
+    const [plain = "", mark] = text.split("^");
+    const run = (value: string, raised: boolean) =>
+      `<a:r><a:rPr lang="en-GB"${raised ? ' baseline="30000"' : ""}/><a:t>${escapeXml(value)}</a:t></a:r>`;
+    return `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p>${run(plain, false)}${mark ? run(mark, true) : ""}</a:p></a:txBody><a:tcPr/></a:tc>`;
+  };
   const grid = `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="457200" y="1100000"/><a:ext cx="8000000" cy="3600000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr firstRow="1"/><a:tblGrid>${'<a:gridCol w="2000000"/>'.repeat(rows[0]?.length ?? 1)}</a:tblGrid>${rows
     .map((row) => `<a:tr h="360000">${row.map(cell).join("")}</a:tr>`)
     .join("")}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
@@ -514,6 +518,28 @@ describe("a deck's table (#448)", { timeout: 60_000 }, () => {
       });
     },
   );
+
+  test("a footnote mark the deck sets raised after a number isn't a digit of it", async () => {
+    const { analyses, inputs, reports } = await ask({
+      files: [
+        {
+          name: "Board pack.pptx",
+          contents: deck("Results", [
+            ["Region", "Orders"],
+            ["Northgate", "2,318^1"],
+            ["Riverside", "1,675"],
+          ]),
+        },
+      ],
+      question: "How many orders did the regions take?",
+      query: "Northgate",
+      runs: [run("Board pack", [{ name: "orders" }])],
+      helper: sumOf("Orders"),
+    });
+    expect(column(inputs[0], "Orders")).toEqual([2318, 1675]);
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 3993 }]);
+    expect(reports[0]).toContain("1 cell has a footnote mark after its number");
+  });
 });
 
 describe("a scanned page's tables (#448)", { timeout: 60_000 }, () => {
@@ -752,6 +778,67 @@ describe("Documents read before their tables were kept (#448)", { timeout: 60_00
   });
 });
 
+/** A PDF with enough text to be built into more than one Passage. */
+function longLedgerPdf(): Uint8Array {
+  return buildPdf(
+    Array.from({ length: 3 }, (_, page) => ({
+      lines: Array.from({ length: 30 }, (_, at) =>
+        [
+          `Entry ${page * 30 + at + 1}: the northern depot recorded freight charges of`,
+          `1,2${String(10 + at)} pounds for the period, against the budget set at the`,
+          "start of the year for the routes it runs.",
+        ].join(" "),
+      ),
+    })),
+  );
+}
+
+describe("a PDF read before its tables were kept (#448)", { timeout: 60_000 }, () => {
+  test("keeps the Passages it had, their windows an older build chose", async () => {
+    const dataDir = await createTempDataFolder();
+    const first = startCore(dataDir);
+    const sources = await createTempDataFolder();
+    const [document] = await addAndProcess(first, [
+      await writeSourceFile(sources, "Depot ledger.pdf", longLedgerPdf()),
+    ]);
+    const id = document?.id ?? "";
+    await first.close();
+    const pages = queryDatabase<{ text: string }>(
+      dataDir,
+      "SELECT text FROM document_pages WHERE document_id = ? AND deleted_at IS NULL ORDER BY page",
+      [id],
+    );
+    const whole = pages
+      .map(({ text }) => text.trim())
+      .filter((text) => text !== "")
+      .join("\n\n");
+    // As a build before this one left it: one wider window over the same text.
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      const at = new Date().toISOString();
+      db.run(
+        "UPDATE passages SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND position > 0",
+        [at, at, id],
+      );
+      db.run("UPDATE passages SET text = ? WHERE document_id = ? AND position = 0", [whole, id]);
+      db.run("UPDATE documents SET processing_version = 22 WHERE id = ?", [id]);
+    } finally {
+      db.close();
+    }
+    const again = startCore(dataDir);
+    const [read] = await waitForProcessing(again, [id]);
+    expect(read?.status).toBe("ready");
+    expect(
+      queryDatabase<{ text: string }>(
+        dataDir,
+        "SELECT text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position",
+        [id],
+      ).map((row) => row.text),
+    ).toEqual([whole]);
+    await again.close();
+  });
+});
+
 const sumOf =
   (column: string) =>
   (job: AnalysisJob): FakeAnswer => {
@@ -759,6 +846,19 @@ const sumOf =
     if (input?.kind !== "table") throw new Error("No table.");
     return { output: { results: [figureOf(input, column, "sum")] } };
   };
+
+describe("a table named as null (#448)", { timeout: 60_000 }, () => {
+  test("is the Passage's only table, as when the field is left out", async () => {
+    const { inputs } = await ask({
+      files: [{ name: "Five-year statement.pdf", contents: incomeStatementPdf() }],
+      question: "Total the 2025 column.",
+      query: "income statement revenue gross profit",
+      runs: [run("Five-year statement", [{ name: "pnl", table: null }])],
+      helper: sumOf("2025"),
+    });
+    expect(inputs[0]?.columns).toEqual(["A", "2021", "2022", "2023", "2024", "2025"]);
+  });
+});
 
 describe("a Word table's own layout (#448)", { timeout: 60_000 }, () => {
   test("a footnote mark Word sets raised after a number isn't a digit of it", async () => {

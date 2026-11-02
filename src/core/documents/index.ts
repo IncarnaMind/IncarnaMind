@@ -99,6 +99,7 @@ import {
   type KeywordsJob,
   METADATA_VERSION,
   NAME_INDEX_CURRENT_SINCE,
+  PDF_PASSAGES_CURRENT_SINCE,
   PICTURES_CURRENT_SINCE,
   PROCESSING_VERSION,
   type ProcessedPassage,
@@ -1196,12 +1197,10 @@ export function createDocuments(options: DocumentsOptions) {
         joinStoredPassages(row.id, at);
       }
       // A Document kept that way has Passages whose windows an older build chose; a later
-      // pipeline (a version past its kind's) starts the Passages afresh.
+      // pipeline (a version past the one whose PDF windows changed) starts the Passages
+      // afresh. Version 23 changed only a PDF's labels, not the text they are built from.
       const keptWindows =
-        coversText &&
-        pageChange === "same" &&
-        row.processing_version >=
-          ((CURRENT_SINCE as Readonly<Record<string, number>>)[row.kind] ?? PROCESSING_VERSION);
+        coversText && pageChange === "same" && row.processing_version >= PDF_PASSAGES_CURRENT_SINCE;
       const passagesSame = reread && samePassages(row.id, result.passages);
       const unchanged =
         reread &&
