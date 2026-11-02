@@ -6,7 +6,7 @@
  * already open isn't fought over. It writes only into that folder: the file
  * converted is read, never changed, renamed or removed.
  */
-import { access, mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -166,6 +166,9 @@ export function createOfficeConverter(options: OfficeConverterOptions): OfficeCo
       try {
         await mkdir(profile, { recursive: true, mode: 0o700 });
         await mkdir(out, { recursive: true, mode: 0o700 });
+        // LibreOffice reads a copy, never the User's file: it may write beside what it is given.
+        const copy = join(folder, basename(path));
+        await copyFile(path, copy);
         const args = [
           "--headless",
           "--invisible",
@@ -178,7 +181,7 @@ export function createOfficeConverter(options: OfficeConverterOptions): OfficeCo
           target,
           "--outdir",
           out,
-          path,
+          copy,
         ];
         const result = await run(found.command, args, timeout, { HOME: profile });
         if (result.code !== 0) {

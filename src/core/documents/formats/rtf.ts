@@ -179,7 +179,7 @@ export function rtfMarkdown(bytes: Uint8Array): string {
     chunks = [];
     if (value === "") return;
     const line = value.replace(/[ \t]*\n[ \t]*/g, " ");
-    if (line !== "") out.push(heading === null ? line : `${"#".repeat(heading)} ${line}`);
+    if (line !== "") out.push(heading === null ? line : `${"#".repeat(heading)}\t${line}`);
     heading = null;
   };
 

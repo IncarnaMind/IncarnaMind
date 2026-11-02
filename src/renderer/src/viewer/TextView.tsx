@@ -86,11 +86,16 @@ export function TextView({ document, target }: { document: Document; target: Vie
         : null,
   );
   const markdown = document.kind !== "text";
+  const literal = document.kind !== "markdown";
   const written = document.kind === "markdown";
   const units = useMemo(
     () =>
-      loaded.kind !== "ready" ? [] : markdown ? markdownUnits(loaded.text) : lineUnits(loaded.text),
-    [loaded, markdown],
+      loaded.kind !== "ready"
+        ? []
+        : markdown
+          ? markdownUnits(loaded.text, { literal })
+          : lineUnits(loaded.text),
+    [loaded, markdown, literal],
   );
   const outline = useMemo(() => (markdown ? headingsOf(units) : []), [markdown, units]);
   const reload = () => setAttempt((count) => count + 1);
@@ -141,7 +146,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
           <TextContent
             text={loaded.text}
             markdown={markdown}
-            literal={document.kind !== "markdown"}
+            literal={literal}
             source={source}
             units={units}
             outline={outlineOpen ? outline : null}

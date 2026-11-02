@@ -42,9 +42,12 @@ export async function extractUnits(
         throw new ExtractionError("unreadable", "The file holds binary data, not text.");
       }
       // The Units' offsets in the file are for the viewer; what is stored is the Unit itself.
-      return (kind === "text" ? lineUnits(text) : markdownUnits(text)).map(
-        ({ start: _start, end: _end, ...unit }) => unit,
-      );
+      // A converted RTF or HTML file's own lines are words, not Markdown structure (#762).
+      const units =
+        kind === "text"
+          ? lineUnits(text)
+          : markdownUnits(text, { literal: kind === "rtf" || kind === "html" });
+      return units.map(({ start: _start, end: _end, ...unit }) => unit);
     }
     case "docx":
       return (await extractDocx(bytes)).units;

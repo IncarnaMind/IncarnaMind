@@ -5,6 +5,7 @@
  * names the next step for — or converts with the User's own LibreOffice.
  */
 import { existsSync, readFileSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
 import { describe, expect, test } from "vitest";
@@ -38,6 +39,10 @@ const RTF = String.raw`{\rtf1\ansi\ansicpg1252\deff0
 \pard A fine of \u163?100 applies to every berth.\par
 \pard See [Exhibit A] and a *starred* word.\par
 \pard - not a list, just a dash: C#_notes.\par
+\pard # not a heading.\par
+\pard > not a quote.\par
+\pard 1. not a list.\par
+\pard ~~~ not code.\par
 }
 `;
 
@@ -50,8 +55,12 @@ const HTML = `<!DOCTYPE html>
 <p>The harbour master publishes the tide tables.<br>Every 12 months.
 <h2>Fees</h2>
 <ul><li>Berthing &amp; mooring: 42<li>Tonnage: 18</ul>
-<table><tr><th>Port<td>Leith<tr><td>Fee<td>42</table>
+<table><tr><th>Port<td>Leith<tr><td>Fee<br>note<td>42</table>
 <p>Cost *estimate* only, and a [link] that is words.</p>
+<p># not a heading.</p>
+<p>> not a quote.</p>
+<p>1. not a list.</p>
+<p>~~~ not code.</p>
 </body></html>
 `;
 
@@ -184,13 +193,16 @@ describe("RTF and HTML are read as text with their headings (#762)", () => {
       ["Harbour rules", "Scope"],
     ]);
     expect(text.pages.map((unit) => unit.kind)).toEqual(["section", "section"]);
-    expect(text.pages[0]?.text).toContain("# Harbour rules");
+    expect(text.pages[0]?.text).toContain("#\tHarbour rules");
     expect(text.pages[0]?.text).toContain("The harbour master keeps the records.");
-    expect(text.pages[1]?.text).toContain("## Scope");
+    expect(text.pages[1]?.text).toContain("##\tScope");
     expect(text.pages[1]?.text).toContain("£100 applies to every berth.");
     // The words as the file holds them: no Markdown escape sits between a quote and the text.
     expect(text.pages[1]?.text).toContain("See [Exhibit A] and a *starred* word.");
     expect(text.pages[1]?.text).toContain("- not a list, just a dash: C#_notes.");
+    for (const line of ["# not a heading.", "> not a quote.", "1. not a list.", "~~~ not code."]) {
+      expect(text.pages[1]?.text).toContain(line);
+    }
     const quoted = await core.readableQuote({
       documentId: document?.id ?? "",
       contentHash: null,
@@ -220,11 +232,15 @@ describe("RTF and HTML are read as text with their headings (#762)", () => {
       ["Harbour notice", "Fees"],
     ]);
     const all = text.pages.map((unit) => unit.text).join("\n");
-    expect(all).toContain("# Harbour notice");
-    expect(all).toContain("## Fees");
+    expect(all).toContain("#\tHarbour notice");
+    expect(all).toContain("##\tFees");
     expect(all).toContain("Berthing & mooring: 42");
     expect(all).toContain("Port | Leith");
     expect(all).toContain("Cost *estimate* only, and a [link] that is words.");
+    expect(all).toContain("Fee\nnote | 42");
+    for (const line of ["# not a heading.", "> not a quote.", "1. not a list.", "~~~ not code."]) {
+      expect(all).toContain(line);
+    }
     expect(all).not.toContain("never read");
     expect(all).not.toContain("color: red");
     const [found] = await core.searchPassages("tide tables", { mode: "keyword" });
@@ -243,7 +259,7 @@ describe("RTF and HTML are read as text with their headings (#762)", () => {
     const markdown = htmlTextToMarkdown(
       "<head><title>Harbour notice</title><body><h1>Harbour notice</h1><p>tide tables",
     );
-    expect(markdown).toContain("# Harbour notice");
+    expect(markdown).toContain("#\tHarbour notice");
     expect(markdown).toContain("tide tables");
   });
 });
@@ -394,6 +410,25 @@ describe("Convert with LibreOffice adds a copy and leaves the original untouched
     expect(existsSync(dirname(cancelled.path))).toBe(true);
     await core.discardWordFile(cancelled.path);
     expect(existsSync(dirname(cancelled.path))).toBe(false);
+  });
+
+  test("a conversion whose copy can't be written leaves no temporary folder", async () => {
+    const tempDir = await createTempDataFolder();
+    const core = startCore(await createTempDataFolder(), {
+      paths: { tempDir },
+      officeConverter: {
+        available: async () => true,
+        convert: async () => ({
+          outcome: "converted",
+          name: `${"x".repeat(300)}.docx`,
+          bytes: new Uint8Array([1]),
+        }),
+      },
+    });
+    const sources = await createSourceFolder();
+    const legacy = await writeSourceFile(sources, "Long.doc", "the original .doc");
+    await expect(core.convertWordFile(legacy)).rejects.toThrow();
+    expect(await readdir(tempDir)).toEqual([]);
   });
 
   test("with no LibreOffice, a .doc's check offers no conversion", async () => {

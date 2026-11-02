@@ -102,7 +102,11 @@ export const useWordImport = create<WordImportState>()((set, get) => ({
       if (get().path !== path) return;
       set({ check, origin: check.origin });
     } catch (error) {
-      set({ path: null });
+      // The file couldn't be read: a converted copy has no screen left to remove it.
+      if (get().converted && get().path === path) {
+        void core.discardWordFile(path).catch(reportError);
+      }
+      set({ path: null, converted: false });
       reportError(error);
     }
   },

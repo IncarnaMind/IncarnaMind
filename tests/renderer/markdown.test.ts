@@ -320,10 +320,25 @@ describe("reading Markdown for the viewer", () => {
     ]);
   });
   test("a converted file's words stay words: emphasis, code and links are not read (#762)", () => {
-    const source = "# Fees\n\nCost *estimate* and a [link], `code`, C#_notes.";
+    const source =
+      "#\tFees\n\nCost *estimate* and a [link], `code`, C#_notes.\n# not a heading\n- not a list\n> not a quote\n1. not a list\n``` not code";
     expect(show(source, parseMarkdown(source, { literal: true }))).toEqual([
       { h1: [{ text: "Fees" }] },
-      { p: [{ text: "Cost *estimate* and a [link], `code`, C#_notes." }] },
+      {
+        p: [
+          { text: "Cost *estimate* and a [link], `code`, C#_notes." },
+          "break",
+          { text: "# not a heading" },
+          "break",
+          { text: "- not a list" },
+          "break",
+          { text: "> not a quote" },
+          "break",
+          { text: "1. not a list" },
+          "break",
+          { text: "``` not code" },
+        ],
+      },
     ]);
   });
 });

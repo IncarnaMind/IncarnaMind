@@ -107,11 +107,11 @@ export function htmlTextToMarkdown(source: string): string {
     block = null;
     if (!current || value === "") return;
     if (current.kind === "heading") {
-      out.push(`${"#".repeat(Math.min(6, Math.max(1, current.level)))} ${value}`);
+      out.push(`${"#".repeat(Math.min(6, Math.max(1, current.level)))}\t${value}`);
       return;
     }
     if (current.kind === "listItem") {
-      out.push(`- ${value}`);
+      out.push(value);
       return;
     }
     out.push(value);
@@ -124,15 +124,12 @@ export function htmlTextToMarkdown(source: string): string {
       .trimEnd();
     pre = "";
     if (value === "") return;
-    // A fence longer than any run of backticks in it, as Markdown needs.
-    const longest = Math.max(2, ...(value.match(/`+/g) ?? []).map((run) => run.length));
-    const fence = "`".repeat(longest + 1);
-    out.push(`${fence}\n${value}\n${fence}`);
+    out.push(value);
   };
 
   const endCell = () => {
     if (cell === null || row === null) return;
-    row.push(cell.replace(/[ \t\n]+/g, " ").trim());
+    row.push(cell.replace(/[ \t]+/g, " ").trim());
     cell = null;
   };
   const endRow = () => {

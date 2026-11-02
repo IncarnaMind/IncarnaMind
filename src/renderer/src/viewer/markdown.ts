@@ -11,6 +11,7 @@
  * Every piece of text points back into the source (`start`/`end`), so a quote
  * found in the source can be highlighted where it is rendered.
  */
+import { LITERAL_HEADING } from "../../../core/documents/formats/text";
 import {
   type CellRange,
   delimiterRow,
@@ -116,8 +117,6 @@ interface Context {
   source: string;
   /** Reference link definitions, by their label in lower case. */
   definitions: Map<string, string>;
-  /** Text the file holds is shown as words, not read for emphasis, code or links (#762). */
-  literal?: boolean;
 }
 
 /** Whether a line starts a block, so it ends a paragraph before it. */
@@ -213,8 +212,11 @@ export function sectionHeadings(blocks: readonly Block[]): Map<Block, number> {
 
 export function parseMarkdown(source: string, options: { literal?: boolean } = {}): Block[] {
   const lines = splitLines(source);
+  // A converted file's text: its reader's headings (# and a tab) and otherwise the words as they
+  // are. A line starting "# ", "- ", "> " or "```" is a paragraph there, not structure (#762).
+  if (options.literal) return literalBlocks(lines);
   const { definitions, at } = readDefinitions(lines);
-  const context: Context = { source, definitions, ...(options.literal && { literal: true }) };
+  const context: Context = { source, definitions };
   const blocks: Block[] = [];
   let from = 0;
   // Front matter: "---" on the first line, closed by "---" or "...", holding no "#" heading
@@ -239,6 +241,42 @@ export function parseMarkdown(source: string, options: { literal?: boolean } = {
       lines.slice(from).filter((line) => !at.has(line.start)),
     ),
   );
+  return blocks;
+}
+
+/** The blocks of a converted file's text: its own headings, and every other line the words. */
+function literalBlocks(lines: readonly Line[]): Block[] {
+  const blocks: Block[] = [];
+  let group: Line[] = [];
+  const flush = () => {
+    if (group.length === 0) return;
+    const inlines: Inline[] = [];
+    group.forEach((line, index) => {
+      if (index > 0) inlines.push({ kind: "break" });
+      inlines.push({ kind: "text", start: line.start, end: line.end });
+    });
+    blocks.push({ kind: "paragraph", inlines });
+    group = [];
+  };
+  for (const line of lines) {
+    const heading = LITERAL_HEADING.exec(line.text);
+    if (heading) {
+      flush();
+      blocks.push({
+        kind: "heading",
+        level: heading[1]?.length as 1 | 2 | 3 | 4 | 5 | 6,
+        inlines: [{ kind: "text", start: line.start + heading[0].length, end: line.end }],
+        section: true,
+      });
+      continue;
+    }
+    if (BLANK.test(line.text)) {
+      flush();
+      continue;
+    }
+    group.push(line);
+  }
+  flush();
   return blocks;
 }
 
@@ -583,8 +621,6 @@ function bareUrl(source: string, at: number, end: number): number {
 /** Parses the inline Markdown in `source` from `start` to `end`. */
 function parseInlines(context: Context, start: number, end: number): Inline[] {
   const { source } = context;
-  // A converted file's text is the words it holds: no "*", "_", "`" or "[" is markup.
-  if (context.literal) return [{ kind: "text", start, end }];
   const inlines: Inline[] = [];
   let textStart = start;
   let at = start;

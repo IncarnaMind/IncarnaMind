@@ -26,6 +26,8 @@ for argument in "$@"; do
 done
 name="\${input##*/}"
 name="\${name%.*}"
+# It writes beside the file it was given, as a converter may: the User's file must not be that file.
+printf 'the converter wrote here' > "$input"
 printf 'converted bytes' > "$out/$name.$target"
 `;
 

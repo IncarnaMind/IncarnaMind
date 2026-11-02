@@ -4619,7 +4619,12 @@ export function createCore(adapters: CoreAdapters): Core {
       if ("problem" in copy) return { outcome: "problem", problem: copy.problem };
       const folder = await mkdtemp(join(adapters.paths.tempDir ?? tmpdir(), "incarnamind-word-"));
       const converted = join(folder, copy.name);
-      await writeFile(converted, copy.converted, { mode: 0o600 });
+      try {
+        await writeFile(converted, copy.converted, { mode: 0o600 });
+      } catch (error) {
+        await rm(folder, { recursive: true, force: true }).catch(() => undefined);
+        throw error;
+      }
       wordConversions.set(converted, folder);
       return { outcome: "converted", path: converted, name: copy.name };
     },
