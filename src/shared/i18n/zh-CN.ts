@@ -6366,9 +6366,9 @@ export const zhCN = {
     "{name} 中有引用位于两个美元符号之间，会被当作公式：把它写在美元符号之外。",
   "agents.propose.table": "{name} 的文字中有几行像表格行，却组不成表格。",
   "agents.propose.lost":
-    "{name} 中有引用位于无法保留为引用的位置，例如公式或链接地址中：把它写在它所引用的文字之后。",
+    "{name} 中有引用放在了公式或链接地址这类无法保留引用的地方：把它写在所引用的文字之后。",
   "agents.propose.unplaced":
-    "这些修改会加入不是 IncarnaMind 放置的引用、脚注或计算结果，因此没有写入任何内容。只用 [cite:…] 标记引用。",
+    "无法写入这些修改：其中有 IncarnaMind 没有添加的引用、脚注或计算结果。引用时只用 IncarnaMind 给出的 [cite:…]。",
   "agents.mind.namedChoice": "named 必须是 true 或 false。",
   "settings.pages.agents": "智能体",
   "agents.settings.experimental": "实验",

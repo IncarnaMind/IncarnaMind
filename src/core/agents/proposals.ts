@@ -30,7 +30,6 @@ import {
   readProposalAttribute,
   readProposalRef,
   recordProposalRequest,
-  resolveProposals,
   targetHash,
   waitingChanges,
 } from "../../shared/proposals";
@@ -43,6 +42,7 @@ import {
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   FOOTNOTE_NODE,
+  MIND_CONTENT_FIELD,
   type OutsideAgentRequest,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
@@ -392,19 +392,27 @@ function newBlocks(
   name: string,
   options: ProposeOptions,
 ): { nodes: NodeJSON[]; cited: Attributes[] } {
-  const tokens: { token: string; attributes: Attributes | null }[] = [];
-  const held = new Map<string, string>();
-  let holding = 0;
-  let found = 0;
+  const tokens: { token: string; attributes: Attributes | null; held: number; back: number }[] = [];
+  const held = new Map<string, number>();
   const hold = (token: string): string => {
-    holding += 1;
-    const known = held.get(token);
-    if (known) return known;
-    const found = options.cited(token);
-    const place = heldToken(tokens.length);
-    tokens.push({ token, attributes: found?.citable ? found.attributes : null });
-    held.set(token, place);
-    return place;
+    const index = held.get(token) ?? tokens.length;
+    if (index === tokens.length) {
+      const checked = options.cited(token);
+      tokens.push({
+        token,
+        attributes: checked?.citable ? checked.attributes : null,
+        held: 0,
+        back: 0,
+      });
+      held.set(token, index);
+    }
+    const each = tokens[index];
+    if (each) each.held += 1;
+    return heldToken(index);
+  };
+  const cameBack = (index: string | undefined) => {
+    const each = tokens[Number(index)];
+    if (each) each.back += 1;
   };
   const markdown = withTokens(
     written.replace(LEADING_NAME, ""),
@@ -413,7 +421,7 @@ function newBlocks(
   );
   const cited: Attributes[] = [];
   const parsed = replaceMarkers(markdownToBlocks(markdown), HELD_TOKEN, (match, before) => {
-    found += 1;
+    cameBack(match[1]);
     const attributes = tokens[Number(match[1])]?.attributes;
     if (!attributes) return { before, put: options.notFound };
     cited.push(attributes);
@@ -429,7 +437,7 @@ function newBlocks(
   const own = (node: NodeJSON, code = false): NodeJSON[] => {
     if (node.type === "text") {
       const inCode = code || (node.marks?.some((mark) => mark.type === "code") ?? false);
-      found += [...(node.text ?? "").matchAll(HELD_TOKEN)].length;
+      for (const match of (node.text ?? "").matchAll(HELD_TOKEN)) cameBack(match[1]);
       const text = asWritten(node.text ?? "");
       return [{ ...node, text: inCode ? text : inertBrackets(text) }];
     }
@@ -441,8 +449,11 @@ function newBlocks(
   const nodes = asGenerated(parsed.flatMap((each) => own(each))).filter(
     (block) => !(block.type === "paragraph" && (block.content?.length ?? 0) === 0),
   );
-  // A token the parse took into a formula, or a link's address, is neither a Citation nor words.
-  if (found < holding) throw new ChangeRefused("agents.propose.lost", name);
+  // A token the parse took into a formula or a link's address is neither a Citation nor words:
+  // it never came back, or its held place is still there.
+  const lost =
+    tokens.some((each) => each.back !== each.held) || JSON.stringify(nodes).search(HOLDING) >= 0;
+  if (lost) throw new ChangeRefused("agents.propose.lost", name);
   return { nodes, cited };
 }
 
@@ -488,18 +499,41 @@ function addAfter(
 /** The nodes that cite or hold a note: in an agent's change, only IncarnaMind places them. */
 const CITING: ReadonlySet<string> = new Set([CITATION_NODE, FOOTNOTE_NODE, CALCULATED_FIGURE_NODE]);
 
-/** How many of each citing node: a Citation by what it cites, a footnote or a figure by its kind. */
-export type CitingNodes = Map<string, number>;
+/** How many of each citing node, by `citingKey`. */
+type CitingNodes = Map<string, number>;
 
-export const citingKey = (name: string, attributes: Attributes): string =>
-  name === CITATION_NODE
-    ? JSON.stringify([
-        name,
-        attributes.documentId ?? null,
-        attributes.quote ?? null,
-        attributes.pageFrom ?? null,
-      ])
-    : name;
+/** A Citation by all it holds but its ids: one changed in any of them is another Citation. */
+const citationKey = (attributes: Attributes): string =>
+  JSON.stringify([
+    CITATION_NODE,
+    ...Object.entries(attributes)
+      .filter(
+        ([key, value]) =>
+          key !== BLOCK_ID_ATTRIBUTE &&
+          key !== PROPOSAL_ATTRIBUTE &&
+          value !== null &&
+          value !== undefined,
+      )
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+  ]);
+
+/** A citing node by what it holds: a Citation's attributes, a footnote's words, a figure's figure. */
+export function citingKey(element: Y.XmlElement): string {
+  if (element.nodeName === CITATION_NODE) return citationKey(element.getAttributes());
+  if (element.nodeName !== FOOTNOTE_NODE) {
+    return JSON.stringify([element.nodeName, element.getAttribute("figure") ?? null]);
+  }
+  const words = element
+    .toArray()
+    .map((child) =>
+      child instanceof Y.XmlElement
+        ? CITING.has(child.nodeName)
+          ? citingKey(child)
+          : child.nodeName
+        : child.toString(),
+    );
+  return JSON.stringify([FOOTNOTE_NODE, ...words]);
+}
 
 function tally(counts: CitingNodes, key: string, by: number): void {
   const total = (counts.get(key) ?? 0) + by;
@@ -511,7 +545,7 @@ function tally(counts: CitingNodes, key: string, by: number): void {
  * Adds to `counts` (or, with `by` -1, takes away) the citing nodes in `root` as it reads with
  * `request`'s changes accepted and no other's.
  */
-export function tallyCiting(
+function tallyCiting(
   counts: CitingNodes,
   root: Y.XmlFragment | Y.XmlElement,
   request: string,
@@ -523,9 +557,7 @@ export function tallyCiting(
     const othersToAdd = proposal?.kind === "insert" && proposal.request !== request;
     const takenOut = proposal?.kind === "delete" && proposal.request === request;
     if (othersToAdd || takenOut) continue;
-    if (CITING.has(child.nodeName)) {
-      tally(counts, citingKey(child.nodeName, child.getAttributes()), by);
-    }
+    if (CITING.has(child.nodeName)) tally(counts, citingKey(child), by);
     tallyCiting(counts, child, request, by);
   }
   return counts;
@@ -539,7 +571,7 @@ export function tallyCiting(
 export function holdsOnlyPlaced(
   blocks: Y.XmlFragment,
   request: string,
-  placed: CitingNodes,
+  placed: ReadonlyMap<string, number>,
 ): boolean {
   const written = tallyCiting(new Map(), blocks, request);
   return written.size === placed.size && [...written].every(([key, n]) => placed.get(key) === n);
@@ -598,9 +630,28 @@ function uncitedOf(blocks: Y.XmlFragment, request: string): string[] {
  * Writes the agent's changes into the Note as Proposals of `options.request`, waiting for the
  * User, and records who made them. `note` must be the Note as named in this same Yjs
  * transaction. Nothing is written unless every change can be: a paragraph held is refused
- * (`HeldParagraph`). Returns how many changes wait, and the sentences they leave uncited.
+ * (`HeldParagraph`), and a change that can't be written as it is (`ChangeRefused`). Returns how
+ * many changes wait, and the sentences they leave uncited.
  */
 export function proposeNamed(
+  blocks: Y.XmlFragment,
+  note: NamedNote,
+  changes: readonly NamedChange[],
+  options: ProposeOptions,
+): { waiting: number; uncited: string[] } {
+  const doc = blocks.doc;
+  if (!doc || doc.getXmlFragment(MIND_CONTENT_FIELD) !== blocks) {
+    throw new Error("The Note's Blocks aren't in its document.");
+  }
+  // Written on a copy first, then into the Note as one update: a refusal leaves it as it was.
+  const draft = new Y.Doc();
+  Y.applyUpdate(draft, Y.encodeStateAsUpdate(doc));
+  const written = writeNamed(draft.getXmlFragment(MIND_CONTENT_FIELD), note, changes, options);
+  Y.applyUpdate(doc, Y.encodeStateAsUpdate(draft, Y.encodeStateVector(doc)));
+  return written;
+}
+
+function writeNamed(
   blocks: Y.XmlFragment,
   note: NamedNote,
   changes: readonly NamedChange[],
@@ -618,7 +669,6 @@ export function proposeNamed(
     return { paragraph, element };
   };
 
-  // Everything is read and turned into what it writes first: a refusal leaves the Note as it was.
   const rewrites: {
     element: Y.XmlElement;
     selection: Selection;
@@ -649,8 +699,6 @@ export function proposeNamed(
   }
   const additions = [...adds.entries()].map(([after, nodes]) => ({ ...elementAt(after), nodes }));
 
-  // The citing nodes the Note should hold once accepted: its own, less each rewritten
-  // paragraph's, plus what each rewrite keeps or cites anew and each token in new paragraphs.
   const placed = tallyCiting(new Map(), blocks, options.request);
   for (const { element, selection, fresh, kept } of rewrites) {
     tallyCiting(placed, element, options.request, -1);
@@ -658,19 +706,17 @@ export function proposeNamed(
       const n = Number(/\d+/.exec(marker)?.[0]);
       const footnote = marker.startsWith("[^") ? selection.footnotes[n - 1] : undefined;
       const citation = marker.startsWith("[^") ? undefined : selection.citations[n - 1];
-      if (footnote) tally(placed, FOOTNOTE_NODE, 1);
+      if (footnote) tally(placed, citingKey(footnote), 1);
       if (footnote) tallyCiting(placed, footnote, options.request);
-      if (citation) tally(placed, citingKey(CITATION_NODE, citation), 1);
+      if (citation) tally(placed, citationKey(citation), 1);
     }
-    for (const attributes of fresh.values()) tally(placed, citingKey(CITATION_NODE, attributes), 1);
+    for (const attributes of fresh.values()) tally(placed, citationKey(attributes), 1);
   }
-  for (const attributes of citedAnew) tally(placed, citingKey(CITATION_NODE, attributes), 1);
+  for (const attributes of citedAnew) tally(placed, citationKey(attributes), 1);
 
   for (const { selection, name, text, fresh } of rewrites) {
     const written = proposeRewrite(selection, text, options.request, options.newId, fresh);
     if (written.unmadeTable || (written.unplaced?.length ?? 0) > 0) {
-      // What it wrote of the changes before goes too: all of them, or none.
-      resolveProposals(blocks, (each) => each.request === options.request, "reject");
       throw new ChangeRefused("agents.propose.table", name);
     }
   }
@@ -678,11 +724,9 @@ export function proposeNamed(
     if (nodes.length > 0) addAfter(blocks, element, nodes, options);
   }
   if (!holdsOnlyPlaced(blocks, options.request, placed)) {
-    resolveProposals(blocks, (each) => each.request === options.request, "reject");
     throw new ChangeRefused("agents.propose.unplaced", "");
   }
-  const doc = blocks.doc;
   const waiting = waitingChanges(blocks, (each) => each.request === options.request);
-  if (doc && waiting > 0) recordProposalRequest(doc, options.request, options.made);
+  if (blocks.doc && waiting > 0) recordProposalRequest(blocks.doc, options.request, options.made);
   return { waiting, uncited: uncitedOf(blocks, options.request) };
 }

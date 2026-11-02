@@ -64,7 +64,24 @@ function tokenOf(token: string): CitedToken | null {
   };
 }
 
-/** A Note of one paragraph of the User's, with a Citation of Tides and a footnote. */
+/** A Citation of Harbours, in the User's footnote. */
+export const harbours = {
+  id: "c2",
+  passageId: "passage-harbours",
+  documentId: "harbours",
+  documentName: "Harbours",
+  contentHash: "hash-harbours",
+  quote: "Harbour walls are built for the spring tides.",
+  check: "found",
+};
+
+/** A calculated figure of the User's: a rewrite never keeps one, as Edit with AI's doesn't. */
+export const figure = { id: "fig-1", value: 12, shown: "12%" };
+
+/**
+ * A Note of one paragraph of the User's: a Citation of Tides, a footnote that cites Harbours,
+ * and a calculated figure.
+ */
 export function userNote(): { doc: Y.Doc; blocks: Y.XmlFragment } {
   const doc = new Y.Doc();
   const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
@@ -79,8 +96,13 @@ export function userNote(): { doc: Y.Doc; blocks: Y.XmlFragment } {
         {
           type: FOOTNOTE_NODE,
           attrs: { id: "n1" },
-          content: [{ type: "text", text: "The User's own note." }],
+          content: [
+            { type: "text", text: "The User's own note, after " },
+            { type: CITATION_NODE, attrs: harbours },
+          ],
         },
+        { type: "text", text: ", by " },
+        { type: CALCULATED_FIGURE_NODE, attrs: { id: "f1", figure } },
         { type: "text", text: "." },
       ],
     },

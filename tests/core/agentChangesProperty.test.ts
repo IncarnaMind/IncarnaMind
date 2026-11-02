@@ -1,13 +1,23 @@
 /**
  * Whatever an outside agent writes, its change cites only with the tokens IncarnaMind gave it
  * and keeps only the User's own by their handles (#352): seeded random texts of brackets,
- * digits, emphasis, links, word joiners, tables and footnote lines, on both paths (a rewrite
- * and new paragraphs), each accepted and its Citations, footnotes and figures counted.
+ * digits, emphasis, links, word joiners, tables and footnote lines, tokens among them and in
+ * formulas, code and links, on both paths (a rewrite and new paragraphs), over a Note with a
+ * Citation, a footnote that cites and a figure; each accepted, and its Citations, footnotes
+ * and figures counted.
  */
 import { describe, expect, it } from "vitest";
-import { FOOTNOTE_NODE } from "../../src/core/api";
+import { CALCULATED_FIGURE_NODE, FOOTNOTE_NODE } from "../../src/core/api";
 import { pendingProposals } from "../../src/shared/proposals";
-import { CITABLE, type Citable, citingIn, propose, QUOTES, SPRING } from "../helpers/agentChanges";
+import {
+  CITABLE,
+  type Citable,
+  citingIn,
+  harbours,
+  propose,
+  QUOTES,
+  SPRING,
+} from "../helpers/agentChanges";
 
 /** A seeded generator (mulberry32): the same texts on every machine. */
 function random(seed: number) {
@@ -94,15 +104,50 @@ const NOISE = [
 ];
 
 /**
- * One random agent text and what it cites: how often each token it may cite stands in it, and
- * whether it keeps the User's Citation ("[kept:1]") and footnote ("[note:1]") by their handles.
+ * Where a token can stand that isn't after words: what each path makes of it. A rewrite reads
+ * no Markdown but formulas, so there it cites where it stands; new paragraphs are Markdown, so
+ * there one in code is words, and one in a formula or a link's address is refused.
+ */
+const WRAPS = {
+  formula: { wrap: (token: string) => `$x ${token} y$`, rewrite: "refused", add: "refused" },
+  address: {
+    wrap: (token: string) => `[see](https://example.com/${token})`,
+    rewrite: "cites",
+    add: "refused",
+  },
+  autolink: {
+    wrap: (token: string) => `<https://example.com/${token}>`,
+    rewrite: "cites",
+    add: "refused",
+  },
+  code: { wrap: (token: string) => `\`${token}\``, rewrite: "cites", add: "words" },
+  linkText: {
+    wrap: (token: string) => `[${token}](https://example.com)`,
+    rewrite: "cites",
+    add: "cites",
+  },
+} as const;
+type Wrap = keyof typeof WRAPS;
+const WRAPPED = Object.keys(WRAPS) as Wrap[];
+
+/**
+ * One random agent text and what it cites: how often each token it may cite stands in it after
+ * words, the tokens it wraps, and whether it keeps the User's Citation ("[kept:1]") and footnote
+ * ("[note:1]") by their handles.
  */
 function agentText(rng: ReturnType<typeof random>) {
   const tokens: Record<string, number> = {};
+  const wrapped: { wrap: Wrap; token: Citable }[] = [];
   let keepsCitation = false;
   let keepsNote = false;
   const piece = (): string => {
     const roll = rng.next();
+    if (roll < 0.02) {
+      const token = rng.pick(CITABLE);
+      const wrap = rng.pick(WRAPPED);
+      wrapped.push({ wrap, token });
+      return WRAPS[wrap].wrap(`[cite:${token}]`);
+    }
     if (roll < 0.12) {
       const token = rng.pick(CITABLE);
       tokens[token] = (tokens[token] ?? 0) + 1;
@@ -139,7 +184,7 @@ function agentText(rng: ReturnType<typeof random>) {
     return `${words(3, 8)}.`;
   };
   const text = Array.from({ length: 1 + Math.floor(rng.next() * 3) }, block).join("\n\n");
-  return { text, tokens, keepsCitation, keepsNote };
+  return { text, tokens, wrapped, keepsCitation, keepsNote };
 }
 
 const CASES = 2000;
@@ -157,15 +202,23 @@ describe("an outside agent's change, whatever it writes (#352)", () => {
         const add = (key: string, n = 1) => {
           if (n > 0) expected[key] = (expected[key] ?? 0) + n;
         };
-        // A rewrite replaces the User's paragraph: what it keeps of it, it keeps by handle.
         const accepted = outcome === "accepted";
+        const wraps = written.wrapped.map((each) => ({ ...each, made: WRAPS[each.wrap][path] }));
+        if (wraps.some((each) => each.made === "refused")) expect(accepted).toBe(false);
+        // A rewrite replaces the User's paragraph: what it keeps of it, it keeps by handle, and
+        // never a figure.
         const keepsAll = path === "add" || !accepted;
         add(`tides: ${SPRING}`, keepsAll || written.keepsCitation ? 1 : 0);
-        add(FOOTNOTE_NODE, keepsAll || written.keepsNote ? 1 : 0);
+        const keepsNote = keepsAll || written.keepsNote ? 1 : 0;
+        add(FOOTNOTE_NODE, keepsNote);
+        add(`harbours: ${harbours.quote}`, keepsNote);
+        add(CALCULATED_FIGURE_NODE, keepsAll ? 1 : 0);
         if (accepted) {
           for (const [token, n] of Object.entries(written.tokens)) {
             add(`moon: ${QUOTES[token as Citable]}`, n);
           }
+          for (const { token, made } of wraps)
+            add(`moon: ${QUOTES[token]}`, made === "cites" ? 1 : 0);
         }
         expect(citingIn(blocks), `${path} #${index}: ${JSON.stringify(written.text)}`).toEqual(
           expected,
@@ -173,7 +226,7 @@ describe("an outside agent's change, whatever it writes (#352)", () => {
         expect(pendingProposals(blocks)).toEqual([]);
       }
       // Most texts are proposed: a refusal is only for a change IncarnaMind can't write as it is.
-      expect(outcomes.accepted ?? 0).toBeGreaterThan(CASES * 0.8);
+      expect(outcomes.accepted ?? 0).toBeGreaterThan(CASES * 0.7);
       expect(outcomes["agents.propose.unplaced"] ?? 0).toBe(0);
     });
   }

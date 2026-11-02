@@ -698,9 +698,7 @@ describe("an outside agent's proposed changes (#352)", () => {
           },
         }),
       ),
-    ).toBe(
-      "¶1+ 中有引用位于无法保留为引用的位置，例如公式或链接地址中：把它写在它所引用的文字之后。",
-    );
+    ).toBe("¶1+ 中有引用放在了公式或链接地址这类无法保留引用的地方：把它写在所引用的文字之后。");
     await core.updateAgent(pairing.id, { propose: false });
     expect(
       refusal(
