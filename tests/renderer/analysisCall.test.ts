@@ -76,7 +76,7 @@ test.each([
 
 test.each([
   ["en", "network", "Analysis couldn’t get Python: check your internet connection."],
-  ["en", "load", "Analysis couldn’t get Python: it couldn’t start on this computer."],
+  ["en", "load", "Analysis couldn’t get Python: it doesn’t run on this computer."],
   ["zh-CN", "network", "无法获取数据分析所需的 Python：请检查网络连接。"],
   ["zh-CN", "integrity", "无法获取数据分析所需的 Python：下载的文件已损坏。"],
 ] as const)(

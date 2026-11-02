@@ -3145,7 +3145,7 @@ export const en = {
   "privacy.traffic.transcription-model": "Speech model download",
   "privacy.traffic.transcription-model.tip":
     "The speech model for meetings, and the models that tell speakers apart, are downloaded once, the first time a meeting is recorded or transcribed. Nothing you say is sent.",
-  "privacy.traffic.python-runtime": "Python for analyses",
+  "privacy.traffic.python-runtime": "Python download for analyses",
   "privacy.traffic.python-runtime.tip":
     "IncarnaMind’s own Python, which analyses of whole files run in, is downloaded once from where this version came from, the first time one runs. None of your files are sent.",
   "privacy.traffic.model-source-modelscope": "Built-in models from ModelScope",
@@ -6960,7 +6960,7 @@ export const en = {
   "analysis.unavailable.noSandbox": "Analyses need the app’s sandbox, which is off",
   "analysis.unavailable.noSandbox.fix": "How to fix",
   "analysis.unavailable.python": "Analysis couldn’t get Python: {reason}.",
-  "analysis.python.failure.load": "it couldn’t start on this computer",
+  "analysis.python.failure.load": "it doesn’t run on this computer",
   "analysis.call.preparing": "Downloading Python: {downloaded} of {total} MB",
   "analysis.call.preparing.unpacking": "Getting Python ready…",
   "analysis.crashed": "The analysis stopped unexpectedly. Run it again.",

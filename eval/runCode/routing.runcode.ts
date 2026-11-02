@@ -28,6 +28,7 @@ import { createProcessLauncher } from "../../src/main/processes";
 import { createCodeHost } from "../../src/main/runCode/host";
 import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
 import { queryDatabase } from "../../tests/helpers/core";
+import { createSweepGuard } from "../../tests/helpers/sweepGuard";
 import { commitOf } from "../lib/commit";
 import { chatProviderOf, readConfig } from "../lib/config";
 import { openLibrary } from "../lib/library";
@@ -122,6 +123,8 @@ test("run_code routing", async () => {
   const sources = await mkdtemp(join(tmpdir(), "incarnamind-eval-run-code-sources-"));
   const runtime = await pythonRuntime(process.env.INCARNAMIND_TEST_PYTHON_RUNTIME);
   const home = await mkdtemp(join(tmpdir(), "incarnamind-eval-run-code-home-"));
+  // Each pid a run's sweep signals is a member of one of this eval's own runs.
+  const guard = createSweepGuard();
   const library = await openLibrary({
     name: "run-code",
     embedder: createFakeEmbedder(),
@@ -144,7 +147,8 @@ test("run_code routing", async () => {
           temporaryFolder: tmpdir(),
         }),
         reportError: (error) => log(`The sandbox couldn't clean up: ${String(error)}`),
-        runRecords: join(home, "runs"),
+        runRecords: guard.records(join(home, "runs")),
+        sweep: { stopper: guard.stopper },
       }),
       codeRuntime: createCodeHost({ python: runtime.manifest, font: null, appVersion: "eval" }),
     }),
@@ -164,6 +168,11 @@ test("run_code routing", async () => {
     await rm(sources, { recursive: true, force: true });
     await rm(home, { recursive: true, force: true });
   }
+  if (guard.refused.length > 0) {
+    throw new Error(
+      `The sweep was refused pids no run of this eval's held: ${JSON.stringify(guard.refused)}`,
+    );
+  }
   const totals = (route: Route) => {
     const of = observed.filter((each) => each.expected === route);
     return `${of.filter((each) => each.routed === route).length} of ${of.length}`;
@@ -177,6 +186,7 @@ test("run_code routing", async () => {
       model: `${provider.kind}/${provider.modelId}`,
       sandbox: sandbox.available ? "os" : sandbox.reason,
       python: runtime.manifest !== null,
+      sweepSignals: guard.signalled.length,
     },
     routed: {
       run_code: totals("run_code"),
