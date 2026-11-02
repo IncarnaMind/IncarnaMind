@@ -54,7 +54,11 @@ for (const language of ["en", "zh-CN"] as const) {
     test.setTimeout(120_000);
     const path = join(sources, "Tide.txt");
     await writeFile(path, TIDE);
-    const { app, window } = await launchApp(dataDir, { fakeChat: true, home: sources });
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      home: sources,
+      ollama: "http://127.0.0.1:9",
+    });
     try {
       await setWindowSize(app, window, 900, 700);
       await acceptPlainTextKeys(window);

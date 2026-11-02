@@ -176,7 +176,10 @@ for (const language of ["en", "zh-CN"] as const) {
   test(`the Library's one primary action sorts 8 loose Documents into Folders, in ${language} (#1942)`, async () => {
     test.setTimeout(180_000);
     const paths = await files(4);
-    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      ollama: "http://127.0.0.1:9",
+    });
     await useLocalChatModel(window);
     try {
       await dismissChatSetup(window);

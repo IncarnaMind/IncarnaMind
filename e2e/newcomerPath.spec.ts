@@ -70,6 +70,7 @@ test("a newcomer walks the hero path unaided, with no refusal and no jargon, in 
     fakeChat: true,
     examples: true,
     home: sources,
+    ollama: "http://127.0.0.1:9",
   });
   try {
     await setWindowSize(app, window, 1440, 900);
