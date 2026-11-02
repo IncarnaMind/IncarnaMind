@@ -24,7 +24,14 @@ import {
 } from "../../src/shared/proposals";
 import { setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, nextEvent, saveProviderUnasked, startCore } from "../helpers/core";
-import { type EditCall, editingModel, plainOf, textOf, wholeParagraph } from "../helpers/editing";
+import {
+  type EditCall,
+  editingModel,
+  plainOf,
+  textOf,
+  wholeMind,
+  wholeParagraph,
+} from "../helpers/editing";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { editMind, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import { controlledModel, scriptedModels, streamedReply } from "../helpers/models";
@@ -78,27 +85,6 @@ function citationIdsOf(client: MindClient): unknown[] {
     if (node.type.name === "citation") ids.push(node.attrs.id);
   });
   return ids;
-}
-
-/** Edit with AI over all of the Mind's text, in the User's own words. */
-function wholeMind(client: MindClient, mindId: string, instruction: string): EditWithAiInput {
-  const blocks: { id: string; size: number }[] = [];
-  readMind(client).descendants((node) => {
-    if (!node.isTextblock) return true;
-    blocks.push({ id: String(node.attrs.id), size: node.content.size });
-    return false;
-  });
-  const first = blocks[0] as { id: string };
-  const last = blocks.at(-1) as { id: string; size: number };
-  return {
-    requestId: `edit-${++ids}`,
-    mindId,
-    from: { blockId: first.id, offset: 0 },
-    to: { blockId: last.id, offset: last.size },
-    text: blocks.map((block) => plainOf(client, block.id)).join("\n"),
-    action: "instruction",
-    instruction,
-  };
 }
 
 const headingOf = (words: string): JSONContent & { attrs: { id: string } } => ({
