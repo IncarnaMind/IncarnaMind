@@ -325,12 +325,17 @@ describe.skipIf(unavailable !== undefined)(
       await call("bash", "sleep 2351 & echo holding");
       expect(analyses[1]?.end).toEqual({ kind: "done" });
       expect(analyses[1]?.output.printed).toBe("holding");
+      // A daemon: a session of its own, out of the run's group, holding the output, and a system
+      // program, whose environment macOS doesn't show.
+      await call("bash", "perl -MPOSIX -e 'POSIX::setsid(); sleep 2354' & echo daemon");
+      expect(analyses[2]?.end).toEqual({ kind: "done" });
+      expect(analyses[2]?.output.printed).toBe("daemon");
       const { execFileSync } = await import("node:child_process");
       await expect
         .poll(() =>
           execFileSync("ps", ["-A", "-o", "command="], { encoding: "utf8" })
             .split("\n")
-            .filter((line) => line.trim() === "sleep 2351"),
+            .filter((line) => line.trim() === "sleep 2351" || line.includes("sleep 2354")),
         )
         .toEqual([]);
     });
@@ -460,6 +465,27 @@ by_region.to_csv("out/by_region.csv", index=False)
         `run_code: the runtime got ready in ${Math.round(pythonPrepared)} ms; the 50,000-row run took ${Math.round(ms)} ms (code ${run?.ms} ms).`,
       );
     }, 180_000);
+
+    test("n_jobs runs in threads of the run, and a process in a session of its own ends with it", async () => {
+      const { call, analyses } = tool({});
+      await call(
+        "python",
+        [
+          "import os, subprocess, sys",
+          "from joblib import Parallel, delayed",
+          "pids = Parallel(n_jobs=2)(delayed(os.getpid)() for _ in range(8))",
+          "print(f'other processes: {len(set(pids) - {os.getpid()})}')",
+          'subprocess.Popen([sys.executable, "-c", "import time; time.sleep(2355)"], start_new_session=True)',
+        ].join("\n"),
+      );
+      expect(analyses[0]?.end).toEqual({ kind: "done" });
+      expect(analyses[0]?.output.printed).toBe("other processes: 0\n");
+      const { execFileSync } = await import("node:child_process");
+      const left = execFileSync("ps", ["-A", "-ww", "-o", "command="], { encoding: "utf8" })
+        .split("\n")
+        .filter((line) => line.includes("time.sleep(2355)"));
+      expect(left).toEqual([]);
+    }, 60_000);
 
     test("a figure from rows a merge renumbered is refused, not passed", async () => {
       const document = await sales();

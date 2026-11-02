@@ -394,7 +394,7 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
     });
 
     test.skipIf(process.platform === "win32")(
-      "a process that escapes the stop (a session of its own) doesn't keep the run waiting",
+      "a process in a session of its own doesn't keep the run waiting, and ends with it",
       async () => {
         const { executor } = await setUp();
         const pidFolder = await createTempDataFolder();
@@ -419,11 +419,9 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
           }
         });
 
-        // What escaped holds the output open for good, so the run comes back only if it stopped waiting.
+        // Out of the program's group, it holds the output open; only the run's sweep ends it.
         expect(run).toMatchObject({ exitCode: null, timedOut: true });
-        const program = () =>
-          runningWith(marker).filter((pid) => !runningWith(`${marker}-child`).includes(pid));
-        await vi.waitFor(() => expect(program()).toEqual([]));
+        expect(runningWith(marker)).toEqual([]);
       },
       RUNNER_LIMIT,
     );

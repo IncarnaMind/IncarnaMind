@@ -454,6 +454,12 @@ export function createCodeRunner(options: CodeRunnerOptions) {
               PYTHONIOENCODING: "utf-8",
               OPENBLAS_NUM_THREADS: "2",
               OMP_NUM_THREADS: "2",
+              // In macOS's sandbox loky can't read the system's semaphore limit, so a worker pool
+              // (scikit-learn's n_jobs) fails: joblib runs n_jobs in threads instead, and no pool
+              // outlives the run. A pool code starts itself stays in the run's folder and size.
+              JOBLIB_MULTIPROCESSING: "0",
+              LOKY_MAX_CPU_COUNT: "2",
+              JOBLIB_TEMP_FOLDER: work,
             }),
           },
           allow: {

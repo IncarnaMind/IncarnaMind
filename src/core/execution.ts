@@ -23,7 +23,8 @@
  * behind the same `Executor`, so the Tools that use it don't change.
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
-import { lstat, mkdtemp, readdir, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { lstat, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { promisify } from "node:util";
@@ -36,6 +37,7 @@ import type {
   ProcessLauncher,
   SandboxLevel,
 } from "./adapters";
+import { RUN_VARIABLE, type RunIdentity, stopLeftovers } from "./runLeftovers";
 
 /** The run's own working folder, in an `ExecRequest`'s `allow` sets. */
 export const WORKING_FOLDER = { kind: "working-folder" } as const satisfies ExecFolder;
@@ -281,8 +283,16 @@ function watchLimits(
   return () => clearInterval(timer);
 }
 
-/** Waits for the process to end, keeping what it writes; stops it on its timeout or signal. */
-const collect = (child: ChildProcess, request: ExecRequest, cwd: string) =>
+/**
+ * Waits for the process to end, keeping what it writes; stops it on its timeout or signal.
+ * `leftovers` stops what it left running outside its group.
+ */
+const collect = (
+  child: ChildProcess,
+  request: ExecRequest,
+  cwd: string,
+  leftovers: () => Promise<void>,
+) =>
   new Promise<ExecResult>((resolve) => {
     const stdout = new Head(request.maxOutputBytes);
     const stderr = new Tail(request.maxOutputBytes);
@@ -318,6 +328,7 @@ const collect = (child: ChildProcess, request: ExecRequest, cwd: string) =>
       if (stopped) return;
       stopped = true;
       stopProcessTree(child);
+      void leftovers();
       // A process that escaped (e.g. it started a session of its own) may keep the output
       // open: after a grace period the run ends anyway, without it.
       setTimeout(() => {
@@ -336,7 +347,9 @@ const collect = (child: ChildProcess, request: ExecRequest, cwd: string) =>
     // What it left running in its group ends with it, which also closes the output such a
     // process held open; Windows has no group to find it by.
     child.once("exit", () => {
-      if (process.platform !== "win32" && !stopped) stopProcessTree(child);
+      if (process.platform === "win32" || stopped) return;
+      stopProcessTree(child);
+      void leftovers();
     });
     // Once it has exited and its output has closed.
     child.once("close", (code) => finish(code));
@@ -369,14 +382,39 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
       const temporary = request.cwd === undefined ? cwd : undefined;
       try {
         const program = confinement ? await confinement.confine(request, cwd) : request;
+        const run: RunIdentity = {
+          marker: randomUUID(),
+          folder: await realpath(cwd),
+          startedMs: Date.now(),
+        };
+        // One sweep at a time: the program's end and a stop each ask for one. Once one has found
+        // nothing left, nothing of the run is left to start another process.
+        let sweeping = Promise.resolve();
+        let clean = false;
+        const leftovers = () => {
+          sweeping = sweeping.then(() =>
+            stopLeftovers(run, Date.now()).then(
+              (stopped) => {
+                clean = stopped.length === 0;
+              },
+              (error: unknown) => options.reportError(error),
+            ),
+          );
+          return sweeping;
+        };
         try {
           const child = await options.processes.spawn(program.command, program.args, {
             cwd,
-            env: program.env,
+            env: { ...program.env, [RUN_VARIABLE]: run.marker },
             omitEnv: looksLikeSecret,
             processGroup: true,
           });
-          return await collect(child, request, cwd);
+          // Started detached, it leads a session of its own (macOS and Linux).
+          if (process.platform !== "win32") run.session = child.pid;
+          const result = await collect(child, request, cwd, leftovers);
+          await sweeping;
+          if (!clean) await leftovers();
+          return result;
         } finally {
           confinement?.release();
         }
