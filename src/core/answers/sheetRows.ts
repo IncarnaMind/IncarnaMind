@@ -112,6 +112,28 @@ export function withSetAsideMarks(shown: string, text: string, units: readonly U
     .join("\n");
 }
 
+/**
+ * How the file sets a row of a sheet aside, from its rows Units: "strikes through", "hides", both,
+ * or null for a row it doesn't. For a Tool that names a sheet's cells rather than its lines.
+ */
+export function setAsideRowsOf(
+  units: readonly UnitText[],
+): (sheet: string | null, row: number) => string | null {
+  const ways = new Map<string, string[]>();
+  const add = (sheet: string | null, row: number, way: string) => {
+    const key = `${sheet ?? ""}\n${row}`;
+    const known = ways.get(key) ?? [];
+    if (!known.includes(way)) ways.set(key, [...known, way]);
+  };
+  for (const unit of units) {
+    if (unit.kind !== "rows") continue;
+    const sheet = unit.label?.sheet ?? null;
+    for (const row of unit.label?.struckRows ?? []) add(sheet, row, "strikes through");
+    for (const row of unit.label?.hiddenRows ?? []) add(sheet, row, "hides");
+  }
+  return (sheet, row) => ways.get(`${sheet ?? ""}\n${row}`)?.join(" and ") ?? null;
+}
+
 /** `markdown` with each mark of a set-aside row a model copied into it said in words instead. */
 export function setAsideMarksInWords(
   markdown: string,

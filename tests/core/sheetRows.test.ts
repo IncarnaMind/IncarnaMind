@@ -573,6 +573,67 @@ describe("what else reads a sheet's Passages", () => {
   });
 });
 
+test("a workbook's formula Tools say when a figure or the input changed is in a row the file sets aside", async () => {
+  const money = (value: number) => ({ value, format: "0.00" as const });
+  const cost = (row: number, value: number) => ({
+    formula: `B${row}*C${row}`,
+    value,
+    format: "0.00" as const,
+  });
+  const file = sheetWithRows("Quote", [
+    { cells: ["Item", "Unit cost", "Quantity", "Cost"] },
+    { cells: ["Widgets", money(4), 20, cost(2, 80)], struck: true },
+    { cells: ["Brackets", money(2.5), 8, cost(3, 20)], struck: true },
+    {
+      cells: ["Total", "", "", { formula: "SUM(D2:D3)", value: 100, format: "0.00" }],
+      struck: true,
+    },
+    { cells: ["Widgets", money(3.6), 10, cost(5, 36)] },
+    { cells: ["Brackets", money(2.5), 8, cost(6, 20)] },
+    { cells: ["Total", "", "", { formula: "SUM(D5:D6)", value: 56, format: "0.00" }] },
+  ]);
+  const plan = (passage: string) => [
+    { tool: "trace_formulas", input: { passage, cell: "Quote!D4", label: "Total" } },
+    {
+      tool: "what_if",
+      input: { passage, cell: "Quote!D4", label: "Total", input: "Quote!C2", value: "15" },
+    },
+    { tool: "trace_formulas", input: { passage, cell: "Quote!D7", label: "Total" } },
+    {
+      tool: "what_if",
+      input: { passage, cell: "Quote!D7", label: "Total", input: "Quote!C5", value: "15" },
+    },
+  ];
+  const model = scriptedModel((call) => {
+    const search = call.results.find((result) => result.tool === "search_documents");
+    if (!search)
+      return { calls: [{ tool: "search_documents", input: { query: "Widgets Brackets Total" } }] };
+    const done = call.results.filter((result) => result.tool !== "search_documents").length;
+    const next = plan(shownPassages(search.text)[0]?.id ?? "P1")[done];
+    return next ? { calls: [next] } : { text: "Done." };
+  });
+  await asked(model, file, "What would the quote come to with 15 widgets?");
+  const results = (model.doStreamCalls.at(-1)?.prompt ?? []).flatMap((message) =>
+    message.role === "tool"
+      ? message.content.flatMap((part) =>
+          part.type === "tool-result" && part.output.type === "text" ? [part.output.value] : [],
+        )
+      : [],
+  );
+  const [earlierTrace, earlierWhatIf, currentTrace, currentWhatIf] = results.slice(-4);
+  expect(earlierTrace).toContain(
+    "Quote!D4, the figure, is in row 4, which the file strikes through",
+  );
+  expect(earlierTrace).toContain("(in row 2, which the file strikes through)");
+  expect(earlierWhatIf).toContain(
+    "Quote!C2, the input changed, is in row 2, which the file strikes through",
+  );
+  for (const result of [currentTrace, currentWhatIf]) {
+    expect(result).toContain("Recorded [=");
+    expect(result).not.toContain("which the file strikes through");
+  }
+});
+
 test("a Passage found twice in its Units with other marks, or not at all, names its set-aside rows instead", () => {
   const units = [
     {
