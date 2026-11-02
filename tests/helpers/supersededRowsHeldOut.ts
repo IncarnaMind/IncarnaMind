@@ -248,3 +248,170 @@ export const SUPERSEDED_HELD_OUT: readonly HeldOutCase[] = [
     read: "The what-if changes the current widget quantity (C5) and works out the current total (D7) as 74.00, never the struck rows' 80.00.",
   },
 ];
+
+/**
+ * A second held-out set, written after the first run of the change, when an expense log's
+ * separate entries were refused a total, and committed before the reworded instruction was run on
+ * any held-out sheet. It leans on the decoys that run found weak: repeated items to add up, and a
+ * long table whose years tell its rows apart; beside them, rows nothing tells apart, and set-aside
+ * rows in other places, a what-if among them.
+ */
+export const SUPERSEDED_HELD_OUT_SECOND: readonly HeldOutCase[] = [
+  {
+    name: "decoy: petty cash entries to add up",
+    language: "en",
+    file: "Petty cash.xlsx",
+    workbook: () =>
+      sheetWithRows("Petty cash", [
+        { cells: ["Paid for", "Amount"] },
+        { cells: ["Postage", money(6.85)] },
+        { cells: ["Milk", money(2.4)] },
+        { cells: ["Postage", money(12.3)] },
+        { cells: ["Postage", money(3.15)] },
+        { cells: ["Batteries", money(7.99)] },
+      ]),
+    question: "What did postage cost altogether?",
+    cites: [2, 4, 5],
+    gives: [["22.30", "22.3"]],
+    never: [],
+    read: "The Answer adds the three postage entries up to 22.30 and doesn't say it can't tell which is current.",
+  },
+  {
+    name: "decoy: purchase lines to add up",
+    language: "zh-CN",
+    file: "采购明细.xlsx",
+    workbook: () =>
+      sheetWithRows("明细", [
+        { cells: ["品名", "数量", "金额（元）"] },
+        { cells: ["打印纸", 5, money(115)] },
+        { cells: ["墨盒", 2, money(260)] },
+        { cells: ["打印纸", 3, money(69)] },
+      ]),
+    question: "打印纸一共花了多少钱？",
+    cites: [2, 4],
+    gives: [["184.00", "184"]],
+    never: [],
+    read: "The Answer adds the two printer paper lines up to 184 and doesn't say it can't tell which is current.",
+  },
+  {
+    name: "decoy: years tell a long table's rows apart",
+    language: "en",
+    file: "Regional revenue.xlsx",
+    workbook: () =>
+      sheetWithRows("Revenue", [
+        { cells: ["Region", "Year", "Revenue"] },
+        { cells: ["North", 2024, whole(1200)] },
+        { cells: ["South", 2024, whole(900)] },
+        { cells: ["North", 2025, whole(1350)] },
+        { cells: ["South", 2025, whole(980)] },
+      ]),
+    question: "What was the total revenue across both regions in 2025?",
+    cites: [4, 5],
+    gives: [["2,330", "2330"]],
+    never: [],
+    read: "The Answer adds the two 2025 rows up to 2,330 and doesn't say it can't tell which is current.",
+  },
+  {
+    name: "shipping, nothing says which row is current",
+    language: "en",
+    file: "Shipping rates.xlsx",
+    workbook: () =>
+      sheetWithRows("Rates", [
+        { cells: ["Service", "Price"] },
+        { cells: ["Standard delivery", money(4.95)] },
+        { cells: ["Express delivery", money(9.95)] },
+        { cells: ["Standard delivery", money(5.45)] },
+      ]),
+    question: "What does standard delivery cost at the moment?",
+    cites: [2, 4],
+    gives: [["4.95"], ["5.45"]],
+    never: ["10.40"],
+    read: "The Answer says the sheet doesn't make clear which standard delivery row is current and gives both; it never states one as the current price.",
+  },
+  {
+    name: "meal allowance, nothing says which row is current",
+    language: "zh-CN",
+    file: "餐补.xlsx",
+    workbook: () =>
+      sheetWithRows("餐补", [
+        { cells: ["项目", "每天（元）"] },
+        { cells: ["午餐补贴", 25] },
+        { cells: ["晚餐补贴", 20] },
+        { cells: ["午餐补贴", 30] },
+      ]),
+    question: "午餐补贴目前是每天多少？",
+    cites: [2, 4],
+    gives: [["25"], ["30"]],
+    never: ["55"],
+    read: "The Answer says the sheet doesn't make clear which lunch allowance row is current and gives both; it never states one as the current figure.",
+  },
+  {
+    name: "headcount plan, older rows struck through",
+    language: "zh-CN",
+    file: "人员计划.xlsx",
+    workbook: () =>
+      sheetWithRows("人员", [
+        { cells: ["部门", "人数", "人均月薪（元）"] },
+        { cells: ["研发", 12, whole(18000)], struck: true },
+        { cells: ["销售", 8, whole(12000)], struck: true },
+        { cells: ["研发", 15, whole(18000)] },
+        { cells: ["销售", 8, whole(13000)] },
+      ]),
+    question: "研发部现在计划多少人？和原来的计划比，哪些数字变了？",
+    cites: [4],
+    gives: [["15"]],
+    never: [],
+    read: "The current headcount is cited to row 4, never to struck row 2; R&D headcount (12 to 15) and sales monthly pay (12,000 to 13,000) are named as changed.",
+  },
+  {
+    name: "membership fees, older rows hidden below the current ones",
+    language: "en",
+    file: "Membership fees.xlsx",
+    workbook: () =>
+      sheetWithRows("Fees", [
+        { cells: ["Tier", "Monthly fee", "Joining fee"] },
+        { cells: ["Standard", money(39), money(25)] },
+        { cells: ["Premium", money(64), money(0)] },
+        { cells: ["Standard", money(35), money(25)], hidden: true },
+        { cells: ["Premium", money(59), money(50)], hidden: true },
+      ]),
+    question:
+      "What are the Premium tier's monthly and joining fees now, and how do they differ from before?",
+    cites: [3],
+    gives: [["64.00", "64"]],
+    never: [],
+    read: "The current fees are cited to row 3, never to hidden row 5; the monthly fee (59 to 64) and the joining fee (50 to 0) are both named as changed.",
+  },
+  {
+    name: "project budget with formulas, older rows hidden: a what-if",
+    language: "zh-CN",
+    file: "项目预算.xlsx",
+    workbook: () =>
+      sheetWithRows("预算", [
+        { cells: ["费用", "单价", "数量", "金额"] },
+        {
+          cells: ["外包设计", whole(8000), 3, { formula: "B2*C2", value: 24000, format: "#,##0" }],
+          hidden: true,
+        },
+        {
+          cells: ["服务器", whole(1500), 4, { formula: "B3*C3", value: 6000, format: "#,##0" }],
+          hidden: true,
+        },
+        {
+          cells: ["合计", "", "", { formula: "SUM(D2:D3)", value: 30000, format: "#,##0" }],
+          hidden: true,
+        },
+        {
+          cells: ["外包设计", whole(9000), 2, { formula: "B5*C5", value: 18000, format: "#,##0" }],
+        },
+        { cells: ["服务器", whole(1500), 6, { formula: "B6*C6", value: 9000, format: "#,##0" }] },
+        { cells: ["合计", "", "", { formula: "SUM(D5:D6)", value: 27000, format: "#,##0" }] },
+      ]),
+    question: "如果服务器的数量改成 8 台，预算合计会是多少？",
+    cites: [],
+    gives: [["30,000", "30000"]],
+    never: [],
+    whatIf: { cell: "预算!D7", input: "预算!C6", value: 8, result: 30000 },
+    read: "The what-if changes the shown server quantity (C6) and works out the shown total (D7) as 30,000, never the hidden rows' 36,000.",
+  },
+];

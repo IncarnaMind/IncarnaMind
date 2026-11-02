@@ -1,7 +1,7 @@
 /**
  * Sheets that hold an older and a current version of the same rows, against a real model (#1979),
  * through the core as the app asks, in English and Chinese: the held-out set of
- * ../helpers/supersededRowsHeldOut, written before any measured run. Each Answer passes the checks
+ * ../helpers/supersededRowsHeldOut, in two sets each written before the run it measures. Each Answer passes the checks
  * here when it cites the rows its case names, gives its figures and never the versions added up,
  * and for a what-if, works out the current figure from the current input; a person reads each one
  * for the rest (the case's `read`). It runs only when INCARNAMIND_LIVE_ANTHROPIC_KEY is set
@@ -19,7 +19,11 @@ import { type ChatModelFactory, createAiSdkChatModel } from "../../src/core/prov
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { type HeldOutCase, SUPERSEDED_HELD_OUT } from "../helpers/supersededRowsHeldOut";
+import {
+  type HeldOutCase,
+  SUPERSEDED_HELD_OUT,
+  SUPERSEDED_HELD_OUT_SECOND,
+} from "../helpers/supersededRowsHeldOut";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
@@ -161,7 +165,9 @@ const located = (answer: ConversationAnswer) => [
   ),
 ];
 
-test.skipIf(KEY === undefined).each(SUPERSEDED_HELD_OUT.map((held) => ({ ...held })))(
+test
+  .skipIf(KEY === undefined)
+  .each([...SUPERSEDED_HELD_OUT, ...SUPERSEDED_HELD_OUT_SECOND].map((held) => ({ ...held })))(
   "$name ($language): the Answer cites the current rows, or says the sheet doesn't say which",
   { timeout: 1_800_000 },
   async (held) => {
