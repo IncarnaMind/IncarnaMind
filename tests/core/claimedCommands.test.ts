@@ -488,14 +488,19 @@ describe("A claim in the app is never left reading as done when the check can't 
     },
   );
 
-  // protects=a judge item that names the reply's Local mode sentence but can't be placed (about "settings", no about with kind "enabled") fails the check, and one whose backing is "false" as a string counts, so the turn that refused Local mode keeps it on the line, in English and Chinese; fails_when=the item is dropped and "Local mode is on now." stands with no line; no_claim=what a real judge sends.
+  // protects=a judge item that names the reply's Local mode sentence but can't be placed (about "settings", no about with kind "enabled"), whose backing can't be read, or whose sentence isn't the reply's fails the check, and one whose backing is "false" as a string counts, so the turn that refused Local mode keeps it on the line, in English and Chinese; fails_when=the item is dropped and "Local mode is on now." stands with no line; no_claim=what a real judge sends.
   test.each([
     { kind: "enabled", about: "settings" },
     { kind: "enabled" },
     { kind: "changed", about: "local_mode", backed: "false" },
-  ])("a judge item it can't place: $kind $about $backed", async (item) => {
+    { kind: "changed", about: "local_mode", backed: null },
+    { kind: "changed", about: "local_mode", misquoted: true },
+  ])("a judge item it can't place: $kind $about $backed", async ({ misquoted, ...item }) => {
     for (const reply of ["Local mode is on now.", "本地模式已经开启。"]) {
-      const { model } = assistant(reply, REFUSED_LOCAL_MODE, [{ sentence: reply, ...item }]);
+      const sentence = misquoted ? "Local mode was switched on." : reply;
+      const { model } = assistant(reply, REFUSED_LOCAL_MODE, [], {
+        verdict: () => [{ sentence, backed: false, ...item }],
+      });
       const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
 
       const answer = await askAssistant(core, {

@@ -13,7 +13,7 @@ import {
   type MindProblem,
 } from "../api";
 import { isRecord } from "../errors";
-import { tagged } from "../promptData";
+import { asData, tagged } from "../promptData";
 import type { ChatLanguageModel } from "../providers/models";
 import { outputTokens } from "../providers/outputLimits";
 import { tokenUsageOf } from "../providers/promptCache";
@@ -221,24 +221,38 @@ interface Unbacked {
   commands: ClaimedCommand[];
 }
 
-/** `unplaced`: an item names a sentence of the reply as unbacked, but neither what it is about nor its kind says what kind of claim. */
-function verdictOf(value: unknown, reply: string): (Unbacked & { unplaced: boolean }) | null {
+/** A verdict's backing, also written as a word in any case, as a provider may send it; null for anything else. */
+function backingOf(backed: unknown): boolean | null {
+  if (typeof backed === "boolean") return backed;
+  const word = typeof backed === "string" ? backed.trim().toLowerCase() : null;
+  return word === "true" ? true : word === "false" ? false : null;
+}
+
+/**
+ * `unsure`: an item the check can't hold to the reply: an unbacked claim whose sentence isn't in it,
+ * whose backing can't be read, or that neither what it is about nor its kind places.
+ */
+function verdictOf(value: unknown, reply: string): (Unbacked & { unsure: boolean }) | null {
   if (!isRecord(value) || !Array.isArray(value.claims)) return null;
   const claims = new Set<ClaimedChange>();
   const commands = new Set<ClaimedCommand>();
-  let unplaced = false;
+  // The judge read the reply with its prompts' tags written as data, and may copy them so.
+  const replies = [reply, asData(reply)].map(comparableSentence);
+  const inReply = (sentence: string) =>
+    replies.some((each) => each.includes(comparableSentence(sentence)));
+  let unsure = false;
   for (const item of value.claims) {
     if (!isRecord(item)) continue;
     const { sentence, kind, about, backed } = item;
-    // Only a verdict that backs the sentence lets it go: a provider may not hold the schema's
-    // types, and "false" as a string is no backing.
+    const backing = backingOf(backed);
+    if (backing === true || (typeof about === "string" && NOT_COUNTED.includes(about))) continue;
     if (
+      backing === null ||
       typeof sentence !== "string" ||
-      sentence.trim() === "" ||
-      !comparableSentence(reply).includes(comparableSentence(sentence)) ||
-      backed === true ||
-      backed === "true"
+      !sentence.trim() ||
+      !inReply(sentence)
     ) {
+      unsure = true;
       continue;
     }
     // A claim in the app counts whatever kind the judge gave it: none of the Notes' kinds fits
@@ -246,20 +260,19 @@ function verdictOf(value: unknown, reply: string): (Unbacked & { unplaced: boole
     const command = inTheApp(about);
     const claimed = CLAIMED_CHANGES.find((claim) => claim === kind);
     if (command) commands.add(command);
-    else if (typeof about === "string" && NOT_COUNTED.includes(about)) continue;
     else if (claimed) claims.add(claimed);
     else if (about === "mind") claims.add("changed");
-    else unplaced = true;
+    else unsure = true;
   }
-  return { claims: [...claims], commands: [...commands], unplaced };
+  return { claims: [...claims], commands: [...commands], unsure };
 }
 
 export interface ClaimCheckResult extends Unbacked {
   usage: TokenUsage | null;
   durationMs: number;
   /**
-   * The check failed, its verdict couldn't be read, or it named an unbacked sentence it couldn't
-   * place: what it found is not all there is.
+   * The check failed, its verdict couldn't be read, or an item of it couldn't be held to the reply:
+   * what it found is not all there is.
    */
   failed?: true;
 }
@@ -331,13 +344,14 @@ export async function unbackedClaims(
     console.error("The reply's change-claim check returned no readable verdict.");
     return { claims: [], commands: [], usage, durationMs: Date.now() - started, failed: true };
   }
-  const { unplaced, ...unbacked } = verdict;
-  if (unplaced) console.error("The reply's change-claim check named a claim it couldn't place.");
+  const { unsure, ...unbacked } = verdict;
+  if (unsure)
+    console.error("The reply's change-claim check gave a claim it couldn't hold to the reply.");
   return {
     ...unbacked,
     usage,
     durationMs: Date.now() - started,
-    ...(unplaced && { failed: true as const }),
+    ...(unsure && { failed: true as const }),
   };
 }
 

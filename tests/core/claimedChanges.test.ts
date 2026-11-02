@@ -339,6 +339,27 @@ describe("A claim of something done in the app (#2407)", () => {
     expect(backed.commands).toEqual([]);
   });
 
+  // protects=a backing written as a word counts in any case, true letting the sentence go and false counting it; any other backing (1, null, none) and an unbacked claim whose sentence isn't in the reply fail the check instead of passing for none or printing a line for a claim the judge backed; fails_when=one of them is dropped, or a backed claim gets a line; no_claim=none beyond protects.
+  test.each([
+    { item: { backed: "True" }, failed: undefined, commands: [] },
+    { item: { backed: "TRUE" }, failed: undefined, commands: [] },
+    { item: { backed: "FALSE" }, failed: undefined, commands: ["privacy"] },
+    { item: { backed: 1 }, failed: true, commands: [] },
+    { item: { backed: null }, failed: true, commands: [] },
+    { item: { backed: undefined }, failed: true, commands: [] },
+    { item: { backed: false, sentence: "Local mode is on." }, failed: true, commands: [] },
+    { item: { backed: false, sentence: "本地模式开着。" }, failed: true, commands: [] },
+  ])("backing and misquotes: $item", async ({ item, failed, commands }) => {
+    const result = await check(
+      judge({
+        claims: [{ sentence: english, kind: "changed", about: "local_mode", ...item }],
+      }),
+      `${english} ${chinese}`,
+    );
+    expect(result.failed).toBe(failed);
+    expect(result.commands).toEqual(commands);
+  });
+
   // protects=a check that couldn't run or couldn't be read says so, apart from one that found nothing; fails_when=a failed check reads as a clean one, which can't then fail closed; no_claim=none beyond protects.
   test("a failed check says it failed", async () => {
     const down = scriptedModel(() => ({ text: "" }), {
