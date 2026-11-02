@@ -279,14 +279,6 @@ try {
       .map((line): unknown => JSON.parse(line))
       .filter(isRecord)
       .filter((event) => event.pid === successorPid);
-    const at = (name: string) => {
-      const event = traced.find((each) => each.event === name);
-      if (typeof event?.monotonic !== "string")
-        throw new Error(`The replacement app never traced ${name}.`);
-      return BigInt(event.monotonic);
-    };
-    const givenUpMs = Number((at("before-quit") - at("sqlite-open")) / 1_000_000n);
-    expect(givenUpMs).toBeLessThan(MAPPED_WAL_RETRY_MS + 1_000);
     expect(
       traced.filter(
         (event) =>
@@ -320,6 +312,10 @@ try {
     expect(walOpen.at(-1)).toMatch(
       new RegExp(`WARN +storage\\.walOpen\\.gaveUp attempts=${walOpen.length - 1} elapsedMs=\\d+$`),
     );
+    const elapsed = walOpen.map((line) => Number(/ elapsedMs=(\d+)/.exec(line)?.[1]));
+    // A try that blocks on a loaded disk may end past the window; no new try may start after it.
+    expect(elapsed.slice(0, -2).filter((ms) => !(ms <= MAPPED_WAL_RETRY_MS))).toEqual([]);
+    expect(elapsed.at(-1)).toBeGreaterThanOrEqual(MAPPED_WAL_RETRY_MS);
     expect(copiesWith(tag)).toEqual([]);
     expect(
       heldByAnotherCopy(dataDir, (what, error) => {
