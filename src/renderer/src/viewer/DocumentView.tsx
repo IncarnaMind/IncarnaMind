@@ -6,6 +6,7 @@ import type { ViewerTarget } from "../store";
 // (pdf.js, docx-preview, JSZip, the Office formats), rather than with the app.
 const PdfView = lazy(() => import("./PdfView").then((m) => ({ default: m.PdfView })));
 const TextView = lazy(() => import("./TextView").then((m) => ({ default: m.TextView })));
+const ImageView = lazy(() => import("./ImageView").then((m) => ({ default: m.ImageView })));
 const DocxView = lazy(() => import("./DocxView").then((m) => ({ default: m.DocxView })));
 const SlidesView = lazy(() => import("./SlidesView").then((m) => ({ default: m.SlidesView })));
 const SheetView = lazy(() => import("./SheetView").then((m) => ({ default: m.SheetView })));
@@ -21,7 +22,11 @@ export function DocumentView({ document, target }: { document: Document; target:
       return <PdfView document={document} target={target} />;
     case "text":
     case "markdown":
+    case "rtf":
+    case "html":
       return <TextView document={document} target={target} />;
+    case "image":
+      return <ImageView document={document} target={target} />;
     case "docx":
       return <DocxView document={document} target={target} />;
     case "pptx":

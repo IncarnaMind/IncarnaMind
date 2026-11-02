@@ -38,7 +38,7 @@ export type CardContent =
   | { kind: "passage"; runs: CardRun[]; address: string | null }
   | { kind: "cells"; columns: string[]; rows: { label: string; cells: CardCell[] }[] }
   | { kind: "lines"; lines: { time: string; speaker: string | null; runs: CardRun[] }[] }
-  | { kind: "quote"; text: string; scan: boolean }
+  | { kind: "quote"; text: string; from: "scan" | "picture" | null }
   /** The page's `picture`, in pixels twice its size on the page. */
   | {
       kind: "picture";
@@ -156,13 +156,13 @@ function contentOf(
   t: Translate,
 ): CardContent {
   const first = units[0];
-  if (!first)
-    return kept ? { kind: "quote", text: quote, scan: false } : { kind: "missing", quote };
+  if (!first) return kept ? { kind: "quote", text: quote, from: null } : { kind: "missing", quote };
   const kind = first.kind ?? "page";
+  const read = units.flatMap((unit) => (unit.label?.scan ? [unit.label.scan] : []));
   const asText: CardContent = {
     kind: "quote",
     text: quote,
-    scan: units.some((unit) => unit.label?.scan !== undefined),
+    from: read.some((scan) => !scan.picture) ? "scan" : read.length > 0 ? "picture" : null,
   };
   if (kind === "page" || kind === "slide" || quote === "") return asText;
   const ranges = quoteInUnits(units, quote);

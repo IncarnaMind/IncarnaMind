@@ -146,6 +146,11 @@ export interface UnitScan {
   reader: string;
   /** The clockwise turn from the displayed page to its reading frame; absent when 0 (#1819). */
   turn?: QuarterTurn;
+  /**
+   * The text was read from a picture file, not a page of a PDF (#762): a
+   * Citation of it says it was read from a picture.
+   */
+  picture?: true;
   /** The words it was unsure of: [start, end) UTF-16 offsets into the Unit's text. */
   unsure?: [number, number][];
   /**

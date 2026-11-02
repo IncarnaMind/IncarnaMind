@@ -47,6 +47,9 @@ function splitLines(source: string): Line[] {
 const BLANK = /^[ \t]*$/;
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+|$)/;
+/** The heading marker a converted file's reader writes: a tab after the #s, which a file's own
+ * text rarely has (#762). Its other lines are the file's words, never Markdown structure. */
+export const LITERAL_HEADING = /^(#{1,6})\t/;
 
 /** A heading's words, without its markers and inline markup. */
 export function headingText(line: string): string {
@@ -76,8 +79,12 @@ function sliceUnit(
   return source.slice(start, end).trim() ? { start, end, from, to } : null;
 }
 
-/** Markdown's sections, in order. */
-export function markdownUnits(source: string): SourceUnit[] {
+/**
+ * Markdown's sections, in order. `literal`: a converted RTF or HTML file's text, where only the
+ * reader's own headings (# and a tab) are structure and every other line is the file's words
+ * (#762), so a line that starts with "# ", "- " or "```" is a paragraph, not a heading or a fence.
+ */
+export function markdownUnits(source: string, options: { literal?: boolean } = {}): SourceUnit[] {
   const lines = splitLines(source);
   const units: SourceUnit[] = [];
   const path: string[] = [];
@@ -87,7 +94,7 @@ export function markdownUnits(source: string): SourceUnit[] {
   const sections: { first: number; last: number; path: string[] }[] = [];
   let current = { first: 0, last: -1, path: [] as string[] };
   lines.forEach((line, index) => {
-    const marker = FENCE.exec(line.text);
+    const marker = options.literal === true ? null : FENCE.exec(line.text);
     if (fence !== null) {
       if (marker && line.text.trim().startsWith(fence) && /^[`~]+$/.test(line.text.trim())) {
         fence = null;
@@ -95,7 +102,7 @@ export function markdownUnits(source: string): SourceUnit[] {
     } else if (marker) {
       fence = (marker[1] as string)[0] === "`" ? "```" : "~~~";
     } else {
-      const heading = HEADING.exec(line.text);
+      const heading = (options.literal === true ? LITERAL_HEADING : HEADING).exec(line.text);
       if (heading) {
         sections.push(current);
         const level = (heading[1] as string).length;

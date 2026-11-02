@@ -48,6 +48,23 @@ describe("A Document's fix (#763)", () => {
     expect(en("library.fix.empty")).toBe("This file is empty");
   });
 
+  test("a picture says it is a picture, not a scan, and one that couldn't be read offers Read it again (#762)", () => {
+    expect(documentFix(doc({ kind: "image", status: "no-text" }))).toEqual({
+      reason: "library.fix.pictureNoText",
+      open: true,
+      retry: "readAgain",
+    });
+    expect(en("library.fix.pictureNoText")).toBe("No text was found in the picture");
+    expect(zh("library.fix.pictureNoText")).toBe("图片中没有找到文字");
+    expect(documentFix(failed("pages-unread", { kind: "image" }))).toEqual({
+      reason: "library.fix.picture",
+      open: true,
+      retry: "readAgain",
+    });
+    expect(en("library.fix.picture")).toBe("The picture couldn’t be read");
+    expect(zh("library.fix.picture")).toBe("图片无法读取");
+  });
+
   test("a form that can't be read offers Print to PDF, a crash its Retry", () => {
     expect(documentFix(failed("forms-unread"))).toEqual({
       reason: "library.fix.forms",

@@ -2204,6 +2204,16 @@ export const migrations: readonly Migration[] = [
       WHERE preset = 'invoice' AND description = '要求或确认付款的账单或收据，列有项目、金额和日期。';
     `,
   },
+  {
+    version: 122,
+    description: "A Document converted from another file says which one it came from (#762)",
+    sql: `
+      -- A copy IncarnaMind converted with the User's own LibreOffice (#762) says which
+      -- file it came from, by name: the original's, with its extension ("Report.doc").
+      -- Null for every other Document.
+      ALTER TABLE documents ADD COLUMN converted_from TEXT;
+    `,
+  },
 ];
 
 /**

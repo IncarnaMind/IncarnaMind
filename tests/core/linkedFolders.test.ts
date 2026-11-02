@@ -75,7 +75,7 @@ describe("Linking a folder", { timeout: 30_000 }, () => {
     const deep = await writeSourceFile(library, "Papers/2026/Deep.txt", NEAP);
     const shallow = await writeSourceFile(library, "Papers/Shallow.md", RIVERS);
     // Left out: unsupported, hidden, .git and node_modules.
-    await writeSourceFile(library, "Papers/figure.png", "not a Document");
+    await writeSourceFile(library, "Papers/figure.doc", "not a Document");
     await writeSourceFile(library, ".hidden/Secret.md", "hidden");
     await writeSourceFile(library, "Papers/.draft.md", "a hidden file");
     await writeSourceFile(library, ".git/notes.txt", "git");

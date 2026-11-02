@@ -9,6 +9,8 @@ import {
 } from "react";
 import type { Document } from "../../../core/api";
 import { decodeText } from "../../../core/documents/decode";
+import { htmlMarkdown } from "../../../core/documents/formats/html";
+import { rtfMarkdown } from "../../../core/documents/formats/rtf";
 import { lineUnits, markdownUnits, type SourceUnit } from "../../../core/documents/formats/text";
 import { findQuote, type TextRange } from "../../../shared/quoteMatch";
 import { DocumentFix } from "../components/DocumentFix";
@@ -57,8 +59,14 @@ export function TextView({ document, target }: { document: Document; target: Vie
     const controller = new AbortController();
     loadDocumentBytes(document.id, controller.signal).then(
       (bytes) => {
-        // Decoded the way processing decodes it, so quotes from its Passages match.
-        const text = decodeText(bytes);
+        // Decoded the way processing decodes it, so quotes from its Passages match: an RTF
+        // or HTML file as the text it reads as (#762), Markdown and text as written.
+        const text =
+          document.kind === "rtf"
+            ? rtfMarkdown(bytes)
+            : document.kind === "html"
+              ? htmlMarkdown(bytes)
+              : decodeText(bytes);
         setLoaded(text === null ? { kind: "failed", message: "" } : { kind: "ready", text });
       },
       (error: unknown) => {
@@ -77,11 +85,17 @@ export function TextView({ document, target }: { document: Document; target: Vie
         ? loaded.message || loaded.kind
         : null,
   );
-  const markdown = document.kind === "markdown";
+  const markdown = document.kind !== "text";
+  const literal = document.kind !== "markdown";
+  const written = document.kind === "markdown";
   const units = useMemo(
     () =>
-      loaded.kind !== "ready" ? [] : markdown ? markdownUnits(loaded.text) : lineUnits(loaded.text),
-    [loaded, markdown],
+      loaded.kind !== "ready"
+        ? []
+        : markdown
+          ? markdownUnits(loaded.text, { literal })
+          : lineUnits(loaded.text),
+    [loaded, markdown, literal],
   );
   const outline = useMemo(() => (markdown ? headingsOf(units) : []), [markdown, units]);
   const reload = () => setAttempt((count) => count + 1);
@@ -96,7 +110,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
           )
         }
       >
-        {markdown && loaded.kind === "ready" && (
+        {written && loaded.kind === "ready" && (
           <button
             type="button"
             data-testid="viewer-markdown-source"
@@ -132,6 +146,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
           <TextContent
             text={loaded.text}
             markdown={markdown}
+            literal={literal}
             source={source}
             units={units}
             outline={outlineOpen ? outline : null}
@@ -172,6 +187,7 @@ function headingIndexes(units: readonly SourceUnit[]): Map<SourceUnit, number> {
 function TextContent({
   text,
   markdown,
+  literal,
   source,
   units,
   outline,
@@ -179,6 +195,8 @@ function TextContent({
 }: {
   text: string;
   markdown: boolean;
+  /** The text is the words it holds: no emphasis, code or links to read (#762). */
+  literal: boolean;
   /** A Markdown file's text as written, rather than formatted. */
   source: boolean;
   units: readonly SourceUnit[];
@@ -224,7 +242,10 @@ function TextContent({
     }
     return findQuote(text, quote) ?? NO_HIGHLIGHT;
   }, [text, target.quote, target.pageFrom, cited]);
-  const blocks = useMemo(() => (markdown ? parseMarkdown(text) : null), [text, markdown]);
+  const blocks = useMemo(
+    () => (markdown ? parseMarkdown(text, { literal }) : null),
+    [text, markdown, literal],
+  );
   const code = useMemo(() => !markdown && looksLikeCode(text), [text, markdown]);
   const citedHeading = useMemo(() => {
     if (!cited) return null;

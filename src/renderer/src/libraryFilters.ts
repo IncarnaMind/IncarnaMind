@@ -177,6 +177,9 @@ const FORMAT_ORDER: readonly DocumentKind[] = [
   "csv",
   "markdown",
   "text",
+  "image",
+  "rtf",
+  "html",
   "web",
   "transcript",
 ];
@@ -194,6 +197,9 @@ export const FORMAT_LABELS: Record<DocumentKind, MessageKey> = {
   csv: "library.format.csv",
   markdown: "library.format.markdown",
   text: "library.format.text",
+  image: "library.format.image",
+  rtf: "library.format.rtf",
+  html: "library.format.html",
   web: "library.format.web",
   transcript: "library.format.transcript",
 };

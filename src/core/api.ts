@@ -1594,6 +1594,12 @@ export interface WordFileCheck {
   fileName: string;
   /** Why it can't be imported; null when it can. */
   refusal: WordRefusalReason | null;
+  /**
+   * Whether the LibreOffice on this computer could convert it to .docx (#104),
+   * found by IncarnaMind, never bundled or downloaded. False for a file that
+   * isn't one it converts.
+   */
+  canConvert: boolean;
   /** What the import screen starts on: someone else's when the file carries tracked changes or comments. */
   origin: WordOrigin;
   /** Who wrote its tracked changes and comments, in the order they first appear. */
@@ -1607,6 +1613,29 @@ export interface WordFileCheck {
    */
   earlierDraft: { documentId: string; name: string } | null;
 }
+
+/** Why an old Office, WPS or Word 97–2003 file couldn't be converted (#762). */
+export type OfficeConversionProblem =
+  /** No LibreOffice was found on this computer: never bundled or downloaded by IncarnaMind. */
+  | "unavailable"
+  /** IncarnaMind doesn't convert a file of this kind. */
+  | "unsupported"
+  /** LibreOffice failed, or took too long: the original is unchanged. */
+  | "failed";
+
+/** What converting a file to the format IncarnaMind reads did (#762). */
+export type OfficeConversionResult =
+  | {
+      /** The copy was added: a Document of its own, which says which file it came from. */
+      outcome: "added";
+      document: Document;
+    }
+  | { outcome: "problem"; problem: OfficeConversionProblem };
+
+/** A .doc converted to a .docx copy the import screen can read (#104). */
+export type WordConversionResult =
+  | { outcome: "converted"; path: string; name: string }
+  | { outcome: "problem"; problem: OfficeConversionProblem };
 
 export interface ImportWordFileInput {
   /** The .docx's absolute path. */
@@ -3098,7 +3127,8 @@ export type LayoutChange =
 
 /**
  * The kinds of Document (ADR-0011): files of PDF, plain text, Markdown, Word
- * (.docx), PowerPoint (.pptx), Excel (.xlsx) and CSV, web pages saved by
+ * (.docx), PowerPoint (.pptx), Excel (.xlsx) and CSV, pictures (read as a
+ * scanned page is, #762), RTF and HTML files (#762), web pages saved by
  * their address (#261), and Transcripts, WebVTT files (#136).
  */
 export type DocumentKind =
@@ -3109,6 +3139,9 @@ export type DocumentKind =
   | "pptx"
   | "xlsx"
   | "csv"
+  | "image"
+  | "rtf"
+  | "html"
   | "web"
   | "transcript";
 
@@ -3379,6 +3412,12 @@ export interface Document {
    * (web pages, Transcripts), which count as evidence as usual.
    */
   ownFile: OwnFile | null;
+  /**
+   * Set when the Document is a copy IncarnaMind converted from another file
+   * with the User's own LibreOffice (#762): that file's name, with its
+   * extension ("Report.doc"). The original is never changed. Null otherwise.
+   */
+  convertedFrom: string | null;
   /**
    * The User keeps it as their own workings: a spreadsheet of figures copied from a
    * report, with their own ratios. Answers search and read it to understand a Question but
@@ -4391,6 +4430,7 @@ export interface UnsupportedFile {
 export type UnreadReason =
   | "format"
   | "scan"
+  | "picture"
   | "password"
   | "damaged"
   | "too-large"
@@ -4454,7 +4494,7 @@ export interface LinkedFolderPreview {
 
 export interface SkippedFile {
   path: string;
-  /** "unsupported-type": not PDF, TXT or Markdown. "unreadable": missing, a folder, or not readable. */
+  /** "unsupported-type": a kind IncarnaMind doesn't read yet. "unreadable": missing, a folder, or not readable. */
   reason: "unsupported-type" | "unreadable";
 }
 
@@ -10600,6 +10640,35 @@ export interface CoreApi {
    */
   addWordOriginal(mindId: string, path: string): Promise<boolean>;
   /**
+   * Converts a .doc to a .docx copy in a private temporary folder, with the
+   * LibreOffice on this computer (#104), for the import screen to read: the
+   * original is never changed.
+   */
+  convertWordFile(path: string): Promise<WordConversionResult>;
+  /**
+   * Removes the temporary `.docx` copy `convertWordFile` made, once the import
+   * screen is done with it: it is added to a Mind, or the User cancels. Only a
+   * copy the core made can be removed.
+   */
+  discardWordFile(path: string): Promise<void>;
+  /**
+   * Whether this computer has LibreOffice (#762): found where it is installed,
+   * by its real path, never bundled or downloaded. Cached for the session.
+   */
+  officeConverter(): Promise<{ available: boolean }>;
+  /**
+   * Converts a copy of an old Office or WPS file (.doc, .xls, .ppt, .wps, .et,
+   * .dps and the like) to .docx, .xlsx or .pptx, headless, with the LibreOffice
+   * on this computer, and adds the copy as a Document that says which file it
+   * came from (#762). The original is never changed.
+   */
+  convertWithOffice(path: string): Promise<OfficeConversionResult>;
+  /**
+   * Shows a file an add skipped in the file manager, so the User can convert it
+   * there (#762). Only a file the last add skipped can be shown.
+   */
+  showSkippedFile(path: string): Promise<void>;
+  /**
    * The fonts a Mind imported from Word draws its text in, as its Word look names them
    * (#746), for Get info to say which aren't installed; none for any other Mind. Throws
    * NotFoundError for an unknown Mind.
@@ -12622,6 +12691,11 @@ const methods: Record<CoreApiMethod, true> = {
   checkWordFile: true,
   importWordFile: true,
   addWordOriginal: true,
+  convertWordFile: true,
+  discardWordFile: true,
+  officeConverter: true,
+  convertWithOffice: true,
+  showSkippedFile: true,
   wordFonts: true,
   listMinds: true,
   renameMind: true,

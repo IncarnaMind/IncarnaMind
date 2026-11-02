@@ -11,6 +11,7 @@
  * Every piece of text points back into the source (`start`/`end`), so a quote
  * found in the source can be highlighted where it is rendered.
  */
+import { LITERAL_HEADING } from "../../../core/documents/formats/text";
 import {
   type CellRange,
   delimiterRow,
@@ -209,8 +210,11 @@ export function sectionHeadings(blocks: readonly Block[]): Map<Block, number> {
   return headings;
 }
 
-export function parseMarkdown(source: string): Block[] {
+export function parseMarkdown(source: string, options: { literal?: boolean } = {}): Block[] {
   const lines = splitLines(source);
+  // A converted file's text: its reader's headings (# and a tab) and otherwise the words as they
+  // are. A line starting "# ", "- ", "> " or "```" is a paragraph there, not structure (#762).
+  if (options.literal) return literalBlocks(lines);
   const { definitions, at } = readDefinitions(lines);
   const context: Context = { source, definitions };
   const blocks: Block[] = [];
@@ -237,6 +241,42 @@ export function parseMarkdown(source: string): Block[] {
       lines.slice(from).filter((line) => !at.has(line.start)),
     ),
   );
+  return blocks;
+}
+
+/** The blocks of a converted file's text: its own headings, and every other line the words. */
+function literalBlocks(lines: readonly Line[]): Block[] {
+  const blocks: Block[] = [];
+  let group: Line[] = [];
+  const flush = () => {
+    if (group.length === 0) return;
+    const inlines: Inline[] = [];
+    group.forEach((line, index) => {
+      if (index > 0) inlines.push({ kind: "break" });
+      inlines.push({ kind: "text", start: line.start, end: line.end });
+    });
+    blocks.push({ kind: "paragraph", inlines });
+    group = [];
+  };
+  for (const line of lines) {
+    const heading = LITERAL_HEADING.exec(line.text);
+    if (heading) {
+      flush();
+      blocks.push({
+        kind: "heading",
+        level: heading[1]?.length as 1 | 2 | 3 | 4 | 5 | 6,
+        inlines: [{ kind: "text", start: line.start + heading[0].length, end: line.end }],
+        section: true,
+      });
+      continue;
+    }
+    if (BLANK.test(line.text)) {
+      flush();
+      continue;
+    }
+    group.push(line);
+  }
+  flush();
   return blocks;
 }
 
