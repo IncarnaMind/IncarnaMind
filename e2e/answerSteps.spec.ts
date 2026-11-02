@@ -523,16 +523,6 @@ test("a sentence its quote doesn't support loses its green check, and the check 
   );
   await screenshot(window, "beyond-its-quote-en");
 
-  // On one Note, the Answer's line names the Citation check and the Note's badge names the
-  // claim check (#2313): a Citation found is not a claim checked.
-  await pointAndClick(window, kept.getByTestId("answer-add"));
-  await expect(kept.getByTestId("answer-added")).toBeVisible();
-  const frontBadge = window
-    .getByTestId("mind-pane")
-    .filter({ visible: true })
-    .getByTestId("check-badge");
-  await expect(frontBadge.locator(".check-badge-words")).toHaveText("Claims not checked");
-
   await core(window).language("zh-CN");
   const chinese = await ask(window, "spring tides 什么时候出现？超出引文");
   await expect(chinese.getByTestId("citation")).toHaveAttribute("data-check", "unsupported");
@@ -540,10 +530,6 @@ test("a sentence its quote doesn't support loses its green check, and the check 
   await expect(chinese.getByTestId("answer-timeline").locator('[data-step="check"]')).toHaveText(
     "引用核对：1 处引用和原文对照 · 1 处需要留意",
   );
-  // The same Note's badge says its claim check in its own words, in Chinese too.
-  await pointAndClick(window, chinese.getByTestId("answer-add"));
-  await expect(chinese.getByTestId("answer-added")).toBeVisible();
-  await expect(frontBadge.locator(".check-badge-words")).toHaveText("说法未核对");
   await screenshot(window, "beyond-its-quote-zh");
   await app.close();
 });

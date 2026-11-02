@@ -40,6 +40,7 @@ const WORDS = {
     lookOnly: "2 claims supported",
     noCitationRow: "3 claims with no Citation",
     needLookRow: "1 claim needs a look",
+    toCheck: "1 claim not checked yet",
     sentences: {
       cited: "Harbours publish the times of high water every 12 months.",
       uncited: [
@@ -63,6 +64,7 @@ const WORDS = {
     lookOnly: "2 条说法有依据",
     noCitationRow: "3 条说法没有引用",
     needLookRow: "1 条说法需要留意",
+    toCheck: "1 条说法待核对",
     sentences: {
       cited: "港口每 12 个月公布一次高潮时间。",
       uncited: ["春潮每天涨两次。", "海鸥天亮时飞往内陆。", "码头六点开门。"],
@@ -190,8 +192,8 @@ for (const language of ["en", "zh-CN"] as const) {
     ]);
     await expect(card.getByTestId("health-summary")).toHaveText(words.lookAndToCheck);
     // Each count shows once in the card: the row names the one not checked yet, the summary does not repeat it (#2313).
-    await expect(card.getByTestId("health-toCheck")).toContainText("1 claim not checked yet");
-    await expect(card.getByText("1 claim not checked yet", { exact: true })).toHaveCount(1);
+    await expect(card.getByTestId("health-toCheck")).toContainText(words.toCheck);
+    await expect(card.getByText(words.toCheck, { exact: true })).toHaveCount(1);
     const unseen = window.locator('[data-testid="claim-mark"][data-claim="check-7"]');
     await expect(unseen).toBeHidden();
     await expect(unseen.locator("svg")).toHaveCount(0);

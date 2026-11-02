@@ -226,10 +226,12 @@ test("in Chinese and a narrow pane the badge keeps its state to its mark; Tab re
   // A cited claim no check has looked at is one to check: an Answer added to the note has one.
   await addToNote(window, await askInAssistant(window, "When do spring tides happen?"));
   await expect(editor.getByTestId("citation")).toHaveCount(1);
-  await setLanguage(window, "zh-CN");
   const open = window.getByTestId("check-badge-open");
-  await expect(open).toHaveAccessibleName("说法和引用：说法未核对");
   const words = window.getByTestId("check-badge").locator(".check-badge-words");
+  await expect(open).toHaveAccessibleName("Claims and Citations: Claims not checked");
+  await expect(words).toHaveText("Claims not checked");
+  await setLanguage(window, "zh-CN");
+  await expect(open).toHaveAccessibleName("说法和引用：说法未核对");
   await expect(words).toHaveText("说法未核对");
   await expect(words).toBeVisible();
   await setWindowSize(app, window, 1100, 720);
