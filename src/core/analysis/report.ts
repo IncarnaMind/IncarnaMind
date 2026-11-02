@@ -9,6 +9,7 @@ import {
 import { figureCellText, figureResultText, figureText, rawColumn } from "../../shared/figures";
 import type { AnswerAnalysis } from "../api";
 import type { Language } from "../language";
+import { tableWhereText } from "./documentTables";
 import { cellsText, notNumbersText, rowsText } from "./figureRows";
 
 const count = (n: number) => figureText("en", n);
@@ -47,13 +48,26 @@ export function analysisReport(analysis: AnswerAnalysis, language: Language): st
   for (const input of analysis.inputs) {
     if (input.kind === "range") {
       const sheet = input.citation.location?.kind === "rows" ? input.citation.location.sheet : null;
-      const where = `${input.citation.documentName}${sheet ? `, sheet "${sheet}"` : ""}, ${input.range}`;
+      const table = input.table
+        ? `, table ${input.table.number} (${tableWhereText(input.table.rows, input.citation.location?.kind)})`
+        : "";
+      const where = `${input.citation.documentName}${sheet ? `, sheet "${sheet}"` : ""}${table}, ${input.range}`;
       const cut = input.cut
         ? ` (cut: only its first ${rowsOf(input.rows)} were read, the most an Analysis reads; say so in the Answer)`
         : "";
       lines.push(
         `- ${input.name}: ${where}: ${rowsOf(input.rows)} × ${input.columns} columns${cut}`,
       );
+      if (input.table?.scan) {
+        lines.push(
+          `  Its numbers were read from a scan by text recognition, which may misread them: say so in the Answer.`,
+        );
+      }
+      if (input.table?.marks) {
+        lines.push(
+          `  ${input.table.marks === 1 ? "1 cell has" : `${count(input.table.marks)} cells have`} a footnote mark after its number (such as ¹ or *), which its value leaves out.`,
+        );
+      }
     } else {
       lines.push(
         `- ${input.name}: ${input.input.number.chars}, from ${input.input.citation.documentName}`,

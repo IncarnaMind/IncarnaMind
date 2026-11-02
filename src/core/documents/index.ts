@@ -2504,6 +2504,23 @@ export function createDocuments(options: DocumentsOptions) {
     },
 
     /**
+     * Whether any live Document to search (of all of them, or only of these) has a table of
+     * figures its version's Units keep (#448): what an Analysis reads besides sheets.
+     */
+    searchableHasTables(documentIds: readonly string[] | undefined): boolean {
+      const { where, params } = searchable(documentIds);
+      return (
+        db.get<{ found: number }>(
+          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ('pdf', 'docx', 'pptx')
+             AND EXISTS (SELECT 1 FROM document_pages p WHERE p.document_id = d.id
+               AND p.content_hash = d.content_hash AND p.label LIKE '%"tables":[%')
+           LIMIT 1`,
+          params,
+        ) !== undefined
+      );
+    },
+
+    /**
      * The languages the live Documents with Passages to search are in (of all
      * of them, or only of these), the most common first, with how many
      * Documents are in each. A Document whose language can't be told isn't counted.

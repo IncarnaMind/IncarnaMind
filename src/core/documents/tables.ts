@@ -8,8 +8,9 @@
  * label ending in a colon names the section the rows under it are in. Pure.
  */
 
-import type { QuarterTurn } from "../../shared/units";
+import type { QuarterTurn, UnitTable } from "../../shared/units";
 import { turnQuad } from "./scan/rotation";
+import { CJK_EDGE, figureColumns, isDatum, isFigure, join, MAX_HEADING_ROWS } from "./tableCells";
 
 /** Text that sits together on a row: a word, or words set close enough to read as one. */
 export interface Fragment {
@@ -52,24 +53,6 @@ const MAX_CELL = 56;
 
 const widthOf = (text: string) =>
   [...text].reduce((width, character) => width + (CJK_EDGE.test(character) ? 2 : 1), 0);
-const MAX_HEADING_ROWS = 3;
-
-const FIGURE =
-  /^[<>≈~≤≥]?\s?[-+−–(（]?[$€£¥]?\s?\d[\d,.\s]*(?:%|\s?(?:[kmb]n?|bn|pp|x|×|万|亿|元))?[)）]?$/iu;
-const CJK_EDGE = /[\u2e80-\u2fdf\u3000-\u9fff\uf900-\ufaff\uff00-\uffef]/u;
-
-export const isFigure = (text: string) => FIGURE.test(text.trim());
-const YEAR = /^(?:FY\s?)?(?:19|20)\d{2}$/i;
-
-const join = (a: string, b: string) =>
-  !a
-    ? b
-    : !b
-      ? a
-      : CJK_EDGE.test(a.at(-1) ?? "") && CJK_EDGE.test(b[0] ?? "")
-        ? a + b
-        : `${a} ${b}`;
-
 export function textItemOf(item: object) {
   if (!("str" in item) || typeof item.str !== "string") return null;
   const transform = "transform" in item && Array.isArray(item.transform) ? item.transform : [];
@@ -252,8 +235,7 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
   const rows = lines.map((line) => line.fragments);
   const hasFigure = (row: readonly Fragment[]) => row.some((fragment) => isFigure(fragment.text));
   // A year names a column more often than it fills one: "2025" over a column of figures.
-  const hasData = (row: readonly Fragment[]) =>
-    row.some((fragment) => isFigure(fragment.text) && !YEAR.test(fragment.text.trim()));
+  const hasData = (row: readonly Fragment[]) => row.some((fragment) => isDatum(fragment.text));
   const firstData = rows.findIndex(hasData);
   const firstBody = firstData >= 0 ? firstData : rows.findIndex(hasFigure);
   const isSection = (row: readonly Fragment[]) =>
@@ -354,11 +336,10 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
   const data = body.filter((row) => !row.section);
   if (data.length < 2 || headingRows.length + data.length < MIN_ROWS) return null;
 
-  const numeric = spans.map((_, column) => {
-    const filled = data.map((row) => row.cells[column] ?? "").filter((text) => text !== "");
-    const figures = filled.filter(isFigure).length;
-    return figures >= 2 && figures >= filled.length / 2 && filled.length >= data.length / 2;
-  });
+  const numeric = figureColumns(
+    data.map((row) => row.cells),
+    spans.length,
+  );
   if (spans.length < 3 && !numeric.slice(1).some(Boolean)) return null;
   // Words only, most rows have every column: a page of references in columns has gaps.
   const full = data.filter((row) => row.cells.every((text) => text !== "")).length;
@@ -392,7 +373,10 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
   // A table names every column it heads but its labels', and labels its rows: references set in columns do neither.
   const headed = headings.some((heading) => heading !== "");
   if (headed && headings.slice(1).some((heading) => heading === "")) return null;
-  if (data.filter((row) => row.cells[0] === "").length > data.length * 0.3) return null;
+  // A register's "Brought forward" or "Total paid" sits under a column of names, not dates: still a label.
+  const unlabelled = (row: TableGrid["rows"][number]) =>
+    row.cells.every((text) => text === "" || isFigure(text));
+  if (data.filter(unlabelled).length > data.length * 0.3) return null;
   // A table's headings are names and its cells short: columns of prose or references are no table.
   if (headings.some((heading) => heading.length > MAX_HEADING)) return null;
   const widths = spans.map((_, column) => {
@@ -441,9 +425,7 @@ export function findTables(rows: readonly Row[]): FoundTable[] {
     while (end < rows.length && fits(rows[end] as Row, rows.slice(at, end))) end++;
     const firstBody = rows
       .slice(at, end)
-      .findIndex((row) =>
-        row.fragments.some((each) => isFigure(each.text) && !YEAR.test(each.text.trim())),
-      );
+      .findIndex((row) => row.fragments.some((each) => isDatum(each.text)));
     // Headings in two levels may break the run above its first row (a centred 2025 over Q1 and Q2):
     // a run that starts with headings may take rows above it, never the table before's.
     const lowest = firstBody > 0 ? (found.at(-1)?.last ?? -1) + 1 : at;
@@ -457,4 +439,78 @@ export function findTables(rows: readonly Row[]): FoundTable[] {
     }
   }
   return found;
+}
+
+/** A table found on a page as a Unit keeps it (#448); null for one with no column of figures. */
+export function unitTable(grid: TableGrid): UnitTable | null {
+  if (!grid.numeric.some(Boolean)) return null;
+  return { headings: grid.headings, rows: grid.rows.map((row) => row.cells) };
+}
+
+/** A page's tables as a Unit keeps them, and the lines above the first and below the last. */
+export interface PageTables {
+  tables: UnitTable[];
+  before: string[];
+  after: string[];
+}
+
+const lineOf = (row: Row) =>
+  row.fragments
+    .map((fragment) => fragment.text)
+    .join(" ")
+    .trim();
+
+/** The tables among a page's rows (`findTables`) with a column of figures, and the lines around them. */
+export function pageTables(rows: readonly Row[]): PageTables {
+  const found = findTables(rows).flatMap((table) => {
+    const kept = unitTable(table.grid);
+    return kept ? [{ table: kept, first: table.first, last: table.last }] : [];
+  });
+  const lines = (from: number, to: number) => rows.slice(from, to).map(lineOf).filter(Boolean);
+  return {
+    tables: found.map((each) => each.table),
+    before: lines(0, found[0]?.first ?? 0),
+    after: lines((found.at(-1)?.last ?? rows.length) + 1, rows.length),
+  };
+}
+
+const CONTINUED = /\bcontinued\b|\bcont(?:'|’)?d\b|[(（]续[)）]|续表|接上页/iu;
+const lineShape = (line: string) => line.toLowerCase().replace(/\d+/g, "#").replace(/\s+/g, " ");
+
+/**
+ * Each page's tables, by page number, with a page's first table marked as going on from the last
+ * one of the page before (#448): one with as many columns, headed as it is or not at all, with
+ * nothing between them but lines more than one page prints (a running header or footer, the
+ * register's own title) or a line that says it continues. A caption between them starts a table
+ * of its own.
+ */
+export function continuedTables(pages: ReadonlyMap<number, PageTables>): Map<number, UnitTable[]> {
+  const shapes = new Map<string, Set<number>>();
+  for (const [page, { before, after }] of pages) {
+    for (const line of [...before, ...after]) {
+      const shape = lineShape(line);
+      shapes.set(shape, (shapes.get(shape) ?? new Set()).add(page));
+    }
+  }
+  const running = (line: string) =>
+    CONTINUED.test(line) || (shapes.get(lineShape(line))?.size ?? 0) > 1;
+  const tables = new Map<number, UnitTable[]>();
+  for (const [page, layout] of [...pages].sort(([a], [b]) => a - b)) {
+    if (layout.tables.length === 0) continue;
+    const [first, ...rest] = layout.tables;
+    const previous = pages.get(page - 1);
+    const last = previous?.tables.at(-1);
+    const unheaded = first?.headings.every((heading) => heading === "") ?? false;
+    const goesOn =
+      first &&
+      last &&
+      first.headings.length === last.headings.length &&
+      (unheaded || first.headings.join("\t") === last.headings.join("\t")) &&
+      [...(previous?.after ?? []), ...layout.before].every(running);
+    tables.set(page, [
+      ...(first ? [goesOn ? { ...first, continues: true as const } : first] : []),
+      ...rest,
+    ]);
+  }
+  return tables;
 }

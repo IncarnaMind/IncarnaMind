@@ -12,6 +12,7 @@
  * office-formats spike.
  */
 import { type TextUnit, UnitBuilder } from "../../../shared/units";
+import { cellTable } from "../tableCells";
 import { ExtractionError } from "./errors";
 import { dataUrlOf, imageTypeOf } from "./images";
 import { child, descendants, elements, local, parseXml, textOf, type XmlElement } from "./xml";
@@ -228,12 +229,14 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
     if (notes.length) builder.add(notes.join("\n"), "notes", "\n\n");
 
     const hidden = root?.attrs.show === "0";
+    const tables = collected.tables.flatMap((rows) => cellTable(rows) ?? []);
     units.push({
       page: number,
       kind: "slide",
       label: {
         ...(collected.title ? { title: collected.title } : {}),
         ...(hidden ? { hidden } : {}),
+        ...(tables.length > 0 ? { tables } : {}),
       },
       text: builder.text,
       anchors: builder.anchors,

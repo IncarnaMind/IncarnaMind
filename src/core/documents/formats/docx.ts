@@ -23,8 +23,14 @@
  * author. Comments anchored only in headers or footers, which aren't in a
  * Unit's text, are left out.
  */
-import { type TextUnit, UnitBuilder, type UnitComment } from "../../../shared/units";
+import {
+  type TextUnit,
+  UnitBuilder,
+  type UnitComment,
+  type UnitTable,
+} from "../../../shared/units";
 import { headingLevelOfStyleName } from "../../../shared/wordStyles";
+import { cellTable } from "../tableCells";
 import { type Relationship, relationshipsOf } from "./docxPackage";
 import { ExtractionError } from "./errors";
 import { child, elements, local, parseXml, type XmlElement } from "./xml";
@@ -68,6 +74,8 @@ interface CommentMarks {
 interface Paragraph extends CommentMarks {
   /** Empty only for a paragraph read for the comments it refers to, or for the section it ends. */
   text: string;
+  /** A table's row: the table, counted in the body from 0, and its cells, one for each column of its grid. */
+  row?: { table: number; cells: string[] };
   /** 0 for a Title, 1–9 for headings, null for body text. */
   level: number | null;
   /** The properties of the Word section this paragraph ends, when it ends one. */
@@ -134,7 +142,22 @@ const textOf = (paragraphs: readonly Paragraph[], separator: string) =>
     .map((paragraph) => paragraph.text)
     .join(separator);
 
-function readBlocks(container: XmlElement, styles: Map<string, number>, out: Paragraph[]): void {
+/** A cell's paragraphs on one line of its row, its tabs a space so the row's own tabs part its cells. */
+const cellText = (paragraphs: readonly Paragraph[]) =>
+  textOf(paragraphs, " ").replace(/\s+/g, " ").trim();
+
+/** How many of its table's grid columns a cell spans. */
+function spanOf(cell: XmlElement): number {
+  const span = Number(child(child(cell, "w:tcPr") ?? cell, "w:gridSpan")?.attrs["w:val"]);
+  return Number.isInteger(span) && span > 1 ? span : 1;
+}
+
+function readBlocks(
+  container: XmlElement,
+  styles: Map<string, number>,
+  out: Paragraph[],
+  tables = { count: 0 },
+): void {
   for (const element of elements(container)) {
     if (element.name === "w:p") {
       const pPr = child(element, "w:pPr");
@@ -154,25 +177,30 @@ function readBlocks(container: XmlElement, styles: Map<string, number>, out: Par
       else if (refersToComments(marks) || sectionEnd)
         out.push({ text, level: null, ...marks, ...ends });
     } else if (element.name === "w:tbl") {
+      const table = tables.count++;
       for (const row of elements(element).filter((each) => each.name === "w:tr")) {
         const marks: CommentMarks = { references: [], starts: [] };
+        // A merged cell keeps its grid's columns (#448): the cells right of one spanning two
+        // columns stay under their own headings, and one merged down from the row above is empty.
         const cells = elements(row)
           .filter((each) => each.name === "w:tc")
-          .map((cell) => {
+          .flatMap((cell) => {
             const inner: Paragraph[] = [];
             readBlocks(cell, styles, inner);
             for (const paragraph of inner) {
               marks.references.push(...paragraph.references);
               marks.starts.push(...paragraph.starts);
             }
-            return textOf(inner, " ");
+            return [cellText(inner), ...Array.from({ length: spanOf(cell) - 1 }, () => "")];
           });
-        const text = cells.join("\t").trim();
-        if (text || refersToComments(marks)) out.push({ text, level: null, ...marks });
+        const filled = cells.some((cell) => cell !== "");
+        const text = filled ? cells.join("\t") : "";
+        if (filled) out.push({ text, level: null, ...marks, row: { table, cells } });
+        else if (refersToComments(marks)) out.push({ text, level: null, ...marks });
       }
     } else if (element.name === "w:sdt") {
       const content = child(element, "w:sdtContent");
-      if (content) readBlocks(content, styles, out);
+      if (content) readBlocks(content, styles, out, tables);
     }
   }
 }
@@ -288,6 +316,51 @@ async function runningTexts(
   return texts;
 }
 
+/** A table of the body: its rows' paragraphs, and how the index reads it (null: no column of figures). */
+interface ReadTable {
+  rows: Paragraph[];
+  read: UnitTable | null;
+}
+
+function readTables(paragraphs: readonly Paragraph[]): Map<number, ReadTable> {
+  const tables = new Map<number, ReadTable>();
+  for (const paragraph of paragraphs) {
+    if (!paragraph.row) continue;
+    const table = tables.get(paragraph.row.table) ?? { rows: [], read: null };
+    table.rows.push(paragraph);
+    tables.set(paragraph.row.table, table);
+  }
+  for (const table of tables.values()) {
+    table.read = cellTable(table.rows.map((row) => row.row?.cells ?? []));
+  }
+  return tables;
+}
+
+/**
+ * The tables a Unit holds rows of, from those rows (`index` in their table): a long table split
+ * over two Units goes on in the second from where the first left it.
+ */
+function tablesIn(
+  rows: readonly { table: number; index: number }[],
+  tables: ReadonlyMap<number, ReadTable>,
+): UnitTable[] {
+  const held: UnitTable[] = [];
+  for (const id of new Set(rows.map((row) => row.table))) {
+    const table = tables.get(id);
+    if (!table?.read) continue;
+    const headed = table.rows.length - table.read.rows.length;
+    const body = rows.filter((row) => row.table === id && row.index >= headed);
+    const [first] = body;
+    if (!first) continue;
+    held.push({
+      headings: table.read.headings,
+      rows: body.map((row) => table.read?.rows[row.index - headed] ?? []),
+      ...(first.index > headed && { continues: true as const }),
+    });
+  }
+  return held;
+}
+
 /** A heading of the Document, for the viewer's outline. */
 export interface DocxHeading {
   /** From 1. */
@@ -332,7 +405,10 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
   const headed = paragraphs.some(
     (paragraph) => paragraph.text && paragraph.level !== null && paragraph.level > 0,
   );
+  const tables = readTables(paragraphs);
   let builder = new UnitBuilder();
+  /** The table rows in the Unit being built: each its table and its place in it, from 0. */
+  let tableRows: { table: number; index: number }[] = [];
   let part = 1;
   /** The comments anchored in the Unit being built, added after its text. */
   let pending: string[] = [];
@@ -341,6 +417,7 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
   let section = 0;
   const flush = () => {
     const added = addComments(builder, pending, comments);
+    const unitTables = tablesIn(tableRows, tables);
     if (!builder.empty) {
       const heading = path.filter(Boolean);
       const runningText = [...new Set([...inSections].map((each) => running[each] ?? ""))]
@@ -354,6 +431,7 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
           ...(part > 1 ? { part } : {}),
           ...(heading.length === 0 && headed ? { beforeHeading: true } : {}),
           ...(added.length > 0 ? { comments: added } : {}),
+          ...(unitTables.length > 0 ? { tables: unitTables } : {}),
         },
         text: builder.text,
         anchors: builder.anchors,
@@ -361,6 +439,7 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
       });
     }
     builder = new UnitBuilder();
+    tableRows = [];
     pending = [];
     inSections = new Set();
   };
@@ -383,6 +462,10 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
       }
       read++;
       builder.add(paragraph.text, `p${read}`);
+      if (paragraph.row) {
+        const { table } = paragraph.row;
+        tableRows.push({ table, index: tables.get(table)?.rows.indexOf(paragraph) ?? -1 });
+      }
       inSections.add(section);
     }
     pending.push(...commentsAt(paragraph, index, anchors));

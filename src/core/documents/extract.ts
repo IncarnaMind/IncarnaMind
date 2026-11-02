@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import type { PDFPageProxy, TextItem } from "pdfjs-dist/types/src/display/api";
 import { readPdfPageText } from "../../shared/pdfFormText";
 import { CJK } from "../../shared/text";
-import type { Anchor, TextUnit } from "../../shared/units";
+import type { Anchor, TextUnit, UnitTable } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
 import type { DocumentKind, UnreadParts } from "../api";
 import { isRecord } from "../errors";
@@ -22,7 +22,16 @@ import { printedPageNames } from "./printedPages";
 import { scannedUnit } from "./scan/layout";
 import { type CanvasFactory, isScanned, pagePicture } from "./scan/pages";
 import { anchorsBack, readWithQuarterTurn } from "./scan/rotation";
-import { findTables, type TableGrid, textItemOf, textLayerRows } from "./tables";
+import {
+  continuedTables,
+  findTables,
+  type PageTables,
+  pageTables,
+  scannedRows,
+  type TableGrid,
+  textItemOf,
+  textLayerRows,
+} from "./tables";
 import { unreadMessage } from "./unreadMessage";
 import {
   PICTURE_LIMITS,
@@ -543,6 +552,7 @@ async function extractPdf(
     const scanned: number[] = [];
     const scanFields = new Map<number, { text: string; anchors: Anchor[] }>();
     const unreadForms: number[] = [];
+    const layouts = new Map<number, PageTables>();
     const metadata = await document.getMetadata();
     const xfa = isRecord(metadata.info) && metadata.info.IsXFAPresent === true;
     const signatures = await document.getSignatures();
@@ -558,6 +568,7 @@ async function extractPdf(
       const read = readPageText(content.items);
       if (read.kept.size > 0) keptBreaks.set(number, read.kept);
       pages.push({ page: number, kind: "page", label: null, text: read.text, anchors: null });
+      layouts.set(number, pageTables(textLayerRows(content.items)));
       if (reading && (await isScanned(page, pageText(source.items), OPS))) {
         scanned.push(number);
         if (fields.length > 0) scanFields.set(number, scannedFormFields(page, fields));
@@ -583,7 +594,18 @@ async function extractPdf(
       await document.getPageLabels(),
       pages.map((unit) => unit.text),
     );
-    const units = pages.map((unit, index) => withPrintedName(unit, names[index] ?? null));
+    for (const unit of pages) {
+      const scan = unit.label?.scan;
+      if (!scan) continue;
+      // A scanned page's tables are where its recognized lines sit; one not read has none.
+      if (scan.unread) layouts.delete(unit.page);
+      else
+        layouts.set(unit.page, pageTables(scannedRows(unit.text, unit.anchors ?? [], scan.turn)));
+    }
+    const tables = continuedTables(layouts);
+    const units = pages.map((unit, index) =>
+      withTables(withPrintedName(unit, names[index] ?? null), tables.get(unit.page)),
+    );
     return { pageCount: pages.length, units, unread, parts: null, keptBreaks };
   } catch (error) {
     if (reading?.signal.aborted) throw reading.signal.reason;
@@ -596,6 +618,10 @@ async function extractPdf(
   } finally {
     await task.destroy();
   }
+}
+
+function withTables(unit: TextUnit, tables: UnitTable[] | undefined): TextUnit {
+  return tables && tables.length > 0 ? { ...unit, label: { ...unit.label, tables } } : unit;
 }
 
 function withPrintedName(unit: TextUnit, name: string | null): TextUnit {

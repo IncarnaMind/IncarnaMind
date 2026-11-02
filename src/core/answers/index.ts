@@ -843,6 +843,8 @@ export interface DocumentsForAnswers
    * with `workbooksOnly`, a workbook, whose formulas its Tools read (#2347).
    */
   searchableHasSheets(documentIds: readonly string[] | null, workbooksOnly?: boolean): boolean;
+  /** Whether a Document to search has a table of figures in a PDF, Word file or deck (#448). */
+  searchableHasTables(documentIds: readonly string[] | null): boolean;
   passage(passageId: string): WindowedPassage | null;
   /** The live Passages of a live Document at positions `from` to `to`, in reading order. */
   passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];
@@ -2868,7 +2870,9 @@ export function createAnswers(options: AnswersOptions) {
         offersAnalysis(prepared.capabilities) &&
         input.toolSet === undefined &&
         !help &&
-        (input.analyse === true || options.documents.searchableHasSheets(documentIds))
+        (input.analyse === true ||
+          options.documents.searchableHasSheets(documentIds) ||
+          options.documents.searchableHasTables(documentIds))
           ? [
               analysisTool({
                 runtime,

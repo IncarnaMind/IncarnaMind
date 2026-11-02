@@ -12,7 +12,8 @@
  * - Currency: one symbol for the column ("$1,200"); two different ones read neither.
  * - Percent: "8%" is 0.08 only where every number in the column is written with "%".
  * - Full-width characters ("１，２００", "（５）") read as their plain forms. A unit or a word
- *   ("1.2万", "5k", "n/a", "-"), a sign after the number ("5-"), a date or TRUE is no number.
+ *   ("1.2万", "5k", "n/a", "-"), a sign after the number ("5-"), a raised mark ("1,234²"), a
+ *   date or TRUE is no number.
  */
 import type { AnalysisCell } from "../../shared/analysis";
 
@@ -31,7 +32,11 @@ const PARTS =
 const POINT = /^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d*)?$|^\.\d+$/;
 const COMMA = /^(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d+)?$/;
 
+/** Superscript and subscript characters, which NFKC folds into plain digits: "1,234²" isn't 1,2342. */
+const RAISED = /[\u00b2\u00b3\u00b9\u2070-\u209f]/u;
+
 function written(text: string): Written | null {
+  if (RAISED.test(text)) return null;
   const plain = text
     .normalize("NFKC")
     .trim()
