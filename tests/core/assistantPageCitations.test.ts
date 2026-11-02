@@ -104,7 +104,7 @@ describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, ()
   // protects=a revision with new text, written in the same step as its cite, keeps its Citation whichever comes first; fails_when=the revised page loses its marker; no_claim=how a real provider orders the calls.
   test.each(["cite-first", "write-first"] as const)("a revision, %s", async (order) => {
     const LONGER =
-      "## Tides\n\nSpring tides come at new and full moon [^1].\n\nNeap tides come between, at half moon.";
+      "## Tides\n\nSpring tides come at new and full moon [^1].\n\nNeap tides come between them.";
     let turn = 0;
     const model = scriptedModel((call: ModelCall): ScriptedReply => {
       if (isCheckRun(call)) return checkReply(call, {});
@@ -150,7 +150,7 @@ describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, ()
     expect(shownWithChanges(page)).toEqual([
       "+ Tides",
       "+ Spring tides come at new and full moon ⟨found⟩.",
-      "+ Neap tides come between, at half moon.",
+      "+ Neap tides come between them.",
     ]);
   });
 });
