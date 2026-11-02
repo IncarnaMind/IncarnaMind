@@ -225,6 +225,8 @@ for (const language of ["en", "zh-CN"] as const) {
         { timeout: 30_000 },
       );
       expect(await bridge(window).folders()).toEqual(["Kitchen", "Race"]);
+      // With Folders there now, the offer is gone until Undo takes them back.
+      await expect(button).toHaveCount(0);
       await window.keyboard.press("ControlOrMeta+z");
       await expect.poll(() => bridge(window).folders()).toEqual([]);
       await expect(button).toBeVisible();

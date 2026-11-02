@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import {
   addDocuments,
@@ -40,15 +41,54 @@ async function shot(window: Page, name: string): Promise<void> {
 }
 
 /** The first own Question with no model set: the setup card comes up and the Question waits. */
-async function askWithNoModel(window: Page, question: string) {
+async function askWithNoModel(window: Page, question: string, scope?: string) {
   await newMind(window);
   await window.getByTestId("mind-editor").focus();
   await window.keyboard.press("ControlOrMeta+j");
+  if (scope !== undefined) {
+    await window.keyboard.type(`@${scope}`);
+    await expect(window.getByTestId("scope-picker")).toBeVisible();
+    await window.keyboard.press("Enter");
+  }
   await window.keyboard.type(question);
   await window.keyboard.press("Enter");
   const card = window.getByTestId("model-setup");
   await expect(card).toBeVisible();
   return card;
+}
+
+/** Puts a Document in a Folder, walled or not, through the core as the Library does. */
+async function groupDocument(
+  window: Page,
+  document: string,
+  name: string,
+  keepInside: boolean,
+): Promise<void> {
+  await window.evaluate(
+    async (wanted) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const found = (await core.listDocuments()).find((each) => each.name === wanted.document);
+      const group = await core.createLibraryGroup({
+        name: wanted.name,
+        description: "",
+        keepInside: wanted.keepInside,
+      });
+      if (found) await core.assignDocumentGroup(found.id, group.id);
+    },
+    { document, name, keepInside },
+  );
+  await expect
+    .poll(
+      () =>
+        window.evaluate(async () => {
+          const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          const library = await core.getLibrary();
+          return library.assignments.filter((each) => each.groupId !== null).length;
+        }),
+      { timeout: 15_000 },
+    )
+    .toBe(1);
+  await expect(window.getByTestId("folder-row").filter({ hasText: name })).toBeVisible();
 }
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -118,6 +158,57 @@ test("a Question whose words nothing matches still waits, with the way to choose
     await expect(window.getByTestId("assistant-waiting-choose")).toBeVisible();
     // Nothing matched: no empty list is drawn under the Question.
     await expect(window.getByTestId("found-passages")).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a Folder scope narrows the waiting passages to what it holds (#763)", async () => {
+  test.setTimeout(120_000);
+  const tide = join(sources, "Tide.txt");
+  const recipe = join(sources, "Recipe.txt");
+  await writeFile(tide, TIDE);
+  await writeFile(recipe, "The tide tables recipe says to read them every spring.");
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    home: sources,
+    ollama: "http://127.0.0.1:9",
+  });
+  try {
+    await setWindowSize(app, window, 900, 700);
+    await setLanguage(window, "en");
+    await addDocuments(window, [tide, recipe]);
+    await groupDocument(window, "Tide", "Work", false);
+    await askWithNoModel(window, "What do the tide tables say?", "Work");
+    const passages = window.getByTestId("found-passage");
+    await expect(passages).toHaveCount(1);
+    await expect(passages.first().getByTestId("found-passage-document")).toContainText("Tide");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a walled Folder's work stays out of the waiting passages (#763, #1934)", async () => {
+  test.setTimeout(120_000);
+  const tide = join(sources, "Tide.txt");
+  const lease = join(sources, "Lease.txt");
+  await writeFile(tide, TIDE);
+  await writeFile(lease, "The lease tables are read every spring.");
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    home: sources,
+    ollama: "http://127.0.0.1:9",
+  });
+  try {
+    await setWindowSize(app, window, 900, 700);
+    await setLanguage(window, "en");
+    await addDocuments(window, [tide, lease]);
+    await groupDocument(window, "Lease", "Client work", true);
+    await askWithNoModel(window, "What do the tide tables and the lease say?");
+    // The Note is in no Folder, so the lease, kept inside its wall, is not shown.
+    const passages = window.getByTestId("found-passage");
+    await expect(passages).toHaveCount(1);
+    await expect(passages.first().getByTestId("found-passage-document")).toContainText("Tide");
   } finally {
     await app.close();
   }

@@ -10,6 +10,7 @@ import {
   assistantAnswers,
   createDataFolder,
   launchApp,
+  mindWrittenBefore,
   newMind,
   removeDataFolder,
   setLanguage,
@@ -53,7 +54,9 @@ for (const language of ["en", "zh-CN"] as const) {
   test(`offline, the Answer says so and shows what the Documents say, in ${language}`, async () => {
     test.setTimeout(120_000);
     const path = join(sources, "Tide.txt");
+    const lease = join(sources, "Lease.txt");
     await writeFile(path, TIDE);
+    await writeFile(lease, "The lease tables are read every spring.");
     const { app, window } = await launchApp(dataDir, {
       fakeChat: true,
       home: sources,
@@ -71,7 +74,29 @@ for (const language of ["en", "zh-CN"] as const) {
         });
       });
       await setLanguage(window, language);
-      await addDocuments(window, [path]);
+      await addDocuments(window, [path, lease]);
+      // The lease is kept inside a walled Folder; the Note is in no Folder, so it is not read.
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const found = (await core.listDocuments()).find((each) => each.name === "Lease");
+        const group = await core.createLibraryGroup({
+          name: "Client work",
+          description: "",
+          keepInside: true,
+        });
+        if (found) await core.assignDocumentGroup(found.id, group.id);
+      });
+      await expect
+        .poll(
+          () =>
+            window.evaluate(async () => {
+              const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+              const library = await core.getLibrary();
+              return library.assignments.filter((each) => each.groupId !== null).length;
+            }),
+          { timeout: 15_000 },
+        )
+        .toBe(1);
       await newMind(window);
 
       // Online, the same lost connection names OpenAI and says what to check.
@@ -89,6 +114,8 @@ for (const language of ["en", "zh-CN"] as const) {
         translate(language, "answer.offline.line"),
       );
       await expect(error).toContainText(translate(language, "answer.found"));
+      // The lease, kept inside its wall, is not among what the Note's side reads.
+      await expect(error.getByTestId("found-passage")).toHaveCount(1);
       const passage = error.getByTestId("found-passage").first();
       await expect(passage.getByTestId("found-passage-document")).toContainText("Tide");
       await expect(passage.getByTestId("found-passage-text")).toContainText("tide tables");
@@ -123,3 +150,50 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 }
+
+test("an Answer written into a Note says it is offline, with the Question's passages too", async () => {
+  test.setTimeout(150_000);
+  const path = join(sources, "Tide.txt");
+  await writeFile(path, TIDE);
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    home: sources,
+    ollama: "http://127.0.0.1:9",
+  });
+  try {
+    await setWindowSize(app, window, 900, 700);
+    await acceptPlainTextKeys(window);
+    const provider = await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      return core.saveChatProvider({
+        kind: "openai",
+        modelId: "gpt-6.1-sol",
+        apiKey: "key-not-real",
+      });
+    });
+    await setLanguage(window, "en");
+    await addDocuments(window, [path]);
+    // A Note whose Question was asked and whose Answer failed, as the core stores it.
+    await mindWrittenBefore(window, "Offline note", [
+      {
+        question: "Does the tide table have no connection?",
+        answer: "",
+        failed: {
+          errorKind: "network",
+          errorMessage: "Cannot connect to API: fetch failed",
+          providerId: provider.id,
+          modelId: "gpt-6.1-sol",
+        },
+      },
+    ]);
+    await window.getByTestId("mind-list-item").filter({ hasText: "Offline note" }).click();
+    const failed = window.getByTestId("mind-editor").getByTestId("answer-error");
+    await expect(failed).toHaveAttribute("data-error-kind", "network");
+    await setOnline(window, false);
+    await expect(failed.getByRole("alert")).toContainText(translate("en", "answer.offline.line"));
+    await expect(failed.getByTestId("found-passage")).toHaveCount(1);
+    await expect(failed.getByTestId("found-passage-document")).toContainText("Tide");
+  } finally {
+    await app.close();
+  }
+});

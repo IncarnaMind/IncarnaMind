@@ -23,7 +23,7 @@ import {
 import { askedAgainCounts } from "../../coverage";
 import { AskedQuoteLines } from "../../editor/AskedQuotes";
 import { useT } from "../../i18n";
-import { useFoundPassages } from "../../localPassages";
+import { useFoundPassages, useMindPlace } from "../../localPassages";
 import { isLive, useMeetings } from "../../meetings";
 import { chooseModelInPlace, useModelSetup } from "../../modelSetup";
 import { useCitedSource } from "../../openCited";
@@ -464,9 +464,15 @@ function useThreadStart(conversation: { id: string; createdAt: string } | null):
 
 /**
  * What a Question waiting for a model finds on this computer (#763): its own words, searched in
- * the Documents, shown while the setup card asks for the model that will answer it.
+ * the Documents, shown while the setup card asks for the model that will answer it. The Note's
+ * Folder decides its side of a wall, as it will for the Answer (#1934).
  */
-function WaitingPassages({ question }: { question: { text: string; scope?: SearchScope | null } }) {
-  const found = useFoundPassages(question.text, question.scope ?? null);
+function WaitingPassages({
+  question,
+}: {
+  question: { text: string; scope?: SearchScope | null; mindId: string | null };
+}) {
+  const place = useMindPlace(question.mindId);
+  const found = useFoundPassages(question.text, question.scope ?? null, place);
   return <FoundPassages passages={found} />;
 }

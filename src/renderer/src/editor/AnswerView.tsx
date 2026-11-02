@@ -1,3 +1,4 @@
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
 import { Fragment, type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import {
@@ -6,6 +7,7 @@ import {
   BLOCK_ID_ATTRIBUTE,
   type ChatModelChoice,
   type ProviderErrorKind,
+  QUESTION_BLOCK,
   type SearchScope,
   type SignInRouteProblem,
   SKILL_SCRIPT_LIMITS,
@@ -15,6 +17,7 @@ import {
 } from "../../../core/api";
 import { isSignInRoute, isSignInRouteProblem } from "../../../core/providers/signInRoutes";
 import { asksAfterThirdParty } from "../../../shared/approvalRules";
+import { searchScopeOf } from "../../../shared/searchScope";
 import { toolCallsOf } from "../../../shared/toolCalls";
 import { AnswerWriting } from "../answerPhase";
 import { isCalculated, RUN_SCRIPT, SEARCH } from "../answerSteps";
@@ -49,7 +52,7 @@ import {
   useKeyRefusals,
   useKeySavedSince,
 } from "../keyRefusals";
-import { useFoundPassages } from "../localPassages";
+import { useFoundPassages, useQuestionPlace } from "../localPassages";
 import { requestModelMenu, retryModel } from "../modelMenu";
 import { useModelNames, useServiceName } from "../modelNames";
 import { useOnline } from "../online";
@@ -72,6 +75,19 @@ const text = (value: unknown) => (typeof value === "string" ? value : null);
 
 const isErrorKind = (value: unknown): value is ProviderErrorKind =>
   typeof value === "string" && Object.hasOwn(ANSWER_PROBLEMS, value);
+
+/** The Question block an Answer answers, as the Note's document holds it now. */
+function questionBlockIn(doc: ProseMirrorNode, id: string): ProseMirrorNode | null {
+  let found: ProseMirrorNode | null = null;
+  doc.descendants((node) => {
+    if (node.type.name === QUESTION_BLOCK && node.attrs[BLOCK_ID_ATTRIBUTE] === id) {
+      found = node;
+      return false;
+    }
+    return found === null;
+  });
+  return found;
+}
 
 /** Items of the meta line, with a dot between each two. */
 function Dotted({ items }: { items: ReactNode[] }) {
@@ -121,6 +137,18 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
   )
     ? modelId
     : null;
+  // The Question above it, for what an offline failure can show of the Documents (#763).
+  const askedQuestion = useMemo(() => {
+    if (questionId === null) return null;
+    const block = questionBlockIn(editor.state.doc, questionId);
+    return block === null
+      ? null
+      : {
+          text: block.textContent,
+          scope: searchScopeOf(block.attrs),
+          askedFrom: mindId === null ? null : { mindId },
+        };
+  }, [editor.state.doc, questionId, mindId]);
 
   // One the User edited comes back as changes over their version: nothing to confirm.
   const writeAgain = async () => {
@@ -209,6 +237,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
           }
           details={text(node.attrs.errorMessage)}
           onRetry={questionId ? () => writeAgain() : undefined}
+          question={askedQuestion}
           onOpenSettings={openSettings}
         />
       )}
@@ -341,7 +370,12 @@ export function AnswerError({
   /** The composer's model menu is here: "Choose another model" opens it, not Settings. */
   chooseHere?: boolean;
   /** What was asked, where its Question is known: offline, a local search shows what the Documents say (#763). */
-  question?: { text: string; scope: SearchScope | null } | null;
+  question?: {
+    text: string;
+    scope: SearchScope | null;
+    askedFrom?: { mindId: string | null } | null;
+    folderAskedIn?: string;
+  } | null;
   onOpenSettings(page: SettingsPage): void;
 }) {
   const t = useT();
@@ -387,9 +421,11 @@ export function AnswerError({
   const online = useOnline();
   // A model on this computer can't be away because the computer is: its own problem is said instead.
   const offline = kind === "network" && !online && providerInUse?.service != null;
+  const place = useQuestionPlace(question ?? { askedFrom: null });
   const found = useFoundPassages(
     offline && question ? question.text : null,
     question?.scope ?? null,
+    place,
   );
   if (offline) {
     return (
