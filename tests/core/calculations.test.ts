@@ -4365,6 +4365,97 @@ describe("A nearer line, page, section, row head or column head decides the scal
     expect(asked).toContain(`the unitQuote "${statement}" states GBP, but $1,234.5 is in USD`);
   });
 
+  test("a nearer bracket stating a scale the reader doesn't read whole refuses the wider line", async () => {
+    const wider = "All amounts in £m";
+    const { answer, asked } = await figuresUnder(
+      "Fee note",
+      {
+        name: "Fee note.pdf",
+        contents: buildPdf([{ lines: ["Fee note", wider, "Fees (in £, thousands)", ...rows] }]),
+      },
+      rows,
+      [wider],
+      { query: "fee note revenue costs" },
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
+  });
+
+  test("a nearer bracket on a later page stating an unread scale refuses a whole-Document line", async () => {
+    const wider = "All amounts in £m unless otherwise stated";
+    const { answer, asked } = await figuresUnder(
+      "Across fees",
+      {
+        name: "Across fees.pdf",
+        contents: buildPdf([
+          { lines: ["Across fees notes", wider, ...fillerLines(false)] },
+          { lines: fillerLines(false) },
+          { lines: ["Across fees accounts", "Directors' fees (in £, thousands)", ...rows] },
+        ]),
+      },
+      rows,
+      [wider],
+      { query: "across fees revenue costs" },
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
+  });
+
+  test("a nearer bracket with '000 the reader doesn't read whole refuses the wider line", async () => {
+    const wider = "All amounts in £m";
+    const { answer } = await figuresUnder(
+      "Remuneration note",
+      {
+        name: "Remuneration note.pdf",
+        contents: buildPdf([
+          { lines: ["Remuneration note", wider, "Remuneration (in £, '000)", ...rows] },
+        ]),
+      },
+      rows,
+      [wider],
+      { query: "remuneration note revenue costs" },
+    );
+
+    expect(answer.figures).toEqual([]);
+  });
+
+  test("a nearer multiplier bracket refuses the wider line", async () => {
+    const wider = "All amounts in €m";
+    const { answer } = await figuresUnder(
+      "Subsidiary note",
+      {
+        name: "Subsidiary note.pdf",
+        contents: buildPdf([
+          { lines: ["Subsidiary note", wider, "Subsidiary results (× €1,000)", ...rows] },
+        ]),
+      },
+      rows,
+      [wider],
+      { query: "subsidiary note revenue costs" },
+    );
+
+    expect(answer.figures).toEqual([]);
+  });
+
+  test("a row bracket that is a scale doesn't scale a row that isn't an amount", async () => {
+    const marginRows: [string, string] = ["Gross margin (k) 12.5", "Net margin (k) 3.5"];
+    const { answer, asked } = await figuresUnder(
+      "Margins",
+      {
+        name: "Margins.pdf",
+        contents: buildPdf([{ lines: ["Margins", ...marginRows] }]),
+      },
+      marginRows,
+      ["(k)"],
+      { query: "margins gross net margin" },
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain('is on a percent row ("Gross margin (k)")');
+  });
+
   test.each([
     "All amounts in this remuneration report are in £'000",
     "Unless otherwise stated, all amounts in this Directors' Remuneration Report are in £'000",

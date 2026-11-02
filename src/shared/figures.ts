@@ -1313,72 +1313,62 @@ export function readStatedUnits(
   return statedUnitsOf(prepared, text, statements);
 }
 
-// A line naming a contained part — a note, section, table, statement or chart — states that
-// part's scale, never the Document's ("All figures in Note 5", "本报表", "附注五", "下列").
-const PART_SCOPED =
-  /\b(?:notes?|sections?|tables?|charts?|schedules?|appendi(?:x|ces)|exhibits?|statements?)\b|附注|註釋|注释|本表|本節|本节|本页|本頁|上表|上节|上節|下表|下节|下節|表中|表内|表內|下列|如上|以下|报表|報表|董事报告|董事會報告|董事会报告|薪酬报告|薪酬報告|分部|母公司/i;
-// The consolidated statements are the Document, not a part of it ("All amounts in the
-// consolidated financial statements are in £m").
-const DOCUMENT_STATEMENTS = /\b(?:consolidated\s+)?financial\s+statements?\b/gi;
-const DOCUMENT_STATEMENTS_ZH = /(?:本|合并)?财务报表/g;
-// An exception for the notes leaves the line's scope whole ("All amounts are in £m except where
-// stated in the notes"), so the line is read without it.
-const EXCEPTION = /\s*(?:[,;]\s*)?(?:except|unless|save|other\s+than)\b[\s\S]*$/i;
-const EXCEPTION_ZH =
-  /\s*(?:[,;，；]\s*)?(?:但|惟|除非|除[^,;，；。]{0,24}?外|另有(?:说明|指明|注明))[\s\S]*$/;
-// A line states a rule for the whole Document only in these shapes.
-const WHOLE_DOCUMENT =
-  /^\s*[(（]?\s*(?:unless\s+(?:otherwise\s+)?(?:stated|indicated|noted)|except\s+(?:where|as)\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown)|throughout\s+(?:this|the)\s+(?:document|report)|(?:amounts?|figures?|sums?|values?|numbers?)\s+(?:throughout|across)\s+(?:this|the)\s+(?:document|report|(?:consolidated\s+)?financial\s+statements?)|all\s+(?:of\s+the\s+)?(?:amounts?|figures?|sums?|values?|numbers?)|every\s+(?:amount|figure|sum|value|number))\b/i;
-const WHOLE_DOCUMENT_ZH =
-  /^\s*[(（]?\s*(?:除非|除另有|除特别|所有|全部|一切|本文件|本报告|本招股|全文|(?:本|合并)?财务报表[中内]?\s*(?:所有|全部|一切))/;
-// The scope a whole-Document line may name after a preposition: this Document or report, its
-// (consolidated) financial statements, the Group, the year or period ended, or a unit. A closed
-// list: any other noun ("in the remuneration report", "this segment", "on this page") is a part.
-const WHOLE_SCOPE = new RegExp(
-  [
-    "^(?:",
-    "(?:this|the)\\s+(?:document|(?:annual\\s+)?report|annual\\s+report\\s+and\\s+accounts)",
-    "|(?:document|(?:annual\\s+)?report|annual\\s+report\\s+and\\s+accounts)",
-    "|(?:this|these|the)\\s+(?:consolidated\\s+)?financial\\s+statements?",
-    "|(?:consolidated\\s+)?financial\\s+statements?",
-    "|(?:the\\s+)?group(?:['’]s\\s+(?:consolidated\\s+)?financial\\s+statements|\\s+or\\s+its\\s+(?:consolidated\\s+)?financial\\s+statements)?",
-    "|(?:the\\s+)?(?:financial\\s+|fiscal\\s+)?(?:year|period)(?:\\s+ended\\b)?",
-    "|(?:US\\s+|U\\.S\\.\\s+|Hong\\s+Kong\\s+|HK\\s+|Australian\\s+|Canadian\\s+|Singapore\\s+)?dollars?",
-    "|pounds?(?:\\s+sterling)?|euros?|yuan|[Rr]enminbi|sterling|yen",
-    "|(?:USD|GBP|EUR|HKD|CNY|RMB|JPY|AUD|CAD|SGD|TWD|CHF|INR)",
-    "|(?:US|HK|A|C|S|NT)?\\$|€|£|¥|₹",
-    "|['’]?0{3}s?|thousands?|millions?|billions?|trillions?|lakhs?|crores?",
-    "|%",
-    ")",
-  ].join(""),
-  "i",
+// A line states a scale for the whole Document only when its whole text is an opening, an
+// optional scope from a closed list, an optional verb, one unit and an optional conventional
+// exception. Any other word between the opening and the unit names a part, so the line is not the
+// Document's (#2365).
+const EN_WHOLE_SUBJECT =
+  "(?:(?:throughout|across)\\s+(?:this|the)\\s+(?:document|report)\\s+)?" +
+  "(?:all\\s+(?:of\\s+the\\s+)?(?:amounts?|figures?|sums?|values?|numbers?)" +
+  "|every\\s+(?:amount|figure|sum|value|number)" +
+  "|(?:amounts?|figures?|sums?|values?|numbers?)\\s+(?:throughout|across)\\s+(?:this|the)\\s+(?:document|report|(?:consolidated\\s+)?financial\\s+statements?))";
+const EN_WHOLE_SCOPE = [
+  "(?:this|these|the)\\s+(?:consolidated\\s+)?financial\\s+statements?",
+  "(?:this|the)\\s+(?:document|(?:annual\\s+)?report|annual\\s+report\\s+and\\s+accounts)",
+  "(?:the\\s+)?group(?:['’]s\\s+(?:consolidated\\s+)?financial\\s+statements)?",
+  "(?:the\\s+)?(?:financial\\s+|fiscal\\s+)?(?:year|period)\\s+ended\\s+(?:\\d{1,2}\\s+\\p{L}+\\s+\\d{4}|\\p{L}+\\s+\\d{4}|\\d{1,2}[/.]\\d{1,2}[/.]\\d{4}|\\d{4}年\\d{1,2}月\\d{1,2}日|\\d{4}年|\\d{4})",
+  "(?:US\\s+|U\\.S\\.\\s+|Hong\\s+Kong\\s+|HK\\s+|Australian\\s+|Canadian\\s+|Singapore\\s+)?dollars?",
+  "pounds?(?:\\s+sterling)?|euros?|yuan|[Rr]enminbi|sterling|yen",
+  "(?:USD|GBP|EUR|HKD|CNY|RMB|JPY|AUD|CAD|SGD|TWD|CHF|INR)",
+  "(?:US|HK|A|C|S|NT)?\\$|€|£|¥|₹",
+  "['’]?0{3}s?|thousands?|millions?|billions?|trillions?|lakhs?|crores?",
+  "%",
+].join("|");
+const EN_WHOLE_BEFORE = new RegExp(
+  "^\\s*" +
+    EN_WHOLE_SUBJECT +
+    "(?:\\s+(?:in|for|of|on|throughout)\\s+(?:" +
+    EN_WHOLE_SCOPE +
+    ")(?![A-Za-z0-9]))*" +
+    "(?:\\s+(?:are|is|were|was|will|shall|should|must|may|can)\\b(?:\\s+(?:stated|shown|expressed|presented|given|set|quoted|reported|disclosed|prepared))?)?" +
+    "(?:\\s+(?:in|of|for|at))?" +
+    "(?:\\s*[(（])?\\s*$",
+  "iu",
 );
-// After the scope the line goes on with its scale, a verb or punctuation, never another noun.
-const SCOPE_CONTINUES =
-  /^\s*(?:$|[)\]};:,.，。、（）()]|\d|\b(?:are|is|was|were|will|would|shall|should|must|may|can|has|have|had|stat(?:e|ed|es)|shown?|show|expressed?|presented?|prepared|given|set|quoted|reported|disclosed|measured|in|of|for|at|as|to|on|from|by|throughout|included|except|unless|save|ended)\b|['’]?0{3}s?\b|thousands?\b|millions?\b|billions?\b|trillions?\b|lakhs?\b|crores?\b|[€£$¥₹]|%)/i;
-const SCOPE_PHRASE =
-  /\b(?:in|for|of|on|below|within|following)\s+(?:the\s+)?([A-Za-z0-9][\w'’-]*)/gi;
-// "on this page", "below", "within this report" and "the following amounts" say where the scale
-// is written, not that it holds for the whole Document.
-const LOCATION_SCOPE =
-  /\b(?:on|below|within|following)\s+(?:the\s+)?(?:this|these|those|page|pages|section|sections|document|report|statement|statements|table|tables|note|notes|amounts?|figures?)\b/i;
-
-function scopedPart(line: string): boolean {
-  for (const each of line.matchAll(SCOPE_PHRASE)) {
-    const word = each[1] ?? "";
-    const rest = line.slice((each.index ?? 0) + each[0].length - word.length);
-    const scope = WHOLE_SCOPE.exec(rest);
-    if (!scope || !SCOPE_CONTINUES.test(rest.slice(scope[0].length))) return true;
-  }
-  return false;
-}
+const EN_WHOLE_AFTER =
+  /^\s*[.;,]?\s*(?:unless\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown)|except\s+(?:where|as|if|unless)\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown|disclosed)(?:\s+in\s+the\s+(?:notes?|financial\s+statements?))?|except\s+per[-\s]share\s+(?:data|amounts?))?[.;]?\s*$/i;
+// A line may open with one of the conventional exceptions only; never any other clause.
+const WHOLE_OPENING =
+  /^\s*(?:unless\s+(?:otherwise\s+)?(?:stated|noted|indicated)|except\s+(?:where|as)\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown)|除(?:另有|特别)(?:说明|注明)外)\s*[,，;；]?\s*/i;
+const ZH_WHOLE_BEFORE =
+  /^\s*(?:本文件|本报告|本報告|本招股(?:说明书|說明書)?|全文|(?:合并|合併)?财务报表|財務報表)?(?:中|内|內)?(?:所有|全部|一切)?(?:金额|金額|货币|貨幣)?(?:单位|單位)?(?:均|一律|都)?(?:以|为|為)?\s*(?:[(（])?\s*$/;
+const ZH_WHOLE_SUBJECT = /所有|全部|一切|本文件|本报告|本報告|本招股|全文|财务报表|財務報表/;
+const ZH_WHOLE_AFTER =
+  /^\s*[)）]?\s*(?:列示|表示)?\s*(?:[。.]|(?:[，,;；]\s*(?:但|惟)?(?:附注|註釋|注释|财务报表)?(?:另有)?(?:说明|注明|指明|列明)者?除外))?\s*$/;
 
 function wholeDocumentLine(line: string): boolean {
-  if (PART_SCOPED.test(line.replace(DOCUMENT_STATEMENTS, " ").replace(DOCUMENT_STATEMENTS_ZH, " ")))
-    return false;
-  if (LOCATION_SCOPE.test(line)) return false;
-  if (scopedPart(line)) return false;
-  return WHOLE_DOCUMENT.test(line) || WHOLE_DOCUMENT_ZH.test(line);
+  const hadOpening = WHOLE_OPENING.test(line);
+  const main = hadOpening ? line.replace(WHOLE_OPENING, "") : line;
+  const statement = readStatedUnits(main).at(-1);
+  if (!statement) return false;
+  const before = main.slice(0, statement.start);
+  const after = main.slice(statement.end);
+  if (EN_WHOLE_BEFORE.test(before) && EN_WHOLE_AFTER.test(after)) return true;
+  return (
+    (hadOpening || ZH_WHOLE_SUBJECT.test(before)) &&
+    ZH_WHOLE_BEFORE.test(before) &&
+    ZH_WHOLE_AFTER.test(after)
+  );
 }
 
 /**
@@ -1391,12 +1381,7 @@ export function statesForWholeDocument(text: string): boolean {
   const line = text
     .normalize("NFKC")
     .replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
-  if (wholeDocumentLine(line)) return true;
-  const main = line
-    .replace(EXCEPTION, "")
-    .replace(EXCEPTION_ZH, "")
-    .replace(/^[\s,;，；、]+/, "");
-  return main !== line && wholeDocumentLine(main);
+  return wholeDocumentLine(line);
 }
 
 function statedUnitsOf(prepared: Prepared, text: string, statements: Statement[]): StatedUnit[] {

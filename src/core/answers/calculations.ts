@@ -709,6 +709,60 @@ function wholeScaleBracket(text: string): { statement: string; exponent: number 
   return null;
 }
 
+// A currency written beside a scale token that no statement reads as one: "(in £, thousands)",
+// "(in USD, rounded to the nearest thousand)", "(× €1,000)". Such a line or bracket states no
+// settled scale, so as a nearer line it refutes the wider one (#2365).
+const CURRENCY_IN_BRACKET =
+  /(?:US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|₹|\b(?:USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF|INR)\b|(?:\b(?:US|U\.S\.|Hong\s+Kong|HK|Australian|Canadian|Singapore)\s+)?dollars?\b|\bpounds?(?:\s+sterling)?\b|\beuros?\b|\byuan\b|\b[Rr]enminbi\b|\bsterling\b|\byen\b)/;
+const SCALE_IN_BRACKET =
+  /(?:\b(?:thousands?|millions?|billions?|trillions?|lakhs?|crores?|mn|bn|mln|bln|Mio|Mrd|Tsd)\b|['’]0{3}s?|(?<![\d,'’])000s(?![\d'’])|[×✕]|(?<![£$€¥₹\d])\d{1,3}(?:,\d{3})+(?:\.\d+)?)/i;
+const BRACKET = /[(（]([^()（）\n]{1,60})[)）]/g;
+
+function unreadCurrencyScales(
+  text: string,
+  statements: readonly StatedUnit[],
+  context: FigureContext,
+): { start: number; end: number; text: string; scale: number; unit: FigureUnit | null }[] {
+  const found: {
+    start: number;
+    end: number;
+    text: string;
+    scale: number;
+    unit: FigureUnit | null;
+  }[] = [];
+  const covered = (from: number, to: number) =>
+    statements.some(
+      (each) => each.start <= from && from < each.end && each.start <= to && to < each.end,
+    );
+  for (const bracket of text.matchAll(BRACKET)) {
+    const inside = bracket[1] ?? "";
+    const currency = CURRENCY_IN_BRACKET.exec(inside);
+    const scale = SCALE_IN_BRACKET.exec(inside);
+    if (!currency || !scale) continue;
+    const at = bracket.index;
+    if (covered(at + 1 + currency.index, at + 1 + scale.index)) continue;
+    found.push({ start: at, end: at + bracket[0].length, text: bracket[0], scale: 0, unit: null });
+  }
+  for (const line of text.matchAll(/[^\n]+/g)) {
+    const bracket = BRACKET.exec(line[0]);
+    BRACKET.lastIndex = 0;
+    if (
+      bracket &&
+      CURRENCY_IN_BRACKET.test(bracket[1] ?? "") &&
+      SCALE_IN_BRACKET.test(bracket[1] ?? "")
+    )
+      continue;
+    const currency = CURRENCY_IN_BRACKET.exec(line[0]);
+    const scale = SCALE_IN_BRACKET.exec(line[0]);
+    if (!currency || !scale) continue;
+    if (readFigures(line[0], { ...context, header: null }).length > 0) continue;
+    const at = line.index;
+    if (covered(at + currency.index, at + scale.index)) continue;
+    found.push({ start: at, end: at + line[0].length, text: line[0], scale: 0, unit: null });
+  }
+  return found;
+}
+
 /** Whether `statement` scales its amounts "except where noted", and `label` is a per-share row it may leave out. */
 const notedOut = (statement: StatedUnit, label: string): boolean =>
   statement.except === "noted" && PER_SHARE.test(label);
@@ -1027,7 +1081,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
 
   function scalesInUnit(unit: PageText, context: FigureContext): UnitScale[] {
     const found: UnitScale[] = [];
-    for (const each of readStatedUnits(unit.text, context)) {
+    const statements = readStatedUnits(unit.text, context);
+    for (const each of statements) {
       found.push({
         start: each.start,
         end: each.end,
@@ -1041,6 +1096,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       if (at >= 0)
         found.push({ start: at, end: at + each.length, text: each, scale: 0, unit: null });
     }
+    for (const each of unreadCurrencyScales(unit.text, statements, context)) found.push(each);
     if (unit.scaleMarker && !unit.text.includes(unit.scaleMarker)) {
       const [stated] = readStatedUnits(unit.scaleMarker, context);
       found.push({
@@ -1136,12 +1192,6 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     // A row label's own currency ("Basic EPS ($)") is the row's, not a nearer line, even when the
     // label is on the line above the number.
     const rowLabel = rowOf(quoted, figure)?.label ?? null;
-    // A per-share row the quoted line excepts keeps the line's currency without its scale.
-    const exceptedRow =
-      rowLabel !== null &&
-      readStatedUnits(place.lineText, context).some(
-        (each) => exceptedBy(each, rowLabel) || notedOut(each, rowLabel),
-      );
     const path = (unit: PageText) => (unit.label?.path ?? []).join("\u0000");
     for (let index = place.lineIndex; index <= place.figureIndex; index++) {
       const unit = units[index];
@@ -1174,14 +1224,12 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         if (inFigure && scale.start > place.figureAt) continue;
         // The figure's own row states its own unit ("Diluted EPS ($)"), not a nearer line, and so
         // does any other row that writes an amount: a row's unit states that row, not the next.
-        // Its plain currency is the exception: it is the row's own scale 1, which refutes a wider
-        // line of another scale, unless the line excepts that row.
         if (inFigure && scale.start >= figureRow) continue;
-        if (rowLabel !== null && scale.text !== "" && rowLabel.includes(scale.text)) {
-          const ownPlainCurrency = scale.scale === 1 && scale.unit?.kind === "currency";
-          if (!ownPlainCurrency || exceptedRow) continue;
-        }
+        if (rowLabel !== null && scale.text !== "" && rowLabel.includes(scale.text)) continue;
+        // An unsettled form ("(in £, thousands)", "(× €1,000)") refutes whether or not its line
+        // writes a figure; a settled statement on a figure's line is that figure, not a scale line.
         if (
+          scale.scale !== 0 &&
           readFigures(lineOf(unit.text, scale.start, scale.end), { ...context, header: null })
             .length > 0
         )

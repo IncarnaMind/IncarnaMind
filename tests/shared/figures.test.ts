@@ -1140,6 +1140,11 @@ describe("stated units", () => {
       "All amounts in the Group's financial statements are in £'000",
       "Unless otherwise stated, all amounts for the period ended 30 June 2024 are in thousands",
       "All amounts in US dollars are in millions",
+      "All amounts in this annual report are in US$ millions",
+      "All amounts for the Group are in £m",
+      "All amounts in the year ended 31 December 2024 are in £'000",
+      "All amounts in £m unless otherwise stated",
+      "除另有注明外，所有金额单位均为人民币千元",
     ])
       expect([line, statesForWholeDocument(line)]).toEqual([line, true]);
     for (const line of [
@@ -1172,6 +1177,16 @@ describe("stated units", () => {
       "All amounts within this report are in £'000",
       "All amounts following are in £'000",
       "所有分部信息金额单位：百万元",
+      "All amounts relating to the parent company are in £'000",
+      "All amounts attributable to discontinued operations are in $ thousands",
+      "All amounts excluding the US business are in £m",
+      "All amounts in £m, apart from the Company balance sheet",
+      "All amounts except those in Note 12 are in £m",
+      "All amounts, other than those of the joint venture, are in £'000",
+      "All amounts in the year ended 31 December 2024 column are in £'000",
+      "所有金额单位：人民币千元，境外子公司除外",
+      "所有金额单位：千元（不含香港业务）",
+      "所有金额单位：千元（附录除外）",
     ])
       expect([line, statesForWholeDocument(line)]).toEqual([line, false]);
   });
