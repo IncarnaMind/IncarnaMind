@@ -155,7 +155,12 @@ import type { MindContent } from "../mindContent";
 import { plainText } from "../mindText";
 import { docOf } from "../proposals/merge";
 import { proposeBlocks } from "../proposals/write";
-import { givesStructuredOutput, calculates as offersCalculate } from "../providers/capabilities";
+import {
+  givesStructuredOutput,
+  offersAnalysis,
+  calculates as offersCalculate,
+  offersWorkbookTools,
+} from "../providers/capabilities";
 import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { PreparedChatModel } from "../providers/chat";
 import type { ModelCallKind } from "../providers/outputLimits";
@@ -2304,7 +2309,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       calculating = offersCalculate(prepared.capabilities);
       workbookToolsOffered =
-        calculating &&
+        offersWorkbookTools(prepared.capabilities) &&
         input.toolSet === undefined &&
         !help &&
         options.documents.searchableHasSheets(documentIds, true);
@@ -2840,7 +2845,7 @@ export function createAnswers(options: AnswersOptions) {
         : [];
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
-        calculating &&
+        offersAnalysis(prepared.capabilities) &&
         input.toolSet === undefined &&
         !help &&
         (input.analyse === true || options.documents.searchableHasSheets(documentIds))
