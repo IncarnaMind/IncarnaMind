@@ -6,6 +6,7 @@
  * assistant uses it, with a scripted chat model (and, for structured output, a
  * stub of a small local model).
  */
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MockLanguageModelV4 } from "ai/test";
@@ -17,6 +18,7 @@ import {
   DATABASE_FILE,
   type MarkedFigure,
 } from "../../src/core";
+import { createFakeTextRecognizer, type FakeScanScript } from "../../src/core/documents/scan/fake";
 import { migrate, migrations, openDatabase } from "../../src/core/storage";
 import { answerBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
@@ -29,7 +31,7 @@ import {
   setUpWithDocuments,
   shownPassages,
 } from "../helpers/citations";
-import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
+import { createTempDataFolder, NO_MODEL_FILES, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { askAndEnd, isAnswer, QWEN35, setUpLocalModel } from "../helpers/localModels";
 import { answerIn, question, writeMind } from "../helpers/minds";
@@ -1726,7 +1728,7 @@ describe("A currency on a statement's first amount (#1001)", { timeout: 60_000 }
 
     const [toldOnce] = told(model, "calculate");
     expect(toldOnce).toContain(
-      "the unitQuote isn't word for word in P1; copy the line that states the unit exactly, from the same Passage.",
+      "the unitQuote isn't word for word in P1; copy the line that states the unit exactly, from the Passage it is in.",
     );
     expect(toldOnce).toContain(
       'the unitQuote "Less: agent\'s fee (4,620.00)" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".',
@@ -2340,6 +2342,69 @@ const scaleFigure = (
   ],
 });
 
+const SCANS = join(import.meta.dirname, "../fixtures/scans");
+const scanPicture = (id: string) => readFileSync(join(SCANS, `${id}.jpg`));
+
+/** A core whose scanned pages read `script`; the fake recognizer marks the script's unsure words (#535). */
+async function setUpScanned(
+  model: MockLanguageModelV4,
+  files: readonly { name: string; contents: string | Uint8Array }[],
+  script: FakeScanScript,
+) {
+  return setUpCalculating(model, files, undefined, {
+    textRecognizer: createFakeTextRecognizer({ script }),
+    textRecognitionModelSource: NO_MODEL_FILES,
+  });
+}
+
+/** Runs `rev - cost` over two rows of a one-page PDF that states no page scale; returns the Answer and what the model was told. */
+async function rowsWithoutScale(name: string, rows: [string, string]) {
+  const numbers = rows.map((row) => row.slice(row.lastIndexOf(" ") + 1)) as [string, string];
+  const model = calculatingModel({
+    queries: ["rows revenue costs"],
+    steps: [
+      (passages) => {
+        const passage = passageWriting(passages, name, rows[0]);
+        const location = passage.location ?? "p. 1";
+        return [
+          {
+            tool: "cite",
+            input: {
+              citations: [
+                { marker: 1, passage: passage.id, location, quote: rows[0] },
+                { marker: 2, passage: passage.id, location, quote: rows[1] },
+              ],
+            },
+          },
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  label: "Difference",
+                  formula: "rev - cost",
+                  inputs: [
+                    { name: "rev", label: "Revenue", citation: 1, number: numbers[0] },
+                    { name: "cost", label: "Costs", citation: 2, number: numbers[1] },
+                  ],
+                },
+              ],
+            },
+          },
+        ];
+      },
+    ],
+    answer: "[=1][^1]",
+  });
+  const { core } = await setUpCalculating(model, [
+    { name: `${name}.pdf`, contents: buildPdf([{ lines: [name, ...rows] }]) },
+  ]);
+  const { answer } = await askAndRead(core, "What is the difference?");
+  core.close();
+  return { answer, asked: told(model, "calculate")[0] ?? "" };
+}
+
 /**
  * A Word file whose parent heading's section states a scale, with a sibling section that states
  * another and a filler section between them so neither is in the figures' Passage: the parent's
@@ -2657,6 +2722,87 @@ describe("A parent heading's scale line is quoted from another Passage, and a si
     expect(asked).toContain("is in a section that doesn't state");
   });
 
+  test("a nearer scale line in the figure's own section refutes a wider ancestor line", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const contents = docxOf([
+      { text: "Financial statements", heading: 1 },
+      { text: "All amounts in £'000" },
+      ...fillerLines(false).map((text) => ({ text })),
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Income statement", heading: 2 },
+      { text: "Amounts in £m" },
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordQuoteUnder(
+      "Nearer amounts",
+      contents,
+      rows,
+      "All amounts in £'000",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
+  });
+
+  test("a nearer scale line in a closer ancestor refutes a wider ancestor line", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const contents = docxOf([
+      { text: "Financial statements", heading: 1 },
+      { text: "All amounts in £'000" },
+      ...fillerLines(false).map((text) => ({ text })),
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Income statement", heading: 2 },
+      { text: "All amounts in £m" },
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Revenue", heading: 3 },
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordQuoteUnder(
+      "Two ancestors",
+      contents,
+      rows,
+      "All amounts in £'000",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
+  });
+
+  test("a shorter heading path that isn't an ancestor doesn't contain the figure", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const contents = docxOf([
+      { text: "Other matters", heading: 1 },
+      { text: "All amounts in £'000" },
+      ...fillerLines(false).map((text) => ({ text })),
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Financial statements", heading: 1 },
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Income statement", heading: 2 },
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordQuoteUnder(
+      "Other matters",
+      contents,
+      rows,
+      "All amounts in £'000",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is in a section that doesn't state");
+  });
+
   test("a later part of the same section is stated by its line", {
     timeout: 60_000,
   }, async () => {
@@ -2785,7 +2931,7 @@ describe("An earlier page's whole-Document scale line states the scale when quot
     const asked = told(model, "calculate")[0] ?? "";
     expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
     expect(asked).toContain(`[=2] rev:`);
-    expect(asked).toContain("doesn't say it holds for the whole Document");
+    expect(asked).toContain("is on another page");
     const unit = answer.figures[0]?.inputs[0]?.unitStatement;
     expect(unit?.citation.quote).toBe(fixture.scale);
     expect(unit?.citation.pageFrom).toBe(1);
@@ -2926,7 +3072,7 @@ describe("An earlier page's whole-Document scale line states the scale when quot
     const { answer, asked } = await shortPdf("Amounts in HK$ millions");
 
     expect(answer.figures).toEqual([]);
-    expect(asked).toContain("is on an earlier page");
+    expect(asked).toContain("is on another page");
   });
 
   test("a short PDF's whole-Document line on its first page still states the scale", {
@@ -2996,7 +3142,7 @@ describe("An earlier page's whole-Document scale line states the scale when quot
     );
 
     expect(answer.figures).toEqual([]);
-    expect(asked).toContain("is on an earlier page");
+    expect(asked).toContain("is on another page");
   });
 
   test("a spanning quote's line on the figure's own page states its scale", {
@@ -3012,6 +3158,204 @@ describe("An earlier page's whole-Document scale line states the scale when quot
     expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
       [1, 1_234_500_000],
     ]);
+  });
+
+  /** Runs the two rows of one PDF, under `quote` as unitQuote (or none), laid out in `pages`. */
+  async function pdfUnitQuote(
+    name: string,
+    pages: string[][],
+    rows: [string, string],
+    quote: string | null,
+    location: string,
+  ) {
+    const model = calculatingModel({
+      queries: ["pdf revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, name, rows[0]);
+          const scale = quote ? { unitQuote: quote } : {};
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: rows[0] },
+                  { marker: 2, passage: passage.id, location, quote: rows[1] },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Difference",
+                    formula: "rev - cost",
+                    inputs: [
+                      { name: "rev", label: "Revenue", citation: 1, number: "1,234.5", ...scale },
+                      { name: "cost", label: "Costs", citation: 2, number: "334.5", ...scale },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      { name: `${name}.pdf`, contents: buildPdf(pages.map((lines) => ({ lines }))) },
+    ]);
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+    return { answer, asked: told(model, "calculate")[0] ?? "" };
+  }
+
+  test("a nearer scale line on the figure's own page refutes a wider earlier-page line", {
+    timeout: 60_000,
+  }, async () => {
+    const { answer, asked } = await pdfUnitQuote(
+      "Nearer amounts",
+      [
+        ["Unless otherwise stated, all amounts are in £m", ...fillerLines(false)],
+        fillerLines(false),
+        ["Amounts in £'000", "Revenue 1,234.5", "Costs 334.5"],
+      ],
+      ["Revenue 1,234.5", "Costs 334.5"],
+      "Unless otherwise stated, all amounts are in £m",
+      "pp. 2–3",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
+  });
+
+  test("a whole-Document line on a later page doesn't state an earlier page's scale", {
+    timeout: 60_000,
+  }, async () => {
+    const { answer, asked } = await pdfUnitQuote(
+      "Later amounts",
+      [
+        ["Revenue 1,234.5", "Costs 334.5"],
+        ["All amounts in £'000", ...fillerLines(false)],
+      ],
+      ["Revenue 1,234.5", "Costs 334.5"],
+      "All amounts in £'000",
+      "pp. 1–2",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is on another page");
+  });
+
+  /** Cites two rows of a three-page scan and quotes `unitQuote` for them. */
+  async function scannedQuoteUnder(
+    name: string,
+    script: FakeScanScript,
+    rows: [string, string],
+    unitQuote: string,
+  ) {
+    const model = calculatingModel({
+      queries: ["revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, name, rows[0]);
+          const location = passage.location ?? "p. 3";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: rows[0] },
+                  { marker: 2, passage: passage.id, location, quote: rows[1] },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Difference",
+                    formula: "rev - cost",
+                    inputs: [
+                      { name: "rev", label: "Revenue", citation: 1, number: "1,234.5", unitQuote },
+                      { name: "cost", label: "Costs", citation: 2, number: "334.5", unitQuote },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpScanned(
+      model,
+      [
+        {
+          name: `${name}.pdf`,
+          contents: buildPdf([
+            { scan: scanPicture("en-clean") },
+            { scan: scanPicture("en-clean") },
+            { scan: scanPicture("en-clean") },
+          ]),
+        },
+      ],
+      script,
+    );
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+    return { answer, asked: told(model, "calculate")[0] ?? "" };
+  }
+
+  test("an unsure whole-Document line another Passage holds takes the unsure-word refusal", {
+    timeout: 120_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const { answer, asked } = await scannedQuoteUnder(
+      "Unsure scale",
+      {
+        pages: {
+          "1": {
+            lines: ["All amounts in £'000", ...fillerLines(false)],
+            unsure: ["£'000"],
+          },
+          "2": { lines: fillerLines(false) },
+          "3": { lines: rows },
+        },
+      },
+      rows,
+      "All amounts in £'000",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("may include a word the scan misread");
+  });
+
+  test("an unsure line on the figure's own page isn't replaced by a clean earlier one", {
+    timeout: 120_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const { answer, asked } = await scannedQuoteUnder(
+      "Unsure own page",
+      {
+        pages: {
+          "1": { lines: ["All amounts in £'000", "Notes continue"] },
+          "2": { lines: fillerLines(false) },
+          "3": { lines: ["Amounts in £'000", ...rows], unsure: ["£'000"] },
+        },
+      },
+      rows,
+      "Amounts in £'000",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("may include a word the scan misread");
   });
 });
 
@@ -3182,6 +3526,18 @@ describe("A row head's bare (M) or (m) is a scale of its own, never the page's (
       [1, 900_000_000],
     ]);
   });
+
+  test("a bare (M) with no page scale is refused", {
+    timeout: 60_000,
+  }, async () => {
+    const { answer, asked } = await rowsWithoutScale("Bare millions", [
+      "Revenue (M) 1,234.5",
+      "Costs (M) 334.5",
+    ]);
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("row whose head writes");
+  });
 });
 
 // protects=#2365; fails_when=a row head's unit of measure inside a longer bracket ("(millions of m2)", "（百万平方米）") is no measure row, so the page's money scale multiplies a square-metre figure by 1,000.
@@ -3282,6 +3638,18 @@ describe("A unit of measure inside a longer bracket is still a measure row (#236
 
     expect(answer.figures).toEqual([]);
     expect(told(model, "calculate")[0] ?? "").toContain("unit of measure");
+  });
+
+  test("a measure's own millions with no page scale is refused", {
+    timeout: 60_000,
+  }, async () => {
+    const { answer, asked } = await rowsWithoutScale("Sales area", [
+      "Sales (millions of m2) 1,234.5",
+      "Costs (millions of m2) 334.5",
+    ]);
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("row whose head writes");
   });
 });
 
