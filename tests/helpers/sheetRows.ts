@@ -15,8 +15,8 @@ export type SheetValue =
 
 export interface SheetRow {
   cells: SheetValue[];
-  /** Every cell of the row in a struck-through font. */
-  struck?: boolean;
+  /** Every cell of the row in a struck-through font, or the cells of these columns, from 0. */
+  struck?: boolean | readonly number[];
   /** The row hidden, as Excel's Hide Rows leaves it. */
   hidden?: boolean;
 }
@@ -67,7 +67,11 @@ export function sheetWithRows(name: string, rows: readonly SheetRow[]): Buffer {
       const number = index + 1;
       const cells = row.cells
         .map((value, column) =>
-          cellXml(`${columnName(column)}${number}`, value, row.struck ?? false),
+          cellXml(
+            `${columnName(column)}${number}`,
+            value,
+            row.struck === true || (Array.isArray(row.struck) && row.struck.includes(column)),
+          ),
         )
         .join("");
       return `<row r="${number}"${row.hidden ? ' hidden="1"' : ""}>${cells}</row>`;

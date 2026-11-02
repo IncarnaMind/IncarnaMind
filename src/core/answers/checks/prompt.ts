@@ -8,6 +8,7 @@ import type { Reading } from "../../../shared/figures";
 import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
 import { asAttribute, asData, type PromptTag, tagged } from "../../promptData";
+import { setAsideRowsNote } from "../prompt";
 import { PART_RULES, PARTS_LINE } from "./claims";
 
 /** The checks' tags: none of them may be opened or closed by what they hold (#2423). */
@@ -223,6 +224,7 @@ export function claimPrompt(input: {
 }): string {
   const context = input.context?.trim();
   const cited = input.cited ?? [];
+  const setAside = [setAsideRowsNote(input.citedShown ?? "")].filter((note) => note !== "");
   return [
     ...(context && context !== input.claim.trim()
       ? [
@@ -235,7 +237,9 @@ export function claimPrompt(input: {
       ? [
           "The User cites this for it. Check the claim itself, not only that the quote is there:",
           ...cited.map((each) => asData(`- ${each.documentName}: “${each.quote}”`, CHECK_TAGS)),
-          ...(input.citedShown ? ["", "The Passages it quotes:", input.citedShown] : []),
+          ...(input.citedShown
+            ? ["", "The Passages it quotes:", input.citedShown, ...setAside]
+            : []),
           "",
         ]
       : []),

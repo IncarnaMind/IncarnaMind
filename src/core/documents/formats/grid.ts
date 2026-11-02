@@ -65,9 +65,8 @@ export interface Sheet {
   formulas?: Map<string, string>;
   /** Values its cells saved that their shown text doesn't give, by cell (#2347); see `UnitLabel.saved`. */
   saved?: Map<string, number | string | boolean>;
-  /** A workbook's rows whose every cell is struck through (#1979). */
+  /** Rows the file sets aside, as `UnitLabel.struckRows` and `hiddenRows` (#1979). */
   struckRows?: Set<number>;
-  /** A workbook's hidden rows (#1979). */
   hiddenRows?: Set<number>;
 }
 
@@ -89,13 +88,10 @@ export interface Workbook {
 
 const NUMERIC = /^[-+(]?[£$€¥]?\d[\d,.]*%?\)?$/;
 
-/** Whether a cell's shown text is a number, as a header row's cells mostly aren't. */
-export const readsAsNumber = (value: string): boolean => NUMERIC.test(value);
-
 /** Whether a row looks like a header: two cells or more, mostly words. */
 export function looksLikeHeader(cells: readonly Pick<Cell, "value" | "numeric">[]): boolean {
   if (cells.length < 2) return false;
-  const words = cells.filter((cell) => !cell.numeric && !readsAsNumber(cell.value)).length;
+  const words = cells.filter((cell) => !cell.numeric && !NUMERIC.test(cell.value)).length;
   return words * 2 > cells.length;
 }
 

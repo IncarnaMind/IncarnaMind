@@ -96,7 +96,7 @@ import type {
 } from "./engine";
 import { NOT_CITED_ATTRIBUTE } from "./prompt";
 import { readDocumentPages } from "./readDocumentPages";
-import { markedRows, repeatedRows } from "./sheetRows";
+import { withSetAsideMarks } from "./sheetRows";
 
 const SEARCHED_ALREADY =
   "You already searched for this, and have its Passages: answer with them, or search for something different.";
@@ -119,11 +119,12 @@ export const asksForFixes = (told: string): boolean => told.includes(FIX_THESE);
 /**
  * Where a new Unit starts inside a Passage given to the model ("[p. 4]",
  * "[slide 4]", "[§ 2.1 Sensitivity]", "[Revenue, rows 2–41]", "[lines 51–100]"),
- * where a slide's speaker notes start ("[speaker notes]"), and where a Word
- * comment starts ("[comment by Reviewer]").
+ * where a slide's speaker notes start ("[speaker notes]"), where a Word
+ * comment starts ("[comment by Reviewer]"), and a row the file sets aside
+ * ("[row 4, struck through]", ./sheetRows).
  */
 const LOCATION_MARK =
-  /\[(?:p\.\s*\d+(?:[–-]\d+)?|slides?\s+\d+(?:[–-]\d+)?|(?:[^\]\n]{1,100},\s*)?rows?\s+\d+(?:[–-]\d+)?|lines?\s+\d+(?:[–-]\d+)?|§[^\]\n]{0,200}|speaker notes|comment(?: by [^\]\n]{1,100})?|\d{1,2}:\d{2}(?::\d{2})?(?: [^\]\n]{1,60})?)\]/gi;
+  /\[(?:p\.\s*\d+(?:[–-]\d+)?|slides?\s+\d+(?:[–-]\d+)?|(?:[^\]\n]{1,100},\s*)?rows?\s+\d+(?:[–-]\d+)?(?:, (?:struck through|hidden))*|lines?\s+\d+(?:[–-]\d+)?|§[^\]\n]{0,200}|speaker notes|comment(?: by [^\]\n]{1,100})?|\d{1,2}:\d{2}(?::\d{2})?(?: [^\]\n]{1,60})?)\]/gi;
 
 /** Marks where a slide's speaker notes start, inside a Passage given to the model. */
 const NOTES_MARK = "[speaker notes]";
@@ -1167,17 +1168,12 @@ interface ShownPassage {
   notCited: boolean;
   /** A workbook's rows whose figures its formulas work out, which the text doesn't show (#2372). */
   formulas: string | null;
-  /** The rows the file strikes through, and those it hides, which the text doesn't show (#1979). */
-  struck: string | null;
-  hidden: string | null;
-  /** Rows that give one item different figures (./sheetRows). */
-  repeated: string | null;
 }
 
 /** Passages as the model sees them, each with its short id, Document, its date, and pages or Location. */
 function formatPassages(passages: readonly ShownPassage[], also: readonly PromptTag[]): string {
   return passages
-    .map(({ id, documentName, date, range, location, text, notCited, ...rows }) => {
+    .map(({ id, documentName, date, range, location, text, notCited, formulas }) => {
       const pages = pagesLabel(range);
       const where = location
         ? ` location="${attribute(location)}"`
@@ -1188,16 +1184,11 @@ function formatPassages(passages: readonly ShownPassage[], also: readonly Prompt
         ? ` ${date.of === "document" ? "date" : date.of}="${attribute(date.date)}"`
         : "";
       const never = notCited ? NOT_CITED_ATTRIBUTE : "";
-      const marks = (["formulas", "struck", "hidden", "repeated"] as const)
-        .map((mark) => {
-          const value = rows[mark];
-          return value ? ` ${mark}="${attribute(value)}"` : "";
-        })
-        .join("");
+      const worked = formulas ? ` formulas="${attribute(formulas)}"` : "";
       return tagged(
         "passage",
         text,
-        ` id="${id}" document="${attribute(documentName)}"${dated}${where}${marks}${never}`,
+        ` id="${id}" document="${attribute(documentName)}"${dated}${where}${worked}${never}`,
         also,
       );
     })
@@ -1752,25 +1743,17 @@ export function createCitationSession(
       if (!dates.has(documentId)) dates.set(documentId, documents.documentDate(documentId));
       return dates.get(documentId) ?? null;
     };
-    const unitsOf = found.map((passage) =>
-      passage.pageFrom !== null && passage.pageTo !== null
-        ? documents.pageTexts(
-            passage.documentId,
-            passage.contentHash,
-            passage.pageFrom,
-            passage.pageTo,
-          )
-        : [],
-    );
-    const repeated = repeatedRows(
-      found.map((passage, index) => ({
-        version: `${passage.documentId}\n${passage.contentHash}`,
-        units: unitsOf[index] ?? [],
-      })),
-    );
-    const formatted = found.map((passage, index): ShownPassage => {
+    const formatted = found.map((passage): ShownPassage => {
       const range = { pageFrom: passage.pageFrom, pageTo: passage.pageTo };
-      const units = unitsOf[index] ?? [];
+      const units =
+        passage.pageFrom !== null && passage.pageTo !== null
+          ? documents.pageTexts(
+              passage.documentId,
+              passage.contentHash,
+              passage.pageFrom,
+              passage.pageTo,
+            )
+          : [];
       const severalSections =
         units.every((unit) => unit.kind === "section") &&
         new Set(units.map((unit) => JSON.stringify([unit.label?.path ?? [], unitLocation(unit)])))
@@ -1787,7 +1770,7 @@ export function createCitationSession(
       const plain = foldRadicals(
         withCueMarks(firstMark ? `${firstMark} ${marked}` : marked, units),
       );
-      const text = withUnsureMarks(plain, units);
+      const text = withSetAsideMarks(withUnsureMarks(plain, units), passage.text, units);
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
       if (!notCited && !measuring) shownTexts.set(id, plain);
@@ -1808,9 +1791,6 @@ export function createCitationSession(
         text,
         notCited,
         formulas: events.marksFormulas?.() ? formulaRows(units) : null,
-        struck: markedRows(units, "struckRows"),
-        hidden: markedRows(units, "hiddenRows"),
-        repeated: repeated[index] ?? null,
       };
     });
     return formatPassages(formatted, events.defuses ?? []);

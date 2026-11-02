@@ -4,7 +4,6 @@
  * and a value supposed for one is a what-if, which only the workbook's own formulas work out.
  */
 import type { UnitText } from "../../shared/units";
-import { rowsMark } from "../answers/sheetRows";
 import { workbookModel } from "./model";
 import { parseFormula } from "./parse";
 import { placeKey, WorkbookEngine } from "./recalculate";
@@ -87,5 +86,27 @@ export function formulaRows(units: readonly UnitText[]): string | null {
     }
     if (rows.size > 0) bySheet.set(label.sheet, rows);
   }
-  return rowsMark(bySheet);
+  const named = [...bySheet].map(([sheet, rows]) => ({ sheet, spans: spansOf([...rows]) }));
+  if (named.length === 0) return null;
+  if (named.length === 1) return `rows ${named[0]?.spans}`;
+  return named.map(({ sheet, spans }) => `${sheet}, rows ${spans}`).join("; ");
+}
+
+/** Rows as runs: "4–7, 9, 11–12". */
+function spansOf(rows: number[]): string {
+  const sorted = rows.sort((a, b) => a - b);
+  const spans: string[] = [];
+  let start = sorted[0] as number;
+  let end = start;
+  for (const row of sorted.slice(1)) {
+    if (row === end + 1) {
+      end = row;
+      continue;
+    }
+    spans.push(start === end ? `${start}` : `${start}–${end}`);
+    start = row;
+    end = row;
+  }
+  spans.push(start === end ? `${start}` : `${start}–${end}`);
+  return spans.join(", ");
 }

@@ -7,6 +7,7 @@ import { detectLanguage } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, type Language } from "../language";
 import { asData, tagged } from "../promptData";
 import type { LoadedSkill, SkillSummary } from "../skills";
+import { SET_ASIDE_MARK } from "./sheetRows";
 
 const CJK_CHARACTERS = new RegExp(`[${CJK}]`, "gu");
 const LATIN_WORDS = /\p{Script=Latin}{2,}/gu;
@@ -261,7 +262,7 @@ export function withPassageNotes(
     notCitedNote(passages),
     bracketedAmountsNote(passages),
     formulaRowsNote(passages),
-    sheetRowsNote(passages),
+    setAsideRowsNote(passages),
     unreadDocumentsNote(unread),
     stillReadingNote(reading),
   ]
@@ -506,27 +507,14 @@ export function formulaRowsNote(passages: string): string {
   return "In a Passage marked formulas=\"…\", the rows it names hold values the workbook's own formulas worked out, and no Passage shows those formulas. Before saying how such a figure is worked out, which cells or assumptions it comes from, or how much each one counts, call trace_formulas for the figure; for the figure with one of the workbook's inputs at another value, call what_if.";
 }
 
-const STRUCK_ROWS_PASSAGE = /<passage [^>]*\bstruck="/;
-const HIDDEN_ROWS_PASSAGE = /<passage [^>]*\bhidden="/;
-const REPEATED_ROWS_PASSAGE = /<passage [^>]*\brepeated="/;
-
 /**
- * A reminder after a sheet's Passages that mark rows the file sets aside, or rows that give one
- * item different figures (#1979): read from the cells' text alone, Claude Haiku 5.5 took the
- * rows of a version the file struck through or hid for the current ones, guessing from their
- * order, and added two versions of an item up as one. Empty when no Passage marks any.
+ * A reminder after a sheet's Passages that mark rows the file strikes through or hides (#1979):
+ * shown such rows as ordinary ones, Claude Haiku 5.5 took them for current ones, guessing from
+ * their order. Empty when no Passage marks any.
  */
-export function sheetRowsNote(passages: string): string {
-  return [
-    STRUCK_ROWS_PASSAGE.test(passages) &&
-      'In a Passage marked struck="…", the file strikes through every cell of the rows it names: it has crossed them out. A figure from one is never the sheet\'s current figure; give it only as an earlier or removed one, and say the file strikes it through.',
-    HIDDEN_ROWS_PASSAGE.test(passages) &&
-      'In a Passage marked hidden="…", the file hides the rows it names: the User doesn\'t see them in the sheet. Where a hidden row and a shown one give one item different figures, the shown one is the figure the sheet shows now, and the hidden one an earlier or other figure; say the file hides it when you give it.',
-    REPEATED_ROWS_PASSAGE.test(passages) &&
-      'In a Passage marked repeated="…", each group of rows it names gives one item, in the same words, different figures. Such rows are usually separate entries, to list or add up as the Question asks. Only a Question about the item as it stands now, or about what changed, makes them an earlier and a later version of it: then find in the Document what tells them apart (a heading over them, a status, revision or date in them, or the file striking out or hiding one), and if nothing does, say that the Document doesn\'t make clear which row is current, give each with its Citation, and never take one for the current figure by its place in the sheet.',
-  ]
-    .filter((line) => typeof line === "string")
-    .join(" ");
+export function setAsideRowsNote(passages: string): string {
+  if (!SET_ASIDE_MARK.test(passages)) return "";
+  return 'A line of a sheet that starts with a mark such as "[row 4, struck through]" or "[row 4, hidden]" is a row the file strikes through or hides: the file has set it aside, as people do with an earlier or removed row. Where a set-aside row and an unmarked one give one item different figures, the unmarked one is the sheet\'s current figure, and the set-aside one is never given as current. Whenever you give a figure from a set-aside row, say that the file strikes it through or hides it. The mark is never part of a quote.';
 }
 
 const ROW_CONTEXT = "Revision worksheets need every item row and its revision, no bare values";
