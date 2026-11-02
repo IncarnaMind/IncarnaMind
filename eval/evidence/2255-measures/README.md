@@ -27,6 +27,13 @@ in none of them. The per-request traces stay out: they repeat the whole check pr
    npx vitest run tests/live/tieOut.live.test.ts
    ```
 
+## The replay
+
+With `INCARNAMIND_LIVE_MEASURES` set, either test also keeps each figure's measure as the check
+read it: its words, the sentence's texts, the quote, the bound number and the texts around the
+quote (`tests/live/measureLog.ts`). `replay-b971c404e.md` runs those lines again through
+`measureFinding` at other commits, so a change to the rule shows what it does to real replies.
+
 ## Which code each file ran
 
 | File | Commit |
@@ -39,6 +46,7 @@ in none of them. The per-request traces stay out: they repeat the whole check pr
 | `held-out-0c65c6a5b.jsonl` | 0c65c6a5b |
 | `held-out-ad8bb4f26.jsonl` | ad8bb4f26 |
 | `held-out-522d9ef0e.jsonl` | 522d9ef0e |
+| `held-out-b971c404e.jsonl` | b971c404e |
 | `tie-out-main.jsonl` | `main` at the branch's start |
 | `tie-out-0c65c6a5b.jsonl` | 0c65c6a5b |
 | `tie-out-7a7236b05.jsonl` | 7a7236b05 |
@@ -47,3 +55,5 @@ in none of them. The per-request traces stay out: they repeat the whole check pr
 | `tie-out-ad8bb4f26.jsonl` | ad8bb4f26 |
 | `tie-out-c87869603.jsonl` | c87869603 |
 | `tie-out-522d9ef0e.jsonl` | 522d9ef0e |
+| `tie-out-b971c404e.jsonl` | b971c404e |
+| `replay-b971c404e.md` | the b971c404e runs' measures, replayed at 38325e8ca, 1a05b929b and b971c404e |
