@@ -2,7 +2,7 @@
  * The lines over an edit the User asked for (#880; DESIGN.md, AI edits),
  * drawn in the text above the Block they are about, and under Review
  * changes a Restore original after the new words of each section rewritten
- * as a whole and of each other change.
+ * as a whole, of each paragraph, and of each Block added or removed.
  * ProposalBars handles their buttons, by `data-applied-action` and
  * `data-applied-restore`. They go once the User edits.
  */
@@ -767,7 +767,7 @@ interface PlacedChange {
   block: ChangedBlock;
 }
 
-/** What one Restore original restores: a section rewritten as a whole, or a single change. */
+/** What one Restore original restores: a section rewritten as a whole, a paragraph, or a Block added or removed. */
 export interface ChangeGroup {
   members: readonly PlacedChange[];
   /** The member whose new words come last, or the last of them when none has any: its Restore sits after it. */
@@ -778,13 +778,21 @@ export interface ChangeGroup {
   restorable: boolean;
 }
 
+/**
+ * The groups an edit's changes are restored in, in reading order: a section rewritten as a whole,
+ * else a paragraph, so a paragraph with several changes has one Restore original (#1358).
+ */
 function groupsOf(
   placed: readonly PlacedChange[],
   sections: readonly RewrittenSection[],
 ): ChangeGroup[] {
-  const groups = new Map<RewrittenSection | PlacedChange, PlacedChange[]>();
+  const groups = new Map<RewrittenSection | string | PlacedChange, PlacedChange[]>();
   for (const each of placed) {
-    const key = sectionOf(each.block, sections) ?? each;
+    const whole = each.block.how === "added" || each.block.how === "removed";
+    // A change the User has edited since stands alone, so a paragraph's other changes keep their Restore.
+    const key =
+      sectionOf(each.block, sections) ??
+      (whole || !each.written ? each : `block:${each.block.pos}`);
     groups.set(key, [...(groups.get(key) ?? []), each]);
   }
   return [...groups.values()].map((members) => {

@@ -121,7 +121,7 @@ test("⌘J applies the change at once as AI text, with Changed 1 paragraph · Un
   await expect(note.locator("del.proposal-delete, ins.proposal-insert")).toHaveCount(0);
 });
 
-test("Shorten from the menu applies at once; Review changes shows what it did, struck and underlined, over text that stays applied, each with Restore original; Done keeps the rest, and Undo all takes all back", async () => {
+test("Shorten from the menu applies at once; Review changes shows what it did, struck and underlined, over text that stays applied, with one Restore original for the paragraph; Undo all takes it back", async () => {
   const { window } = await launch();
   await useLocalChatModel(window);
   const { editor, paragraphs } = await mindWith(window, [TIDES]);
@@ -144,22 +144,24 @@ test("Shorten from the menu applies at once; Review changes shows what it did, s
   await motionSettled(window);
   await screenshot(window, "applied-review-en");
 
-  // Restoring one leaves the other.
+  // One Restore original puts the paragraph's two changes back together, in one step.
   const restores = note.getByTestId("change-restore");
-  await expect(restores).toHaveText(["Restore original", "Restore original"]);
-  await pointAndClick(window, restores.first());
-  await expect(removed).toHaveText(["really "]);
-  await expect(note).toContainText("are very strong");
-  await expect(window.getByTestId("undo-message")).toHaveText("Restored the original");
-  await expect(line.getByTestId("applied-count")).toHaveText("1 paragraph changed by Edit with AI");
-  await pointAndClick(window, line.getByTestId("applied-done"));
-  await expect(note).toHaveText("The tides here are very strong and regular.");
+  await expect(restores).toHaveText(["Restore original"]);
+  await pointAndClick(window, restores);
   await expect(removed).toHaveCount(0);
+  await expect(note).toHaveText(TIDES);
+  await expect(window.getByTestId("undo-message")).toHaveText("Restored the original");
   await expect(line).toHaveCount(0);
+
+  // Its Undo puts the edit's words back; a second Undo takes the edit itself back.
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(note).toHaveText("The tides here are strong and regular.");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(note).toHaveText(TIDES);
 
   // Undo all, in Chinese.
   await setLanguage(window, "zh-CN");
-  await slideSelect(window, note, "The tides here are very strong and regular.");
+  await slideSelect(window, note, TIDES);
   await pointAndClick(window, window.getByTestId("selection-action-shorten"));
   await expect(note).toHaveText("The tides here are strong and regular.");
   await pointAndClick(window, line.getByTestId("applied-review"));
@@ -167,7 +169,7 @@ test("Shorten from the menu applies at once; Review changes shows what it did, s
   await expect(line.getByTestId("applied-done")).toHaveText("完成");
   await expect(note.getByTestId("change-restore")).toHaveText("恢复原文");
   await pointAndClick(window, line.getByTestId("applied-undo-all"));
-  await expect(note).toHaveText("The tides here are very strong and regular.");
+  await expect(note).toHaveText(TIDES);
   await expect(line).toHaveCount(0);
 });
 
