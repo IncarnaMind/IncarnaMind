@@ -241,7 +241,9 @@ export const task: Task = {
       id: "rate_cells",
       kind: "mention",
       label: "Names the cells the two average rates came from",
-      match: /^(?=[\s\S]*\bB2\b)(?=[\s\S]*\bB3\b)/,
+      // A cell named by its row and column ("Rates sheet, row 2, average-rate column") names it too.
+      match:
+        /^(?=[\s\S]*(?:\bB2\b|\brow 2\b|第\s*2\s*行))(?=[\s\S]*(?:\bB3\b|\brow 3\b|第\s*3\s*行))/i,
     },
   ],
   sources: { documents: [NAME] },

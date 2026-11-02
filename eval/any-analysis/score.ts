@@ -153,7 +153,7 @@ function kindOf(figure: Pick<Figure, "unit">): NumberKind {
  * leaves out as a period: here it is the result.
  */
 const DURATION =
-  /(\d[\d,]*(?:\.\d+)?)\s*(?:days?|weeks?|months?|years?|hours?|hrs?|minutes?|mins?|seconds?|secs?|ms|天|周|个月|小时|分钟|秒)/gi;
+  /(\d[\d,]*(?:\.\d+)?)\)?\s*(?:days?|weeks?|months?|years?|hours?|hrs?|minutes?|mins?|seconds?|secs?|ms|天|周|个月|小时|分钟|秒)/gi;
 
 /** A number in scientific notation, as a p-value is often written: "1.4e-15", "1.4 × 10−15" (NFKC's "10⁻¹⁵"). */
 const SCIENTIFIC = /(\d+(?:\.\d+)?)\s*(?:[eE]\s*([-+−]?\d+)|[×x]\s*10\s*\^?\s*([-+−]?\d+))/g;
@@ -337,7 +337,7 @@ interface Wanted {
   signless?: boolean;
 }
 
-/** The values a candidate may stand for, with half its shown place: a plain 8.13 may be a percent. */
+/** The values a candidate may stand for, with half its shown place: a plain 8.13 may be a percent, and 8.13% a plain 0.0813. */
 function readings(candidate: Candidate, unit: NumberKind): { value: number; half: number }[] {
   if (unit === "percent") {
     return candidate.kind === "percent"
@@ -347,7 +347,8 @@ function readings(candidate: Candidate, unit: NumberKind): { value: number; half
           { value: candidate.value / 100, half: candidate.half / 100 },
         ];
   }
-  return candidate.kind === "plain" ? [{ value: candidate.value, half: candidate.half }] : [];
+  // A share written as a percent ("AUC 82.1%", "p 值 0.8%") is the same number as the fraction.
+  return [{ value: candidate.value, half: candidate.half }];
 }
 
 function verdict(

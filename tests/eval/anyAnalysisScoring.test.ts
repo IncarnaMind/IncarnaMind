@@ -832,3 +832,52 @@ describe("results under a lead-in line, and counts in words", () => {
     ).toEqual({ f: "wrong", pairs: "missing" });
   });
 });
+
+describe("shares written as percents, and a duration in brackets", () => {
+  const read: Task = {
+    ...TASK,
+    expect: [
+      {
+        id: "auc",
+        kind: "number",
+        label: "AUC",
+        unit: "plain",
+        tolerance: { abs: 0.04 },
+        near: /AUC/i,
+      },
+      {
+        id: "days",
+        kind: "number",
+        label: "Notice, days",
+        unit: "plain",
+        tolerance: { abs: 0 },
+        near: /notice/i,
+      },
+    ],
+  };
+  const reference: Reference = { task: "T00", inputs: {}, values: { auc: 0.828, days: 90 } };
+
+  test("an AUC written 82.1% is 0.821, and ninety (90) days is 90", () => {
+    const written = answer(
+      [
+        "Without the column, the test AUC falls to 82.1%.",
+        "Notice: ninety (90) days' written notice.",
+      ],
+      { figures: [] },
+    );
+
+    expect(outcomes(scoreAnswer(read, reference, record(written)))).toEqual({
+      auc: "right",
+      days: "right",
+    });
+  });
+
+  test("a leaky AUC of 99.2% alone is wrong", () => {
+    const leaky = answer(["The test AUC is 99.2%.", "Notice: 90 days."], { figures: [] });
+
+    expect(outcomes(scoreAnswer(read, reference, record(leaky)))).toEqual({
+      auc: "wrong",
+      days: "right",
+    });
+  });
+});
