@@ -79,8 +79,8 @@ export function ReviewRing() {
 
 /**
  * The eight colours as a row of dots, each one choice, chosen where it is: a
- * Tag's menu and the menu its dot opens. The chosen one is ringed as Finder
- * rings it. A menu item each, so the menu's arrow keys reach them.
+ * Tag's Colour ▸ submenu and the menu its dot opens. The chosen one is ringed
+ * as Finder rings it. A menu item each, so the menu's arrow keys reach them.
  */
 export function TagColourChoices({
   value,

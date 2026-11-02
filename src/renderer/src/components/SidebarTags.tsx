@@ -29,14 +29,14 @@ import { menuClass, menuFrameClass, menuItemClass } from "./ui";
 import { usePopoverMenu, useSubmenu } from "./usePopoverMenu";
 
 /**
- * The sidebar's Tags section, last in the tree: every Tag the User made, and
- * each preset Tag a Document carries, in name order, each with how many. A Tag
- * shows its Documents in the Library, through the Tag filter; Tags awaiting
- * review are reviewed there too. Documents dragged onto a Tag get it
- * (`tagTarget`). The heading's + makes one in place (#205), the dot opens its
- * eight colours, and the heading's menu and Manage Tags… at the end open the
- * full list. A Tag's menu carries Colour, Edit description, Merge into…,
- * Rename and Delete, through the one menu every object has (#223).
+ * The sidebar's Tags section, last in the tree: every Tag a Document carries,
+ * and a Tag with none only when the User made or changed it, in name order,
+ * each with how many. A Tag shows its Documents in the Library, through the Tag
+ * filter; Tags awaiting review are reviewed there too. Documents dragged onto a
+ * Tag get it (`tagTarget`). The heading's + makes one in place (#205), the dot
+ * opens its eight colours, and the heading's ⋯ carries Manage Tags…, as ⌘K and
+ * the Tag picker do. A Tag's menu carries Colour ▸, Edit description, Merge
+ * into…, Rename and Delete, through the one menu every object has (#223).
  */
 export function SidebarTags() {
   const t = useT();

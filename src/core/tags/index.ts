@@ -279,7 +279,8 @@ export function createTags(db: Database, now: () => string) {
       });
     },
 
-    create(input: unknown): Tag {
+    /** Makes a Tag; one the User did not make (Research's) leaves madeByUser false. */
+    create(input: unknown, madeByUser = true): Tag {
       if (!isRecord(input)) throw new InvalidInputError("createTag expects an object.");
       const name = parseName(input.name);
       const description =
@@ -289,13 +290,13 @@ export function createTags(db: Database, now: () => string) {
         checkUnique(name);
         const at = now();
         const colour = chosen ?? nextTagColour(list().map((tag) => tag.colour));
-        const id = insertTag(name, description, colour, at, true);
+        const id = insertTag(name, description, colour, at, madeByUser);
         return {
           id,
           name,
           description,
           preset: false,
-          madeByUser: true,
+          madeByUser,
           colour,
           createdAt: at,
           updatedAt: at,

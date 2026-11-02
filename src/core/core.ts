@@ -2242,7 +2242,8 @@ export function createCore(adapters: CoreAdapters): Core {
     tags: {
       list: () => tags.list().map((tag) => ({ id: tag.id, name: tag.name })),
       create: (name, description) => {
-        const tag = tags.create({ name, description });
+        // Research makes this one, not the User: at 0 it waits in Manage Tags.
+        const tag = tags.create({ name, description }, false);
         tagsChanged();
         return tag.id;
       },
