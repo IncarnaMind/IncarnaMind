@@ -229,6 +229,20 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(second.text).not.toContain(fact);
     expect(second.citations.length).toBeGreaterThan(0);
     expect(second.citations.every((citation) => citation.documentId !== guide.id)).toBe(true);
+    const retryFrom = calls.length;
+    const retried = await answerOf(
+      core,
+      await core.regenerateConversationAnswer({
+        conversationId: second.conversationId,
+        answerId: second.id,
+      }),
+    );
+    const retryCall = calls
+      .slice(retryFrom)
+      .find((call) => call.prompt.includes(typed) && call.prompt.includes("<live-transcript>"));
+    expect(retryCall).toBeDefined();
+    expect(retryCall?.prompt).toContain("<call>");
+    expect(retried.citations.every((citation) => citation.documentId !== guide.id)).toBe(true);
     const follow =
       language === "en"
         ? "Which of those guide topics should I ask about first?"
@@ -247,6 +261,23 @@ for (const language of ["en", "zh-CN"] as const) {
       .find((call) => call.prompt.includes(follow) && call.prompt.includes("<live-transcript>"));
     expect(followCall).toBeDefined();
     expect(followCall?.prompt).toContain(guideSaid);
+    await core.stopMeeting(meeting.id);
+    const endedFrom = calls.length;
+    await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: priorAnswer.conversationId,
+        mindId: meeting.mindId,
+        text: typed,
+      }),
+    );
+    const endedCall = calls
+      .slice(endedFrom)
+      .find((call) => call.prompt.includes(typed) && !call.prompt.includes("<live-transcript>"));
+    expect(endedCall).toBeDefined();
+    // A recap after the call ended keeps the earlier reply and takes no call to scope.
+    expect(endedCall?.prompt).not.toContain("<call>");
+    expect(endedCall?.prompt).toContain(guideSaid);
   });
 
   for (const heard of [false, true]) {
