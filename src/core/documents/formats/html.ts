@@ -232,6 +232,7 @@ export function htmlTextToMarkdown(source: string): string {
     if (name === "br") {
       if (silent > 0) return;
       if (inPre > 0) pre += "\n";
+      else if (cell !== null) cell += "\n";
       else if (block) text += "\n";
       return;
     }

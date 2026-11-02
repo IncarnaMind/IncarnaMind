@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { OfficeConversion, OfficeConverter, OfficeTarget, ProcessLauncher } from "../core";
+import { looksLikeSecret } from "../core/execution";
 
 /** How long LibreOffice may take to say it is there. */
 const VERSION_TIMEOUT_MS = 20_000;
@@ -88,27 +89,30 @@ export function createOfficeConverter(options: OfficeConverterOptions): OfficeCo
     env: Record<string, string> = {},
   ): Promise<{ code: number | null; error: string; output: string }> {
     return new Promise((resolve, reject) => {
-      options.processes.spawn(command, args, { env }).then((child) => {
-        let error = "";
-        let output = "";
-        const keep = (chunk: string, into: "error" | "output") => {
-          if (into === "error") error = (error + chunk).slice(-MAX_ERROR_BYTES);
-          else output += chunk;
-        };
-        child.stderr?.setEncoding("utf8");
-        child.stdout?.setEncoding("utf8");
-        child.stderr?.on("data", (chunk: string) => keep(chunk, "error"));
-        child.stdout?.on("data", (chunk: string) => keep(chunk, "output"));
-        const limit = setTimeout(() => child.kill(), timeoutMs);
-        child.once("close", (code) => {
-          clearTimeout(limit);
-          resolve({ code, error, output });
-        });
-        child.once("error", (error) => {
-          clearTimeout(limit);
-          reject(error);
-        });
-      }, reject);
+      options.processes
+        // LibreOffice never gets a variable whose name looks like a secret.
+        .spawn(command, args, { env, omitEnv: looksLikeSecret })
+        .then((child) => {
+          let error = "";
+          let output = "";
+          const keep = (chunk: string, into: "error" | "output") => {
+            if (into === "error") error = (error + chunk).slice(-MAX_ERROR_BYTES);
+            else output += chunk;
+          };
+          child.stderr?.setEncoding("utf8");
+          child.stdout?.setEncoding("utf8");
+          child.stderr?.on("data", (chunk: string) => keep(chunk, "error"));
+          child.stdout?.on("data", (chunk: string) => keep(chunk, "output"));
+          const limit = setTimeout(() => child.kill(), timeoutMs);
+          child.once("close", (code) => {
+            clearTimeout(limit);
+            resolve({ code, error, output });
+          });
+          child.once("error", (error) => {
+            clearTimeout(limit);
+            reject(error);
+          });
+        }, reject);
     });
   }
 
