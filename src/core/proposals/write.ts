@@ -82,6 +82,16 @@ import {
   unnameRemovals,
 } from "../edits/prompt";
 import { diffSteps, hunksOf, type Step, splitWords } from "./diff";
+import {
+  CITING,
+  type CitingNodes,
+  citingKey,
+  nodeKey,
+  splitCiting,
+  tally,
+  type Unplaced,
+  unplacedSince,
+} from "./placed";
 
 /** The Blocks whose text can be edited: Notes' and Answers' paragraphs and headings. */
 const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
@@ -815,6 +825,26 @@ const MARKER = /\[\^(\d+)\]|\[(\d+)\]|\$([^$\n]+)\$|\n/g;
  */
 type NewParagraph = NewText | NewTable;
 
+/**
+ * The Citations and footnotes a reply's paragraphs place, as they were read: what it may add. A
+ * footnote it moves brings the Citations in it.
+ */
+function placedBy(paragraphs: readonly NewParagraph[]): CitingNodes {
+  const placed: CitingNodes = new Map();
+  for (const { tokens } of paragraphs) {
+    for (const { node } of tokens) {
+      if (!node || !CITING.has(node.name)) continue;
+      if (!node.source) {
+        tally(placed, nodeKey(node.name, node.attributes), 1);
+        continue;
+      }
+      tally(placed, citingKey(node.source), 1);
+      for (const [key, n] of splitCiting(node.source, "").others) tally(placed, key, n);
+    }
+  }
+  return placed;
+}
+
 interface NewText {
   kind: BlockKind | null;
   tokens: NewToken[];
@@ -1213,6 +1243,11 @@ export interface Written {
   aside?: string[];
   /** The text names no paragraph, writes over none and takes none out: what it would add is only `aside`. */
   onlyAside?: true;
+  /**
+   * What it wrote changed a Citation, footnote or figure that was there, or added one its text
+   * doesn't place (#2424): the change is refused.
+   */
+  notPlaced?: true;
   /** What the paragraphs written had that they don't hold as it was written. */
   notes: Notes;
 }
@@ -2173,7 +2208,8 @@ export function proposeRewrite(
   const rewrite = createRewriteStream(selection, request, newId, () => fresh, { named });
   rewrite.write(text, true);
   rewrite.finish();
-  return rewrite.written();
+  const written = rewrite.written();
+  return rewrite.unplaced() === null ? written : { ...written, notPlaced: true };
 }
 
 /** A <removed> tag as the User may type it, in any of the shapes a model writes the mark. */
@@ -2253,6 +2289,8 @@ export function createRewriteStream(
   const notes = notesOf();
   // Only the paragraphs the model was shown: an empty one between two isn't in its text.
   const segments = selection.segments.filter((segment) => segment.shown);
+  const blocks = segments[0]?.element.doc?.getXmlFragment(MIND_CONTENT_FIELD);
+  const citingBefore = blocks && splitCiting(blocks, request);
   /** The text may leave paragraphs out, which stay: where a new one stands may say nothing of which it is (#2333). */
   const keeps = onLeftOut === "keep";
   const wordsIn = segments.map((segment) => new Set(wordsOf(segment.tokens)));
@@ -2902,12 +2940,20 @@ export function createRewriteStream(
   const wrote = (write: () => void): boolean => {
     const before = proposals.length;
     write();
-    const blocks = segments[0]?.element.doc?.getXmlFragment(MIND_CONTENT_FIELD);
     if (blocks) settleCitedIds(selection, blocks, newId);
     return proposals.length > before;
   };
 
   return {
+    /**
+     * What it wrote that changes a Citation, footnote or figure that was there, or adds one the
+     * text didn't place as it was read, or more often (#2424); null when it wrote neither.
+     */
+    unplaced: (): Unplaced | null =>
+      blocks === undefined || citingBefore === undefined
+        ? { changed: {}, added: { unread: 1 } }
+        : unplacedSince(citingBefore, blocks, request, placedBy(seen)),
+
     /**
      * The model's text so far: the paragraphs it has finished (all but the
      * last, or all of them once `done`) are written, or held until their

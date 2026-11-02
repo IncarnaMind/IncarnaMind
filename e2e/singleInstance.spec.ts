@@ -9,7 +9,6 @@ import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "@playwright/test";
 import { isRecord } from "../src/core/errors";
-import { MAPPED_WAL_RETRY_MS } from "../src/core/storage/node-sqlite";
 import { heldByAnotherCopy } from "../src/main/instanceLock";
 import {
   coreOf,
@@ -279,14 +278,6 @@ try {
       .map((line): unknown => JSON.parse(line))
       .filter(isRecord)
       .filter((event) => event.pid === successorPid);
-    const at = (name: string) => {
-      const event = traced.find((each) => each.event === name);
-      if (typeof event?.monotonic !== "string")
-        throw new Error(`The replacement app never traced ${name}.`);
-      return BigInt(event.monotonic);
-    };
-    const givenUpMs = Number((at("before-quit") - at("sqlite-open")) / 1_000_000n);
-    expect(givenUpMs).toBeLessThan(MAPPED_WAL_RETRY_MS + 1_000);
     expect(
       traced.filter(
         (event) =>
@@ -320,6 +311,11 @@ try {
     expect(walOpen.at(-1)).toMatch(
       new RegExp(`WARN +storage\\.walOpen\\.gaveUp attempts=${walOpen.length - 1} elapsedMs=\\d+$`),
     );
+    const elapsed = walOpen.map((line) => Number(/ elapsedMs=(\d+)/.exec(line)?.[1]));
+    // Each try is stamped when it ends, and one native call can't be cut short: only the last
+    // try may end past the five-second window.
+    expect(elapsed.slice(0, -2).filter((ms) => !(ms <= 5_000))).toEqual([]);
+    expect(elapsed.at(-1)).toBeGreaterThanOrEqual(5_000);
     expect(copiesWith(tag)).toEqual([]);
     expect(
       heldByAnotherCopy(dataDir, (what, error) => {

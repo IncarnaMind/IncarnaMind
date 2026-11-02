@@ -923,6 +923,11 @@ function notProposed(
         { kind: "typed-tag", mindId },
         `Nothing was proposed in “${name}”: the rewrite left out a <removed> tag the User typed there, which would take their words out. The text is as it was: don't say it was changed. You may try again once, keeping each tag the User typed as it is.`,
       );
+    case "not-placed":
+      return new Refusal(
+        { kind: "not-placed", mindId },
+        `Nothing was proposed in “${name}”: what the rewrite wrote would hold a Citation, footnote or figure that its text didn't place, or change one that was there. The text is as it was: don't say it was changed. You may try again once, citing only with the markers the passage gives.`,
+      );
     case "proposed":
       return "";
   }
