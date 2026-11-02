@@ -5,6 +5,7 @@ import { typesText } from "../../undo";
 import { AddDocumentsMenu } from "../AddDocumentsMenu";
 import { SearchIcon } from "../icons";
 import { CloseLineIcon } from "../lineIcons";
+import { buttonStyle } from "../ui";
 import { quietButtonClass } from "./LibrarySection";
 
 /**
@@ -20,6 +21,8 @@ export function LibraryHeader({
   notSorted,
   sorted,
   onReview,
+  onSortIntoFolders,
+  sorting = false,
   search,
   onSearch,
   onDown,
@@ -32,6 +35,13 @@ export function LibraryHeader({
   /** Every Document is through Organize and nothing waits: nothing is left to look at. */
   sorted: boolean;
   onReview(): void;
+  /**
+   * Sorting loose Documents into Folders, when there are enough of them and no Folder yet
+   * (#1942): then it is the page's one primary action and Add Documents steps back.
+   */
+  onSortIntoFolders?: (() => void) | null;
+  /** Organize is already reading or sorting them: the action waits. */
+  sorting?: boolean;
   search: string;
   onSearch(search: string): void;
   /** ↓ in the search field. */
@@ -99,7 +109,19 @@ export function LibraryHeader({
           )
         )}
         <span className="min-w-0 flex-1" />
-        <AddDocumentsMenu />
+        {onSortIntoFolders && (
+          <button
+            type="button"
+            data-testid="library-sort-into-folders"
+            title={t("library.organize.explain")}
+            onClick={onSortIntoFolders}
+            disabled={sorting}
+            className={buttonStyle("primary")}
+          >
+            {t("library.sortIntoFolders")}
+          </button>
+        )}
+        <AddDocumentsMenu secondary={!!onSortIntoFolders} />
       </div>
       <label
         title={t("library.search.hint")}

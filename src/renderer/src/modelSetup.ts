@@ -85,6 +85,22 @@ useModelSetup.subscribe((state, before) => {
 export const openModelSetup = (): void => useModelSetup.setState({ wanted: true });
 
 /**
+ * The waiting Question's Choose (#763): the setup card comes where the Question is, with its key
+ * field or first choice focused, so choosing a model never leaves the assistant.
+ */
+export function chooseModelInPlace(): void {
+  useModelSetup.setState({ wanted: true });
+  requestAnimationFrame(() => {
+    const card = document.querySelector<HTMLElement>('[data-testid="model-setup"]');
+    if (!card) return;
+    const first =
+      card.querySelector<HTMLElement>('[data-testid="setup-key"], [data-setup-choice]') ??
+      card.querySelector<HTMLElement>("button, input, select");
+    first?.focus();
+  });
+}
+
+/**
  * The setup card takes the composer's place only while no model works: the first step is what the
  * waiting Question needs (#2310). Once one works, the composer and ⌘J are there.
  */

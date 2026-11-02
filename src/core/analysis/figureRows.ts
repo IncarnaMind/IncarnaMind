@@ -6,6 +6,7 @@
  * comes to the same number is given a marker: the code's word is never enough.
  */
 import {
+  ANALYSIS_LIMITS,
   type AnalysisCell,
   type AnalysisFigureRows,
   type AnalysisInput,
@@ -13,6 +14,7 @@ import {
   analysisLabel,
   type FigureHow,
 } from "../../shared/analysis";
+import { figureText } from "../../shared/figures";
 import { sameNumber } from "../../shared/formula";
 
 const isNumber = (cell: AnalysisCell): cell is number =>
@@ -68,18 +70,32 @@ export function recalculate(
   const rowNumbers = input.rowNumbers ?? input.rows.map((_, index) => input.firstRow + index);
   const byRow = new Map(rowNumbers.map((row, index) => [row, input.rows[index] ?? []]));
   const cells: AnalysisCell[] = [];
+  const notNumbers: NotNumber[] = [];
   // Row by row, stopping at the first the input doesn't have: the sandbox names the runs, and a
   // run as long as it likes is no more work than the input's own rows.
   for (const [from, to] of of.rows) {
     for (let row = from; row <= to; row++) {
       const cellsOfRow = byRow.get(row);
       if (!cellsOfRow) return { kind: "unchecked", reason: `${of.input} has no row ${row}` };
-      cells.push(cellsOfRow[column] ?? null);
+      const cell = cellsOfRow[column] ?? null;
+      cells.push(cell);
+      if (cell !== null && cell !== "" && !isNumber(cell)) {
+        notNumbers.push({ row, value: analysisLabel(String(cell)) });
+      }
     }
   }
   const numbers = numeric(input.rows.map((row) => row[column] ?? null));
   if (how !== "count" && !numbers) {
     return { kind: "unchecked", reason: `${heading} in ${of.input} holds text, not numbers` };
+  }
+  // The code's pandas skips them as it sums, so agreeing with it would vouch for a total that
+  // leaves out a cell the file may count, such as an accounting "(100)" (#2444).
+  if (numbers && notNumbers.length > 0) {
+    const listed = notNumbers.slice(0, ANALYSIS_LIMITS.cellsListed);
+    return {
+      kind: "unchecked",
+      reason: `${notNumbersText(notNumbers.length, heading ?? "", "in the rows it names")}: ${cellsText(listed, notNumbers.length)}`,
+    };
   }
   const worked =
     how === "count"
@@ -91,6 +107,25 @@ export function recalculate(
   return sameNumber(worked, value)
     ? { kind: "same", value: worked }
     : { kind: "differs", value: worked };
+}
+
+interface NotNumber {
+  row: number;
+  /** As the cell holds it; "" for an empty one. */
+  value: string;
+}
+
+/** "2 cells of Revenue in the rows it names aren't numbers", for the model's report. */
+export function notNumbersText(count: number, column: string, where: string): string {
+  return count === 1
+    ? `1 cell of ${column} ${where} isn't a number`
+    : `${figureText("en", count)} cells of ${column} ${where} aren't numbers`;
+}
+
+/** 'row 5 "n/a", row 6 empty, …': the cells listed of `count`, for the model's report. */
+export function cellsText(cells: readonly NotNumber[], count: number): string {
+  const listed = cells.map((each) => `row ${each.row} ${each.value ? `"${each.value}"` : "empty"}`);
+  return `${listed.join(", ")}${count > cells.length ? ", …" : ""}`;
 }
 
 /** "rows 2–9, 11, 14–41", the first few runs only: for the model's report. */
