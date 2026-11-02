@@ -921,3 +921,65 @@ test("a table may write a key across its first heading and cell", () => {
 
   expect(outcomes(scoreAnswer(segments, reference, record(table)))).toEqual({ segments: "right" });
 });
+
+test("a whole number alone in a table cell is a number, though it looks like a year", () => {
+  const stale: Task = {
+    ...TASK,
+    expect: [
+      {
+        id: "stale",
+        kind: "rows",
+        label: "Stale numbers",
+        key: /\b(?:Hillcrest|Lakeshore)\b/g,
+        columns: [
+          { id: "deck", unit: "plain", tolerance: { abs: 0 } },
+          { id: "workbook", unit: "plain", tolerance: { abs: 0 } },
+        ],
+      },
+    ],
+  };
+  const reference: Reference = {
+    task: "T00",
+    inputs: {},
+    values: {
+      stale: [
+        { key: "Hillcrest", deck: 4120.5, workbook: 4210.5 },
+        { key: "Lakeshore", deck: 1904, workbook: 1940 },
+      ],
+    },
+  };
+  const table = (workbook: string) =>
+    answer(
+      [
+        "| Region | Deck | Workbook |",
+        "| --- | --- | --- |",
+        "| Hillcrest | 4,120.5 | 4210.5 |",
+        `| Lakeshore | 1,904 | ${workbook} |`,
+      ],
+      { figures: [] },
+    );
+
+  expect(outcomes(scoreAnswer(stale, reference, record(table("1940"))))).toEqual({
+    stale: "right",
+  });
+  expect(outcomes(scoreAnswer(stale, reference, record(table("1950"))))).toEqual({
+    stale: "wrong",
+  });
+});
+
+test("a scan its recogniser found no text in is not offered, not a limit", () => {
+  const scan = record(
+    answer(["I can't read the scan: it has no text."], { figures: [], analyses: [] }),
+    {
+      documents: [
+        { name: "Scan.pdf", english: "Scan.pdf", added: true, status: "no-text", problem: null },
+      ],
+    },
+  );
+
+  const score = scoreAnswer(TASK, REFERENCE, scan);
+
+  expect(score.troubles).toEqual(["not offered"]);
+  expect(score.checks.C3).toBe(true);
+  expect(score.failure).toBe("not offered");
+});

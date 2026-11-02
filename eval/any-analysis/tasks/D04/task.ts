@@ -106,7 +106,8 @@ export const task: Task = {
       id: "matches",
       kind: "mention",
       label: "Says the external column matches the stated total",
-      match: /match|agree|equal|reconcil|same as|一致|相符|吻合|相等|相同/i,
+      match:
+        /match|agree|equal|reconcil|same as|adds? up to|ties? (?:out|to)|一致|相符|吻合|相等|相同/i,
     },
   ],
   sources: { documents: [NAME] },

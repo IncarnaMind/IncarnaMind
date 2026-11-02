@@ -312,9 +312,23 @@ function linesOf(answer: SavedAnswer): Line[] {
       lines.push({ ...read, index, block, lead: context, row: null });
       continue;
     }
+    const bare: Candidate[] = [];
     const cells = cellsOf(raw).map((cell) => {
       const own = readLine(cell, index, figures);
-      return { text: own.text, candidates: own.candidates };
+      // The figure reader takes a whole number such as 1940 for a year; alone in a cell, it is a number.
+      const number = /^\s*-?\d[\d,]*(?:\.\d+)?\s*$/.test(own.text) && own.candidates.length === 0;
+      if (!number) return { text: own.text, candidates: own.candidates };
+      const decimals = own.text.trim().split(".")[1]?.length ?? 0;
+      const candidate: Candidate = {
+        value: Number(own.text.trim().replaceAll(",", "")),
+        kind: "plain",
+        half: 10 ** -decimals / 2,
+        text: own.text.trim(),
+        line: index,
+        figure: null,
+      };
+      bare.push(candidate);
+      return { text: own.text, candidates: [candidate] };
     });
     if (headings === null) {
       headings = cells.map((cell) => cell.text);
@@ -325,6 +339,7 @@ function linesOf(answer: SavedAnswer): Line[] {
     const joined = `${headings[0] ?? ""}${cells[0]?.text ?? ""}`.replace(/\s+/g, "");
     lines.push({
       ...read,
+      candidates: [...read.candidates, ...bare],
       text: `${read.text} ${joined}`,
       index,
       block,
@@ -569,11 +584,9 @@ function troublesOf(record: AnswerRecord): Trouble[] {
   const troubles = new Set<Trouble>();
   for (const document of record.documents) {
     if (!document.added || document.status !== "ready") {
-      troubles.add(
-        /unsupported|not a document|format/i.test(document.problem ?? "")
-          ? "not offered"
-          : "not read",
-      );
+      // A type the app doesn't read, or a scan its recogniser found no text in: not a limit.
+      const unread = /unsupported|not a document|format/i.test(document.problem ?? "");
+      troubles.add(unread || document.status === "no-text" ? "not offered" : "not read");
     }
   }
   for (const analysis of record.answer?.analyses ?? []) {
