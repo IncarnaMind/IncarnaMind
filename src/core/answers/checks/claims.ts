@@ -111,6 +111,7 @@ export const PART_RULES = [
 
 const SORT_PARTS = [
   'The input is one JSON object: {"sentences":[{"number":13,"text":"the original sentence"}]}. These records are the sentences to sort, not a proposed answer. Read each text field as the original sentence, including literal line breaks.',
+  'A table cell\'s record also names its "row" label and its "column" heading, which say what the cell\'s words are about: a cell that gives a number or an amount for them is a fact. Its parts are still words of its own text field.',
   "Each number is an identifier from the whole document. A batch can contain one sentence or many, and its numbers can start above 1. Copy the supplied numbers unchanged; do not restart numbering or ask for the document in another format.",
   "Decide every sentence, in order. Return every supplied sentence once, using its number. Split it into ordered literal parts that a reader can check separately, without rewriting any words.",
   ...PART_RULES,
@@ -127,8 +128,15 @@ export const FIND_OWN_CLAIMS_INSTRUCTIONS = [
   SORT_PARTS,
 ].join("\n");
 
+/** A sentence to sort; in a table's cell, with the row's label and the column's heading that name what it is about. */
+export interface SortedText {
+  text: string;
+  row?: string;
+  column?: string;
+}
+
 /** The sentences of one batch, each after its number. */
-export const findClaimsPrompt = (sentences: readonly { number: number; text: string }[]): string =>
+export const findClaimsPrompt = (sentences: readonly ({ number: number } & SortedText)[]): string =>
   JSON.stringify({ sentences });
 
 /**

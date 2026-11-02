@@ -219,6 +219,25 @@ export function figuresInSentence(sentence: SelectedSentence): FigureOccurrence[
   return inSentence(sentence, new Map(), documentFigureContext([{ text: sentence.context }]));
 }
 
+/**
+ * The label of the row and the heading of the column that name a table's value cell, as they name
+ * a figure in it. None for a row's own label or a Block outside a table.
+ */
+export function cellHeadings(
+  element: Y.XmlElement,
+  grids: Map<Y.XmlElement, SourceGrid>,
+): { row?: string; column?: string } {
+  const table = tableContext(element, grids);
+  if (!table || table.place.column === 0) return {};
+  const row = table.place.rowLabel;
+  const column = table.place.columnLabel.split("\n").join(" · ");
+  return { ...(row && { row }), ...(column && { column }) };
+}
+
+/** A figure in a table's cell after its row's label: that row's value under its column, never a heading. */
+export const inValueCell = (figures: readonly FigureOccurrence[] | undefined): boolean =>
+  figures?.some((figure) => figure.table !== undefined && figure.table.column > 0) ?? false;
+
 function inChart(element: Y.XmlElement): FigureOccurrence[] {
   const blockId = element.getAttribute("id");
   if (typeof blockId !== "string") return [];
