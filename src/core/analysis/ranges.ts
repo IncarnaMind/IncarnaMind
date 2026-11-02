@@ -141,7 +141,7 @@ export function readRange(
     .sort((a, b) => a - b);
   const [headingRow, ...dataRows] = numbers;
   if (headingRow === undefined) return null;
-  const widest = Math.max(...numbers.map((row) => rows.get(row)?.length ?? 0));
+  const widest = numbers.reduce((most, row) => Math.max(most, rows.get(row)?.length ?? 0), 0);
   const lastColumn = Math.min(bounds.lastColumn ?? widest - 1, widest - 1);
   if (lastColumn < bounds.firstColumn) return null;
   const width = lastColumn - bounds.firstColumn + 1;
@@ -155,7 +155,8 @@ export function readRange(
   );
   const kept = Math.min(dataRows.length, MAX_ROWS, Math.floor(MAX_CELLS / width));
   const read = dataRows.slice(0, kept);
-  const lastStored = Math.max(...rows.keys());
+  let lastStored = 0;
+  for (const row of rows.keys()) lastStored = Math.max(lastStored, row);
   const cells = [...rows.values()].reduce(
     (sum, row) => sum + row.filter((cell) => cell !== null).length,
     0,

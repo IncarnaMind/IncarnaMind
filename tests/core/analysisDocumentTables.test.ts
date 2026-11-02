@@ -12,7 +12,9 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
+import { readRange } from "../../src/core/analysis/ranges";
 import { createFakeTextRecognizer, type FakeScanScript } from "../../src/core/documents/scan/fake";
+import { cellTable } from "../../src/core/documents/tableCells";
 import { openDatabase } from "../../src/core/storage";
 import type {
   AnalysisCell,
@@ -375,7 +377,7 @@ describe("a PDF table over three pages, headed again on each (#448)", { timeout:
       expect(reports[0]).toContain(
         "- register: Grants register 2025, table 1 (pp. 2–4), A1:C19: 18 rows × 3 columns",
       );
-      expect(reports[0]).toContain("4 cells have a footnote mark after its number");
+      expect(reports[0]).toContain("4 cells have a footnote mark after their numbers");
     },
   );
 });
@@ -660,6 +662,35 @@ describe("a Document with no table of figures (#448)", { timeout: 60_000 }, () =
   });
 });
 
+describe("the same table given twice (#448)", { timeout: 60_000 }, () => {
+  test("is refused before it runs, so its rows aren't counted twice", async () => {
+    const { inputs, reports } = await ask({
+      files: [{ name: "Five-year statement.pdf", contents: incomeStatementPdf() }],
+      question: "Total the 2025 column.",
+      query: "income statement revenue gross profit",
+      runs: [
+        (passages) => ({
+          tool: "run_analysis",
+          input: {
+            title: "Twice",
+            inputs: [
+              { name: "first", passage: passageOf(passages, "Five-year statement") },
+              { name: "second", passage: passageOf(passages, "Five-year statement") },
+            ],
+            code: "figure(...)",
+          },
+        }),
+      ],
+      helper: () => {
+        throw new Error("The run should have been refused before it ran.");
+      },
+    });
+    expect(inputs).toEqual([]);
+    expect(reports[0]).toContain('"first" and "second" read the same rows');
+    expect(reports[0]).toContain("Every Passage of table 1 reads the whole table: give it once");
+  });
+});
+
 describe("a Word table long enough to run over two sections (#448)", { timeout: 60_000 }, () => {
   test("is still one table, its rows numbered on", async () => {
     const rows = Array.from({ length: 260 }, (_, at) => [
@@ -759,7 +790,7 @@ describe("Documents read before their tables were kept (#448)", { timeout: 60_00
     const tablesStored = () =>
       queryDatabase<{ label: string | null }>(
         dataDir,
-        "SELECT label FROM document_pages WHERE document_id = ? AND label LIKE '%\"tables\":[%'",
+        "SELECT label FROM document_pages WHERE document_id = ? AND deleted_at IS NULL AND label LIKE '%\"tables\":[%'",
         [document?.id ?? ""],
       ).length;
     const db = openDatabase(join(dataDir, DATABASE_FILE));
@@ -887,7 +918,7 @@ describe("a Word table's own layout (#448)", { timeout: 60_000 }, () => {
     });
     expect(column(inputs[0], "Amount")).toEqual([1240.5, 3980, 615.25]);
     expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 5835.75 }]);
-    expect(reports[0]).toContain("2 cells have a footnote mark after its number");
+    expect(reports[0]).toContain("2 cells have a footnote mark after their numbers");
   });
 
   test("a row that starts further along the grid keeps its cells under their headings", async () => {
@@ -911,6 +942,75 @@ describe("a Word table's own layout (#448)", { timeout: 60_000 }, () => {
       [null, "Joinery", 900],
     ]);
     expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 4450 }]);
+  });
+
+  test("a heading over two columns in the only heading row names both", async () => {
+    const span = (text: string) => `<w:tcPr><w:gridSpan w:val="2"/></w:tcPr>${paragraph(text)}`;
+    const tc = (text: string) => `<w:tc>${paragraph(text)}</w:tc>`;
+    const grid = `<w:tbl><w:tblGrid>${'<w:gridCol w:w="2000"/>'.repeat(3)}</w:tblGrid>${[
+      `<w:tr><w:tc>${paragraph("Region")}</w:tc><w:tc>${span("Cost (GBP)")}</w:tc></w:tr>`,
+      `<w:tr>${tc("North")}${tc("1,200")}${tc("1,100")}</w:tr>`,
+      `<w:tr>${tc("South")}${tc("800")}${tc("760")}</w:tr>`,
+    ].join("")}</w:tbl>`;
+    const { inputs, reports } = await ask({
+      files: [{ name: "Costs.docx", contents: wordFile({ body: grid }) }],
+      question: "Which columns hold the costs?",
+      query: "Cost North South",
+      runs: [run("Costs", [{ name: "costs" }])],
+      helper: () => ({}),
+    });
+    expect(inputs[0]?.columns).toEqual(["Region", "Cost (GBP)", "Cost (GBP)"]);
+    expect(inputs[0]?.rows).toEqual([
+      ["North", 1200, 1100],
+      ["South", 800, 760],
+    ]);
+    expect(reports[0]).toContain("table 1 (section 1), A1:C3: 2 rows × 3 columns");
+  });
+
+  test("a footnote mark after a full-width number is left out of it", async () => {
+    const { analyses, inputs, reports } = await ask({
+      files: [
+        {
+          name: "Amounts.docx",
+          contents: wordFile({
+            body: table([
+              ["供应商", "金额"],
+              ["水泵", "１，２００*"],
+              ["围栏", "１，２００¹"],
+            ]),
+          }),
+        },
+      ],
+      question: "把金额加起来。",
+      query: "水泵 围栏",
+      runs: [run("Amounts", [{ name: "amounts" }])],
+      helper: sumOf("金额"),
+    });
+    expect(column(inputs[0], "金额")).toEqual([1200, 1200]);
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 2400 }]);
+    expect(reports[0]).toContain("2 cells have a footnote mark after their numbers");
+  });
+
+  test("a row with gridAfter keeps a tab for its empty grid columns", async () => {
+    const tc = (text: string) => `<w:tc>${paragraph(text)}</w:tc>`;
+    const grid = `<w:tbl><w:tblGrid>${'<w:gridCol w:w="2000"/>'.repeat(3)}</w:tblGrid>${[
+      `<w:tr>${tc("Item")}${tc("Cost")}${tc("Notes")}</w:tr>`,
+      `<w:tr><w:trPr><w:gridAfter w:val="1"/></w:trPr>${tc("Widget")}${tc("1,200")}</w:tr>`,
+      `<w:tr>${tc("Gadget")}${tc("900")}${tc("seen")}</w:tr>`,
+    ].join("")}</w:tbl>`;
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir);
+    const sources = await createTempDataFolder();
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Costs.docx", wordFile({ body: grid })),
+    ]);
+    await core.close();
+    const texts = queryDatabase<{ text: string }>(
+      dataDir,
+      "SELECT text FROM document_pages WHERE document_id = ? AND deleted_at IS NULL",
+      [document?.id ?? ""],
+    ).map((page) => page.text);
+    expect(texts.some((text) => text.split("\n").includes("Widget\t1,200\t"))).toBe(true);
   });
 });
 
@@ -1020,5 +1120,77 @@ describe("a scan whose recognized text is the PDF's own text layer (#448)", {
       { kind: "unchecked", reason: expect.stringContaining("read from a scan") },
     ]);
     expect(reports[0]).toContain("Its numbers were read from a scan by text recognition");
+  });
+});
+
+describe("a kept scanned page whose new read finds no table (#448)", {
+  timeout: 60_000,
+}, () => {
+  test("drops the table the earlier read kept", async () => {
+    const dataDir = await createTempDataFolder();
+    const options = {
+      textRecognitionModelSource: NO_MODEL_FILES,
+      textRecognizer: createFakeTextRecognizer({ script: scanScript() }),
+    };
+    const core = startCore(dataDir, options);
+    const sources = await createTempDataFolder();
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Scanned revenue tables.pdf",
+        buildPdf([{ scan: readFileSync(join(SCANS, "table.jpg")) }]),
+      ),
+    ]);
+    const id = document?.id ?? "";
+    const tablesStored = () =>
+      queryDatabase<{ label: string | null }>(
+        dataDir,
+        "SELECT label FROM document_pages WHERE document_id = ? AND deleted_at IS NULL AND label LIKE '%\"tables\":[%'",
+        [id],
+      ).length;
+    expect(tablesStored()).toBe(1);
+    const checked = await core.recheckCitation({
+      mindId: null,
+      documentId: id,
+      pageFrom: 1,
+      pageTo: 1,
+      quote: "Table 3. Revenue by product line (USD thousands)",
+    });
+    expect(checked).toMatchObject({ check: "found" });
+    await core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run("UPDATE documents SET processing_version = 22 WHERE id = ?", [id]);
+      db.run("UPDATE document_pages SET text = ? WHERE document_id = ?", [
+        "Scanned revenue tables",
+        id,
+      ]);
+    } finally {
+      db.close();
+    }
+    const again = startCore(dataDir, {
+      textRecognitionModelSource: NO_MODEL_FILES,
+      textRecognizer: createFakeTextRecognizer({
+        script: { pages: { 1: { fail: "The kept scan must not be read again." } } },
+      }),
+    });
+    const [read] = await waitForProcessing(again, [id]);
+    expect(read?.status).toBe("ready");
+    expect(tablesStored()).toBe(0);
+    await again.close();
+  });
+});
+
+describe("a table with more rows than an Analysis reads (#448)", { timeout: 60_000 }, () => {
+  test("is cut at the Analysis's limit, not thrown on", () => {
+    const rows = [
+      ["Item", "Amount"],
+      ...Array.from({ length: 200_000 }, (_, at) => [`Item ${at}`, String(at)]),
+    ];
+    expect(cellTable(rows)?.rows).toHaveLength(200_000);
+    const cells = new Map(rows.map((row, index) => [index + 1, row]));
+    const read = readRange(cells, { firstRow: 1, lastRow: null, firstColumn: 0, lastColumn: null });
+    expect(read?.rows).toHaveLength(20_000);
+    expect(read?.rowCount).toBe(200_000);
   });
 });

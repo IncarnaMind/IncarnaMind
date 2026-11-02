@@ -78,9 +78,9 @@ type Read =
 type ReadInput = Extract<Read, { ok: true }>;
 
 /**
- * Two inputs that read the same cells of one sheet. Every Passage of a sheet reads the whole
- * sheet, so a model that gives each Passage it found as an input, then joins them, counts each
- * row as often (#2346): such inputs are refused before anything runs.
+ * Two inputs that read the same cells of one sheet or Document table. Every Passage of a sheet
+ * or a table reads the whole of it, so a model that gives each Passage it found as an input, then
+ * joins them, counts each row as often (#2346): such inputs are refused before anything runs.
  */
 function readTwice(reads: readonly ReadInput[]): string | null {
   const ranges = reads.flatMap((read) =>

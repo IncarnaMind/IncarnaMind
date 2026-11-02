@@ -23,7 +23,8 @@ export const shiftedDigits = (text: string, raised: boolean) =>
   text.replace(/\d/g, (digit) => (raised ? RAISED_DIGITS : LOWERED_DIGITS)[Number(digit)] ?? digit);
 
 /** A footnote's mark set after a figure: "17,347.75²", "4,812*", "(55.8)†". */
-const FOOTNOTE_MARK = /(?<=[\d)）%])(?:[\u00b9\u00b2\u00b3\u2070\u2074-\u2079]+|[*†‡§¶]{1,3})$/u;
+const FOOTNOTE_MARK =
+  /(?<=[\p{Nd})）%])(?:[\u00b9\u00b2\u00b3\u2070\u2074-\u2079]+|[*†‡§¶]{1,3})$/u;
 
 /** A cell's text without the footnote mark after its figure, and the mark ("" when it has none). */
 export function withoutFootnoteMark(text: string): { text: string; mark: string } {
@@ -65,7 +66,8 @@ export function figureColumns(rows: readonly (readonly string[])[], width: numbe
  * column of figures.
  */
 export function cellTable(rows: readonly (readonly string[])[]): UnitTable | null {
-  const width = Math.max(0, ...rows.map((row) => row.length));
+  let width = 0;
+  for (const row of rows) width = Math.max(width, row.length);
   if (width < 2) return null;
   const firstData = rows.findIndex((row) => row.some(isDatum));
   if (firstData < 0) return null;
@@ -75,13 +77,14 @@ export function cellTable(rows: readonly (readonly string[])[]): UnitTable | nul
     .map((row) => Array.from({ length: width }, (_, column) => row[column] ?? ""));
   if (!figureColumns(body, width).some(Boolean)) return null;
   const headings = Array.from({ length: width }, () => "");
-  rows.slice(0, headingCount).forEach((row, index) => {
-    const upper = index < headingCount - 1;
+  rows.slice(0, headingCount).forEach((row) => {
     let group = "";
     for (let column = 0; column < width; column++) {
       const text = (row[column] ?? "").trim();
       if (column > 0 && text) group = text;
-      const named = text || (upper && column > 0 ? group : "");
+      // A heading covers the empty grid cells a span leaves after it, in the last heading row as
+      // in an upper one: without it the covered column would be named by its letter alone.
+      const named = text || (column > 0 ? group : "");
       headings[column] = join(headings[column] ?? "", named);
     }
   });

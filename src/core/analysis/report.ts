@@ -65,7 +65,7 @@ export function analysisReport(analysis: AnswerAnalysis, language: Language): st
       }
       if (input.table?.marks) {
         lines.push(
-          `  ${input.table.marks === 1 ? "1 cell has" : `${count(input.table.marks)} cells have`} a footnote mark after its number (such as ¹ or *), which its value leaves out.`,
+          `  ${input.table.marks === 1 ? "1 cell has a footnote mark after its number" : `${count(input.table.marks)} cells have a footnote mark after their numbers`} (such as ¹ or *); a cell's value leaves it out.`,
         );
       }
     } else {
@@ -189,7 +189,7 @@ function refusal(
 ): string {
   if (check.kind === "unchecked") return `IncarnaMind couldn't work it out again: ${check.reason}.`;
   const of = result.of;
-  return `figure() gave ${figureText("en", result.value)}, but ${of ? `the ${of.how} of ${of.columns[0]} in those rows of ${of.input}` : "its cells"} comes to ${figureText("en", check.value)} as the sheet has them. figure() reads a column as its input has it; give a figure from a column the code changed with result().`;
+  return `figure() gave ${figureText("en", result.value)}, but ${of ? `the ${of.how} of ${of.columns[0]} in those rows of ${of.input}` : "its cells"} comes to ${figureText("en", check.value)} as the input has them. figure() reads a column as its input has it; give a figure from a column the code changed with result().`;
 }
 
 function endLine(analysis: AnswerAnalysis, end: AnswerAnalysis["end"]): string {
