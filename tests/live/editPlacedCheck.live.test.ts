@@ -141,8 +141,13 @@ test.skipIf(apiKey === undefined)(
       readMind(client).descendants((node) => {
         if (!node.isTextblock) return true;
         const id = String(node.attrs.id);
-        sizes.set(id, node.content.size);
-        plain.set(id, node.textBetween(0, node.content.size, "", "￼"));
+        // As the editor reads it: an inline node as one character, a footnote's text not at all.
+        let words = "";
+        node.forEach((child) => {
+          words += child.isText ? (child.text ?? "") : "￼";
+        });
+        plain.set(id, words);
+        sizes.set(id, words.length);
         return false;
       });
       const first = each.blocks[0] ?? "";
@@ -158,7 +163,13 @@ test.skipIf(apiKey === undefined)(
       });
       await client.settled();
       outcomes.push(result.kind);
-      const line = `${each.action}${each.instruction ? ` (${each.instruction})` : ""} on ${each.blocks.join("+")}: ${result.kind}${result.kind === "proposed" ? `, ${result.proposals} changes` : ""}`;
+      const said =
+        result.kind === "proposed"
+          ? `, ${result.proposals} changes`
+          : result.kind === "failed"
+            ? `: ${result.error.message}`
+            : "";
+      const line = `${each.action}${each.instruction ? ` (${each.instruction})` : ""} on ${each.blocks.join("+")}: ${result.kind}${said}`;
       if (process.env.INCARNAMIND_LIVE_REPORT) {
         await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${line}\n`);
       }

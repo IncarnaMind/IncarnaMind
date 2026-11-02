@@ -8,9 +8,14 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
-import { CITATION_NODE, type Document, FOOTNOTE_NODE } from "../../src/core";
+import {
+  CALCULATED_FIGURE_NODE,
+  CITATION_NODE,
+  type Document,
+  FOOTNOTE_NODE,
+} from "../../src/core";
 import { createElement } from "../../src/core/answers/blocks";
-import { blocksOf, citingKey } from "../../src/core/proposals/placed";
+import { addsOnlyPlaced, blocksOf, citingKey, splitCiting } from "../../src/core/proposals/placed";
 import { layout, proposeRewrite, readSelection, setProposal } from "../../src/core/proposals/write";
 import { translate } from "../../src/shared/i18n";
 import { decideProposals, pendingProposals, targetHash } from "../../src/shared/proposals";
@@ -71,18 +76,16 @@ function driftIn(paragraph: Y.XmlElement, request: string, mode: Drift): void {
     });
     paragraph.insert(paragraph.length, [note]);
   }
-  if (mode === "alter") {
-    // The User's Citation in the next paragraph, made to quote other words in place.
-    const blocks = blocksOf(paragraph);
-    const next = blocks?.toArray().find((each) => each !== paragraph);
-    const theirs =
-      next instanceof Y.XmlElement
-        ? next
-            .toArray()
-            .find((each) => each instanceof Y.XmlElement && each.nodeName === CITATION_NODE)
-        : undefined;
-    if (theirs instanceof Y.XmlElement) theirs.setAttribute("quote", "EVIL");
-  }
+  // In place, in the next paragraph: the User's Citation made to quote other words.
+  const next = blocksOf(paragraph)
+    ?.toArray()
+    .find((each) => each !== paragraph);
+  const theirs = (name: string) =>
+    next instanceof Y.XmlElement
+      ? next.toArray().find((each) => each instanceof Y.XmlElement && each.nodeName === name)
+      : undefined;
+  const citation = mode === "alter" ? theirs(CITATION_NODE) : undefined;
+  if (citation instanceof Y.XmlElement) citation.setAttribute("quote", "EVIL");
 }
 
 const TIDES = {
@@ -229,6 +232,24 @@ describe("Edit with AI's last check on what it writes (#2424)", () => {
     },
   );
 
+  test("finds a figure changed in place, and holds one left as it was", () => {
+    const { blocks } = userNote();
+    const before = splitCiting(blocks, "edit-request");
+    expect(addsOnlyPlaced(before, blocks, "edit-request", new Map())).toBe(true);
+    const figures: Y.XmlElement[] = [];
+    const visit = (node: Y.XmlFragment | Y.XmlElement) => {
+      for (const child of node.toArray()) {
+        if (!(child instanceof Y.XmlElement)) continue;
+        if (child.nodeName === CALCULATED_FIGURE_NODE) figures.push(child);
+        visit(child);
+      }
+    };
+    visit(blocks);
+    figures[0]?.setAttribute("claimCheck", "checked");
+    expect(figures).not.toHaveLength(0);
+    expect(addsOnlyPlaced(before, blocks, "edit-request", new Map())).toBe(false);
+  });
+
   test("says why in the User's language", () => {
     expect(translate("en", "edit.problem.not-placed")).toBe(
       "The AI’s rewrite would add a Citation, footnote or figure its reply didn’t place, so nothing changed. Try again.",
@@ -333,7 +354,7 @@ describe("Edit with AI's writer, whatever a reply writes (#2424)", () => {
       const keys = (root: Y.XmlFragment | Y.XmlElement, found: string[] = []): string[] => {
         for (const child of root.toArray()) {
           if (!(child instanceof Y.XmlElement)) continue;
-          if ([CITATION_NODE, FOOTNOTE_NODE, "calculatedFigure"].includes(child.nodeName)) {
+          if ([CITATION_NODE, FOOTNOTE_NODE, CALCULATED_FIGURE_NODE].includes(child.nodeName)) {
             found.push(citingKey(child));
           }
           keys(child, found);
