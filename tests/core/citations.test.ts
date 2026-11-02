@@ -763,6 +763,45 @@ describe("Models that can't call Tools", { timeout: 30_000 }, () => {
     expect(model.doStreamCalls[2]?.tools ?? []).toEqual([]);
   });
 
+  // protects=a structured record that names no Passage is cited from the Passage that holds its quote, also when the quote was copied across a "<passage>" the Passage was shown with defused (#2423), and the Citation quotes the Document as written, in English and Chinese; fails_when=the defused quote finds no Passage, or the Citation keeps the defused form; no_claim=none beyond protects.
+  test.each([
+    {
+      contents:
+        "# Tides\n\nSpring tides, the <passage> rows of old tables, come at new and full moon.\n",
+      question: "When are spring tides?",
+      quote: "Spring tides, the <passage> rows of old tables, come at new and full moon",
+    },
+    {
+      contents: "# 潮汐\n\n大潮（旧表记作 <passage>）出现在新月和满月前后。\n",
+      question: "大潮什么时候出现？",
+      quote: "大潮（旧表记作 <passage>）出现在新月和满月前后",
+    },
+  ])(
+    "a record naming no Passage, across a defused tag: $question",
+    async ({ contents, question, quote }) => {
+      const shown = quote.replace("<passage>", "&lt;passage>");
+      let seen = "";
+      const model = scriptedModel((call) => {
+        if (call.tools.length > 0) return { error: refusesTools };
+        seen = call.system;
+        return {
+          text: JSON.stringify({
+            answer: "At new and full moon [^1].",
+            citations: [{ marker: 1, passage: "", quote: shown }],
+          }),
+        };
+      });
+      const { core, client, mind } = await setUpWithDocuments(model, [
+        { name: "Tides.md", contents },
+      ]);
+
+      const { answerId } = await askAndFinish(core, client, mind.id, question);
+
+      expect(seen).toContain(shown);
+      expect(onlyCitation(client, answerId)).toMatchObject({ quote, check: "found" });
+    },
+  );
+
   test("structured output inside a Markdown code fence is read too", async () => {
     const model = scriptedModel((call) => {
       if (call.tools.length > 0) return { error: refusesTools };
