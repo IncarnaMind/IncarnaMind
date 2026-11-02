@@ -198,6 +198,8 @@ export interface AnswerSearchOptions {
   parameters?: Partial<SearchToolParameters>;
   /** Only this Document, by its name as the instructions list it. */
   document?: string;
+  /** The Documents' file properties too: a check's search, for a sentence about a file itself (#2458). */
+  properties?: true;
 }
 
 /** A page range, a Document opening, or the Passages around one already shown. */
@@ -255,6 +257,8 @@ export interface AnswerTools {
   unreadDocuments?(): readonly UnreadFile[];
   /** The Documents in the Search scope still being read: the search Tool says so, so a Document isn't taken for missing (#1503). */
   readingDocuments?(): readonly { name: string }[];
+  /** The search Tool can show the Documents' file properties: a check Run's (#2458). */
+  readonly fileProperties?: boolean;
   /** The document-search Tool. */
   searchDocuments(
     query: string,
@@ -1446,6 +1450,7 @@ export function documentTools(
 ): { search: Tool; read: Tool | null; cite: Tool; calculate: Tool | null } {
   const own = (name: string) => ({ name, provider: DOCUMENTS_PROVIDER, providerTool: name });
   const checking = toolSet === "check";
+  const properties = checking && documents.fileProperties === true;
   return {
     search: {
       ...own(DOCUMENT_TOOLS.search),
@@ -1463,22 +1468,31 @@ export function documentTools(
             description:
               "Search only this Document, named as the instructions list it: to find what each of several Documents says.",
           },
+          ...(properties && {
+            properties: {
+              type: "boolean",
+              description:
+                "true for a sentence about a file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. The result adds the file properties of the Document named in document, else of the Documents the search finds.",
+            },
+          }),
         },
         required: ["query"],
       },
-      shownInput: ({ query, document }) => ({
+      shownInput: ({ query, document, properties: asked }) => ({
         query: String(query ?? ""),
         ...(typeof document === "string" && document !== "" && { document }),
+        ...(properties && asked === true && { properties: true }),
       }),
       effects: () => [{ action: "read", scope: { kind: "documents" } }],
       // The User didn't write their Documents.
       untrustedResult: true,
-      async call({ query, document }, { toolCallId, signal, readThirdParty }) {
+      async call({ query, document, properties: asked }, { toolCallId, signal, readThirdParty }) {
         let found: SearchResultForModel;
         try {
           found = await documents.searchDocuments(String(query ?? ""), signal, {
             rerank: false,
             ...(typeof document === "string" && document !== "" && { document }),
+            ...(properties && asked === true && { properties: true }),
           });
         } catch (error) {
           // A failed search is the app's problem, so it is logged; the model is told it failed.

@@ -1850,8 +1850,10 @@ export function createCitationSession(
     ): Promise<SearchResultForModel> {
       if (!documents.search)
         throw new Error("Document search is unavailable in this Citation session.");
-      // The same words over another Document are a new search.
-      const same = sameSearch(options?.document ? `${options.document}\n${query}` : query);
+      // The same words over another Document, or for the file properties too, are a new search.
+      const same = `${options?.properties ? "properties:" : ""}${sameSearch(
+        options?.document ? `${options.document}\n${query}` : query,
+      )}`;
       if (searched.has(same)) return { text: SEARCHED_ALREADY, passageCount: 0 };
       searched.add(same);
       let within: string[] | undefined;
