@@ -1545,6 +1545,11 @@ export const en = {
   "review.comment.label": "Comment, {made}: {text}",
   "proposal.unknownAuthor": "Unknown author",
   "proposal.madeBy": "{author}, {date}",
+  // An outside agent's change waiting in a Note (#352), named after its pairing.
+  "proposal.proposedBy": "Proposed by {agent}",
+  "proposal.uncited.one": "1 sentence with no Citation",
+  "proposal.uncited": "{count} sentences with no Citation",
+  "proposal.uncited.next": "Select the next sentence with no Citation",
   "proposal.why": "Why: {reason}",
   "edit.applied": "Changed {count} paragraphs",
   "edit.applied.one": "Changed 1 paragraph",
@@ -4248,10 +4253,12 @@ export const en = {
   "aiStatement.uses.column.model": "Model",
   "aiStatement.uses.column.times": "Times",
   "aiStatement.uses.modelUnknown": "Not recorded",
+  "aiStatement.uses.agent": "{agent} (a connected agent; its model unknown)",
   "aiStatement.use.answer": "Answers written",
   "aiStatement.use.answer-added": "Answers added to the note",
   "aiStatement.use.edit-with-ai-accepted": "Changes from Edit with AI accepted",
   "aiStatement.use.assistant-change-accepted": "Changes from the assistant accepted",
+  "aiStatement.use.outside-agent-change-accepted": "Changes from a connected agent accepted",
   "aiStatement.use.comparison-table-accepted": "Comparison tables accepted",
   "aiStatement.use.suggestion-accepted": "Writing suggestions accepted",
   "aiStatement.use.search-documents": "Searches of the author’s own Documents",
@@ -4622,6 +4629,8 @@ export const en = {
   "error.startup.title": "IncarnaMind couldn’t start",
   "error.startup.body":
     "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\n{message}",
+  "error.startup.held":
+    "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
   "error.startup.busy":
     "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
   "error.startup.starting":
@@ -5134,6 +5143,7 @@ export const en = {
     "“{file}” is already in IncarnaMind. Delete it, then locate the folder again.",
   "error.agent.notConnected": "That agent isn’t connected.",
   "error.agent.nameEmpty": "Give the agent a name.",
+  "error.agent.proposeChoice": "Whether an agent may propose changes must be true or false.",
   "error.agent.nameTooLong": "An agent’s name can be at most {max} characters.",
   "error.agent.nameTaken": "An agent named “{name}” is already connected.",
   "error.agent.noFolders": "Choose at least one Folder for the agent to read.",
@@ -5594,6 +5604,14 @@ export const en = {
     "Asks first: this conversation has text from a web page.",
   "approvals.thirdParty.conversation.checkedDocument":
     "Asks first: this conversation has text from the checked document.",
+  "approvals.thirdParty.read.outsideAgent":
+    "Asks first: this Answer read a note with text from a connected agent.",
+  "approvals.thirdParty.task.outsideAgent":
+    "Asks first: this Task read a note with text from a connected agent.",
+  "approvals.thirdParty.mind.outsideAgent":
+    "Asks first: this note has text from a connected agent.",
+  "approvals.thirdParty.conversation.outsideAgent":
+    "Asks first: this conversation has text from a connected agent.",
   "approvals.call.waiting": "Waiting for your approval: {connector}: {tool}",
   "approvals.call.denied": "Not allowed: {connector}: {tool}",
   "approvals.call.allowed": "Asked {connector} with your approval: {tool}",
@@ -6703,6 +6721,38 @@ export const en = {
   "agents.answer.notFound": "[quote not found]",
   "agents.answer.cantCheck": "[can’t be checked]",
   "agents.mind.outsideCitation": "a Document in a Folder not shared with this agent",
+  "agents.problem.read-only":
+    "This agent may only read. To let it propose changes to your notes, allow it in Settings → Agents.",
+  "agents.problem.changed":
+    "This note changed after the agent read it. Read it again, then propose the changes again.",
+  "agents.problem.waiting":
+    "{paragraph} already has changes waiting in IncarnaMind. Accept or reject them there first.",
+  "agents.problem.busy": "IncarnaMind is writing {paragraph} now. Try again once it’s done.",
+  // Before a paragraph an agent reads by name that it can't change now (#352).
+  "agents.mind.waiting": "(changes waiting)",
+  "agents.mind.busy": "(being written)",
+  // Why an outside agent's proposed changes couldn't be read (#352), for it to put right.
+  "agents.propose.list": "List 1 to {max} changes.",
+  "agents.propose.name":
+    "“{name}” isn’t a paragraph’s name. Use ¶3 for a paragraph read_mind named, ¶3+ to add after it, or ¶+ to add after the change before.",
+  "agents.propose.removeChoice": "remove must be true or false.",
+  "agents.propose.removeOnly": "To take {name} out, give remove and no text.",
+  "agents.propose.text": "Give the text for {name}.",
+  "agents.propose.textTooLong": "The text for {name} is longer than {max} characters.",
+  "agents.propose.version": "Give the version read_mind returned with named.",
+  "agents.propose.firstAdd": "¶+ adds after the change before it: name a paragraph first.",
+  "agents.propose.noParagraphs": "{name} isn’t in the note: it has no paragraphs to name.",
+  "agents.propose.outOfRange": "{name} isn’t in the note: its paragraphs are ¶1 to ¶{count}.",
+  "agents.propose.twice": "{name} is named twice: change each paragraph once.",
+  "agents.propose.formula":
+    "In {name}, a Citation sits between two dollar signs, which read as a formula: write it outside them.",
+  "agents.propose.table":
+    "The text for {name} has lines that read as a table’s rows but make no table.",
+  "agents.propose.lost":
+    "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
+  "agents.propose.unplaced":
+    "These changes would add a Citation, footnote or figure IncarnaMind didn’t place, so nothing was written. Cite only with [cite:…] tokens.",
+  "agents.mind.namedChoice": "named must be true or false.",
   // Settings → Agents (#351): plain words for people who never edit a settings file.
   "settings.pages.agents": "Agents",
   "agents.settings.experimental": "Experimental",
@@ -6732,6 +6782,7 @@ export const en = {
   "agents.sentence.other": "your agent",
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
+  "agents.pairing.proposes": "Can propose changes to notes there, which wait for you",
   "agents.pairing.lastUsed": "Last used {when}",
   "agents.pairing.notUsed": "Not used yet",
   "agents.pairing.renameLabel": "Name of {agent}",
@@ -6758,8 +6809,11 @@ export const en = {
   "agents.activity.list_minds": "Listed your notes",
   "agents.activity.read_mind": "Read the note “{text}”",
   "agents.activity.ask": "Asked “{text}”",
+  "agents.activity.propose_changes": "Proposed changes to “{text}”",
   "agents.activity.count.one": "1 result",
   "agents.activity.count.other": "{count} results",
+  "agents.activity.changes.one": "1 change waiting for you",
+  "agents.activity.changes.other": "{count} changes waiting for you",
   "agents.activity.refused": "Refused: {reason}",
   "agents.activity.failed": "Didn’t work: {reason}",
   "agents.reason.unpaired": "it wasn’t connected",
@@ -6772,6 +6826,9 @@ export const en = {
   "agents.reason.chat-not-ready": "no AI model was ready",
   "agents.reason.invalid": "a request IncarnaMind couldn’t read",
   "agents.reason.failed": "something went wrong",
+  "agents.reason.read-only": "it may only read",
+  "agents.reason.changed": "the note had changed since it read it",
+  "agents.reason.waiting": "a paragraph had changes waiting",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
     "It can read your chosen Folders and the notes in them. What it reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
@@ -6783,6 +6840,8 @@ export const en = {
   "agents.connect.empty.title": "Nothing to read yet",
   "agents.connect.empty.body": "Add Documents for {agent} to read. They appear here.",
   "agents.connect.pickOne": "Choose at least one Folder.",
+  "agents.propose.label": "Let it propose changes to the notes in these Folders",
+  "agents.propose.hint": "Its changes wait until you accept or reject them.",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",

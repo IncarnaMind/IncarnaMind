@@ -21,7 +21,7 @@ import {
 import { selectionForEdit } from "../editor/editSelection";
 import { explainSelection } from "../editor/explainSelection";
 import { noteHolding } from "../editor/noteKeymap";
-import { pendingAtSelection, pendingIn } from "../editor/proposalReview";
+import { madeAgain, pendingAtSelection, pendingIn } from "../editor/proposalReview";
 import { proposalOriginalAt, toggleProposalOriginal } from "../editor/proposalRewrites";
 import { requestEditField } from "../editor/selectionCommands";
 import {
@@ -85,8 +85,9 @@ function outOfDateAt(ctx: CommandContext) {
   const editor = noteOnProposal(ctx);
   const note = noteHandle.current;
   if (!editor || note?.editor !== editor || useEdits.getState().pending[note.mindId]) return null;
-  // Someone's change from a Word file can't be made again.
-  const proposal = pendingAtSelection(editor.state).find((each) => each.outOfDate && !each.theirs);
+  // Someone's change from a Word file, or an outside agent's, can't be made again.
+  const made = madeAgain(editor.state);
+  const proposal = pendingAtSelection(editor.state).find((each) => each.outOfDate && made(each));
   return proposal ? { note, proposal } : null;
 }
 
