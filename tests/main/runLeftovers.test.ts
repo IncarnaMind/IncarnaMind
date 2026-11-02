@@ -427,7 +427,7 @@ describe.runIf(process.platform === "darwin" && sandbox.available)(
         start(label, SANDBOX_EXEC, ["-p", profile, "/bin/sleep", "600"]);
       }
       start("no sandbox", "/bin/sleep", ["600"]);
-      // An agent's sandbox, as Claude Code's is: sandbox-runtime's own profile, which may write
+      // A coding tool's sandbox, as Claude Code's is: sandbox-runtime's own profile, which may write
       // the runs' folders.
       const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
       const { argv } = await SandboxManager.wrapWithSandboxArgv("exec /bin/sleep 600", undefined, {
