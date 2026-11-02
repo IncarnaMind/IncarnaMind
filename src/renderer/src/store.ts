@@ -128,6 +128,13 @@ export interface OpenDocumentHow {
   stay?: boolean;
 }
 
+/** A file an add skipped: its name, and its path where it was on this computer. */
+export interface SkippedFileInfo {
+  name: string;
+  /** Absolute, for Show in Finder; null for a file a drag named but this computer has no path for. */
+  path: string | null;
+}
+
 export interface AppState extends LayoutSlice {
   status: Status;
   minds: Mind[];
@@ -144,8 +151,11 @@ export interface AppState extends LayoutSlice {
    * Citations that quote it can still be checked. Set once loaded, then follows the core's event.
    */
   keptCitationTexts: KeptCitationText[];
-  /** Names of the files the last add couldn't take, shown until dismissed. */
-  skippedFiles: string[];
+  /**
+   * The files the last add couldn't take, shown until dismissed: each with
+   * its path on this computer, where it had one (#762).
+   */
+  skippedFiles: SkippedFileInfo[];
   /** Names of the files the last add found in IncarnaMind already, shown until dismissed. */
   alreadyAdded: string[];
   /** Pages the User saved that did not go into the Folder they chose, with that Folder, until dismissed. */
@@ -857,12 +867,20 @@ export const useAppStore = create<AppState>()((set, get) => {
         ? await core.addDocuments([...paths])
         : { documents: [], skipped: [], added: [] };
     const linkable: LinkingFolder[] = folders.map((path) => ({ path, preview: null, error: null }));
-    const skipped = [...notOnDisk];
+    const skipped: SkippedFileInfo[] = [];
+    const seen = new Set<string>();
+    const addSkipped = (name: string, path: string | null) => {
+      const key = path ?? name;
+      if (seen.has(key)) return;
+      seen.add(key);
+      skipped.push({ name, path });
+    };
+    for (const name of notOnDisk) addSkipped(name, null);
     for (const { path } of result.skipped) {
       // A folder (the drop didn't say) can't be added, but can be linked: only a folder has a preview.
       const preview = await core.previewLinkedFolder(path).catch(() => null);
       if (preview) linkable.push({ path, preview, error: null });
-      else skipped.push(fileName(path));
+      else addSkipped(fileName(path), path);
     }
     documentUpdates.flush();
     set((state) => {

@@ -19,6 +19,7 @@ type Translate = (key: MessageKey, params?: MessageParams) => string;
 export const UNREAD_REASON_KEYS: Record<UnreadReason, MessageKey> = {
   format: "unread.reason.format",
   scan: "unread.reason.scan",
+  picture: "unread.reason.picture",
   password: "unread.reason.password",
   damaged: "unread.reason.damaged",
   "too-large": "unread.reason.too-large",
