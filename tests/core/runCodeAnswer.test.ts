@@ -175,13 +175,33 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
       }),
     ]);
     const rows = Array.from({ length: 20_050 }, (_, index) => `R${index % 7},${index}`);
-    const core = await setUp(model, { salesRows: rows });
+    const core = await setUp(model, {
+      salesRows: rows,
+      manifestUrl: "http://127.0.0.1:9/python-runtime-test.tar.zst",
+    });
     const answer = await ask(core, "What is the revenue over every row?");
     expect(answer.analyses[0]?.inputs[0]).toMatchObject({ kind: "range", cut: true });
     expect(told(model, "run_analysis")[0]).toContain(
       "the most run_analysis reads; run it again with run_code, which reads every row",
     );
-  }, 60_000);
+
+    // A copy with no Python of its own: run_code couldn't read the rows either.
+    const without = codingModel([
+      (passage) => ({
+        tool: "run_analysis",
+        input: {
+          title: "Revenue",
+          inputs: [{ name: "sales", passage: passage("sales") }],
+          code: 'result("n", len(inputs["sales"]), "Rows")',
+        },
+      }),
+    ]);
+    await ask(
+      await setUp(without.model, { salesRows: rows }),
+      "What is the revenue over every row?",
+    );
+    expect(told(without.model, "run_analysis")[0]).toContain("say so in the Answer");
+  }, 90_000);
 
   test("runs bash on a copy of the Document, as an Analysis numbered after one in Pyodide", async () => {
     const { model } = codingModel([

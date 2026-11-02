@@ -333,12 +333,13 @@ const collect = (child: ChildProcess, request: ExecRequest, cwd: string) =>
     child.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
     request.signal.addEventListener("abort", stop, { once: true });
-    // Once it has exited and its output has closed (a process it started may keep that open).
-    // What it left running in its group ends with it; Windows has no group to find it by.
-    child.once("close", (code) => {
+    // What it left running in its group ends with it, which also closes the output such a
+    // process held open; Windows has no group to find it by.
+    child.once("exit", () => {
       if (process.platform !== "win32" && !stopped) stopProcessTree(child);
-      finish(code);
     });
+    // Once it has exited and its output has closed.
+    child.once("close", (code) => finish(code));
     // Stopped while it was starting: there was nothing to stop until now.
     if (request.signal.aborted) stop();
   });

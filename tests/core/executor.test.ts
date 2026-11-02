@@ -64,14 +64,18 @@ const SLEEP = [
   "setInterval(() => {}, 1000);",
 ].join("\n");
 
-/** Starts a process of its own in the background, with its output closed, writes both pids and ends. */
-const BACKGROUND = [
-  'const { spawn } = require("node:child_process");',
-  'const { writeFileSync } = require("node:fs");',
-  'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });',
-  "writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid, child: child.pid }));",
-  "child.unref();",
-].join("\n");
+/**
+ * Starts a process of its own in the background, writes both pids and ends. The process keeps the
+ * run's output open when `holding` (as `cmd &` in a shell does), or closes it.
+ */
+const background = (holding: boolean) =>
+  [
+    'const { spawn } = require("node:child_process");',
+    'const { writeFileSync } = require("node:fs");',
+    `const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "${holding ? "inherit" : "ignore"}" });`,
+    "writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid, child: child.pid }));",
+    "child.unref();",
+  ].join("\n");
 
 /** Starts a process in a session of its own, which a stop can't reach, holding the output open. */
 const ESCAPE = [
@@ -268,18 +272,24 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
     );
 
     test.skipIf(process.platform === "win32")(
-      "what it left running in the background ends when it does",
+      "what it left running in the background ends when it does, its output open or not",
       async () => {
         const { executor } = await setUp();
-        const pidFolder = await createTempDataFolder();
-        const pidFile = join(pidFolder, "pids.json");
+        for (const holding of [false, true]) {
+          const pidFolder = await createTempDataFolder();
+          const pidFile = join(pidFolder, "pids.json");
 
-        const run = await executor.run(
-          request(node(BACKGROUND, pidFile), { allow: writingTo(pidFolder) }),
-        );
+          // Left running and holding the output, it would keep the run until its timeout.
+          const run = await executor.run(
+            request(node(background(holding), pidFile), {
+              timeoutMs: 30_000,
+              allow: writingTo(pidFolder),
+            }),
+          );
 
-        expect(run).toMatchObject({ exitCode: 0, timedOut: false });
-        await expectStopped(await pidsIn(pidFile));
+          expect(run).toMatchObject({ exitCode: 0, timedOut: false });
+          await expectStopped(await pidsIn(pidFile));
+        }
       },
       RUNNER_LIMIT,
     );

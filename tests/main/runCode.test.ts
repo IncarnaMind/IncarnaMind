@@ -321,6 +321,10 @@ describe.skipIf(unavailable !== undefined)(
       await call("bash", "sleep 2351 > /dev/null 2>&1 & echo started");
       expect(analyses[0]?.end).toEqual({ kind: "done" });
       expect(analyses[0]?.output.printed).toBe("started");
+      // Holding the output open, it would keep the run until its time limit.
+      await call("bash", "sleep 2351 & echo holding");
+      expect(analyses[1]?.end).toEqual({ kind: "done" });
+      expect(analyses[1]?.output.printed).toBe("holding");
       const { execFileSync } = await import("node:child_process");
       await expect
         .poll(() =>
@@ -546,8 +550,9 @@ print(json.dumps(seen))
       expect(analyses[0]?.output.printed.startsWith("xxxx")).toBe(true);
       await call(
         "python",
-        // Random bytes: macOS compresses a run of one byte to almost nothing, which isn't memory used.
-        "held = []\nfor n in range(60):\n    held.append(np.random.default_rng(n).bytes(50_000_000))",
+        // Random bytes: macOS compresses a run of one byte to almost nothing, which isn't memory
+        // used. Held until stopped: the limit is measured every 250 ms, not at each allocation.
+        "import time\nheld = []\nfor n in range(60):\n    held.append(np.random.default_rng(n).bytes(50_000_000))\ntime.sleep(60)",
       );
       expect(analyses[1]?.end).toEqual({ kind: "out-of-memory" });
       await call(

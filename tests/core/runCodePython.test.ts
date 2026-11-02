@@ -196,20 +196,33 @@ describe.skipIf(process.platform === "win32")("run_code's own Python", () => {
     expect((await ensured).ok).toBe(true);
   });
 
-  test("stops downloading once every call waiting on it is stopped, and the next call starts again", async () => {
+  test("a call that stops leaves the download to the calls still waiting on it", async () => {
     const { manifest, dropped, served, resume } = await release({ stallAfter: 100 });
     const { statuses, make } = await runtimeFor(manifest);
     const runtime = make();
     const first = new AbortController();
-    const second = new AbortController();
-    const waits = [runtime.ensure(first.signal), runtime.ensure(second.signal)];
+    const stopping = runtime.ensure(first.signal);
+    const staying = runtime.ensure(new AbortController().signal);
     await expect.poll(() => statuses.at(-1)?.downloadedBytes).toBe(100);
 
     first.abort(new Error("stopped one"));
-    await expect(waits[0]).rejects.toThrow("stopped one");
+    await expect(stopping).rejects.toThrow("stopped one");
+    resume();
+    expect((await staying).ok).toBe(true);
+    expect(served()).toBe(1);
     expect(dropped()).toBe(0);
-    second.abort(new Error("stopped two"));
-    await expect(waits[1]).rejects.toThrow("stopped two");
+  });
+
+  test("stops downloading once every call waiting on it is stopped, and the next call starts again", async () => {
+    const { manifest, dropped, served, resume } = await release({ stallAfter: 100 });
+    const { statuses, make } = await runtimeFor(manifest);
+    const runtime = make();
+    const only = new AbortController();
+    const waiting = runtime.ensure(only.signal);
+    await expect.poll(() => statuses.at(-1)?.downloadedBytes).toBe(100);
+
+    only.abort(new Error("stopped"));
+    await expect(waiting).rejects.toThrow("stopped");
     await expect.poll(() => dropped()).toBe(1);
     await expect.poll(() => runtime.status().state).toBe("not-downloaded");
 
@@ -218,6 +231,18 @@ describe.skipIf(process.platform === "win32")("run_code's own Python", () => {
     resume();
     expect((await again).ok).toBe(true);
     expect(runtime.status().state).toBe("ready");
+  });
+
+  test("a closed runtime downloads nothing", async () => {
+    const { manifest, served } = await release();
+    const { make } = await runtimeFor(manifest);
+    const runtime = make();
+    runtime.close();
+    const result = await runtime.ensure(new AbortController().signal);
+    expect(result.ok).toBe(false);
+    expect(served()).toBe(0);
+    expect((await make().ensure(new AbortController().signal)).ok).toBe(true);
+    expect(served()).toBe(1);
   });
 
   test("says it couldn't be downloaded when offline, and tries again on the next call", async () => {

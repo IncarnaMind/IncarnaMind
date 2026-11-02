@@ -241,8 +241,17 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
   function startPreparing(after: Promise<unknown>) {
     const stop = new AbortController();
     const close = () => stop.abort(lifetime.signal.reason);
-    lifetime.signal.addEventListener("abort", close, { once: true });
-    const done = after.then(async (): Promise<PythonReady> => {
+    if (lifetime.signal.aborted) close();
+    else lifetime.signal.addEventListener("abort", close, { once: true });
+    // The one before was stopped; it may still have finished what it was doing when it was.
+    const done = after.then(settled, settled);
+    async function settled(): Promise<PythonReady> {
+      if (ready()) {
+        lifetime.signal.removeEventListener("abort", close);
+        if (preparing?.stop === stop) preparing = null;
+        update({ state: "ready", downloadedBytes: manifest.size, error: null });
+        return { ok: true, python: { command, fontCache, manifest } };
+      }
       update({ state: "downloading", error: null, downloadedBytes: 0 });
       try {
         stop.signal.throwIfAborted();
@@ -268,7 +277,7 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
         lifetime.signal.removeEventListener("abort", close);
         if (preparing?.stop === stop) preparing = null;
       }
-    });
+    }
     return { done, stop, waiting: 0 };
   }
 
@@ -300,12 +309,22 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
           reject(signal.reason);
         };
         signal.addEventListener("abort", leave, { once: true });
-        void current.done.then((result) => {
-          if (signal.aborted) return;
+        const settle = () => {
           signal.removeEventListener("abort", leave);
           current.waiting--;
-          resolve(result);
-        });
+        };
+        current.done.then(
+          (result) => {
+            if (signal.aborted) return;
+            settle();
+            resolve(result);
+          },
+          (error: unknown) => {
+            if (signal.aborted) return;
+            settle();
+            reject(error);
+          },
+        );
       });
     },
     close(): void {

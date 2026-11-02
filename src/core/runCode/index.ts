@@ -234,7 +234,16 @@ async function ownFile(path: string, limit: number): Promise<Buffer | null> {
   try {
     const opened = await handle.stat();
     if (opened.ino !== info.ino || opened.dev !== info.dev) return null;
-    return await handle.readFile();
+    // A process the code left running may still be writing to a file it opened before the run
+    // ended: one that isn't the size it was is refused.
+    const data = Buffer.alloc(info.size + 1);
+    let size = 0;
+    while (size < data.length) {
+      const { bytesRead } = await handle.read(data, size, data.length - size, size);
+      if (bytesRead === 0) break;
+      size += bytesRead;
+    }
+    return size === info.size ? data.subarray(0, size) : null;
   } finally {
     await handle.close();
   }
