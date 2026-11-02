@@ -820,6 +820,12 @@ for (const language of ["en", "zh-CN"] as const) {
         return (await core.listTags()).map((tag) => [tag.name, tag.madeByUser] as const);
       });
       expect(afterUndo).toContainEqual(["Paper", false]);
+
+      // Redo merges them again, and the Library filter moves forward with it.
+      await window.getByTestId("undo-line").getByTestId("redo-action").click();
+      await expect(tagRow(window, "Drafts")).toHaveCount(0);
+      await expect(tagRow(window, "Paper").getByTestId("browse-count")).toHaveText("0");
+      await expect(tagFilter).toHaveText(language === "en" ? "Tags: Paper" : "标签：Paper");
     } finally {
       await app.close();
     }

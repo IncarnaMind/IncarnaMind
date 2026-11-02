@@ -9464,12 +9464,22 @@ export interface TagLinkState {
   removedByUser?: boolean;
 }
 
+/**
+ * Whether a Tag was the User's before an edit or a merge made it so, to put back with its Undo:
+ * only while the Tag still is as it was when the change finished, at `expectedUpdatedAt`.
+ */
+export interface TagSourceRevert {
+  madeByUser: boolean;
+  /** The Tag's `updatedAt` when the change finished; a Tag changed since keeps its source. */
+  expectedUpdatedAt: string;
+}
+
 export interface TagMerge {
   /** The Tag merged into; it is the User's from the merge on. */
   tag: Tag;
   /**
    * Restoring it undoes the merge: the merged Tag comes back, and both Tags' links are as they
-   * were; `revertTagSource` puts back `keptMadeByUserBefore` too.
+   * were. `restore`'s `tagSources` puts back whether the Tag merged into was the User's.
    */
   merged: RestoreRef;
   /** Whether the Tag merged into was the User's before the merge made it so. */
@@ -10692,7 +10702,14 @@ export interface CoreApi {
    * `RECENTLY_DELETED_DAYS` ago, or that can't come back now (its name taken, its Linked folder
    * unlinked). Never touches the User's files.
    */
-  restore(refs: RestoreRef[], options?: { reopen?: boolean }): Promise<RestoreResult>;
+  restore(
+    refs: RestoreRef[],
+    options?: {
+      reopen?: boolean;
+      /** Tags to put back whether they were the User's, for the Undo of a merge. */
+      tagSources?: readonly (TagSourceRevert & { tagId: string })[];
+    },
+  ): Promise<RestoreResult>;
   /**
    * Undoes a Restore: each item goes back to Recently deleted as it was before it came back, with
    * the rows its Restore brought back, deleted at the time it was deleted then, so the Folder it
@@ -12010,14 +12027,11 @@ export interface CoreApi {
   createTag(input: CreateTagInput): Promise<Tag>;
   /**
    * Changes a Tag's name or description and returns the Tag. Documents keep
-   * their Tags; "Re-tag" applies the new definition to the automatic ones.
+   * their Tags; "Re-tag" applies the new definition to the automatic ones. With
+   * `source`, the Undo of an edit, it also puts back whether the Tag was the
+   * User's, if it still is as it was at `expectedUpdatedAt`.
    */
-  updateTag(tagId: string, patch: UpdateTagInput): Promise<Tag>;
-  /**
-   * Puts back whether a Tag was the User's: the Undo of a merge, which makes the
-   * Tag kept the User's, or of an edit, which marks the Tag the User's.
-   */
-  revertTagSource(tagId: string, madeByUser: boolean): Promise<Tag>;
+  updateTag(tagId: string, patch: UpdateTagInput, source?: TagSourceRevert): Promise<Tag>;
   /** Soft-deletes a Tag, and takes it off every Document. */
   deleteTag(tagId: string): Promise<void>;
   /**
@@ -13040,7 +13054,6 @@ const methods: Record<CoreApiMethod, true> = {
   listTags: true,
   createTag: true,
   updateTag: true,
-  revertTagSource: true,
   deleteTag: true,
   addDocumentTag: true,
   removeDocumentTag: true,

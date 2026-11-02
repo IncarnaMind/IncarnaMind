@@ -58,8 +58,10 @@ export async function editTag(tagId: string, patch: UpdateTagInput): Promise<Tag
     said: (t) => t(rename ? "object.renamed" : "undo.tagEdited", { name: after.name }),
     name: (t) => t(rename ? "undo.name.rename" : "undo.name.editTag"),
     undo: async () => {
-      await core.updateTag(tagId, before);
-      await core.revertTagSource(tagId, wasUser);
+      await core.updateTag(tagId, before, {
+        madeByUser: wasUser,
+        expectedUpdatedAt: edited.updatedAt,
+      });
     },
     redo: async () => {
       await core.updateTag(tagId, after);
@@ -85,10 +87,10 @@ export async function mergeTags(tagId: string, intoTagId: string, renamed = fals
   const name = tagOf(tagId)?.name ?? "";
   const into = tagOf(intoTagId)?.name ?? "";
   const filter = useAppStore.getState().tagFilter;
-  const filtered = filter.includes(tagId);
+  const moved = filter.includes(tagId);
   let merge = await core.mergeTags(tagId, intoTagId);
   // The Library filtered by the merged Tag now filters by the one that stays.
-  if (filtered) {
+  if (moved) {
     useAppStore.getState().setTagFilter(filter.map((id) => (id === tagId ? intoTagId : id)));
   }
   push({
@@ -96,12 +98,18 @@ export async function mergeTags(tagId: string, intoTagId: string, renamed = fals
       renamed ? t("undo.mergedInto", { name: into }) : t("undo.tagsMerged", { name, into }),
     name: (t) => t("undo.name.mergeTags"),
     undo: async () => {
-      await core.restore([merge.merged]);
-      // The merge made the Tag kept the User's; this puts its source back.
-      await core.revertTagSource(intoTagId, merge.keptMadeByUserBefore);
-      // The Library filtered by the Tag kept filters by the one that comes back.
+      await core.restore([merge.merged], {
+        tagSources: [
+          {
+            tagId: intoTagId,
+            madeByUser: merge.keptMadeByUserBefore,
+            expectedUpdatedAt: merge.tag.updatedAt,
+          },
+        ],
+      });
+      // Only the filter the merge moved comes back; one already on the Tag kept stays.
       const held = useAppStore.getState().tagFilter;
-      if (held.includes(intoTagId)) {
+      if (moved && held.includes(intoTagId)) {
         useAppStore.getState().setTagFilter(held.map((id) => (id === intoTagId ? tagId : id)));
       }
     },

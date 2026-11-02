@@ -180,7 +180,7 @@ describe("Managing Tags", () => {
     expect(names(await core.listTags()).indexOf("receipts")).toBe(6);
   });
 
-  test("an edit makes a preset Tag the User's, and putting its source back hides it at 0 again", async () => {
+  test("an edit makes a preset Tag the User's, and its Undo hides it at 0 again", async () => {
     const core = startCore(await createTempDataFolder());
     const slides = await tagNamed(core, "Slides");
     expect(slides.madeByUser).toBe(false);
@@ -188,8 +188,31 @@ describe("Managing Tags", () => {
     const edited = await core.updateTag(slides.id, { colour: "teal" });
     expect(edited.madeByUser).toBe(true);
 
-    expect((await core.revertTagSource(slides.id, slides.madeByUser)).madeByUser).toBe(false);
+    const undone = await core.updateTag(
+      slides.id,
+      { colour: slides.colour },
+      { madeByUser: slides.madeByUser, expectedUpdatedAt: edited.updatedAt },
+    );
+    expect(undone.madeByUser).toBe(false);
     expect((await tagNamed(core, "Slides")).madeByUser).toBe(false);
+  });
+
+  test("an edit's Undo leaves a Tag changed since the edit the User's", async () => {
+    const core = startCore(await createTempDataFolder(), { now: tickingClock() });
+    const slides = await tagNamed(core, "Slides");
+
+    const edited = await core.updateTag(slides.id, { description: "Decks, in order." });
+    await core.updateTag(slides.id, { description: "Mine now." });
+
+    const undone = await core.updateTag(
+      slides.id,
+      { description: slides.description },
+      { madeByUser: slides.madeByUser, expectedUpdatedAt: edited.updatedAt },
+    );
+
+    expect(undone.madeByUser).toBe(true);
+    expect(undone.description).toBe(slides.description);
+    expect((await tagNamed(core, "Slides")).madeByUser).toBe(true);
   });
 
   test("a Tag needs a name, and a name no other Tag has (ignoring case)", async () => {
@@ -956,9 +979,38 @@ describe("Merging Tags", { timeout: 30_000 }, () => {
     expect((await tagNamed(core, "Book")).madeByUser).toBe(true);
 
     // The Undo of the merge puts back whether the Book was the User's.
-    const reverted = await core.revertTagSource(book.id, merged.keptMadeByUserBefore);
-    expect(reverted.madeByUser).toBe(false);
+    await core.restore([merged.merged], {
+      tagSources: [
+        {
+          tagId: book.id,
+          madeByUser: merged.keptMadeByUserBefore,
+          expectedUpdatedAt: merged.tag.updatedAt,
+        },
+      ],
+    });
     expect((await tagNamed(core, "Book")).madeByUser).toBe(false);
+  });
+
+  test("a merge's Undo leaves a Tag changed since the merge the User's", async () => {
+    const core = startCore(await createTempDataFolder(), { now: tickingClock() });
+    const book = await tagNamed(core, "Book");
+    const drafts = await core.createTag({ name: "Drafts" });
+    const merged = await core.mergeTags(drafts.id, book.id);
+    await core.updateTag(book.id, { description: "Mine now." });
+
+    await core.restore([merged.merged], {
+      tagSources: [
+        {
+          tagId: book.id,
+          madeByUser: merged.keptMadeByUserBefore,
+          expectedUpdatedAt: merged.tag.updatedAt,
+        },
+      ],
+    });
+
+    const after = await tagNamed(core, "Book");
+    expect(after.description).toBe("Mine now.");
+    expect(after.madeByUser).toBe(true);
   });
 
   test("merging into a Tag the User made leaves it the User's, and its Undo says so", async () => {
@@ -969,9 +1021,16 @@ describe("Merging Tags", { timeout: 30_000 }, () => {
     const merged = await core.mergeTags(drafts.id, findings.id);
 
     expect(merged.keptMadeByUserBefore).toBe(true);
-    expect((await core.revertTagSource(findings.id, merged.keptMadeByUserBefore)).madeByUser).toBe(
-      true,
-    );
+    await core.restore([merged.merged], {
+      tagSources: [
+        {
+          tagId: findings.id,
+          madeByUser: merged.keptMadeByUserBefore,
+          expectedUpdatedAt: merged.tag.updatedAt,
+        },
+      ],
+    });
+    expect((await tagNamed(core, "Findings")).madeByUser).toBe(true);
   });
 });
 

@@ -5559,13 +5559,8 @@ export function createCore(adapters: CoreAdapters): Core {
       tagsChanged();
       return tag;
     },
-    updateTag: async (tagId, patch) => {
-      const tag = tags.update(tagId, patch);
-      tagsChanged();
-      return tag;
-    },
-    revertTagSource: async (tagId, madeByUser) => {
-      const tag = tags.setSource(tagId, madeByUser);
+    updateTag: async (tagId, patch, source) => {
+      const tag = tags.update(tagId, patch, source);
       tagsChanged();
       return tag;
     },
