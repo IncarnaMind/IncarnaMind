@@ -15,6 +15,7 @@ import { rtfMarkdown } from "../../src/core/documents/formats/rtf";
 import { PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { BUILT_IN_TEXT_RECOGNITION_MODEL } from "../../src/core/documents/scan/model";
+import { pictureProblem } from "../../src/core/documents/web/pictures";
 import { translate } from "../../src/shared/i18n";
 import { skippedStep } from "../../src/shared/skippedFiles";
 import { unreadFileText } from "../../src/shared/unreadFiles";
@@ -106,6 +107,32 @@ function heifBytes(): Uint8Array {
   bytes.set([0, 0, 0, 0x18], 0);
   bytes.set([0x66, 0x74, 0x79, 0x70], 4);
   bytes.set([0x68, 0x65, 0x69, 0x63], 8);
+  return bytes;
+}
+
+/** A HEIC with an `ispe` box of its own, as a camera file has: width and height in it. */
+function heifWithIspe(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(44);
+  const view = new DataView(bytes.buffer);
+  bytes.set([0, 0, 0, 0x18], 0);
+  bytes.set([0x66, 0x74, 0x79, 0x70], 4);
+  bytes.set([0x68, 0x65, 0x69, 0x63], 8);
+  view.setUint32(16, 20);
+  bytes.set([0x69, 0x73, 0x70, 0x65], 20);
+  view.setUint32(28, width);
+  view.setUint32(32, height);
+  return bytes;
+}
+
+/** A JPEG whose SOF sits behind legal 0xFF fill bytes. */
+function jpegWithFill(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(24);
+  bytes.set([0xff, 0xd8], 0);
+  bytes.set([0xff, 0xff, 0xff, 0xe0, 0x00, 0x02], 2);
+  bytes.set([0xff, 0xff, 0xc0, 0x00, 0x0b, 0x08], 8);
+  const view = new DataView(bytes.buffer);
+  view.setUint16(14, height);
+  view.setUint16(16, width);
   return bytes;
 }
 
@@ -223,7 +250,7 @@ describe("A picture is read as a scanned page is (#762)", { timeout: 60_000 }, (
     expect(document).toMatchObject({
       kind: "image",
       status: "failed",
-      failure: { reason: "unreadable" },
+      failure: { reason: "picture-unreadable" },
     });
     expect(document?.failure?.message).toContain("isn’t a picture IncarnaMind reads");
   });
@@ -244,9 +271,31 @@ describe("A picture is read as a scanned page is (#762)", { timeout: 60_000 }, (
     expect(document).toMatchObject({
       kind: "image",
       status: "failed",
-      failure: { reason: "unreadable" },
+      failure: { reason: "picture-unreadable" },
     });
     expect(document?.failure?.message).toContain("size couldn’t be read");
+  });
+
+  test("a HEIC whose ispe box claims too many pixels is refused before it is decoded", async () => {
+    let decoded = false;
+    const core = startCore(await createTempDataFolder(), {
+      textRecognizer: pictureRecognizer(["should never be read"]),
+      textRecognitionModelSource: NO_MODEL_FILES,
+      decodePicture: async () => {
+        decoded = true;
+        return pngClaiming(1, 1);
+      },
+    });
+    const sources = await createSourceFolder();
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Ispe.heic", heifWithIspe(30_000, 30_000)),
+    ]);
+    expect(document).toMatchObject({
+      kind: "image",
+      status: "failed",
+      failure: { reason: "too-large" },
+    });
+    expect(decoded).toBe(false);
   });
 
   test("a HEIC bomb is refused on the PNG decoded from it, before anything reads it", async () => {
@@ -435,11 +484,9 @@ describe("RTF and HTML are read as text with their headings (#762)", () => {
     expect(htmlTextToMarkdown("<a href=/people/o'brien>O'Brien here</a>")).toBe("O'Brien here\n");
   });
 
-  test("a meta charset in a comment names nothing", () => {
-    const markdown = htmlTextToMarkdown(
-      new TextDecoder("utf-8").decode(
-        new TextEncoder().encode('<!-- <meta charset="big5"> --><p>café 中文</p>'),
-      ),
+  test("a meta charset in a comment names nothing, read from the bytes", () => {
+    const markdown = htmlMarkdown(
+      new TextEncoder().encode('<!-- <meta charset="big5"> --><p>café 中文</p>'),
     );
     expect(markdown).toContain("café 中文");
     expect(markdown).not.toContain("big5");
@@ -453,26 +500,70 @@ describe("RTF and HTML are read as text with their headings (#762)", () => {
     expect(htmlTextToMarkdown("<p>&nope;</p>")).toContain("&nope;");
   });
 
+  test("a numeric reference keeps no semicolon, and an old C1 reference is its windows-1252 character", () => {
+    expect(
+      htmlTextToMarkdown("<p>don&#8217;t &#8220;quote&#8221; &#x2014; &#x1F600; &#0;</p>"),
+    ).toContain("don’t “quote” — 😀 �");
+    expect(htmlTextToMarkdown("<p>&#150; &#128; &#146; &#x93;</p>")).toContain("– € ’ “");
+  });
+
+  test("a script's or style's body is raw text, never markup, and a title in the head stays out", () => {
+    const first = htmlTextToMarkdown(
+      "<head><script>if(a<b&&c>d){secret()}</script><title>T</title></head><body><p>body</p>",
+    );
+    expect(first).toContain("body");
+    expect(first).not.toContain("secret");
+    expect(first).not.toContain("T");
+    const second = htmlTextToMarkdown(
+      '<div><script>var s = "</div>"; leaked();</script></div><p>ok</p>',
+    );
+    expect(second).toContain("ok");
+    expect(second).not.toContain("leaked");
+    const third = htmlTextToMarkdown('<body><p>Start<style>p:after{content:"</p>"}</style>end</p>');
+    expect(third).toContain("Startend");
+    expect(third).not.toContain("content");
+  });
+
+  test("an alt is read, a data-alt is not, and a legacy name in an attribute stays as written", () => {
+    expect(htmlTextToMarkdown('<img alt="Harbour map">')).toContain("Harbour map");
+    expect(htmlTextToMarkdown('<img data-alt="should not show">')).not.toContain("should not show");
+    expect(htmlTextToMarkdown('<img alt="?a=1&copy=2&notit;">')).toContain("?a=1&copy=2&notit;");
+    expect(htmlTextToMarkdown('<img alt="?a=1&copy 2">')).toContain("?a=1© 2");
+  });
+
+  test("a meta's charset attribute or Content-Type pragma names the encoding, and nothing else", () => {
+    const ascii = (text: string) => [...text].map((char) => char.charCodeAt(0));
+    const page = (...parts: (string | number[])[]) =>
+      new Uint8Array(parts.flatMap((part) => (typeof part === "string" ? ascii(part) : part)));
+    expect(
+      htmlMarkdown(
+        page('<meta name="description" content="we use charset=gbk"><p>caf', [0xc3, 0xa9], "</p>"),
+      ),
+    ).toContain("café");
+    expect(htmlMarkdown(page('<meta charset="utf-16"><p>caf', [0xc3, 0xa9], "</p>"))).toContain(
+      "café",
+    );
+    expect(
+      htmlMarkdown(
+        page(
+          '<meta http-equiv="Content-Type" content="text/html; charset=windows-1252"><p>caf',
+          [0xe9],
+          "</p>",
+        ),
+      ),
+    ).toContain("café");
+  });
+
   test("a page too large to read is refused with its limit, and stray end tags stay linear", () => {
     expect(() => htmlMarkdown(new Uint8Array(64 * 1024 * 1024 + 1))).toThrow(
       "Too large to open (limit 64 MB).",
     );
-    const timed = (depth: number) => {
-      const source = `${"<div>".repeat(depth)}x${"</span>".repeat(depth)}`;
-      const start = performance.now();
-      htmlTextToMarkdown(source);
-      return performance.now() - start;
-    };
-    timed(20_000);
-    // Doubling the depth doubles the work when every end tag looks up a count; a walk of the
-    // open stack would make it four times. Load moves both numbers together, so the ratio holds.
-    let small = Number.POSITIVE_INFINITY;
-    let large = Number.POSITIVE_INFINITY;
-    for (let run = 0; run < 3; run++) {
-      small = Math.min(small, timed(100_000));
-      large = Math.min(large, timed(200_000));
-    }
-    expect(large).toBeLessThan(small * 3);
+    // A million unclosed tags and a million stray end tags read in well under a second when
+    // every end tag is a count lookup; a walk of the open stack would not finish in a test's time.
+    const markdown = htmlTextToMarkdown(
+      `${"<div>".repeat(1_000_000)}x${"</span>".repeat(1_000_000)}`,
+    );
+    expect(markdown).toContain("x");
   });
 });
 
@@ -679,6 +770,13 @@ describe("Convert with LibreOffice adds a copy and leaves the original untouched
     expect(await readdir(tempDir)).toEqual([]);
   });
 
+  test("a JPEG behind 0xFF fill bytes has its size read, and an RTF over the cap is refused", async () => {
+    expect(pictureProblem(jpegWithFill(200, 100))).toBeNull();
+    expect(() => rtfMarkdown(new Uint8Array(64 * 1024 * 1024 + 1))).toThrow(
+      "Too large to open (limit 64 MB).",
+    );
+  });
+
   test("with no LibreOffice, a .doc's check offers no conversion", async () => {
     const core = startCore(await createTempDataFolder());
     const sources = await createSourceFolder();
@@ -689,13 +787,5 @@ describe("Convert with LibreOffice adds a copy and leaves the original untouched
       outcome: "problem",
       problem: "unavailable",
     });
-  });
-});
-
-describe("The processing version (#762)", () => {
-  test("this change's processing version is 22", () => {
-    // Main's highest was 21 when this branch was cut; it is renumbered at the final push if
-    // another change came first.
-    expect(PROCESSING_VERSION).toBe(22);
   });
 });

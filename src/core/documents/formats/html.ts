@@ -71,6 +71,25 @@ const BLOCKS = new Set([
 
 const HEADING = /^h([1-6])$/;
 
+/** Elements whose content is raw text until their own end tag, never markup. */
+const RAW_TEXT = new Set(["script", "style", "textarea", "title"]);
+
+/** Each raw-text element's end tag, case-insensitive, at a tag boundary. */
+const RAW_ENDS: Readonly<Record<string, RegExp>> = {
+  script: /<\/script(?=[\s/>])/gi,
+  style: /<\/style(?=[\s/>])/gi,
+  textarea: /<\/textarea(?=[\s/>])/gi,
+  title: /<\/title(?=[\s/>])/gi,
+};
+
+/** Where a raw-text element's own end tag starts, or -1 when it has none. */
+function rawEnd(source: string, from: number, name: string): number {
+  const pattern = RAW_ENDS[name];
+  if (!pattern) return -1;
+  pattern.lastIndex = from;
+  return pattern.exec(source)?.index ?? -1;
+}
+
 /** A block being read: its Markdown form, and the text gathered for it. */
 interface Block {
   kind: "paragraph" | "heading" | "listItem" | "pre";
@@ -102,10 +121,16 @@ function bomCharset(bytes: Uint8Array): string | null {
   return null;
 }
 
+/** A meta's charset label, with the spec's rule that a meta-declared UTF-16 is UTF-8. */
+function charsetLabel(label: string): string {
+  return label.startsWith("utf-16") ? "utf-8" : label;
+}
+
 /**
  * The encoding the page says it is, from its first 1024 bytes: a `<meta
- * charset>`, or a `Content-Type` meta saying so. A browser looks no further,
- * and neither do we; a page without one is read as text is.
+ * charset>` attribute, or a `Content-Type` meta whose content says so. A
+ * description that happens to contain "charset=" names nothing. A browser
+ * looks no further, and neither do we; a page without one is read as text is.
  */
 function declaredCharset(bytes: Uint8Array): string | null {
   // A comment is not a tag: a commented-out `<meta charset>` names nothing.
@@ -113,16 +138,23 @@ function declaredCharset(bytes: Uint8Array): string | null {
     /<!--[\s\S]*?(?:-->|$)/g,
     "",
   );
-  const charset = (text: string) =>
-    /\bcharset\s*=\s*["']?\s*([a-zA-Z0-9_:.+-]+)/i.exec(text)?.[1]?.toLowerCase() ?? null;
   for (const match of head.matchAll(/<meta\b[^>]*>/gi)) {
-    const tag = match[0];
-    const declared = charset(tag);
-    if (declared !== null) return declared;
-    if (/\bhttp-equiv\s*=\s*["']?\s*content-type/i.test(tag)) {
-      const content = /\bcontent\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(tag);
-      const inside = charset(content?.[1] ?? content?.[2] ?? content?.[3] ?? "");
-      if (inside !== null) return inside;
+    const attributes = new Map<string, string>();
+    for (const attribute of match[0].matchAll(
+      /([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g,
+    )) {
+      attributes.set(
+        (attribute[1] as string).toLowerCase(),
+        attribute[2] ?? attribute[3] ?? attribute[4] ?? "",
+      );
+    }
+    const charset = attributes.get("charset");
+    if (charset) return charsetLabel(charset.trim().toLowerCase());
+    if ((attributes.get("http-equiv") ?? "").toLowerCase() === "content-type") {
+      const inside = /charset\s*=\s*["']?\s*([a-zA-Z0-9_:.+-]+)/i.exec(
+        attributes.get("content") ?? "",
+      )?.[1];
+      if (inside) return charsetLabel(inside.toLowerCase());
     }
   }
   return null;
@@ -308,11 +340,20 @@ export function htmlTextToMarkdown(source: string): string {
     }
     const name = /^[a-zA-Z][^\s/>]*/.exec(tag)?.[0].toLowerCase() ?? "";
     if (name === "") continue;
-    startTag(name, tag, /\/\s*$/.test(tag));
+    const selfClosing = /\/\s*$/.test(tag);
+    startTag(name, tag, selfClosing);
+    // A script, style, textarea or title is raw text until its own end tag: a "<" in it
+    // is not markup, and "a<b&&c>d" must not open or close elements (#762).
+    if (!selfClosing && RAW_TEXT.has(name)) {
+      const end = rawEnd(source, at, name);
+      const raw = source.slice(at, end < 0 ? source.length : end);
+      if (name === "textarea" || name === "title") textAfter(raw);
+      at = end < 0 ? source.length : end;
+    }
   }
 
-  function textAfter(raw: string) {
-    const value = decodeHtmlEntities(raw);
+  function textAfter(raw: string, decoded = false) {
+    const value = decoded ? raw : decodeHtmlEntities(raw);
     // A `head` a page never closes is closed by the first words of its body, as a browser does.
     if (silent > 0) {
       // Only the head's own text closes it; a title's or a style's is the head's.
@@ -384,9 +425,10 @@ export function htmlTextToMarkdown(source: string): string {
       return;
     }
     if (name === "img") {
-      const alt = /\balt\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
-      const value = decodeHtmlEntities(alt?.[1] ?? alt?.[2] ?? "").trim();
-      if (value !== "") textAfter(value);
+      const alt = /(?:^|\s)alt\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
+      const value = decodeHtmlEntities(alt?.[1] ?? alt?.[2] ?? "", { attribute: true }).trim();
+      // Already read as an attribute: the text must not read its legacy names again.
+      if (value !== "") textAfter(value, true);
     }
   }
 

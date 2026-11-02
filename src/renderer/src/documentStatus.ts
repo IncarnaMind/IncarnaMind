@@ -19,6 +19,7 @@ const failureMessages: Record<DocumentFailureReason, MessageKey> = {
   unreadable: "documents.failure.unreadable",
   "password-protected": "documents.failure.passwordProtected",
   "too-large": "documents.failure.tooLarge",
+  "picture-unreadable": "documents.failure.pictureUnreadable",
   "file-missing": "documents.failure.fileMissing",
   "processing-error": "documents.failure.processingError",
   // Worded with its pages (see `unreadPages`).

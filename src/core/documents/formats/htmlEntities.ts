@@ -1,9 +1,12 @@
 /**
- * The named character references HTML defines (#762): the WHATWG list, so a
- * page's `&nbsp;`, `&mdash;`, `&check;` and a legacy `&copy` without its
- * semicolon read as the characters a browser shows, in the body, an alt and
- * the title. The data is generated from the list, not written by hand; a name
- * HTML doesn't define stays as written. Pure.
+ * The named character references HTML defines (#762): the WHATWG list
+ * (https://html.spec.whatwg.org/entities.json, CC BY 4.0), so a page's
+ * `&nbsp;`, `&mdash;`, `&check;` and a legacy `&copy` without its semicolon
+ * read as the characters a browser shows, in the body, an alt and the title.
+ * The table below was generated from that list (Python's
+ * html.entities.html5), not written by hand; a name HTML doesn't define stays
+ * as written. Numeric references follow the spec's windows-1252 remap of
+ * U+0080–U+009F, which older pages write for quotes and dashes. Pure.
  */
 
 /** One `name=hex[,hex]` line per reference, a trailing semicolon in the name when it has one. */
@@ -22,7 +25,38 @@ for (const line of TABLE.split("\n")) {
   );
 }
 
-const ENTITY = /&(#[0-9]+|#[xX][0-9a-fA-F]+|([a-zA-Z][a-zA-Z0-9]*)(;?))/g;
+const ENTITY = /&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|([a-zA-Z][a-zA-Z0-9]*)(;?))/g;
+
+/** The characters older pages write as U+0080–U+009F, which a browser shows as windows-1252. */
+const WINDOWS_1252: Readonly<Record<number, number>> = {
+  128: 0x20ac,
+  130: 0x201a,
+  131: 0x0192,
+  132: 0x201e,
+  133: 0x2026,
+  134: 0x2020,
+  135: 0x2021,
+  136: 0x02c6,
+  137: 0x2030,
+  138: 0x0160,
+  139: 0x2039,
+  140: 0x0152,
+  142: 0x017d,
+  145: 0x2018,
+  146: 0x2019,
+  147: 0x201c,
+  148: 0x201d,
+  149: 0x2022,
+  150: 0x2013,
+  151: 0x2014,
+  152: 0x02dc,
+  153: 0x2122,
+  154: 0x0161,
+  155: 0x203a,
+  156: 0x0153,
+  158: 0x017e,
+  159: 0x0178,
+};
 
 /** A character reference's code point, or null when it names nothing valid. */
 function codePointOf(decimal?: string, hexadecimal?: string): number | null {
@@ -34,7 +68,8 @@ function codePointOf(decimal?: string, hexadecimal?: string): number | null {
         : null;
   if (code === null || code <= 0 || code > 0x10ffff) return null;
   // A lone surrogate isn't a character: the reference is broken, as a browser says.
-  return code >= 0xd800 && code <= 0xdfff ? null : code;
+  if (code >= 0xd800 && code <= 0xdfff) return null;
+  return WINDOWS_1252[code] ?? code;
 }
 
 /** The characters a named reference stands for and what of its run stays text, or null. */
@@ -49,25 +84,43 @@ function namedValue(name: string, semicolon: string): { value: number[]; rest: s
   return null;
 }
 
-/** A page's text with its HTML character references read; unknown ones stay as written. */
-export function decodeHtmlEntities(text: string): string {
+/**
+ * A page's text with its HTML character references read; unknown ones stay as
+ * written. `attribute`: read an `alt`, where a legacy name followed by a
+ * letter, digit or `=` stays as written, as a browser keeps it.
+ */
+export function decodeHtmlEntities(text: string, options: { attribute?: boolean } = {}): string {
   if (!text.includes("&")) return text;
-  return text.replace(ENTITY, (whole: string, body: string, name?: string, semicolon?: string) => {
-    if (name === undefined) {
-      const hexadecimal = body.startsWith("#x") || body.startsWith("#X");
-      const code = codePointOf(
-        hexadecimal ? undefined : body.slice(1),
-        hexadecimal ? body.slice(2) : undefined,
-      );
-      return code === null ? "\uFFFD" : String.fromCodePoint(code);
-    }
-    const named = namedValue(name, semicolon ?? "");
-    if (named === null) return whole;
-    // A no-break space reads as a space, so a quote of the words matches with or without it.
-    const value =
-      named.value.length === 1 && named.value[0] === 0xa0
-        ? " "
-        : String.fromCodePoint(...named.value);
-    return value + named.rest;
-  });
+  return text.replace(
+    ENTITY,
+    (
+      whole: string,
+      body: string,
+      name?: string,
+      semicolon?: string,
+      offset?: number,
+      source?: string,
+    ) => {
+      if (name === undefined) {
+        const hexadecimal = body.startsWith("#x") || body.startsWith("#X");
+        const code = codePointOf(
+          hexadecimal ? undefined : body.slice(1).replace(/;$/, ""),
+          hexadecimal ? body.slice(2).replace(/;$/, "") : undefined,
+        );
+        return code === null ? "\uFFFD" : String.fromCodePoint(code);
+      }
+      const named = namedValue(name, semicolon ?? "");
+      if (named === null) return whole;
+      if (options.attribute === true && !(semicolon === ";" && named.rest === "")) {
+        const next = named.rest !== "" ? named.rest[0] : source?.[(offset ?? 0) + whole.length];
+        if (next !== undefined && /[A-Za-z0-9=]/.test(next)) return whole;
+      }
+      // A no-break space reads as a space, so a quote of the words matches with or without it.
+      const value =
+        named.value.length === 1 && named.value[0] === 0xa0
+          ? " "
+          : String.fromCodePoint(...named.value);
+      return value + named.rest;
+    },
+  );
 }

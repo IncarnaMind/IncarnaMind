@@ -3240,6 +3240,11 @@ export type DocumentFailureReason =
    */
   | "too-large"
   /**
+   * A picture whose bytes aren't a kind IncarnaMind reads, or whose size can't
+   * be read: Retry would fail again, so it has no Retry (#762).
+   */
+  | "picture-unreadable"
+  /**
    * No longer given: a file that has gone is a "missing" Document (see
    * `DocumentFileStatus`), not a failed one. Kept so older data still reads.
    */

@@ -66,14 +66,32 @@ const view = (bytes: Uint8Array) => new DataView(bytes.buffer, bytes.byteOffset,
 function jpegSize(bytes: Uint8Array): { width: number; height: number } | null {
   const data = view(bytes);
   let at = 2;
-  while (at + 9 < bytes.length) {
+  while (at + 1 < bytes.length) {
     if (bytes[at] !== 0xff) return null;
-    const marker = bytes[at + 1] ?? 0;
+    // Fill bytes: legal 0xFF padding before a marker (JPEG B.1.1.2).
+    while (at < bytes.length && bytes[at] === 0xff) at++;
+    if (at >= bytes.length) return null;
+    const marker = bytes[at] as number;
+    at++;
+    // Standalone markers carry no length: SOI, EOI, TEM and the restart markers.
+    if (
+      marker === 0xd8 ||
+      marker === 0xd9 ||
+      marker === 0x01 ||
+      (marker >= 0xd0 && marker <= 0xd7)
+    ) {
+      continue;
+    }
+    if (at + 2 > bytes.length) return null;
+    const length = data.getUint16(at);
+    if (length < 2) return null;
     // Start of frame: baseline, progressive and the rest, not DHT (C4), JPG (C8) or DAC (CC).
     if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-      return { height: data.getUint16(at + 5), width: data.getUint16(at + 7) };
+      return at + 7 <= bytes.length
+        ? { height: data.getUint16(at + 3), width: data.getUint16(at + 5) }
+        : null;
     }
-    at += 2 + data.getUint16(at + 2);
+    at += length;
   }
   return null;
 }
@@ -157,12 +175,20 @@ export interface PictureProblem {
 export function pictureProblem(bytes: Uint8Array): PictureProblem | null {
   const type = pictureType(bytes);
   if (!type) {
-    return isHeifPicture(bytes)
-      ? null
-      : {
-          kind: "unreadable",
-          message: "This isn’t a picture IncarnaMind reads (PNG, JPEG, GIF, WebP, AVIF or HEIC).",
-        };
+    if (!isHeifPicture(bytes)) {
+      return {
+        kind: "unreadable",
+        message: "This isn’t a picture IncarnaMind reads (PNG, JPEG, GIF, WebP, AVIF or HEIC).",
+      };
+    }
+    // A HEIC's own `ispe` boxes give its size, as AVIF's do, before any decoder runs.
+    const heic = avifSize(bytes);
+    return heic && heic.width * heic.height > PICTURE_LIMITS.maxPixels
+      ? {
+          kind: "too-large",
+          message: `The picture is too large to open (${heic.width} × ${heic.height} pixels).`,
+        }
+      : null;
   }
   const size = pictureSize(bytes, type);
   if (!size) return { kind: "size-unreadable", message: "The picture’s size couldn’t be read." };

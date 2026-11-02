@@ -144,6 +144,7 @@ const DOCUMENT_ERRORS = [
   "unreadable",
   "password-protected",
   "too-large",
+  "picture-unreadable",
   "file-missing",
   "processing-error",
   "pages-unread",

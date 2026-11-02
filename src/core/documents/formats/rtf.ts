@@ -61,6 +61,9 @@ const SKIPPED_DESTINATIONS = new Set([
   "xe",
 ]);
 
+/** The most of an RTF file this reads: past it the file is refused, not walked, in the viewer too. */
+const MAX_RTF_BYTES = 64 * 1024 * 1024;
+
 /** Control words that stand for a character, as they read. */
 const SYMBOLS: Readonly<Record<string, string>> = {
   bullet: "•",
@@ -153,6 +156,9 @@ function headingOfStyle(style: Style | undefined): number | null {
  * `ExtractionError` when the file isn't RTF.
  */
 export function rtfMarkdown(bytes: Uint8Array): string {
+  if (bytes.byteLength > MAX_RTF_BYTES) {
+    throw new ExtractionError("too-large", "Too large to open (limit 64 MB).");
+  }
   const source = latin1(bytes);
   if (!/^\s*\{\\rtf/.test(source)) {
     throw new ExtractionError("unreadable", "This isn't an RTF file.");

@@ -17,7 +17,7 @@ import { DocumentFix } from "../components/DocumentFix";
 import { files } from "../core";
 import { useT } from "../i18n";
 import type { ViewerTarget } from "../store";
-import { loadDocumentBytes, MissingDocumentError } from "./documentBytes";
+import { loadDocumentBytes, MissingDocumentError, TooLargeDocumentError } from "./documentBytes";
 import { FitWidthIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
 import { CitationMark, quoteMarkOf } from "./quoteMark";
 import { scannedTextLayer, useScannedPages } from "./scannedText";
@@ -40,7 +40,7 @@ type Loaded =
   | { kind: "loading" }
   | { kind: "ready"; url: string; width: number; height: number }
   | { kind: "missing" }
-  | { kind: "failed"; message: string };
+  | { kind: "failed"; key: MessageKey };
 
 /** What the viewer says when it refuses a picture, by why the reader refuses it. */
 function pictureProblemKey(kind: PictureProblem["kind"]): MessageKey {
@@ -94,7 +94,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
         // an oversized one would take the same memory, and one that isn't a picture can't show (#762).
         const problem = pictureProblem(bytes);
         if (problem !== null) {
-          setLoaded({ kind: "failed", message: t(pictureProblemKey(problem.kind)) });
+          setLoaded({ kind: "failed", key: pictureProblemKey(problem.kind) });
           return;
         }
         // A HEIC is a picture the web engine can't show: this computer's decoder makes it a PNG.
@@ -104,7 +104,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
         const display = decoded ?? bytes;
         const after = decoded ? pictureProblem(display) : null;
         if (after !== null) {
-          setLoaded({ kind: "failed", message: t(pictureProblemKey(after.kind)) });
+          setLoaded({ kind: "failed", key: pictureProblemKey(after.kind) });
           return;
         }
         if (controller.signal.aborted) return;
@@ -120,7 +120,15 @@ export function ImageView({ document, target }: { document: Document; target: Vi
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         if (error instanceof MissingDocumentError) setLoaded({ kind: "missing" });
-        else setLoaded({ kind: "failed", message: error instanceof Error ? error.message : "" });
+        else {
+          setLoaded({
+            kind: "failed",
+            key:
+              error instanceof TooLargeDocumentError
+                ? "viewer.pictureTooLarge"
+                : "viewer.pictureNotShown",
+          });
+        }
       });
     return () => {
       controller.abort();
@@ -337,15 +345,8 @@ export function ImageView({ document, target }: { document: Document; target: Vi
         <DocumentFix
           document={document}
           view
-          message={loaded.message}
           reload={reload}
-          fallback={
-            <ViewerMessage tone="error">
-              {loaded.message
-                ? t("viewer.failed", { message: loaded.message })
-                : t("viewer.pictureNotShown")}
-            </ViewerMessage>
-          }
+          fallback={<ViewerMessage tone="error">{t(loaded.key)}</ViewerMessage>}
         />
       ) : (
         <div
@@ -370,7 +371,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
                 draggable={false}
                 data-testid="image-picture"
                 className="absolute inset-0 size-full select-none object-contain"
-                onError={() => setLoaded({ kind: "failed", message: "" })}
+                onError={() => setLoaded({ kind: "failed", key: "viewer.pictureNotShown" })}
                 onLoad={(event) => {
                   const image = event.currentTarget;
                   if (image.naturalWidth > 0) {

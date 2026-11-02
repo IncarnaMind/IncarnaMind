@@ -1448,7 +1448,8 @@ export function createDocuments(options: DocumentsOptions) {
         options.decodePicture && isHeifPicture(file)
           ? ((await options.decodePicture(file)) ?? file)
           : file;
-      // A HEIC's own header carries no pixel size: the cap is checked on the PNG decoded from it.
+      // The reader checks a HEIC's ispe where it has one; the decoded PNG's size is checked too,
+      // for a file whose boxes hide it, before the model is given the bytes.
       if (readable !== file) {
         const problem = pictureProblem(readable);
         if (problem !== null) return { refused: problem };

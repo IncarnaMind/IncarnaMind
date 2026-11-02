@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { Document } from "../../../core/api";
 import { decodeText } from "../../../core/documents/decode";
+import { ExtractionError } from "../../../core/documents/formats/errors";
 import { htmlMarkdown } from "../../../core/documents/formats/html";
 import { rtfMarkdown } from "../../../core/documents/formats/rtf";
 import { lineUnits, markdownUnits, type SourceUnit } from "../../../core/documents/formats/text";
@@ -17,7 +18,7 @@ import { DocumentFix } from "../components/DocumentFix";
 import { useT } from "../i18n";
 import type { ViewerTarget } from "../store";
 import { type CitedArea, useCitedArea, useCitedAreaFailure } from "./citedArea";
-import { loadDocumentBytes, MissingDocumentError } from "./documentBytes";
+import { loadDocumentBytes, MissingDocumentError, TooLargeDocumentError } from "./documentBytes";
 import { MarkdownBlocks, MarkdownDocumentContext, Slice } from "./MarkdownBlocks";
 import { parseMarkdown } from "./markdown";
 import { looksLikeCode } from "./plainText";
@@ -27,11 +28,13 @@ import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { ViewerHeader } from "./ViewerHeader";
 import { FileGone, ViewerMessage } from "./ViewerMessage";
 
+type TextRefusal = "viewer.textTooLarge" | "viewer.textUnreadable";
+
 type Loaded =
   | { kind: "loading" }
   | { kind: "ready"; text: string }
   | { kind: "missing" }
-  | { kind: "failed"; message: string };
+  | { kind: "failed"; key: TextRefusal; message: string };
 
 /** Nothing to highlight. */
 const NO_HIGHLIGHT: readonly TextRange[] = [];
@@ -68,16 +71,34 @@ export function TextView({ document, target }: { document: Document; target: Vie
               : document.kind === "html"
                 ? htmlMarkdown(bytes)
                 : decodeText(bytes);
-          setLoaded(text === null ? { kind: "failed", message: "" } : { kind: "ready", text });
+          setLoaded(
+            text === null
+              ? { kind: "failed", key: "viewer.textUnreadable", message: "" }
+              : { kind: "ready", text },
+          );
         } catch (error) {
           // A reader that refuses a file (too large, or a broken one) says so here, never "loading" forever.
-          setLoaded({ kind: "failed", message: error instanceof Error ? error.message : "" });
+          const tooLarge = error instanceof ExtractionError && error.reason === "too-large";
+          setLoaded({
+            kind: "failed",
+            key: tooLarge ? "viewer.textTooLarge" : "viewer.textUnreadable",
+            message: error instanceof Error ? error.message : "",
+          });
         }
       },
       (error: unknown) => {
         if (controller.signal.aborted) return;
         if (error instanceof MissingDocumentError) setLoaded({ kind: "missing" });
-        else setLoaded({ kind: "failed", message: error instanceof Error ? error.message : "" });
+        else {
+          setLoaded({
+            kind: "failed",
+            key:
+              error instanceof TooLargeDocumentError
+                ? "viewer.textTooLarge"
+                : "viewer.textUnreadable",
+            message: error instanceof Error ? error.message : "",
+          });
+        }
       },
     );
     return () => controller.abort();
@@ -138,13 +159,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
           view
           message={loaded.message}
           reload={reload}
-          fallback={
-            <ViewerMessage tone="error">
-              {loaded.message
-                ? t("viewer.failed", { message: loaded.message })
-                : t("viewer.notText")}
-            </ViewerMessage>
-          }
+          fallback={<ViewerMessage tone="error">{t(loaded.key)}</ViewerMessage>}
         />
       ) : (
         <MarkdownDocumentContext.Provider value={document.id}>

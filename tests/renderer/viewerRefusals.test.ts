@@ -42,7 +42,32 @@ class BytesRequest {
   abort() {}
 }
 
+/** A BMP a canvas draws, whatever the file is named. */
+function bmpClaiming(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(54);
+  bytes.set([0x42, 0x4d], 0);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(2, bytes.length, true);
+  view.setUint32(10, 54, true);
+  view.setUint32(14, 40, true);
+  view.setInt32(18, width, true);
+  view.setInt32(22, height, true);
+  view.setUint16(26, 1, true);
+  view.setUint16(28, 8, true);
+  return bytes;
+}
+
+/** A HEIC with no ispe box: its size can only be known after it is decoded. */
+function heifWithoutIspe(): Uint8Array {
+  const bytes = new Uint8Array(16);
+  bytes.set([0, 0, 0, 0x18], 0);
+  bytes.set([0x66, 0x74, 0x79, 0x70], 4);
+  bytes.set([0x68, 0x65, 0x69, 0x63], 8);
+  return bytes;
+}
+
 let served: Uint8Array = new Uint8Array();
+let decoded: Uint8Array | null = null;
 let root: Root | null = null;
 let container: HTMLElement;
 
@@ -66,7 +91,7 @@ beforeEach(async () => {
   );
   Object.assign(window, {
     incarnamind: bridge,
-    incarnamindFiles: { decodePicture: async () => null },
+    incarnamindFiles: { decodePicture: async () => decoded },
   });
   const globals: Record<string, unknown> = {
     document: dom,
@@ -127,8 +152,15 @@ const documentOf = (overrides: Partial<Document>): Document =>
 
 const target = { request: 1 } as ViewerTarget;
 
-async function show(component: "image" | "text", document: Document, bytes: Uint8Array) {
+async function show(
+  component: "image" | "text",
+  document: Document,
+  bytes: Uint8Array,
+  language: "en" | "zh-CN" = "en",
+) {
   served = bytes;
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  useAppStore.setState({ settings: { language } as never });
   // A variable path, so the test's tsconfig (no jsx) leaves the component to the runtime.
   const viewPath =
     component === "image"
@@ -143,13 +175,26 @@ async function show(component: "image" | "text", document: Document, bytes: Uint
 }
 
 describe("A viewer refuses what its reader refuses (#762)", () => {
-  test("an oversized picture is refused, never drawn", async () => {
+  test("an oversized picture is refused, never drawn, and the line is not wrapped twice", async () => {
     await show(
       "image",
       documentOf({ kind: "image", name: "Bomb.png", path: "/tmp/Bomb.png" }),
       pngClaiming(30_000, 30_000),
     );
     expect(container.textContent).toContain("This picture is too large to open.");
+    expect(container.textContent).not.toContain("This Document couldn’t be shown");
+    expect(container.querySelector("img")).toBeNull();
+  });
+
+  test("the refusal reads in Chinese too", async () => {
+    await show(
+      "image",
+      documentOf({ kind: "image", name: "Bomb.png", path: "/tmp/Bomb.png" }),
+      pngClaiming(30_000, 30_000),
+      "zh-CN",
+    );
+    expect(container.textContent).toContain("这张图片太大，无法打开。");
+    expect(container.textContent).not.toContain("This Document couldn’t be shown");
     expect(container.querySelector("img")).toBeNull();
   });
 
@@ -164,13 +209,67 @@ describe("A viewer refuses what its reader refuses (#762)", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
-  test("a text file the reader refuses says why instead of staying on opening", async () => {
+  test("a file that isn't a picture it reads says it can't be shown, never drawn", async () => {
+    await show(
+      "image",
+      documentOf({ kind: "image", name: "Bomb.png", path: "/tmp/Bomb.png" }),
+      bmpClaiming(8_192, 8_192),
+    );
+    expect(container.textContent).toContain("This picture can’t be shown here.");
+    expect(container.querySelector("img")).toBeNull();
+  });
+
+  test("a HEIC bomb is caught on the PNG decoded from it, before it is drawn", async () => {
+    decoded = pngClaiming(30_000, 30_000);
+    try {
+      await show(
+        "image",
+        documentOf({ kind: "image", name: "Phone.heic", path: "/tmp/Phone.heic" }),
+        heifWithoutIspe(),
+      );
+      expect(container.textContent).toContain("This picture is too large to open.");
+      expect(container.querySelector("img")).toBeNull();
+    } finally {
+      decoded = null;
+    }
+  });
+
+  test("a text file the reader refuses says why in English, not the reader's sentence", async () => {
     await show(
       "text",
       documentOf({ kind: "rtf", name: "Broken.rtf", path: "/tmp/Broken.rtf" }),
       new TextEncoder().encode("This is not an RTF file."),
     );
-    expect(container.textContent).toContain("This isn't an RTF file.");
+    expect(container.textContent).toContain("This file can’t be read as text.");
+    expect(container.textContent).not.toContain("This isn't an RTF file.");
     expect(container.textContent).not.toContain("Opening the Document…");
+  });
+
+  test("a text file the reader refuses says why in Chinese", async () => {
+    await show(
+      "text",
+      documentOf({ kind: "rtf", name: "Broken.rtf", path: "/tmp/Broken.rtf" }),
+      new TextEncoder().encode("This is not an RTF file."),
+      "zh-CN",
+    );
+    expect(container.textContent).toContain("无法将此文件作为文本读取。");
+    expect(container.textContent).not.toContain("This isn't an RTF file.");
+  });
+
+  test("a text file over the size cap says it is too large, in English and Chinese", async () => {
+    const huge = new Uint8Array(64 * 1024 * 1024 + 1);
+    await show(
+      "text",
+      documentOf({ kind: "html", name: "Huge.html", path: "/tmp/Huge.html" }),
+      huge,
+    );
+    expect(container.textContent).toContain("This file is too large to open here.");
+    await show(
+      "text",
+      documentOf({ kind: "html", name: "Huge.html", path: "/tmp/Huge.html" }),
+      huge,
+      "zh-CN",
+    );
+    expect(container.textContent).toContain("这个文件太大，无法在此打开。");
   });
 });

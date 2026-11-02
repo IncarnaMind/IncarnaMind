@@ -43,6 +43,8 @@ export function documentFix(doc: Document): DocumentFix | null {
       return { reason: "library.fix.password", open: here, retry: here ? "retry" : null };
     case "too-large":
       return { reason: "library.fix.tooLarge", open: here, retry: null };
+    case "picture-unreadable":
+      return { reason: "library.fix.pictureUnreadable", open: here, retry: null };
     case "pages-unread":
       return {
         reason: doc.kind === "image" ? "library.fix.picture" : "library.fix.pages",

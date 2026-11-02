@@ -126,7 +126,7 @@ async function extractImage(
   const problem = pictureProblem(bytes);
   if (problem !== null) {
     throw new ExtractionError(
-      problem.kind === "too-large" ? "too-large" : "unreadable",
+      problem.kind === "too-large" ? "too-large" : "picture-unreadable",
       problem.message,
     );
   }
@@ -135,7 +135,7 @@ async function extractImage(
     const picture = await reading.readFile(1, bytes);
     if ("refused" in picture) {
       throw new ExtractionError(
-        picture.refused.kind === "too-large" ? "too-large" : "unreadable",
+        picture.refused.kind === "too-large" ? "too-large" : "picture-unreadable",
         picture.refused.message,
       );
     }
