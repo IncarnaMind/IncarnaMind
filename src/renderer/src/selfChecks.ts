@@ -104,10 +104,14 @@ export function selfCheckLines(
           ? t(check.checked === 1 ? "selfCheck.checkedOnly.one" : "selfCheck.checkedOnly", {
               checked: check.checked,
             })
-          : t(remaining === 1 ? "selfCheck.left.one" : "selfCheck.left", {
-              checked: check.checked,
-              left: remaining,
-            }),
+          : [
+              t(check.checked === 1 ? "selfCheck.checkedOnly.one" : "selfCheck.checkedOnly", {
+                checked: check.checked,
+              }),
+              t(remaining === 1 ? "selfCheck.leftPart.one" : "selfCheck.leftPart", {
+                left: remaining,
+              }),
+            ].join(" · "),
       details: [],
       action: remaining === 0 ? null : { label: t("mindCheck.command"), does: "check" },
     });

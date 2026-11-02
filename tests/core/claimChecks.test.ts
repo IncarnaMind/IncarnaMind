@@ -2730,6 +2730,68 @@ describe("Needs re-check", () => {
         { text: absence.text, versions, folderId: "folder-b", scope: chosen },
       ),
     ).toEqual({ state: "supported" });
+    // An Unsupported verdict says nothing in the Folder stated the rest, so a move re-checks it
+    // even when its quote is found there.
+    const unstated: ClaimCheckAttributes = {
+      ...quoted,
+      state: "unsupported",
+      evidence: null,
+      unsupported: {
+        reason: "The lease doesn't say it.",
+        covered: "the rent",
+        uncovered: "the break clause",
+        quoted: quote,
+      },
+    };
+    expect(claimCheckShown(unstated, now("folder-a"))).toEqual({ state: "unsupported" });
+    expect(claimCheckShown(unstated, now("folder-b"))).toEqual({
+      state: "needs-recheck",
+      why: "scope",
+    });
+    // A mixed claim that is not Unsupported overall, with one Unsupported part: the same.
+    const mixedUnsupported: ClaimCheckAttributes = {
+      ...quoted,
+      state: "contradicted",
+      text: "The rent is £10,000 and there is no break clause.",
+      evidence: quote,
+      parts: [
+        part(0, 22, { verdict: "supported", evidence: [quote] }),
+        part(23, 50, { verdict: "unsupported" }),
+      ],
+    };
+    expect(
+      claimCheckShown(mixedUnsupported, {
+        text: mixedUnsupported.text,
+        versions,
+        folderId: "folder-b",
+        scope: null,
+      }),
+    ).toEqual({ state: "needs-recheck", why: "scope" });
+    // A whole read under a widened search is not the Folder's: the move keeps the verdict.
+    expect(
+      claimCheckShown(
+        { ...absence, scope: { folderId: "folder-a", widened: true } },
+        { ...now("folder-b"), text: absence.text },
+      ),
+    ).toEqual({ state: "supported" });
+    // A part with an empty read list is no whole read: the move keeps a quoted claim.
+    const emptyPartRead: ClaimCheckAttributes = {
+      ...quoted,
+      text: "The rent is £10,000 and the term is five years.",
+      evidence: null,
+      parts: [
+        part(0, 22, { evidence: [quote], readDocuments: [] }),
+        part(23, 46, { evidence: [quote] }),
+      ],
+    };
+    expect(
+      claimCheckShown(emptyPartRead, {
+        text: emptyPartRead.text,
+        versions,
+        folderId: "folder-b",
+        scope: null,
+      }),
+    ).toEqual({ state: "supported" });
     // A check that landed nothing is not rewritten: the move has no result to protect.
     for (const [reason, left] of [
       ["cost-cap", { state: "not-checked", reason: "cost-cap" }],
