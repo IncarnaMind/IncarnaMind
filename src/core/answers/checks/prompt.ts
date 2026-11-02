@@ -815,7 +815,7 @@ export function ownWords(words: string, sentence: string): boolean {
 /**
  * The sentence's side of a Roles line: its words before the first slash, or the whole field
  * without its closing word when it gives one side only. A line that names no party and no must or
- * may on either side ("none / none, same", "none, same") gives no words to hold to the sentence:
+ * may on either side ("none / none, same", "none, same", "same") gives no words to hold to the sentence:
  * a figure's sentence often has neither.
  */
 const rolesWordsOf = (line: string | undefined): Pick<ReadVerdict, "rolesWords"> => {
@@ -826,7 +826,9 @@ const rolesWordsOf = (line: string | undefined): Pick<ReadVerdict, "rolesWords">
     .replace(/[,，]?\s*(?:same|differs?|other)\W*$/i, "")
     .split(/[/／]/u)
     .map((side) => side.replace(PHRASE_EDGES, "").trim());
-  return sides.every((side) => NO_PHRASE.test(side)) ? {} : { rolesWords: sides[0] ?? "" };
+  return sides.every((side) => side === "" || NO_PHRASE.test(side))
+    ? {}
+    : { rolesWords: sides[0] ?? "" };
 };
 
 /** Only a reply that gives the field says it: a reply read before it was asked for has none. */
