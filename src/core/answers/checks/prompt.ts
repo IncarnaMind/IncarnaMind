@@ -1029,8 +1029,9 @@ const namesAVerdict = (turn: string): boolean =>
  * is read after the last turn the Run set aside with one, as Claude Haiku 5.5 wrote its verdict
  * lines beside `cite` and its sentence, its last fields or its Figures line alone after them. A
  * refusal after that verdict is the model's last word on it. A Supported verdict is read only when
- * nothing after it could take it back: a verdict in any words ("Verdict: not supported", 结论：不支持,
- * "partly supported"), or prose beside a Figures line of the last turn's own.
+ * nothing after it could take it back: no words at all in a turn set aside after it, and in the last
+ * turn no verdict in any words ("Verdict: not supported", 结论：不支持, "partly supported") and no
+ * prose beside a Figures line of its own.
  */
 export function replyAcrossTurns(last: string, setAside: readonly string[]): string {
   if (readVerdict(last) !== null || readsAsRefusal(last)) return last;
@@ -1038,12 +1039,14 @@ export function replyAcrossTurns(last: string, setAside: readonly string[]): str
   const earlier = setAside[at];
   const verdict = earlier === undefined ? null : readVerdict(earlier);
   if (earlier === undefined || verdict === null) return last;
-  const after = [...setAside.slice(at + 1), last];
-  if (after.some(readsAsRefusal)) return last;
+  const between = setAside.slice(at + 1);
+  if ([...between, last].some(readsAsRefusal)) return last;
   const figuresLine = last.split("\n").some((line) => FIGURES.test(line));
   if (
     verdict.verdict === "supported" &&
-    (after.some(namesAVerdict) || (figuresLine && proseOf(last).length > 0))
+    (between.some((turn) => proseOf(turn).length > 0) ||
+      namesAVerdict(last) ||
+      (figuresLine && proseOf(last).length > 0))
   )
     return last;
   return `${earlier}\n\n${last}`;

@@ -35,8 +35,11 @@ interface Language {
   measure: string;
   /** A sentence with no figure the first Document states word for word, and a paraphrase of it. */
   plain: { sentence: string; paraphrase: string; decoy: string };
-  /** How a turn after the verdict takes it back: beside the Figures line, and in a sentence's place. */
-  takesBack: { figures: string; plain: string };
+  /**
+   * How a turn after the verdict takes it back: beside the Figures line, in a sentence's place,
+   * and in turns of their own beside a second `cite` call, without a verdict's words.
+   */
+  takesBack: { figures: string; plain: string; between: string[] };
 }
 
 const EN: Language = {
@@ -91,6 +94,7 @@ const EN: Language = {
       "On a second reading, the Documents give this for the northern estuary, not the southern one.",
     plain:
       "On a second reading, the Documents don't support this: they name the southern shore. [^1]",
+    between: ["On reflection that quote doesn't say it.", "I can't confirm this from the quote."],
   },
 };
 
@@ -135,11 +139,18 @@ const ZH: Language = {
   takesBack: {
     figures: "再次核对后，文件写的是整个灌区，不是上游灌区。",
     plain: "再次核对后，文件并不支持这一说法：文件写的是下游村庄。[^1]",
+    between: ["其实那段引文并没有这样说。", "我无法从引文中确认这一点。"],
   },
 };
 
 /** A verdict the reader can't take, in each way a turn after a Supported one may give it. */
-const UNREAD_VERDICTS = ["Verdict: not supported", "结论：不支持", "Verdict: partly supported"];
+const UNREAD_VERDICTS = [
+  "Verdict: not supported",
+  "结论：不支持",
+  "Verdict: partly supported",
+  "Verdict: no",
+  "结论：不成立",
+];
 
 /** The verdict lines Claude Haiku 5.5 wrote beside its `cite` call, with no marker. */
 const verdictLines = (says: string) =>
@@ -173,8 +184,8 @@ interface Split {
   last?: "figures" | "refusal";
   /** Words of its last turn before its Figures line. */
   before?: string;
-  /** A refusal beside a second `cite` call, after the verdict and before the Figures line. */
-  refusesBetween?: boolean;
+  /** Its words beside a second `cite` call, after the verdict and before the Figures line. */
+  between?: string;
   /** Its Figures line's source is marker 3, which it records only once asked to. */
   unrecorded?: boolean;
 }
@@ -257,9 +268,9 @@ function splitting(language: Language, split: Split, calls: ModelCall[]) {
           ? { text: verdictLines(says), calls: [cite] }
           : { calls: [cite] };
       }
-      if (split.refusesBetween && cites === 1)
+      if (split.between && cites === 1)
         return {
-          text: "I'm sorry, I can't help with that.",
+          text: split.between,
           calls: [
             {
               tool: "cite",
@@ -487,6 +498,24 @@ describe.each([
     },
   );
 
+  test("a Supported verdict set aside is never read past words of a later turn set aside, whatever they say", async () => {
+    for (const between of language.takesBack.between) {
+      const { check: decoy } = await check(language, language.decoy, {
+        verdict: "cite",
+        remainder: true,
+        between,
+      });
+      expect(decoy, between).toMatchObject({ state: "not-checked", reason: "malformed" });
+      expect(decoy?.figures?.map((figure) => figure.state)).toEqual(["supported"]);
+    }
+
+    const { check: stated } = await check(language, language.stated.sentence, {
+      verdict: "cite",
+      remainder: true,
+    });
+    expect(stated?.state).toBe("supported");
+  });
+
   test("a Supported verdict set aside is never read past prose that takes it back beside the Figures line", async () => {
     const { check: decoy } = await check(language, language.decoy, {
       verdict: "cite",
@@ -515,7 +544,7 @@ describe.each([
     const { check: refusedBetween } = await check(language, language.stated.sentence, {
       verdict: "cite",
       remainder: true,
-      refusesBetween: true,
+      between: "I'm sorry, I can't help with that.",
     });
     expect(refusedBetween).toMatchObject({ state: "not-checked", reason: "malformed" });
     expect(refusedBetween?.figures?.map((figure) => figure.state)).toEqual(["supported"]);
