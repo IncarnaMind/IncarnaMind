@@ -467,23 +467,44 @@ describe("What decides a sentence", () => {
         quote: "File properties of “Services agreement”",
         property: "modified",
       },
-      "The file was created on 1 October 2026 and last modified on 2 November 2026.": {
+      "The file was created on 1 October 2026.": {
         verdict: "supported",
-        quote:
-          "Created: 2026-10-01T08:00:00Z (the file’s own date)\nModified: 2026-11-02T09:00:00Z",
-        property: "created, modified",
+        quote: "2026-10-01T08:00:00Z (the file’s own date)\nModified: 2026-11-02T09:00:00Z",
+        property: "created",
       },
     });
 
-    for (const claim of [
-      MODIFIED,
-      "The file was created on 1 October 2026 and last modified on 2 November 2026.",
-    ]) {
+    for (const claim of [MODIFIED, "The file was created on 1 October 2026."]) {
       expect(await setup.core.checkClaim({ claim }), claim).toMatchObject({
         verdict: "unsupported",
         evidence: null,
       });
     }
+    // Both quotes are word for word in the properties shown: they are only of no one property.
+    expect(setup.sent()).toContain("Recorded [^1].");
+    expect(setup.sent()).not.toContain("isn't word for word");
+  });
+
+  // protects=a property's words are never offered as the sentence's correction: Fix would put the file's property in the Note as a Document's words; fails_when=a Contradicted sentence about the file's slides offers "3" from the file's properties as its fix.
+  test("a sentence a property contradicts is offered no correction from it", async () => {
+    const WRONG_COUNT = "The deck has 5 slides.";
+    const slide = { shapes: sp({ body: txBody(para("<a:r><a:t>Plan</a:t></a:r>")) }) };
+    const setup = await setUp([{ name: "Plan.pptx", contents: pptxOf({ slides: [slide, slide, slide] }) }], {
+      [WRONG_COUNT]: {
+        verdict: "contradicted",
+        quote: "Slides: 3",
+        property: "slides",
+        says: "The file has 3 slides.",
+        change: ["5", "3"],
+      },
+    });
+
+    const contradicted = await setup.core.checkClaim({ claim: WRONG_COUNT });
+    expect(contradicted).toMatchObject({
+      verdict: "contradicted",
+      evidence: { location: property("slides", "3") },
+    });
+    expect(contradicted).not.toHaveProperty("correction");
   });
 
   // protects=an Unsupported sentence shows a property as its nearest line, or as the part it covers, only when its Property line names that property; fails_when=the file's modified date is shown as "the Documents say something different" for when the agreement was signed.
