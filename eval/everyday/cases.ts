@@ -888,7 +888,7 @@ export const CASES: readonly EverydayCase[] = [
     mind: EMPTY,
     before: ["Write a short summary of the GraphST paper."],
     request: "Make the summary longer.",
-    expected: { ...EDIT, into: "asked-from", inPlace: true },
+    expected: { ...EDIT, into: "asked-from", inPlace: true, longer: true },
   },
   {
     id: "own-summary-longer-zh",
@@ -897,7 +897,7 @@ export const CASES: readonly EverydayCase[] = [
     mind: EMPTY,
     before: ["帮我写一份 GraphST 论文的简短摘要。"],
     request: "把摘要写长一点。",
-    expected: { ...EDIT, into: "asked-from", inPlace: true },
+    expected: { ...EDIT, into: "asked-from", inPlace: true, longer: true },
   },
   // The User's own text, changed.
   {

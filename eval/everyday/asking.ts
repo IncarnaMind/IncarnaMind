@@ -487,6 +487,17 @@ export async function runCase(
     addedBlocks = ids.flatMap((id, block) => (earlier.has(id) ? [] : [block]));
     before = acceptedTexts(client.doc, new Set());
   }
+  // An in-place follow-up after the assistant wrote in `before` must change that text: the
+  // baseline is taken after the before step, and the Blocks it leaves are what `inPlace` looks at.
+  // No Block holding text means the before step wrote nothing, and the follow-up can't be tested.
+  if (each.before?.length && each.expected.inPlace && !addedBlocks && client) {
+    await client.settled();
+    ids = idsNow();
+    before = acceptedTexts(client.doc, new Set());
+    addedBlocks = [...before.values()].some((text) => text.trim() !== "")
+      ? ids.map((_, block) => block)
+      : [];
+  }
   const quoted = each.quote ? await quoteOf(core, scoped, each.quote) : null;
   watch?.begin(each.firstReply ?? null);
   await decideFirst(each.request);
@@ -556,6 +567,7 @@ export async function runCase(
       ? await judgeToolClaims(judge, answer.text, record)
       : null;
   let changes: CaseResult["changes"] = [];
+  let longer = false;
   if (client) {
     await client.settled();
     const after = acceptedTexts(client.doc, requests);
@@ -564,6 +576,9 @@ export async function runCase(
         ? []
         : [{ block, before: before.get(id) ?? "", after: after.get(id) ?? "(removed)" }],
     );
+    const length = (texts: Map<string, string>) =>
+      [...texts.values()].reduce((total, text) => total + text.trim().length, 0);
+    longer = length(after) > length(before);
   }
   const changedBlocks = changes.map((change) => change.block);
   const page = forPage(answer.text, each.request);
@@ -593,6 +608,7 @@ export async function runCase(
     citedInMinds,
     changedBlocks,
     addedBlocks,
+    longer,
     sourcesAsText: sourcesAsTextIn,
     writtenInMinds,
     addedToPage: page,
