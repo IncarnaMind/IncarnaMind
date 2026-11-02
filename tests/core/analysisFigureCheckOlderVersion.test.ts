@@ -11,15 +11,15 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 
 /*
  * The version before an Analysis figure kept the check IncarnaMind made of it when the Analysis
- * ran (#2378): its core is this one with the newest content schema it understands set back to 46.
+ * ran (#2378): its core is this one with the newest content schema it understands set back to 47.
  */
 vi.mock("../../src/core/api", async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  CONTENT_SCHEMA_VERSION: 46,
+  CONTENT_SCHEMA_VERSION: 47,
 }));
 
 /** The content schema version the check came with: what a Note written since records. */
-const FIGURE_CHECK = 47;
+const FIGURE_CHECK = 48;
 
 const KEY = JSON.stringify(["run-1", "total"]);
 
@@ -46,7 +46,7 @@ function noteWithFigureCheck(): Y.Doc {
 
 describe("a version from before Analysis figures kept their check", () => {
   test("opens a Note whose Analysis figure keeps its check read-only, so its write can't drop it", async () => {
-    expect(CONTENT_SCHEMA_VERSION).toBe(46);
+    expect(CONTENT_SCHEMA_VERSION).toBe(47);
     const core = startCore(await createTempDataFolder());
     const mind = await core.createMind({ title: "Revenue" });
     await core.applyMindUpdate(mind.id, Y.encodeStateAsUpdate(noteWithFigureCheck()));

@@ -198,6 +198,9 @@ export async function checkMind(
 ): Promise<void> {
   if (useChecks.getState().running[mindId]) return;
   await freeAskedNote(mindId);
+  // Read again once the asked Note is freed, which waits on the core: a second press meanwhile
+  // found no question to free and started its run (#2302).
+  if (useChecks.getState().running[mindId]) return;
   dismissCheckProblem(mindId);
   const requestId = crypto.randomUUID();
   setCheckRunning(mindId, { requestId, action: "whole-mind" });
@@ -517,6 +520,9 @@ async function askOrCheck(
   plan: MindCheckPlan,
   started: () => void,
 ): Promise<CheckOutcome> {
+  // A check of this Note that started while this one was held and planned has the badge, with
+  // Stop: this one changes nothing beside it (#2302).
+  if (useChecks.getState().running[mindId]) return { kind: "running" };
   if (plan.kind === "unchanged") {
     clearAsk(mindId);
     dismissCheckProblem(mindId);
@@ -567,6 +573,8 @@ async function askOrCheck(
     started();
     return runCheck(mindId, requestId, run);
   }
+  // Nor one that started while the sentences were read and the run estimated.
+  if (useChecks.getState().running[mindId]) return { kind: "running" };
   const estimate = estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
   waitForAnswer(requestId);
   useMindCheck.setState((state) => ({

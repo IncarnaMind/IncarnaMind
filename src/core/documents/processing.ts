@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { statedScale } from "../../shared/figures";
+import { pageScale } from "../../shared/figures";
 import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
 import type { DocumentFailureReason, DocumentKind, UnreadParts } from "../api";
@@ -64,9 +64,11 @@ import { unreadMessage } from "./unreadMessage";
  * deposition layouts keep their printed page and line anchors). 19: #1001 (a
  * PDF's page keeps the scale its running header wrote). 20: #2347 (a
  * workbook's rows Units keep each cell's formula beside its saved value, and
- * its first Unit its defined names and what of it wasn't read).
+ * its first Unit its defined names and what of it wasn't read). 21: #2365 (a
+ * Word section's headers and footers, and more forms of a scale, are read for
+ * it).
  */
-export const PROCESSING_VERSION = 20;
+export const PROCESSING_VERSION = 21;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -92,13 +94,17 @@ export const PROCESSING_VERSION = 20;
  * Version 19 only PDFs' as well: a page keeps the scale its running header
  * wrote ("(£'000)", "All figures in thousands") for a calculated figure (#1001).
  * Version 20 only workbooks', whose Units gain their formulas; their text,
- * Passages and embeddings come out as they were.
+ * Passages and embeddings come out as they were. Version 21 Word files' and
+ * PDFs': a Word section keeps the scale its header or footer writes, and a
+ * PDF's running header the forms the reader now knows ("(000 omitted)",
+ * "金额（万）"), each as the Unit's scale marker; their text, Passages and
+ * embeddings come out as they were (#2365).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 19,
+  pdf: 21,
   text: 5,
   markdown: 5,
-  docx: 7,
+  docx: 21,
   pptx: 5,
   xlsx: 20,
   csv: 5,
@@ -607,12 +613,15 @@ async function processBytes(
             return { ...unit, text: joinCjkLineWraps(unit.text, moved(kept, starts[index] ?? 0)) };
           })
         : stripped;
-    // The running header a page had before it was stripped, kept as its scale marker: a page
-    // that wrote "(£'000)" there scaled its amounts, which the stored text no longer shows (#1001).
-    const pages = laid.map((unit, index) => ({
-      ...unit,
-      scaleMarker: statedScale(extracted.units[index]?.text ?? "") ?? "",
-    }));
+    // The running header a page had before it was stripped, or a Word section's header or footer,
+    // kept as its scale marker: a page that wrote "(£'000)" there scaled its amounts, which the
+    // stored text doesn't show (#1001, #2365).
+    const markerOf = (written: string) => pageScale(written) ?? "";
+    const pages = laid.map(({ runningText, ...unit }, index) => {
+      const scaleMarker =
+        markerOf(runningText ?? "") || markerOf(extracted.units[index]?.text ?? "");
+      return { ...unit, scaleMarker };
+    });
     const { pageCount, unread, parts } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
       ...passage,

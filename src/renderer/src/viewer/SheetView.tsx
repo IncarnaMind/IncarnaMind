@@ -35,7 +35,7 @@ import { useT } from "../i18n";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
 import { FileStates } from "./FileStates";
-import { CitationMark, quoteMarkOf, quoteTone } from "./quoteMark";
+import { CitationMark, MARK_HEIGHT, quoteMarkOf, quoteTone } from "./quoteMark";
 import {
   Axis,
   borderCss,
@@ -45,6 +45,7 @@ import {
   fontCss,
   rowHeightFor,
 } from "./sheetGeometry";
+import { type MarkPlace, markGutter, placeSheetMark, scrollAcross } from "./sheetMark";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
 import "./officeFonts.css";
@@ -147,9 +148,12 @@ function findCells(
   };
 }
 
+/** The cited cells to scroll to: their first and last rows and columns. */
 interface ScrollRequest {
-  row: number;
-  column: number;
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
   request: number;
 }
 
@@ -198,8 +202,10 @@ function Sheets({
     const rows = refs.map((ref) => ref?.row ?? 1);
     const columns = refs.map((ref) => ref?.column ?? 0);
     setScrollTo({
-      row: Math.min(...rows),
-      column: Math.min(...columns),
+      top: Math.min(...rows),
+      bottom: Math.max(...rows),
+      left: Math.min(...columns),
+      right: Math.max(...columns),
       request: target.request,
     });
   }, [target.request, target.pageFrom, found, citedSheet, citedUnit, sheets]);
@@ -511,9 +517,11 @@ function edgeCss(edge: Edge, side: "right" | "bottom", css: CSSProperties, shado
   }
 }
 
-interface MarkPlace {
-  top: number;
-  left: number;
+/** The Citation's mark as measured, with its label and without, and the label it was measured with. */
+interface MarkMeasure {
+  full: number;
+  compact: number;
+  label: string | undefined;
 }
 
 /** Rows not drawn, above or below the view: one empty row of their height. */
@@ -543,27 +551,47 @@ function Grid({
   const table = useRef<HTMLTableElement>(null);
   const [view, setView] = useState({ top: 0, height: 600, left: 0, width: 600 });
   const [place, setPlace] = useState<MarkPlace | null>(null);
-  const [markWidth, setMarkWidth] = useState(40);
+  const markLabel = mark?.label;
+  const [markSize, setMarkSize] = useState<MarkMeasure | null>(null);
+  const measuredMark = useCallback(
+    (size: { full: number; compact: number }) =>
+      setMarkSize((previous) =>
+        previous?.full === size.full &&
+        previous.compact === size.compact &&
+        previous.label === markLabel
+          ? previous
+          : { ...size, label: markLabel },
+      ),
+    [markLabel],
+  );
+  const measured = mark && markSize?.label === mark.label ? markSize : null;
+  const gutter = measured ? markGutter(measured, view.width - ROW_HEADER_WIDTH) : 0;
   const applied = useRef<number | null>(null);
   const model = useMemo(() => buildModel(sheet, book), [sheet, book]);
   const csv = model.look === null;
 
-  // As in Excel, empty rows and columns fill the view past the sheet's last ones.
+  // As in Excel, empty rows and columns fill the view past the sheet's last ones; a wide
+  // sheet gets room past its last column for a Citation's mark beside it.
   const columns = useMemo(() => {
     const used = new Axis(0, model.usedColumns, model.defaultColumn, model.columnSizes);
     const room = view.width - ROW_HEADER_WIDTH - used.total;
-    const more = room > 0 ? Math.ceil(room / model.defaultColumn) : 0;
+    const more = Math.max(
+      Math.ceil(gutter / model.defaultColumn),
+      room > 0 ? Math.ceil(room / model.defaultColumn) : 0,
+    );
     return new Axis(
       0,
       Math.min(MAX_COLUMNS, model.usedColumns + more),
       model.defaultColumn,
       model.columnSizes,
     );
-  }, [model, view.width]);
+  }, [model, view.width, gutter]);
   const rows = useMemo(() => {
     const used = new Axis(1, model.usedRows, model.defaultRow, model.rowSizes);
-    const room = view.height - HEADER_HEIGHT - used.total;
-    const more = room > 0 ? Math.ceil(room / model.defaultRow) : 0;
+    // A long sheet gets rows past its last too, so a Citation to its last rows scrolls them a
+    // third of the way down, not to the bottom edge under the scrollbar (#974).
+    const body = view.height - HEADER_HEIGHT;
+    const more = Math.ceil(Math.max(body - used.total, (body * 2) / 3) / model.defaultRow);
     return new Axis(1, model.usedRows + more, model.defaultRow, model.rowSizes);
   }, [model, view.height]);
   const shownColumns = useMemo(() => columns.visible(0, columns.last), [columns]);
@@ -607,57 +635,96 @@ function Grid({
     return () => observer.disconnect();
   }, [updateView]);
 
-  // Scroll the cited rows into view a third of the way down, below any frozen rows,
-  // and their first column into view if it is off to the right.
+  // Scroll the cited rows into view a third of the way down, below any frozen rows, and
+  // across to their columns, as far as a merged cell among them reaches. It waits for the view's
+  // own size, as the rows past the sheet's last are counted from it, and for the mark's width.
   useLayoutEffect(() => {
     const element = scroller.current;
     if (!element || !scrollTo || applied.current === scrollTo.request) return;
+    if (view.height !== element.clientHeight || view.width !== element.clientWidth) return;
+    if (mark && !measured) return;
     applied.current = scrollTo.request;
     const frozenHeight = rows.start(model.frozen.rows + 1);
     const body = element.clientHeight - HEADER_HEIGHT - frozenHeight;
-    element.scrollTop = Math.max(0, rows.start(scrollTo.row) - frozenHeight - body / 3);
-    const left = ROW_HEADER_WIDTH + columns.start(scrollTo.column);
-    const frozenWidth = columns.start(model.frozen.columns);
-    if (left + columns.size(scrollTo.column) > element.clientWidth) {
-      element.scrollLeft = Math.max(0, left - ROW_HEADER_WIDTH - frozenWidth - 24);
+    element.scrollTop = Math.max(0, rows.start(scrollTo.top) - frozenHeight - body / 3);
+    let right = scrollTo.right;
+    for (let row = scrollTo.top; row <= scrollTo.bottom; row++) {
+      for (let column = scrollTo.left; column <= scrollTo.right; column++) {
+        right = Math.max(right, model.merges.get(cellIndex(row, column))?.right ?? right);
+      }
     }
+    element.scrollLeft = scrollAcross(
+      {
+        left: columns.start(scrollTo.left),
+        right: columns.start(Math.min(right, columns.last) + 1),
+      },
+      columns.start(model.frozen.columns),
+      element.clientWidth - ROW_HEADER_WIDTH,
+      gutter,
+    );
     updateView();
-  }, [scrollTo, updateView, rows, columns, model.frozen]);
+  }, [
+    scrollTo,
+    updateView,
+    rows,
+    columns,
+    model.frozen,
+    model.merges,
+    view,
+    mark,
+    measured,
+    gutter,
+  ]);
 
   const firstBody = model.frozen.rows + 1;
   const first = Math.max(firstBody, rows.indexAt(view.top) - OVERSCAN);
   const last = Math.min(rows.last, rows.indexAt(view.top + view.height) + OVERSCAN);
 
-  // The Citation's mark, to the right of the quote's cells in its first row; while
-  // those run on past the view, at the view's right edge, over the washed row.
+  // The Citation's mark, outside the quote's cells and never over them (#974).
   // biome-ignore lint/correctness/useExhaustiveDependencies: placed again as the view moves
   useLayoutEffect(() => {
     const grid = table.current;
     const box = grid?.parentElement;
-    if (!grid || !box || !mark || !highlighted) {
+    if (!grid || !box || !mark || !measured || !highlighted) {
       setPlace(null);
       return;
     }
     const marked = [...grid.querySelectorAll<HTMLElement>("td[data-quote-highlight]")];
-    const top = marked[0];
-    if (!top) {
+    if (marked.length === 0) {
       setPlace(null);
       return;
     }
-    const row = top.dataset.row;
-    const right = Math.max(
-      ...marked
-        .filter((cell) => cell.dataset.row === row)
-        .map((cell) => cell.getBoundingClientRect().right),
-    );
     const origin = box.getBoundingClientRect();
-    const rect = top.getBoundingClientRect();
-    const visibleRight = view.left + view.width - markWidth - 8;
-    setPlace({
-      top: rect.top - origin.top + rect.height / 2 - 9,
-      left: Math.max(0, Math.min(right - origin.left + 8, visibleRight)),
+    const boxes = marked.map((cell) => {
+      const rect = cell.getBoundingClientRect();
+      return {
+        left: rect.left - origin.left,
+        top: rect.top - origin.top,
+        right: rect.right - origin.left,
+        bottom: rect.bottom - origin.top,
+      };
     });
-  }, [mark, highlighted, first, last, view.left, view.width, markWidth]);
+    const cited = {
+      left: Math.min(...boxes.map((each) => each.left)),
+      top: Math.min(...boxes.map((each) => each.top)),
+      right: Math.max(...boxes.map((each) => each.right)),
+      bottom: Math.max(...boxes.map((each) => each.bottom)),
+    };
+    const firstRow = boxes.filter((each) => each.top === cited.top);
+    setPlace(
+      placeSheetMark(
+        cited,
+        { top: cited.top, bottom: Math.min(...firstRow.map((each) => each.bottom)) },
+        {
+          left: view.left + ROW_HEADER_WIDTH + columns.start(model.frozen.columns),
+          top: view.top + HEADER_HEIGHT + rows.start(model.frozen.rows + 1),
+          right: view.left + view.width,
+          bottom: view.top + view.height,
+        },
+        { ...measured, height: MARK_HEIGHT },
+      ),
+    );
+  }, [mark, highlighted, first, last, view, measured, rows, columns, model.frozen]);
 
   const styleOf = (row: number, column: number): CellStyle | undefined =>
     model.book?.styles[styleIndexAt(model, row, column)];
@@ -964,8 +1031,16 @@ function Grid({
         {mark && place && (
           <CitationMark
             mark={mark}
-            onWidth={setMarkWidth}
+            room={place.label ? undefined : 0}
+            onSize={measuredMark}
             style={{ top: place.top, left: place.left, zIndex: 5 }}
+          />
+        )}
+        {mark && !place && !measured && (
+          <CitationMark
+            mark={mark}
+            onSize={measuredMark}
+            style={{ top: 0, left: 0, visibility: "hidden" }}
           />
         )}
       </div>

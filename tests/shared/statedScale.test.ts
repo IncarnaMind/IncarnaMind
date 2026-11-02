@@ -10,8 +10,10 @@ import {
   currencyScaleMarker,
   type FigureContext,
   figureContextOf,
+  pageScale,
   readStatedUnits,
   statedScale,
+  unsettledScales,
 } from "../../src/shared/figures";
 
 const work = vi.hoisted(() => ({ normalised: 0 }));
@@ -49,6 +51,15 @@ const expectSameAsWholePage = (
     }),
   );
   expect(differing).toEqual([]);
+  // The forms that read two ways (#2365), read only on the lines that may state a scale too.
+  const unsettledDiffering = texts.flatMap((text) =>
+    contexts(text).flatMap((context) => {
+      const whole = wholePageScale(text, context) ?? unsettledScales(text, context)[0] ?? null;
+      const lines = pageScale(text, context);
+      return whole === lines ? [] : [{ text: text.slice(0, 300), whole, lines }];
+    }),
+  );
+  expect(unsettledDiffering).toEqual([]);
 };
 
 const ROOT = join(__dirname, "../..");
@@ -76,9 +87,14 @@ function pagesOf(text: string): string[] {
   return page ? [...pages, page] : pages;
 }
 
-/** Every string literal the figure reader's own cases write. */
+/**
+ * Every string literal the figure reader's own cases write, and the calculation tests' too: their
+ * scale lines, row heads and the rows that must or mustn't take a scale (#2365).
+ */
 function figureCaseTexts(): string[] {
-  const source = readFileSync(join(ROOT, "tests/shared/figures.test.ts"), "utf8");
+  const source = ["tests/shared/figures.test.ts", "tests/core/calculations.test.ts"]
+    .map((file) => readFileSync(join(ROOT, file), "utf8"))
+    .join("\n");
   const quoted = [...source.matchAll(/"(?:[^"\\\n]|\\.)*"/g)].flatMap(([literal]) => {
     try {
       return [JSON.parse(literal) as string];
@@ -106,6 +122,7 @@ describe("the same scale as reading the whole page", () => {
     const texts = figureCaseTexts();
     expect(texts.length).toBeGreaterThan(500);
     expect(texts.filter((text) => wholePageScale(text) !== null).length).toBeGreaterThan(50);
+    expect(texts.filter((text) => unsettledScales(text).length > 0).length).toBeGreaterThan(10);
     expectSameAsWholePage(texts);
     expectSameAsWholePage([texts.join("\n"), texts.join("\n\n"), texts.join(" ")]);
   });
@@ -209,6 +226,27 @@ describe("the same scale as reading the whole page", () => {
     expect(texts.filter((text) => wholePageScale(text) !== null).length).toBeGreaterThan(1000);
     expectSameAsWholePage(texts);
   });
+});
+
+// protects=#2365; fails_when=a page whose only scale is written with "Rs" is skipped by the hint and read unscaled, or a page whose only scale reads two ways ("in MM") keeps no marker.
+test("a rupee scale is read, and a form that reads two ways is the page's scale when nothing else is", () => {
+  const rupees = [
+    "Rs. 000",
+    "Rs 000",
+    "Rs.000",
+    "Rs m",
+    "Rs.m",
+    "Rs mn",
+    "Rs. bn",
+    "Rs k",
+    "Rs. Mio.",
+    "Rs Tsd.",
+  ];
+  expect(rupees.map((form) => statedScale(`Revenue\n${form}\nTotal 5,000`))).toEqual(rupees);
+  expect(pageScale("Revenue in MM\nTotal $5,000")).toBe("in MM");
+  expect(pageScale("Revenue in MM\nAll figures in thousands")).toBe("in thousands");
+  expect(pageScale("Revenue in MM\nAmounts in £'000")).toBe("£'000");
+  expect(pageScale("Spring tides come twice a month.")).toBeNull();
 });
 
 describe("footnote marks and line breaks beside a scale", () => {

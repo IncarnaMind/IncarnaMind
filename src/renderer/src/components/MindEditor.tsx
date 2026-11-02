@@ -115,6 +115,7 @@ import { TableKeys } from "../editor/tableCommands";
 import { reviewItemsIn } from "../editor/theirChanges";
 import { TitleLine } from "../editor/titleLine";
 import { SmartTypography } from "../editor/typography";
+import { UncheckedFigures } from "../editor/uncheckedFigures";
 import type { EditWithAiField } from "../editor/useEditField";
 import { useMenuEditLine } from "../editor/useMenuEditLine";
 import { useVerification } from "../editor/VerifyLine";
@@ -421,6 +422,8 @@ function MindEditorView({
         Pictures,
         CitationClusters,
         ClaimChecks,
+        // A figure an Answer read from a scan's unsure word shows quietly, with a "?" (#535).
+        UncheckedFigures,
         CopyCitations.configure({
           figureRuns: (selected) => (doc ? figureRunsFor(doc, selected) : []),
         }),

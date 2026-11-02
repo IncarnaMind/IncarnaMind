@@ -1,24 +1,31 @@
 import { type CSSProperties, useLayoutEffect, useRef, useState } from "react";
 import type { ViewerCitation } from "../../../shared/documentViewer";
 import { useT } from "../i18n";
-import { ExclamationIcon, NotEqualIcon, TickIcon } from "./icons";
+import { ExclamationIcon, NotEqualIcon, QuestionIcon, TickIcon } from "./icons";
 
 /**
  * How a quote is washed: green, the colour of a found Citation's check, unless
  * it was opened anyway after its check said "not found" (or "unsupported"),
  * which is amber. A contradicted claim is never green: its words are outlined
- * in red, with no fill.
+ * in red, with no fill. A Citation of a scan's unsure words is quiet grey: the
+ * words may not be what the page says (#535).
  */
-export type QuoteTone = "found" | "not-found" | "contradicted";
+export type QuoteTone = "found" | "not-found" | "contradicted" | "cant-check";
 
 export const quoteTone = (citation: ViewerCitation | undefined): QuoteTone =>
-  citation?.check === "not-found" || citation?.check === "unsupported"
-    ? "not-found"
-    : citation?.check === "contradicted"
-      ? "contradicted"
-      : "found";
+  citation?.check === "cant-check"
+    ? "cant-check"
+    : citation?.check === "not-found" || citation?.check === "unsupported"
+      ? "not-found"
+      : citation?.check === "contradicted"
+        ? "contradicted"
+        : "found";
 
-/** The check mark to show beside a quote: only when the Citation's check and number are known. */
+/**
+ * The check mark to show beside a quote: only when the Citation's check and number are known. A
+ * Citation that can't be checked shows one only for a scan's unsure word, which asks for a look
+ * at the page (#535).
+ */
 export interface QuoteMark {
   tone: QuoteTone;
   number: number;
@@ -28,7 +35,8 @@ export interface QuoteMark {
 
 export function quoteMarkOf(citation: ViewerCitation | undefined): QuoteMark | null {
   if (citation?.number === undefined) return null;
-  if (citation.check === "checking" || citation.check === "cant-check") return null;
+  if (citation.check === "checking") return null;
+  if (citation.check === "cant-check" && citation.checkReason !== "unsure-word") return null;
   return {
     tone: quoteTone(citation),
     number: citation.number,
@@ -37,7 +45,7 @@ export function quoteMarkOf(citation: ViewerCitation | undefined): QuoteMark | n
 }
 
 /** The mark's height, as in the Mind's margin. */
-const MARK_HEIGHT = 18;
+export const MARK_HEIGHT = 18;
 
 /** The space the label takes beside the number: its margin, border and padding. */
 const LABEL_SPACING = 3;
@@ -70,21 +78,26 @@ export function CitationMark({
   mark,
   style,
   room,
-  onWidth,
+  onSize,
 }: {
   mark: QuoteMark;
   style: CSSProperties;
   room?: number;
-  /** Told the mark's width as shown, e.g. to keep it inside the page. */
-  onWidth?: (width: number) => void;
+  /** Told the mark's width with its label and without it, to find it a place. */
+  onSize?: (size: { full: number; compact: number }) => void;
 }) {
   const t = useT();
   const own = useRef<HTMLSpanElement>(null);
   const labelElement = useRef<HTMLSpanElement>(null);
   const [fits, setFits] = useState(true);
-  const word = ({ found: "found", "not-found": "notFound", contradicted: "contradicted" } as const)[
-    mark.tone
-  ];
+  const word = (
+    {
+      found: "found",
+      "not-found": "notFound",
+      contradicted: "contradicted",
+      "cant-check": "cantCheck",
+    } as const
+  )[mark.tone];
   const label = mark.label
     ? t(`viewer.mark.${word}.at`, { number: mark.number, location: mark.label })
     : t(`viewer.mark.${word}`, { number: mark.number });
@@ -98,7 +111,7 @@ export function CitationMark({
     const base = element.offsetWidth - (fits && shown ? labelWidth : 0);
     const next = room === undefined || !shown || base + labelWidth <= room;
     if (next !== fits) setFits(next);
-    else onWidth?.(element.offsetWidth);
+    else onSize?.({ full: base + labelWidth, compact: base });
   }, [room, mark.label, fits]);
 
   const Icon =
@@ -106,7 +119,9 @@ export function CitationMark({
       ? TickIcon
       : mark.tone === "contradicted"
         ? NotEqualIcon
-        : ExclamationIcon;
+        : mark.tone === "cant-check"
+          ? QuestionIcon
+          : ExclamationIcon;
   return (
     <span
       ref={own}
