@@ -3,8 +3,9 @@
  * memo's, checked by Check this Note against invented accounts, in English and in Chinese. Each
  * wrong figure must come back Contradicted or Unsupported, and no figure may end with no check
  * made for it, or the run fails. The report keeps how the sort decided each table cell that holds
- * a figure and each row's label it was shown (a claim, no claim, or nothing said), every figure
- * that came out other than expected, and the tokens of every request. Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY, so
+ * a figure and each row's label it was shown (a claim, no claim, or nothing said), what the checks
+ * made of the labels, every figure that came out other than expected, and the tokens of every
+ * request. A label that only names its row should be no claim; one that asserts something, a fact. Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY, so
  * `npx vitest run` makes no request without one.
  *
  * - INCARNAMIND_LIVE_ANTHROPIC_MODEL: the model (Claude Haiku 5.5 when unset).
@@ -26,7 +27,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
 import { xlsxOf } from "../helpers/office";
-import { sortedCells, sortRecorder } from "../helpers/sortCalls";
+import { checksOn, sortedCells, sortRecorder } from "../helpers/sortCalls";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
@@ -45,7 +46,8 @@ interface Pack {
   accounts: { name: string; sheets: { name: string; rows: (string | number)[][] }[] };
   title: string;
   paragraphs: { text: string; figures: Figure[] }[];
-  tables: { caption: string; head: string[]; rows: Cell[][] }[];
+  /** `asserting`: each row's label asserts something of its own, so the sort should call it a fact. */
+  tables: { caption: string; head: string[]; rows: Cell[][]; asserting?: boolean }[];
 }
 
 const PACKS: Record<string, Pack> = {
@@ -80,6 +82,24 @@ const PACKS: Record<string, Pack> = {
             ["Leeds", 46, 58, "Open"],
             ["York", 31, 40, "Open"],
             ["Hull", 27, 33, "Closed for refit"],
+          ],
+        },
+        {
+          name: "Regions",
+          rows: [
+            ["Region", "Stores", "Staff"],
+            ["North East England", 14, 610],
+            ["South West England", 9, 420],
+            ["Scotland and Wales", 6, 255],
+          ],
+        },
+        {
+          name: "Margin bridge",
+          rows: [
+            ["Driver", "Effect on margin (points)"],
+            ["Fuel prices rose faster than pump prices", 0.8],
+            ["Online orders cost more to pick and deliver", 0.3],
+            ["Better buying lifted fresh food margins", 0.6],
           ],
         },
       ],
@@ -141,6 +161,25 @@ const PACKS: Record<string, Pack> = {
           ["Hull", ["72", "wrong"], ["33", "supported"], "Closed for refit"],
         ],
       },
+      {
+        caption: "Stores and staff by region",
+        head: ["Region", "Stores", "Staff"],
+        rows: [
+          ["North East England", ["14", "supported"], ["610", "supported"]],
+          ["South West England", ["9", "supported"], ["402", "wrong"]],
+          ["Scotland and Wales", ["6", "supported"], ["255", "supported"]],
+        ],
+      },
+      {
+        caption: "What moved gross margin",
+        head: ["Driver", "Effect on margin (points)"],
+        rows: [
+          ["Fuel prices rose faster than pump prices", ["0.8", "supported"]],
+          ["Online orders cost more to pick and deliver", ["0.3", "supported"]],
+          ["Better buying lifted fresh food margins", ["0.4", "wrong"]],
+        ],
+        asserting: true,
+      },
     ],
   },
   zh: {
@@ -175,6 +214,24 @@ const PACKS: Record<string, Pack> = {
             ["宁波仓库", 62, 75, "营业"],
             ["温州仓库", 38, 46, "营业"],
             ["绍兴仓库", 35, 41, "停业整修"],
+          ],
+        },
+        {
+          name: "大区",
+          rows: [
+            ["大区", "门店数", "员工人数"],
+            ["华东大区", 52, 2140],
+            ["华南大区", 37, 1850],
+            ["西南大区", 21, 930],
+          ],
+        },
+        {
+          name: "毛利率变动",
+          rows: [
+            ["因素", "影响（百分点）"],
+            ["燃油进价涨幅高于零售价", 0.8],
+            ["线上订单拣货配送成本上升", 0.3],
+            ["生鲜采购改善提升毛利", 0.6],
           ],
         },
       ],
@@ -236,6 +293,25 @@ const PACKS: Record<string, Pack> = {
           ["绍兴仓库", ["53", "wrong"], ["41", "supported"], "停业整修"],
         ],
       },
+      {
+        caption: "各大区门店与员工",
+        head: ["大区", "门店数", "员工人数"],
+        rows: [
+          ["华东大区", ["52", "supported"], ["2,140", "supported"]],
+          ["华南大区", ["37", "supported"], ["1,580", "wrong"]],
+          ["西南大区", ["21", "supported"], ["930", "supported"]],
+        ],
+      },
+      {
+        caption: "毛利率变动因素",
+        head: ["因素", "影响（百分点）"],
+        rows: [
+          ["燃油进价涨幅高于零售价", ["0.8", "supported"]],
+          ["线上订单拣货配送成本上升", ["0.3", "supported"]],
+          ["生鲜采购改善提升毛利", ["0.4", "wrong"]],
+        ],
+        asserting: true,
+      },
     ],
   },
 };
@@ -254,17 +330,19 @@ const wordsOf = (each: Cell) => (typeof each === "string" ? each : each[0]);
 
 /**
  * The Note's blocks, every figure in reading order, the words of each table cell that holds one,
- * and each row's label.
+ * and each row's label: those that only name their row, and those that assert something.
  */
 function noteOf(pack: Pack): {
   blocks: JSONContent[];
   truth: Figure[];
   cells: Set<string>;
   labels: Set<string>;
+  asserting: Set<string>;
 } {
   const truth: Figure[] = [];
   const cells = new Set<string>();
   const labels = new Set<string>();
+  const asserting = new Set<string>();
   const blocks: JSONContent[] = [
     { type: "heading", attrs: { id: randomUUID(), level: 1 }, content: [text(pack.title)] },
   ];
@@ -287,7 +365,7 @@ function noteOf(pack: Pack): {
     });
     for (const row of table.rows) {
       const [label] = row;
-      if (typeof label === "string") labels.add(label);
+      if (typeof label === "string") (table.asserting ? asserting : labels).add(label);
       for (const each of row)
         if (typeof each !== "string") {
           truth.push(each);
@@ -295,7 +373,7 @@ function noteOf(pack: Pack): {
         }
     }
   }
-  return { blocks, truth, cells, labels };
+  return { blocks, truth, cells, labels, asserting };
 }
 
 function score(rows: readonly FigureScheduleRow[], truth: readonly Figure[]) {
@@ -347,8 +425,8 @@ for (const language of LANGUAGES) {
     `every figure of a Note's tables gets a look, and each wrong one needs a look (${language})`,
     { timeout: 3_600_000 },
     async () => {
-      const { blocks, truth, cells, labels } = noteOf(pack);
-      expect(truth).toHaveLength(30);
+      const { blocks, truth, cells, labels, asserting } = noteOf(pack);
+      expect(truth).toHaveLength(39);
       for (let run = 1; run <= RUNS; run++) {
         const sorts = sortRecorder(async (call) => {
           if (TRACE) await appendFile(TRACE, `${JSON.stringify({ language, ...call })}\n`);
@@ -380,6 +458,7 @@ for (const language of LANGUAGES) {
           mode: "all",
         });
         const seconds = (Date.now() - started) / 1000;
+        await client.settled();
         const schedule = await core.getFigureSchedule(mind.id);
         const { counts, misses } = score(schedule.rows, truth);
         // The tokens beside the cost, so a reader can price each run again.
@@ -408,6 +487,9 @@ for (const language of LANGUAGES) {
           sortRequests: sorts.calls.length,
           sortedCells: sortedCells(sorts.calls, cells),
           sortedLabels: sortedCells(sorts.calls, labels),
+          labelChecks: checksOn(client, labels),
+          sortedAsserting: sortedCells(sorts.calls, asserting),
+          assertingChecks: checksOn(client, asserting),
           ...counts,
           misses,
         };

@@ -4,6 +4,9 @@
  */
 import type { LanguageModelMiddleware } from "ai";
 import { readClaimParts } from "../../src/core/answers/checks/claims";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import type { MindClient } from "./mindClient";
+import { readMind } from "./minds";
 
 export interface SortCall {
   asked: { number: number; text: string; row?: string; column?: string }[];
@@ -70,3 +73,13 @@ export function sortedCells(calls: readonly SortCall[], cells: ReadonlySet<strin
   }
   return { ...counts, notClaims };
 }
+
+/** What each check made of a sentence whose words are among `words`, such as a row's label. */
+export const checksOn = (client: Pick<MindClient, "blocks">, words: ReadonlySet<string>) =>
+  claimSpans(readMind(client))
+    .filter((span) => words.has(span.sentence.text.trim()))
+    .map((span) => ({
+      text: span.sentence.text.trim(),
+      state: span.check.state,
+      reason: span.check.reason,
+    }));

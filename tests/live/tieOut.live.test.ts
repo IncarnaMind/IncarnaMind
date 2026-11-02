@@ -28,7 +28,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
 import { xlsxOf } from "../helpers/office";
-import { sortedCells, sortRecorder } from "../helpers/sortCalls";
+import { checksOn, sortedCells, sortRecorder } from "../helpers/sortCalls";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
@@ -565,6 +565,7 @@ for (const language of LANGUAGES) {
           mode: "all",
         });
         const seconds = (Date.now() - started) / 1000;
+        await client.settled();
         const schedule = await core.getFigureSchedule(mind.id);
         const { counts, misses } = score(schedule.rows, truth);
         const cost = queryDatabase<{ cost: number }>(
@@ -584,6 +585,10 @@ for (const language of LANGUAGES) {
             ...sortedCells(
               sorts.calls,
               new Set(pack.tables.flatMap((table) => table.rows.map(([, value]) => value))),
+            ),
+            labelChecks: checksOn(
+              client,
+              new Set(pack.tables.flatMap((table) => table.rows.map(([label]) => label))),
             ),
           },
           ...counts,
