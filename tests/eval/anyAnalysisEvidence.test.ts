@@ -13,9 +13,16 @@ const FOLDER = join(__dirname, "../../eval/evidence/2411-any-analysis");
 
 /** What README.md publishes for each model: tasks passed per need, in English, and the failure classes. */
 const HAIKU = {
-  passed: { P: "24/25", N: "3/8", F: "3/4", T: "5/6", X: "0/1" },
-  chinese: "7/8",
-  failures: { "not offered": 6, incomplete: 2, "limit hit": 1 },
+  passed: { P: "21/25", N: "3/8", F: "3/4", T: "3/6", X: "0/1" },
+  chinese: "6/8",
+  failures: {
+    "not offered": 6,
+    incomplete: 3,
+    "wrong method": 3,
+    "wrong number": 1,
+    "limit hit": 1,
+    slow: 1,
+  },
 };
 const SONNET = {
   passed: { P: "25/25", N: "4/8", F: "4/4", T: "5/6", X: "0/1" },

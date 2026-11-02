@@ -78,7 +78,7 @@ A task passes only if all five pass (`score.ts`, tested in `tests/eval/anyAnalys
 - **Numbers:** what the app's figure reader finds (both ends of a range), and also a number before a unit of time ("ninety (90) days"), in scientific notation ("1.2 × 10⁻¹⁵"), alone in a table cell (1940, which the reader takes for a year), or written as a word ("five pairs"; a word can make a result right, never wrong). A share counts as a percent or a fraction either way ("AUC 82.1%" is 0.821). A written number may be rounded as shown, but no coarser than the result's tolerance, so "$217k" never passes for 216,995.66; a whole number written whole, or a percent to a tenth of a point, always may.
 - **Where:** a result is looked for on the lines that carry its words: a line, a table's cells under a matching heading or beside a matching label, or a list's lines under a matching lead-in ("**Welch ANOVA:**"). There, a number of the same kind within three times the reference that isn't right makes the result wrong. Elsewhere only a calculated figure the model labelled with the result's words counts, so a small number in another sentence never passes for a small p-value; nothing right makes the result missing.
 - **Lists:** items are found by their keys, also where a table writes a key across its first heading and cell ("| S | 1 |" is S1). A key on a line keeps the numbers after it, up to the next key, and a column bound to a heading reads only that cell. The list is the block (a table, a run of list lines, or one line) holding most members, among those with at most twice as many keys as members, so a full table of every item beside the list adds no extra item; with no such block, the block holding most members is the list, and its other keys are extra.
-- **Labels and word lists:** a "(recalculated)" label belongs to the number just before it. The phrases for "can't" and for a recalculated label are lists, in English and Chinese: "the difference can't be chance" reads as a "can't"; a model saying its own code recalculated something is not a label.
+- **Labels and word lists:** a "(recalculated)" label belongs to the number just before it (so "IncarnaMind recalculated X and Y" checks X only). Every figure the app worked out itself is taken as labelled, the strict reading: its card shows "recalculated" once a Check finds its inputs where they are cited, which a figure from the wrong cells also passes. The phrases for "can't" and for a recalculated label are lists, in English and Chinese: "the difference can't be chance" reads as a "can't"; a model saying its own code recalculated something is not a label.
 
 ## Running it
 
@@ -93,6 +93,7 @@ INCARNAMIND_EVAL_CHAT_KEY=<a direct Anthropic key> INCARNAMIND_EVAL_CHAT_MODEL=c
 - `INCARNAMIND_EVAL_TASKS=F01,S02` runs those, `INCARNAMIND_EVAL_NEEDS=P` the tasks that need it, `INCARNAMIND_EVAL_LANGUAGES=en` one language. `INCARNAMIND_EVAL_MAX_USD` (default 1) starts no task once the run has spent it, priced from the app's own request meter.
 - The run writes `eval/results/<start time>-any-analysis/<model>.json` after every task: each Answer as its conversation holds it (pictures by their SHA-256), the question asked and the SHA-256 of its inputs, how its files were taken in, its requests' tokens, what the harness saw for C4, and at the end every request and connection of the run. The scorer refuses an Answer to another question or other inputs than its reference's.
 - `INCARNAMIND_EVAL_RUNS=<run.json>,<run.json> npm run eval:any-analysis:report` scores runs again with no model and prints the tables below; `INCARNAMIND_EVAL_DETAIL=1` adds each Answer's checks and the results it got wrong. Runs of one model made in parts are read as one, a task asked again replacing its earlier Answer, and every request of each part counted.
+- **What the scorer can't tell:** two results swapped in prose ("the text says 9.4%, the table 12%") both read as right; columns that name no heading share their row's numbers; a heading the pattern misses falls back to the whole row; a wrong count equal to a number the question states ("all six pairs") reads as missing, not wrong. No reference value in the set equals a number its question states.
 - **Not checked:** writes outside the task's folder (the Analysis runtime can't reach the disk, ADR-0023; a native runtime would need its own check), and the search reranker and the text recogniser, which are the test build's stand-ins.
 
 ## Results
@@ -101,32 +102,39 @@ The Answers of every published run are kept in `eval/evidence/2411-any-analysis/
 
 ### 2026-11-02: `main` at 729e6140e, Claude Haiku 5.5 and Claude Sonnet 5.5
 
-A test build of `main` as it stood at 729e6140e, Chromium's sandbox on, Analyses in Pyodide 314.0.7 (Python 3.14.2, numpy 2.4.6, pandas 3.0.2, scipy 1.18.0, statsmodels 0.14.6, scikit-learn 1.8.0, matplotlib 3.10.8), a direct Anthropic key. Haiku answered every task in English and the eight in Chinese; Sonnet every task in English. Each task was asked once.
+Every run drove one test build made at 799d451c7, `main` at 729e6140e with this set's files beside it: the app's code is `main`'s. Chromium's sandbox was on; Analyses ran in Pyodide 314.0.7 (Python 3.14.2, numpy 2.4.6, pandas 3.0.2, scipy 1.18.0, statsmodels 0.14.6, scikit-learn 1.8.0, matplotlib 3.10.8), on a direct Anthropic key. Runs record the branch commit they started from: the scorer and its tests changed between runs, the app didn't.
 
-| File | Model | What it holds |
-|---|---|---|
-| `claude-haiku-5-5-a.json` | Claude Haiku 5.5 | all 40 tasks, and the 8 in Chinese |
-| `claude-haiku-5-5-b.json` | Claude Haiku 5.5 | L06 in both languages again, after its question was reworded to fit its data |
-| `claude-sonnet-5-5-a.json` | Claude Sonnet 5.5 | F01, S04, M03: the run that priced the rest |
-| `claude-sonnet-5-5-b.json` | Claude Sonnet 5.5 | the other 22 P tasks |
-| `claude-sonnet-5-5-c.json` | Claude Sonnet 5.5 | the N, F and X tasks, D01 and D02 (its spend cap stopped it before D03) |
-| `claude-sonnet-5-5-d.json` | Claude Sonnet 5.5 | L06 again, and D03 to D06 |
+| File | Model | What it holds | Harness |
+|---|---|---|---|
+| `claude-haiku-5-5-a.json` | Claude Haiku 5.5 | all 40 tasks and the 8 in Chinese | earlier |
+| `claude-haiku-5-5-b.json` | Claude Haiku 5.5 | L06 in both languages, after its question was reworded to fit its data | final |
+| `claude-haiku-5-5-c.json` | Claude Haiku 5.5 | all 40 tasks and the 8 in Chinese again, asked after the scorer was final, from a clean tree | final |
+| `claude-sonnet-5-5-a.json` | Claude Sonnet 5.5 | F01, S04, M03: the run that priced the rest | earlier |
+| `claude-sonnet-5-5-b.json` | Claude Sonnet 5.5 | the other 22 P tasks | earlier |
+| `claude-sonnet-5-5-c.json` | Claude Sonnet 5.5 | the N, F and X tasks, D01 and D02 (its spend cap stopped it before D03) | earlier |
+| `claude-sonnet-5-5-d.json` | Claude Sonnet 5.5 | L06 again, and D03 to D06 | final |
+
+- **What the scores rest on:**
+  - The scorer's readings were settled on the Answers of the first Haiku and Sonnet runs, each checked by reading them (D04's "adds up to", for one).
+  - Haiku's scores below are from `-c`, asked after that. It replaces the earlier Haiku runs, whose spend still counts, so it is the check on whether the readings were fitted to them.
+  - Sonnet's scores are from the runs the scorer was settled on: a fresh Sonnet pass would cost about $4.50.
+- **The earlier harness** looked for the canary only in the Answer, let loopback bypass the listener, kept connections only inside a task's window, and counted spend per task. In the final harness's runs, the run's own count of requests equals the per-task sum.
 
 | Task | Needs | Language | claude-haiku-5-5 | claude-sonnet-5-5 |
 |---|---|---|---|---|
 | F01 Budget against actual | P | en | pass | pass |
-| F01 Budget against actual | P | zh | pass | – |
+| F01 Budget against actual | P | zh | C1: incomplete, answered | – |
 | F02 Bank reconciliation | P | en | pass | pass |
 | F03 Loan amortisation | P | en | pass | pass |
 | F04 Project NPV, IRR and payback | P | en | pass | pass |
 | F05 Receivables ageing | P | en | pass | pass |
 | F05 Receivables ageing | P | zh | pass | – |
 | F06 Fund risk and return | P | en | pass | pass |
-| F07 Group consolidation | P | en | pass | pass |
+| F07 Group consolidation | P | en | C1: wrong method, answered | pass |
 | F08 Three statements tie out | P | en | pass | pass |
 | S01 Two groups compared | P | en | pass | pass |
 | S01 Two groups compared | P | zh | pass | – |
-| S02 Wage regression | P | en | pass | pass |
+| S02 Wage regression | P | en | C1: wrong number, answered | pass |
 | S03 Survey cross-table | P | en | pass | pass |
 | S04 Four groups, unequal variances | P | en | pass | pass |
 | S05 Bootstrap interval for a median | P | en | pass | pass |
@@ -150,43 +158,53 @@ A test build of `main` as it stood at 729e6140e, Chromium's sandbox on, Analyses
 | E07 Loan schedule as a live workbook | X | en | C1: not offered, can't | C1: not offered, can't |
 | L01 A web access log | N | en | C1: not offered, not read | C1: not offered, not read |
 | L02 An application log with stack traces | N | en | C1: not offered, not read | C1: not offered, not read |
-| L03 Terms from a contract | P | en | pass | pass |
+| L03 Terms from a contract | P | en | C1 C2: wrong method, can't | pass |
 | L04 Themes in survey comments | P | en | pass | pass |
 | L04 Themes in survey comments | P | zh | pass | – |
 | L05 A mail export | N | en | C1: not offered, not read | C1: not offered, not read |
 | L06 A GBK file with full-width digits | P | en | C1: incomplete, can't | pass |
 | L06 A GBK file with full-width digits | P | zh | C1: incomplete, can't | – |
 | D01 Growth and margins from an annual report | T | en | pass | pass |
-| D02 A table over three pages | T | en | pass | pass |
+| D02 A table over three pages | T | en | C5: slow, answered | pass |
 | D03 A table on a scanned page | T | en | C1 C2: not offered, can't | C1 C2: not offered, can't |
 | D04 A Word table with merged cells | T | en | pass | pass |
 | D05 A stale table in a deck | T | en | pass | pass |
-| D06 Text and table disagree | T | en | pass | pass |
+| D06 Text and table disagree | T | en | C1: wrong method, answered | pass |
 
 | Passed, in English | P | N | F | T | X | Chinese | The bar: 22 of 25 P |
 |---|--:|--:|--:|--:|--:|--:|---|
-| Claude Haiku 5.5 | 24/25 | 3/8 | 3/4 | 5/6 | 0/1 | 7/8 | met |
-| Claude Sonnet 5.5 | 25/25 | 4/8 | 4/4 | 5/6 | 0/1 | – | met |
+| Claude Haiku 5.5 (asked after the scorer was final) | 21/25 | 3/8 | 3/4 | 3/6 | 0/1 | 6/8 | not met |
+| Claude Sonnet 5.5 (the runs the scorer was settled on) | 25/25 | 4/8 | 4/4 | 5/6 | 0/1 | – | met |
 
 N counts the four F tasks too, which need both.
 
-- **Hard gates:** no C4 failure in either model (no connection reached the listener, no canary read, no file changed); no figure falsely labelled recalculated; no wrong number written without the calculated label.
-- **Speed:** median 25 s (Haiku) and 21 s (Sonnet) against 90 s; 95th percentile 79 s and 54 s against 240 s. The slowest was D02, 210 s and 207 s: both models wrote its 84 rows into a new Note. Sonnet's D02 alone cost $1.37 of its spend.
-- **Failure classes,** Haiku: not offered 6, incomplete 2, limit hit 1. Sonnet: not offered 5, limit hit 1.
-  - **Not offered:** the app doesn't read `.log` or `.mbox` files (L01, L02, L05), can't save a workbook (E07), and the test build's text recogniser reads nothing of a scan (D03). Haiku's E01: the workbook formula tracer stopped before every constant was found, which it said.
-  - **Limit hit:** M05, 50,000 rows of which the Analysis read 19,999; both said so.
-  - **Incomplete:** Haiku's L06 in both languages: it found the full-width digits and yuan signs, said it couldn't add them up as they were, and gave no total. Sonnet converted them in code.
-  - Seen in passing runs: a missing library once (Haiku's S04 imported a Games-Howell function statsmodels doesn't have, then wrote the test by hand), and Analyses that failed and were fixed on the next run in 30 of the 91 Answers kept.
-- **The T tasks mostly pass already** (5 of 6): the tables were small enough to read as text and add up with `calculate`. The E tasks with formulas pass where the workbook formula tools reach (E02-E04).
+- **Hard gates:** no C4 failure in either model; no figure falsely labelled recalculated; no wrong number written without the calculated label.
+- **Speed:** median 23 s (Haiku) and 21 s (Sonnet) against 90 s; 95th percentile 72 s and 54 s against 240 s. D02 is the slowest: both models wrote its 84 rows into a new Note, and Haiku's took 273 s, over the limit.
+- **Failure classes,** Haiku: not offered 6, incomplete 3, wrong method 3, wrong number 1, limit hit 1, slow 1. Sonnet: not offered 5, limit hit 1.
+  - **Not offered:**
+    - the app doesn't read `.log` or `.mbox` files (L01, L02, L05);
+    - it can't save a workbook (E07);
+    - the test build's text recogniser reads nothing of a scan (D03);
+    - Haiku's E01: the workbook formula tracer stopped before every constant was found, which it said.
+  - **Limit hit:** M05, 50,000 rows of which the Analysis read 19,999; both models said so.
+  - **Incomplete:**
+    - Haiku's L06 in both languages found the full-width digits and yuan signs, said it couldn't add them up as they were, and gave no total (Sonnet converted them in code);
+    - Haiku's F01 in Chinese rounded every variance to whole yuan, coarser than the cents the results are held to.
+  - **Wrong method:**
+    - Haiku's F07 named each rate's row, not its cell, and said it couldn't see cell addresses.
+    - Two are the scorer's, not Haiku's: L03 wrote its whole table as Proposals in a new Note, which the scorer can't read; D06 said "The two do not agree", which the scorer's words for a mismatch miss. The scorer wasn't changed after this run, so they stand as failures here.
+  - **Wrong number:** Haiku's S02 gave a VIF of 1.51 against 1.44.
+  - **Slow:** Haiku's D02.
+  - **Seen in passing runs:** a missing library once (Haiku's S04 imported a Games-Howell function statsmodels doesn't have, then wrote the test by hand), and Analyses that failed and were fixed on the next run in about a third of the Answers.
+- **The T tasks mostly pass already:** their tables are small enough to read as text and add up with `calculate`. The E tasks with formulas pass where the workbook formula tools reach (E02-E04).
 - A full 20,000-row, 500,000-cell CSV (M01) is read whole, but its input is still marked as cut.
 
 Spend, from every request's tokens at the catalog's prices for its prompt's length:
 
 | Run | Requests | Uncached input | Cache reads | Cache writes | Output | Spend |
 |---|--:|--:|--:|--:|--:|--:|
-| Haiku 5.5, published | 359 | 169,565 | 5,138,116 | 1,252,362 | 295,449 | $0.3726 |
-| Sonnet 5.5, published | 224 | 123,808 | 3,408,934 | 977,126 | 147,222 | $4.5035 |
-| Haiku 5.5, quick tasks of the Sonnet runs | 49 | 70,390 | 91,737 | 1,242 | 3,801 | $0.0100 |
+| Haiku 5.5, published (a, b, c) | 715 | 383,973 | 10,499,264 | 2,537,423 | 623,137 | $0.7721 |
+| Sonnet 5.5, published (a to d) | 224 | 123,808 | 3,408,934 | 977,126 | 147,222 | $4.5035 |
+| Haiku 5.5, the app's quick tasks in the Sonnet runs | 49 | 70,390 | 91,737 | 1,242 | 3,801 | $0.0100 |
 | Haiku 5.5, a first run that tuned the scorer and the harness, not published | 304 | 137,554 | 4,072,553 | 1,032,813 | 199,200 | $0.2832 |
-| All | 936 | | | | | $5.1693 |
-
+| All | 1,292 | | | | | $5.5688 |
