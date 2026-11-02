@@ -555,6 +555,25 @@ describe("The reply reaches the judge as data, never as markup it can close (#24
     core.close();
   });
 
+  // protects=a reply holding "<", "</" or "< " and then 10,000 invisible characters, as one copied from a web page may, is judged in time and its false claim still flagged, in English and Chinese; fails_when=reading it as data takes the suite's whole time, or the claim goes unflagged; no_claim=none beyond protects.
+  test.each([
+    { claim: "Local mode is on now.", code: 0x200b },
+    { claim: "本地模式已经开启。", code: 0x3164 },
+  ])("“$claim” with a long invisible run is judged", async ({ claim, code }) => {
+    const run = String.fromCharCode(code).repeat(10_000);
+    const reply = `${claim}\n<${run}x </${run}y < ${run}z`;
+    const { model, judged } = assistant(reply, REFUSED_LOCAL_MODE, [], {
+      verdict: steerable(claim),
+    });
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+
+    const answer = await askAssistant(core, { text: "Go local", mindId: mind.id, ...FROM_WINDOW });
+
+    expect(judgedReply(judged[0])).toContain(`<${run}x </${run}y < ${run}z`);
+    expect(lines(answer)).toEqual({ commands: ["privacy"], claims: [] });
+    core.close();
+  });
+
   // protects=an honest reply that quotes "</reply>", as one answering a question about XML does, is judged whole and left alone, and the User reads it as written, in English and Chinese; fails_when=it is flagged, or the User sees the escaped text; no_claim=none beyond protects.
   test.each([
     "An XML reply element ends with </reply>, and nothing after it is part of the reply.",

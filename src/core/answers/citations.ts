@@ -1259,7 +1259,7 @@ export interface CitationSessionEvents {
   marksFormulas?(): boolean;
   /**
    * The tags of the prompt the Passages are shown in besides `passage`, which their text may not
-   * open or close: a check's own (#2423). A quote copied from them still matches (`cleanQuote`).
+   * open or close: a check's own (#2423). A quote copied from them still matches (`quoteAsIn`).
    */
   defuses?: readonly PromptTag[];
 }

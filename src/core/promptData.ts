@@ -31,17 +31,21 @@ export type PromptTag = (typeof PROMPT_TAGS)[number];
 // after the bracket when a "/" follows, and "\/" for "/"; and "_", spaces or more than one "-" for
 // a name's "-". A space straight after the bracket with no "/", or a letter or a "." straight after
 // the name, is no tag: "x < reply count", "i<sentence.length".
-const INVISIBLE = "[\\p{Cf}\\u034f\\ufe00-\\ufe0f\\u115f\\u1160\\u3164\\uffa0\\u2800]*";
+// Each run of these characters is one class with one quantifier: a quantifier inside another
+// takes exponential time on a "<" followed by many invisible characters, and asData runs on every
+// Passage and reply, so it would freeze the core.
+const INVISIBLE = "\\p{Cf}\\u034f\\ufe00-\\ufe0f\\u115f\\u1160\\u3164\\uffa0\\u2800";
+const GAP = `[${INVISIBLE}]*`;
+const SPACE = `[\\s${INVISIBLE}]*`;
 const LESS_THAN = "[<\\uff1c\\ufe64\\u3008\\u2329\\u2039\\u27e8\\u1438]";
 const AFTER_NAME = "[\\s/>\\uff1e\\ufe65\\u3009\\u232a\\u203a\\u27e9\\u1433]";
-const SPACE = `(?:\\s|${INVISIBLE})*`;
 const nameOf = (tag: PromptTag) =>
   tag
     .split("-")
-    .map((word) => [...word].join(INVISIBLE))
-    .join(`${INVISIBLE}[-_\\s]*${INVISIBLE}`);
+    .map((word) => [...word].join(GAP))
+    .join(`[-_\\s${INVISIBLE}]*`);
 const rest = (tags: readonly PromptTag[]) =>
-  `(?:${SPACE}\\\\?\\/${SPACE}|${INVISIBLE})(?:${tags.map(nameOf).join("|")})(?=${INVISIBLE}(?:${AFTER_NAME}|$))`;
+  `(?:${SPACE}\\\\?\\/${SPACE}|${GAP})(?:${tags.map(nameOf).join("|")})(?=${GAP}(?:${AFTER_NAME}|$))`;
 
 const patterns = new Map<string, RegExp>();
 function pattern(start: string, tags: readonly PromptTag[]): RegExp {

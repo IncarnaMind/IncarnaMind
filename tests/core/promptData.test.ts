@@ -86,6 +86,21 @@ describe("Text as data between a prompt's tags", () => {
     ).toBe("&lt;/tool_record> &lt;/tool record> &lt;/focused--mind>");
   });
 
+  // protects=a "<", "</" or "< " followed by 100,000 invisible characters is read in time, left as written before a letter and defused before a tag's name, so text that holds such a run can't freeze the core; fails_when=reading it takes the suite's whole time, or the run is changed; no_claim=none beyond protects.
+  test("reads a long run of invisible characters after a bracket in time", () => {
+    for (const code of [0x200b, 0x3164, 0x2800]) {
+      const run = char(code).repeat(100_000);
+      for (const kept of [`<${run}x`, `</${run}x`, `< ${run}x`, `&lt;${run}x`]) {
+        expect(asData(kept, ["reply", "tool-record"])).toBe(kept);
+        expect(fromData(kept)).toBe(kept);
+      }
+      expect(asData(`<${run}/reply>`, ["reply"])).toBe(`&lt;${run}/reply>`);
+      expect(asData(`< ${run}/${run}tool${run}-${run}record>`, ["tool-record"]).slice(0, 4)).toBe(
+        "&lt;",
+      );
+    }
+  });
+
   // protects=only the prompt's own tags are touched, so code and sums keep their "<" and a quote copied from defused text is the text again; an attribute can't end its value; fails_when=ordinary text changes, a quote doesn't come back, or a name forges an attribute; no_claim=none beyond protects.
   test("changes nothing else", () => {
     for (const kept of [
@@ -319,6 +334,27 @@ describe("Passages shown to a model keep their blocks, through the core (#2423)"
 
     const shown = lastResult(model);
     expect(shown).toMatch(/location="[^"]*&lt;\/passage>/);
+    expect(count(shown, "</passage>")).toBe(count(shown, "<passage "));
+    core.close();
+  });
+
+  // protects=a Document holding "<" and then 10,000 invisible characters, as a web page may, is shown to the model in time and as written, so its Passages can't freeze the core, in English and Chinese; fails_when=showing it takes the suite's whole time, or the run is changed; no_claim=none beyond protects.
+  test.each([
+    { code: 0x200b, line: "The rent is 900 euros." },
+    { code: 0x3164, line: "租金是每月 900 欧元。" },
+  ])("a Document holding “<” and 10,000 invisible characters: $line", async ({ code, line }) => {
+    const run = String.fromCharCode(code).repeat(10_000);
+    const model = searching();
+    const { core, mind } = await setUpWithDocuments(model, [
+      { name: "Lease.md", contents: `# Lease\n\n${line} <${run}x\n` },
+    ]);
+
+    await askAssistant(core, { text: "What is the rent?", mindId: mind.id });
+
+    // The run is split over several Passages; the first holds the "<" and the start of the run.
+    const shown = lastResult(model);
+    expect(shown).toContain(`${line} <${run.slice(0, 400)}`);
+    expect(shown).not.toContain("&lt;");
     expect(count(shown, "</passage>")).toBe(count(shown, "<passage "));
     core.close();
   });
