@@ -287,7 +287,7 @@ describe("tables on a page", () => {
       });
       const label = { scan: { reader: "PP-OCRv5 mobile/2", turn } } as const;
       const blocks = documentBlocks([{ page: 1, text, kind: "page", label }], new Map(), [
-        { page: 1, text, label, anchors: displayed },
+        { page: 1, text, label, anchors: displayed, unsure: [] },
       ]);
       expect(blocks.map((block) => block.node.type)).toEqual(["table"]);
     },
