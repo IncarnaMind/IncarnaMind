@@ -23,6 +23,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { citedCases } from "../../../shared/caseCitations";
 import type { SourceGrid } from "../../../shared/charts";
 import { addedCouldChange, checkedSentence, claimCheckShown } from "../../../shared/claimChecks";
 import { withFigureFacts } from "../../../shared/claimParts";
@@ -51,6 +52,7 @@ import { InvalidInputError, isRecord } from "../../errors";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
+import { recordCiteSpans } from "../../recordCites/parser";
 import type { CheckedCitation } from "./claimCheck";
 import { cellHeadings, inTableCell, inValueCell } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
@@ -224,8 +226,8 @@ export function createMindCheck(options: MindCheckOptions) {
         const said = found.parts.get(index);
         if (said === undefined) continue;
         const { claim, projection } = checkText(sentence);
-        // A value cell is no heading or question, so a sort that names nothing in it doesn't
-        // leave its figure out (#2447).
+        // A sort that names nothing in a value cell would leave its figure out unchecked, so the
+        // cell is checked whole (#2447).
         const parts =
           said.length === 0 && inValueCell(sentence.figures)
             ? [{ kind: "fact" as const, span: { start: 0, end: claim.length } }]
@@ -246,10 +248,18 @@ export function createMindCheck(options: MindCheckOptions) {
     content.edit(mindId, (blocks) => recordOpinions(blocks, sentences));
     options.retainEvidence(mindId);
     const named = (parts: readonly ClaimPartPlan[]) => parts.some((part) => part.kind === "fact");
-    // No reply deciding a sentence never passes for its making no claim: one with a figure or a
-    // Citation is checked all the same, its check naming its parts (#2447).
-    const asserts = (sentence: SelectedSentence) =>
-      (sentence.figures?.length ?? 0) > 0 || sentence.cited.length > 0;
+    // A sentence no reply decided isn't taken to make no claim: one that writes a figure, cites a
+    // source or the record, or names a court decision is checked all the same, its check naming
+    // its parts (#2447).
+    const asserts = (sentence: SelectedSentence) => {
+      const words = noteTextOf(sentence);
+      return (
+        (sentence.figures?.length ?? 0) > 0 ||
+        sentence.cited.length > 0 ||
+        recordCiteSpans(words).length > 0 ||
+        citedCases(words).length > 0
+      );
+    };
     return {
       kind: "found",
       claims: fresh.filter((sentence) => {
@@ -397,7 +407,10 @@ export function createMindCheck(options: MindCheckOptions) {
       const opinions = blocks.doc
         ? resolveOpinions(sentences, readOpinionSentences(blocks.doc))
         : [];
+      // A run keeps what makes no claim by its words, which a value cell can share with another
+      // sentence or hold from a run before #2447: its figure is checked all the same.
       const leftOut = (sentence: SelectedSentence) =>
+        (skipped.has(sentenceKey(sentence.text)) && !inValueCell(sentence.figures)) ||
         opinions.some(
           (each) =>
             each.blockId === sentence.blockId &&
@@ -451,7 +464,7 @@ export function createMindCheck(options: MindCheckOptions) {
                   noteText: () => noteTextOf(sentence),
                 })
               : null,
-            skipped: skipped.has(sentenceKey(sentence.text)) || leftOut(sentence),
+            skipped: leftOut(sentence),
             kept: keptAsView(marks, sentence),
           });
           if (state.kind === "kept" || state.kind === "checking" || state.kind === "not-claim") {
@@ -489,7 +502,7 @@ export function createMindCheck(options: MindCheckOptions) {
                 noteText: () => noteTextOf(sentence),
               })
             : null,
-          skipped: skipped.has(sentenceKey(sentence.text)) || leftOut(sentence),
+          skipped: leftOut(sentence),
           kept: keptAsView(marks, sentence),
         });
         if (state.kind === "to-check") {

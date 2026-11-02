@@ -5,8 +5,9 @@
  * made for it, or the run fails. The report keeps how the sort decided each table cell that holds
  * a figure and each row's label it was shown (a claim, no claim, or nothing said), what the checks
  * made of the labels, every figure that came out other than expected, and the tokens of every
- * request. A label that only names its row should be no claim; one that asserts something, a fact. Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY, so
- * `npx vitest run` makes no request without one.
+ * request. A label that only names its row should be no claim; one that asserts something, a
+ * fact. Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY, so `npx vitest run` makes no request
+ * without one.
  *
  * - INCARNAMIND_LIVE_ANTHROPIC_MODEL: the model (Claude Haiku 5.5 when unset).
  * - INCARNAMIND_LIVE_RUNS: how many times each Note is checked (1 when unset).
@@ -46,7 +47,7 @@ interface Pack {
   accounts: { name: string; sheets: { name: string; rows: (string | number)[][] }[] };
   title: string;
   paragraphs: { text: string; figures: Figure[] }[];
-  /** `asserting`: each row's label asserts something of its own, so the sort should call it a fact. */
+  /** `asserting`: each row's label asserts something, so the sort should call it a fact. */
   tables: { caption: string; head: string[]; rows: Cell[][]; asserting?: boolean }[];
 }
 

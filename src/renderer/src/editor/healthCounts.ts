@@ -21,7 +21,14 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
 } from "../../../core/api";
-import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
+import {
+  chartCheckText,
+  chartPoints,
+  givesValue,
+  gridOfTable,
+  readChart,
+  type SourceGrid,
+} from "../../../shared/charts";
 import {
   type CheckedSentence,
   cantBeChecked,
@@ -151,6 +158,22 @@ const inTable = (doc: ProseMirrorNode, pos: number): boolean => {
   return false;
 };
 
+/** Each table's grid, read once while the table stays the same. */
+const grids = new WeakMap<ProseMirrorNode, SourceGrid>();
+
+/** Whether the paragraph at `pos` is in a table's value cell (`givesValue`), as the core reads it. */
+function inValueCell(doc: ProseMirrorNode, pos: number): boolean {
+  const $pos = doc.resolve(pos);
+  for (let depth = $pos.depth - 2; depth > 0; depth--) {
+    const table = $pos.node(depth);
+    if (table.type.name !== "table") continue;
+    const grid = grids.get(table) ?? gridOfTable(table.toJSON());
+    grids.set(table, grid);
+    return givesValue(grid, $pos.index(depth), $pos.index(depth + 1));
+  }
+  return false;
+}
+
 function eachSentence(
   doc: ProseMirrorNode,
   input: SentenceInput,
@@ -197,18 +220,22 @@ function eachSentence(
         : [],
     );
     const table = inTable(doc, pos);
+    const value = table && inValueCell(doc, pos);
     const figures = inline.filter(({ node }) => node.type.name === CALCULATED_FIGURE_NODE);
     for (const span of sentences) {
       const { from, to } = span;
       const claim = input.claims.find((each) => each.from < to && each.to > from) ?? null;
       const words = span.text;
+      const hasFigures =
+        figures.some(({ at }) => at >= span.start && at < span.end) || holdsFigures(words);
       const state = checkedSentence({
         text: words,
-        hasFigures:
-          figures.some(({ at }) => at >= span.start && at < span.end) || holdsFigures(words),
+        hasFigures,
         check: claim?.shown ?? null,
+        // As the core sends it: a value cell's figure is never left out by another sentence's words.
         skipped:
-          skipped.has(sentenceKey(words)) || keptOn(input.omitted ?? [], { from, to, text: words }),
+          (skipped.has(sentenceKey(words)) && !(value && hasFigures)) ||
+          keptOn(input.omitted ?? [], { from, to, text: words }),
         kept: keptOn(kept, { from, to, text: words }),
       });
       visit({

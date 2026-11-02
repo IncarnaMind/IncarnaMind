@@ -1,13 +1,13 @@
 /**
  * Check this Note never leaves a figure unchecked on the sort's word alone (#2447): a sentence with a
- * figure or a Citation that no reply decides is checked all the same, and a table's value cell goes
- * to the sort with its row's label and its column's heading and is checked whatever the sort names
- * in it.
+ * figure, a Citation or a record cite that no reply decides is checked all the same, and a table's
+ * value cell goes to the sort with its row's label and its column's heading and is checked whatever
+ * the sort, or a run that left out the same words, said of it.
  */
 import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
-import { CITATION_NODE } from "../../src/core/api";
+import { CITATION_NODE, MIND_SETTINGS_FIELD } from "../../src/core/api";
 import { mindCheckOf, sentenceKey } from "../../src/shared/mindCheck";
 import {
   checkGenerate,
@@ -37,6 +37,8 @@ interface Pack {
   plain: string;
   /** A sentence with a Citation and no figure. */
   cited: string;
+  /** A sentence with a record cite and no figure. */
+  record: string;
   /** A question with a figure: no claim. */
   question: string;
   caption: string;
@@ -72,6 +74,7 @@ const PACKS: Pack[] = [
     figure: "The harbour employed 48 pilots in the quarter.",
     plain: "Penguins nest on the cliffs above the harbour.",
     cited: "The harbour office publishes the tide tables.",
+    record: "The harbour master left early (Smith Dep. 45:3–12).",
     question: "Did fuel bring in 540 in the quarter?",
     caption: "Revenue by segment, Q3 2025",
     head: ["Segment", "Q3 2025"],
@@ -111,6 +114,7 @@ const PACKS: Pack[] = [
     figure: "本季度港口共有48名引航员。",
     plain: "企鹅在港口上方的悬崖筑巢。",
     cited: "港务处会公布潮汐表。",
+    record: "港务长提前离开（Smith Dep. 45:3–12）。",
     question: "本季度燃油收入是540吗？",
     caption: "2025年第三季度分部收入",
     head: ["分部", "2025年第三季度"],
@@ -171,8 +175,16 @@ type Sorter = (
   records: { number: number; text: string; row?: string; column?: string }[],
 ) => Sorted[];
 
-/** The Note written as `blocks` and checked whole, its sort replying as `sorter` says. */
-async function checkedNote(pack: Pack, blocks: JSONContent[], sorter: Sorter) {
+/**
+ * The Note written as `blocks` and checked whole, its sort replying as `sorter` says; `before`, the
+ * last whole-Note check's record it is checked after, in "changed" mode.
+ */
+async function checkedNote(
+  pack: Pack,
+  blocks: JSONContent[],
+  sorter: Sorter,
+  before?: { skipped: string[] },
+) {
   const runs: ModelCall[] = [];
   const sorts: GenerateCall[] = [];
   const model = scriptedModel(
@@ -206,8 +218,20 @@ async function checkedNote(pack: Pack, blocks: JSONContent[], sorter: Sorter) {
   const mind = await core.createMind({ title: "Q3 memo" });
   const client = await connectToMind(core, mind.id);
   writeMind(client, blocks);
+  if (before)
+    client.doc.getMap(MIND_SETTINGS_FIELD).set("mindCheck", {
+      at: "2026-10-01T09:00:00.000Z",
+      sentences: 0,
+      stop: null,
+      skipped: before.skipped,
+      unexamined: [],
+    });
   await client.settled();
-  await core.checkMind({ requestId: randomUUID(), mindId: mind.id, mode: "all" });
+  await core.checkMind({
+    requestId: randomUUID(),
+    mindId: mind.id,
+    mode: before ? "changed" : "all",
+  });
   await client.settled();
   const schedule = await core.getFigureSchedule(mind.id);
   return {
@@ -225,14 +249,15 @@ async function checkedNote(pack: Pack, blocks: JSONContent[], sorter: Sorter) {
 const fact = (words: string) => [{ kind: "fact" as const, text: words }];
 
 describe.each(PACKS)("Check this Note in $language", (pack) => {
-  test("a sentence with a figure or a Citation that the sort says nothing of is checked; one with neither is counted as unsorted", async () => {
-    const silent = new Set([pack.figure, pack.plain, pack.cited]);
+  test("a sentence with a figure, a Citation or a record cite that the sort says nothing of is checked; one with none is counted as unsorted", async () => {
+    const silent = new Set([pack.figure, pack.plain, pack.cited, pack.record]);
     const { sent, sorts, shown, run } = await checkedNote(
       pack,
       [
         paragraph(text(pack.figure)),
         paragraph(text(pack.plain)),
         paragraph(text(pack.cited), citation(pack.cited)),
+        paragraph(text(pack.record)),
       ],
       (records) =>
         records
@@ -240,10 +265,10 @@ describe.each(PACKS)("Check this Note in $language", (pack) => {
           .map(({ number, text: words }) => ({ number, parts: fact(words) })),
     );
 
-    // Asked once and once more, the sort says nothing of any of the three.
+    // Asked once and once more, the sort says nothing of any of the four.
     expect(sorts).toHaveLength(2);
-    expect(listedSentences(sorts[1]?.prompt ?? "")).toHaveLength(3);
-    expect(sent).toEqual([pack.figure, pack.cited]);
+    expect(listedSentences(sorts[1]?.prompt ?? "")).toHaveLength(4);
+    expect(sent).toEqual([pack.figure, pack.cited, pack.record]);
     expect(shown("48")).toEqual(["contradicted"]);
     expect(run?.unexamined).toEqual([sentenceKey(pack.plain)]);
     expect(run?.skipped).toEqual([]);
@@ -290,5 +315,52 @@ describe.each(PACKS)("Check this Note in $language", (pack) => {
     expect(run?.skipped).toContain(sentenceKey(pack.question));
     expect(run?.skipped).not.toContain(sentenceKey("540"));
     expect(run?.unexamined).toEqual([]);
+  });
+
+  test("a value cell's figure is checked though the last run left out its words, as a run before #2447 did; the sentence outside the table stays left out", async () => {
+    const [, [, wrong]] = pack.rows;
+    const { sent, shown, run } = await checkedNote(
+      pack,
+      [paragraph(text(wrong)), ...table(pack)],
+      (records) =>
+        records.map(({ number, text: words, row, column }) => ({
+          number,
+          parts: row || column ? fact(words) : [],
+        })),
+      { skipped: [sentenceKey(wrong)] },
+    );
+
+    expect(sent).toEqual(["2,100", "540"]);
+    expect(shown("540")).toEqual(["not-checked", "contradicted"]);
+    expect(run?.skipped).toContain(sentenceKey(wrong));
+  });
+
+  test("a one-column table's cells are values: each goes to the sort with its column's heading and is checked though the sort names nothing in it", async () => {
+    const [[, first], [, wrong]] = pack.rows;
+    const { sent, sorts, shown } = await checkedNote(
+      pack,
+      [
+        paragraph(text(pack.caption)),
+        {
+          type: "table",
+          attrs: { id: randomUUID() },
+          content: [pack.head[1], first, wrong].map((value, at) => ({
+            type: "tableRow",
+            content: [cell(value, at === 0)],
+          })),
+        },
+      ],
+      (records) => records.map(({ number }) => ({ number, parts: [] })),
+    );
+
+    expect(JSON.parse(sorts[0]?.prompt ?? "")).toEqual({
+      sentences: [
+        { number: 1, text: pack.caption },
+        { number: 2, text: first, column: pack.head[1] },
+        { number: 3, text: wrong, column: pack.head[1] },
+      ],
+    });
+    expect(sent).toEqual(["2,100", "540"]);
+    expect(shown("540")).toEqual(["contradicted"]);
   });
 });
