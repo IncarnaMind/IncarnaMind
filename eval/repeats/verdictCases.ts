@@ -6,8 +6,9 @@
  * example of the check's instructions.
  *
  * - The conflicts: a yearly fee stated per month, the payer and the reporting line the other way
- *   round, another figure for a year the dated clause covers, a duty for a permission and a
- *   permission for a duty in words the instructions don't give. Each is expected Contradicted.
+ *   round, another figure for a year the dated clause covers, a duty for a permission ("has to",
+ *   "should") and a permission for a duty in words the instructions don't give, and the same
+ *   parties and force with another figure or place. Each is expected Contradicted.
  * - The near misses: a figure of someone the licence gives none for, and the year before the
  *   clause starts. Never Contradicted, never Supported.
  * - The faithful sentences: the fee from the other side (receives), the report in the passive,
@@ -164,6 +165,10 @@ export const VERDICT_SETS: readonly RepeatSet[] = [
       ["period", "In 2026 the Licensee may use Studio B for 20 hours a week."],
       ["duty", "The Licensee has to store instruments in Studio B overnight."],
       ["permission", "The Licensee is free to give 30 days' written notice to end this licence."],
+      ["should", "The Licensee should store instruments in Studio B overnight."],
+      ["guests", "The Licensee may bring up to four guests to each session."],
+      ["notice-days", "The Licensee must give 60 days' written notice to end this licence."],
+      ["room", "The Licensee may store instruments in Studio A overnight."],
     ]),
   },
   {
@@ -199,6 +204,10 @@ export const VERDICT_SETS: readonly RepeatSet[] = [
       ["period", "2026年乙方每周可使用B号排练室20小时。"],
       ["duty", "乙方有义务将乐器存放在B号排练室过夜。"],
       ["permission", "乙方解除本协议，获准提前30日书面通知甲方。"],
+      ["should", "乙方应该将乐器存放在B号排练室过夜。"],
+      ["guests", "乙方每次排练可带不超过四名访客。"],
+      ["notice-days", "乙方解除本协议，须提前60日书面通知甲方。"],
+      ["room", "乙方可将乐器存放在A号排练室过夜。"],
     ]),
   },
   {
