@@ -334,6 +334,13 @@ function claimFrame(element: Y.XmlElement) {
   return { text, pieces, projection, spans };
 }
 
+/** A table's header cell names its column or row: a heading, not a sentence to check (#2378). */
+export function inTableHeader(element: Y.XmlElement): boolean {
+  for (let at = element.parent; at instanceof Y.XmlElement; at = at.parent)
+    if (at.nodeName === "tableHeader") return true;
+  return false;
+}
+
 /**
  * The sentences each stretch touches, each whole and once: a sentence a
  * stretch only touches is checked all the same. Headings aren't checked.
@@ -354,6 +361,7 @@ export function selectedSentences(
     if (first < 0 || last < first) continue;
     for (const [index, { element, busy }] of all.slice(first, last + 1).entries()) {
       if (busy || (element.nodeName !== "paragraph" && element.nodeName !== CHART_NODE)) continue;
+      if (element.nodeName === "paragraph" && inTableHeader(element)) continue;
       const blockId = idOf(element);
       if (typeof blockId !== "string") continue;
       if (element.nodeName === CHART_NODE) {
@@ -444,7 +452,7 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
       const sentence = chartSentence(element, figures.get(blockId) ?? []);
       return sentence && changesIn(element, 0, 1).length === 0 ? [sentence] : [];
     }
-    if (element.nodeName !== "paragraph") return [];
+    if (element.nodeName !== "paragraph" || inTableHeader(element)) return [];
     const { text, spans } = claimFrame(element);
     const occurrences = new Map<string, number>();
     return spans.flatMap((span) => {

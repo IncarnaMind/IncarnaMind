@@ -74,6 +74,8 @@ export const CLAIM_CHECK_INSTRUCTIONS = [
   "- Record: edit_mind “Q3 review” proposed 3 changes, applied. Reply: “I lengthened the summary. Some sentences are marked in the Note as not supported by their citations, so please review them.” Back the lengthening; return no claim for the marked sentences.",
   "- Record: create_mind made “读书会总结”. Reply: “我写好了总结。有几句话在笔记里被标记为引用不支持，请审阅。” Back the Note; return no claim for the marked sentences.",
   "- Record: edit_mind “Plan” proposed 1 change, waiting for the User. Reply: “I shortened Plan.” Do not back it.",
+  "- Record: add_to_mind “Orders” applied, 1 table among them; the chart asked for was not drawn: nothing was written as a table. Reply: “I added the bar chart of total order amount by region to the Note.” kind: added, about: mind, backed: false.",
+  "- 记录：add_to_mind“订单”已应用，其中 1 个表格；所要求的图表未绘制：没有写成表格。回复：“我已把各地区订单总额的柱状图加到笔记里。”kind: added, about: mind, backed: false。",
   'Copy each claimed sentence exactly as it appears in the reply. Reply with one JSON object: {"claims":[{"sentence":"…","kind":"added","about":"mind","backed":false}]}, with an empty list when the reply claims nothing.',
 ].join("\n");
 
@@ -136,6 +138,7 @@ function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: C
           paragraphs: change.paragraphs ?? 0,
           tables: change.tables ?? 0,
           charts: change.charts ?? 0,
+          ...(change.chartNotDrawn && { chartNotDrawn: change.chartNotDrawn }),
           revised: change.revised === true,
           state,
         },

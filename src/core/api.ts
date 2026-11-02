@@ -311,8 +311,15 @@ export interface CreateMindInput {
  *   (`pageChecked`, #535). An older editor would strip both, so it opens
  *   these Notes read-only. Older content is version 47 content as it is: a
  *   Citation written before holds neither.
+ * - 48: an Analysis figure's kept value carries what IncarnaMind made of it
+ *   when the Analysis ran (`check` on a value of the Note's Analysis records,
+ *   #2378): the number its cells come to, or why it couldn't be worked out
+ *   again. An older version would keep the record again without it, so it
+ *   opens these Notes read-only.
+ *   Older content is version 47 content as it is: a figure kept before carries
+ *   no check, and shows as not checked.
  */
-export const CONTENT_SCHEMA_VERSION = 47;
+export const CONTENT_SCHEMA_VERSION = 48;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2543,6 +2550,12 @@ export interface AnswerAnalysis {
   recalculations?: { result: string; check: AnalysisRecalculation }[];
 }
 
+/** A figure a Note kept from its Analysis, with what IncarnaMind made of it when the Analysis ran. */
+export type RetainedFigureValue = Extract<AnalysisValue, { kind: "figure" }> & {
+  /** Absent in a Note kept before the check was recorded (#2378). */
+  check?: AnalysisRecalculation;
+};
+
 /** A successful run kept once by a Note, with only the results its figures still use (ADR-0021). */
 export interface RetainedFigureAnalysis
   extends Pick<
@@ -2550,7 +2563,7 @@ export interface RetainedFigureAnalysis
     "title" | "language" | "code" | "inputs" | "versions" | "codeSha256" | "ranAt"
   > {
   id: string;
-  values: Extract<AnalysisValue, { kind: "figure" }>[];
+  values: RetainedFigureValue[];
 }
 
 /** A number a calculated figure is worked out from: one read from a Citation's quote. */
