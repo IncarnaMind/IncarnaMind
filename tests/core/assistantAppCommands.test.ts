@@ -274,7 +274,7 @@ describe("The window's commands run in the window, as ⌘K runs them (#1421)", {
 });
 
 describe("What only the User changes is never run (#1421)", { timeout: 60_000 }, () => {
-  // protects="turn on Local mode" changes nothing, asks nothing, and its card says where the User changes it; the refusal doesn't end the turn, so the model replies once; fails_when=Local mode changes, an approval shows, or the Answer ends with no reply; no_claim=the card's words, which the renderer's tests hold.
+  // protects="turn on Local mode" changes nothing and asks nothing, and the reply ends with where the User changes it; the refusal doesn't end the turn, so the model replies once; fails_when=Local mode changes, an approval shows, or the reply doesn't say the refusal; no_claim=the card's words, which the renderer's tests hold.
   test("Local mode, by its setting or by the window's command, is the User's", async () => {
     for (const step of [
       run("settings.change", { setting: "localMode", value: "on" }, false),
@@ -297,7 +297,7 @@ describe("What only the User changes is never run (#1421)", { timeout: 60_000 },
       expect(asked).toEqual([]);
       expect(approved).toEqual([]);
       expect(answerRequests(model)).toHaveLength(2);
-      expect(answer.text).toBe("Done.");
+      expect(answer.text).toBe(`Done.\n\n${translate("en", "commands.yours.privacy")}`);
     }
   });
 
@@ -596,7 +596,7 @@ describe("A request goes on to its end, and nothing records unasked (#1421)", {
     expect(commandCalls(nowhere)[0]?.status).toBe("failed");
   });
 
-  // protects="turn on Local mode, then check this note" refuses the first and still runs the second, and the model replies once at the end; fails_when=the refusal ends the turn, the check never runs, or the Answer ends with no words; no_claim=the reply's words.
+  // protects="turn on Local mode, then check this note" refuses the first and still runs the second, and the model replies once at the end, the refusal said after it; fails_when=the refusal ends the turn, the check never runs, or the reply leaves the refusal out; no_claim=the reply's words.
   test("a refusal followed by a window command does both and replies once", async () => {
     const model = calling(
       run("settings.change", { setting: "localMode", value: "on" }, false),
@@ -616,7 +616,7 @@ describe("A request goes on to its end, and nothing records unasked (#1421)", {
     ).toEqual(["privacy", "mind.check"]);
     expect(asked.map((each) => each.command)).toEqual(["mind.check"]);
     expect(answerRequests(model)).toHaveLength(3);
-    expect(answer.text).toBe("Done.");
+    expect(answer.text).toBe(`Done.\n\n${translate("en", "commands.yours.privacy")}`);
   });
 
   // protects=a window command first, then a core one: neither ends the turn early, both run, and one reply follows; done on the last call alone ends it; fails_when=the turn ends after the window command; no_claim=a real model's choice of done.
@@ -1500,7 +1500,7 @@ describe("A web search's results on an approval card (#2240)", { timeout: 90_000
 describe("A refusal is said, and the commands a request names are within reach (#2252)", {
   timeout: 60_000,
 }, () => {
-  // protects=a refusal followed by a window command marked done still gets a reply that says it: the model is asked once more, and if it still says nothing the reply is the card's own line, in the User's language; fails_when=the Answer ends blank with the refusal only on its card, or the model isn't asked again; no_claim=how a real model words the reply.
+  // protects=a refusal followed by a window command marked done still gets a reply that says it: the card's own line, in the User's language, after what the model wrote or as the whole reply, with no request to the model for it; fails_when=the Answer ends blank or without the line, or the model is asked again; no_claim=how a real model words the rest of the reply.
   test.each([
     {
       text: "Switch on local-only processing, then show the Harbour Street lease on the right",
@@ -1517,12 +1517,15 @@ describe("A refusal is said, and the commands a request names are within reach (
       said: translate("zh-CN", "commands.yours.spending"),
     },
   ])("“$text”: the reply says what was refused", async ({ text, setting, name, yours, said }) => {
-    for (const reply of ["", "I opened it beside this note; the rest is yours to change."]) {
+    for (const { done, reply } of [
+      { done: true, reply: "" },
+      { done: false, reply: "I opened it beside this note." },
+    ]) {
       const model = callingThen(
         reply,
         run("settings.change", setting, false),
         find(name),
-        run("document.openBeside", { done: true }),
+        run("document.openBeside", { done }),
       );
       const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
       const asked = windowOf(core, () => ({ ran: true, changed: false }));
@@ -1535,43 +1538,247 @@ describe("A refusal is said, and the commands a request names are within reach (
         ),
       ).toEqual([yours, "document.openBeside"]);
       expect(asked.map((each) => each.command)).toEqual(["document.openBeside"]);
-      const requests = answerRequests(model);
-      expect(requests).toHaveLength(4);
-      expect(JSON.stringify(requests.at(-1)?.prompt)).toContain("Your reply is empty");
-      expect(requests.at(-1)?.toolChoice).toEqual({ type: "none" });
-      expect(answer.text).toBe(reply === "" ? said : reply);
+      expect(answerRequests(model)).toHaveLength(done ? 3 : 4);
+      expect(answer.text).toBe(reply === "" ? said : `${reply}\n\n${said}`);
       core.close();
     }
   });
 
-  // protects=asked once more to say a refusal, the model can only write: a call it makes then is refused, so the window command it already ran isn't run again, and the reply is still the refusal's line; fails_when=the Document opens twice, or the Answer ends blank; no_claim=a real model's reply.
-  test("asked to say the refusal, a call the model makes runs nothing again", async () => {
-    const model = scriptedModel((call) => {
-      const made = call.results.filter((each) => /^(?:list_commands|run_command)$/.test(each.tool));
-      const steps: Step[] = [
+  // protects=a refusal the model marks as the request's last ends the turn, as a window command does: the reply is the card's own line, said once, and the model isn't asked to write one that says it again; fails_when=the model is asked again after the refusal, or the reply holds more than the line; no_claim=that a real model marks done, which the live requests measure.
+  test.each([
+    { text: "Lower my spending cap to 20 dollars", language: "en" as const },
+    { text: "把每月花费上限调低到 20 美元", language: "zh-CN" as const },
+  ])("“$text”: a refusal marked done ends the turn on its line", async ({ text, language }) => {
+    const model = callingThen(
+      "I can't change the spending cap; it's in Settings › General.",
+      run("settings.change", { setting: "monthlyCap", value: "20", done: true }, false),
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const before = (await core.getSettings()).user.monthlyCap;
+
+    const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
+
+    expect(commandCalls(answer)[0]?.command?.yours).toBe("spending");
+    expect((await core.getSettings()).user.monthlyCap).toEqual(before);
+    expect(answerRequests(model)).toHaveLength(1);
+    expect(answer.text).toBe(translate(language, "commands.yours.spending"));
+    core.close();
+  });
+
+  // protects=however the turn ends, the reply says the refusal: here the claim check asks the model again about a change no call made, and the provider refuses that request as one it doesn't support, or fails it (400, 500), so the reply before it stands, and the refusal's line still follows it, once; fails_when=the Answer ends without the line; no_claim=what the claim check's line under the reply says.
+  test.each([
+    { branch: "refused", status: 400, message: "This model does not support tools." },
+    { branch: "failed", status: 400, message: "The request was refused." },
+    { branch: "failed", status: 500, message: "The server had an error." },
+  ])(
+    "a reply asked again whose request is $branch ($status) still says the refusal",
+    async ({ status, message }) => {
+      const reply = "I opened the lease beside your note and added its rent to the note.";
+      const model = scriptedModel(
+        (call) => {
+          const made = call.results.filter((each) =>
+            /^(?:list_commands|run_command)$/.test(each.tool),
+          );
+          const steps: Step[] = [
+            run("settings.change", { setting: "localMode", value: "on" }, false),
+            find("Harbour Street"),
+            run("document.openBeside"),
+          ];
+          const step = steps[made.length];
+          if (step) return { calls: [step(call.results)] };
+          return call.prompt.includes("but no Tool did that")
+            ? { error: { status, message } }
+            : { text: reply };
+        },
+        {
+          generate: () => ({
+            text: JSON.stringify({
+              claims: [{ sentence: reply, kind: "added", about: "mind", backed: false }],
+            }),
+          }),
+        },
+      );
+      const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+      windowOf(core, () => ({ ran: true, changed: false }));
+
+      const answer = await askAssistant(core, {
+        text: "Go local-only and put the Harbour Street lease beside my note",
+        mindId: mind.id,
+        ...FROM_WINDOW,
+      });
+
+      const asked = answerRequests(model);
+      expect(asked).toHaveLength(5);
+      expect(JSON.stringify(asked.at(-1)?.prompt)).toContain("but no Tool did that");
+      const said = translate("en", "commands.yours.privacy");
+      expect(answer.text).toBe(`${reply}\n\n${said}`);
+      core.close();
+    },
+  );
+
+  // protects=a reply that already holds the refusal's own line, as a model copying an earlier Answer writes it, isn't given it again, in English and Chinese; fails_when=the line shows twice; no_claim=how often a real model copies it.
+  test.each([
+    {
+      text: "Turn on Local mode, then open Harbour Street beside my note",
+      language: "en" as const,
+      other: "zh-CN" as const,
+    },
+    {
+      text: "打开本地模式，再在旁边打开 Harbour Street",
+      language: "zh-CN" as const,
+      other: "en" as const,
+    },
+  ])(
+    "“$text”: a reply that holds the line doesn't get it twice",
+    async ({ text, language, other }) => {
+      const said = translate(language, "commands.yours.privacy");
+      const model = callingThen(
+        `${said} Harbour Street is open beside your note.`,
         run("settings.change", { setting: "localMode", value: "on" }, false),
         find("Harbour Street"),
-        run("document.openBeside", { done: true }),
-      ];
-      const step = steps[made.length];
-      if (step) return { calls: [step(call.results)] };
-      const opened = call.results.find((each) => each.tool === "list_commands")?.text ?? "";
-      const [id = ""] = [...opened.matchAll(/^- (\S+): /gm)].map((match) => match[1] ?? "");
-      return {
-        calls: [{ tool: "run_command", input: { command: "document.openBeside", ids: [id] } }],
-      };
+        run("document.openBeside"),
+      );
+      const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+      windowOf(core, () => ({ ran: true, changed: false }));
+
+      const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
+
+      expect(answer.text).toBe(`${said} Harbour Street is open beside your note.`);
+      expect(answer.text.split(said)).toHaveLength(2);
+      expect(answer.text).not.toContain(translate(other, "commands.yours.privacy"));
+      core.close();
+    },
+  );
+
+  // protects=a reply that holds the refusal's line in the other language, as one copying an earlier Answer in that language writes it, isn't given it again in the Question's; fails_when=the line shows in both languages; no_claim=how often a real model copies it.
+  test.each([
+    {
+      text: "Turn on Local mode, then open Harbour Street beside my note",
+      copied: "zh-CN" as const,
+      asked: "en" as const,
+    },
+    {
+      text: "打开本地模式，再在旁边打开 Harbour Street",
+      copied: "en" as const,
+      asked: "zh-CN" as const,
+    },
+  ])(
+    "“$text”: a reply that holds the line in the other language doesn't get it again",
+    async ({ text, copied, asked }) => {
+      const said = translate(copied, "commands.yours.privacy");
+      const model = callingThen(
+        `${said} Harbour Street is open beside your note.`,
+        run("settings.change", { setting: "localMode", value: "on" }, false),
+        find("Harbour Street"),
+        run("document.openBeside"),
+      );
+      const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+      windowOf(core, () => ({ ran: true, changed: false }));
+
+      const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
+
+      expect(answer.text).toBe(`${said} Harbour Street is open beside your note.`);
+      expect(answer.text).not.toContain(translate(asked, "commands.yours.privacy"));
+      core.close();
+    },
+  );
+
+  // protects=a refusal marked done in the same step as another call doesn't end the turn: only a step whose every call ended it does, so what the request asked for after it still runs; fails_when=the open never runs because one call of the step was marked done; no_claim=that a real model marks a refusal done early.
+  test("a refusal marked done beside another call doesn't end the turn", async () => {
+    const model = scriptedModel((call) => {
+      if (call.results.length === 0) {
+        return {
+          calls: [
+            {
+              tool: "run_command",
+              input: { command: "settings.change", setting: "localMode", value: "on", done: true },
+            },
+            { tool: "list_commands", input: { kind: "document", name: "Harbour Street" } },
+          ],
+        };
+      }
+      if (call.results.length === 2) {
+        return {
+          calls: [
+            {
+              tool: "run_command",
+              input: { command: "document.openBeside", ids: idsFound(call.results), done: true },
+            },
+          ],
+        };
+      }
+      return { text: "" };
     });
     const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
     const asked = windowOf(core, () => ({ ran: true, changed: false }));
 
     const answer = await askAssistant(core, {
-      text: "Go local-only and put the Harbour Street lease beside my note",
+      text: "Turn on Local mode, then open Harbour Street beside my note",
       mindId: mind.id,
       ...FROM_WINDOW,
     });
 
     expect(asked.map((each) => each.command)).toEqual(["document.openBeside"]);
+    expect(answerRequests(model)).toHaveLength(2);
     expect(answer.text).toBe(translate("en", "commands.yours.privacy"));
+    core.close();
+  });
+
+  // protects=two refusals in one turn are both said after the reply, each once, in the Question's language, Chinese lines with no space between them; fails_when=a line is missing, doubled, or joined with a space; no_claim=the order a real model calls them in.
+  test("two refusals in one turn: each line once, Chinese with no space between", async () => {
+    const model = scriptedModel((call) =>
+      call.results.length === 0
+        ? {
+            calls: [
+              {
+                tool: "run_command",
+                input: { command: "settings.change", setting: "localMode", value: "on" },
+              },
+              {
+                tool: "run_command",
+                input: { command: "settings.change", setting: "monthlyCap", value: "5" },
+              },
+            ],
+          }
+        : { text: "" },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+
+    const answer = await askAssistant(core, {
+      text: "打开本地模式，再把花费上限改成 5 美元",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    const privacy = translate("zh-CN", "commands.yours.privacy");
+    const spending = translate("zh-CN", "commands.yours.spending");
+    expect(answer.text).toBe(`${privacy}${spending}`);
+    expect(answer.text.split(privacy)).toHaveLength(2);
+    expect(answer.text.split(spending)).toHaveLength(2);
+    core.close();
+  });
+
+  // protects=the model reads in a refusal's result that IncarnaMind says it after the reply and that it shouldn't repeat it, which the real-model numbers rely on; fails_when=the result says only where the User changes it; no_claim=that a model obeys it.
+  test("a refusal's result tells the model IncarnaMind says it", async () => {
+    const model = calling(run("settings.change", { setting: "localMode", value: "on" }, false));
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+
+    await askAssistant(core, { text: "Turn on Local mode", mindId: mind.id, ...FROM_WINDOW });
+
+    const results =
+      answerRequests(model)[1]?.prompt.flatMap((message) =>
+        message.role === "tool"
+          ? message.content.map((part) =>
+              part.type === "tool-result" ? JSON.stringify(part.output) : "",
+            )
+          : [],
+      ) ?? [];
+    expect(results.join("\n")).toContain(
+      "are the User's to change, never yours. They're in Settings › Privacy.",
+    );
+    expect(results.join("\n")).toContain(
+      "IncarnaMind tells the User so, and where, after your reply: don't repeat it.",
+    );
     core.close();
   });
 
@@ -1601,7 +1808,9 @@ describe("A refusal is said, and the commands a request names are within reach (
           : [],
       ) ?? [];
     expect(listed.join("\n")).toContain(`- ${deleted?.id}: “Q3 commentary” (document, deleted`);
-    expect(listed.join("\n")).toContain("the User's alone: deleted.deletePermanently");
+    expect(listed.join("\n")).toContain(
+      "the User's alone, run all the same to show them where: deleted.deletePermanently",
+    );
     const [, refusal] = commandCalls(answer);
     expect(refusal?.input).toMatchObject({
       command: "deleted.deletePermanently",
@@ -1646,7 +1855,9 @@ describe("A refusal is said, and the commands a request names are within reach (
     expect(listed).toContain("“Q3 commentary”");
     expect(listed).toContain("one that only shares a word with it is another, so ask");
     expect(listed).toContain(`- ${deleted?.id}: “Q3 memo” (document, deleted`);
-    expect(listed).toContain("the User's alone: deleted.deletePermanently");
+    expect(listed).toContain(
+      "the User's alone, run all the same to show them where: deleted.deletePermanently",
+    );
     expect(commandCalls(answer).at(-1)?.command?.yours).toBe("permanent");
     expect((await core.listDocuments()).map((each) => each.name)).toContain("Q3 commentary");
     expect((await core.listDeleted()).map((each) => each.id)).toContain(deleted?.id);
@@ -1887,7 +2098,7 @@ describe("A refusal is said, and the commands a request names are within reach (
     core.close();
   });
 
-  // protects=a request to check the Note in front or to put Documents on a subject together is offered the window's Check by its id in the instructions and Organize beside create_mind, with the instruction that putting them together is Organize's, not a new Note; fails_when=the instructions don't name mind.check or say so of Organize, or run_command doesn't offer documents.organize; no_claim=which a real model chooses, which the live requests measure.
+  // protects=a request to check the Note in front or to put Documents on a subject together is offered the window's Check by its id in the instructions and Organize beside create_mind; the turn's rule decides a command before a piece of writing, so putting them together is Organize's, not a new Note; fails_when=the instructions don't name mind.check, the rule doesn't list the command's kind first, or run_command doesn't offer documents.organize; no_claim=which a real model chooses, which the live requests measure.
   test.each([
     "Go through this note and verify it",
     "能不能把这篇笔记里的内容对一下资料",
@@ -1908,6 +2119,9 @@ describe("A refusal is said, and the commands a request names are within reach (
       "is the window's Check, mind.check: run it, never check the Note in your reply",
     );
     expect(system).toContain("Organize's, never a Note written about them");
+    const command = system.indexOf("- Something done to the User's Documents, Notes or Folders");
+    expect(command).toBeGreaterThan(system.indexOf("Each turn, decide:"));
+    expect(command).toBeLessThan(system.indexOf("- A piece of writing to keep"));
     expect(tools.find(([name]) => name === "run_command")?.[1]).toContain("documents.organize (");
     expect(tools.map(([name]) => name)).toEqual(
       expect.arrayContaining(["create_mind", "list_commands"]),

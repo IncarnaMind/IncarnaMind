@@ -869,6 +869,7 @@ function notProposed(
         `“${name}” has changes waiting there for the User. Nothing was proposed: they need to accept or reject those first.`,
       );
     case "too-long":
+    case "block-too-long":
       return new Refusal(
         { kind: "too-long", mindId },
         `That is too much of “${name}” to change at once. Nothing was proposed: change one section at a time, naming its heading in part.`,

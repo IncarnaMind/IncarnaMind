@@ -105,13 +105,26 @@ function whyNot(problem: MindProblem | undefined): string {
   }
 }
 
+/** Why a chart the model asked for wasn't drawn, as the record says it (#2378). */
+const CHART_NOT_DRAWN = {
+  several: "it has more than one table, and the User's cursor was in none",
+  noTable: "nothing was written as a table",
+  noNumbers: "the table has no column of numbers",
+  needsTwo: "a scatter chart needs two columns of numbers",
+  uncited: "some of its figures have no Citation",
+} as const;
+
 function detailsOf(change: MindChange): string {
   const tables = change.tables ? `, ${counted(change.tables, "table")} among them` : "";
+  const charts = change.charts ? `, ${counted(change.charts, "chart")} among them` : "";
   const cited = change.cited ? `, with ${counted(change.cited, "Citation")}` : "";
   const left = change.unrecorded
     ? `; ${counted(change.unrecorded, "marker")} had no Citation recorded with cite, so ${change.unrecorded === 1 ? "it was" : "they were"} left out`
     : "";
-  return `${tables}${cited}${left}`;
+  const noChart = change.chartNotDrawn
+    ? `; the chart asked for was not drawn: ${CHART_NOT_DRAWN[change.chartNotDrawn]}`
+    : "";
+  return `${tables}${charts}${cited}${left}${noChart}`;
 }
 
 function mindOf(call: AnswerToolCall, names: MindNames): string {
@@ -267,6 +280,9 @@ function commandLine(call: AnswerToolCall): string {
   if (!done) {
     return `run_command ${field(call, "command")}: ${call.approval === "denied" ? "the User didn't allow it, so nothing changed" : "failed, so nothing changed"}`;
   }
+  if (done.yours) {
+    return `run_command ${done.command}: refused, since only the User changes it, so nothing changed`;
+  }
   const items = done.items
     .map((item) =>
       item.renamed ? `${quoted(item.name)} to ${quoted(item.renamed)}` : quoted(item.name),
@@ -277,7 +293,19 @@ function commandLine(call: AnswerToolCall): string {
   const file = done.file
     ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(done)}`
     : "";
-  return `run_command ${done.command}: ${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${file}`;
+  const setting = done.setting
+    ? `${done.setting.name} changed from ${quoted(done.setting.from)} to ${quoted(done.setting.to)}`
+    : "";
+  const what =
+    setting && done.items.length === 0
+      ? setting
+      : `${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${file}${setting && `, ${setting}`}`;
+  const window = done.window
+    ? done.window.running
+      ? ", started in the window and still going on"
+      : ", run in the window"
+    : "";
+  return `run_command ${done.command}: ${what}${window}`;
 }
 
 /** What a Word export did about marking the text IncarnaMind wrote, and why, as its result said. */

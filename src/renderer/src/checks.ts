@@ -502,7 +502,13 @@ function rewriteCitation(
   const node = state.doc.nodeAt(citation.pos);
   if (!node || node.type.name !== CITATION_NODE) return false;
   editor.view.dispatch(
-    state.tr.setNodeMarkup(citation.pos, undefined, { ...node.attrs, ...change }),
+    state.tr.setNodeMarkup(citation.pos, undefined, {
+      ...node.attrs,
+      ...change,
+      // A page confirmation was for the words and page the User looked at, and the quote changed.
+      pageChecked: null,
+      unsure: change.unsure ?? null,
+    }),
   );
   return true;
 }

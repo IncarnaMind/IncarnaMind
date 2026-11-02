@@ -5,7 +5,13 @@
  * honest Answer.
  */
 import { generateText, jsonSchema, NoObjectGeneratedError, Output } from "ai";
-import { type AnswerToolCall, CLAIMED_CHANGES, type ClaimedChange, type MindProblem } from "../api";
+import {
+  type AnswerToolCall,
+  CLAIMED_CHANGES,
+  type ClaimedChange,
+  type ClaimedCommand,
+  type MindProblem,
+} from "../api";
 import { isRecord } from "../errors";
 import type { ChatLanguageModel } from "../providers/models";
 import { outputTokens } from "../providers/outputLimits";
@@ -15,10 +21,34 @@ import type { UnmadeFixes } from "./claimedFixes";
 import { replyJson } from "./quoteRetry";
 import { type ChangeStates, type MindNames, toolRecordLines } from "./toolRecord";
 
-/** What a sentence the judge read as a change is about; only a Mind's own change counts. */
-export const CLAIM_ABOUT = ["mind", "reply", "document", "offer_or_question", "negation"] as const;
+/**
+ * What a sentence the judge read as a change is about: a Mind's own change counts, and so does
+ * something done in the app (#2407), named apart when it is one of what only the User changes.
+ */
+export const CLAIM_ABOUT = [
+  "mind",
+  "app",
+  "local_mode",
+  "keys",
+  "spending_cap",
+  "approval_rules",
+  "deleted_for_good",
+  "reply",
+  "document",
+  "offer_or_question",
+  "negation",
+] as const;
 
 export type ClaimAbout = (typeof CLAIM_ABOUT)[number];
+
+const IN_THE_APP: Readonly<Partial<Record<ClaimAbout, ClaimedCommand>>> = {
+  app: "command",
+  local_mode: "privacy",
+  keys: "keys",
+  spending_cap: "spending",
+  approval_rules: "approvals",
+  deleted_for_good: "permanent",
+};
 
 interface ClaimVerdict {
   sentence: string;
@@ -50,12 +80,13 @@ const verdictSchema = jsonSchema<{ claims: ClaimVerdict[] }>({
 });
 
 export const CLAIM_CHECK_INSTRUCTIONS = [
-  "You check an AI assistant's reply against IncarnaMind's record of what its Tools did to the User's Notes. The record's Tool names and fields say mind for a Note.",
-  "Read every sentence of the reply. For each claim that a Note was made, written in, added to, changed, shortened, lengthened, replaced or removed from, return it with its kind and whether the record backs it. Return every such claim, backed or not backed.",
+  "You check an AI assistant's reply against IncarnaMind's record of what its Tools did: to the User's Notes, and in the app through run_command. The record's Tool names and fields say mind for a Note.",
+  "Read every sentence of the reply. For each claim that a Note was made, written in, added to, changed, shortened, lengthened, replaced or removed from, return it with its kind and whether the record backs it. For each claim that the assistant or IncarnaMind did something in the app, return it too: a Document, Note, Folder or Tag renamed, moved, tagged, deleted, restored or exported; a page, a split, a panel or Settings opened; a check or a recording started or stopped; a setting, a mode or a switch turned on, off or changed; a key, a sign-in or a limit changed. Return every such claim, backed or not backed.",
   "A change whose state is applied counts as made. A change that only waits for the User does not. A failed call, a denied call and no call change nothing. A revision of text the assistant wrote into a Note earlier is a change, like any other change to a Note.",
-  "When the record has no Tool calls, or no change to a Note, every affirmative report of a change is unbacked; never return an empty list just to be cautious. / 如果没有工具调用或没有改动，任何声称已经改动的话都没有依据，必须返回，不能留空。",
-  "Never flag a sentence about the reply itself, searching, a Document, or something that wasn't or couldn't be done. Never flag a sentence about the app's own checks of the text it wrote — that sentences in the Note were marked, flagged, not supported or couldn't be checked: the app makes those marks, not a Tool. Never flag a sentence only for its wording, coverage or length, for where a page sits, for a Note's name, or for details the record doesn't give, such as which paragraph changed. A translation or other text in the reply itself is not a change to a Note.",
-  "For every claim, about says what the sentence is about: mind when it is a Note, a page or a part of one that the assistant says it changed; reply when it is this reply's own text, such as what it sets out, lists, orders, sorts, organizes or summarizes; document when it is a Document; offer_or_question when the assistant offers to do something or asks; negation when it says nothing was or could be done. Only a claim about a mind counts.",
+  "Each command's outcome says what its call did. A run_command whose outcome is done or started backs a claim only of what its command, items, setting and window say. One refused as the User's alone, one that failed and one not allowed by the User did nothing in the app, and nor was anything done that no call shows.",
+  "When the record has no Tool calls, or no change to a Note and no command done, every affirmative report of a change or of something done is unbacked; never return an empty list just to be cautious. / 如果没有工具调用、没有改动、也没有执行成功的命令，任何声称已经改动或已经做了的话都没有依据，必须返回，不能留空。",
+  "Never flag a sentence about the reply itself, searching, what a Document says, or something that wasn't or couldn't be done, nor one that says what the User can do or where, or that something is theirs to change; but a sentence that says a page, a setting or a window was opened, shown or brought up is a claim, even when it goes on to say what the User can do there. Never flag a sentence about the app's own checks of the text it wrote — that sentences in the Note were marked, flagged, not supported or couldn't be checked: the app makes those marks, not a Tool. Never flag a sentence only for its wording, coverage or length, for where a page sits, for a Note's name, or for details the record doesn't give, such as which paragraph changed. A translation or other text in the reply itself is not a change to a Note.",
+  "For every claim, about says what the sentence is about: mind when it is a Note, a page or a part of one that the assistant says it changed; app when it is anything else done in the app, to a Document, a Folder, a Tag, a window or a setting; local_mode when it is Local mode, “Keep everything on this computer”, or what goes to cloud services (web search, suggestions as the User writes, cloud transcription); keys when it is an API key or a sign-in; spending_cap when it is the monthly spending cap; approval_rules when it is what the assistant may do without asking; deleted_for_good when it is deleting for good or emptying Recently deleted; reply when it is this reply's own text, such as what it sets out, lists, orders, sorts, organizes or summarizes; document when it is what a Document says, holds or is; offer_or_question when the assistant offers to do something or asks; negation when it says nothing was or could be done. Only a claim about a mind, the app, local_mode, keys, spending_cap, approval_rules or deleted_for_good counts. For one done in the app, kind is removed for a delete and changed otherwise.",
   "Examples:",
   "- Record: create_mind made “Notes”, applied. Reply: “I made a page, “Notes”, covering both papers.” Back it.",
   "- Record: edit_mind “Q3 review” proposed 3 changes, applied. Reply: “The second paragraph is now more formal.” Back it.",
@@ -74,6 +105,19 @@ export const CLAIM_CHECK_INSTRUCTIONS = [
   "- Record: edit_mind “Q3 review” proposed 3 changes, applied. Reply: “I lengthened the summary. Some sentences are marked in the Note as not supported by their citations, so please review them.” Back the lengthening; return no claim for the marked sentences.",
   "- Record: create_mind made “读书会总结”. Reply: “我写好了总结。有几句话在笔记里被标记为引用不支持，请审阅。” Back the Note; return no claim for the marked sentences.",
   "- Record: edit_mind “Plan” proposed 1 change, waiting for the User. Reply: “I shortened Plan.” Do not back it.",
+  "- Record: add_to_mind “Orders” applied, 1 table among them; the chart asked for was not drawn: nothing was written as a table. Reply: “I added the bar chart of total order amount by region to the Note.” kind: added, about: mind, backed: false.",
+  "- 记录：add_to_mind“订单”已应用，其中 1 个表格；所要求的图表未绘制：没有写成表格。回复：“我已把各地区订单总额的柱状图加到笔记里。”kind: added, about: mind, backed: false。",
+  "- Record: run_command document.moveTo, outcome done, 2 items into the folder “Contracts”. Reply: “Both contracts are now in “Contracts”.” Back it.",
+  "- Record: run_command mind.check, outcome started. Reply: “I've started checking your note.” Back it.",
+  "- Record: run_command document.openBeside, outcome done. Reply: “我在右边打开了这份租约，你可以对照着看。” Back it.",
+  "- Record: run_command settings.change (localMode), outcome refused. Reply: “Everything now stays on this computer.” kind: changed, about: local_mode, backed: false.",
+  "- Record: run_command document.delete, outcome not allowed by the User. Reply: “The old draft is gone.” kind: removed, about: app, backed: false.",
+  "- Record: run_command folder.rename, outcome failed. Reply: “文件夹已改名为“合同”。” kind: changed, about: app, backed: false.",
+  "- Record: no calls. Reply: “我已经帮你把 API 密钥换成新的了。” kind: changed, about: keys, backed: false.",
+  "- Record: run_command deleted.deletePermanently, outcome refused. Reply: “已经从回收站里彻底删除了。” kind: removed, about: deleted_for_good, backed: false.",
+  "- Record: run_command settings.change (apiKey), outcome refused. Reply: “Your key settings are open now; paste the new one there.” kind: changed, about: app, backed: false.",
+  "- Record: run_command settings.change (monthlyCap), outcome refused. Reply: “I can't change the spending cap; you set it in Settings › General.” Return no claim: it says what wasn't done.",
+  "- Record: no calls. Reply: “Want me to move these into a folder?” Return no claim: it offers.",
   'Copy each claimed sentence exactly as it appears in the reply. Reply with one JSON object: {"claims":[{"sentence":"…","kind":"added","about":"mind","backed":false}]}, with an empty list when the reply claims nothing.',
 ].join("\n");
 
@@ -112,6 +156,15 @@ export function changeLogOf(calls: readonly AnswerToolCall[]): ChangeLog {
   return log;
 }
 
+/** What a command's call did, in the instructions' words: a refusal's call returns done, and did nothing. */
+function outcomeOf(call: AnswerToolCall): string {
+  if (call.approval === "denied") return "not allowed by the User";
+  if (call.command?.yours) return "refused: the User's alone";
+  if (call.status === "failed") return "failed";
+  if (call.status === "running" || call.command?.window?.running) return "started";
+  return "done";
+}
+
 function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: ChangeStates) {
   return calls.map((call) => {
     const change = call.mindChange;
@@ -119,6 +172,7 @@ function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: C
     return {
       tool: call.tool,
       status: call.status,
+      ...(call.source === "commands" && { outcome: outcomeOf(call) }),
       ...(call.approval && { approval: call.approval }),
       resultCount: call.resultCount,
       target: targetOf(call, names),
@@ -136,6 +190,7 @@ function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: C
           paragraphs: change.paragraphs ?? 0,
           tables: change.tables ?? 0,
           charts: change.charts ?? 0,
+          ...(change.chartNotDrawn && { chartNotDrawn: change.chartNotDrawn }),
           revised: change.revised === true,
           state,
         },
@@ -144,39 +199,67 @@ function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: C
   });
 }
 
-/** The values that keep a claim from counting: a missing or unknown one counts, since a provider may ignore the schema. */
-const NOT_A_MIND: readonly string[] = CLAIM_ABOUT.filter((about) => about !== "mind");
+/**
+ * The values that keep a claim from counting: a missing or unknown one counts as a Mind's, since
+ * a provider may ignore the schema.
+ */
+const NOT_COUNTED: readonly string[] = ["reply", "document", "offer_or_question", "negation"];
+
+function inTheApp(about: unknown): ClaimedCommand | undefined {
+  const known = CLAIM_ABOUT.find((each) => each === about);
+  return known && IN_THE_APP[known];
+}
 
 // A model may straighten the reply's typographic quotes even when asked to copy it.
 const comparableSentence = (text: string) =>
   text.trim().replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
 
-function verdictOf(value: unknown, reply: string): ClaimedChange[] | null {
+interface Unbacked {
+  claims: ClaimedChange[];
+  commands: ClaimedCommand[];
+}
+
+/** `unplaced`: an item names a sentence of the reply as unbacked, but neither what it is about nor its kind says what kind of claim. */
+function verdictOf(value: unknown, reply: string): (Unbacked & { unplaced: boolean }) | null {
   if (!isRecord(value) || !Array.isArray(value.claims)) return null;
-  const unbacked = new Set<ClaimedChange>();
+  const claims = new Set<ClaimedChange>();
+  const commands = new Set<ClaimedCommand>();
+  let unplaced = false;
   for (const item of value.claims) {
     if (!isRecord(item)) continue;
     const { sentence, kind, about, backed } = item;
-    const claimed = CLAIMED_CHANGES.find((claim) => claim === kind);
-    if (!claimed) return null;
+    // Only a verdict that backs the sentence lets it go: a provider may not hold the schema's
+    // types, and "false" as a string is no backing.
     if (
       typeof sentence !== "string" ||
       sentence.trim() === "" ||
       !comparableSentence(reply).includes(comparableSentence(sentence)) ||
-      typeof backed !== "boolean"
+      backed === true ||
+      backed === "true"
     ) {
       continue;
     }
-    if (!backed && !(typeof about === "string" && NOT_A_MIND.includes(about)))
-      unbacked.add(claimed);
+    // A claim in the app counts whatever kind the judge gave it: none of the Notes' kinds fits
+    // "opened" or "turned on", and a provider may not hold the schema's enum.
+    const command = inTheApp(about);
+    const claimed = CLAIMED_CHANGES.find((claim) => claim === kind);
+    if (command) commands.add(command);
+    else if (typeof about === "string" && NOT_COUNTED.includes(about)) continue;
+    else if (claimed) claims.add(claimed);
+    else if (about === "mind") claims.add("changed");
+    else unplaced = true;
   }
-  return [...unbacked];
+  return { claims: [...claims], commands: [...commands], unplaced };
 }
 
-export interface ClaimCheckResult {
-  claims: ClaimedChange[];
+export interface ClaimCheckResult extends Unbacked {
   usage: TokenUsage | null;
   durationMs: number;
+  /**
+   * The check failed, its verdict couldn't be read, or it named an unbacked sentence it couldn't
+   * place: what it found is not all there is.
+   */
+  failed?: true;
 }
 
 export async function unbackedClaims(
@@ -196,7 +279,7 @@ export async function unbackedClaims(
     signal: AbortSignal;
   },
 ): Promise<ClaimCheckResult> {
-  if (reply.trim() === "") return { claims: [], usage: null, durationMs: 0 };
+  if (reply.trim() === "") return { claims: [], commands: [], usage: null, durationMs: 0 };
   const started = Date.now();
   const named: MindNames = (id) => names(id) ?? minds.find((mind) => mind.id === id)?.name ?? null;
   const prompt = [
@@ -235,15 +318,28 @@ export async function unbackedClaims(
       if (!signal.aborted) {
         console.error(`The reply's change claims couldn't be checked: ${messageOf(error)}`);
       }
-      return { claims: [], usage: null, durationMs: Date.now() - started };
+      return {
+        claims: [],
+        commands: [],
+        usage: null,
+        durationMs: Date.now() - started,
+        failed: true,
+      };
     }
   }
-  const claims = verdictOf(value, reply);
-  if (claims === null) {
+  const verdict = verdictOf(value, reply);
+  if (verdict === null) {
     console.error("The reply's change-claim check returned no readable verdict.");
-    return { claims: [], usage, durationMs: Date.now() - started };
+    return { claims: [], commands: [], usage, durationMs: Date.now() - started, failed: true };
   }
-  return { claims, usage, durationMs: Date.now() - started };
+  const { unplaced, ...unbacked } = verdict;
+  if (unplaced) console.error("The reply's change-claim check named a claim it couldn't place.");
+  return {
+    ...unbacked,
+    usage,
+    durationMs: Date.now() - started,
+    ...(unplaced && { failed: true as const }),
+  };
 }
 
 const CLAIMED_WORDS: Record<ClaimedChange, string> = {
@@ -256,17 +352,40 @@ const CLAIMED_WORDS: Record<ClaimedChange, string> = {
 export const UNSEEN_REPLY =
   "The User will not read your earlier reply and does not know you were asked again. Write your reply as if for the first time: don't mention, apologise for or correct an earlier reply.";
 
+const COMMAND_WORDS: Record<ClaimedCommand, string> = {
+  privacy: "changed Local mode or what goes to cloud services",
+  keys: "changed a key or a sign-in",
+  spending: "changed the spending cap",
+  approvals: "changed what you may do without asking",
+  permanent: "deleted something for good",
+  wall: "changed whether a Folder keeps its work inside it",
+  signOff: "marked something “Checked by me”",
+  authorship: "marked text as the User's own",
+  command: "did something in the app",
+};
+
 /** The record of what the calls did, then to write the reply again from it. */
 export function askAgainNote(
-  claims: readonly ClaimedChange[],
+  {
+    claims,
+    commands = [],
+  }: { claims: readonly ClaimedChange[]; commands?: readonly ClaimedCommand[] },
   calls: readonly AnswerToolCall[],
   names: MindNames,
   states?: ChangeStates,
 ): string {
-  const said = claims.map((claim) => CLAIMED_WORDS[claim]).join(", and ");
+  const said = [
+    ...claims.map((claim) => CLAIMED_WORDS[claim]),
+    ...commands.map((command) => COMMAND_WORDS[command]),
+  ].join(", and ");
   return [
     thisAnswersRecord(calls, names, states),
     `Your reply says you ${said}, but no Tool did that. Write your reply again from its start, without saying what you changed: IncarnaMind lists each change under your reply. Say plainly what wasn't done and why. If the User's request still needs a change you can make now, make it with the Tools first.`,
+    ...(commands.length > 0
+      ? [
+          "Don't run again a command that was refused as the User's alone or that the User didn't allow: IncarnaMind already tells the User where they change what is theirs.",
+        ]
+      : []),
     UNSEEN_REPLY,
   ].join("\n");
 }

@@ -772,6 +772,7 @@ export const en = {
   "editor.ai.shorten": "Shorten",
   "editor.ai.translate": "Translate…",
   "editor.ai.explain": "Explain",
+  "editor.ai.explain.ask": "Explain “{quote}”",
   "editor.ai.edit": "Edit with AI…",
   "editor.edit.handOff": "Continue in the assistant",
   "editor.edit.handOff.tip": "Continue in the assistant, for a longer request",
@@ -1425,6 +1426,12 @@ export const en = {
   "edit.pending.instruction": "Making the changes…",
   "edit.pending.cut-unsupported": "Cutting the unsupported part…",
   "edit.pending.follow-citation": "Updating the sentence…",
+  "edit.pending.part": "Writing part {at} of {of}…",
+  "edit.ask.parts": "This edit is long: it is made in {count} parts",
+  "edit.ask.start": "Edit it",
+  "edit.ask.cancel": "Cancel",
+  "explain.queued": "Explain will be asked when this Answer is done",
+  "explain.queued.cancel": "Cancel",
   "edit.stop": "Stop",
   "edit.close": "Close",
   "edit.problem.unchanged": "Nothing to change: the model gave the text back as it was.",
@@ -1432,6 +1439,12 @@ export const en = {
   "edit.problem.has-proposals":
     "The selection holds changes that are waiting: accept or reject them first.",
   "edit.problem.too-long": "Too much text for the model: select less.",
+  "edit.problem.block-too-long": "This paragraph is too long for {model}",
+  "edit.problem.part-changed":
+    "You typed in a later part while the edit ran, so it stopped there. What it already changed stays.",
+  "edit.problem.block-too-long.cap":
+    "This paragraph is longer than one edit can take. Split it into shorter paragraphs.",
+  "edit.problem.chooseAnotherModel": "Choose another model",
   "edit.problem.local-mode": "Couldn’t edit: “Keep everything on this computer” is on.",
   "edit.problem.chooseModel": "Choose a model",
   "edit.problem.failed": "Edit with AI didn’t work: {message}",
@@ -1557,6 +1570,7 @@ export const en = {
   "edit.review.assistant": "{count} paragraphs changed by the assistant",
   "edit.review.assistant.one": "1 paragraph changed by the assistant",
   "edit.review.assistant.changes": "{changes} changed by the assistant",
+  "edit.applied.parts": "{count} parts",
   "edit.applied.undo": "Undo",
   "edit.applied.review": "Review changes",
   "edit.review": "{count} paragraphs changed by Edit with AI",
@@ -1728,6 +1742,8 @@ export const en = {
   "viewer.mark.notFound": "Citation {number}: quote not found",
   "viewer.mark.contradicted": "Citation {number}: contradicted",
   "viewer.mark.contradicted.at": "Citation {number}: contradicted, {location}",
+  "viewer.mark.cantCheck": "Citation {number}: check the page",
+  "viewer.mark.cantCheck.at": "Citation {number}: check the page, {location}",
   "viewer.mark.found.at": "Citation {number}: quote found, {location}",
   "viewer.mark.notFound.at": "Citation {number}: quote not found, {location}",
   "viewer.slide.label": "Slide {number}",
@@ -3842,6 +3858,7 @@ export const en = {
   "citation.badge.found.transcript": "Quote found in the transcript at {location}",
   "citation.badge.notFound.transcript": "Quote not found in the transcript at {location}",
   "citation.badge.cantCheck": "Can’t check",
+  "citation.badge.checkPage": "Check the page",
   "citation.badge.notChecked": "Not checked",
   "citation.badge.unsupported": "Unsupported by your Documents",
   "citation.badge.contradicted": "Contradicted",
@@ -3863,6 +3880,10 @@ export const en = {
   "citation.reason.small-model":
     "This model on this computer is too small to judge whether the quote supports the sentence.",
   "citation.where": "{document}, {location}",
+  "citation.where.scan": "{document} (scan), {location}",
+  "citation.pageChecked": "Matches the page",
+  "citation.pageChecked.done": "Checked on the page by you",
+  "citation.pageChecked.undo": "Checked on the page",
   "citation.scan": "Text read from a scan",
   "citation.scan.unsure.one": "Text read from a scan · 1 word may be misread",
   "citation.scan.unsure.other": "Text read from a scan · {count} words may be misread",
@@ -3870,6 +3891,11 @@ export const en = {
   "citation.picture.unsure.one": "Read from a picture · 1 word may be misread",
   "citation.picture.unsure.other": "Read from a picture · {count} words may be misread",
   "citation.scan.unsureWord": "May be misread: check it on the page",
+  "citation.scan.picture": "The page this scan’s text was read from: {document}",
+  "uncheckedFigure.heading": "Not checked",
+  "uncheckedFigure.mark": "Not checked: a word a scan may have misread",
+  "uncheckedFigure.why":
+    "It comes from “{word}”, which was read from a scan and may be misread. Check it on the page.",
   "citation.quote": "The quote:",
   "citation.quoted.answer": "In the Answer",
   "citation.closest.on": "Closest words on {location}",
@@ -4190,7 +4216,7 @@ export const en = {
   "export.pack.column.source": "Document and Location",
   "export.pack.column.page": "Page",
   "export.pack.picture": "Cited page: {source}",
-  "export.pack.notFound": "{number} · Quote not found on this page",
+  "export.pack.notFound": "{number} · Quote not found on this page: “{quote}”",
   "export.pack.noPage": "This page wasn’t saved when it was cited, so only the quotes are shown.",
   "export.saveTo": "Save to",
   "export.theirChanges": "Tracked changes",
@@ -4519,6 +4545,8 @@ export const en = {
   "export.citation.document": "{document}",
   "export.citation.separator": ", ",
   "export.citation.accessed": "accessed {date}",
+  "export.figure.unavailable":
+    "The saved inputs for {figure} aren’t available, so IncarnaMind writes it as its value.",
   "export.figure.calculated": "Calculated: {formula} = {figure}.",
   "export.figure.analysis": "Calculated by the Analysis “{title}”: {figure}.",
   "export.figure.workbook":
@@ -4570,6 +4598,7 @@ export const en = {
   "export.change.inserted.noDate": "Inserted by {author}",
   "export.change.deleted": "Deleted by {author}, {date}",
   "export.change.deleted.noDate": "Deleted by {author}",
+  "export.change.incarnaMind": "IncarnaMind",
   "export.change.someone": "someone",
   "export.change.replaced": "Replaced by {author}, {date}",
   "export.change.replaced.noDate": "Replaced by {author}",
@@ -4745,6 +4774,7 @@ export const en = {
   "error.question.analyseChoice": "Whether a Question may analyse data must be true or false.",
   "error.estimate.searches": "An estimate counts from 0 to {max} web searches.",
   "error.estimate.each": "An estimate is for Answers or for checks.",
+  "error.edit.ask": "An answer to an edit needs the id of the request it answers.",
   "error.task.tell": "This Task can’t be told anything now.",
   "error.task.message": "Tell a Task something in 1 to {max} characters.",
   "error.research.notFound": "That Research Task doesn’t exist.",
@@ -6384,6 +6414,7 @@ export const en = {
   "steps.check.allFound": "all found",
   "steps.check.found": "found",
   "steps.check.notFound": "{count} not found",
+  "steps.check.cantCheck": "{count} can’t be checked",
   "steps.check.needALook": "{count} need a look",
   "steps.check.needALook.one": "1 needs a look",
   "steps.check.answerLimit":
@@ -6588,6 +6619,24 @@ export const en = {
   "answer.notCalculated.unavailable":
     "No calculation ran: this model can’t use IncarnaMind’s calculation Tool, so the figures worked out in this reply are unchecked",
   "answer.notSearched": "No search ran: this reply wasn’t drawn from a search",
+  "answer.notDone.command":
+    "The assistant didn’t do everything in the app that this reply says it did",
+  "answer.notDone.privacy":
+    "“Keep everything on this computer” and what goes to cloud services weren’t changed. Only you can change them, in Settings › Privacy",
+  "answer.notDone.keys":
+    "Keys and sign-ins weren’t changed. Only you can change them, in Settings › Models",
+  "answer.notDone.spending":
+    "The monthly spending cap wasn’t changed. Only you can change it, in Settings › General",
+  "answer.notDone.approvals":
+    "What the assistant may do without asking wasn’t changed. Only you can change it, in Settings › Privacy",
+  "answer.notDone.permanent":
+    "Nothing was deleted for good. Only you can do that, in Recently deleted",
+  "answer.notDone.wall":
+    "Whether a Folder keeps its work inside it wasn’t changed. Only you can change it, in the Folder’s ⋯ menu",
+  "answer.notDone.signOff":
+    "Nothing was marked “Checked by me”. Only you can do that, on each Citation’s card",
+  "answer.notDone.authorship":
+    "No text was marked as yours. Only you can do that: select it and choose “Mark as mine”",
   "answer.uncitedReply":
     "This reply has no Citations, so none of it was checked against your Documents",
   "answer.uncitedWrite":

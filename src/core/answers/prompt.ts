@@ -115,8 +115,8 @@ export function webInstructions(offered: boolean): string {
 export function workbookInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    "A figure in an Excel workbook is worked out by the workbook's own formulas, which its Passages never show: a Passage marked formulas=\"…\" names the rows whose values its formulas worked out. Before the Answer says how such a figure is worked out, names the cells or assumptions it is worked out from, or compares their effect on it, call trace_formulas for that figure: the rows' labels and values only suggest the formulas, and a guess from them would read as fact. When the Question supposes a different value for one of the workbook's inputs, call what_if, which works the figure out again through every formula between them. Write the marker each gives in the Answer where its figure's number goes.",
-    "- Never work a what-if out yourself, with calculate or in words, from the values a Passage shows, and never say how a figure is worked out, or that a sheet doesn't show its formulas, without trace_formulas. When either says a formula can't be worked out, say so in the Answer.",
+    "A figure in an Excel workbook is worked out by the workbook's own formulas, which its Passages never show: a Passage marked formulas=\"…\" names the rows whose values its formulas worked out. Before the Answer says how such a figure is worked out, names the cells or assumptions it is worked out from, or compares their effect on it, call trace_formulas for that figure: the rows' labels and values only suggest the formulas, and a guess from them would read as fact. When the Question supposes a different value for one of the workbook's inputs, call what_if, not run_analysis: what_if works the figure out again through every formula between them. Write the marker each gives in the Answer where its figure's number goes.",
+    "- Never work a what-if out yourself, with calculate, with run_analysis or in words, from the values a Passage shows, and never say how a figure is worked out, or that a sheet doesn't show its formulas, without trace_formulas. A number an Analysis works out in Python is the Analysis's own calculation, never the workbook's recalculation. When either says a formula can't be worked out, say so in the Answer.",
   ].join("\n");
 }
 
@@ -152,7 +152,7 @@ export function commandInstructions(offered: boolean): string {
     "- Putting together what the User has on a subject, by what it says rather than by its name, means the Documents themselves, in a Folder: Organize's, never a Note written about them unless a note is asked for. Run documents.organize with a Folder named from the request. It reads each one and suggests; nothing moves until the User accepts in To review.",
     "- A request for several things: make all of its calls in one step, once list_commands has found what they act on, and do every part of it, also after one that is the User's alone. Set done only on the call that does its last part.",
     "- A Question about the Documents isn't a command: answer it. Writing into a Note is the Notes' Tools' work.",
-    "- Say only what the calls returned, in a sentence or two: what changed, and what didn't and why. A command that failed or that the User didn't allow didn't happen: never say it did. The User can undo the changes with Undo.",
+    "- Say only what the calls returned, in a sentence or two: what changed, and what didn't and why, but not what is the User's alone, which IncarnaMind says after your reply. A command that failed or that the User didn't allow didn't happen: never say it did. The User can undo the changes with Undo.",
   ].join("\n");
 }
 
@@ -271,18 +271,32 @@ const NO_MIND_TOOLS =
   "You can't change the User's Notes or make new ones in this chat. When the User asks you to write into a Note or to change one, write the text in your reply, and never say or promise that you wrote, added, changed or made anything in a Note: the User can put your reply into a Note themselves.";
 
 /**
- * The rule each turn in the assistant follows (#1559), in the agreed words, with the Chinese
- * words for each kind of request beside the English: the model reads both, as the User may
- * write either, or a mix.
+ * The kinds of turn in the assistant's rule (#1559), in the agreed words, with the Chinese words
+ * for each kind of request beside the English: the model reads both, as the User may write
+ * either, or a mix.
  */
 const TURN_RULE = [
-  "You work beside the User's page (a Note). Each turn, decide:",
   "- A piece of writing to keep: they ask you to write, draft, summarise, prepare or put together something (写、起草、整理、总结、准备一份), such as a summary, report, memo, notes, plan or letter (总结、报告、备忘录、笔记、计划、信). Write it into a Note with the write command: into the empty Note in front if there is one, otherwise into a new Note. Start the piece with a title line (a Heading 1; 以一行标题开头), which names the Note. Never put the piece itself in your reply.",
   "- A change to their text: shorten, expand, fix, rewrite, translate, add or remove a part (缩短、扩写、修正、改写、翻译、增加或删去一部分). Make it in place with the edit command. Don't repeat the new text in your reply.",
   "- A question, an explanation, an opinion or ideas (提问、解释、征求意见或想法): answer in your reply and change nothing.",
   "- Unsure: if the request names something to produce, write it into a Note (it can be undone); otherwise answer.",
   "After a write or an edit, reply in one short sentence saying what you did and where. Never say you wrote or changed anything unless the command ran.",
-].join("\n");
+];
+
+/**
+ * With the commands' Tools, what they do is a kind of turn of its own, decided first (#2252):
+ * each other kind has a way to do a command's work in words, a Note or the reply, which the model
+ * otherwise took, and a refusal in words shows the User no way to where they do it.
+ */
+const COMMAND_TURN =
+  "- Something done to the User's Documents, Notes or Folders themselves, or in the app: check whether the Note is right, file or sort Documents into Folders, open, rename, delete, change a setting (核对、归档、打开、改名、删除、设置). A request about the User's files themselves, all those on a subject too, rather than for a piece of writing, is this kind, and the place they go is a Folder, never a Note. Run the app's command for it (below), also when it is the User's alone, never a Note or a reply that does it instead.";
+
+const turnRule = (commands: boolean) =>
+  [
+    "You work beside the User's page (a Note). Each turn, decide:",
+    ...(commands ? [COMMAND_TURN] : []),
+    ...TURN_RULE,
+  ].join("\n");
 
 /**
  * The Minds' Tools, when offered (#202), on every turn in the assistant: the
@@ -290,15 +304,20 @@ const TURN_RULE = [
  * Mind or makes one (#1559). IncarnaMind, not the reply, shows the new text.
  * `inAssistant`: the Answer is the assistant's, so a model that can't call
  * the Tools is told it can't write; `lastAnswer`: the conversation has an
- * Answer before, which can go into a Mind as it is.
+ * Answer before, which can go into a Mind as it is; `commands`: the
+ * commands' Tools are offered too, so the rule lists a command as a kind.
  */
 export function mindInstructions(
   offered: boolean,
-  { inAssistant = false, lastAnswer = false }: { inAssistant?: boolean; lastAnswer?: boolean } = {},
+  {
+    inAssistant = false,
+    lastAnswer = false,
+    commands = false,
+  }: { inAssistant?: boolean; lastAnswer?: boolean; commands?: boolean } = {},
 ): string {
   if (!offered) return inAssistant ? NO_MIND_TOOLS : "";
   return [
-    TURN_RULE,
+    turnRule(commands),
     "",
     "The write command is create_mind for a new Note, or add_to_mind for the empty Note in front and to add a part to the User's text; the edit command is edit_mind. read_mind reads a Note the User names. A change applies at once, with Undo, unless it would take out most of the User's own text: then it waits for them. Each call's result says which.",
     `- A line "${YOUR_MINDS} …" before the Question names their Notes, the most recently changed first. A name the User gives that one of their Notes has is that Note, also when they don't call it a Note ("the trip plan", "会议记录"): to write from it, read it with read_mind first; give its name in mind to add a part to it with add_to_mind (where it goes in after), or to change its text with edit_mind. A Note marked "from an earlier Answer" can be read and named as a source too; a new piece never goes into it unless the User explicitly names it for a change. Only a name that no Note has can be a Document's. A name that is neither on the line nor a Document's may still be a Note's, as read_mind finds any Note by its name; when none has it, say so in one sentence that names it, and change nothing. A piece of writing the User asks for goes into the empty Note in front or a new Note, even when a Note on the line has the same or a similar title. Change or add to a Note on the line only when the User names it.`,
@@ -382,6 +401,13 @@ const CITED_SAYS_ONLY_ITS_QUOTE =
  */
 const FIGURES_AS_STATED =
   '- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: "salary is 54,000" stays "54,000 (currency not stated)" / "54,000（未注明币种）", never "£54,000"; "2 percentage points" never becomes "2%".';
+
+/**
+ * A scan's unsure words are marked in its Passages (#535): a figure from one
+ * is never stated as fact. `cite`: the Answer cites with markers.
+ */
+const scannedWords = (cite: boolean) =>
+  `- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact${cite ? ", nor use one in a calculation" : ""}; say the scan is unclear${cite ? " and cite it" : ""}.`;
 
 /**
  * A premise the Passages don't support, and Passages that disagree (#548):
@@ -739,6 +765,7 @@ export function documentInstructions(
         notCovered(true, true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
+        scannedWords(true),
         readingRules(true),
         ...(calculate ? ["", CALCULATE] : []),
       ].join("\n");
@@ -765,6 +792,7 @@ export function documentInstructions(
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
+        scannedWords(true),
         readingRules(true),
       ].join("\n");
     case "none":
@@ -780,6 +808,7 @@ export function documentInstructions(
         "Use them where they help. Don't write citation markers or a list of sources.",
         notCovered(false),
         FIGURES_AS_STATED,
+        scannedWords(false),
         readingRules(false),
         NO_CALCULATE,
       ].join("\n");

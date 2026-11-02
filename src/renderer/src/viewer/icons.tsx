@@ -96,3 +96,11 @@ export const ExclamationIcon = (props: IconProps) => (
     <path d="M12 18.5v.01" />
   </Stroke>
 );
+
+/** A grey "?": a scan's unsure word asks for a look at the page (#535). */
+export const QuestionIcon = (props: IconProps) => (
+  <Stroke strokeWidth={3} {...props}>
+    <path d="M9 9a3 3 0 0 1 5.8.9c0 2-2.8 2.4-2.8 4.6" />
+    <path d="M12 19v.01" />
+  </Stroke>
+);

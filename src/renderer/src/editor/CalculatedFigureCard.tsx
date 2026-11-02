@@ -5,10 +5,10 @@ import type {
   FigureInput,
   SignOffNow,
 } from "../../../core/api";
-import type { AnalysisFigureRows } from "../../../shared/analysis";
+import type { AnalysisFigureRows, AnalysisRecalculation } from "../../../shared/analysis";
 import { badgeMessage, citationState } from "../../../shared/citations";
 import type { ClaimCheckShown } from "../../../shared/claimChecks";
-import type { CalculatedSources } from "../../../shared/figureRuns";
+import { type CalculatedSources, retainedCheck } from "../../../shared/figureRuns";
 import { shownNumber } from "../../../shared/figureSchedule";
 import { formulaText } from "../../../shared/formula";
 import { sourceText } from "../../../shared/sources";
@@ -41,6 +41,7 @@ export function CalculatedFigureCard({
   onSignOff: (() => void) | null;
 }) {
   const t = useT();
+  const check = figure.analysis ? retainedCheck(sources, figure.analysis.result) : null;
   const stateKey =
     shown.state === "kept" ? "claim.keptAsView" : (`claim.state.${shown.state}` as const);
   const needsLook =
@@ -59,7 +60,7 @@ export function CalculatedFigureCard({
       <h3>
         {t("figures.calculated")} · <strong>{figure.shown}</strong>
       </h3>
-      <p className="calculated-figure-state">
+      <p className="calculated-figure-state" data-state={shown.state}>
         {needsLook ? (
           <>
             {t("figures.filter.look")} · {t(stateKey)}
@@ -109,7 +110,7 @@ export function CalculatedFigureCard({
           input={input}
         />
       ))}
-      {traced && <TracedRows of={traced} />}
+      {traced && <TracedRows of={traced} check={check} />}
       {ranges?.map((range) => (
         <div
           key={JSON.stringify([range.name, range.citation.passageId, range.range])}
@@ -172,7 +173,14 @@ export function CalculatedFigureCard({
 }
 
 /** The rows of its input an Analysis figure was worked out from (#2346), and how. */
-function TracedRows({ of }: { of: AnalysisFigureRows }) {
+function TracedRows({
+  of,
+  check,
+}: {
+  of: AnalysisFigureRows;
+  /** What the core made of it when the Analysis ran; null when the Note kept no check. */
+  check: AnalysisRecalculation | null;
+}) {
   const t = useT();
   const plural = of.count === 1 ? "one" : "other";
   const shown = of.rows
@@ -199,7 +207,9 @@ function TracedRows({ of }: { of: AnalysisFigureRows }) {
               names: of.columns.join(t("figures.analysisRows.separator")),
             })}
       </p>
-      {of.how && <p className="calculated-figure-note">{t("figures.analysisRows.recalculated")}</p>}
+      {of.how && check?.kind === "same" && (
+        <p className="calculated-figure-note">{t("figures.analysisRows.recalculated")}</p>
+      )}
     </div>
   );
 }
