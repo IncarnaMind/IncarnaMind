@@ -107,3 +107,101 @@ export const ROUTING_CASES: readonly RoutingCase[] = [
     route: "none",
   },
 ];
+
+/**
+ * Paraphrases written after the routing was changed on the cases above (#2351 review), and
+ * committed before any run on them: the change can't have been fitted to these. The same
+ * Documents, in other words, with other figures asked for.
+ */
+export const FRESH_CASES: readonly RoutingCase[] = [
+  {
+    id: "fresh-rows-count",
+    language: "en",
+    question: "How many orders in orders.csv were for more than 500, counting every line of it?",
+    route: "run_code",
+  },
+  {
+    id: "fresh-rows-mean",
+    language: "en",
+    question: "Over the whole of orders.csv, what is the average order amount per region?",
+    route: "run_code",
+  },
+  {
+    id: "fresh-log-status",
+    language: "en",
+    question: "Break down access.log by status code: how many responses of each?",
+    route: "run_code",
+  },
+  {
+    id: "fresh-log-slow",
+    language: "en",
+    question: "Which minute of app.log has the most timeout lines?",
+    route: "run_code",
+  },
+  {
+    id: "fresh-log-errors",
+    language: "en",
+    question: "Count the ERROR lines in app.log for each component.",
+    route: "run_code",
+  },
+  {
+    id: "fresh-formulas",
+    language: "en",
+    question: "List the cells of the DCF workbook whose formula refers to another sheet.",
+    route: "run_code",
+  },
+  {
+    id: "fresh-rows-zh",
+    language: "zh-CN",
+    question: "把 orders.csv 的每一行都算上，金额最大的一笔订单是多少？",
+    route: "run_code",
+  },
+  {
+    id: "fresh-log-zh",
+    language: "zh-CN",
+    question: "access.log 里一共有多少条 404 响应？",
+    route: "run_code",
+  },
+  {
+    id: "fresh-small-q2",
+    language: "en",
+    question: "What did South earn in Q2 according to sales.csv?",
+    route: "run_analysis",
+  },
+  {
+    id: "fresh-small-share",
+    language: "en",
+    question: "What share of total revenue in the sales sheet came from East?",
+    route: "run_analysis",
+  },
+  {
+    id: "fresh-small-growth",
+    language: "en",
+    question: "By how much did North's revenue grow from Q1 to Q3 in sales.csv?",
+    route: "run_analysis",
+  },
+  {
+    id: "fresh-small-min",
+    language: "en",
+    question: "Which quarter and region had the lowest revenue in sales.csv?",
+    route: "run_analysis",
+  },
+  {
+    id: "fresh-small-zh",
+    language: "zh-CN",
+    question: "sales.csv 里每个季度的收入总和是多少？",
+    route: "run_analysis",
+  },
+  {
+    id: "fresh-text",
+    language: "en",
+    question: "Who pays for delivery under the supply contract?",
+    route: "none",
+  },
+  {
+    id: "fresh-text-zh",
+    language: "zh-CN",
+    question: "供货合同里关于违约金是怎么写的？",
+    route: "none",
+  },
+];
