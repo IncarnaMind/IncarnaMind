@@ -26,7 +26,12 @@ import { jsonSchema, Output, streamText } from "ai";
 import { outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, UnfoundQuote } from "./engine";
 import { markedSentence, wordsOf } from "./markerPlacement";
-import { QUOTE_RETRY_INSTRUCTIONS, type QuoteToRetry, quoteRetryPrompt } from "./prompt";
+import {
+  QUOTE_RETRY_INSTRUCTIONS,
+  type QuoteToRetry,
+  quoteRetryPrompt,
+  setAsideRowsMeaning,
+} from "./prompt";
 import type { WindowBudget } from "./window";
 
 /** The most records one request asks about: the first ones, by marker. */
@@ -191,7 +196,8 @@ export async function* retryQuotes(
   const maxOutputTokens = outputTokens("quote-retry", records.length);
   // What the request holds besides the Passages' text, and the room left for it.
   const framing = quoteRetryPrompt(records.map((record) => ({ ...record, text: "" })));
-  const room = budget.roomBeside([QUOTE_RETRY_INSTRUCTIONS, framing], maxOutputTokens);
+  const meaning = setAsideRowsMeaning(records.map((record) => record.text).join("\n"));
+  const room = budget.roomBeside([QUOTE_RETRY_INSTRUCTIONS, framing, meaning], maxOutputTokens);
   const perRecord = Math.min(EXCERPT_TOKENS, Math.floor(room / records.length) - 1);
   if (perRecord < MIN_EXCERPT_TOKENS) return;
   const asked: QuoteToRetry[] = records.map((record) => ({

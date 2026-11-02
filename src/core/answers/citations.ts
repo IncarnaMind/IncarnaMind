@@ -1768,9 +1768,12 @@ export function createCitationSession(
         : handleFor(passage.passageId);
       // A browser-made PDF's "⼤" for "大": every other reader of the text folds it (ADR-0009).
       const plain = foldRadicals(
-        withCueMarks(firstMark ? `${firstMark} ${marked}` : marked, units),
+        withCueMarks(
+          withSetAsideMarks(firstMark ? `${firstMark} ${marked}` : marked, passage.text, units),
+          units,
+        ),
       );
-      const text = withSetAsideMarks(withUnsureMarks(plain, units), passage.text, units);
+      const text = withUnsureMarks(plain, units);
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
       if (!notCited && !measuring) shownTexts.set(id, plain);

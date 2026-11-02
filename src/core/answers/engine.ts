@@ -317,6 +317,8 @@ export interface AnswerTools {
    * figure's sentence or table cell has none (#1831); each quote is recorded as a Citation.
    */
   citeFigures?(text: string): string;
+  /** `text` with each mark of a row the file sets aside that the model copied into it said in words (#1979). */
+  setAsideInWords?(text: string): string;
 }
 
 /** What a Run still owes, by marker (`AnswerTools.owed`). */
@@ -1947,7 +1949,8 @@ async function* toolLoop(
     const suffix = request.refusalSuffix?.(keptText) ?? null;
     if (keptText.trim() !== "" || suffix === null) {
       if (!request.documents.wroteIntoMind?.()) {
-        const figured = request.documents.citeFigures?.(keptText) ?? keptText;
+        const withFigures = request.documents.citeFigures?.(keptText) ?? keptText;
+        const figured = request.documents.setAsideInWords?.(withFigures) ?? withFigures;
         yield* textEdits(keptText, figured);
         keptText = figured;
         const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
@@ -2357,7 +2360,8 @@ async function* structured(
   } catch (error) {
     console.error(`The Citations couldn't be recorded: ${messageOf(error)}`);
   }
-  yield* emit(typeof answer === "string" ? takeToolText(answer).text : answer);
+  const worded = (text: string) => request.documents.setAsideInWords?.(text) ?? text;
+  yield* emit(typeof answer === "string" ? worded(takeToolText(answer).text) : answer);
   if (typeof answer === "string") {
     // A small model often gives the records but leaves their markers out.
     const marked = yield* missingMarkerEvents(emitted, records, request.documents);

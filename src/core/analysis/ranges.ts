@@ -129,18 +129,25 @@ export interface ReadRange {
    * Document was read, at the same limits.
    */
   cut: boolean;
+  /** Its rows under the headings that were left out, as `leftOut` asked. */
+  leftOut: number[];
 }
 
-/** The range of a sheet's rows, its first row the headings; null when it holds none. */
+/**
+ * The range of a sheet's rows, its first row the headings; null when it holds none. The rows
+ * under the headings that `leftOut` names aren't read.
+ */
 export function readRange(
   rows: ReadonlyMap<number, readonly AnalysisCell[]>,
   bounds: RangeBounds,
+  leftOut: ReadonlySet<number> = new Set(),
 ): ReadRange | null {
   const numbers = [...rows.keys()]
     .filter((row) => row >= bounds.firstRow && (bounds.lastRow === null || row <= bounds.lastRow))
     .sort((a, b) => a - b);
-  const [headingRow, ...dataRows] = numbers;
+  const [headingRow, ...below] = numbers;
   if (headingRow === undefined) return null;
+  const dataRows = below.filter((row) => !leftOut.has(row));
   const widest = Math.max(...numbers.map((row) => rows.get(row)?.length ?? 0));
   const lastColumn = Math.min(bounds.lastColumn ?? widest - 1, widest - 1);
   if (lastColumn < bounds.firstColumn) return null;
@@ -171,5 +178,6 @@ export function readRange(
     range: `${columnName(bounds.firstColumn)}${headingRow}:${columnName(lastColumn)}${lastRead}`,
     rowCount: dataRows.length,
     cut: read.length < dataRows.length || (sheetCut && toTheEnd),
+    leftOut: below.filter((row) => leftOut.has(row)),
   };
 }

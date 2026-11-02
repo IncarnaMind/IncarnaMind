@@ -141,13 +141,27 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         problem: `${source.documentName} has no sheet "${named}"; its sheets are ${sheets.map((each) => `"${each}"`).join(", ")}`,
       };
     }
-    const read = readRange(sheetRows(units, named), parsed.bounds);
+    // A sum over a sheet that keeps an earlier version of its rows, struck through or hidden,
+    // counted both versions (#1979): the rows the file sets aside aren't read.
+    const sheetUnits = units.filter(
+      (unit) => unit.kind === "rows" && (unit.label?.sheet ?? null) === named,
+    );
+    const struck = new Set(sheetUnits.flatMap((unit) => unit.label?.struckRows ?? []));
+    const hidden = new Set(sheetUnits.flatMap((unit) => unit.label?.hiddenRows ?? []));
+    const read = readRange(sheetRows(units, named), parsed.bounds, new Set([...struck, ...hidden]));
     if (!read || read.rows.length === 0) {
       return {
         ok: false,
-        problem: `the range has no rows under its headings in ${source.documentName}`,
+        problem:
+          read && read.leftOut.length > 0
+            ? `every row under the range's headings in ${source.documentName} is one the file strikes through or hides, which an Analysis doesn't read: give their figures from the Passages, saying the file sets them aside`
+            : `the range has no rows under its headings in ${source.documentName}`,
       };
     }
+    const setAside = {
+      struck: read.leftOut.filter((row) => struck.has(row)),
+      hidden: read.leftOut.filter((row) => hidden.has(row) && !struck.has(row)),
+    };
     const heading = units.find(
       (unit) =>
         unit.kind === "rows" &&
@@ -181,6 +195,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       columns: read.columns.length,
       rowCount: read.rowCount,
       cut: read.cut,
+      ...(read.leftOut.length > 0 && { setAside }),
     };
     return {
       ok: true,
@@ -260,7 +275,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     provider: ANALYSIS_PROVIDER,
     providerTool: ANALYSIS_TOOLS.run,
     description:
-      'Run Python over sheets and CSV files you found, to work out totals, groups, changes, tables, statistics and models. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings; every Passage of a sheet reads the whole sheet, so give each sheet once), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, can import scipy, statsmodels, sklearn and matplotlib, and reads inputs["sales"] (a DataFrame whose index is each row\'s number in the sheet, named row) and inputs["rate"] (a number). Give each sum, mean, min, max or count of an input\'s column with figure(name, df["Revenue"], "sum", label, unit), after any filtering: IncarnaMind works it out again from the cells. Give any other figure or table with result(name, value, label, unit), each a number or a table; a figure a model or test works out (a coefficient, a forecast, a p-value) also names the input\'s rows it used: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, chart(kind, df, x, y, title) draws a bar, line, pie or scatter chart, and a plot drawn with matplotlib.pyplot comes back as a picture (its text in Latin letters or common Chinese characters). The result says each figure\'s marker [=n], each table\'s [=table n], each chart\'s [=chart n] and each picture\'s [=picture n].',
+      'Run Python over sheets and CSV files you found, to work out totals, groups, changes, tables, statistics and models. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings; every Passage of a sheet reads the whole sheet, so give each sheet once; rows the file strikes through or hides are left out, and the result names them), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, can import scipy, statsmodels, sklearn and matplotlib, and reads inputs["sales"] (a DataFrame whose index is each row\'s number in the sheet, named row) and inputs["rate"] (a number). Give each sum, mean, min, max or count of an input\'s column with figure(name, df["Revenue"], "sum", label, unit), after any filtering: IncarnaMind works it out again from the cells. Give any other figure or table with result(name, value, label, unit), each a number or a table; a figure a model or test works out (a coefficient, a forecast, a p-value) also names the input\'s rows it used: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, chart(kind, df, x, y, title) draws a bar, line, pie or scatter chart, and a plot drawn with matplotlib.pyplot comes back as a picture (its text in Latin letters or common Chinese characters). The result says each figure\'s marker [=n], each table\'s [=table n], each chart\'s [=chart n] and each picture\'s [=picture n].',
     inputSchema: {
       type: "object",
       properties: {

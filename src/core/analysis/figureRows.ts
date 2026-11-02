@@ -128,6 +128,17 @@ export function cellsText(cells: readonly NotNumber[], count: number): string {
   return `${listed.join(", ")}${count > cells.length ? ", …" : ""}`;
 }
 
+/** Row numbers as runs of rows in a row, in order. */
+export function rowRuns(rows: Iterable<number>): [number, number][] {
+  const runs: [number, number][] = [];
+  for (const row of [...new Set(rows)].sort((a, b) => a - b)) {
+    const last = runs.at(-1);
+    if (last && row === last[1] + 1) last[1] = row;
+    else runs.push([row, row]);
+  }
+  return runs;
+}
+
 /** "rows 2–9, 11, 14–41", the first few runs only: for the model's report. */
 export function rowsText(rows: AnalysisFigureRows["rows"], shown = 6): string {
   const runs = rows

@@ -8,7 +8,7 @@ import type { Reading } from "../../../shared/figures";
 import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
 import { asAttribute, asData, type PromptTag, tagged } from "../../promptData";
-import { setAsideRowsNote } from "../prompt";
+import { setAsideRowsMeaning } from "../prompt";
 import { PART_RULES, PARTS_LINE } from "./claims";
 
 /** The checks' tags: none of them may be opened or closed by what they hold (#2423). */
@@ -224,7 +224,7 @@ export function claimPrompt(input: {
 }): string {
   const context = input.context?.trim();
   const cited = input.cited ?? [];
-  const setAside = [setAsideRowsNote(input.citedShown ?? "")].filter((note) => note !== "");
+  const setAside = meaningOf(input.citedShown ?? "");
   return [
     ...(context && context !== input.claim.trim()
       ? [
@@ -325,8 +325,13 @@ export function evidencePrompt(input: {
     "",
     "The Passages:",
     ...input.passages.map((each) => tagged("passage", each.text, ` id="${each.id}"`, CHECK_TAGS)),
+    ...meaningOf(input.passages.map((each) => each.text).join("\n")),
   ].join("\n");
 }
+
+/** What the marks of a sheet's set-aside rows mean, when the Passages shown have any. */
+const meaningOf = (passages: string): string[] =>
+  [setAsideRowsMeaning(passages)].filter((note) => note !== "");
 
 /**
  * What a model is asked about a contradiction it found, before it counts: the
@@ -442,6 +447,7 @@ export function confirmPrompt(input: {
     tagged("quote", input.quote.trim(), "", CHECK_TAGS),
     "The Passage it is quoted from, for what its words refer to:",
     tagged("passage", input.passage.trim(), "", CHECK_TAGS),
+    ...meaningOf(input.passage),
     ...(input.quantity
       ? [
           `Quantity to confirm: ${JSON.stringify(input.quantity)}`,
@@ -512,6 +518,7 @@ export function presencePrompt(input: {
     tagged("quote", input.quote.trim(), ` document="${document}"`, CHECK_TAGS),
     "The Passage it is quoted from, for what its words refer to:",
     tagged("passage", input.passage.trim(), "", CHECK_TAGS),
+    ...meaningOf(input.passage),
   ].join("\n");
 }
 

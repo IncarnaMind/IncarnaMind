@@ -6,9 +6,10 @@
  * dates become ISO dates, booleans TRUE and FALSE. Hidden sheets are left
  * out unless the read asks for them (#740). Rows the file strikes through or
  * hides are read, and named as such: the file sets them aside, often as an
- * older version of a row shown below them (#1979). Sheets are read as a stream of rows, so a huge sheet costs no more
- * than the rows read: past `MAX_ROWS` rows or `MAX_CELLS` cells in all,
- * reading stops and the workbook says it was cut short. Ported from the
+ * older version of a row shown beside them (#1979). Sheets are read as a
+ * stream of rows, so a huge sheet costs no more than the rows read: past
+ * `MAX_ROWS` rows or `MAX_CELLS` cells in all, reading stops and the
+ * workbook says it was cut short. Ported from the
  * office-formats spike, with streaming and number formats added.
  *
  * The sheet preview also asks for the workbook's look (`layout`), read in the
@@ -94,8 +95,11 @@ interface ReadCell extends Pick<Cell, "value" | "numeric" | "raw"> {
 }
 
 /** The parts the elements of a sheet's stream are read from. */
-const SHEET_PARTS = ["col", "row", "mergeCell"];
-const LAYOUT_PARTS = [...SHEET_PARTS, "sheetPr", "sheetView", "sheetFormatPr", "drawing"];
+const SHEET_PARTS = ["sheetPr", "col", "row", "mergeCell"];
+const LAYOUT_PARTS = [...SHEET_PARTS, "sheetView", "sheetFormatPr", "drawing"];
+
+/** An XML boolean, as Excel ("1") and LibreOffice ("true") write one. */
+const flagOn = (value: string | undefined): boolean => value === "1" || value === "true";
 
 /**
  * Reads a workbook's visible sheets, and with `readHidden`, its hidden and very
@@ -229,8 +233,10 @@ export async function readWorkbook(
       continue;
     }
     let rowNumber = 0;
+    let filtered = false;
     const chunks = zip.textChunks(part, MAX_STREAMED_BYTES);
     for await (const element of streamElements(chunks, look ? LAYOUT_PARTS : SHEET_PARTS)) {
+      if (is(element, "sheetPr")) filtered = flagOn(element.attrs.filterMode);
       if (is(element, "col")) {
         readColumns(element, sheet, look);
         continue;
@@ -281,8 +287,10 @@ export async function readWorkbook(
       }
       if (valued === 0) continue;
       if (struckThrough === valued) sheet.struckRows?.add(rowNumber);
-      if (element.attrs.hidden === "1" || element.attrs.hidden === "true")
-        sheet.hiddenRows?.add(rowNumber);
+      // A filter hides the rows it doesn't match, and a collapsed group its detail: both are
+      // current rows out of view, not set aside.
+      const grouped = Number(element.attrs.outlineLevel ?? 0) > 0;
+      if (flagOn(element.attrs.hidden) && !filtered && !grouped) sheet.hiddenRows?.add(rowNumber);
     }
   }
   // Merged ranges stretch the grid even where they hold nothing.

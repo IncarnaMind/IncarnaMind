@@ -7,9 +7,9 @@ import {
   type AnalysisValue,
 } from "../../shared/analysis";
 import { figureCellText, figureResultText, figureText, rawColumn } from "../../shared/figures";
-import type { AnswerAnalysis } from "../api";
+import type { AnalysisRangeInput, AnswerAnalysis } from "../api";
 import type { Language } from "../language";
-import { cellsText, notNumbersText, rowsText } from "./figureRows";
+import { cellsText, notNumbersText, rowRuns, rowsText } from "./figureRows";
 
 const count = (n: number) => figureText("en", n);
 
@@ -38,6 +38,20 @@ function tableText(table: AnalysisTable, shownRows: number, language: Language):
   return lines.join("\n");
 }
 
+/** What a range left out of the rows the file sets aside, after its size. */
+function setAsideText(setAside: AnalysisRangeInput["setAside"]): string {
+  if (!setAside) return "";
+  const said = [
+    ...(setAside.struck.length > 0
+      ? [`${rowsText(rowRuns(setAside.struck))}, which the file strikes through`]
+      : []),
+    ...(setAside.hidden.length > 0
+      ? [`${rowsText(rowRuns(setAside.hidden))}, which the file hides`]
+      : []),
+  ];
+  return `; left out: ${said.join(", and ")}, as the file sets them aside (give a figure from them only from the Passages, saying so)`;
+}
+
 const ROWS_READ = 20;
 
 export function analysisReport(analysis: AnswerAnalysis, language: Language): string {
@@ -52,7 +66,7 @@ export function analysisReport(analysis: AnswerAnalysis, language: Language): st
         ? ` (cut: only its first ${rowsOf(input.rows)} were read, the most an Analysis reads; say so in the Answer)`
         : "";
       lines.push(
-        `- ${input.name}: ${where}: ${rowsOf(input.rows)} × ${input.columns} columns${cut}`,
+        `- ${input.name}: ${where}: ${rowsOf(input.rows)} × ${input.columns} columns${cut}${setAsideText(input.setAside)}`,
       );
     } else {
       lines.push(
