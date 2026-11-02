@@ -34,7 +34,9 @@ export function UnreadPagesLine({ document }: { document: Document }) {
               }
         }
       >
-        {forms ? t("library.fix.forms") : unreadPages(failure, t, language, "sentence")}
+        {forms
+          ? t("library.fix.forms")
+          : unreadPages(failure, t, language, "sentence", document.kind)}
       </ProblemLine>
     </div>
   );

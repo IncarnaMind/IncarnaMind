@@ -243,6 +243,7 @@ export function createExports(deps: ExportsDependencies) {
       documentRemoved: (documentId) => !live.has(documentId),
       // A file leaves a hidden column out; the app says how many, the file says nothing.
       leaveOutHiddenColumns: true,
+      leavesApp: true,
     };
     const {
       read,
@@ -420,8 +421,12 @@ export function createExports(deps: ExportsDependencies) {
     for (const footnote of footnotesIn(blocks, { inFootnotes: false })) {
       const attributes = prepared.attributesOf.get(footnote) ?? {};
       const card = citationCard(attributes, { documents, kept, units: deps.citedUnits, t });
+      // A picture Document's page is the picture itself, not a page to draw.
+      const pictured = !(card.content.kind === "quote" && card.content.from === "picture");
       const key =
-        picturedKind(attributes) && card.content.kind !== "missing" && citedPageKey(attributes);
+        pictured && picturedKind(attributes) && card.content.kind !== "missing"
+          ? citedPageKey(attributes)
+          : null;
       let plan: PicturePlan | null = null;
       if (key) {
         if (!pages.has(key)) pages.set(key, await deps.citedPage(attributes));
@@ -525,7 +530,7 @@ export function createExports(deps: ExportsDependencies) {
                 width: plan.width,
                 height: plan.height,
                 slide: plan.slide,
-                scan: card.content.kind === "quote" && card.content.scan,
+                scan: card.content.kind === "quote" && card.content.from === "scan",
               },
             }
           : card,

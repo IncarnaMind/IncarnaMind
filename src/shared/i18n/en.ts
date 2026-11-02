@@ -74,8 +74,8 @@ export const en = {
   "library.notSorted.count": "{count} not sorted",
   "library.sortAgain.reason": "Couldn’t sort again: {reason}",
   "library.sorted.all": "All sorted",
-  "library.problem.noText.one": "1 Document has no text: a scan",
-  "library.problem.noText": "{count} Documents have no text: scans",
+  "library.problem.noText.one": "1 Document has no text",
+  "library.problem.noText": "{count} Documents have no text",
   "library.problem.failed.one": "1 Document couldn’t be read",
   "library.problem.failed": "{count} Documents couldn’t be read",
   "library.problem.missing.one": "1 Document’s file is missing",
@@ -96,6 +96,8 @@ export const en = {
     "Format not read yet ({extension}). Convert it to PDF, Word, PowerPoint or Excel.",
   "unread.reason.scan":
     "A scan with no text that could be recognized (handwriting or a picture, say).",
+  "unread.reason.picture":
+    "A picture whose text couldn’t be recognized (handwriting, or very small print, say).",
   "unread.reason.password": "Password-protected. Remove the password and add it again.",
   "unread.reason.passwordPdf": "Locked with a password.",
   "unread.reason.damaged": "The file is damaged or couldn’t be opened.",
@@ -116,9 +118,12 @@ export const en = {
   "library.fix.damaged.pdf": "Damaged file: save a copy from your PDF app, then add it",
   "library.fix.password": "Password-protected: remove it in its app, then add the copy",
   "library.fix.tooLarge": "This file is too large to open",
+  "library.fix.pictureUnreadable": "This picture can’t be read",
   "library.fix.processing": "Something went wrong while reading this file",
   "library.fix.appStopped": "IncarnaMind stopped while reading this file",
   "library.fix.scan": "A scan with no text yet",
+  "library.fix.picture": "The picture couldn’t be read",
+  "library.fix.pictureNoText": "No text was found in the picture",
   "library.fix.pages": "Some scanned pages couldn’t be read",
   "library.fix.forms":
     "Some form fields couldn’t be read. Print to PDF in the app that created it, then add that copy",
@@ -208,6 +213,9 @@ export const en = {
   "library.format.pptx": "PowerPoint",
   "library.format.xlsx": "Excel",
   "library.format.csv": "CSV",
+  "library.format.image": "Picture",
+  "library.format.rtf": "RTF",
+  "library.format.html": "HTML",
   "library.format.markdown": "Markdown",
   "library.format.text": "Plain text",
   "library.format.web": "Web page",
@@ -1545,6 +1553,11 @@ export const en = {
   "review.comment.label": "Comment, {made}: {text}",
   "proposal.unknownAuthor": "Unknown author",
   "proposal.madeBy": "{author}, {date}",
+  // An outside agent's change waiting in a Note (#352), named after its pairing.
+  "proposal.proposedBy": "Proposed by {agent}",
+  "proposal.uncited.one": "1 sentence with no Citation",
+  "proposal.uncited": "{count} sentences with no Citation",
+  "proposal.uncited.next": "Select the next sentence with no Citation",
   "proposal.why": "Why: {reason}",
   "edit.applied": "Changed {count} paragraphs",
   "edit.applied.one": "Changed 1 paragraph",
@@ -1681,7 +1694,12 @@ export const en = {
   "viewer.locked.password": "Password",
   "viewer.locked.unlock": "Unlock",
   "viewer.locked.wrong": "That password doesn’t open it.",
+  "viewer.textTooLarge": "This file is too large to open here.",
+  "viewer.textUnreadable": "This file can’t be read as text.",
   "viewer.notText": "This file doesn’t hold readable text.",
+  "viewer.pictureNotShown": "This picture can’t be shown here.",
+  "viewer.pictureTooLarge": "This picture is too large to open.",
+  "viewer.pictureSizeUnreadable": "This picture’s size can’t be read.",
   "viewer.removed.body": "This Document has been deleted from IncarnaMind, so it can’t be shown.",
   "viewer.removed.unlinked":
     "This Document’s Linked folder was unlinked. IncarnaMind kept the text your Citation quotes.",
@@ -1827,6 +1845,7 @@ export const en = {
     "Reading the text in {count} pictures… {read} read so far.",
   "documents.statusShort.scanning": "Reading {read}/{count}",
   "documents.statusShort.pagesUnread": "Pages unread",
+  "documents.statusShort.pictureUnread": "Picture unread",
   "documents.statusShort.queued": "Queued",
   "documents.statusShort.extracting": "Reading",
   "documents.statusShort.waiting": "Waiting",
@@ -1836,6 +1855,7 @@ export const en = {
   "documents.failure.unreadable": "the file couldn’t be read",
   "documents.failure.passwordProtected": "the file needs a password",
   "documents.failure.tooLarge": "the file is too large to open",
+  "documents.failure.pictureUnreadable": "the picture can’t be read",
   "documents.failure.fileMissing": "its file is missing",
   "documents.file.missing": "File missing: Citations keep its text; searches skip it.",
   "documents.file.unavailable":
@@ -1849,10 +1869,12 @@ export const en = {
   "documents.failure.pagesUnread.one": "scanned page {pages} couldn’t be read",
   "documents.failure.pagesUnread.other": "scanned pages {pages} couldn’t be read",
   "documents.failure.pagesUnread.all": "its scanned pages couldn’t be read",
+  "documents.failure.pictureUnread": "the picture couldn’t be read",
   "documents.failure.formsUnread": "some form fields couldn’t be read",
   "documents.pagesUnread.one": "Scanned page {pages} couldn’t be read",
   "documents.pagesUnread.other": "Scanned pages {pages} couldn’t be read",
   "documents.pagesUnread.all": "The scanned pages couldn’t be read",
+  "documents.pictureUnread": "The picture couldn’t be read",
   "documents.ask": "Ask about this Document",
   "documents.startMind": "Start a note from this Document",
   "documents.more": "More actions for {name}",
@@ -1898,8 +1920,26 @@ export const en = {
   "evidence.settings.body": "Exports don’t count as evidence.",
   "evidence.settings.body.details":
     "This covers the exports and source packs IncarnaMind saved, when it checks your writing or compares Documents. A Folder, or one Document, can still count them. Copies of the document being checked are always left out. Transcripts and saved web pages count as usual.",
-  "documents.skipped":
-    "Only PDF, Word, PowerPoint, Excel, CSV, TXT and Markdown files can be added. Skipped: {names}",
+  "skipped.count.one": "Skipped 1 file",
+  "skipped.count.other": "Skipped {count} files",
+  "skipped.file.reason": ": {reason}",
+  "skipped.next.docx": "Save it as .docx in Word, then add it",
+  "skipped.next.xlsx": "Save it as .xlsx in Excel, then add it",
+  "skipped.next.pptx": "Save it as .pptx in PowerPoint, then add it",
+  "skipped.next.wps.docx": "Save it as .docx in WPS Office, then add it",
+  "skipped.next.wps.xlsx": "Save it as .xlsx in WPS Office, then add it",
+  "skipped.next.wps.pptx": "Save it as .pptx in WPS Office, then add it",
+  "skipped.next.pages": "Export it as PDF from Pages, then add it",
+  "skipped.next.numbers": "Export it as PDF from Numbers, then add it",
+  "skipped.next.keynote": "Export it as PDF from Keynote, then add it",
+  "skipped.next.caj": "Print it to PDF in CAJViewer, then add it",
+  "skipped.next.other":
+    "IncarnaMind reads PDF, Word, Excel, PowerPoint, CSV, Markdown, pictures, RTF, HTML and text files",
+  "skipped.next.convert": "Convert a copy to {ext} with LibreOffice, then add it",
+  "skipped.convert": "Convert with LibreOffice",
+  "skipped.converting": "Converting…",
+  "skipped.convert.failed":
+    "LibreOffice couldn’t convert it. Save it with the app that made it, then add it.",
   "documents.alreadyAdded": "Already in IncarnaMind, so nothing new was added: {names}",
   "documents.copy.open": "Open in default app",
   "sort.menu": "Sort by…",
@@ -1924,6 +1964,7 @@ export const en = {
   "info.inLibrary": "In your Library",
   "info.address": "Address",
   "info.from": "From",
+  "info.convertedFrom": "Converted from",
   "info.fonts": "Fonts",
   "info.from.linked": "Linked folder “{name}”",
   "info.from.own": "Other Documents",
@@ -2134,8 +2175,6 @@ export const en = {
   "status.rebuilding": "Rebuilding search",
   "status.searchError": "Search can’t use {provider}",
   "status.retry": "Retry",
-  "status.skipped.one": "Skipped 1 file",
-  "status.skipped.other": "Skipped {count} files",
   "webPages.add.title": "Add web pages",
   "webPages.add.note": "Paste an address, or several, one per line.",
   "webPages.add.fetch": "Fetched once from this computer, kept as a Document.",
@@ -4248,10 +4287,12 @@ export const en = {
   "aiStatement.uses.column.model": "Model",
   "aiStatement.uses.column.times": "Times",
   "aiStatement.uses.modelUnknown": "Not recorded",
+  "aiStatement.uses.agent": "{agent} (a connected agent; its model unknown)",
   "aiStatement.use.answer": "Answers written",
   "aiStatement.use.answer-added": "Answers added to the note",
   "aiStatement.use.edit-with-ai-accepted": "Changes from Edit with AI accepted",
   "aiStatement.use.assistant-change-accepted": "Changes from the assistant accepted",
+  "aiStatement.use.outside-agent-change-accepted": "Changes from a connected agent accepted",
   "aiStatement.use.comparison-table-accepted": "Comparison tables accepted",
   "aiStatement.use.suggestion-accepted": "Writing suggestions accepted",
   "aiStatement.use.search-documents": "Searches of the author’s own Documents",
@@ -4622,6 +4663,8 @@ export const en = {
   "error.startup.title": "IncarnaMind couldn’t start",
   "error.startup.body":
     "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\n{message}",
+  "error.startup.held":
+    "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
   "error.startup.busy":
     "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
   "error.startup.starting":
@@ -5043,6 +5086,8 @@ export const en = {
   "error.files.notChosen": "You didn’t choose where to save new files, so nothing was saved.",
   "error.files.linkedFolderDeclined":
     "You didn’t allow new files in this Linked folder, so nothing was saved.",
+  "error.files.pathRequired": "A file’s full path is needed.",
+  "error.files.notSkipped.show": "Only a file the last add skipped can be shown.",
   "error.files.notSaved.show": "Only a file IncarnaMind saved can be shown.",
   "error.files.notSaved.open": "Only a file IncarnaMind saved can be opened.",
   "error.provider.modelMissing": "Enter a model name.",
@@ -5134,6 +5179,7 @@ export const en = {
     "“{file}” is already in IncarnaMind. Delete it, then locate the folder again.",
   "error.agent.notConnected": "That agent isn’t connected.",
   "error.agent.nameEmpty": "Give the agent a name.",
+  "error.agent.proposeChoice": "Whether an agent may propose changes must be true or false.",
   "error.agent.nameTooLong": "An agent’s name can be at most {max} characters.",
   "error.agent.nameTaken": "An agent named “{name}” is already connected.",
   "error.agent.noFolders": "Choose at least one Folder for the agent to read.",
@@ -5594,6 +5640,14 @@ export const en = {
     "Asks first: this conversation has text from a web page.",
   "approvals.thirdParty.conversation.checkedDocument":
     "Asks first: this conversation has text from the checked document.",
+  "approvals.thirdParty.read.outsideAgent":
+    "Asks first: this Answer read a note with text from a connected agent.",
+  "approvals.thirdParty.task.outsideAgent":
+    "Asks first: this Task read a note with text from a connected agent.",
+  "approvals.thirdParty.mind.outsideAgent":
+    "Asks first: this note has text from a connected agent.",
+  "approvals.thirdParty.conversation.outsideAgent":
+    "Asks first: this conversation has text from a connected agent.",
   "approvals.call.waiting": "Waiting for your approval: {connector}: {tool}",
   "approvals.call.denied": "Not allowed: {connector}: {tool}",
   "approvals.call.allowed": "Asked {connector} with your approval: {tool}",
@@ -6704,6 +6758,38 @@ export const en = {
   "agents.answer.notFound": "[quote not found]",
   "agents.answer.cantCheck": "[can’t be checked]",
   "agents.mind.outsideCitation": "a Document in a Folder not shared with this agent",
+  "agents.problem.read-only":
+    "This agent may only read. To let it propose changes to your notes, allow it in Settings → Agents.",
+  "agents.problem.changed":
+    "This note changed after the agent read it. Read it again, then propose the changes again.",
+  "agents.problem.waiting":
+    "{paragraph} already has changes waiting in IncarnaMind. Accept or reject them there first.",
+  "agents.problem.busy": "IncarnaMind is writing {paragraph} now. Try again once it’s done.",
+  // Before a paragraph an agent reads by name that it can't change now (#352).
+  "agents.mind.waiting": "(changes waiting)",
+  "agents.mind.busy": "(being written)",
+  // Why an outside agent's proposed changes couldn't be read (#352), for it to put right.
+  "agents.propose.list": "List 1 to {max} changes.",
+  "agents.propose.name":
+    "“{name}” isn’t a paragraph’s name. Use ¶3 for a paragraph read_mind named, ¶3+ to add after it, or ¶+ to add after the change before.",
+  "agents.propose.removeChoice": "remove must be true or false.",
+  "agents.propose.removeOnly": "To take {name} out, give remove and no text.",
+  "agents.propose.text": "Give the text for {name}.",
+  "agents.propose.textTooLong": "The text for {name} is longer than {max} characters.",
+  "agents.propose.version": "Give the version read_mind returned with named.",
+  "agents.propose.firstAdd": "¶+ adds after the change before it: name a paragraph first.",
+  "agents.propose.noParagraphs": "{name} isn’t in the note: it has no paragraphs to name.",
+  "agents.propose.outOfRange": "{name} isn’t in the note: its paragraphs are ¶1 to ¶{count}.",
+  "agents.propose.twice": "{name} is named twice: change each paragraph once.",
+  "agents.propose.formula":
+    "In {name}, a Citation sits between two dollar signs, which read as a formula: write it outside them.",
+  "agents.propose.table":
+    "The text for {name} has lines that read as a table’s rows but make no table.",
+  "agents.propose.lost":
+    "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
+  "agents.propose.unplaced":
+    "These changes would add a Citation, footnote or figure IncarnaMind didn’t place, so nothing was written. Cite only with [cite:…] tokens.",
+  "agents.mind.namedChoice": "named must be true or false.",
   // Settings → Agents (#351): plain words for people who never edit a settings file.
   "settings.pages.agents": "Agents",
   "agents.settings.experimental": "Experimental",
@@ -6733,6 +6819,7 @@ export const en = {
   "agents.sentence.other": "your agent",
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
+  "agents.pairing.proposes": "Can propose changes to notes there, which wait for you",
   "agents.pairing.lastUsed": "Last used {when}",
   "agents.pairing.notUsed": "Not used yet",
   "agents.pairing.renameLabel": "Name of {agent}",
@@ -6759,8 +6846,11 @@ export const en = {
   "agents.activity.list_minds": "Listed your notes",
   "agents.activity.read_mind": "Read the note “{text}”",
   "agents.activity.ask": "Asked “{text}”",
+  "agents.activity.propose_changes": "Proposed changes to “{text}”",
   "agents.activity.count.one": "1 result",
   "agents.activity.count.other": "{count} results",
+  "agents.activity.changes.one": "1 change waiting for you",
+  "agents.activity.changes.other": "{count} changes waiting for you",
   "agents.activity.refused": "Refused: {reason}",
   "agents.activity.failed": "Didn’t work: {reason}",
   "agents.reason.unpaired": "it wasn’t connected",
@@ -6773,6 +6863,9 @@ export const en = {
   "agents.reason.chat-not-ready": "no AI model was ready",
   "agents.reason.invalid": "a request IncarnaMind couldn’t read",
   "agents.reason.failed": "something went wrong",
+  "agents.reason.read-only": "it may only read",
+  "agents.reason.changed": "the note had changed since it read it",
+  "agents.reason.waiting": "a paragraph had changes waiting",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
     "It can read your chosen Folders and the notes in them. What it reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
@@ -6784,6 +6877,8 @@ export const en = {
   "agents.connect.empty.title": "Nothing to read yet",
   "agents.connect.empty.body": "Add Documents for {agent} to read. They appear here.",
   "agents.connect.pickOne": "Choose at least one Folder.",
+  "agents.propose.label": "Let it propose changes to the notes in these Folders",
+  "agents.propose.hint": "Its changes wait until you accept or reject them.",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",
@@ -6869,6 +6964,10 @@ export const en = {
   "wordImport.cancel": "Cancel",
   "wordImport.asDocument": "Add as a Document instead",
   "wordImport.chooseAnother": "Choose another file…",
+  "wordImport.convert": "Convert with LibreOffice",
+  "wordImport.converting": "Converting…",
+  "wordImport.convertFailed":
+    "LibreOffice couldn’t convert “{name}”. Save it as .docx in Word, then import it.",
   "wordImport.refusal.legacy":
     "“{name}” is an older .doc file. Save it as .docx in Word, then import.",
   "wordImport.refusal.macros": "“{name}” has macros. Save it as .docx in Word, then import.",

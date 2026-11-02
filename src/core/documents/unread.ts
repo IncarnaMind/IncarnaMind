@@ -25,9 +25,13 @@ export function findUnreadDocuments(documents: readonly Document[]): UnreadFile[
     // Its stored parts are damaged: say that something wasn't read, never that all was.
     const unknown = document.unreadPartsUnknown;
     let reason: UnreadReason | null = null;
-    if (document.status === "no-text") reason = parts || unknown ? "parts" : "scan";
+    if (document.status === "no-text")
+      reason = parts || unknown ? "parts" : document.kind === "image" ? "picture" : "scan";
     else if (document.status === "failed")
-      reason = FAILED[document.failure?.reason ?? ""] ?? "damaged";
+      reason =
+        document.kind === "image" && document.failure?.reason === "pages-unread"
+          ? "picture"
+          : (FAILED[document.failure?.reason ?? ""] ?? "damaged");
     else if (parts || unknown) reason = "parts";
     if (reason === null) continue;
     found.push({

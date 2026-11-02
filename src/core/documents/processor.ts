@@ -28,6 +28,7 @@ import type {
   WorkerResponse,
   WorkerResult,
 } from "./processing";
+import type { PictureProblem } from "./web/pictures";
 import startDocumentWorker from "./worker?nodeWorker";
 
 export interface ProcessorHandlers {
@@ -59,8 +60,12 @@ export interface ProcessorHandlers {
    * when no page can be read now (the model can't be had).
    */
   read(job: ProcessingJob, page: number, picture: PagePicture): Promise<RecognizedLine[]>;
-  /** As `read`, for a picture file (`TextRecognizer.readFile`). */
-  readFile(job: ProcessingJob, page: number, file: Uint8Array): Promise<PictureRead>;
+  /** As `read`, for a picture file (`TextRecognizer.readFile`), or why it was refused. */
+  readFile(
+    job: ProcessingJob,
+    page: number,
+    file: Uint8Array,
+  ): Promise<PictureRead | { refused: PictureProblem }>;
   /** What a job logs. */
   onLog(job: ProcessingJob, entry: { event: string; fields: LogFields }): void;
   /** Whether an error from `read` means no page can be read now. */
@@ -194,10 +199,14 @@ export function createProcessor(
     const answer = (message: WorkerRequest) => {
       if (from.alive && running.get(id) === asked) from.thread.postMessage(message);
     };
-    const reading: Promise<Pick<Extract<WorkerRequest, { request: number }>, "lines" | "read">> =
+    const reading: Promise<
+      Pick<Extract<WorkerRequest, { request: number }>, "lines" | "read" | "refused">
+    > =
       "picture" in what
         ? handlers.read(asked.job, page, what.picture).then((lines) => ({ lines }))
-        : handlers.readFile(asked.job, page, what.file).then((read) => ({ read }));
+        : handlers
+            .readFile(asked.job, page, what.file)
+            .then((read) => ("refused" in read ? { refused: read.refused } : { read }));
     reading.then(
       (answered) => answer({ id, request, ...answered }),
       (error: unknown) =>

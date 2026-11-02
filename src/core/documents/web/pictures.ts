@@ -4,6 +4,7 @@
  * the caps below. What a picture is comes from its bytes, never from what
  * the server says; anything else is left out.
  */
+import { isHeifPicture } from "../formats/images";
 import { WebPageError } from "./errors";
 import { type PageFetch, type PageResponse, USER_AGENT } from "./fetch";
 
@@ -65,14 +66,32 @@ const view = (bytes: Uint8Array) => new DataView(bytes.buffer, bytes.byteOffset,
 function jpegSize(bytes: Uint8Array): { width: number; height: number } | null {
   const data = view(bytes);
   let at = 2;
-  while (at + 9 < bytes.length) {
+  while (at + 1 < bytes.length) {
     if (bytes[at] !== 0xff) return null;
-    const marker = bytes[at + 1] ?? 0;
+    // Fill bytes: legal 0xFF padding before a marker (JPEG B.1.1.2).
+    while (at < bytes.length && bytes[at] === 0xff) at++;
+    if (at >= bytes.length) return null;
+    const marker = bytes[at] as number;
+    at++;
+    // Standalone markers carry no length: SOI, EOI, TEM and the restart markers.
+    if (
+      marker === 0xd8 ||
+      marker === 0xd9 ||
+      marker === 0x01 ||
+      (marker >= 0xd0 && marker <= 0xd7)
+    ) {
+      continue;
+    }
+    if (at + 2 > bytes.length) return null;
+    const length = data.getUint16(at);
+    if (length < 2) return null;
     // Start of frame: baseline, progressive and the rest, not DHT (C4), JPG (C8) or DAC (CC).
     if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-      return { height: data.getUint16(at + 5), width: data.getUint16(at + 7) };
+      return at + 7 <= bytes.length
+        ? { height: data.getUint16(at + 3), width: data.getUint16(at + 5) }
+        : null;
     }
-    at += 2 + data.getUint16(at + 2);
+    at += length;
   }
   return null;
 }
@@ -136,6 +155,49 @@ function gifSize(bytes: Uint8Array): { width: number; height: number } | null {
     at += 1;
   }
   return { width, height };
+}
+
+/** Why a picture is refused before it is drawn or read (#762). */
+export interface PictureProblem {
+  kind: "too-large" | "size-unreadable" | "unreadable";
+  /** The technical sentence a failure and the log keep. */
+  message: string;
+}
+
+/**
+ * Why a picture must not be drawn or read (#762): its header's size is over
+ * the memory cap, its size can't be read, or its bytes are not a picture kind
+ * IncarnaMind reads. Null when it is fine. A HEIF's size is checked after it
+ * is decoded, so it passes here; any other bytes a decoder would take are
+ * refused, so a picture named .png that is really another format can't reach
+ * the decoder at all.
+ */
+export function pictureProblem(bytes: Uint8Array): PictureProblem | null {
+  const type = pictureType(bytes);
+  if (!type) {
+    if (!isHeifPicture(bytes)) {
+      return {
+        kind: "unreadable",
+        message: "This isn’t a picture IncarnaMind reads (PNG, JPEG, GIF, WebP, AVIF or HEIC).",
+      };
+    }
+    // A HEIC's own `ispe` boxes give its size, as AVIF's do, before any decoder runs.
+    const heic = avifSize(bytes);
+    return heic && heic.width * heic.height > PICTURE_LIMITS.maxPixels
+      ? {
+          kind: "too-large",
+          message: `The picture is too large to open (${heic.width} × ${heic.height} pixels).`,
+        }
+      : null;
+  }
+  const size = pictureSize(bytes, type);
+  if (!size) return { kind: "size-unreadable", message: "The picture’s size couldn’t be read." };
+  return size.width * size.height > PICTURE_LIMITS.maxPixels
+    ? {
+        kind: "too-large",
+        message: `The picture is too large to open (${size.width} × ${size.height} pixels).`,
+      }
+    : null;
 }
 
 /** A picture's size in pixels, from its header; null when it can't be read. */

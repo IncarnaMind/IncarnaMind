@@ -137,7 +137,7 @@ test("the page is grouped by Folder in the sidebar's order, with Not in a Folder
 
     // The problem, in one line with one action.
     await expect(library.getByTestId("library-problem")).toHaveText(
-      "1 Document has no text: a scan · Show",
+      "1 Document has no text · Show",
     );
 
     // Recently deleted waits folded at the foot; opened, each row offers Restore.
@@ -155,9 +155,7 @@ test("the page is grouped by Folder in the sidebar's order, with Not in a Folder
     await expect(sections(library).getByTestId("library-section-name").last()).toHaveText(
       "不在文件夹中",
     );
-    await expect(library.getByTestId("library-problem")).toHaveText(
-      "1 个文档没有文字：扫描件 · 显示",
-    );
+    await expect(library.getByTestId("library-problem")).toHaveText("1 个文档没有文字 · 显示");
     await expect(window.getByTestId("deleted-heading")).toHaveText("回收站");
     expect(await tallest()).toBeLessThanOrEqual(40);
     await expect(window.getByTestId("tab-title").filter({ hasText: "资料库" })).toHaveCount(1);
