@@ -39,13 +39,14 @@ describe("a figure() figure worked out again from the cells", () => {
     ["min", 40],
     ["max", 150.5],
     ["count", 4],
-  ] as const)("its %s skips the cells that aren't numbers, as pandas does", (how, value) => {
+  ] as const)("its %s over rows of numbers and blanks is worked out again", (how, value) => {
     expect(
       recalculate(
         value,
         of(
           [
-            [2, 6],
+            [2, 4],
+            [6, 6],
             [8, 8],
           ],
           how,
@@ -54,6 +55,31 @@ describe("a figure() figure worked out again from the cells", () => {
       ),
     ).toEqual({ kind: "same", value });
   });
+
+  test.each([
+    ["sum", 390.5],
+    ["count", 4],
+  ] as const)(
+    "its %s over rows holding a cell that isn't a number isn't, and names the cell (#2444)",
+    (how, value) => {
+      expect(
+        recalculate(
+          value,
+          of(
+            [
+              [2, 6],
+              [8, 8],
+            ],
+            how,
+          ),
+          [SALES],
+        ),
+      ).toEqual({
+        kind: "unchecked",
+        reason: '1 cell of Revenue in the rows it names isn\'t a number: row 5 "n/a"',
+      });
+    },
+  );
 
   test("a value its cells don't come to differs, and says what they come to", () => {
     expect(recalculate(300, of([[2, 3]], "sum"), [SALES])).toEqual({
