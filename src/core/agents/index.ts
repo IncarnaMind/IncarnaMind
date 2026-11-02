@@ -96,7 +96,10 @@ export interface AgentsOptions {
   /** This build's version, as the server names itself to agents. */
   version: string;
   /** What the calls read (see ./access). */
-  access: Omit<AgentAccessDeps, "admit" | "record" | "citations" | "clock" | "reportError">;
+  access: Omit<
+    AgentAccessDeps,
+    "admit" | "record" | "citations" | "clock" | "now" | "newId" | "reportError"
+  >;
   /** Whether this agent has IncarnaMind's Skill installed (see ./setup). */
   skillInstalled(client: string | null): boolean;
   changed(settings: AgentSettings): void;
@@ -109,6 +112,7 @@ interface PairingRow {
   name: string;
   folder_ids: string;
   client: string | null;
+  propose: number;
   last_used_at: string | null;
   created_at: string;
 }
@@ -141,6 +145,7 @@ const toPairing = (row: PairingRow): AgentPairing => ({
   name: row.name,
   folderIds: parseList<string>(row.folder_ids).filter((id) => typeof id === "string"),
   client: row.client,
+  propose: row.propose === 1,
   lastUsedAt: row.last_used_at,
   createdAt: row.created_at,
 });
@@ -186,14 +191,14 @@ export function createAgents(options: AgentsOptions) {
   const livePairings = () =>
     db
       .all<PairingRow>(
-        `SELECT id, name, folder_ids, client, last_used_at, created_at FROM agent_pairings
+        `SELECT id, name, folder_ids, client, propose, last_used_at, created_at FROM agent_pairings
          WHERE deleted_at IS NULL ORDER BY created_at, rowid`,
       )
       .map(toPairing);
 
   const findPairing = (pairingId: string): AgentPairing | null => {
     const row = db.get<PairingRow>(
-      `SELECT id, name, folder_ids, client, last_used_at, created_at FROM agent_pairings
+      `SELECT id, name, folder_ids, client, propose, last_used_at, created_at FROM agent_pairings
        WHERE id = ? AND deleted_at IS NULL`,
       [pairingId],
     );
@@ -254,6 +259,13 @@ export function createAgents(options: AgentsOptions) {
     );
     if (taken) throw new InvalidInputError({ key: "error.agent.nameTaken", values: { name } });
     return name;
+  };
+
+  const parsePropose = (value: unknown, fallback: boolean): boolean => {
+    if (value === undefined) return fallback;
+    if (typeof value !== "boolean")
+      throw new InvalidInputError({ key: "error.agent.proposeChoice" });
+    return value;
   };
 
   const parseClient = (value: unknown): string | null => {
@@ -352,6 +364,7 @@ export function createAgents(options: AgentsOptions) {
       id: pairing.id,
       name: pairing.name,
       folderIds,
+      propose: pairing.propose,
     };
   };
 
@@ -397,6 +410,8 @@ export function createAgents(options: AgentsOptions) {
     record,
     citations,
     clock: options.clock,
+    now: options.now,
+    newId: randomUUID,
     reportError: options.reportError,
   };
 
@@ -487,15 +502,16 @@ export function createAgents(options: AgentsOptions) {
       const name = parseName(input.name, null);
       const folderIds = parseFolders(input.folderIds);
       const client = parseClient(input.client);
+      const propose = parsePropose(input.propose, false);
       const id = randomUUID();
       const token = `im_${randomBytes(32).toString("base64url")}`;
       // The token is stored first: a pairing without one could never be used.
       await options.secrets.set(secretName(id), token);
       const at = options.now();
       db.run(
-        `INSERT INTO agent_pairings (id, name, folder_ids, client, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [id, name, JSON.stringify(folderIds), client, at, at],
+        `INSERT INTO agent_pairings (id, name, folder_ids, client, propose, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, name, JSON.stringify(folderIds), client, propose ? 1 : 0, at, at],
       );
       tokens.set(id, token);
       // The User confirmed what it may read and where that goes before this was called.
@@ -510,13 +526,12 @@ export function createAgents(options: AgentsOptions) {
       const name = input.name === undefined ? pairing.name : parseName(input.name, pairing.id);
       const folderIds =
         input.folderIds === undefined ? pairing.folderIds : parseFolders(input.folderIds);
+      const propose = parsePropose(input.propose, pairing.propose);
       const at = options.now();
-      db.run("UPDATE agent_pairings SET name = ?, folder_ids = ?, updated_at = ? WHERE id = ?", [
-        name,
-        JSON.stringify(folderIds),
-        at,
-        pairing.id,
-      ]);
+      db.run(
+        "UPDATE agent_pairings SET name = ?, folder_ids = ?, propose = ?, updated_at = ? WHERE id = ?",
+        [name, JSON.stringify(folderIds), propose ? 1 : 0, at, pairing.id],
+      );
       changed();
       return requirePairing(pairing.id);
     },
