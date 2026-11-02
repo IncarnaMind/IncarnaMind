@@ -115,8 +115,8 @@ export function webInstructions(offered: boolean): string {
 export function workbookInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    "A figure in an Excel workbook is worked out by the workbook's own formulas, which its Passages never show: a Passage marked formulas=\"…\" names the rows whose values its formulas worked out. Before the Answer says how such a figure is worked out, names the cells or assumptions it is worked out from, or compares their effect on it, call trace_formulas for that figure: the rows' labels and values only suggest the formulas, and a guess from them would read as fact. When the Question supposes a different value for one of the workbook's inputs, call what_if, which works the figure out again through every formula between them. Write the marker each gives in the Answer where its figure's number goes.",
-    "- Never work a what-if out yourself, with calculate or in words, from the values a Passage shows, and never say how a figure is worked out, or that a sheet doesn't show its formulas, without trace_formulas. When either says a formula can't be worked out, say so in the Answer.",
+    "A figure in an Excel workbook is worked out by the workbook's own formulas, which its Passages never show: a Passage marked formulas=\"…\" names the rows whose values its formulas worked out. Before the Answer says how such a figure is worked out, names the cells or assumptions it is worked out from, or compares their effect on it, call trace_formulas for that figure: the rows' labels and values only suggest the formulas, and a guess from them would read as fact. When the Question supposes a different value for one of the workbook's inputs, call what_if, not run_analysis: what_if works the figure out again through every formula between them. Write the marker each gives in the Answer where its figure's number goes.",
+    "- Never work a what-if out yourself, with calculate, with run_analysis or in words, from the values a Passage shows, and never say how a figure is worked out, or that a sheet doesn't show its formulas, without trace_formulas. A number an Analysis works out in Python is the Analysis's own calculation, never the workbook's recalculation. When either says a formula can't be worked out, say so in the Answer.",
   ].join("\n");
 }
 
@@ -401,6 +401,13 @@ const CITED_SAYS_ONLY_ITS_QUOTE =
  */
 const FIGURES_AS_STATED =
   '- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: "salary is 54,000" stays "54,000 (currency not stated)" / "54,000（未注明币种）", never "£54,000"; "2 percentage points" never becomes "2%".';
+
+/**
+ * A scan's unsure words are marked in its Passages (#535): a figure from one
+ * is never stated as fact. `cite`: the Answer cites with markers.
+ */
+const scannedWords = (cite: boolean) =>
+  `- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact${cite ? ", nor use one in a calculation" : ""}; say the scan is unclear${cite ? " and cite it" : ""}.`;
 
 /**
  * A premise the Passages don't support, and Passages that disagree (#548):
@@ -758,6 +765,7 @@ export function documentInstructions(
         notCovered(true, true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
+        scannedWords(true),
         readingRules(true),
         ...(calculate ? ["", CALCULATE] : []),
       ].join("\n");
@@ -784,6 +792,7 @@ export function documentInstructions(
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
+        scannedWords(true),
         readingRules(true),
       ].join("\n");
     case "none":
@@ -799,6 +808,7 @@ export function documentInstructions(
         "Use them where they help. Don't write citation markers or a list of sources.",
         notCovered(false),
         FIGURES_AS_STATED,
+        scannedWords(false),
         readingRules(false),
         NO_CALCULATE,
       ].join("\n");

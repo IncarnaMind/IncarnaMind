@@ -76,6 +76,7 @@ import {
   unitLocation,
 } from "../../shared/locations";
 import { memoized } from "../../shared/memo";
+import { misreadDigits, numberDigits } from "../../shared/misreadWords";
 import { findQuote, type TextRange } from "../../shared/quoteMatch";
 import { anchorsOf, cellNumber } from "../../shared/units";
 import type {
@@ -85,6 +86,7 @@ import type {
   FigureShowOptions,
   InputNumber,
 } from "../api";
+import { mixedNumberWord, unsureSpansIn } from "../documents/scan/layout";
 import { detectLanguage } from "../documents/textLanguage";
 import type { Language } from "../language";
 import { WORKBOOK_TOOLS } from "../tools";
@@ -94,6 +96,7 @@ import {
   type Quoted,
   type QuoteInput,
   quotePlaceProblem,
+  unsureWordsCovered,
 } from "./citations";
 import type { CiteOptions } from "./engine";
 
@@ -183,6 +186,23 @@ export function quotedLines(quoted: QuotedText): string {
   const to = Math.max(...ranges.map((range) => range.end));
   const end = text.indexOf("\n", to);
   return text.slice(text.lastIndexOf("\n", from - 1) + 1, end < 0 ? text.length : end);
+}
+
+/** The one line a figure read from a scan's unsure word is refused with (#535). */
+const UNSURE_INPUT =
+  "That number was read from a scan and may be misread; it can't be an input until the User confirms it.";
+
+/** The parts of a quote around its ellipses, with where each starts in it. */
+function quoteParts(quote: string): TextRange[] {
+  const parts: TextRange[] = [];
+  let from = 0;
+  for (const match of quote.matchAll(/(?:\.{3,}|…)/gu)) {
+    const at = match.index ?? 0;
+    if (at > from) parts.push({ start: from, end: at });
+    from = at + match[0].length;
+  }
+  if (from < quote.length) parts.push({ start: from, end: quote.length });
+  return parts;
 }
 
 const beforeOnLine = (text: string, at: number) =>
@@ -831,6 +851,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   function unreadable(quoted: Quoted, record: number | null): string | null {
     const { check, checkReason } = quoted.check();
     if (check === "found") return null;
+    // A scan's unsure words don't stop the page being read: the number itself is refused below (#535).
+    if (checkReason === "unsure-word") return null;
     if (checkReason === "document-removed")
       return `${quoted.passage}'s Document was deleted; quote another Passage.`;
     if (check === "cant-check")
@@ -838,6 +860,60 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return record === null
       ? `the quote isn't word for word at ${whereOf(quoted)} in ${quoted.passage}; copy it exactly.`
       : `[^${record}]'s quote isn't word for word where it cites; fix it with cite, or give passage, location and quote.`;
+  }
+
+  /**
+   * The word a scan may have misread that a figure of the quote lies in (#535);
+   * null when it lies in none. A number read from one isn't an input until
+   * the User has checked the page.
+   */
+  function unsureWordAt(quoted: Quoted, figure: Figure): string | null {
+    const quote = quoted.citation.quote;
+    const ranges = quoteInUnits(quoted.units, quote, quoted.matching);
+    const first = ranges?.[0];
+    if (!ranges || !first) return null;
+    // The quote's parts around an ellipsis match its ranges in order: the figure lies in one of them.
+    const parts = quoteParts(quote);
+    const pairs =
+      ranges.length === 1
+        ? [{ part: { start: 0, end: quote.length }, range: first }]
+        : ranges.length === parts.length
+          ? parts.map((part, index) => ({ part, range: ranges[index] as TextRange }))
+          : [];
+    const pair = pairs.find(({ part }) => figure.start >= part.start && figure.end <= part.end);
+    if (!pair) {
+      // The parts can't be paired where they should be: refuse a figure the quote's unsure words hold.
+      return (
+        unsureWordsCovered(quoted.units, ranges).find(
+          (word) => word.includes(figure.chars) || figure.chars.includes(word),
+        ) ?? null
+      );
+    }
+    const from = pair.range.start + (figure.start - pair.part.start);
+    const to = pair.range.start + (figure.end - pair.part.start);
+    const { starts } = joinUnits(quoted.units);
+    for (const [index, unit] of quoted.units.entries()) {
+      const offset = starts[index] ?? 0;
+      for (const [wordFrom, wordTo] of unsureSpansIn(unit)) {
+        if (offset + wordFrom < to && offset + wordTo > from) {
+          return unit.text.slice(wordFrom, wordTo);
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Whether `number` is what one of the quote's unsure words reads as (#535). The
+   * figure reader finds no number in "7a;45o", so the word itself has to say.
+   */
+  function readsFromUnsureWord(quoted: Quoted, number: string): boolean {
+    // The model may name the number as the page reads it ("7a;45o") or as it means it ("7,450").
+    const readings = new Set([numberDigits(number), misreadDigits(number)]);
+    readings.delete("");
+    return (quoted.check().unsure ?? []).some(
+      (word) => mixedNumberWord(word) && readings.has(misreadDigits(word)),
+    );
   }
 
   /** Whether an input's quote, recorded with cite or given inline, is where the check can't read it. */
@@ -848,7 +924,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         : given.record
           ? quotes.quote(given.record)
           : null;
-    return quoted !== null && !("problem" in quoted) && quoted.check().check === "cant-check";
+    if (quoted === null || "problem" in quoted) return false;
+    const check = quoted.check();
+    // A scan's unsure word is no unread page: the number itself is refused above (#535).
+    return check.check === "cant-check" && check.checkReason !== "unsure-word";
   }
 
   /** The quote an input reads from; or why it can't. */
@@ -1081,12 +1160,19 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         { passage: quoted.passage, quote: given.unitQuote },
         { structured: true },
       );
-      if ("problem" in line || line.check().check !== "found")
+      if ("problem" in line) {
         unitProblem = `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
-      else {
-        const yen = figureContextOf(line.citation.quote, context.language).yen ?? context.yen;
-        context = { ...context, yen };
-        unit = line;
+      } else {
+        const check = line.check();
+        if (check.check === "found") {
+          const yen = figureContextOf(line.citation.quote, context.language).yen ?? context.yen;
+          context = { ...context, yen };
+          unit = line;
+        } else if (check.checkReason === "unsure-word") {
+          unitProblem = `the unitQuote may include a word the scan misread; quote a line that states the unit clearly, from the same Passage.`;
+        } else {
+          unitProblem = `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
+        }
       }
     }
 
@@ -1115,7 +1201,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       const inChars =
         exact.length > 0 ? exact : figures.filter((each) => namedIn(each.chars, named));
       const found = inChars.length > 0 ? inChars : figures.filter((each) => writtenAs(each, named));
-      if (found.length === 0) return `the quote has no number "${named}"; ${has}.`;
+      if (found.length === 0) {
+        if (readsFromUnsureWord(quoted, named)) return UNSURE_INPUT;
+        return `the quote has no number "${named}"; ${has}.`;
+      }
       if (found.length > 1)
         return `"${named}" is in the quote ${found.length} times; give its position (${either(found.map((each) => figures.indexOf(each) + 1))}).`;
       figure = found[0];
@@ -1123,6 +1212,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       return "give number, the number as it is written in the quote, or its position.";
     }
     if (!figure) return `the quote has no number "${given.number}"; ${has}.`;
+
+    if (unsureWordAt(quoted, figure) !== null) return UNSURE_INPUT;
 
     const currency = figure.ambiguous.find((each) => each.kind === "currency");
     if (currency) {

@@ -56,6 +56,7 @@
  * by saying which.
  */
 
+import { readFigures } from "../../shared/figures";
 import { namesIn } from "./asks";
 import { cellReply, isCell } from "./cells";
 import {
@@ -117,6 +118,9 @@ export const CITED_ANSWER = "Your Documents answer this [^1].\n\nThat is all.";
 
 /** A Question whose Answer says more than its quote does: the scripted check finds it unsupported (#2311). */
 const BEYOND_ITS_QUOTE = /\bbeyond its quote\b|超出引文/i;
+
+/** A Question that asks for the figure its quote holds, which it writes as a model trusting a scan does (#535). */
+const ASKS_FOR_A_FIGURE = /\bstate the figure\b|写出数字/i;
 
 /** The sentence such an Answer writes, which says more than its quote: the scripted check finds it unsupported. */
 export const SAYS_MORE = /\bit is already done\b|这件事已经完成/u;
@@ -594,11 +598,25 @@ function regressionReply(prompt: Prompt, question: string, searched: string): Re
   };
 }
 const WITH_MANAGERS = /\bmanager|负责人/i;
+/** Asks for the Analysis's table in a Note rather than in the Answer (#2378). */
+const PUT_TABLE_IN_NOTE =
+  /\bput (?:it|the table|that table) in (?:a|the) note|把表格写进笔记|写进笔记/i;
 
 function analysisReply(prompt: Prompt, question: string, searched: string): Reply | null {
   const ran = toolResults(prompt, "run_analysis");
   const chinese = /\p{Script=Han}/u.test(question);
   if (ran.length > 0) {
+    if (PUT_TABLE_IN_NOTE.test(question)) {
+      if (toolResults(prompt, "add_to_mind").length === 0) {
+        return {
+          tool: "add_to_mind",
+          input: {
+            content: chinese ? "各地区收入：\n\n[=table 1]" : "Revenue by region:\n\n[=table 1]",
+          },
+        };
+      }
+      return { text: chinese ? "已写入笔记。" : "Written into the note." };
+    }
     return {
       text: chinese
         ? "各地区收入如下：\n\n[=table 1]\n\n合计 [=1]。"
@@ -727,6 +745,14 @@ function answerFrom(
         },
       };
     }
+    // A number `calculate` refused because a scan may have misread it (#535): say the scan is unclear.
+    if (calculated.at(-1)?.includes("may be misread; it can't be an input")) {
+      return {
+        text: /增长/.test(question)
+          ? "扫描件上的这个数字识别不清，我无法据此计算[^1]。"
+          : "The scan is unclear, so I can't work that figure out [^1].",
+      };
+    }
     if (calculated.at(-1)?.startsWith("Recorded [=1]")) {
       const chinese = /增长/.test(question);
       if (share)
@@ -746,7 +772,21 @@ function answerFrom(
     };
   }
   const firstPassage = passagesIn(searches.at(-1) ?? "")[0];
-  const quoted = firstPassage && recordFor(firstPassage, question, 1)?.quoted;
+  const firstRecord = firstPassage ? recordFor(firstPassage, question, 1) : null;
+  const quoted = firstRecord?.quoted;
+  // A Question that asks the model to state a figure: it writes the first number in its quote, as
+  // a model does that trusts a scan's reading (#535).
+  if (ASKS_FOR_A_FIGURE.test(question)) {
+    const quoted = firstRecord?.record.quote;
+    const figure = readFigures(typeof quoted === "string" ? quoted : "")[0];
+    if (figure) {
+      return {
+        text: /\p{Script=Han}/u.test(question)
+          ? `数字为 ${figure.chars}[^1]。`
+          : `The figure is ${figure.chars} [^1].`,
+      };
+    }
+  }
   if (quoted) {
     return {
       text: /\p{Script=Han}/u.test(question)

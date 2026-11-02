@@ -351,7 +351,7 @@ function keptLineOf(leftOut: readonly LeftOutPart[]): KeptLine | null {
 export const appliedMessage = (blocks: ChangedBlocks) => appliedText(t, blocks);
 
 /** Accepts the edit's Proposals as part of its Undo step, and shows the line over it. Returns what changed. */
-function apply(edit: Applying, request: string): ChangedBlocks {
+function apply(edit: Applying, request: string, parts?: number): ChangedBlocks {
   const { editor } = edit;
   const places = changesOf(editor.state, request);
   const blocks = edit.doc.getXmlFragment(MIND_CONTENT_FIELD);
@@ -380,6 +380,7 @@ function apply(edit: Applying, request: string): ChangedBlocks {
     reason: reasonOf(edit.doc, request),
     changes,
     kept: keptLineOf(edit.leftOut.filter((part) => blockAt(doc, part.blockId) !== null)),
+    ...(parts !== undefined && parts > 1 && { parts }),
   });
   offerEditorUndo(editor, (t) => appliedText(t, changed), pageUndoPlace);
   return changed;
@@ -825,7 +826,7 @@ export async function finishApplying(
     });
     return "held";
   }
-  return { applied: apply(edit, result.request) };
+  return { applied: apply(edit, result.request, result.parts) };
 }
 
 function undoEdit(editor: Editor): void {

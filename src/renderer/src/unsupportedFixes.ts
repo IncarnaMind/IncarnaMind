@@ -349,14 +349,18 @@ export function applyFigure(
   asOneStep(editor, () => {
     editor.view.dispatch(editor.state.tr.insertText(fix.shown, place.from, place.to));
   });
+  const recheck = () => {
+    const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
+    if (again) void checkAgain(editor, mindId, doc, again, undefined, showCard);
+  };
   offerEditorUndo(
     editor,
     (t) => t("claim.useFigure.done", { figure: fix.shown }),
     undefined,
     () => restoreCheck(editor, claim, earlier),
+    recheck,
   );
-  const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
-  if (again) void checkAgain(editor, mindId, doc, again, undefined, showCard);
+  recheck();
 }
 
 export function applyDocumentWording(
