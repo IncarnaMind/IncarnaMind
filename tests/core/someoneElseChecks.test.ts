@@ -55,6 +55,8 @@ interface Case {
   extra?: string[];
   /** Its Roles line once asked for the sentence's own words; the same line again when absent. */
   again?: string;
+  /** Each figure's roles on the Figures line: the Roles line's closing word when absent. */
+  itemRoles?: string;
   /** The Document's number each figure of the sentence is bound to, when it has one. */
   number?: string;
 }
@@ -97,7 +99,7 @@ function replying(each: Case, calls: ModelCall[]) {
       ];
       const figures = requestedFigures(call);
       if (figures.length === 0) return { text: lines.join("\n") };
-      const roles = each.roles.split(",").at(-1)?.trim();
+      const roles = each.itemRoles ?? each.roles.split(",").at(-1)?.trim();
       const items = figures.map(({ id }) => ({
         id,
         verdict: each.verdict,
@@ -435,5 +437,121 @@ describe("asked once for the sentence's own words, a reply is judged on them (#1
     );
     expect(checked?.state).toBe("supported");
     expect(asks(calls)).toHaveLength(0);
+  });
+});
+
+describe("the Roles line's closing word decides, and a one-sided line names no words of the sentence (#1766)", () => {
+  test.each<[string, Case, typeof RULES, "contradicted" | "unsupported" | "not-checked"]>([
+    [
+      "en, a reason in brackets after differs",
+      {
+        sentence: "The Landlord pays the Tenant a rent of 900 per month.",
+        quote: "The Tenant pays the Landlord a rent of 900 per month.",
+        verdict: "contradicted",
+        roles:
+          "The Landlord pays the Tenant / The Tenant pays the Landlord, differs (the other way round)",
+        itemRoles: "differs",
+        number: "900",
+      },
+      RULES,
+      "contradicted",
+    ],
+    [
+      "zh, a reason in brackets after differs",
+      {
+        sentence: "物业管理员向乙方报修。",
+        quote: "乙方向物业管理员报修。",
+        verdict: "contradicted",
+        roles: "物业管理员向乙方报修 / 乙方向物业管理员报修, differs（the other way round）",
+      },
+      RULES_ZH,
+      "contradicted",
+    ],
+    [
+      "en, figures bound as the same parties' though the Roles line says other",
+      {
+        sentence: "The caretaker pays the Landlord a rent of 700 per month.",
+        quote: "The Tenant pays the Landlord a rent of 900 per month.",
+        verdict: "contradicted",
+        roles: "The caretaker pays the Landlord / The Tenant pays the Landlord, other",
+        itemRoles: "same",
+        number: "900",
+      },
+      RULES,
+      "unsupported",
+    ],
+    [
+      "zh, figures bound as the same parties' though the Roles line says other",
+      {
+        sentence: "物业管理员每月向甲方支付租金人民币700元。",
+        quote: "乙方每月向甲方支付租金人民币900元。",
+        verdict: "contradicted",
+        roles: "物业管理员每月向甲方支付 / 乙方每月向甲方支付, other",
+        itemRoles: "same",
+        number: "900",
+      },
+      RULES_ZH,
+      "unsupported",
+    ],
+    [
+      "en, a Supported reply whose one-sided Roles line gives the Passage's words",
+      {
+        sentence: "The Tenant should keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: "The Tenant may keep a cat, same",
+      },
+      RULES,
+      "not-checked",
+    ],
+    [
+      "zh, a Supported reply whose sides have no spaces round the slash",
+      {
+        sentence: "物业管理员向乙方报修。",
+        quote: "乙方向物业管理员报修。",
+        verdict: "supported",
+        roles: "乙方向物业管理员报修/乙方向物业管理员报修, same",
+      },
+      RULES_ZH,
+      "not-checked",
+    ],
+  ])("%s", async (_, each, document, state) => {
+    const checked = await check(each, document);
+    expect(checked?.state).toBe(state);
+    if (state !== "contradicted") expect(checked?.state).not.toBe("contradicted");
+    expect(checked?.state).not.toBe("supported");
+  });
+});
+
+describe("a Roles line that names no party and no must or may on either side holds nothing back (#1766)", () => {
+  // A figure's sentence often names neither: the guard is for words given as the sentence's.
+  test.each<[string, Case, typeof RULES]>([
+    [
+      "en",
+      {
+        sentence: "The rent is 900 per month.",
+        quote: "The Tenant pays the Landlord a rent of 900 per month.",
+        verdict: "supported",
+        roles: "none / none, same",
+        number: "900",
+      },
+      RULES,
+    ],
+    [
+      "zh",
+      {
+        sentence: "租金为每月人民币900元。",
+        quote: "乙方每月向甲方支付租金人民币900元。",
+        verdict: "supported",
+        roles: "无 / 无, same",
+        number: "900",
+      },
+      RULES_ZH,
+    ],
+  ])("%s: Supported, asked nothing", async (_, each, document) => {
+    const calls: ModelCall[] = [];
+    const checked = await check(each, document, calls);
+    expect(checked?.state).toBe("supported");
+    expect(calls.filter((call) => call.prompt.includes(ASKED))).toHaveLength(0);
   });
 });

@@ -727,6 +727,33 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
   return { ...aggregateFigureResults(rows, remainder), figures: rows, remainder };
 }
 
+/**
+ * A sentence's figure results when the reply's Roles line gives the sentence to someone its
+ * Passage doesn't name (#1766): a figure that agreed or disagreed with that Passage's number is
+ * Unsupported, since the number is someone else's.
+ */
+export function aboutSomeoneElse(result: ClaimCheckResult): ClaimCheckResult {
+  const { figures, remainder } = result;
+  if (!figures) return result;
+  const rows = figures.map((figure): FigureCheckResult => {
+    const { result: judged } = figure;
+    if (judged.verdict !== "supported" && judged.verdict !== "contradicted") return figure;
+    const result: ClaimJudgment = {
+      verdict: "unsupported",
+      evidence: null,
+      says: null,
+      unsupported: { reason: judged.says, covered: null, uncovered: null, found: true },
+      calculation: null,
+      citedCaseUnchecked: judged.citedCaseUnchecked,
+      citedCaseFound: judged.citedCaseFound,
+      versions: judged.versions,
+      excluded: judged.excluded,
+    };
+    return { ...figure, result };
+  });
+  return { ...aggregateFigureResults(rows, remainder), figures: rows, remainder };
+}
+
 const STRICTNESS: Record<ClaimJudgment["verdict"], number> = {
   contradicted: 0,
   unsupported: 1,

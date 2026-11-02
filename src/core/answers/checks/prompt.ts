@@ -729,6 +729,7 @@ function jsonVerdict(reply: string): ReadVerdict | null {
       scope: scopeOf(typeof scope === "string" ? `Scope: ${scope}` : undefined),
       topic: topicOf(typeof topic === "string" ? `Topic: ${topic}` : undefined),
       roles: rolesOf(typeof roles === "string" ? `Roles: ${roles}` : undefined),
+      ...rolesWordsOf(typeof roles === "string" ? `Roles: ${roles}` : undefined),
       ...timeOf(typeof time === "string" ? `Time: ${time}` : undefined),
       ...(evidence !== undefined && { evidence: markersOf(evidence) }),
       ...(declaresCoverage(coverage) && { coverage: coverageOf(coverage) }),
@@ -776,12 +777,19 @@ const lastWordOf = (label: RegExp, line: string | undefined): "same" | "differs"
   return word === "differs" || word === "differ" ? "differs" : null;
 };
 
+const ROLES_CLOSING = /\b(same|differs?|other)[\s"'“”*_.。]*$/i;
+const CLOSING_NOTE = /\s*[(（][^()（）]*[)）][\s.。]*$/u;
+
+// "other" counts only as the field's closing word: "the other way round" is a reason for differs.
 const rolesOf = (line: string | undefined): ReadVerdict["roles"] => {
-  const word = (line === undefined ? undefined : ROLES.exec(line)?.[1])
-    ?.match(/\b(?:same|differs?|other)\b/gi)
+  const field = line === undefined ? undefined : ROLES.exec(line)?.[1];
+  if (ROLES_CLOSING.exec(field?.replace(CLOSING_NOTE, "") ?? "")?.[1]?.toLowerCase() === "other")
+    return "other";
+  const word = field
+    ?.match(/\b(?:same|differs?)\b/gi)
     ?.at(-1)
     ?.toLowerCase();
-  if (word === "same" || word === "other") return word;
+  if (word === "same") return "same";
   return word === "differs" || word === "differ" ? "differs" : null;
 };
 
@@ -793,9 +801,8 @@ const OWN_TOKEN = /\p{Script=Han}|(?:(?!\p{Script=Han})[\p{L}\p{N}])+/gu;
  * from the Passage or another language are not: "向人力资源总监汇报" for "人力资源总监向乙方汇报".
  */
 export function ownWords(words: string, sentence: string): boolean {
-  const tokens = (text: string): string[] => [
-    ...text.normalize("NFKC").toLowerCase().matchAll(OWN_TOKEN),
-  ].map(([token]) => token);
+  const tokens = (text: string): string[] =>
+    [...text.normalize("NFKC").toLowerCase().matchAll(OWN_TOKEN)].map(([token]) => token);
   const own = tokens(sentence);
   let at = 0;
   for (const token of tokens(words)) {
@@ -805,14 +812,21 @@ export function ownWords(words: string, sentence: string): boolean {
   return tokens(words).length > 0;
 }
 
-/** The sentence's side of a Roles line: its words before " / ", without the closing word. */
+/**
+ * The sentence's side of a Roles line: its words before the first slash, or the whole field
+ * without its closing word when it gives one side only. A line that names no party and no must or
+ * may on either side ("none / none, same", "none, same") gives no words to hold to the sentence:
+ * a figure's sentence often has neither.
+ */
 const rolesWordsOf = (line: string | undefined): Pick<ReadVerdict, "rolesWords"> => {
   const field = line === undefined ? undefined : ROLES.exec(line)?.[1];
-  const words = field
-    ?.split(" / ")[0]
-    ?.replace(/,\s*(?:same|differs?|other)\s*$/i, "")
-    .trim();
-  return field?.includes(" / ") && words ? { rolesWords: words } : {};
+  if (field === undefined) return {};
+  const sides = field
+    .replace(CLOSING_NOTE, "")
+    .replace(/[,，]?\s*(?:same|differs?|other)\W*$/i, "")
+    .split(/[/／]/u)
+    .map((side) => side.replace(PHRASE_EDGES, "").trim());
+  return sides.every((side) => NO_PHRASE.test(side)) ? {} : { rolesWords: sides[0] ?? "" };
 };
 
 /** Only a reply that gives the field says it: a reply read before it was asked for has none. */

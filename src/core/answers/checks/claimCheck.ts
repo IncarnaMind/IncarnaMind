@@ -97,6 +97,7 @@ import { checkAbsence, fitsWholeRead, type Presence } from "./absence";
 import { agreesWith, comparedFigure, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
+  aboutSomeoneElse,
   checkFigureReply,
   figureJudgment,
   givesItsOwnNumber,
@@ -1209,7 +1210,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         readFigureReply(text, request.figures, request.claim) === null
           ? (askedFigures ?? text)
           : text;
-      const result = await checkFigureReply({
+      const checkedFigures = await checkFigureReply({
         requested: request.figures,
         claim: request.claim,
         reply: figuresText,
@@ -1230,6 +1231,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             remainder.citation === null ? null : session.finalCitation(remainder.citation),
           ),
       });
+      // The reply's own Roles line gives the sentence to someone its Passage doesn't name: each
+      // number bound to that Passage is someone else's, and neither backs nor contradicts it.
+      const result = said?.roles === "other" ? aboutSomeoneElse(checkedFigures) : checkedFigures;
       // The sentence's contradiction is judged on the quote its own words cite, not a figure's.
       // A sentence whose words cite no quote of their own rests on its figures' quotes, so a
       // Supported verdict never turns a result its figures settled into Not checked.
@@ -1405,9 +1409,14 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       ),
     );
     const worked = checked.find(({ calculation }) => !calculation.agrees) ?? checked[0] ?? null;
-    // A figure that disagrees contradicts the sentence. One that agrees settles only that
-    // number: the model's verdict still stands on the rest of the sentence.
-    if (worked && !worked.calculation.agrees) {
+    // A figure that disagrees contradicts the sentence, unless the reply's Roles line gives the
+    // sentence to someone its Passages don't name. One that agrees settles only that number: the
+    // model's verdict still stands on the rest of the sentence.
+    if (
+      worked &&
+      !worked.calculation.agrees &&
+      readVerdict(replyAcrossTurns(reply, setAside))?.roles !== "other"
+    ) {
       return {
         verdict: "contradicted",
         evidence: worked.evidence,
