@@ -1303,12 +1303,14 @@ export const useAppStore = create<AppState>()((set, get) => {
         );
         const changes = moving.filter((folder) => folder.parentId !== parentId);
         if (changes.length === 0) return;
-        // Work that leaves a wall says so, as a Document's move does.
+        // Work that leaves or enters a wall says so, as a Document's move does.
         const after = parentId === null ? null : folderWallOf(groups, parentId);
-        const outOfWall = changes.some((folder) => {
-          const before = folderWallOf(groups, folder.id);
-          return before !== null && before !== (folder.keepInside ? folder.id : after);
-        });
+        const crossed = changes.map((folder) => ({
+          before: folderWallOf(groups, folder.id),
+          after: folder.keepInside ? folder.id : after,
+        }));
+        const outOfWall = crossed.some(({ before, after }) => before !== null && before !== after);
+        const intoWall = crossed.some(({ before, after }) => after !== null && before !== after);
         const moved = await core.moveLibraryGroups(
           changes.map((folder) => ({ id: folder.id, parentId })),
         );
@@ -1331,7 +1333,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                       count: used.length,
                       into: afterLabel ?? "",
                     });
-            return outOfWall ? `${line} ${t("move.outOfWall")}` : line;
+            const walls = [
+              ...(outOfWall ? [t("move.outOfWall")] : []),
+              ...(intoWall ? [t("move.intoWall")] : []),
+            ];
+            return walls.length > 0 ? `${line} ${walls.join(" ")}` : line;
           },
           name: (t) => t(used.length === 1 ? "undo.name.moveFolder" : "undo.name.moveFolders"),
           undo: async () => {

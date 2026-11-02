@@ -410,6 +410,7 @@ export const en = {
   "move.done.items": "Moved {count} items to {folder}",
   "move.done.conversations": "Moved {count} conversations to {folder}",
   "move.outOfWall": "It is no longer limited to that Folder’s Documents and notes.",
+  "move.intoWall": "It is now limited to that Folder’s Documents and notes.",
   "drop.moveTo": "Move to {folder}",
   "drop.moveTo.minds": "Move {count} notes to {folder}",
   "drop.moveTo.documents": "Move {count} Documents to {folder}",

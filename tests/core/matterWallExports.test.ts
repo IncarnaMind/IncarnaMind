@@ -86,4 +86,22 @@ describe("an export of walled work, indexed again through a Linked folder", () =
     expect(copy.ownFile?.kind).toBe("export");
     await askBothSides(s);
   });
+
+  test("a Note in a sub-Folder of the wall keeps its export behind the wall too", async () => {
+    const s = await setUp();
+    const clientA = (await s.core.getLibrary()).groups.find((group) => group.name === "Client A");
+    if (!clientA) throw new Error("Client A is gone.");
+    const drafts = await s.core.createLibraryGroup({
+      name: "Drafts",
+      description: "",
+      parentId: clientA.id,
+    });
+    await s.core.moveToFolder({ mindIds: [s.walled.id], folderId: drafts.id });
+
+    const saved = await s.core.saveMindExport(s.walled.id, { format: "markdown" });
+    if (saved.status !== "saved") throw new Error(`The export wasn't saved: ${saved.status}.`);
+    const copy = await indexed(s.core, saved.file.path);
+    expect(copy.ownFile?.kind).toBe("export");
+    await askBothSides(s);
+  });
 });

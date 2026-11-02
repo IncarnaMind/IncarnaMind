@@ -1326,10 +1326,19 @@ export function createLibrary(options: {
         (move) =>
           !changing.some((other) => other.id !== move.id && subtree(other.id).includes(move.id)),
       );
-      for (const move of moving) {
-        if (move.parentId === null) continue;
-        group(move.parentId);
-        if (move.parentId === move.id || subtree(move.id).includes(move.parentId))
+      for (const move of moving) if (move.parentId !== null) group(move.parentId);
+      // The Folders as they will be, to catch a loop formed by the moves together: X into Y while
+      // Y comes into X leaves both in no tree at all.
+      const parentAfter = new Map([...live].map(([id, folder]) => [id, folder.parentId]));
+      for (const move of moving) parentAfter.set(move.id, move.parentId);
+      for (const id of parentAfter.keys()) {
+        const seen = new Set<string>();
+        let at: string | null | undefined = id;
+        while (at !== null && at !== undefined && !seen.has(at)) {
+          seen.add(at);
+          at = parentAfter.get(at) ?? null;
+        }
+        if (at !== null && at !== undefined)
           throw new InvalidInputError({ key: "error.folder.insideItself" });
       }
       const changes = moving;
@@ -1431,6 +1440,8 @@ export function createLibrary(options: {
       folders: string[];
       minds: { folderId: string; ids: string[] }[];
       conversations: { folderId: string; ids: string[] }[];
+      /** Folders put at the top level, the Folder they were in still deleted. */
+      toTopLevel: string[];
     } {
       const row = db.get<{ name: string; deleted_at: string | null }>(
         "SELECT name, deleted_at FROM library_groups WHERE id = ?",
@@ -1460,13 +1471,16 @@ export function createLibrary(options: {
       );
       // A Folder restored without the Folder it was in (still deleted) goes to the top level,
       // rather than point at a Folder that isn't there and come back inside it later.
-      db.run(
-        `UPDATE library_groups SET parent_id = NULL, updated_at = ?
-         WHERE id IN (SELECT value FROM json_each(?))
+      const orphaned = `id IN (SELECT value FROM json_each(?))
            AND parent_id IS NOT NULL
-           AND parent_id NOT IN (SELECT id FROM library_groups WHERE deleted_at IS NULL)`,
-        [at, list],
-      );
+           AND parent_id NOT IN (SELECT id FROM library_groups WHERE deleted_at IS NULL)`;
+      const toTopLevel = db
+        .all<{ id: string }>(`SELECT id FROM library_groups WHERE ${orphaned}`, [list])
+        .map((folder) => folder.id);
+      db.run(`UPDATE library_groups SET parent_id = NULL, updated_at = ? WHERE ${orphaned}`, [
+        at,
+        list,
+      ]);
       db.run(
         `UPDATE document_groups SET group_id = item.folder_id, suggested = item.suggested,
            updated_at = ?
@@ -1487,7 +1501,12 @@ export function createLibrary(options: {
         }
         return [...byFolder].map(([folderId, ids]) => ({ folderId, ids }));
       };
-      const items = { folders, minds: taken("mind"), conversations: taken("conversation") };
+      const items = {
+        folders,
+        minds: taken("mind"),
+        conversations: taken("conversation"),
+        toTopLevel,
+      };
       db.run(
         "UPDATE deleted_folder_items SET deleted_at = ?, updated_at = ? WHERE folder_id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL",
         [at, at, list],

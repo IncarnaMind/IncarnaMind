@@ -261,6 +261,22 @@ describe("Folders inside Folders", () => {
     expect(after.find((group) => group.id === thesis.id)?.parentId).toBe(archive.id);
   });
 
+  test("two Folders moved into each other move neither", async () => {
+    const { core, folder } = await setUp();
+    const x = await folder("X");
+    const y = await folder("Y");
+
+    await expect(
+      core.moveLibraryGroups([
+        { id: x.id, parentId: y.id },
+        { id: y.id, parentId: x.id },
+      ]),
+    ).rejects.toThrow(InvalidInputError);
+    const groups = (await core.getLibrary()).groups;
+    expect(groups.find((group) => group.id === x.id)?.parentId).toBeNull();
+    expect(groups.find((group) => group.id === y.id)?.parentId).toBeNull();
+  });
+
   test("a sub-Folder restored while its parent is still deleted goes to the top level", async () => {
     const { core, folder } = await setUp();
     const thesis = await folder("Thesis");

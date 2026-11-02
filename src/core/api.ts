@@ -9270,6 +9270,8 @@ export interface RestoreResult {
    * waited in Recently deleted, and it was deleted then, as any Meeting's audio is (#1253).
    */
   audioExpired: ExpiredAudio[];
+  /** Folders that came back to the top level because the Folder they were in is still deleted. */
+  toTopLevel?: string[];
 }
 
 /** A Note whose Meeting's audio was deleted, its day over, while the Note waited in Recently deleted. */

@@ -373,6 +373,7 @@ export function createRecentlyDeleted(options: {
           conversations: false,
           documents: [] as string[],
           folders: false,
+          toTopLevel: [] as string[],
           tags: false,
           tagged: new Set<string>(),
         };
@@ -425,6 +426,7 @@ export function createRecentlyDeleted(options: {
               restored.documents.push(ref.id);
             } else if (kind === "folder") {
               const taken = library.restore(ref.id);
+              restored.toTopLevel.push(...taken.toTopLevel);
               for (const group of taken.minds) {
                 if (minds.returnToFolder(group.ids, group.folderId)) restored.minds = true;
               }
@@ -467,7 +469,7 @@ export function createRecentlyDeleted(options: {
       if (done.tags) options.tagsChanged();
       if (done.tagged.size > 0) options.tagged([...done.tagged]);
       const audio = options.meetings.restored(done.meetings);
-      return { audioLost: audio.lost, audioExpired: audio.expired };
+      return { audioLost: audio.lost, audioExpired: audio.expired, toTopLevel: done.toTopLevel };
     },
 
     /**

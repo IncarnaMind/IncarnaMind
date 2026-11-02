@@ -432,6 +432,14 @@ describe("outside agents", () => {
     await expect(
       core.connectAgent({ name: "Codex", folderIds: [drafts.id, clientB.id] }),
     ).rejects.toThrow(/keeps its work inside it/);
+    const filed = await core.createLibraryGroup({
+      name: "Filed",
+      description: "",
+      parentId: clientB.id,
+    });
+    await expect(
+      core.connectAgent({ name: "Cursor", folderIds: [drafts.id, filed.id] }),
+    ).rejects.toThrow(/keeps its work inside it/);
   });
 
   it("refuses an explicitly named Folder that a wall removed from an existing pairing", async () => {

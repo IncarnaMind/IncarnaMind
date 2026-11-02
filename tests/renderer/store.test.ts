@@ -894,6 +894,44 @@ describe("changes the User can take back", () => {
     );
     expect(zh.said(top())).toBe("已恢复 2 项，但部分会议音频已不在这台电脑上，无法恢复。");
   });
+
+  test("a Folder restored to the top level out of a wall says it is no longer limited", async () => {
+    const { restoreItems } = await import("../../src/renderer/src/recentlyDeleted");
+    const client = { ...researchGroup(true), id: "client", name: "Client A" };
+    const chapter = {
+      ...researchGroup(),
+      id: "chapter",
+      name: "Chapter 2",
+      parentId: "client",
+    };
+    useAppStore.setState({
+      library: { ...snapshot([]), groups: [], deletedGroups: [client, chapter] },
+    });
+    method("listDeleted").mockResolvedValue([]);
+    const item = {
+      kind: "folder",
+      id: "chapter",
+      name: "Chapter 2",
+      deletedAt: "2026-10-06T09:00:00.000Z",
+      documentKind: null,
+      groupId: null,
+      linkedFolderId: null,
+    } as const;
+
+    method("restore").mockResolvedValue({ audioLost: [], audioExpired: [] });
+    await restoreItems([item]);
+    expect(said(top())).toBe("Restored “Chapter 2”");
+
+    method("restore").mockResolvedValue({
+      audioLost: [],
+      audioExpired: [],
+      toTopLevel: ["chapter"],
+    });
+    await restoreItems([item]);
+    expect(said(top())).toBe(
+      "Restored “Chapter 2” It is no longer limited to that Folder’s Documents and notes.",
+    );
+  });
 });
 
 describe("making a Mind", () => {
@@ -1507,6 +1545,24 @@ describe("moving Folders", () => {
     expect(method("moveLibraryGroups")).toHaveBeenLastCalledWith([
       { id: "drafts", parentId: "client" },
     ]);
+  });
+
+  test("a Folder moved into a wall says so", async () => {
+    const client = folder("client", "Client A", null, true);
+    const drafts = folder("drafts", "Drafts", null);
+    const library = { ...snapshot([]), groups: [client, drafts] };
+    useAppStore.setState({ library });
+    method("moveLibraryGroups").mockResolvedValue(["drafts"]);
+    method("getLibrary").mockResolvedValue({
+      ...library,
+      groups: [client, { ...drafts, parentId: "client" }],
+    });
+
+    await useAppStore.getState().moveFolders(["drafts"], "client");
+
+    expect(said(useUndo.getState().done.at(-1))).toBe(
+      "Moved the Folder “Drafts” into “Client A” It is now limited to that Folder’s Documents and notes.",
+    );
   });
 
   test("a sub-Folder selected with its parent goes with it: one call, one Undo", async () => {

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { DeletedItem, RestoreResult } from "../../core/api";
+import type { DeletedItem, LibrarySnapshot, RestoreResult } from "../../core/api";
 import { expiredKey } from "./changes";
 import { core } from "./core";
 import { languageNow, translateNow as t } from "./i18n";
@@ -86,9 +86,37 @@ function restoredMessage(items: readonly DeletedItem[], audio: () => RestoreResu
   };
 }
 
+/** The walled Folder `id` is behind, reading the Folders in Recently deleted too. */
+function wallIn(library: LibrarySnapshot | null | undefined, id: string): string | null {
+  if (!library) return null;
+  const byId = new Map(
+    [...library.groups, ...library.deletedGroups].map((folder) => [folder.id, folder]),
+  );
+  const seen = new Set<string>();
+  let at: string | null = id;
+  while (at !== null && !seen.has(at)) {
+    seen.add(at);
+    const folder = byId.get(at);
+    if (!folder) return null;
+    if (folder.keepInside) return folder.id;
+    at = folder.parentId;
+  }
+  return null;
+}
+
 /** Puts each back where it was, and says so; Undo deletes them again. */
 export async function restoreItems(items: readonly DeletedItem[]): Promise<void> {
   if (items.length === 0) return;
+  // A Folder restored to the top level, its parent still in Recently deleted, may leave a wall.
+  const wallsBefore = new Map(
+    items.flatMap((item) =>
+      item.kind === "folder"
+        ? [[item.id, wallIn(useAppStore.getState().library, item.id)] as const]
+        : [],
+    ),
+  );
+  const leftWall = (result: RestoreResult) =>
+    (result.toTopLevel ?? []).some((id) => (wallsBefore.get(id) ?? null) !== null);
   const count = () => formatCount(items.length, languageNow());
   const slow = (said: Words, work: () => Promise<void>) =>
     items.length > 1 ? sayWhileSlow(said, work) : work();
@@ -103,7 +131,10 @@ export async function restoreItems(items: readonly DeletedItem[]): Promise<void>
     );
   await restore();
   useUndo.getState().push({
-    said: restoredMessage(items, () => audio),
+    said: (t, cut) => {
+      const message = restoredMessage(items, () => audio)(t, cut);
+      return leftWall(audio) ? `${message} ${t("move.outOfWall")}` : message;
+    },
     name: (t) => t("undo.name.restore"),
     undo: () =>
       slow(

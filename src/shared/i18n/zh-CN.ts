@@ -399,6 +399,7 @@ export const zhCN = {
   "move.done.items": "已将 {count} 项移动到“{folder}”",
   "move.done.conversations": "已将 {count} 个对话移动到“{folder}”",
   "move.outOfWall": "此项不再限于该文件夹的文档和笔记。",
+  "move.intoWall": "此项现已限于该文件夹的文档和笔记。",
   "drop.moveTo": "移动到“{folder}”",
   "drop.moveTo.minds": "将 {count} 篇笔记移动到“{folder}”",
   "drop.moveTo.documents": "将 {count} 个文档移动到“{folder}”",

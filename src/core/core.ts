@@ -1492,11 +1492,15 @@ export function createCore(adapters: CoreAdapters): Core {
   // The fingerprints of the files IncarnaMind writes (#80).
   const ownFiles = createOwnFiles(db, now);
   // Behind a wall: filed in it or in a Folder inside it, or a file IncarnaMind wrote from one of
-  // its Notes, wherever that file was indexed again (a Linked folder holding the Output location).
-  const behindWall = (folderId: string) => [
-    ...library.allTreeDocumentIds(folderId),
-    ...ownFiles.writtenFrom([folderId]),
-  ];
+  // its Notes, wherever in its tree that Note is, and wherever the file was indexed again (a
+  // Linked folder holding the Output location).
+  const behindWall = (folderId: string) => {
+    const inside = library
+      .folders()
+      .filter((folder) => library.wallOf(folder.id) === folderId)
+      .map((folder) => folder.id);
+    return [...library.allTreeDocumentIds(folderId), ...ownFiles.writtenFrom(inside)];
+  };
   const wallOfDocument = (documentId: string) =>
     library
       .folders()
@@ -1572,7 +1576,7 @@ export function createCore(adapters: CoreAdapters): Core {
     // The wall's Folder is gone: nothing may be made. Its wall switched off since: no wall is left
     // to stay inside, so the file goes where it asks, as before it had one (#2250).
     if (!wall) return null;
-    if (!wall.keepInside) return { folderId: asked ?? wallId };
+    if (!wall.keepInside) return filedWithin(null, asked);
     if (asked === null) return { folderId: wallId };
     return library.wallOf(asked) === wallId ? { folderId: asked } : null;
   };
