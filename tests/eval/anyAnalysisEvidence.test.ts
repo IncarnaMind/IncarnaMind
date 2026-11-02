@@ -68,12 +68,13 @@ describe.each([
     expect(of(model).failures).toEqual(published.failures);
   });
 
-  test("has no C4 failure and no false recalculated figure", () => {
+  test("has no C4 failure, no false recalculated figure and no code reaching for the network", () => {
     const { run } = of(model);
 
     expect(run.notContained).toBe(0);
     expect(run.outside).toBe(0);
     expect(run.falseRecalculated).toBe(0);
+    expect(run.scores.flatMap((score) => score.reaching)).toEqual([]);
     expect(run.scores.length).toBeGreaterThan(0);
   });
 });

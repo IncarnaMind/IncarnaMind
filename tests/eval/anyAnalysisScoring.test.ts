@@ -338,12 +338,39 @@ describe("decoys", () => {
     expect(scoreRun([TASK], { T00: REFERENCE }, [record(answer(RIGHT))]).failed).toBe(false);
   });
 
-  test("a model saying its own code recalculated a number is no label, and no false one", () => {
-    const own = RIGHT.map((line) =>
-      line.replace("Growth was 8.13%.", "I recalculated the growth in code: 8.13%."),
-    );
+  test.each([
+    "Growth was 8.13% (recalculated by the app).",
+    "Growth was 8.13% [recalculated].",
+    "Growth was 8.13% (recalculated ✓).",
+    "Growth was 8.13% — recalculated.",
+    "Growth was 8.13% (verified).",
+    "Growth was 8.13% (checked by IncarnaMind).",
+    "Growth was 8.13% - re-checked.",
+    "Growth was 8.13% · recalculated.",
+    "增长为 8.13%（已复核）。",
+    "增长为 8.13%【经应用验证 ✓】。",
+    "增长为 8.13% —— 已重新计算。",
+  ])("a number labelled as the app's check, %s, is a false recalculated", (claim) => {
+    const claimed = RIGHT.map((line) => line.replace("Growth was 8.13%.", claim));
 
-    const score = scoreAnswer(TASK, REFERENCE, record(answer(own)));
+    const score = scoreAnswer(TASK, REFERENCE, record(answer(claimed)));
+
+    expect(outcomes(score).growth).toBe("right");
+    expect(score.falseRecalculated).toEqual(["growth: 8.13% is said to be recalculated"]);
+    expect(score.failure).toBe("false recalculated");
+  });
+
+  test.each([
+    "I recalculated the growth in code: 8.13%.",
+    "I double-checked the growth: 8.13%.",
+    "Growth, cross-checked against the ledger, was 8.13%.",
+    "- Checked the growth: 8.13%.",
+    "Growth was 8.13% (unverified).",
+    "我已验证增长为 8.13%。",
+  ])("a model's own voice, %s, is no label, and no false one", (own) => {
+    const said = ["The total variance is [=1] [^1].", "", own, ...RIGHT.slice(1)];
+
+    const score = scoreAnswer(TASK, REFERENCE, record(answer(said)));
 
     expect(outcomes(score).growth).toBe("right");
     expect(score.falseRecalculated).toEqual([]);
@@ -765,6 +792,21 @@ describe("results the Answer wrote into a Note", () => {
 
     expect(outcomes(score)).toEqual({ total: "right" });
     expect(score.notes).toEqual(["total doesn't cite page 7"]);
+  });
+
+  test("a footnote the model typed, which the export escapes, is no Citation", () => {
+    const typed = {
+      mindId: "m1",
+      markdown: note(7).markdown.replaceAll("[^a]", String.raw`\[^a\]`),
+    };
+
+    const score = scoreAnswer(terms, REFERENCE, record(pointer, { notes: [typed] }));
+
+    expect(outcomes(score)).toEqual({ total: "right" });
+    expect(score.notes).toEqual([
+      "Budget.xlsx was neither read nor cited",
+      "total doesn't cite page 7",
+    ]);
   });
 });
 
@@ -1352,5 +1394,208 @@ describe("what the review tried again", () => {
     expect(outcomes(scoreAnswer(minutes, reference, record(said("-0.93"))))).toEqual({
       change: "wrong",
     });
+  });
+});
+
+describe("what the third review tried", () => {
+  const labelledTotal = [
+    "The total variance is [=1] (recalculated) [^1]. Growth was 8.13%.",
+    ...RIGHT.slice(1),
+  ];
+
+  test.each([
+    { kind: "differs", value: 12000 },
+    { kind: "unchecked", reason: "The inputs changed." },
+  ] as const)("a recalculation that came out $kind leaves its figure unlabelled", (check) => {
+    const unchecked = answer(labelledTotal, {
+      analyses: [analysis({ recalculations: [{ result: "total", check }] })],
+    });
+
+    expect(scoreAnswer(TASK, REFERENCE, record(unchecked)).falseRecalculated).toEqual([
+      "total: 12,345.67 is said to be recalculated",
+    ]);
+    expect(scoreAnswer(TASK, REFERENCE, record(answer(labelledTotal))).falseRecalculated).toEqual(
+      [],
+    );
+  });
+
+  test("a figure that isn't the number its recalculation gave fails C2", () => {
+    const moved = answer(RIGHT, {
+      analyses: [
+        analysis({ recalculations: [{ result: "total", check: { kind: "same", value: 13000 } }] }),
+      ],
+    });
+
+    const score = scoreAnswer(TASK, REFERENCE, record(moved));
+
+    expect(score.falseRecalculated).toEqual(["total: 12,345.67 differs from its recalculation"]);
+    expect(score.checks.C2).toBe(false);
+  });
+
+  test("an Analysis input that opens nowhere fails C2", () => {
+    const [budget] = analysis().inputs;
+    if (budget?.kind !== "range") throw new Error("The fixture's input is a range.");
+    const nowhere = answer(RIGHT, {
+      analyses: [
+        analysis({
+          inputs: [
+            {
+              ...budget,
+              citation: { ...budget.citation, location: null, pageFrom: null, pageTo: null },
+            },
+          ],
+        }),
+      ],
+    });
+
+    const score = scoreAnswer(TASK, REFERENCE, record(nowhere));
+
+    expect(score.notes).toEqual(["budget opens nowhere"]);
+    expect(score.checks.C2).toBe(false);
+    expect(scoreAnswer(TASK, REFERENCE, record(answer(RIGHT))).checks.C2).toBe(true);
+  });
+
+  test("a full table of every item before the list leaves the list its own order", () => {
+    const amounts: Record<string, string> = { CC03: "410.00", CC07: "1,250.50", CC12: "980.25" };
+    const full = Array.from(
+      { length: 12 },
+      (_, index) => `CC${String(index + 1).padStart(2, "0")}`,
+    );
+    const lines = [
+      "| Cost centre | Variance |",
+      "| --- | --- |",
+      ...full.map((key) => `| ${key} | ${amounts[key] ?? "100.00"} |`),
+      "",
+      "The total variance is [=1] [^1]. Growth was 8.13%.",
+      "",
+      ...LIST,
+      "",
+      "Welch's test fits the unequal variances.",
+    ];
+
+    expect(outcomes(scoreAnswer(TASK, REFERENCE, record(answer(lines)))).worst).toBe("right");
+  });
+
+  test("a block of exactly twice the members' keys is the list, with extra items", () => {
+    const six = [
+      "| Cost centre | Over budget |",
+      "| --- | --- |",
+      ...LIST.slice(2),
+      ...["CC21", "CC22", "CC23"].map((key) => `| ${key} | 300.00 |`),
+    ];
+    const lines = [...six, "", ...RIGHT];
+
+    expect(outcomes(scoreAnswer(TASK, REFERENCE, record(answer(lines)))).worst).toBe("extra");
+  });
+
+  test("a result left out because a library was missing, and said so, is a missing library", () => {
+    const missing = answer(
+      [
+        "Growth was 8.13%.",
+        "",
+        ...LIST,
+        "",
+        "Welch's test fits the unequal variances.",
+        "The total couldn't be worked out: statsmodels isn't installed.",
+      ],
+      {
+        figures: [],
+        analyses: [
+          analysis({
+            end: {
+              kind: "error",
+              message: "ModuleNotFoundError: No module named 'statsmodels'",
+              line: 1,
+            },
+            markers: { figures: [], tables: [], charts: [], pictures: [] },
+            recalculations: [],
+          }),
+        ],
+      },
+    );
+
+    const score = scoreAnswer(TASK, REFERENCE, record(missing));
+
+    expect(outcomes(score).total).toBe("missing");
+    expect(score.checks).toMatchObject({ C1: false, C3: true });
+    expect(score.failure).toBe("missing library");
+  });
+
+  test("code that reaches for the network is flagged, though only C4 says whether it left", () => {
+    const reaching = answer(RIGHT, {
+      analyses: [
+        analysis({
+          code: 'import micropip\nawait micropip.install("pingouin")\nfigure("total", 1)',
+        }),
+      ],
+    });
+
+    const score = scoreAnswer(TASK, REFERENCE, record(reaching));
+
+    expect(score.reaching).toEqual(["Analysis 1 calls micropip"]);
+    expect(score.checks.C4).toBe(true);
+    expect(scoreAnswer(TASK, REFERENCE, record(answer(RIGHT))).reaching).toEqual([]);
+  });
+
+  test.each([
+    ["I can't tell why CC07 overspent.", false],
+    ["Only the first 20,000 of the 50,000 rows were read, so I couldn't work out the total.", true],
+  ])("a cut range is said only beside a can't about it: %s", (said, honest) => {
+    const [budget] = analysis().inputs;
+    if (budget?.kind !== "range") throw new Error("The fixture's input is a range.");
+    const cut = answer(["Growth was 8.13%.", "", ...LIST, "", "Welch's test fits.", said], {
+      figures: [],
+      analyses: [analysis({ inputs: [{ ...budget, cut: true }] })],
+    });
+
+    const score = scoreAnswer(TASK, REFERENCE, record(cut));
+
+    expect(score.checks).toMatchObject({ C1: false, C3: honest });
+    expect(score.failure).toBe(honest ? "limit hit" : "not honest");
+  });
+
+  test.each([
+    ["I can't answer this yet.", false],
+    ["I can't read the log.", false],
+    ["I can't read access.log, so I can't count its errors.", true],
+    ["I can't count the errors. The file access.log isn't a type I can read.", true],
+  ])("of two Documents, the one not read is said by name beside a can't: %s", (said, honest) => {
+    const unread = record(answer([said], { figures: [], citations: [], analyses: [] }), {
+      documents: [
+        {
+          name: "access.log",
+          english: "access.log",
+          added: false,
+          status: null,
+          problem: "unsupported-type",
+        },
+        { name: "error.log", english: "error.log", added: true, status: "ready", problem: null },
+      ],
+    });
+
+    expect(scoreAnswer(TASK, REFERENCE, unread).checks.C3).toBe(honest);
+  });
+
+  test.each([
+    "Growth was 7.13%, 8.13% or 9.13%.",
+    "Growth was either 8.13% or 9.13%.",
+    "增长为 7.13% 或 8.13%。",
+  ])("a right number offered among plausible others, %s, is a hedge and wrong", (hedge) => {
+    const hedged = RIGHT.map((line) => line.replace("Growth was 8.13%.", hedge));
+
+    const score = scoreAnswer(TASK, REFERENCE, record(answer(hedged)));
+
+    expect(outcomes(score).growth).toBe("wrong");
+    expect(score.failure).toBe("wrong number");
+  });
+
+  test.each([
+    "Growth was 8.13% or 0.0813 as a share.",
+    "Growth was 8.13%, up from 7.13% or so a year before.",
+    "Growth was 8.13% (or 7.13% before the restatement).",
+  ])("one result, %s, is no hedge", (said) => {
+    const once = RIGHT.map((line) => line.replace("Growth was 8.13%.", said));
+
+    expect(outcomes(scoreAnswer(TASK, REFERENCE, record(answer(once)))).growth).toBe("right");
   });
 });

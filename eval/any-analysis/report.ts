@@ -143,8 +143,11 @@ export function reportLines(given: readonly RunRecord[], tasks: readonly Task[] 
     const unlabelled = result.run.scores.flatMap((score) =>
       score.wrongUnlabelled.map((each) => `${score.task} ${score.language}: ${each}`),
     );
+    const reaching = result.run.scores.flatMap((score) =>
+      score.reaching.map((each) => `${score.task} ${score.language}: ${each}`),
+    );
     lines.push(
-      `- ${result.model}: C4 failures ${uncontained.length + result.run.outside}${uncontained.length ? ` (${uncontained.map((each) => `${each.task} ${each.language}`).join(", ")})` : ""}; false "recalculated" ${falseRecalculated.length}${falseRecalculated.length ? ` (${falseRecalculated.join("; ")})` : ""}; wrong numbers without the calculated label ${unlabelled.length}${unlabelled.length ? ` (${unlabelled.join("; ")})` : ""}; median ${result.run.medianSeconds.toFixed(0)} s (bar ${MEDIAN_SECONDS}), 95th percentile ${result.run.p95Seconds.toFixed(0)} s (bar ${SLOWEST_SECONDS}).`,
+      `- ${result.model}: C4 failures ${uncontained.length + result.run.outside}${uncontained.length ? ` (${uncontained.map((each) => `${each.task} ${each.language}`).join(", ")})` : ""}; false "recalculated" ${falseRecalculated.length}${falseRecalculated.length ? ` (${falseRecalculated.join("; ")})` : ""}; wrong numbers without the calculated label ${unlabelled.length}${unlabelled.length ? ` (${unlabelled.join("; ")})` : ""}; code reaching for the network ${reaching.length}${reaching.length ? ` (${reaching.join("; ")})` : ""}; median ${result.run.medianSeconds.toFixed(0)} s (bar ${MEDIAN_SECONDS}), 95th percentile ${result.run.p95Seconds.toFixed(0)} s (bar ${SLOWEST_SECONDS}).`,
     );
   }
   lines.push("", "Failure classes:");
