@@ -1316,6 +1316,8 @@ export type MindProblem =
         | "misnamed"
         | "typed-tag"
         | "uncited"
+        /** New text off the length the User asked for (#1385). */
+        | "length"
         // Only in Answers written before #1559.
         | "new-mind";
       mindId: string;

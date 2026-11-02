@@ -6683,6 +6683,7 @@ export const en = {
   "mindCall.failed.misnamed":
     "The rewrite didn’t say clearly which paragraph of “{mind}” each change replaces, so nothing changed",
   "mindCall.failed.uncited": "Didn’t add to “{mind}”: its sources weren’t cited",
+  "mindCall.failed.length": "Didn’t change “{mind}”: the new text wasn’t the length asked for",
   "mindCall.failed.noChart.noTable": "No chart: “{mind}” has no table",
   "mindCall.failed.noChart.several":
     "No chart: “{mind}” has more than one table, and your cursor is in none",

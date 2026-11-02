@@ -93,6 +93,8 @@ function whyNot(problem: MindProblem | undefined): string {
       return "the User asked for a new Note: make it with create_mind";
     case "uncited":
       return "its sources were written as text, as markers with no Citation recorded, or not cited at all";
+    case "length":
+      return "the new text wasn't the length the User asked for";
     case "local-mode":
       return "“Keep everything on this computer” is on";
     case "not-ready":

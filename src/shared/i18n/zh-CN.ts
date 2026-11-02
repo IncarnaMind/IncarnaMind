@@ -6337,6 +6337,7 @@ export const zhCN = {
   "mindCall.failed.typedTag": "改写漏掉了你在“{mind}”里输入的 <removed> 标记，因此没有改动",
   "mindCall.failed.misnamed": "改写没有说清每处修改替换“{mind}”里的哪一段，因此没有改动",
   "mindCall.failed.uncited": "未添加到“{mind}”：出处没有引用",
+  "mindCall.failed.length": "未修改“{mind}”：新内容的长度不符合要求",
   "mindCall.failed.noChart.noTable": "没有生成图表：“{mind}”里没有表格",
   "mindCall.failed.noChart.several": "没有生成图表：“{mind}”里有多个表格，光标不在其中任何一个",
   "mindCall.failed.noChart.noNumbers": "没有生成图表：“{mind}”里的表格没有数字列",
