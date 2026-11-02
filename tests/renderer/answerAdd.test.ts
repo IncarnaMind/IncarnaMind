@@ -83,6 +83,35 @@ describe("Add to note and a Tool its reply says ran", () => {
     });
   });
 
+  // protects=Add to note keeps the line that what the reply claims in the app wasn't done, after the Answer, so "Local mode is on" never lands in a Note unmarked (#2407); fails_when=the Note gets the claim without it; no_claim=none beyond protects.
+  test("keeps the line about what in the app wasn't done, after the Answer", async () => {
+    const { notesToAdd } = await import("../../src/renderer/src/answerEditors");
+    const { translate } = await import("../../src/shared/i18n");
+    const answer = {
+      id: "answer-3",
+      questionId: "question-3",
+      conversationId: "conversation-1",
+      text: "Local mode is on now.",
+      citations: [],
+      figures: [],
+      steps: { unbackedCommands: ["privacy"] },
+    } as unknown as import("../../src/core/api").ConversationAnswer;
+
+    const blocks = notesToAdd(answer);
+
+    expect(blocks).toHaveLength(2);
+    expect(blocks.at(-1)).toEqual({
+      type: "paragraph",
+      content: [
+        {
+          type: "text",
+          text: translate("en", "answer.notDone.privacy"),
+          marks: [{ type: "italic" }],
+        },
+      ],
+    });
+  });
+
   test("adds nothing when its reply claims no Tool", async () => {
     const { notesToAdd } = await import("../../src/renderer/src/answerEditors");
     const answer = {

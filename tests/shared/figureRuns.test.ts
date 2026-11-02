@@ -130,6 +130,42 @@ describe("a Note's bounded Analysis dependencies", () => {
     expect(readFigureRun({ ...kept, output: generation.output })).toEqual(kept);
   });
 
+  test("keeps what the core made of each figure when the Analysis ran, and a Note reads it back", () => {
+    const checked: AnswerAnalysis = {
+      ...generation,
+      recalculations: [
+        { result: "a", check: { kind: "same", value: 10 } },
+        { result: "b", check: { kind: "differs", value: 21 } },
+      ],
+    };
+    const kept = retainFigureAnalysis(checked, runId, [figure("a"), figure("b"), figure("c")]);
+    if (!kept) throw new Error("The figures were not retained.");
+    expect(kept.values.map((value) => value.check)).toEqual([
+      { kind: "same", value: 10 },
+      { kind: "differs", value: 21 },
+      undefined,
+    ]);
+    const [first] = kept.values;
+    if (!first) throw new Error("The kept value is missing.");
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      for (const name of ["a", "b", "c"] as const) append(doc, name);
+      installFigureRuns(doc, [kept]);
+    });
+    expect(
+      figureRunsFor(doc, blocks(["a", "b", "c"]))[0]?.values.map((value) => value.check),
+    ).toEqual([{ kind: "same", value: 10 }, { kind: "differs", value: 21 }, undefined]);
+    const unchecked: AnswerAnalysis = {
+      ...generation,
+      recalculations: [{ result: "c", check: { kind: "unchecked", reason: "sales has no row 7" } }],
+    };
+    expect(retainFigureAnalysis(unchecked, runId, [figure("c")])?.values[0]?.check).toEqual({
+      kind: "unchecked",
+      reason: "sales has no row 7",
+    });
+    expect(readFigureRun({ ...kept, values: [{ ...first, check: { kind: "same" } }] })).toBeNull();
+  });
+
   test("a failed run or a figure not matching the recorded result is not execution evidence", () => {
     expect(
       retainFigureAnalysis({ ...generation, end: { kind: "stopped" } }, runId, [figure("a")]),

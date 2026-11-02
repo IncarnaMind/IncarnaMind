@@ -44,6 +44,7 @@ import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { withAnalysisPictures } from "../../shared/analysisPictures";
+import { countCitations, withAnalysisTableCitations } from "../../shared/analysisTables";
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
 import { runsByDefault } from "../../shared/approvalRules";
@@ -53,7 +54,7 @@ import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { yoursLine } from "../../shared/commands";
 import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
-import { translate } from "../../shared/i18n";
+import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { citationLocation, englishLocation, englishPlace } from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
@@ -80,7 +81,7 @@ import {
 } from "../../shared/searchScope";
 import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
-import { unrunToolNotes } from "../../shared/unrunTools";
+import { unbackedCommandNotes, unrunToolNotes } from "../../shared/unrunTools";
 import type { AnalysisRuntime } from "../adapters";
 import { withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
 import { analysisTool } from "../analysis/tool";
@@ -106,7 +107,9 @@ import {
   type CitationRecheck,
   type CitationSupport,
   type CitedSelection,
+  CLAIMED_COMMANDS,
   type ClaimedChange,
+  type ClaimedCommand,
   type ClaimedTool,
   type CommandDone,
   type CommandProblem,
@@ -154,7 +157,12 @@ import type { MindContent } from "../mindContent";
 import { plainText } from "../mindText";
 import { docOf } from "../proposals/merge";
 import { proposeBlocks } from "../proposals/write";
-import { givesStructuredOutput, calculates as offersCalculate } from "../providers/capabilities";
+import {
+  givesStructuredOutput,
+  offersAnalysis,
+  calculates as offersCalculate,
+  offersWorkbookTools,
+} from "../providers/capabilities";
 import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { PreparedChatModel } from "../providers/chat";
 import type { ModelCallKind } from "../providers/outputLimits";
@@ -539,10 +547,13 @@ function lastAnswerOf(
   const answer = earlier[at];
   if (answer?.kind !== "answer") return null;
   const question = earlier.slice(0, at).findLast((message) => message.kind === "question");
-  // Put into a Note as it is, a claim of a Tool that didn't run keeps its line (#1796).
+  // Put into a Note as it is, a claim of a Tool that didn't run keeps its line (#1796), and so
+  // does one of something in the app that wasn't done (#2407).
+  const said = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   const blocks = [
     ...pageBlocks(answer, question?.text ?? ""),
-    ...unrunToolNotes((key, params) => translate(language, key, params), answer.steps),
+    ...unrunToolNotes(said, answer.steps),
+    ...unbackedCommandNotes(said, answer.steps),
   ];
   if (!hasText(blocks)) return null;
   return {
@@ -1308,6 +1319,7 @@ export function createAnswers(options: AnswersOptions) {
     /** The one request to fix figures, if the engine made it (see ./figureRetry). */
     let figureRetry: FigureRetry | null = null;
     let unbackedClaims: ClaimedChange[] = [];
+    let unbackedCommands: readonly ClaimedCommand[] = [];
     let unrunTools: readonly ClaimedTool[] = [];
     let askedAgainFor: readonly ClaimedTool[] = [];
     /** What the model calls counted, the cached input tokens too. */
@@ -1409,6 +1421,7 @@ export function createAnswers(options: AnswersOptions) {
           firstWordAt !== Infinity && { firstWordMs: wordAfter(sentAt, firstWordAt) }),
         ...(careful && { careful: true as const }),
         ...(unbackedClaims.length > 0 && { unbackedClaims: [...unbackedClaims] }),
+        ...(unbackedCommands.length > 0 && { unbackedCommands: [...unbackedCommands] }),
         ...(unrunTools.length > 0 && {
           unrunTools: [...unrunTools],
           ...(!calculating && unrunTools.includes("calculate") && { calculateUnavailable: true }),
@@ -1663,7 +1676,10 @@ export function createAnswers(options: AnswersOptions) {
                   ? (marker) => session.finalNode(marker)
                   : (marker) => session.streamingNode(marker),
               );
-              const drawn = withAnalysisPictures(blocks, analyses);
+              const drawn = withAnalysisTableCitations(
+                withAnalysisPictures(blocks, analyses),
+                analyses,
+              );
               return asGenerated(
                 calculating
                   ? withCalculatedFigures(drawn, (marker) => figures.figure(marker), {
@@ -2300,7 +2316,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       calculating = offersCalculate(prepared.capabilities);
       workbookToolsOffered =
-        calculating &&
+        offersWorkbookTools(prepared.capabilities) &&
         input.toolSet === undefined &&
         !help &&
         options.documents.searchableHasSheets(documentIds, true);
@@ -2652,7 +2668,18 @@ export function createAnswers(options: AnswersOptions) {
                 const written = withoutSearchTalk(
                   session.citeWrittenIds(withoutFootnoteDefinitions(text), notKept),
                 );
-                const markdown = calculating ? citeFigures(written.markdown) : written.markdown;
+                // A marker is the Analysis's own table, not text typed again. This Answer's
+                // Analyses name their markers first; the last Answer's stand for the rest, as
+                // its markers can be written into a Note in a later turn.
+                const markerAnalyses = [
+                  ...analyses,
+                  ...(input.assistant?.lastAnswer?.answer.analyses ?? []),
+                ];
+                const markdown = withAnalysisResults(
+                  calculating ? citeFigures(written.markdown) : written.markdown,
+                  markerAnalyses,
+                  answerLanguage(context.question),
+                );
                 const link = (source: NamedSource) => {
                   const marker = session.markerFor(source);
                   return marker === null ? null : `[^${marker}]`;
@@ -2666,7 +2693,11 @@ export function createAnswers(options: AnswersOptions) {
                 const asText = sourcesAsText(markdown, known);
                 const sourced = linkKnownSources(markdown, known, link);
                 const tables = linkTableSources(sourced.text, link);
-                const cited = markdownToBlocks(tables.markdown).flatMap((block, index) =>
+                const drawn = withAnalysisPictures(
+                  markdownToBlocks(tables.markdown),
+                  markerAnalyses,
+                );
+                const cited = drawn.flatMap((block, index) =>
                   withCitations([block], (marker) => {
                     const node = session.checkedNode(marker);
                     if (!node) {
@@ -2677,17 +2708,19 @@ export function createAnswers(options: AnswersOptions) {
                     return node;
                   }),
                 );
-                const blocks = asGenerated(
-                  calculating
-                    ? withCalculatedFigures(cited, (marker) => figures.figure(marker), {
-                        id: answerId,
-                        analyses,
-                      })
-                    : cited,
-                );
+                const uncited = calculating
+                  ? withCalculatedFigures(cited, (marker) => figures.figure(marker), {
+                      id: answerId,
+                      analyses,
+                    })
+                  : cited;
+                // An Analysis's table cites the rows it read, so content that gives one isn't uncited.
+                const analysisTables = withAnalysisTableCitations(uncited, markerAnalyses);
+                const blocks = asGenerated(analysisTables);
                 return {
                   blocks,
-                  cited: found + notFound,
+                  cited:
+                    found + notFound + countCitations(analysisTables) - countCitations(uncited),
                   notFound,
                   unrecorded,
                   firstUnrecorded,
@@ -2819,7 +2852,7 @@ export function createAnswers(options: AnswersOptions) {
         : [];
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
-        calculating &&
+        offersAnalysis(prepared.capabilities) &&
         input.toolSet === undefined &&
         !help &&
         (input.analyse === true || options.documents.searchableHasSheets(documentIds))
@@ -2917,7 +2950,36 @@ export function createAnswers(options: AnswersOptions) {
           ),
         ).values(),
       ];
+      /**
+       * The lines the reply ends with, each in any language: why work stayed out of a Folder,
+       * worded by the wall as it is now, since one lifted meanwhile is no wall (#2250), and each
+       * command asked for that is the User's alone, in the card's own words (#2252).
+       */
+      const refusalLines = (): ((language: Language) => string)[] => {
+        const lifted = turnWall !== null && options.walledFolderId(turnWall) === null;
+        return [
+          ...[...wallRefusals]
+            .map((key) => (key === "folder.wall.refusal" && lifted ? "folder.wall.changed" : key))
+            .map((key) => (each: Language) => translate(each, key)),
+          ...refusedCommands().map(
+            ({ yours, folder }) =>
+              (each: Language) =>
+                yoursLine(each, yours, folder),
+          ),
+        ];
+      };
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
+      // After a command that was refused, failed or not allowed, the reply shows only once it is
+      // checked: what it says of that command could be untrue, and a Stop meanwhile would leave it
+      // unchecked (#2407).
+      const shownUpTo = (text: string) =>
+        toolCalls.some(
+          (call) =>
+            call.tool === COMMAND_TOOLS.run &&
+            (call.status === "failed" || call.command?.yours !== undefined),
+        )
+          ? 0
+          : heldBack(text);
       // Asked again inside the turn, the model reads what applied as applied: the window may not
       // have taken it in yet, and told it waits, the model tells the User so.
       const appliedInTurn: ChangeStates = (change) =>
@@ -2950,12 +3012,16 @@ export function createAnswers(options: AnswersOptions) {
       // call's help is read by its own flow, which offers no calculate to call.
       const readByUser = !outside && !help && !input.task && input.toolSet !== "check";
       const turnChecks: TurnCheck[] = [
-        ...(mindsTools
+        ...(mindsTools || commandsOffered
           ? [
               {
                 name: "claimed-change",
                 check: async (text: string) => {
-                  if (text.trim() === "") return null;
+                  // A refusal's own line says what wasn't done: never read as a claim (#2407).
+                  const reply = refusalLines()
+                    .flatMap((line) => LANGUAGES.map(line))
+                    .reduce((rest, line) => rest.split(line).join(""), text);
+                  if (reply.trim() === "") return null;
                   activity = "checking-claims";
                   showPhase();
                   try {
@@ -2971,7 +3037,7 @@ export function createAnswers(options: AnswersOptions) {
                     }
                     mindsNow = null;
                     const checked = await inStep("change-claim-check", () =>
-                      claimsNoCallMade(text, toolCalls, mindsListed(), focusedId, {
+                      claimsNoCallMade(reply, toolCalls, mindsListed(), focusedId, {
                         model: judgeModel,
                         names: options.readableMindName,
                         states: appliedInTurn,
@@ -2984,17 +3050,29 @@ export function createAnswers(options: AnswersOptions) {
                       usage.cachedInputTokens += checked.usage.cachedInputTokens ?? 0;
                       usage.cacheWriteTokens += checked.usage.cacheWriteTokens ?? 0;
                     }
-                    return checked.claims.length > 0
-                      ? {
-                          claims: checked.claims,
-                          note: askAgainNote(
-                            checked.claims,
-                            toolCalls,
-                            options.readableMindName,
-                            appliedInTurn,
-                          ),
-                        }
-                      : null;
+                    // Any claim that stands, and a check that couldn't run, name what the turn
+                    // refused as the User's alone, whatever the judge took a claim to be about, so
+                    // none of it reads as done (#2407). Only a verdict asks again.
+                    const refused = new Set<string>(refusedCommands().map(({ yours }) => yours));
+                    const claimed = checked.claims.length > 0 || checked.commands.length > 0;
+                    const commands =
+                      claimed || checked.failed
+                        ? CLAIMED_COMMANDS.filter(
+                            (each) => checked.commands.includes(each) || refused.has(each),
+                          )
+                        : [];
+                    if (!claimed)
+                      return commands.length > 0 ? { claims: [], commands, note: "" } : null;
+                    return {
+                      claims: checked.claims,
+                      commands,
+                      note: askAgainNote(
+                        checked,
+                        toolCalls,
+                        options.readableMindName,
+                        appliedInTurn,
+                      ),
+                    };
                   } finally {
                     activity = "writing";
                     showPhase();
@@ -3202,7 +3280,7 @@ export function createAnswers(options: AnswersOptions) {
         ...(input.assistant
           ? {
               turnChecks,
-              shownUpTo: heldBack,
+              shownUpTo,
               // A command that only acted on the window, or that is the User's alone, ends the
               // turn: its card is the reply (#1421), and a refusal's line follows it
               // (`refusalSuffix`).
@@ -3241,25 +3319,13 @@ export function createAnswers(options: AnswersOptions) {
                 ],
               }
             : readByUser && { turnChecks: [claimedTools] }),
-        // Every Answer, in the assistant or a Note, says why work of its stayed out of a Folder,
-        // worded by the wall as it is now: a wall lifted meanwhile is no wall (#2250). It says
-        // each command it was asked for that is the User's alone in the card's own words, after
-        // the model's reply, after none, and after a reply asked again that then failed, so the
-        // reply and the card never disagree and the card keeps only its button (#2252).
+        // Every Answer, in the assistant or a Note, ends with its refusal lines after the model's
+        // reply, after none, and after a reply asked again that then failed, so the reply and the
+        // card never disagree and the card keeps only its button (#2252).
         refusalSuffix: (reply) => {
           const language = answerLanguage(context.question);
-          const lifted = turnWall !== null && options.walledFolderId(turnWall) === null;
           // Said in either language, a line is said: a reply can copy an earlier Answer's.
-          const lines = [
-            ...[...wallRefusals]
-              .map((key) => (key === "folder.wall.refusal" && lifted ? "folder.wall.changed" : key))
-              .map((key) => (each: Language) => translate(each, key)),
-            ...refusedCommands().map(
-              ({ yours, folder }) =>
-                (each: Language) =>
-                  yoursLine(each, yours, folder),
-            ),
-          ]
+          const lines = refusalLines()
             .filter((line) => !LANGUAGES.some((each) => reply.includes(line(each))))
             .map((line) => line(language));
           return lines.length === 0 ? null : lines.join(language === "zh-CN" ? "" : " ");
@@ -3304,6 +3370,7 @@ export function createAnswers(options: AnswersOptions) {
             break;
           case "claims-unbacked":
             unbackedClaims = event.claims;
+            unbackedCommands = event.commands ?? [];
             unrunTools = event.tools ?? [];
             writeSoon();
             break;

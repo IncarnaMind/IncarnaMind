@@ -167,7 +167,9 @@ const decode = (data: Uint8Array) => new TextDecoder().decode(data);
 describe("exporting a Mind to HTML", () => {
   test("only consecutive note markers have a comma, with English, Chinese, spaces and line breaks", async () => {
     const { core, mind, client, tides } = await setUp();
-    const cite = () => citation(tides, 1, "found");
+    // A place of its own for each Citation: eleven notes, whose markers meet in prose.
+    let page = 0;
+    const cite = () => citation(tides, ++page, "found");
     writeMind(client, [
       paragraph(text("First sentence"), cite(), text(". Another sentence"), cite(), cite()),
       paragraph(text("第一句"), cite(), text("。下一句"), cite(), cite()),
@@ -230,7 +232,7 @@ describe("exporting a Mind to HTML", () => {
       ),
     ).toEqual([
       ["Tide 潮Range 潮差", "Spring 大潮4 m"],
-      ["QuarterRange", "Q14.14", "Q25.2"],
+      ["QuarterRange", "Q14.11", "Q25.2"],
     ]);
     const picture = `data:image/png;base64,${Buffer.from(PNG).toString("base64")}`;
     expect(main?.querySelector("img")?.getAttribute("src")).toBe(picture);
@@ -245,11 +247,9 @@ describe("exporting a Mind to HTML", () => {
       "Tides, p. 1",
       "潮汐, p. 1",
       "Tides, p. 2 [unverified]",
-      "Tides, p. 1",
       expect.stringMatching(
         /^Tea, The Open Encyclopedia, § History, ¶ 3, https:\/\/reader\.example\/tea, accessed 6 October 2026$/,
       ),
-      "Tides, p. 1",
     ]);
     expect(document.querySelector(".notes a[href='https://reader.example/tea']")).not.toBeNull();
   });
@@ -263,19 +263,26 @@ describe("exporting a Mind to HTML", () => {
     const markers = [...document.querySelectorAll("sup.note-ref")];
     const notes = [...document.querySelectorAll(".notes li")];
     expect(markers).toHaveLength(6);
-    expect(notes).toHaveLength(6);
+    // Tides' first page is cited three times: one note, whose number each of its markers shows.
+    expect(notes).toHaveLength(4);
+    const numbers = markers.map((marker) => marker.querySelector("a")?.textContent ?? "");
+    expect([...new Set(numbers)]).toEqual(["1", "2", "3", "4"]);
     const ids = [...document.querySelectorAll("[id]")].map((element) => element.id);
     expect(new Set(ids).size).toBe(ids.length);
+    const seen = new Set<string>();
     markers.forEach((marker, index) => {
-      const number = index + 1;
-      expect(marker.id).toBe(`ref-${number}`);
+      const number = numbers[index] ?? "";
       const link = marker.querySelector("a");
       expect(link?.getAttribute("href")).toBe(`#note-${number}`);
-      expect(link?.textContent).toBe(String(number));
-      const note = document.getElementById(`note-${number}`);
-      expect(note).toBe(notes[index]);
-      expect(note?.querySelector("a.backref")?.getAttribute("href")).toBe(`#ref-${number}`);
+      // Only the note's first marker carries the id its note links back to.
+      expect(marker.id).toBe(seen.has(number) ? "" : `ref-${number}`);
+      seen.add(number);
     });
+    for (const number of ["1", "2", "3", "4"]) {
+      const note = document.getElementById(`note-${number}`);
+      expect(note).toBe(notes[Number(number) - 1]);
+      expect(note?.querySelector("a.backref")?.getAttribute("href")).toBe(`#ref-${number}`);
+    }
   });
 
   test("nothing is fetched: no scripts, no external styles, fonts or pictures; the only web addresses are the pages' own, in notes", async () => {

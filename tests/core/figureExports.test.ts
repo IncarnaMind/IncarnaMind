@@ -25,13 +25,14 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { footnotesOf, paragraphsOf, part, unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
+import { fakePrinter } from "../helpers/printer";
 
 const QUOTE = "Revenue was 1,482.6 million in 2025 and 1,231.4 million in 2024.";
 
 async function setUp(language: "en" | "zh-CN" = "en") {
   const dataDir = await createTempDataFolder();
   const sources = await createTempDataFolder();
-  const core = startCore(dataDir, { now: manualClock().now });
+  const core = startCore(dataDir, { now: manualClock().now, printer: fakePrinter().printer });
   if (language === "zh-CN") await core.updateSettings({ user: { language } });
   const path = await writeSourceFile(sources, "Acme Annual Report 2025.txt", QUOTE);
   const [acme] = await addAndProcess(core, [path]);
@@ -224,6 +225,101 @@ describe("a figure an Analysis gave", () => {
       "Revenue was 1,482.6[^1].\n\n[^1]: Calculated by the Analysis “Revenue by year”: 1,482.6. Revenue 2025: Acme Annual Report 2025, p. 4.\n",
     );
   });
+
+  test.each(["en", "zh-CN"] as const)(
+    "%s: a figure whose Analysis record is missing is written as its value with a note, and the file is saved",
+    async (language) => {
+      const { core, mind, client, acme } = await setUp(language);
+      await core.setMindCitationStyle(mind.id, "numbered");
+      const { node } = fromAnalysis(acme);
+      writeMind(client, [
+        paragraph(text(language === "en" ? "Revenue was " : "营收为 "), node, text(".")),
+      ]);
+      await client.settled();
+
+      const markdown = decode(await core.exportMind(mind.id, { format: "markdown" }));
+      expect(markdown).toContain("1,482.6");
+      expect(markdown).toContain(
+        language === "en"
+          ? "The saved inputs for 1,482.6 aren’t available, so IncarnaMind writes it as its value."
+          : "“1,482.6”保存的输入暂不可用，IncarnaMind 按数值写出。",
+      );
+      const files = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+      expect(
+        paragraphsOf(part(files, "word/document.xml"))
+          .map((each) => each.text)
+          .join(" "),
+      ).toContain("1,482.6");
+      expect((await core.exportMind(mind.id, { format: "pdf" })).data.byteLength).toBeGreaterThan(
+        0,
+      );
+    },
+  );
+
+  test.each([
+    [
+      "en",
+      "apa",
+      "Only lost: 1,482.6 (The saved inputs for 1,482.6 aren’t available, so IncarnaMind writes it as its value).",
+    ],
+    ["zh-CN", "apa", "Only lost: 1,482.6（“1,482.6”保存的输入暂不可用，IncarnaMind 按数值写出）。"],
+    [
+      "en",
+      "chicago-notes",
+      "Only lost: 1,482.6[^1].\n\n[^1]: The saved inputs for 1,482.6 aren’t available, so IncarnaMind writes it as its value.",
+    ],
+    [
+      "zh-CN",
+      "chicago-notes",
+      "Only lost: 1,482.6[^1]。\n\n[^1]: “1,482.6”保存的输入暂不可用，IncarnaMind 按数值写出。",
+    ],
+  ] as const)(
+    "%s: %s writes exactly its value and the note once, for a figure whose Analysis record is missing",
+    async (language, style, expected) => {
+      const { core, mind, client, acme } = await setUp(language);
+      await core.setMindCitationStyle(mind.id, style);
+      const { node } = fromAnalysis(acme);
+      writeMind(client, [
+        paragraph(text("Only lost: "), node, text(language === "zh-CN" ? "。" : ".")),
+      ]);
+      await client.settled();
+
+      expect(decode(await core.exportMind(mind.id, { format: "markdown" }))).toBe(`${expected}\n`);
+    },
+  );
+
+  test.each([
+    [
+      "en",
+      "| Lost |\n| --- |\n| 1,482.6 (The saved inputs for 1,482.6 aren’t available, so IncarnaMind writes it as its value) |",
+    ],
+    [
+      "zh-CN",
+      "| Lost |\n| --- |\n| 1,482.6（“1,482.6”保存的输入暂不可用，IncarnaMind 按数值写出） |",
+    ],
+  ] as const)(
+    "%s: a table cell with a figure whose Analysis record is missing writes exactly its value and the note once",
+    async (language, expected) => {
+      const { core, mind, client, acme } = await setUp(language);
+      await core.setMindCitationStyle(mind.id, "apa");
+      const { node } = fromAnalysis(acme);
+      writeMind(client, [
+        {
+          type: "table",
+          content: [
+            {
+              type: "tableRow",
+              content: [{ type: "tableHeader", content: [paragraph(text("Lost"))] }],
+            },
+            { type: "tableRow", content: [{ type: "tableCell", content: [paragraph(node)] }] },
+          ],
+        },
+      ]);
+      await client.settled();
+
+      expect(decode(await core.exportMind(mind.id, { format: "markdown" }))).toBe(`${expected}\n`);
+    },
+  );
 });
 
 const ACME: ReferencePatch = {

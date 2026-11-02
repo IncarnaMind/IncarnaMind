@@ -85,6 +85,25 @@ describe("where a suggestion goes", () => {
     );
     expect(citationNumberAt(state, state.doc.content.size - 1)).toBe(3);
   });
+
+  test("a suggested Citation of a source and place already cited takes that footnote's number", () => {
+    const state = stateWith([paragraph(text("One "), citation, text(LONG))], endOfFirst);
+    const at = endOfFirst(state.doc);
+    expect(citationNumberAt(state, at, citation.attrs ?? {})).toBe(1);
+    // A place of its own gets the next footnote's number.
+    expect(
+      citationNumberAt(state, at, { documentId: "d", check: "found", pageFrom: 2, pageTo: 2 }),
+    ).toBe(2);
+  });
+
+  test("a suggested Citation after two marks of one footnote takes the number after it", () => {
+    const state = stateWith(
+      [paragraph(text("One "), citation, text(" and "), citation, text(LONG))],
+      endOfFirst,
+    );
+    // Both Citations are one Document and place, footnote 1; a new place is footnote 2, not 3.
+    expect(citationNumberAt(state, endOfFirst(state.doc), { documentId: "other" })).toBe(2);
+  });
 });
 
 describe("the words of a suggestion", () => {
