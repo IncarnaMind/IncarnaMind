@@ -6273,6 +6273,11 @@ export function createCore(adapters: CoreAdapters): Core {
       events.clear();
       content.closeAll();
       unsaved.quit();
+      // The Word import screen's temporary .docx copies go with the app.
+      for (const folder of wordConversions.values()) {
+        void rm(folder, { recursive: true, force: true }).catch(() => undefined);
+      }
+      wordConversions.clear();
       db.close();
     },
   };
