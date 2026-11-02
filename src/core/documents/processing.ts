@@ -69,9 +69,10 @@ import type { PictureProblem } from "./web/pictures";
  * its first Unit its defined names and what of it wasn't read). 21: #2365 (a
  * Word section's headers and footers, and more forms of a scale, are read for
  * it). 22: #762 (pictures are read as scanned pages are; RTF and HTML files
- * are read).
+ * are read). 23: #1979 (a workbook's rows Units name the rows the file
+ * strikes through or hides).
  */
-export const PROCESSING_VERSION = 22;
+export const PROCESSING_VERSION = 23;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -104,7 +105,9 @@ export const PROCESSING_VERSION = 22;
  * embeddings come out as they were (#2365). Version 22 adds the kinds of
  * Document from #762: a picture's one page read from it, and RTF and HTML
  * files read as text with their headings. No other kind's Passage or Unit
- * changes.
+ * changes. Version 23 only workbooks', whose rows Units name the rows the file
+ * strikes through or hides; their text, Passages and embeddings come out as
+ * they were (#1979).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 21,
@@ -112,7 +115,7 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   markdown: 5,
   docx: 21,
   pptx: 5,
-  xlsx: 20,
+  xlsx: 23,
   csv: 5,
   image: 22,
   rtf: 22,

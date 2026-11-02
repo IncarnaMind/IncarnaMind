@@ -96,6 +96,7 @@ import type {
 } from "./engine";
 import { NOT_CITED_ATTRIBUTE } from "./prompt";
 import { readDocumentPages } from "./readDocumentPages";
+import { markedRows, repeatedRows } from "./sheetRows";
 
 const SEARCHED_ALREADY =
   "You already searched for this, and have its Passages: answer with them, or search for something different.";
@@ -1166,12 +1167,17 @@ interface ShownPassage {
   notCited: boolean;
   /** A workbook's rows whose figures its formulas work out, which the text doesn't show (#2372). */
   formulas: string | null;
+  /** The rows the file strikes through, and those it hides, which the text doesn't show (#1979). */
+  struck: string | null;
+  hidden: string | null;
+  /** Rows that give one item different figures (./sheetRows). */
+  repeated: string | null;
 }
 
 /** Passages as the model sees them, each with its short id, Document, its date, and pages or Location. */
 function formatPassages(passages: readonly ShownPassage[], also: readonly PromptTag[]): string {
   return passages
-    .map(({ id, documentName, date, range, location, text, notCited, formulas }) => {
+    .map(({ id, documentName, date, range, location, text, notCited, ...rows }) => {
       const pages = pagesLabel(range);
       const where = location
         ? ` location="${attribute(location)}"`
@@ -1182,11 +1188,16 @@ function formatPassages(passages: readonly ShownPassage[], also: readonly Prompt
         ? ` ${date.of === "document" ? "date" : date.of}="${attribute(date.date)}"`
         : "";
       const never = notCited ? NOT_CITED_ATTRIBUTE : "";
-      const worked = formulas ? ` formulas="${attribute(formulas)}"` : "";
+      const marks = (["formulas", "struck", "hidden", "repeated"] as const)
+        .map((mark) => {
+          const value = rows[mark];
+          return value ? ` ${mark}="${attribute(value)}"` : "";
+        })
+        .join("");
       return tagged(
         "passage",
         text,
-        ` id="${id}" document="${attribute(documentName)}"${dated}${where}${worked}${never}`,
+        ` id="${id}" document="${attribute(documentName)}"${dated}${where}${marks}${never}`,
         also,
       );
     })
@@ -1741,17 +1752,25 @@ export function createCitationSession(
       if (!dates.has(documentId)) dates.set(documentId, documents.documentDate(documentId));
       return dates.get(documentId) ?? null;
     };
-    const formatted = found.map((passage): ShownPassage => {
+    const unitsOf = found.map((passage) =>
+      passage.pageFrom !== null && passage.pageTo !== null
+        ? documents.pageTexts(
+            passage.documentId,
+            passage.contentHash,
+            passage.pageFrom,
+            passage.pageTo,
+          )
+        : [],
+    );
+    const repeated = repeatedRows(
+      found.map((passage, index) => ({
+        version: `${passage.documentId}\n${passage.contentHash}`,
+        units: unitsOf[index] ?? [],
+      })),
+    );
+    const formatted = found.map((passage, index): ShownPassage => {
       const range = { pageFrom: passage.pageFrom, pageTo: passage.pageTo };
-      const units =
-        passage.pageFrom !== null && passage.pageTo !== null
-          ? documents.pageTexts(
-              passage.documentId,
-              passage.contentHash,
-              passage.pageFrom,
-              passage.pageTo,
-            )
-          : [];
+      const units = unitsOf[index] ?? [];
       const severalSections =
         units.every((unit) => unit.kind === "section") &&
         new Set(units.map((unit) => JSON.stringify([unit.label?.path ?? [], unitLocation(unit)])))
@@ -1789,6 +1808,9 @@ export function createCitationSession(
         text,
         notCited,
         formulas: events.marksFormulas?.() ? formulaRows(units) : null,
+        struck: markedRows(units, "struckRows"),
+        hidden: markedRows(units, "hiddenRows"),
+        repeated: repeated[index] ?? null,
       };
     });
     return formatPassages(formatted, events.defuses ?? []);

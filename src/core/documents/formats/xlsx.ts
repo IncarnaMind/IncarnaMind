@@ -4,7 +4,9 @@
  * Values are shown as Excel shows them: formulas give their last cached
  * result, numbers follow their cell's number format ("£350,200", "4.2%"),
  * dates become ISO dates, booleans TRUE and FALSE. Hidden sheets are left
- * out unless the read asks for them (#740). Sheets are read as a stream of rows, so a huge sheet costs no more
+ * out unless the read asks for them (#740). Rows the file strikes through or
+ * hides are read, and named as such: the file sets them aside, often as an
+ * older version of a row shown below them (#1979). Sheets are read as a stream of rows, so a huge sheet costs no more
  * than the rows read: past `MAX_ROWS` rows or `MAX_CELLS` cells in all,
  * reading stops and the workbook says it was cut short. Ported from the
  * office-formats spike, with streaming and number formats added.
@@ -38,7 +40,7 @@ import {
   readNotes,
   relationshipsOf,
 } from "./xlsxDrawings";
-import { readFont, readStyles, type WorkbookStyles } from "./xlsxStyles";
+import { readFont, readStyles, struckStyles, type WorkbookStyles } from "./xlsxStyles";
 import {
   child,
   descendants,
@@ -143,6 +145,7 @@ export async function readWorkbook(
       formats.push(custom.get(id) ?? builtInFormat(id));
     }
   }
+  const struck = struckStyles(styles);
   let looks: WorkbookStyles | undefined;
   if (layout) {
     const themeXml = themePart && zip.has(themePart) ? await zip.readText(themePart) : undefined;
@@ -212,6 +215,8 @@ export async function readWorkbook(
       columnWidths: [],
       formulas: new Map(),
       saved: new Map(),
+      struckRows: new Set(),
+      hiddenRows: new Set(),
     };
     const formulas = new SheetFormulas(sheet);
     const look = looks ? emptyLayout() : undefined;
@@ -250,6 +255,8 @@ export async function readWorkbook(
       }
       rowsLeft--;
       let column = -1;
+      let valued = 0;
+      let struckThrough = 0;
       for (const c of cells) {
         const ref = c.attrs.r ? parseCellRef(c.attrs.r) : null;
         column = ref ? ref.column : column + 1;
@@ -260,6 +267,8 @@ export async function readWorkbook(
         formulas.read(c, cell, rowNumber, column);
         if (!cell) continue;
         cellsLeft--;
+        valued++;
+        if (struck.has(Number(c.attrs.s ?? 0))) struckThrough++;
         sheet.cells.push({
           row: rowNumber,
           column,
@@ -270,6 +279,10 @@ export async function readWorkbook(
         sheet.rowCount = Math.max(sheet.rowCount, rowNumber);
         sheet.columnCount = Math.max(sheet.columnCount, column + 1);
       }
+      if (valued === 0) continue;
+      if (struckThrough === valued) sheet.struckRows?.add(rowNumber);
+      if (element.attrs.hidden === "1" || element.attrs.hidden === "true")
+        sheet.hiddenRows?.add(rowNumber);
     }
   }
   // Merged ranges stretch the grid even where they hold nothing.

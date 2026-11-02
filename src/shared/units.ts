@@ -105,6 +105,10 @@ export interface UnitLabel {
   saved?: Record<string, number | string | boolean>;
   /** rows: the first Unit of a workbook's, what the whole workbook's formulas need (#2347). */
   workbook?: WorkbookFacts;
+  /** rows of a workbook (#1979): the rows whose every cell the file strikes through. */
+  struckRows?: number[];
+  /** rows of a workbook (#1979): the rows the file hides. */
+  hiddenRows?: number[];
 }
 
 /** What a workbook's formulas need beyond its cells (#2347). */
