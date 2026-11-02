@@ -381,7 +381,8 @@ describe.runIf(process.platform === "darwin" && sandbox.available)(
             tempDir: root,
             denyRead: [],
             reportError: (error) => errors.push(error),
-            sweep: { stopper, records },
+            runRecords: records,
+            sweep: { stopper },
           });
           const stop = new AbortController();
           const running = executor.run({
@@ -456,6 +457,80 @@ describe.runIf(process.platform === "darwin" && sandbox.available)(
         expect(left.map((each) => each.pid)).toEqual([pids[at]?.child]);
         for (const each of left) process.kill(each.pid, "SIGKILL");
       }
+      for (const [label, pid] of foreign) {
+        expect([label, after.some((each) => each.pid === pid)]).toEqual([label, true]);
+      }
+    }, 90_000);
+
+    test("a run's own sweep stops the process that left its group, and signals nothing else", async () => {
+      if (!sandbox.available) throw new Error("No OS sandbox.");
+      const folder = join(root, "run-real");
+      await mkdir(folder);
+      const records = join(root, "records-real");
+      const env = { PATH: process.env.PATH ?? "/usr/bin:/bin" };
+      const signals: unknown[] = [];
+      const errors: unknown[] = [];
+      const executor = sandbox.createExecutor({
+        processes: createProcessLauncher(async () => env),
+        environment: async () => env,
+        tempDir: root,
+        denyRead: [],
+        reportError: (error) => errors.push(error),
+        runRecords: records,
+        log: {
+          info: (_event, fields) => signals.push(fields),
+          warn: () => {},
+          error: () => {},
+        },
+      });
+      const stop = new AbortController();
+      const running = executor.run({
+        command: process.execPath,
+        args: ["-e", SETSID],
+        cwd: folder,
+        env: {},
+        allow: { read: [WORKING_FOLDER], write: [WORKING_FOLDER], network: "none" },
+        timeoutMs: 120_000,
+        maxOutputBytes: 1024,
+        signal: stop.signal,
+      });
+      const decoy = await vi.waitFor(
+        async () =>
+          JSON.parse(await readFile(join(folder, "pids.json"), "utf8")) as {
+            pid: number;
+            child: number;
+          },
+        { timeout: 20_000, interval: 50 },
+      );
+      const [name] = await readdir(records);
+      const run = JSON.parse(await readFile(join(records, name ?? ""), "utf8")) as RunRecord;
+      const listed = await classify(await listProcesses(), run, context(decoy.pid), sandboxCheck);
+      expect(
+        listed
+          .filter((each) => each.verdict === "member")
+          .map((each) => each.pid)
+          .sort((x, y) => x - y),
+      ).toEqual([decoy.pid, decoy.child].sort((x, y) => x - y));
+
+      const uid = process.getuid?.() ?? -1;
+      const before = (await listProcesses()).filter((each) => each.uid === uid);
+      stop.abort();
+      await running;
+      const after = (await listProcesses()).filter((each) => each.uid === uid);
+      const still = new Set(after.map((each) => `${each.pid}@${each.startedMs}`));
+      const vanished = before.filter((each) => !still.has(`${each.pid}@${each.startedMs}`));
+      report.realStop = { run: run.id, decoy, signals, before, after, vanished };
+
+      expect(after.some((each) => each.pid === decoy.child)).toBe(false);
+      // The program itself may still be listed, ending, when the first sweep looks.
+      const signalled = signals as { pid: number; signal: string }[];
+      expect(
+        signalled.filter((each) => each.pid !== decoy.pid && each.pid !== decoy.child),
+      ).toEqual([]);
+      expect(
+        signalled.filter((each) => each.pid === decoy.child).map((each) => each.signal),
+      ).toEqual(["SIGSTOP", "SIGKILL"]);
+      expect(errors).toEqual([]);
       for (const [label, pid] of foreign) {
         expect([label, after.some((each) => each.pid === pid)]).toEqual([label, true]);
       }

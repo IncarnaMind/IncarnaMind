@@ -27,7 +27,6 @@
  */
 import { execFile } from "node:child_process";
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { type SandboxQuestion, sandboxCheck } from "./sandboxCheck";
@@ -333,8 +332,8 @@ export interface RunSweeperOptions {
   log?: SignalLog;
   /** `killProcess` unless a test passes one that records instead. */
   stopper?: Stopper;
-  /** Where runs are recorded: the system's temporary folder unless a test passes its own. */
-  records?: string;
+  /** Where runs are recorded. */
+  records: string;
 }
 
 /** Sweeps runs, and at its creation the runs a crash of an earlier app left behind. */
@@ -350,7 +349,7 @@ export function createRunSweeper(options: RunSweeperOptions): RunSweeper {
     uid: uid ?? -1,
     app: process.pid,
   };
-  const records = recordsFolder(options.records ?? join(tmpdir(), `incarnamind-runs-${uid ?? 0}`));
+  const records = recordsFolder(options.records);
   const stuck = new Map<string, { run: RunRecord; group: number }>();
   const owner = listProcesses()
     .then((rows) => {

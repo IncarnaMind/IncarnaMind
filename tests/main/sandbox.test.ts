@@ -89,6 +89,7 @@ async function setUp(
     reportError: (error) => {
       throw error;
     },
+    runRecords: join(data, "runs"),
   });
   return { executor, home, canary, data, database, skillDir, outside, tempDir };
 }

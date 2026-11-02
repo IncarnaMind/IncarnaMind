@@ -89,10 +89,15 @@ export interface OsExecutorOptions {
   denyRead: readonly string[];
   /** Told when a run's temporary working folder can't be removed. */
   reportError(error: unknown): void;
+  /**
+   * Where each run is recorded until its sweep has ended it (./runLeftovers): a folder of this
+   * app's own, which no run can read or write, so no other copy of the app sweeps its runs.
+   */
+  runRecords: string;
   /** Where each signal a run's sweep sends is logged. */
   log?: Logger;
-  /** A test's stopper and records folder for the sweep (./runLeftovers); the app's otherwise. */
-  sweep?: Pick<RunSweeperOptions, "stopper" | "records">;
+  /** A test's stopper for the sweep, which records instead of signalling. */
+  sweep?: Pick<RunSweeperOptions, "stopper">;
 }
 
 /**
@@ -557,6 +562,7 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
           createRunSweeper({
             report: options.reportError,
             log: (fields) => options.log?.info("runSweep.signal", fields),
+            records: options.runRecords,
             ...options.sweep,
           }),
         ),

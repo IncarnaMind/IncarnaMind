@@ -144,6 +144,7 @@ test("run_code routing", async () => {
           temporaryFolder: tmpdir(),
         }),
         reportError: (error) => log(`The sandbox couldn't clean up: ${String(error)}`),
+        runRecords: join(home, "runs"),
       }),
       codeRuntime: createCodeHost({ python: runtime.manifest, font: null, appVersion: "eval" }),
     }),

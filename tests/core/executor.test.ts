@@ -497,6 +497,7 @@ executorContract(
       tempDir,
       denyRead: [join(tempDir, "stand-in-home"), join(tempDir, "stand-in-data")],
       reportError: failOnError,
+      runRecords: join(tempDir, "stand-in-data", "runs"),
     });
   },
   osSandbox.available ? undefined : osSandbox.reason,

@@ -102,6 +102,7 @@ function executor() {
     reportError: (error) => {
       throw error;
     },
+    runRecords: join(data, "runs"),
   });
 }
 
@@ -242,7 +243,6 @@ describe.skipIf(unavailable !== undefined)(
           `try() { if eval "$2" >/dev/null 2>&1; then echo "$1: allowed"; else echo "$1: denied"; fi; }`,
           `try home "cat '${homeCanary}'"`,
           `try homes "ls -A '${homes}' | grep -q ."`,
-          // biome-ignore lint/suspicious/noTemplateCurlyInString: the shell's own command.
           'try runtime-folder "ls -A /run/user/$(id -u) | grep -q ."',
           `try data "cat '${dataCanary}'"`,
           `try temp "cat '${tempCanary}'"`,
