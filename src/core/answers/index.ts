@@ -44,6 +44,7 @@ import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { withAnalysisPictures } from "../../shared/analysisPictures";
+import { countCitations, withAnalysisTableCitations } from "../../shared/analysisTables";
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
 import { runsByDefault } from "../../shared/approvalRules";
@@ -154,7 +155,12 @@ import type { MindContent } from "../mindContent";
 import { plainText } from "../mindText";
 import { docOf } from "../proposals/merge";
 import { proposeBlocks } from "../proposals/write";
-import { givesStructuredOutput, calculates as offersCalculate } from "../providers/capabilities";
+import {
+  givesStructuredOutput,
+  offersAnalysis,
+  calculates as offersCalculate,
+  offersWorkbookTools,
+} from "../providers/capabilities";
 import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { PreparedChatModel } from "../providers/chat";
 import type { ModelCallKind } from "../providers/outputLimits";
@@ -1663,7 +1669,10 @@ export function createAnswers(options: AnswersOptions) {
                   ? (marker) => session.finalNode(marker)
                   : (marker) => session.streamingNode(marker),
               );
-              const drawn = withAnalysisPictures(blocks, analyses);
+              const drawn = withAnalysisTableCitations(
+                withAnalysisPictures(blocks, analyses),
+                analyses,
+              );
               return asGenerated(
                 calculating
                   ? withCalculatedFigures(drawn, (marker) => figures.figure(marker), {
@@ -2300,7 +2309,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       calculating = offersCalculate(prepared.capabilities);
       workbookToolsOffered =
-        calculating &&
+        offersWorkbookTools(prepared.capabilities) &&
         input.toolSet === undefined &&
         !help &&
         options.documents.searchableHasSheets(documentIds, true);
@@ -2652,7 +2661,18 @@ export function createAnswers(options: AnswersOptions) {
                 const written = withoutSearchTalk(
                   session.citeWrittenIds(withoutFootnoteDefinitions(text), notKept),
                 );
-                const markdown = calculating ? citeFigures(written.markdown) : written.markdown;
+                // A marker is the Analysis's own table, not text typed again. This Answer's
+                // Analyses name their markers first; the last Answer's stand for the rest, as
+                // its markers can be written into a Note in a later turn.
+                const markerAnalyses = [
+                  ...analyses,
+                  ...(input.assistant?.lastAnswer?.answer.analyses ?? []),
+                ];
+                const markdown = withAnalysisResults(
+                  calculating ? citeFigures(written.markdown) : written.markdown,
+                  markerAnalyses,
+                  answerLanguage(context.question),
+                );
                 const link = (source: NamedSource) => {
                   const marker = session.markerFor(source);
                   return marker === null ? null : `[^${marker}]`;
@@ -2666,7 +2686,11 @@ export function createAnswers(options: AnswersOptions) {
                 const asText = sourcesAsText(markdown, known);
                 const sourced = linkKnownSources(markdown, known, link);
                 const tables = linkTableSources(sourced.text, link);
-                const cited = markdownToBlocks(tables.markdown).flatMap((block, index) =>
+                const drawn = withAnalysisPictures(
+                  markdownToBlocks(tables.markdown),
+                  markerAnalyses,
+                );
+                const cited = drawn.flatMap((block, index) =>
                   withCitations([block], (marker) => {
                     const node = session.checkedNode(marker);
                     if (!node) {
@@ -2677,17 +2701,19 @@ export function createAnswers(options: AnswersOptions) {
                     return node;
                   }),
                 );
-                const blocks = asGenerated(
-                  calculating
-                    ? withCalculatedFigures(cited, (marker) => figures.figure(marker), {
-                        id: answerId,
-                        analyses,
-                      })
-                    : cited,
-                );
+                const uncited = calculating
+                  ? withCalculatedFigures(cited, (marker) => figures.figure(marker), {
+                      id: answerId,
+                      analyses,
+                    })
+                  : cited;
+                // An Analysis's table cites the rows it read, so content that gives one isn't uncited.
+                const analysisTables = withAnalysisTableCitations(uncited, markerAnalyses);
+                const blocks = asGenerated(analysisTables);
                 return {
                   blocks,
-                  cited: found + notFound,
+                  cited:
+                    found + notFound + countCitations(analysisTables) - countCitations(uncited),
                   notFound,
                   unrecorded,
                   firstUnrecorded,
@@ -2819,7 +2845,7 @@ export function createAnswers(options: AnswersOptions) {
         : [];
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
-        calculating &&
+        offersAnalysis(prepared.capabilities) &&
         input.toolSet === undefined &&
         !help &&
         (input.analyse === true || options.documents.searchableHasSheets(documentIds))

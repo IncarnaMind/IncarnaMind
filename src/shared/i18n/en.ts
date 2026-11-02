@@ -4208,7 +4208,7 @@ export const en = {
   "export.pack.column.source": "Document and Location",
   "export.pack.column.page": "Page",
   "export.pack.picture": "Cited page: {source}",
-  "export.pack.notFound": "{number} · Quote not found on this page",
+  "export.pack.notFound": "{number} · Quote not found on this page: “{quote}”",
   "export.pack.noPage": "This page wasn’t saved when it was cited, so only the quotes are shown.",
   "export.saveTo": "Save to",
   "export.theirChanges": "Tracked changes",
@@ -4539,6 +4539,8 @@ export const en = {
   "export.citation.document": "{document}",
   "export.citation.separator": ", ",
   "export.citation.accessed": "accessed {date}",
+  "export.figure.unavailable":
+    "The saved inputs for {figure} aren’t available, so IncarnaMind writes it as its value.",
   "export.figure.calculated": "Calculated: {formula} = {figure}.",
   "export.figure.analysis": "Calculated by the Analysis “{title}”: {figure}.",
   "export.figure.workbook":
@@ -4590,6 +4592,7 @@ export const en = {
   "export.change.inserted.noDate": "Inserted by {author}",
   "export.change.deleted": "Deleted by {author}, {date}",
   "export.change.deleted.noDate": "Deleted by {author}",
+  "export.change.incarnaMind": "IncarnaMind",
   "export.change.someone": "someone",
   "export.change.replaced": "Replaced by {author}, {date}",
   "export.change.replaced.noDate": "Replaced by {author}",
