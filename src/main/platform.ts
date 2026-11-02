@@ -201,6 +201,7 @@ export async function chooseExecutor(
         uid: typeof process.getuid === "function" ? process.getuid() : undefined,
       }),
       reportError: (error) => console.error(error),
+      log,
     });
     return { executor };
   } catch (error) {

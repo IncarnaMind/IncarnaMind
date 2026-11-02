@@ -208,44 +208,107 @@ const WATCH_MS = 250;
 
 const execFileAsync = promisify(execFile);
 
-/**
- * The resident memory of the program started as `root` and everything under it, in bytes, as
- * `ps` reports it on macOS and Linux: its process group, and every process descended from it,
- * since bubblewrap starts the sandboxed program in a session of its own (`--new-session`); null
- * where it can't be read (Windows, where a Job Object would hold the limit instead).
- */
-export function treeMemory(listing: string, root: number): number {
-  const parents = new Map<number, number>();
-  const groups = new Map<number, number>();
-  const resident = new Map<number, number>();
+interface ProcessListing {
+  parents: Map<number, number>;
+  groups: Map<number, number>;
+  resident: Map<number, number>;
+}
+
+/** `ps -A -o pid=,ppid=,pgid=,rss=`, resident memory in bytes. */
+function readListing(listing: string): ProcessListing {
+  const read: ProcessListing = { parents: new Map(), groups: new Map(), resident: new Map() };
   for (const line of listing.split("\n")) {
     const [pid, ppid, pgid, rss] = line.trim().split(/\s+/).map(Number);
     if (pid === undefined || !Number.isFinite(pid) || pid <= 0) continue;
-    parents.set(pid, ppid ?? 0);
-    groups.set(pid, pgid ?? 0);
-    resident.set(pid, Number.isFinite(rss) ? (rss ?? 0) : 0);
+    read.parents.set(pid, ppid ?? 0);
+    read.groups.set(pid, pgid ?? 0);
+    read.resident.set(pid, Number.isFinite(rss) ? (rss ?? 0) * 1024 : 0);
   }
+  return read;
+}
+
+/**
+ * The program started as `root` and everything under it: its process group, and every process
+ * descended from it, since bubblewrap starts the sandboxed program in a session of its own
+ * (`--new-session`).
+ */
+function programPids({ parents, groups }: ProcessListing, root: number): number[] {
   const counted = (pid: number): boolean => {
     for (let at = pid, hops = 0; at > 1 && hops < 4096; at = parents.get(at) ?? 0, hops++) {
       if (at === root || groups.get(at) === root) return true;
     }
     return false;
   };
-  let kib = 0;
-  for (const [pid, rss] of resident) if (counted(pid)) kib += rss;
-  return kib * 1024;
+  return [...parents.keys()].filter(counted);
 }
 
-async function programMemory(root: number): Promise<number | null> {
-  if (process.platform === "win32") return null;
+/**
+ * The memory of the program started as `root` and everything under it, in bytes, from a `ps`
+ * listing: each process counts the larger of its resident memory and its footprint in `held`.
+ */
+export function treeMemory(
+  listing: string,
+  root: number,
+  held: ReadonlyMap<number, number> = new Map(),
+): number {
+  const read = readListing(listing);
+  let bytes = 0;
+  for (const pid of programPids(read, root)) {
+    bytes += Math.max(read.resident.get(pid) ?? 0, held.get(pid) ?? 0);
+  }
+  return bytes;
+}
+
+/** Each process's `phys_footprint`, in bytes, from `footprint --noCategories -f bytes`. */
+export function footprints(report: string): Map<number, number> {
+  const held = new Map<number, number>();
+  let pid: number | undefined;
+  for (const line of report.split("\n")) {
+    const header = /\[(\d+)\]: \d+-bit/.exec(line);
+    if (header) pid = Number(header[1]);
+    const bytes = /^\s*phys_footprint: (\d+) B$/.exec(line);
+    if (bytes && pid !== undefined) held.set(pid, Number(bytes[1]));
+  }
+  return held;
+}
+
+/** `footprint`'s exit status when none of the processes it was given is left. */
+const NONE_LEFT = 66;
+
+/**
+ * macOS swaps and compresses what a program holds once memory runs short, and resident memory
+ * stops counting it, so a program could hold any amount and stay under its limit. Its
+ * footprint counts it, as Activity Monitor does.
+ */
+async function macFootprints(pids: number[]): Promise<Map<number, number>> {
+  if (process.platform !== "darwin" || pids.length === 0) return new Map();
+  const args = ["--noCategories", "-f", "bytes", ...pids.flatMap((pid) => ["-p", String(pid)])];
   try {
-    const { stdout } = await execFileAsync("ps", ["-A", "-o", "pid=,ppid=,pgid=,rss="], {
+    const { stdout } = await execFileAsync("/usr/bin/footprint", args, {
       maxBuffer: 16 * 1024 * 1024,
     });
-    return treeMemory(stdout, root);
-  } catch {
-    return null;
+    return footprints(stdout);
+  } catch (error) {
+    if ((error as { code?: unknown }).code === NONE_LEFT) return new Map();
+    throw error;
   }
+}
+
+/**
+ * The program's memory, in bytes; where its footprint can't be read, its resident memory alone,
+ * and `unmeasured` is told why.
+ */
+async function programMemory(root: number, unmeasured: (error: unknown) => void): Promise<number> {
+  const { stdout } = await execFileAsync("ps", ["-A", "-o", "pid=,ppid=,pgid=,rss="], {
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  const held = await macFootprints(programPids(readListing(stdout), root)).catch(
+    (error: unknown) => {
+      unmeasured(error);
+      return new Map<number, number>();
+    },
+  );
+  return treeMemory(stdout, root, held);
 }
 
 /** The bytes the files under `folder` hold; links aren't followed. */
@@ -273,22 +336,34 @@ function watchLimits(
   request: ExecRequest,
   cwd: string,
   over: (limit: NonNullable<ExecResult["limit"]>) => void,
+  report: (error: unknown) => void,
 ): () => void {
   const { memoryBytes, folderBytes } = request.limits ?? {};
   const { pid } = child;
   if ((memoryBytes === undefined && folderBytes === undefined) || pid === undefined) {
     return () => undefined;
   }
+  // Measured four times a second: one report of each failure is enough to find it.
+  let reported = false;
+  const reportOnce = (error: unknown) => {
+    if (reported) return;
+    reported = true;
+    report(error);
+  };
+  // On Windows the Job Object will hold this limit (ADR-0025): `ps` has nothing to read there.
+  const measuresMemory = memoryBytes !== undefined && process.platform !== "win32";
   let measuring = false;
   const timer = setInterval(async () => {
     if (measuring) return;
     measuring = true;
     try {
-      if (memoryBytes !== undefined && ((await programMemory(pid)) ?? 0) > memoryBytes) {
+      if (measuresMemory && (await programMemory(pid, reportOnce)) > memoryBytes) {
         over("memory");
       } else if (folderBytes !== undefined && (await folderSize(cwd)) > folderBytes) {
         over("folder");
       }
+    } catch (error) {
+      reportOnce(error);
     } finally {
       measuring = false;
     }
@@ -305,6 +380,7 @@ const collect = (
   request: ExecRequest,
   cwd: string,
   leftovers: () => Promise<void>,
+  report: (error: unknown) => void,
 ) =>
   new Promise<ExecResult>((resolve) => {
     const stdout = new Head(request.maxOutputBytes);
@@ -317,10 +393,16 @@ const collect = (
       timedOut = true;
       stop();
     }, request.timeoutMs);
-    const stopWatching = watchLimits(child, request, cwd, (over) => {
-      limit ??= over;
-      stop();
-    });
+    const stopWatching = watchLimits(
+      child,
+      request,
+      cwd,
+      (over) => {
+        limit ??= over;
+        stop();
+      },
+      report,
+    );
     const finish = (code: number | null) => {
       if (settled) return;
       settled = true;
@@ -375,7 +457,7 @@ export interface LocalExecutorOptions {
   processes: ProcessLauncher;
   /** Where each run without a `cwd` gets its temporary working folder. */
   tempDir: string;
-  /** Told when a run's temporary working folder can't be removed. */
+  /** Told when a run's temporary working folder can't be removed, or its limits measured. */
   reportError(error: unknown): void;
   /** Confines each program, at its level. Not given: level "none", nothing confined. */
   confinement?: Confinement;
@@ -415,10 +497,10 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
             processGroup: true,
           });
           group = child.pid ?? 0;
-          const result = await collect(child, request, cwd, leftovers);
-          await leftovers();
-          return result;
+          return await collect(child, request, cwd, leftovers, options.reportError);
         } finally {
+          // Also when it couldn't start: the run's record goes only once a sweep has found it over.
+          await leftovers();
           confinement?.release();
         }
       } finally {

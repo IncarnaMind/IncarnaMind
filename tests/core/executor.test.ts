@@ -18,6 +18,7 @@ import type { ExecAllow, ExecRequest, Executor, ProcessLauncher } from "../../sr
 import {
   createLocalExecutor,
   declaredAccess,
+  footprints,
   treeMemory,
   WORKING_FOLDER,
 } from "../../src/core/execution";
@@ -552,5 +553,45 @@ describe("a program's memory, as its limit counts it", () => {
   test("counts nothing of another program's", () => {
     expect(treeMemory(LISTING, 300)).toBe(16000 * 1024);
     expect(treeMemory(LISTING, 999)).toBe(0);
+  });
+
+  test("counts what macOS swapped or compressed, by each process's footprint where it is larger", () => {
+    // 101 holds 3 GB of which 2 MB is resident; 201's footprint is under its resident memory.
+    const held = new Map([
+      [101, 3_000_000_000],
+      [201, 1024],
+      [300, 5_000_000_000],
+    ]);
+    expect(treeMemory(LISTING, 100, held)).toBe(
+      1000 * 1024 + 3_000_000_000 + 4000 * 1024 + 8000 * 1024,
+    );
+  });
+
+  test("reads each process's footprint from macOS's report", () => {
+    const report = [
+      "======================================================================",
+      "python3.12 [4101]: 64-bit    Footprint: 3000000000 B (16384 bytes per page)",
+      "======================================================================",
+      "",
+      "Auxiliary data:",
+      "    phys_footprint: 3000016384 B",
+      "    phys_footprint_peak: 3100000000 B",
+      "",
+      "======================================================================",
+      "a [name] with brackets [4102]: 64-bit    Footprint: 2015568 B (16384 bytes per page)",
+      "======================================================================",
+      "",
+      "Auxiliary data:",
+      "    phys_footprint: 2031952 B",
+      "    phys_footprint_peak: 2031952 B",
+      "",
+      "======================================================================",
+      "Summary Footprint: 3002031952 B",
+      "======================================================================",
+    ].join("\n");
+    expect([...footprints(report)]).toEqual([
+      [4101, 3000016384],
+      [4102, 2031952],
+    ]);
   });
 });

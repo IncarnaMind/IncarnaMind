@@ -31,6 +31,7 @@
  * in Node.
  */
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import {
   access,
@@ -48,11 +49,16 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-import type { ExecRequest, Executor, ProcessLauncher } from "../core";
+import type { ExecRequest, Executor, Logger, ProcessLauncher } from "../core";
 import type { SandboxProblem } from "../core/api";
 import { engineModule } from "../core/engineModules";
 import { type Confinement, createLocalExecutor, folderPath } from "../core/execution";
-import { createRunSweeper, type RunSweeper } from "./runLeftovers";
+import {
+  createRunSweeper,
+  type RunSweeper,
+  type RunSweeperOptions,
+  runServiceName,
+} from "./runLeftovers";
 
 type SandboxManager = typeof import("@anthropic-ai/sandbox-runtime")["SandboxManager"];
 
@@ -83,6 +89,10 @@ export interface OsExecutorOptions {
   denyRead: readonly string[];
   /** Told when a run's temporary working folder can't be removed. */
   reportError(error: unknown): void;
+  /** Where each signal a run's sweep sends is logged. */
+  log?: Logger;
+  /** A test's stopper and records folder for the sweep (./runLeftovers); the app's otherwise. */
+  sweep?: Pick<RunSweeperOptions, "stopper" | "records">;
 }
 
 /**
@@ -173,18 +183,23 @@ export const MAC_DENIED = [
 ].join("\n");
 
 /**
- * The profile sandbox-runtime builds, with `MAC_DENIED` after it: its sandbox-exec, which it
+ * The profile sandbox-runtime builds, with `MAC_DENIED` after it, and the run's own service name
+ * when `run` is given: nothing serves that name, so looking it up does nothing, but
+ * `sandbox_check` tells the run's processes by it (./runLeftovers). Its sandbox-exec, which it
  * names by path, is started through a shell that adds them. Fails, so nothing runs, when the
  * command isn't the shape this expects.
  */
-function withMacDenials(wrapped: string): string {
+function withMacDenials(wrapped: string, run?: string): string {
   const call = " /usr/bin/sandbox-exec -p ";
   const at = wrapped.indexOf(call);
   if (at < 0 || wrapped.indexOf(call, at + 1) >= 0) {
     throw new Error("sandbox-runtime's command for macOS isn't the one IncarnaMind adds to.");
   }
+  const rules = run
+    ? `${MAC_DENIED}\n(allow mach-lookup (global-name ${JSON.stringify(runServiceName(run))}))`
+    : MAC_DENIED;
   const stricter = ` /bin/sh -c 'p=$1; shift; exec /usr/bin/sandbox-exec -p "$p
-$0" "$@"' ${quote(MAC_DENIED)} `;
+$0" "$@"' ${quote(rules)} `;
   return `${wrapped.slice(0, at)}${stricter}${wrapped.slice(at + call.length)}`;
 }
 
@@ -332,6 +347,7 @@ async function wrap(
   sandbox: SandboxManager,
   script: string,
   config: Partial<SandboxRuntimeConfig>,
+  run?: string,
 ): Promise<{ command: string; args: string[] }> {
   const { argv } = await sandbox.wrapWithSandboxArgv(script, undefined, config);
   const [command, flag, wrapped, ...rest] = argv;
@@ -340,7 +356,7 @@ async function wrap(
   }
   return {
     command,
-    args: [flag, process.platform === "darwin" ? withMacDenials(wrapped) : wrapped],
+    args: [flag, process.platform === "darwin" ? withMacDenials(wrapped, run) : wrapped],
   };
 }
 
@@ -387,10 +403,9 @@ function osConfinement(
         `exec ${[command, ...request.args].map(quote).join(" ")}`,
       ].join("; ");
       try {
-        const program = await wrap(sandbox, script, config);
-        // Its profile lets it write its working folder and not the one above (ADR-0025).
-        const folder = await realpath(workingFolder);
-        const sweep = await sweeper.begin(folder, dirname(folder));
+        const run = randomUUID();
+        const program = await wrap(sandbox, script, config, run);
+        const sweep = await sweeper.begin(run, await realpath(workingFolder));
         return { ...program, env: request.env, sweep };
       } catch (error) {
         throw new Error(
@@ -539,7 +554,11 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
           sandbox,
           options,
           readable,
-          createRunSweeper(options.reportError),
+          createRunSweeper({
+            report: options.reportError,
+            log: (fields) => options.log?.info("runSweep.signal", fields),
+            ...options.sweep,
+          }),
         ),
       }),
   };
