@@ -579,7 +579,7 @@ export interface ReadVerdict {
    * reply doesn't say.
    */
   roles: "same" | "differs" | "other" | null;
-  /** The sides of the reply's Roles line, the sentence's first, when it gives the line. */
+  /** The words of each side of the reply's Roles line, the sentence's first, when it gives any. */
   rolesSides?: string[];
   /** "differs": one says it has happened and the other that it is still to happen; absent when the reply doesn't say. */
   time?: "same" | "differs";
@@ -782,46 +782,53 @@ const scopeOf = (line: string | undefined): ReadVerdict["scope"] => {
   return word === "same" || word === "wider" ? word : null;
 };
 
-/**
- * A closing word at the start of a piece of a field, alone or before punctuation that opens its
- * reason ("other: the Passage names only the Tenant"): a side may start with the same word ("Other
- * Income", "other staff").
- */
-const CLOSING =
-  /^[\s"'`*_“”‘’]*(same|differs?|other)(?=[\s"'`*_“”‘’]*(?:$|[^\p{L}\p{N}\s"'`*_“”‘’]))/iu;
+type Closing = "same" | "differs" | "other";
+
+/** A closing word a piece of a field starts with, quoted or bold too, never one joined to a word ("same-day"). */
+const CLOSING = /^[\s"'`*_“”‘’]*(same|differs?|other)(?![\p{L}\p{N}]|[-‐‑][\p{L}\p{N}])/iu;
+/** What may follow a closing word at the start of a side: nothing, or punctuation that opens its reason. */
+const REASON = /^[\s"'`*_“”‘’]*(?:$|[^\p{L}\p{N}\s"'`*_“”‘’])/u;
+const PIECE = /[/(:,;—–→、]/g;
+
+const closingOf = (word: string | undefined): Closing | null => {
+  const lower = word?.toLowerCase();
+  if (lower === "same" || lower === "other") return lower;
+  return lower === "differs" || lower === "differ" ? "differs" : null;
+};
 
 /**
  * A Roles or Time field's closing word and its sides, the sentence's first, read the same way for
- * both (#1766). The closing word is the first piece after the first slash, or after a later slash,
- * comma or semicolon, that is one (`CLOSING`); what follows it is its reason, slashes included, and
- * the sentence's side is never read for it ("notify the other"). A field with no such piece takes
- * its last "same" or "differs". A field too long for its sides to be copied words is read as one
- * side with no closing word: trimming a long run of spaces takes time quadratic in it.
+ * both (#1766). The closing word starts the first piece after the first slash that starts with one
+ * (`CLOSING`), a piece being what follows the slash or a later slash, bracket, colon, comma,
+ * semicolon, dash or arrow; what follows the word is its reason. The sentence's side is never read
+ * for it ("notify the other"), and where a side may start (after a slash, a bracket or a colon) the
+ * word stands alone or before punctuation: "Other Income" starts a side. A field with no such piece
+ * takes its last "same" or "differs". A field too long for its sides to be copied words is read as
+ * one side with no closing word: trimming a long run of spaces takes time quadratic in it.
  */
-function closingWord<T extends string>(
+function closingWord(
   field: string,
-  words: readonly T[],
-): { word: T | null; sides: string[] } {
+  words: readonly Closing[],
+): { word: Closing | null; sides: string[] } {
   const text = field.normalize("NFKC");
   if (text.length > MAX_PHRASE * 8) return { word: null, sides: [text] };
   const first = text.indexOf("/") + 1;
   const starts = [
     first,
-    ...[...text.slice(first).matchAll(/[/,;]/g)].map((mark) => first + mark.index + 1),
+    ...[...text.slice(first).matchAll(PIECE)].map((mark) => first + mark.index + 1),
   ];
   for (const at of starts) {
-    const found = CLOSING.exec(text.slice(at))?.[1]?.toLowerCase();
-    const word = found === "differ" ? "differs" : found;
-    if (word && (words as readonly string[]).includes(word))
-      return { word: word as T, sides: sides(text.slice(0, at).replace(/[,;/]$/, "")) };
+    const piece = text.slice(at);
+    const found = CLOSING.exec(piece);
+    const word = closingOf(found?.[1]);
+    const sideStart = at === first || /[/(:]/.test(text[at - 1] ?? "");
+    if (!found || !word || !words.includes(word)) continue;
+    if (sideStart && !REASON.test(piece.slice(found[0].length))) continue;
+    return { word, sides: sides(text.slice(0, at).replace(/[/(:,;—–→、]$/, "")) };
   }
-  const last = text
-    .match(/\b(?:same|differs?)\b/gi)
-    ?.at(-1)
-    ?.toLowerCase();
-  const word = last === "differ" ? "differs" : last;
+  const last = closingOf(text.match(/\b(?:same|differs?)\b(?![-‐‑][\p{L}\p{N}])/giu)?.at(-1));
   return {
-    word: word && (words as readonly string[]).includes(word) ? (word as T) : null,
+    word: last && words.includes(last) ? last : null,
     sides: sides(text.replace(/[,;]?\s*\b(?:same|differs?)\W*$/i, "")),
   };
 }
@@ -840,14 +847,14 @@ const OWN_TOKEN = /\p{Script=Han}|(?:(?!\p{Script=Han})[\p{L}\p{N}])+/gu;
  * Whether a reply's words for the sentence are the sentence's own: each of their words (each Han
  * character) in the sentence, in the same order, with words left out between them allowed. Words
  * from the Passage or another language are not: "向人力资源总监汇报" for "人力资源总监向乙方汇报". The
- * words are read as the sentence was before its prompt's tags were defused: the model copies
- * "&lt;quote>" for "<quote>" (#2423).
+ * words are read as the sentence was before its prompt's tags were defused, without Citation
+ * markers: the model copies "&lt;quote>" for "<quote>" (#2423).
  */
 export function ownWords(words: string, sentence: string): boolean {
   const tokens = (text: string): string[] =>
     [...text.normalize("NFKC").toLowerCase().matchAll(OWN_TOKEN)].map(([token]) => token);
   const own = tokens(sentence);
-  const given = tokens(fromData(words));
+  const given = tokens(fromData(words).replace(MARKERS, ""));
   let at = 0;
   for (const token of given) {
     at = own.indexOf(token, at) + 1;
@@ -860,19 +867,20 @@ export function ownWords(words: string, sentence: string): boolean {
 export const namesNothing = (rolesSides: readonly string[]): boolean =>
   rolesSides.every((side) => side === "" || NO_PHRASE.test(side));
 
-/** The sides of a Roles line, the sentence's first, without the closing word and its reason. */
+// A field of its closing word alone ("Roles: same", JSON's "roles": "same") gives no sides, as a
+// reply with no Roles line gives none.
 const rolesSidesOf = (line: string | undefined): Pick<ReadVerdict, "rolesSides"> => {
   const field = line === undefined ? undefined : ROLES.exec(line)?.[1];
-  return field === undefined
-    ? {}
-    : { rolesSides: closingWord(field, ["same", "differs", "other"]).sides };
+  if (field === undefined) return {};
+  const { sides } = closingWord(field, ["same", "differs", "other"]);
+  return sides.length === 1 && sides[0] === "" ? {} : { rolesSides: sides };
 };
 
 /** Only a reply that gives the field says it: a reply read before it was asked for has none. */
 const timeOf = (line: string | undefined): Pick<ReadVerdict, "time"> => {
   const field = line === undefined ? undefined : TIME.exec(line)?.[1];
   const time = field === undefined ? null : closingWord(field, ["same", "differs"]).word;
-  return time ? { time } : {};
+  return time === "same" || time === "differs" ? { time } : {};
 };
 
 const topicOf = (line: string | undefined): ReadVerdict["topic"] => {

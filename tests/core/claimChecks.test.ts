@@ -450,19 +450,25 @@ describe("One claim check", () => {
     },
   );
 
-  // protects=checked whole, a Roles line naming nothing on either side holds back only a sentence
-  // with no figure, which has words to copy (#1766); fails_when=a value with a figure, as a
-  // comparison table's cell is checked, is asked for words it hasn't, or a sentence with none passes.
+  // protects=checked whole, a Roles line naming nothing on either side passes only for a value of
+  // figures alone, as a comparison table's cell is checked (#1766); fails_when=such a value is asked
+  // for words it hasn't, or a sentence with words, a figure among them or not, passes.
   test.each([
     {
-      sentence: "The harbour publishes 12 tide tables a year.",
-      quote: "The harbour publishes 12 tide tables a year.",
+      sentence: "£185,000",
+      quote: "The harbour's dredging cost £185,000 in 2025.",
       state: "supported",
       asks: 0,
     },
     {
-      sentence: "The harbour publishes its tide tables every year.",
-      quote: "The harbour publishes 12 tide tables a year.",
+      sentence: "The harbour's dredging should cost £185,000.",
+      quote: "The harbour's dredging cost £185,000 in 2025.",
+      state: "not-checked",
+      asks: 1,
+    },
+    {
+      sentence: "The harbour's dredging is paid for every year.",
+      quote: "The harbour's dredging cost £185,000 in 2025.",
       state: "not-checked",
       asks: 1,
     },
@@ -475,7 +481,7 @@ describe("One claim check", () => {
           [sentence]: {
             verdict: "supported",
             quote,
-            says: "Roles: none / none, same\nThe harbour publishes its tide tables.",
+            says: "Roles: none / none, same\nThe harbour's dredging cost £185,000.",
           },
         },
         calls,
@@ -483,7 +489,7 @@ describe("One claim check", () => {
       const { core } = await setUpWithDocuments(model, [
         {
           name: "Harbour.md",
-          contents: "# Harbour\n\nThe harbour publishes 12 tide tables a year.\n",
+          contents: "# Harbour\n\nThe harbour's dredging cost £185,000 in 2025.\n",
         },
       ]);
 

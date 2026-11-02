@@ -61,6 +61,8 @@ interface Case {
   itemRoles?: string;
   /** Its Time line's field: "none / none, same" when absent. */
   time?: string;
+  /** It replies with one JSON object, as some models do, in place of its lines. */
+  json?: true;
   /** The Document's number each figure of the sentence is bound to, when it has one. */
   number?: string;
 }
@@ -102,6 +104,19 @@ function replying(each: Case, calls: ModelCall[]) {
         "Evidence: [1]",
         ...(each.extra ?? []),
       ];
+      if (each.json)
+        return {
+          text: JSON.stringify({
+            verdict: each.verdict,
+            asserts_absence: false,
+            scope: "same",
+            topic: "found",
+            roles,
+            time: each.time ?? "none / none, same",
+            says: "The Document gives this to the Tenant.",
+            evidence: [1],
+          }),
+        };
       const figures = requestedFigures(call);
       if (figures.length === 0) return { text: lines.join("\n") };
       const items = figures.map(({ id }) => ({
@@ -733,6 +748,19 @@ describe("the Roles line's closing word is read past its quoting and its reason 
       RULES,
       "unsupported",
     ],
+    ...["— other", ": other", "(other)", "→ other", "、other", "— other, not the same party"].map(
+      (closing): [string, Case, typeof RULES, "unsupported"] => [
+        `after “${closing}”`,
+        {
+          sentence: "The caretaker may keep a cat in the flat.",
+          quote: "The Tenant may keep a cat in the flat.",
+          verdict: "supported",
+          roles: `${OTHER} ${closing}`,
+        },
+        RULES,
+        "unsupported",
+      ],
+    ),
     [
       "with a reason that holds a slash",
       {
@@ -921,5 +949,130 @@ describe("a closing word is read only where it closes the field (#1766)", () => 
     expect(checked?.state).toBe("not-checked");
     expect(checked?.state).not.toBe("supported");
     expect(calls.filter((call) => call.prompt.includes(ASKED))).toHaveLength(1);
+  });
+});
+
+describe("the Roles line read in the shapes a model gives it (#1766)", () => {
+  const calls: ModelCall[] = [];
+  const asks = () => calls.filter((call) => call.prompt.includes(ASKED));
+  test.each<[string, Case, typeof RULES, "supported" | "unsupported", number]>([
+    [
+      "a Passage side that starts with “same-day” is no closing word",
+      {
+        sentence: "The Tenant may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: "The Tenant may keep a cat / same-day notice must be given by the Tenant, differs",
+      },
+      RULES,
+      "unsupported",
+      0,
+    ],
+    [
+      "a Time line whose Passage side starts with “same-day” differs",
+      {
+        sentence: "The Tenant may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: "The Tenant may keep a cat / The Tenant may keep a cat, same",
+        time: "already / same-day, differs",
+      },
+      RULES,
+      "unsupported",
+      0,
+    ],
+    [
+      "a JSON reply whose roles are a closing word alone, as with no Roles line",
+      {
+        sentence: "The Tenant may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: "same",
+        json: true,
+      },
+      RULES,
+      "supported",
+      0,
+    ],
+    [
+      "a JSON reply whose roles give the sentence's words",
+      {
+        sentence: "乙方可在房屋内养猫。",
+        quote: "乙方可在房屋内养猫。",
+        verdict: "supported",
+        roles: "乙方可在房屋内养猫 / 乙方可在房屋内养猫, same",
+        json: true,
+      },
+      RULES_ZH,
+      "supported",
+      0,
+    ],
+    [
+      "a JSON reply whose roles give the Passage's direction",
+      {
+        sentence: "物业管理员向乙方报修。",
+        quote: "乙方向物业管理员报修。",
+        verdict: "supported",
+        roles: "乙方向物业管理员报修 / 乙方向物业管理员报修, same",
+        again: "物业管理员向乙方报修 / 乙方向物业管理员报修, differs",
+        json: true,
+      },
+      RULES_ZH,
+      "unsupported",
+      1,
+    ],
+    [
+      "the sentence's words copied with its Citation marker",
+      {
+        sentence: "The Tenant may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: "The Tenant may keep a cat [^1] / The Tenant may keep a cat, same",
+      },
+      RULES,
+      "supported",
+      0,
+    ],
+    [
+      "a figure the Figures line gives to someone else, under a Roles line that says same",
+      {
+        sentence: "The Tenant pays the Landlord a rent of 900 per month.",
+        quote: "The Tenant pays the Landlord a rent of 900 per month.",
+        verdict: "supported",
+        roles: "The Tenant pays the Landlord / The Tenant pays the Landlord, same",
+        itemRoles: "other",
+        number: "900",
+      },
+      RULES,
+      "unsupported",
+      0,
+    ],
+    [
+      "a Coverage line that names no member, for the Passage's own parties",
+      {
+        sentence: "Every tenant may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "unsupported",
+        roles: "Every tenant may keep a cat / The Tenant may keep a cat, same",
+        extra: [
+          `Coverage: ${JSON.stringify({
+            unit: "tenants",
+            quantifier: "all",
+            complete: false,
+            members: [],
+            domainEvidence: [],
+          })}`,
+        ],
+      },
+      RULES,
+      "unsupported",
+      0,
+    ],
+  ])("%s", async (_, each, document, state, asked) => {
+    calls.length = 0;
+    const checked = await check(each, document, calls);
+    expect(checked?.state).toBe(state);
+    expect(checked?.state).not.toBe(state === "supported" ? "not-checked" : "supported");
+    expect(asks()).toHaveLength(asked);
   });
 });

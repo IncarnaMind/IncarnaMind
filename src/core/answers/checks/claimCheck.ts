@@ -802,8 +802,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
               citation && statedFigure(request.claim, number.number, figureContext(citation));
             const compared = figure && own ? comparedFigure(own, figure, number.costs) : null;
             if (figure && compared && compared !== figure)
-              toldAtSize = toldAtSize.replace(
-                toldFigure(marker, figure),
+              toldAtSize = toldAtSize.replace(toldFigure(marker, figure), () =>
                 toldFigure(marker, compared),
               );
           }
@@ -1049,15 +1048,15 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     let askedForOwnWords = false;
     // Checked figure by figure, the reply's own Figures line says whether the sentence has words
     // beyond its figures ("甲方每月向乙方支付租金" in 甲方每月向乙方支付租金人民币900元); one it leaves out
-    // is asked for, and a sentence missing it is never Supported. Checked whole, a sentence with a
-    // figure keeps the leeway, as a value in a comparison table needs.
+    // is asked for, and a sentence missing it is never Supported. Checked whole, only a value of
+    // figures alone, as a comparison table's cell is ("£528.9m"), has no words to copy: "two weeks"
+    // in a "should" sentence leaves it its words.
     const ownWordsFor = (asked: boolean, reply: string): OwnWords => ({
       claim: request.claim,
       asked,
       mayNameNothing: request.figures?.length
         ? !readFigureReply(reply, request.figures, request.claim)?.remainder
-        : figuresInClaim(request.claim, documentFigureContext([{ text: request.claim }])).length >
-          0,
+        : figuresAlone(request.claim),
     });
     let askedAbout: string | null = null;
     let askedFigures: string | null = null;
@@ -1137,8 +1136,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         },
         {
           name: "roles-own-words",
-          // Asked once; a reply that still gives other words than the sentence's, or none, is Not
-          // checked.
           check: (text, aside) => {
             const read = replyAcrossTurns(text, aside ?? []);
             const verdict = readVerdict(read);
@@ -1807,6 +1804,14 @@ interface OwnWords {
   claim: string;
   asked: boolean;
   mayNameNothing: boolean;
+}
+
+function figuresAlone(claim: string): boolean {
+  const figures = figuresInClaim(claim, documentFigureContext([{ text: claim }]));
+  const rest = figures
+    .toSorted((one, other) => other.start - one.start)
+    .reduce((text, figure) => text.slice(0, figure.start) + text.slice(figure.end), claim);
+  return figures.length > 0 && !/\p{L}/u.test(rest);
 }
 
 function comparesOtherWords(
