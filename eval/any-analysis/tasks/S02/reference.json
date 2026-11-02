@@ -1,0 +1,17 @@
+{
+  "task": "S02",
+  "inputs": {
+    "en": "c090d5fccf15897a5d8eec692b6a4eec3d32256349b919a833daeeed6fca96dd"
+  },
+  "values": {
+    "education": 2.1284541450455765,
+    "education_se": 0.03059790001385248,
+    "experience": 0.40857626890700016,
+    "experience_se": 0.012708996332729367,
+    "r_squared": 0.5087076156892829,
+    "vif_education": [
+      1.4396684892275187,
+      1.4392958779045284
+    ]
+  }
+}

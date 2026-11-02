@@ -1,0 +1,13 @@
+{
+  "task": "F03",
+  "inputs": {
+    "en": "d386c889ff2b80b007eaa9b77be8ac5e42c511f0961490ddd8cbf3cd71e644d0"
+  },
+  "values": {
+    "payment": 2155.0102014923805,
+    "first_interest": 1822.9166666666665,
+    "total_interest": 425803.67253725696,
+    "payoff_month": 274,
+    "interest_saved": 119006.98467924196
+  }
+}
