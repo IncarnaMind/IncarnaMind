@@ -43,7 +43,9 @@ function reduce(how: Exclude<FigureHow, "count">, values: readonly number[]): nu
   if (how === "sum") return sum(values);
   if (values.length === 0) return null;
   if (how === "mean") return sum(values) / values.length;
-  return how === "min" ? Math.min(...values) : Math.max(...values);
+  // Folded, not spread: a spread of every row overflows the stack past about 120,000 rows.
+  const pick = how === "min" ? Math.min : Math.max;
+  return values.reduce((kept, value) => pick(kept, value));
 }
 
 /**

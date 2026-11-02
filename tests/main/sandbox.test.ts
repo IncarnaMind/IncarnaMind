@@ -24,7 +24,7 @@ import type { ExecRequest } from "../../src/core";
 import { WORKING_FOLDER } from "../../src/core/execution";
 import { createScriptRunner } from "../../src/core/skills/scripts";
 import { createProcessLauncher } from "../../src/main/processes";
-import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
+import { bwrapSizesTmpfs, loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
 import { createTempDataFolder } from "../helpers/core";
 import { createSweepGuard } from "../helpers/sweepGuard";
 
@@ -187,6 +187,23 @@ afterEach(() => {
   servers = [];
   // Each pid a run's sweep signalled was a member of one of this file's own runs.
   expect(guard.refused).toEqual([]);
+});
+
+test("a bubblewrap that can size a tmpfs is told from one that can't, by its help", () => {
+  // As bubblewrap 0.7's help lists it, and 0.6's, which has no --size.
+  const seven = [
+    "    --tmpfs DEST                 Mount new tmpfs on DEST",
+    "    --size BYTES                 Set size of next tmpfs (in bytes)",
+  ].join("\n");
+  const six = [
+    "    --tmpfs DEST                 Mount new tmpfs on DEST",
+    "    --perms OCTAL",
+  ].join("\n");
+  expect([bwrapSizesTmpfs(seven), bwrapSizesTmpfs(six), bwrapSizesTmpfs("")]).toEqual([
+    true,
+    false,
+    false,
+  ]);
 });
 
 describe("the folders no program may read", () => {

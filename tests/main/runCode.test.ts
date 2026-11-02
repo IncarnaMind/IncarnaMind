@@ -326,11 +326,14 @@ describe.skipIf(unavailable !== undefined)(
             .split(/\s+/)[0];
         await expect.poll(pidOf).toMatch(/^\d+$/);
         const pid = Number(pidOf());
+        // cfprefsd serves every app's preferences, from the home the profile denies.
         const services = [
           "com.apple.coreservices.launchservicesd",
           "com.apple.lsd.mapdb",
           "com.apple.SecurityServer",
           "com.apple.securityd.xpc",
+          "com.apple.cfprefsd.daemon",
+          "com.apple.cfprefsd.agent",
           "com.apple.logd",
           "com.apple.system.opendirectoryd.libinfo",
         ];
@@ -339,7 +342,7 @@ describe.skipIf(unavailable !== undefined)(
         );
         stop.abort();
         await running;
-        expect(answers).toEqual([1, 1, 1, 1, 0, 0]);
+        expect(answers).toEqual([1, 1, 1, 1, 1, 1, 0, 0]);
       },
       30_000,
     );

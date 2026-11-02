@@ -9,17 +9,17 @@
  *   looking up a Mach service name made from a fresh id (`runServiceName`, which nothing
  *   serves) and no other name. A process is the run's only when `sandbox_check` says it may look
  *   that name up, may not look up a name beside it (a profile that allows every name, or every
- *   name of ours, may), may not look up LaunchServices (a process with no profile may), and may
- *   write the run's working folder; and it is this User's, started no earlier than the run, and
- *   not the app or one of its parents.
+ *   name of ours, may), and may not look up LaunchServices (a process with no profile may); and
+ *   it is this User's, started no earlier than the run, and not the app or one of its parents.
+ *   Nothing is asked of the run's folder: the run can remove it, and would then be no one's.
  * - Linux: bubblewrap's PID namespace ends every process in it when the program's sandbox ends,
  *   so nothing is signalled; the sweep only checks that nothing of the program's group is left.
  *
  * Finding (`classify`) and stopping (`sweepRun`) are apart, and the stopper is passed in, so a
  * test lists every process of the computer and what it would do to each before any signal.
- * What is found is stopped (SIGSTOP), so none can fork while the rest are found, then found
- * again, by profile, pid and start time, and only then killed. A run whose processes can't all
- * be stopped is kept, and new runs are refused until a later sweep ends them.
+ * What is found is stopped (SIGSTOP), so none can fork while the rest are found; then every
+ * member found again is killed. A run whose processes can't all be stopped is kept, and new runs
+ * are refused until a later sweep ends them.
  *
  * Each run is recorded, outside anything the sandbox can write, until its sweep has ended
  * everything; at the next start the app sweeps the runs a crash left behind and removes their
@@ -53,7 +53,7 @@ export const signallable = (pid: number, app: number): boolean =>
 export interface RunRecord {
   /** The run's own: its profile's service name is made from it. */
   id: string;
-  /** Its working folder: the one folder its profile lets it write. */
+  /** Its working folder, removed with the run's own after a crash. */
   folder: string;
   /** When it started, in ms since the epoch. */
   startedMs: number;
@@ -103,14 +103,13 @@ export interface SweepContext {
 export type ProfileCheck = (questions: readonly SandboxQuestion[]) => Promise<number[]>;
 
 /** The answers only a process carrying `run`'s profile gives, to `questionsFor`. */
-const MEMBER_ANSWERS = [0, 1, 1, 0];
+const MEMBER_ANSWERS = [0, 1, 1];
 
 function questionsFor(pid: number, run: RunRecord): SandboxQuestion[] {
   return [
     { pid, operation: "mach-lookup", value: runServiceName(run.id) },
     { pid, operation: "mach-lookup", value: unlistedServiceName(run.id) },
     { pid, operation: "mach-lookup", value: LAUNCH_SERVICES },
-    { pid, operation: "file-write-create", value: run.folder },
   ];
 }
 
@@ -235,9 +234,10 @@ export const killProcess: Stopper = (pid, signal) => {
   try {
     process.kill(pid, signal);
     return true;
-  } catch {
-    // Ended since it was listed.
-    return false;
+  } catch (error) {
+    // Ended since it was listed; anything else (EPERM) is not known to have stopped it.
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    throw error;
   }
 };
 
@@ -271,9 +271,8 @@ async function members(run: RunRecord, group: number, deps: SweepDeps): Promise<
 /**
  * Stops every process of `run` still running; `group` is its program's process group. Every
  * signal goes to a member the same step found: each is stopped, so none can fork; once no new
- * one turns up, they are found again and only those found again (same pid, same start) are
- * killed. On Linux nothing is signalled. Resolves with the pids still running after a bounded
- * wait: none when the run is over.
+ * one turns up, every member found again is killed. On Linux nothing is signalled. Resolves
+ * with the pids still running after a bounded wait: none when the run is over.
  */
 export async function sweepRun(run: RunRecord, group: number, deps: SweepDeps): Promise<number[]> {
   if (deps.platform === "darwin") {
@@ -334,6 +333,29 @@ export interface RunSweeperOptions {
   stopper?: Stopper;
   /** Where runs are recorded. */
   records: string;
+  /** A test's listing and profile check; this computer's otherwise. */
+  computer?: Pick<SweepDeps, "list" | "check">;
+}
+
+/** A record as `begin` writes it; anything else in the folder is no run's. */
+function readRecord(text: string): RunRecord | null {
+  let read: unknown;
+  try {
+    read = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof read !== "object" || read === null) return null;
+  const { id, folder, startedMs, owner } = read as Record<string, unknown>;
+  const { pid, startedMs: ownerStarted } = (owner ?? {}) as Record<string, unknown>;
+  return typeof id === "string" &&
+    /^[0-9a-f-]{36}$/.test(id) &&
+    typeof folder === "string" &&
+    typeof startedMs === "number" &&
+    typeof pid === "number" &&
+    typeof ownerStarted === "number"
+    ? { id, folder, startedMs, owner: { pid, startedMs: ownerStarted } }
+    : null;
 }
 
 /** Sweeps runs, and at its creation the runs a crash of an earlier app left behind. */
@@ -341,8 +363,8 @@ export function createRunSweeper(options: RunSweeperOptions): RunSweeper {
   const { report } = options;
   const uid = process.getuid?.();
   const deps: SweepDeps = {
-    list: listProcesses,
-    check: sandboxCheck,
+    list: options.computer?.list ?? listProcesses,
+    check: options.computer?.check ?? sandboxCheck,
     stopper: options.stopper ?? killProcess,
     log: options.log ?? (() => {}),
     platform: process.platform,
@@ -351,7 +373,8 @@ export function createRunSweeper(options: RunSweeperOptions): RunSweeper {
   };
   const records = recordsFolder(options.records);
   const stuck = new Map<string, { run: RunRecord; group: number }>();
-  const owner = listProcesses()
+  const owner = deps
+    .list()
     .then((rows) => {
       const self = rows.find((each) => each.pid === process.pid);
       if (!self) throw new Error("This app's own process isn't listed.");
@@ -362,41 +385,49 @@ export function createRunSweeper(options: RunSweeperOptions): RunSweeper {
       return null;
     });
 
+  const recordOf = async (run: RunRecord) => join(await records, `${run.id}.json`);
+
   async function sweepAndForget(run: RunRecord, group: number): Promise<void> {
     let left: number[];
     try {
       left = await sweepRun(run, group, deps);
     } catch (error) {
-      // Not known to be over, so it is treated as still running.
+      // Not known to be over, so it is treated as still running, and kept for the next start.
       stuck.set(run.id, { run, group });
+      await writeFile(await recordOf(run), JSON.stringify(run), { mode: 0o600 });
       throw error;
     }
     if (left.length > 0) {
       stuck.set(run.id, { run, group });
+      await writeFile(await recordOf(run), JSON.stringify(run), { mode: 0o600 });
       throw new Error(
         `${left.length} process(es) of an earlier run (${left.join(", ")}) couldn't be stopped.`,
       );
     }
     stuck.delete(run.id);
-    await rm(join(await records, `${run.id}.json`), { force: true });
+    await rm(await recordOf(run), { force: true });
   }
 
-  // Runs a crash left: their app is gone (or its pid is another process's now).
+  // Runs a crash left: their app is gone (or its pid is another process's now). Each is swept
+  // on its own, so one that can't be read or stopped leaves the others to be.
   const stale = (async () => {
     const folder = await records;
-    const alive = new Map((await listProcesses()).map((each) => [each.pid, each.startedMs]));
+    const alive = new Map((await deps.list()).map((each) => [each.pid, each.startedMs]));
     for (const name of await readdir(folder)) {
       if (!name.endsWith(".json")) continue;
-      const run = JSON.parse(await readFile(join(folder, name), "utf8")) as RunRecord;
-      if (alive.get(run.owner.pid) === run.owner.startedMs) continue;
-      const exists = await lstat(run.folder).then(
-        () => true,
-        () => false,
-      );
-      if (exists) await sweepAndForget(run, 0);
-      else await rm(join(folder, name), { force: true });
-      const leftover = runFolder(run.folder);
-      if (leftover) await rm(leftover, { recursive: true, force: true });
+      try {
+        const run = readRecord(await readFile(join(folder, name), "utf8"));
+        if (run === null) {
+          await rm(join(folder, name), { force: true });
+          throw new Error(`${name} in ${folder} wasn't a run's record, so it was removed.`);
+        }
+        if (alive.get(run.owner.pid) === run.owner.startedMs) continue;
+        await sweepAndForget(run, 0);
+        const leftover = runFolder(run.folder);
+        if (leftover) await rm(leftover, { recursive: true, force: true });
+      } catch (error) {
+        report(error);
+      }
     }
   })().catch(report);
 
@@ -422,7 +453,7 @@ export function createRunSweeper(options: RunSweeperOptions): RunSweeper {
       }
       return stuck.size === 0
         ? null
-        : "A program from an earlier run is still running and couldn't be stopped, so no new one starts. Quitting and reopening IncarnaMind tries again.";
+        : "A process of an earlier run in the sandbox couldn't be stopped, so no new program runs here until IncarnaMind is restarted.";
     },
   };
 }

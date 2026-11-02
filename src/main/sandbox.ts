@@ -235,12 +235,23 @@ const bwrapScript = (bwrap: string) =>
     "",
   ].join("\n");
 
+/** Whether bubblewrap's help names `--size`, which came in bubblewrap 0.7 (Ubuntu 22.04 has 0.6). */
+export const bwrapSizesTmpfs = (help: string): boolean => /^\s*--size\b/m.test(help);
+
 /**
  * Writes `bwrapScript` where only this User can change it, in a folder of this User's own
- * (the shared /tmp is checked: a folder someone else made there is refused).
+ * (the shared /tmp is checked: a folder someone else made there is refused). Null where this
+ * bubblewrap can't size a tmpfs: it then runs as it is.
  */
-async function sizedBwrap(): Promise<string> {
+async function sizedBwrap(): Promise<string | null> {
   const real = await findCommand("bwrap", process.env.PATH, "/");
+  const { stdout, stderr } = await execFileAsync(real, ["--help"]).catch(
+    (error: { stdout?: string; stderr?: string }) => ({
+      stdout: error.stdout ?? "",
+      stderr: error.stderr ?? "",
+    }),
+  );
+  if (!bwrapSizesTmpfs(`${stdout}\n${stderr}`)) return null;
   const folder = join(tmpdir(), `incarnamind-bwrap-${process.getuid?.() ?? 0}`);
   await mkdir(folder, { recursive: true, mode: 0o700 });
   const info = await lstat(folder);
@@ -375,12 +386,18 @@ function osConfinement(
   options: OsExecutorOptions,
   readable: readonly string[],
   sweeper: RunSweeper,
+  sizedMasks: boolean,
 ): Confinement {
   return {
     level: "os",
     async confine(request: ExecRequest, workingFolder: string) {
       const blocked = await sweeper.stuck();
       if (blocked !== null) throw new Error(blocked);
+      if (!sizedMasks && request.limits?.memoryBytes !== undefined) {
+        throw new Error(
+          "This computer's bubblewrap can't size the folders it puts over denied ones (bubblewrap 0.7 or later can), so a program's memory limit can't hold and it didn't run.",
+        );
+      }
       if (request.allow.network !== "none") {
         throw new Error(
           "The OS sandbox gives programs no network, and this one asks for it, so it didn't run.",
@@ -498,12 +515,15 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
   }
   // On Linux the seccomp helper runs inside the sandbox, so its folder stays readable.
   const readable: string[] = [];
+  // macOS's profile mounts nothing; on Linux only a bubblewrap that can size a tmpfs does.
+  let sizedMasks = process.platform === "darwin";
   if (process.platform === "linux") {
     const helper = seccompHelper ?? bundledSeccompHelper();
     readable.push(dirname(helper));
     let bwrapPath: string | undefined;
     try {
-      bwrapPath = await sizedBwrap();
+      bwrapPath = (await sizedBwrap()) ?? undefined;
+      sizedMasks = bwrapPath !== undefined;
     } catch (error) {
       // Not installed: the dependency check below names it with whatever else is missing.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -567,6 +587,7 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
             records: options.runRecords,
             ...options.sweep,
           }),
+          sizedMasks,
         ),
       }),
   };
