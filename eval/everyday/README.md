@@ -123,8 +123,10 @@ Answer covers the 8 largest and must name the four left for the next summary. On
 `reports-all-zh` passed 1 of 3: in one run the app asked the model again inside the turn and the reply the
 User reads no longer named the four; in one the reply said "这四份文档不在本次摘要中", which the cover-all
 guard did not read as saying they were left out. The app now asks once more with their names when a capped
-summary's reply leaves any of them unsaid, and the guard reads "不在". Each request three times; the claims
-judged by Claude Sonnet 5.5. Before is `main` at `1c2e02926`, after is the branch.
+summary's reply leaves any of them unsaid, and the guard reads "不在". One of the two failing runs also failed
+the app's own change-claim check for "changed" (it said it had corrected two numbers); that did not recur in
+the after runs. Each request three times; the claims judged by Claude Sonnet 5.5. Before is `main` at
+`1c2e02926`, after is the branch.
 
 | Request | Model | Before | After |
 |---|---|---|---|
