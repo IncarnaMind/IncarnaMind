@@ -4730,6 +4730,23 @@
     text-overflow: ellipsis;
     color: var(--color-ink-secondary);
   }
+  /* An outside agent's sentences with no Citation (#352): quiet, as a chart's "1 with no Citation". */
+  .change-bar-uncited {
+    flex-shrink: 0;
+    border-radius: 2px;
+    color: var(--color-ink-meta);
+    text-decoration: underline;
+    text-decoration-color: var(--color-rule-strong);
+    text-underline-offset: 3px;
+
+    &:hover {
+      color: var(--color-ink-secondary);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
+  }
   /* What the AI is working on: the dot the Answer being written has. */
   .edit-pending-dot {
     display: inline-block;

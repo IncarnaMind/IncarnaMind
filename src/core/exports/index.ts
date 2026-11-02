@@ -243,6 +243,7 @@ export function createExports(deps: ExportsDependencies) {
       documentRemoved: (documentId) => !live.has(documentId),
       // A file leaves a hidden column out; the app says how many, the file says nothing.
       leaveOutHiddenColumns: true,
+      leavesApp: true,
     };
     const {
       read,

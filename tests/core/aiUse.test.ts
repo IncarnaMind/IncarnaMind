@@ -234,7 +234,7 @@ describe("The record of AI use", () => {
     expect(await core.listAiUse()).toHaveLength(2);
   });
 
-  test("a cleared record holds nothing but ids, sizes, kinds, models and times", async () => {
+  test("a cleared record holds nothing but ids, sizes, kinds, models or agents, and times", async () => {
     const { dataDir, core, mind, client } = await setUp();
     const id = addBlock(client, "A sentence nobody should find in the table.");
     await client.settled();
@@ -247,6 +247,7 @@ describe("The record of AI use", () => {
     expect(JSON.stringify(row)).not.toContain("nobody should find");
     expect(Object.keys(row ?? {}).sort()).toEqual(
       [
+        "agent",
         "blocks",
         "characters",
         "created_at",
