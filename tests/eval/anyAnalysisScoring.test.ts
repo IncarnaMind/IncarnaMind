@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
-import type { AnswerAnalysis, MarkedCitation, MarkedFigure } from "../../src/core/api";
-import { noAnalysisOutput } from "../../src/shared/analysis";
 import type { AnswerRecord, SavedAnswer } from "../../eval/any-analysis/record";
 import { scoreAnswer, scoreRun } from "../../eval/any-analysis/score";
 import type { Reference, Task } from "../../eval/any-analysis/task";
+import type { AnswerAnalysis, MarkedCitation, MarkedFigure } from "../../src/core/api";
+import { noAnalysisOutput } from "../../src/shared/analysis";
 
 /*
  * The any-analysis scorer (eval/any-analysis/README.md) on Answers written here, the decoys
@@ -78,7 +78,9 @@ const citation = (marker: number, documentName: string, page: number | null): Ma
   pageFrom: page,
   pageTo: page,
   location:
-    page === null ? { kind: "rows", sheet: "Sheet1", from: 1, to: 41 } : { kind: "page", page },
+    page === null
+      ? { kind: "rows", sheet: "Sheet1", from: 1, to: 41 }
+      : { kind: "page", from: page, to: page },
   quote: "Budget",
   check: "found",
   checkReason: null,
@@ -390,7 +392,11 @@ describe("decoys", () => {
       figures: [],
       analyses: [
         analysis({
-          end: { kind: "error", message: "ModuleNotFoundError: No module named 'pingouin'", line: 1 },
+          end: {
+            kind: "error",
+            message: "ModuleNotFoundError: No module named 'pingouin'",
+            line: 1,
+          },
           markers: { figures: [], tables: [], charts: [], pictures: [] },
           recalculations: [],
         }),
@@ -575,5 +581,43 @@ describe("pictures and files", () => {
 
     expect(outcomes(both)).toEqual({ scree: "right", book: "right" });
     expect(outcomes(neither)).toEqual({ scree: "missing", book: "missing" });
+  });
+});
+
+describe("items an Answer names its own way", () => {
+  const themes: Task = {
+    ...TASK,
+    expect: [
+      {
+        id: "themes",
+        kind: "rows",
+        label: "Themes",
+        key: /\b(?:delivery|shipping|price|pricing|cost)\b|配送|价格/gi,
+        aliases: { delivery: /delivery|shipping|配送/i, price: /price|pricing|cost|价格/i },
+        columns: [{ id: "count", unit: "plain", tolerance: { rel: 0.1 } }],
+      },
+    ],
+  };
+  const reference: Reference = {
+    task: "T00",
+    inputs: {},
+    values: {
+      themes: [
+        { key: "delivery", count: 187 },
+        { key: "price", count: 214 },
+      ],
+    },
+  };
+
+  test("match a synonym or the Chinese word, within the tolerance", () => {
+    const named = answer(["- Shipping: 190 comments", "- 价格：210 条"], { figures: [] });
+
+    expect(outcomes(scoreAnswer(themes, reference, record(named)))).toEqual({ themes: "right" });
+  });
+
+  test("leave out a theme the Answer never names", () => {
+    const one = answer(["- Shipping: 190 comments"], { figures: [] });
+
+    expect(outcomes(scoreAnswer(themes, reference, record(one)))).toEqual({ themes: "missing" });
   });
 });

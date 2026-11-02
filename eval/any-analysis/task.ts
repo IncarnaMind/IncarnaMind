@@ -88,6 +88,8 @@ export interface ExpectedRows extends Expected {
   columns: ExpectedColumn[];
   /** The order counts: "worst first". */
   ordered?: boolean;
+  /** The words that name each reference key, where an Answer may name it its own way: a theme's synonyms. */
+  aliases?: Record<string, RegExp>;
 }
 
 /** Something the Answer must say: a warning, a test's name, the leaking column, in English or Chinese. */

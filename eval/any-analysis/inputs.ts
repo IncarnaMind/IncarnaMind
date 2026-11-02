@@ -38,7 +38,7 @@ export const round = (value: number, places = 2): number => {
 
 /** Digits, Latin letters and a few signs in their full-width forms: "ＣＣ０７". */
 export const fullWidth = (text: string): string =>
-  text.replace(/[0-9A-Za-z%,.\-]/g, (char) => String.fromCharCode(char.charCodeAt(0) + 0xfee0));
+  text.replace(/[0-9A-Za-z%,.-]/g, (char) => String.fromCharCode(char.charCodeAt(0) + 0xfee0));
 
 type CsvCell = string | number | null;
 
@@ -113,7 +113,8 @@ export function xlsx(sheets: readonly SheetData[]): Uint8Array {
 export function inputsHash(inputs: TaskInputs): string {
   const hash = createHash("sha256");
   for (const file of inputs.files) hash.update(`file:${file.name}\n`).update(file.bytes);
-  for (const [name, text] of Object.entries(inputs.data)) hash.update(`data:${name}\n`).update(text);
+  for (const [name, text] of Object.entries(inputs.data))
+    hash.update(`data:${name}\n`).update(text);
   return hash.digest("hex");
 }
 

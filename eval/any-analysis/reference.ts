@@ -15,10 +15,10 @@ import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadPython } from "../../src/renderer/analysis/loadPyodide";
 import { inputsHash } from "./inputs";
+import { taskFolder, tasksNamed } from "./load";
 import type { Reference, ReferenceValue, Task, TaskLanguage } from "./task";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
-export const taskFolder = (id: string): string => join(root, "eval/any-analysis/tasks", id);
 
 /** What reference scripts import, as Pyodide names their packages. */
 const PACKAGES = ["numpy", "pandas", "scipy", "statsmodels", "scikit-learn"];
@@ -33,7 +33,8 @@ async function python() {
     packages: Record<string, { file_name: string }>;
   };
   const files = PACKAGES.map((name) => lock.packages[name]?.file_name);
-  if (files.some((file) => !file)) throw new Error("resources/python lacks a package: build first.");
+  if (files.some((file) => !file))
+    throw new Error("resources/python lacks a package: build first.");
   const needed = new Set<string>();
   const add = (name: string) => {
     const entry = lock.packages[name] as { file_name: string; depends?: string[] } | undefined;
@@ -73,17 +74,6 @@ async function referenceValues(
   } finally {
     await rm(folder, { recursive: true, force: true });
   }
-}
-
-/** The tasks named, each from its own folder, or every task. */
-async function tasksNamed(ids: readonly string[]): Promise<readonly Task[]> {
-  if (ids.length === 0) return (await import("./tasks")).TASKS;
-  return Promise.all(
-    ids.map(
-      async (id) =>
-        ((await import(pathToFileURL(join(taskFolder(id), "task.ts")).href)) as { task: Task }).task,
-    ),
-  );
 }
 
 export async function writeReferences(ids: readonly string[]): Promise<void> {
