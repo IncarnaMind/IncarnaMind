@@ -111,6 +111,7 @@ import {
 import { createProcessor } from "./processor";
 import { createReadingMeter, type ReadingMeterOptions } from "./readingSpeed";
 import { type TextRecognitionModel, TextRecognitionUnavailableError } from "./scan";
+import { unsureSpansIn } from "./scan/layout";
 import { MIN_PAGE_TEXT } from "./scan/pages";
 import {
   distinctPassages,
@@ -2718,6 +2719,7 @@ export function createDocuments(options: DocumentsOptions) {
           text: unit.text,
           label: unit.label ?? null,
           anchors: unit.anchors ?? [],
+          unsure: unsureSpansIn(unit),
         })),
       };
     },
@@ -2765,7 +2767,7 @@ export function createDocuments(options: DocumentsOptions) {
           if (unit.label.scan.picture) pictured = true;
           else scanned = true;
         }
-        for (const [from, to] of unit.label?.scan?.unsure ?? []) {
+        for (const [from, to] of unsureSpansIn(unit)) {
           if (covers(start + from, start + to)) unsure.push(unit.text.slice(from, to));
         }
         for (const figure of unit.label?.figures ?? []) {

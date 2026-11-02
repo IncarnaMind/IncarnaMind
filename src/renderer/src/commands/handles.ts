@@ -15,7 +15,11 @@ export const assistantHandle: Handle<{ openHistory(): void }> = { current: null 
 /** The Citation whose card is open: what "Open cited page" opens, and its needs re-check choices (#99). */
 export const citationHandle: Handle<{
   open(): void;
-  choices(): { update: (() => void) | null; keepOld: (() => void) | null };
+  choices(): {
+    update: (() => void) | null;
+    keepOld: (() => void) | null;
+    pageChecked: (() => void) | null;
+  };
   /** What its card offers, for ⌘K, which takes them as it opens: a click there closes the card. */
   here(): CommandContext["here"];
 }> = { current: null };
