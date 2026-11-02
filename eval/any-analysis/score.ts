@@ -140,15 +140,39 @@ function kindOf(figure: Pick<Figure, "unit">): NumberKind {
   return figure.unit.kind === "percent" || figure.unit.kind === "points" ? "percent" : "plain";
 }
 
+/**
+ * A number before a unit of time ("90 days", "36 months", "47.5 minutes"), which the figure reader
+ * leaves out as a period: here it is the result.
+ */
+const DURATION =
+  /(\d[\d,]*(?:\.\d+)?)\s*(?:days?|weeks?|months?|years?|hours?|hrs?|minutes?|mins?|seconds?|secs?|ms|天|周|个月|小时|分钟|秒)/gi;
+
 function written(text: string, line: number): Candidate[] {
   const language = HAN.test(text) ? "zh-CN" : "en";
-  return readFigures(text, { language }).map((figure) => {
+  const figures = readFigures(text, { language });
+  const read = figures.map((figure): Candidate => {
     const kind = kindOf(figure);
     const place =
       figure.precision ??
       10 ** -figure.decimals * figure.scale * (figure.unit.kind === "percent" ? 0.01 : 1);
     return { value: figure.value, kind, half: place / 2, text: figure.chars, line, figure: null };
   });
+  for (const match of text.matchAll(DURATION)) {
+    const start = match.index;
+    const digits = match[1] ?? "";
+    if (figures.some((figure) => figure.start < start + digits.length && start < figure.end))
+      continue;
+    const decimals = digits.split(".")[1]?.length ?? 0;
+    read.push({
+      value: Number(digits.replaceAll(",", "")),
+      kind: "plain",
+      half: 10 ** -decimals / 2,
+      text: match[0],
+      line,
+      figure: null,
+    });
+  }
+  return read;
 }
 
 /** A line's text as shown, and its numbers, its figures by their markers. */
@@ -255,8 +279,11 @@ function verdict(
       const value = wanted.signless ? Math.abs(reading.value) : reading.value;
       const target = wanted.signless ? Math.abs(reference) : reference;
       const allowed = toleranceOf(wanted.tolerance, target);
-      // A written number may be rounded as shown, but not so coarsely it can't tell right from wrong.
-      if (reading.half > Math.max(allowed, Math.abs(target) * 0.005)) continue;
+      if (Math.abs(value - target) <= Math.abs(target) * 1e-9) return "right";
+      // A written number may be rounded as shown, but not so coarsely it can't tell right from
+      // wrong; a whole number written whole, or a percent to a tenth of a point, never is.
+      const shown = wanted.unit === "percent" ? 0.0005 : Number.isInteger(target) ? 0.5 : 0;
+      if (reading.half > Math.max(allowed, Math.abs(target) * 0.005, shown)) continue;
       if (candidate.figure && sameNumber(value, target)) return "right";
       if (Math.abs(value - target) <= allowed + reading.half + Math.abs(target) * 1e-12)
         return "right";

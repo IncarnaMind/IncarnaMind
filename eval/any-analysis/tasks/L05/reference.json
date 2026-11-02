@@ -1,0 +1,24 @@
+{
+  "task": "L05",
+  "inputs": {
+    "en": "dbd0942fe37d6e1391a2f75f19506fa249163e468aa6045ec21247c31986d6be"
+  },
+  "values": {
+    "top_senders": [
+      {
+        "key": "marta.oyelaran@example.org",
+        "count": 1412
+      },
+      {
+        "key": "teodor.vanko@example.org",
+        "count": 1096
+      },
+      {
+        "key": "lin.qiaoyu@example.net",
+        "count": 873
+      }
+    ],
+    "busiest_hour": 10,
+    "median_reply_minutes": 46.13333333333333
+  }
+}

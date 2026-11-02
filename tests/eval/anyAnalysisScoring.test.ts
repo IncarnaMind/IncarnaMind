@@ -621,3 +621,42 @@ describe("items an Answer names its own way", () => {
     expect(outcomes(scoreAnswer(themes, reference, record(one)))).toEqual({ themes: "missing" });
   });
 });
+
+describe("terms a Document states exactly", () => {
+  const terms: Task = {
+    ...TASK,
+    expect: [
+      {
+        id: "notice",
+        kind: "number",
+        label: "Notice, days",
+        unit: "plain",
+        tolerance: { abs: 0 },
+        near: /notice/i,
+      },
+      {
+        id: "late",
+        kind: "number",
+        label: "Late interest",
+        unit: "percent",
+        tolerance: { abs: 0 },
+        near: /late/i,
+      },
+    ],
+  };
+  const reference: Reference = { task: "T00", inputs: {}, values: { notice: 90, late: 0.015 } };
+
+  test("are right written exactly, and wrong a day or a tenth of a point off", () => {
+    const exact = answer(["Notice: 90 days.", "Late payment: 1.5% a month."], { figures: [] });
+    const off = answer(["Notice: 91 days.", "Late payment: 1.6% a month."], { figures: [] });
+
+    expect(outcomes(scoreAnswer(terms, reference, record(exact)))).toEqual({
+      notice: "right",
+      late: "right",
+    });
+    expect(outcomes(scoreAnswer(terms, reference, record(off)))).toEqual({
+      notice: "wrong",
+      late: "wrong",
+    });
+  });
+});
