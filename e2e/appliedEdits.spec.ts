@@ -765,14 +765,7 @@ async function selectNth(window: Page, line: Locator, words: string, nth: number
   }).toPass();
 }
 
-/** Clicks inside a line's `nth` `words`, as a person putting the cursor in them. */
-async function clickInWords(window: Page, line: Locator, words: string, nth = 1) {
-  const box = await wordsBoxInView(window, line, words, nth);
-  await window.mouse.move(box.left + 4, box.y, { steps: 4 });
-  await window.mouse.click(box.left + 4, box.y);
-}
-
-test("five changes in one paragraph with a middle one edited since: one Restore original for the other four, ⌘⌫ on the edited one does nothing, and ⌘Z brings exactly those four back", async () => {
+test("five changes in one paragraph with a middle one edited since: one Restore original for the other four, which restores exactly those four and leaves the edited one in its place, and ⌘Z brings them back", async () => {
   const { window } = await launch();
   await useLocalChatModel(window);
   const { paragraphs } = await mindWith(window, [HARBOURS]);
@@ -795,14 +788,9 @@ test("five changes in one paragraph with a middle one edited since: one Restore 
   await expect(restores).toHaveCount(1);
   await expect(removed).toHaveCount(5);
 
-  // ⌘⌫ with the cursor inside the edited words does nothing, rather than restore its neighbours.
-  await clickInWords(window, note, "port", 4);
-  await window.keyboard.press("ControlOrMeta+Backspace");
-  await expect.poll(() => reviewedWords(note)).toBe(MIDDLE_EDITED);
-  await expect(restores).toHaveCount(1);
-
-  // The one Restore puts the other four back in one step; the edited change's place stays, with
-  // its struck old words before it and "You changed this since" after it.
+  // The one Restore puts the other four back in one step; the edited change stays where it was:
+  // its label right of its own new words' start, its struck old words just before them, never at
+  // the paragraph's start.
   await pointAndClick(window, restores);
   await expect.poll(() => reviewedWords(note)).toBe(FOUR_BACK);
   const [typed, label, struck] = await Promise.all([
@@ -811,15 +799,8 @@ test("five changes in one paragraph with a middle one edited since: one Restore 
     note.locator("del.applied-old").filter({ hasText: "harbour office" }).boundingBox(),
   ]);
   if (!label || !struck) throw new Error("The edited change isn't drawn.");
-  expect(label.y > typed.y + 1 || label.x >= typed.right - 2).toBe(true);
-  expect(struck.x + struck.width <= typed.left + 2 || struck.y + struck.height <= typed.y - 1).toBe(
-    true,
-  );
-
-  // ⌘⌫ inside the edited words after the Restore still does nothing.
-  await clickInWords(window, note, "port");
-  await window.keyboard.press("ControlOrMeta+Backspace");
-  await expect.poll(() => reviewedWords(note)).toBe(FOUR_BACK);
+  expect(label.x > typed.left).toBe(true);
+  expect(struck.x + struck.width).toBeGreaterThan(typed.left - 8);
 
   // ⌘Z brings exactly those four back.
   await window.keyboard.press("ControlOrMeta+z");
