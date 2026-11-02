@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type { HTMLAttributes, ReactNode, Ref } from "react";
 import type { DropEffect, DropProps } from "../../dragDrop";
 import { useLanguage, useT } from "../../i18n";
 import { formatCount } from "../../linkedFolders";
@@ -24,6 +24,7 @@ export function SectionHead({
   testId,
   rowProps,
   drop,
+  rowRef,
 }: {
   /** Its name in words, for the chevron's label. */
   label: string;
@@ -39,6 +40,8 @@ export function SectionHead({
   testId: string;
   rowProps?: HTMLAttributes<HTMLDivElement>;
   drop?: { over: DropEffect | null; props: DropProps };
+  /** The head's row itself, for a menu to find its own button rather than the page's first. */
+  rowRef?: Ref<HTMLDivElement>;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -46,6 +49,7 @@ export function SectionHead({
     // biome-ignore lint/a11y/useSemanticElements: the head of a group of rows in a grid of sections, not a table.
     // biome-ignore lint/a11y/useFocusableInteractive: its name's button takes the focus.
     <div
+      ref={rowRef}
       role="row"
       data-testid={testId}
       data-open={open ? "true" : "false"}

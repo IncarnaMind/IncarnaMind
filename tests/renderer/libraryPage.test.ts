@@ -10,6 +10,7 @@ import {
   folderCounts,
   folderFacet,
   foundLine,
+  listedDocumentIds,
   NOT_IN_A_FOLDER,
   nameMatchOf,
   organizeModel,
@@ -48,6 +49,7 @@ const folder = (id: string, name = id): LibraryGroup => ({
   id,
   name,
   description: "",
+  parentId: null,
   countsOwnFiles: false,
   keepInside: false,
   createdAt: "2026-10-01T00:00:00.000Z",
@@ -329,5 +331,91 @@ describe("the Folder filter", () => {
     expect(facet.label("b", en)).toBe("2026 / Reading");
     expect(facet.label("c", en)).toBe("Other");
     expect(facet.compare("a", "b")).toBeLessThan(0);
+  });
+});
+
+describe("Folders inside Folders (#246)", () => {
+  const thesis = folder("thesis", "Thesis");
+  const chapter = { ...folder("chapter", "Chapter 2"), parentId: "thesis" };
+  const july = { ...folder("july", "July"), parentId: "chapter" };
+  const folders = [chapter, july, thesis];
+  const inside = doc({ id: "inside" });
+  const deep = doc({ id: "deep" });
+  const outside = doc({ id: "outside" });
+  const where = new Map<string, string | null>([
+    ["inside", "chapter"],
+    ["deep", "july"],
+    ["outside", null],
+  ]);
+  const folderOf = (id: string) => where.get(id) ?? null;
+
+  test("a section is a top-level Folder, and a Document in a sub-Folder is not Not in a Folder", () => {
+    const sections = sectionsOf(folders, [inside, deep, outside], folderOf, false);
+    expect(sections.map((section) => section.key)).toEqual(["thesis", NOT_IN_A_FOLDER]);
+    expect(sections[0]?.documents).toEqual([]);
+    expect(sections[1]?.documents).toEqual([outside]);
+  });
+
+  test("while narrowed, a section shows when a sub-Folder holds the match", () => {
+    const sections = sectionsOf(folders, [deep], folderOf, true);
+    expect(sections.map((section) => section.key)).toEqual(["thesis"]);
+  });
+
+  test("a Folder's count is its own Documents and those in the Folders inside it", () => {
+    const assignments = [
+      { documentId: "inside", groupId: "chapter" },
+      { documentId: "deep", groupId: "july" },
+      { documentId: "outside", groupId: null },
+    ];
+    expect(folderCounts(folders, [inside, deep, outside], assignments)).toEqual(
+      new Map([
+        ["chapter", 2],
+        ["july", 1],
+        ["thesis", 2],
+      ]),
+    );
+  });
+
+  test("the page lists a sub-Folder's Documents only while it is open, and every match while narrowing", () => {
+    const sections = sectionsOf(folders, [inside, deep], folderOf, false);
+    const documentsOf = (id: string) =>
+      [inside, deep].filter((document) => folderOf(document.id) === id);
+    const listed = (
+      subOpen: readonly string[],
+      folded: readonly string[] = [],
+      narrowing = false,
+    ) =>
+      listedDocumentIds({
+        sections,
+        folders,
+        documentsOf,
+        folded: new Set(folded),
+        subOpen: new Set(subOpen),
+        narrowing,
+      });
+    // The section open, its sub-Folders closed: only what the section holds itself (nothing).
+    expect(listed([])).toEqual([]);
+    expect(listed(["chapter"])).toEqual(["inside"]);
+    expect(listed(["chapter", "july"])).toEqual(["inside", "deep"]);
+    // A folded section draws nothing of it, however open its sub-Folders are.
+    expect(listed(["chapter", "july"], ["thesis"])).toEqual([]);
+    // While narrowing every sub-Folder that holds a match is open.
+    const narrowed = sectionsOf(folders, [deep], folderOf, true);
+    expect(
+      listedDocumentIds({
+        sections: narrowed,
+        folders,
+        documentsOf: (id: string) => (id === "july" ? [deep] : []),
+        folded: new Set(),
+        subOpen: new Set(),
+        narrowing: true,
+      }),
+    ).toEqual(["deep"]);
+  });
+
+  test("the Folder filter offers a Folder and every Folder it is inside", () => {
+    const facet = folderFacet(folders, folderOf);
+    expect(facet.values(deep)).toEqual(["july", "chapter", "thesis"]);
+    expect(facet.values(outside)).toEqual([NOT_IN_A_FOLDER]);
   });
 });

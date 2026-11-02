@@ -3,6 +3,7 @@ import { countNow } from "../i18n";
 import type { ObjectRef } from "../objects";
 import { selectedOn, useSelection } from "../selection";
 import { useAppStore } from "../store";
+import { objectAt } from "./keymap";
 import { type Command, type CommandContext, fromMenu } from "./registry";
 import { targetsOf } from "./targets";
 
@@ -48,8 +49,12 @@ export const newFolderCommands: readonly Command[] = [
     ...fromMenu("folder.new"),
     group: "main",
     reversible: true,
-    async run() {
-      await store().createFolder();
+    async run(ctx) {
+      // A Folder focused makes the new one inside it (#246). The menu's key reaches this with no
+      // focus in its context, so the row the keyboard is on is read here.
+      const focused = ctx.focus ?? objectAt(document.activeElement);
+      const parent = focused?.kind === "folder" ? focused.id : null;
+      await store().createFolder(undefined, undefined, parent);
     },
   },
   {

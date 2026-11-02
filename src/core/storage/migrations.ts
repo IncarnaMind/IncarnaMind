@@ -2227,6 +2227,16 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE documents ADD COLUMN converted_from TEXT;
     `,
   },
+  {
+    version: 124,
+    description: "Folders hold Folders, at any depth (#246)",
+    // parent_id is NULL at the top level. No foreign key: a later sync may deliver a Folder
+    // before its parent.
+    sql: `
+      ALTER TABLE library_groups ADD COLUMN parent_id TEXT;
+      CREATE INDEX library_groups_by_parent ON library_groups (parent_id) WHERE deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**
