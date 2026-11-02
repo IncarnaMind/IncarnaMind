@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
@@ -11,7 +11,6 @@ import {
   launchPackaged,
   packagedExecutable,
   packagedLogLines,
-  runtimeTelemetryFolders,
 } from "./app";
 
 const root = resolve(__dirname, "../..");
@@ -33,9 +32,7 @@ test.afterEach(async () => {
     await testInfo.attach("app log", { body: lines.join("\n"), contentType: "text/plain" });
     console.log(lines.slice(-30).join("\n"));
   }
-  for (const folder of [...folders.splice(0), ...runtimeTelemetryFolders(dataDir)]) {
-    await rm(folder, { recursive: true, force: true });
-  }
+  for (const folder of folders.splice(0)) await rm(folder, { recursive: true, force: true });
 });
 
 /**
@@ -67,7 +64,8 @@ test("a picture file is read by the real OCR engine, its lines anchored, and its
   );
   const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
   dataDir = await mkdtemp(join(tmpdir(), "incarnamind-data-"));
-  sources = await mkdtemp(join(tmpdir(), "incarnamind-sources-"));
+  // Its real path: a macOS temporary folder is a symbolic link, and the core records the real one.
+  sources = await realpath(await mkdtemp(join(tmpdir(), "incarnamind-sources-")));
   folders.push(home, dataDir, sources);
   await copyModelsIn(dataDir);
   app = await launchPackaged(home, dataDir, { testHooks: true });

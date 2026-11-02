@@ -334,6 +334,12 @@ describe("Convert with LibreOffice adds a copy and leaves the original untouched
     expect(found?.documentId).toBe(result.document.id);
     expect(en("info.convertedFrom")).toBe("Converted from");
     expect(zh("info.convertedFrom")).toBe("转换自");
+
+    // Deleted permanently, its kept copy goes with it.
+    const kept = dirname(result.document.path);
+    await core.deleteDocument(result.document.id);
+    await core.deletePermanently([{ kind: "document", id: result.document.id }]);
+    expect(existsSync(kept)).toBe(false);
   });
 
   test("with no LibreOffice the offer is absent and nothing is converted", async () => {

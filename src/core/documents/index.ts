@@ -78,6 +78,7 @@ import { createEmbeddingQueue } from "./embedding";
 import {
   DOCUMENT_EXTENSIONS,
   hashBytes,
+  isInside,
   isLegacyCopy,
   nameFromPath,
   openFile,
@@ -3126,7 +3127,7 @@ export function createDocuments(options: DocumentsOptions) {
     async dropPurged(): Promise<void> {
       // By place, not by path: a Document added from a data folder reached through a link has
       // the path with links resolved, an old one the path as the app was given it.
-      const copies = db
+      const places = db
         .all<{ relative_path: string }>(
           `SELECT DISTINCT d.relative_path FROM documents d
            WHERE d.purged_at IS NOT NULL AND d.source_kind = 'data-folder'
@@ -3135,9 +3136,23 @@ export function createDocuments(options: DocumentsOptions) {
                AND (o.path = d.path
                     OR (o.source_kind = 'data-folder' AND o.relative_path = d.relative_path)))`,
         )
-        .map((row) => pathIn(dataDir, row.relative_path))
-        .filter((path) => isLegacyCopy(dataDir, path));
-      await Promise.all(copies.map((path) => rm(path, { force: true }).catch(reportError)));
+        .map((row) => pathIn(dataDir, row.relative_path));
+      const copies = places.filter((path) => isLegacyCopy(dataDir, path));
+      // A converted copy lives in a folder of its own in the data folder; it goes whole.
+      const convertedRoot = join(dataDir, "converted");
+      const converted = new Set(
+        places.filter((path) => isInside(convertedRoot, path)).map((path) => dirname(path)),
+      );
+      await Promise.all([
+        ...copies.map((path) => rm(path, { force: true }).catch(reportError)),
+        ...[...converted]
+          .filter((folder) => folder !== convertedRoot)
+          .map((folder) =>
+            rm(folder, { recursive: true, force: true }).catch((error: unknown) =>
+              reportError(error),
+            ),
+          ),
+      ]);
     },
 
     /**
