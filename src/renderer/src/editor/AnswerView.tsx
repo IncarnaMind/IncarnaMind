@@ -385,7 +385,8 @@ export function AnswerError({
   const offered = useRouteOffered(isSignInRoute(provider) ? provider : null);
   const billingUrl = billingUrlOfProvider(providerInUse);
   const online = useOnline();
-  const offline = kind === "network" && !online;
+  // A model on this computer can't be away because the computer is: its own problem is said instead.
+  const offline = kind === "network" && !online && providerInUse?.service != null;
   const found = useFoundPassages(
     offline && question ? question.text : null,
     question?.scope ?? null,

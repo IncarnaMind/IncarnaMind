@@ -79,7 +79,9 @@ test("a newcomer walks the hero path unaided, with no refusal and no jargon, in 
     // 1. First run: the first own Question waits, with the way to choose a model beside it;
     // the pasted key is used at once.
     const card = await askFirstQuestion(window);
-    await expect(window.getByTestId("assistant-waiting-model")).toContainText("Waiting for an AI model");
+    await expect(window.getByTestId("assistant-waiting-model")).toContainText(
+      "Waiting for an AI model",
+    );
     await expect(window.getByTestId("assistant-waiting-choose")).toBeVisible();
     await card.getByTestId("setup-key").fill(ANTHROPIC_KEY);
     await card.getByTestId("setup-key").press("Enter");
