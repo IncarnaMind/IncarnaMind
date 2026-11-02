@@ -2244,6 +2244,7 @@ export const zhCN = {
   "tags.dialog.merge.body":
     "带“{name}”的文档改带“{into}”，然后删除“{name}”。你手动添加的标签不变。",
   "tags.dialog.merge.confirm": "合并",
+  "tags.dialog.mergeKeeps": "合并到“{name}”后，将保留它的描述和颜色。",
   "library.select": "选择“{name}”",
   "library.selectAll": "全选当前显示的 {count} 个",
   "library.selected": "已选 {count} 个",

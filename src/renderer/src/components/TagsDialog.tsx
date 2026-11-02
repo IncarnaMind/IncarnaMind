@@ -205,6 +205,7 @@ function TagRow({
       <li data-testid="tag-row" data-tag-id={tag.id} className="py-3">
         <TagForm
           initial={tag}
+          others={tags.filter((each) => each.id !== tag.id)}
           submitLabel={t("tags.dialog.save")}
           note={t("tags.dialog.descriptionNote")}
           onSubmit={async (name, description, colour) => {
@@ -368,18 +369,21 @@ function NewTag({ run }: { run: Run }) {
 
 function TagForm(props: {
   initial: { name: string; description: string; colour: TagColour };
+  /** The other Tags, to say what a name that another has merges into keeps. */
+  others?: readonly Tag[];
   submitLabel: string;
   /** Under the description: what it is for. */
   note: string;
   onSubmit(name: string, description: string, colour: TagColour): Promise<void>;
   onCancel?(): void;
 }) {
-  const { initial, submitLabel, note, onSubmit, onCancel } = props;
+  const { initial, others, submitLabel, note, onSubmit, onCancel } = props;
   const t = useT();
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description);
   const [colour, setColour] = useState<TagColour>(initial.colour);
   const [busy, setBusy] = useState(false);
+  const into = others?.find((each) => each.name.toLowerCase() === name.trim().toLowerCase());
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -403,6 +407,11 @@ function TagForm(props: {
           onChange={(event) => setName(event.target.value)}
           className={inputClass}
         />
+        {into && (
+          <span data-testid="tag-merge-note" className={hintClass}>
+            {t("tags.dialog.mergeKeeps", { name: into.name })}
+          </span>
+        )}
       </label>
       <label className={fieldLabelClass}>
         {t("tags.dialog.description")}

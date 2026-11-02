@@ -82,7 +82,13 @@ export async function deleteTag(tagId: string): Promise<void> {
 export async function mergeTags(tagId: string, intoTagId: string, renamed = false): Promise<void> {
   const name = tagOf(tagId)?.name ?? "";
   const into = tagOf(intoTagId)?.name ?? "";
+  const filter = useAppStore.getState().tagFilter;
+  const filtered = filter.includes(tagId);
   let merge = await core.mergeTags(tagId, intoTagId);
+  // The Library filtered by the merged Tag now filters by the one that stays.
+  if (filtered) {
+    useAppStore.getState().setTagFilter(filter.map((id) => (id === tagId ? intoTagId : id)));
+  }
   push({
     said: (t) =>
       renamed ? t("undo.mergedInto", { name: into }) : t("undo.tagsMerged", { name, into }),

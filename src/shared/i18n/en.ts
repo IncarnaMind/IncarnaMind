@@ -2360,6 +2360,7 @@ export const en = {
   "tags.dialog.merge.choose": "Choose a Tag",
   "tags.dialog.merge.body": "Its Documents get “{into}”; “{name}” is deleted. Tags you chose stay.",
   "tags.dialog.merge.confirm": "Merge",
+  "tags.dialog.mergeKeeps": "Merging into “{name}” keeps its description and colour.",
   "library.select": "Select {name}",
   "library.selectAll": "Select all {count} shown",
   "library.selected": "{count} selected",

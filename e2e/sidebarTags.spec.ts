@@ -781,6 +781,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(drafts.getByTestId("browse-count")).toHaveText("0");
       await expect(tagRow(window, "Paper")).toHaveCount(0);
 
+      // The Library filtered by the renamed Tag follows the merge to the Tag kept.
+      await slideAndClick(window, drafts.getByRole("treeitem"));
+      const library = window.getByTestId("library");
+      const tagFilter = library.locator('[data-testid="library-filter"][data-facet="tag"]');
+      await expect(tagFilter).toHaveText(language === "en" ? "Tags: Drafts" : "标签：Drafts");
+      await expect(drafts.getByRole("treeitem")).toHaveAttribute("aria-selected", "true");
+
       // The merge keeps the row: "Paper" is the User's from now on, at 0.
       await drafts.getByRole("treeitem").focus();
       await window.keyboard.press("F2");
@@ -791,6 +798,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(drafts).toHaveCount(0);
       await expect(paper.getByTestId("browse-count")).toHaveText("0");
       await expect(paper.getByRole("treeitem")).toBeFocused();
+      await expect(paper.getByRole("treeitem")).toHaveAttribute("aria-selected", "true");
+      await expect(tagFilter).toHaveText(language === "en" ? "Tags: Paper" : "标签：Paper");
       await expect(window.getByTestId("undo-message")).toHaveText(
         language === "en" ? "Merged into “Paper”" : "已合并到“Paper”",
       );
@@ -999,6 +1008,9 @@ test("a Tag's menu, from a right-click, its ⋯ and the context-menu key, recolo
     await sketches.getByTestId("tag.editDescription").click();
     await expect(dialog).toBeVisible();
     await dialog.getByTestId("tag-name-input").first().fill("Findings");
+    await expect(dialog.getByTestId("tag-merge-note")).toHaveText(
+      "Merging into “Findings” keeps its description and colour.",
+    );
     await dialog.getByTestId("save-tag").first().click();
     await expect.poll(() => tagNames(window)).not.toContain("Sketches");
     await expect
