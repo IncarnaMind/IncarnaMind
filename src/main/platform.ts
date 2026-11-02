@@ -51,7 +51,8 @@ import { createElectronPictures } from "./pictures";
 import { createElectronPrinter } from "./printPdf";
 import { createLoginShellProcesses } from "./processes";
 import { createUtilityProcessCrossEncoder } from "./reranker";
-import { readPythonManifest, runtimePlatform } from "./runCode";
+import { createCodeHost } from "./runCode/host";
+import { readPythonManifest, runtimePlatform } from "./runCode/manifest";
 import { loadOsSandbox, readDeniedFolders } from "./sandbox";
 import { createUtilityProcessTextRecognizer } from "./scanReader";
 import { createFileKeychain, SECRETS_FILE, type SecretCipher } from "./secretsFile";
@@ -383,7 +384,7 @@ function codeRuntime(log: Logger): CoreAdapters["codeRuntime"] {
     (app.isPackaged
       ? join(process.resourcesPath, "python-native", "runtime.json")
       : join(app.getAppPath(), "resources", "python-native", "runtime.json"));
-  return {
+  return createCodeHost({
     python: readPythonManifest(
       manifest,
       runtimePlatform(process.platform, process.arch),
@@ -391,7 +392,7 @@ function codeRuntime(log: Logger): CoreAdapters["codeRuntime"] {
     ),
     font: join(pythonFolder(), PLOT_FONT),
     appVersion: app.getVersion(),
-  };
+  });
 }
 
 export function analysisRuntime(log: Logger): AnalysisRuntime {

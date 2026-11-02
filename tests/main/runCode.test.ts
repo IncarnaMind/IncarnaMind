@@ -25,14 +25,15 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createAnalysisRecorder } from "../../src/core/analysis/recorder";
 import type { AnswerAnalysis, CalculatedFigure } from "../../src/core/api";
 import type { CitationSource } from "../../src/core/documents";
-import { type CodeDocument, createCodeRunner } from "../../src/core/runCode";
-import { createPythonRuntime, type PythonRuntime } from "../../src/core/runCode/python";
+import type { CodeDocument } from "../../src/core/runCode";
 import { runCodeTool } from "../../src/core/runCode/tool";
 import { createProcessLauncher } from "../../src/main/processes";
-import { readPythonManifest, runtimePlatform } from "../../src/main/runCode";
+import { readPythonManifest, runtimePlatform } from "../../src/main/runCode/manifest";
+import { createPythonRuntime, type PythonRuntime } from "../../src/main/runCode/python";
+import { createCodeRunner } from "../../src/main/runCode/runner";
 import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
-import analysisHelper from "../../src/renderer/analysis/incarnamind.py?raw";
 import { PLOT_FONT } from "../../src/shared/analysisWindow";
+import analysisHelper from "../../src/shared/incarnamind.py?raw";
 import { LOCAL_FETCH } from "../helpers/core";
 
 const seccomp = join(

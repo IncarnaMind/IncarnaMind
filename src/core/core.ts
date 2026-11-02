@@ -4,7 +4,6 @@ import { tmpdir, userInfo } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
-import analysisHelper from "../renderer/analysis/incarnamind.py?raw";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
@@ -302,8 +301,6 @@ import {
 import { parseReference } from "./references";
 import { BUILT_IN_RERANKING_MODEL, createRerankingModel } from "./reranking";
 import { createResearch } from "./research";
-import { createCodeRunner } from "./runCode";
-import { createPythonRuntime } from "./runCode/python";
 import { createTasks, type TaskKind, type TaskNotice } from "./runs/tasks";
 import { parseSearchScope, resolveSearchScope } from "./scope";
 import { createSecrets } from "./secrets";
@@ -1333,27 +1330,19 @@ export function createCore(adapters: CoreAdapters): Core {
   const scriptRunner = createScriptRunner({ executor, runtimes: adapters.scriptRuntimes });
   // Code on whole Documents, in the OS sandbox only (ADR-0025): Python is IncarnaMind's own,
   // downloaded the first time code needs it.
-  const codeHost = executor.level === "os" ? adapters.codeRuntime : undefined;
-  const pythonRuntime = codeHost?.python
-    ? createPythonRuntime({
-        dataDir,
-        manifest: codeHost.python,
-        executor,
-        fetch: adapters.modelDownloads?.fetch ?? fetch,
-        emitStatus: (status) => events.emit("pythonRuntime.status", status),
-        ...(adapters.log && { log: adapters.log }),
-      })
-    : null;
-  const codeRunner = codeHost
-    ? createCodeRunner({
-        executor,
-        tempDir: adapters.paths.tempDir ?? tmpdir(),
-        python: pythonRuntime,
-        helper: analysisHelper,
-        font: codeHost.font,
-        appVersion: codeHost.appVersion,
-      })
-    : undefined;
+  const codeHost =
+    executor.level === "os"
+      ? adapters.codeRuntime?.start({
+          executor,
+          dataDir,
+          tempDir: adapters.paths.tempDir ?? tmpdir(),
+          fetch: adapters.modelDownloads?.fetch ?? fetch,
+          emitStatus: (status) => events.emit("pythonRuntime.status", status),
+          ...(adapters.log && { log: adapters.log }),
+        })
+      : undefined;
+  const pythonRuntime = codeHost?.python ?? null;
+  const codeRunner = codeHost?.runner;
 
   // Asking the User before a Connector Tool that may change something runs (#38).
   const approvals = createApprovals({

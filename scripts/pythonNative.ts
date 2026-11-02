@@ -34,7 +34,7 @@ import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { createZstdDecompress } from "node:zlib";
-import { type TarEntry, writeTarZst } from "../src/core/runCode/tar";
+import { type TarEntry, writeTarZst } from "../src/main/runCode/tar";
 import { type NativePlatform, PINS } from "./pythonNative/pins";
 
 const REPOSITORY = fileURLToPath(new URL("..", import.meta.url));

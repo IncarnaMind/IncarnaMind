@@ -11,6 +11,7 @@ import type { Executor } from "../../src/core/adapters";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import { createLocalExecutor } from "../../src/core/execution";
 import { createProcessLauncher } from "../../src/main/processes";
+import { createCodeHost } from "../../src/main/runCode/host";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -89,7 +90,7 @@ async function setUp(
     }),
     executor: await executorAt(options.level ?? "os"),
     ...(options.codeRuntime !== false && {
-      codeRuntime: {
+      codeRuntime: createCodeHost({
         python: options.manifestUrl
           ? {
               file: "python-runtime-test.tar.zst",
@@ -103,7 +104,7 @@ async function setUp(
           : null,
         font: null,
         appVersion: "0.0.0-test",
-      },
+      }),
     }),
   });
   const saved = await core.saveChatProvider({

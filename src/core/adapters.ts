@@ -44,7 +44,7 @@ import type { LocalServers } from "./providers/localServers";
 import type { ChatModelFactory } from "./providers/models";
 import type { OllamaModels } from "./providers/ollamaModels";
 import type { RerankingModelFactory } from "./providers/rerank";
-import type { PythonRuntimeManifest } from "./runCode/python";
+import type { CodeHost } from "./runCode";
 import type { RunEngine } from "./runs/engine";
 import type { TaskKind } from "./runs/tasks";
 import type { PaceTimers } from "./sources/pace";
@@ -912,16 +912,11 @@ export interface CoreAdapters {
   /** What Skill scripts run with (see `ScriptRuntimes`); the defaults suit the desktop app. */
   scriptRuntimes?: ScriptRuntimes;
   /**
-   * What `run_code` runs with (ADR-0025), on an `executor` at level "os" only: the archive of
-   * IncarnaMind's own Python this build goes with (null: this copy has none, so it runs bash
-   * alone), the font plots draw Chinese with, and this build's version, recorded with each run.
+   * Runs `run_code` (ADR-0025), on an `executor` at level "os" only: the host copies the
+   * Documents, runs the code with IncarnaMind's own Python or bash, and reads back what it left.
    * Absent: no Answer is offered `run_code`.
    */
-  codeRuntime?: {
-    python: PythonRuntimeManifest | null;
-    font: string | null;
-    appVersion: string;
-  };
+  codeRuntime?: CodeHost;
   /**
    * Why the OS sandbox can't start on this computer, when it can't and the User can fix it:
    * Linux without bubblewrap, socat or ripgrep, or one that doesn't let apps start a sandbox.

@@ -6,7 +6,7 @@
  * runs bash alone. No Electron imports: tests read the manifest in Node.
  */
 import { readFileSync } from "node:fs";
-import type { PythonRuntimeManifest } from "../core/runCode/python";
+import type { PythonRuntimeManifest } from "../../core/runCode";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);

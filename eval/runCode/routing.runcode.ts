@@ -23,8 +23,9 @@ import { test } from "vitest";
 import type { AnswerAnalysis, AnswerToolCall, Core } from "../../src/core";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
-import type { PythonRuntimeManifest } from "../../src/core/runCode/python";
+import type { PythonRuntimeManifest } from "../../src/core/runCode";
 import { createProcessLauncher } from "../../src/main/processes";
+import { createCodeHost } from "../../src/main/runCode/host";
 import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
 import { queryDatabase } from "../../tests/helpers/core";
 import { commitOf } from "../lib/commit";
@@ -138,7 +139,7 @@ test("run_code routing", async () => {
         }),
         reportError: (error) => log(`The sandbox couldn't clean up: ${String(error)}`),
       }),
-      codeRuntime: { python: runtime.manifest, font: null, appVersion: "eval" },
+      codeRuntime: createCodeHost({ python: runtime.manifest, font: null, appVersion: "eval" }),
     }),
   });
   const observed: Observed[] = [];

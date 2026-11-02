@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { describe, expect, test } from "vitest";
-import { type TarEntry, unpackTarZst, writeTarZst } from "../../src/core/runCode/tar";
+import { type TarEntry, unpackTarZst, writeTarZst } from "../../src/main/runCode/tar";
 
 const LIMITS = { maxBytes: 10_000_000, maxEntries: 1000 };
 

@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { readPythonManifest, runtimePlatform } from "../../src/main/runCode";
+import { readPythonManifest, runtimePlatform } from "../../src/main/runCode/manifest";
 import { missingPackages } from "../../src/main/sandbox";
 
 const GOOD = {

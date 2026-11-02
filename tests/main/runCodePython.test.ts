@@ -14,13 +14,13 @@ import { Readable } from "node:stream";
 import { describe, expect, onTestFinished, test } from "vitest";
 import type { EmbeddingModelStatus } from "../../src/core/api";
 import { createLocalExecutor } from "../../src/core/execution";
+import { createProcessLauncher } from "../../src/main/processes";
 import {
   createPythonRuntime,
   type PythonRuntimeManifest,
   pythonRuntimeFolder,
-} from "../../src/core/runCode/python";
-import { type TarEntry, writeTarZst } from "../../src/core/runCode/tar";
-import { createProcessLauncher } from "../../src/main/processes";
+} from "../../src/main/runCode/python";
+import { type TarEntry, writeTarZst } from "../../src/main/runCode/tar";
 import { createTempDataFolder, LOCAL_FETCH } from "../helpers/core";
 
 // biome-ignore lint/suspicious/noTemplateCurlyInString: the shell script's own variable.

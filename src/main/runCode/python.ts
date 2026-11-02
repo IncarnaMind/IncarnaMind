@@ -15,29 +15,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Executor, Logger } from "../adapters";
-import type { EmbeddingModelError, EmbeddingModelStatus } from "../api";
-import { downloadModel, ModelDownloadError, progressReporter } from "../embedding/download";
-import { STALL_MS } from "../embedding/modelSources";
-import { WORKING_FOLDER } from "../execution";
+import type { Executor, Logger } from "../../core/adapters";
+import type { EmbeddingModelError, EmbeddingModelStatus } from "../../core/api";
+import { downloadModel, ModelDownloadError, progressReporter } from "../../core/embedding/download";
+import { STALL_MS } from "../../core/embedding/modelSources";
+import { WORKING_FOLDER } from "../../core/execution";
+import type { PythonRuntimeManifest } from "../../core/runCode";
 import { unpackTarZst } from "./tar";
 
-/** The archive this build of the app goes with, as the build wrote it. */
-export interface PythonRuntimeManifest {
-  /** Its file name: "python-runtime-darwin-arm64.tar.zst". */
-  file: string;
-  /** Where it is downloaded from. */
-  url: string;
-  size: number;
-  /** In hex. */
-  sha256: string;
-  /** "darwin-arm64", "linux-x64". */
-  platform: string;
-  /** CPython's version: "3.14.10". */
-  python: string;
-  /** Each distribution it has, by name: `{ numpy: "2.5.4" }`. */
-  packages: Readonly<Record<string, string>>;
-}
+export type { PythonRuntimeManifest };
 
 export interface ReadyPython {
   /** The interpreter: …/python/bin/python3. */
