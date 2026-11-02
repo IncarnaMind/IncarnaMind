@@ -1646,29 +1646,20 @@ export function createCore(adapters: CoreAdapters): Core {
   /** A search's place from input; null when it has none. */
   const parsePassagePlace = (input: unknown): PassageSearchPlace | null => {
     if (input === undefined || input === null) return null;
-    if (!isRecord(input)) throw new InvalidInputError("A search's place must be an object.");
+    const invalid = () => new InvalidInputError({ key: "error.search.place" });
+    if (!isRecord(input)) throw invalid();
     if (input.kind === "turn") return { kind: "turn", ...parseTurnPlace(input) };
-    if (input.kind !== "asked") {
-      throw new InvalidInputError('A search\'s place must be "turn" or "asked".');
-    }
+    if (input.kind !== "asked") throw invalid();
     let askedFrom: { mindId: string | null; deleted?: boolean } | null = null;
     if (input.askedFrom !== undefined && input.askedFrom !== null) {
-      if (!isRecord(input.askedFrom)) {
-        throw new InvalidInputError("A search's askedFrom must be an object or null.");
-      }
+      if (!isRecord(input.askedFrom)) throw invalid();
       const { mindId, deleted } = input.askedFrom;
-      if (mindId !== null && (typeof mindId !== "string" || mindId === "")) {
-        throw new InvalidInputError("A search's askedFrom needs a Mind id or null.");
-      }
-      if (deleted !== undefined && typeof deleted !== "boolean") {
-        throw new InvalidInputError("A search's askedFrom says whether its Note was deleted.");
-      }
+      if (mindId !== null && (typeof mindId !== "string" || mindId === "")) throw invalid();
+      if (deleted !== undefined && typeof deleted !== "boolean") throw invalid();
       askedFrom = { mindId, ...(deleted !== undefined && { deleted }) };
     }
     const { folderAskedIn } = input;
-    if (folderAskedIn !== undefined && typeof folderAskedIn !== "string") {
-      throw new InvalidInputError("A search's folderAskedIn must be a Folder id.");
-    }
+    if (folderAskedIn !== undefined && typeof folderAskedIn !== "string") throw invalid();
     return {
       kind: "asked",
       askedFrom,
@@ -5225,13 +5216,10 @@ export function createCore(adapters: CoreAdapters): Core {
       return citeSelection(documents, { documentId: parseDocumentId(input.documentId), parts });
     },
     searchPassages: (query, options) => {
-      if (options !== undefined && !isRecord(options)) {
-        throw new InvalidInputError("searchPassages expects an object.");
-      }
-      const place = parsePassagePlace(options?.place);
+      const place = parsePassagePlace(isRecord(options) ? options.place : undefined);
       if (place === null) return documents.search(query, options);
       if (options?.documentIds !== undefined) {
-        throw new InvalidInputError("A search takes a place or documentIds, not both.");
+        throw new InvalidInputError({ key: "error.search.place" });
       }
       const documentIds = documentsToSearch(parseSearchScope(options?.scope), place);
       return documents.search(query, {
