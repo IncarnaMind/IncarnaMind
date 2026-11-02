@@ -87,7 +87,7 @@ describe("The LibreOffice adapter", () => {
       // the private folder the adapter made, now gone.
       expect(await readFile(original)).toEqual(before);
       expect((await readdir(home)).sort()).toEqual(["Contract.doc", "bin"]);
-      // LibreOffice never gets a variable whose name looks like a secret, as the PR claims.
+      // LibreOffice never gets a variable whose name looks like a secret.
       expect(seen.length).toBeGreaterThan(0);
       expect(seen.every((options) => options?.omitEnv?.("OPENAI_API_KEY") === true)).toBe(true);
       expect(seen.every((options) => options?.omitEnv?.("PATH") === false)).toBe(true);

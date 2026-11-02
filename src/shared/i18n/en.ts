@@ -1677,6 +1677,7 @@ export const en = {
   "viewer.notText": "This file doesn’t hold readable text.",
   "viewer.pictureNotShown": "This picture can’t be shown here.",
   "viewer.pictureTooLarge": "This picture is too large to open.",
+  "viewer.pictureSizeUnreadable": "This picture’s size can’t be read.",
   "viewer.removed.body": "This Document has been deleted from IncarnaMind, so it can’t be shown.",
   "viewer.removed.unlinked":
     "This Document’s Linked folder was unlinked. IncarnaMind kept the text your Citation quotes.",

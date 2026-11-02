@@ -9,8 +9,9 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Document } from "../../../core/api";
 import { isHeifPicture } from "../../../core/documents/formats/images";
-import { pictureLimitProblem } from "../../../core/documents/web/pictures";
+import { type PictureProblem, pictureProblem } from "../../../core/documents/web/pictures";
 import { displayName } from "../../../shared/documentNames";
+import type { MessageKey } from "../../../shared/i18n";
 import { findQuoteInPages } from "../../../shared/quoteMatch";
 import { DocumentFix } from "../components/DocumentFix";
 import { files } from "../core";
@@ -40,6 +41,13 @@ type Loaded =
   | { kind: "ready"; url: string; width: number; height: number }
   | { kind: "missing" }
   | { kind: "failed"; message: string };
+
+/** What the viewer says when it refuses a picture, by why the reader refuses it. */
+function pictureProblemKey(kind: PictureProblem["kind"]): MessageKey {
+  if (kind === "too-large") return "viewer.pictureTooLarge";
+  if (kind === "size-unreadable") return "viewer.pictureSizeUnreadable";
+  return "viewer.pictureNotShown";
+}
 
 /** The media type of a picture file, by its extension. */
 function pictureType(path: string): string {
@@ -82,10 +90,11 @@ export function ImageView({ document, target }: { document: Document; target: Vi
     let url: string | null = null;
     loadDocumentBytes(document.id, controller.signal)
       .then(async (bytes) => {
-        // A picture whose header claims a size this big is refused before anything draws it,
-        // as the reader refuses it: drawing it would take the same memory (#762).
-        if (pictureLimitProblem(bytes) !== null) {
-          setLoaded({ kind: "failed", message: t("viewer.pictureTooLarge") });
+        // A picture the reader refuses is refused here too, before anything draws it:
+        // an oversized one would take the same memory, and one that isn't a picture can't show (#762).
+        const problem = pictureProblem(bytes);
+        if (problem !== null) {
+          setLoaded({ kind: "failed", message: t(pictureProblemKey(problem.kind)) });
           return;
         }
         // A HEIC is a picture the web engine can't show: this computer's decoder makes it a PNG.
@@ -93,8 +102,9 @@ export function ImageView({ document, target }: { document: Document; target: Vi
           ? await files.decodePicture(bytes).catch(() => null)
           : null;
         const display = decoded ?? bytes;
-        if (pictureLimitProblem(display) !== null) {
-          setLoaded({ kind: "failed", message: t("viewer.pictureTooLarge") });
+        const after = decoded ? pictureProblem(display) : null;
+        if (after !== null) {
+          setLoaded({ kind: "failed", message: t(pictureProblemKey(after.kind)) });
           return;
         }
         if (controller.signal.aborted) return;

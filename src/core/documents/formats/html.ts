@@ -108,7 +108,11 @@ function bomCharset(bytes: Uint8Array): string | null {
  * and neither do we; a page without one is read as text is.
  */
 function declaredCharset(bytes: Uint8Array): string | null {
-  const head = String.fromCharCode(...bytes.subarray(0, 1024));
+  // A comment is not a tag: a commented-out `<meta charset>` names nothing.
+  const head = String.fromCharCode(...bytes.subarray(0, 1024)).replace(
+    /<!--[\s\S]*?(?:-->|$)/g,
+    "",
+  );
   const charset = (text: string) =>
     /\bcharset\s*=\s*["']?\s*([a-zA-Z0-9_:.+-]+)/i.exec(text)?.[1]?.toLowerCase() ?? null;
   for (const match of head.matchAll(/<meta\b[^>]*>/gi)) {
@@ -145,20 +149,33 @@ function decodeHtml(bytes: Uint8Array): string | null {
   return decoded.replace(/\r\n?/g, "\n");
 }
 
-/** The `>` that ends the tag starting at `lt`, skipping a quoted attribute's own `>`; -1 at the end. */
+/**
+ * The `>` that ends the tag starting at `lt`, skipping a quoted attribute's
+ * own `>`; -1 at the end. A quote starts a value only after `=`, so the
+ * apostrophe in `class=it's` is the value's, as a browser reads it.
+ */
 function tagEnd(source: string, lt: number): number {
   let quote = "";
+  let equals = false;
   for (let at = lt + 1; at < source.length; at++) {
-    const char = source[at];
+    const char = source[at] as string;
     if (quote !== "") {
       if (char === quote) quote = "";
       continue;
     }
+    if (char === ">") return at;
     if (char === '"' || char === "'") {
-      quote = char;
+      if (equals) {
+        quote = char;
+        equals = false;
+      }
       continue;
     }
-    if (char === ">") return at;
+    if (char === "=") {
+      equals = true;
+      continue;
+    }
+    if (equals && !/\s/.test(char)) equals = false;
   }
   return -1;
 }

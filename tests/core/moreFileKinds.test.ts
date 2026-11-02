@@ -85,6 +85,30 @@ function pictureRecognizer(lines: string[]): TextRecognizer {
 
 const picture = () => createCanvas(640, 360).toBuffer("image/png");
 
+/** A BMP whose header claims a size: a canvas decodes BMP whatever the file is named. */
+function bmpClaiming(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(54);
+  bytes.set([0x42, 0x4d], 0);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(2, bytes.length, true);
+  view.setUint32(10, 54, true);
+  view.setUint32(14, 40, true);
+  view.setInt32(18, width, true);
+  view.setInt32(22, height, true);
+  view.setUint16(26, 1, true);
+  view.setUint16(28, 8, true);
+  return bytes;
+}
+
+/** The bytes of a HEIC: its `ftyp` and brand are all the reader looks at before decoding. */
+function heifBytes(): Uint8Array {
+  const bytes = new Uint8Array(16);
+  bytes.set([0, 0, 0, 0x18], 0);
+  bytes.set([0x66, 0x74, 0x79, 0x70], 4);
+  bytes.set([0x68, 0x65, 0x69, 0x63], 8);
+  return bytes;
+}
+
 /** A PNG whose header claims a size: the guard reads the header, never the pixels. */
 function pngClaiming(width: number, height: number): Uint8Array {
   const bytes = new Uint8Array(24);
@@ -182,7 +206,63 @@ describe("A picture is read as a scanned page is (#762)", { timeout: 60_000 }, (
     expect(document).toMatchObject({
       kind: "image",
       status: "failed",
+      failure: { reason: "too-large" },
+    });
+    expect(document?.failure?.message).toContain("too large to open");
+  });
+
+  test("a decoder's format that isn't one it reads is refused, whatever its name says", async () => {
+    const core = startCore(await createTempDataFolder(), {
+      textRecognizer: pictureRecognizer(["should never be read"]),
+      textRecognitionModelSource: NO_MODEL_FILES,
+    });
+    const sources = await createSourceFolder();
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Bomb.png", bmpClaiming(8192, 8192)),
+    ]);
+    expect(document).toMatchObject({
+      kind: "image",
+      status: "failed",
       failure: { reason: "unreadable" },
+    });
+    expect(document?.failure?.message).toContain("isn’t a picture IncarnaMind reads");
+  });
+
+  test("a picture whose size can't be read says so, not that it is too large", async () => {
+    const core = startCore(await createTempDataFolder(), {
+      textRecognizer: pictureRecognizer(["should never be read"]),
+      textRecognitionModelSource: NO_MODEL_FILES,
+    });
+    const sources = await createSourceFolder();
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Cut.png",
+        new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      ),
+    ]);
+    expect(document).toMatchObject({
+      kind: "image",
+      status: "failed",
+      failure: { reason: "unreadable" },
+    });
+    expect(document?.failure?.message).toContain("size couldn’t be read");
+  });
+
+  test("a HEIC bomb is refused on the PNG decoded from it, before anything reads it", async () => {
+    const core = startCore(await createTempDataFolder(), {
+      textRecognizer: pictureRecognizer(["should never be read"]),
+      textRecognitionModelSource: NO_MODEL_FILES,
+      decodePicture: async () => pngClaiming(30_000, 30_000),
+    });
+    const sources = await createSourceFolder();
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Phone.heic", heifBytes()),
+    ]);
+    expect(document).toMatchObject({
+      kind: "image",
+      status: "failed",
+      failure: { reason: "too-large" },
     });
     expect(document?.failure?.message).toContain("too large to open");
   });
@@ -348,6 +428,31 @@ describe("RTF and HTML are read as text with their headings (#762)", () => {
     expect(htmlTextToMarkdown('<a title="x>y">link</a>')).toBe("link\n");
   });
 
+  test("a quote starts a value only after =, so an apostrophe in a value keeps the page", () => {
+    const page = htmlTextToMarkdown("<p class=it's>Hello <b>there</b></p><p>tail</p>");
+    expect(page).toContain("Hello there");
+    expect(page).toContain("tail");
+    expect(htmlTextToMarkdown("<a href=/people/o'brien>O'Brien here</a>")).toBe("O'Brien here\n");
+  });
+
+  test("a meta charset in a comment names nothing", () => {
+    const markdown = htmlTextToMarkdown(
+      new TextDecoder("utf-8").decode(
+        new TextEncoder().encode('<!-- <meta charset="big5"> --><p>café 中文</p>'),
+      ),
+    );
+    expect(markdown).toContain("café 中文");
+    expect(markdown).not.toContain("big5");
+  });
+
+  test("the full named-reference table and a legacy name without its semicolon are read", () => {
+    expect(htmlTextToMarkdown("<p>&check; &star; &bullet; &copy 2026 &nbsp;end</p>")).toContain(
+      "✓ ☆ • © 2026 end",
+    );
+    expect(htmlTextToMarkdown("<p>&notit;</p>")).toContain("¬it;");
+    expect(htmlTextToMarkdown("<p>&nope;</p>")).toContain("&nope;");
+  });
+
   test("a page too large to read is refused with its limit, and stray end tags stay linear", () => {
     expect(() => htmlMarkdown(new Uint8Array(64 * 1024 * 1024 + 1))).toThrow(
       "Too large to open (limit 64 MB).",
@@ -359,9 +464,15 @@ describe("RTF and HTML are read as text with their headings (#762)", () => {
       return performance.now() - start;
     };
     timed(20_000);
-    const small = Math.min(timed(100_000), timed(100_000));
-    const large = Math.min(timed(200_000), timed(200_000));
-    expect(large).toBeLessThan(small * 12);
+    // Doubling the depth doubles the work when every end tag looks up a count; a walk of the
+    // open stack would make it four times. Load moves both numbers together, so the ratio holds.
+    let small = Number.POSITIVE_INFINITY;
+    let large = Number.POSITIVE_INFINITY;
+    for (let run = 0; run < 3; run++) {
+      small = Math.min(small, timed(100_000));
+      large = Math.min(large, timed(200_000));
+    }
+    expect(large).toBeLessThan(small * 3);
   });
 });
 
@@ -404,7 +515,7 @@ describe("Old Office, WPS, Pages and Keynote files say the plain next step (#762
     expect(skippedStep("Sheet.et").convert).toBe("xlsx");
     expect(skippedStep("Slides.dps").convert).toBe("pptx");
     expect(en(skippedStep("Plan.wps").message)).toBe("Save it as .docx in WPS Office, then add it");
-    expect(zh(skippedStep("Plan.wps").message)).toBe("请在 WPS Office 中另存为 .docx，然后再添加");
+    expect(zh(skippedStep("Plan.wps").message)).toBe("在 WPS Office 中另存为 .docx 后再添加");
     expect(en(skippedStep("Sheet.et").message)).toBe("Save it as .xlsx in WPS Office, then add it");
     expect(en(skippedStep("Slides.dps").message)).toBe(
       "Save it as .pptx in WPS Office, then add it",

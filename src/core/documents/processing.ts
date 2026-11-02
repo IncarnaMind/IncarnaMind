@@ -34,6 +34,7 @@ import { joinCjkLineWraps } from "./lineWrap";
 import { type BuiltPassage, buildPassages } from "./passages";
 import { documentTitle } from "./title";
 import { unreadMessage } from "./unreadMessage";
+import type { PictureProblem } from "./web/pictures";
 
 /**
  * The version of this pipeline: text extraction, Passage building, text
@@ -331,8 +332,11 @@ export type WorkerResult = ProcessingResult | MetadataResult | KeywordsResult;
 export interface ReadingChannel {
   /** The lines on a page's picture. Rejects with `ReadingUnavailable` when no page can be read now. */
   read(page: number, picture: PagePicture): Promise<RecognizedLine[]>;
-  /** The lines on a picture file, read where the model runs (`TextRecognizer.readFile`). */
-  readFile(page: number, file: Uint8Array): Promise<PictureRead>;
+  /**
+   * The lines on a picture file, read where the model runs (`TextRecognizer.readFile`), or why
+   * it was refused (a HEIC decoded to an oversized PNG, for one).
+   */
+  readFile(page: number, file: Uint8Array): Promise<PictureRead | { refused: PictureProblem }>;
   log(event: string, fields: LogFields): void;
   /** `read` of `of` scanned pages of version `contentHash` are read; `unit` is the one just read. */
   progress(contentHash: string, read: number, of: number, unit: TextUnit | null): void;
@@ -352,6 +356,7 @@ export type WorkerRequest =
       request: number;
       lines?: RecognizedLine[];
       read?: PictureRead;
+      refused?: PictureProblem;
       error?: { message: string; unavailable: boolean };
     };
 

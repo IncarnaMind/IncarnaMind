@@ -4,6 +4,7 @@
  * the caps below. What a picture is comes from its bytes, never from what
  * the server says; anything else is left out.
  */
+import { isHeifPicture } from "../formats/images";
 import { WebPageError } from "./errors";
 import { type PageFetch, type PageResponse, USER_AGENT } from "./fetch";
 
@@ -138,24 +139,38 @@ function gifSize(bytes: Uint8Array): { width: number; height: number } | null {
   return { width, height };
 }
 
-/** A picture refused before it is decoded: drawing it would take more memory than it may. */
-export class PictureTooLargeError extends Error {
-  override name = "PictureTooLargeError";
+/** Why a picture is refused before it is drawn or read (#762). */
+export interface PictureProblem {
+  kind: "too-large" | "size-unreadable" | "unreadable";
+  /** The technical sentence a failure and the log keep. */
+  message: string;
 }
 
 /**
- * Why a picture at its header's size must not be drawn or read (#762): over
- * the memory cap, or its size unreadable though it says it is a picture. Null
- * when it is fine, and for a format whose size isn't read here (a HEIF, which
- * the caller checks after decoding).
+ * Why a picture must not be drawn or read (#762): its header's size is over
+ * the memory cap, its size can't be read, or its bytes are not a picture kind
+ * IncarnaMind reads. Null when it is fine. A HEIF's size is checked after it
+ * is decoded, so it passes here; any other bytes a decoder would take are
+ * refused, so a picture named .png that is really another format can't reach
+ * the decoder at all.
  */
-export function pictureLimitProblem(bytes: Uint8Array): string | null {
+export function pictureProblem(bytes: Uint8Array): PictureProblem | null {
   const type = pictureType(bytes);
-  if (!type) return null;
+  if (!type) {
+    return isHeifPicture(bytes)
+      ? null
+      : {
+          kind: "unreadable",
+          message: "This isn’t a picture IncarnaMind reads (PNG, JPEG, GIF, WebP, AVIF or HEIC).",
+        };
+  }
   const size = pictureSize(bytes, type);
-  if (!size) return "The picture’s size couldn’t be read.";
+  if (!size) return { kind: "size-unreadable", message: "The picture’s size couldn’t be read." };
   return size.width * size.height > PICTURE_LIMITS.maxPixels
-    ? `The picture is too large to open (${size.width} × ${size.height} pixels).`
+    ? {
+        kind: "too-large",
+        message: `The picture is too large to open (${size.width} × ${size.height} pixels).`,
+      }
     : null;
 }
 
