@@ -2219,6 +2219,16 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 123,
+    description: "A Document converted from another file says which one it came from (#762)",
+    sql: `
+      -- A copy IncarnaMind converted with the User's own LibreOffice (#762) says which
+      -- file it came from, by name: the original's, with its extension ("Report.doc").
+      -- Null for every other Document.
+      ALTER TABLE documents ADD COLUMN converted_from TEXT;
+    `,
+  },
+  {
+    version: 124,
     description: "Folders hold Folders, at any depth (#246)",
     // parent_id is NULL at the top level. No foreign key: a later sync may deliver a Folder
     // before its parent.

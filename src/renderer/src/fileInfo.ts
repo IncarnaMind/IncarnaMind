@@ -11,6 +11,9 @@ export const KIND_LABELS: Record<Document["kind"], MessageKey> = {
   pptx: "library.format.pptx",
   xlsx: "library.format.xlsx",
   csv: "library.format.csv",
+  image: "library.format.image",
+  rtf: "library.format.rtf",
+  html: "library.format.html",
   markdown: "library.format.markdown",
   text: "library.format.text",
   web: "library.format.web",
@@ -82,7 +85,8 @@ export function documentSummary(
     t(`${key}.${count === 1 ? "one" : "other"}`, { count: formatCount(count, language) });
   return [
     t(KIND_LABELS[document.kind]),
-    document.pageCount !== null
+    // A picture's one page is itself: its size says more.
+    document.pageCount !== null && document.kind !== "image"
       ? counted("info.pages", document.pageCount)
       : units && counted(units.key, units.count),
     formatBytes(document.size, t),

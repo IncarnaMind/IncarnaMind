@@ -47,6 +47,7 @@ const doc = (id: string, name: string, status: DocumentStatus = "ready"): Docume
   unreadParts: null,
   unreadPartsUnknown: false,
   readHiddenSheets: false,
+  convertedFrom: null,
   folderId: null,
   tags: [],
   tagging: "off",

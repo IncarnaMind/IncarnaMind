@@ -47,6 +47,7 @@ import { failedEverySource, useDownloadSources } from "./DownloadSources";
 import { CloseLineIcon } from "./lineIcons";
 import { embeddingProviderLabel } from "./providers/EmbeddingSettings";
 import { testErrorKey } from "./providers/shared";
+import { useSkippedFilesDetails } from "./SkippedFilesLine";
 import { rowActionButtonClass } from "./sidebarRows";
 import { useTaggingService } from "./useTaggingService";
 import { useTip } from "./useTip";
@@ -408,6 +409,7 @@ function useStatuses(): Status[] {
   const t = useT();
   const language = useLanguage();
   const skipped = useAppStore((state) => state.skippedFiles);
+  const skippedDetails = useSkippedFilesDetails(skipped, "skipped-files");
   const cantRecord = useMeetings((state) => state.cantRecord);
   const alreadyAdded = useAppStore((state) => state.alreadyAdded);
   const savedOutside = useAppStore((state) => state.savedOutside);
@@ -785,9 +787,11 @@ function useStatuses(): Status[] {
       tone: "waiting",
       short:
         skipped.length === 1
-          ? t("status.skipped.one")
-          : t("status.skipped.other", { count: skipped.length }),
-      full: t("documents.skipped", { names: skipped.join(", ") }),
+          ? t("skipped.count.one")
+          : t("skipped.count.other", { count: skipped.length }),
+      full: skipped.map((file) => file.name).join(", "),
+      wraps: true,
+      details: skippedDetails,
       dismiss: dismissSkipped,
     });
   }

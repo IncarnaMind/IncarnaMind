@@ -22,8 +22,8 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync, renameSync } from "node:fs";
-import { rm, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import type { LiveDocument } from "../../shared/citations";
 import { joinUnits, quoteInUnits } from "../../shared/locations";
 import { readableQuote } from "../../shared/readableQuote";
@@ -77,13 +77,17 @@ import { isPlaceholderDate } from "./creationDate";
 import { createEmbeddingQueue } from "./embedding";
 import {
   DOCUMENT_EXTENSIONS,
+  hashBytes,
+  isInside,
   isLegacyCopy,
+  nameFromPath,
   openFile,
   openImageBeside,
   pathIn,
   relativePath,
   type StatIdentity,
 } from "./files";
+import { isHeifPicture } from "./formats/images";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
 import { createLibrary, type LibraryHooks } from "./library";
@@ -136,6 +140,7 @@ import { unreadMessage } from "./unreadMessage";
 import { createVectorIndex } from "./vectors";
 import type { WatchFolder } from "./watcher";
 import type { SnapshotFile } from "./web";
+import { pictureProblem } from "./web/pictures";
 import { currentLookHash, lookName, showsPicture, webPageInfo } from "./web/store";
 
 const DEFAULT_SEARCH_LIMIT = 20;
@@ -179,6 +184,7 @@ interface DocumentRow {
   creation_date: string | null;
   title: string | null;
   own_file: string | null;
+  converted_from: string | null;
   counted_as_evidence: number;
   not_cited: number;
   processing_version: number;
@@ -238,8 +244,8 @@ const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   failure_reason, failure_message, unread_parts, read_hidden_sheets, folder_id, tagging_status,
   tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
-  source_kind, creation_date, title, own_file, counted_as_evidence, not_cited, processing_version,
-  keywords_version, file_mtime_ms, created_at, updated_at`;
+  source_kind, creation_date, title, own_file, converted_from, counted_as_evidence, not_cited,
+  processing_version, keywords_version, file_mtime_ms, created_at, updated_at`;
 
 /** What IncarnaMind wrote the file as (#80), from its stored kind; a kind a newer version wrote counts as an export. */
 const ownFileOf = (row: Pick<DocumentRow, "own_file" | "counted_as_evidence">): OwnFile | null =>
@@ -477,6 +483,12 @@ export interface DocumentsOptions {
    * scanned pages are left with the little text they have, as before.
    */
   textRecognition?: TextRecognitionModel;
+  /**
+   * This computer's own decoder for a HEIC or HEIF picture, which the engine
+   * that draws pictures can't read (#1937), as a PNG (#762). Absent: such a
+   * picture can't be read here.
+   */
+  decodePicture?(bytes: Uint8Array): Promise<Uint8Array | null>;
   /** How many scans are read at once (./processor, `scansAtOnce`). */
   scansAtOnce?: number;
   /** The password kept for a locked PDF (./pdfPasswords, #763); undefined when none is. */
@@ -630,6 +642,7 @@ export function createDocuments(options: DocumentsOptions) {
       web: row.kind === "web" ? webPageInfo(db, row.id) : null,
       reference: referenceOf(db, row.id),
       ownFile: ownFileOf(row),
+      convertedFrom: row.converted_from,
       notCited: row.not_cited === 1,
       found: foundSourceOf(db, row.id),
       importedAs: importedMindOf(row.id),
@@ -648,16 +661,17 @@ export function createDocuments(options: DocumentsOptions) {
     name: string,
     file: SnapshotFile,
     record: () => void,
-    kind: "web" | "transcript",
+    kind: DocumentKind,
     deletedAt: string | null,
+    convertedFrom: string | null = null,
   ): void {
     const at = now();
     db.transaction(() => {
       db.run(
         `INSERT INTO documents (id, content_hash, name, kind, size, status, path,
            linked_folder_id, folder_id, source_kind, relative_path, file_status, file_mtime_ms,
-           created_at, updated_at, deleted_at)
-         VALUES (?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, 'data-folder', ?, 'available', ?, ?, ?, ?)`,
+           converted_from, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, 'data-folder', ?, 'available', ?, ?, ?, ?, ?)`,
         [
           id,
           file.contentHash,
@@ -667,6 +681,7 @@ export function createDocuments(options: DocumentsOptions) {
           file.path,
           relativePath(dataDir, file.path),
           file.mtimeMs,
+          convertedFrom,
           at,
           at,
           deletedAt,
@@ -675,6 +690,29 @@ export function createDocuments(options: DocumentsOptions) {
       markArrived(db, id, at);
       record();
     });
+  }
+
+  /**
+   * Writes a copy IncarnaMind converted from one of the User's files (#762)
+   * into the data folder, where it stays as the Document's own file: only
+   * this account reads it, and it is never the User's original.
+   */
+  async function writeConvertedCopy(
+    name: string,
+    bytes: Uint8Array,
+    contentHash: string,
+  ): Promise<SnapshotFile> {
+    const folder = join(dataDir, "converted", randomUUID());
+    await mkdir(folder, { recursive: true, mode: 0o700 });
+    const path = join(folder, parseName(basename(name)));
+    await writeFile(path, bytes, { mode: 0o600 });
+    const info = await stat(path);
+    return {
+      path,
+      contentHash,
+      size: bytes.byteLength,
+      mtimeMs: info.mtimeMs,
+    };
   }
 
   // Set below, once the library exists: Linked folders' progress follows their Documents.
@@ -811,7 +849,7 @@ export function createDocuments(options: DocumentsOptions) {
     scan:
       textRecognition && row.kind === "pdf"
         ? { reader: textRecognition.reader, keep: keptScans(row) }
-        : textRecognition && row.kind === "web"
+        : textRecognition && (row.kind === "web" || row.kind === "image")
           ? { reader: textRecognition.reader, keep: null }
           : null,
   });
@@ -1383,7 +1421,7 @@ export function createDocuments(options: DocumentsOptions) {
       scanProgress.set(job.documentId, {
         pages: of,
         read,
-        of: job.kind === "web" ? "pictures" : "scanned-pages",
+        of: job.kind === "pdf" ? "scanned-pages" : "pictures",
       });
       // A page that couldn't be read is read again by the next job; a web page's pictures are few.
       if (unit && job.kind === "pdf" && !unit.label?.scan?.unread) {
@@ -1400,11 +1438,23 @@ export function createDocuments(options: DocumentsOptions) {
     onLog(job, { event, fields }) {
       log.warn(event, { documentId: job.documentId, ...fields });
     },
-    readFile(_job, page, file) {
+    async readFile(_job, page, file) {
       if (!textRecognition) {
         return Promise.reject(new TextRecognitionUnavailableError("Pictures can't be read."));
       }
-      return textRecognition.readFile(file, page);
+      // A HEIC is a picture the engine that draws pictures can't read: this computer's own
+      // decoder makes it a PNG first (#762).
+      const readable =
+        options.decodePicture && isHeifPicture(file)
+          ? ((await options.decodePicture(file)) ?? file)
+          : file;
+      // The reader checks a HEIC's ispe where it has one; the decoded PNG's size is checked too,
+      // for a file whose boxes hide it, before the model is given the bytes.
+      if (readable !== file) {
+        const problem = pictureProblem(readable);
+        if (problem !== null) return { refused: problem };
+      }
+      return textRecognition.readFile(readable, page);
     },
     isUnavailable: (error) => error instanceof TextRecognitionUnavailableError,
     password: async (job) => options.pdfPassword?.(job.documentId),
@@ -2720,7 +2770,10 @@ export function createDocuments(options: DocumentsOptions) {
       let start = 0;
       for (const unit of units) {
         const end = start + unit.text.length;
-        if (unit.label?.scan && !unit.label.scan.unread && covers(start, end)) scanned = true;
+        if (unit.label?.scan && !unit.label.scan.unread && covers(start, end)) {
+          if (unit.label.scan.picture) pictured = true;
+          else scanned = true;
+        }
         for (const [from, to] of unsureSpansIn(unit)) {
           if (covers(start + from, start + to)) unsure.push(unit.text.slice(from, to));
         }
@@ -2783,6 +2836,37 @@ export function createDocuments(options: DocumentsOptions) {
       kind: "web" | "transcript" = "web",
     ): Document {
       insertSnapshot(id, name, file, record, kind, null);
+      announce(id);
+      process(id);
+      const row = find(id);
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      return toDocument(row);
+    },
+
+    /**
+     * Adds a copy IncarnaMind converted from one of the User's files with
+     * their LibreOffice (#762) as a Document of its own: it keeps the copy in
+     * the data folder, names it after the converted file, and says which file
+     * it came from. The original is never touched.
+     */
+    async addConverted(input: {
+      /** The original's file name, with its extension. */
+      from: string;
+      /** The copy's file name, with its new extension. */
+      name: string;
+      kind: "docx" | "xlsx" | "pptx";
+      bytes: Uint8Array;
+    }): Promise<Document> {
+      const contentHash = hashBytes(input.bytes);
+      // The same file or another with the same content is one Document (ADR-0003).
+      const known = db.get<DocumentRow>(
+        `SELECT ${COLUMNS} FROM documents WHERE content_hash = ? AND deleted_at IS NULL`,
+        [contentHash],
+      );
+      if (known) return toDocument(known);
+      const id = randomUUID();
+      const file = await writeConvertedCopy(input.name, input.bytes, contentHash);
+      insertSnapshot(id, nameFromPath(input.name), file, () => {}, input.kind, null, input.from);
       announce(id);
       process(id);
       const row = find(id);
@@ -3052,7 +3136,7 @@ export function createDocuments(options: DocumentsOptions) {
     async dropPurged(): Promise<void> {
       // By place, not by path: a Document added from a data folder reached through a link has
       // the path with links resolved, an old one the path as the app was given it.
-      const copies = db
+      const places = db
         .all<{ relative_path: string }>(
           `SELECT DISTINCT d.relative_path FROM documents d
            WHERE d.purged_at IS NOT NULL AND d.source_kind = 'data-folder'
@@ -3061,9 +3145,23 @@ export function createDocuments(options: DocumentsOptions) {
                AND (o.path = d.path
                     OR (o.source_kind = 'data-folder' AND o.relative_path = d.relative_path)))`,
         )
-        .map((row) => pathIn(dataDir, row.relative_path))
-        .filter((path) => isLegacyCopy(dataDir, path));
-      await Promise.all(copies.map((path) => rm(path, { force: true }).catch(reportError)));
+        .map((row) => pathIn(dataDir, row.relative_path));
+      const copies = places.filter((path) => isLegacyCopy(dataDir, path));
+      // A converted copy lives in a folder of its own in the data folder; it goes whole.
+      const convertedRoot = join(dataDir, "converted");
+      const converted = new Set(
+        places.filter((path) => isInside(convertedRoot, path)).map((path) => dirname(path)),
+      );
+      await Promise.all([
+        ...copies.map((path) => rm(path, { force: true }).catch(reportError)),
+        ...[...converted]
+          .filter((folder) => folder !== convertedRoot)
+          .map((folder) =>
+            rm(folder, { recursive: true, force: true }).catch((error: unknown) =>
+              reportError(error),
+            ),
+          ),
+      ]);
     },
 
     /**
