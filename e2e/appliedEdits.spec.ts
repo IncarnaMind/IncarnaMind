@@ -702,13 +702,15 @@ test("after Shorten, a word it took out comes back only while the words either s
 });
 
 const HARBOURS =
-  "The harbour office posts the times, the harbour office answers the phone, the harbour office keeps the tables, the harbour office cleans the quay, and the harbour office lists the ferries.";
+  "The harbour office, the harbour office, the harbour office, the harbour office, the harbour office.";
 const AUTHORITIES =
-  "The port authority posts the times, the port authority answers the phone, the port authority keeps the tables, the port authority cleans the quay, and the port authority lists the ferries.";
+  "The port authority, the port authority, the port authority, the port authority, the port authority.";
+const MIDDLE_ONLY =
+  "The port authority, the port authority, the port board, the port authority, the port authority.";
 const MIDDLE_EDITED =
-  "The port authority posts the times, the port authority answers the phone, the port board keeps the tables, the port authority cleans the quay, and the port authority lists the ferries.";
+  "The port authority, MINE the port authority, the port board, the port authority, the port authority.";
 const FOUR_BACK =
-  "The harbour office posts the times, the harbour office answers the phone, the port board keeps the tables, the harbour office cleans the quay, and the harbour office lists the ferries.";
+  "The harbour office, MINE the harbour office, the port board, the harbour office, the harbour office.";
 
 /** The box of the `nth` `words` of a line, scrolled into the Mind's view first. */
 async function wordsBoxInView(window: Page, line: Locator, words: string, nth = 1) {
@@ -773,7 +775,7 @@ async function clickInWords(window: Page, line: Locator, words: string) {
 }
 
 test("five changes in one paragraph with the middle one edited since: one Restore original for the other four, ⌘⌫ on the edited one does nothing, and ⌘Z brings exactly those four back", async () => {
-  const { window } = await launch();
+  const { window } = await launch(1600);
   await useLocalChatModel(window);
   const { paragraphs } = await mindWith(window, [HARBOURS]);
   const note = paragraphs.first();
@@ -781,17 +783,19 @@ test("five changes in one paragraph with the middle one edited since: one Restor
   await slideSelect(window, note, HARBOURS);
   await askToChange(window, "replace harbour office with port authority");
   await expect(note).toHaveText(AUTHORITIES);
+
+  // The middle change's new words typed over, then a word of the User's own between the first
+  // change and the second: the changed one can't be restored, and a Restore must leave the User's.
+  await selectNth(window, note, "port authority", 3);
+  await window.keyboard.type("port board");
+  await expect(note).toHaveText(MIDDLE_ONLY);
+  await selectNth(window, note, "the", 1);
+  await window.keyboard.type("MINE the");
+  await expect(note).toHaveText(MIDDLE_EDITED);
+
   await fromPalette(window, "edit.reviewApplied", "Review changes");
   const restores = note.getByTestId("change-restore");
   const removed = note.locator("del.applied-old");
-  await expect(removed).toHaveCount(5);
-  await expect(restores).toHaveCount(1);
-
-  // The middle change's new words typed over, as a person does: that change can't be restored now.
-  await selectNth(window, note, "port authority", 3);
-  await window.keyboard.type("port board");
-  await expect(note).toHaveText(MIDDLE_EDITED);
-  await fromPalette(window, "edit.reviewApplied", "Review changes");
   await expect(note.getByTestId("change-changed-since")).toHaveText("You changed this since");
   await expect(restores).toHaveCount(1);
   await expect(removed).toHaveCount(5);
@@ -802,8 +806,8 @@ test("five changes in one paragraph with the middle one edited since: one Restor
   await expect.poll(() => reviewedWords(note)).toBe(MIDDLE_EDITED);
   await expect(restores).toHaveCount(1);
 
-  // The one Restore puts the other four back in one step; the edited words keep their place, with
-  // their struck old words before them and "You changed this since" after them.
+  // The one Restore puts the other four back in one step; the User's word and the edited change's
+  // place stay, with its struck old words before it and "You changed this since" after it.
   await pointAndClick(window, restores);
   await expect.poll(() => reviewedWords(note)).toBe(FOUR_BACK);
   const [typed, label, struck] = await Promise.all([
