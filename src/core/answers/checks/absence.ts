@@ -12,6 +12,7 @@ import type {
   ProviderError,
 } from "../../api";
 import { isRecord } from "../../errors";
+import { tagged } from "../../promptData";
 import { outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
 import type { AnswerDocuments, createCitationSession } from "../citations";
@@ -49,7 +50,7 @@ export type Presence =
 
 /** What a whole read's judgement is asked about: the sentence, then the text it reads. */
 export const absencePrompt = (claim: string, whole: string): string =>
-  `<sentence>\n${claim}\n</sentence>\n\n${whole}`;
+  `${tagged("sentence", claim, "", ["passage"])}\n\n${whole}`;
 
 interface WholeReading {
   documentId: string;

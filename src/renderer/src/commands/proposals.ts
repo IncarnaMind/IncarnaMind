@@ -21,7 +21,7 @@ import {
 import { selectionForEdit } from "../editor/editSelection";
 import { explainSelection } from "../editor/explainSelection";
 import { noteHolding } from "../editor/noteKeymap";
-import { pendingAtSelection, pendingIn } from "../editor/proposalReview";
+import { madeAgain, pendingAtSelection, pendingIn } from "../editor/proposalReview";
 import { proposalOriginalAt, toggleProposalOriginal } from "../editor/proposalRewrites";
 import { requestEditField } from "../editor/selectionCommands";
 import {
@@ -39,8 +39,9 @@ import type { Command, CommandContext } from "./registry";
 /*
  * Proposals (#93), Edit with AI and Mark as mine (#95), from the keyboard
  * and ⌘K. ⌘↵ and ⌘⌫ act in the note, on the change the cursor is in or the
- * changes a selection touches (a section, as in Word); anywhere else they do
- * what they always do.
+ * proposals a selection touches (a section, as in Word), and under Review
+ * changes on the group at the selection's start; anywhere else they do what
+ * they always do.
  */
 
 /** The note the cursor's Block is in, while the cursor or the selection is on a Proposal. */
@@ -84,8 +85,9 @@ function outOfDateAt(ctx: CommandContext) {
   const editor = noteOnProposal(ctx);
   const note = noteHandle.current;
   if (!editor || note?.editor !== editor || useEdits.getState().pending[note.mindId]) return null;
-  // Someone's change from a Word file can't be made again.
-  const proposal = pendingAtSelection(editor.state).find((each) => each.outOfDate && !each.theirs);
+  // Someone's change from a Word file, or an outside agent's, can't be made again.
+  const made = madeAgain(editor.state);
+  const proposal = pendingAtSelection(editor.state).find((each) => each.outOfDate && made(each));
   return proposal ? { note, proposal } : null;
 }
 

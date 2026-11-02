@@ -329,6 +329,54 @@ describe("suggestions as the User writes", () => {
     expect(suggestion.citation).toMatchObject({ documentName: "Tides", check: "found" });
   });
 
+  // protects=a suggestion's quote copied from a Passage shown with one of the prompt's tags defused (#2423) is cited as the Document has it, and a Document's own "&lt;" is cited as written, in English and Chinese; fails_when=either quote isn't found; no_claim=how a real model quotes.
+  test.each([
+    {
+      line: "Spring tides, the <passage> rows of old tables, happen at new moon and at full moon.",
+      quote: "Spring tides, the <passage> rows of old tables, happen at new moon",
+      shown: "Spring tides, the &lt;passage> rows of old tables, happen at new moon",
+    },
+    {
+      line: "Spring tides, written &lt;passage> in old HTML, happen at new moon and at full moon.",
+      quote: "Spring tides, written &lt;passage> in old HTML, happen at new moon",
+      shown: "Spring tides, written &lt;passage> in old HTML, happen at new moon",
+    },
+    {
+      line: "大潮（旧表记作 <passage>）出现在新月和满月前后，这时太阳和月亮的引力叠加在一起。",
+      quote: "大潮（旧表记作 <passage>）出现在新月和满月前后",
+      shown: "大潮（旧表记作 &lt;passage>）出现在新月和满月前后",
+    },
+    {
+      line: "大潮（网页写作 &lt;passage>）出现在新月和满月前后，这时太阳和月亮的引力叠加在一起。",
+      quote: "大潮（网页写作 &lt;passage>）出现在新月和满月前后",
+      shown: "大潮（网页写作 &lt;passage>）出现在新月和满月前后",
+    },
+  ])("a quote of “$line” is cited as the Document has it", async ({ line, quote, shown }) => {
+    const chinese = /\p{Script=Han}/u.test(line);
+    let prompted = "";
+    const model = suggestingModel((prompt) => {
+      prompted = prompt;
+      return chinese
+        ? { text: "港口据此安排每月的测量。", passage: "P1", quote: shown }
+        : { text: "The harbour plans its survey around them.", passage: "P1", quote: shown };
+    });
+    const file = chinese
+      ? { name: "潮汐.md", contents: `# 潮汐\n\n${line}\n\n港口每年公布高潮时刻表。` }
+      : {
+          name: "Tides.md",
+          contents: `# Tides\n\n${line}\n\nHarbours publish the times of high water every year.`,
+        };
+    const { core, mind } = await setUp(model, [file]);
+    const paragraph = chinese
+      ? "港口测量要看潮汐的规律，工作人员记录每天的水位变化。每个月有两次大潮出现在新月和满月前后，"
+      : ABOUT_TIDES;
+
+    const suggestion = suggestionOf(await core.suggestNext(requestFor(mind.id, paragraph)));
+
+    expect(prompted).toContain(shown);
+    expect(suggestion.citation).toMatchObject({ quote, check: "found" });
+  });
+
   test("a cancelled request, or one a newer request replaced, never gives a suggestion", async () => {
     let started = () => {};
     const model = hangingModel(() => started());

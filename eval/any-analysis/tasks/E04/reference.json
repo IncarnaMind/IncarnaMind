@@ -1,0 +1,12 @@
+{
+  "task": "E04",
+  "inputs": {
+    "en": "3612fafd980cbf7d7ed9e1a5b507fe3666d348146d4e6f413c4e35ccb7ae3f3c"
+  },
+  "values": {
+    "margin_now": 0.1751282051282052,
+    "price": 33.59234234234234,
+    "profit_at_price": 322486.4864864866,
+    "revenue_at_price": 1612432.4324324324
+  }
+}

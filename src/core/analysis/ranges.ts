@@ -1,6 +1,7 @@
 import type { AnalysisCell } from "../../shared/analysis";
 import { cellNumber, columnName, parseCellRef, type UnitText } from "../../shared/units";
 import { MAX_CELLS, MAX_ROWS } from "../documents/formats/grid";
+import { readNumbers } from "./columnNumbers";
 
 /** Rows and columns of a sheet, from 1 and 0 as A1 references count them; null ends: to the sheet's last. */
 export interface RangeBounds {
@@ -60,15 +61,20 @@ export function parseRange(written: string | undefined): ParsedRange {
 }
 
 const PLAIN_NUMBER = /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/;
-const GROUPED_NUMBER = /^-?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
 
+/**
+ * A workbook's number cell as its file stores it; any other cell's text as shown, which
+ * `readNumbers` reads by its column. A workbook saves the text of a text cell that reads as a
+ * number, so only a number cell shows a number plainly without it.
+ */
 function cellOf(shown: string, label: UnitText["label"], ref: string): AnalysisCell {
   const stored = cellNumber(label, ref);
   if (stored !== null) return stored;
   if (shown === "") return null;
-  if (PLAIN_NUMBER.test(shown)) return Number(shown);
-  // A CSV keeps the text it has: "1,240" is a number with thousands separators.
-  if (GROUPED_NUMBER.test(shown)) return Number(shown.replaceAll(",", ""));
+  const workbook = label?.sheet !== undefined;
+  if (workbook && typeof label?.saved?.[ref] !== "string" && PLAIN_NUMBER.test(shown)) {
+    return Number(shown);
+  }
   return shown;
 }
 
@@ -161,7 +167,7 @@ export function readRange(
   return {
     headingRow,
     columns,
-    rows: read.map(slice),
+    rows: readNumbers(read.map(slice)),
     rowNumbers: read,
     range: `${columnName(bounds.firstColumn)}${headingRow}:${columnName(lastColumn)}${lastRead}`,
     rowCount: dataRows.length,

@@ -6,6 +6,7 @@ import { useComposer } from "../composer";
 import { LIBRARY_DELETED } from "../deletedItems";
 import { errorMessage, providerErrorText } from "../errors";
 import { useFindSources } from "../findSources";
+import { folderPathLabel } from "../folders";
 import { useLanguage, useT } from "../i18n";
 import {
   type FilterSelection,
@@ -21,6 +22,7 @@ import {
 import { useLibraryFolds } from "../libraryFolds";
 import {
   folderFacet,
+  listedDocumentIds,
   NOT_IN_A_FOLDER,
   problemOf,
   problemText,
@@ -29,6 +31,7 @@ import {
   sectionShows,
   sectionsOf,
   sourceFacet,
+  treeCounts,
 } from "../libraryPage";
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
@@ -181,6 +184,40 @@ export function LibraryPane() {
     () => sectionsOf(folders, ordered, folderOf, narrowing),
     [folders, ordered, folderOf, narrowing],
   );
+  // Each Folder's own Documents, in the page's order, and how many it holds with its sub-Folders.
+  const byFolder = useMemo(() => {
+    const map = new Map<string, Document[]>();
+    for (const doc of ordered) {
+      const id = folderOf(doc.id);
+      if (id === null) continue;
+      const list = map.get(id);
+      if (list) list.push(doc);
+      else map.set(id, [doc]);
+    }
+    return map;
+  }, [ordered, folderOf]);
+  const documentsOf = useCallback(
+    (folderId: string) => byFolder.get(folderId) ?? NO_DOCUMENTS,
+    [byFolder],
+  );
+  const counts = useMemo(
+    () =>
+      treeCounts(
+        folders,
+        ordered.flatMap((doc) => {
+          const id = folderOf(doc.id);
+          return id === null ? [] : [{ folderId: id }];
+        }),
+      ),
+    [folders, ordered, folderOf],
+  );
+  const pathOf = useCallback(
+    (documentId: string) => {
+      const id = folderOf(documentId);
+      return id === null ? null : folderPathLabel(folders, id);
+    },
+    [folders, folderOf],
+  );
   const folded = useLibraryFolds((state) => state.folded);
   const reviewOpen = useLibraryFolds((state) => state.reviewOpen);
   const states = useMemo(() => {
@@ -234,12 +271,18 @@ export function LibraryPane() {
       reviewing && reviewOpen ? [...reviewIds(review), ...notSorted.map((doc) => doc.id)] : [],
     [review, reviewing, reviewOpen, notSorted],
   );
+  const subOpen = useLibraryFolds((state) => state.subOpen);
   const shownIds = useMemo(
     () =>
-      sections.flatMap((section) =>
-        folded.has(section.key) ? [] : section.documents.map((doc) => doc.id),
-      ),
-    [sections, folded],
+      listedDocumentIds({
+        sections,
+        folders,
+        documentsOf,
+        folded,
+        subOpen,
+        narrowing,
+      }),
+    [sections, folders, documentsOf, folded, subOpen, narrowing],
   );
   // ⌘A and Shift-click reach every row in an open section, drawn or not; in To review, its own.
   const inReview = useRef(false);
@@ -265,7 +308,7 @@ export function LibraryPane() {
     (documentId: string) => {
       if (!states.get(documentId)?.suggested) return null;
       const folderId = assignments.get(documentId)?.groupId;
-      return groups.find((group) => group.id === folderId)?.name ?? null;
+      return folderId ? folderPathLabel(groups, folderId) : null;
     },
     [states, assignments, groups],
   );
@@ -310,7 +353,15 @@ export function LibraryPane() {
       useDeleted.getState().items?.length ?? null,
     );
     // A section that isn't there would be scrolled to whenever it appeared later.
-    if (shows) useLibraryFolds.getState().reveal(key);
+    if (shows) {
+      const groupsNow = library?.groups ?? [];
+      const parentOf = (id: string) => groupsNow.find((group) => group.id === id)?.parentId ?? null;
+      if (key !== NOT_IN_A_FOLDER && parentOf(key) !== null) {
+        useLibraryFolds.getState().revealFolder(key, parentOf);
+      } else {
+        useLibraryFolds.getState().reveal(key);
+      }
+    }
     useAppStore.setState({ libraryFilter: "all" });
   }, [request]);
 
@@ -462,6 +513,10 @@ export function LibraryPane() {
                     section={section}
                     narrowing={narrowing}
                     matches={matches}
+                    folders={folders}
+                    counts={counts}
+                    documentsOf={documentsOf}
+                    pathOf={pathOf}
                     suggestedOf={suggestedOf}
                     notSortedOf={notSortedOf}
                     sortFailedOf={sortFailedOf}

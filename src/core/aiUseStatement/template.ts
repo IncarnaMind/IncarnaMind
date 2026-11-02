@@ -28,6 +28,7 @@ const USE_LABELS: Readonly<Record<Use, MessageKey>> = {
   "answer-added": "aiStatement.use.answer-added",
   "edit-with-ai-accepted": "aiStatement.use.edit-with-ai-accepted",
   "assistant-change-accepted": "aiStatement.use.assistant-change-accepted",
+  "outside-agent-change-accepted": "aiStatement.use.outside-agent-change-accepted",
   "comparison-table-accepted": "aiStatement.use.comparison-table-accepted",
   "suggestion-accepted": "aiStatement.use.suggestion-accepted",
   "search-documents": "aiStatement.use.search-documents",

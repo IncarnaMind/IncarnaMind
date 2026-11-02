@@ -54,6 +54,7 @@ import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { yoursLine } from "../../shared/commands";
 import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
+import { readFigures } from "../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { citationLocation, englishLocation, englishPlace } from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
@@ -141,6 +142,7 @@ import {
   type ThirdPartyReason,
   type ThirdPartySource,
   type ToolCallApproval,
+  type UncalculatedFigure,
   type UnreadFile,
   type UserAnswer,
   type UserQuestion,
@@ -1641,19 +1643,27 @@ export function createAnswers(options: AnswersOptions) {
     /** A Citation marker's node as the text around a figure sees it: none for a marker with no record. */
     const citedNode = (marker: number) =>
       session.streamingCitation(marker) ? citationNode(null) : null;
+    /** The number the Answer wrote right before a marker that has no figure, as it wrote it; null when it wrote none (#2313). */
+    const writtenBefore = (text: string, marker: number): string | null => {
+      const at = text.search(new RegExp(`\\[=${marker}\\]`));
+      if (at < 0) return null;
+      const before = text.slice(Math.max(0, at - 40), at);
+      const last = readFigures(before).at(-1);
+      return last && before.slice(last.end).trim() === "" ? last.chars : null;
+    };
     /**
      * The figures its text shows, each once, with what it wrote right before
-     * each marker; and how many figure markers had no figure.
+     * each marker; and the figure markers that had none.
      */
     const placedFigures = (text: string, final: boolean) => {
       const placed: MarkedFigure[] = [];
-      const missing = new Set<number>();
-      if (!calculating) return { figures: placed, missing: 0 };
+      const missing = new Map<number, UncalculatedFigure>();
+      if (!calculating) return { figures: placed, missing: [] };
       withFigures(
         withCitations(markdownToBlocks(text, { streaming: !final }), citedNode),
         (marker) => {
           const figure = figures.figure(marker);
-          if (!figure) missing.add(marker);
+          if (!figure) missing.set(marker, { marker, written: writtenBefore(text, marker) });
           return figure;
         },
         (figure, marker, written) => {
@@ -1662,7 +1672,7 @@ export function createAnswers(options: AnswersOptions) {
           return "";
         },
       );
-      return { figures: placed, missing: missing.size };
+      return { figures: placed, missing: [...missing.values()] };
     };
 
     /** Writes the Answer as it stands into its home; false if it is gone. */
@@ -1811,12 +1821,15 @@ export function createAnswers(options: AnswersOptions) {
       }
       // Its steps say how many figures it shows, and its end how many it couldn't calculate.
       const placed = placedFigures(withoutFootnoteDefinitions(markdown), true);
-      if (placed.figures.length > 0 || placed.missing > 0) {
+      if (placed.figures.length > 0 || placed.missing.length > 0) {
         const call = calculated ?? calculatedCall();
         if (!calculated) toolCalls.push(call);
         call.status = "done";
         call.resultCount = placed.figures.length;
-        if (placed.missing > 0) call.uncalculated = placed.missing;
+        if (placed.missing.length > 0) {
+          call.uncalculated = placed.missing.length;
+          call.uncalculatedFigures = placed.missing;
+        }
       } else if (calculated) {
         toolCalls.splice(toolCalls.indexOf(calculated), 1);
       }
@@ -1835,7 +1848,7 @@ export function createAnswers(options: AnswersOptions) {
           quoteRetry,
           figures: placed.figures,
           analyses,
-          uncalculated: placed.missing,
+          uncalculated: placed.missing.length,
           figureRetry,
           usage,
         });

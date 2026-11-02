@@ -143,7 +143,7 @@ A PDF of the pages a Note cites, made from Export options: a cover list, then on
 _Avoid_: evidence bundle, appendix, bundle
 
 **Folder**:
-A project inside IncarnaMind: a named place for Documents and Notes, with a description of what belongs there. Each Document and each Note belongs to one Folder or is Not in a Folder; this does not change where a Document's original file is stored. A Note in a Folder searches the Folder by default; deleting a Folder moves its Documents and Notes to Not in a Folder. **Keep this Folder's work inside it** adds a work wall: its Notes use only its Documents, and other Notes do not search them, while the Library, Search and ⌘K still show and open everything.
+A project inside IncarnaMind: a named place for Documents and Notes, with a description of what belongs there. A Folder holds Folders (its **sub-Folders**), Notes and Documents. Each Document and each Note belongs to one Folder or is Not in a Folder; this does not change where a Document's original file is stored. A Note in a Folder searches the Folder by default, and its Search scope covers its sub-Folders too; deleting a Folder moves its Documents and Notes, and those of its sub-Folders, to Not in a Folder. **Keep this Folder's work inside it** adds a work wall: its Notes use only its Documents, its sub-Folders included, and other Notes do not search them, while the Library, Search and ⌘K still show and open everything.
 _Avoid_: project (in the interface), group (a Folder's former name; a Group is now a column of tabs), collection, category
 
 **Not in a Folder**:
@@ -212,7 +212,7 @@ A script that comes with a Skill, which an Answer can run on the User's computer
 _Avoid_: tool script, code execution
 
 **Outside agent**:
-An AI agent the User runs themselves, such as Claude Code or Codex, connected to IncarnaMind so it can search and read the Folders the User shares with it (or the Documents in no Folder at the time of each call) and cite them with Citations IncarnaMind checks. The User connects each one in Settings, with its own Folders (none until chosen), its own consent and a list of every call it made; disconnecting it stops it at once, and Local mode pauses it. Where the agent reads Skills, connecting it also installs a Skill in the agent's own skills folder that tells it when to use IncarnaMind, and disconnecting removes it if the User hasn't changed it.
+An AI agent the User runs themselves, such as Claude Code or Codex, connected to IncarnaMind so it can search and read the Folders the User shares with it (or the Documents in no Folder at the time of each call) and cite them with Citations IncarnaMind checks. If the User allows it, it can also propose changes to the Notes in those Folders, which wait for them as Proposals. The User connects each one in Settings, with its own Folders (none until chosen), its own consent and a list of every call it made; disconnecting it stops it at once, and Local mode pauses it. Where the agent reads Skills, connecting it also installs a Skill in the agent's own skills folder that tells it when to use IncarnaMind, and disconnecting removes it if the User hasn't changed it.
 _Avoid_: harness, plugin, client, bot
 
 **Built-in Skill**:
@@ -222,7 +222,7 @@ _Avoid_: default Skill, system Skill
 ### Changes
 
 **Proposal**:
-A change to a Note, made by the AI or brought in from another person's Word file, that waits for the User to accept or reject it. Until it is accepted it does not count as part of the Note, though the assistant reads every one as a change (the AI's as waiting, another person's with who made each) and exports show another person's, and it is out of date once the text it changes has changed. The assistant revises its own while they wait, rather than adding a second version. Each Proposal is one change in one place (the words it removes and those it adds there, or a whole Block), accepted or rejected on its own; one request, such as an Edit with AI, can make several. The interface calls them changes: "3 changes waiting".
+A change to a Note, made by the AI, proposed by an outside agent or brought in from another person's Word file, that waits for the User to accept or reject it. Until it is accepted it does not count as part of the Note, though the assistant reads every one as a change (the AI's as waiting, another person's with who made each) and exports show another person's, and it is out of date once the text it changes has changed. The assistant revises its own while they wait, rather than adding a second version. Each Proposal is one change in one place (the words it removes and those it adds there, or a whole Block), accepted or rejected on its own; one request, such as an Edit with AI, can make several. The interface calls them changes: "3 changes waiting".
 _Avoid_: suggestion, edit, draft, diff
 
 **AI text**:
