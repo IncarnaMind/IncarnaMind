@@ -1,11 +1,13 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import type { Tag } from "../../../core/api";
+import { sameName } from "../../../shared/names";
 import { nextTagColour, type TagColour } from "../../../shared/tagColours";
 import { core } from "../core";
 import { errorMessage } from "../errors";
 import { useLanguage, useT } from "../i18n";
 import { formatCount } from "../linkedFolders";
 import { matchName, queryWords } from "../matcher";
+import { useOwnDocuments } from "../ownDocuments";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { deleteTag, editTag, mergeTags } from "../tagChanges";
@@ -42,7 +44,7 @@ interface Usage {
 
 /**
  * Managing Tags, in a native modal <dialog>: each Tag's name, description and
- * how many Documents carry it (a click shows them in the Library), in rows
+ * how many of the User's own Documents carry it (a click shows them in the Library), in rows
  * split by rules, to edit, merge into another Tag, or delete; a field to find
  * one; a form for a new one; and "Re-tag all Documents". The list follows the
  * core's "tags.changed" event, and the counts the Documents' Tags.
@@ -56,7 +58,8 @@ export function TagsDialog() {
     closeDialog();
   };
   const tags = useAppStore((state) => state.tags);
-  const documents = useAppStore((state) => state.documents);
+  // The User's own Documents, as the sidebar counts them: the examples' don't make a Tag.
+  const documents = useOwnDocuments();
   const dialog = useModal(open);
   const [error, setError] = useState<string | null>(null);
   const [retagStarted, setRetagStarted] = useState(false);
@@ -196,7 +199,7 @@ function TagRow({
   const language = useLanguage();
   const asked = useRequests((state) => state.manageTag);
   const [mode, setMode] = useState<"view" | "edit" | "merge">(
-    asked?.id === tag.id ? "edit" : "view",
+    asked?.id === tag.id ? (asked.mode ?? "edit") : "view",
   );
   const [into, setInto] = useState("");
 
@@ -205,6 +208,7 @@ function TagRow({
       <li data-testid="tag-row" data-tag-id={tag.id} className="py-3">
         <TagForm
           initial={tag}
+          others={tags.filter((each) => each.id !== tag.id)}
           submitLabel={t("tags.dialog.save")}
           note={t("tags.dialog.descriptionNote")}
           onSubmit={async (name, description, colour) => {
@@ -368,18 +372,21 @@ function NewTag({ run }: { run: Run }) {
 
 function TagForm(props: {
   initial: { name: string; description: string; colour: TagColour };
+  /** The other Tags, to say what a name that another has merges into keeps. */
+  others?: readonly Tag[];
   submitLabel: string;
   /** Under the description: what it is for. */
   note: string;
   onSubmit(name: string, description: string, colour: TagColour): Promise<void>;
   onCancel?(): void;
 }) {
-  const { initial, submitLabel, note, onSubmit, onCancel } = props;
+  const { initial, others, submitLabel, note, onSubmit, onCancel } = props;
   const t = useT();
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description);
   const [colour, setColour] = useState<TagColour>(initial.colour);
   const [busy, setBusy] = useState(false);
+  const into = others?.find((each) => sameName(each.name, name.trim()));
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -403,6 +410,11 @@ function TagForm(props: {
           onChange={(event) => setName(event.target.value)}
           className={inputClass}
         />
+        {into && (
+          <span data-testid="tag-merge-note" className={hintClass}>
+            {t("tags.dialog.mergeKeeps", { name: into.name })}
+          </span>
+        )}
       </label>
       <label className={fieldLabelClass}>
         {t("tags.dialog.description")}

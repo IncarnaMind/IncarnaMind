@@ -2246,7 +2246,8 @@ export function createCore(adapters: CoreAdapters): Core {
     tags: {
       list: () => tags.list().map((tag) => ({ id: tag.id, name: tag.name })),
       create: (name, description) => {
-        const tag = tags.create({ name, description });
+        // Research makes this one, not the User: at 0 it waits in Manage Tags.
+        const tag = tags.create({ name, description }, false);
         tagsChanged();
         return tag.id;
       },
@@ -5703,8 +5704,8 @@ export function createCore(adapters: CoreAdapters): Core {
       tagsChanged();
       return tag;
     },
-    updateTag: async (tagId, patch) => {
-      const tag = tags.update(tagId, patch);
+    updateTag: async (tagId, patch, source) => {
+      const tag = tags.update(tagId, patch, source);
       tagsChanged();
       return tag;
     },
@@ -5739,11 +5740,16 @@ export function createCore(adapters: CoreAdapters): Core {
       return documents.getMany([...new Set(links.map((link) => link.documentId))]);
     },
     mergeTags: async (tagId, intoTagId) => {
+      const keptMadeByUserBefore = tags.get(intoTagId).madeByUser;
       const { documentIds, links } = tags.merge(tagId, intoTagId, now());
       // Tags first, so a listener filtering by the merged Tag hears it's gone before it refreshes.
       tagsChanged();
       announceTagged(documentIds);
-      return { tag: tags.get(intoTagId), merged: { kind: "tag", id: tagId, links } };
+      return {
+        tag: tags.get(intoTagId),
+        merged: { kind: "tag", id: tagId, links },
+        keptMadeByUserBefore,
+      };
     },
     retagDocuments: async (documentIds) => {
       rateLimit.resumeNow();

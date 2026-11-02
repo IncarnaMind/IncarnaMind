@@ -10,6 +10,9 @@
  * still quotes stays (ADR-0010), as the text kept of an unlinked Document does.
  */
 import type { MessageKey, MessageParams } from "../shared/i18n";
+import { sameName } from "../shared/names";
+import { isTagColour } from "../shared/tagColours";
+import type { TagAsShown } from "./api";
 import {
   DELETED_KINDS,
   type DeletedItem,
@@ -32,7 +35,7 @@ import type { createMindContent } from "./mindContent";
 import { forgetMindBlocks } from "./mindIndex";
 import type { createMinds } from "./minds";
 import type { Database } from "./storage";
-import { parseTagLinkStates, sameName, type TagsStore } from "./tags";
+import { parseTagLinkStates, type TagsStore } from "./tags";
 
 const TABLES: Readonly<Record<DeletedKind, string>> = {
   mind: "minds",
@@ -72,6 +75,40 @@ function parseRefs(input: unknown, what: string): RestoreRef[] {
     if (!kind) throw new InvalidInputError(`${what} can't take a ${String(each.kind)}.`);
     if (each.links === undefined) return { kind, id: each.id };
     return { kind, id: each.id, links: parseTagLinkStates(each.links) };
+  });
+}
+
+/** The Tags whose source a restore puts back, from its `tagSources` option. */
+function parseTagSources(
+  options: unknown,
+): { tagId: string; madeByUser: boolean; expected: TagAsShown }[] {
+  if (!isRecord(options) || options.tagSources === undefined) return [];
+  if (!Array.isArray(options.tagSources))
+    throw new InvalidInputError("restore's tagSources must be a list.");
+  return options.tagSources.map((each) => {
+    if (
+      !isRecord(each) ||
+      typeof each.tagId !== "string" ||
+      each.tagId === "" ||
+      typeof each.madeByUser !== "boolean" ||
+      !isRecord(each.expected) ||
+      typeof each.expected.name !== "string" ||
+      typeof each.expected.description !== "string" ||
+      !isTagColour(each.expected.colour)
+    ) {
+      throw new InvalidInputError(
+        "A Tag source says which Tag, whether it was the User's, and what it showed.",
+      );
+    }
+    return {
+      tagId: each.tagId,
+      madeByUser: each.madeByUser,
+      expected: {
+        name: each.expected.name,
+        description: each.expected.description,
+        colour: each.expected.colour,
+      },
+    };
   });
 }
 
@@ -362,9 +399,10 @@ export function createRecentlyDeleted(options: {
     restore(input: unknown, restoreOptions?: unknown): RestoreResult {
       // Over the bridge the call isn't type-checked: anything but a true `reopen` restores quietly.
       const reopen = isRecord(restoreOptions) && restoreOptions.reopen === true;
+      const tagSources = parseTagSources(restoreOptions);
       const refs = parseRefs(input, "restore");
       const since = earliestRestorable(now());
-      const done = db.transaction(() => {
+      const outcome = db.transaction(() => {
         const restored = {
           minds: false,
           mindIds: [] as string[],
@@ -452,8 +490,14 @@ export function createRecentlyDeleted(options: {
         const links = refs.flatMap((ref) => ref.links ?? []);
         checkLinks(links);
         for (const id of tags.revert(links)) restored.tagged.add(id);
-        return restored;
+        let sourcesChanged = false;
+        for (const { tagId, madeByUser, expected } of tagSources) {
+          if (tags.setSource(tagId, madeByUser, expected)) sourcesChanged = true;
+        }
+        return { restored, sourcesChanged };
       });
+      const done = outcome.restored;
+      const sourcesChanged = outcome.sourcesChanged;
       for (const { id, deletedAt } of done.mindsDeletedAt) content.restored(id, deletedAt);
       if (done.minds) options.mindsChanged();
       if (done.mindIds.length > 0) options.mindsRestored(done.mindIds, reopen);
@@ -466,7 +510,7 @@ export function createRecentlyDeleted(options: {
         library.resume();
       }
       if (done.folders) library.restored();
-      if (done.tags) options.tagsChanged();
+      if (done.tags || sourcesChanged) options.tagsChanged();
       if (done.tagged.size > 0) options.tagged([...done.tagged]);
       const audio = options.meetings.restored(done.meetings);
       return {
