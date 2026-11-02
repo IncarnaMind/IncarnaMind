@@ -79,9 +79,11 @@ export async function deleteTag(tagId: string): Promise<void> {
  */
 async function mergeOnRename(tag: Tag, into: Tag, patch: UpdateTagInput): Promise<void> {
   const before = { description: into.description, colour: into.colour };
+  // Only what the User changed here, not the fields a form sends back as they were.
   const fields = {
-    ...(patch.description !== undefined && { description: patch.description }),
-    ...(patch.colour !== undefined && { colour: patch.colour }),
+    ...(patch.description !== undefined &&
+      patch.description.trim() !== tag.description && { description: patch.description }),
+    ...(patch.colour !== undefined && patch.colour !== tag.colour && { colour: patch.colour }),
   };
   const edited = Object.keys(fields).length > 0;
   const applyEdit = async () => {

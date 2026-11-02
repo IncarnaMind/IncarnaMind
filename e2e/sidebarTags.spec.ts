@@ -804,6 +804,25 @@ test("a Tag's menu, from a right-click, its ⋯ and the context-menu key, recolo
       .poll(async () => (await tagNow(window, "Findings"))?.description)
       .toBe("Findings and summaries.");
 
+    // A rename onto another Tag's name in Manage Tags merges too, and keeps the Tag kept's own
+    // description and colour: the form sends them back unchanged, not as edits.
+    await slideTo(window, sketches.getByTestId("row-text"));
+    await sketches.getByTestId("tag-menu").click();
+    await sketches.getByTestId("tag.editDescription").click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByTestId("tag-name-input").first().fill("Findings");
+    await dialog.getByTestId("save-tag").first().click();
+    await expect.poll(() => tagNames(window)).not.toContain("Sketches");
+    await expect
+      .poll(async () => (await tagNow(window, "Findings"))?.description)
+      .toBe("Findings and summaries.");
+    await window.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(undoMessage).toHaveText("Merged “Sketches” into Findings");
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(sketches).toHaveCount(1);
+
     // Merge into… merges it into another Tag from the same dialog; one Undo brings it back.
     await slideTo(window, sketches.getByTestId("row-text"));
     await sketches.getByTestId("tag-menu").click();
