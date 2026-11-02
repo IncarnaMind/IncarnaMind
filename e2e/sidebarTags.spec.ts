@@ -19,6 +19,7 @@ import {
   tabTo,
   tagDocument,
   typeWithInputMethod,
+  useLocalChatModel,
 } from "./app";
 
 /*
@@ -710,7 +711,12 @@ test("the Tags heading's + makes a Tag in place, and a Tag renamed by double-cli
     await setLanguage(window, "zh-CN");
     await expect(toggle).toHaveText("标签");
     await expect(window.getByTestId("tags-add")).toHaveAccessibleName("新建标签");
-    await expect(window.getByTestId("manage-tags-link")).toHaveAccessibleName("管理标签…");
+    await slideTo(window, toggle);
+    await window.getByTestId("tags-menu").click();
+    await expect(
+      window.getByTestId("tags-menu-items").getByTestId("tags.manage"),
+    ).toHaveAccessibleName("管理标签…");
+    await window.keyboard.press("Escape");
     await tagRow(window, "Thesis").getByTestId("row-text").dblclick();
     await expect(field).toHaveValue("Thesis");
     await window.keyboard.press("Escape");
@@ -758,58 +764,129 @@ test("a Tag made with the heading's + is still listed, with 0 Documents, after t
   }
 });
 
-test("renaming a Tag with 0 Documents onto the name of a preset Tag the sidebar hides is taken, and its row stays", async () => {
-  const { app, window } = await launchApp(dataDir);
-  try {
-    await dismissChatSetup(window);
-    await addTextDocuments(window, { "Tides.txt": "Spring tides happen at new moon." });
-    // "Report" is carried, so the section is there; "Paper" is a preset nothing carries.
-    await tagDocument(window, "Tides", "Report");
-    await window.evaluate(async () => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      await core.createTag({ name: "Drafts" });
-    });
-    const drafts = tagRow(window, "Drafts");
-    await expect(drafts.getByTestId("browse-count")).toHaveText("0");
+for (const language of ["en", "zh-CN"] as const) {
+  test(`renaming a Tag with 0 Documents onto a hidden preset's name merges into it, and its row stays (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      await addTextDocuments(window, { "Tides.txt": "Spring tides happen at new moon." });
+      // "Report" is carried, so the section is there; "Paper" is a preset nothing carries.
+      await tagDocument(window, "Tides", "Report");
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.createTag({ name: "Drafts" });
+      });
+      const drafts = tagRow(window, "Drafts");
+      await expect(drafts.getByTestId("browse-count")).toHaveText("0");
+      await expect(tagRow(window, "Paper")).toHaveCount(0);
 
-    // A merge into it would make the row the User just renamed vanish, so the name is taken.
-    await drafts.getByRole("treeitem").focus();
-    await window.keyboard.press("F2");
-    const field = window.getByTestId("sidebar-tags").getByRole("textbox");
-    await field.fill("Paper");
-    await window.keyboard.press("Enter");
-    await expect(window.getByTestId("error-notice")).toContainText("Paper");
-    await expect(drafts.getByTestId("row-text")).toHaveText("Drafts");
-    await expect(drafts.getByTestId("browse-count")).toHaveText("0");
-    await expect(drafts.getByRole("treeitem")).toBeFocused();
-    const names = await tagNames(window);
-    expect(names).toContain("Drafts");
-    expect(names).toContain("Paper");
+      // The merge keeps the row: "Paper" is the User's from now on, at 0.
+      await drafts.getByRole("treeitem").focus();
+      await window.keyboard.press("F2");
+      const field = window.getByTestId("sidebar-tags").getByRole("textbox");
+      await field.fill("Paper");
+      await window.keyboard.press("Enter");
+      const paper = tagRow(window, "Paper");
+      await expect(drafts).toHaveCount(0);
+      await expect(paper.getByTestId("browse-count")).toHaveText("0");
+      await expect(paper.getByRole("treeitem")).toBeFocused();
+      await expect(window.getByTestId("undo-message")).toHaveText(
+        language === "en" ? "Merged into “Paper”" : "已合并到“Paper”",
+      );
+      const tags = await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        return (await core.listTags()).map((tag) => [tag.name, tag.madeByUser] as const);
+      });
+      expect(tags).toContainEqual(["Paper", true]);
+      expect(tags.map(([name]) => name)).not.toContain("Drafts");
 
-    // A Tag a Document carries may merge into a preset the sidebar hides: its Documents make
-    // that preset visible, so the row the User named is there, with the focus on it.
-    await window.evaluate(async () => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      await core.createTag({ name: "Thesis" });
-    });
-    await tagDocument(window, "Tides", "Thesis");
-    const thesis = tagRow(window, "Thesis");
-    // The link is in the store, so the merge sees the Tag its Document carries.
-    await expect(thesis.getByTestId("browse-count")).toHaveText("1");
-    await thesis.getByRole("treeitem").focus();
-    await window.keyboard.press("F2");
-    await field.fill("Book");
-    await window.keyboard.press("Enter");
-    const book = tagRow(window, "Book");
-    await expect(thesis).toHaveCount(0);
-    await expect(book.getByTestId("browse-count")).toHaveText("1");
-    await expect(book.getByRole("treeitem")).toBeFocused();
-    expect(await tagNames(window)).toContain("Book");
-    expect(await tagNames(window)).not.toContain("Thesis");
-  } finally {
-    await app.close();
-  }
-});
+      // One Undo brings the renamed Tag back.
+      await window.getByTestId("undo-line").getByTestId("undo-action").click();
+      await expect(tagRow(window, "Drafts")).toHaveCount(1);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the Tags section lists a Tag at 0 only when the User made it or changed it (${language})`, async () => {
+    const subject = language === "en" ? "Littoral drift" : "海岸漂沙";
+    const text =
+      language === "en"
+        ? "Subject: Littoral drift\nNotes about the harbour and the tides."
+        : "主题：海岸漂沙\n关于港口与潮汐的笔记。";
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      // biome-ignore lint/correctness/useHookAtTopLevel: a test helper, not a React hook.
+      await useLocalChatModel(window);
+      await addTextDocuments(window, { "Harbour notes.txt": text });
+      // A carried preset, so the section stays once the tagging Tag comes off.
+      await tagDocument(window, "Harbour notes", "Report");
+      const document = documentRow(window, "Harbour notes");
+      await expect(document).toHaveAttribute("data-tagging", "tagged");
+      // Automatic tagging made the Tag, and its Document carries it: it is listed.
+      const auto = tagRow(window, subject);
+      await expect(auto.getByTestId("browse-count")).toHaveText("1");
+      await expect(tagRow(window, "Paper")).toHaveCount(0);
+
+      // The User takes it off its only Document: a tagging-made Tag at 0 hides.
+      await document.hover();
+      await document.getByTestId("document-tags-menu").click();
+      await document.getByRole("option", { name: subject, exact: true }).click();
+      await window.keyboard.press("Escape");
+      await expect(auto).toHaveCount(0);
+
+      // Manage Tags and the Tag picker still list it.
+      await window.mouse.move(700, 400, { steps: 4 });
+      await slideTo(window, window.getByTestId("tags-toggle"));
+      await window.getByTestId("tags-menu").click();
+      await window.getByTestId("tags-menu-items").getByTestId("tags.manage").click();
+      const dialog = window.getByTestId("tags-dialog");
+      await expect(dialog).toBeVisible();
+      const hidden = dialog.getByTestId("tag-row").filter({ hasText: subject });
+      await expect(hidden).toHaveCount(1);
+      await expect(hidden.getByTestId("tag-count")).toHaveText(
+        language === "en" ? "0 Documents" : "0 个文档",
+      );
+      await window.keyboard.press("Escape");
+      await document.hover();
+      await document.getByTestId("document-tags-menu").click();
+      await expect(document.getByRole("option", { name: subject, exact: true })).toBeVisible();
+      await window.keyboard.press("Escape");
+
+      // One the User made shows at 0, from the heading's +.
+      await tagDocument(window, "Harbour notes", subject);
+      await window.getByTestId("tags-toggle").hover();
+      await window.getByTestId("tags-add").click();
+      await window.getByTestId("sidebar-tag-new-name").fill("Drafts");
+      await window.keyboard.press("Enter");
+      await expect(tagRow(window, "Drafts").getByTestId("browse-count")).toHaveText("0");
+
+      // A preset the User changed shows at 0 too: Slides, edited in Manage Tags.
+      await slideTo(window, window.getByTestId("tags-toggle"));
+      await window.getByTestId("tags-menu").click();
+      await window.getByTestId("tags-menu-items").getByTestId("tags.manage").click();
+      await expect(dialog).toBeVisible();
+      const slides = dialog.getByTestId("tag-row").filter({ hasText: "Slides" });
+      await slides.getByTestId("edit-tag").click();
+      // The row swaps itself for its form, which is the first one in the dialog.
+      await dialog
+        .getByTestId("tag-description-input")
+        .first()
+        .fill("Decks and their speaker notes.");
+      await dialog.getByTestId("save-tag").first().click();
+      await window.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(tagRow(window, "Slides").getByTestId("browse-count")).toHaveText("0");
+    } finally {
+      await app.close();
+    }
+  });
+}
 
 test("a Tag's menu, from a right-click, its ⋯ and the context-menu key, recolours, describes, merges, renames and deletes it, each with Undo", async () => {
   const { app, window } = await launchApp(dataDir);
@@ -867,8 +944,8 @@ test("a Tag's menu, from a right-click, its ⋯ and the context-menu key, recolo
     await window.keyboard.press("ControlOrMeta+z");
     await expect.poll(() => colourNow("Findings")).toBe(before);
 
-    // The menu has the same colours in its own row, in the shared order: Open · its own actions ·
-    // Rename · Delete, each with a name for a screen reader.
+    // The menu has the shared order, each with a name for a screen reader, and Colour ▸ opens
+    // the same eight dots beside it.
     await slideTo(window, report.getByTestId("row-text"));
     await report.getByTestId("tag-menu").click();
     await expect(menu).toBeVisible();
@@ -878,8 +955,15 @@ test("a Tag's menu, from a right-click, its ⋯ and the context-menu key, recolo
     await expect(menu.getByTestId("tag.merge")).toHaveAccessibleName("Merge into…");
     await expect(menu.getByTestId("tag.rename")).toHaveAccessibleName(/^Rename/);
     await expect(menu.getByTestId("tag.delete")).toHaveAccessibleName("Delete");
-    await menu.locator(`[data-testid="tag-colour-choice"][data-colour="${before}"]`).click();
+    await menu.getByTestId("tag.colour").click();
+    const colourSubmenu = report.getByTestId("tag-colours");
+    await expect(colourSubmenu).toBeVisible();
+    await expect(colourSubmenu.getByTestId("tag-colour-choice")).toHaveCount(8);
+    await colourSubmenu
+      .locator(`[data-testid="tag-colour-choice"][data-colour="${before}"]`)
+      .click();
     await expect(menu).toBeHidden();
+    await expect(colourSubmenu).toBeHidden();
     await expect.poll(() => colourNow("Findings")).toBe(before);
     // Already that colour: nothing changed, so nothing to take back.
     await expect(undoMessage).toHaveCount(0);
@@ -922,7 +1006,7 @@ test("a Tag's menu, from a right-click, its ⋯ and the context-menu key, recolo
       .toBe("Findings and summaries.");
     await window.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
-    await expect(undoMessage).toHaveText("Merged “Sketches” into Findings");
+    await expect(undoMessage).toHaveText("Merged into “Findings”");
     await leaveText(window);
     await window.keyboard.press("ControlOrMeta+z");
     await expect(sketches).toHaveCount(1);
@@ -981,7 +1065,13 @@ test("a Tag's menu, from a right-click, its ⋯ and the context-menu key, recolo
     await expect(open).toHaveAccessibleName("Open");
     await expect(open).toBeFocused();
     await window.keyboard.press("ArrowDown");
-    const red = menu.getByRole("menuitemradio", { name: "Red" });
+    const colourTrigger = menu.getByTestId("tag.colour");
+    await expect(colourTrigger).toBeFocused();
+    expect(await focusRingShows(window)).toBe(true);
+    await window.keyboard.press("ArrowRight");
+    const submenu = report.getByTestId("tag-colours");
+    await expect(submenu).toBeVisible();
+    const red = submenu.getByRole("menuitemradio", { name: "Red" });
     await expect(red).toBeFocused();
     expect(await focusRingShows(window)).toBe(true);
     const chosen = before === "red" ? "blue" : "red";
@@ -991,11 +1081,12 @@ test("a Tag's menu, from a right-click, its ⋯ and the context-menu key, recolo
       step++
     )
       await window.keyboard.press("ArrowDown");
-    const colourItem = menu.getByRole("menuitemradio", {
+    const colourItem = submenu.getByRole("menuitemradio", {
       name: chosen === "blue" ? "Blue" : "Red",
     });
     await expect(colourItem).toBeFocused();
     await window.keyboard.press("Enter");
+    await expect(submenu).toBeHidden();
     await expect(menu).toBeHidden();
     await expect.poll(() => colourNow("Findings")).toBe(chosen);
     await leaveText(window);
@@ -1030,8 +1121,11 @@ test("two Documents dragged from the Library onto a Tag get it, with the count a
     const label = window.getByTestId("drop-label");
     const undoMessage = window.getByTestId("undo-message");
 
-    // Manage Tags…, at the end of the section, lists every Tag with its count and description.
-    await slideAndClick(window, window.getByTestId("manage-tags-link"));
+    // Manage Tags…, in the heading's ⋯, lists every Tag with its count and description.
+    await window.mouse.move(700, 400, { steps: 4 });
+    await slideTo(window, window.getByTestId("tags-toggle"));
+    await window.getByTestId("tags-menu").click();
+    await window.getByTestId("tags-menu-items").getByTestId("tags.manage").click();
     const dialog = window.getByTestId("tags-dialog");
     await expect(dialog).toBeVisible();
     const row = dialog.getByTestId("tag-row").filter({ hasText: "Agreements" });
@@ -1082,17 +1176,31 @@ test("two Documents dragged from the Library onto a Tag get it, with the count a
     await window.keyboard.press("ControlOrMeta+z");
     await expect(agreements.getByTestId("browse-count")).toHaveText("1");
 
-    // Manage Tags… from the keyboard: its focus ring shows, Enter opens the full list.
+    // Manage Tags… from the keyboard: the heading's ⋯ takes the focus ring, and the menu's one
+    // item opens the full list.
     await window.mouse.move(700, 400, { steps: 4 });
-    await tabTo(window, window.getByTestId("manage-tags-link"));
+    await window.getByTestId("tags-toggle").focus();
+    await window.keyboard.press("Tab");
+    await window.keyboard.press("Tab");
+    const manageMenu = window.getByTestId("tags-menu");
+    await expect(manageMenu).toBeFocused();
     expect(await focusRingShows(window)).toBe(true);
+    await window.keyboard.press("Enter");
+    const manageItems = window.getByTestId("tags-menu-items");
+    await expect(manageItems).toBeVisible();
+    await expect(manageItems.getByTestId("tags.manage")).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(dialog).toBeVisible();
     await window.keyboard.press("Escape");
 
     // In Chinese the menu keeps its own words.
     await setLanguage(window, "zh-CN");
-    await expect(window.getByTestId("manage-tags-link")).toHaveText("管理标签…");
+    await slideTo(window, window.getByTestId("tags-toggle"));
+    await window.getByTestId("tags-menu").click();
+    await expect(window.getByTestId("tags-menu-items").getByTestId("tags.manage")).toHaveText(
+      "管理标签…",
+    );
+    await window.keyboard.press("Escape");
     await expect(agreements.getByTestId("tag-dot-button")).toHaveAccessibleName(
       "“Agreements”的颜色",
     );

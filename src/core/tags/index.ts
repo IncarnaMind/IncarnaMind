@@ -26,6 +26,8 @@ interface TagRow {
   name: string;
   description: string;
   preset: string | null;
+  /** 1 when the User made it or changed its name, colour or description; automatic tagging's are 0. */
+  made_by_user: number;
   colour: TagColour;
   created_at: string;
   updated_at: string;
@@ -39,13 +41,14 @@ interface LinkRow {
   needs_review: number;
 }
 
-const COLUMNS = "id, name, description, preset, colour, created_at, updated_at";
+const COLUMNS = "id, name, description, preset, made_by_user, colour, created_at, updated_at";
 
 const toTag = (row: TagRow): Tag => ({
   id: row.id,
   name: row.name,
   description: row.description,
   preset: row.preset !== null,
+  madeByUser: row.made_by_user !== 0,
   colour: row.colour,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -196,12 +199,18 @@ export function createTags(db: Database, now: () => string) {
       ],
     );
 
-  const insertTag = (name: string, description: string, colour: TagColour, at: string) => {
+  const insertTag = (
+    name: string,
+    description: string,
+    colour: TagColour,
+    at: string,
+    madeByUser: boolean,
+  ) => {
     const id = randomUUID();
     db.run(
-      `INSERT INTO tags (id, name, description, preset, colour, created_at, updated_at)
-       VALUES (?, ?, ?, NULL, ?, ?, ?)`,
-      [id, name, description, colour, at, at],
+      `INSERT INTO tags (id, name, description, preset, made_by_user, colour, created_at, updated_at)
+       VALUES (?, ?, ?, NULL, ?, ?, ?, ?)`,
+      [id, name, description, madeByUser ? 1 : 0, colour, at, at],
     );
     return id;
   };
@@ -228,13 +237,14 @@ export function createTags(db: Database, now: () => string) {
       }
       if (deleted.has(key) || live.length >= NEW_TAG_LIMIT) continue;
       const colour = nextTagColour(live.map((each) => each.colour));
-      const id = insertTag(tag.name, tag.description, colour, at);
+      const id = insertTag(tag.name, tag.description, colour, at, false);
       live.push({
         id,
         name: tag.name,
         description: tag.description,
         preset: false,
         colour,
+        madeByUser: false,
         createdAt: at,
         updatedAt: at,
       });
@@ -279,8 +289,17 @@ export function createTags(db: Database, now: () => string) {
         checkUnique(name);
         const at = now();
         const colour = chosen ?? nextTagColour(list().map((tag) => tag.colour));
-        const id = insertTag(name, description, colour, at);
-        return { id, name, description, preset: false, colour, createdAt: at, updatedAt: at };
+        const id = insertTag(name, description, colour, at, true);
+        return {
+          id,
+          name,
+          description,
+          preset: false,
+          madeByUser: true,
+          colour,
+          createdAt: at,
+          updatedAt: at,
+        };
       });
     },
 
@@ -302,10 +321,11 @@ export function createTags(db: Database, now: () => string) {
         checkUnique(name, tag.id);
         const at = now();
         db.run(
-          "UPDATE tags SET name = ?, description = ?, colour = ?, updated_at = ? WHERE id = ?",
+          `UPDATE tags SET name = ?, description = ?, colour = ?, made_by_user = 1,
+             updated_at = ? WHERE id = ?`,
           [name, description, colour, at, tag.id],
         );
-        return { ...tag, name, description, colour, updatedAt: at };
+        return { ...tag, name, description, madeByUser: true, colour, updatedAt: at };
       });
     },
 
@@ -459,6 +479,8 @@ export function createTags(db: Database, now: () => string) {
           }
         }
         db.run("UPDATE tags SET deleted_at = ?, updated_at = ? WHERE id = ?", [at, at, from.id]);
+        // The Tag kept is the User's from now on, so its row stays at 0 in the sidebar.
+        db.run("UPDATE tags SET made_by_user = 1, updated_at = ? WHERE id = ?", [at, into.id]);
         db.run(
           `UPDATE document_tags SET deleted_at = ?, updated_at = ?
            WHERE tag_id = ? AND deleted_at IS NULL`,

@@ -405,6 +405,7 @@ export const zhCN = {
   "undo.tagRemoved.one": "已从“{name}”移除标签“{tag}”",
   "undo.tagRemoved": "已从 {count} 个文档移除标签“{tag}”",
   "undo.tagsMerged": "已将“{name}”合并到“{into}”",
+  "undo.mergedInto": "已合并到“{name}”",
   "undo.tagCreated": "已新建标签“{name}”",
   "undo.tagEdited": "已修改标签“{name}”",
   "undo.folderEdited": "已修改文件夹“{name}”",

@@ -4202,6 +4202,12 @@ export interface Tag {
   description: string;
   /** Created on first run as one of the preset Tags, rather than by the User. Editing one keeps it a preset. */
   preset: boolean;
+  /**
+   * The User made it, or changed its name, colour or description; a Tag
+   * automatic tagging made, and a preset no one edited, is not. The sidebar
+   * lists a Tag with no Documents only when it is the User's.
+   */
+  madeByUser: boolean;
   /** Its colour, from a small fixed palette (src/shared/tagColours.ts); the User can change it. */
   colour: TagColour;
   /** ISO 8601, UTC. */

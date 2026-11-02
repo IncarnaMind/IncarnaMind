@@ -18,7 +18,6 @@ export function SidebarSection({
   fold,
   actions,
   drop,
-  foot,
   children,
 }: {
   testId: string;
@@ -32,8 +31,6 @@ export function SidebarSection({
   actions?: ReactNode;
   /** The heading takes a drop, with the "into" box while it would. */
   drop?: { over: DropEffect | null; props: DropProps };
-  /** After the rows, the section's own link, such as Manage Tags…; not part of its tree. */
-  foot?: ReactNode;
   children: ReactNode;
 }) {
   const t = useT();
@@ -90,7 +87,6 @@ export function SidebarSection({
           {children}
         </div>
       )}
-      {open && foot}
     </section>
   );
 }

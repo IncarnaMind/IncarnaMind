@@ -13,7 +13,7 @@ import { useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
 import { InlineName } from "./InlineName";
 import { useFolds } from "./LibraryFolders";
-import { MoreLineIcon, PlusLineIcon, TagLineIcon } from "./lineIcons";
+import { ChevronRightLineIcon, MoreLineIcon, PlusLineIcon } from "./lineIcons";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
 import { SidebarSection } from "./SidebarSection";
 import {
@@ -23,11 +23,10 @@ import {
   rowActionsClass,
   rowButtonClass,
   rowClass,
-  rowIconClass,
 } from "./sidebarRows";
 import { TagColourChoices, TagDot } from "./TagColour";
 import { menuClass, menuFrameClass, menuItemClass } from "./ui";
-import { usePopoverMenu } from "./usePopoverMenu";
+import { usePopoverMenu, useSubmenu } from "./usePopoverMenu";
 
 /**
  * The sidebar's Tags section, last in the tree: every Tag the User made, and
@@ -48,10 +47,9 @@ export function SidebarTags() {
   const [naming, setNaming] = useState(false);
   // The Tag just named, put where a keyboard expects after its field goes: on its new row.
   const [focusing, setFocusing] = useState<string | null>(null);
-  // Every Tag the User made is listed, with 0 until a Document carries it, so one made with the +
-  // doesn't vanish at a restart. The presets exist before the User makes anything, so they show
-  // only once a Document carries one (#205).
-  const listed = tags.filter((tag) => !tag.preset || byTag.has(tag.id));
+  // Every Tag a Document carries is listed; at 0, only one the User made or changed. A Tag
+  // automatic tagging made, or a preset no one edited, waits in Manage Tags and the picker.
+  const listed = tags.filter((tag) => byTag.has(tag.id) || tag.madeByUser);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the row appears when the Tags, or the Documents' links, change.
   useEffect(() => {
     if (focusing === null) return;
@@ -100,19 +98,6 @@ export function SidebarTags() {
           </button>
           <SectionMenu />
         </>
-      }
-      foot={
-        <div className={rowClass(false)}>
-          <button
-            type="button"
-            data-testid="manage-tags-link"
-            onClick={() => useAppStore.getState().openTagsDialog()}
-            className={rowButtonClass}
-          >
-            <TagLineIcon className={rowIconClass(false)} />
-            <span className="truncate">{t("tags.menu.manage")}</span>
-          </button>
-        </div>
       }
     >
       <ul role="none">
@@ -246,12 +231,13 @@ function TagRow({
   const naming = useRename<HTMLButtonElement>(`sidebar-tag:${tag.id}`, show);
   const treeItem = useTreeItem({ depth: 0, selected: chosen });
   const drop = useDropTarget(`sidebar-tag:${tag.id}`, tagTarget(tag.id));
-  const colours = usePopoverMenu({ focus: "checked" });
+  const dotColours = usePopoverMenu({ focus: "checked" });
+  const menuColours = useSubmenu();
   const colourLabel = t("tags.colour.of", { name: tag.name });
   const reportError = useAppStore((state) => state.reportError);
-  const openColours = () => colours.buttonProps.ref.current?.click();
+  const openColours = () => dotColours.buttonProps.ref.current?.click();
   const recolour = (colour: TagColour) => {
-    colours.close();
+    dotColours.close();
     void editTag(tag.id, { colour }).catch(reportError);
   };
   return (
@@ -287,7 +273,7 @@ function TagRow({
         ) : (
           <>
             <button
-              {...colours.buttonProps}
+              {...dotColours.buttonProps}
               type="button"
               tabIndex={-1}
               data-testid="tag-dot-button"
@@ -328,15 +314,27 @@ function TagRow({
               tabIndex={-1}
               here={{ "tag.rename": naming.start, "tag.colour": openColours }}
               controls={{
-                "tag.colour": (close) => (
-                  // biome-ignore lint/a11y/useSemanticElements: a menu's group of one choice each, not a form fieldset.
-                  <div
-                    role="group"
-                    aria-label={t("tag.color")}
+                "tag.colour": () => (
+                  <button
+                    {...menuColours.itemProps}
+                    type="button"
                     data-testid="tag.colour"
-                    className="flex h-8 items-center gap-1 pr-1 pl-2 text-ui text-ink"
+                    className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
                   >
                     <span className="flex-1">{t("tag.color")}</span>
+                    <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+                  </button>
+                ),
+              }}
+              aside={(close) => (
+                <div
+                  {...menuColours.menuProps}
+                  role="menu"
+                  aria-label={t("tag.color")}
+                  data-testid="tag-colours"
+                  className={`${menuFrameClass} w-max`}
+                >
+                  <div className="p-2">
                     <TagColourChoices
                       value={tag.colour}
                       onPick={(colour) => {
@@ -345,19 +343,19 @@ function TagRow({
                       }}
                     />
                   </div>
-                ),
-              }}
+                </div>
+              )}
             />
           </div>
         )}
         <div
-          {...colours.menuProps}
+          {...dotColours.menuProps}
           role="menu"
           aria-label={colourLabel}
           data-testid="tag-colour-menu"
           className={`${menuFrameClass} w-max`}
         >
-          {colours.open && (
+          {dotColours.open && (
             <div className="p-2">
               <TagColourChoices value={tag.colour} onPick={recolour} />
             </div>

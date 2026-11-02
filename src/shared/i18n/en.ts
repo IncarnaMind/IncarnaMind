@@ -416,6 +416,7 @@ export const en = {
   "undo.tagRemoved.one": "Removed {tag} from “{name}”",
   "undo.tagRemoved": "Removed {tag} from {count} Documents",
   "undo.tagsMerged": "Merged “{name}” into {into}",
+  "undo.mergedInto": "Merged into “{name}”",
   "undo.tagCreated": "Created the Tag “{name}”",
   "undo.tagEdited": "Changed the Tag “{name}”",
   "undo.folderEdited": "Changed the Folder “{name}”",

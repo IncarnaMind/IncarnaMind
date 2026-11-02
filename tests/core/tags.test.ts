@@ -106,6 +106,7 @@ describe("Preset Tags", () => {
         name: tag.name,
         description: expect.stringMatching(/\w{4,}.*\./),
         preset: true,
+        madeByUser: false,
         colour: expect.any(String),
         createdAt: "2026-10-06T12:00:00.000Z",
         updatedAt: "2026-10-06T12:00:00.000Z",
@@ -157,6 +158,7 @@ describe("Managing Tags", () => {
       name: "Quarterly",
       description: "Covers one quarter of a year.",
       preset: false,
+      madeByUser: true,
       // The one colour no preset has.
       colour: "teal",
       createdAt: "2026-10-06T12:00:00.000Z",
@@ -202,6 +204,7 @@ describe("Managing Tags", () => {
     expect(edited).toEqual({
       ...paper,
       description: "Peer-reviewed only.",
+      madeByUser: true,
       updatedAt: edited.updatedAt,
     });
     expect(edited.updatedAt > paper.updatedAt).toBe(true);
@@ -210,6 +213,7 @@ describe("Managing Tags", () => {
       name: "Research paper",
       description: "Peer-reviewed only.",
       preset: true,
+      madeByUser: true,
     });
     // Its own name in other case is fine; another Tag's name isn't.
     expect(await core.updateTag(paper.id, { name: "RESEARCH PAPER" })).toMatchObject({
@@ -446,6 +450,8 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
     expect(await tagNamesOf(core, document.id)).toEqual(["Attention"]);
     expect(tagging.requests[0]?.text).toContain("Tags: none yet.");
     expect(names(await core.listTags())).toEqual(["Attention"]);
+    // Automatic tagging made it, so it is not the User's.
+    expect((await core.listTags())[0]?.madeByUser).toBe(false);
   });
 
   test("with no Tags to choose from, a decision model is skipped and the Document is checked once a Tag exists", async () => {
@@ -911,6 +917,8 @@ describe("Merging Tags", { timeout: 30_000 }, () => {
     expect(await tagsOf(both.id)).toEqual([[findings.id, "user"]]);
     expect(await tagsOf(removed.id)).toEqual([]);
     expect(names(await core.listTags())).not.toContain("Report");
+    // The Tag kept is the User's from now on.
+    expect(merged.tag?.madeByUser).toBe(true);
 
     // A removal the User made carries over: re-tagging doesn't put Findings on that one.
     tagging.choose(["Findings"]);
@@ -919,6 +927,20 @@ describe("Merging Tags", { timeout: 30_000 }, () => {
 
     await expect(core.mergeTags(findings.id, findings.id)).rejects.toThrow(InvalidInputError);
     await expect(core.mergeTags(report.id, findings.id)).rejects.toThrow(NotFoundError);
+  });
+});
+
+describe("Merging Tags", { timeout: 30_000 }, () => {
+  test("merging into a preset Tag makes it the User's", async () => {
+    const core = startCore(await createTempDataFolder());
+    const book = await tagNamed(core, "Book");
+    expect(book.madeByUser).toBe(false);
+    const drafts = await core.createTag({ name: "Drafts" });
+
+    const merged = await core.mergeTags(drafts.id, book.id);
+
+    expect(merged.tag).toMatchObject({ id: book.id, madeByUser: true });
+    expect((await tagNamed(core, "Book")).madeByUser).toBe(true);
   });
 });
 

@@ -2204,6 +2204,18 @@ export const migrations: readonly Migration[] = [
       WHERE preset = 'invoice' AND description = '要求或确认付款的账单或收据，列有项目、金额和日期。';
     `,
   },
+  {
+    version: 124,
+    description:
+      "A Tag records whether the User made it or changed its name, colour or description, so the sidebar lists a Tag with no Documents only then (#205)",
+    sql: `
+      -- Automatic tagging and the preset Tags leave this 0; createTag, an edit by the User and a
+      -- merge into it set it. Tags that exist now have no record of where they came from, so a
+      -- preset is not the User's and every other one is taken as theirs.
+      ALTER TABLE tags ADD COLUMN made_by_user INTEGER NOT NULL DEFAULT 0;
+      UPDATE tags SET made_by_user = 1 WHERE preset IS NULL;
+    `,
+  },
 ];
 
 /**
