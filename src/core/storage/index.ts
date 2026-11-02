@@ -8,4 +8,4 @@
  */
 export type { Database, SqlValue } from "./database";
 export { migrate, migrations } from "./migrations";
-export { openNodeSqlite as openDatabase } from "./node-sqlite";
+export { heldByAnotherProcess, openNodeSqlite as openDatabase } from "./node-sqlite";

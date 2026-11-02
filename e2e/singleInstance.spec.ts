@@ -303,7 +303,7 @@ try {
       {
         title: "IncarnaMind couldn’t start",
         content:
-          "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\ndisk I/O error",
+          "Another program is still using IncarnaMind’s data. Your data is unchanged. Wait a moment, then open IncarnaMind again.",
         ready: true,
       },
     ]);
@@ -596,8 +596,18 @@ async function startWhileQuitting(
     windows: (await Promise.all(ports.map(windowsOf))).reduce((sum, each) => sum + each, 0),
   });
   try {
+    const logged = existsSync(join(dataDir, "logs", "incarnamind.log"))
+      ? (await logOf(dataDir)).length
+      : 0;
     await start({ INCARNAMIND_TEST_QUIT_MARK: mark, INCARNAMIND_TEST_QUIT_ON_START: how });
     await expect.poll(() => windowsOf(ports[0] as number), { timeout: 60_000 }).toBe(1);
+    // The window is up before the core has started (#2104), and a start that arrives while the
+    // core holds the thread is handed this window before the quit it should come during.
+    await expect
+      .poll(async () => (await logOf(dataDir)).slice(logged).includes(" app.startup.hostReady"), {
+        timeout: 60_000,
+      })
+      .toBe(true);
     if (late) {
       await inCopyWindow(ports[0], async (window) => {
         await (await coreOf(window)).evaluate((api) =>
