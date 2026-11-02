@@ -1106,6 +1106,10 @@ const STATED_CURRENCY =
 // "USD B Acc" is a share class, "USD M&A" a business and "1,000s of users" a count.
 const ENDS_STATEMENT =
   "(?=[ \\u00a0]*(?:$|[\\n\\t)）|,;:]|\\.(?!\\d)|(?:except|unless|save|other[ \\u00a0]+than)\\b))";
+// A bracket's currency is read alone only when its whole tail names no scale: "(in £, thousands)"
+// and "(in US$, millions)" state a scale, not just a currency.
+const NO_SCALE_IN_BRACKET =
+  "(?![^()（）\\n]*(?:\\b(?:thousands?|millions?|billions?)\\b|\\b(?:MM|mm|mn|Mn|MN|bn|Bn|BN)\\b|\\b[kKmMbB]\\b|['’]0{3}s?|(?<![\\d'’])0{3}s?(?![\\d'’])))";
 const STATEMENTS: readonly RegExp[] = [
   new RegExp(
     `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
@@ -1158,9 +1162,15 @@ const STATEMENTS: readonly RegExp[] = [
   /[(（][ \u00a0]?(?<scale>'?000(?:'?s)?)[ \u00a0]omitted[ \u00a0]?[)）]/dg,
   /(?<![\dA-Za-z.,'])(?<scale>'?000(?:'?s)?)[ \u00a0]omitted(?![A-Za-z])/dg,
   /[(（][ \u00a0]?(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?[)）]/dg,
-  /[(（][ \u00a0]?in[ \u00a0]+(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)(?![ \u00a0]*(?:['’]?0{3}s?|thousands?|millions?|billions?|MM|mm|mn|bn|m|M|k|K|b|B))[^()（）\n]{0,40}[)）]/dg,
+  new RegExp(
+    `[(（][ \\u00a0]?in[ \\u00a0]+(?<cur>US\\$|HK\\$|A\\$|C\\$|S\\$|NT\\$|\\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)${NO_SCALE_IN_BRACKET}[^()（）\\n]{0,40}[)）]`,
+    "dg",
+  ),
   /[(（][ \u00a0]?(?<cur>U\.S\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling)[ \u00a0]?[)）]/dgi,
-  /[(（][ \u00a0]?in[ \u00a0]+(?<cur>U\.S\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling)(?![ \u00a0]*(?:['’]?0{3}s?|thousands?|millions?|billions?|MM|mm|mn|bn|m|M|k|K|b|B))[^()（）\n]{0,40}[)）]/dgi,
+  new RegExp(
+    `[(（][ \\u00a0]?in[ \\u00a0]+(?<cur>U\\.S\\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling)${NO_SCALE_IN_BRACKET}[^()（）\\n]{0,40}[)）]`,
+    "dgi",
+  ),
   // A heading's "Unit: million tonnes", "(thousand tonnes)" or a row's "thousand tonnes" cell; in a
   // sentence, "78 million tonnes" is a figure and "a million people" states nothing.
   /(?<=(?:^|[\n\t(（|]|\bunits?[ \u00a0]?[:：])[ \u00a0]*)(?<scale>thousands?|millions?|billions?)(?:[ \u00a0]of)?[ \u00a0](?<unit>[a-z]+(?:[ \u00a0][a-z]+)?)(?=[ \u00a0]*(?:$|[\n\t)）|]))/dgi,
@@ -1191,6 +1201,25 @@ function currencyCodes(word: string, settled: Settled): string[] {
   return /^[A-Z]{3}$/.test(trimmed) ? [trimmed] : [];
 }
 
+/** The bracket `from`–`to` sits in, as written, or null when it is on no one line. */
+function bracketAround(s: string, from: number, to: number): string | null {
+  const open = Math.max(s.lastIndexOf("(", from), s.lastIndexOf("（", from));
+  if (open < 0) return null;
+  const closes = [s.indexOf(")", to), s.indexOf("）", to)].filter((at) => at >= 0);
+  if (closes.length === 0) return null;
+  const content = s.slice(open + 1, Math.min(...closes));
+  return content.includes("\n") ? null : content;
+}
+
+/** The currencies a bracket names, as codes: "(in £ and $ thousands)" names two. */
+function bracketCurrencies(content: string, settled: Settled): Set<string> {
+  const codes = new Set<string>();
+  for (const match of content.normalize("NFKC").matchAll(CURRENCY_ANYWHERE)) {
+    for (const code of currencyCodes(match[0], settled)) codes.add(code);
+  }
+  return codes;
+}
+
 function statementsIn(prepared: Prepared, text: string, settled: Settled): Statement[] {
   const { s } = prepared;
   const written = (at: [number, number] | undefined) =>
@@ -1214,6 +1243,9 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
           unit = { kind: "other", word: written(at.unit ?? at.before ?? at.cur) ?? words };
       }
       if (!scale && unit.kind === "plain") continue;
+      // A bracket naming two currencies states neither for its amounts (#2365).
+      const bracket = bracketAround(s, match.index, match.index + match[0].length);
+      if (bracket !== null && bracketCurrencies(bracket, settled).size > 1) continue;
       found.push({
         from: match.index,
         to: match.index + match[0].length,
@@ -1284,7 +1316,7 @@ export function readStatedUnits(
 // A line naming a contained part — a note, section, table, statement or chart — states that
 // part's scale, never the Document's ("All figures in Note 5", "本报表", "附注五", "下列").
 const PART_SCOPED =
-  /\b(?:notes?|sections?|tables?|charts?|schedules?|appendi(?:x|ces)|exhibits?|statements?)\b|附注|註釋|注释|本表|本節|本节|本页|本頁|上表|上节|上節|下表|下节|下節|表中|表内|表內|下列|如上|以下|报表|報表|董事报告|董事會報告|董事会报告|薪酬报告|薪酬報告|分部报告|分部報告|母公司/i;
+  /\b(?:notes?|sections?|tables?|charts?|schedules?|appendi(?:x|ces)|exhibits?|statements?)\b|附注|註釋|注释|本表|本節|本节|本页|本頁|上表|上节|上節|下表|下节|下節|表中|表内|表內|下列|如上|以下|报表|報表|董事报告|董事會報告|董事会报告|薪酬报告|薪酬報告|分部|母公司/i;
 // The consolidated statements are the Document, not a part of it ("All amounts in the
 // consolidated financial statements are in £m").
 const DOCUMENT_STATEMENTS = /\b(?:consolidated\s+)?financial\s+statements?\b/gi;
@@ -1299,18 +1331,44 @@ const WHOLE_DOCUMENT =
   /^\s*[(（]?\s*(?:unless\s+(?:otherwise\s+)?(?:stated|indicated|noted)|except\s+(?:where|as)\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown)|throughout\s+(?:this|the)\s+(?:document|report)|(?:amounts?|figures?|sums?|values?|numbers?)\s+(?:throughout|across)\s+(?:this|the)\s+(?:document|report|(?:consolidated\s+)?financial\s+statements?)|all\s+(?:of\s+the\s+)?(?:amounts?|figures?|sums?|values?|numbers?)|every\s+(?:amount|figure|sum|value|number))\b/i;
 const WHOLE_DOCUMENT_ZH =
   /^\s*[(（]?\s*(?:除非|除另有|除特别|所有|全部|一切|本文件|本报告|本招股|全文|(?:本|合并)?财务报表[中内]?\s*(?:所有|全部|一切))/;
-// The scope a whole-Document line may name after "in", "for" or "of": this Document or report, its
-// (consolidated) financial statements, or a unit. Anything else ("in the remuneration report",
-// "for 2024") is a part's scale.
-const WHOLE_SCOPE =
-  /^(?:(?:this|the)\s+(?:document|report)\b|(?:this|these|the)\s+(?:consolidated\s+)?financial\s+statements\b|(?:consolidated\s+)?financial\s+statements\b|(?:the\s+)?group'?s?\b|(?:the\s+)?(?:financial\s+)?year\b|(?:the\s+)?period\b|(?:document|report)\b|(?:this|these)\b|'?0{3}s?|0{3}s?|thousands?|millions?|billions?|trillions?|lakhs?|crores?|(?:US\s+)?dollars?\b|pounds?(?:\s+sterling)?\b|euros?\b|yuan\b|renminbi\b|sterling\b|[$£€¥₹]|(?:USD|GBP|EUR|HKD|CNY|RMB|JPY|AUD|CAD|SGD|TWD|CHF|INR)\b|%)/i;
-const SCOPE_PHRASE = /\b(?:in|for|of)\s+(?:the\s+)?([A-Za-z0-9][\w'’-]*)/gi;
+// The scope a whole-Document line may name after a preposition: this Document or report, its
+// (consolidated) financial statements, the Group, the year or period ended, or a unit. A closed
+// list: any other noun ("in the remuneration report", "this segment", "on this page") is a part.
+const WHOLE_SCOPE = new RegExp(
+  [
+    "^(?:",
+    "(?:this|the)\\s+(?:document|(?:annual\\s+)?report|annual\\s+report\\s+and\\s+accounts)",
+    "|(?:document|(?:annual\\s+)?report|annual\\s+report\\s+and\\s+accounts)",
+    "|(?:this|these|the)\\s+(?:consolidated\\s+)?financial\\s+statements?",
+    "|(?:consolidated\\s+)?financial\\s+statements?",
+    "|(?:the\\s+)?group(?:['’]s\\s+(?:consolidated\\s+)?financial\\s+statements|\\s+or\\s+its\\s+(?:consolidated\\s+)?financial\\s+statements)?",
+    "|(?:the\\s+)?(?:financial\\s+|fiscal\\s+)?(?:year|period)(?:\\s+ended\\b)?",
+    "|(?:US\\s+|U\\.S\\.\\s+|Hong\\s+Kong\\s+|HK\\s+|Australian\\s+|Canadian\\s+|Singapore\\s+)?dollars?",
+    "|pounds?(?:\\s+sterling)?|euros?|yuan|[Rr]enminbi|sterling|yen",
+    "|(?:USD|GBP|EUR|HKD|CNY|RMB|JPY|AUD|CAD|SGD|TWD|CHF|INR)",
+    "|(?:US|HK|A|C|S|NT)?\\$|€|£|¥|₹",
+    "|['’]?0{3}s?|thousands?|millions?|billions?|trillions?|lakhs?|crores?",
+    "|%",
+    ")",
+  ].join(""),
+  "i",
+);
+// After the scope the line goes on with its scale, a verb or punctuation, never another noun.
+const SCOPE_CONTINUES =
+  /^\s*(?:$|[)\]};:,.，。、（）()]|\d|\b(?:are|is|was|were|will|would|shall|should|must|may|can|has|have|had|stat(?:e|ed|es)|shown?|show|expressed?|presented?|prepared|given|set|quoted|reported|disclosed|measured|in|of|for|at|as|to|on|from|by|throughout|included|except|unless|save|ended)\b|['’]?0{3}s?\b|thousands?\b|millions?\b|billions?\b|trillions?\b|lakhs?\b|crores?\b|[€£$¥₹]|%)/i;
+const SCOPE_PHRASE =
+  /\b(?:in|for|of|on|below|within|following)\s+(?:the\s+)?([A-Za-z0-9][\w'’-]*)/gi;
+// "on this page", "below", "within this report" and "the following amounts" say where the scale
+// is written, not that it holds for the whole Document.
+const LOCATION_SCOPE =
+  /\b(?:on|below|within|following)\s+(?:the\s+)?(?:this|these|those|page|pages|section|sections|document|report|statement|statements|table|tables|note|notes|amounts?|figures?)\b/i;
 
 function scopedPart(line: string): boolean {
   for (const each of line.matchAll(SCOPE_PHRASE)) {
     const word = each[1] ?? "";
     const rest = line.slice((each.index ?? 0) + each[0].length - word.length);
-    if (!WHOLE_SCOPE.test(rest)) return true;
+    const scope = WHOLE_SCOPE.exec(rest);
+    if (!scope || !SCOPE_CONTINUES.test(rest.slice(scope[0].length))) return true;
   }
   return false;
 }
@@ -1318,6 +1376,7 @@ function scopedPart(line: string): boolean {
 function wholeDocumentLine(line: string): boolean {
   if (PART_SCOPED.test(line.replace(DOCUMENT_STATEMENTS, " ").replace(DOCUMENT_STATEMENTS_ZH, " ")))
     return false;
+  if (LOCATION_SCOPE.test(line)) return false;
   if (scopedPart(line)) return false;
   return WHOLE_DOCUMENT.test(line) || WHOLE_DOCUMENT_ZH.test(line);
 }

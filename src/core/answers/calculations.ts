@@ -692,6 +692,23 @@ function rowScaleOf(label: string): { statement: string; exponent: number } | nu
   return null;
 }
 
+// A bracket states the row's scale only when the whole bracket is one scale, in at most one
+// currency: "(K)", "(£k)", "(thousands)", "(百万元)". "(m/s)" is a speed.
+const WHOLE_BRACKET_SCALE =
+  /^\s*(?:in\s+)?(?:(?:US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|₹|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF|INR)\s*)?(?:'?000(?:'?s)?|thousands?|millions?|billions?|trillions?|bn|bln|mn|mln|[kKmMbB]|Mio\.?|Mrd\.?|Tsd\.?|(?:万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟)(?:元)?)\s*$/i;
+const BRACKET_SCALE_WORD =
+  /'?000(?:'?s)?|\b(?:thousands?|millions?|billions?|trillions?|bn|bln|mn|mln|k|m|b)\b|Mio\.?|Mrd\.?|Tsd\.?|万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟/i;
+
+function wholeScaleBracket(text: string): { statement: string; exponent: number } | null {
+  for (const bracket of text.normalize("NFKC").matchAll(ROW_BRACKET)) {
+    if (!WHOLE_BRACKET_SCALE.test(bracket[1] ?? "")) continue;
+    const word = BRACKET_SCALE_WORD.exec(bracket[1] ?? "")?.[0];
+    const exponent = word ? scaleExponent(word) : 0;
+    if (exponent > 0) return { statement: bracket[0], exponent };
+  }
+  return null;
+}
+
 /** Whether `statement` scales its amounts "except where noted", and `label` is a per-share row it may leave out. */
 const notedOut = (statement: StatedUnit, label: string): boolean =>
   statement.except === "noted" && PER_SHARE.test(label);
@@ -726,7 +743,11 @@ function conflicting(statements: readonly StatedUnit[]): boolean {
  * too, as it changes no scale.
  */
 function withoutStatement(text: string): RowLabel {
-  const scales = readStatedUnits(text).filter((each) => each.scale !== 1 || each.except);
+  // A head's plain currency is its own statement of scale 1, which a wider scale line of another
+  // scale doesn't override (#2365).
+  const scales = readStatedUnits(text).filter(
+    (each) => each.scale !== 1 || each.except || each.unit.kind === "currency",
+  );
   const page = [
     ...[...text.matchAll(EXCEPTION_WORDS)].map((each) => ({
       start: each.index,
@@ -745,7 +766,7 @@ function withoutStatement(text: string): RowLabel {
     label = text.slice(0, Math.min(...page.map((each) => each.start)));
   const unsettled = UNSETTLED_ROW_HEAD.exec(label.normalize("NFKC"));
   const ownBracket = rowScaleOf(label);
-  const ownScales = own.filter((each) => each.scale !== 1).map((each) => each.scale);
+  const ownScales = own.map((each) => each.scale);
   if (
     ownBracket &&
     notAnAmount(label) !== "unit of measure" &&
@@ -1115,6 +1136,12 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     // A row label's own currency ("Basic EPS ($)") is the row's, not a nearer line, even when the
     // label is on the line above the number.
     const rowLabel = rowOf(quoted, figure)?.label ?? null;
+    // A per-share row the quoted line excepts keeps the line's currency without its scale.
+    const exceptedRow =
+      rowLabel !== null &&
+      readStatedUnits(place.lineText, context).some(
+        (each) => exceptedBy(each, rowLabel) || notedOut(each, rowLabel),
+      );
     const path = (unit: PageText) => (unit.label?.path ?? []).join("\u0000");
     for (let index = place.lineIndex; index <= place.figureIndex; index++) {
       const unit = units[index];
@@ -1147,8 +1174,13 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         if (inFigure && scale.start > place.figureAt) continue;
         // The figure's own row states its own unit ("Diluted EPS ($)"), not a nearer line, and so
         // does any other row that writes an amount: a row's unit states that row, not the next.
+        // Its plain currency is the exception: it is the row's own scale 1, which refutes a wider
+        // line of another scale, unless the line excepts that row.
         if (inFigure && scale.start >= figureRow) continue;
-        if (rowLabel !== null && scale.text !== "" && rowLabel.includes(scale.text)) continue;
+        if (rowLabel !== null && scale.text !== "" && rowLabel.includes(scale.text)) {
+          const ownPlainCurrency = scale.scale === 1 && scale.unit?.kind === "currency";
+          if (!ownPlainCurrency || exceptedRow) continue;
+        }
         if (
           readFigures(lineOf(unit.text, scale.start, scale.end), { ...context, header: null })
             .length > 0
@@ -1847,7 +1879,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       const row = onLine(unit.citation.quote);
       const statedLine = readStatedUnits(unit.citation.quote, context, true);
       const ownRow = rowOf(quoted, figure);
-      const bracketQuote = rowScaleOf(unit.citation.quote);
+      const bracketQuote = wholeScaleBracket(unit.citation.quote);
       const bracketLine =
         bracketQuote && ownRow?.ownBracket && ownRow.ownBracket.statement === bracketQuote.statement
           ? bracketQuote
@@ -1889,6 +1921,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       )
         return `${figure.chars} is in one column of a row whose head states the scale of another ("${unit.citation.quote}"); the text doesn't say which column it is, so its scale can't be settled.`;
       if (bracketLine) {
+        const kind = notAnAmount(label ?? "");
+        if (kind)
+          return `${figure.chars} is on a ${kind} row ("${(label ?? "").trim()}"), and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing its scale.`;
         const times = 10 ** bracketLine.exponent;
         stated = {
           quoted: unit,
@@ -1912,17 +1947,17 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         };
       } else if (label === null && row === null && statedLine.some((each) => each.scale !== 1)) {
         return `${figure.chars} has no label on its line or above it that says what its row is, and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing its scale.`;
+      } else if (statedLine.some((each) => exceptedBy(each, label ?? ""))) {
+        const currency = statedLine.find((each) => each.unit.kind === "currency")?.unit;
+        if (currency && base.unit.kind === "plain")
+          stated = { quoted: unit, stated: { ...base, unit: currency }, currencyChars: null };
+      } else if (statedLine.some((each) => notedOut(each, label ?? ""))) {
+        return `${figure.chars} is on a per-share row, and the unitQuote "${unit.citation.quote}" scales its Document's amounts except where it notes otherwise; it can't be calculated without guessing its scale.`;
       } else if (
         ownRow?.ownScales.length &&
         statedLine.some((each) => each.scale !== 1 && !ownRow.ownScales.includes(each.scale))
       ) {
         return `${figure.chars} is on a row whose head states its own scale, and the unitQuote "${unit.citation.quote}" states another; quote the row's head as unitQuote.`;
-      } else if (statedLine.some((each) => notedOut(each, label ?? ""))) {
-        return `${figure.chars} is on a per-share row, and the unitQuote "${unit.citation.quote}" scales its Document's amounts except where it notes otherwise; it can't be calculated without guessing its scale.`;
-      } else if (statedLine.some((each) => exceptedBy(each, label ?? ""))) {
-        const currency = statedLine.find((each) => each.unit.kind === "currency")?.unit;
-        if (currency && base.unit.kind === "plain")
-          stated = { quoted: unit, stated: { ...base, unit: currency }, currencyChars: null };
       } else {
         const readings = row
           ? [row]
@@ -1936,6 +1971,16 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         // of them a number is in, so it states none of them for it.
         if (conflicting(statedLine))
           return `the unitQuote "${unit.citation.quote}" states more than one unit or scale; give the line or column head that states the unit of ${figure.chars} alone.`;
+        // A scale is dropped silently when the line's currency is not the figure's own: "£m" over
+        // "$1,234.5" leaves $900, so the figure is refused instead (#2365).
+        const ownCurrency = base.unit.kind === "currency" ? base.unit.code : null;
+        const lineCurrency = statedLine.find((each) => each.unit.kind === "currency")?.unit;
+        if (
+          ownCurrency !== null &&
+          lineCurrency?.kind === "currency" &&
+          lineCurrency.code !== ownCurrency
+        )
+          return `the unitQuote "${unit.citation.quote}" states ${lineCurrency.code}, but ${figure.chars} is in ${ownCurrency}; quote a line in ${ownCurrency} that states the scale.`;
         const applies =
           readings.find((each) => each.scale !== 1) ??
           readings.find((each) => each.unit.kind !== base.unit.kind) ??

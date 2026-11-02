@@ -1135,6 +1135,11 @@ describe("stated units", () => {
       "All amounts of the Group are in thousands",
       "All amounts in the Group's financial statements are in thousands",
       "Unless otherwise stated, all amounts for the year ended 31 December 2024 are in thousands",
+      "All amounts in this document are in £'000",
+      "All amounts in this annual report are in £'000",
+      "All amounts in the Group's financial statements are in £'000",
+      "Unless otherwise stated, all amounts for the period ended 30 June 2024 are in thousands",
+      "All amounts in US dollars are in millions",
     ])
       expect([line, statesForWholeDocument(line)]).toEqual([line, true]);
     for (const line of [
@@ -1158,8 +1163,47 @@ describe("stated units", () => {
       "本报表金额单位：万元",
       "下列金额单位：万元",
       "附注五金额单位：万元",
+      "All amounts in this remuneration report are in £'000",
+      "Unless otherwise stated, all amounts in this Directors' Remuneration Report are in £'000",
+      "All amounts in this segment are in £'000",
+      "All amounts in the Group's remuneration report are in £'000",
+      "All amounts on this page are in £'000",
+      "All amounts below are in £'000",
+      "All amounts within this report are in £'000",
+      "All amounts following are in £'000",
+      "所有分部信息金额单位：百万元",
     ])
       expect([line, statesForWholeDocument(line)]).toEqual([line, false]);
+  });
+
+  // protects=#2365; fails_when=a bracket's currency is read alone although a scale later in the
+  // bracket states one, so "(in £, thousands)" gives £900 instead of refusing, or "(in £ and $
+  // thousands)" picks one of its two currencies instead of refusing.
+  test("a bracket's tail is read whole: a scale later in it is not a currency alone", () => {
+    for (const line of [
+      "(in £, thousands)",
+      "(in £, '000)",
+      "(in US$, millions)",
+      "(in euros, millions)",
+      "(in $US thousands)",
+      "(in £ and $ thousands)",
+      "(in US dollars millions)",
+      "(in dollars thousands)",
+    ])
+      expect([line, stated(line)]).toEqual([line, []]);
+    expect(stated("(in dollars, in thousands)")).toEqual([
+      {
+        chars: "in thousands",
+        scale: 1000,
+        scaleWord: "thousands",
+        unit: { kind: "plain" },
+      },
+    ]);
+    for (const line of ["(in £ and pence)", "(in £, GBP)", "(in £, see note 3)"])
+      expect([line, stated(line)]).toEqual([
+        line,
+        [{ chars: line, scale: 1, scaleWord: null, unit: { kind: "currency", code: "GBP" } }],
+      ]);
   });
 
   test("an amount's own compound scale states nothing: “4,979.6百万元” holds “万元” but is a figure", () => {
