@@ -680,6 +680,32 @@ test("the Tags heading's + makes a Tag in place, and a Tag renamed by double-cli
       documentRow(window, "Tides").getByTestId("open-document"),
     ).toHaveAccessibleDescription("Tags: Thesis");
 
+    // Folded, its rows are out of sight, and the heading's own menu still carries Manage Tags….
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(window.getByTestId("sidebar-tag")).toHaveCount(0);
+    // By keyboard: the +, then the ⋯, both with their rings, then the menu's one item.
+    await toggle.focus();
+    await window.keyboard.press("Tab");
+    await expect(window.getByTestId("tags-add")).toBeFocused();
+    await window.keyboard.press("Tab");
+    const menuButton = window.getByTestId("tags-menu");
+    await expect(menuButton).toBeFocused();
+    expect(await focusRingShows(window)).toBe(true);
+    await window.keyboard.press("Enter");
+    const sectionMenu = window.getByTestId("tags-menu-items");
+    await expect(sectionMenu).toBeVisible();
+    const manage = sectionMenu.getByTestId("tags.manage");
+    await expect(manage).toBeFocused();
+    await expect(manage).toHaveAccessibleName("Manage Tags…");
+    await window.keyboard.press("Enter");
+    const tagsDialog = window.getByTestId("tags-dialog");
+    await expect(tagsDialog).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(tagsDialog).toBeHidden();
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+
     // In Chinese, the + and the section speak Chinese, and a name is checked in place too.
     await setLanguage(window, "zh-CN");
     await expect(toggle).toHaveText("标签");
@@ -702,6 +728,31 @@ test("the Tags heading's + makes a Tag in place, and a Tag renamed by double-cli
     await expect(window.getByTestId("sidebar-tag-new")).toHaveCount(0);
     await expect(window.getByTestId("tags-add")).toBeFocused();
     expect((await tagNames(window)).filter((name) => name === "")).toHaveLength(0);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a Tag made with the heading's + is still listed, with 0 Documents, after the app restarts", async () => {
+  let { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await addTextDocuments(window, { "Tides.txt": "Spring tides happen at new moon." });
+    // A preset Tag a Document carries, so the section is there.
+    await tagDocument(window, "Tides", "Report");
+    await window.getByTestId("tags-toggle").hover();
+    await window.getByTestId("tags-add").click();
+    await window.getByTestId("sidebar-tag-new-name").fill("Empty");
+    await window.keyboard.press("Enter");
+    await expect(tagRow(window, "Empty").getByTestId("browse-count")).toHaveText("0");
+    expect(await tagNames(window)).toContain("Empty");
+
+    await app.close();
+    ({ app, window } = await launchApp(dataDir));
+    await dismissChatSetup(window);
+    // The core kept it, so the sidebar lists it: no Tag the User made is a phantom.
+    expect(await tagNames(window)).toContain("Empty");
+    await expect(tagRow(window, "Empty").getByTestId("browse-count")).toHaveText("0");
   } finally {
     await app.close();
   }

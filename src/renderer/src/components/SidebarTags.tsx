@@ -13,7 +13,7 @@ import { useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
 import { InlineName } from "./InlineName";
 import { useFolds } from "./LibraryFolders";
-import { PlusLineIcon, TagLineIcon } from "./lineIcons";
+import { MoreLineIcon, PlusLineIcon, TagLineIcon } from "./lineIcons";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
 import { SidebarSection } from "./SidebarSection";
 import {
@@ -26,18 +26,18 @@ import {
   rowIconClass,
 } from "./sidebarRows";
 import { TagColourChoices, TagDot } from "./TagColour";
-import { menuFrameClass } from "./ui";
+import { menuClass, menuFrameClass, menuItemClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 
 /**
- * The sidebar's Tags section, last in the tree: the Tags at least one
- * Document carries, in name order, each with how many. A Tag shows its
- * Documents in the Library, through the Tag filter; Tags awaiting review are
- * reviewed there too. Documents dragged onto a Tag get it (`tagTarget`).
- * The heading's + makes one in place (#205), the dot opens its eight colours,
- * and Manage Tags… at the end opens the full list. A Tag's menu carries
- * Colour, Edit description, Merge into…, Rename and Delete, through the one
- * menu every object has (#223).
+ * The sidebar's Tags section, last in the tree: every Tag the User made, and
+ * each preset Tag a Document carries, in name order, each with how many. A Tag
+ * shows its Documents in the Library, through the Tag filter; Tags awaiting
+ * review are reviewed there too. Documents dragged onto a Tag get it
+ * (`tagTarget`). The heading's + makes one in place (#205), the dot opens its
+ * eight colours, and the heading's menu and Manage Tags… at the end open the
+ * full list. A Tag's menu carries Colour, Edit description, Merge into…,
+ * Rename and Delete, through the one menu every object has (#223).
  */
 export function SidebarTags() {
   const t = useT();
@@ -45,12 +45,13 @@ export function SidebarTags() {
   const documents = useOwnDocuments();
   const byTag = useMemo(() => documentsByTag(documents), [documents]);
   const folded = useFolds((state) => state.tagsFolded);
-  // A Tag just made here is one more row until a Document carries it: it exists, so it shows.
-  const [made, setMade] = useState<ReadonlySet<string>>(new Set());
   const [naming, setNaming] = useState(false);
   // The Tag just named, put where a keyboard expects after its field goes: on its new row.
   const [focusing, setFocusing] = useState<string | null>(null);
-  const used = tags.filter((tag) => byTag.has(tag.id) || made.has(tag.id));
+  // Every Tag the User made is listed, with 0 until a Document carries it, so one made with the +
+  // doesn't vanish at a restart. The presets, which exist before the User makes anything, show
+  // once a Document carries one (DESIGN.md, Sidebar; flagged for the owner in #205's pull request).
+  const listed = tags.filter((tag) => !tag.preset || byTag.has(tag.id));
   useEffect(() => {
     if (focusing === null) return;
     const row = document.querySelector<HTMLElement>(
@@ -59,7 +60,7 @@ export function SidebarTags() {
     row?.querySelector<HTMLElement>("[data-tree-row]")?.focus();
     setFocusing(null);
   }, [focusing]);
-  if (used.length === 0) return null;
+  if (listed.length === 0) return null;
 
   const startNew = () => {
     if (useFolds.getState().tagsFolded) useFolds.getState().toggleTags();
@@ -74,10 +75,7 @@ export function SidebarTags() {
       }
     });
   };
-  const madeOne = (tag: Tag) => {
-    setMade((before) => new Set([...before, tag.id]));
-    setFocusing(tag.id);
-  };
+  const madeOne = (tag: Tag) => setFocusing(tag.id);
 
   return (
     <SidebarSection
@@ -86,16 +84,19 @@ export function SidebarTags() {
       headingTestId="tags-toggle"
       fold={{ open: !folded, toggle: () => useFolds.getState().toggleTags() }}
       actions={
-        <button
-          type="button"
-          data-testid="tags-add"
-          aria-label={t("tags.new")}
-          title={t("tags.new")}
-          onClick={startNew}
-          className={rowActionButtonClass}
-        >
-          <PlusLineIcon className="size-4" />
-        </button>
+        <>
+          <button
+            type="button"
+            data-testid="tags-add"
+            aria-label={t("tags.new")}
+            title={t("tags.new")}
+            onClick={startNew}
+            className={rowActionButtonClass}
+          >
+            <PlusLineIcon className="size-4" />
+          </button>
+          <SectionMenu />
+        </>
       }
       foot={
         <div className={rowClass(false)}>
@@ -112,12 +113,58 @@ export function SidebarTags() {
       }
     >
       <ul role="none">
-        {used.map((tag) => (
+        {listed.map((tag) => (
           <TagRow key={tag.id} tag={tag} count={byTag.get(tag.id)?.length ?? 0} />
         ))}
         {naming && <NewTagRow onMade={madeOne} onDone={doneNaming} />}
       </ul>
     </SidebarSection>
+  );
+}
+
+/**
+ * The section's own menu, so Manage Tags… stays reachable when the section is
+ * folded and its rows are out of sight. It opens from the button beside the +.
+ */
+function SectionMenu() {
+  const t = useT();
+  const menu = usePopoverMenu({ focus: "first" });
+  const label = t("tags.menu.of", { name: t("tags.title") });
+  return (
+    <>
+      <button
+        {...menu.buttonProps}
+        type="button"
+        data-testid="tags-menu"
+        aria-label={label}
+        title={label}
+        className={rowActionButtonClass}
+      >
+        <MoreLineIcon className="size-4" />
+      </button>
+      <div
+        {...menu.menuProps}
+        role="menu"
+        aria-label={label}
+        data-testid="tags-menu-items"
+        className={menuClass}
+      >
+        {menu.open && (
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="tags.manage"
+            onClick={() => {
+              menu.close();
+              useAppStore.getState().openTagsDialog();
+            }}
+            className={`${menuItemClass} pl-2`}
+          >
+            <span className="flex-1">{t("tags.menu.manage")}</span>
+          </button>
+        )}
+      </div>
+    </>
   );
 }
 

@@ -109,7 +109,7 @@ test("a Document renames in its Library row and in the viewer's header, by doubl
   }
 });
 
-test("a Folder renames in its section of the Library, and a Tag in the sidebar: a name another has is a problem, a blank one changes nothing", async () => {
+test("a Folder renames in its section of the Library, and a Tag in the sidebar: a name another has merges them, a blank one changes nothing", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1100, 700);
