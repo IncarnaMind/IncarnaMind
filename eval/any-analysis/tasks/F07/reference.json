@@ -1,0 +1,15 @@
+{
+  "task": "F07",
+  "inputs": {
+    "en": "0a780591e3a54f3c3ac8b68d1b7f7140205bacebda493f6f73c729c070ca56a6"
+  },
+  "values": {
+    "revenue": 67151883.43638,
+    "profit": 9107976.697317999,
+    "elimination": 2057457,
+    "eur_rate": 1.0827,
+    "gbp_rate": 1.2693,
+    "revenue_not_eliminated": 69209340.43638,
+    "profit_at_closing": 9309496.341136992
+  }
+}

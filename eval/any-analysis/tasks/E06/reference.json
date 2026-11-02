@@ -1,0 +1,40 @@
+{
+  "task": "E06",
+  "inputs": {
+    "en": "2987833127bc24e79b7c4e5231056a36f6908a014a5ada6b02c24fae0b3e9be3",
+    "zh": "3d49276cfff4a8305dbafe1d0a0b823fc329a241a764fc8e2cb75b3bbddf0ce5"
+  },
+  "values": {
+    "duplicates": [
+      {
+        "key": "CU-10622",
+        "first_row": 209,
+        "second_row": 2443
+      },
+      {
+        "key": "CU-12614",
+        "first_row": 472,
+        "second_row": 875
+      },
+      {
+        "key": "CU-15458",
+        "first_row": 501,
+        "second_row": 1824
+      },
+      {
+        "key": "CU-12362",
+        "first_row": 791,
+        "second_row": 1539
+      },
+      {
+        "key": "CU-18176",
+        "first_row": 2731,
+        "second_row": 2855
+      }
+    ],
+    "joined": 11977,
+    "orphan_count": 23,
+    "orphan_amount": 74806.16,
+    "joined_as_written": 9781
+  }
+}

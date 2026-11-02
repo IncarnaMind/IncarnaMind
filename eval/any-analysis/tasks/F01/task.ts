@@ -4,12 +4,39 @@ import type { Task, TaskLanguage } from "../../task";
 const NAMES = { en: "Cost centre budget 2025.xlsx", zh: "2025年成本中心预算.xlsx" } as const;
 const SHEETS = { en: ["Budget", "Actual"], zh: ["预算", "实际"] } as const;
 const HEADINGS = {
-  en: ["Cost centre", "Department", ...["Jan", "Feb", "Mar", "Apr", "May", "Jun"], ...["Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]],
+  en: [
+    "Cost centre",
+    "Department",
+    ...["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+    ...["Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+  ],
   zh: ["成本中心", "部门", ...Array.from({ length: 12 }, (_, month) => `${month + 1}月`)],
 };
 const DEPARTMENTS = {
-  en: ["Finance", "Marketing", "Sales", "Operations", "IT", "HR", "Legal", "Facilities", "Logistics", "R&D"],
-  zh: ["财务部", "市场部", "销售部", "运营部", "信息技术部", "人力资源部", "法务部", "行政部", "物流部", "研发部"],
+  en: [
+    "Finance",
+    "Marketing",
+    "Sales",
+    "Operations",
+    "IT",
+    "HR",
+    "Legal",
+    "Facilities",
+    "Logistics",
+    "R&D",
+  ],
+  zh: [
+    "财务部",
+    "市场部",
+    "销售部",
+    "运营部",
+    "信息技术部",
+    "人力资源部",
+    "法务部",
+    "行政部",
+    "物流部",
+    "研发部",
+  ],
 };
 
 /**
@@ -43,13 +70,19 @@ function centres(): Centre[] {
     const actual = budget.map((cents) => Math.round(cents * (1 + (next() - 0.5) * 0.08)));
     const target = OVERSPENT.get(index);
     if (target !== undefined) {
-      const missing = target - actual.reduce((sum, cents, month) => sum + cents - (budget[month] ?? 0), 0);
+      const missing =
+        target - actual.reduce((sum, cents, month) => sum + cents - (budget[month] ?? 0), 0);
       const each = Math.trunc(missing / 12);
       for (let month = 0; month < 12; month++) {
         actual[month] = (actual[month] ?? 0) + (month === 11 ? missing - each * 11 : each);
       }
     }
-    return { code: `CC${String(index + 1).padStart(2, "0")}`, department: index % 10, budget, actual };
+    return {
+      code: `CC${String(index + 1).padStart(2, "0")}`,
+      department: index % 10,
+      budget,
+      actual,
+    };
   });
 }
 

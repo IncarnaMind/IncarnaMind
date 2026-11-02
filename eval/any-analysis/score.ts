@@ -122,12 +122,16 @@ const RULE = /^\s*\|(?:\s*:?-{2,}:?\s*\|)+\s*$/;
 const LIST = /^\s*(?:[-*•]|\d+[.)])\s/;
 const HAN = /\p{Script=Han}/u;
 
-/** Words that say a figure was worked out again by the app. */
-const RECALCULATED = /recalculat|re-?computed by IncarnaMind|worked out again|重新计算|复算|重算/i;
+/**
+ * Words that label a number as recalculated by the app, as its figure cards do: "(recalculated)",
+ * "recalculated by IncarnaMind". A model saying its own code recalculated something is not a label.
+ */
+const RECALCULATED =
+  /[(（]\s*(?:recalculated|re-?checked)\s*[)）]|(?:recalculated|re-?checked|verified|worked out again) by IncarnaMind|IncarnaMind (?:has )?(?:recalculated|re-?checked|verified)|[(（]\s*(?:已)?(?:重新计算|复算|复核)\s*[)）]|IncarnaMind\s*(?:已)?(?:重新计算|复算|复核)|由\s*IncarnaMind\s*(?:重新计算|复算|复核)/i;
 
 /** Words that say the Answer couldn't do something, in English and Chinese. */
 const CANT =
-  /\b(?:can(?:no|['’])t|unable to|not able to|isn['’]?t possible|is not possible|could(?:n['’]t| not)|wasn['’]?t able|no way to|not supported|isn['’]?t supported|doesn['’]?t support|not offered|isn['’]?t offered|over the limit|exceeds?|too large|only (?:the first|read|reads|part)|(?:was|were) cut|truncated|left out|not available|isn['’]?t available)\b|无法|不能|没法|未能|不支持|超出|超过了?(?:上限|限制)|太大|只读取|只读了|截断|做不到|无从|不可用|没有办法/i;
+  /\b(?:can(?:no|['’])t|unable to|not able to|isn['’]?t possible|is not possible|could(?:n['’]t| not)|wasn['’]?t able|no way to|not supported|isn['’]?t supported|doesn['’]?t support|not offered|isn['’]?t offered|over the limit|too large|only (?:the first|read|reads|part)|(?:was|were) cut|truncated|left out|not available|isn['’]?t available)\b|无法|不能|没法|未能|不支持|超出|超过了?(?:上限|限制)|太大|只读取|只读了|截断|做不到|无从|不可用|没有办法/i;
 
 const normalised = (text: string): string => text.normalize("NFKC");
 

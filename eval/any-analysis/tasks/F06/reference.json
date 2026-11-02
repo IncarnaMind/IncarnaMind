@@ -1,0 +1,39 @@
+{
+  "task": "F06",
+  "inputs": {
+    "en": "9312b64f4bccb32d918444dc844073244e24f0d9f8156091b2b37168594efc24"
+  },
+  "values": {
+    "funds": [
+      {
+        "key": "Halvard",
+        "annual_return": 0.07056003842072855,
+        "volatility": 0.17151144823858253,
+        "sharpe": 0.29479104129770134,
+        "max_drawdown": 0.3227110359090054
+      },
+      {
+        "key": "Merrow",
+        "annual_return": 0.04663883811728109,
+        "volatility": 0.05024534865987016,
+        "sharpe": 0.5301752068158487,
+        "max_drawdown": 0.0788899660688317
+      },
+      {
+        "key": "Quinlan",
+        "annual_return": 0.045467786142932454,
+        "volatility": 0.1511798179495154,
+        "sharpe": 0.16846022497154414,
+        "max_drawdown": 0.25533385629849403
+      }
+    ],
+    "correlation_equity_bond": -0.28319884241506926,
+    "correlation_equity_gold": 0.08347820007155637,
+    "correlation_bond_gold": 0.47911730399109087,
+    "sharpe_arithmetic": [
+      0.3666990092795461,
+      0.5343677843984733,
+      0.23738231104647048
+    ]
+  }
+}

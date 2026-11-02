@@ -1,17 +1,22 @@
 import pandas as pd
 
-budget = pd.read_csv(f"{DATA}/budget.csv").set_index("code").sum(axis=1)
-actual = pd.read_csv(f"{DATA}/actual.csv").set_index("code").sum(axis=1)
+
+def cents(name):
+    return (pd.read_csv(f"{DATA}/{name}").set_index("code") * 100).round().astype("int64").sum(axis=1)
+
+
+# In whole cents, as the sheet's amounts are, so each sum is exact.
+budget = cents("budget.csv")
+actual = cents("actual.csv")
 variance = actual - budget
-share = variance / budget
-worst = variance.sort_values(ascending=False).head(5)
+worst = variance.sort_values(ascending=False, kind="stable").head(5)
 
 result = {
     "worst": [
-        {"key": code, "amount": float(amount), "share": float(share[code])}
+        {"key": code, "amount": int(amount) / 100, "share": float(amount / budget[code])}
         for code, amount in worst.items()
     ],
-    "total_variance": float(variance.sum()),
+    "total_variance": int(variance.sum()) / 100,
     # The sixth most over budget, for checking the five stand clear of the rest.
-    "sixth_amount": float(variance.sort_values(ascending=False).iloc[5]),
+    "sixth_amount": int(variance.sort_values(ascending=False, kind="stable").iloc[5]) / 100,
 }

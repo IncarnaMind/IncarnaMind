@@ -1,0 +1,38 @@
+{
+  "task": "F01",
+  "inputs": {
+    "en": "34bb54a377d49ce0fc4833809cdecb2511e31c52ea35078d8e35e206b37d0b0c",
+    "zh": "89c7dc08ca9399d2b4aee83516c82e680a5f6e8c948dae38aebf80779c516ffe"
+  },
+  "values": {
+    "worst": [
+      {
+        "key": "CC07",
+        "amount": 86412.37,
+        "share": 0.08894737004632013
+      },
+      {
+        "key": "CC19",
+        "amount": 71250.8,
+        "share": 0.06598518244119281
+      },
+      {
+        "key": "CC23",
+        "amount": 58903.15,
+        "share": 0.042575460787856886
+      },
+      {
+        "key": "CC31",
+        "amount": 47316.42,
+        "share": 0.13442164772727272
+      },
+      {
+        "key": "CC12",
+        "amount": 39804.66,
+        "share": 0.02794682300077231
+      }
+    ],
+    "total_variance": 216995.66,
+    "sixth_amount": 12712.88
+  }
+}

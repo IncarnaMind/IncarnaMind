@@ -333,6 +333,18 @@ describe("decoys", () => {
     expect(scoreRun([TASK], { T00: REFERENCE }, [record(answer(RIGHT))]).failed).toBe(false);
   });
 
+  test("a model saying its own code recalculated a number is no label, and no false one", () => {
+    const own = RIGHT.map((line) =>
+      line.replace("Growth was 8.13%.", "I recalculated the growth in code: 8.13%."),
+    );
+
+    const score = scoreAnswer(TASK, REFERENCE, record(answer(own)));
+
+    expect(outcomes(score).growth).toBe("right");
+    expect(score.falseRecalculated).toEqual([]);
+    expect(score.passed).toBe(true);
+  });
+
   test("a figure the app recalculated that the reference says is wrong fails C2", () => {
     const recalculatedWrong = answer(RIGHT, {
       figures: [figure(1, 13000)],

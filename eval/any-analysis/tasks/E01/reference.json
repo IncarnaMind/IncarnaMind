@@ -1,0 +1,37 @@
+{
+  "task": "E01",
+  "inputs": {
+    "en": "3c4fecbbb0667024c9192e023655a2512f67f60bcd3b81b01bf7a0b2b1d7897a"
+  },
+  "values": {
+    "constants": [
+      {
+        "key": "Revenue!E3",
+        "constant": 1.05
+      },
+      {
+        "key": "Staff!D3",
+        "constant": 58000
+      },
+      {
+        "key": "Opex!C2",
+        "constant": 0.045
+      },
+      {
+        "key": "Tax!F2",
+        "constant": 0.28
+      },
+      {
+        "key": "CashFlow!D6",
+        "constant": 250000
+      },
+      {
+        "key": "Summary!B4",
+        "constant": 0.9
+      }
+    ],
+    "constant_count": 6,
+    "headline_npv": 648454.9580814609,
+    "formula_cells": 144
+  }
+}

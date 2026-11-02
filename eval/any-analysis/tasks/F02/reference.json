@@ -1,0 +1,22 @@
+{
+  "task": "F02",
+  "inputs": {
+    "en": "824398617e2b2f8ed5b9aa5b25e97ecb0d99ca58dd9e765da7e5b7716338822f"
+  },
+  "values": {
+    "matched": 4132,
+    "ledger_unmatched_count": 68,
+    "ledger_unmatched_sum": -73578.65,
+    "bank_unmatched_count": 18,
+    "bank_unmatched_sum": -8308.46,
+    "difference": -65270.19,
+    "near_misses": 5,
+    "near_miss_days": [
+      5,
+      6,
+      7,
+      8,
+      9
+    ]
+  }
+}
