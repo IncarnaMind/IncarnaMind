@@ -24,7 +24,7 @@ import type { EvidenceScope } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
 import type { PreparedChatModel } from "../../providers/chat";
 import { outputTokens } from "../../providers/outputLimits";
-import { type AnswerDocuments, createCitationSession } from "../citations";
+import type { AnswerDocuments } from "../citations";
 import { estimateTokens } from "../context";
 import { withoutOverlap } from "../documentText";
 import { MOST_TOOL_LOOP_CALLS } from "../engine";
@@ -34,6 +34,7 @@ import {
   afterRun,
   type CheckStart,
   type ClaimCheckRequest,
+  checkSession,
   NO_DATE,
   runFailureOf,
 } from "./claimCheck";
@@ -205,15 +206,12 @@ export function createWholeRead(options: WholeReadOptions) {
   /** Passages as a check's search shows them, to count what a read sends. */
   const measuring = () => {
     const { documents } = options;
-    return createCitationSession(
-      {
-        citationSource: (passageId) => documents.citationSource(passageId),
-        pageTexts: (documentId, contentHash, from, to) =>
-          documents.pageTexts(documentId, contentHash, from, to),
-        documentDate: NO_DATE,
-      },
-      { onRecord: () => undefined },
-    );
+    return checkSession({
+      citationSource: (passageId) => documents.citationSource(passageId),
+      pageTexts: (documentId, contentHash, from, to) =>
+        documents.pageTexts(documentId, contentHash, from, to),
+      documentDate: NO_DATE,
+    });
   };
 
   /**

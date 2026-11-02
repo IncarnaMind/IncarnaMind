@@ -1438,6 +1438,8 @@ export const zhCN = {
   "edit.problem.unplaced": "AI 标出要删除的文字在选中内容里找不到唯一一处原文，没有改动。请重试。",
   "edit.problem.unchanged.said": "没有改动。AI 说：“{said}”",
   "edit.problem.typed-tag": "AI 改写时漏掉了你输入的 <removed> 标记，没有改动。请重试。",
+  "edit.problem.not-placed":
+    "AI 的改写会加入它没写的引用、脚注或计算结果，或改动已有的，所以没有改动。请重试。",
   "edit.problem.misnamed": "AI 没有说清每处修改替换哪一段，没有改动。请重试。",
   "edit.problem.late": "这次修改送达太慢，没有直接应用。请接受或拒绝这些修订。",
   "edit.problem.busy": "上一次修改还在进行。等它完成，或先停止。",
@@ -6335,8 +6337,11 @@ export const zhCN = {
   "mindCall.failed.noTable": "未能生成表格，因此没有向“{mind}”添加内容",
   "mindCall.failed.unplaced": "标出要删除的文字在“{mind}”里找不到唯一一处原文，因此没有改动",
   "mindCall.failed.typedTag": "改写漏掉了你在“{mind}”里输入的 <removed> 标记，因此没有改动",
+  "mindCall.failed.notPlaced":
+    "改写会在“{mind}”里加入它没写的引用、脚注或计算结果，或改动已有的，所以没有改动",
   "mindCall.failed.misnamed": "改写没有说清每处修改替换“{mind}”里的哪一段，因此没有改动",
   "mindCall.failed.uncited": "未添加到“{mind}”：出处没有引用",
+  "mindCall.failed.length": "未修改“{mind}”：新内容的长度不符合要求",
   "mindCall.failed.noChart.noTable": "没有生成图表：“{mind}”里没有表格",
   "mindCall.failed.noChart.several": "没有生成图表：“{mind}”里有多个表格，光标不在其中任何一个",
   "mindCall.failed.noChart.noNumbers": "没有生成图表：“{mind}”里的表格没有数字列",
