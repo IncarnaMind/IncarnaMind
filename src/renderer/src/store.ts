@@ -960,6 +960,19 @@ export const useAppStore = create<AppState>()((set, get) => {
     return { paths, notOnDisk };
   };
 
+  /** The system's open dialog for files, then adds each picked into `folderId` (null: no Folder). */
+  const pickFiles = (folderId: string | null) =>
+    attempt(async () => {
+      if (get().pickingDocuments) return;
+      set({ pickingDocuments: true });
+      try {
+        const paths = await files.pickDocuments();
+        if (paths.length > 0) await addByPath(paths, [], [], folderId);
+      } finally {
+        set({ pickingDocuments: false });
+      }
+    });
+
   return {
     ...createLayoutSlice(set, get, (error) => useNotices.getState().showError(error)),
     status: { kind: "loading" },
@@ -1693,17 +1706,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     addPaths: (paths) => attempt(() => addByPath(paths, [], [])),
 
-    pickDocuments: () =>
-      attempt(async () => {
-        if (get().pickingDocuments) return;
-        set({ pickingDocuments: true });
-        try {
-          const paths = await files.pickDocuments();
-          if (paths.length > 0) await addByPath(paths, [], []);
-        } finally {
-          set({ pickingDocuments: false });
-        }
-      }),
+    pickDocuments: () => pickFiles(null),
 
     pickDocumentsOrFolder: () =>
       attempt(async () => {
@@ -1717,17 +1720,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
       }),
 
-    pickDocumentsIntoFolder: (folderId) =>
-      attempt(async () => {
-        if (get().pickingDocuments) return;
-        set({ pickingDocuments: true });
-        try {
-          const paths = await files.pickDocuments();
-          if (paths.length > 0) await addByPath(paths, [], [], folderId);
-        } finally {
-          set({ pickingDocuments: false });
-        }
-      }),
+    pickDocumentsIntoFolder: (folderId) => pickFiles(folderId),
 
     async locateDocumentFile(id) {
       const paths = await files.pickDocuments();

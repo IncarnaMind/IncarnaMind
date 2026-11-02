@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
@@ -65,7 +65,7 @@ const WORDS = {
     addDocumentsHere: "Add Documents here…",
     rename: "Rename",
     delete: "Delete",
-    folderPageButtons: /^(New folder|Starter folders|Edit folder|Delete folder)$/,
+    folderPageButtons: /^(new folder|starter folders|edit folder|delete folder)$/i,
   },
   "zh-CN": {
     folders: { finance: "财务", research: "调研", archive: "归档" },
@@ -192,6 +192,18 @@ async function undo(window: Page): Promise<void> {
 }
 
 const undoMessage = (window: Page) => window.getByTestId("undo-message");
+
+/**
+ * Types a Folder's name in Move to…, and waits until the filtered list has it as the row Enter
+ * chooses: a typed name reaches the list a render after the field, and Enter before that takes
+ * the first row, "Not in a Folder".
+ */
+async function typeFolderInto(window: Page, picker: Locator, name: string): Promise<void> {
+  await window.keyboard.type(name);
+  await expect(
+    picker.locator('[data-testid="move-to-option"][aria-selected="true"]'),
+  ).toContainText(name);
+}
 
 /** ⌘-click on a row: one of several selected. */
 const addToSelection = (window: Page, row: Locator): Promise<void> =>
@@ -446,10 +458,7 @@ for (const [language, width] of [
       await window.keyboard.press("ControlOrMeta+Shift+M");
       const picker = window.getByTestId("move-to-picker");
       await expect(picker.getByTestId("move-to-search")).toBeFocused();
-      await window.keyboard.type(words.folders.archive);
-      await expect(
-        picker.getByTestId("move-to-option").filter({ hasText: words.folders.archive }),
-      ).toBeVisible();
+      await typeFolderInto(window, picker, words.folders.archive);
       await screenshot(window, `move-to-picker-${language}-${width}`);
       await window.keyboard.press("Enter");
       await expect(undoMessage(window)).toHaveText(words.movedOne(second, words.folders.archive));
@@ -463,7 +472,7 @@ for (const [language, width] of [
       await addToSelection(window, libraryRow(library, third));
       await window.keyboard.press("ControlOrMeta+Shift+M");
       await expect(picker.getByTestId("move-to-search")).toBeFocused();
-      await window.keyboard.type(words.folders.research);
+      await typeFolderInto(window, picker, words.folders.research);
       await window.keyboard.press("Enter");
       await expect.poll(() => folderOfDocument(window, third)).toBe(seeded.research);
       await search.fill(third);
@@ -478,7 +487,7 @@ for (const [language, width] of [
       await screenshot(window, `folder-line-${language}-${width}`);
       await pointAndClick(window, placedLine);
       await expect(picker.getByTestId("move-to-search")).toBeFocused();
-      await window.keyboard.type(words.folders.archive);
+      await typeFolderInto(window, picker, words.folders.archive);
       await window.keyboard.press("Enter");
       await expect(undoMessage(window)).toHaveText(words.movedOne(third, words.folders.archive));
       await expect.poll(() => folderOfDocument(window, third)).toBe(seeded.archive);
@@ -496,7 +505,7 @@ for (const [language, width] of [
       await expect(documentMenu).toBeVisible();
       await pointAndClick(window, documentMenu.getByTestId("document.moveTo"));
       await expect(picker.getByTestId("move-to-search")).toBeFocused();
-      await window.keyboard.type(words.folders.archive);
+      await typeFolderInto(window, picker, words.folders.archive);
       await window.keyboard.press("Enter");
       await expect.poll(() => folderOfDocument(window, fourth)).toBe(seeded.archive);
       await undo(window);
@@ -605,6 +614,121 @@ for (const [language, width] of [
   });
 }
 
+test("a Folder takes a second Document of the same name, a drop while a filter is on, and three Documents from three Folders with one ⌘Z", async () => {
+  test.setTimeout(240_000);
+  const firstDir = join(sources, "first copy");
+  const secondDir = join(sources, "second copy");
+  await mkdir(firstDir);
+  await mkdir(secondDir);
+  await writeFile(join(firstDir, "Field notes.txt"), "Field notes, the first copy.\n");
+  await writeFile(join(secondDir, "Field notes.txt"), "Field notes, the second copy.\n");
+  for (const name of ["Alpha", "Beta", "Gamma", "Filtered"]) {
+    await writeFile(join(sources, `${name}.txt`), `${name}: the harbour project's figures.\n`);
+  }
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1600, 900);
+    await dismissChatSetup(window);
+    const seeded = await (await coreOf(window)).evaluate(
+      async (core: CoreBridge, input) => {
+        const finance = await core.createLibraryGroup({ name: "Finance", description: "" });
+        const research = await core.createLibraryGroup({ name: "Research", description: "" });
+        const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+        const filed = await core.createLibraryGroup({ name: "Filed", description: "" });
+        await core.addDocuments([...input.paths, input.first]);
+        const documents = await core.listDocuments();
+        const idOf = (name: string) => documents.find((each) => each.name === name)?.id;
+        const fieldNotes = idOf("Field notes");
+        if (fieldNotes)
+          await core.moveToFolder({ documentIds: [fieldNotes], folderId: finance.id });
+        for (const [name, folderId] of [
+          ["Alpha", finance.id],
+          ["Beta", research.id],
+          ["Gamma", archive.id],
+        ] as const) {
+          const id = idOf(name);
+          if (id) await core.moveToFolder({ documentIds: [id], folderId });
+        }
+        if (!fieldNotes) throw new Error("Field notes wasn't added.");
+        return { finance: finance.id, research: research.id, archive: archive.id, filed: filed.id };
+      },
+      {
+        paths: ["Alpha", "Beta", "Gamma"].map((name) => join(sources, `${name}.txt`)),
+        first: join(firstDir, "Field notes.txt"),
+      },
+    );
+    const library = await openLibrary(window);
+    await expect(library.getByTestId("library-document")).toHaveCount(4, { timeout: 15_000 });
+    const folderCount = (key: string) => section(library, key).getAttribute("data-count");
+
+    // A second file with the name the Folder already holds is added beside it, as Add Documents
+    // anywhere adds one; one ⌘Z takes the new one out and leaves the first.
+    const fieldNotesInCore = async () =>
+      (await coreOf(window)).evaluate(async (core: CoreBridge, finance: string) => {
+        const documents = (await core.listDocuments()).filter(
+          (each) => each.name === "Field notes",
+        );
+        const library = await core.getLibrary();
+        const folderOf = (documentId: string) =>
+          library.assignments.find((each) => each.documentId === documentId)?.groupId ?? null;
+        return {
+          count: documents.length,
+          allInFinance: documents.every((each) => folderOf(each.id) === finance),
+        };
+      }, seeded.finance);
+    const finance = sidebarFolder(window, "Finance");
+    const secondCopy = join(secondDir, "Field notes.txt");
+    await dropFromFinder(window, finance.getByTestId("folder-row"), [secondCopy]);
+    await expect(undoMessage(window)).toHaveText("Added 1 Document");
+    await expect.poll(fieldNotesInCore, { timeout: 30_000 }).toEqual({
+      count: 2,
+      allInFinance: true,
+    });
+    await expect.poll(() => folderCount(seeded.finance)).toBe("3");
+    await undo(window);
+    await expect.poll(fieldNotesInCore).toEqual({ count: 1, allInFinance: true });
+    await expect.poll(() => folderCount(seeded.finance)).toBe("2");
+
+    // A file dropped while the page is filtered goes into the Folder just the same; clearing the
+    // search shows it there.
+    const search = library.getByTestId("library-search");
+    await search.fill("Alpha");
+    await dropFromFinder(window, finance.getByTestId("folder-row"), [
+      join(sources, "Filtered.txt"),
+    ]);
+    await expect
+      .poll(() => folderOfDocument(window, "Filtered"), { timeout: 30_000 })
+      .toBe(seeded.finance);
+    await expect(libraryRow(library, "Filtered")).toHaveCount(0);
+    await search.fill("");
+    await expect(libraryRow(library, "Filtered")).toHaveCount(1);
+    await expect.poll(() => folderCount(seeded.finance)).toBe("3");
+
+    // Three Documents from three different Folders, moved together: one ⌘Z puts each back in its own.
+    for (const name of ["Alpha", "Beta", "Gamma"]) {
+      await addToSelection(window, libraryRow(library, name));
+    }
+    await expect(library.getByTestId("library-selection")).toContainText("3");
+    await window.keyboard.press("ControlOrMeta+Shift+M");
+    const picker = window.getByTestId("move-to-picker");
+    await expect(picker.getByTestId("move-to-search")).toBeFocused();
+    await typeFolderInto(window, picker, "Filed");
+    await window.keyboard.press("Enter");
+    await expect(undoMessage(window)).toHaveText("Moved 3 Documents to Filed");
+    for (const name of ["Alpha", "Beta", "Gamma"]) {
+      await expect.poll(() => folderOfDocument(window, name)).toBe(seeded.filed);
+    }
+    await expect.poll(() => folderCount(seeded.filed)).toBe("3");
+    await undo(window);
+    await expect.poll(() => folderOfDocument(window, "Alpha")).toBe(seeded.finance);
+    await expect.poll(() => folderOfDocument(window, "Beta")).toBe(seeded.research);
+    await expect.poll(() => folderOfDocument(window, "Gamma")).toBe(seeded.archive);
+    await expect.poll(() => folderCount(seeded.filed)).toBe("0");
+  } finally {
+    await app.close();
+  }
+});
+
 test("undoing the move of a Document Organize filed itself leaves its Folder automatic", async () => {
   test.setTimeout(180_000);
   const { server } = await decisionServer((text) =>
@@ -649,7 +773,7 @@ test("undoing the move of a Document Organize filed itself leaves its Folder aut
     await libraryRow(library, "Invoice 501").locator("[data-row-main]").focus();
     await window.keyboard.press("ControlOrMeta+Shift+M");
     await expect(window.getByTestId("move-to-search")).toBeFocused();
-    await window.keyboard.type("Research");
+    await typeFolderInto(window, window.getByTestId("move-to-picker"), "Research");
     await window.keyboard.press("Enter");
     await expect.poll(automatic).toMatchObject({ groupId: research, source: "user" });
     await undo(window);
