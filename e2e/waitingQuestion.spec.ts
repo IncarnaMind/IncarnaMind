@@ -2,7 +2,6 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
-import { translate } from "../src/shared/i18n";
 import {
   addDocuments,
   createDataFolder,
@@ -111,10 +110,10 @@ for (const language of ["en", "zh-CN"] as const) {
 
       const waiting = window.getByTestId("assistant-waiting-model");
       await expect(waiting).toHaveText(
-        `${translate(language, "setup.waiting")} · ${translate(language, "status.choose")}`,
+        language === "en" ? "No AI model chosen yet · Choose…" : "还没有选 AI 模型 · 选择…",
       );
       await expect(window.getByTestId("found-passages")).toContainText(
-        translate(language, "answer.found"),
+        language === "en" ? "Matches in your Documents:" : "文档中匹配的内容：",
       );
       const passage = window.getByTestId("found-passage").first();
       await expect(passage.getByTestId("found-passage-document")).toContainText("Tide");

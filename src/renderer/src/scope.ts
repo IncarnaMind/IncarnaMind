@@ -120,47 +120,6 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
   return counts;
 }
 
-/**
- * The Documents a Search scope reads for a search on this computer, in the Library's order: its
- * in-app Folders' filed Documents, the Documents in its Folders on disk with their sub-Folders',
- * its Tags', and the ones it names, each with text to search. A scope with no ids reads every
- * Document, which a caller passes as `undefined` ids rather than this empty list.
- */
-export function scopeDocumentIds(library: ScopeLibrary, scope: SearchScope): string[] {
-  const live = library.documents.filter(holdsText);
-  const liveIds = new Set(live.map((document) => document.id));
-  const ids = new Set<string>();
-  for (const id of scope.documentIds) if (liveIds.has(id)) ids.add(id);
-  for (const assignment of library.assignments ?? []) {
-    if (
-      assignment.groupId !== null &&
-      liveIds.has(assignment.documentId) &&
-      scope.folderIds.includes(assignment.groupId)
-    ) {
-      const group = (library.groups ?? []).find((each) => each.id === assignment.groupId);
-      if (group && (!group.keepInside || assignment.source === "user"))
-        ids.add(assignment.documentId);
-    }
-  }
-  const children = new Map<string, string[]>();
-  for (const folder of library.folders) {
-    if (folder.parentId)
-      children.set(folder.parentId, [...(children.get(folder.parentId) ?? []), folder.id]);
-  }
-  const folders = new Set<string>();
-  const within = (id: string) => {
-    if (folders.has(id)) return;
-    folders.add(id);
-    for (const child of children.get(id) ?? []) within(child);
-  };
-  for (const id of scope.folderIds) within(id);
-  for (const document of live) {
-    if (document.folderId && folders.has(document.folderId)) ids.add(document.id);
-    if (document.tags.some((link) => scope.tagIds.includes(link.tagId))) ids.add(document.id);
-  }
-  return live.filter((document) => ids.has(document.id)).map((document) => document.id);
-}
-
 /** Every Folder, Tag and Document, in the sidebar's order: Folders as a tree, depth first. */
 function everything(library: ScopeLibrary): ScopeChoice[] {
   const counts = scopeCounts(library);

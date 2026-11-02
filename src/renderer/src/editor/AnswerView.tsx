@@ -139,7 +139,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
     : null;
   // The Question above it, for what an offline failure can show of the Documents (#763).
   const askedQuestion = useMemo(() => {
-    if (questionId === null) return null;
+    if (status !== "failed" || questionId === null) return null;
     const block = questionBlockIn(editor.state.doc, questionId);
     return block === null
       ? null
@@ -148,7 +148,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
           scope: searchScopeOf(block.attrs),
           askedFrom: mindId === null ? null : { mindId },
         };
-  }, [editor.state.doc, questionId, mindId]);
+  }, [status, editor.state.doc, questionId, mindId]);
 
   // One the User edited comes back as changes over their version: nothing to confirm.
   const writeAgain = async () => {
@@ -441,7 +441,7 @@ export function AnswerError({
         </ProblemLine>
         {question && (
           <div className="mt-1">
-            <FoundPassages passages={found} emptyNote />
+            <FoundPassages passages={found.passages} failed={found.failed} emptyNote />
           </div>
         )}
       </div>

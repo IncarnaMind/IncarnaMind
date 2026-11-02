@@ -127,6 +127,7 @@ import {
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
   type OwnFileKind,
+  type PassageSearchPlace,
   type ProviderError,
   RECENTLY_DELETED_DAYS,
   type ReadyQuestion,
@@ -617,6 +618,13 @@ export function createCore(adapters: CoreAdapters): Core {
     } catch {
       return false;
     }
+  };
+  /** A Mind's name while the User can read it now; null once it is deleted or newer than this version. */
+  const readableMindName = (mindId: string): string | null => {
+    const found = minds.locate(mindId);
+    if (!found || found.deletedAt !== null) return null;
+    if (!isKnownKind(minds.get(mindId).kind)) return null;
+    return found.name || translate(settings.get().language, "mind.untitled");
   };
   const mindsChanged = () => events.emit("minds.changed", minds.list());
   // The assistant's conversations (ADR-0017); Answers a quit left being written are settled now.
@@ -1631,6 +1639,54 @@ export function createCore(adapters: CoreAdapters): Core {
     const own = new Set(unscoped);
     return resolved.filter((id) => own.has(id));
   };
+  /** A search's place from input; null when it has none. */
+  const parsePassagePlace = (input: unknown): PassageSearchPlace | null => {
+    if (input === undefined || input === null) return null;
+    if (!isRecord(input)) throw new InvalidInputError("A search's place must be an object.");
+    if (input.kind === "turn") return { kind: "turn", ...parseTurnPlace(input) };
+    if (input.kind !== "asked") {
+      throw new InvalidInputError('A search\'s place must be "turn" or "asked".');
+    }
+    let askedFrom: { mindId: string | null } | null = null;
+    if (input.askedFrom !== undefined && input.askedFrom !== null) {
+      if (!isRecord(input.askedFrom)) {
+        throw new InvalidInputError("A search's askedFrom must be an object or null.");
+      }
+      const { mindId } = input.askedFrom;
+      if (mindId !== null && (typeof mindId !== "string" || mindId === "")) {
+        throw new InvalidInputError("A search's askedFrom needs a Mind id or null.");
+      }
+      askedFrom = { mindId };
+    }
+    const { folderAskedIn } = input;
+    if (folderAskedIn !== undefined && typeof folderAskedIn !== "string") {
+      throw new InvalidInputError("A search's folderAskedIn must be a Folder id.");
+    }
+    return {
+      kind: "asked",
+      askedFrom,
+      ...(folderAskedIn !== undefined && { folderAskedIn }),
+    };
+  };
+  /**
+   * The Documents a local search reads for a Question, on its side of the Folder walls (#1934),
+   * as the Answer's turn is judged: null for every Document. A place whose Folder isn't recorded
+   * reads nothing.
+   */
+  const documentsToSearch = (
+    scope: SearchScope | null,
+    place: PassageSearchPlace,
+  ): string[] | null => {
+    if (place.kind === "turn") {
+      const wall = turnWall(place);
+      return wall === null ? scopeDocuments(scope, place.mindId) : resolveScope(folderScope(wall));
+    }
+    const mindId = place.askedFrom?.mindId ?? null;
+    if (mindId !== null && readableMindName(mindId) !== null) return scopeDocuments(scope, mindId);
+    if (place.folderAskedIn === undefined) return [];
+    const wall = walledFolderId(place.folderAskedIn);
+    return wall === null ? scopeDocuments(scope, null) : resolveScope(folderScope(wall));
+  };
   const searchedScope = (scope: SearchScope | null, mindId: string | null) => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const wall = walledFolderId(folderId);
@@ -1866,12 +1922,7 @@ export function createCore(adapters: CoreAdapters): Core {
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
     requireMind: (mindId) => writableMind(mindId).id,
     mindExists,
-    readableMindName: (mindId) => {
-      const found = minds.locate(mindId);
-      if (!found || found.deletedAt !== null) return null;
-      if (!isKnownKind(minds.get(mindId).kind)) return null;
-      return found.name || translate(settings.get().language, "mind.untitled");
-    },
+    readableMindName,
     liveTranscript: (mindId) => liveTranscriptOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     providerExists: (providerId) => chat.exists(providerId),
@@ -5022,7 +5073,22 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return citeSelection(documents, { documentId: parseDocumentId(input.documentId), parts });
     },
-    searchPassages: (query, options) => documents.search(query, options),
+    searchPassages: (query, options) => {
+      if (options !== undefined && !isRecord(options)) {
+        throw new InvalidInputError("searchPassages expects an object.");
+      }
+      const place = parsePassagePlace(options?.place);
+      if (place === null) return documents.search(query, options);
+      if (options?.documentIds !== undefined) {
+        throw new InvalidInputError("A search takes a place or documentIds, not both.");
+      }
+      const documentIds = documentsToSearch(parseSearchScope(options?.scope), place);
+      return documents.search(query, {
+        mode: options?.mode,
+        limit: options?.limit,
+        ...(documentIds !== null && { documentIds }),
+      });
+    },
     searchEvidence: async (query, options) => {
       if (typeof query !== "string") throw new InvalidInputError("A search query must be text.");
       if (options !== undefined && !isRecord(options)) {

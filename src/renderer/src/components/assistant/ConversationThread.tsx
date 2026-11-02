@@ -479,5 +479,5 @@ function WaitingPassages({
 }) {
   const place = useWaitingPlace(question.mindId, question.conversationId);
   const found = useFoundPassages(question.text, question.scope ?? null, place);
-  return <FoundPassages passages={found} />;
+  return <FoundPassages passages={found.passages} failed={found.failed} />;
 }

@@ -113,7 +113,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(error.getByRole("alert")).toContainText(
         translate(language, "answer.offline.line"),
       );
-      await expect(error).toContainText(translate(language, "answer.found"));
+      await expect(error).toContainText(
+        language === "en" ? "Matches in your Documents:" : "文档中匹配的内容：",
+      );
       // The lease, kept inside its wall, is not among what the Note's side reads.
       await expect(error.getByTestId("found-passage")).toHaveCount(1);
       const passage = error.getByTestId("found-passage").first();
@@ -145,6 +147,46 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       await expect(error.getByTestId("found-passages")).toHaveCount(0);
       await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "failed");
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`offline, an Answer whose words match nothing says so, in ${language}`, async () => {
+    test.setTimeout(120_000);
+    const path = join(sources, "Tide.txt");
+    await writeFile(path, TIDE);
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      home: sources,
+      ollama: "http://127.0.0.1:9",
+    });
+    try {
+      await setWindowSize(app, window, 900, 700);
+      await acceptPlainTextKeys(window);
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.saveChatProvider({
+          kind: "openai",
+          modelId: "gpt-6.1-sol",
+          apiKey: "key-not-real",
+        });
+      });
+      await setLanguage(window, language);
+      await addDocuments(window, [path]);
+      await newMind(window);
+      const answer = await askInAssistant(window, "What is the capital of Finland?");
+      await expect(answer).toHaveAttribute("data-status", "failed", { timeout: 15_000 });
+      await setOnline(window, false);
+      const error = answer.getByTestId("answer-error");
+      await expect(error.getByRole("alert")).toContainText(
+        translate(language, "answer.offline.line"),
+      );
+      await expect(error.getByTestId("found-passages-none")).toHaveText(
+        language === "en" ? "Nothing in your Documents matched." : "文档中没有匹配的内容。",
+      );
     } finally {
       await app.close();
     }
