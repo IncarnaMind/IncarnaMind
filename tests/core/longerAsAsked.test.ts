@@ -283,6 +283,38 @@ describe("What “longer” adds is cited", { timeout: 30_000 }, () => {
     expect(shownWithChanges(page)).toEqual(shown);
   });
 
+  // protects=a new claim made of words from two old sentences ("Two months are due on the first") is held to the old sentence closest to it, so it is refused, not taken for a restatement; fails_when=it lands uncited because each word is somewhere in the old text; no_claim=a claim that shares most words with one old sentence ("The deposit is due on the first of each month"), which word overlap can't tell from a restatement.
+  test("a new claim made of the old text's words is refused", async () => {
+    const model = summaryModel("English", [
+      {
+        content:
+          "## Summary\n\nRent is due on the first of each month [^1]. The deposit is two months of rent [^2]. Two months are due on the first.",
+      },
+      { content: A_BIT_LONGER },
+    ]);
+
+    const { answer } = await askBoth(model, "English", "make it longer");
+
+    expect(mindCalls(answer).map((call) => [call.status, call.mindProblem?.kind])).toEqual([
+      ["failed", "uncited"],
+      ["done", undefined],
+    ]);
+  });
+
+  // protects=asked once, a sentence still added bare lands, and the result names it and says to say so, so the reply can't call it all cited; fails_when=it lands with nothing said of it; no_claim=what a real model then says.
+  test("a sentence still added bare is named in the result", async () => {
+    const bare =
+      "## Summary\n\nRent is due on the first of each month [^1]. The deposit is two months of rent [^2]. In practice this makes the lease fairly strict for the tenant.";
+    const model = summaryModel("English", [{ content: bare }, { content: bare }]);
+
+    const { answer } = await askBoth(model, "English", "make it longer");
+
+    expect(mindCalls(answer).map((call) => call.status)).toEqual(["failed", "done"]);
+    expect(lastResult(model)).toContain(
+      "It went in as written, and this sentence you added cites nothing: “In practice this makes the lease fairly strict for the tenant.”: say so, never that all of it is cited.",
+    );
+  });
+
   // protects=a sentence that restates the old text with no marker, and a sentence cited after its full stop, are not taken for added uncited claims; fails_when=either is refused; no_claim=a restatement that shares fewer words.
   test("a restated sentence and one cited after its full stop are not refused", async () => {
     const model = summaryModel("English", [
@@ -350,21 +382,8 @@ describe("A rewrite asked for a length", { timeout: 30_000 }, () => {
     expect(longer.length).toBeGreaterThan(0);
     expect(formal.length).toBeGreaterThan(0);
     for (const prompt of longer) {
-      expect(prompt).toContain("Make the whole passage 14 to 18 words long: it is 11 words now.");
+      expect(prompt).toContain("Make the whole passage 14 to 18 words long: it is 11 now.");
     }
     for (const prompt of formal) expect(prompt).not.toContain("Make the whole passage");
-  });
-});
-
-describe("A second change to the text just written", { timeout: 30_000 }, () => {
-  test("is the assistant's own to write anew", async () => {
-    const model = summaryModel("English", [{ content: A_BIT_LONGER }, { content: TOO_LONG }]);
-
-    const { answer } = await askBoth(model, "English", "make it longer");
-
-    expect(mindCalls(answer).map((call) => [call.status, call.mindProblem?.kind])).toEqual([
-      ["done", undefined],
-      ["done", undefined],
-    ]);
   });
 });

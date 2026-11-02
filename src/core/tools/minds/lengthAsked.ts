@@ -86,7 +86,7 @@ export function lengthToWrite(before: string, times: number): string {
   const was = sizeOf(before);
   if (was.count === 0) return "";
   const { least, most } = sizesAsked(was.count, times);
-  return `Make the whole passage ${least} to ${most} ${was.unit} long: it is ${was.count} ${was.unit} now.`;
+  return `Make the whole passage ${least} to ${most} ${was.unit} long: it is ${was.count} now.`;
 }
 
 /** A sentence that shares less than this much of its words with the old text says something new. */
@@ -94,30 +94,39 @@ const RESTATED = 0.6;
 
 const MARKER = /\[\^\d+\]|\[=\d+\]/g;
 
-/**
- * The sentences `markdown` adds to `before` that make a claim with no Citation or calculated
- * figure: ones that don't restate the old text. Headings and tables are left out: a heading
- * claims nothing, and a table's cells are cited apart.
- */
-export function addedUncited(before: string, markdown: string): string[] {
-  const old = tokensOf(before);
-  return markdown
+/** The sentences of a text, without paragraph marks or emphasis, a marker after a full stop kept with its sentence. */
+function sentencesIn(text: string): string[] {
+  return text
     .split(/\n+/)
     .filter((line) => !/^\s*(?:#{1,6}\s|\|)/.test(line))
     .map((line) => line.replace(/^\s*(?:[-*•>]|\d+[.)])\s+/u, ""))
     .flatMap((line) => {
-      // A marker after a sentence's full stop is that sentence's, as sentenceSpans reads it.
       const marked = line.replace(MARKER, INLINE_NODE);
       return sentenceSpans(marked).map((span) => marked.slice(span.from, span.to));
     })
+    .map((sentence) => sentence.replace(/\*\*|__|\*/g, "").trim());
+}
+
+/**
+ * The sentences `markdown` adds to `before` that make a claim with no Citation or calculated
+ * figure: ones that restate no sentence of the old text. Each is held to the old sentence
+ * closest to it, as words from two old sentences ("Two months are due on the first") say
+ * something neither did. Headings and tables are left out: a heading claims nothing, and a
+ * table's cells are cited apart.
+ */
+export function addedUncited(before: string, markdown: string): string[] {
+  const old = sentencesIn(before).map(tokensOf);
+  return sentencesIn(markdown)
     .filter((sentence) => !sentence.includes(INLINE_NODE))
-    .map((sentence) => sentence.replace(/\*\*|__|\*/g, "").trim())
     .filter((sentence) => {
       if (!isClaim(sentence)) return false;
       const tokens = tokensOf(sentence);
       if (tokens.size === 0) return false;
-      let shared = 0;
-      for (const token of tokens) if (old.has(token)) shared++;
-      return shared / tokens.size < RESTATED;
+      const restated = old.some((each) => {
+        let shared = 0;
+        for (const token of tokens) if (each.has(token)) shared++;
+        return shared / tokens.size >= RESTATED;
+      });
+      return !restated;
     });
 }

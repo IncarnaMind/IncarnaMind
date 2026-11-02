@@ -847,10 +847,14 @@ function waitingMessage(
 /** The most sentences the model is told it added with no Citation, each in full. */
 const ADDED_SHOWN = 6;
 
-function addedUncitedMessage(mind: ChangeableMind, added: readonly string[]): string {
+const addedSaid = (added: readonly string[]) => {
   const shown = added.slice(0, ADDED_SHOWN).map((sentence) => `“${sentence}”`);
   const more = added.length > shown.length ? ` and ${added.length - shown.length} more` : "";
-  return `Nothing was changed in “${mind.name}”: ${added.length === 1 ? "this sentence you added cites" : `these ${added.length} sentences you added cite`} nothing: ${shown.join(", ")}${more}. Cite each from the Passage that says it, recording it with cite and writing its marker after it, or leave it out: keep out what the Documents don't say, such as your own comment or what you take to follow from them. Then call edit_mind again with the whole text.`;
+  return `${added.length === 1 ? "this sentence you added cites" : `these ${added.length} sentences you added cite`} nothing: ${shown.join(", ")}${more}`;
+};
+
+function addedUncitedMessage(mind: ChangeableMind, added: readonly string[]): string {
+  return `Nothing was changed in “${mind.name}”: ${addedSaid(added)}; cite each from the Passage that says it, recording it with cite and writing its marker after it, or leave it out: keep out what the Documents don't say, such as your own comment or what you take to follow from them. Then call edit_mind again with the whole text.`;
 }
 
 /** What `edit_mind`'s model reads of a result that proposed nothing, and what its card says. */
@@ -2277,8 +2281,8 @@ export function mindTools(options: MindToolsOptions): {
         const fromDocuments =
           /\[\^\d+\]/.test(newText) ||
           minds.read(mind.id, (blocks) => stretchCites(blocks, stretch));
-        const added = retry && !addedRefused && fromDocuments ? addedUncited(before, newText) : [];
-        if (added.length > 0) {
+        const added = fromDocuments ? addedUncited(before, newText) : [];
+        if (added.length > 0 && retry && !addedRefused) {
           addedRefused = true;
           throw new Refusal({ kind: "uncited", mindId: mind.id }, addedUncitedMessage(mind, added));
         }
@@ -2293,6 +2297,12 @@ export function mindTools(options: MindToolsOptions): {
           ...writtenNotes(written),
           ...droppedSaid(written.dropped),
           ...checkedNotes(checked),
+          // Asked once already: what lands bare is said, so the reply never calls it all cited.
+          ...(added.length > 0
+            ? [
+                `It went in as written, and ${addedSaid(added)}: say so, never that all of it is cited.`,
+              ]
+            : []),
           ...(stretch.hint ? [stretch.hint] : []),
         ].join(" ");
       }

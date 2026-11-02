@@ -265,7 +265,18 @@ function statedSizes(reply: string) {
     ],
   ] as const;
   for (const [pattern, value] of [...english, ...chinese]) {
-    for (const match of reply.matchAll(pattern)) multiples.push(value(match));
+    for (const match of reply.matchAll(pattern)) {
+      // "还没到两倍", "rather than the 2 times": a size said not to have been reached.
+      const before = reply.slice(Math.max(0, (match.index ?? 0) - 24), match.index);
+      if (
+        /(?:没|未|不到|不足)[^，。,.]{0,6}$|\b(?:not|rather than|instead of)\b[^,.]{0,20}$/i.test(
+          before,
+        )
+      ) {
+        continue;
+      }
+      multiples.push(value(match));
+    }
   }
   for (const match of reply.matchAll(/(\d[\d,]*)\s*(?:words|characters|个?字(?!段))/gi)) {
     counts.push({ count: Number((match[1] ?? "").replace(/,/g, "")), of: "words" });
