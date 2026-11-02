@@ -308,6 +308,35 @@ describe("The everyday request guards", () => {
     expect(documentsCovered(listed)).toMatchObject({ named: [], unsaid: ["2306.10683v1"] });
   });
 
+  // protects=the reply the 2026-11-02 run wrote, naming four Documents as "不在本次摘要中", counts each as said; fails_when="不在" is not read as saying they weren't covered (#894); no_claim=none beyond protects.
+  test("“不在本次摘要中” says the four Documents were not covered", () => {
+    const cited = [
+      { id: "risk", name: "National Risk Register 2023" },
+      { id: "mamba", name: "Mamba" },
+    ];
+    const left = [
+      { id: "stats", name: "中华人民共和国2023年国民经济和社会发展统计公报" },
+      { id: "corpus", name: "What a Corpus Teaches" },
+      { id: "keys", name: "Weighted Keys Shorter Paths" },
+      { id: "tuner", name: "Tuning the Tuner" },
+    ];
+    const answer = outcome({
+      answer: {
+        text: "“中华人民共和国2023年国民经济和社会发展统计公报”、“What a Corpus Teaches”、“Weighted Keys Shorter Paths”和“Tuning the Tuner”这四份文档不在本次摘要中，因为一次最多只能覆盖八份。",
+        citations: [],
+        toolCalls: [created],
+        steps: null,
+      },
+      citedInMinds: cited.map((each) => each.id),
+      scoped: [...cited, ...left],
+    });
+    expect(documentsCovered(answer)).toMatchObject({
+      named: left.map((each) => each.name),
+      unsaid: [],
+    });
+    expect(requestFailures(answer)).toEqual([]);
+  });
+
   // protects=a standalone “Yet” in ordinary prose does not count as saying an uncited Document was left out; fails_when=it does (#894); no_claim=none beyond protects.
   test("a discourse “Yet” does not make a Document said", () => {
     const answer = outcome({
