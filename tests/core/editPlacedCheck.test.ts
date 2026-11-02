@@ -6,6 +6,7 @@
  * was. Honest edits, and seeded random replies, are never refused.
  */
 import type { JSONContent } from "@tiptap/core";
+import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import {
@@ -29,6 +30,7 @@ import { propose, userNote } from "../helpers/agentChanges";
 import { setUpWithDocuments } from "../helpers/citations";
 import { editingModel, plainOf, wholeParagraph } from "../helpers/editing";
 import { readMind, writeMind } from "../helpers/minds";
+import { controlledModel } from "../helpers/models";
 import { random } from "../helpers/random";
 
 type Drift = "add" | "alter" | "footnote";
@@ -75,6 +77,7 @@ vi.mock("../../src/core/proposals/write", async (importOriginal) => {
         ...stream,
         write: (text: string, done?: boolean) => after(stream.write(text, done)),
         finish: () => after(stream.finish()),
+        stop: () => after(stream.stop()),
       };
     },
     proposeAfter: (...args: Parameters<typeof real.proposeAfter>) => {
@@ -192,11 +195,9 @@ async function editing(
   path: Path,
   reply: string = PATHS[language][path],
   block = "first",
+  model: MockLanguageModelV4 = editingModel(() => reply),
 ) {
-  const set = await setUpWithDocuments(
-    editingModel(() => reply),
-    [TIDES],
-  );
+  const set = await setUpWithDocuments(model, [TIDES]);
   const tides = set.documents[0] as Document;
   const words = WORDS[language];
   const first = {
@@ -434,13 +435,57 @@ describe("Edit with AI's last check on what it writes (#2424)", () => {
     });
   });
 
-  test("says why in the User's language", () => {
+  test("says why in the User's language, in the composer and on the change card", () => {
     expect(translate("en", "edit.problem.not-placed")).toBe(
-      "The AI’s rewrite would add a Citation, footnote or figure it didn’t write, or change one already there, so nothing changed. Try again.",
+      "The AI’s rewrite would have added or edited a Citation, footnote or figure, so nothing changed. Try again.",
     );
     expect(translate("zh-CN", "edit.problem.not-placed")).toBe(
-      "AI 的改写会加入它没写的引用、脚注或计算结果，或改动已有的，所以没有改动。请重试。",
+      "AI 的改写会加入或修改引用、脚注或计算结果，没有改动。请重试。",
     );
+    expect(translate("en", "mindCall.failed.notPlaced", { mind: "Tides" })).toBe(
+      "The rewrite would have added or edited a Citation, footnote or figure in “Tides”, so nothing changed",
+    );
+    expect(translate("zh-CN", "mindCall.failed.notPlaced", { mind: "潮汐" })).toBe(
+      "改写会在“潮汐”里加入或修改引用、脚注或计算结果，因此没有改动",
+    );
+  });
+
+  test("takes back what was merged when the write Stop makes adds a Citation its reply didn't place", async () => {
+    const stopped = async (forged: boolean) => {
+      const controlled = controlledModel();
+      const { core, client, input } = await editing("en", "improve", "", "first", controlled.model);
+      const second = plainOf(client, "second");
+      const both = {
+        ...input,
+        to: { blockId: "second", offset: second.length },
+        text: `${input.text}\n${second}`,
+      };
+      const before = readMind(client).toJSON();
+      drift.mode = forged ? "add" : null;
+      drift.at = 2;
+      try {
+        const result = core.editWithAi(both);
+        await controlled.requested();
+        // The first paragraph goes in; the next, like none of the passage's, waits for its place.
+        controlled.push(
+          "Spring tides come at new moon and at full moon [1]. Harbours publish the times.\n\nBoth follow the Moon.\n\nNeap",
+        );
+        await vi.waitFor(() => expect(pendingProposals(client.blocks).length).toBeGreaterThan(0));
+        await core.cancelEdit(both.requestId);
+        const done = await result;
+        await client.settled();
+        return { done, client, before };
+      } finally {
+        drift.mode = null;
+        drift.at = 1;
+      }
+    };
+    expect((await stopped(false)).done.kind).toBe("proposed");
+
+    const { done, client, before } = await stopped(true);
+    expect(done).toEqual({ kind: "not-placed" });
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    expect(readMind(client).toJSON()).toEqual(before);
   });
 });
 

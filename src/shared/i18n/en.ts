@@ -1458,7 +1458,7 @@ export const en = {
   "edit.problem.typed-tag":
     "The AI’s rewrite left out a <removed> tag you typed, so nothing changed. Try again.",
   "edit.problem.not-placed":
-    "The AI’s rewrite would add a Citation, footnote or figure it didn’t write, or change one already there, so nothing changed. Try again.",
+    "The AI’s rewrite would have added or edited a Citation, footnote or figure, so nothing changed. Try again.",
   "edit.problem.misnamed":
     "The AI didn’t say clearly which paragraph each change replaces, so nothing changed. Try again.",
   "edit.problem.late": "This edit arrived too late to apply. Accept or reject its changes.",
@@ -6623,7 +6623,7 @@ export const en = {
   "mindCall.failed.typedTag":
     "The rewrite left out a <removed> tag you typed in “{mind}”, so nothing changed",
   "mindCall.failed.notPlaced":
-    "The rewrite would add a Citation, footnote or figure it didn’t write to “{mind}”, or change one already there, so nothing changed",
+    "The rewrite would have added or edited a Citation, footnote or figure in “{mind}”, so nothing changed",
   "mindCall.failed.misnamed":
     "The rewrite didn’t say clearly which paragraph of “{mind}” each change replaces, so nothing changed",
   "mindCall.failed.uncited": "Didn’t add to “{mind}”: its sources weren’t cited",
