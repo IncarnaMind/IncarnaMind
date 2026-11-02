@@ -24,13 +24,8 @@ export interface Asks {
 
 export interface ReaskWatch {
   chatModels(inner: ChatModelFactory): ChatModelFactory;
-  /**
-   * Starts watching an Answer. `firstReply` is what the model's first request
-   * with Tools gets instead of its own reply; `answerReply` is what every step
-   * that may only write gets until the app asks for the left-out Documents,
-   * which the engine writes the Answer in after the Tools (#894).
-   */
-  begin(firstReply: string | null, answerReply?: string | null): void;
+  /** Starts watching an Answer; `firstReply` is what the model's first request gets instead of its own reply. */
+  begin(firstReply: string | null): void;
   end(): Asks;
 }
 
@@ -52,8 +47,6 @@ const textOf = ({ content }: Message): string =>
 export function watchReasks(): ReaskWatch {
   let asks: Asks = { again: 0, coverage: 0, citations: 0 };
   let pending: string | null = null;
-  /** What every step that may only write gets, until the ask for the left-out Documents comes. */
-  let answer: string | null = null;
   let askedForCoverage = false;
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
@@ -67,7 +60,6 @@ export function watchReasks(): ReaskWatch {
       if (recent.includes(ASKED_FOR_COVERAGE)) {
         if (!askedForCoverage) asks.coverage++;
         askedForCoverage = true;
-        answer = null;
       } else if (last?.role === "user" && textOf(last).includes(ASKED_AGAIN)) {
         asks.again++;
         const before = params.prompt.at(-2);
@@ -85,18 +77,14 @@ export function watchReasks(): ReaskWatch {
         pending = null;
         return { stream: streamedReply(reply, params.abortSignal, { chunkSize: 40 }) };
       }
-      if (answer !== null && params.toolChoice?.type === "none") {
-        return { stream: streamedReply(answer, params.abortSignal, { chunkSize: 40 }) };
-      }
       return doStream();
     },
   };
   return {
     chatModels: (inner) => (spec) => wrapLanguageModel({ model: inner(spec), middleware }),
-    begin(firstReply, answerReply = null) {
+    begin(firstReply) {
       asks = { again: 0, coverage: 0, citations: 0 };
       pending = firstReply;
-      answer = answerReply;
       askedForCoverage = false;
     },
     end: () => asks,

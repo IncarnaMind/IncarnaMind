@@ -21,7 +21,7 @@ import {
 import { judgeClaims, judgeDocumentAbsence, verdictIn } from "../../eval/everyday/judge";
 import { languageRates, rowRates } from "../../eval/everyday/rates";
 import { ASKED_AGAIN } from "../../eval/everyday/reasks";
-import type { AnswerToolCall } from "../../src/core";
+import type { AnswerSteps, AnswerToolCall } from "../../src/core";
 import { askAgainNote } from "../../src/core/answers/claimedChanges";
 import { scriptedModel } from "../helpers/models";
 
@@ -1285,5 +1285,64 @@ describe("The filing guards", () => {
     expect(
       missing("季报中的现金转换周期是缺失的。", [], [READ], ["季报中的现金转换周期是缺失的。"]),
     ).toEqual([]);
+  });
+});
+
+const LEFT_OUT = [
+  { id: "d8", name: "Report 9" },
+  { id: "d9", name: "Report 10" },
+  { id: "d10", name: "Report 11" },
+  { id: "d11", name: "Report 12" },
+];
+
+const cappedSteps = (): AnswerSteps => ({
+  sentAt: null,
+  finishedAt: null,
+  phases: [],
+  reasoning: null,
+  coverage: { kind: "largest", used: [], rest: LEFT_OUT.map((document) => document.id) },
+});
+
+const leftOut = (text: string, coverageAsks: number): RequestOutcome =>
+  outcome({
+    expected: { write: false, cite: false, coverAll: false, either: true, leftOutAsk: true },
+    answer: { text, citations: [], toolCalls: [], steps: cappedSteps() },
+    coverageAsks,
+    scoped: LEFT_OUT,
+    citedInMinds: [],
+  });
+
+describe("A capped summary's left-out Documents (#894)", () => {
+  // protects=a reply that names them all but was never asked again fails on the missing ask; fails_when=it passes; no_claim=what the model writes.
+  test("no ask fails", () => {
+    const failures = requestFailures(
+      leftOut(
+        "“Report 9”, “Report 10”, “Report 11” and “Report 12” are left for the next summary.",
+        0,
+      ),
+    );
+
+    expect(failures.map((failure) => failure.kind)).toEqual(["no-left-out-ask"]);
+  });
+
+  // protects=the reply the User reads must name every one; fails_when=a missing Document is not reported; no_claim=what the model writes.
+  test("a missing Document is named", () => {
+    const failures = requestFailures(
+      leftOut("“Report 9”, “Report 10” and “Report 11” are left for the next summary.", 1),
+    );
+
+    expect(failures).toEqual([{ kind: "left-out-unnamed", documents: ["Report 12"] }]);
+  });
+
+  // protects=one ask and all four named passes; fails_when=it fails; no_claim=what the model writes.
+  test("one ask and all four named passes", () => {
+    const failures = requestFailures(
+      leftOut(
+        "“Report 9”, “Report 10”, “Report 11” and “Report 12” are left for the next summary.",
+        1,
+      ),
+    );
+
+    expect(failures).toEqual([]);
   });
 });

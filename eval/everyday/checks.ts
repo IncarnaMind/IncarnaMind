@@ -60,6 +60,7 @@ import type {
   MarkedFigure,
 } from "../../src/core/api";
 import { markersWithoutCitation } from "../../src/shared/answerBlocks";
+import { displayName } from "../../src/shared/documentNames";
 import { declines } from "../lib/declines";
 import { datesNotInText } from "./dates";
 import type { ClaimVerdict } from "./judge";
@@ -167,7 +168,7 @@ export interface RequestOutcome {
   askedAgain?: boolean;
   /** How many times the app asked again for the Documents a capped summary left out (#894). */
   coverageAsks?: number;
-  scoped: readonly { id: string; name: string }[];
+  scoped: readonly { id: string; name: string; title?: string | null }[];
   /** The text of the Documents in scope, for `textDates`. */
   texts?: readonly string[];
   /** It asked the User which (ask_user), and the Answer stopped there, waiting for them. */
@@ -655,9 +656,10 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   }
   if (expected.leftOutAsk) {
     const rest = outcome.answer.steps?.coverage?.rest ?? [];
-    const left = rest
-      .slice(0, COVERED_AT_ONCE)
-      .map((id) => outcome.scoped.find((document) => document.id === id)?.name ?? id);
+    const left = rest.slice(0, COVERED_AT_ONCE).map((id) => {
+      const document = outcome.scoped.find((one) => one.id === id);
+      return document ? displayName(document) : id;
+    });
     if ((outcome.coverageAsks ?? 0) === 0) failures.push({ kind: "no-left-out-ask" });
     const unnamed = left.filter((name) => !namedAsUncovered(outcome.answer.text, name));
     if (unnamed.length > 0) failures.push({ kind: "left-out-unnamed", documents: unnamed });

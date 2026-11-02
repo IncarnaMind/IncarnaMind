@@ -1,3 +1,4 @@
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { MockLanguageModelV4 } from "ai/test";
 import { expect, vi } from "vitest";
 import type {
@@ -285,19 +286,24 @@ export async function askAndFinish(
   return { answerId, finished: ended.payload };
 }
 
+/** The Citation nodes under `root`, in reading order, as the editor reads them: without the `proposal` attribute every inline node has. */
+function citationsUnder(root: ProseMirrorNode): CitationAttributes[] {
+  const found: CitationAttributes[] = [];
+  root.descendants((node) => {
+    if (node.type.name !== "citation") return;
+    const { proposal: _proposal, ...attributes } = node.attrs;
+    found.push(attributes as CitationAttributes);
+  });
+  return found;
+}
+
 /**
  * The Citation nodes in an Answer, in order, as the editor reads them: their
  * Citation's attributes, without the `proposal` attribute every inline node
  * has (null where no Proposal adds or removes it).
  */
 export function citationsIn(client: MindClient, answerId: string): CitationAttributes[] {
-  const found: CitationAttributes[] = [];
-  answerIn(client, answerId).descendants((node) => {
-    if (node.type.name !== "citation") return;
-    const { proposal: _proposal, ...attributes } = node.attrs;
-    found.push(attributes as CitationAttributes);
-  });
-  return found;
+  return citationsUnder(answerIn(client, answerId));
 }
 
 /** Asserts there is exactly one Citation in the Answer and returns it. */
@@ -309,13 +315,7 @@ export function onlyCitation(client: MindClient, answerId: string): CitationAttr
 
 /** The Citation nodes anywhere in a Mind's Blocks, in reading order, as the editor reads them. */
 export function mindCitations(client: MindClient): CitationAttributes[] {
-  const found: CitationAttributes[] = [];
-  readMind(client).descendants((node) => {
-    if (node.type.name !== "citation") return;
-    const { proposal: _proposal, ...attributes } = node.attrs;
-    found.push(attributes as CitationAttributes);
-  });
-  return found;
+  return citationsUnder(readMind(client));
 }
 
 /** A re-check that read its Document: one kept inside a wall fails the test that expected a read. */

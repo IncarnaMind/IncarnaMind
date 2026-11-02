@@ -194,7 +194,10 @@ function namedFieldIn(reply: string, field: string): boolean {
   const name = field.trim();
   if (name === "") return false;
   if (HAN.test(name)) return reply.toLocaleLowerCase().includes(name.toLocaleLowerCase());
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, "iu").test(reply);
+  return new RegExp(
+    `(?<![\\p{Script=Latin}\\p{N}])${escapeRegExp(name)}(?![\\p{Script=Latin}\\p{N}])`,
+    "iu",
+  ).test(reply);
 }
 
 /**
@@ -213,11 +216,13 @@ export function coverageNudge(
   const left = documents.filter((document) => coverage.rest.includes(document.id));
   const next = left.slice(0, COVERED_AT_ONCE);
   const after = left.length - next.length;
+  const shown = (document: SizedDocument) => displayName(document);
   const named = (document: SizedDocument) =>
-    namedFieldIn(reply, document.name) || namedFieldIn(reply, document.title ?? "");
+    namedFieldIn(reply, document.name) ||
+    (shown(document) !== document.name && namedFieldIn(reply, shown(document)));
   const missing = next.filter((document) => !named(document));
   if (missing.length === 0) return null;
-  const said = `${quotedList(next.map((document) => displayName(document)))} ${next.length === 1 ? "is" : "are"} left for the next summary${after > 0 ? `, and ${after} more ${after === 1 ? "comes" : "come"} after those` : ""}`;
+  const said = `${quotedList(next.map(shown))} ${next.length === 1 ? "is" : "are"} left for the next summary${after > 0 ? `, and ${after} more ${after === 1 ? "comes" : "come"} after those` : ""}`;
   return `Write the reply again, and don't mention an earlier reply: the User reads only this one. Say in the User's language that ${said}, say why, and offer to go on. Nothing about your searching goes into a Note.`;
 }
 
@@ -230,7 +235,11 @@ export function coverageInstructions(
   each: boolean,
   documents: readonly SizedDocument[],
 ): string {
-  const covered = coverage?.used.map((document) => document.name) ?? [];
+  const covered =
+    coverage?.used.map((each) => {
+      const document = documents.find((one) => one.id === each.id);
+      return displayName(document ?? each);
+    }) ?? [];
   const searchEach =
     "Search each one (search_documents with its document), cite each at least once, and say in your reply which, if any, you couldn't cover. Nothing about your searching goes into a Note.";
   if (coverage?.kind === "main") {

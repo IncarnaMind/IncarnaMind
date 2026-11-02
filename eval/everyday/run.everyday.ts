@@ -123,6 +123,7 @@ async function runModel(
       const scoped = [...library.documents.values()].map((document) => ({
         id: document.id,
         name: document.name,
+        title: document.title,
       }));
       for (const each of wanted.flatMap((each) => Array.from({ length: runs }, () => each))) {
         log(`${model} · ${each.id}: ${each.request}`);

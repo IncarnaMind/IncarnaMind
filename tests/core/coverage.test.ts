@@ -6,6 +6,7 @@ import type { ConversationAnswer, Core } from "../../src/core";
 import type { SizedDocument } from "../../src/core/answers/coverage";
 import {
   COVERED_AT_ONCE,
+  coverageInstructions,
   coverageNudge,
   coverageOf,
   documentsAsked,
@@ -186,6 +187,38 @@ describe("The ask when a reply leaves out Documents (#894)", () => {
     expect(
       coverageNudge(largest(documents), documents, "“Q1” is left for the next summary."),
     ).toBeNull();
+  });
+
+  // protects=a Latin-script name directly before Han text is named; fails_when=the Han letter counts as part of the word; no_claim=what the model writes.
+  test("a Latin name before Han text is named", () => {
+    const documents = reports(9, { 8: { name: "Tuning the Tuner" } });
+
+    expect(
+      coverageNudge(largest(documents), documents, "“Tuning the Tuner”留待下次总结。"),
+    ).toBeNull();
+  });
+
+  // protects=a title is the Document's name only where the User sees it; fails_when=an ordinary-word title the sidebar doesn't show turns the ask off; no_claim=what the model writes.
+  test("an ordinary-word title the User doesn't see is not the Document's name", () => {
+    const documents = reports(9, { 8: { name: "Report 9", title: "Contents" } });
+
+    expect(
+      coverageNudge(largest(documents), documents, "The contents are set out below."),
+    ).toContain("“Report 9” is left for the next summary");
+  });
+
+  // protects=the system prompt names the covered and left Documents as the User sees them; fails_when=a machine-made name reaches the model; no_claim=what the model writes.
+  test("the system prompt gives the display names", () => {
+    const documents = reports(9, {
+      0: { name: "IMG_0001", title: "Alpha Report" },
+      8: { name: "IMG_0042", title: "Annual Report 2023" },
+    });
+    const instruction = coverageInstructions(largest(documents), false, documents);
+
+    expect(instruction).toContain("“Alpha Report”");
+    expect(instruction).not.toContain("IMG_0001");
+    expect(instruction).toContain("“Annual Report 2023” is left for the next summary");
+    expect(instruction).not.toContain("IMG_0042");
   });
 });
 
