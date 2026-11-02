@@ -188,8 +188,9 @@ const quotedList = (names: readonly string[]) =>
 /**
  * What to tell the model when its reply leaves out Documents a capped summary
  * left for the next one (#894), as a re-ask after an Answer that named none of
- * them or only some: their names, and to offer to go on. Null when there is no
- * capped summary, or the reply names every one already.
+ * them or only some: the ones the next summary takes, how many come after, and
+ * to offer to go on. Null when there is no capped summary, or the reply names
+ * every one the next summary takes already.
  */
 export function coverageNudge(
   coverage: AnswerCoverage | null,
@@ -198,11 +199,14 @@ export function coverageNudge(
 ): string | null {
   if (coverage?.kind !== "largest") return null;
   const left = documents.filter((document) => coverage.rest.includes(document.id));
+  const next = left.slice(0, COVERED_AT_ONCE);
+  const after = left.length - next.length;
   const named = (document: SizedDocument) =>
     reply.toLocaleLowerCase().includes(document.name.toLocaleLowerCase());
-  const missing = left.filter((document) => !named(document));
+  const missing = next.filter((document) => !named(document));
   if (missing.length === 0) return null;
-  return `Write the reply again, and don't mention an earlier reply: the User reads only this one. Say in the User's language that ${quotedList(missing.map((document) => document.name))} ${missing.length === 1 ? "is" : "are"} left for the next summary, say why, and offer to go on. Nothing about your searching goes into a Note.`;
+  const said = `${quotedList(missing.map((document) => document.name))} ${missing.length === 1 ? "is" : "are"} left for the next summary${after > 0 ? `, and ${after} more ${after === 1 ? "comes" : "come"} after those` : ""}`;
+  return `Write the reply again, and don't mention an earlier reply: the User reads only this one. Say in the User's language that ${said}, say why, and offer to go on. Nothing about your searching goes into a Note.`;
 }
 
 /**

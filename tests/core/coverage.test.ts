@@ -339,6 +339,86 @@ describe("A summary of many Documents, through the core", { timeout: 60_000 }, (
     expect(answer.text).toContain("“Report 14”");
   });
 
+  // protects=of 20 Documents a reply that names the 8 the next summary takes, and the 4 after them, is not asked again; fails_when=it is asked for the other 4 by name; no_claim=what the model writes.
+  test("a reply that names the 8 the next summary takes is not asked for the 4 after", async () => {
+    let asks = 0;
+    const { core, mind, scope } = await withDocuments(
+      20,
+      summarisingEveryDocument((call) => {
+        if (call.prompt.includes("the User reads only this one")) asks += 1;
+        return {
+          text: "“Report 9”, “Report 10”, “Report 11”, “Report 12”, “Report 13”, “Report 14”, “Report 15” and “Report 16” are left for the next summary, and 4 more come after those.",
+        };
+      }),
+    );
+
+    const answer = await askAssistant(core, {
+      text: "Write a summary page of these documents",
+      mindId: mind.id,
+      scope,
+    });
+
+    expect(asks).toBe(0);
+    expect(answer.text).toContain("“Report 16”");
+  });
+
+  // protects=of 20 Documents the ask names the 8 the next summary takes and counts the 4 after, not the 4 by name; fails_when=it names “Report 17” or leaves the count out; no_claim=what the model writes.
+  test("the ask of 20 names the 8 the next summary takes and the 4 after", async () => {
+    let nudged = "";
+    const { core, mind, scope } = await withDocuments(
+      20,
+      summarisingEveryDocument((call) => {
+        if (call.prompt.includes("the User reads only this one")) {
+          nudged = call.prompt;
+          return {
+            text: "“Report 9”, “Report 10”, “Report 11”, “Report 12”, “Report 13”, “Report 14”, “Report 15” and “Report 16” are left for the next summary, and 4 more come after those.",
+          };
+        }
+        return { text: "Done." };
+      }),
+    );
+
+    await askAssistant(core, {
+      text: "Write a summary page of these documents",
+      mindId: mind.id,
+      scope,
+    });
+
+    expect(nudged).toContain(
+      "“Report 9”, “Report 10”, “Report 11”, “Report 12”, “Report 13”, “Report 14”, “Report 15” and “Report 16” are left for the next summary, and 4 more come after those",
+    );
+    expect(nudged).not.toContain("“Report 17”");
+  });
+
+  // protects=a Tool called on the ask is refused, and the Answer leaves one new Mind; fails_when=the ask writes a second Note; no_claim=what the model writes.
+  test("a Tool called on the ask leaves one new Mind", async () => {
+    let asked = 0;
+    const { core, mind, scope } = await withDocuments(
+      14,
+      summarisingEveryDocument((call) => {
+        if (!call.prompt.includes("the User reads only this one")) return { text: "Done." };
+        asked += 1;
+        if (asked === 1) {
+          return {
+            calls: [{ tool: "create_mind", input: { title: "Second summary", content: "…" } }],
+          };
+        }
+        return {
+          text: "“Report 9”, “Report 10”, “Report 11”, “Report 12”, “Report 13” and “Report 14” are left for the next summary.",
+        };
+      }),
+    );
+
+    const answer = await askAssistant(core, {
+      text: "Write a summary page of these documents",
+      mindId: mind.id,
+      scope,
+    });
+
+    expect(changesIn(answer).filter((change) => change.created)).toHaveLength(1);
+    expect(answer.text).toContain("“Report 14”");
+  });
+
   // protects=a Question about a topic across many Documents searches them all, with no cap; fails_when=it covers only the largest 8; no_claim=what the model writes.
   test("“what the documents say about” a topic searches all 10", async () => {
     const { core, mind, scope, calls } = await withDocuments(10);

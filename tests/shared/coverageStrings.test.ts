@@ -16,9 +16,9 @@ describe("the line above a summary of the Documents in scope", () => {
 
   // protects=the two main Documents' line and its button, in English and Chinese; fails_when=a word or a quotation mark changes; no_claim=which Documents a model picks.
   test("the main few, and the button for others, in English and Chinese", () => {
-    expect(
-      translate("en", "coverage.main", { documents: "“10-K” and “Facility agreement”" }),
-    ).toBe("I took “10-K” and “Facility agreement” as the main ones.");
+    expect(translate("en", "coverage.main", { documents: "“10-K” and “Facility agreement”" })).toBe(
+      "I took “10-K” and “Facility agreement” as the main ones.",
+    );
     expect(translate("en", "coverage.main.others")).toBe("Use others");
     expect(translate("zh-CN", "coverage.main", { documents: "“10-K”和“贷款协议”" })).toBe(
       "我选了“10-K”和“贷款协议”作为主要文档。",

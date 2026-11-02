@@ -3165,7 +3165,7 @@ export function createAnswers(options: AnswersOptions) {
                 name: "coverage-left",
                 check: (text: string) => {
                   const note = coverageNudge(coverage, coverageSized, text);
-                  return note ? { claims: [], note } : null;
+                  return note ? { claims: [], writeOnly: true, note } : null;
                 },
               },
             ]

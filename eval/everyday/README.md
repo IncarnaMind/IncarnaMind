@@ -134,8 +134,12 @@ the after runs. Each request three times; the claims judged by Claude Sonnet 5.5
 | `reports-all-zh` | Claude Haiku 5.5 | 1 of 3; 24 cited, 4 named, 8 unsaid | 3 of 3; 24 cited, 12 named, 0 unsaid |
 
 An earlier run of the same fix, before the ask's last wording, also passed 3 of 3 on each: two Chinese Answers
-were asked again inside the turn and the reply the User read still named the four. Spend: about $0.19 to
-$0.22 a run at Haiku 5.5's prices, from the tokens the report gives; the judge added under $0.01 a run.
+were asked again inside the turn and the reply the User read still named the four. Spend, priced from each
+invocation's tokens at Haiku 5.5's prices ($0.10/M in, $0.01/M cached, $0.125/M written, $0.50/M out): the
+before invocation's 320,454 uncached input, 2,670,101 cache-read, 709,222 cache-written and 123,573 output
+tokens are about $0.21, and the after invocation's 313,756, 2,586,200, 532,671 and 110,469 about $0.18. The
+earlier after run adds about $0.22, so the three invocations (18 Answers) cost about $0.62, inside the $2.00
+cap; the judge added under $0.01 to each.
 
 ### 2026-10-31: a summary of more Documents than it covers (#894)
 
