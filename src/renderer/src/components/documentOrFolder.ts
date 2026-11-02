@@ -1,5 +1,6 @@
 import type { SearchScope } from "../../../core/api";
 import { NO_SCOPE } from "../../../shared/searchScope";
+import { folderWallOf, isInsideFolder } from "../folders";
 import { type ScopeChoice, type ScopeLibrary, scopeChoices } from "../scope";
 
 export type DocumentOrFolderChoice = Omit<ScopeChoice, "kind"> & {
@@ -27,25 +28,29 @@ export function keptFrom(
   choice: DocumentOrFolderChoice,
   wall: string | null,
 ): { inside: string } | "outside" | null {
-  const walls = new Map(
-    (library.groups ?? [])
-      .filter((group) => group.keepInside)
-      .map((group) => [group.id, group.name]),
-  );
+  const groups = library.groups ?? [];
+  const names = new Map(groups.map((group) => [group.id, group.name]));
   const filings = (library.assignments ?? []).filter(
     (each) => choice.kind === "document" && each.documentId === choice.id,
   );
+  // A Folder inside a walled Folder is behind the same wall.
   const behind =
     choice.kind === "folder"
-      ? walls.has(choice.id)
-        ? choice.id
-        : null
-      : (filings.find((each) => walls.has(each.groupId ?? ""))?.groupId ?? null);
-  if (wall === null) return behind === null ? null : { inside: walls.get(behind) ?? "" };
+      ? folderWallOf(groups, choice.id)
+      : (filings.flatMap((each) => {
+          const found = folderWallOf(groups, each.groupId ?? "");
+          return found === null ? [] : [found];
+        })[0] ?? null);
+  if (wall === null) return behind === null ? null : { inside: names.get(behind) ?? "" };
   const filedInside =
     choice.kind === "folder"
-      ? choice.id === wall
-      : filings.some((each) => each.groupId === wall && each.source === "user");
+      ? choice.id === wall || isInsideFolder(groups, choice.id, wall)
+      : filings.some(
+          (each) =>
+            each.groupId !== null &&
+            each.source === "user" &&
+            (each.groupId === wall || isInsideFolder(groups, each.groupId, wall)),
+        );
   return filedInside ? null : "outside";
 }
 

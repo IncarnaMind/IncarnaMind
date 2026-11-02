@@ -1,7 +1,13 @@
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindChange } from "../../src/core/api";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
-import { translate } from "../../src/shared/i18n";
+import { keptText } from "../../src/renderer/src/changeFacts";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+
+const t =
+  (language: "en" | "zh-CN") =>
+  (key: MessageKey, params?: MessageParams): string =>
+    translate(language, key, params);
 
 /*
  * The rows of an Answer's card of Minds changed (#202): one per Mind, in the
@@ -296,6 +302,72 @@ describe("The Minds an Answer changed", () => {
     });
     expect(row).toMatchObject({ tables: 2, unlinkedSources: 3, droppedSources: 1, extraCells: 3 });
   });
+
+  // protects=a "No chart" line describes the Note as it is now: a chart a later call drew there answers an earlier call's, while a later refusal still says why; fails_when=the card keeps "No chart" beside a chart the Answer drew, or loses the latest reason; no_claim=how the card lays it out.
+  test.each(["en", "zh-CN"] as const)(
+    "%s: a chart a later call drew in the Note clears an earlier call's No chart",
+    (language) => {
+      const rows = changedMinds({
+        toolCalls: [
+          call("create_mind", {
+            mindId: "a",
+            created: true,
+            request: "r1",
+            proposals: 1,
+            paragraphs: 1,
+            chartNotDrawn: "noTable",
+          }),
+          call("add_to_mind", {
+            mindId: "a",
+            created: false,
+            request: "r2",
+            proposals: 1,
+            paragraphs: 1,
+            tables: 1,
+            charts: 1,
+          }),
+        ],
+      });
+      const [row] = rows;
+      expect(row).toMatchObject({ tables: 1, charts: 1, chartNotDrawn: null });
+      expect(keptText(t(language), row as NonNullable<typeof row>)).toBeNull();
+
+      const refusedAgain = changedMinds({
+        toolCalls: [
+          call("create_mind", {
+            mindId: "a",
+            created: true,
+            request: "r1",
+            proposals: 1,
+            paragraphs: 1,
+            chartNotDrawn: "noTable",
+          }),
+          call("add_to_mind", {
+            mindId: "a",
+            created: false,
+            request: "r2",
+            proposals: 1,
+            paragraphs: 1,
+            tables: 1,
+            charts: 1,
+          }),
+          call("add_to_mind", {
+            mindId: "a",
+            created: false,
+            request: "r3",
+            proposals: 1,
+            paragraphs: 1,
+            chartNotDrawn: "needsTwo",
+          }),
+        ],
+      });
+      expect(keptText(t(language), refusedAgain[0] as NonNullable<(typeof refusedAgain)[0]>)).toBe(
+        translate(language, "mindChanges.noChart", {
+          reason: translate(language, "mindChanges.noChart.needsTwo"),
+        }),
+      );
+    },
+  );
 
   // protects=the card's note on a table's sources uses the glossary's word for a Citation's source, 出处, in Chinese (#961); fails_when=it says 来源; no_claim=how the card lays it out.
   test("the note on a table's sources says 出处 in Chinese", () => {

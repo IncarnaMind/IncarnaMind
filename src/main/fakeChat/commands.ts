@@ -15,10 +15,11 @@
  * (把删掉的“X”恢复) restores what it found in Recently deleted; "Put the documents about
  * rent together" (把关于租金的文档放在一起) has Organize sort every Document in no Folder toward
  * "Rent"; "Start recording a meeting" (开始录制会议) starts one; and "Turn on Local mode"
- * (打开本地模式) asks for what is the User's alone. Each then
+ * (打开本地模式) asks for what is the User's alone, while "Say you turned on Local mode"
+ * (说你打开了本地模式) asks for it and then says it is on, asked again too (#2407). Each then
  * replies with the first sentence of what its calls returned, or nothing after one whose card is
- * the reply: a window's command it marked done, or what is the User's alone. Asked once more to
- * say a refusal, it says nothing again, so the reply is the refusal's own line (#2252).
+ * the reply: a window's command it marked done, or what is the User's alone, whose line
+ * IncarnaMind adds after the reply (#2252).
  */
 import { lastResult, type Prompt, type Reply, toolResults, userText } from "./prompt";
 
@@ -75,10 +76,10 @@ const BESIDE = /\bopen the (.+?) beside this one\b|在旁边打开“(.+?)”/i;
 const CHECK = /\bcheck this (?:mind|note)\b|核对这篇笔记/i;
 const ORGANIZE_ABOUT = /\bput the documents about (.+?) together\b|把关于(.+?)的文档放在一起/i;
 const LOCAL_MODE = /\bturn on local mode\b|打开本地模式/i;
+const CLAIMS_LOCAL_MODE = /^say you turned on local mode|^说你打开了本地模式/i;
 const WALL_OFF = /\bstop keeping this folder's work inside it\b|让本文件夹不再只在本文件夹内工作/i;
 const RESTORE = /\bbring back the (.+?) i deleted\b|把删掉的“(.+?)”恢复/i;
 const RECORD = /\bstart recording a meeting\b|开始录制会议/i;
-const EMPTY_REPLY = /\bYour reply is empty\./;
 
 function runOnce(prompt: Prompt, input: Record<string, unknown>): Reply {
   if (lastResult(prompt, "run_command") !== undefined) return said(prompt);
@@ -94,13 +95,25 @@ export function commandsReply(
   names: readonly string[],
 ): Reply | null {
   if (!names.includes("run_command")) return null;
-  // The ask can come with the last step's own note after it, in a message of its own.
-  const asked = prompt.filter((message) => message.role === "user").slice(-2);
-  if (
-    asked.some((message) => EMPTY_REPLY.test(userText(message))) &&
-    lastResult(prompt, "run_command") !== undefined
-  ) {
-    return { text: "" };
+  // The User's own words, not the note the app asks again with.
+  const asked =
+    userText(
+      prompt.findLast(
+        (message) => message.role === "user" && !userText(message).includes("<tool-record>"),
+      ),
+    )
+      .split("\n\n")
+      .at(-1) ?? "";
+  if (CLAIMS_LOCAL_MODE.test(asked)) {
+    if (lastResult(prompt, "run_command") === undefined) {
+      return {
+        tool: "run_command",
+        input: { command: "settings.change", setting: "localMode", value: "on" },
+      };
+    }
+    return {
+      text: /\p{Script=Han}/u.test(asked) ? "我已经打开了本地模式。" : "I've turned on Local mode.",
+    };
   }
   const made = FOLDER_AND_MOVE.exec(question);
   if (made) {

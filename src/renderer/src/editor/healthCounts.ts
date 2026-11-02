@@ -24,6 +24,7 @@ import {
 import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
 import {
   type CheckedSentence,
+  cantBeChecked,
   checkedSentence,
   type KeptMark,
   keptOn,
@@ -49,7 +50,9 @@ export type HealthPart = (typeof HEALTH_PARTS)[number];
 /**
  * Where each part's sentences or Citations are, top to bottom: its count is
  * how many. `toCheck`: every claim no check covers now, `failed` and
- * `recheck` the parts of that count whose check failed or no longer holds;
+ * `recheck` the parts of that count whose check failed or no longer holds,
+ * `uncheckable` the failed ones a re-run cannot settle and `edited` the
+ * rechecks a change to a sentence that had run made;
  * `checking`: the claims a run is checking right now, not done yet;
  * `kept`: the sentences the User keeps as their own view, which count as
  * handled; `tableCells` are the parts of `toCheck` a table holds (#1194);
@@ -71,7 +74,11 @@ export interface NoteHealth {
   contradicted: number[];
   toCheck: number[];
   failed: number[];
+  /** The failed checks running again cannot settle: a Citation kept inside another Folder. */
+  uncheckable: number[];
   recheck: number[];
+  /** The rechecks a change to their sentence made, which a check of it can settle. */
+  edited: number[];
   checking: number[];
   kept: number[];
   tableCells: number[];
@@ -81,6 +88,9 @@ export interface NoteHealth {
   checkedAt: string | null;
   unexamined: number[];
 }
+
+/** A check that landed a verdict: an edit of its sentence is a re-check, not an upgrade of one that never ran. */
+const RAN: ReadonlySet<string> = new Set(["supported", "unsupported", "contradicted"]);
 
 /** A digit or a Chinese numeral: a sentence with neither holds no figure, and isn't read for one. */
 const MAY_HOLD_FIGURE = /[\d〇零一二三四五六七八九十百千万亿两]/;
@@ -226,7 +236,9 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     contradicted: [],
     toCheck: [],
     failed: [],
+    uncheckable: [],
     recheck: [],
+    edited: [],
     checking: [],
     kept: [],
     tableCells: [],
@@ -250,8 +262,21 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     if (state.kind === "to-check") {
       health.checkable++;
       health.toCheck.push(from);
-      if (state.why === "failed") health.failed.push(from);
-      else if (state.why === "recheck") health.recheck.push(from);
+      if (state.why === "failed") {
+        health.failed.push(from);
+        if (claim && cantBeChecked(claim.shown)) health.uncheckable.push(from);
+      } else if (state.why === "recheck") {
+        health.recheck.push(from);
+        // An edit marks a check that ran and would still hold with its own words; one that never
+        // ran, or whose Document changed since, stays Not checked in the headline (#2313).
+        if (
+          claim?.shown.state === "needs-recheck" &&
+          claim.shown.why === "edited" &&
+          RAN.has(claim.check.state) &&
+          claim.holdsWithItsText === true
+        )
+          health.edited.push(from);
+      }
       if (state.fresh && unexamined.has(sentenceKey(text))) health.unexamined.push(from);
       if (table) health.tableCells.push(from);
       return;

@@ -8,6 +8,7 @@ const READ: Record<ReadThirdPartySource, MessageKey> = {
   imported: "approvals.thirdParty.read.imported",
   "web-page": "approvals.thirdParty.read.webPage",
   "checked-document": "approvals.thirdParty.read.checkedDocument",
+  "outside-agent": "approvals.thirdParty.read.outsideAgent",
 };
 
 /** The line for text a Task read itself, such as Research's web pages (#130). */
@@ -15,6 +16,7 @@ const TASK_READ: Record<ReadThirdPartySource, MessageKey> = {
   imported: "approvals.thirdParty.task.imported",
   "web-page": "approvals.thirdParty.task.webPage",
   "checked-document": "approvals.thirdParty.task.checkedDocument",
+  "outside-agent": "approvals.thirdParty.task.outsideAgent",
 };
 
 /** The line for text in its Question context: in a Mind, or the Mind a Question in a conversation read. */
@@ -22,6 +24,7 @@ const IN_MIND: Record<ThirdPartySource, MessageKey> = {
   imported: "approvals.thirdParty.mind.imported",
   "web-page": "approvals.thirdParty.mind.webPage",
   "checked-document": "approvals.thirdParty.mind.checkedDocument",
+  "outside-agent": "approvals.thirdParty.mind.outsideAgent",
 };
 
 /** The line for text in its Question context: in a conversation. */
@@ -29,6 +32,7 @@ const IN_CONVERSATION: Record<ThirdPartySource, MessageKey> = {
   imported: "approvals.thirdParty.conversation.imported",
   "web-page": "approvals.thirdParty.conversation.webPage",
   "checked-document": "approvals.thirdParty.conversation.checkedDocument",
+  "outside-agent": "approvals.thirdParty.conversation.outsideAgent",
 };
 
 /**

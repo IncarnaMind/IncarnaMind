@@ -19,6 +19,7 @@ import {
 } from "../core/api";
 import { asGenerated } from "./aiText";
 import { withAnalysisPictures } from "./analysisPictures";
+import { withAnalysisTableCitations } from "./analysisTables";
 import { citationNode, type NodeJSON, withCitations } from "./blockJson";
 import { calculatedFigureNode, figureShownText } from "./calculatedFigures";
 import { withFigures } from "./figureMarkers";
@@ -46,7 +47,7 @@ export function answerBlocks(
   return asGenerated(
     closeUpCitations(
       withCalculatedFigures(
-        withAnalysisPictures(blocks, answer.analyses),
+        withAnalysisTableCitations(withAnalysisPictures(blocks, answer.analyses), answer.analyses),
         (marker) => figures.get(marker) ?? null,
         answer,
       ),

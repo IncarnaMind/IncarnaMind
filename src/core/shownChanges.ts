@@ -4,7 +4,7 @@
  * shown. Inline content in stretches by the change each is part of, a
  * Block's change on its words, and Blocks with every change accepted.
  */
-import type { Block, Inline, Pending } from "./mindText";
+import { type Block, type Inline, isWordChange, type Pending } from "./mindText";
 
 /** A change as shown: what it does to the words it is on, and who made it when. */
 export interface ShownChange {
@@ -66,41 +66,57 @@ export function changeEnding(spans: readonly ChangeSpan[], at: number): NotedCha
   return replaced ? { ...change, kind: "replace" } : change;
 }
 
+/**
+ * Someone else's change from their Word file, which "accepted" applies; the AI's own stays
+ * waiting (#2292).
+ */
+const someoneElses = (pending: Pending | undefined): boolean => isWordChange(pending);
+
+function withoutInserted(value: Inline): Inline;
+function withoutInserted(value: Block): Block;
+function withoutInserted(value: Inline | Block): Inline | Block {
+  const { inserted: _inserted, ...rest } = value;
+  return rest;
+}
+
 function acceptedInline(content: readonly Inline[]): Inline[] {
   return content.flatMap((inline): Inline[] => {
-    if (inline.deleted) return [];
-    const { inserted: _inserted, ...rest } = inline;
-    return rest.kind === "footnote" ? [{ ...rest, content: acceptedInline(rest.content) }] : [rest];
+    if (someoneElses(inline.deleted)) return [];
+    const kept = someoneElses(inline.inserted) ? withoutInserted(inline) : inline;
+    return kept.kind === "footnote" ? [{ ...kept, content: acceptedInline(kept.content) }] : [kept];
   });
 }
 
-/** Blocks with every change in them accepted: what one adds kept as plain text, what one removes gone. */
-export function withChangesAccepted(blocks: readonly Block[]): Block[] {
+/**
+ * Blocks with someone else's changes accepted: what they added kept as plain text, what they
+ * removed gone. The AI's own changes stay marked (#2292).
+ */
+export function withTheirChangesAccepted(blocks: readonly Block[]): Block[] {
   return blocks.flatMap((block): Block[] => {
-    if (block.deleted) return [];
-    const { inserted: _inserted, ...rest } = block;
-    switch (rest.kind) {
+    if (someoneElses(block.deleted)) return [];
+    const kept = someoneElses(block.inserted) ? withoutInserted(block) : block;
+    switch (kept.kind) {
       case "paragraph":
       case "heading":
       case "question":
-        return [{ ...rest, content: acceptedInline(rest.content) }];
+        return [{ ...kept, content: acceptedInline(kept.content) }];
       case "list":
-        return [{ ...rest, items: rest.items.map(withChangesAccepted) }];
+        return [{ ...kept, items: kept.items.map(withTheirChangesAccepted) }];
       case "quote":
-        return [{ ...rest, content: withChangesAccepted(rest.content) }];
+        return [{ ...kept, content: withTheirChangesAccepted(kept.content) }];
       case "table":
         return [
           {
-            ...rest,
-            rows: rest.rows.map((row) =>
-              row.map((cell) => ({ ...cell, content: withChangesAccepted(cell.content) })),
+            ...kept,
+            rows: kept.rows.map((row) =>
+              row.map((cell) => ({ ...cell, content: withTheirChangesAccepted(cell.content) })),
             ),
           },
         ];
       case "chart":
-        return [{ ...rest, sources: acceptedInline(rest.sources) }];
+        return [{ ...kept, sources: acceptedInline(kept.sources) }];
       default:
-        return [rest];
+        return [kept];
     }
   });
 }

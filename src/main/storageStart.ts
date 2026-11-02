@@ -2,8 +2,7 @@ import { closeSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { DATABASE_FILE } from "../core";
 import type { Logger } from "../core/adapters";
-import { isRecord } from "../core/errors";
-import { migrations } from "../core/storage";
+import { heldByAnotherProcess, migrations } from "../core/storage";
 import type { MigrationMessage } from "./migrationWorker";
 import startMigrationWorker from "./migrationWorker?nodeWorker";
 
@@ -27,16 +26,6 @@ export class DatabaseHeldError extends Error {
     this.name = "DatabaseHeldError";
   }
 }
-
-const SQLITE_BUSY = 5;
-const SQLITE_IOERR_TRUNCATE = 1546;
-
-const waitedOutALock = (error: Error): boolean => {
-  const errcode = isRecord(error) && typeof error.errcode === "number" ? error.errcode : null;
-  return (
-    errcode !== null && ((errcode & 0xff) === SQLITE_BUSY || errcode === SQLITE_IOERR_TRUNCATE)
-  );
-};
 
 /**
  * Brings the content database in `dataDir` up to date on a worker thread, so a first start's
@@ -85,7 +74,7 @@ export function migrateOffThread(
     });
     worker.once("exit", (code) => {
       if (failure) {
-        reject(waitedOutALock(failure) ? new DatabaseHeldError(failure) : failure);
+        reject(heldByAnotherProcess(failure) ? new DatabaseHeldError(failure) : failure);
         return;
       }
       if (code !== 0) {

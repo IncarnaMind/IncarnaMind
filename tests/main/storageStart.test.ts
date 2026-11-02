@@ -174,14 +174,21 @@ describe("migrateOffThread", () => {
     ])(
       "a lock the worker waited out (%s) is a DatabaseHeldError, said once",
       async (_name, errcode) => {
-        const dataDir = await createTempDataFolder();
-        const thread = new FakeThread();
-        const start = startedWith(dataDir, thread);
-        thread.emit("error", Object.assign(new Error("database is locked"), { errcode }));
-        thread.emit("exit", 1);
-        const error = await start.promise.catch((reason: unknown) => reason);
-        expect(error).toBeInstanceOf(DatabaseHeldError);
-        expect(error).toHaveProperty("message", "database is locked");
+        const platform = Object.getOwnPropertyDescriptor(process, "platform");
+        if (!platform) throw new Error("The test could not read the native platform.");
+        Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
+        try {
+          const dataDir = await createTempDataFolder();
+          const thread = new FakeThread();
+          const start = startedWith(dataDir, thread);
+          thread.emit("error", Object.assign(new Error("database is locked"), { errcode }));
+          thread.emit("exit", 1);
+          const error = await start.promise.catch((reason: unknown) => reason);
+          expect(error).toBeInstanceOf(DatabaseHeldError);
+          expect(error).toHaveProperty("message", "database is locked");
+        } finally {
+          Object.defineProperty(process, "platform", platform);
+        }
       },
     );
 

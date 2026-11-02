@@ -311,8 +311,15 @@ export interface CreateMindInput {
  *   (`pageChecked`, #535). An older editor would strip both, so it opens
  *   these Notes read-only. Older content is version 47 content as it is: a
  *   Citation written before holds neither.
+ * - 48: an Analysis figure's kept value carries what IncarnaMind made of it
+ *   when the Analysis ran (`check` on a value of the Note's Analysis records,
+ *   #2378): the number its cells come to, or why it couldn't be worked out
+ *   again. An older version would keep the record again without it, so it
+ *   opens these Notes read-only.
+ *   Older content is version 47 content as it is: a figure kept before carries
+ *   no check, and shows as not checked.
  */
-export const CONTENT_SCHEMA_VERSION = 47;
+export const CONTENT_SCHEMA_VERSION = 48;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -606,7 +613,21 @@ export type ProposalRequest =
     })
   | (ProposalMaker & { source: "comparison-table"; tableId: string })
   | (ProposalMaker & { source: "research"; taskId: string })
+  | OutsideAgentRequest
   | WordChangeRequest;
+
+/**
+ * Changes an outside agent proposed over MCP on its own (#352, ADR-0026 decision 4a): the
+ * agent's name as the User named its pairing, and the pairing. No model is named: IncarnaMind
+ * can't tell which one the agent used.
+ */
+export interface OutsideAgentRequest {
+  source: "outside-agent";
+  agent: string;
+  pairingId: string;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+}
 
 /** The start of the id of someone's tracked change imported from a Word file (`WordChangeRequest`). */
 export const WORD_CHANGE_ID = "word:";
@@ -890,9 +911,10 @@ export const INCLUDE_IN_CONTEXT_ATTRIBUTE = "includeInContext";
  *   carrying their tracked changes (#104);
  * - "web-page": a saved web page (#261): Passages a search found in one, or a
  *   quote added from one (#101);
- * - "checked-document": the document a check reads to check it (#97, #110).
+ * - "checked-document": the document a check reads to check it (#97, #110);
+ * - "outside-agent": text an outside agent proposed for a Note (#352).
  */
-export type ThirdPartySource = "imported" | "web-page" | "checked-document";
+export type ThirdPartySource = "imported" | "web-page" | "checked-document" | "outside-agent";
 
 /**
  * Third-party text a Run reads itself: a saved web page a search found, the
@@ -1023,6 +1045,13 @@ export interface AnswerAttributes {
   toolCalls: string | null;
 }
 
+/** A figure marker an Answer's text kept that has no figure (#2313): what it wrote before it, if it wrote a number. */
+export interface UncalculatedFigure {
+  marker: number;
+  /** The number the Answer wrote right before the marker, as it wrote it ("6.55"); null when it wrote none. */
+  written: string | null;
+}
+
 /** A Tool the model called while writing an Answer, e.g. a search of the User's Documents. */
 export interface AnswerToolCall {
   /** Unique within its Answer. */
@@ -1111,6 +1140,12 @@ export interface AnswerToolCall {
    * were left out of its text. Absent: none.
    */
   uncalculated?: number;
+  /**
+   * "calculate" only, beside `uncalculated`: each of those markers, with the
+   * number the Answer wrote right before it when it wrote one, so its end can
+   * say which figures they were (#2313). Absent on Answers written before it.
+   */
+  uncalculatedFigures?: UncalculatedFigure[];
   /** A Minds' Tool that changed a Mind or made one, once it ended (#202). Absent otherwise. */
   mindChange?: MindChange;
   /** A Minds' Tool that changed nothing: why, as its card says. Absent otherwise. */
@@ -1302,6 +1337,27 @@ export type WritingPlace = { after: string | null } | { over: string };
 export interface MindWriting {
   mindId: string;
   place: WritingPlace | null;
+  /** A selection too long for the model is edited in parts: which of how many is written now (#2348). */
+  part?: EditPart;
+}
+
+/** A part of a selection edited in parts (#2348): `at` counts from 1, of `of` parts in all. */
+export interface EditPart {
+  at: number;
+  of: number;
+}
+
+/**
+ * A run of an edit too long for one request, on a model billed per token, asking the User to
+ * start it: its parts, and what they would cost (#83, #2348). Answered with `respondToEditAsk`.
+ */
+export interface EditAsk {
+  mindId: string;
+  /** The edit's request, as `cancelEdit` takes it. */
+  requestId: string;
+  parts: number;
+  /** Null when nothing is known of the model's price. */
+  estimate: RunEstimate | null;
 }
 
 /**
@@ -1599,6 +1655,12 @@ export interface WordFileCheck {
   fileName: string;
   /** Why it can't be imported; null when it can. */
   refusal: WordRefusalReason | null;
+  /**
+   * Whether the LibreOffice on this computer could convert it to .docx (#104),
+   * found by IncarnaMind, never bundled or downloaded. False for a file that
+   * isn't one it converts.
+   */
+  canConvert: boolean;
   /** What the import screen starts on: someone else's when the file carries tracked changes or comments. */
   origin: WordOrigin;
   /** Who wrote its tracked changes and comments, in the order they first appear. */
@@ -1612,6 +1674,29 @@ export interface WordFileCheck {
    */
   earlierDraft: { documentId: string; name: string } | null;
 }
+
+/** Why an old Office, WPS or Word 97–2003 file couldn't be converted (#762). */
+export type OfficeConversionProblem =
+  /** No LibreOffice was found on this computer: never bundled or downloaded by IncarnaMind. */
+  | "unavailable"
+  /** IncarnaMind doesn't convert a file of this kind. */
+  | "unsupported"
+  /** LibreOffice failed, or took too long: the original is unchanged. */
+  | "failed";
+
+/** What converting a file to the format IncarnaMind reads did (#762). */
+export type OfficeConversionResult =
+  | {
+      /** The copy was added: a Document of its own, which says which file it came from. */
+      outcome: "added";
+      document: Document;
+    }
+  | { outcome: "problem"; problem: OfficeConversionProblem };
+
+/** A .doc converted to a .docx copy the import screen can read (#104). */
+export type WordConversionResult =
+  | { outcome: "converted"; path: string; name: string }
+  | { outcome: "problem"; problem: OfficeConversionProblem };
 
 export interface ImportWordFileInput {
   /** The .docx's absolute path. */
@@ -2522,6 +2607,12 @@ export interface AnswerAnalysis {
   recalculations?: { result: string; check: AnalysisRecalculation }[];
 }
 
+/** A figure a Note kept from its Analysis, with what IncarnaMind made of it when the Analysis ran. */
+export type RetainedFigureValue = Extract<AnalysisValue, { kind: "figure" }> & {
+  /** Absent in a Note kept before the check was recorded (#2378). */
+  check?: AnalysisRecalculation;
+};
+
 /** A successful run kept once by a Note, with only the results its figures still use (ADR-0021). */
 export interface RetainedFigureAnalysis
   extends Pick<
@@ -2529,7 +2620,7 @@ export interface RetainedFigureAnalysis
     "title" | "language" | "code" | "inputs" | "versions" | "codeSha256" | "ranAt"
   > {
   id: string;
-  values: Extract<AnalysisValue, { kind: "figure" }>[];
+  values: RetainedFigureValue[];
 }
 
 /** A number a calculated figure is worked out from: one read from a Citation's quote. */
@@ -3121,7 +3212,8 @@ export type LayoutChange =
 
 /**
  * The kinds of Document (ADR-0011): files of PDF, plain text, Markdown, Word
- * (.docx), PowerPoint (.pptx), Excel (.xlsx) and CSV, web pages saved by
+ * (.docx), PowerPoint (.pptx), Excel (.xlsx) and CSV, pictures (read as a
+ * scanned page is, #762), RTF and HTML files (#762), web pages saved by
  * their address (#261), and Transcripts, WebVTT files (#136).
  */
 export type DocumentKind =
@@ -3132,6 +3224,9 @@ export type DocumentKind =
   | "pptx"
   | "xlsx"
   | "csv"
+  | "image"
+  | "rtf"
+  | "html"
   | "web"
   | "transcript";
 
@@ -3172,6 +3267,11 @@ export type DocumentFailureReason =
    * parts that inflate past 1 GB together. The message names the limit.
    */
   | "too-large"
+  /**
+   * A picture whose bytes aren't a kind IncarnaMind reads, or whose size can't
+   * be read: Retry would fail again, so it has no Retry (#762).
+   */
+  | "picture-unreadable"
   /**
    * No longer given: a file that has gone is a "missing" Document (see
    * `DocumentFileStatus`), not a failed one. Kept so older data still reads.
@@ -3402,6 +3502,12 @@ export interface Document {
    * (web pages, Transcripts), which count as evidence as usual.
    */
   ownFile: OwnFile | null;
+  /**
+   * Set when the Document is a copy IncarnaMind converted from another file
+   * with the User's own LibreOffice (#762): that file's name, with its
+   * extension ("Report.doc"). The original is never changed. Null otherwise.
+   */
+  convertedFrom: string | null;
   /**
    * The User keeps it as their own workings: a spreadsheet of figures copied from a
    * report, with their own ratios. Answers search and read it to understand a Question but
@@ -4421,6 +4527,7 @@ export interface UnsupportedFile {
 export type UnreadReason =
   | "format"
   | "scan"
+  | "picture"
   | "password"
   | "damaged"
   | "too-large"
@@ -4484,7 +4591,7 @@ export interface LinkedFolderPreview {
 
 export interface SkippedFile {
   path: string;
-  /** "unsupported-type": not PDF, TXT or Markdown. "unreadable": missing, a folder, or not readable. */
+  /** "unsupported-type": a kind IncarnaMind doesn't read yet. "unreadable": missing, a folder, or not readable. */
   reason: "unsupported-type" | "unreadable";
 }
 
@@ -5502,8 +5609,11 @@ export interface TaskShown {
 /** A large run to estimate: so many items (a comparison table's cells, verify's sentences…). */
 export interface RunEstimateInput {
   items: number;
-  /** What each item is: about an Answer (the default), or a sentence checked against Documents (#973). */
-  each?: "answer" | "check";
+  /**
+   * What each item is: about an Answer (the default), a sentence checked against Documents
+   * (#973), or a part of an Edit with AI too long for one request (#2348).
+   */
+  each?: "answer" | "check" | "edit";
   /** The web searches it makes (#128), each billed by the model's provider, on top of its items. */
   searches?: number;
   /** The model it would use; the default model when left out. */
@@ -5837,6 +5947,8 @@ export type EditWithAiResult =
       kind: "proposed";
       request: string;
       proposals: number;
+      /** The parts a selection too long for the model was edited in, one after another (#2348). Absent: one. */
+      parts?: number;
       droppedCitations: number;
       outOfDate: number;
       /** Markers the text had for none of the passage's Citations, left out. Absent: none. */
@@ -5847,6 +5959,11 @@ export type EditWithAiResult =
       extraCells?: number;
       /** An edit the User asked for that waits for them instead of applying (#880). */
       held?: true;
+      /**
+       * The edit stopped partway because the User typed in a later part while it ran: what the
+       * earlier parts wrote stays, and the rest was not asked (#2348).
+       */
+      stopped?: "changed";
       /** What its new text left out of the selection, kept; absent when nothing. */
       leftOut?: LeftOutPart[];
       /**
@@ -5875,6 +5992,13 @@ export type EditWithAiResult =
   | { kind: "has-proposals" }
   /** Nothing was sent: the selected text is more than the model can take at once. */
   | { kind: "too-long" }
+  /**
+   * Nothing was sent: one Block of the selection is more than the model takes at once, and a
+   * Block can't be edited in parts (#2348). `cause`: "cap" is the app's own limit, which no
+   * model changes (12,000 characters, or a reply past an edit's 16,000 tokens); "model" is this
+   * model's window, which a larger one may take.
+   */
+  | { kind: "block-too-long"; cause: "cap" | "model" }
   /** The User stopped it (`cancelEdit`). */
   | { kind: "cancelled" }
   /**
@@ -6964,6 +7088,11 @@ export interface AnswerSteps {
    */
   unbackedClaims?: ClaimedChange[];
   /**
+   * What its reply says it did in the app that none of its calls did, even once the model was
+   * asked again with what they did (#2407). Absent: none.
+   */
+  unbackedCommands?: ClaimedCommand[];
+  /**
    * What its reply says a Tool did that none of its calls did (#1796): a figure calculated or
    * checked, or a search. Absent: none.
    */
@@ -7024,6 +7153,24 @@ export interface AnswerCoverage {
  */
 export const CLAIMED_CHANGES = ["made", "added", "changed", "removed"] as const;
 export type ClaimedChange = (typeof CLAIMED_CHANGES)[number];
+
+/**
+ * What an Answer's reply can say it did in the app (#2407): changed one of what only the User
+ * changes, named so that it never reads as done, or ran any other command or changed any other
+ * setting.
+ */
+export const CLAIMED_COMMANDS = [
+  "privacy",
+  "keys",
+  "spending",
+  "approvals",
+  "permanent",
+  "wall",
+  "signOff",
+  "authorship",
+  "command",
+] as const satisfies readonly (Yours | "command")[];
+export type ClaimedCommand = (typeof CLAIMED_COMMANDS)[number];
 
 /** What an Answer's reply can say a Tool did (#1796): calculated or checked a figure, or searched. */
 export const CLAIMED_TOOLS = ["calculate", "search"] as const;
@@ -8474,6 +8621,8 @@ export const aiUseKinds = [
   "edit-with-ai-accepted",
   /** A comparison table from Compare Documents accepted (#98). */
   "comparison-table-accepted",
+  /** A change an outside agent proposed, accepted (#352): recorded with the agent's name. */
+  "outside-agent-change-accepted",
   /** A sentence of the Mind's checked against the Documents (#906). */
   "sentence-checked",
 ] as const;
@@ -8499,6 +8648,8 @@ export interface AiUseEntry {
   /** The model that wrote it; null when it isn't known. */
   providerId: string | null;
   modelId: string | null;
+  /** The outside agent that wrote it, by its name then (#352); null for IncarnaMind's own AI. */
+  agent: string | null;
   /** How much the AI wrote, in characters. */
   characters: number;
   /** The Blocks it made, by their stable ids; none for a rejected proposal, a suggestion or a check. */
@@ -8512,6 +8663,8 @@ export interface RecordAiUseInput {
   kind: AiUseKind;
   providerId?: string | null;
   modelId?: string | null;
+  /** The outside agent that wrote it (`AiUseEntry.agent`). */
+  agent?: string | null;
   characters: number;
   /**
    * The Blocks the insertion made, already in the Mind (send the Mind's update
@@ -9300,6 +9453,8 @@ export interface RestoreResult {
    * waited in Recently deleted, and it was deleted then, as any Meeting's audio is (#1253).
    */
   audioExpired: ExpiredAudio[];
+  /** Folders that came back to the top level because the Folder they were in is still deleted. */
+  toTopLevel?: string[];
 }
 
 /** A Note whose Meeting's audio was deleted, its day over, while the Note waited in Recently deleted. */
@@ -10241,6 +10396,11 @@ export interface AgentPairing {
   folderIds: string[];
   /** The agent it was set up in, e.g. "codex"; null for one set up by hand. */
   client: string | null;
+  /**
+   * It may propose changes to the Notes in its Folders (#352), which wait for the User as
+   * Proposals; never applied by the agent. Off unless the User allows it.
+   */
+  propose: boolean;
   /** When it last called IncarnaMind, ISO 8601, UTC; null if it never has. */
   lastUsedAt: string | null;
   createdAt: string;
@@ -10266,11 +10426,14 @@ export interface ConnectAgentInput {
   folderIds?: string[];
   /** The agent it is set up in, e.g. "codex": lower-case letters, digits and hyphens. */
   client?: string;
+  /** It may propose changes to the Notes in its Folders (`AgentPairing.propose`); off by default. */
+  propose?: boolean;
 }
 
 export interface UpdateAgentInput {
   name?: string;
   folderIds?: string[];
+  propose?: boolean;
 }
 
 /** How an agent starts IncarnaMind's server: the command for its MCP settings. */
@@ -10297,6 +10460,7 @@ export const AGENT_TOOLS = [
   "list_minds",
   "read_mind",
   "ask",
+  "propose_changes",
 ] as const;
 
 /**
@@ -10374,6 +10538,8 @@ export interface SetUpAgentInput {
   folderIds: string[];
   /** The name the User gave it ("Other agent" only); otherwise its own name. */
   name?: string;
+  /** It may propose changes to the Notes in its Folders (`AgentPairing.propose`); off by default. */
+  propose?: boolean;
 }
 
 export interface SetUpAgent {
@@ -10398,6 +10564,9 @@ export type AgentToolName = (typeof AGENT_TOOLS)[number];
  * - "outside-scope": what it asked for is outside its Folders;
  * - "not-found": no such Passage, Document, Mind or Citation;
  * - "chat-not-ready": `ask` needs a chat model that is set up and allowed;
+ * - "read-only": it may read but not propose changes (`AgentPairing.propose`);
+ * - "changed": the Note changed since the agent read it, so its paragraphs' names may not hold;
+ * - "waiting": a paragraph it names has changes waiting for the User, or is being written;
  * - "invalid": its arguments make no sense;
  * - "failed": something went wrong in IncarnaMind (the log says what).
  */
@@ -10410,6 +10579,9 @@ export type AgentProblem =
   | "outside-scope"
   | "not-found"
   | "chat-not-ready"
+  | "read-only"
+  | "changed"
+  | "waiting"
   | "invalid"
   | "failed";
 
@@ -10440,6 +10612,12 @@ export interface CoreApi {
   getLibrary(): Promise<LibrarySnapshot>;
   createLibraryGroup(input: LibraryGroupInput): Promise<LibraryGroup>;
   updateLibraryGroup(groupId: string, input: LibraryGroupInput): Promise<LibraryGroup>;
+  /**
+   * Moves Folders in one step: each to its new parent (null: the top level). A Folder moved with
+   * one of its own Folders stays where it is, so the tree keeps its shape. Returns the Folders
+   * that moved; nothing moves when any of them can't.
+   */
+  moveLibraryGroups(moves: { id: string; parentId: string | null }[]): Promise<string[]>;
   /**
    * Its Minds, Documents and conversations go to Not in a Folder. Returns what it held,
    * which restoring it puts back.
@@ -10629,6 +10807,35 @@ export interface CoreApi {
    * InvalidInputError for one not imported from Word.
    */
   addWordOriginal(mindId: string, path: string): Promise<boolean>;
+  /**
+   * Converts a .doc to a .docx copy in a private temporary folder, with the
+   * LibreOffice on this computer (#104), for the import screen to read: the
+   * original is never changed.
+   */
+  convertWordFile(path: string): Promise<WordConversionResult>;
+  /**
+   * Removes the temporary `.docx` copy `convertWordFile` made, once the import
+   * screen is done with it: it is added to a Mind, or the User cancels. Only a
+   * copy the core made can be removed.
+   */
+  discardWordFile(path: string): Promise<void>;
+  /**
+   * Whether this computer has LibreOffice (#762): found where it is installed,
+   * by its real path, never bundled or downloaded. Cached for the session.
+   */
+  officeConverter(): Promise<{ available: boolean }>;
+  /**
+   * Converts a copy of an old Office or WPS file (.doc, .xls, .ppt, .wps, .et,
+   * .dps and the like) to .docx, .xlsx or .pptx, headless, with the LibreOffice
+   * on this computer, and adds the copy as a Document that says which file it
+   * came from (#762). The original is never changed.
+   */
+  convertWithOffice(path: string): Promise<OfficeConversionResult>;
+  /**
+   * Shows a file an add skipped in the file manager, so the User can convert it
+   * there (#762). Only a file the last add skipped can be shown.
+   */
+  showSkippedFile(path: string): Promise<void>;
   /**
    * The fonts a Mind imported from Word draws its text in, as its Word look names them
    * (#746), for Get info to say which aren't installed; none for any other Mind. Throws
@@ -11577,6 +11784,8 @@ export interface CoreApi {
   regenerateProposal(input: RegenerateProposalInput): Promise<EditWithAiResult>;
   /** Stops an Edit with AI request: it gives "cancelled". Stopping one that ended does nothing. */
   cancelEdit(requestId: string): Promise<void>;
+  /** Says whether an edit waiting on its estimate (`EditAsk`) goes on, or stops (#2348). */
+  respondToEditAsk(input: { requestId: string; accept: boolean }): Promise<void>;
   /**
    * Check against Documents (#96): checks each sentence the
    * selection touches against the Mind's Folder (or every Document), one at a
@@ -12441,6 +12650,8 @@ export interface CoreEvents {
   "mind.update": MindUpdate;
   /** The assistant is writing changes into a Mind as they come (#202), or has stopped. */
   "mind.writing": MindWriting;
+  /** An edit too long for one request, on a model billed per token, waits for the User's go (#2348). */
+  "edits.ask": EditAsk;
   /** Changes storage refused wait in memory, or (null) all of them are stored now (#1119). */
   "minds.unsaved": UnsavedChanges | null;
   /** A Mind's Checkpoints changed: one was saved, kept for good, or thinned out. Read `listCheckpoints` again. */
@@ -12652,6 +12863,11 @@ const methods: Record<CoreApiMethod, true> = {
   checkWordFile: true,
   importWordFile: true,
   addWordOriginal: true,
+  convertWordFile: true,
+  discardWordFile: true,
+  officeConverter: true,
+  convertWithOffice: true,
+  showSkippedFile: true,
   wordFonts: true,
   listMinds: true,
   renameMind: true,
@@ -12816,6 +13032,7 @@ const methods: Record<CoreApiMethod, true> = {
   editWithAi: true,
   regenerateProposal: true,
   cancelEdit: true,
+  respondToEditAsk: true,
   checkSentences: true,
   planDocumentCheck: true,
   cancelCheck: true,
@@ -12883,6 +13100,7 @@ const methods: Record<CoreApiMethod, true> = {
   getLibrary: true,
   createLibraryGroup: true,
   updateLibraryGroup: true,
+  moveLibraryGroups: true,
   deleteLibraryGroup: true,
   addLibraryStarterGroups: true,
   saveLibrarySettings: true,

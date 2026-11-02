@@ -10,7 +10,14 @@ const groups: LibraryGroup[] = [
   { id: "research", name: "Research papers", description: "Scientific studies and experiments" },
   { id: "finance", name: "Finance", description: "Invoices, budgets and financial statements" },
   { id: "meetings", name: "Meeting notes", description: "Meeting minutes and action items" },
-].map((g) => ({ ...g, countsOwnFiles: false, keepInside: false, createdAt: "", updatedAt: "" }));
+].map((g) => ({
+  ...g,
+  parentId: null,
+  countsOwnFiles: false,
+  keepInside: false,
+  createdAt: "",
+  updatedAt: "",
+}));
 const tags = [
   {
     id: "membrane",

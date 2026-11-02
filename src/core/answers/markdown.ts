@@ -6,7 +6,9 @@
  * "<br>" as a line break in a cell), and math as KaTeX formulas (`$…$` or
  * `\(…\)` inline, `$$…$$` or `\[…\]` as a block), with bold, italic,
  * strikethrough, inline code and links. Anything else (HTML) stays as text.
- * A line break inside a paragraph is kept.
+ * A line break inside a paragraph is kept. A line starting `\[` is a formula
+ * only when a `\]` follows it, on a later line too; with none it stays text,
+ * its words kept (#2422). An unclosed `$$` runs to the end.
  *
  * While an Answer streams, the text is cut off at an arbitrary point. With
  * `streaming`, what would still change how it looks is held back (a half-typed
@@ -118,6 +120,8 @@ function tablePending(lines: readonly string[], i: number, open: boolean): boole
 /** `open`: the last line may continue, so what ends there is unfinished. */
 function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
   const blocks: NodeJSON[] = [];
+  /** From this line on there is no "\]" at all, so a "\[" there is text without looking again. */
+  let noCloserFrom = Number.POSITIVE_INFINITY;
   let i = 0;
   while (i < lines.length) {
     const line = lines[i] as string;
@@ -176,30 +180,38 @@ function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
     if (math) {
       const [, opener = "$$", rest = ""] = math;
       const closer = opener === "$$" ? "$$" : "\\]";
+      // A "\[" below a line with no "\]" after it is text at once: rescanning for each is quadratic (#2438).
+      const textOnly = opener === "\\[" && i >= noCloserFrom;
       const body: string[] = [];
       let closed = false;
       let after = "";
       let remaining = rest;
-      for (;;) {
-        const end = remaining.indexOf(closer);
-        if (end >= 0) {
-          body.push(remaining.slice(0, end));
-          after = remaining.slice(end + closer.length);
-          closed = true;
-          i++;
-          break;
+      let end = i;
+      if (!textOnly)
+        for (;;) {
+          const close = remaining.indexOf(closer);
+          if (close >= 0) {
+            body.push(remaining.slice(0, close));
+            after = remaining.slice(close + closer.length);
+            closed = true;
+            break;
+          }
+          body.push(remaining);
+          end++;
+          if (end >= lines.length) break;
+          remaining = lines[end] as string;
         }
-        body.push(remaining);
-        i++;
-        if (i >= lines.length) break;
-        remaining = lines[i] as string;
-      }
       // An unclosed formula would show as a KaTeX error until it's complete.
       if (!closed && open) break;
-      const latex = body.join("\n").trim();
-      if (latex) blocks.push({ type: "blockMath", attrs: { latex } });
-      if (after.trim()) blocks.push(paragraph(after.trim(), open && i >= lines.length));
-      continue;
+      // A "\[" that never closes is text, not a formula: its paragraph keeps the words (#2422).
+      if (closed || opener === "$$") {
+        i = closed ? end + 1 : lines.length;
+        const latex = body.join("\n").trim();
+        if (latex) blocks.push({ type: "blockMath", attrs: { latex } });
+        if (after.trim()) blocks.push(paragraph(after.trim(), open && i >= lines.length));
+        continue;
+      }
+      noCloserFrom = i;
     }
 
     const heading = HEADING.exec(line);

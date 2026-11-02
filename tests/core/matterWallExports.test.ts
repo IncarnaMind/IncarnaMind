@@ -86,4 +86,65 @@ describe("an export of walled work, indexed again through a Linked folder", () =
     expect(copy.ownFile?.kind).toBe("export");
     await askBothSides(s);
   });
+
+  test("a Note in a wall inside another keeps its export from the outer wall and from outside", async () => {
+    const s = await setUp();
+    const clientA = (await s.core.getLibrary()).groups.find((group) => group.name === "Client A");
+    if (!clientA) throw new Error("Client A is gone.");
+    const clientB = await s.core.createLibraryGroup({
+      name: "Client B",
+      description: "",
+      parentId: clientA.id,
+    });
+    await s.core.updateLibraryGroup(clientB.id, {
+      name: "Client B",
+      description: "",
+      keepInside: true,
+    });
+    const drafts = await s.core.createLibraryGroup({
+      name: "Drafts",
+      description: "",
+      parentId: clientB.id,
+    });
+    await s.core.moveToFolder({ mindIds: [s.walled.id], folderId: drafts.id });
+    const saved = await s.core.saveMindExport(s.walled.id, { format: "markdown" });
+    if (saved.status !== "saved") throw new Error(`The export wasn't saved: ${saved.status}.`);
+    const copy = await indexed(s.core, saved.file.path);
+    expect(copy.ownFile?.kind).toBe("export");
+    await askBothSides(s);
+
+    // A Note in the outer wall does not find the inner wall's export either.
+    const outer = await s.core.createMind({ title: "Outer", folderId: clientA.id });
+    const from = s.calls.length;
+    await askAssistant(s.core, { text: "What is the settlement offer?", mindId: outer.id });
+    expect(searched(s.calls, from)).not.toContain("2.5 million zeta");
+
+    // The copy is the inner wall's, not the outer wall's: a turn behind the outer wall can't
+    // move it, and a turn behind the inner wall can.
+    await expect(
+      s.core.moveToFolder({ documentIds: [copy.id], folderId: clientA.id, wall: clientA.id }),
+    ).rejects.toMatchObject({ wording: { key: "error.folder.wallMove" } });
+    await s.core.moveToFolder({ documentIds: [copy.id], folderId: drafts.id, wall: clientB.id });
+    expect(
+      (await s.core.getLibrary()).assignments.find((each) => each.documentId === copy.id)?.groupId,
+    ).toBe(drafts.id);
+  });
+
+  test("a Note in a sub-Folder of the wall keeps its export behind the wall too", async () => {
+    const s = await setUp();
+    const clientA = (await s.core.getLibrary()).groups.find((group) => group.name === "Client A");
+    if (!clientA) throw new Error("Client A is gone.");
+    const drafts = await s.core.createLibraryGroup({
+      name: "Drafts",
+      description: "",
+      parentId: clientA.id,
+    });
+    await s.core.moveToFolder({ mindIds: [s.walled.id], folderId: drafts.id });
+
+    const saved = await s.core.saveMindExport(s.walled.id, { format: "markdown" });
+    if (saved.status !== "saved") throw new Error(`The export wasn't saved: ${saved.status}.`);
+    const copy = await indexed(s.core, saved.file.path);
+    expect(copy.ownFile?.kind).toBe("export");
+    await askBothSides(s);
+  });
 });

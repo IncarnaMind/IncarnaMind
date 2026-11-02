@@ -13,9 +13,10 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { BLOCK_ID_ATTRIBUTE, type WritingPlace as Place } from "../../../core/api";
 
-/** Where the assistant writes next, and its marks, made when that changes and moved with each edit. */
+/** Where the assistant writes next, what its line says, and its marks, made when that changes and moved with each edit. */
 interface Writing {
   place: Place | null;
+  label: string;
   marks: DecorationSet;
 }
 
@@ -77,33 +78,33 @@ function decorations(doc: ProseMirrorNode, place: Place, label: string): Decorat
   return [Decoration.widget(at, widget, { side: 1, key: `writing:${place.after ?? "end"}` })];
 }
 
-export const WritingPlace = Extension.create<{ label(): string }>({
+export const WritingPlace = Extension.create({
   name: "writingPlace",
 
-  addOptions() {
-    return { label: () => "" };
-  },
-
   addProseMirrorPlugins() {
-    const { label } = this.options;
     return [
       new Plugin<Writing>({
         key: writingPlaceKey,
         state: {
-          init: () => ({ place: null, marks: DecorationSet.empty }),
+          init: () => ({ place: null, label: "", marks: DecorationSet.empty }),
           apply: (tr, writing, _before, state) => {
-            const meta = tr.getMeta(writingPlaceKey) as Place | null | undefined;
-            const place = meta === undefined ? writing.place : meta;
-            if (!place) return { place: null, marks: DecorationSet.empty };
+            const meta = tr.getMeta(writingPlaceKey) as
+              | { place: Place | null; label: string }
+              | null
+              | undefined;
+            const place = meta === undefined ? writing.place : (meta?.place ?? null);
+            const label = meta === undefined ? writing.label : (meta?.label ?? "");
+            if (!place) return { place: null, label: "", marks: DecorationSet.empty };
             // The Mind's document rewrites the whole text on a change from the core: found again then.
             if (meta !== undefined || tr.getMeta(ySyncPluginKey)?.isChangeOrigin) {
               return {
                 place,
-                marks: DecorationSet.create(state.doc, decorations(state.doc, place, label())),
+                label,
+                marks: DecorationSet.create(state.doc, decorations(state.doc, place, label)),
               };
             }
             return tr.docChanged
-              ? { place, marks: writing.marks.map(tr.mapping, tr.doc) }
+              ? { place, label, marks: writing.marks.map(tr.mapping, tr.doc) }
               : writing;
           },
         },
@@ -116,7 +117,7 @@ export const WritingPlace = Extension.create<{ label(): string }>({
 });
 
 /** Shows "Writing…" where the assistant writes next, or takes it away (null). */
-export function setWritingPlace(editor: Editor, place: Place | null): void {
+export function setWritingPlace(editor: Editor, place: Place | null, label = ""): void {
   if (editor.isDestroyed) return;
-  editor.view.dispatch(editor.state.tr.setMeta(writingPlaceKey, place));
+  editor.view.dispatch(editor.state.tr.setMeta(writingPlaceKey, { place, label }));
 }

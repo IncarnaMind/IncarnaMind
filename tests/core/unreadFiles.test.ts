@@ -24,7 +24,7 @@ describe("listUnreadFiles", () => {
     await writeSourceFile(library, "Locked.docx", encryptedOfficeFile());
     await writeSourceFile(library, "Scan.pdf", buildPdf([{ image: true }]));
     await writeSourceFile(library, "Broken.pdf", "This is not a PDF at all.");
-    await writeSourceFile(library, "Picture.png", "not read, not a Document either");
+    await writeSourceFile(library, "Notes.zip", "not read, not a Document either");
     const core = startCore(await createTempDataFolder());
     await linkAndProcess(core, library);
     return { core };

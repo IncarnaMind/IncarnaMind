@@ -68,7 +68,7 @@ import {
   reviewReading,
   theirChangesReading,
 } from "../mindText";
-import { withChangesAccepted } from "../shownChanges";
+import { withTheirChangesAccepted } from "../shownChanges";
 import { type CitationCard, citationCard } from "./citationCards";
 import { addSources, listCitations, styleCitations, withFigureNotes } from "./citations";
 import { piecesOf, renderDocx } from "./docx";
@@ -243,6 +243,7 @@ export function createExports(deps: ExportsDependencies) {
       documentRemoved: (documentId) => !live.has(documentId),
       // A file leaves a hidden column out; the app says how many, the file says nothing.
       leaveOutHiddenColumns: true,
+      leavesApp: true,
     };
     const {
       read,
@@ -257,10 +258,12 @@ export function createExports(deps: ExportsDependencies) {
       name = exportName(mind, fragment);
       const fromWord = doc !== null && wordFileOf(doc) !== null;
       // A Word file shows what is waiting as tracked changes, and can mark AI text (#107); the
-      // others show someone's changes from the Word file as changes, or accepted (#734).
-      if (format === "docx") readOptions.review = reviewReading(fragment);
-      else if (doc && fromWord && format !== "source-pack")
-        readOptions.review = theirChangesReading(doc);
+      // others show someone's changes from the Word file as changes, or accepted (#734). A source
+      // pack, a PDF and an HTML file are readings of the Note as the Note shows it, waiting changes
+      // included; accepted applies someone else's only (#2292).
+      if (format === "docx" || format === "source-pack" || format === "pdf" || format === "html")
+        readOptions.review = reviewReading(fragment);
+      else if (doc && fromWord) readOptions.review = theirChangesReading(doc);
       readOptions.sentenceChecks = failedSentences(fragment, {
         versions: new Map(documents.map((document) => [document.id, document.contentHash])),
         folderId: mind.folderId,
@@ -301,7 +304,9 @@ export function createExports(deps: ExportsDependencies) {
       commentsNow !== null ? { ...parsed, commentFailedChecks: commentsNow } : parsed;
     const shown = withoutEmptyTitle(read);
     const blocks =
-      format !== "docx" && options.theirChanges === "accepted" ? withChangesAccepted(shown) : shown;
+      format !== "docx" && options.theirChanges === "accepted"
+        ? withTheirChangesAccepted(shown)
+        : shown;
     // A source pack holds the Citations the Mind numbers; the others, every footnote.
     const footnotes =
       format === "source-pack"
@@ -416,8 +421,12 @@ export function createExports(deps: ExportsDependencies) {
     for (const footnote of footnotesIn(blocks, { inFootnotes: false })) {
       const attributes = prepared.attributesOf.get(footnote) ?? {};
       const card = citationCard(attributes, { documents, kept, units: deps.citedUnits, t });
+      // A picture Document's page is the picture itself, not a page to draw.
+      const pictured = !(card.content.kind === "quote" && card.content.from === "picture");
       const key =
-        picturedKind(attributes) && card.content.kind !== "missing" && citedPageKey(attributes);
+        pictured && picturedKind(attributes) && card.content.kind !== "missing"
+          ? citedPageKey(attributes)
+          : null;
       let plan: PicturePlan | null = null;
       if (key) {
         if (!pages.has(key)) pages.set(key, await deps.citedPage(attributes));
@@ -521,7 +530,7 @@ export function createExports(deps: ExportsDependencies) {
                 width: plan.width,
                 height: plan.height,
                 slide: plan.slide,
-                scan: card.content.kind === "quote" && card.content.scan,
+                scan: card.content.kind === "quote" && card.content.from === "scan",
               },
             }
           : card,

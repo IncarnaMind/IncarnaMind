@@ -901,9 +901,11 @@ export function chartFromTable(
     if (!cell || cell.continued || cell.text.trim() === "") return null;
     const read = figureIn(figuresIn(cell.text, column));
     const calculated = figureAt(cell, read?.figure);
+    // A calculated figure's value, not the rounded number its shown text reads as (#2378).
+    const worked = calculated.figure?.figure.value;
     return {
       shown: cell.text.trim(),
-      value: read?.value ?? null,
+      value: typeof worked === "number" ? worked : (read?.value ?? null),
       unit: read ? read.figure.unit : null,
       scale: read ? read.figure.scale : null,
       citation: calculated.figure ? null : cell.citation,
@@ -1135,12 +1137,13 @@ export function chartFromFigures(
     const before = line.text.slice(0, figure.start).replace(LABEL_END, "").replace(LABEL_START, "");
     const after = line.text.slice(figure.end).replace(LABEL_START, "").replace(LABEL_END, "");
     const calculated = figureAt(line, figure);
+    const worked = calculated.figure?.figure.value;
     rows.push({
       label: (before || after).trim(),
       values: [
         {
           shown: figure.chars,
-          value: read.value,
+          value: typeof worked === "number" ? worked : read.value,
           unit: figure.unit,
           scale: figure.scale,
           citation: calculated.figure ? null : line.citation,

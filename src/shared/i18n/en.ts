@@ -74,8 +74,8 @@ export const en = {
   "library.notSorted.count": "{count} not sorted",
   "library.sortAgain.reason": "Couldn’t sort again: {reason}",
   "library.sorted.all": "All sorted",
-  "library.problem.noText.one": "1 Document has no text: a scan",
-  "library.problem.noText": "{count} Documents have no text: scans",
+  "library.problem.noText.one": "1 Document has no text",
+  "library.problem.noText": "{count} Documents have no text",
   "library.problem.failed.one": "1 Document couldn’t be read",
   "library.problem.failed": "{count} Documents couldn’t be read",
   "library.problem.missing.one": "1 Document’s file is missing",
@@ -96,6 +96,8 @@ export const en = {
     "Format not read yet ({extension}). Convert it to PDF, Word, PowerPoint or Excel.",
   "unread.reason.scan":
     "A scan with no text that could be recognized (handwriting or a picture, say).",
+  "unread.reason.picture":
+    "A picture whose text couldn’t be recognized (handwriting, or very small print, say).",
   "unread.reason.password": "Password-protected. Remove the password and add it again.",
   "unread.reason.passwordPdf": "Locked with a password.",
   "unread.reason.damaged": "The file is damaged or couldn’t be opened.",
@@ -116,9 +118,12 @@ export const en = {
   "library.fix.damaged.pdf": "Damaged file: save a copy from your PDF app, then add it",
   "library.fix.password": "Password-protected: remove it in its app, then add the copy",
   "library.fix.tooLarge": "This file is too large to open",
+  "library.fix.pictureUnreadable": "This picture can’t be read",
   "library.fix.processing": "Something went wrong while reading this file",
   "library.fix.appStopped": "IncarnaMind stopped while reading this file",
   "library.fix.scan": "A scan with no text yet",
+  "library.fix.picture": "The picture couldn’t be read",
+  "library.fix.pictureNoText": "No text was found in the picture",
   "library.fix.pages": "Some scanned pages couldn’t be read",
   "library.fix.forms":
     "Some form fields couldn’t be read. Print to PDF in the app that created it, then add that copy",
@@ -139,6 +144,7 @@ export const en = {
   "library.needsAttention": "Needs attention",
   "library.loading": "Loading Library…",
   "library.groups": "Folders",
+  "library.inSubfolders": "{count} in sub-Folders",
   "library.unsorted": "Not in a Folder",
   "library.chooseStarters": "Starter Folders",
   "library.cancel": "Cancel",
@@ -203,11 +209,15 @@ export const en = {
   "library.filter.chosenMore": "{filter}: {value} +{more}",
   "library.filter.option": "{value}, {count} Documents",
   "library.filter.option.one": "{value}, 1 Document",
+  "library.format.folder": "Folder",
   "library.format.pdf": "PDF",
   "library.format.docx": "Word",
   "library.format.pptx": "PowerPoint",
   "library.format.xlsx": "Excel",
   "library.format.csv": "CSV",
+  "library.format.image": "Picture",
+  "library.format.rtf": "RTF",
+  "library.format.html": "HTML",
   "library.format.markdown": "Markdown",
   "library.format.text": "Plain text",
   "library.format.web": "Web page",
@@ -311,6 +321,7 @@ export const en = {
   "folder.more": "More for {name}",
   "tags.menu.of": "More for {name}",
   "folder.open": "Open in the Library",
+  "folder.newInside": "New Folder inside",
   "folder.newMindHere": "New note here",
   "folder.untitled": "Untitled Folder",
   "folder.untitled.numbered": "Untitled Folder {number}",
@@ -328,6 +339,15 @@ export const en = {
   "folder.made.items": "Made “{name}” with {count} items",
   "folder.rename": "Rename",
   "folder.renameLabel": "New name for {name}",
+  "folder.moveTo": "Move to…",
+  "folder.topLevel": "Top level",
+  "folder.hereIn": "Here now",
+  "folder.moved.into": "Moved the Folder “{name}” into “{into}”",
+  "folder.moved.out": "Moved the Folder “{name}” out of “{from}”",
+  "folder.moved.many.into": "Moved {count} Folders into “{into}”",
+  "folder.moved.many.top": "Moved {count} Folders to the top level",
+  "folder.count": "{count} Folders",
+  "folder.refuse.inside": "A Folder can’t go inside itself or one of its sub-Folders",
   "folder.delete": "Delete",
   "mind.more": "More for {title}",
   "mind.open": "Open",
@@ -373,6 +393,7 @@ export const en = {
   "error.folder.wallAcceptInside":
     "Not accepted: inside a Folder that keeps its work inside it, the assistant accepts only suggestions for that Folder. You can still accept the others yourself in To review.",
   "error.folder.keepInside": "keepInside must be true or false.",
+  "error.folder.parentId": "Choose a Folder or the top level for this Folder.",
   "undo.folderWallOn": "“{name}” now keeps its work inside it",
   "undo.folderWallOff": "“{name}” no longer keeps its work inside it",
   "undo.readHiddenSheets": "Read the hidden sheets of “{name}”",
@@ -387,6 +408,7 @@ export const en = {
   "move.none": "No Folder matches",
   "move.here": "Here now",
   "move.newFolder": "New Folder “{name}”",
+  "move.inFolder": "in {path}",
   "move.items": "{count} items",
   "selection.moveTo": "Move {count} items to…",
   "selection.delete": "Delete {count} items",
@@ -395,12 +417,24 @@ export const en = {
   "move.done.documents": "Moved {count} Documents to {folder}",
   "move.done.items": "Moved {count} items to {folder}",
   "move.done.conversations": "Moved {count} conversations to {folder}",
-  "move.outOfWall": "It is no longer limited to that Folder’s Documents and notes.",
+  "text.sentenceBreak": ". ",
+  "move.outOfWall": "No longer kept inside “{folder}”.",
+  "move.outOfWall.many.one": "No longer kept inside “{folder}” and 1 other Folder.",
+  "move.outOfWall.many": "No longer kept inside “{folder}” and {n} other Folders.",
+  "move.intoWall": "Now kept inside “{folder}”.",
+  "move.wallToWall": "Now kept inside “{into}”, no longer inside “{from}”.",
+  "move.wallToWall.many.one":
+    "Now kept inside “{into}”, no longer inside “{from}” and 1 other Folder.",
+  "move.wallToWall.many":
+    "Now kept inside “{into}”, no longer inside “{from}” and {n} other Folders.",
   "drop.moveTo": "Move to {folder}",
   "drop.moveTo.minds": "Move {count} notes to {folder}",
   "drop.moveTo.documents": "Move {count} Documents to {folder}",
   "drop.moveTo.items": "Move {count} items to {folder}",
   "drop.moveTo.conversations": "Move {count} conversations to {folder}",
+  "drop.into": "Put inside",
+  "drop.beside": "Move here",
+  "drop.topLevel": "Move to the top level",
   "drop.addTag": "Add the Tag {tag}",
   "drop.addTag.documents": "Add the Tag {tag} to {count} Documents",
   "drop.importWord": "Import the Word file",
@@ -430,6 +464,8 @@ export const en = {
   "undo.name.move.conversations": "Move {count} conversations",
   "undo.name.move.items": "Move {count} items",
   "undo.name.rename": "Rename",
+  "undo.name.moveFolder": "Move Folder",
+  "undo.name.moveFolders": "Move Folders",
   "undo.name.duplicate": "Duplicate",
   "undo.name.delete": "Delete “{name}”",
   "undo.name.tabMove": "Move Tab",
@@ -772,6 +808,7 @@ export const en = {
   "editor.ai.shorten": "Shorten",
   "editor.ai.translate": "Translate…",
   "editor.ai.explain": "Explain",
+  "editor.ai.explain.ask": "Explain “{quote}”",
   "editor.ai.edit": "Edit with AI…",
   "editor.edit.handOff": "Continue in the assistant",
   "editor.edit.handOff.tip": "Continue in the assistant, for a longer request",
@@ -1189,7 +1226,8 @@ export const en = {
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
   "claim.recheck.document-removed": "A Document it was checked against was deleted.",
-  "claim.recheck.scope": "The note is in another Folder now.",
+  "claim.recheck.scope":
+    "The note is in another Folder now, and this result rested on the whole Folder.",
   "claim.recheck.search-scope": "The note’s Search scope has changed since.",
   "claim.recheck.figures":
     "It was checked before each of its figures was checked with its own source.",
@@ -1227,6 +1265,14 @@ export const en = {
   "health.state.look": "{count} need a look",
   "health.state.checked": "Checked {time}",
   "health.state.checked.noTime": "Checked",
+  "health.state.cantCheck.one": "1 sentence can’t be checked",
+  "health.state.cantCheck": "{count} sentences can’t be checked",
+  "health.state.needsCheck.one": "1 sentence needs a check",
+  "health.state.needsCheck": "{count} sentences need a check",
+  "health.state.cantCheck.short.one": "1 can’t be checked",
+  "health.state.cantCheck.short": "{count} can’t be checked",
+  "health.state.needsCheck.short.one": "1 needs a check",
+  "health.state.needsCheck.short": "{count} need a check",
   "health.kept.one": "1 kept as your view",
   "health.kept": "{count} kept as your view",
   "badge.label": "{label}: {parts}",
@@ -1416,6 +1462,12 @@ export const en = {
   "edit.pending.instruction": "Making the changes…",
   "edit.pending.cut-unsupported": "Cutting the unsupported part…",
   "edit.pending.follow-citation": "Updating the sentence…",
+  "edit.pending.part": "Writing part {at} of {of}…",
+  "edit.ask.parts": "This edit is long: it is made in {count} parts",
+  "edit.ask.start": "Edit it",
+  "edit.ask.cancel": "Cancel",
+  "explain.queued": "Explain will be asked when this Answer is done",
+  "explain.queued.cancel": "Cancel",
   "edit.stop": "Stop",
   "edit.close": "Close",
   "edit.problem.unchanged": "Nothing to change: the model gave the text back as it was.",
@@ -1423,6 +1475,12 @@ export const en = {
   "edit.problem.has-proposals":
     "The selection holds changes that are waiting: accept or reject them first.",
   "edit.problem.too-long": "Too much text for the model: select less.",
+  "edit.problem.block-too-long": "This paragraph is too long for {model}",
+  "edit.problem.part-changed":
+    "You typed in a later part while the edit ran, so it stopped there. What it already changed stays.",
+  "edit.problem.block-too-long.cap":
+    "This paragraph is longer than one edit can take. Split it into shorter paragraphs.",
+  "edit.problem.chooseAnotherModel": "Choose another model",
   "edit.problem.local-mode": "Couldn’t edit: “Keep everything on this computer” is on.",
   "edit.problem.chooseModel": "Choose a model",
   "edit.problem.failed": "Edit with AI didn’t work: {message}",
@@ -1532,6 +1590,11 @@ export const en = {
   "review.comment.label": "Comment, {made}: {text}",
   "proposal.unknownAuthor": "Unknown author",
   "proposal.madeBy": "{author}, {date}",
+  // An outside agent's change waiting in a Note (#352), named after its pairing.
+  "proposal.proposedBy": "Proposed by {agent}",
+  "proposal.uncited.one": "1 sentence with no Citation",
+  "proposal.uncited": "{count} sentences with no Citation",
+  "proposal.uncited.next": "Select the next sentence with no Citation",
   "proposal.why": "Why: {reason}",
   "edit.applied": "Changed {count} paragraphs",
   "edit.applied.one": "Changed 1 paragraph",
@@ -1548,6 +1611,7 @@ export const en = {
   "edit.review.assistant": "{count} paragraphs changed by the assistant",
   "edit.review.assistant.one": "1 paragraph changed by the assistant",
   "edit.review.assistant.changes": "{changes} changed by the assistant",
+  "edit.applied.parts": "{count} parts",
   "edit.applied.undo": "Undo",
   "edit.applied.review": "Review changes",
   "edit.review": "{count} paragraphs changed by Edit with AI",
@@ -1667,7 +1731,12 @@ export const en = {
   "viewer.locked.password": "Password",
   "viewer.locked.unlock": "Unlock",
   "viewer.locked.wrong": "That password doesn’t open it.",
+  "viewer.textTooLarge": "This file is too large to open here.",
+  "viewer.textUnreadable": "This file can’t be read as text.",
   "viewer.notText": "This file doesn’t hold readable text.",
+  "viewer.pictureNotShown": "This picture can’t be shown here.",
+  "viewer.pictureTooLarge": "This picture is too large to open.",
+  "viewer.pictureSizeUnreadable": "This picture’s size can’t be read.",
   "viewer.removed.body": "This Document has been deleted from IncarnaMind, so it can’t be shown.",
   "viewer.removed.unlinked":
     "This Document’s Linked folder was unlinked. IncarnaMind kept the text your Citation quotes.",
@@ -1813,6 +1882,7 @@ export const en = {
     "Reading the text in {count} pictures… {read} read so far.",
   "documents.statusShort.scanning": "Reading {read}/{count}",
   "documents.statusShort.pagesUnread": "Pages unread",
+  "documents.statusShort.pictureUnread": "Picture unread",
   "documents.statusShort.queued": "Queued",
   "documents.statusShort.extracting": "Reading",
   "documents.statusShort.waiting": "Waiting",
@@ -1822,6 +1892,7 @@ export const en = {
   "documents.failure.unreadable": "the file couldn’t be read",
   "documents.failure.passwordProtected": "the file needs a password",
   "documents.failure.tooLarge": "the file is too large to open",
+  "documents.failure.pictureUnreadable": "the picture can’t be read",
   "documents.failure.fileMissing": "its file is missing",
   "documents.file.missing": "File missing: Citations keep its text; searches skip it.",
   "documents.file.unavailable":
@@ -1835,10 +1906,12 @@ export const en = {
   "documents.failure.pagesUnread.one": "scanned page {pages} couldn’t be read",
   "documents.failure.pagesUnread.other": "scanned pages {pages} couldn’t be read",
   "documents.failure.pagesUnread.all": "its scanned pages couldn’t be read",
+  "documents.failure.pictureUnread": "the picture couldn’t be read",
   "documents.failure.formsUnread": "some form fields couldn’t be read",
   "documents.pagesUnread.one": "Scanned page {pages} couldn’t be read",
   "documents.pagesUnread.other": "Scanned pages {pages} couldn’t be read",
   "documents.pagesUnread.all": "The scanned pages couldn’t be read",
+  "documents.pictureUnread": "The picture couldn’t be read",
   "documents.ask": "Ask about this Document",
   "documents.startMind": "Start a note from this Document",
   "documents.more": "More actions for {name}",
@@ -1884,8 +1957,26 @@ export const en = {
   "evidence.settings.body": "Exports don’t count as evidence.",
   "evidence.settings.body.details":
     "This covers the exports and source packs IncarnaMind saved, when it checks your writing or compares Documents. A Folder, or one Document, can still count them. Copies of the document being checked are always left out. Transcripts and saved web pages count as usual.",
-  "documents.skipped":
-    "Only PDF, Word, PowerPoint, Excel, CSV, TXT and Markdown files can be added. Skipped: {names}",
+  "skipped.count.one": "Skipped 1 file",
+  "skipped.count.other": "Skipped {count} files",
+  "skipped.file.reason": ": {reason}",
+  "skipped.next.docx": "Save it as .docx in Word, then add it",
+  "skipped.next.xlsx": "Save it as .xlsx in Excel, then add it",
+  "skipped.next.pptx": "Save it as .pptx in PowerPoint, then add it",
+  "skipped.next.wps.docx": "Save it as .docx in WPS Office, then add it",
+  "skipped.next.wps.xlsx": "Save it as .xlsx in WPS Office, then add it",
+  "skipped.next.wps.pptx": "Save it as .pptx in WPS Office, then add it",
+  "skipped.next.pages": "Export it as PDF from Pages, then add it",
+  "skipped.next.numbers": "Export it as PDF from Numbers, then add it",
+  "skipped.next.keynote": "Export it as PDF from Keynote, then add it",
+  "skipped.next.caj": "Print it to PDF in CAJViewer, then add it",
+  "skipped.next.other":
+    "IncarnaMind reads PDF, Word, Excel, PowerPoint, CSV, Markdown, pictures, RTF, HTML and text files",
+  "skipped.next.convert": "Convert a copy to {ext} with LibreOffice, then add it",
+  "skipped.convert": "Convert with LibreOffice",
+  "skipped.converting": "Converting…",
+  "skipped.convert.failed":
+    "LibreOffice couldn’t convert it. Save it with the app that made it, then add it.",
   "documents.alreadyAdded": "Already in IncarnaMind, so nothing new was added: {names}",
   "documents.copy.open": "Open in default app",
   "sort.menu": "Sort by…",
@@ -1910,6 +2001,7 @@ export const en = {
   "info.inLibrary": "In your Library",
   "info.address": "Address",
   "info.from": "From",
+  "info.convertedFrom": "Converted from",
   "info.fonts": "Fonts",
   "info.from.linked": "Linked folder “{name}”",
   "info.from.own": "Other Documents",
@@ -2120,8 +2212,6 @@ export const en = {
   "status.rebuilding": "Rebuilding search",
   "status.searchError": "Search can’t use {provider}",
   "status.retry": "Retry",
-  "status.skipped.one": "Skipped 1 file",
-  "status.skipped.other": "Skipped {count} files",
   "webPages.add.title": "Add web pages",
   "webPages.add.note": "Paste an address, or several, one per line.",
   "webPages.add.fetch": "Fetched once from this computer, kept as a Document.",
@@ -3400,6 +3490,10 @@ export const en = {
   "scope.chip.deleted": "It has been deleted, so the search ignores it.",
   "scope.chip.own": "Searches this Folder’s {count} Documents. Remove it to search every Document.",
   "scope.chip.own.one": "Searches this Folder’s 1 Document. Remove it to search every Document.",
+  "scope.chip.own.named":
+    "“{path}”: searches its {count} Documents, its sub-Folders too. Remove it to search every Document.",
+  "scope.chip.own.named.one":
+    "“{path}”: searches its 1 Document, its sub-Folders too. Remove it to search every Document.",
   "scope.chip.remove": "Remove {name} from the Search scope",
   "scope.chip.more": "+{count} more",
   "scope.chip.moreLabel": "Show the other {count} Documents in the Search scope",
@@ -3422,6 +3516,10 @@ export const en = {
   "answer.figures.calculated.one": "Calculated 1 figure",
   "answer.figures.uncalculated": "{count} figures couldn’t be calculated",
   "answer.figures.uncalculated.one": "1 figure couldn’t be calculated",
+  "answer.figures.uncalculated.named.one":
+    "1 figure couldn’t be calculated: {figures}. It was written without a calculation IncarnaMind could check.",
+  "answer.figures.uncalculated.named":
+    "{count} figures couldn’t be calculated: {figures}. They were written without a calculation IncarnaMind could check.",
   "answer.sourceNotKept": "(source couldn’t be kept)",
   "answer.status.stopped": "Stopped",
   "answer.stop": "Stop",
@@ -4189,7 +4287,7 @@ export const en = {
   "export.pack.column.source": "Document and Location",
   "export.pack.column.page": "Page",
   "export.pack.picture": "Cited page: {source}",
-  "export.pack.notFound": "{number} · Quote not found on this page",
+  "export.pack.notFound": "{number} · Quote not found on this page: “{quote}”",
   "export.pack.noPage": "This page wasn’t saved when it was cited, so only the quotes are shown.",
   "export.saveTo": "Save to",
   "export.theirChanges": "Tracked changes",
@@ -4234,10 +4332,12 @@ export const en = {
   "aiStatement.uses.column.model": "Model",
   "aiStatement.uses.column.times": "Times",
   "aiStatement.uses.modelUnknown": "Not recorded",
+  "aiStatement.uses.agent": "{agent} (a connected agent; its model unknown)",
   "aiStatement.use.answer": "Answers written",
   "aiStatement.use.answer-added": "Answers added to the note",
   "aiStatement.use.edit-with-ai-accepted": "Changes from Edit with AI accepted",
   "aiStatement.use.assistant-change-accepted": "Changes from the assistant accepted",
+  "aiStatement.use.outside-agent-change-accepted": "Changes from a connected agent accepted",
   "aiStatement.use.comparison-table-accepted": "Comparison tables accepted",
   "aiStatement.use.suggestion-accepted": "Writing suggestions accepted",
   "aiStatement.use.search-documents": "Searches of the author’s own Documents",
@@ -4498,10 +4598,10 @@ export const en = {
   "export.comment.sentence.needs-recheck.edited": "Needs re-check: changed since it was checked.",
   "export.comment.sentence.needs-recheck.new-version":
     "Needs re-check: a Document it was checked against has a new version.",
+  "export.comment.sentence.needs-recheck.scope":
+    "Needs re-check: the note is in another Folder now, and this result rested on the whole Folder.",
   "export.comment.sentence.needs-recheck.document-removed":
     "Needs re-check: a Document it was checked against was deleted.",
-  "export.comment.sentence.needs-recheck.scope":
-    "Needs re-check: the note is in another Folder now.",
   "export.comment.sentence.needs-recheck.search-scope":
     "Needs re-check: the note’s Search scope has changed since.",
   "export.comment.sentence.needs-recheck.figures":
@@ -4518,6 +4618,8 @@ export const en = {
   "export.citation.document": "{document}",
   "export.citation.separator": ", ",
   "export.citation.accessed": "accessed {date}",
+  "export.figure.unavailable":
+    "The saved inputs for {figure} aren’t available, so IncarnaMind writes it as its value.",
   "export.figure.calculated": "Calculated: {formula} = {figure}.",
   "export.figure.analysis": "Calculated by the Analysis “{title}”: {figure}.",
   "export.figure.workbook":
@@ -4569,6 +4671,7 @@ export const en = {
   "export.change.inserted.noDate": "Inserted by {author}",
   "export.change.deleted": "Deleted by {author}, {date}",
   "export.change.deleted.noDate": "Deleted by {author}",
+  "export.change.incarnaMind": "IncarnaMind",
   "export.change.someone": "someone",
   "export.change.replaced": "Replaced by {author}, {date}",
   "export.change.replaced.noDate": "Replaced by {author}",
@@ -4605,6 +4708,8 @@ export const en = {
   "error.startup.title": "IncarnaMind couldn’t start",
   "error.startup.body":
     "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\n{message}",
+  "error.startup.held":
+    "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
   "error.startup.busy":
     "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
   "error.startup.starting":
@@ -4707,6 +4812,7 @@ export const en = {
   "error.folder.lengths":
     "Use a name of 1–100 characters and a description of at most 500 characters.",
   "error.folder.nameTaken": "A Folder with this name already exists.",
+  "error.folder.insideItself": "A Folder can’t go inside itself or one of its sub-Folders.",
   "error.folder.limit": "The Library supports up to 100 Folders.",
   "error.mind.notFound": "That note doesn’t exist or has been deleted.",
   "error.layout.units": "That place in a Document counts from 1.",
@@ -4744,6 +4850,7 @@ export const en = {
   "error.question.analyseChoice": "Whether a Question may analyse data must be true or false.",
   "error.estimate.searches": "An estimate counts from 0 to {max} web searches.",
   "error.estimate.each": "An estimate is for Answers or for checks.",
+  "error.edit.ask": "An answer to an edit needs the id of the request it answers.",
   "error.task.tell": "This Task can’t be told anything now.",
   "error.task.message": "Tell a Task something in 1 to {max} characters.",
   "error.research.notFound": "That Research Task doesn’t exist.",
@@ -5025,6 +5132,8 @@ export const en = {
   "error.files.notChosen": "You didn’t choose where to save new files, so nothing was saved.",
   "error.files.linkedFolderDeclined":
     "You didn’t allow new files in this Linked folder, so nothing was saved.",
+  "error.files.pathRequired": "A file’s full path is needed.",
+  "error.files.notSkipped.show": "Only a file the last add skipped can be shown.",
   "error.files.notSaved.show": "Only a file IncarnaMind saved can be shown.",
   "error.files.notSaved.open": "Only a file IncarnaMind saved can be opened.",
   "error.provider.modelMissing": "Enter a model name.",
@@ -5116,6 +5225,7 @@ export const en = {
     "“{file}” is already in IncarnaMind. Delete it, then locate the folder again.",
   "error.agent.notConnected": "That agent isn’t connected.",
   "error.agent.nameEmpty": "Give the agent a name.",
+  "error.agent.proposeChoice": "Whether an agent may propose changes must be true or false.",
   "error.agent.nameTooLong": "An agent’s name can be at most {max} characters.",
   "error.agent.nameTaken": "An agent named “{name}” is already connected.",
   "error.agent.noFolders": "Choose at least one Folder for the agent to read.",
@@ -5576,6 +5686,14 @@ export const en = {
     "Asks first: this conversation has text from a web page.",
   "approvals.thirdParty.conversation.checkedDocument":
     "Asks first: this conversation has text from the checked document.",
+  "approvals.thirdParty.read.outsideAgent":
+    "Asks first: this Answer read a note with text from a connected agent.",
+  "approvals.thirdParty.task.outsideAgent":
+    "Asks first: this Task read a note with text from a connected agent.",
+  "approvals.thirdParty.mind.outsideAgent":
+    "Asks first: this note has text from a connected agent.",
+  "approvals.thirdParty.conversation.outsideAgent":
+    "Asks first: this conversation has text from a connected agent.",
   "approvals.call.waiting": "Waiting for your approval: {connector}: {tool}",
   "approvals.call.denied": "Not allowed: {connector}: {tool}",
   "approvals.call.allowed": "Asked {connector} with your approval: {tool}",
@@ -6492,8 +6610,10 @@ export const en = {
   "mindCall.checking.one": "Checking 1 sentence in “{mind}”…",
   "selfCheck.failed": "{count} sentences couldn’t be checked",
   "selfCheck.failed.one": "1 sentence couldn’t be checked",
-  "selfCheck.left": "Checked {checked} sentences · {left} claims not checked yet",
   "selfCheck.checkedOnly": "Checked {checked} sentences",
+  "selfCheck.checkedOnly.one": "Checked 1 sentence",
+  "selfCheck.leftPart": "{left} claims not checked yet",
+  "selfCheck.leftPart.one": "1 claim not checked yet",
   "selfCheck.costCap": "{count} sentences couldn’t be checked: spending cap reached",
   "selfCheck.costCap.one": "1 sentence couldn’t be checked: spending cap reached",
   "selfCheck.changeCap": "Change the cap",
@@ -6587,6 +6707,24 @@ export const en = {
   "answer.notCalculated.unavailable":
     "No calculation ran: this model can’t use IncarnaMind’s calculation Tool, so the figures worked out in this reply are unchecked",
   "answer.notSearched": "No search ran: this reply wasn’t drawn from a search",
+  "answer.notDone.command":
+    "The assistant didn’t do everything in the app that this reply says it did",
+  "answer.notDone.privacy":
+    "“Keep everything on this computer” and what goes to cloud services weren’t changed. Only you can change them, in Settings › Privacy",
+  "answer.notDone.keys":
+    "Keys and sign-ins weren’t changed. Only you can change them, in Settings › Models",
+  "answer.notDone.spending":
+    "The monthly spending cap wasn’t changed. Only you can change it, in Settings › General",
+  "answer.notDone.approvals":
+    "What the assistant may do without asking wasn’t changed. Only you can change it, in Settings › Privacy",
+  "answer.notDone.permanent":
+    "Nothing was deleted for good. Only you can do that, in Recently deleted",
+  "answer.notDone.wall":
+    "Whether a Folder keeps its work inside it wasn’t changed. Only you can change it, in the Folder’s ⋯ menu",
+  "answer.notDone.signOff":
+    "Nothing was marked “Checked by me”. Only you can do that, on each Citation’s card",
+  "answer.notDone.authorship":
+    "No text was marked as yours. Only you can do that: select it and choose “Mark as mine”",
   "answer.uncitedReply":
     "This reply has no Citations, so none of it was checked against your Documents",
   "answer.uncitedWrite":
@@ -6667,6 +6805,38 @@ export const en = {
   "agents.answer.notFound": "[quote not found]",
   "agents.answer.cantCheck": "[can’t be checked]",
   "agents.mind.outsideCitation": "a Document in a Folder not shared with this agent",
+  "agents.problem.read-only":
+    "This agent may only read. To let it propose changes to your notes, allow it in Settings → Agents.",
+  "agents.problem.changed":
+    "This note changed after the agent read it. Read it again, then propose the changes again.",
+  "agents.problem.waiting":
+    "{paragraph} already has changes waiting in IncarnaMind. Accept or reject them there first.",
+  "agents.problem.busy": "IncarnaMind is writing {paragraph} now. Try again once it’s done.",
+  // Before a paragraph an agent reads by name that it can't change now (#352).
+  "agents.mind.waiting": "(changes waiting)",
+  "agents.mind.busy": "(being written)",
+  // Why an outside agent's proposed changes couldn't be read (#352), for it to put right.
+  "agents.propose.list": "List 1 to {max} changes.",
+  "agents.propose.name":
+    "“{name}” isn’t a paragraph’s name. Use ¶3 for a paragraph read_mind named, ¶3+ to add after it, or ¶+ to add after the change before.",
+  "agents.propose.removeChoice": "remove must be true or false.",
+  "agents.propose.removeOnly": "To take {name} out, give remove and no text.",
+  "agents.propose.text": "Give the text for {name}.",
+  "agents.propose.textTooLong": "The text for {name} is longer than {max} characters.",
+  "agents.propose.version": "Give the version read_mind returned with named.",
+  "agents.propose.firstAdd": "¶+ adds after the change before it: name a paragraph first.",
+  "agents.propose.noParagraphs": "{name} isn’t in the note: it has no paragraphs to name.",
+  "agents.propose.outOfRange": "{name} isn’t in the note: its paragraphs are ¶1 to ¶{count}.",
+  "agents.propose.twice": "{name} is named twice: change each paragraph once.",
+  "agents.propose.formula":
+    "In {name}, a Citation sits between two dollar signs, which read as a formula: write it outside them.",
+  "agents.propose.table":
+    "The text for {name} has lines that read as a table’s rows but make no table.",
+  "agents.propose.lost":
+    "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
+  "agents.propose.unplaced":
+    "These changes would add a Citation, footnote or figure IncarnaMind didn’t place, so nothing was written. Cite only with [cite:…] tokens.",
+  "agents.mind.namedChoice": "named must be true or false.",
   // Settings → Agents (#351): plain words for people who never edit a settings file.
   "settings.pages.agents": "Agents",
   "agents.settings.experimental": "Experimental",
@@ -6696,6 +6866,7 @@ export const en = {
   "agents.sentence.other": "your agent",
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
+  "agents.pairing.proposes": "Can propose changes to notes there, which wait for you",
   "agents.pairing.lastUsed": "Last used {when}",
   "agents.pairing.notUsed": "Not used yet",
   "agents.pairing.renameLabel": "Name of {agent}",
@@ -6722,8 +6893,11 @@ export const en = {
   "agents.activity.list_minds": "Listed your notes",
   "agents.activity.read_mind": "Read the note “{text}”",
   "agents.activity.ask": "Asked “{text}”",
+  "agents.activity.propose_changes": "Proposed changes to “{text}”",
   "agents.activity.count.one": "1 result",
   "agents.activity.count.other": "{count} results",
+  "agents.activity.changes.one": "1 change waiting for you",
+  "agents.activity.changes.other": "{count} changes waiting for you",
   "agents.activity.refused": "Refused: {reason}",
   "agents.activity.failed": "Didn’t work: {reason}",
   "agents.reason.unpaired": "it wasn’t connected",
@@ -6736,6 +6910,9 @@ export const en = {
   "agents.reason.chat-not-ready": "no AI model was ready",
   "agents.reason.invalid": "a request IncarnaMind couldn’t read",
   "agents.reason.failed": "something went wrong",
+  "agents.reason.read-only": "it may only read",
+  "agents.reason.changed": "the note had changed since it read it",
+  "agents.reason.waiting": "a paragraph had changes waiting",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
     "It can read your chosen Folders and the notes in them. What it reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
@@ -6747,6 +6924,8 @@ export const en = {
   "agents.connect.empty.title": "Nothing to read yet",
   "agents.connect.empty.body": "Add Documents for {agent} to read. They appear here.",
   "agents.connect.pickOne": "Choose at least one Folder.",
+  "agents.propose.label": "Let it propose changes to the notes in these Folders",
+  "agents.propose.hint": "Its changes wait until you accept or reject them.",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",
@@ -6832,6 +7011,10 @@ export const en = {
   "wordImport.cancel": "Cancel",
   "wordImport.asDocument": "Add as a Document instead",
   "wordImport.chooseAnother": "Choose another file…",
+  "wordImport.convert": "Convert with LibreOffice",
+  "wordImport.converting": "Converting…",
+  "wordImport.convertFailed":
+    "LibreOffice couldn’t convert “{name}”. Save it as .docx in Word, then import it.",
   "wordImport.refusal.legacy":
     "“{name}” is an older .doc file. Save it as .docx in Word, then import.",
   "wordImport.refusal.macros": "“{name}” has macros. Save it as .docx in Word, then import.",
