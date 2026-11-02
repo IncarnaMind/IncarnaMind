@@ -947,15 +947,16 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   }
 
   /**
-   * The Unit another Passage holds that writes `line` and may state the scale of the number whose
-   * quote starts at `at`; or why a line found elsewhere can't (`refused`).
+   * The Unit another Passage holds that writes `line` and may state the scale of `figure`; or why
+   * a line found elsewhere can't (`refused`). The figure's own Unit, not the quote's first, is
+   * where it sits: a Citation may name two Units.
    */
   function unitQuoteElsewhere(
     quoted: Quoted,
-    at: number,
+    figure: Figure,
     line: string,
   ): { quoted: Quoted } | { problem: string } | { refused: "section" | "page" } | null {
-    const numbersUnit = unitAt(quoted, at);
+    const numbersUnit = unitOf(quoted, figure);
     const units = unitsOf(quoted.citation);
     let refused: "section" | "page" | null = null;
     let problem: { problem: string } | null = null;
@@ -987,11 +988,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
    */
   function ownPassageProblem(
     quoted: Quoted,
-    at: number,
+    figure: Figure,
     unit: Quoted,
     chars: string,
   ): string | null {
-    const numbersUnit = unitAt(quoted, at);
+    const numbersUnit = unitOf(quoted, figure);
     if (!numbersUnit || (numbersUnit.kind !== "section" && numbersUnit.kind !== "page"))
       return null;
     const lineUnit = lineUnitOf(unit);
@@ -1303,14 +1304,6 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       );
       if ("problem" in line || line.check().check !== "found") {
         unitProblem = `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
-        const elsewhere = unitQuoteElsewhere(quoted, onPage(quoted).at, given.unitQuote);
-        if (elsewhere && "quoted" in elsewhere) {
-          unit = elsewhere.quoted;
-          unitProblem = null;
-          const yen = figureContextOf(unit.citation.quote, context.language).yen ?? context.yen;
-          context = { ...context, yen };
-        } else if (elsewhere && "problem" in elsewhere) unitProblem = elsewhere.problem;
-        else if (elsewhere) unitElsewhereRefused = elsewhere.refused;
       } else {
         const yen = figureContextOf(line.citation.quote, context.language).yen ?? context.yen;
         context = { ...context, yen };
@@ -1322,7 +1315,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     // A quote from the middle of a line ("…，88.0 和 91.5") starts with no list's or heading's number.
     // A sheet row's cells are numbers whatever they look like: "Gross profit	1922" holds no year.
     const cells = quoted.units.some((unit) => unit.kind === "rows");
-    const quoteContext = { ...context, midLine: page.midLine, ...(cells && { dates: true }) };
+    let quoteContext = { ...context, midLine: page.midLine, ...(cells && { dates: true }) };
     const contextProblem = quotePlaceProblem(quote, quoted.units, quoted.matching);
     if (contextProblem) return contextProblem;
     const figures = readFigures(quote, quoteContext);
@@ -1351,6 +1344,25 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       return "give number, the number as it is written in the quote, or its position.";
     }
     if (!figure) return `the quote has no number "${given.number}"; ${has}.`;
+
+    // Another Passage's line is judged from the Unit the figure sits in, not the one the quote starts in.
+    if (unitProblem && given.unitQuote) {
+      const elsewhere = unitQuoteElsewhere(quoted, figure, given.unitQuote);
+      if (elsewhere && "quoted" in elsewhere) {
+        unit = elsewhere.quoted;
+        unitProblem = null;
+        const yen = figureContextOf(unit.citation.quote, context.language).yen ?? context.yen;
+        context = { ...context, yen };
+        quoteContext = { ...context, midLine: page.midLine, ...(cells && { dates: true }) };
+        const at = figure.start;
+        const chars = figure.chars;
+        const reread = readFigures(quote, quoteContext).find(
+          (each) => each.start === at && each.chars === chars,
+        );
+        if (reread) figure = reread;
+      } else if (elsewhere && "problem" in elsewhere) unitProblem = elsewhere.problem;
+      else if (elsewhere) unitElsewhereRefused = elsewhere.refused;
+    }
 
     const currency = figure.ambiguous.find((each) => each.kind === "currency");
     if (currency) {
@@ -1438,7 +1450,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         return `the unitQuote "${unit.citation.quote}" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".`;
       // A line that states a currency on its own amount has its own rule above; a scale line may
       // not come from another section of the Unit the number's Passage reaches (#2365).
-      const elsewhere = onFigure ? null : ownPassageProblem(quoted, page.at, unit, figure.chars);
+      const elsewhere = onFigure ? null : ownPassageProblem(quoted, figure, unit, figure.chars);
       if (elsewhere) return elsewhere;
       if (onFigure) {
         const problem = statementProblem(quoted, unit, onFigure, figure, context);

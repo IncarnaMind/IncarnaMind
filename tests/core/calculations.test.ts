@@ -2680,6 +2680,60 @@ describe("A parent heading's scale line is quoted from another Passage, and a si
     expect(asked).not.toContain("doesn't state");
     expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
   });
+
+  test("a spanning Word quote's sibling line is refused for a figure in the next section", {
+    timeout: 60_000,
+  }, async () => {
+    const contents = docxOf([
+      { text: "Notes", heading: 1 },
+      { text: "Revenue", heading: 2 },
+      { text: "Amounts in €'000" },
+      { text: "Expenses", heading: 2 },
+      { text: "Revenue 1,234.5" },
+      { text: "Costs 334.5" },
+    ]);
+    const quote = "Amounts in €'000\nExpenses\nRevenue 1,234.5";
+    const model = calculatingModel({
+      queries: ["spanning word revenue"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, "Spanning notes", "Amounts in €'000");
+          return [
+            { tool: "cite", input: { citations: [{ marker: 1, passage: passage.id, quote }] } },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Revenue",
+                    formula: "rev * 1",
+                    inputs: [
+                      {
+                        name: "rev",
+                        label: "Revenue",
+                        citation: 1,
+                        number: "1,234.5",
+                        unitQuote: "Amounts in €'000",
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [{ name: "Spanning notes.docx", contents }]);
+
+    const { answer } = await askAndRead(core, "What is the revenue?");
+    core.close();
+
+    expect(answer.figures).toEqual([]);
+    expect(told(model, "calculate")[0] ?? "").toContain("is in a section that doesn't state");
+  });
 });
 
 // protects=#2365; fails_when=a whole-Document scale line on an earlier page is refused when the model quotes it, or a table's own scale line on an earlier page is applied to another page's figures.
@@ -2881,6 +2935,83 @@ describe("An earlier page's whole-Document scale line states the scale when quot
     const { answer } = await shortPdf("All amounts in £'000");
 
     expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
+  });
+
+  /** A PDF quoted across both pages, and a figure in the page named after the quote's start. */
+  async function spanningPdf(name: string, first: string[], second: string[], quote: string) {
+    const model = calculatingModel({
+      queries: ["spanning pdf revenue"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, name, "Revenue 1,234.5");
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [{ marker: 1, passage: passage.id, location: "pp. 1–2", quote }],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Revenue",
+                    formula: "rev * 1",
+                    inputs: [
+                      {
+                        name: "rev",
+                        label: "Revenue",
+                        citation: 1,
+                        number: "1,234.5",
+                        unitQuote: "Amounts in HK$ millions",
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      { name: `${name}.pdf`, contents: buildPdf([{ lines: first }, { lines: second }]) },
+    ]);
+    const { answer } = await askAndRead(core, "What is the revenue?");
+    core.close();
+    return { answer, asked: told(model, "calculate")[0] ?? "" };
+  }
+
+  test("a spanning quote's earlier page line is refused for a figure on the next page", {
+    timeout: 60_000,
+  }, async () => {
+    const { answer, asked } = await spanningPdf(
+      "Spanning accounts",
+      ["Short notes", "Amounts in HK$ millions"],
+      ["Short accounts", "Revenue 1,234.5"],
+      "Short notes\nAmounts in HK$ millions\nShort accounts\nRevenue 1,234.5",
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is on an earlier page");
+  });
+
+  test("a spanning quote's line on the figure's own page states its scale", {
+    timeout: 60_000,
+  }, async () => {
+    const { answer } = await spanningPdf(
+      "Same page accounts",
+      ["Short notes"],
+      ["Amounts in HK$ millions", "Revenue 1,234.5"],
+      "Short notes\nAmounts in HK$ millions\nRevenue 1,234.5",
+    );
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 1_234_500_000],
+    ]);
   });
 });
 
