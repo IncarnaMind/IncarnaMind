@@ -504,6 +504,29 @@ describe("The check record as CSV", () => {
     );
   });
 
+  test("an outside agent's bracket is listed as it reads, without the word joiner the Note keeps (#352)", async () => {
+    const setup = await setUp();
+    const { client, tides, localModel } = setup;
+    const sentence = "Spring tides come at new moon [\u2060sic].";
+    writeMind(client, [
+      paragraph(
+        randomUUID(),
+        text(sentence, {
+          type: "claimCheck",
+          attrs: checked(tides, sentence, "supported", localModel),
+        }),
+      ),
+    ]);
+    await client.settled();
+
+    const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
+
+    expect(recordRows(csv).map((row) => row.Sentence)).toEqual([
+      "Spring tides come at new moon [sic].",
+    ]);
+    expect(csv).not.toContain("\u2060");
+  });
+
   test("a quote a PDF's line end cut at a hyphen is listed as whole words", async () => {
     const setup = await setUp();
     const sources = await createTempDataFolder();
