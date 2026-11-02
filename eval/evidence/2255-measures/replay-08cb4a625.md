@@ -1,8 +1,8 @@
-# Replay of the b971c404e runs through 4d4001436's rules
+# Replay of the b971c404e runs through 08cb4a625's rules
 
 Every figure that #2397's held-out and tie-out runs at b971c404e bound to a quote (71: 22
 held-out, 49 tie-out), as the check read it with `INCARNAMIND_LIVE_MEASURES` set, run again offline
-through this change's `measureFinding` (4d4001436). No prompt is kept, and no model was asked
+through this change's `measureFinding` (08cb4a625). No prompt is kept, and no model was asked
 again: each row is the sentence, the quote Claude Haiku 5.5 recorded, the measure it named, what
 #2397's rules made of it in that run (`same` or `unread`, Not checked) and what this change's do.
 
