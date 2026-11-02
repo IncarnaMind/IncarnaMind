@@ -35,6 +35,7 @@ import type { WatchFolder } from "./documents/watcher";
 import type { FetchLimits, PageFetch } from "./documents/web/fetch";
 import type { PictureLimits } from "./documents/web/pictures";
 import type { ModelCopies } from "./embedding/modelSources";
+import type { ModelFactsLayer } from "./providers/capabilities";
 import type { AnswerPathsOverride } from "./providers/catalog/answerPaths";
 import type { ChatGptPlanEndpoints } from "./providers/chatgpt/plan";
 import type { AnthropicOAuthConfig } from "./providers/claudeAccount/config";
@@ -952,6 +953,11 @@ export interface CoreAdapters {
    * Absent: no Answer is offered `run_code`.
    */
   codeRuntime?: CodeHost;
+  /**
+   * Facts laid over every source's for a model, `provider` as the catalog names it: a test's, to
+   * turn on a Tool the catalog offers no model yet (`codeTool`, #2351). The app passes none.
+   */
+  modelFacts?(provider: string, modelId: string): ModelFactsLayer | undefined;
   /**
    * Why the OS sandbox can't start on this computer, when it can't and the User can fix it:
    * Linux without bubblewrap, socat or ripgrep, or one that doesn't let apps start a sandbox.

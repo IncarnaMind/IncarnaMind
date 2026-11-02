@@ -16,7 +16,7 @@ import { createCodeHost } from "../../src/main/runCode/host";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { answerRequests, scriptedModel, scriptedModels } from "../helpers/models";
+import { answerRequests, codeToolOn, scriptedModel, scriptedModels } from "../helpers/models";
 
 const LOG = ["GET /a 200", "GET /b 500", "GET /c 500", "POST /d 201", ""].join("\n");
 
@@ -77,6 +77,8 @@ async function setUp(
   options: {
     level?: "os" | "none";
     codeRuntime?: boolean;
+    /** Leave run_code to the shipped catalog, which offers it to no model yet. */
+    catalogOnly?: boolean;
     manifestUrl?: string;
     /** sales.csv's rows below its heading; null: no sales.csv, so no sheet to run_analysis. */
     salesRows?: string[] | null;
@@ -84,6 +86,7 @@ async function setUp(
 ) {
   const dataDir = await createTempDataFolder();
   const core: Core = startCore(dataDir, {
+    ...(options.catalogOnly !== true && codeToolOn()),
     createChatModel: scriptedModels(model).createChatModel,
     analysisRuntime: createFakeAnalysisRuntime({
       answer: () => ({
@@ -148,6 +151,13 @@ const bash = (code: string) => (passage: Passages) => ({
 });
 
 describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
+  test("with the shipped catalog alone it is offered to no model yet, even where code runs in the OS sandbox", async () => {
+    const { model, offered } = codingModel([]);
+    await ask(await setUp(model, { catalogOnly: true }), "How many errors are in the log?");
+    expect(offered.at(-1)).toContain("run_analysis");
+    expect(offered.at(-1)).not.toContain("run_code");
+  });
+
   test("is offered, with when to use it, only where code runs in the OS sandbox", async () => {
     const sandboxed = codingModel([]);
     await ask(await setUp(sandboxed.model), "How many errors are in the log?");

@@ -32,6 +32,7 @@ import { scansAtOnce } from "../core/documents/processor";
 import type { PageFetch } from "../core/documents/web/fetch";
 import type { ModelCopies } from "../core/embedding/modelSources";
 import { createFakeCapture, type FakeCapture, wavSamples } from "../core/meetings/fakeCapture";
+import type { ModelFactsLayer } from "../core/providers/capabilities";
 import { type LocalServers, scriptedLocalServers } from "../core/providers/localServers";
 import { type Resolve, systemResolve } from "../core/tools/web/addresses";
 import type { FakeTranscriberOptions } from "../core/transcription/fake";
@@ -372,6 +373,19 @@ function pythonFolder(): string {
   return app.isPackaged
     ? join(process.resourcesPath, "python")
     : join(app.getAppPath(), "resources", "python");
+}
+
+/**
+ * Test-only: facts laid over every model's, as JSON (`INCARNAMIND_TEST_MODEL_FACTS`), as a smoke
+ * test turns on run_code, which the catalog offers to no model yet (#2351). Only a test build
+ * (`electron-vite build --mode test`) honours it.
+ */
+function testModelFacts(): Pick<CoreAdapters, "modelFacts"> {
+  const given =
+    import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_MODEL_FACTS : undefined;
+  if (!given) return {};
+  const facts = JSON.parse(given) as ModelFactsLayer;
+  return { modelFacts: () => facts };
 }
 
 /**
@@ -811,6 +825,7 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     capturePage: createCitedPageCapture({ rendererUrl: process.env.ELECTRON_RENDERER_URL, log }),
     analysisRuntime: analysisRuntime(log),
     codeRuntime: codeRuntime(log),
+    ...testModelFacts(),
     paths: {
       dataDir,
       builtInSkills: builtInSkillsFolder(),

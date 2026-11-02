@@ -28,6 +28,7 @@ import { createProcessLauncher } from "../../src/main/processes";
 import { createCodeHost } from "../../src/main/runCode/host";
 import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
 import { queryDatabase } from "../../tests/helpers/core";
+import { codeToolOn } from "../../tests/helpers/models";
 import { createSweepGuard } from "../../tests/helpers/sweepGuard";
 import { commitOf } from "../lib/commit";
 import { chatProviderOf, readConfig } from "../lib/config";
@@ -133,6 +134,8 @@ test("run_code routing", async () => {
     keep: config.keepData,
     log,
     analysisRuntime: createFakeAnalysisRuntime({ answer: () => ({}) }),
+    // The shipped catalog offers run_code to no model yet (#2351): this run measures it.
+    ...codeToolOn(),
     ...(sandbox.available && {
       executor: sandbox.createExecutor({
         processes: createProcessLauncher(async () => ({

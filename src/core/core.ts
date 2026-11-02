@@ -1263,6 +1263,9 @@ export function createCore(adapters: CoreAdapters): Core {
     ollamaModels: adapters.ollamaModels ?? createOllamaModels(),
     localOnly: () => embedding.localOnly(),
     meter,
+    ...(adapters.modelFacts && {
+      modelFacts: (provider, modelId) => adapters.modelFacts?.(provider, modelId),
+    }),
   });
 
   /** Set once readiness can be reported: Connectors turned on or off change what chat sends. */
