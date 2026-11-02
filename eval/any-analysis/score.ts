@@ -151,9 +151,38 @@ function kindOf(figure: Pick<Figure, "unit">): NumberKind {
 const DURATION =
   /(\d[\d,]*(?:\.\d+)?)\s*(?:days?|weeks?|months?|years?|hours?|hrs?|minutes?|mins?|seconds?|secs?|ms|天|周|个月|小时|分钟|秒)/gi;
 
+/** A number in scientific notation, as a p-value is often written: "1.4e-15", "1.4 × 10−15" (NFKC's "10⁻¹⁵"). */
+const SCIENTIFIC = /(\d+(?:\.\d+)?)\s*(?:[eE]\s*([-+−]?\d+)|[×x]\s*10\s*\^?\s*([-+−]?\d+))/g;
+
+function scientific(
+  text: string,
+  line: number,
+): { candidate: Candidate; start: number; end: number }[] {
+  return [...text.matchAll(SCIENTIFIC)].map((match) => {
+    const mantissa = match[1] ?? "0";
+    const exponent = Number((match[2] ?? match[3] ?? "0").replace("−", "-"));
+    const decimals = mantissa.split(".")[1]?.length ?? 0;
+    return {
+      candidate: {
+        value: Number(mantissa) * 10 ** exponent,
+        kind: "plain",
+        half: 10 ** (exponent - decimals) / 2,
+        text: match[0],
+        line,
+        figure: null,
+      },
+      start: match.index,
+      end: match.index + match[0].length,
+    };
+  });
+}
+
 function written(text: string, line: number): Candidate[] {
   const language = HAN.test(text) ? "zh-CN" : "en";
-  const figures = readFigures(text, { language });
+  const powers = scientific(text, line);
+  const figures = readFigures(text, { language }).filter(
+    (figure) => !powers.some((power) => figure.start < power.end && power.start < figure.end),
+  );
   const read = figures.map((figure): Candidate => {
     const kind = kindOf(figure);
     const place =
@@ -176,7 +205,7 @@ function written(text: string, line: number): Candidate[] {
       figure: null,
     });
   }
-  return read;
+  return [...read, ...powers.map((power) => power.candidate)];
 }
 
 /** A line's text as shown, and its numbers, its figures by their markers. */

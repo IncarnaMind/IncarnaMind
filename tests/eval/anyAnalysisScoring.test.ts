@@ -679,3 +679,36 @@ describe("terms a Document states exactly", () => {
     });
   });
 });
+
+describe("p-values", () => {
+  const tiny: Task = {
+    ...TASK,
+    expect: [
+      {
+        id: "p",
+        kind: "number",
+        label: "Welch's p",
+        unit: "plain",
+        tolerance: { abs: 0.0008 },
+        near: /welch/i,
+      },
+    ],
+  };
+  const reference: Reference = { task: "T00", inputs: {}, values: { p: 1.2e-15 } };
+
+  test.each([
+    "Welch's ANOVA: p = 1.2e-15.",
+    "Welch's ANOVA: p = 1.2 × 10⁻¹⁵.",
+    "Welch's ANOVA: p < 0.001.",
+  ])("read tiny in any usual form: %s", (line) => {
+    expect(outcomes(scoreAnswer(tiny, reference, record(answer([line], { figures: [] }))))).toEqual(
+      { p: "right" },
+    );
+  });
+
+  test("a p written far too large is never taken as it", () => {
+    const large = answer(["Welch's ANOVA: p = 0.04."], { figures: [] });
+
+    expect(outcomes(scoreAnswer(tiny, reference, record(large)))).toEqual({ p: "missing" });
+  });
+});
