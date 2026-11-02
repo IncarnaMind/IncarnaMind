@@ -138,24 +138,27 @@ const BY_APP = String.raw`\s+by\s+(?:the app|IncarnaMind)`;
 const CHECKED_ZH = `(?:重新计算|复算|复核|验证|核验|核对|校验)`;
 const BY_APP_ZH = String.raw`(?:由|经)?\s*(?:IncarnaMind|应用)\s*`;
 const TICK = String.raw`\s*[✓✔]?\s*`;
-/** Where a label set off by a dash, a dot or a tick ends: punctuation, a closing bracket, the line's end. */
-const LABEL_END = String.raw`(?=[.,;:!?)\]】。，；！？]|$)`;
+/** A dash, a dot or a tick right after a number ("8.13% —"), never at a line's start or a bullet. */
+const AFTER_NUMBER = String.raw`(?<=\d[%‰]?\s*)`;
+/** Where a bare label ends: a sentence's end, a closing bracket, the line's end. */
+const LABEL_END = String.raw`(?=[.!)\]】。！]|$)`;
 
 /**
  * Words that label a number as recalculated by the app, as its figure cards do: bracketed
- * ("(recalculated)", "[verified ✓]", "（已复核）"), or bare after a dash, a dot or a tick
- * ("— checked by the app.", "✓ recalculated"). The model's own voice is no label: "I recalculated
- * the total", "double-checked", "— verified against page 5", "——核对财务摘要表后得出", nor a
- * list's bullet ("- Checked the totals").
+ * ("(recalculated)", "[verified ✓]", "（已复核）"), or bare after a number's dash, dot or tick,
+ * ending its sentence ("8.13% — checked by the app.", "8.13% ✓ recalculated"). The model's own
+ * voice is no label: "I recalculated the total", "double-checked", "— verified against page 5",
+ * "— verified, as page 5 shows", "——核对财务摘要表后得出", nor a line's or a bullet's start
+ * ("- Checked the totals", "✓ Checked: assets equal liabilities").
  */
 const RECALCULATED = new RegExp(
   [
     String.raw`[(\[【]${TICK}${CHECKED_EN}(?:${BY_APP})?${TICK}[)\]】]`,
-    String.raw`(?:[—–·✓✔]|(?<=\S)\s+-)\s*${CHECKED_EN}(?:${BY_APP})?${TICK}${LABEL_END}`,
+    String.raw`(?:${AFTER_NUMBER}[—–·✓✔]|(?<=\d[%‰]?)\s+-)\s*${CHECKED_EN}(?:${BY_APP})?${TICK}${LABEL_END}`,
     String.raw`\b${CHECKED_EN}${BY_APP}\b`,
     `IncarnaMind (?:has )?${CHECKED_EN}`,
     String.raw`[(【]${TICK}(?:已|经)?\s*(?:${BY_APP_ZH})?${CHECKED_ZH}过?${TICK}[)】]`,
-    String.raw`(?:——|[—–·✓✔])\s*(?:已|经)?\s*(?:${BY_APP_ZH})?${CHECKED_ZH}过?${TICK}${LABEL_END}`,
+    String.raw`${AFTER_NUMBER}(?:——|[—–·✓✔])\s*(?:已|经)?\s*(?:${BY_APP_ZH})?${CHECKED_ZH}过?${TICK}${LABEL_END}`,
     String.raw`(?:由|经)\s*(?:IncarnaMind|应用)\s*已?${CHECKED_ZH}|IncarnaMind\s*已?${CHECKED_ZH}`,
   ].join("|"),
   "i",

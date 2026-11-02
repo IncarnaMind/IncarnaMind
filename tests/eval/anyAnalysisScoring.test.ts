@@ -350,6 +350,8 @@ describe("decoys", () => {
     "增长为 8.13%（已复核）。",
     "增长为 8.13%【经应用验证 ✓】。",
     "增长为 8.13% —— 已重新计算。",
+    "Growth was 8.13% — verified.",
+    "Growth was 8.13% — verified by the app",
     "Growth was 8.13% (app-recalculated).",
     "Growth was 8.13% (auto-checked).",
     "Growth was 8.13% (re-verified).",
@@ -366,6 +368,28 @@ describe("decoys", () => {
     expect(score.falseRecalculated).toEqual(["growth: 8.13% is said to be recalculated"]);
     expect(score.failure).toBe("false recalculated");
   });
+
+  test.each([
+    "Growth was 8.13% — verified, as page 5 shows.",
+    "— checked: it matches the summary table.",
+    "— checked, and the table agrees.",
+    "增长为 8.13%·已核对，与汇总表一致。",
+    "✓ Checked: assets equal liabilities plus equity in all 12 periods.",
+    "- ✓ Verified: the 12 periods tie out.",
+    "— Checked: 12 periods balance.",
+    "· 已核对：12个期间全部平衡。",
+    "Growth was 8.13% — verified?",
+  ])(
+    "the model's own check, %s, is no label after a number's clause or at a line's start",
+    (own) => {
+      const said = [...RIGHT, "", own];
+
+      const score = scoreAnswer(TASK, REFERENCE, record(answer(said)));
+
+      expect(score.falseRecalculated).toEqual([]);
+      expect(score.passed).toBe(true);
+    },
+  );
 
   test.each([
     "I recalculated the growth in code: 8.13%.",
