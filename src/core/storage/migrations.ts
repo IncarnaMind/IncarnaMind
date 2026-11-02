@@ -2217,6 +2217,16 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE ai_use ADD COLUMN agent TEXT;
     `,
   },
+  {
+    version: 123,
+    description: "A Document converted from another file says which one it came from (#762)",
+    sql: `
+      -- A copy IncarnaMind converted with the User's own LibreOffice (#762) says which
+      -- file it came from, by name: the original's, with its extension ("Report.doc").
+      -- Null for every other Document.
+      ALTER TABLE documents ADD COLUMN converted_from TEXT;
+    `,
+  },
 ];
 
 /**
