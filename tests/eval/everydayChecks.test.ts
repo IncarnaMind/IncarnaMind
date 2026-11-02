@@ -291,6 +291,7 @@ describe("The everyday request guards", () => {
       "已写好教程的“总结”。2306.10683v1 留待下次总结。",
       "Made “Summary” of the tutorial.\n\nThis one is left for the next summary, as one covers 8 at a time:\n- “2306.10683v1”",
       "已写好教程的“总结”。以下文档留待下次总结：\n\n1. 2306.10683v1",
+      "已写好教程的“总结”。“2306.10683v1”这份不在本次摘要中，因为一次最多覆盖八份。",
     ]) {
       expect(requestFailures(one(text))).toEqual([]);
       expect(documentsCovered(one(text))).toEqual({
