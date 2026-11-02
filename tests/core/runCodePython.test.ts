@@ -23,6 +23,7 @@ import { type TarEntry, writeTarZst } from "../../src/core/runCode/tar";
 import { createProcessLauncher } from "../../src/main/processes";
 import { createTempDataFolder, LOCAL_FETCH } from "../helpers/core";
 
+// biome-ignore lint/suspicious/noTemplateCurlyInString: the shell script's own variable.
 const INTERPRETER = '#!/bin/sh\necho imported >> "$IMPORTS"\nexit ${STAND_IN_EXIT:-0}\n';
 
 /** A stand-in runtime archive, served from a stand-in release; `served` counts its downloads. */
@@ -137,7 +138,7 @@ describe.skipIf(process.platform === "win32")("run_code's own Python", () => {
     expect(statuses.at(0)?.state).toBe("downloading");
     expect(statuses.at(-1)).toMatchObject({ state: "ready", downloadedBytes: manifest.size });
     // The archive itself is gone once it is unpacked.
-    expect(await readdir(folder)).toEqual(["files", "ready.json"]);
+    expect((await readdir(folder)).sort()).toEqual(["files", "matplotlib", "ready.json"]);
 
     const again = make();
     expect(again.status().state).toBe("ready");

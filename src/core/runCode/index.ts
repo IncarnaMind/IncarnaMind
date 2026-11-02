@@ -21,6 +21,7 @@ import { constants } from "node:fs";
 import {
   chmod,
   copyFile,
+  cp,
   lstat,
   mkdir,
   mkdtemp,
@@ -361,12 +362,14 @@ export function createCodeRunner(options: CodeRunnerOptions) {
     hasPython: options.python !== null,
     async run(request: CodeRequest): Promise<CodeRun> {
       let command: string;
+      let fontCache: string | null = null;
       let versions: AnalysisVersions;
       if (request.language === "python") {
         if (!options.python) return { kind: "no-python", error: null };
         const ready = await untilStopped(options.python.ensure(), request.signal);
         if (!ready.ok) return { kind: "no-python", error: ready.error };
         command = ready.python.command;
+        fontCache = ready.python.fontCache;
         const { manifest } = ready.python;
         versions = {
           language: "python",
@@ -402,6 +405,16 @@ export function createCodeRunner(options: CodeRunnerOptions) {
         if ("refused" in staged) return { kind: "refused", reason: staged.refused };
         const result = join(work, `.incarnamind-result-${sha256(run).slice(0, 12)}.json`);
         if (request.language === "python") {
+          // matplotlib rebuilds a missing font cache, about 8 s: each run starts from the one the
+          // first import built.
+          if (fontCache) {
+            await cp(fontCache, join(work, ".matplotlib"), { recursive: true }).catch(
+              (error: unknown) => {
+                // Only a speed-up: without it, matplotlib builds its own.
+                if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+              },
+            );
+          }
           await writeFile(join(lib, "runner.py"), runnerSource);
           await writeFile(join(lib, "incarnamind.py"), options.helper);
           const index = await Promise.all(
@@ -436,6 +449,8 @@ export function createCodeRunner(options: CodeRunnerOptions) {
           cwd: work,
           env: {
             HOME: work,
+            // bash takes its folder from PWD; getcwd() can't read the folders above it in the sandbox.
+            PWD: work,
             INCARNAMIND_INPUTS: join(run, "inputs"),
             INCARNAMIND_OUT: out,
             ...(request.language === "python" && {

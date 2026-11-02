@@ -105,7 +105,9 @@ for (const language of ["en", "zh-CN"] as const) {
     try {
       const answer = await askInAssistant(
         window,
-        language === "en" ? "How many errors are in the log?" : "日志里有多少个错误？",
+        language === "en"
+          ? "How many errors are in the log server.log?"
+          : "server.log 日志里有多少个错误？",
       );
       await expect(answer).toContainText(
         language === "en" ? "The log has 2 errors" : "日志里有 2 个错误",
@@ -142,8 +144,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("ControlOrMeta+j");
       await window.keyboard.type(
         language === "en"
-          ? "What do the amounts add up to over every row of orders?"
-          : "订单所有行的金额合计是多少？",
+          ? "What do the amounts in orders.csv add up to over every row?"
+          : "orders.csv 订单所有行的金额合计是多少？",
       );
       await window.keyboard.press("Enter");
       const answer = assistantAnswers(window).last();

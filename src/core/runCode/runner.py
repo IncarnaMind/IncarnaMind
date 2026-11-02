@@ -14,7 +14,23 @@ import json
 import os
 import sys
 
-LIB = os.path.dirname(os.path.abspath(__file__))
+# In the OS sandbox the folders above the run's can't be read, and getcwd() reads them to find
+# its own path: Python is told its folder instead, kept in step with chdir.
+_here = [os.environ["INCARNAMIND_WORKING_FOLDER"]]
+_chdir = os.chdir
+
+
+def _tracked_chdir(path):
+    _chdir(path)
+    if not isinstance(path, int):
+        _here[0] = os.path.normpath(os.path.join(_here[0], os.fsdecode(path)))
+
+
+os.chdir = _tracked_chdir
+os.getcwd = lambda: _here[0]
+os.getcwdb = lambda: os.fsencode(_here[0])
+
+LIB = os.path.dirname(__file__)
 sys.path.insert(0, LIB)
 
 import incarnamind  # noqa: E402

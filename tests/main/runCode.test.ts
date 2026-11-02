@@ -240,6 +240,7 @@ describe.skipIf(unavailable !== undefined)(
           `try dns "getent hosts example.com || host example.com || nslookup example.com"`,
           `try internet "curl -sS -m 3 https://example.com"`,
           `try loopback "curl -sS -m 3 telnet://127.0.0.1:${loopbackPort} </dev/null"`,
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: the shell's own variables.
           'echo "token: ${GITHUB_TOKEN:-none} setting: ${PLAIN_SETTING:-none}"',
         ].join("\n"),
         ["P1"],
@@ -327,8 +328,10 @@ describe.skipIf(unavailable !== undefined || !runtimeFolder)(
     test("analyses a 50,000-row CSV: a table, a picture and figures worked out again from the cells", async () => {
       const rows = ["region,month,revenue"];
       for (let row = 0; row < 50_000; row++) {
+        // In blocks of a region, as an export sorted by region has them: a figure names its rows
+        // as runs, at most 2,000 of them.
         rows.push(
-          `${["North", "South", "East", "West"][row % 4]},${1 + (row % 12)},${(row % 997) + 0.25}`,
+          `${["North", "South", "East", "West"][Math.floor(row / 12_500)]},${1 + (row % 12)},${(row % 997) + 0.25}`,
         );
       }
       const big = rows.join("\n");
@@ -493,13 +496,14 @@ print(json.dumps(seen))
     }, 60_000);
 
     test("is stopped at its time, memory and folder limits, and its output is cut", async () => {
-      const { call, analyses } = tool({}, 6000);
+      const { call, analyses } = tool({}, 15_000);
       await call("python", "import os\nos.write(1, b'x' * 10_000_000)");
       expect(analyses[0]?.output.printed.length).toBe(20_000);
       expect(analyses[0]?.output.printed.startsWith("xxxx")).toBe(true);
       await call(
         "python",
-        "import time\nheld = []\nfor _ in range(40):\n    held.append(b'x' * 100_000_000)\n    time.sleep(0.05)",
+        // Random bytes: macOS compresses a run of one byte to almost nothing, which isn't memory used.
+        "held = []\nfor n in range(60):\n    held.append(np.random.default_rng(n).bytes(50_000_000))",
       );
       expect(analyses[1]?.end).toEqual({ kind: "out-of-memory" });
       await call(
@@ -508,7 +512,7 @@ print(json.dumps(seen))
       );
       expect(analyses[2]?.end.kind === "error" && analyses[2].end.message).toContain("200 MB");
       await call("python", "while True: pass");
-      expect(analyses[3]?.end).toEqual({ kind: "timed-out", limitMs: 6000 });
+      expect(analyses[3]?.end).toEqual({ kind: "timed-out", limitMs: 15_000 });
     }, 120_000);
   },
 );

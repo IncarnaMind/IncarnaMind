@@ -163,6 +163,28 @@ On the M2 Max used for ADR-0023, with macOS 26.5, Electron 44.9.1 and Pyodide 31
 
 **Not measured:** Linux and Windows. On GitHub's ubuntu-24.04 runners, the OS sandbox's tests are skipped today (6 of 6 in the last green run on `main`), as `run_code`'s would be.
 
+### Measured for #2351: IncarnaMind's own Python
+
+On the same M2 Max, macOS 26.5, with other work holding the machine's 15-minute load between 8 and 26 (higher at times, as noted).
+
+**The runtime** (`npm run python:native`, darwin-arm64, python-build-standalone 20261026, CPython 3.14.10, the lock's 27 distributions):
+
+| | |
+|---|---|
+| Building it (fetch, check, install offline, compile, pack at zstd 19) | 220–237 s |
+| The archive | 116.9 MB (116,939,661 bytes) |
+| Unpacked | 527.8 MB in 19,258 entries |
+| Two builds from different folders | the same SHA-256 |
+| Unpacking it in the app (`unpackTarZst`) | 4.7–5.8 s |
+| Its first import of every package, in the OS sandbox, on a fresh copy | 52–66 s |
+| The same import afterwards | 2.3–3.4 s |
+| Mach-O files | 328: 259 signed ad hoc by their linker, 69 ad hoc after it; none unsigned |
+| Files with a quarantine attribute | none |
+
+- The first import's minute is macOS checking each native library it loads for the first time (it happens once per copy, and not again). It happens while the step says Python is getting ready, never in an analysis. It also builds matplotlib's font cache beside the runtime, which each run starts from a copy of: built in each fresh run folder, it took about 8 s a plot.
+- The stripped archives have no compiled standard library, and the runtime's folder can't be written when code runs, so each run would compile every standard module it imports again (0.4–0.7 s a run). The build compiles them (`unchecked-hash`, so the archive's times don't matter), which adds 3 MB to the archive.
+- **getcwd() fails in the OS sandbox on macOS** (measured): it reads the folders above the working folder, which are inside denied ones (the shared temporary folder; the home and data folders in the app), so `os.getcwd()`, `os.path.abspath()` and `Path.resolve()` of a relative path raise `PermissionError`, and matplotlib can't start. Listing those folders would show other apps' temporary files' names, so instead the runner tells Python its folder (`os.getcwd`, kept in step with `os.chdir`), and bash gets `PWD`. A program that asks the system itself for its folder (`/bin/pwd -P`) still can't.
+
 ## Considered options
 
 - **Pyodide alone, as the whole answer.**

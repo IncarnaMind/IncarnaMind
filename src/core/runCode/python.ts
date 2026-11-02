@@ -42,6 +42,8 @@ export interface PythonRuntimeManifest {
 export interface ReadyPython {
   /** The interpreter: …/python/bin/python3. */
   command: string;
+  /** matplotlib's font cache, built by the first import, which each run starts from. */
+  fontCache: string;
   manifest: PythonRuntimeManifest;
 }
 
@@ -59,8 +61,16 @@ export interface PythonRuntimeOptions {
   log?: Logger;
 }
 
-/** What `run_code` imports before its first run: every package the runtime has, and plotting. */
+/**
+ * What `run_code` imports before its first run: every package the runtime has, and plotting, which
+ * builds matplotlib's font cache where each run copies it from. In the OS sandbox getcwd() can't
+ * read the folders above its own, so Python is told it (TMPDIR is the working folder), as
+ * runner.py does.
+ */
 const FIRST_IMPORT = [
+  "import os",
+  "here = os.environ.get('TMPDIR') or os.getcwd()",
+  "os.getcwd = lambda: here",
   "import numpy, pandas, scipy.stats, statsmodels.api, sklearn.linear_model, sklearn.cluster",
   "import openpyxl, PIL.Image, matplotlib",
   "matplotlib.use('Agg')",
@@ -112,6 +122,7 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
   const folder = pythonRuntimeFolder(options.dataDir, manifest.sha256);
   const files = join(folder, "files");
   const command = join(files, "python", "bin", "python3");
+  const fontCache = join(folder, "matplotlib");
   const lifetime = new AbortController();
   const ready = (): boolean => {
     try {
@@ -146,11 +157,14 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
 
   async function firstImport(): Promise<void> {
     const started = performance.now();
+    await rm(fontCache, { recursive: true, force: true });
+    await mkdir(fontCache, { recursive: true });
     const ran = await options.executor.run({
       command,
       args: ["-I", "-B", "-c", FIRST_IMPORT],
-      env: { MPLBACKEND: "Agg", MPLCONFIGDIR: ".matplotlib", PYTHONIOENCODING: "utf-8" },
-      allow: { read: [], write: [WORKING_FOLDER], network: "none" },
+      env: { MPLBACKEND: "Agg", MPLCONFIGDIR: fontCache, PYTHONIOENCODING: "utf-8" },
+      // Only this import, IncarnaMind's own code, writes the font cache: a run gets a copy of it.
+      allow: { read: [fontCache], write: [WORKING_FOLDER, fontCache], network: "none" },
       timeoutMs: FIRST_IMPORT_MS,
       maxOutputBytes: 16 * 1024,
       signal: lifetime.signal,
@@ -234,14 +248,14 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
       if (ready()) {
         if (status.state !== "ready")
           update({ state: "ready", downloadedBytes: manifest.size, error: null });
-        return Promise.resolve({ ok: true, python: { command, manifest } });
+        return Promise.resolve({ ok: true, python: { command, fontCache, manifest } });
       }
       preparing ??= (async (): Promise<PythonReady> => {
         update({ state: "downloading", error: null, downloadedBytes: 0 });
         try {
           await prepare();
           update({ state: "ready", downloadedBytes: manifest.size, error: null });
-          return { ok: true, python: { command, manifest } };
+          return { ok: true, python: { command, fontCache, manifest } };
         } catch (error) {
           const failure: EmbeddingModelError =
             error instanceof ModelDownloadError
