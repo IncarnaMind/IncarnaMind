@@ -62,7 +62,12 @@ async function setUp(provider: SaveChatProviderInput) {
   await addAndProcess(core, [await writeSourceFile(sources, "Sales.xlsx", SALES)]);
   const offered = (filter: (call: ModelCall) => boolean) =>
     WATCHED.filter((name) => calls.filter(filter).some((call) => call.tools.includes(name)));
-  return { core, offered };
+  const requested = (filter: (call: ModelCall) => boolean) =>
+    calls
+      .filter(filter)
+      .filter((call) => call.tools.includes("search_documents") || call.tools.includes("cite"))
+      .length;
+  return { core, offered, requested };
 }
 
 describe.each([
@@ -78,14 +83,16 @@ describe.each([
   ])("%s: an Answer is offered %j, a claim check %j", async (name, inAnswers, inChecks) => {
     const provider = PROVIDERS[name];
     if (!provider) throw new Error(`No provider ${name}.`);
-    const { core, offered } = await setUp(provider);
+    const { core, offered, requested } = await setUp(provider);
 
     const asked = await core.askInConversation({ text: question, analyse: true });
     if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
     await answerEnded(core, asked.answerId);
+    expect(requested((call) => !isCheckRun(call))).toBeGreaterThan(0);
     expect(offered((call) => !isCheckRun(call))).toEqual(inAnswers);
 
     await core.checkClaim({ claim });
+    expect(requested(isCheckRun)).toBeGreaterThan(0);
     expect(offered(isCheckRun)).toEqual(inChecks);
   });
 });
