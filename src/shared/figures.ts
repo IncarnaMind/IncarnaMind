@@ -1157,7 +1157,8 @@ const STATEMENTS: readonly RegExp[] = [
   /[(（][ \u00a0]?in[ \u00a0](?<scale>000)[ \u00a0]?[)）]/dg,
   /[(（][ \u00a0]?(?<scale>'?000(?:'?s)?)[ \u00a0]omitted[ \u00a0]?[)）]/dg,
   /(?<![\dA-Za-z.,'])(?<scale>'?000(?:'?s)?)[ \u00a0]omitted(?![A-Za-z])/dg,
-  /[(（][ \u00a0]?(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?[)）]/dg,
+  /[(（][ \u00a0]?(?:in[ \u00a0]+)?(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?[)）]/dg,
+  /[(（][ \u00a0]?(?:in[ \u00a0]+)?(?<cur>U\.S\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling)[ \u00a0]?[)）]/dgi,
   // A heading's "Unit: million tonnes", "(thousand tonnes)" or a row's "thousand tonnes" cell; in a
   // sentence, "78 million tonnes" is a figure and "a million people" states nothing.
   /(?<=(?:^|[\n\t(（|]|\bunits?[ \u00a0]?[:：])[ \u00a0]*)(?<scale>thousands?|millions?|billions?)(?:[ \u00a0]of)?[ \u00a0](?<unit>[a-z]+(?:[ \u00a0][a-z]+)?)(?=[ \u00a0]*(?:$|[\n\t)）|]))/dgi,
@@ -1281,7 +1282,7 @@ export function readStatedUnits(
 // A line naming a contained part — a note, section, table, statement or chart — states that
 // part's scale, never the Document's ("All figures in Note 5", "本报表", "附注五", "下列").
 const PART_SCOPED =
-  /\b(?:notes?|sections?|tables?|charts?|schedules?|appendi(?:x|ces)|exhibits?|statements?)\b|附注|註釋|注释|本表|本節|本节|本页|本頁|上表|上节|上節|下表|下节|下節|表中|表内|表內|下列|如上|以下|报表|報表/i;
+  /\b(?:notes?|sections?|tables?|charts?|schedules?|appendi(?:x|ces)|exhibits?|statements?)\b|附注|註釋|注释|本表|本節|本节|本页|本頁|上表|上节|上節|下表|下节|下節|表中|表内|表內|下列|如上|以下|报表|報表|董事报告|董事會報告|董事会报告|薪酬报告|薪酬報告|分部报告|分部報告|母公司/i;
 // The consolidated statements are the Document, not a part of it ("All amounts in the
 // consolidated financial statements are in £m").
 const DOCUMENT_STATEMENTS = /\b(?:consolidated\s+)?financial\s+statements?\b/gi;
@@ -1296,10 +1297,26 @@ const WHOLE_DOCUMENT =
   /^\s*[(（]?\s*(?:unless\s+(?:otherwise\s+)?(?:stated|indicated|noted)|except\s+(?:where|as)\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown)|throughout\s+(?:this|the)\s+(?:document|report)|(?:amounts?|figures?|sums?|values?|numbers?)\s+(?:throughout|across)\s+(?:this|the)\s+(?:document|report|(?:consolidated\s+)?financial\s+statements?)|all\s+(?:of\s+the\s+)?(?:amounts?|figures?|sums?|values?|numbers?)|every\s+(?:amount|figure|sum|value|number))\b/i;
 const WHOLE_DOCUMENT_ZH =
   /^\s*[(（]?\s*(?:除非|除另有|除特别|所有|全部|一切|本文件|本报告|本招股|全文|(?:本|合并)?财务报表[中内]?\s*(?:所有|全部|一切))/;
+// The scope a whole-Document line may name after "in", "for" or "of": this Document or report, its
+// (consolidated) financial statements, or a unit. Anything else ("in the remuneration report",
+// "for 2024") is a part's scale.
+const WHOLE_SCOPE =
+  /^(?:(?:this|the)\s+(?:document|report)\b|(?:this|these|the)\s+(?:consolidated\s+)?financial\s+statements\b|(?:consolidated\s+)?financial\s+statements\b|(?:document|report)\b|(?:this|these)\b|'?0{3}s?|0{3}s?|thousands?|millions?|billions?|trillions?|lakhs?|crores?|(?:US\s+)?dollars?\b|pounds?(?:\s+sterling)?\b|euros?\b|yuan\b|renminbi\b|sterling\b|[$£€¥₹]|(?:USD|GBP|EUR|HKD|CNY|RMB|JPY|AUD|CAD|SGD|TWD|CHF|INR)\b|%)/i;
+const SCOPE_PHRASE = /\b(?:in|for|of)\s+(?:the\s+)?([A-Za-z0-9][\w'’-]*)/gi;
+
+function scopedPart(line: string): boolean {
+  for (const each of line.matchAll(SCOPE_PHRASE)) {
+    const word = each[1] ?? "";
+    const rest = line.slice((each.index ?? 0) + each[0].length - word.length);
+    if (!WHOLE_SCOPE.test(rest)) return true;
+  }
+  return false;
+}
 
 function wholeDocumentLine(line: string): boolean {
   if (PART_SCOPED.test(line.replace(DOCUMENT_STATEMENTS, " ").replace(DOCUMENT_STATEMENTS_ZH, " ")))
     return false;
+  if (scopedPart(line)) return false;
   return WHOLE_DOCUMENT.test(line) || WHOLE_DOCUMENT_ZH.test(line);
 }
 

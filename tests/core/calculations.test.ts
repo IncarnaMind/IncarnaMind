@@ -3624,6 +3624,346 @@ describe("A scale line states the numbers under it, in its own Unit (#2365)", {
   });
 });
 
+// protects=#2365; fails_when=a nearer line stating another scale or currency is ignored, a page or section between states another scale, a row head's bracket scale is left plain, a scan-misread scale word is left plain, or a column head's scale is applied to another column.
+describe("A nearer line, page, section, row head or column head decides the scale, or the figure is refused (#2365)", {
+  timeout: 120_000,
+}, () => {
+  /** Runs `rev - cost` over `rows`, quoting `quotes[i]` (or nothing) for figure i+1. */
+  async function figuresUnder(
+    name: string,
+    file: { name: string; contents: Uint8Array },
+    rows: [string, string],
+    quotes: readonly (string | null)[],
+    options: { scanned?: FakeScanScript; query?: string } = {},
+  ) {
+    const numbers = rows.map((row) => row.slice(row.lastIndexOf(" ") + 1)) as [string, string];
+    const input = (at: 0 | 1, unitQuote: string | null) => ({
+      name: at === 0 ? "rev" : "cost",
+      label: at === 0 ? "Revenue" : "Costs",
+      citation: at + 1,
+      number: numbers[at] as string,
+      ...(unitQuote !== null && { unitQuote }),
+    });
+    const model = calculatingModel({
+      queries: [options.query ?? "revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, name, rows[0]);
+          const location = passage.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: rows[0] },
+                  { marker: 2, passage: passage.id, location, quote: rows[1] },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: quotes.map((unitQuote, index) => ({
+                  marker: index + 1,
+                  label: `Difference ${index + 1}`,
+                  formula: "rev - cost",
+                  inputs: [input(0, unitQuote), input(1, unitQuote)],
+                })),
+              },
+            },
+          ];
+        },
+      ],
+      answer: `${quotes.map((_, index) => `[=${index + 1}]`).join(" ")}[^1]`,
+    });
+    const { core } = options.scanned
+      ? await setUpScanned(model, [file], options.scanned)
+      : await setUpCalculating(model, [file]);
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+    return { answer, asked: told(model, "calculate")[0] ?? "" };
+  }
+
+  const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+
+  test.each([
+    ["a same-page line (in £)", "Directors' fees (in £)", "(in £)"],
+    ["a same-page bracket (£)", "Directors' fees (£)", "(£)"],
+  ])("%s states a currency with no scale", async (_label, nearer, statement) => {
+    const wider = "All amounts in £'000";
+    const { answer, asked } = await figuresUnder(
+      "Own unit accounts",
+      {
+        name: "Own unit accounts.pdf",
+        contents: buildPdf([{ lines: ["Own unit accounts", wider, nearer, ...rows] }]),
+      },
+      rows,
+      [wider, wider],
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
+    expect(asked).toContain(statement);
+  });
+
+  test("a nearer line on the figure's page states a currency with no scale", async () => {
+    const wider = "All amounts in £'000";
+    const nearer = "Directors' fees (in £)";
+    const { answer, asked } = await figuresUnder(
+      "Earlier amounts",
+      {
+        name: "Earlier amounts.pdf",
+        contents: buildPdf([
+          { lines: ["Earlier notes", wider, ...fillerLines(false)] },
+          { lines: ["Earlier accounts", nearer, ...rows] },
+        ]),
+      },
+      rows,
+      [wider, wider],
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
+    expect(asked).toContain("(in £)");
+  });
+
+  test("a nearer line in the figure's child word section states a currency with no scale", async () => {
+    const wider = "All amounts in £'000";
+    const nearer = "Directors' fees (in £)";
+    const { answer, asked } = await figuresUnder(
+      "Own unit word",
+      {
+        name: "Own unit word.docx",
+        contents: docxOf([
+          { text: "Financial statements", heading: 1 },
+          { text: wider },
+          ...fillerLines(false).map((text) => ({ text })),
+          { text: "Income statement", heading: 2 },
+          { text: nearer },
+          ...rows.map((text) => ({ text })),
+        ]),
+      },
+      rows,
+      [wider, wider],
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
+    expect(asked).toContain("(in £)");
+  });
+
+  test("a nearer line in dollars refutes a line in $ thousands", async () => {
+    const wider = "All amounts in $ thousands";
+    const nearer = "Directors' fees (in dollars)";
+    const { answer, asked } = await figuresUnder(
+      "Dollar amounts",
+      {
+        name: "Dollar amounts.pdf",
+        contents: buildPdf([{ lines: ["Dollar amounts", wider, nearer, ...rows] }]),
+      },
+      rows,
+      [wider, wider],
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
+    expect(asked).toContain("(in dollars)");
+  });
+
+  test("in Chinese, a nearer line in 元 refutes a line in 千元", async () => {
+    const wider = "所有金额单位：千元";
+    const nearer = "单位：元";
+    const zhRows: [string, string] = ["收入 1,200", "成本 300"];
+    const { answer, asked } = await figuresUnder(
+      "母公司账目",
+      {
+        name: "母公司账目.pdf",
+        contents: buildPdf([{ chineseLines: ["母公司账目", wider, nearer, ...zhRows] }]),
+      },
+      zhRows,
+      [wider, wider],
+      { query: "母公司账目 收入 成本" },
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
+    expect(asked).toContain(nearer);
+  });
+
+  test("a page between the quoted page and the figure states another scale", async () => {
+    const wider = "All amounts in £'000";
+    const between = "Segment results (in millions)";
+    const file = {
+      name: "Between amounts.pdf",
+      contents: buildPdf([
+        { lines: ["Between notes", wider, ...fillerLines(false)] },
+        { lines: [between, ...fillerLines(false)] },
+        { lines: ["Between accounts", ...rows] },
+      ]),
+    };
+    const quoted = await figuresUnder("Between amounts", file, rows, [wider, wider]);
+
+    expect(quoted.answer.figures).toEqual([]);
+    expect(quoted.asked).toContain("but a nearer line states a scale");
+    expect(quoted.asked).toContain("in millions");
+  });
+
+  test("with no unitQuote, a scale on a page between isn't offered as one the rule refuses", async () => {
+    const between = "Segment results (in millions)";
+    const file = {
+      name: "Between hint accounts.pdf",
+      contents: buildPdf([
+        { lines: ["Between hint notes", "All amounts in £'000", ...fillerLines(false)] },
+        { lines: [between, ...fillerLines(false)] },
+        { lines: ["Between hint accounts", ...rows] },
+      ]),
+    };
+    const { answer, asked } = await figuresUnder("Between hint accounts", file, rows, [null]);
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).not.toContain("give that line as unitQuote");
+    expect(asked).toContain("without guessing");
+  });
+
+  test("a scale line later in the quoted line's own word section refutes it", async () => {
+    const wider = "All amounts in £'000";
+    const later = "The segment amounts that follow are in £m";
+    const { answer, asked } = await figuresUnder(
+      "Section scan",
+      {
+        name: "Section scan.docx",
+        contents: docxOf([
+          { text: "Financial statements", heading: 1 },
+          { text: wider },
+          { text: later },
+          ...fillerLines(false).map((text) => ({ text })),
+          ...rows.map((text) => ({ text })),
+        ]),
+      },
+      rows,
+      [wider, wider],
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
+  });
+
+  test("a scale line later in the parent section refutes it for a child section's figure", async () => {
+    const wider = "All amounts in £'000";
+    const later = "The segment amounts that follow are in £m";
+    const { answer, asked } = await figuresUnder(
+      "Section child",
+      {
+        name: "Section child.docx",
+        contents: docxOf([
+          { text: "Financial statements", heading: 1 },
+          { text: wider },
+          { text: later },
+          ...fillerLines(false).map((text) => ({ text })),
+          { text: "Income statement", heading: 2 },
+          ...rows.map((text) => ({ text })),
+        ]),
+      },
+      rows,
+      [wider, wider],
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
+  });
+
+  test.each(["K", "k", "thousands"])(
+    "a row head's bracket scale (%s) is the row's own",
+    async (scale) => {
+      const kRows: [string, string] = [`Revenue (${scale}) 1,234.5`, `Costs (${scale}) 334.5`];
+      const { answer, asked } = await figuresUnder(
+        "Bracket amounts",
+        {
+          name: "Bracket amounts.pdf",
+          contents: buildPdf([{ lines: ["Bracket amounts", ...kRows] }]),
+        },
+        kRows,
+        [null],
+      );
+
+      expect(answer.figures).toEqual([]);
+      expect(asked).toMatch(/row whose head|give that line as unitQuote/);
+    },
+  );
+
+  test("a page in thousands agrees with a row head's (K)", async () => {
+    const page = "in thousands";
+    const kRows: [string, string] = ["Revenue (K) 1,234.5", "Costs (K) 334.5"];
+    const { answer } = await figuresUnder(
+      "Agreeing amounts",
+      {
+        name: "Agreeing amounts.pdf",
+        contents: buildPdf([{ lines: ["Agreeing amounts", page, ...kRows] }]),
+      },
+      kRows,
+      [page],
+    );
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
+  });
+
+  test.each(["th0usands", "thousand5"])(
+    "a scan-misread scale word (%s) is an unsettled candidate",
+    async (misread) => {
+      const script = {
+        pages: {
+          "1": { lines: fillerLines(false) },
+          "2": { lines: fillerLines(false) },
+          "3": {
+            lines: ["Misread accounts", `All amounts in ${misread}`, ...rows],
+            unsure: [misread],
+          },
+        },
+      };
+      const { answer, asked } = await figuresUnder(
+        "Misread accounts",
+        {
+          name: "Misread accounts.pdf",
+          contents: buildPdf([
+            { scan: scanPicture("en-clean") },
+            { scan: scanPicture("en-clean") },
+            { scan: scanPicture("en-clean") },
+          ]),
+        },
+        rows,
+        [null],
+        { scanned: script },
+      );
+
+      expect(answer.figures).toEqual([]);
+      expect(asked).toContain(misread);
+      expect(asked).toContain("without guessing");
+    },
+  );
+
+  test("a column head's scale for 本期 isn't applied to 上期", async () => {
+    const head = "项目 本期（万元） 上期";
+    const zhRows: [string, string] = ["收入 1,200 1,100", "成本 300 280"];
+    const { answer, asked } = await figuresUnder(
+      "母公司账目",
+      {
+        name: "母公司账目.pdf",
+        contents: buildPdf([
+          {
+            chineseLines: ["母公司账目", "单位：元", head, ...zhRows],
+          },
+        ]),
+      },
+      zhRows,
+      [head],
+      { query: "母公司账目 收入 成本" },
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("one column of a row whose head states the scale of another");
+  });
+});
+
 // protects=#2365; fails_when=a row head's bare "(M)" or "(m)" takes the page's scale, so a floor area in metres or a million-scaled amount is multiplied by 1,000.
 describe("A row head's bare (M) or (m) is a scale of its own, never the page's (#2365)", {
   timeout: 120_000,
