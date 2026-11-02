@@ -192,7 +192,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const problem = window.getByTestId("code-sandbox-problem");
       await problem.scrollIntoViewIfNeeded();
       await expect(problem).toContainText(
-        t("scripts.settings.sandboxMissing", {
+        t("scripts.settings.problem.sandboxMissing", {
           packages: t("scripts.settings.sandboxPackages.and", {
             first: language === "zh-CN" ? "bubblewrap、socat" : "bubblewrap, socat",
             last: "ripgrep",

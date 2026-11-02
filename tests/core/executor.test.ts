@@ -8,6 +8,8 @@
  * Executor at level "none", and the OS sandbox's at "os" (#65) where it can
  * start; what only the sandbox does is in tests/main/sandbox.test.ts.
  */
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
@@ -54,40 +56,62 @@ const REPORT = [
 /** The test runner's limit for a test that waits on a program that never ends: it stops a hang, it isn't a speed check. */
 const RUNNER_LIMIT = 60_000;
 
+/** A word no other process here has in its command line, for a case's programs to carry. */
+const markerOf = () => `incarnamind-executor-${randomUUID()}`;
+
+/**
+ * The script of a process the program starts, carrying `marker` and "-child" after it, which the
+ * program's own command line doesn't have together.
+ */
+const childScript = (marker: string) =>
+  `["-e", "setInterval(() => {}, 1000) // ${marker}" + "-child"]`;
+
 /** Starts a process of its own, writes both pids to the file it's given, then never ends. */
-const SLEEP = [
-  'const { spawn } = require("node:child_process");',
-  'const { writeFileSync } = require("node:fs");',
-  'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "inherit" });',
-  "writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid, child: child.pid }));",
-  'console.log("started");',
-  "setInterval(() => {}, 1000);",
-].join("\n");
+const sleeping = (marker: string) =>
+  [
+    `// ${marker}`,
+    'const { spawn } = require("node:child_process");',
+    'const { writeFileSync } = require("node:fs");',
+    `const child = spawn(process.execPath, ${childScript(marker)}, { stdio: "inherit" });`,
+    "writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid, child: child.pid }));",
+    'console.log("started");',
+    "setInterval(() => {}, 1000);",
+  ].join("\n");
 
 /**
  * Starts a process of its own in the background, writes both pids and ends. The process keeps the
  * run's output open when `holding` (as `cmd &` in a shell does), or closes it.
  */
-const background = (holding: boolean) =>
+const background = (marker: string, holding: boolean) =>
   [
+    `// ${marker}`,
     'const { spawn } = require("node:child_process");',
     'const { writeFileSync } = require("node:fs");',
-    `const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "${holding ? "inherit" : "ignore"}" });`,
+    `const child = spawn(process.execPath, ${childScript(marker)}, { stdio: "${holding ? "inherit" : "ignore"}" });`,
     "writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid, child: child.pid }));",
     "child.unref();",
   ].join("\n");
 
 /** Starts a process in a session of its own, which a stop can't reach, holding the output open. */
-const ESCAPE = [
-  'const { spawn } = require("node:child_process");',
-  'const { writeFileSync } = require("node:fs");',
-  'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "inherit", detached: true });',
-  "writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid, child: child.pid }));",
-  "setInterval(() => {}, 1000);",
-].join("\n");
+const escaping = (marker: string) =>
+  [
+    `// ${marker}`,
+    'const { spawn } = require("node:child_process");',
+    'const { writeFileSync } = require("node:fs");',
+    `const child = spawn(process.execPath, ${childScript(marker)}, { stdio: "inherit", detached: true });`,
+    "writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid, child: child.pid }));",
+    "setInterval(() => {}, 1000);",
+  ].join("\n");
 
-/** The pids SLEEP or ESCAPE wrote, once it has. */
-async function pidsIn(file: string): Promise<{ pid: number; child: number }> {
+/** What a program wrote once it started: its pid and its child's, as it sees them. */
+interface Started {
+  pid: number;
+  child: number;
+  marker: string;
+}
+
+/** The pids the program wrote, once it has. */
+async function startedIn(file: string, marker: string): Promise<Started> {
   let pids: { pid: number; child: number } | undefined;
   await vi.waitFor(
     async () => {
@@ -95,18 +119,39 @@ async function pidsIn(file: string): Promise<{ pid: number; child: number }> {
     },
     { timeout: 10_000, interval: 25 },
   );
-  return pids as { pid: number; child: number };
+  return { ...(pids as { pid: number; child: number }), marker };
 }
 
-/** Waits until neither process runs any more. */
-async function expectStopped(pids: { pid: number; child: number }) {
-  await vi.waitFor(
-    () => {
-      expect(isRunning(pids.pid)).toBe(false);
-      expect(isRunning(pids.child)).toBe(false);
-    },
-    { timeout: 5_000, interval: 25 },
-  );
+/** The pids of the processes here whose command line has `text`. */
+function runningWith(text: string): number[] {
+  const listing = execFileSync("ps", ["-ww", "-A", "-o", "pid=,command="], { encoding: "utf8" });
+  return listing
+    .split("\n")
+    .filter((line) => line.includes(text))
+    .map((line) => Number(line.trim().split(/\s+/)[0]));
+}
+
+/**
+ * Whether the program's child, or anything of the program (the program, its child, a sandbox
+ * around them), still runs. On macOS and Linux they are found by their marker, since a program in
+ * bubblewrap's PID namespace sees pids of its own; Windows has no such sandbox, and its pids are
+ * the system's.
+ */
+const childRuns = (started: Started) =>
+  process.platform === "win32"
+    ? isRunning(started.child)
+    : runningWith(`${started.marker}-child`).length > 0;
+const anythingRuns = (started: Started) =>
+  process.platform === "win32"
+    ? isRunning(started.pid) || isRunning(started.child)
+    : runningWith(started.marker).length > 0;
+
+/** Waits until nothing of the program runs any more. */
+async function expectStopped(started: Started) {
+  await vi.waitFor(() => expect(anythingRuns(started)).toBe(false), {
+    timeout: 5_000,
+    interval: 25,
+  });
 }
 
 /** A request as a Skill script's would be, for `program`, with what the case changes. */
@@ -257,15 +302,19 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
         const { executor, tempDir } = await setUp();
         const pidFolder = await createTempDataFolder();
         const pidFile = join(pidFolder, "pids.json");
+        const marker = markerOf();
 
         // The program never ends on its own, so a run that comes back at all was stopped by the
         // timeout; if it didn't, the test runner's limit ends the test.
         const run = await executor.run(
-          request(node(SLEEP, pidFile), { timeoutMs: 1_000, allow: writingTo(pidFolder) }),
+          request(node(sleeping(marker), pidFile), {
+            timeoutMs: 1_000,
+            allow: writingTo(pidFolder),
+          }),
         );
 
         expect(run).toMatchObject({ exitCode: null, timedOut: true, stdout: "started\n" });
-        await expectStopped(await pidsIn(pidFile));
+        await expectStopped(await startedIn(pidFile, marker));
         expect(await readdir(tempDir)).toEqual([]);
       },
       RUNNER_LIMIT,
@@ -278,17 +327,18 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
         for (const holding of [false, true]) {
           const pidFolder = await createTempDataFolder();
           const pidFile = join(pidFolder, "pids.json");
+          const marker = markerOf();
 
           // Left running and holding the output, it would keep the run until its timeout.
           const run = await executor.run(
-            request(node(background(holding), pidFile), {
+            request(node(background(marker, holding), pidFile), {
               timeoutMs: 30_000,
               allow: writingTo(pidFolder),
             }),
           );
 
           expect(run).toMatchObject({ exitCode: 0, timedOut: false });
-          await expectStopped(await pidsIn(pidFile));
+          await expectStopped(await startedIn(pidFile, marker));
         }
       },
       RUNNER_LIMIT,
@@ -301,18 +351,22 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
         const pidFolder = await createTempDataFolder();
         const pidFile = join(pidFolder, "pids.json");
         const stop = new AbortController();
+        const marker = markerOf();
 
         const running = executor.run(
-          request(node(SLEEP, pidFile), { signal: stop.signal, allow: writingTo(pidFolder) }),
+          request(node(sleeping(marker), pidFile), {
+            signal: stop.signal,
+            allow: writingTo(pidFolder),
+          }),
         );
-        const pids = await pidsIn(pidFile);
-        expect(isRunning(pids.pid)).toBe(true);
+        const started = await startedIn(pidFile, marker);
+        expect(childRuns(started)).toBe(true);
         stop.abort();
         // The program never ends on its own, so this settles only if the signal stopped it.
         const run = await running;
 
         expect(run).toMatchObject({ exitCode: null, timedOut: false });
-        await expectStopped(pids);
+        await expectStopped(started);
         expect(await readdir(tempDir)).toEqual([]);
       },
       RUNNER_LIMIT,
@@ -345,23 +399,31 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
         const { executor } = await setUp();
         const pidFolder = await createTempDataFolder();
         const pidFile = join(pidFolder, "pids.json");
+        const marker = markerOf();
 
         const run = await executor.run(
-          request(node(ESCAPE, pidFile), { timeoutMs: 1_000, allow: writingTo(pidFolder) }),
+          request(node(escaping(marker), pidFile), {
+            timeoutMs: 1_000,
+            allow: writingTo(pidFolder),
+          }),
         );
-        const pids = await pidsIn(pidFile);
+        await startedIn(pidFile, marker);
         // The test's own clean-up: what escaped is beyond the Executor.
         onTestFinished(() => {
-          try {
-            process.kill(pids.child, "SIGKILL");
-          } catch {
-            // Gone already.
+          for (const pid of runningWith(`${marker}-child`)) {
+            try {
+              process.kill(pid, "SIGKILL");
+            } catch {
+              // Gone already.
+            }
           }
         });
 
         // What escaped holds the output open for good, so the run comes back only if it stopped waiting.
         expect(run).toMatchObject({ exitCode: null, timedOut: true });
-        await vi.waitFor(() => expect(isRunning(pids.pid)).toBe(false));
+        const program = () =>
+          runningWith(marker).filter((pid) => !runningWith(`${marker}-child`).includes(pid));
+        await vi.waitFor(() => expect(program()).toEqual([]));
       },
       RUNNER_LIMIT,
     );

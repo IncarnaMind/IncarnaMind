@@ -4091,9 +4091,9 @@ export const en = {
   "scripts.settings.bodySandboxed": "Scripts run in a sandbox and ask before each run.",
   "scripts.settings.bodySandboxed.details":
     "They can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in their own working folder, and have no internet. Unless you chose “Always run” for a Skill, each run asks first.",
-  "scripts.settings.sandboxMissing":
+  "scripts.settings.problem.sandboxMissing":
     "The sandbox for analyses and scripts can’t start on this computer: install {packages}, then restart IncarnaMind. Until then, analyses of whole files are off, and each script asks first with no sandbox.",
-  "scripts.settings.sandboxStart":
+  "scripts.settings.problem.sandboxStart":
     "This computer doesn’t let IncarnaMind start a sandbox for analyses and scripts, so analyses of whole files are off, and each script asks first with no sandbox.",
   "scripts.settings.sandboxPackages.and": "{first} and {last}",
   "scripts.settings.timeout": "Stop a script that runs longer than",

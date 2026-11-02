@@ -3908,9 +3908,9 @@ export const zhCN = {
   "scripts.settings.bodySandboxed": "脚本在沙盒中运行，每次运行前先问你。",
   "scripts.settings.bodySandboxed.details":
     "无法访问你的个人文件夹、IncarnaMind 的数据、其他应用的临时文件或其他磁盘，只能写入自己的工作文件夹，也不能访问互联网。除非你为某个技能选择了“始终运行”，每次运行前都会先问你。",
-  "scripts.settings.sandboxMissing":
+  "scripts.settings.problem.sandboxMissing":
     "这台电脑上无法启动用于数据分析和脚本的沙盒：请安装 {packages}，然后重启 IncarnaMind。在此之前，无法对整个文件运行数据分析，脚本也不在沙盒中运行，每次运行前先问你。",
-  "scripts.settings.sandboxStart":
+  "scripts.settings.problem.sandboxStart":
     "这台电脑不允许 IncarnaMind 启动用于数据分析和脚本的沙盒，因此无法对整个文件运行数据分析，脚本也不在沙盒中运行，每次运行前先问你。",
   "scripts.settings.sandboxPackages.and": "{first} 和 {last}",
   "scripts.settings.timeout": "脚本运行超过此时长即停止：",

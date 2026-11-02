@@ -432,10 +432,10 @@ export function SkillScriptsSettings() {
                   }}
                 >
                   {sandboxProblem.kind === "missing"
-                    ? t("scripts.settings.sandboxMissing", {
+                    ? t("scripts.settings.problem.sandboxMissing", {
                         packages: packageList(t, language, sandboxProblem.packages),
                       })
-                    : t("scripts.settings.sandboxStart")}
+                    : t("scripts.settings.problem.sandboxStart")}
                 </ProblemLine>
               )}
             </div>
