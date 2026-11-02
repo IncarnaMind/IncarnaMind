@@ -426,7 +426,7 @@ describe("Folders inside Folders (#246)", () => {
     const db = openDatabase(join(await createTempDataFolder(), "test.db"));
     migrate(
       db,
-      migrations.filter((migration) => migration.version < 122),
+      migrations.filter((migration) => migration.version < 123),
     );
     const at = "2026-10-30T09:00:00.000Z";
     db.run(

@@ -96,10 +96,11 @@ export function activityWords(activity: AgentActivity, t: Translate): string {
     )}`;
   }
   if (activity.count === null || activity.tool === "show_citation") return what;
-  const count = t(
-    activity.count === 1 ? "agents.activity.count.one" : "agents.activity.count.other",
-    { count: activity.count },
-  );
+  const counted =
+    activity.tool === "propose_changes" ? "agents.activity.changes" : "agents.activity.count";
+  const count = t(activity.count === 1 ? `${counted}.one` : `${counted}.other`, {
+    count: activity.count,
+  });
   return `${what} · ${count}`;
 }
 

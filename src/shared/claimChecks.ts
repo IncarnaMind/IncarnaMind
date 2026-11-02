@@ -17,6 +17,7 @@ import {
   claimCheckActions,
   type FigureCheckAttributes,
   type RecordCiteResult,
+  type RetainedFigureAnalysis,
   type SearchScope,
   type UnsupportedReason,
   type WholeRead,
@@ -549,6 +550,37 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
         ? basisShown(check.remainder, now)
         : undefined,
   );
+}
+
+/**
+ * How an Analysis figure shows (#2378): a claim check's own state when one covers it — one that
+ * passed it over did not check it — else what the core worked out when the Analysis ran, while the
+ * Documents it read are as they were. A check that differs or couldn't be made stays as it shows.
+ */
+export function analysisFigureShown(
+  shown: ClaimCheckShown,
+  figure: {
+    /** Whether a claim check covers the figure, whatever it found: a check that left it unread saw it. */
+    checked: boolean;
+    /** The record the Note keeps of the figure's Analysis; null when it kept none. */
+    run: RetainedFigureAnalysis | null;
+    result: string | null;
+    /** Each live Document's version now; null while they aren't known. */
+    versions: ReadonlyMap<string, string> | null;
+  },
+): ClaimCheckShown {
+  if (figure.checked) return shown;
+  const value = figure.run?.values.find((each) => each.name === figure.result);
+  if (value?.check?.kind !== "same") return shown;
+  for (const input of figure.run?.inputs ?? []) {
+    const citation = input.kind === "figure" ? input.input.citation : input.citation;
+    const current = figure.versions?.get(citation.documentId);
+    if (figure.versions && current === undefined)
+      return { state: "needs-recheck", why: "document-removed" };
+    if (current !== undefined && citation.contentHash !== null && current !== citation.contentHash)
+      return { state: "needs-recheck", why: "new-version" };
+  }
+  return { state: "supported" };
 }
 
 export function figureCheckShown(

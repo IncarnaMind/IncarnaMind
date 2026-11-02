@@ -2206,6 +2206,19 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 122,
+    description:
+      "An outside agent may propose changes to Notes when the User allows it, and the AI use record names the agent (#352)",
+    sql: `
+      -- 1: the User let this agent propose changes to the Notes in its Folders, which wait for
+      -- them as Proposals. Off for every pairing made before.
+      ALTER TABLE agent_pairings ADD COLUMN propose INTEGER NOT NULL DEFAULT 0;
+      -- The outside agent that wrote an accepted change, by the name its pairing had then; NULL
+      -- for IncarnaMind's own AI, which provider_id and model_id name.
+      ALTER TABLE ai_use ADD COLUMN agent TEXT;
+    `,
+  },
+  {
+    version: 123,
     description: "Folders hold Folders, at any depth (#246)",
     // parent_id is NULL at the top level. No foreign key: a later sync may deliver a Folder
     // before its parent.

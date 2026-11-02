@@ -19,8 +19,9 @@ import {
   toggleAppliedOriginal,
 } from "../editor/appliedEditLine";
 import { selectionForEdit } from "../editor/editSelection";
+import { explainSelection } from "../editor/explainSelection";
 import { noteHolding } from "../editor/noteKeymap";
-import { pendingAtSelection, pendingIn } from "../editor/proposalReview";
+import { madeAgain, pendingAtSelection, pendingIn } from "../editor/proposalReview";
 import { proposalOriginalAt, toggleProposalOriginal } from "../editor/proposalRewrites";
 import { requestEditField } from "../editor/selectionCommands";
 import {
@@ -83,8 +84,9 @@ function outOfDateAt(ctx: CommandContext) {
   const editor = noteOnProposal(ctx);
   const note = noteHandle.current;
   if (!editor || note?.editor !== editor || useEdits.getState().pending[note.mindId]) return null;
-  // Someone's change from a Word file can't be made again.
-  const proposal = pendingAtSelection(editor.state).find((each) => each.outOfDate && !each.theirs);
+  // Someone's change from a Word file, or an outside agent's, can't be made again.
+  const made = madeAgain(editor.state);
+  const proposal = pendingAtSelection(editor.state).find((each) => each.outOfDate && made(each));
   return proposal ? { note, proposal } : null;
 }
 
@@ -113,10 +115,10 @@ function withAiText() {
   return note && !note.editor.isDestroyed && holdsAiText(note.editor.state) ? note : null;
 }
 
-/** An AI action of the selection menu, on the selected text. */
+/** An AI action of the selection menu that changes the selected text, applying at once. */
 const editAction = (
-  action: Extract<EditAction, "improve" | "shorten" | "explain">,
-  label: "editor.ai.improve" | "editor.ai.shorten" | "editor.ai.explain",
+  action: Extract<EditAction, "improve" | "shorten">,
+  label: "editor.ai.improve" | "editor.ai.shorten",
 ): Command => ({
   id: `edit.${action}`,
   label,
@@ -309,7 +311,18 @@ export const proposalCommands: readonly Command[] = [
       useComposer.getState().requestFocus();
     },
   },
-  editAction("explain", "editor.ai.explain"),
+  {
+    // It changes nothing in the Note: the answer goes to the assistant (#2348).
+    id: "edit.explain",
+    label: "editor.ai.explain",
+    group: "main",
+    reversible: true,
+    when: () => withSelection() !== null,
+    run() {
+      const note = withSelection();
+      if (note) void explainSelection(note.editor, note.mindId, note.doc);
+    },
+  },
   {
     id: "edit.markAsMine",
     label: "editor.ai.markAsMine",

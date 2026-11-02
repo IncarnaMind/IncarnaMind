@@ -201,15 +201,27 @@ function projectedContent(content: readonly NodeJSON[]) {
 /** The sentences a check reads that the write holds (#1909): every sentence with a Citation, and every claim with none. */
 function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
-  const visit = (nodes: readonly NodeJSON[], path: number[], inCell: boolean) => {
+  const visit = (
+    nodes: readonly NodeJSON[],
+    path: number[],
+    inCell: boolean,
+    inHeader: boolean,
+  ) => {
     nodes.forEach((node, index) => {
       if (UNCHECKED.has(node.type)) return;
       const here = [...path, index];
       const content = node.content ?? [];
       if (node.type !== "paragraph") {
-        visit(content, here, inCell || node.type === "tableCell" || node.type === "tableHeader");
+        visit(
+          content,
+          here,
+          inCell || node.type === "tableCell" || node.type === "tableHeader",
+          inHeader || node.type === "tableHeader",
+        );
         return;
       }
+      // A header cell names its column or row; it states nothing a check could support (#2378).
+      if (inHeader) return;
       const rawContext = paragraphText(content);
       const layout = inlineLayout(content);
       const { pieces, projection: whole } = projectedContent(content);
@@ -242,7 +254,7 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
       }
     });
   };
-  visit(blocks, [], false);
+  visit(blocks, [], false, false);
   return found;
 }
 

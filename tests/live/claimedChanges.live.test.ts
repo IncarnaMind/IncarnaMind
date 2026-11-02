@@ -184,12 +184,22 @@ const CASES: Case[] = [
   },
 ];
 
-const tally = new Map<string, { input: number; output: number }>();
+interface Used {
+  requests: number;
+  /** Every input token: uncached, cache reads and cache writes. */
+  input: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+}
+
+const tally = new Map<string, Used>();
 
 afterAll(async () => {
   if (!process.env.INCARNAMIND_LIVE_REPORT) return;
   const lines = [...tally].map(
-    ([name, tokens]) => `${name}: ${tokens.input} input and ${tokens.output} output tokens`,
+    ([name, tokens]) =>
+      `${name}: ${tokens.requests} requests, ${tokens.input} input tokens (${tokens.cacheRead} cache reads, ${tokens.cacheWrite} cache writes) and ${tokens.output} output tokens`,
   );
   await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${lines.join("\n")}\n\n`);
 });
@@ -200,7 +210,13 @@ describe.each(PROVIDERS)("claimed changes, live: $name", (provider) => {
       `${RUNS} runs mark the claim ${each.backed ? "never" : "every time"}`,
       { timeout: 600_000 },
       async () => {
-        const used = tally.get(provider.name) ?? { input: 0, output: 0 };
+        const used = tally.get(provider.name) ?? {
+          requests: 0,
+          input: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          output: 0,
+        };
         tally.set(provider.name, used);
         const script = (call: ModelCall): ScriptedReply =>
           each.tool && !call.results.some((result) => result.tool === each.tool?.name)
@@ -215,7 +231,10 @@ describe.each(PROVIDERS)("claimed changes, live: $name", (provider) => {
               wrapStream: async ({ params }) => scripted.doStream(params),
               wrapGenerate: async ({ doGenerate }) => {
                 const result = await doGenerate();
+                used.requests++;
                 used.input += result.usage.inputTokens.total ?? 0;
+                used.cacheRead += result.usage.inputTokens.cacheRead ?? 0;
+                used.cacheWrite += result.usage.inputTokens.cacheWrite ?? 0;
                 used.output += result.usage.outputTokens.total ?? 0;
                 return result;
               },

@@ -60,7 +60,7 @@ export interface EvalConfig {
   root: string;
   /** Where the built-in embedding model is downloaded once and kept between runs. Outside the repo. */
   cacheDir: string;
-  /** Each run writes its reports into a new folder in here. */
+  /** Each run writes its reports into a new folder in here: eval/results, or INCARNAMIND_EVAL_RESULTS. */
   resultsDir: string;
   /** Keep the temporary data folders, for looking into a run. */
   keepData: boolean;
@@ -307,7 +307,7 @@ export function readConfig(root: string, env: Env = process.env): EvalConfig {
   return {
     root,
     cacheDir: evalCache(env),
-    resultsDir: join(root, "eval", "results"),
+    resultsDir: value(env, "RESULTS") ?? join(root, "eval", "results"),
     keepData: value(env, "KEEP_DATA") === "1",
     chat: chatSettings(env),
     judge: chatSettings(env, "JUDGE"),

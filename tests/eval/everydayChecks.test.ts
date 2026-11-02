@@ -720,7 +720,7 @@ describe("An earlier try the User never saw", () => {
 
   // protects=the mark the evaluation counts the app's asks by is in the note the app asks with; fails_when=the note is reworded and the evaluation stops counting its asks; no_claim=none beyond protects.
   test("the note the app asks again with carries the mark the evaluation watches for", () => {
-    expect(askAgainNote(["added"], [], () => null)).toContain(ASKED_AGAIN);
+    expect(askAgainNote({ claims: ["added"] }, [], () => null)).toContain(ASKED_AGAIN);
   });
 });
 

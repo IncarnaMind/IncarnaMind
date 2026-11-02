@@ -1,4 +1,8 @@
 import type { Editor } from "@tiptap/core";
+import { PluginKey } from "@tiptap/pm/state";
+
+/** The selection menu's plugin: its own state says whether it shows, and this closes it. */
+export const SELECTION_MENU_KEY = new PluginKey("selectionMenu");
 
 /**
  * The selection the menu was closed over, which keeps it closed until the selection changes, even
@@ -27,4 +31,11 @@ export function keepMenuClosed(editor: Editor, from: number, to: number): void {
 /** Forgets the mark, so the menu may open over that selection again. */
 export function forgetMenuClosed(editor: Editor): void {
   dismissedOver.delete(editor);
+}
+
+/** Closes the menu over the selection as it is: for an action that answers somewhere else (#2348). */
+export function closeSelectionMenu(editor: Editor): void {
+  if (editor.isDestroyed) return;
+  keepMenuClosed(editor, editor.state.selection.from, editor.state.selection.to);
+  editor.view.dispatch(editor.state.tr.setMeta(SELECTION_MENU_KEY, "hide"));
 }
