@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import {
   askToChange,
@@ -20,6 +19,7 @@ import {
   setWindowSize,
   slideSelect,
   useLocalChatModel,
+  wordsBox,
 } from "./app";
 
 /*
@@ -710,66 +710,31 @@ const MIDDLE_EDITED =
 const FOUR_BACK =
   "The harbour office posts the times, the harbour office answers the phone, the port board keeps the tables, the harbour office cleans the quay, and the harbour office lists the ferries.";
 
-/** Where the `nth` `words` of an applied edit start, in the editor's own positions. */
-async function nthPlace(editor: Locator, words: string, nth: number): Promise<number> {
-  const from = await editor.evaluate(
-    (dom, wanted) => {
-      const tiptap = (dom as unknown as { editor: Editor }).editor;
-      let seen = 0;
-      let found = -1;
-      tiptap.state.doc.descendants((node, pos) => {
-        if (found >= 0 || !node.isText) return true;
-        const text = node.text ?? "";
-        for (
-          let at = text.indexOf(wanted.words);
-          at >= 0;
-          at = text.indexOf(wanted.words, at + 1)
-        ) {
-          seen++;
-          if (seen === wanted.nth) {
-            found = pos + at;
-            return false;
-          }
-        }
-        return true;
-      });
-      return found;
-    },
-    { words, nth },
-  );
-  if (from < 0) throw new Error(`No occurrence ${nth} of "${words}".`);
-  return from;
+/** Selects the `nth` `words` of a line with the mouse, as a person does. */
+async function selectNth(window: Page, line: Locator, words: string, nth: number) {
+  const box = await wordsBox(line, words, nth);
+  await window.mouse.move(box.left - 6, box.y, { steps: 4 });
+  await window.mouse.move(box.left + 1, box.y, { steps: 2 });
+  await window.mouse.down();
+  await window.mouse.move(box.right - 1, box.y, { steps: 12 });
+  await window.mouse.up();
+  // After a drag, ProseMirror puts its selection back into the page in a task queued as the mouse
+  // comes up; a key pressed before that task runs is undone by it.
+  await window.evaluate(() => new Promise((resolve) => setTimeout(resolve)));
+  expect(await window.evaluate(() => getSelection()?.toString())).toBe(words);
 }
 
-/** Types `typed` over the `nth` `words` of an applied edit, as the User editing one change. */
-async function editNth(window: Page, editor: Locator, words: string, nth: number, typed: string) {
-  const from = await nthPlace(editor, words, nth);
-  await editor.evaluate(
-    (dom, range) => {
-      (dom as unknown as { editor: Editor }).editor.chain().focus().setTextSelection(range).run();
-    },
-    { from, to: from + words.length },
-  );
-  await window.keyboard.type(typed);
-}
-
-/** Puts the cursor where a "You changed this since" label is drawn, as clicking it would. */
-async function caretOnChangedSince(editor: Locator) {
-  const at = await editor.evaluate((dom) => {
-    const tiptap = (dom as unknown as { editor: Editor }).editor;
-    const label = dom.querySelector('[data-testid="change-changed-since"]');
-    return label ? tiptap.view.posAtDOM(label, 0) : -1;
-  });
-  if (at < 0) throw new Error("No changed-since label is drawn.");
-  await editor.evaluate((dom, pos) => {
-    (dom as unknown as { editor: Editor }).editor.chain().focus().setTextSelection(pos).run();
-  }, at);
+/** Clicks inside a line's `words`, as a person putting the cursor in them. */
+async function clickInWords(window: Page, line: Locator, words: string) {
+  const box = await wordsBox(line, words);
+  await window.mouse.move(box.left + 4, box.y, { steps: 4 });
+  await window.mouse.click(box.left + 4, box.y);
 }
 
 test("five changes in one paragraph with the middle one edited since: one Restore original for the other four, ⌘⌫ on the edited one does nothing, and ⌘Z brings exactly those four back", async () => {
   const { window } = await launch();
   await useLocalChatModel(window);
-  const { editor, paragraphs } = await mindWith(window, [HARBOURS]);
+  const { paragraphs } = await mindWith(window, [HARBOURS]);
   const note = paragraphs.first();
 
   await slideSelect(window, note, HARBOURS);
@@ -781,23 +746,39 @@ test("five changes in one paragraph with the middle one edited since: one Restor
   await expect(removed).toHaveCount(5);
   await expect(restores).toHaveCount(1);
 
-  // The middle change's new words typed over: that change can't be restored any more.
-  await editNth(window, editor, "port authority", 3, "port board");
+  // The middle change's new words typed over, as a person does: that change can't be restored now.
+  await selectNth(window, note, "port authority", 3);
+  await window.keyboard.type("port board");
   await expect(note).toHaveText(MIDDLE_EDITED);
   await fromPalette(window, "edit.reviewApplied", "Review changes");
   await expect(note.getByTestId("change-changed-since")).toHaveText("You changed this since");
   await expect(restores).toHaveCount(1);
   await expect(removed).toHaveCount(5);
 
-  // ⌘⌫ with the cursor on the edited change's "You changed this since" does nothing, rather than
-  // restore its neighbours.
-  await caretOnChangedSince(editor);
+  // ⌘⌫ with the cursor inside the edited words does nothing, rather than restore its neighbours.
+  await clickInWords(window, note, "port board");
   await window.keyboard.press("ControlOrMeta+Backspace");
   await expect.poll(() => reviewedWords(note)).toBe(MIDDLE_EDITED);
   await expect(restores).toHaveCount(1);
 
-  // The one Restore puts the other four back in one step; the edited words stay.
+  // The one Restore puts the other four back in one step; the edited words keep their place, with
+  // their struck old words before them and "You changed this since" after them.
   await pointAndClick(window, restores);
+  await expect.poll(() => reviewedWords(note)).toBe(FOUR_BACK);
+  const [typed, label, struck] = await Promise.all([
+    wordsBox(note, "port board"),
+    note.getByTestId("change-changed-since").boundingBox(),
+    note.locator("del.applied-old").filter({ hasText: "harbour office" }).boundingBox(),
+  ]);
+  if (!label || !struck) throw new Error("The edited change isn't drawn.");
+  expect(label.y > typed.y + 1 || label.x >= typed.right - 2).toBe(true);
+  expect(struck.x + struck.width <= typed.left + 2 || struck.y + struck.height <= typed.y - 1).toBe(
+    true,
+  );
+
+  // ⌘⌫ inside the edited words after the Restore still does nothing.
+  await clickInWords(window, note, "port board");
+  await window.keyboard.press("ControlOrMeta+Backspace");
   await expect.poll(() => reviewedWords(note)).toBe(FOUR_BACK);
 
   // ⌘Z brings exactly those four back.

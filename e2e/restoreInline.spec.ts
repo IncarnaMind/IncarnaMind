@@ -347,7 +347,7 @@ interface SectionCase {
   lines: readonly string[];
   ask: string;
   rewrote: string;
-  position: string;
+  restoreTitle: string;
   restore: string;
 }
 
@@ -362,7 +362,7 @@ const SECTIONS: readonly SectionCase[] = [
     ],
     ask: "rewrite the section",
     rewrote: "Key strengths",
-    position: "Change 1 of 1",
+    restoreTitle: "Restore 4 changes",
     restore: "Restore original",
   },
   {
@@ -375,12 +375,12 @@ const SECTIONS: readonly SectionCase[] = [
     ],
     ask: "重写这一节",
     rewrote: "核心优势",
-    position: "第 1 处修订，共 1 处",
+    restoreTitle: "恢复这 4 处修改",
     restore: "恢复原文",
   },
 ];
 
-for (const { language, heading, lines, ask, rewrote, position, restore } of SECTIONS) {
+for (const { language, heading, lines, ask, rewrote, restoreTitle, restore } of SECTIONS) {
   test(`a section rewritten as a whole shows one Restore original after its last new words, which restores the whole section with one Undo, and never overlaps the text (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
@@ -417,7 +417,7 @@ for (const { language, heading, lines, ask, rewrote, position, restore } of SECT
       const restores = editor.getByTestId("change-restore");
       await expect(restores).toHaveCount(1);
       await expect(restores).toHaveText(restore);
-      await expect(restores).toHaveAttribute("title", new RegExp(`^${position} · `));
+      await expect(restores).toHaveAttribute("title", new RegExp(`^${restoreTitle} · `));
       await expect(restores).toHaveCSS("font-size", "12px");
       await expect(restores).toHaveCSS("color", "rgb(101, 107, 116)");
       expect(await controlsOverText(editor)).toBe(0);
@@ -459,7 +459,7 @@ interface MixedCase {
   lines: readonly [string, string];
   ask: string;
   anew: string;
-  position: (index: number) => string;
+  restoreTitle: (index: number) => string;
 }
 
 const MIXED: readonly MixedCase[] = [
@@ -471,7 +471,7 @@ const MIXED: readonly MixedCase[] = [
     ],
     ask: "replace harbour office with port authority",
     anew: "The port authority",
-    position: (index) => `Change ${index} of 2`,
+    restoreTitle: (index) => (index === 1 ? "Restore original" : "Restore 5 changes"),
   },
   {
     language: "zh-CN",
@@ -481,11 +481,11 @@ const MIXED: readonly MixedCase[] = [
     ],
     ask: "把海港办公室换成港务局",
     anew: "港务局",
-    position: (index) => `第 ${index} 处修订，共 2 处`,
+    restoreTitle: (index) => (index === 1 ? "恢复原文" : "恢复这 5 处修改"),
   },
 ];
 
-for (const { language, lines, ask, anew, position } of MIXED) {
+for (const { language, lines, ask, anew, restoreTitle } of MIXED) {
   test(`a paragraph rewritten whole shows one Restore original, and a paragraph with several changes one more, clear of the text (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
@@ -524,7 +524,7 @@ for (const { language, lines, ask, anew, position } of MIXED) {
       for (const index of [1, 2]) {
         await expect(restores.nth(index - 1)).toHaveAttribute(
           "title",
-          new RegExp(`^${position(index)} · `),
+          new RegExp(`^${restoreTitle(index)} · `),
         );
       }
       expect(await controlsOverText(editor)).toBe(0);
