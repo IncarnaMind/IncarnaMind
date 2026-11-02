@@ -237,9 +237,9 @@ export function createCiting(documents: CitingDocuments): Citing {
       const own: PageRange = { pageFrom: source.pageFrom, pageTo: source.pageTo };
       const hasUnits = own.pageFrom !== null && own.pageTo !== null;
       const matching = matchingFor(source);
-      const quote = quoteAsIn(unitsOf(source, own), cleanQuote(given), matching);
-      const range =
-        (hasUnits && quote !== "" && locateQuote(unitsOf(source, own), quote, matching)) || own;
+      const units = unitsOf(source, own);
+      const quote = quoteAsIn(units, cleanQuote(given), matching);
+      const range = (hasUnits && quote !== "" && locateQuote(units, quote, matching)) || own;
       return citationOf(source, own, range, quote, matching);
     },
 
