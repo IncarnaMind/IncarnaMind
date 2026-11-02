@@ -194,23 +194,40 @@ const WATCH_MS = 250;
 const execFileAsync = promisify(execFile);
 
 /**
- * The resident memory of every process in the process group `group`, in
- * bytes, as `ps` reports it on macOS and Linux; null where it can't be read
- * (Windows, where a Job Object would hold the limit instead). A process that
- * left the group (a session of its own) isn't counted.
+ * The resident memory of the program started as `root` and everything under it, in bytes, as
+ * `ps` reports it on macOS and Linux: its process group, and every process descended from it,
+ * since bubblewrap starts the sandboxed program in a session of its own (`--new-session`); null
+ * where it can't be read (Windows, where a Job Object would hold the limit instead).
  */
-async function groupMemory(group: number): Promise<number | null> {
+export function treeMemory(listing: string, root: number): number {
+  const parents = new Map<number, number>();
+  const groups = new Map<number, number>();
+  const resident = new Map<number, number>();
+  for (const line of listing.split("\n")) {
+    const [pid, ppid, pgid, rss] = line.trim().split(/\s+/).map(Number);
+    if (pid === undefined || !Number.isFinite(pid) || pid <= 0) continue;
+    parents.set(pid, ppid ?? 0);
+    groups.set(pid, pgid ?? 0);
+    resident.set(pid, Number.isFinite(rss) ? (rss ?? 0) : 0);
+  }
+  const counted = (pid: number): boolean => {
+    for (let at = pid, hops = 0; at > 1 && hops < 4096; at = parents.get(at) ?? 0, hops++) {
+      if (at === root || groups.get(at) === root) return true;
+    }
+    return false;
+  };
+  let kib = 0;
+  for (const [pid, rss] of resident) if (counted(pid)) kib += rss;
+  return kib * 1024;
+}
+
+async function programMemory(root: number): Promise<number | null> {
   if (process.platform === "win32") return null;
   try {
-    const { stdout } = await execFileAsync("ps", ["-A", "-o", "pgid=,rss="], {
+    const { stdout } = await execFileAsync("ps", ["-A", "-o", "pid=,ppid=,pgid=,rss="], {
       maxBuffer: 16 * 1024 * 1024,
     });
-    let kib = 0;
-    for (const line of stdout.split("\n")) {
-      const [pgid, rss] = line.trim().split(/\s+/);
-      if (Number(pgid) === group) kib += Number(rss) || 0;
-    }
-    return kib * 1024;
+    return treeMemory(stdout, root);
   } catch {
     return null;
   }
@@ -252,7 +269,7 @@ function watchLimits(
     if (measuring) return;
     measuring = true;
     try {
-      if (memoryBytes !== undefined && ((await groupMemory(pid)) ?? 0) > memoryBytes) {
+      if (memoryBytes !== undefined && ((await programMemory(pid)) ?? 0) > memoryBytes) {
         over("memory");
       } else if (folderBytes !== undefined && (await folderSize(cwd)) > folderBytes) {
         over("folder");

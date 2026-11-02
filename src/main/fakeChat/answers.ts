@@ -595,6 +595,57 @@ function regressionReply(prompt: Prompt, question: string, searched: string): Re
 }
 const WITH_MANAGERS = /\bmanager|负责人/i;
 
+const IN_THE_LOG = /\bin the log\b|日志里/i;
+const EVERY_ROW = /\bevery row\b|所有行/i;
+
+/** Totals a CSV over every row in IncarnaMind's own Python (`run_code`), or says it couldn't. */
+function everyRowReply(prompt: Prompt, question: string, searched: string): Reply | null {
+  const chinese = /\p{Script=Han}/u.test(question);
+  const ran = toolResults(prompt, "run_code").at(-1);
+  if (ran !== undefined) {
+    if (ran.startsWith("Python didn't run")) {
+      return { text: chinese ? "这次无法运行 Python。" : "Python couldn't run this time." };
+    }
+    return { text: chinese ? "所有行合计 [=1]。" : "Over every row, [=1]." };
+  }
+  const orders = passagesIn(searched).find((passage) => /orders|订单/i.test(passage.document));
+  if (!orders) return null;
+  return {
+    tool: "run_code",
+    input: {
+      title: chinese ? "所有行的金额合计" : "Amount over every row",
+      language: "python",
+      documents: [orders.id],
+      code: 'df = read_table("orders.csv")\nfigure("total", df["amount"], "sum", "Total amount")',
+    },
+  };
+}
+
+/** Counts a log's errors with bash in the OS sandbox (`run_code`, ADR-0025), then says how many. */
+function logReply(prompt: Prompt, question: string, searched: string): Reply | null {
+  const chinese = /\p{Script=Han}/u.test(question);
+  const ran = toolResults(prompt, "run_code").at(-1);
+  if (ran !== undefined) {
+    const count = /Printed:\n(\d+)/.exec(ran)?.[1] ?? "?";
+    return {
+      text: chinese
+        ? `日志里有 ${count} 个错误，由代码计算，未经核对。`
+        : `The log has ${count} errors, counted by code and not checked.`,
+    };
+  }
+  const log = passagesIn(searched).find((passage) => /log/i.test(passage.document));
+  if (!log) return null;
+  return {
+    tool: "run_code",
+    input: {
+      title: chinese ? "日志中的错误" : "Errors in the log",
+      language: "bash",
+      documents: [log.id],
+      code: "grep -c ' 500' ../inputs/*",
+    },
+  };
+}
+
 function analysisReply(prompt: Prompt, question: string, searched: string): Reply | null {
   const ran = toolResults(prompt, "run_analysis");
   const chinese = /\p{Script=Han}/u.test(question);
@@ -681,6 +732,14 @@ function answerFrom(
 ): Reply {
   if (tools.includes("trace_formulas") && WORKBOOK_WHAT_IF.test(question))
     return workbookWhatIf(prompt, question, searches.at(-1) ?? "");
+  if (tools.includes("run_code") && EVERY_ROW.test(question)) {
+    const reply = everyRowReply(prompt, question, searches.at(-1) ?? "");
+    if (reply) return reply;
+  }
+  if (tools.includes("run_code") && IN_THE_LOG.test(question)) {
+    const reply = logReply(prompt, question, searches.at(-1) ?? "");
+    if (reply) return reply;
+  }
   if (tools.includes("run_analysis") && BY_REGION.test(question)) {
     const reply = analysisReply(prompt, question, searches.at(-1) ?? "");
     if (reply) return reply;

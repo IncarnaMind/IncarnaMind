@@ -21,6 +21,7 @@ import { test } from "vitest";
 import type { AnswerAnalysis, AnswerToolCall, Core } from "../../src/core";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
+import type { PythonRuntimeManifest } from "../../src/core/runCode/python";
 import { createProcessLauncher } from "../../src/main/processes";
 import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
 import { queryDatabase } from "../../tests/helpers/core";
@@ -79,7 +80,7 @@ async function pythonRuntime(folder: string | undefined) {
   if (!folder) return { manifest: null, close: async () => {} };
   const given = JSON.parse(
     readFileSync(join(root, "resources", "python-native", "runtime.json"), "utf8"),
-  ) as { file: string; url: string };
+  ) as PythonRuntimeManifest;
   const archive = await readFile(join(folder, given.file));
   const server = createServer((_request, response) => {
     response.writeHead(200, { "content-length": archive.byteLength });

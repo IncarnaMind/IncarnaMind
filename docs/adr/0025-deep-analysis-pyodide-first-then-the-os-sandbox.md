@@ -218,7 +218,7 @@ Of the rest, once built (#2351):
 
 - **The Executor.**
   - `ExecRequest` gains `limits`.
-  - The local Executor measures memory and the folder's size every 250 ms and stops the program with every process it started. macOS refuses a memory rlimit, so a fast allocation can run past the limit for up to that long.
+  - The local Executor measures memory and the folder's size every 250 ms and stops the program with every process it started. Memory is the resident memory of the program's whole process tree, not only its process group: bubblewrap starts the program in a session of its own (`--new-session`), outside the group. macOS refuses a memory rlimit, so a fast allocation can run past the limit for up to that long.
   - The "os" confinement sets `ulimit -f` and `ulimit -u`. The process limit counts per account on macOS and Linux, so it is set over the account's count when the run starts.
   - On Windows the Job Object will hold these limits.
 - **The OS sandbox** also denies the shared temporary folder and removable and network volumes, for Skill scripts too.

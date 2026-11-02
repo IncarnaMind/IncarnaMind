@@ -304,7 +304,8 @@ export function createCodeRunner(options: CodeRunnerOptions) {
           refused: `${source.documentName} makes the files too large to copy for one run (${INPUT_BYTES.each / 1024 ** 3} GB each, ${INPUT_BYTES.all / 1024 ** 3} GB in all), so nothing ran.`,
         };
       }
-      const name = safeName(source.documentName, taken);
+      // The file's own name, extension and all: a Document's name drops it, and the User may rename it.
+      const name = safeName(basename(document.path), taken);
       const copy = join(inputs, name);
       await copyFile(document.path, copy, constants.COPYFILE_FICLONE);
       if ((await hashFile(copy)) !== source.contentHash) {

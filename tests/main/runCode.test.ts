@@ -171,7 +171,7 @@ async function sales(text = SALES): Promise<CodeDocument> {
     pageFrom: null,
     pageTo: null,
     documentId: "doc-sales",
-    documentName: "sales.csv",
+    documentName: "sales",
     documentKind: "csv",
     contentHash: sha256(SALES),
     documentDeleted: false,
@@ -265,7 +265,7 @@ describe.skipIf(unavailable !== undefined)(
       expect(existsSync(join(home, "written.txt"))).toBe(false);
       expect(existsSync(join(tmpdir(), `incarnamind-written-${process.pid}.txt`))).toBe(false);
       expect(analyses[0]?.outFiles?.files.map((file) => file.name)).toEqual(["note.txt"]);
-      expect(report).toContain("Files in ../inputs:\n- sales.csv: ");
+      expect(report).toContain("Files in ../inputs:\n- sales.csv (sales): ");
       expect(await readFile(document.path, "utf8")).toBe(SALES);
     }, 60_000);
 
@@ -343,7 +343,7 @@ describe.skipIf(unavailable !== undefined || !runtimeFolder)(
           pageFrom: null,
           pageTo: null,
           documentId: "doc-big",
-          documentName: "big.csv",
+          documentName: "big",
           documentKind: "csv",
           contentHash: sha256(big),
           documentDeleted: false,

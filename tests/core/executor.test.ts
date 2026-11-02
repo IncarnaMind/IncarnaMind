@@ -13,7 +13,12 @@ import { readdir, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import type { ExecAllow, ExecRequest, Executor, ProcessLauncher } from "../../src/core";
-import { createLocalExecutor, declaredAccess, WORKING_FOLDER } from "../../src/core/execution";
+import {
+  createLocalExecutor,
+  declaredAccess,
+  treeMemory,
+  WORKING_FOLDER,
+} from "../../src/core/execution";
 import { createProcessLauncher } from "../../src/main/processes";
 import { loadOsSandbox } from "../../src/main/sandbox";
 import { isRunning } from "../helpers/connectors";
@@ -425,5 +430,27 @@ describe("Declared access, from the sandbox level", () => {
     for (const level of ["os", "container", "remote"] as const) {
       expect(declaredAccess(level, allow)).toEqual({ confined: true, ...allow });
     }
+  });
+});
+
+describe("a program's memory, as its limit counts it", () => {
+  // pid ppid pgid rss(KiB): 100 is the program; bubblewrap's child 200 has a session of its own.
+  const LISTING = [
+    "  1     0     1   9000",
+    "100     1   100   1000",
+    "101   100   100   2000",
+    "200   100   200   4000",
+    "201   200   200   8000",
+    "300     1   300  16000",
+    "",
+  ].join("\n");
+
+  test("counts its group and every process under it, in a session of its own or not", () => {
+    expect(treeMemory(LISTING, 100)).toBe((1000 + 2000 + 4000 + 8000) * 1024);
+  });
+
+  test("counts nothing of another program's", () => {
+    expect(treeMemory(LISTING, 300)).toBe(16000 * 1024);
+    expect(treeMemory(LISTING, 999)).toBe(0);
   });
 });

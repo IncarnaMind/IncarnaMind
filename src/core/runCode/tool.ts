@@ -16,13 +16,7 @@ import { analysesAtTheLimit } from "../analysis/tool";
 import type { AnalysisFile, AnswerAnalysis, EmbeddingModelError } from "../api";
 import type { Language } from "../language";
 import { RUN_CODE_TOOL, type Tool, type ToolProviderInfo } from "../tools";
-import {
-  type CodeDocument,
-  type CodeLanguage,
-  type CodeRunner,
-  RUN_CODE_TIME_LIMIT_MS,
-  tableSha256,
-} from ".";
+import { type CodeDocument, type CodeLanguage, type CodeRunner, tableSha256 } from ".";
 
 const PROVIDER: ToolProviderInfo = { kind: "analysis", id: "run-code", name: "Analysis" };
 
@@ -83,7 +77,7 @@ export function runCodeTool(options: RunCodeToolOptions): Tool {
     ],
     // What the code prints and gives comes from the User's Documents.
     untrustedResult: true,
-    async call(input, { toolCallId, signal }) {
+    async call(input, { toolCallId, signal, readThirdParty }) {
       if (recorder.full()) return analysesAtTheLimit();
       const language: CodeLanguage = input.language === "bash" ? "bash" : "python";
       const code = typeof input.code === "string" ? input.code : "";
@@ -98,6 +92,9 @@ export function runCodeTool(options: RunCodeToolOptions): Tool {
           documents.push(found);
         }
       }
+      // A saved web page's copy is someone else's text, whatever the code makes of it (#78).
+      if (documents.some((each) => each.source.documentKind === "web"))
+        readThirdParty?.("web-page");
       const run = await runner.run({ language, code, documents, signal });
       if (run.kind === "refused") return run.reason;
       const number = recorder.next();
@@ -168,5 +165,3 @@ export function runCodeTool(options: RunCodeToolOptions): Tool {
     },
   };
 }
-
-export { RUN_CODE_TIME_LIMIT_MS };

@@ -53,7 +53,12 @@ function codingModel(calls: ((passage: Passages) => { tool: string; input: unkno
     systems.push(call.system);
     const searches = call.results.filter((result) => result.tool === "search_documents");
     if (searches.length === 0)
-      return { calls: [{ tool: "search_documents", input: { query: "errors" } }] };
+      return {
+        calls: [
+          { tool: "search_documents", input: { query: "errors" } },
+          { tool: "search_documents", input: { query: "revenue" } },
+        ],
+      };
     const done = call.results.filter((result) => result.tool !== "search_documents").length;
     const next = calls[done];
     const shown = searches.flatMap((each) => shownPassages(each.text));
@@ -103,7 +108,7 @@ async function setUp(
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
   const sources = await createTempDataFolder();
   await addAndProcess(core, [
-    await writeSourceFile(sources, "server.log", LOG),
+    await writeSourceFile(sources, "server.log.txt", LOG),
     await writeSourceFile(sources, "sales.csv", "Region,Revenue\nNorth,1\nSouth,2\n"),
   ]);
   return core;
@@ -158,7 +163,7 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
           code: 'result("n", 4, "Rows")',
         },
       }),
-      bash("grep -c ' 500' ../inputs/server.log"),
+      bash("grep -c ' 500' ../inputs/server.log.txt"),
     ]);
     const core = await setUp(model);
     const answer = await ask(core, "How many errors are in the log?");
@@ -168,12 +173,14 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
     ]);
     const run = answer.analyses[1];
     expect(run?.output.printed).toBe("2");
-    expect(run?.files?.map((file) => file.name)).toEqual(["server.log"]);
+    expect(run?.files?.map((file) => [file.name, file.documentName])).toEqual([
+      ["server.log.txt", "server.log"],
+    ]);
     const step = answer.toolCalls.find((call) => call.tool === "run_code");
     expect(step?.analysis).toMatchObject({ number: 2, documents: ["server.log"], end: "done" });
     const report = told(model, "run_code")[0] ?? "";
     expect(report).toContain("Analysis 2: Errors in the log");
-    expect(report).toContain("Files in ../inputs:\n- server.log: ");
+    expect(report).toContain("Files in ../inputs:\n- server.log.txt (server.log): ");
     expect(report).toContain("Its numbers are calculated by code and not checked");
   });
 

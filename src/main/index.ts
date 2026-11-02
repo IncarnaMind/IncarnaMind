@@ -19,6 +19,7 @@ import {
   type Settings,
   type TaskKind,
 } from "../core";
+import type { SandboxProblem } from "../core/api";
 import { DataFromNewerVersionError, isRecord } from "../core/errors";
 import type { Language } from "../core/language";
 import { defaultOllamaUrl } from "../core/providers/kinds";
@@ -156,7 +157,19 @@ if (engineCheckReport && ownsDataFolder) {
 }
 
 // Whether Skill scripts run in the OS sandbox, found out while Electron starts.
-const scriptSandbox = ownsDataFolder ? chooseExecutor(logger) : Promise.resolve({});
+const scriptSandbox: ReturnType<typeof chooseExecutor> = ownsDataFolder
+  ? chooseExecutor(logger).then((found) => ({ ...found, ...testSandboxProblem() }))
+  : Promise.resolve({});
+
+/**
+ * Test-only: the Linux sandbox's Problem a smoke test shows in Settings on any system, as JSON
+ * (`SandboxProblem`). Only a test build (`electron-vite build --mode test`) honours it.
+ */
+function testSandboxProblem(): { problem?: SandboxProblem } {
+  const given =
+    import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_SANDBOX_PROBLEM : undefined;
+  return given ? { problem: JSON.parse(given) as SandboxProblem } : {};
+}
 
 /** Set by electron-vite in development; absent in a built app. */
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
