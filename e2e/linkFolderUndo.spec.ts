@@ -91,6 +91,9 @@ test("linking a folder offers Undo; ⌘Z unlinks it, the files stay on disk, and
   await window.keyboard.press("ControlOrMeta+z");
   await expect(linkedFolderRow(window, "Deals")).toHaveCount(0);
   await expect.poll(() => library(window)).toEqual({ linked: [], documents: [] });
+  // Its Documents left the Library: the line says so, with Redo (#2402).
+  await expect(window.getByTestId("undo-line")).toContainText("Unlinked “Deals”");
+  await expect(window.getByTestId("undo-line").getByTestId("redo-action")).toHaveText("Redo");
   expect(existsSync(join(folder, "Teaser.md"))).toBe(true);
   await expect.poll(() => undoItem(app)).toEqual({ label: "Undo New Folder", enabled: true });
 

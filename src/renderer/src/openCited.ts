@@ -1,4 +1,4 @@
-import type { CitationAttributes, CitationCheck } from "../../core/api";
+import type { CitationAttributes, CitationCheck, CitationCheckReason } from "../../core/api";
 import { citationState, quoteStanding } from "../../shared/citations";
 import { citationLocation, formatLocation } from "../../shared/locations";
 import { type CitedSource, useComposer } from "./composer";
@@ -43,6 +43,8 @@ export function openCited(
   },
   how: {
     check: CitationCheck;
+    /** Why it can't be checked, when `check` is "cant-check" (#535). */
+    checkReason?: CitationCheckReason;
     withQuote: boolean;
     number?: number;
     label?: string | null;
@@ -77,6 +79,7 @@ export function openCited(
         : {}),
       citation: {
         check: how.check,
+        ...(how.checkReason ? { checkReason: how.checkReason } : {}),
         ...(how.number && how.number > 0 ? { number: how.number } : {}),
         ...(how.label ? { label: how.label } : {}),
         ...(citation.contentHash ? { contentHash: citation.contentHash } : {}),
