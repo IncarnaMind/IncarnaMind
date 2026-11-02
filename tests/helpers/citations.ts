@@ -1,6 +1,5 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { expect, vi } from "vitest";
-import * as Y from "yjs";
 import type {
   AnswerSearchTuning,
   CitationAttributes,
@@ -12,12 +11,11 @@ import type {
   Document,
   RecheckResult,
 } from "../../src/core";
-import { CITATION_NODE } from "../../src/core";
 import { createTempDataFolder, startCore } from "./core";
 import { addAndProcess, writeSourceFile } from "./documents";
 import { turnOnEmbeddings } from "./embedding";
 import { connectToMind, type MindClient } from "./mindClient";
-import { answerIn, editMind, question, writeMind } from "./minds";
+import { answerIn, editMind, question, readMind, writeMind } from "./minds";
 import {
   lastAnswerCall,
   type ModelCall,
@@ -312,17 +310,11 @@ export function onlyCitation(client: MindClient, answerId: string): CitationAttr
 /** The Citation nodes anywhere in a Mind's Blocks, in reading order, as the editor reads them. */
 export function mindCitations(client: MindClient): CitationAttributes[] {
   const found: CitationAttributes[] = [];
-  const visit = (element: Y.XmlElement | Y.XmlFragment) => {
-    for (const child of element.toArray()) {
-      if (!(child instanceof Y.XmlElement)) continue;
-      if (child.nodeName === CITATION_NODE) {
-        const { proposal: _proposal, ...attributes } = child.getAttributes();
-        found.push(attributes as unknown as CitationAttributes);
-      }
-      visit(child);
-    }
-  };
-  visit(client.blocks);
+  readMind(client).descendants((node) => {
+    if (node.type.name !== "citation") return;
+    const { proposal: _proposal, ...attributes } = node.attrs;
+    found.push(attributes as CitationAttributes);
+  });
   return found;
 }
 

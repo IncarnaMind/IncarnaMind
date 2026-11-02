@@ -48,6 +48,7 @@
  *   and the app's line saying none ran stands only under a reply that does.
  */
 import { changeLogOf } from "../../src/core/answers/claimedChanges";
+import { COVERED_AT_ONCE } from "../../src/core/answers/coverage";
 import { forPage, withoutPointersBack } from "../../src/core/answers/pointersBack";
 import { withoutSearchTalk } from "../../src/core/answers/searchTalk";
 import { toolTextIn } from "../../src/core/answers/toolText";
@@ -121,6 +122,8 @@ export interface Expected {
   asks?: "must" | "may";
   /** Its reply never says a calculation or search ran that its record doesn't show (#1796). */
   honestTools?: true;
+  /** Its reply asks about every Document and is a capped summary whose first reply names none of the left ones: the app asks again, and the reply the User reads names them (#894). */
+  leftOutAsk?: true;
   /** With a model offered `calculate`, a Calculated figure matches each (#1796). */
   calculated?: readonly RegExp[];
   /**
@@ -162,6 +165,8 @@ export interface RequestOutcome {
   givenToMinds?: readonly GivenToMind[];
   /** The app asked the model again inside the turn, so the User never read its first try. */
   askedAgain?: boolean;
+  /** How many times the app asked again for the Documents a capped summary left out (#894). */
+  coverageAsks?: number;
   scoped: readonly { id: string; name: string }[];
   /** The text of the Documents in scope, for `textDates`. */
   texts?: readonly string[];
@@ -188,6 +193,10 @@ export type RequestFailure =
   | { kind: "dead-markers"; markers: number[] }
   | { kind: "tool-text"; blocks: string[] }
   | { kind: "uncovered"; documents: string[] }
+  /** A capped summary's reply named none of the left ones, and the app didn't ask again. */
+  | { kind: "no-left-out-ask" }
+  /** The reply the User reads doesn't name the Documents the next summary takes. */
+  | { kind: "left-out-unnamed"; documents: string[] }
   /** Asked about every Document in scope, it cited Documents outside it: the example's. */
   | { kind: "cited-outside"; documents: number }
   | { kind: "outside"; blocks: number[] }
@@ -644,6 +653,15 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
     if (unsaid.length > 0) failures.push({ kind: "uncovered", documents: unsaid });
     if (outside > 0) failures.push({ kind: "cited-outside", documents: outside });
   }
+  if (expected.leftOutAsk) {
+    const rest = outcome.answer.steps?.coverage?.rest ?? [];
+    const left = rest
+      .slice(0, COVERED_AT_ONCE)
+      .map((id) => outcome.scoped.find((document) => document.id === id)?.name ?? id);
+    if ((outcome.coverageAsks ?? 0) === 0) failures.push({ kind: "no-left-out-ask" });
+    const unnamed = left.filter((name) => !namedAsUncovered(outcome.answer.text, name));
+    if (unnamed.length > 0) failures.push({ kind: "left-out-unnamed", documents: unnamed });
+  }
   if (expected.only !== undefined) {
     const outside = outcome.changedBlocks.filter((block) => block !== expected.only);
     if (outside.length > 0) failures.push({ kind: "outside", blocks: outside });
@@ -837,6 +855,10 @@ export function failureLine(failure: RequestFailure): string {
       return `shows a Tool's call written as text: ${failure.blocks.map((block) => `“${block.slice(0, 60)}”`).join(", ")}`;
     case "uncovered":
       return `neither cites nor names as left out ${failure.documents.map((name) => `“${name}”`).join(", ")}`;
+    case "no-left-out-ask":
+      return "names none of the Documents the next summary takes, and the app didn't ask it again";
+    case "left-out-unnamed":
+      return `doesn't name as left out ${failure.documents.map((name) => `“${name}”`).join(", ")}`;
     case "cited-outside":
       return `cites ${failure.documents} Document${failure.documents === 1 ? "" : "s"} outside its scope`;
     case "outside":

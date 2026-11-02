@@ -13,6 +13,8 @@ import { streamedReply } from "../../tests/helpers/models";
 export interface Asks {
   /** A check of the end of the turn asked the model again with the record of what its Tools did. */
   again: number;
+  /** The app asked the model again to name the Documents a capped summary left out (#894). */
+  coverage: number;
   /** The one request for the Answer's Citations. */
   citations: number;
   /** The replies a check asked again about, which the User never read: to read by hand. */
@@ -29,6 +31,9 @@ export interface ReaskWatch {
 /** Opens the note an end-of-turn check asks again with (see `thisAnswersRecord` in src/core/answers/claimedChanges.ts). */
 export const ASKED_AGAIN = "What the Tools of this Answer really did";
 
+/** Sits in the ask for the Documents a capped summary left out (see `coverageNudge` in src/core/answers/coverage.ts). */
+const ASKED_FOR_COVERAGE = "the User reads only this one";
+
 type Message = { content: string | readonly { type: string }[] };
 
 const textOf = ({ content }: Message): string =>
@@ -39,7 +44,7 @@ const textOf = ({ content }: Message): string =>
         .join("");
 
 export function watchReasks(): ReaskWatch {
-  let asks: Asks = { again: 0, citations: 0 };
+  let asks: Asks = { again: 0, coverage: 0, citations: 0 };
   let pending: string | null = null;
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
@@ -49,6 +54,8 @@ export function watchReasks(): ReaskWatch {
         asks.again++;
         const before = params.prompt.at(-2);
         if (before?.role === "assistant") asks.replies = [...(asks.replies ?? []), textOf(before)];
+      } else if (last?.role === "user" && textOf(last).includes(ASKED_FOR_COVERAGE)) {
+        asks.coverage++;
       }
       if (
         params.prompt.some(
@@ -68,7 +75,7 @@ export function watchReasks(): ReaskWatch {
   return {
     chatModels: (inner) => (spec) => wrapLanguageModel({ model: inner(spec), middleware }),
     begin(firstReply) {
-      asks = { again: 0, citations: 0 };
+      asks = { again: 0, coverage: 0, citations: 0 };
       pending = firstReply;
     },
     end: () => asks,

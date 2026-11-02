@@ -1297,6 +1297,29 @@ export const CASES: readonly EverydayCase[] = [
     request: "总结这些文档",
     expected: EITHER_ALL,
   },
+  // The first reply names none of the four a capped summary leaves: the app asks again, and the reply the User reads names them (#894).
+  {
+    id: "reports-left-en",
+    language: "en",
+    library: "reports",
+    mind: { title: "Briefing", blocks: ["Notes for Monday's briefing."] },
+    request: "Summarise these documents",
+    firstReply:
+      "These documents cover risk, statistics, research and committee work. I can summarise the eight largest now and continue with the rest in a follow-up.",
+    expected: { ...EITHER, cite: false, leftOutAsk: true },
+    hard: true,
+  },
+  {
+    id: "reports-left-zh",
+    language: "zh-CN",
+    library: "reports",
+    mind: { title: "简报", blocks: ["周一简报的笔记。"] },
+    request: "总结这些文档",
+    firstReply:
+      "这些文档涉及风险、统计、研究和委员会工作。我可以先总结其中最大的八份，其余的稍后继续。",
+    expected: { ...EITHER, cite: false, leftOutAsk: true },
+    hard: true,
+  },
   {
     id: "reports-esg",
     language: "en",

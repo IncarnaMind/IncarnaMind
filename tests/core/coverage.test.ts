@@ -3,8 +3,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { ConversationAnswer, Core } from "../../src/core";
+import type { SizedDocument } from "../../src/core/answers/coverage";
 import {
   COVERED_AT_ONCE,
+  coverageNudge,
   coverageOf,
   documentsAsked,
   namedCoverage,
@@ -110,6 +112,80 @@ describe("What a Question asks of the Documents in scope", () => {
     });
     expect(coverageOf({ each: true, main: null }, sized(COVERED_AT_ONCE))).toBeNull();
     expect(coverageOf({ each: false, main: 2 }, sized(2))).toBeNull();
+  });
+});
+
+describe("The ask when a reply leaves out Documents (#894)", () => {
+  const reports = (count: number, patch: Record<number, Partial<SizedDocument>> = {}) =>
+    Array.from({ length: count }, (_, at) => ({
+      id: `d${at}`,
+      name: `Report ${at + 1}`,
+      title: null,
+      size: 1000 - at,
+      ...patch[at],
+    }));
+  const largest = (documents: SizedDocument[]) => coverageOf({ each: true, main: null }, documents);
+
+  // protects=the ask names every Document the next summary takes, not only those the reply left out; fails_when=a reply naming 3 of 4 is told only the fourth is left; no_claim=what the model writes.
+  test("a reply naming 3 of the 4 gets an ask naming all 4", () => {
+    const documents = reports(12);
+    const ask = coverageNudge(
+      largest(documents),
+      documents,
+      "“Report 9”, “Report 10” and “Report 11” are left for the next summary. I can go on with them.",
+    );
+
+    expect(ask).toContain(
+      "“Report 9”, “Report 10”, “Report 11” and “Report 12” are left for the next summary",
+    );
+  });
+
+  // protects=of 20 the ask names all 8 the next summary takes, then counts the 4 after; fails_when=a reply naming 5 of 8 is told only 3 are left, or the count is 7; no_claim=what the model writes.
+  test("a reply naming 5 of the 8 gets an ask naming all 8 and the 4 after", () => {
+    const documents = reports(20);
+    const ask = coverageNudge(
+      largest(documents),
+      documents,
+      "“Report 9”, “Report 10”, “Report 11”, “Report 12” and “Report 13” are left for the next summary. I can go on with them.",
+    );
+
+    expect(ask).toContain("“Report 9”, “Report 10”, “Report 11”, “Report 12”, “Report 13”");
+    expect(ask).toContain("“Report 16” are left for the next summary, and 4 more come after those");
+    expect(ask).not.toContain("“Report 17”");
+  });
+
+  // protects=a reply that names every Document the next summary takes, by title where its name is machine-made, is not asked again; fails_when=the title doesn't count; no_claim=what the model writes.
+  test("a title counts as the Document's name", () => {
+    const documents = reports(9, { 8: { name: "IMG_0042", title: "Annual Report 2023" } });
+
+    expect(
+      coverageNudge(
+        largest(documents),
+        documents,
+        "“Annual Report 2023” is left for the next summary. I can go on with it.",
+      ),
+    ).toBeNull();
+  });
+
+  // protects=the ask names a machine-made Document as the User sees it, by its title; fails_when=it asks for “IMG_0042”; no_claim=what the model writes.
+  test("the ask of a machine-made name gives its title", () => {
+    const documents = reports(9, { 8: { name: "IMG_0042", title: "Annual Report 2023" } });
+    const ask = coverageNudge(largest(documents), documents, "Done.");
+
+    expect(ask).toContain("“Annual Report 2023” is left for the next summary");
+    expect(ask).not.toContain("IMG_0042");
+  });
+
+  // protects=a Latin-script name counts only as a whole word; fails_when=“Q1” is read as named by “Q12”; no_claim=what the model writes.
+  test("a Latin name inside a longer word is not named", () => {
+    const documents = reports(9, { 8: { name: "Q1" } });
+
+    expect(
+      coverageNudge(largest(documents), documents, "“Q12” is left for the next summary."),
+    ).toContain("“Q1” is left for the next summary");
+    expect(
+      coverageNudge(largest(documents), documents, "“Q1” is left for the next summary."),
+    ).toBeNull();
   });
 });
 
