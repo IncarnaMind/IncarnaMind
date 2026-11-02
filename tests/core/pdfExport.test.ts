@@ -137,10 +137,10 @@ describe("exporting a Mind to PDF", () => {
     await client.settled();
     await core.exportMind(mind.id, { format: "pdf" });
     const { document } = parseHTML(`<html><body>${printed[0]?.body ?? ""}</body></html>`);
-    expect(document.body.textContent).toBe("Spring tides1. 大潮2,3");
+    expect(document.body.textContent).toBe("Spring tides1. 大潮2,1");
     expect(
       [...document.querySelectorAll("sup.note-ref")].map((node) => node.getAttribute("data-note")),
-    ).toEqual(["1", "2", "3"]);
+    ).toEqual(["1", "2", "1"]);
   });
 
   test("Word and Markdown are as they were: a fingerprint of the bilingual fixture's", async () => {
@@ -169,7 +169,7 @@ describe("exporting a Mind to PDF", () => {
     expect(exported).toMatchObject({
       fileName: "Tides 潮汐.pdf",
       citations: 5,
-      footnotes: 5,
+      footnotes: 4,
       unverifiedCitations: 2,
       questions: 0,
     });
@@ -181,7 +181,6 @@ describe("exporting a Mind to PDF", () => {
     expect(document.notes).toEqual([
       "Tides, p. 1",
       "潮汐, p. 1",
-      "Tides, p. 1",
       `潮汐, p. 1${unverified}`,
       `Tides, p. 2${unverified}`,
     ]);
@@ -200,10 +199,10 @@ describe("exporting a Mind to PDF", () => {
     expect(body).toContain('<annotation encoding="application/x-tex">F = G\\frac{m_1 m_2}{r^2}');
     expect(body).toContain(
       "<table><tr><th><p>Tide 潮</p></th><th><p>Range 潮差</p></th></tr>" +
-        `<tr><td><p>Spring 大潮</p></td><td><p>4 m${marker(3)}</p></td></tr>` +
-        `<tr><td><p>Neap 小潮</p></td><td><p>2 m${marker(4)}</p></td></tr></table>`,
+        `<tr><td><p>Spring 大潮</p></td><td><p>4 m${marker(1)}</p></td></tr>` +
+        `<tr><td><p>Neap 小潮</p></td><td><p>2 m${marker(3)}</p></td></tr></table>`,
     );
-    expect(body.endsWith(`<p>Neap tides come at the quarter moons${marker(5)}</p>`)).toBe(true);
+    expect(body.endsWith(`<p>Neap tides come at the quarter moons${marker(4)}</p>`)).toBe(true);
   });
 
   test("the deliverable leaves Questions out unless asked; in Chinese, on a computer in China, the paper is A4 and the footnotes speak Chinese", async () => {

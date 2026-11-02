@@ -15,9 +15,11 @@
  */
 
 import { deflateRawSync } from "node:zlib";
+import { footnoteSubjectKey } from "../../shared/citations";
+import { FootnoteNumbering } from "../../shared/footnoteNumbers";
 import type { TableAlign } from "../../shared/markdownTables";
 import { NUMBERING_SCHEMES, type NumberingScheme, wordLevel } from "../../shared/numbering";
-import type { ParagraphFormat, StyledRun } from "../api";
+import type { CitedWork, ParagraphFormat, StyledRun } from "../api";
 import { writeZip } from "../documents/formats/zip";
 import {
   type Block,
@@ -36,6 +38,7 @@ import { HEADER_AND_FOOTER_DISTANCE, MARGIN, PAPER } from "../pageDefaults";
 import { changeKey } from "./citations";
 import type { ExportLabels } from "./labels";
 import { latexToOmml, MATH_NAMESPACE } from "./math";
+import { noteChecks } from "./noteChecks";
 import { changedElement, formatChanges } from "./paragraphFormat";
 import {
   bookmarked,
@@ -178,7 +181,15 @@ export function renderDocx(
     : null;
   review?.mark(piecesOf(blocks));
   const headings = tableOfContentsHeadings(blocks);
-  const writer = new DocxWriter(options.labels, paper.width - 2 * MARGIN, target, review, headings);
+  const writer = new DocxWriter(
+    options.labels,
+    paper.width - 2 * MARGIN,
+    target,
+    review,
+    headings,
+    [],
+    noteChecks(blocks),
+  );
   const body = writer.body(blocks);
 
   const document = writer.finish(
@@ -437,7 +448,12 @@ function pendingContext(block: Block, context: Context): Context {
 export class DocxWriter {
   readonly footnotes: string[] = [];
   private readonly styles: DocxStyles;
-  private readonly notes = new Map<string, { id: number; text: string; reused: boolean }>();
+  /** The Mind's footnotes as every surface numbers them (#2292): one for each source and place. */
+  private readonly numbering = new FootnoteNumbering();
+  /** Numbered: the note each number was written as, and whether a later Citation refers to it. */
+  private readonly numbered = new Map<number, { id: number; reused: boolean }>();
+  /** A citation style's notes: the style's own form for a repeat is a note of its own (`text`). */
+  private readonly styledNotes = new Map<string, { id: number; text: string; reused: boolean }>();
   private footnoteTotal = 0;
 
   /**
@@ -462,6 +478,8 @@ export class DocxWriter {
     /** The Note's headings, when it has a table of contents; none: headings carry no bookmark. */
     private readonly headings: readonly HeadingEntry[] = [],
     preparedContents: readonly ContentsEntry[] = [],
+    /** The "Checked by" lines each note carries, by its key (see `noteChecks`). */
+    private readonly checks: ReadonlyMap<string, readonly string[]> = new Map(),
   ) {
     this.preparedContents = preparedContents;
     this.styles = target.styles;
@@ -728,7 +746,7 @@ export class DocxWriter {
     const key = shared ? `style\n${item.of}` : null;
     const text =
       item.runs.map((each) => each.text).join("") + marker + (item.checked?.join("\n") ?? "");
-    const first = key === null ? undefined : this.notes.get(key);
+    const first = key === null ? undefined : this.styledNotes.get(key);
     // A style's own form for a repeat ("Id.", a short note) differs from the first note's: it wins.
     if (first?.text === text) {
       first.reused = true;
@@ -742,7 +760,8 @@ export class DocxWriter {
         this.styles.footnote,
       ),
     );
-    if (key !== null && !first) this.notes.set(key, { id, text, reused: false });
+    this.numbering.footnote();
+    if (key !== null && !first) this.styledNotes.set(key, { id, text, reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
   }
 
@@ -1030,9 +1049,8 @@ export class DocxWriter {
           } else {
             const reference = this.footnote(
               item.footnote,
+              item.work,
               !item.inserted && !item.deleted && !context.pending,
-              item.work.documentId,
-              item.work.contentHash ?? null,
             );
             xml += this.review ? this.review.failed(reference, [item.footnote]) : reference;
           }
@@ -1055,29 +1073,34 @@ export class DocxWriter {
     return xml;
   }
 
-  private footnote(
-    citation: Footnote,
-    shared: boolean,
-    documentId: string | null,
-    version: string | null,
-  ): string {
-    const key = shared
-      ? `numbered\n${documentId ?? ""}\n${version ?? ""}\n${citation.source}\n${citation.unverified}\n${citation.link ?? ""}\n${citation.checked?.join("\n") ?? ""}`
-      : null;
-    const first = key === null ? undefined : this.notes.get(key);
-    if (first) {
-      first.reused = true;
-      return this.noteNumber(first.id);
+  private footnote(citation: Footnote, work: CitedWork, shared: boolean): string {
+    // A Citation a change still waiting adds or removes is a footnote of its own: never the one
+    // others refer to, nor one that refers to another.
+    const subject = {
+      documentId: work.documentId,
+      contentHash: work.contentHash ?? null,
+      location: work.location,
+      unverified: citation.unverified,
+      link: citation.link ?? null,
+    };
+    const key = shared ? footnoteSubjectKey(subject) : null;
+    const { number, first } =
+      key === null
+        ? { number: this.numbering.footnote(), first: true }
+        : this.numbering.citation(subject);
+    const written = first ? undefined : this.numbered.get(number);
+    if (written) {
+      written.reused = true;
+      return this.noteNumber(written.id);
     }
+    // A note stands for every Citation of its source and place, so it says a person's check only
+    // where all of them carry it (`noteChecks`); a change's Citation stands for itself alone.
+    const lines = key === null ? (citation.checked ?? []) : (this.checks.get(key) ?? []);
     const id = this.target.ids.take("footnote");
     this.footnotes.push(
-      footnote(
-        id,
-        this.source(citation, " ") + checkedRuns(citation.checked),
-        this.styles.footnote,
-      ),
+      footnote(id, this.source(citation, " ") + checkedRuns(lines), this.styles.footnote),
     );
-    if (key !== null) this.notes.set(key, { id, text: "", reused: false });
+    this.numbered.set(number, { id, reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
   }
 
@@ -1097,7 +1120,8 @@ export class DocxWriter {
    */
   finish(document: string): string {
     const reused = new Set<number>();
-    for (const note of this.notes.values()) if (note.reused) reused.add(note.id);
+    for (const note of this.numbered.values()) if (note.reused) reused.add(note.id);
+    for (const note of this.styledNotes.values()) if (note.reused) reused.add(note.id);
     let out = document;
     if (reused.size > 0) {
       const bookmarkedNotes = new Set<number>();
@@ -1139,6 +1163,7 @@ export class DocxWriter {
    */
   private userFootnote(content: readonly Inline[]): string {
     const id = this.target.ids.take("footnote");
+    this.numbering.footnote();
     const text = this.inline(content, {
       indent: 0,
       style: null,

@@ -147,6 +147,7 @@ registerMenu("citation", [
   "citation.open",
   "citation.update",
   "citation.keepOld",
+  "citation.pageChecked",
   "citation.signOff",
   "citation.signOffRemove",
   "citation.remove",

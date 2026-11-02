@@ -9,9 +9,10 @@ import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from 
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
-import { ANSWER_BLOCK, MIND_CONTENT_FIELD } from "../../../core/api";
+import { ANSWER_BLOCK, type EditPart, MIND_CONTENT_FIELD } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import type { CitationForm } from "../../../shared/citationStyles";
+import type { CitationLive } from "../../../shared/citations";
 import { figureRunsFor } from "../../../shared/figureRuns";
 import { translate } from "../../../shared/i18n";
 import { setMindScope } from "../../../shared/mindScope";
@@ -64,6 +65,7 @@ import {
   isTitleLine,
 } from "../editor/EndHint";
 import { selectionForEdit } from "../editor/editSelection";
+import { explainSelection } from "../editor/explainSelection";
 import { FindBar } from "../editor/FindBar";
 import { FootnoteArea } from "../editor/FootnoteArea";
 import { FootnotePopover } from "../editor/FootnotePopover";
@@ -115,6 +117,7 @@ import { TableKeys } from "../editor/tableCommands";
 import { reviewItemsIn } from "../editor/theirChanges";
 import { TitleLine } from "../editor/titleLine";
 import { SmartTypography } from "../editor/typography";
+import { UncheckedFigures } from "../editor/uncheckedFigures";
 import type { EditWithAiField } from "../editor/useEditField";
 import { useMenuEditLine } from "../editor/useMenuEditLine";
 import { useVerification } from "../editor/VerifyLine";
@@ -136,7 +139,7 @@ import { type OpenedCopy, openMindCopy } from "../mindCopies";
 import { isWritingIn } from "../mindStatus";
 import { followMindStyle } from "../mindStyles";
 import { useMindTools } from "../mindTools";
-import { onMindWriting, writingPlaceOf } from "../mindWriting";
+import { onMindWriting, writingPartOf, writingPlaceOf } from "../mindWriting";
 import { forgetNewMindKeys, takeNewMindKeys } from "../newMindKeys";
 import { firstOpenOf } from "../nudges";
 import { holdReviewable, useReviewPanes } from "../reviewPane";
@@ -384,6 +387,7 @@ function MindEditorView({
   /** The Mind's citation style, followed as it changes (#289). */
   const styleChoice = useMindStyleChoice(doc);
   const formRef = useRef<CitationForm>(citationForm(styleChoice.chosen ?? "numbered", undefined));
+  const liveRef = useRef<CitationLive>({ documents: null });
 
   const editor = useEditor(
     {
@@ -415,12 +419,18 @@ function MindEditorView({
           tableOfContentsView: ReactNodeViewRenderer(TableOfContentsView),
           pictureView,
         }),
-        // Footnotes are numbered as the Mind's citation style counts its Citations (#289).
-        CitationNumbers.configure({ form: () => formRef.current }),
+        // Footnotes are numbered as the Mind's citation style counts its Citations (#289), their
+        // checks settled as the live Documents have them (#2292).
+        CitationNumbers.configure({
+          form: () => formRef.current,
+          live: () => liveRef.current,
+        }),
         // Pictures pasted or dropped into the Note, and the picture chosen with "/" (#1937).
         Pictures,
         CitationClusters,
         ClaimChecks,
+        // A figure an Answer read from a scan's unsure word shows quietly, with a "?" (#535).
+        UncheckedFigures,
         CopyCitations.configure({
           figureRuns: (selected) => (doc ? figureRunsFor(doc, selected) : []),
         }),
@@ -492,7 +502,7 @@ function MindEditorView({
           translate: translateNow,
           undoKeys: () => shortcutLabel("edit.undo"),
         }),
-        WritingPlace.configure({ label: () => translateNow("mind.writing") }),
+        WritingPlace,
         Suggestions.configure({
           request: (request) => askForSuggestion(mindId, doc, request),
           cancel: (requestId) =>
@@ -519,6 +529,7 @@ function MindEditorView({
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
+  const keptCitationTexts = useAppStore((state) => state.keptCitationTexts);
   const folderId = useAppStore(
     (state) => state.minds.find((each) => each.id === mindId)?.folderId ?? null,
   );
@@ -574,6 +585,12 @@ function MindEditorView({
   useEffect(() => {
     if (!editor.isDestroyed) setCitationForm(editor.view, form);
   }, [editor, form]);
+  // A Citation's check, and so its footnote's place in the numbering, follows the live Documents
+  // and the text kept of those unlinked (#2292).
+  useEffect(() => {
+    liveRef.current = { documents, kept: keptCitationTexts };
+    if (!editor.isDestroyed) redrawFootnotes(editor.view);
+  }, [editor, documents, keptCitationTexts]);
 
   useEffect(
     () => (readOnly ? undefined : registerMindEditor(mindId, editor)),
@@ -632,9 +649,8 @@ function MindEditorView({
   const hasDocuments = useAppStore((state) => state.documents.length > 0);
   const aiActions = useMemo((): SelectionAction[] => {
     const available = (current: typeof editor) => selectionForEdit(current.state) !== null;
-    const run =
-      (action: "improve" | "shorten" | "explain", from?: "menu") => (current: typeof editor) =>
-        void requestEdit(current, mindId, doc, action, undefined, undefined, from);
+    const run = (action: "improve" | "shorten", from?: "menu") => (current: typeof editor) =>
+      void requestEdit(current, mindId, doc, action, undefined, undefined, from);
     return [
       {
         id: "improve",
@@ -663,7 +679,14 @@ function MindEditorView({
         })),
         run: () => undefined,
       },
-      { id: "explain", label: "editor.ai.explain", icon: "?", available, run: run("explain") },
+      {
+        id: "explain",
+        label: "editor.ai.explain",
+        icon: "?",
+        available,
+        // Answered in the assistant, with the selection as a chip: the Note is left as it is (#2348).
+        run: (current) => void explainSelection(current, mindId, doc),
+      },
       {
         id: "check-anyway",
         label: "claim.checkAnyway",
@@ -767,9 +790,13 @@ function MindEditorView({
   useEffect(() => {
     const placeNow = (place: ReturnType<typeof writingPlaceOf>) =>
       useEdits.getState().pending[mindId]?.menu ? null : place;
-    setWritingPlace(editor, placeNow(writingPlaceOf(mindId)));
-    return onMindWriting(({ mindId: changed, place }) => {
-      if (changed === mindId) setWritingPlace(editor, placeNow(place));
+    const label = (part: EditPart | null | undefined) =>
+      part
+        ? translateNow("edit.pending.part", { at: part.at, of: part.of })
+        : translateNow("mind.writing");
+    setWritingPlace(editor, placeNow(writingPlaceOf(mindId)), label(writingPartOf(mindId)));
+    return onMindWriting(({ mindId: changed, place, part }) => {
+      if (changed === mindId) setWritingPlace(editor, placeNow(place), label(part));
     });
   }, [editor, mindId]);
 

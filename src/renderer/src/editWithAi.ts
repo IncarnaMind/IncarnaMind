@@ -11,18 +11,22 @@ import type * as Y from "yjs";
 import { create } from "zustand";
 import {
   ANSWER_BLOCK,
+  type ChatModelChoice,
   type ChatReadiness,
   type EditAction,
+  type EditPart,
   type EditWithAiResult,
   type ProviderError,
+  type RunEstimate,
 } from "../../core/api";
 import { aiUseOfAccepted, proposalRequestOf } from "../../shared/proposals";
 import { useAnswers } from "./answers";
 import { type Applying, appliedMessage, finishApplying, startApplying } from "./appliedEdits";
 import { core } from "./core";
+
 import { appliedLineIn } from "./editor/appliedEditLine";
 import { offerEditorUndo } from "./editor/editorUndo";
-import { selectionForEdit } from "./editor/editSelection";
+import { quoteOf, selectionForEdit } from "./editor/editSelection";
 import {
   editorDoc,
   editTarget,
@@ -38,6 +42,7 @@ import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
 import type { Words } from "./lineNames";
 import { modelInUseOf } from "./modelInUse";
+import { shownModelNow } from "./modelNames";
 import { useAppStore } from "./store";
 
 /** The languages Translate… offers: each in its own name, and as the model is told it. */
@@ -59,6 +64,7 @@ export type EditProblem = (
         | "changed"
         | "has-proposals"
         | "too-long"
+        | "block-too-long"
         | "local-mode"
         | "cant-regenerate"
         | "no-table"
@@ -67,6 +73,7 @@ export type EditProblem = (
         | "typed-tag"
         | "cut-short"
         | "late"
+        | "part-changed"
         | "busy";
     }
   /** `said`: the AI's own words, when it wrote them instead of a change (#2356). */
@@ -74,7 +81,13 @@ export type EditProblem = (
   | { kind: "not-ready"; readiness: Extract<ChatReadiness, { ready: false }> }
   | { kind: "failed"; message: string; retry: () => void }
   | { kind: "consent-revoked"; error: ProviderError }
-) & { menu?: MenuEdit };
+) & {
+  menu?: MenuEdit;
+  /** What names the model, for a line about what it can't take at once (#2348). */
+  model?: string;
+  /** A Block too long: the app's own cap, which no model changes, or this model's window. */
+  cause?: "cap" | "model";
+};
 
 /** An edit asked in the selection menu: where the first Block of its text is, for the line that reports it once the menu is closed. */
 export interface MenuEdit {
@@ -88,6 +101,14 @@ interface Pending {
   action: EditAction;
   /** The language, for "translate". */
   language: string | null;
+  /** The model it is asked with, for a long selection's estimate on a cloud model (#83). */
+  model: ChatModelChoice | null;
+  /** A selection too long for the model, edited in parts: which of how many is written now (#2348). */
+  part?: EditPart;
+  /** What the whole run would cost, as the core worked it out before its first request (#83). */
+  runEstimate?: RunEstimate | null;
+  /** The run waits for the User's go, with its estimate: it isn't small, and the model is billed (#83). */
+  ask?: { requestId: string; parts: number; estimate: RunEstimate | null };
   /** Stopped by the User: it still settles before another edit can start, so its Undo stays its own. */
   stopped?: boolean;
   menu?: MenuEdit;
@@ -140,18 +161,45 @@ export function speak(mindId: string, text: string, about?: string): void {
 
 export const dismissEditProblem = (mindId: string) => set("problems", mindId, null);
 
+/**
+ * A selection too long for the model, edited in parts (#2348): as the core says which part it
+ * writes, the line says so; and on a model billed per token the run, with its estimate, waits
+ * for the User's go before its first request (#83).
+ */
+core.on("mind.writing", ({ mindId, part }) => {
+  const pending = useEdits.getState().pending[mindId];
+  if (!pending || !part) return;
+  const now = useEdits.getState().pending[mindId];
+  if (now?.requestId === pending.requestId) set("pending", mindId, { ...now, part });
+});
+
+core.on("edits.ask", ({ mindId, requestId, parts, estimate }) => {
+  const pending = useEdits.getState().pending[mindId];
+  if (!pending || pending.requestId !== requestId) return;
+  set("pending", mindId, {
+    ...pending,
+    runEstimate: estimate,
+    ask: { requestId, parts, estimate },
+  });
+});
+
+/** The User's answer to an edit that waits on its estimate and its parts (#83, #2348). */
+export function answerEditAsk(mindId: string, accept: boolean): void {
+  const pending = useEdits.getState().pending[mindId];
+  const ask = pending?.ask;
+  if (!pending || !ask) return;
+  // The line shows what it is doing next: the parts, or the edit stopping.
+  set("pending", mindId, { ...pending, ask: undefined });
+  void core
+    .respondToEditAsk({ requestId: ask.requestId, accept })
+    .catch(useAppStore.getState().reportError);
+}
+
 export const setMenuShows = (mindId: string, shown: boolean) =>
   set("menuShows", mindId, shown ? true : null);
 
 export const noteBusy = (mindId: string, menu?: MenuEdit) =>
   set("problems", mindId, menu ? { kind: "busy", menu } : { kind: "busy" });
-
-/** A selection shown short, for the composer's chip. */
-function quoteOf(text: string): string {
-  const flat = text.replace(/￼/g, "").replace(/\s+/g, " ").trim();
-  const chars = [...flat];
-  return chars.length > 48 ? `${chars.slice(0, 47).join("")}…` : flat;
-}
 
 /** Waits until the editor shows the request's Proposals; the first, or null after a while. */
 function whenShown(editor: Editor, request: string): Promise<PendingProposal | null> {
@@ -211,6 +259,7 @@ export async function requestEdit(
     requestId,
     action,
     language: action === "translate" ? (instruction ?? null) : null,
+    model: modelInUseOf(doc),
     ...(from === "menu" && { menu: { blockId: selection.from.blockId, at: Date.now() } }),
   });
   setEditTarget(editor, selection.range);
@@ -293,6 +342,9 @@ async function arrived(
   if (outcome !== null && outcome !== "held") {
     const { paragraphs, tables } = outcome.applied;
     if (paragraphs + tables > 0) speak(mindId, appliedMessage(outcome.applied));
+    // The parts already written stay: what stopped is said beside them (#2348).
+    if (result.kind === "proposed" && result.stopped === "changed")
+      problem({ kind: "part-changed" });
     return;
   }
   if (stopped) return;
@@ -322,6 +374,15 @@ async function arrived(
     return;
   }
   if (result.kind === "cancelled") return;
+  if (result.kind === "too-long" || result.kind === "block-too-long") {
+    // What can't fit names the model to change: the Mind's own, else the one the app asks with.
+    const inUse = modelInUseOf(editorDoc(editor) ?? null);
+    problem({
+      ...result,
+      ...(inUse && { model: shownModelNow(inUse.modelId, inUse.providerId).name }),
+    });
+    return;
+  }
   problem(result.kind === "failed" ? failedEdit(result.error, () => void retry()) : result);
 }
 
@@ -358,6 +419,7 @@ export async function regenerateChange(
     requestId,
     action,
     language: action === "translate" ? (made.instruction ?? null) : null,
+    model: modelInUseOf(doc),
   });
   setEditTarget(editor, { from: proposal.from, to: proposal.to });
   const watch = watchMovedOn(editor);

@@ -189,7 +189,7 @@ function endLine(analysis: AnswerAnalysis, end: AnswerAnalysis["end"]): string {
       return analysis.output.results.length > 0 ||
         analysis.output.charts.length > 0 ||
         (analysis.output.pictures ?? []).length > 0
-        ? "Write [=n] where a figure goes, and [=table n], [=chart n] or [=picture n] on a line of its own where a table, chart or picture goes. Never write their numbers yourself."
+        ? "Write [=n] where a figure goes, and [=table n], [=chart n] or [=picture n] on a line of its own where a table, chart or picture goes. Never write their numbers yourself. A figure worked out from an input's rows names them with of= that input's DataFrame or column."
         : "It gave no results: call result(name, value, label, unit) for each figure or table the Answer uses, and run it again.";
     case "error":
       return `It stopped with an error${end.line === null ? "" : ` on line ${end.line}`}:\n${end.message}\nFix the code and run it again: each run starts clean.`;

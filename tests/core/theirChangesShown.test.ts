@@ -10,8 +10,8 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core, ExportMindOptions } from "../../src/core";
 import { answerEnded } from "../helpers/citations";
-import { createTempDataFolder, startCore } from "../helpers/core";
-import type { MindClient } from "../helpers/mindClient";
+import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
+import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { editMind } from "../helpers/minds";
 import { promptOf, scriptedModels, streamingModel } from "../helpers/models";
 import { fakePrinter } from "../helpers/printer";
@@ -126,7 +126,7 @@ describe("someone else's changes, shown as changes", { timeout: 30_000 }, () => 
     await core.exportMind(mindId, { format: "pdf" });
     const body = printed[0]?.body ?? "";
     expect(body).toContain(
-      '<del class="change">9.2 The Customer may terminate for convenience.</del><sup class="note-ref" data-note="2">2</sup>',
+      '<del class="change">9.2 The Customer may terminate for convenience.</del><sup class="note-ref change-note" data-note="2">2</sup>',
     );
     expect(body).toContain('<ins class="change"> under any circumstances</ins>');
     expect(printed[0]?.notes).toEqual([
@@ -142,6 +142,72 @@ describe("someone else's changes, shown as changes", { timeout: 30_000 }, () => 
     await core.exportMind(mindId, { format: "pdf", theirChanges: "accepted" });
     expect(printed[1]?.body).not.toContain('class="change"');
     expect(printed[1]?.notes).toEqual([]);
+  });
+
+  test("accepted applies the Word file's changes only, and names the AI's waiting change as IncarnaMind's", async () => {
+    const { core, mindId, client, printed } = await setUp();
+    suggestChanges(client);
+    await client.settled();
+
+    await core.exportMind(mindId, { format: "pdf", theirChanges: "accepted" });
+    const accepted = printed.at(-1);
+    // Priya's changes are the text now.
+    expect(accepted?.body).toContain(
+      "9.1 Either party may end this agreement on 90 days&#39; notice.",
+    );
+    expect(accepted?.body).not.toContain("9.2 The Customer may terminate for convenience.");
+    expect(accepted?.body).toContain("9.3 Fees paid are not refunded under any circumstances.");
+    // A suggestion the User never accepted stays a change, named as the AI's, never final text.
+    expect(accepted?.body).toContain('<ins class="change">A paragraph the AI would add.</ins>');
+    expect(accepted?.body).not.toContain("A paragraph out of date.");
+    expect(accepted?.notes).toEqual(["Inserted by IncarnaMind"]);
+
+    const html = new TextDecoder().decode(
+      (await core.exportMind(mindId, { format: "html", theirChanges: "accepted" })).data,
+    );
+    expect(html).toContain('<ins class="change">A paragraph the AI would add.</ins>');
+    expect(html).toContain("Inserted by IncarnaMind");
+  });
+
+  test("shown, a change is named after who made it: someone's or the AI's", async () => {
+    const { core, mindId, client, printed } = await setUp();
+    suggestChanges(client);
+    await client.settled();
+
+    await core.exportMind(mindId, { format: "pdf" });
+    const shown = printed.at(-1);
+    expect(shown?.body).toContain('<ins class="change">A paragraph the AI would add.</ins>');
+    expect(shown?.notes).toContain("Inserted by IncarnaMind");
+    expect(shown?.notes).toContain("Replaced by Priya Nair, 2 Oct 2026");
+    expect(shown?.notes).not.toContain("Inserted by someone");
+
+    const html = new TextDecoder().decode((await core.exportMind(mindId, { format: "html" })).data);
+    expect(html).toContain('<ins class="change">A paragraph the AI would add.</ins>');
+    expect(html).toContain("Inserted by IncarnaMind");
+  });
+
+  test("a Note with only the AI's waiting change never prints it as final text", async () => {
+    const { printer, printed } = fakePrinter();
+    const core = startCore(await createTempDataFolder(), { now: manualClock().now, printer });
+    const mind = await core.createMind({ title: "Plan" });
+    const client = await connectToMind(core, mind.id);
+    editMind(client, (blocks) => [
+      ...blocks,
+      {
+        type: "paragraph",
+        attrs: {
+          id: "ai-note",
+          proposal: { id: "ai-note-change", request: "ai-request", kind: "insert" },
+        },
+        content: [{ type: "text", text: "A paragraph the AI would add." }],
+      },
+    ]);
+    await client.settled();
+
+    await core.exportMind(mind.id, { format: "pdf", theirChanges: "accepted" });
+    const accepted = printed.at(-1);
+    expect(accepted?.body).toContain('<ins class="change">A paragraph the AI would add.</ins>');
+    expect(accepted?.notes).toEqual(["Inserted by IncarnaMind"]);
   });
 
   test("the export says how many are waiting, and Word keeps them as tracked changes", async () => {
