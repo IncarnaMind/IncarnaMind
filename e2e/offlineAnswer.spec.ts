@@ -151,10 +151,12 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-test("an Answer written into a Note says it is offline, with the Question's passages too", async () => {
+test("an Answer written into a Note says it is offline, with its own Question's passages", async () => {
   test.setTimeout(150_000);
-  const path = join(sources, "Tide.txt");
-  await writeFile(path, TIDE);
+  const tide = join(sources, "Tide.txt");
+  const whale = join(sources, "Whale.txt");
+  await writeFile(tide, TIDE);
+  await writeFile(whale, "Whales sing in the deep bay.");
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     home: sources,
@@ -172,25 +174,30 @@ test("an Answer written into a Note says it is offline, with the Question's pass
       });
     });
     await setLanguage(window, "en");
-    await addDocuments(window, [path]);
-    // A Note whose Question was asked and whose Answer failed, as the core stores it.
+    await addDocuments(window, [tide, whale]);
+    const failedAnswer = {
+      errorKind: "network",
+      errorMessage: "Cannot connect to API: fetch failed",
+      providerId: provider.id,
+      modelId: "gpt-6.1-sol",
+    };
+    // Two Notes with failed Answers: each page must read its own Question, not the other's.
     await mindWrittenBefore(window, "Offline note", [
       {
         question: "Does the tide table have no connection?",
         answer: "",
-        failed: {
-          errorKind: "network",
-          errorMessage: "Cannot connect to API: fetch failed",
-          providerId: provider.id,
-          modelId: "gpt-6.1-sol",
-        },
+        failed: failedAnswer,
       },
+    ]);
+    await mindWrittenBefore(window, "Whale note", [
+      { question: "Where do the whales sing?", answer: "", failed: failedAnswer },
     ]);
     await window.getByTestId("mind-list-item").filter({ hasText: "Offline note" }).click();
     const failed = window.getByTestId("mind-editor").getByTestId("answer-error");
     await expect(failed).toHaveAttribute("data-error-kind", "network");
     await setOnline(window, false);
     await expect(failed.getByRole("alert")).toContainText(translate("en", "answer.offline.line"));
+    // The tide Question's words find the tide Document, and not the whales the other Note asks about.
     await expect(failed.getByTestId("found-passage")).toHaveCount(1);
     await expect(failed.getByTestId("found-passage-document")).toContainText("Tide");
   } finally {

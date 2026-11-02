@@ -236,3 +236,41 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 }
+
+test("the offer stays hidden on a Library of the example's Documents alone (#1942)", async () => {
+  test.setTimeout(120_000);
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    examples: true,
+    ollama: "http://127.0.0.1:9",
+  });
+  try {
+    await dismissChatSetup(window);
+    await setLanguage(window, "en");
+    await setWindowSize(app, window, 1400, 900);
+    // Ten example Documents, and none of the User's own: the old count would offer to sort them.
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.createExamples("papers");
+      await core.createExamples("contracts");
+      await core.createExamples("meetings");
+    });
+    await expect
+      .poll(
+        () =>
+          window.evaluate(async () => {
+            const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+            return (await core.listDocuments()).length;
+          }),
+        { timeout: 60_000 },
+      )
+      .toBeGreaterThanOrEqual(8);
+    await runCommand(window, "library.open", "Open the Library");
+    await expect(window.getByTestId("library")).toBeVisible();
+    await expect(window.getByTestId("library-document").first()).toBeVisible();
+    expect(await window.getByTestId("library-document").count()).toBeGreaterThanOrEqual(8);
+    await expect(window.getByTestId("library-sort-into-folders")).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});

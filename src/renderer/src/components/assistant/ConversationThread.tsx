@@ -23,7 +23,7 @@ import {
 import { askedAgainCounts } from "../../coverage";
 import { AskedQuoteLines } from "../../editor/AskedQuotes";
 import { useT } from "../../i18n";
-import { useFoundPassages, useMindPlace } from "../../localPassages";
+import { useFoundPassages, useWaitingPlace } from "../../localPassages";
 import { isLive, useMeetings } from "../../meetings";
 import { chooseModelInPlace, useModelSetup } from "../../modelSetup";
 import { useCitedSource } from "../../openCited";
@@ -464,15 +464,20 @@ function useThreadStart(conversation: { id: string; createdAt: string } | null):
 
 /**
  * What a Question waiting for a model finds on this computer (#763): its own words, searched in
- * the Documents, shown while the setup card asks for the model that will answer it. The Note's
- * Folder decides its side of a wall, as it will for the Answer (#1934).
+ * the Documents, shown while the setup card asks for the model that will answer it. The turn's
+ * wall is the core's, from its Note or else the conversation it was typed in (#1934).
  */
 function WaitingPassages({
   question,
 }: {
-  question: { text: string; scope?: SearchScope | null; mindId: string | null };
+  question: {
+    text: string;
+    scope?: SearchScope | null;
+    mindId: string | null;
+    conversationId: string | null;
+  };
 }) {
-  const place = useMindPlace(question.mindId);
+  const place = useWaitingPlace(question.mindId, question.conversationId);
   const found = useFoundPassages(question.text, question.scope ?? null, place);
   return <FoundPassages passages={found} />;
 }

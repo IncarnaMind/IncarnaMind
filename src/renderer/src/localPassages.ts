@@ -4,6 +4,7 @@ import { hasSearchScope, holdsText } from "../../shared/searchScope";
 import { core } from "./core";
 import { scopeDocumentIds } from "./scope";
 import { type AppState, allExamples, isOwnDocument, useAppStore } from "./store";
+import { useTurnWall } from "./turnWall";
 
 /** How many passages local search shows where a model can't answer yet (#763). */
 const FOUND_PASSAGES = 4;
@@ -20,12 +21,10 @@ export interface LocalPlace {
   known: boolean;
 }
 
-/** The place of a Question waiting in a Note: the Note's Folder now. */
-export function useMindPlace(mindId: string | null): LocalPlace {
-  const folderId = useAppStore(
-    (state) => state.minds.find((each) => each.id === mindId)?.folderId ?? null,
-  );
-  return { folderId, mind: mindId !== null, known: true };
+/** The place of a Question waiting in the composer: the wall the core says its turn is on. */
+export function useWaitingPlace(mindId: string | null, conversationId: string | null): LocalPlace {
+  const wall = useTurnWall({ mindId, conversationId });
+  return { folderId: wall ?? null, mind: mindId !== null, known: wall !== undefined };
 }
 
 /** The place of a Question already asked: its Note's Folder now, else the Folder recorded with it. */
@@ -63,7 +62,10 @@ function defaultDocumentIds(): string[] | undefined {
 /**
  * The Documents a local search reads for a Question: its Search scope's, or the default ones,
  * kept to its side of the Folder walls as the core keeps an Answer (#1934). Inside a walled
- * Folder it reads that Folder's own; outside every wall it never reads one a wall keeps inside.
+ * Folder it reads only what the User filed there (never Organize's suggestions); outside every
+ * wall it never reads one a wall keeps inside. One difference from the core remains: a file
+ * IncarnaMind wrote from inside a wall and saved outside it carries no Folder on this page
+ * (#2442).
  */
 export function localSearchIds(scope: SearchScope | null, place: LocalPlace): string[] | undefined {
   if (!place.known) return [];
@@ -73,6 +75,11 @@ export function localSearchIds(scope: SearchScope | null, place: LocalPlace): st
   const walls = new Set(groups.filter((group) => group.keepInside).map((group) => group.id));
   const behind = (wallId: string) =>
     assignments.filter((each) => each.groupId === wallId).map((each) => each.documentId);
+  // Inside a wall the core reads the Documents the User filed there, not Organize's suggestions.
+  const behindUser = (wallId: string) =>
+    assignments
+      .filter((each) => each.groupId === wallId && each.source === "user")
+      .map((each) => each.documentId);
   const inside = place.folderId !== null && walls.has(place.folderId) ? place.folderId : null;
   // Asked with no Note, a scope naming one walled Folder alone reads inside that wall.
   const explicit =
@@ -85,7 +92,7 @@ export function localSearchIds(scope: SearchScope | null, place: LocalPlace): st
       : null;
   const wallId = inside ?? explicit;
   if (wallId !== null) {
-    const held = new Set(behind(wallId));
+    const held = new Set(behindUser(wallId));
     return searchable(state)
       .filter((document) => held.has(document.id))
       .map((document) => document.id);

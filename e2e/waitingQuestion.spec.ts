@@ -57,14 +57,14 @@ async function askWithNoModel(window: Page, question: string, scope?: string) {
   return card;
 }
 
-/** Puts a Document in a Folder, walled or not, through the core as the Library does. */
+/** Puts a Document in a Folder, walled or not, through the core as the Library does; returns the Folder's id. */
 async function groupDocument(
   window: Page,
   document: string,
   name: string,
   keepInside: boolean,
-): Promise<void> {
-  await window.evaluate(
+): Promise<string> {
+  const groupId = await window.evaluate(
     async (wanted) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const found = (await core.listDocuments()).find((each) => each.name === wanted.document);
@@ -74,6 +74,7 @@ async function groupDocument(
         keepInside: wanted.keepInside,
       });
       if (found) await core.assignDocumentGroup(found.id, group.id);
+      return group.id;
     },
     { document, name, keepInside },
   );
@@ -89,6 +90,7 @@ async function groupDocument(
     )
     .toBe(1);
   await expect(window.getByTestId("folder-row").filter({ hasText: name })).toBeVisible();
+  return groupId;
 }
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -209,6 +211,46 @@ test("a walled Folder's work stays out of the waiting passages (#763, #1934)", a
     const passages = window.getByTestId("found-passage");
     await expect(passages).toHaveCount(1);
     await expect(passages.first().getByTestId("found-passage-document")).toContainText("Tide");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a Note inside the wall reads the work kept inside it, and not the outside (#763, #1934)", async () => {
+  test.setTimeout(120_000);
+  const tide = join(sources, "Tide.txt");
+  const lease = join(sources, "Lease.txt");
+  await writeFile(tide, TIDE);
+  await writeFile(lease, "The lease tables are read every spring.");
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    home: sources,
+    ollama: "http://127.0.0.1:9",
+  });
+  try {
+    await setWindowSize(app, window, 900, 700);
+    await setLanguage(window, "en");
+    await addDocuments(window, [tide, lease]);
+    const groupId = await groupDocument(window, "Lease", "Client work", true);
+    await window.evaluate(async (folderId) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.createMind({ title: "Inside work", folderId });
+    }, groupId);
+    // A Folder made through the core starts folded: unfold it to reach the Note inside.
+    const folder = window.getByTestId("library-folder").filter({ hasText: "Client work" });
+    await folder.click();
+    await expect(folder).toHaveAttribute("data-expanded", "true");
+    await window.getByTestId("mind-list-item").filter({ hasText: "Inside work" }).click();
+    await expect(window.getByTestId("mind-editor")).toBeVisible();
+    await window.getByTestId("mind-editor").focus();
+    await window.keyboard.press("ControlOrMeta+j");
+    await window.keyboard.type("What do the tide tables and the lease say?");
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("model-setup")).toBeVisible();
+    // The Note is in the walled Folder: only the lease is read, not the tide outside it.
+    const passages = window.getByTestId("found-passage");
+    await expect(passages).toHaveCount(1);
+    await expect(passages.first().getByTestId("found-passage-document")).toContainText("Lease");
   } finally {
     await app.close();
   }
