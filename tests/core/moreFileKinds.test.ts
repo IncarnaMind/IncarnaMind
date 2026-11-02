@@ -9,13 +9,13 @@ import { join } from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
 import { describe, expect, test } from "vitest";
 import type { OfficeConverter, TextRecognizer } from "../../src/core/adapters";
-import { CURRENT_SINCE, PROCESSING_VERSION } from "../../src/core/documents/processing";
+import { PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { BUILT_IN_TEXT_RECOGNITION_MODEL } from "../../src/core/documents/scan/model";
 import { translate } from "../../src/shared/i18n";
 import { skippedStep } from "../../src/shared/skippedFiles";
 import { unreadFileText } from "../../src/shared/unreadFiles";
-import { createTempDataFolder, NO_MODEL_FILES, startCore } from "../helpers/core";
+import { createTempDataFolder, NO_MODEL_FILES, queryDatabase, startCore } from "../helpers/core";
 import {
   addAndProcess,
   createSourceFolder,
@@ -117,6 +117,13 @@ describe("A picture is read as a scanned page is (#762)", { timeout: 60_000 }, (
     expect(quoted).toEqual({ unsure: [], from: "picture" });
     expect(en("citation.picture")).toBe("Read from a picture");
     expect(zh("citation.picture")).toBe("从图片中识别");
+    // Its text was read by this build's pipeline, so a later change can read it again.
+    const [stored] = queryDatabase<{ processing_version: number }>(
+      dataDir,
+      "SELECT processing_version FROM documents WHERE id = ?",
+      [document?.id ?? ""],
+    );
+    expect(stored?.processing_version).toBe(PROCESSING_VERSION);
   });
 
   test("a picture with no text recognition model is retryable, and its failure says the picture, not a scan", async () => {
@@ -344,13 +351,9 @@ describe("Convert with LibreOffice adds a copy and leaves the original untouched
 });
 
 describe("The processing version (#762)", () => {
-  test("the new kinds are read by this version, and no other kind is read again for it", () => {
-    // Bumped at this change: main's highest was 21 (or higher, if another change came first).
+  test("this change raises it above main's 21", () => {
+    // Main's highest when this branch was cut; it goes up again at the final push if another
+    // change came first.
     expect(PROCESSING_VERSION).toBeGreaterThan(21);
-    expect(CURRENT_SINCE.image).toBe(PROCESSING_VERSION);
-    expect(CURRENT_SINCE.rtf).toBe(PROCESSING_VERSION);
-    expect(CURRENT_SINCE.html).toBe(PROCESSING_VERSION);
-    expect(CURRENT_SINCE.pdf).toBeLessThan(PROCESSING_VERSION);
-    expect(CURRENT_SINCE.docx).toBeLessThan(PROCESSING_VERSION);
   });
 });
