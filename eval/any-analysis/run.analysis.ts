@@ -17,7 +17,7 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { extname, join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { type Page, test } from "@playwright/test";
+import { type ElectronApplication, type Page, test } from "@playwright/test";
 import { createDataFolder, isTraced, launchApp, removeDataFolder } from "../../e2e/app";
 import type { ConversationAnswer, CoreBridge } from "../../src/core/api";
 import { openPackage } from "../../src/core/documents/formats/zip";
@@ -204,6 +204,8 @@ test("the any-analysis set", async () => {
   const modelId = process.env.INCARNAMIND_EVAL_CHAT_MODEL ?? "claude-haiku-5-5";
   if (!key) throw new Error("Set INCARNAMIND_EVAL_CHAT_KEY to a direct Anthropic key.");
   const cap = Number(process.env.INCARNAMIND_EVAL_MAX_USD ?? "1");
+  if (!Number.isFinite(cap) || cap < 0)
+    throw new Error("Set INCARNAMIND_EVAL_MAX_USD to a number of dollars.");
   const out =
     process.env.INCARNAMIND_EVAL_OUT ??
     join(
@@ -216,17 +218,7 @@ test("the any-analysis set", async () => {
   const listener = await listen();
   const sources = join(tmpdir(), `incarnamind-any-analysis-${randomUUID()}`);
   const dataDir = await createDataFolder();
-  const { app, window } = await launchApp(dataDir, {
-    sandboxed: true,
-    // Chromium's requests, the Analysis window's among them, reach only the listener.
-    // Loopback too: Chromium sends it past a proxy unless told not to.
-    switches: [
-      `--proxy-server=http://127.0.0.1:${listener.port}`,
-      "--proxy-bypass-list=<-loopback>",
-    ],
-  });
-  if (isTraced(window)) throw new Error("The app keeps a trace, which would hold the key.");
-  const core = bridge(window);
+  let app: ElectronApplication | null = null;
   const record: RunRecord = {
     run: {
       startedAt: new Date().toISOString(),
@@ -241,6 +233,19 @@ test("the any-analysis set", async () => {
     await writeFile(out, `${JSON.stringify(record)}\n`);
   };
   try {
+    const launched = await launchApp(dataDir, {
+      sandboxed: true,
+      // Chromium's requests, the Analysis window's among them, reach only the listener.
+      // Loopback too: Chromium sends it past a proxy unless told not to.
+      switches: [
+        `--proxy-server=http://127.0.0.1:${listener.port}`,
+        "--proxy-bypass-list=<-loopback>",
+      ],
+    });
+    app = launched.app;
+    if (isTraced(launched.window))
+      throw new Error("The app keeps a trace, which would hold the key.");
+    const core = bridge(launched.window);
     const providerId = await core.call(
       async (bridged, given) => {
         const { apiKey, model } = given as { apiKey: string; model: string };
@@ -257,9 +262,12 @@ test("the any-analysis set", async () => {
     for (const { task, language } of runs) {
       // The app's own meter since the run began: requests between tasks count against the cap too.
       const spent = dollarsIn(requestsSince(dataDir, record.run.startedAt));
-      if (spent >= cap) {
+      // A request the catalog prices in no dollars makes the spend unknown: stop rather than bill on.
+      if (!Number.isFinite(spent) || spent >= cap) {
         console.log(
-          `Stopped before ${task.id} (${language}): $${spent.toFixed(4)} spent, the cap is $${cap}.`,
+          Number.isFinite(spent)
+            ? `Stopped before ${task.id} (${language}): $${spent.toFixed(4)} spent, the cap is $${cap}.`
+            : `Stopped before ${task.id} (${language}): a request's model has no price in dollars.`,
         );
         break;
       }
@@ -354,7 +362,7 @@ test("the any-analysis set", async () => {
       record.requests = requestsSince(dataDir, record.run.startedAt);
     record.connections = listener.heard.map((each) => each.line);
     await keep();
-    await app.close().catch(() => undefined);
+    await app?.close().catch(() => undefined);
     await removeDataFolder(dataDir);
     await rm(sources, { recursive: true, force: true });
     listener.server.close();

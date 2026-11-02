@@ -207,4 +207,5 @@ Spend, from every request's tokens at the catalog's prices for its prompt's leng
 | Sonnet 5.5, published (a to d) | 224 | 123,808 | 3,408,934 | 977,126 | 147,222 | $4.5035 |
 | Haiku 5.5, the app's quick tasks in the Sonnet runs | 49 | 70,390 | 91,737 | 1,242 | 3,801 | $0.0100 |
 | Haiku 5.5, a first run that tuned the scorer and the harness, not published | 304 | 137,554 | 4,072,553 | 1,032,813 | 199,200 | $0.2832 |
-| All | 1,292 | | | | | $5.5688 |
+| Haiku 5.5, F03 once to check the harness after the review fixes, not published | 5 | 1,219 | 37,496 | 23,119 | 2,156 | $0.0045 |
+| All | 1,297 | | | | | $5.5733 |
