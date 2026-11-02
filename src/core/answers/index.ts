@@ -256,6 +256,7 @@ import {
   questionContextOf,
   type RequestMind,
   readMind,
+  withLineBefore,
 } from "./context";
 import {
   type ContextCitations,
@@ -315,6 +316,7 @@ import { paragraphAsked } from "./paragraphAsked";
 import {
   analysisInstructions,
   answerInstructions,
+  CALL_SCOPE_NOTE,
   commandInstructions,
   connectorInstructions,
   documentInstructions,
@@ -2368,6 +2370,9 @@ export function createAnswers(options: AnswersOptions) {
         if (finished) return;
         const kept = newestWithin(heard?.passages ?? [], listenedTokens(prepared.window));
         if (heard) messages = withTranscript(messages, session.show(kept));
+        if (heard && messages.length > 1) {
+          messages = withLineBefore(messages, CALL_SCOPE_NOTE, context.question, context.question);
+        }
         if (help && heard?.behind) {
           textBehind = true;
           const text = options.liveTextBehind(kept.length > 0);

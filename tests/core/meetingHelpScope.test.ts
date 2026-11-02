@@ -176,6 +176,79 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(answer.citations.some((citation) => citation.documentId === guide.id)).toBe(true);
   });
 
+  test(`${language}: a recap after guide help keeps the call's scope beside the Question, and the guide stays for follow-ups`, async () => {
+    const { core, meeting, guide, calls, fact } = await setup(language);
+    await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
+    const recap = translate(language, "meeting.ask.recap");
+    const first = await answerOf(
+      core,
+      await core.askInConversation({ mindId: meeting.mindId, text: recap }),
+    );
+    const firstCall = calls.find(
+      (call) => call.prompt.includes(recap) && call.prompt.includes("<live-transcript>"),
+    );
+    expect(firstCall).toBeDefined();
+    // With no earlier reply in the request, nothing could be taken for the call.
+    expect(firstCall?.prompt).not.toContain("<call>");
+    expect(first.citations.length).toBeGreaterThan(0);
+    const prior = await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" });
+    const priorAnswer = await answerOf(core, prior);
+    const typed = language === "en" ? "What have we covered so far?" : "我们聊到哪了？";
+    const before = calls.length;
+    const second = await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: priorAnswer.conversationId,
+        mindId: meeting.mindId,
+        text: typed,
+      }),
+    );
+    const secondCall = calls
+      .slice(before)
+      .find((call) => call.prompt.includes(typed) && call.prompt.includes("<live-transcript>"));
+    expect(secondCall).toBeDefined();
+    const scope = secondCall?.prompt ?? "";
+    expect(scope).toContain("<call>");
+    expect(scope).toContain(
+      "The live transcript above is what was said in this call. An earlier reply is not part of the call: it is there for follow-ups about it.",
+    );
+    expect(scope).toContain(
+      "A recap or summary of the call is what was said in it: a short list, each line citing the live-transcript passage it rests on, plus the written notes when the Question asks for them.",
+    );
+    expect(scope).toContain(
+      "A recap has no heading or closing line, and adds no unrequested suggestion, question to ask, or topic still to cover.",
+    );
+    expect(scope).toContain("</call>");
+    // The guide's reply stays in the conversation: follow-ups about it still read it.
+    const guideSaid =
+      language === "en"
+        ? "supplier payments are due in forty-five days"
+        : "提纲要求询问供应商的付款期是否为四十五天";
+    expect(secondCall?.prompt).toContain(guideSaid);
+    // The recap's own answer rests on the call.
+    expect(second.text).not.toContain(fact);
+    expect(second.citations.length).toBeGreaterThan(0);
+    expect(second.citations.every((citation) => citation.documentId !== guide.id)).toBe(true);
+    const follow =
+      language === "en"
+        ? "Which of those guide topics should I ask about first?"
+        : "上一条回答里列的问题，先问哪一个好？";
+    const from = calls.length;
+    await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: priorAnswer.conversationId,
+        mindId: meeting.mindId,
+        text: follow,
+      }),
+    );
+    const followCall = calls
+      .slice(from)
+      .find((call) => call.prompt.includes(follow) && call.prompt.includes("<live-transcript>"));
+    expect(followCall).toBeDefined();
+    expect(followCall?.prompt).toContain(guideSaid);
+  });
+
   for (const heard of [false, true]) {
     test(`${language}: an ordinary recap ${heard ? "with speech" : "before speech"} leaves Library facts out on ask and retry`, async () => {
       const { core, meeting, calls, fact, spoken } = await setup(language, heard);
