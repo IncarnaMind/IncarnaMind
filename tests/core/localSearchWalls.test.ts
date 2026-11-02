@@ -64,6 +64,50 @@ describe("a search on this computer keeps to the Folder walls (#1934)", () => {
     core.close();
   });
 
+  test("a wall reads its sub-Folders, and a wall inside it stops there", async () => {
+    const core = startCore(await createTempDataFolder());
+    const documents = await files(core);
+    const wall = await core.createLibraryGroup({
+      name: "Client work",
+      description: "",
+      keepInside: true,
+    });
+    const drafts = await core.createLibraryGroup({
+      name: "Drafts",
+      description: "",
+      parentId: wall.id,
+    });
+    const nested = await core.createLibraryGroup({
+      name: "Nested work",
+      description: "",
+      parentId: wall.id,
+      keepInside: true,
+    });
+    await core.assignDocumentGroup(named(documents, "Lease").id, wall.id);
+    await core.assignDocumentGroup(named(documents, "Suggested").id, drafts.id);
+    await core.assignDocumentGroup(named(documents, "Tide").id, nested.id);
+    const from = (mindId: string) => ({ kind: "turn" as const, mindId, conversationId: null });
+    const at = async (mindId: string, word: string) =>
+      names(await core.searchPassages(word, { mode: "keyword", place: from(mindId) }));
+
+    // The outer wall reads its own work and its ordinary sub-Folder's, never the nested wall's.
+    const outer = await core.createMind({ title: "Outer", folderId: wall.id });
+    expect(await at(outer.id, "lease")).toEqual(["Lease"]);
+    expect(await at(outer.id, "suggested")).toEqual(["Suggested"]);
+    expect(await at(outer.id, "tide")).toEqual([]);
+    // The nested wall reads its own work only.
+    const inner = await core.createMind({ title: "Inner", folderId: nested.id });
+    expect(await at(inner.id, "tide")).toEqual(["Tide"]);
+    expect(await at(inner.id, "lease")).toEqual([]);
+    expect(await at(inner.id, "suggested")).toEqual([]);
+    // Outside every wall, none of the three is read.
+    const outside = await core.createMind({ title: "Outside" });
+    expect(await at(outside.id, "lease")).toEqual([]);
+    expect(await at(outside.id, "suggested")).toEqual([]);
+    expect(await at(outside.id, "tide")).toEqual([]);
+    core.close();
+  });
+
   test("does not read Organize's suggestion inside a wall until the User files it there", async () => {
     const dataDir = await createTempDataFolder();
     const fake = classifierModel();

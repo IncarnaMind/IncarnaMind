@@ -1651,16 +1651,19 @@ export function createCore(adapters: CoreAdapters): Core {
     if (input.kind !== "asked") {
       throw new InvalidInputError('A search\'s place must be "turn" or "asked".');
     }
-    let askedFrom: { mindId: string | null } | null = null;
+    let askedFrom: { mindId: string | null; deleted?: boolean } | null = null;
     if (input.askedFrom !== undefined && input.askedFrom !== null) {
       if (!isRecord(input.askedFrom)) {
         throw new InvalidInputError("A search's askedFrom must be an object or null.");
       }
-      const { mindId } = input.askedFrom;
+      const { mindId, deleted } = input.askedFrom;
       if (mindId !== null && (typeof mindId !== "string" || mindId === "")) {
         throw new InvalidInputError("A search's askedFrom needs a Mind id or null.");
       }
-      askedFrom = { mindId };
+      if (deleted !== undefined && typeof deleted !== "boolean") {
+        throw new InvalidInputError("A search's askedFrom says whether its Note was deleted.");
+      }
+      askedFrom = { mindId, ...(deleted !== undefined && { deleted }) };
     }
     const { folderAskedIn } = input;
     if (folderAskedIn !== undefined && typeof folderAskedIn !== "string") {
@@ -1686,7 +1689,9 @@ export function createCore(adapters: CoreAdapters): Core {
       return wall === null ? scopeDocuments(scope, place.mindId) : resolveScope(folderScope(wall));
     }
     const mindId = place.askedFrom?.mindId ?? null;
-    if (mindId !== null && readableMindName(mindId) !== null) return scopeDocuments(scope, mindId);
+    const readsMind =
+      mindId !== null && place.askedFrom?.deleted !== true && readableMindName(mindId) !== null;
+    if (readsMind) return scopeDocuments(scope, mindId);
     if (place.folderAskedIn === undefined) return [];
     const wall = walledFolderId(place.folderAskedIn);
     return wall === null ? scopeDocuments(scope, null) : resolveScope(folderScope(wall));

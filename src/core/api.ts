@@ -4646,7 +4646,7 @@ export type PassageSearchPlace =
   | {
       kind: "asked";
       /** The Note it was asked from, as the conversation recorded it; null: none (Home). */
-      askedFrom: { mindId: string | null } | null;
+      askedFrom: { mindId: string | null; deleted?: boolean } | null;
       /** The Folder recorded with it; left out: not recorded, and such a turn reads nothing. */
       folderAskedIn?: string;
     };

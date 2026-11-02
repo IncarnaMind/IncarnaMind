@@ -374,7 +374,7 @@ export function AnswerError({
   question?: {
     text: string;
     scope: SearchScope | null;
-    askedFrom?: { mindId: string | null } | null;
+    askedFrom?: { mindId: string | null; deleted?: boolean } | null;
     folderAskedIn?: string;
   } | null;
   onOpenSettings(page: SettingsPage): void;

@@ -117,6 +117,9 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       const passage = window.getByTestId("found-passage").first();
       await expect(passage.getByTestId("found-passage-document")).toContainText("Tide");
+      await expect(passage.getByTestId("found-passage-where")).toHaveText(
+        language === "en" ? " · p. 1" : " · 第 1 页",
+      );
       await expect(passage.getByTestId("found-passage-text")).toContainText("tide tables");
       await shot(window, `waiting-${language}-900`);
 
@@ -135,6 +138,10 @@ for (const language of ["en", "zh-CN"] as const) {
       ]);
       expect((lineBox?.x ?? 0) + (lineBox?.width ?? 0)).toBeLessThanOrEqual(size.width);
       await shot(window, `waiting-${language}-1600`);
+
+      // A found passage opens its Document at the Passage, as a Citation does.
+      await pointAndClick(window, window.getByTestId("found-passage").first());
+      await expect(window.getByTestId("viewer-title")).toContainText("Tide");
     } finally {
       await app.close();
     }

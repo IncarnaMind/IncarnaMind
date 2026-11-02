@@ -177,7 +177,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
       await addDocuments(window, [path]);
       await newMind(window);
-      const answer = await askInAssistant(window, "What is the capital of Finland?");
+      // The scripted model fails as a request that never reaches the provider does, and the words
+      // share nothing with the Document.
+      const answer = await askInAssistant(window, "What is the capital of Finland? No connection.");
       await expect(answer).toHaveAttribute("data-status", "failed", { timeout: 15_000 });
       await setOnline(window, false);
       const error = answer.getByTestId("answer-error");

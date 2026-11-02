@@ -20,7 +20,7 @@ export function useWaitingPlace(
 /** Where a Question already asked stands: its Note now, else the Folder recorded with it. */
 export function useQuestionPlace(
   question: {
-    askedFrom?: { mindId: string | null } | null;
+    askedFrom?: { mindId: string | null; deleted?: boolean } | null;
     folderAskedIn?: string;
   } | null,
 ): PassageSearchPlace {
