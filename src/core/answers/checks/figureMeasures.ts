@@ -81,15 +81,25 @@ const HAN = /\p{Script=Han}/u;
  * Whether `texts` hold `words`: whole, or by the pieces between their spaces, and a Chinese piece
  * as two runs of two characters or more, since Chinese writes no spaces: a cell's measure may join
  * its row label and its table's caption ("生鲜食品收入" for 生鲜食品 under 分部收入, as Claude Haiku
- * 5.5 named it).
+ * 5.5 named it). One of the two must be a whole run of Han in a text, as a label is: two runs from
+ * inside any words build a name no text gives (毛利 of 毛利下降 and 润率 of 营业利润率).
  */
 function heldIn(texts: readonly string[], words: string): boolean {
   const own = (part: string) => texts.some((text) => namedIn(text, part));
+  const runs = new Set(
+    texts.flatMap((text) => text.normalize("NFKC").match(/\p{Script=Han}+/gu) ?? []),
+  );
   const halves = (piece: string) => {
     const characters = named(piece);
-    for (let at = 2; HAN.test(piece) && at <= characters.length - 2; at++)
-      if (own(characters.slice(0, at).join(" ")) && own(characters.slice(at).join(" ")))
+    for (let at = 2; HAN.test(piece) && at <= characters.length - 2; at++) {
+      const [head, tail] = [characters.slice(0, at), characters.slice(at)];
+      if (
+        (runs.has(head.join("")) || runs.has(tail.join(""))) &&
+        own(head.join(" ")) &&
+        own(tail.join(" "))
+      )
         return true;
+    }
     return false;
   };
   return (
@@ -217,7 +227,8 @@ export interface BoundNumber {
   values: readonly number[];
 }
 
-const digitsOf = (chars: string): string => chars.normalize("NFKC").replace(/\D/gu, "");
+// The point stays: "1.2%" is another number than the figure's 12%.
+const digitsOf = (chars: string): string => chars.normalize("NFKC").replace(/[^\d.]/gu, "");
 
 /** Whether `figure` writes the figure's own number, or its source's, in digits or in value. */
 function writesNumber(figure: Figure, bound: BoundNumber): boolean {
@@ -295,9 +306,17 @@ export function measureFinding(
   const quoted = naming?.words ?? null;
   const owned = namesSomething(said) && heldIn(sentence, said);
   // A reply that copies the clause around a number names no measure of its own, so its match
-  // can't tell the fleet's kilometres from rail partners' (Claude Haiku 5.5 called them the same):
-  // the quote's clause must write the sentence's measure itself.
+  // can't tell the fleet's kilometres from rail partners' (Claude Haiku 5.5 called them the same).
+  // A clause stands only beside a name, and the two must agree both ways: the quote's clause
+  // holds the sentence's name, and the sentence writes the quote's clause in its order, so
+  // neither carries another measure's words ("Revenue fell while cost of sales was £12m").
   const copied = named.clause || naming?.clause === true;
+  const agreed =
+    !copied ||
+    (quoted !== null &&
+      !(named.clause && naming?.clause) &&
+      heldIn([quoted], said) &&
+      sentence.some((text) => namedIn(text, quoted)));
   // The first text that holds the quote decides, its cited pages before the rest of its Document:
   // a quote it holds twice is in no one place.
   let place: ReturnType<typeof placeOf> | undefined;
@@ -335,7 +354,7 @@ export function measureFinding(
           : null,
     };
   }
-  if (!owned || (copied && (quoted === null || !heldIn([quoted], said)))) return { kind: "unread" };
+  if (!owned || !agreed) return { kind: "unread" };
   if (found.length > 0) return { kind: "same" };
   // Only a table's cell may name nothing of its own: a number in prose has its measure beside it.
   const cell = quoted === null && !namesSomething(quote) ? where() : null;

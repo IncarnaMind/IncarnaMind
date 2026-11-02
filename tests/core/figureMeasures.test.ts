@@ -446,7 +446,7 @@ test.each([
   }
 });
 
-// protects=words that write the figure's own number are the clause around it, named by the rest once the number and the unit read with it are out: the clauses Claude Haiku 5.5 copied in the tie-out name their measure; nothing left, a rest past the caps or a rest that writes another number is Not checked; and a copied clause names no measure apart, so the quote's clause must write the sentence's measure, and the fleet's kilometres never back rail partners' (Haiku called them the same in the held-out run) (#2255); fails_when=a clause that names its measure is refused, or a clause about another measure or about two numbers is accepted; no_claim=that the quote's clause writing the sentence's words makes them the same measure.
+// protects=words that write the figure's own number are the clause around it, named by the rest once the number and the unit read with it are out: the clauses Claude Haiku 5.5 copied in the tie-out name their measure when the sentence writes the quote's clause; nothing left, a rest past the caps or a rest that writes another number is Not checked; and a copied clause names no measure apart, so the quote's clause must hold the sentence's name and the sentence the quote's clause, and the fleet's kilometres never back rail partners' (Haiku called them the same in the held-out run); a right figure whose sentence words its clause another way (契约上限 beside 杠杆率契约上限为, 中期股息每股 beside 中期股息为每股) is Not checked, the cost of that guard (#2255); fails_when=a clause that the sentence writes is refused, or a clause about another measure or about two numbers is accepted; no_claim=that the quote's clause writing the sentence's words makes them the same measure.
 test.each([
   {
     sentence: "Net debt was £5.7bn and leverage was 3.1x on EBITDA of £1,840m.",
@@ -478,7 +478,7 @@ test.each([
     number: ["3.5倍", 3.5],
     said: "契约上限",
     quoted: "杠杆率契约上限为3.5倍",
-    kind: "same",
+    kind: "unread",
   },
   {
     sentence: "员工人数为41,250人，中期股息为每股0.42元。",
@@ -486,6 +486,14 @@ test.each([
     number: ["0.42元", 0.42],
     said: "中期股息每股",
     quoted: "中期股息为每股0.42元",
+    kind: "unread",
+  },
+  {
+    sentence: "本季度新开门店14家，关闭门店6家。",
+    quote: "本季度新开门店14家，关闭门店6家。",
+    number: ["14家", 14],
+    said: "新开门店",
+    quoted: "新开门店14家",
     kind: "same",
   },
   {
@@ -1054,3 +1062,453 @@ test.each([
   );
   expect(finding.kind).toBe(kind);
 });
+
+/** A wrong measure's words and its right twin's, for one quote and the number bound in it. */
+interface Pair {
+  quote: string;
+  number: [chars: string, value: number];
+  wrong: { sentence: string | string[]; said: string; quoted: string };
+  right: { sentence: string | string[]; said: string; quoted: string };
+  passage?: string;
+}
+
+const findingOf = (pair: Pair, side: Pair["wrong"]) => {
+  const [chars, value] = pair.number;
+  return measureFinding(
+    { sentence: side.said, quote: side.quoted, match: "same" },
+    typeof side.sentence === "string" ? [side.sentence] : side.sentence,
+    pair.quote,
+    { chars, at: pair.quote.indexOf(chars), figure: chars, values: [value] },
+    () => (pair.passage === undefined ? [] : [pair.passage]),
+  ).kind;
+};
+
+describe("a wrong measure beside its right twin (#2255's review)", () => {
+  // protects=a copied clause stands for the measure only when the two sides agree both ways: the quote's clause holds the sentence's name, and the sentence writes the quote's clause in its order, so a clause that carries another measure's words, a verb or a period alone, or the sentence's name found word by word in another part of the clause never makes the same number "same", in English and Chinese, while the twin the sentence writes still does (#2255); fails_when=a wrong one is "same", or its twin isn't; no_claim=that the sentence writing the quote's clause makes it the same measure.
+  test.each<Pair & { name: string }>([
+    {
+      name: "cost of sales, the clause's second measure",
+      quote: "Revenue fell while cost of sales was £12m.",
+      number: ["£12m", 12_000_000],
+      wrong: {
+        sentence: "Revenue was £12m.",
+        said: "Revenue",
+        quoted: "Revenue fell while cost of sales was £12m",
+      },
+      right: {
+        sentence: "Cost of sales was £12m.",
+        said: "Cost of sales",
+        quoted: "cost of sales was £12m",
+      },
+    },
+    {
+      name: "毛利率, the clause's second measure",
+      quote: "收入增长12%，毛利率保持稳定。",
+      number: ["12%", 0.12],
+      wrong: { sentence: "毛利率为12%。", said: "毛利率", quoted: "收入增长12%，毛利率保持稳定" },
+      right: { sentence: "收入增长12%。", said: "收入", quoted: "收入增长12%" },
+    },
+    {
+      name: "operating margin, held steady",
+      quote: "Revenue grew 12%, while operating margin held steady.",
+      number: ["12%", 0.12],
+      wrong: {
+        sentence: "Operating margin was 12% in 2025.",
+        said: "operating margin",
+        quoted: "Revenue grew 12%, while operating margin held steady",
+      },
+      right: { sentence: "Revenue grew 12% in 2025.", said: "Revenue", quoted: "Revenue grew 12%" },
+    },
+    {
+      name: "operating margin, nine per cent",
+      quote: "Revenue grew 12% and operating margin was nine per cent.",
+      number: ["12%", 0.12],
+      wrong: {
+        sentence: "Operating margin was 12% in 2025.",
+        said: "operating margin",
+        quoted: "Revenue grew 12% and operating margin was nine per cent",
+      },
+      right: {
+        sentence: "Revenue grew 12% and operating margin was nine per cent.",
+        said: "Revenue",
+        quoted: "Revenue grew 12% and operating margin was nine per cent",
+      },
+    },
+    {
+      name: "operating margin over 12 months",
+      quote: "Operating margin over 12 months and revenue growth of 12%.",
+      number: ["12%", 0.12],
+      wrong: {
+        sentence: "Operating margin was 12% in 2025.",
+        said: "Operating margin",
+        quoted: "Operating margin over 12 months and revenue growth of 12%",
+      },
+      right: {
+        sentence: "Revenue growth of 12% beat the plan.",
+        said: "revenue growth",
+        quoted: "revenue growth of 12%",
+      },
+    },
+    {
+      name: "gross margin, word by word",
+      quote: "Gross revenue grew 12% as net margin held.",
+      number: ["12%", 0.12],
+      wrong: {
+        sentence: "Gross margin was 12% in 2025.",
+        said: "Gross margin",
+        quoted: "Gross revenue grew 12% as net margin held",
+      },
+      right: {
+        sentence: "Gross revenue grew 12% in 2025.",
+        said: "Gross revenue",
+        quoted: "Gross revenue grew 12%",
+      },
+    },
+    {
+      name: "a verb alone",
+      quote: "Revenue grew 12% in 2025, to £48.2m.",
+      number: ["12%", 0.12],
+      wrong: {
+        sentence: "Store count grew 12% in 2025.",
+        said: "grew 12%",
+        quoted: "Revenue grew 12%",
+      },
+      right: { sentence: "Revenue grew 12% in 2025.", said: "Revenue", quoted: "Revenue grew 12%" },
+    },
+    {
+      name: "增长 alone",
+      quote: "收入增长12%。",
+      number: ["12%", 0.12],
+      wrong: { sentence: "门店数量增长12%。", said: "增长12%", quoted: "收入增长12%" },
+      right: { sentence: "收入增长12%。", said: "收入", quoted: "收入增长12%" },
+    },
+    {
+      name: "a period alone",
+      quote: "Revenue over the last 12 months grew 12%.",
+      number: ["12%", 0.12],
+      wrong: {
+        sentence: "Operating margin over the last 12 months was 12%.",
+        said: "over the last 12 months",
+        quoted: "Revenue over the last 12 months grew 12%",
+      },
+      right: {
+        sentence: "Revenue over the last 12 months grew 12%.",
+        said: "Revenue",
+        quoted: "Revenue over the last 12 months grew 12%",
+      },
+    },
+    {
+      name: "operating margin beside 1.2%",
+      quote: "Operating margin of 1.2% and revenue growth of 12% in 2025.",
+      number: ["12%", 0.12],
+      wrong: {
+        sentence: "Operating margin was 12% in 2025.",
+        said: "Operating margin",
+        quoted: "Operating margin of 1.2% and revenue growth of 12%",
+      },
+      right: {
+        sentence: "Revenue growth of 12% in 2025 beat the plan.",
+        said: "revenue growth",
+        quoted: "revenue growth of 12%",
+      },
+    },
+    {
+      name: "the sentence writes the quote's clause, but not its name",
+      quote: "Revenue grew 12% in 2025, to £48.2m.",
+      number: ["12%", 0.12],
+      wrong: {
+        sentence: "Operating margin was 12% and revenue grew 12% in 2025.",
+        said: "Operating margin",
+        quoted: "Revenue grew 12%",
+      },
+      right: {
+        sentence: "Operating margin was 12% and revenue grew 12% in 2025.",
+        said: "revenue",
+        quoted: "Revenue grew 12%",
+      },
+    },
+  ])("a clause both ways: $name", (pair) => {
+    expect([findingOf(pair, pair.wrong), findingOf(pair, pair.right)]).toEqual(["unread", "same"]);
+  });
+
+  // protects=when both sides copy the clause around the number, neither names the measure, so a vague word both clauses leave ("The", "total") never makes the same number "same"; a name beside the quote's clause still does (#2255); fails_when=two clauses that agree on a vague word are "same", or the named twin isn't; no_claim=that a one-word name beside a clause names the measure.
+  test.each<Pair & { name: string }>([
+    {
+      name: "The 12%",
+      quote: "The 12% rise in revenue came from new stores.",
+      number: ["12%", 0.12],
+      wrong: {
+        sentence: "The 12% rise in costs hit the margin.",
+        said: "The 12%",
+        quoted: "The 12%",
+      },
+      right: {
+        sentence: "The 12% rise in revenue came from new stores.",
+        said: "revenue",
+        quoted: "The 12% rise in revenue",
+      },
+    },
+    {
+      name: "total 12%",
+      quote: "Sales rose a total 12% in 2025.",
+      number: ["12%", 0.12],
+      wrong: {
+        sentence: "Staff costs rose a total 12% in 2025.",
+        said: "total 12%",
+        quoted: "total 12%",
+      },
+      right: {
+        sentence: "Sales rose a total 12% in 2025.",
+        said: "Sales",
+        quoted: "Sales rose a total 12%",
+      },
+    },
+  ])("two clauses: $name", (pair) => {
+    expect([findingOf(pair, pair.wrong), findingOf(pair, pair.right)]).toEqual(["unread", "same"]);
+  });
+
+  // protects=a decimal is another number than the figure's own, so 1.2%, £1.2bn or 1.2亿元 never comes out of a clause as the figure's 12% (or 12% as 1.2%'s), and a clause that writes it beside the figure is a clause about two numbers; the clause about the figure alone is still named (#2255); fails_when=a decimal is taken out with the figure's number, or the twin about one number isn't "same"; no_claim=none beyond protects.
+  test.each<Pair & { name: string }>([
+    {
+      name: "12% beside 1.2%",
+      quote: "Operating margin of 1.2% and revenue growth of 12% in 2025.",
+      number: ["12%", 0.12],
+      wrong: {
+        sentence: "Operating margin of 1.2% and revenue growth of 12% in 2025.",
+        said: "revenue growth",
+        quoted: "Operating margin of 1.2% and revenue growth of 12%",
+      },
+      right: {
+        sentence: "Operating margin of 1.2% and revenue growth of 12% in 2025.",
+        said: "revenue growth",
+        quoted: "revenue growth of 12%",
+      },
+    },
+    {
+      name: "1.2% beside 12%",
+      quote: "Operating margin of 1.2% and revenue growth of 12% in 2025.",
+      number: ["1.2%", 0.012],
+      wrong: {
+        sentence: "Operating margin of 1.2% and revenue growth of 12% in 2025.",
+        said: "Operating margin",
+        quoted: "Operating margin of 1.2% and revenue growth of 12%",
+      },
+      right: {
+        sentence: "Operating margin of 1.2% and revenue growth of 12% in 2025.",
+        said: "Operating margin",
+        quoted: "Operating margin of 1.2%",
+      },
+    },
+    {
+      name: "12% beside £1.2bn",
+      quote: "Revenue of £1.2bn and a margin of 12% in 2025.",
+      number: ["12%", 0.12],
+      wrong: {
+        sentence: "Revenue of £1.2bn and a margin of 12% in 2025.",
+        said: "margin",
+        quoted: "Revenue of £1.2bn and a margin of 12%",
+      },
+      right: {
+        sentence: "Revenue of £1.2bn and a margin of 12% in 2025.",
+        said: "margin",
+        quoted: "a margin of 12%",
+      },
+    },
+    {
+      name: "12% beside 1.2亿元",
+      quote: "收入1.2亿元，毛利率12%。",
+      number: ["12%", 0.12],
+      wrong: {
+        sentence: "收入1.2亿元，毛利率12%。",
+        said: "毛利率",
+        quoted: "收入1.2亿元，毛利率12%",
+      },
+      right: { sentence: "收入1.2亿元，毛利率12%。", said: "毛利率", quoted: "毛利率12%" },
+    },
+  ])("a decimal: $name", (pair) => {
+    expect([findingOf(pair, pair.wrong), findingOf(pair, pair.right)]).toEqual(["unread", "same"]);
+  });
+
+  // protects=a Chinese name joined from two pieces is the sentence's own only when one piece is a whole run of Han in its texts, as a row label or 燃油 before its digits is: pieces from inside other words (成本 of 成本下降 with 营业 of 营业收入, 毛利 of 毛利下降 with 润率 of 营业利润率, a caption's 成本 with a label's 营业) never build it, while the sentence or label that names it still does (#2255); fails_when=a name built from inside other words is "same", or the twin isn't; no_claim=that a piece from another sentence of the paragraph names the figure.
+  test.each<Pair & { name: string }>([
+    {
+      name: "营业成本 from 成本下降 and 营业收入",
+      quote: "营业成本为300万元。",
+      number: ["300万元", 3_000_000],
+      wrong: { sentence: "成本下降后，营业收入为300万元。", said: "营业成本", quoted: "营业成本" },
+      right: { sentence: "营业成本为300万元。", said: "营业成本", quoted: "营业成本" },
+    },
+    {
+      name: "毛利润率 from 毛利下降 and 营业利润率",
+      quote: "毛利润率为12%。",
+      number: ["12%", 0.12],
+      wrong: { sentence: "毛利下降，营业利润率为12%。", said: "毛利润率", quoted: "毛利润率" },
+      right: { sentence: "毛利润率为12%。", said: "毛利润率", quoted: "毛利润率" },
+    },
+    {
+      name: "营业成本 from a label's 营业 and a caption's 成本",
+      quote: "营业成本\t300",
+      number: ["300", 300],
+      passage: "成本中心报表（万元）\n营业成本\t300",
+      wrong: {
+        sentence: ["300", "营业收入 · 华东", "成本中心报表（万元）\n营业收入 | 300"],
+        said: "营业成本",
+        quoted: "营业成本",
+      },
+      right: {
+        sentence: ["300", "营业成本 · 华东", "成本中心报表（万元）\n营业成本 | 300"],
+        said: "营业成本",
+        quoted: "营业成本",
+      },
+    },
+    {
+      name: "燃油收入 from 燃油 before its digits",
+      quote: "燃油\t510\t450",
+      number: ["510", 510],
+      passage: "单位：人民币百万元\n分部\t2026年第三季度\t2025年第三季度\n燃油\t510\t450",
+      wrong: {
+        sentence: ["燃油5.10亿元", "", "", "分部成本下降。燃油5.10亿元。"],
+        said: "燃油收入",
+        quoted: "燃油",
+      },
+      right: {
+        sentence: ["燃油5.10亿元", "", "", "分部收入如下。燃油5.10亿元。"],
+        said: "燃油收入",
+        quoted: "燃油",
+      },
+    },
+  ])("a Chinese name from two pieces: $name", (pair) => {
+    expect([findingOf(pair, pair.wrong), findingOf(pair, pair.right)]).toEqual(["unread", "same"]);
+  });
+});
+
+/** The review's wrong inputs that came back Supported through Check this Note, beside their twins. */
+const REVIEWED = {
+  en: {
+    name: "Larkfield notes 2025.md",
+    contents: [
+      "# Larkfield notes 2025",
+      "",
+      "Revenue fell while cost of sales was £12m.",
+      "",
+      "Revenue grew 12% in 2025, to £48.2m.",
+      "",
+      "Operating margin of 1.2% and revenue growth of 12% in 2025.",
+      "",
+    ].join("\n"),
+  },
+  zh: {
+    name: "明川食品2025年说明.md",
+    contents: [
+      "# 明川食品2025年说明",
+      "",
+      "收入增长12%，毛利率保持稳定。",
+      "",
+      "营业成本为300万元。",
+      "",
+    ].join("\n"),
+  },
+};
+
+// protects=the review's five wrong measures that came back Supported through Check this Note are Not checked with their own reason, never Supported as a figure or a sentence, and each right twin from the same quote is Supported, in English and Chinese (#2255); fails_when=a wrong one shows Supported, or a twin doesn't; no_claim=that a real model names the measures this way.
+test.each([
+  {
+    language: "en" as const,
+    sentence: "Revenue was £12m.",
+    quote: "Revenue fell while cost of sales was £12m.",
+    number: "£12m",
+    measure: { sentence: "Revenue", quote: "Revenue fell while cost of sales was £12m" },
+    state: "not-checked",
+  },
+  {
+    language: "en" as const,
+    sentence: "Cost of sales was £12m.",
+    quote: "Revenue fell while cost of sales was £12m.",
+    number: "£12m",
+    measure: { sentence: "Cost of sales", quote: "cost of sales was £12m" },
+    state: "supported",
+  },
+  {
+    language: "en" as const,
+    sentence: "Store count grew 12% in 2025.",
+    quote: "Revenue grew 12% in 2025, to £48.2m.",
+    number: "12%",
+    measure: { sentence: "grew 12%", quote: "Revenue grew 12%" },
+    state: "not-checked",
+  },
+  {
+    language: "en" as const,
+    sentence: "Revenue grew 12% in 2025.",
+    quote: "Revenue grew 12% in 2025, to £48.2m.",
+    number: "12%",
+    measure: { sentence: "Revenue", quote: "Revenue grew 12%" },
+    state: "supported",
+  },
+  {
+    language: "en" as const,
+    sentence: "Operating margin was 12% in 2025.",
+    quote: "Operating margin of 1.2% and revenue growth of 12% in 2025.",
+    number: "12%",
+    measure: {
+      sentence: "Operating margin",
+      quote: "Operating margin of 1.2% and revenue growth of 12%",
+    },
+    state: "not-checked",
+  },
+  {
+    language: "en" as const,
+    sentence: "Revenue growth of 12% in 2025 beat the plan.",
+    quote: "Operating margin of 1.2% and revenue growth of 12% in 2025.",
+    number: "12%",
+    measure: { sentence: "revenue growth", quote: "revenue growth of 12%" },
+    state: "supported",
+  },
+  {
+    language: "zh-CN" as const,
+    sentence: "毛利率为12%。",
+    quote: "收入增长12%，毛利率保持稳定。",
+    number: "12%",
+    measure: { sentence: "毛利率", quote: "收入增长12%，毛利率保持稳定" },
+    state: "not-checked",
+  },
+  {
+    language: "zh-CN" as const,
+    sentence: "收入增长12%。",
+    quote: "收入增长12%，毛利率保持稳定。",
+    number: "12%",
+    measure: { sentence: "收入", quote: "收入增长12%" },
+    state: "supported",
+  },
+  {
+    language: "zh-CN" as const,
+    sentence: "成本下降后，营业收入为300万元。",
+    quote: "营业成本为300万元。",
+    number: "300万元",
+    measure: { sentence: "营业成本", quote: "营业成本" },
+    state: "not-checked",
+  },
+  {
+    language: "zh-CN" as const,
+    sentence: "营业成本为300万元。",
+    quote: "营业成本为300万元。",
+    number: "300万元",
+    measure: { sentence: "营业成本", quote: "营业成本" },
+    state: "supported",
+  },
+])(
+  "through Check this Note: $sentence",
+  async ({ language, sentence, quote, number, measure, state }) => {
+    const { figures } = await checkNote(
+      language,
+      language === "en" ? REVIEWED.en : REVIEWED.zh,
+      [paragraph("reviewed", sentence)],
+      one(sentence, { quote, number, measure: { ...measure, match: "same" } }),
+    );
+    expect(figures).toMatchObject([
+      state === "supported"
+        ? { sentence, state, sentenceState: "supported" }
+        : { sentence, state, reason: "unnamed-measure" },
+    ]);
+    if (state !== "supported") expect(figures[0]?.sentenceState).not.toBe("supported");
+  },
+);
