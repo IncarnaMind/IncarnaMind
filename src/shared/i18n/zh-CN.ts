@@ -4802,6 +4802,8 @@ export const zhCN = {
   "error.files.outside": "IncarnaMind 只会把新文件保存在保存位置或允许添加文件的关联文件夹中。",
   "error.files.notChosen": "你没有选择新文件的保存位置，因此没有保存任何内容。",
   "error.files.linkedFolderDeclined": "你没有允许向这个关联文件夹添加文件，因此没有保存任何内容。",
+  "error.files.pathRequired": "需要文件的完整路径。",
+  "error.files.notSkipped.show": "只能显示上次添加时跳过的文件。",
   "error.files.notSaved.show": "只能显示 IncarnaMind 保存的文件。",
   "error.files.notSaved.open": "只能打开 IncarnaMind 保存的文件。",
   "error.provider.unknown": "无法识别服务商“{provider}”。",

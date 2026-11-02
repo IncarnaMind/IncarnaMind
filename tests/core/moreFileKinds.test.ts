@@ -314,9 +314,10 @@ describe("Old Office, WPS, Pages and Keynote files say the plain next step (#762
 
     await core.showSkippedFile(files[0] ?? "");
     expect(shown).toEqual([files[0]]);
-    await expect(core.showSkippedFile(join(sources, "Other.doc"))).rejects.toThrow(
-      "Only a file an add skipped",
-    );
+    await expect(core.showSkippedFile(join(sources, "Other.doc"))).rejects.toMatchObject({
+      message: "Only a file the last add skipped can be shown.",
+      wording: { key: "error.files.notSkipped.show" },
+    });
   });
 });
 

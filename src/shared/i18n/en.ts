@@ -5038,6 +5038,8 @@ export const en = {
   "error.files.notChosen": "You didn’t choose where to save new files, so nothing was saved.",
   "error.files.linkedFolderDeclined":
     "You didn’t allow new files in this Linked folder, so nothing was saved.",
+  "error.files.pathRequired": "A file’s full path is needed.",
+  "error.files.notSkipped.show": "Only a file the last add skipped can be shown.",
   "error.files.notSaved.show": "Only a file IncarnaMind saved can be shown.",
   "error.files.notSaved.open": "Only a file IncarnaMind saved can be opened.",
   "error.provider.modelMissing": "Enter a model name.",

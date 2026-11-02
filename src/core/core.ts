@@ -4536,7 +4536,7 @@ export function createCore(adapters: CoreAdapters): Core {
   /** A file path a call gave: an absolute path, as `addDocuments` takes. */
   const filePathOf = (path: unknown): string => {
     if (typeof path !== "string" || !isAbsolute(path)) {
-      throw new InvalidInputError("The file must be given as an absolute path.");
+      throw new InvalidInputError({ key: "error.files.pathRequired" });
     }
     return path;
   };
@@ -4648,7 +4648,7 @@ export function createCore(adapters: CoreAdapters): Core {
     showSkippedFile: async (pathInput) => {
       const path = filePathOf(pathInput);
       if (!skippedForShowing.has(path)) {
-        throw new InvalidInputError("Only a file an add skipped can be shown.");
+        throw new InvalidInputError({ key: "error.files.notSkipped.show" });
       }
       if (!adapters.shell) throw new Error("This copy of IncarnaMind can't show files.");
       adapters.shell.showItemInFolder(path);
