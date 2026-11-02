@@ -133,7 +133,7 @@ const cellAt = (line: string, at: number): number => cellsOf(line.slice(0, at)).
  * The names of the cell that holds `quote`'s number in `text`'s table, once `text` holds the
  * quote once: its own (the nearest named cell to the number's left, and the heading of its own
  * column) and those of the table's other numbers (the heading of another column that holds a
- * number in this row, the label of another row as wide that holds a number in this column). Null
+ * number in this row, the label of another row of its table that holds a number in this column). Null
  * when the number isn't in a table's row, its row has no label, or `text` doesn't hold the quote
  * just once.
  */
@@ -151,21 +151,23 @@ function cellOf(
   const index = all.slice(0, lineStart).split("\n").length - 1;
   const line = lines[index] ?? "";
   if (!isRow(line)) return null;
-  let first = index;
-  while (first > 0 && isRow(lines[first - 1] ?? "")) first--;
-  let last = index;
-  while (last + 1 < lines.length && isRow(lines[last + 1] ?? "")) last++;
-  const above = lines.slice(first, index);
-  const rule = above.findIndex(isRule);
-  const headings = (rule >= 0 ? above.slice(0, rule) : above.slice(0, 1)).filter(
-    (heading) => !isRule(heading),
-  );
-  const cells = cellsOf(line);
-  const column = cellAt(line, at - lineStart);
-  // Read without dates, a period ("Q3 2026", "2025年") is no number: a heading row of periods
-  // further down a sheet is no other number's row.
+  // Read without dates, a period ("Q3 2026", "2025年") is no number.
   const holdsNumber = (cell: string | undefined) =>
     cell !== undefined && readFigures(cell, { midLine: true }).length > 0;
+  // A reader writes no line for a blank row, so two tables can run on as one: a row with no
+  // number (a heading, a rule, a caption) starts the number's own table, and the rows of no number
+  // just above it are its headings.
+  const numbered = (row: string | undefined) =>
+    row !== undefined && isRow(row) && cellsOf(row).some(holdsNumber);
+  let top = index;
+  while (top > 0 && numbered(lines[top - 1])) top--;
+  let head = top;
+  while (head > 0 && isRow(lines[head - 1] ?? "") && !numbered(lines[head - 1])) head--;
+  let end = index;
+  while (numbered(lines[end + 1])) end++;
+  const headings = lines.slice(head, top).filter((heading) => !isRule(heading));
+  const cells = cellsOf(line);
+  const column = cellAt(line, at - lineStart);
   // In side-by-side panels ("| Revenue | 12% | Operating margin | 94% |") the first cell
   // labels another number: the label is the nearest named cell to the left, never one with a
   // digit, a value the figure reader may leave unread ("6.1p", "2.6 days").
@@ -189,10 +191,10 @@ function cellOf(
       cellsOf(heading).filter((_, place) => place !== column && holdsNumber(cells[place])),
     ),
     ...lines
-      .slice(first, last + 1)
-      .filter((row, place) => place + first !== index && !headings.includes(row) && !isRule(row))
+      .slice(top, end + 1)
+      .filter((_, place) => place + top !== index)
       .map(cellsOf)
-      .filter((row) => row.length === cells.length && holdsNumber(row[column]))
+      .filter((row) => holdsNumber(row[column]))
       .map((row) => labelOf(row) ?? ""),
   ];
   return {
@@ -244,7 +246,8 @@ export function measureFinding(
     return null;
   };
   // The same words on both sides can't name two measures: a model that compared the numbers.
-  if (measure.match === "differs" && quoted !== null && namedAs(quoted, said))
+  // Their digits count here: "Scope 1 emissions" isn't "Scope 2 emissions".
+  if (measure.match === "differs" && quoted !== null && holds(quoted, said) && holds(said, quoted))
     return { kind: "unknown" };
   if (measure.match === "differs") {
     const shown = (words: string, texts: readonly string[]) =>

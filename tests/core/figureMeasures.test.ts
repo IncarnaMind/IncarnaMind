@@ -686,7 +686,7 @@ describe("where a table cell's words may come from (#2255's review)", () => {
 });
 
 describe("where a table's headings line up (#2255's review)", () => {
-  // protects=a heading row that doesn't line up with the quote's row says nothing either way, since its cells can't say which is the number's: the DOCX reader drops a blank corner cell, and a merged heading is written once, so its words leave the check as before; a sheet's second heading row is a row, whose cell above the number isn't another number's; aligned heading rows, two of them in Markdown, a blank corner kept, and a transposed table name the number and tell another column's or row's apart (#2255); fails_when=a shifted heading is "same" or "other-cell", or an aligned one stops naming the number or telling another apart; no_claim=that every reader keeps blank and merged cells (#2426).
+  // protects=a heading row that doesn't line up with the quote's row says nothing either way, since its cells can't say which is the number's: the DOCX reader drops a blank corner cell, and a merged heading is written once, so its words leave the check as before; a sheet's second heading row names the number's column; aligned heading rows, two of them in Markdown, a blank corner kept, and a transposed table name the number and tell another column's or row's apart (#2255); fails_when=a shifted heading is "same" or "other-cell", or an aligned one stops naming the number or telling another apart; no_claim=that every reader keeps blank and merged cells (#2426).
   test.each([
     {
       name: "the DOCX reader's row, its blank corner dropped",
@@ -696,7 +696,13 @@ describe("where a table's headings line up (#2255's review)", () => {
     {
       name: "a merged heading written once",
       text: "\tRates\tOccupancy\nDepot\tOn-time\tLate\tSpace\tYard\nFelixstowe\t81%\t94%\t70%\t60%",
-      found: { Occupancy: "unknown", Rates: "unknown", Late: "unknown", Felixstowe: "same" },
+      found: {
+        Occupancy: "unknown",
+        Rates: "unknown",
+        Late: "same",
+        "On-time": "other-cell",
+        Felixstowe: "same",
+      },
     },
     {
       name: "a Markdown row with its blank corner kept",
@@ -900,6 +906,46 @@ test.each([
     checked: ["Frozen", "other-cell"],
   },
   {
+    name: "two sheet tables run on as one",
+    text: "Group\t2025\t2024\nRevenue\t1,420\t1,350\nOperating margin\t11%\t10%\nSegment\tRevenue\tOperating margin\nRetail\t900\t12%\nWholesale\t520\t9%",
+    quote: "Retail\t900\t12%",
+    chars: "900",
+    kept: "Revenue",
+    checked: ["Wholesale", "other-cell"],
+  },
+  {
+    name: "two sheet tables run on as one, in Chinese",
+    text: "集团\t2025年\t2024年\n营业收入\t1,420\t1,350\n营业利润率\t11%\t10%\n分部\t营业收入\t营业利润率\n零售\t900\t12%\n批发\t520\t9%",
+    quote: "零售\t900\t12%",
+    chars: "12%",
+    kept: "营业利润率",
+    checked: ["批发", "other-cell"],
+  },
+  {
+    name: "two Markdown tables run on as one",
+    text: "| Group | 2025 | 2024 |\n| --- | --- | --- |\n| Revenue | 1,420 | 1,350 |\n| Segment | Revenue | Operating margin |\n| --- | --- | --- |\n| Retail | 900 | 12% |\n| Wholesale | 520 | 9% |",
+    quote: "| Retail | 900 | 12% |",
+    chars: "900",
+    kept: "Revenue",
+    checked: ["Wholesale", "other-cell"],
+  },
+  {
+    name: "a table run on below",
+    text: "Revenue (£m)\t2025\t2024\nFresh food\t1,420\t1,350\nFrozen\t610\t590\nKPI\t2025\t2024\nRevenue\t48.2\t43.0",
+    quote: "Fresh food\t1,420\t1,350",
+    chars: "1,420",
+    kept: "Revenue",
+    checked: ["Frozen", "other-cell"],
+  },
+  {
+    name: "a row with no number in the number's column",
+    text: "| Segment | 2025 | 2024 |\n| --- | --- | --- |\n| Retail | 900 | 850 |\n| Wholesale | 520 | 500 |\n| Online | | 120 |",
+    quote: "| Retail | 900 | 850 |",
+    chars: "900",
+    kept: "Online",
+    checked: ["Wholesale", "other-cell"],
+  },
+  {
     name: "a parent line's label",
     text: "| 项目 | 2025年 | 2024年 |\n| --- | --- | --- |\n| 一、营业收入 | 1,420 | 1,350 |\n| 其中：主营业务 | 900 | 850 |",
     quote: "| 其中：主营业务 | 900 | 850 |",
@@ -938,7 +984,7 @@ test("a label merged over two rows", () => {
   ]);
 });
 
-// protects=a "differs" whose two names are the same words is a model that compared the numbers, not the measures, so it neither takes support away nor names a reason, while two names that differ do (#2255); fails_when=the same words come back "differs", or different ones don't; no_claim=none beyond protects.
+// protects=a "differs" whose two names are the same words, digits included, is a model that compared the numbers, not the measures, so it neither takes support away nor names a reason, while two names that differ do, "Scope 1 emissions" and "Scope 2 emissions" too (#2255); fails_when=the same words come back "differs", or different ones don't; no_claim=none beyond protects.
 test("a differs between the same words", () => {
   const finding = (said: string) =>
     measureFinding(
@@ -949,4 +995,12 @@ test("a differs between the same words", () => {
       () => [],
     ).kind;
   expect([finding("Revenue"), finding("Operating margin")]).toEqual(["unknown", "differs"]);
+  const scope = measureFinding(
+    { sentence: "Scope 2 emissions", quote: "Scope 1 emissions", match: "differs" },
+    ["Scope 2 emissions fell 11% in 2025."],
+    "Scope 1 emissions fell 11% in 2025.",
+    bound("11%", 0.11, 25),
+    () => [],
+  ).kind;
+  expect(scope).toBe("differs");
 });
