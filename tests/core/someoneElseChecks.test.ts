@@ -53,10 +53,14 @@ interface Case {
   roles: string;
   /** More lines of its reply, such as a Coverage line. */
   extra?: string[];
-  /** Its Roles line once asked for the sentence's own words; the same line again when absent. */
+  /** Its Roles line once asked for the sentence's own words: the same again when absent, none when "". */
   again?: string;
+  /** The Figures line's remainder: null, the sentence has nothing beyond its figures, when absent. */
+  remainder?: Record<string, unknown> | null;
   /** Each figure's roles on the Figures line: the Roles line's closing word when absent. */
   itemRoles?: string;
+  /** Its Time line's field: "none / none, same" when absent. */
+  time?: string;
   /** The Document's number each figure of the sentence is bound to, when it has one. */
   number?: string;
 }
@@ -86,26 +90,26 @@ function replying(each: Case, calls: ModelCall[]) {
         };
       }
       const asked = call.prompt.includes(ASKED);
+      const roles = asked ? (each.again ?? each.roles) : each.roles;
       const lines = [
         `Verdict: ${each.verdict}`,
         "Absence: no",
         "Scope: none, same",
         "Topic: found",
-        `Roles: ${asked ? (each.again ?? each.roles) : each.roles}`,
-        "Time: none / none, same",
+        ...(roles === "" ? [] : [`Roles: ${roles}`]),
+        `Time: ${each.time ?? "none / none, same"}`,
         "The Document gives this to the Tenant [^1].",
         "Evidence: [1]",
         ...(each.extra ?? []),
       ];
       const figures = requestedFigures(call);
       if (figures.length === 0) return { text: lines.join("\n") };
-      const roles = each.itemRoles ?? each.roles.split(",").at(-1)?.trim();
       const items = figures.map(({ id }) => ({
         id,
         verdict: each.verdict,
         scope: "same",
         topic: "found",
-        roles,
+        roles: each.itemRoles ?? each.roles.split(",").at(-1)?.trim(),
         says: null,
         reading: null,
         relation: "equals",
@@ -113,7 +117,7 @@ function replying(each: Case, calls: ModelCall[]) {
         calculation: null,
       }));
       return {
-        text: `${lines.join("\n")}\nFigures: ${JSON.stringify({ items, remainder: null })}`,
+        text: `${lines.join("\n")}\nFigures: ${JSON.stringify({ items, remainder: each.remainder ?? null })}`,
       };
     },
     // Both judgements of a contradiction call it a conflict: only the reply's own field can say whose it is.
@@ -553,5 +557,369 @@ describe("a Roles line that names no party and no must or may on either side hol
     const checked = await check(each, document, calls);
     expect(checked?.state).toBe("supported");
     expect(calls.filter((call) => call.prompt.includes(ASKED))).toHaveLength(0);
+  });
+});
+
+describe("once asked for the sentence's own words, a reply that gives none is Not checked (#1766)", () => {
+  const asks = (calls: readonly ModelCall[]) => calls.filter((call) => call.prompt.includes(ASKED));
+  test.each<[string, Case, typeof RULES]>([
+    [
+      "en, no Roles line after the ask",
+      {
+        sentence: "The Tenant should keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: "none / The Tenant may keep a cat, same",
+        again: "",
+      },
+      RULES,
+    ],
+    [
+      "en, none on both sides after the ask",
+      {
+        sentence: "The Tenant should keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: "none / The Tenant may keep a cat, same",
+        again: "none / none, same",
+      },
+      RULES,
+    ],
+    [
+      "zh, no Roles line after the ask",
+      {
+        sentence: "物业管理员向乙方报修。",
+        quote: "乙方向物业管理员报修。",
+        verdict: "supported",
+        roles: "乙方向物业管理员报修 / 乙方向物业管理员报修, same",
+        again: "",
+      },
+      RULES_ZH,
+    ],
+    [
+      "en, a figure sentence that gives none on both sides after the ask",
+      {
+        sentence: "The Tenant should pay the Landlord a rent of 900 per month.",
+        quote: "The Tenant pays the Landlord a rent of 900 per month.",
+        verdict: "supported",
+        roles: "The Tenant pays the Landlord / The Tenant pays the Landlord, same",
+        again: "none / none, same",
+        number: "900",
+      },
+      RULES,
+    ],
+    [
+      "zh, none on both sides for a sentence that names its parties",
+      {
+        sentence: "物业管理员向乙方报修。",
+        quote: "乙方向物业管理员报修。",
+        verdict: "supported",
+        roles: "无 / 无, same",
+      },
+      RULES_ZH,
+    ],
+    [
+      "zh, a figure sentence whose remainder names the parties, none on both sides",
+      {
+        sentence: "甲方每月向乙方支付租金人民币900元。",
+        quote: "乙方每月向甲方支付租金人民币900元。",
+        verdict: "supported",
+        roles: "无 / 无, same",
+        number: "900",
+        remainder: {
+          text: "甲方每月向乙方支付租金",
+          verdict: "supported",
+          scope: "same",
+          topic: "found",
+          roles: "same",
+          says: null,
+          citation: 1,
+        },
+      },
+      RULES_ZH,
+    ],
+    [
+      "en, a figure sentence whose Roles line gives the Passage's words",
+      {
+        sentence: "The Tenant should pay the Landlord a rent of 900 per month.",
+        quote: "The Tenant pays the Landlord a rent of 900 per month.",
+        verdict: "supported",
+        roles: "The Tenant pays the Landlord / The Tenant pays the Landlord, same",
+        number: "900",
+      },
+      RULES,
+    ],
+  ])("%s", async (_, each, document) => {
+    const calls: ModelCall[] = [];
+    const checked = await check(each, document, calls);
+    expect(checked?.state).toBe("not-checked");
+    expect(checked?.state).not.toBe("supported");
+    expect(asks(calls)).toHaveLength(1);
+  });
+
+  test("a figure sentence whose Roles line copies its own words is Supported and asked nothing", async () => {
+    const calls: ModelCall[] = [];
+    const checked = await check(
+      {
+        sentence: "The Tenant pays the Landlord a rent of 900 per month.",
+        quote: "The Tenant pays the Landlord a rent of 900 per month.",
+        verdict: "supported",
+        roles: "The Tenant pays the Landlord / The Tenant pays the Landlord, same",
+        number: "900",
+      },
+      RULES,
+      calls,
+    );
+    expect(checked?.state).toBe("supported");
+    expect(asks(calls)).toHaveLength(0);
+  });
+});
+
+describe("the Roles line's closing word is read past its quoting and its reason (#1766)", () => {
+  const OTHER = "The caretaker may keep a cat / The Tenant may keep a cat";
+  test.each<[string, Case, typeof RULES, "unsupported" | "contradicted"]>([
+    [
+      "in backticks",
+      {
+        sentence: "The caretaker may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: `${OTHER}, \`other\``,
+      },
+      RULES,
+      "unsupported",
+    ],
+    [
+      "before a semicolon",
+      {
+        sentence: "The caretaker may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: `${OTHER}, other;`,
+      },
+      RULES,
+      "unsupported",
+    ],
+    [
+      "in full-width letters",
+      {
+        sentence: "The caretaker may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: `${OTHER}, ｏｔｈｅｒ`,
+      },
+      RULES,
+      "unsupported",
+    ],
+    [
+      "with a reason after a colon",
+      {
+        sentence: "The caretaker may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: `${OTHER}, other: the Passage gives the same right only to the Tenant`,
+      },
+      RULES,
+      "unsupported",
+    ],
+    [
+      "with a reason after a dash, on a contradiction",
+      {
+        sentence: "The caretaker may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "contradicted",
+        roles: `${OTHER}, other — the Passage names only the Tenant`,
+      },
+      RULES,
+      "unsupported",
+    ],
+    [
+      "with a reason that holds a slash",
+      {
+        sentence: "The caretaker may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: `${OTHER}, other (the Tenant/the caretaker)`,
+      },
+      RULES,
+      "unsupported",
+    ],
+    [
+      "zh, with a reason after a colon",
+      {
+        sentence: "物业管理员可在房屋内养猫。",
+        quote: "乙方可在房屋内养猫。",
+        verdict: "supported",
+        roles: "物业管理员可在房屋内养猫 / 乙方可在房屋内养猫, other：文件只给了乙方",
+      },
+      RULES_ZH,
+      "unsupported",
+    ],
+    [
+      '"the other" in a side is no closing word',
+      {
+        sentence: "The Landlord reports repairs to the other party.",
+        quote: "The Tenant reports repairs to the caretaker.",
+        verdict: "contradicted",
+        roles:
+          "The Landlord reports repairs to the other party / The Tenant reports repairs to the caretaker, differs",
+      },
+      RULES,
+      "contradicted",
+    ],
+  ])("%s", async (_, each, document, state) => {
+    const checked = await check(each, document);
+    expect(checked?.state).toBe(state);
+    expect(checked?.state).not.toBe("supported");
+  });
+});
+
+describe("a figure sentence the Roles line gives to someone else: its other words decide nothing either (#1766)", () => {
+  const remainder = (text: string) => ({
+    text,
+    verdict: "contradicted",
+    scope: "same",
+    topic: "found",
+    roles: "same",
+    says: null,
+    citation: 1,
+  });
+  test.each<[string, Case, typeof RULES, "unsupported" | "contradicted"]>([
+    [
+      "en, someone else's: Unsupported",
+      {
+        sentence: "The caretaker pays the Landlord a rent of 900 per week.",
+        quote: "The Tenant pays the Landlord a rent of 900 per month.",
+        verdict: "supported",
+        roles: "The caretaker pays the Landlord / The Tenant pays the Landlord, other",
+        itemRoles: "same",
+        number: "900",
+        remainder: remainder("per week"),
+      },
+      RULES,
+      "unsupported",
+    ],
+    [
+      "en, the same parties': Contradicted",
+      {
+        sentence: "The Tenant pays the Landlord a rent of 900 per week.",
+        quote: "The Tenant pays the Landlord a rent of 900 per month.",
+        verdict: "supported",
+        roles: "The Tenant pays the Landlord / The Tenant pays the Landlord, same",
+        number: "900",
+        remainder: remainder("per week"),
+      },
+      RULES,
+      "contradicted",
+    ],
+    [
+      "zh, someone else's: Unsupported",
+      {
+        sentence: "物业管理员每周向甲方支付租金人民币900元。",
+        quote: "乙方每月向甲方支付租金人民币900元。",
+        verdict: "supported",
+        roles: "物业管理员每周向甲方支付 / 乙方每月向甲方支付, other",
+        itemRoles: "same",
+        number: "900",
+        remainder: remainder("每周"),
+      },
+      RULES_ZH,
+      "unsupported",
+    ],
+    [
+      "zh, the same parties': Contradicted",
+      {
+        sentence: "乙方每周向甲方支付租金人民币900元。",
+        quote: "乙方每月向甲方支付租金人民币900元。",
+        verdict: "supported",
+        roles: "乙方每周向甲方支付 / 乙方每月向甲方支付, same",
+        number: "900",
+        remainder: remainder("每周"),
+      },
+      RULES_ZH,
+      "contradicted",
+    ],
+  ])("%s", async (_, each, document, state) => {
+    const checked = await check(each, document);
+    expect(checked?.state).toBe(state);
+    expect(checked?.state).not.toBe("supported");
+  });
+});
+
+describe("a closing word is read only where it closes the field (#1766)", () => {
+  const NOTICE = {
+    name: "Notice.md",
+    contents:
+      "# Notice\n\nEach party may notify the other in writing.\n\nOther tenants may use the garden.\n",
+  };
+  test.each<[string, Case, "supported" | "contradicted"]>([
+    [
+      "a line with no closing word whose sides end with “the other” stays Contradicted",
+      {
+        sentence: "Each party must notify the other in writing.",
+        quote: "Each party may notify the other in writing.",
+        verdict: "contradicted",
+        roles: "Each party must notify the other / Each party may notify the other",
+      },
+      "contradicted",
+    ],
+    [
+      "a Passage side that starts with “Other” stays Supported",
+      {
+        sentence: "Other tenants may use the garden.",
+        quote: "Other tenants may use the garden.",
+        verdict: "supported",
+        roles: "Other tenants may use the garden / Other tenants may use the garden, same",
+      },
+      "supported",
+    ],
+  ])("%s", async (_, each, state) => {
+    const checked = await check(each, NOTICE);
+    expect(checked?.state).toBe(state);
+    expect(checked?.state).not.toBe("unsupported");
+  });
+
+  test.each<[string, string, "supported" | "unsupported"]>([
+    [
+      "differs, then a reason that says “same”",
+      "already / from next year, differs (not the same)",
+      "unsupported",
+    ],
+    ["same, then a reason", "already / already, same (as the Passage)", "supported"],
+    [
+      "differs, then a reason in full-width brackets",
+      "已 / 明年起, differs（不是同一时间）",
+      "unsupported",
+    ],
+  ])("a Time line: %s", async (_, time, state) => {
+    const checked = await check(
+      {
+        sentence: "The Tenant may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: "The Tenant may keep a cat / The Tenant may keep a cat, same",
+        time,
+      },
+      RULES,
+    );
+    expect(checked?.state).toBe(state);
+    expect(checked?.state).not.toBe(state === "supported" ? "unsupported" : "supported");
+  });
+
+  test("a Roles line too long for its sides to be copied words is no support", async () => {
+    const calls: ModelCall[] = [];
+    const checked = await check(
+      {
+        sentence: "The Tenant may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: `The Tenant may keep a cat / ${"the Tenant may keep a cat, ".repeat(80)}same`,
+      },
+      RULES,
+      calls,
+    );
+    expect(checked?.state).toBe("not-checked");
+    expect(checked?.state).not.toBe("supported");
+    expect(calls.filter((call) => call.prompt.includes(ASKED))).toHaveLength(1);
   });
 });

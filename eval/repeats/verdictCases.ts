@@ -1,8 +1,10 @@
 /**
  * Held-out sentences for the verdicts a check gets wrong on a sentence the Documents contradict,
- * or on a true one (#1708, #1765, #1766, #1908, #2184), written before any change to the check
- * and on Documents of their own: a studio licence in each language, and half-year results with a
- * borrowing limit and a cost printed in brackets. None is a sentence of the other sets or an
+ * or on a true one (#1708, #1765, #1766, #1908, #2184), on Documents of their own: a studio
+ * licence in each language, and half-year results with a borrowing limit and a cost printed in
+ * brackets. They were written before any change to the check, but for the eight conflicts named
+ * "should", "guests", "notice-days" and "room" in each language, written just after the first
+ * change to its instructions and before any run of it. None is a sentence of the other sets or an
  * example of the check's instructions.
  *
  * - The conflicts: a yearly fee stated per month, the payer and the reporting line the other way

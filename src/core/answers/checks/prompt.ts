@@ -7,7 +7,7 @@
 import type { Reading } from "../../../shared/figures";
 import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
-import { asAttribute, asData, type PromptTag, tagged } from "../../promptData";
+import { asAttribute, asData, fromData, type PromptTag, tagged } from "../../promptData";
 import { PART_RULES, PARTS_LINE } from "./claims";
 
 /** The checks' tags: none of them may be opened or closed by what they hold (#2423). */
@@ -579,8 +579,8 @@ export interface ReadVerdict {
    * reply doesn't say.
    */
   roles: "same" | "differs" | "other" | null;
-  /** The words the reply's Roles line gives as the sentence's own, when it gives them. */
-  rolesWords?: string;
+  /** The sides of the reply's Roles line, the sentence's first, when it gives the line. */
+  rolesSides?: string[];
   /** "differs": one says it has happened and the other that it is still to happen; absent when the reply doesn't say. */
   time?: "same" | "differs";
   calculations?: string[];
@@ -744,7 +744,7 @@ function jsonVerdict(reply: string): ReadVerdict | null {
       scope: scopeOf(typeof scope === "string" ? `Scope: ${scope}` : undefined),
       topic: topicOf(typeof topic === "string" ? `Topic: ${topic}` : undefined),
       roles: rolesOf(typeof roles === "string" ? `Roles: ${roles}` : undefined),
-      ...rolesWordsOf(typeof roles === "string" ? `Roles: ${roles}` : undefined),
+      ...rolesSidesOf(typeof roles === "string" ? `Roles: ${roles}` : undefined),
       ...timeOf(typeof time === "string" ? `Time: ${time}` : undefined),
       ...(evidence !== undefined && { evidence: markersOf(evidence) }),
       ...(declaresCoverage(coverage) && { coverage: coverageOf(coverage) }),
@@ -782,30 +782,56 @@ const scopeOf = (line: string | undefined): ReadVerdict["scope"] => {
   return word === "same" || word === "wider" ? word : null;
 };
 
-// The field's last word: the words of each side come first and may hold "same".
-const lastWordOf = (label: RegExp, line: string | undefined): "same" | "differs" | null => {
-  const word = (line === undefined ? undefined : label.exec(line)?.[1])
-    ?.match(/\b(?:same|differs?)\b/gi)
+/**
+ * A closing word at the start of a piece of a field, alone or before punctuation that opens its
+ * reason ("other: the Passage names only the Tenant"): a side may start with the same word ("Other
+ * Income", "other staff").
+ */
+const CLOSING =
+  /^[\s"'`*_“”‘’]*(same|differs?|other)(?=[\s"'`*_“”‘’]*(?:$|[^\p{L}\p{N}\s"'`*_“”‘’]))/iu;
+
+/**
+ * A Roles or Time field's closing word and its sides, the sentence's first, read the same way for
+ * both (#1766). The closing word is the first piece after the first slash, or after a later slash,
+ * comma or semicolon, that is one (`CLOSING`); what follows it is its reason, slashes included, and
+ * the sentence's side is never read for it ("notify the other"). A field with no such piece takes
+ * its last "same" or "differs". A field too long for its sides to be copied words is read as one
+ * side with no closing word: trimming a long run of spaces takes time quadratic in it.
+ */
+function closingWord<T extends string>(
+  field: string,
+  words: readonly T[],
+): { word: T | null; sides: string[] } {
+  const text = field.normalize("NFKC");
+  if (text.length > MAX_PHRASE * 8) return { word: null, sides: [text] };
+  const first = text.indexOf("/") + 1;
+  const starts = [
+    first,
+    ...[...text.slice(first).matchAll(/[/,;]/g)].map((mark) => first + mark.index + 1),
+  ];
+  for (const at of starts) {
+    const found = CLOSING.exec(text.slice(at))?.[1]?.toLowerCase();
+    const word = found === "differ" ? "differs" : found;
+    if (word && (words as readonly string[]).includes(word))
+      return { word: word as T, sides: sides(text.slice(0, at).replace(/[,;/]$/, "")) };
+  }
+  const last = text
+    .match(/\b(?:same|differs?)\b/gi)
     ?.at(-1)
     ?.toLowerCase();
-  if (word === "same") return "same";
-  return word === "differs" || word === "differ" ? "differs" : null;
-};
+  const word = last === "differ" ? "differs" : last;
+  return {
+    word: word && (words as readonly string[]).includes(word) ? (word as T) : null,
+    sides: sides(text.replace(/[,;]?\s*\b(?:same|differs?)\W*$/i, "")),
+  };
+}
 
-const ROLES_CLOSING = /\b(same|differs?|other)[\s"'“”*_.。]*$/i;
-const CLOSING_NOTE = /\s*[(（][^()（）]*[)）][\s.。]*$/u;
+const sides = (text: string): string[] =>
+  text.split("/").map((side) => side.replace(PHRASE_EDGES, "").trim());
 
-// "other" counts only as the field's closing word: "the other way round" is a reason for differs.
 const rolesOf = (line: string | undefined): ReadVerdict["roles"] => {
   const field = line === undefined ? undefined : ROLES.exec(line)?.[1];
-  if (ROLES_CLOSING.exec(field?.replace(CLOSING_NOTE, "") ?? "")?.[1]?.toLowerCase() === "other")
-    return "other";
-  const word = field
-    ?.match(/\b(?:same|differs?)\b/gi)
-    ?.at(-1)
-    ?.toLowerCase();
-  if (word === "same") return "same";
-  return word === "differs" || word === "differ" ? "differs" : null;
+  return field === undefined ? null : closingWord(field, ["same", "differs", "other"]).word;
 };
 
 const OWN_TOKEN = /\p{Script=Han}|(?:(?!\p{Script=Han})[\p{L}\p{N}])+/gu;
@@ -813,42 +839,39 @@ const OWN_TOKEN = /\p{Script=Han}|(?:(?!\p{Script=Han})[\p{L}\p{N}])+/gu;
 /**
  * Whether a reply's words for the sentence are the sentence's own: each of their words (each Han
  * character) in the sentence, in the same order, with words left out between them allowed. Words
- * from the Passage or another language are not: "向人力资源总监汇报" for "人力资源总监向乙方汇报".
+ * from the Passage or another language are not: "向人力资源总监汇报" for "人力资源总监向乙方汇报". The
+ * words are read as the sentence was before its prompt's tags were defused: the model copies
+ * "&lt;quote>" for "<quote>" (#2423).
  */
 export function ownWords(words: string, sentence: string): boolean {
   const tokens = (text: string): string[] =>
     [...text.normalize("NFKC").toLowerCase().matchAll(OWN_TOKEN)].map(([token]) => token);
   const own = tokens(sentence);
+  const given = tokens(fromData(words));
   let at = 0;
-  for (const token of tokens(words)) {
+  for (const token of given) {
     at = own.indexOf(token, at) + 1;
     if (at === 0) return false;
   }
-  return tokens(words).length > 0;
+  return given.length > 0;
 }
 
-/**
- * The sentence's side of a Roles line: its words before the first slash, or the whole field
- * without its closing word when it gives one side only. A line that names no party and no must or
- * may on either side ("none / none, same", "none, same", "same") gives no words to hold to the sentence:
- * a figure's sentence often has neither.
- */
-const rolesWordsOf = (line: string | undefined): Pick<ReadVerdict, "rolesWords"> => {
+/** Whether a Roles line's sides name nothing: no party and no must or may ("none / none", "无"). */
+export const namesNothing = (rolesSides: readonly string[]): boolean =>
+  rolesSides.every((side) => side === "" || NO_PHRASE.test(side));
+
+/** The sides of a Roles line, the sentence's first, without the closing word and its reason. */
+const rolesSidesOf = (line: string | undefined): Pick<ReadVerdict, "rolesSides"> => {
   const field = line === undefined ? undefined : ROLES.exec(line)?.[1];
-  if (field === undefined) return {};
-  const sides = field
-    .replace(CLOSING_NOTE, "")
-    .replace(/[,，]?\s*(?:same|differs?|other)\W*$/i, "")
-    .split(/[/／]/u)
-    .map((side) => side.replace(PHRASE_EDGES, "").trim());
-  return sides.every((side) => side === "" || NO_PHRASE.test(side))
+  return field === undefined
     ? {}
-    : { rolesWords: sides[0] ?? "" };
+    : { rolesSides: closingWord(field, ["same", "differs", "other"]).sides };
 };
 
 /** Only a reply that gives the field says it: a reply read before it was asked for has none. */
 const timeOf = (line: string | undefined): Pick<ReadVerdict, "time"> => {
-  const time = lastWordOf(TIME, line);
+  const field = line === undefined ? undefined : TIME.exec(line)?.[1];
+  const time = field === undefined ? null : closingWord(field, ["same", "differs"]).word;
   return time ? { time } : {};
 };
 
@@ -1051,7 +1074,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
       topic: topicOf(fields.findLast((each) => TOPIC.test(each))),
       // A model that corrects its Roles line writes it again: its last one counts.
       roles: rolesOf(fields.findLast((each) => ROLES.test(each))),
-      ...rolesWordsOf(fields.findLast((each) => ROLES.test(each))),
+      ...rolesSidesOf(fields.findLast((each) => ROLES.test(each))),
       ...timeOf(fields.findLast((each) => TIME.test(each))),
       ...(calculationFields.some((line) => CALCULATION.test(line)) && {
         calculations: calculationFields.reduce<string[]>((values, line) => {

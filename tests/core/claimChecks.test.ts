@@ -450,6 +450,53 @@ describe("One claim check", () => {
     },
   );
 
+  // protects=checked whole, a Roles line naming nothing on either side holds back only a sentence
+  // with no figure, which has words to copy (#1766); fails_when=a value with a figure, as a
+  // comparison table's cell is checked, is asked for words it hasn't, or a sentence with none passes.
+  test.each([
+    {
+      sentence: "The harbour publishes 12 tide tables a year.",
+      quote: "The harbour publishes 12 tide tables a year.",
+      state: "supported",
+      asks: 0,
+    },
+    {
+      sentence: "The harbour publishes its tide tables every year.",
+      quote: "The harbour publishes 12 tide tables a year.",
+      state: "not-checked",
+      asks: 1,
+    },
+  ] as const)(
+    "checked whole, “$sentence” with none on both sides of its Roles line is $state",
+    async ({ sentence, quote, state, asks }) => {
+      const calls: ModelCall[] = [];
+      const model = checkingModel(
+        {
+          [sentence]: {
+            verdict: "supported",
+            quote,
+            says: "Roles: none / none, same\nThe harbour publishes its tide tables.",
+          },
+        },
+        calls,
+      );
+      const { core } = await setUpWithDocuments(model, [
+        {
+          name: "Harbour.md",
+          contents: "# Harbour\n\nThe harbour publishes 12 tide tables a year.\n",
+        },
+      ]);
+
+      const result = await core.checkClaim({ claim: sentence });
+
+      expect(result.verdict).toBe(state);
+      expect(result.verdict).not.toBe(state === "supported" ? "not-checked" : "supported");
+      expect(
+        calls.filter((call) => call.prompt.includes("Your Roles line's first side")),
+      ).toHaveLength(asks);
+    },
+  );
+
   test("a supported reply whose roles differ from the Passage's shows the partly-supported card", async () => {
     const MUST = "Harbours must publish the times of high water every year.";
     const YEARLY = "Harbours publish the times of high water every year.";
@@ -468,7 +515,10 @@ describe("One claim check", () => {
             "Harbours must publish / Harbours publish, differs",
             "\nCovered: the yearly times of high water\nNot covered: a duty to publish them",
           ),
-          [SUPPORTED]: { ...(PLANS[SUPPORTED] as Plan), says: "Roles: none, same\nTides says so." },
+          [SUPPORTED]: {
+            ...(PLANS[SUPPORTED] as Plan),
+            says: "Roles: Spring tides come / Spring tides happen, same\nTides says so.",
+          },
         },
         calls,
       ),
@@ -1552,6 +1602,173 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     });
   });
 
+  // protects=a sentence the reply's Roles line gives to someone the Passages don't name is no
+  // sentence of theirs: no figure worked out from their numbers decides it, whatever its verdict
+  // line says (#1766); fails_when=it is Contradicted by a cover that disagrees, Supported by one
+  // that agrees, or keeps the calculation for the parts to read.
+  const HARBOUR_ZH = {
+    name: "雪松业绩.md",
+    contents: [
+      "# 雪松业绩",
+      "",
+      "调整后EBITDA 187.3（2025财年），88.0 和 91.5（2025年上半年、2026年上半年）",
+      "",
+      "财务费用 (41.2)",
+    ].join("\n"),
+  };
+  const ZH_COVER = {
+    inputs: [
+      {
+        name: "fy",
+        label: "调整后EBITDA",
+        quote: "调整后EBITDA 187.3（2025财年）",
+        number: "187.3",
+      },
+      {
+        name: "fc",
+        label: "财务费用",
+        quote: "财务费用 (41.2)",
+        number: "(41.2)",
+        bracketedCost: true,
+      },
+    ],
+    formula: "fy / fc",
+    as: "times",
+  };
+  test.each([
+    [
+      "en, a cover that disagrees, called contradicted",
+      RESULTS,
+      "Using finance costs of (41.2), the Harbour subsidiary's Adjusted EBITDA cover would be 5.55x.",
+      { ...COVER, stated: "5.55x" },
+      "contradicted" as const,
+      "Roles: the Harbour subsidiary's Adjusted EBITDA cover / Adjusted EBITDA 187.3, other\nThe results give Cedar's cover, not the Harbour subsidiary's.",
+    ],
+    [
+      "en, a cover that agrees, called unsupported with no reason",
+      RESULTS,
+      "Using finance costs of (41.2), the Harbour subsidiary's Adjusted EBITDA cover would be 4.55x.",
+      { ...COVER, stated: "4.55x" },
+      "unsupported" as const,
+      "Roles: the Harbour subsidiary's Adjusted EBITDA cover / Adjusted EBITDA 187.3, other",
+    ],
+    [
+      "zh, a cover that disagrees, called contradicted",
+      HARBOUR_ZH,
+      "以 (41.2) 的财务费用估算，海港子公司的利息覆盖倍数为5.55倍。",
+      { ...ZH_COVER, stated: "5.55倍" },
+      "contradicted" as const,
+      "Roles: 海港子公司的利息覆盖倍数 / 调整后EBITDA 187.3, other\n文件给出的是雪松的数字，不是海港子公司的。",
+    ],
+    [
+      "zh, a cover that agrees, called supported",
+      HARBOUR_ZH,
+      "以 (41.2) 的财务费用估算，海港子公司的利息覆盖倍数为4.55倍。",
+      { ...ZH_COVER, stated: "4.55倍" },
+      "supported" as const,
+      "Roles: 海港子公司的利息覆盖倍数 / 调整后EBITDA 187.3, other",
+    ],
+  ])(
+    "%s: about someone else, Unsupported with no calculation",
+    async (_, document, claim, calculation, said, says) => {
+      const result = await checked(document, claim, calculation, said, says);
+      expect(result.verdict).toBe("unsupported");
+      expect(result.verdict).not.toBe("contradicted");
+      expect(result.verdict).not.toBe("supported");
+      if (result.verdict === "not-checked") throw new Error("Not checked.");
+      expect(result.calculation).toBeNull();
+    },
+  );
+
+  test("the same cover for the Documents' own company, with its Roles line the same, keeps its calculation", async () => {
+    const result = await checked(
+      RESULTS,
+      "Using finance costs of (41.2) as a stand-in, cover would be 5.55x.",
+      { ...COVER, stated: "5.55x" },
+      "supported",
+      "Roles: cover would be 5.55x / Adjusted EBITDA 187.3, same\nThe results give the cover.",
+    );
+    expect(result).toMatchObject({ verdict: "contradicted", calculation: { agrees: false } });
+  });
+
+  test.each([
+    ["5.55 times", "contradicted"],
+    ["4.55 times", "supported"],
+  ] as const)(
+    "checked in a Note, the Harbour subsidiary's cover of %s from Cedar's figures is Unsupported",
+    async (stated, said) => {
+      const claim = `The Harbour subsidiary's Adjusted EBITDA covers finance costs ${stated}.`;
+      const plans = {
+        [claim]: {
+          verdict: said,
+          calculation: { ...COVER, stated },
+          says: "Roles: The Harbour subsidiary's Adjusted EBITDA / Adjusted EBITDA 187.3, other\nThe results give Cedar's cover.",
+        },
+      } as const;
+      const setup = await setUpWithDocuments(checkingModel(plans), [RESULTS]);
+      const saved = await setup.core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+      const block = paragraph(text(claim));
+      writeMind(setup.client, [block]);
+      await setup.client.settled();
+
+      await setup.core.checkSentences({
+        requestId: "r1",
+        mindId: setup.mind.id,
+        action: "check-against-documents",
+        ...whole(block, claim.length),
+      });
+
+      const [checked] = await shownChecks(setup.core, setup.client);
+      expect(checked?.shown).toMatchObject({ state: "unsupported" });
+      expect(checked?.shown.state).not.toBe(said);
+      const [figure] = checked?.check.figures ?? [];
+      expect(figure?.state).toBe("unsupported");
+      expect(figure?.calculation ?? null).toBeNull();
+    },
+  );
+
+  // protects=the calculate tool tells the model the figure its sentence is compared with: a cost
+  // printed in brackets at its size (#1908); fails_when=it answers "-4.55x" while the card shows
+  // ABS(…) = 4.55x, or takes the size of a figure whose sentence writes it negative.
+  test.each([
+    ["4.55x", "= 4.55x", "ABS("],
+    ["-4.55x", "= -4.55x", "187.3 ÷ (41.2)"],
+  ] as const)(
+    "a cover of %s from a cost in brackets is told to the model as the card shows it",
+    async (stated, told, working) => {
+      const claim = `Using finance costs of (41.2) as a stand-in, cover would be ${stated}.`;
+      const calls: ModelCall[] = [];
+      const setup = await setUpWithDocuments(
+        checkingModel(
+          { [claim]: { verdict: "supported", calculation: { ...COVER, stated } } },
+          calls,
+        ),
+        [RESULTS],
+      );
+      const saved = await setup.core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+      await setup.core.checkClaim({ claim });
+
+      const reply = calls
+        .flatMap((call) => call.results)
+        .filter((each) => each.tool === "calculate")
+        .at(-1)?.text;
+      expect(reply).toMatch(/^Recorded \[=1\]/);
+      expect(reply).toContain(`Recorded [=1] ${told} `);
+      expect(reply).toContain(working);
+    },
+  );
+
   test("a stated monetary unit and scale can support the same calculated claim", async () => {
     const stated = {
       ...RESULTS,
@@ -2398,7 +2615,7 @@ describe("A reply whose verdict is written in the turn that calls cite (#1673)",
   const SPRING_QUOTE = "Spring tides happen at new moon and at full moon";
   const SAYS = "Tides says spring tides happen at new and full moon.";
   const LINES =
-    "Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: none, same";
+    "Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: Spring tides come / Spring tides happen, same";
   const CONTRACT = {
     name: "劳动合同书.md",
     contents:

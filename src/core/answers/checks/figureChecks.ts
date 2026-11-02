@@ -730,27 +730,33 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
 /**
  * A sentence's figure results when the reply's Roles line gives the sentence to someone its
  * Passage doesn't name (#1766): a figure that agreed or disagreed with that Passage's number is
- * Unsupported, since the number is someone else's.
+ * Unsupported, since the number is someone else's, and so are the sentence's other words, whatever
+ * the remainder's own roles say.
  */
 export function aboutSomeoneElse(result: ClaimCheckResult): ClaimCheckResult {
-  const { figures, remainder } = result;
+  const { figures } = result;
   if (!figures) return result;
-  const rows = figures.map((figure): FigureCheckResult => {
-    const { result: judged } = figure;
-    if (judged.verdict !== "supported" && judged.verdict !== "contradicted") return figure;
-    const result: ClaimJudgment = {
-      verdict: "unsupported",
-      evidence: null,
-      says: null,
-      unsupported: { reason: judged.says, covered: null, uncovered: null, found: true },
-      calculation: null,
-      citedCaseUnchecked: judged.citedCaseUnchecked,
-      citedCaseFound: judged.citedCaseFound,
-      versions: judged.versions,
-      excluded: judged.excluded,
-    };
-    return { ...figure, result };
-  });
+  const unbacked = (judged: ClaimJudgment): ClaimJudgment =>
+    judged.verdict === "supported" || judged.verdict === "contradicted"
+      ? {
+          verdict: "unsupported",
+          evidence: null,
+          says: null,
+          unsupported: { reason: judged.says, covered: null, uncovered: null, found: true },
+          calculation: null,
+          citedCaseUnchecked: judged.citedCaseUnchecked,
+          citedCaseFound: judged.citedCaseFound,
+          versions: judged.versions,
+          excluded: judged.excluded,
+        }
+      : judged;
+  const rows = figures.map(
+    (figure): FigureCheckResult => ({
+      ...figure,
+      result: unbacked(figure.result),
+    }),
+  );
+  const remainder = result.remainder ? unbacked(result.remainder) : result.remainder;
   return { ...aggregateFigureResults(rows, remainder), figures: rows, remainder };
 }
 

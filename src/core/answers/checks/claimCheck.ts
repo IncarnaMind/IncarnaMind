@@ -74,6 +74,7 @@ import {
   createCalculationSession,
   documentFigureContext,
   givenList,
+  toldFigure,
   whole,
 } from "../calculations";
 import {
@@ -94,7 +95,7 @@ import {
 } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
 import { checkAbsence, fitsWholeRead, type Presence } from "./absence";
-import { agreesWith, comparedFigure, statedFigure } from "./calculated";
+import { agreesWith, comparedFigure, figuresInClaim, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
   aboutSomeoneElse,
@@ -119,6 +120,7 @@ import {
   EVIDENCE_INSTRUCTIONS,
   evidencePrompt,
   NEAREST_INSTRUCTIONS,
+  namesNothing,
   ownWords,
   PRESENCE_INSTRUCTIONS,
   partInstructions,
@@ -790,7 +792,22 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             }
           }
           if (pending.size > 0) calculationFailures++;
-          return result;
+          // The model is told the figure it will be judged on: a cost it marked as printed in
+          // brackets is taken at its size, as the card shows it (#1908).
+          let toldAtSize = result;
+          for (const [marker, number] of stated) {
+            const figure = figures.figure(marker);
+            const citation = figure?.inputs[0]?.citation;
+            const own =
+              citation && statedFigure(request.claim, number.number, figureContext(citation));
+            const compared = figure && own ? comparedFigure(own, figure, number.costs) : null;
+            if (figure && compared && compared !== figure)
+              toldAtSize = toldAtSize.replace(
+                toldFigure(marker, figure),
+                toldFigure(marker, compared),
+              );
+          }
+          return toldAtSize;
         },
       }),
     };
@@ -1027,6 +1044,21 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       request.findParts(text);
     };
     let setAside: readonly string[] = [];
+    // Set by any reply that compared other words than the sentence's, whether or not the ask was
+    // still free: a later reply that gives none is held back as one that gives other words.
+    let askedForOwnWords = false;
+    // Checked figure by figure, the reply's own Figures line says whether the sentence has words
+    // beyond its figures ("甲方每月向乙方支付租金" in 甲方每月向乙方支付租金人民币900元); one it leaves out
+    // is asked for, and a sentence missing it is never Supported. Checked whole, a sentence with a
+    // figure keeps the leeway, as a value in a comparison table needs.
+    const ownWordsFor = (asked: boolean, reply: string): OwnWords => ({
+      claim: request.claim,
+      asked,
+      mayNameNothing: request.figures?.length
+        ? !readFigureReply(reply, request.figures, request.claim)?.remainder
+        : figuresInClaim(request.claim, documentFigureContext([{ text: request.claim }])).length >
+          0,
+    });
     let askedAbout: string | null = null;
     let askedFigures: string | null = null;
     let failed: ProviderError | null = null;
@@ -1105,12 +1137,14 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         },
         {
           name: "roles-own-words",
-          // Asked once; a reply that still gives other words than the sentence's is Not checked.
+          // Asked once; a reply that still gives other words than the sentence's, or none, is Not
+          // checked.
           check: (text, aside) => {
-            const verdict = readVerdict(replyAcrossTurns(text, aside ?? []));
-            return verdict && comparesOtherWords(verdict, request.claim)
-              ? { claims: [], writeOnly: true, note: ROLES_OWN_WORDS }
-              : null;
+            const read = replyAcrossTurns(text, aside ?? []);
+            const verdict = readVerdict(read);
+            if (!verdict || !comparesOtherWords(verdict, ownWordsFor(false, read))) return null;
+            askedForOwnWords = true;
+            return { claims: [], writeOnly: true, note: ROLES_OWN_WORDS };
           },
         },
       ],
@@ -1260,7 +1294,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       };
       const sentence = async (verdict: ReadVerdict): Promise<ClaimJudgment> => {
         if (declined && verdict.verdict === "supported") return unchecked("refused");
-        if (comparesOtherWords(verdict, request.claim)) return unchecked("malformed");
+        if (comparesOtherWords(verdict, ownWordsFor(askedForOwnWords, figuresText)))
+          return unchecked("malformed");
         const evidence =
           cited ??
           (verdict.verdict === "contradicted"
@@ -1410,15 +1445,15 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         ]),
       ),
     );
-    const worked = checked.find(({ calculation }) => !calculation.agrees) ?? checked[0] ?? null;
-    // A figure that disagrees contradicts the sentence, unless the reply's Roles line gives the
-    // sentence to someone its Passages don't name. One that agrees settles only that number: the
-    // model's verdict still stands on the rest of the sentence.
-    if (
-      worked &&
-      !worked.calculation.agrees &&
-      readVerdict(replyAcrossTurns(reply, setAside))?.roles !== "other"
-    ) {
+    // A sentence the reply's Roles line gives to someone its Passages don't name is no sentence of
+    // theirs: no figure worked out from their numbers backs or contradicts it (#1766).
+    const elsewhere = readVerdict(replyAcrossTurns(reply, setAside))?.roles === "other";
+    const worked = elsewhere
+      ? null
+      : (checked.find(({ calculation }) => !calculation.agrees) ?? checked[0] ?? null);
+    // A figure that disagrees contradicts the sentence. One that agrees settles only that number:
+    // the model's verdict still stands on the rest of the sentence.
+    if (worked && !worked.calculation.agrees) {
       return {
         verdict: "contradicted",
         evidence: worked.evidence,
@@ -1434,6 +1469,19 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     let verdict = readVerdict(replyAcrossTurns(reply, setAside));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
     if (!looked()) return notChecked("unread");
+    // Whatever its verdict line says: a contradiction's judgements compared only the figures
+    // ("Managers… 30 days" against the Employee's 27), and an absence's whole read would find
+    // nothing of them either (#1766).
+    if (elsewhere)
+      return {
+        verdict: "unsupported",
+        evidence: null,
+        says: null,
+        unsupported: { reason: verdict.says, covered: null, uncovered: null, found: true },
+        calculation: null,
+        ...citedCase(null),
+        ...facts(),
+      };
     session.check();
     if (verdict.evidence === null || verdict.coverage === null) return notChecked("malformed");
     const namedMarkers = [
@@ -1495,7 +1543,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         verdict = { ...verdict, verdict: "unsupported", says: null };
       }
     }
-    if (comparesOtherWords(verdict, request.claim)) return notChecked("malformed");
+    if (comparesOtherWords(verdict, ownWordsFor(askedForOwnWords, "")))
+      return notChecked("malformed");
     const absence = await absenceFor(verdict.absence ?? null, verdict.verdict);
     if (absence) return absence;
     if (await requiresCalculation(verdict))
@@ -1576,15 +1625,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         null,
       );
     }
-    // A sentence about someone the Passage gives no part in it is neither backed nor contradicted by
-    // it: the reply's own Roles line says so, where a contradiction's judgements compared only the
-    // figures ("Managers… 30 days" against the Employee's 27, #1766).
-    if (verdict.roles === "other" && verdict.verdict !== "unsupported")
-      return unsupported(
-        { reason: verdict.says, covered: null, uncovered: null, found: true },
-        null,
-        null,
-      );
     if (verdict.verdict === "unsupported" && !byCalculation) {
       // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
       // field says so, so a neighbouring topic's line is never shown as part of the claim.
@@ -1755,14 +1795,29 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
  * (#1766). It can't be read as support.
  */
 const ROLES_OWN_WORDS =
-  "Your Roles line's first side isn't the sentence's own words. Copy from the sentence, word for word and in its own order, the words that say who does it, for or to whom, and whether it must or may happen; then \" / \" and the Passage's words; then same, differs or other. Then give your whole reply again.";
+  "Your Roles line's first side isn't the sentence's own words. Copy from the sentence, word for word and in its own order, the words that say who does it, for or to whom, and whether it must or may happen, or, when it names no one, the words for what happens; then \" / \" and the Passage's words; then same, differs or other. Then give your whole reply again.";
 
-function comparesOtherWords(verdict: ReadVerdict, claim: string): boolean {
-  return (
-    verdict.verdict === "supported" &&
-    verdict.rolesWords !== undefined &&
-    !ownWords(verdict.rolesWords, claim)
-  );
+/**
+ * `asked`: a reply of this check has already given other words than the sentence's.
+ * `mayNameNothing`: a sentence of figures, which often names no party and no must or may ("The
+ * rent is 900 per month."), so a Roles line naming nothing on either side is no sign it compared
+ * other words; any other sentence has words to copy.
+ */
+interface OwnWords {
+  claim: string;
+  asked: boolean;
+  mayNameNothing: boolean;
+}
+
+function comparesOtherWords(
+  verdict: ReadVerdict,
+  { claim, asked, mayNameNothing }: OwnWords,
+): boolean {
+  if (verdict.verdict !== "supported") return false;
+  const sides = verdict.rolesSides;
+  if (sides === undefined) return asked;
+  if (namesNothing(sides)) return asked || !mayNameNothing;
+  return !ownWords(sides[0] ?? "", claim);
 }
 
 interface StatedNumber {
