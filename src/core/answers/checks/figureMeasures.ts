@@ -132,8 +132,10 @@ const cellAt = (line: string, at: number): number => cellsOf(line.slice(0, at)).
 /**
  * The names of the cell that holds `quote`'s number in `text`'s table, once `text` holds the
  * quote once: its own (the nearest named cell to the number's left, and the heading of its own
- * column) and its table's others (every other named cell and heading). Null when the number isn't
- * in a table's row, or `text` doesn't hold the quote just once.
+ * column) and those of the table's other numbers (the heading of another column that holds a
+ * number in this row, the label of another row as wide that holds a number in this column). Null
+ * when the number isn't in a table's row, its row has no label, or `text` doesn't hold the quote
+ * just once.
  */
 function cellOf(
   text: string,
@@ -160,28 +162,38 @@ function cellOf(
   );
   const cells = cellsOf(line);
   const column = cellAt(line, at - lineStart);
+  // Read without dates, a period ("Q3 2026", "2025年") is no number: a heading row of periods
+  // further down a sheet is no other number's row.
+  const holdsNumber = (cell: string | undefined) =>
+    cell !== undefined && readFigures(cell, { midLine: true }).length > 0;
   // In side-by-side panels ("| Revenue | 12% | Operating margin | 94% |") the first cell
-  // labels another number: the label is the nearest named cell to the left.
+  // labels another number: the label is the nearest named cell to the left, never one with a
+  // digit, a value the figure reader may leave unread ("6.1p", "2.6 days").
   const labelOf = (row: readonly string[]) =>
     row
       .slice(0, column)
-      .map((cell, place) => ({ cell, place }))
       .reverse()
-      .find(({ cell }) => namesSomething(cell));
+      .find((cell) => namesSomething(cell) && !/\p{Nd}/u.test(cell));
   const label = labelOf(cells);
+  // A label merged over several rows is written once, or trimmed away: such a row can't say whose
+  // its number is.
+  if (label === undefined) return null;
   // A heading row that doesn't line up with the row (a reader that drops a blank corner cell,
   // a merged heading written once) can't say which heading is the number's, or whose another is.
   const aligned = headings.filter((heading) => cellsOf(heading).length === cells.length);
-  const own = [label?.cell ?? "", ...aligned.map((heading) => cellsOf(heading)[column] ?? "")];
+  const own = [label, ...aligned.map((heading) => cellsOf(heading)[column] ?? "")];
+  // Only another number's own names name it: a heading over the labels ("Revenue (£m)"), a
+  // section row or a units column names no other number.
   const others = [
-    ...aligned.flatMap((heading) => cellsOf(heading).filter((_, place) => place !== column)),
-    ...cells.filter((_, place) => place !== column && place !== label?.place),
-    // Another row says what its own number in this column is by its label only: a sheet's second
-    // heading row is a row too, and its cell above the number is the number's heading.
+    ...aligned.flatMap((heading) =>
+      cellsOf(heading).filter((_, place) => place !== column && holdsNumber(cells[place])),
+    ),
     ...lines
       .slice(first, last + 1)
       .filter((row, place) => place + first !== index && !headings.includes(row) && !isRule(row))
-      .map((row) => labelOf(cellsOf(row))?.cell ?? ""),
+      .map(cellsOf)
+      .filter((row) => row.length === cells.length && holdsNumber(row[column]))
+      .map((row) => labelOf(row) ?? ""),
   ];
   return {
     own: own.filter(namesSomething),
@@ -189,11 +201,15 @@ function cellOf(
   };
 }
 
+/** A measure's words, their digits left out. */
+const named = (text: string): string[] => wordsOf(text).filter((word) => !/^\p{N}+$/u.test(word));
+
 /** Whether `text` holds the measure's `words`, their digits left out of both. */
-const namedIn = (text: string, words: string): boolean => {
-  const named = (each: string) => wordsOf(each).filter((word) => !/^\p{N}+$/u.test(word));
-  return inOrder(named(text), named(words));
-};
+const namedIn = (text: string, words: string): boolean => inOrder(named(text), named(words));
+
+/** Whether `text` names just what `words` do: "Revenue" isn't "Revenue per store". */
+const namedAs = (text: string, words: string): boolean =>
+  named(text).join(" ") === named(words).join(" ");
 
 export type MeasureFinding =
   | { kind: "same" }
@@ -227,6 +243,9 @@ export function measureFinding(
     }
     return null;
   };
+  // The same words on both sides can't name two measures: a model that compared the numbers.
+  if (measure.match === "differs" && quoted !== null && namedAs(quoted, said))
+    return { kind: "unknown" };
   if (measure.match === "differs") {
     const shown = (words: string, texts: readonly string[]) =>
       words.length <= SHOWN_CHARACTERS &&
@@ -245,6 +264,6 @@ export function measureFinding(
   const found = quoted === null || !tabled ? null : cell();
   if (found === null || quoted === null) return { kind: "unknown" };
   if (found.own.some((names) => namedIn(names, quoted))) return { kind: "same" };
-  if (found.others.some((names) => namedIn(names, quoted))) return { kind: "other-cell" };
+  if (found.others.some((names) => namedAs(names, quoted))) return { kind: "other-cell" };
   return { kind: "unknown" };
 }

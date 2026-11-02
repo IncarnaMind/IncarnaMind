@@ -505,19 +505,13 @@ describe("a table's row label and headings say what a cell measures (#2255)", ()
     expect(figures).toMatchObject([{ sentence, state }]);
   });
 
-  // protects=a quote of a table's row names its row (a depot), and the column's heading what its number measures, so the heading counts as the quote's words; another column's heading or another row's label never does; a quote outside a table keeps the check as before (#2255); fails_when=a row quote can't be Supported on its column's heading, or is Supported on another column's heading or another row's label; no_claim=none beyond protects.
+  // protects=a quote of a table's row names its row (a depot), and the column's heading what its number measures, so the heading counts as the quote's words; another row's label never does; a quote outside a table keeps the check as before (#2255); fails_when=a row quote can't be Supported on its column's heading, or is Supported on another row's label; no_claim=none beyond protects.
   test.each([
     {
       sentence: "Felixstowe's on-time rate was 94% in 2025.",
       quote: "Felixstowe | 94%",
       measure: { sentence: "on-time rate", quote: "On-time rate", match: "same" },
       state: "supported",
-    },
-    {
-      sentence: "Felixstowe's on-time rate was 94% in 2025.",
-      quote: "Felixstowe | 94%",
-      measure: { sentence: "on-time rate", quote: "Depot", match: "same" },
-      state: "not-checked",
     },
     {
       sentence: "Revenue reached £48.2m in 2025.",
@@ -738,10 +732,10 @@ describe("where a table's headings line up (#2255's review)", () => {
       ).toBe(kind);
   });
 
-  // protects=a number's row label is the nearest cell to its left that names something, so in side-by-side panels the first panel's label names another number (#2255); fails_when=another panel's label is "same", or the number's own isn't; no_claim=none beyond protects.
+  // protects=a number's row label is the nearest cell to its left that names something, so in side-by-side panels another row's label in the number's own panel names another number, while the other panel's labels refuse nothing (#2255); fails_when=the other row's label in the number's panel isn't "other-cell", or the other panel's label is; no_claim=that the other panel's label names the number.
   test("side-by-side panels: the label left of the number", () => {
     const text =
-      "| Measure | 2025 | Measure | 2025 |\n| --- | --- | --- | --- |\n| Revenue | 12% | Operating margin | 94% |";
+      "| Measure | 2025 | Measure | 2025 |\n| --- | --- | --- | --- |\n| Revenue | 12% | Operating margin | 94% |\n| Costs | 5% | Net margin | 7% |";
     const quote = "Operating margin | 94%";
     const finding = (words: string) =>
       measureFinding(
@@ -751,7 +745,12 @@ describe("where a table's headings line up (#2255's review)", () => {
         bound("94%", 0.94, quote.indexOf("94%")),
         () => [text],
       ).kind;
-    expect([finding("Revenue"), finding("Operating margin")]).toEqual(["other-cell", "same"]);
+    expect([
+      finding("Operating margin"),
+      finding("Net margin"),
+      finding("Revenue"),
+      finding("Costs"),
+    ]).toEqual(["same", "other-cell", "unknown", "unknown"]);
   });
 
   // protects=a quote that is itself a table, its heading row and its data row, names its number only by the number's own column, though the quote's text holds every heading (#2255); fails_when=another column's heading in the quote is "same"; no_claim=none beyond protects.
@@ -800,4 +799,154 @@ test.each([
     () => [text],
   );
   expect(finding.kind).toBe("unknown");
+});
+
+// protects=only another number's own names refuse a cell's number: a heading over the labels, a prior-year cell or a units or region column left of the number, a section row, a caption row, a period row on top, a heading row the reader shifted, a label merged over two rows and a parent line's label all refuse nothing, as main does; in the same table another number's row label or column heading still does, or the cell's own name is found (#2255); fails_when=any of the first is "other-cell", or the table's own check stops; no_claim=that the words kept name the number.
+test.each([
+  {
+    name: "a heading over the labels",
+    text: "| Revenue (£m) | 2026 | 2025 |\n| --- | --- | --- |\n| Fresh food | 1,420 | 1,350 |\n| Frozen | 610 | 590 |",
+    quote: "| Fresh food | 1,420 | 1,350 |",
+    chars: "1,420",
+    kept: "Revenue",
+    checked: ["Frozen", "other-cell"],
+  },
+  {
+    name: "a heading over the labels, in Chinese",
+    text: "| 营业收入（万元） | 2025年 | 2024年 |\n| --- | --- | --- |\n| 生鲜食品 | 1,420 | 1,350 |\n| 冷冻食品 | 610 | 590 |",
+    quote: "| 生鲜食品 | 1,420 | 1,350 |",
+    chars: "1,420",
+    kept: "营业收入",
+    checked: ["冷冻食品", "other-cell"],
+  },
+  {
+    name: "a sheet's heading over the labels",
+    text: "Segment revenue\tQ3 2026\tQ3 2025\nFresh food\t1420\t1350\nFrozen\t610\t590",
+    quote: "1420",
+    chars: "1420",
+    kept: "Segment revenue",
+    checked: ["Frozen", "other-cell"],
+  },
+  {
+    name: "a prior-year cell left of the number",
+    text: "| Measure | 2024 | 2025 |\n| --- | --- | --- |\n| Dividend per share | 6.1p | 6.5p |\n| Earnings per share | 5.9p | 6.2p |",
+    quote: "| Dividend per share | 6.1p | 6.5p |",
+    chars: "6.5p",
+    kept: "Dividend per share",
+    checked: ["Dividend per share", "same"],
+  },
+  {
+    name: "a units column",
+    text: "| Metric | Unit | 2025 | 2024 |\n| --- | --- | --- | --- |\n| Headcount | FTE | 1,840 | 1,700 |\n| Drivers | FTE | 620 | 600 |",
+    quote: "| Headcount | FTE | 1,840 | 1,700 |",
+    chars: "1,840",
+    kept: "Headcount",
+    checked: ["FTE", "same"],
+  },
+  {
+    name: "a region column",
+    text: "| Depot | County | On-time rate |\n| --- | --- | --- |\n| Felixstowe | Suffolk | 94% |\n| Leeds | Yorkshire | 89% |",
+    quote: "| Felixstowe | Suffolk | 94% |",
+    chars: "94%",
+    kept: "Felixstowe",
+    checked: ["On-time rate", "same"],
+  },
+  {
+    name: "a section row",
+    text: "| £m | 2025 | 2024 |\n| --- | --- | --- |\n| Revenue | | |\n| Product | 900 | 850 |\n| Services | 520 | 500 |",
+    quote: "| Product | 900 | 850 |",
+    chars: "900",
+    kept: "Revenue",
+    checked: ["Services", "other-cell"],
+  },
+  {
+    name: "a caption row above the rule",
+    text: "| Revenue by segment (£m) | | |\n| --- | --- | --- |\n| Segment | 2026 | 2025 |\n| Fresh food | 1420 | 1350 |\n| Frozen | 610 | 590 |",
+    quote: "1420",
+    chars: "1420",
+    kept: "Revenue",
+    checked: ["Frozen", "other-cell"],
+  },
+  {
+    name: "a period row on top of a sheet",
+    text: "\t2025\t2025\t2024\t2024\n\tRevenue growth\tRevenue\tRevenue growth\tRevenue\nRetail\t12%\t900\t10%\t850",
+    quote: "Retail\t12%\t900\t10%\t850",
+    chars: "900",
+    kept: "Revenue",
+    checked: ["Retail", "same"],
+  },
+  {
+    name: "a heading row the reader shifted",
+    text: "Revenue\tMargin\nRetail\t900\t12%\nRevenue per store\t4.1\t3.9",
+    quote: "Retail\t900\t12%",
+    chars: "900",
+    kept: "Revenue",
+    checked: ["Revenue per store", "other-cell"],
+  },
+  {
+    name: "a second table's heading row in the same sheet",
+    text: "Line\tQ3 2026\tQ3 2025\nRevenue\t4983.4\t4860.0\nSegment revenue\tQ3 2026\tQ3 2025\tShare\nFresh food\t1420\t1350\t29%\nFrozen\t610\t590\t12%",
+    quote: "Fresh food\t1420\t1350\t29%",
+    chars: "1420",
+    kept: "Segment revenue",
+    checked: ["Frozen", "other-cell"],
+  },
+  {
+    name: "a wider table's row above",
+    text: "Line\tQ3 2026\tQ3 2025\nRevenue\t4983.4\t4860.0\nSegment revenue\tQ3 2026\tQ3 2025\tShare\nFresh food\t1420\t1350\t29%\nFrozen\t610\t590\t12%",
+    quote: "Fresh food\t1420\t1350\t29%",
+    chars: "1420",
+    kept: "Revenue",
+    checked: ["Frozen", "other-cell"],
+  },
+  {
+    name: "a parent line's label",
+    text: "| 项目 | 2025年 | 2024年 |\n| --- | --- | --- |\n| 一、营业收入 | 1,420 | 1,350 |\n| 其中：主营业务 | 900 | 850 |",
+    quote: "| 其中：主营业务 | 900 | 850 |",
+    chars: "900",
+    kept: "营业收入",
+    checked: ["一、营业收入", "other-cell"],
+  },
+])("another number's own names only: $name", ({ text, quote, chars, kept, checked }) => {
+  const finding = (words: string) =>
+    measureFinding(
+      { sentence: words, quote: words, match: "same" },
+      [`In 2025 ${words} was ${chars}.`],
+      quote,
+      bound(chars, 0, quote.lastIndexOf(chars)),
+      () => [text],
+    ).kind;
+  const [words, kind] = checked as [string, string];
+  expect([finding(kept) === "other-cell", finding(words)]).toEqual([false, kind]);
+});
+
+// protects=a number in a row whose label is merged over two rows, written once, can't say whose it is, so it refuses nothing, while a row that keeps its label is still told apart from the other's (#2255); fails_when=the label-less row is "other-cell", or the labelled row isn't; no_claim=none beyond protects.
+test("a label merged over two rows", () => {
+  const text =
+    "Measure\tYear\tValue\nRevenue growth\t2025\t12%\n\t2024\t9%\nOperating margin\t2025\t21%\n\t2024\t19%";
+  const finding = (quote: string, chars: string) =>
+    measureFinding(
+      { sentence: "Revenue growth", quote: "Revenue growth", match: "same" },
+      [`Revenue growth was ${chars}.`],
+      quote,
+      bound(chars, 0, quote.indexOf(chars)),
+      () => [text],
+    ).kind;
+  expect([finding("\t2024\t9%", "9%"), finding("Operating margin\t2025\t21%", "21%")]).toEqual([
+    "unknown",
+    "other-cell",
+  ]);
+});
+
+// protects=a "differs" whose two names are the same words is a model that compared the numbers, not the measures, so it neither takes support away nor names a reason, while two names that differ do (#2255); fails_when=the same words come back "differs", or different ones don't; no_claim=none beyond protects.
+test("a differs between the same words", () => {
+  const finding = (said: string) =>
+    measureFinding(
+      { sentence: said, quote: "Revenue", match: "differs" },
+      [`${said} grew 15% in 2025.`],
+      "Revenue grew 12% in 2025, to £48.2m.",
+      bound("12%", 0.12, 13),
+      () => [],
+    ).kind;
+  expect([finding("Revenue"), finding("Operating margin")]).toEqual(["unknown", "differs"]);
 });
