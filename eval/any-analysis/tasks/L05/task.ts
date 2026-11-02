@@ -2,10 +2,8 @@ import { between, csv, normal, random, utf8 } from "../../inputs";
 import type { Task } from "../../task";
 
 const NAME = "mail.mbox";
-const MESSAGES = 10_000;
-/** Six weeks of a team's mail from 2026-09-01 00:00 UTC. */
+/** Six weeks of a team's mail from 2026-09-01 00:00 UTC: 10,000 messages. */
 const START = Date.UTC(2026, 8, 1);
-const SPAN_MS = 42 * 24 * 3_600_000;
 
 /** Made-up people at reserved example domains; the first three send most, in this order. */
 const PEOPLE = [
@@ -73,7 +71,11 @@ function messages(): Message[] {
   const total = weights.reduce((sum, each) => sum + each, 0);
   const sent: Message[] = senders.map((from, index) => {
     let draw = next() * total;
-    const hour = weights.findIndex((weight) => (draw -= weight) < 0);
+    let hour = 0;
+    while (hour < weights.length - 1 && draw >= (weights[hour] ?? 0)) {
+      draw -= weights[hour] ?? 0;
+      hour++;
+    }
     const day = between(next, 0, 41);
     const at =
       START + day * 86_400_000 + Math.max(hour, 0) * 3_600_000 + between(next, 0, 3_599) * 1000;

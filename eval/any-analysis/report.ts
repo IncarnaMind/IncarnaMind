@@ -2,13 +2,10 @@
  * The any-analysis set's report (README.md), from saved runs alone: each task's
  * result per model, pass counts per need against the bar, every C4 failure,
  * the failure classes, and the spend with the token counts it is priced from.
- *
- *   node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs \
- *     eval/any-analysis/report.ts <run.json>...
+ * `npm run eval:any-analysis:report` prints it (report.run.ts).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { taskFolder } from "./load";
 import type { RunRecord } from "./record";
 import {
@@ -170,11 +167,4 @@ export function reportLines(given: readonly RunRecord[], tasks: readonly Task[] 
   }
   lines.push(`| All | | | | | | ${dollars(total)} |`);
   return lines;
-}
-
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  const runs = process.argv
-    .slice(2)
-    .map((path) => JSON.parse(readFileSync(path, "utf8")) as RunRecord);
-  console.log(reportLines(runs).join("\n"));
 }

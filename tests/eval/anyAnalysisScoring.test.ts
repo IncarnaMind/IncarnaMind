@@ -49,7 +49,7 @@ const TASK: Task = {
 
 const REFERENCE: Reference = {
   task: "T00",
-  inputs: {},
+  inputs: { en: "sha-of-the-inputs", zh: "sha-of-the-inputs" },
   values: {
     total: 12345.67,
     growth: 0.0813,
@@ -164,6 +164,7 @@ function record(given: SavedAnswer | null, overrides: Partial<AnswerRecord> = {}
     task: "T00",
     language: "en",
     model: "anthropic/claude-haiku-5-5",
+    inputs: "sha-of-the-inputs",
     documents: [
       { name: "Budget.xlsx", english: "Budget.xlsx", added: true, status: "ready", problem: null },
     ],
@@ -522,6 +523,12 @@ describe("C5, reasonable", () => {
     );
     expect(failed.checks.C5).toBe(false);
     expect(failed.end).toBe("failed");
+  });
+
+  test("a run asked about other inputs than the reference's isn't scored", () => {
+    expect(() =>
+      scoreRun([TASK], { T00: REFERENCE }, [record(answer(RIGHT), { inputs: "older inputs" })]),
+    ).toThrow("other inputs than its reference");
   });
 
   test("the run reports its median and 95th percentile against 90 s and 240 s", () => {

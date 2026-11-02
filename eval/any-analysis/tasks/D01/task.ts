@@ -3,8 +3,11 @@ import { between, csv, random } from "../../inputs";
 import type { Task } from "../../task";
 
 const NAME = "Veltrix Components Annual Report 2025.pdf";
+const SEED = 6001;
 const PAGES = 80;
+const SUMMARY_PAGE = 12;
 const STATEMENT_PAGE = 41;
+const FOOTER = "Veltrix Components plc Annual Report 2025 - page";
 
 /** The consolidated income statement, US$ millions: 2025, then 2024. Costs are negative. */
 const STATEMENT = [
@@ -20,25 +23,18 @@ const STATEMENT = [
   ["Profit for the year", 176.7, 147.4],
 ] as const;
 
-const amount = (value: number) => {
-  const text = Math.abs(value).toLocaleString("en-US", {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  });
-  return value < 0 ? `(${text})` : text;
-};
-
+/** Each section's first page; the contents page lists them. */
 const SECTIONS = [
-  "Strategic report",
-  "Our markets",
-  "Operations review",
-  "Sustainability",
-  "Our people",
-  "Risk management",
-  "Governance",
-  "Directors' remuneration",
-  "Shareholder information",
-];
+  ["Highlights", 3],
+  ["Strategic report", 4],
+  ["Five-year summary", SUMMARY_PAGE],
+  ["Operations review", 13],
+  ["Sustainability", 25],
+  ["Governance", 33],
+  ["Consolidated income statement", STATEMENT_PAGE],
+  ["Notes to the financial statements", 42],
+  ["Shareholder information", 61],
+] as const;
 
 const SENTENCES = [
   "The group continued to invest in automated assembly lines across its two main plants.",
@@ -55,11 +51,22 @@ const SENTENCES = [
   "Working capital was managed closely, with inventory days broadly unchanged.",
 ];
 
+const amount = (value: number) => {
+  const text = Math.abs(value).toLocaleString("en-US", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+  return value < 0 ? `(${text})` : text;
+};
+
+const sectionOf = (page: number): string =>
+  SECTIONS.filter(([, first]) => first <= page).at(-1)?.[0] ?? "";
+
 function filler(next: () => number, page: number): PdfPage {
-  const section = SECTIONS[Math.floor((page - 3) / 8) % SECTIONS.length] ?? "";
-  const lines = [section, ""];
-  for (let at = 0; at < 30; at++) lines.push(SENTENCES[between(next, 0, SENTENCES.length - 1)] ?? "");
-  lines.push("", `Veltrix Components plc Annual Report 2025 - page ${page}`);
+  const lines = [sectionOf(page), ""];
+  for (let at = 0; at < 30; at++)
+    lines.push(SENTENCES[between(next, 0, SENTENCES.length - 1)] ?? "");
+  lines.push("", `${FOOTER} ${page}`);
   return { lines };
 }
 
@@ -84,7 +91,7 @@ function statementPage(): PdfPage {
     lines: [
       ...heading,
       ...Array.from({ length: rows.length + 2 }, () => ""),
-      `Veltrix Components plc Annual Report 2025 - page ${STATEMENT_PAGE}`,
+      `${FOOTER} ${STATEMENT_PAGE}`,
     ],
     placed: rows.flatMap(([label, now, before], index) => [
       { text: label, x: 72, y: top - index * 16 },
@@ -95,27 +102,21 @@ function statementPage(): PdfPage {
 }
 
 function pages(): PdfPage[] {
-  const next = random(2101);
+  const next = random(SEED);
   return Array.from({ length: PAGES }, (_, index): PdfPage => {
     const page = index + 1;
     if (page === 1)
       return {
-        lines: ["Veltrix Components plc", "", "Annual Report and Accounts 2025", "", "Precision parts"],
-      };
-    if (page === 2)
-      return {
         lines: [
-          "Contents",
+          "Veltrix Components plc",
           "",
-          "Highlights 3",
-          "Strategic report 4",
-          "Five-year summary 12",
-          "Governance 52",
-          "Consolidated income statement 41",
-          "Consolidated balance sheet 42",
-          "Notes to the financial statements 44",
+          "Annual Report and Accounts 2025",
+          "",
+          "Precision parts",
         ],
       };
+    if (page === 2)
+      return { lines: ["Contents", "", ...SECTIONS.map(([title, first]) => `${title} ${first}`)] };
     if (page === 3)
       return {
         lines: [
@@ -125,11 +126,11 @@ function pages(): PdfPage[] {
           "Operating profit rose as gross margin improved.",
           "A final dividend is proposed, payable in June.",
           "",
-          "Veltrix Components plc Annual Report 2025 - page 3",
+          `${FOOTER} 3`,
         ],
       };
     // A summary rounded to billions: worked out from it, growth reads about 5.9%, not the statement's.
-    if (page === 12)
+    if (page === SUMMARY_PAGE)
       return {
         lines: [
           "Five-year summary (US$ billions, rounded)",
@@ -137,7 +138,7 @@ function pages(): PdfPage[] {
           "Year  2021  2022  2023  2024  2025",
           "Revenue  1.3  1.4  1.6  1.7  1.8",
           "",
-          "Veltrix Components plc Annual Report 2025 - page 12",
+          `${FOOTER} ${SUMMARY_PAGE}`,
         ],
       };
     if (page === STATEMENT_PAGE) return statementPage();
@@ -149,7 +150,7 @@ export const task: Task = {
   id: "D01",
   title: "Growth and margins from an annual report",
   needs: ["T"],
-  seed: 2101,
+  seed: SEED,
   question: {
     en: "From the consolidated income statement in Veltrix Components Annual Report 2025.pdf, what was the revenue growth from 2024 to 2025, and what were the 2025 gross margin and operating margin (each as a share of 2025 revenue)? Cite the page each figure comes from.",
   },

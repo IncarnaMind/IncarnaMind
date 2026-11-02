@@ -799,7 +799,14 @@ export function scoreRun(
   const scores = records.flatMap((record) => {
     const task = tasks.find((each) => each.id === record.task);
     const reference = references[record.task];
-    return task && reference ? [scoreAnswer(task, reference, record)] : [];
+    if (!task || !reference) return [];
+    const expected = reference.inputs[record.language];
+    if (expected !== undefined && expected !== record.inputs) {
+      throw new Error(
+        `${record.task} (${record.language}) was asked about other inputs than its reference was worked out from: run it again.`,
+      );
+    }
+    return [scoreAnswer(task, reference, record)];
   });
   const falseRecalculated = scores.filter((score) => score.falseRecalculated.length > 0).length;
   const notContained = scores.filter((score) => !score.checks.C4).length;

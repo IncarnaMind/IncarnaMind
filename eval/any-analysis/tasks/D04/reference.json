@@ -1,0 +1,11 @@
+{
+  "task": "D04",
+  "inputs": {
+    "en": "413a127ce1992df95cfe26fc42c2ee136a05a7d54509f637eb6bcdb103017332"
+  },
+  "values": {
+    "internal_sum": 30140,
+    "external_sum": 319825,
+    "stated_external": 319825
+  }
+}

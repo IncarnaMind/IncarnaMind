@@ -1,0 +1,10 @@
+{
+  "task": "D02",
+  "inputs": {
+    "en": "0ad07af043fd7d806827be883c23e0855c853d6d60de2ce8e58547041f9a295a"
+  },
+  "values": {
+    "payment_count": 84,
+    "payments_total": 956350.45
+  }
+}

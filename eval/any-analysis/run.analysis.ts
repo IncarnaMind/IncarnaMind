@@ -21,6 +21,7 @@ import { createDataFolder, isTraced, launchApp, removeDataFolder } from "../../e
 import type { ConversationAnswer, CoreBridge } from "../../src/core/api";
 import { openPackage } from "../../src/core/documents/formats/zip";
 import { commitOf } from "../lib/commit";
+import { inputsHash } from "./inputs";
 import { tasksNamed } from "./load";
 import type { DocumentEnd, RequestUsage, RunRecord, SavedAnswer, SavedFile } from "./record";
 import { dollarsIn } from "./spend";
@@ -306,6 +307,7 @@ test("the any-analysis set", async () => {
         task: task.id,
         language,
         model: `anthropic/${modelId}`,
+        inputs: inputsHash(inputs),
         documents: ends,
         answer: answer ? saved(answer) : null,
         problem: answer ? null : `No Answer within ${ANSWER_LIMIT_MS / 1000} s.`,

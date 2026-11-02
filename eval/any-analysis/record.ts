@@ -68,6 +68,8 @@ export interface AnswerRecord {
   language: TaskLanguage;
   /** "anthropic/claude-haiku-5-5". */
   model: string;
+  /** SHA-256 of the inputs it was given (`inputsHash`): scored only against the reference worked out from them. */
+  inputs: string;
   documents: DocumentEnd[];
   answer: SavedAnswer | null;
   /** Why there is no Answer: the run's own words. */
