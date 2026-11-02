@@ -276,8 +276,8 @@ The result for a sentence when Verify or contradiction watch finds a Passage tha
 _Avoid_: wrong, conflict, false
 
 **Not examined**:
-A sentence the last whole-Note check couldn't tell makes a claim: the model said nothing of it, even asked once more about the sentences its reply left out. It isn't taken for a sentence that makes no claim: it stays to check, and the next Check asks about it again. The line under the check says how many: "1 sentence not examined" (1 句未能判断是否为说法).
-_Avoid_: skipped, left out (an opinion is left out), not checked (a claim whose check failed)
+A sentence the check couldn't tell is a Claim or not, because the model said nothing of it when the check named the Claims, even when asked again. The Note says "Couldn’t tell if 1 sentence is a claim". A sentence with a figure, a Citation, a record cite or a court decision never ends here: it is checked. The next Check asks about it again.
+_Avoid_: unsorted (Sort files Documents), Not checked (a Claim whose check failed or hasn't run)
 
 **Part**:
 One piece of a sentence that a reader can check on its own: a fact, or the writer's own opinion. A sentence's check keeps its parts in order under its one Mark; the sentence is supported only when every factual part is, and its worst part's result is the sentence's. A view the sentence gives to someone else ("The minister said…") is a fact about who said it. A number inside the writer's opinion is a fact inside that opinion, which stays one part. The card shows a row for each part, and Covers counts a quantified part's members ("Covers 3 of the 4 quarters", 覆盖 4 项中的 3 项). Counted with 处 in Chinese.

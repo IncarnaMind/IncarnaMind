@@ -179,7 +179,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a sentence the model says nothing of is counted as couldn't be sorted and stays to check; its line's Check sorts it (${language})`, async () => {
+  test(`a sentence the model says nothing of is counted as one it couldn't tell is a claim and stays to check; the next Check asks about it (${language})`, async () => {
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
@@ -201,7 +201,11 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       await mindCheckFinished(window, 2);
       const checked = card.getByTestId("health-checked-all");
-      await expect(checked).toContainText(translate(language, "health.unexamined.one"));
+      await expect(checked).toContainText(
+        language === "en" ? "Couldn’t tell if 1 sentence is a claim" : "1 句未能判断是否为说法",
+      );
+      // A count only: the card's own Check runs the check again.
+      await expect(checked.getByRole("button")).toHaveCount(0);
       await expect(card.getByTestId("health-toCheck")).toContainText(
         translate(language, "health.toCheck.one"),
       );
@@ -216,10 +220,9 @@ for (const language of ["en", "zh-CN"] as const) {
         await screenshot(window, `mind-check-unexamined-${language}-${width}`);
       }
 
-      // With a model that decides every sentence, the line's Check sorts the one left and the line goes.
+      // With a model that decides every sentence, Check asks about the one left and the line goes.
       await connectLocalChatModel(window);
-      const again = (await checkCard(window)).getByTestId("health-unexamined-check");
-      await expect(again).toHaveText(translate(language, "mindCheck.check"));
+      const again = (await checkCard(window)).getByTestId("badge-check-mind");
       await pointAndClick(window, again);
       await pointAndClick(
         window,
