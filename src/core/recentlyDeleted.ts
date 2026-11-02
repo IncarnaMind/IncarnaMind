@@ -10,6 +10,7 @@
  * still quotes stays (ADR-0010), as the text kept of an unlinked Document does.
  */
 import type { MessageKey, MessageParams } from "../shared/i18n";
+import { sameName } from "../shared/names";
 import {
   DELETED_KINDS,
   type DeletedItem,
@@ -32,7 +33,7 @@ import type { createMindContent } from "./mindContent";
 import { forgetMindBlocks } from "./mindIndex";
 import type { createMinds } from "./minds";
 import type { Database } from "./storage";
-import { parseTagLinkStates, sameName, type TagsStore } from "./tags";
+import { parseTagLinkStates, type TagsStore } from "./tags";
 
 const TABLES: Readonly<Record<DeletedKind, string>> = {
   mind: "minds",

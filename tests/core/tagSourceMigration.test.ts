@@ -1,7 +1,8 @@
 /**
  * Migration 124 (#205): a Tag records whether the User made it or changed its
  * name, colour or description. Tags made before it have no record of where they
- * came from, so a preset is not the User's and every other one is taken as theirs.
+ * came from: a preset is not the User's, nor is one automatic tagging linked the
+ * moment it made it, nor Research's; every other one is taken as theirs.
  */
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -21,19 +22,41 @@ describe("Migration 124: a Tag says whether the User made or changed it", () => 
       db,
       migrations.filter((each) => each.version <= 123),
     );
+    const book = randomUUID();
+    const drafts = randomUUID();
+    const tagged = randomUUID();
+    const english = randomUUID();
+    const chinese = randomUUID();
     db.run(
       `INSERT INTO tags (id, name, description, preset, colour, created_at, updated_at)
        VALUES (?, 'Book', 'A book.', 'book', 'orange', ?, ?),
-              (?, 'Drafts', 'Notes in progress.', NULL, 'teal', ?, ?)`,
-      [randomUUID(), AT, AT, randomUUID(), AT, AT],
+              (?, 'Drafts', 'Notes in progress.', NULL, 'teal', ?, ?),
+              (?, 'Tagged', 'Made while tagging.', NULL, 'green', ?, ?),
+              (?, 'From Research on “Tea”', 'From Research on “Tea”', NULL, 'blue', ?, ?),
+              (?, '来自研究“茶”', '来自研究“茶”', NULL, 'red', ?, ?)`,
+      [book, AT, AT, drafts, AT, AT, tagged, AT, AT, english, AT, AT, chinese, AT, AT],
+    );
+    // Automatic tagging links the Tag the moment it makes it; the User's link comes later.
+    db.run(
+      `INSERT INTO document_tags
+         (id, document_id, tag_id, source, confidence, needs_review, created_at, updated_at)
+       VALUES (?, ?, ?, 'automatic', NULL, 0, ?, ?),
+              (?, ?, ?, 'user', NULL, 0, '2026-10-02T09:00:00.000Z', '2026-10-02T09:00:00.000Z')`,
+      [randomUUID(), randomUUID(), tagged, AT, AT, randomUUID(), randomUUID(), drafts],
     );
     db.close();
 
     const core = startCore(dataDir);
 
-    expect(await core.listTags()).toMatchObject([
-      { name: "Book", preset: true, madeByUser: false },
-      { name: "Drafts", preset: false, madeByUser: true },
-    ]);
+    const byName = Object.fromEntries(
+      (await core.listTags()).map((tag) => [tag.name, tag.madeByUser]),
+    );
+    expect(byName).toEqual({
+      Book: false,
+      Drafts: true,
+      "From Research on “Tea”": false,
+      Tagged: false,
+      "来自研究“茶”": false,
+    });
   });
 });

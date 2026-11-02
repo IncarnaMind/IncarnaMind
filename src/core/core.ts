@@ -5562,6 +5562,11 @@ export function createCore(adapters: CoreAdapters): Core {
       tagsChanged();
       return tag;
     },
+    revertTagSource: async (tagId, madeByUser) => {
+      const tag = tags.setSource(tagId, madeByUser);
+      tagsChanged();
+      return tag;
+    },
     deleteTag: async (tagId) => removeTag(tagId),
     addDocumentTag: async (documentId, tagId) => {
       const { document, changed } = db.transaction(() => {
@@ -5593,11 +5598,16 @@ export function createCore(adapters: CoreAdapters): Core {
       return documents.getMany([...new Set(links.map((link) => link.documentId))]);
     },
     mergeTags: async (tagId, intoTagId) => {
+      const keptMadeByUserBefore = tags.get(intoTagId).madeByUser;
       const { documentIds, links } = tags.merge(tagId, intoTagId, now());
       // Tags first, so a listener filtering by the merged Tag hears it's gone before it refreshes.
       tagsChanged();
       announceTagged(documentIds);
-      return { tag: tags.get(intoTagId), merged: { kind: "tag", id: tagId, links } };
+      return {
+        tag: tags.get(intoTagId),
+        merged: { kind: "tag", id: tagId, links },
+        keptMadeByUserBefore,
+      };
     },
     retagDocuments: async (documentIds) => {
       rateLimit.resumeNow();

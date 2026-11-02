@@ -1,11 +1,13 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import type { Tag } from "../../../core/api";
+import { sameName } from "../../../shared/names";
 import { nextTagColour, type TagColour } from "../../../shared/tagColours";
 import { core } from "../core";
 import { errorMessage } from "../errors";
 import { useLanguage, useT } from "../i18n";
 import { formatCount } from "../linkedFolders";
 import { matchName, queryWords } from "../matcher";
+import { useOwnDocuments } from "../ownDocuments";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { deleteTag, editTag, mergeTags } from "../tagChanges";
@@ -42,7 +44,7 @@ interface Usage {
 
 /**
  * Managing Tags, in a native modal <dialog>: each Tag's name, description and
- * how many Documents carry it (a click shows them in the Library), in rows
+ * how many of the User's own Documents carry it (a click shows them in the Library), in rows
  * split by rules, to edit, merge into another Tag, or delete; a field to find
  * one; a form for a new one; and "Re-tag all Documents". The list follows the
  * core's "tags.changed" event, and the counts the Documents' Tags.
@@ -56,7 +58,8 @@ export function TagsDialog() {
     closeDialog();
   };
   const tags = useAppStore((state) => state.tags);
-  const documents = useAppStore((state) => state.documents);
+  // The User's own Documents, as the sidebar counts them: the examples' don't make a Tag.
+  const documents = useOwnDocuments();
   const dialog = useModal(open);
   const [error, setError] = useState<string | null>(null);
   const [retagStarted, setRetagStarted] = useState(false);
@@ -383,7 +386,7 @@ function TagForm(props: {
   const [description, setDescription] = useState(initial.description);
   const [colour, setColour] = useState<TagColour>(initial.colour);
   const [busy, setBusy] = useState(false);
-  const into = others?.find((each) => each.name.toLowerCase() === name.trim().toLowerCase());
+  const into = others?.find((each) => sameName(each.name, name.trim()));
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();

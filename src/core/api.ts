@@ -9444,10 +9444,15 @@ export interface TagLinkState {
 }
 
 export interface TagMerge {
-  /** The Tag merged into, unchanged. */
+  /** The Tag merged into; it is the User's from the merge on. */
   tag: Tag;
-  /** Restoring it undoes the merge: the merged Tag comes back, and both Tags' links are as they were. */
+  /**
+   * Restoring it undoes the merge: the merged Tag comes back, and both Tags' links are as they
+   * were; `revertTagSource` puts back `keptMadeByUserBefore` too.
+   */
   merged: RestoreRef;
+  /** Whether the Tag merged into was the User's before the merge made it so. */
+  keptMadeByUserBefore: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -11970,6 +11975,11 @@ export interface CoreApi {
    * their Tags; "Re-tag" applies the new definition to the automatic ones.
    */
   updateTag(tagId: string, patch: UpdateTagInput): Promise<Tag>;
+  /**
+   * Puts back whether a Tag was the User's: the Undo of a merge, which makes the
+   * Tag kept the User's, or of an edit, which marks the Tag the User's.
+   */
+  revertTagSource(tagId: string, madeByUser: boolean): Promise<Tag>;
   /** Soft-deletes a Tag, and takes it off every Document. */
   deleteTag(tagId: string): Promise<void>;
   /**
@@ -12992,6 +13002,7 @@ const methods: Record<CoreApiMethod, true> = {
   listTags: true,
   createTag: true,
   updateTag: true,
+  revertTagSource: true,
   deleteTag: true,
   addDocumentTag: true,
   removeDocumentTag: true,

@@ -9,6 +9,7 @@
  * Document and Tag that has one.
  */
 import { randomUUID } from "node:crypto";
+import { sameName } from "../../shared/names";
 import { isTagColour, nextTagColour, type TagColour } from "../../shared/tagColours";
 import type { DocumentTag, Tag, TagLinkState, TagSource } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
@@ -53,9 +54,6 @@ const toTag = (row: TagRow): Tag => ({
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
-
-/** How names are compared: two names that differ only in case are the same Tag. */
-export const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 function parseTagId(id: unknown): string {
   if (typeof id !== "string" || id === "") {
@@ -327,6 +325,22 @@ export function createTags(db: Database, now: () => string) {
           [name, description, colour, at, tag.id],
         );
         return { ...tag, name, description, madeByUser: true, colour, updatedAt: at };
+      });
+    },
+
+    /** Puts back whether the Tag was the User's, for the Undo of an edit or a merge. */
+    setSource(tagId: unknown, madeByUser: unknown): Tag {
+      if (typeof madeByUser !== "boolean") {
+        throw new InvalidInputError("revertTagSource expects a boolean.");
+      }
+      return db.transaction(() => {
+        const tag = get(tagId);
+        db.run("UPDATE tags SET made_by_user = ?, updated_at = ? WHERE id = ?", [
+          madeByUser ? 1 : 0,
+          now(),
+          tag.id,
+        ]);
+        return get(tag.id);
       });
     },
 

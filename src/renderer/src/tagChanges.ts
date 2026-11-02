@@ -4,6 +4,7 @@
  * Each throws what the core throws, for the place that asked to say.
  */
 import type { Tag, UpdateTagInput } from "../../core/api";
+import { sameName } from "../../shared/names";
 import { deleted } from "./changes";
 import { core } from "./core";
 import { useAppStore } from "./store";
@@ -40,9 +41,7 @@ export async function editTag(tagId: string, patch: UpdateTagInput): Promise<Tag
   const into =
     tag === undefined || name === undefined
       ? undefined
-      : useAppStore
-          .getState()
-          .tags.find((each) => each.id !== tagId && each.name.toLowerCase() === name.toLowerCase());
+      : useAppStore.getState().tags.find((each) => each.id !== tagId && sameName(each.name, name));
   if (tag && into) {
     await mergeTags(tag.id, into.id, true);
     return into;
@@ -51,6 +50,8 @@ export async function editTag(tagId: string, patch: UpdateTagInput): Promise<Tag
   if (!tag) return undefined;
   const before = { name: tag.name, description: tag.description, colour: tag.colour };
   const after = { name: edited.name, description: edited.description, colour: edited.colour };
+  // An edit makes the Tag the User's; Undo puts that back too, so a preset hides at 0 again.
+  const wasUser = tag.madeByUser;
   if (JSON.stringify(before) === JSON.stringify(after)) return undefined;
   const rename = before.name !== after.name;
   push({
@@ -58,6 +59,7 @@ export async function editTag(tagId: string, patch: UpdateTagInput): Promise<Tag
     name: (t) => t(rename ? "undo.name.rename" : "undo.name.editTag"),
     undo: async () => {
       await core.updateTag(tagId, before);
+      await core.revertTagSource(tagId, wasUser);
     },
     redo: async () => {
       await core.updateTag(tagId, after);
@@ -95,9 +97,21 @@ export async function mergeTags(tagId: string, intoTagId: string, renamed = fals
     name: (t) => t("undo.name.mergeTags"),
     undo: async () => {
       await core.restore([merge.merged]);
+      // The merge made the Tag kept the User's; this puts its source back.
+      await core.revertTagSource(intoTagId, merge.keptMadeByUserBefore);
+      // The Library filtered by the Tag kept filters by the one that comes back.
+      const held = useAppStore.getState().tagFilter;
+      if (held.includes(intoTagId)) {
+        useAppStore.getState().setTagFilter(held.map((id) => (id === intoTagId ? tagId : id)));
+      }
     },
     redo: async () => {
+      const held = useAppStore.getState().tagFilter;
+      const kept = held.includes(tagId);
       merge = await core.mergeTags(tagId, intoTagId);
+      if (kept) {
+        useAppStore.getState().setTagFilter(held.map((id) => (id === tagId ? intoTagId : id)));
+      }
     },
   });
 }

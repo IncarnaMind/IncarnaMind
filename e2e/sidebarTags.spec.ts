@@ -810,9 +810,16 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(tags).toContainEqual(["Paper", true]);
       expect(tags.map(([name]) => name)).not.toContain("Drafts");
 
-      // One Undo brings the renamed Tag back.
+      // One Undo brings the renamed Tag back, with the filter; Paper is a preset again, hidden at 0.
       await window.getByTestId("undo-line").getByTestId("undo-action").click();
       await expect(tagRow(window, "Drafts")).toHaveCount(1);
+      await expect(tagRow(window, "Paper")).toHaveCount(0);
+      await expect(tagFilter).toHaveText(language === "en" ? "Tags: Drafts" : "标签：Drafts");
+      const afterUndo = await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        return (await core.listTags()).map((tag) => [tag.name, tag.madeByUser] as const);
+      });
+      expect(afterUndo).toContainEqual(["Paper", false]);
     } finally {
       await app.close();
     }
@@ -891,6 +898,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
       await expect(tagRow(window, "Slides").getByTestId("browse-count")).toHaveText("0");
+
+      // Undo puts back that the preset was not the User's, so at 0 it hides again.
+      await window.getByTestId("undo-line").getByTestId("undo-action").click();
+      await expect(tagRow(window, "Slides")).toHaveCount(0);
     } finally {
       await app.close();
     }
@@ -988,7 +999,9 @@ test("a Tag's menu, from a right-click, its ⋯ and the context-menu key, recolo
     await expect(description).toHaveValue("Findings and summaries.");
     await description.fill("Findings, summaries and invoices.");
     await dialog.getByTestId("save-tag").first().click();
-    await expect(dialog.getByText("Findings, summaries and invoices.")).toBeVisible();
+    await expect(
+      dialog.getByText("Findings, summaries and invoices.", { exact: true }),
+    ).toBeVisible();
     await window.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
     await expect
@@ -1009,7 +1022,7 @@ test("a Tag's menu, from a right-click, its ⋯ and the context-menu key, recolo
     await expect(dialog).toBeVisible();
     await dialog.getByTestId("tag-name-input").first().fill("Findings");
     await expect(dialog.getByTestId("tag-merge-note")).toHaveText(
-      "Merging into “Findings” keeps its description and colour.",
+      "Merging into “Findings” keeps its description and color.",
     );
     await dialog.getByTestId("save-tag").first().click();
     await expect.poll(() => tagNames(window)).not.toContain("Sketches");
@@ -1141,7 +1154,7 @@ test("two Documents dragged from the Library onto a Tag get it, with the count a
     const dialog = window.getByTestId("tags-dialog");
     await expect(dialog).toBeVisible();
     const row = dialog.getByTestId("tag-row").filter({ hasText: "Agreements" });
-    await expect(row.getByText("Agreements and their terms.")).toBeVisible();
+    await expect(row.getByText("Agreements and their terms.", { exact: true })).toBeVisible();
     await expect(row.getByTestId("tag-count")).toHaveText("1 Document");
     await window.keyboard.press("Escape");
     await expect(dialog).toBeHidden();

@@ -10,7 +10,7 @@ import type { DocumentKind, ExternalService } from "../api";
 import { approximateTokens } from "../documents/passages";
 import type { ChatLanguageModel } from "../providers/models";
 import { outputTokens } from "../providers/outputLimits";
-import { sameName } from "./index";
+import { sameName } from "../../shared/names";
 import {
   type AskAgain,
   foundedTags,

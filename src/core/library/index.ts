@@ -8,6 +8,7 @@ import {
   supportsLibraryImages,
 } from "../../shared/libraryModels";
 import { libraryPresetKeys } from "../../shared/libraryPresets";
+import { sameName } from "../../shared/names";
 import type {
   DocumentKind,
   ExternalService,
@@ -31,7 +32,7 @@ import { classifyProviderError } from "../providers/providerErrors";
 import { gateStop } from "../sendGate";
 import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
-import { sameName, type TagsStore } from "../tags";
+import type { TagsStore } from "../tags";
 import { documentType, excerptFromPassages } from "../tags/classify";
 import { clearForService, mayBackgroundSend, turnOnTime } from "../tags/held";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";

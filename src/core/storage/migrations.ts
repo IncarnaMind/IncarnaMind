@@ -2210,10 +2210,18 @@ export const migrations: readonly Migration[] = [
       "A Tag records whether the User made it or changed its name, colour or description, so the sidebar lists a Tag with no Documents only then (#205)",
     sql: `
       -- Automatic tagging and the preset Tags leave this 0; createTag, an edit by the User and a
-      -- merge into it set it. Tags that exist now have no record of where they came from, so a
-      -- preset is not the User's and every other one is taken as theirs.
+      -- merge into it set it. A Tag that exists now was made by automatic tagging when a link to
+      -- it was made in the same moment, and Research's say so in their description; neither is
+      -- the User's. A preset is not either; every other one is taken as theirs.
       ALTER TABLE tags ADD COLUMN made_by_user INTEGER NOT NULL DEFAULT 0;
-      UPDATE tags SET made_by_user = 1 WHERE preset IS NULL;
+      UPDATE tags SET made_by_user = 1
+      WHERE preset IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM document_tags l
+          WHERE l.tag_id = tags.id AND l.created_at = tags.created_at
+        )
+        AND description NOT LIKE 'From Research on “%'
+        AND description NOT LIKE '来自研究“%';
     `,
   },
 ];

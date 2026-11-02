@@ -180,6 +180,18 @@ describe("Managing Tags", () => {
     expect(names(await core.listTags()).indexOf("receipts")).toBe(6);
   });
 
+  test("an edit makes a preset Tag the User's, and putting its source back hides it at 0 again", async () => {
+    const core = startCore(await createTempDataFolder());
+    const slides = await tagNamed(core, "Slides");
+    expect(slides.madeByUser).toBe(false);
+
+    const edited = await core.updateTag(slides.id, { colour: "teal" });
+    expect(edited.madeByUser).toBe(true);
+
+    expect((await core.revertTagSource(slides.id, slides.madeByUser)).madeByUser).toBe(false);
+    expect((await tagNamed(core, "Slides")).madeByUser).toBe(false);
+  });
+
   test("a Tag needs a name, and a name no other Tag has (ignoring case)", async () => {
     const core = startCore(await createTempDataFolder());
 
@@ -940,7 +952,26 @@ describe("Merging Tags", { timeout: 30_000 }, () => {
     const merged = await core.mergeTags(drafts.id, book.id);
 
     expect(merged.tag).toMatchObject({ id: book.id, madeByUser: true });
+    expect(merged.keptMadeByUserBefore).toBe(false);
     expect((await tagNamed(core, "Book")).madeByUser).toBe(true);
+
+    // The Undo of the merge puts back whether the Book was the User's.
+    const reverted = await core.revertTagSource(book.id, merged.keptMadeByUserBefore);
+    expect(reverted.madeByUser).toBe(false);
+    expect((await tagNamed(core, "Book")).madeByUser).toBe(false);
+  });
+
+  test("merging into a Tag the User made leaves it the User's, and its Undo says so", async () => {
+    const core = startCore(await createTempDataFolder());
+    const findings = await core.createTag({ name: "Findings" });
+    const drafts = await core.createTag({ name: "Drafts" });
+
+    const merged = await core.mergeTags(drafts.id, findings.id);
+
+    expect(merged.keptMadeByUserBefore).toBe(true);
+    expect((await core.revertTagSource(findings.id, merged.keptMadeByUserBefore)).madeByUser).toBe(
+      true,
+    );
   });
 });
 
