@@ -13,6 +13,7 @@ function accessAnswering(outcome: OutsideAnswer) {
   const deps: AgentAccessDeps = {
     admit: (pairingId) => ({ id: pairingId, name: "Codex", folderIds: ["coast"], propose: false }),
     folders: () => [{ id: "coast", name: "Coast", keepInside: false }],
+    wallOf: () => null,
     foldersInScope: (folderIds) => [...folderIds],
     documentsIn: () => ["tides"],
     search: async () => [],

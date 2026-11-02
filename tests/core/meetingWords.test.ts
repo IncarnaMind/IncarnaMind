@@ -114,4 +114,41 @@ describe("Chinese in a Transcript follows the User's script (#1031)", { timeout:
 
     expect(await linesOf(core, meeting.id, record)).toContain("于丽說餘總同意。");
   });
+
+  test("a walled sub-Folder's Documents name nothing outside the wall", async () => {
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      engine: MISHEARING,
+    });
+    const expansion = await core.createLibraryGroup({ name: "Expansion", description: "" });
+    const secret = await core.createLibraryGroup({
+      name: "Secret",
+      description: "",
+      parentId: expansion.id,
+    });
+    await core.updateLibraryGroup(secret.id, {
+      name: secret.name,
+      description: secret.description,
+      keepInside: true,
+    });
+    const file = await writeSourceFile(
+      await createSourceFolder(),
+      "Office plan.md",
+      "# Office plan\n\nThe team moves to the new office in Leeds. Rent in Leeds is lower.",
+    );
+    const { documents } = await core.addDocuments([file]);
+    await waitForProcessing(
+      core,
+      documents.map((each) => each.id),
+    );
+    await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: secret.id });
+    const mind = await core.createMind({ title: "Weekly call with Dana", folderId: expansion.id });
+    const meeting = await core.createMeeting({ mindId: mind.id });
+    await core.startMeeting({ meetingId: meeting.id });
+
+    const lines = await linesOf(core, meeting.id, record);
+
+    // The Note's own Folder's Documents would say Leeds; the walled sub-Folder's are not theirs.
+    expect(lines.join(" ")).toContain("Leads");
+    expect(lines.join(" ")).not.toContain("Leeds");
+  });
 });

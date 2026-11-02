@@ -53,6 +53,7 @@ import { core, files } from "./core";
 import { LIBRARY_DELETED } from "./deletedItems";
 import { applyAssignments, applyDocumentChanges, createDocumentUpdates } from "./documentUpdates";
 import { describeError, errorMessage } from "./errors";
+import { folderPathLabel, folderWallOf, isInsideFolder } from "./folders";
 import { languageNow } from "./i18n";
 import {
   createLayoutSlice,
@@ -90,6 +91,7 @@ import { resolveSettingsPage, type SettingsPage, type SettingsTarget } from "./s
 import { returnFocusAfterTabClose } from "./tabFocus";
 import { tabTitle } from "./tabs";
 import { asOneStep, makeInTurn, sayWhileSlow, type Undoable, UndoRefused, useUndo } from "./undo";
+import { wallLines } from "./walls";
 
 type Status = { kind: "loading" } | { kind: "ready" } | { kind: "failed"; message: string };
 
@@ -266,13 +268,18 @@ export interface AppState extends LayoutSlice {
   /**
    * Makes "Untitled Folder" (numbered if that is taken) and asks the sidebar to
    * open its name field, or, given a `name`, makes it with that name. With
-   * `items`, the Minds and Documents go into it at once. One step to undo, with
-   * its first name (`nameNewFolder`). Resolves to the Folder's id, or null if
-   * it couldn't be made.
+   * `items`, the Minds and Documents go into it at once. Inside `parentId`'s
+   * Folder, with that Folder's chain opened in the sidebar. One step to undo,
+   * with its first name (`nameNewFolder`). Resolves to the Folder's id, or null
+   * if it couldn't be made.
    */
-  createFolder(items?: MoveItems, name?: string): Promise<string | null>;
+  createFolder(items?: MoveItems, name?: string, parentId?: string | null): Promise<string | null>;
   /** Names the Folder just made: part of making it, so one Undo takes both back. */
   nameNewFolder(folderId: string, name: string): Promise<void>;
+  /** Puts a Folder inside another, or at the top level (null), with Undo. */
+  moveFolder(folderId: string, parentId: string | null): Promise<void>;
+  /** Puts the Folders selected together inside another, or at the top level (null), as one Undo. */
+  moveFolders(folderIds: readonly string[], parentId: string | null): Promise<void>;
   /** Renames a Folder, keeping its description. */
   renameFolder(folderId: string, name: string): Promise<void>;
   /** Changes a Folder's name, description or evidence choice, with Undo. Throws what the core throws. */
@@ -696,6 +703,27 @@ export const useAppStore = create<AppState>()((set, get) => {
   };
 
   /**
+   * The walls a move crosses, by the paths Move to… shows: the wall it enters and those it leaves.
+   * An item already behind the wall it goes to crosses none.
+   */
+  const wallChange = (
+    groups: readonly LibraryGroup[],
+    fromFolders: readonly (string | null)[],
+    into: string | null,
+  ): { entered: string | null; left: string[] } => {
+    const after = into === null ? null : folderWallOf(groups, into);
+    const crossed = fromFolders.flatMap((from) => {
+      const before = from === null ? null : folderWallOf(groups, from);
+      return before === after ? [] : [{ before, after }];
+    });
+    const path = (id: string) => folderPathLabel(groups, id);
+    return {
+      entered: after !== null && crossed.length > 0 ? path(after) : null,
+      left: [...new Set(crossed.flatMap(({ before }) => (before === null ? [] : [path(before)])))],
+    };
+  };
+
+  /**
    * Built here, not in the action that reads the Minds, Documents and Library: closures made in
    * one scope all keep what any of them uses, and the undo stack keeps these as long as the session.
    * `named` and `names` are cut to what the line and the refusal say.
@@ -707,9 +735,9 @@ export const useAppStore = create<AppState>()((set, get) => {
     named: Names;
     names: ReadonlyMap<string, string>;
     done: FolderMove;
-    outOfWall?: boolean;
+    walls?: { entered: string | null; left: readonly string[] };
   }): Undoable => {
-    const { moving, folderId, folderName, named, names, outOfWall = false } = made;
+    const { moving, folderId, folderName, named, names, walls } = made;
     let { done } = made;
     return {
       said: (t) => {
@@ -719,7 +747,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           folderId === null ? t("library.unsorted") : folderName,
           named,
         );
-        return outOfWall ? `${message} ${t("move.outOfWall")}` : message;
+        const suffix = walls ? wallLines(t, walls.entered, walls.left) : "";
+        return suffix ? `${message}${t("text.sentenceBreak")}${suffix}` : message;
       },
       name: (t) => moveName(t, moving, named),
       undo: () => putBack(done, names),
@@ -736,16 +765,17 @@ export const useAppStore = create<AppState>()((set, get) => {
     named: Names;
     names: ReadonlyMap<string, string>;
     done: FolderMove | null;
-    outOfWall?: boolean;
+    walls?: { entered: string | null; left: readonly string[] };
   }) => {
-    const { folderId, going, named, names, outOfWall = false } = made;
+    const { folderId, going, named, names, walls } = made;
     let { done } = made;
     return (folderName: string): Undoable => {
       let kept = false;
       return {
         said: (t) => {
           const message = madeMessage(t, folderName, going, named);
-          return outOfWall ? `${message} ${t("move.outOfWall")}` : message;
+          const suffix = walls ? wallLines(t, walls.entered, walls.left) : "";
+          return suffix ? `${message}${t("text.sentenceBreak")}${suffix}` : message;
         },
         name: (t) => t("undo.name.newFolder"),
         undoneNote: () => (kept ? (t) => t("commands.kept.folder", { name: folderName }) : null),
@@ -1190,8 +1220,14 @@ export const useAppStore = create<AppState>()((set, get) => {
           named: namesOfMoving(moving, { minds, documents }),
           names: namesOfFolders(library, [folderId, ...foldersMovedFrom(done)]),
           done,
-          outOfWall: foldersMovedFrom(done).some(
-            (id) => library?.groups.find((group) => group.id === id)?.keepInside === true,
+          walls: wallChange(
+            library?.groups ?? [],
+            [
+              ...done.minds.map((item) => item.from),
+              ...done.documents.map((item) => item.from),
+              ...done.conversations.map((item) => item.from),
+            ],
+            folderId,
           ),
         });
         push(change);
@@ -1199,7 +1235,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       return change;
     },
 
-    createFolder: async (items, named) => {
+    createFolder: async (items, named, parentId) => {
       let madeId: string | null = null;
       await attempt(async () => {
         const { minds, documents, library } = get();
@@ -1209,7 +1245,11 @@ export const useAppStore = create<AppState>()((set, get) => {
             t,
             (library?.groups ?? []).map((group) => group.name),
           );
-        const folder = await core.createLibraryGroup({ name, description: "" });
+        const folder = await core.createLibraryGroup({
+          name,
+          description: "",
+          ...(parentId && { parentId }),
+        });
         await get().refreshLibrary();
         const chosen = items ? itemsOf(items) : null;
         const going =
@@ -1221,11 +1261,17 @@ export const useAppStore = create<AppState>()((set, get) => {
           named: namesOfMoving(going ?? {}, { minds, documents }),
           names: namesOfFolders(library, done ? foldersMovedFrom(done) : []),
           done,
-          outOfWall: done
-            ? foldersMovedFrom(done).some(
-                (id) => library?.groups.find((group) => group.id === id)?.keepInside === true,
+          walls: done
+            ? wallChange(
+                library?.groups ?? [],
+                [
+                  ...done.minds.map((item) => item.from),
+                  ...done.documents.map((item) => item.from),
+                  ...done.conversations.map((item) => item.from),
+                ],
+                parentId ?? null,
               )
-            : false,
+            : undefined,
         });
         const step = stepNamed(name);
         justMade = { id: folder.id, step, stepNamed };
@@ -1294,6 +1340,79 @@ export const useAppStore = create<AppState>()((set, get) => {
         redo: folderFields(folderId, after),
       });
     },
+
+    moveFolder: (folderId, parentId) => get().moveFolders([folderId], parentId),
+
+    moveFolders: (folderIds, parentId) =>
+      attempt(async () => {
+        const groups = get().library?.groups ?? [];
+        const chosen = [...new Set(folderIds)].flatMap((folderId) => {
+          const folder = groups.find((group) => group.id === folderId);
+          return folder ? [folder] : [];
+        });
+        // A Folder moved with one of its own Folders goes with it, so the tree keeps its shape.
+        const moving = chosen.filter(
+          (folder) =>
+            !chosen.some(
+              (other) => other.id !== folder.id && isInsideFolder(groups, folder.id, other.id),
+            ),
+        );
+        const changes = moving.filter((folder) => folder.parentId !== parentId);
+        if (changes.length === 0) return;
+        // Work that leaves or enters a wall says so, as a Document's move does.
+        const after = parentId === null ? null : folderWallOf(groups, parentId);
+        const crossed = changes
+          .map((folder) => ({
+            before: folderWallOf(groups, folder.id),
+            after: folder.keepInside ? folder.id : after,
+          }))
+          .filter(({ before, after }) => before !== after);
+        const path = (id: string) => folderPathLabel(groups, id);
+        const entered = crossed.find(({ after }) => after !== null)?.after ?? null;
+        const walls = {
+          entered: entered === null ? null : path(entered),
+          left: [
+            ...new Set(crossed.flatMap(({ before }) => (before === null ? [] : [path(before)]))),
+          ],
+        };
+        const moved = await core.moveLibraryGroups(
+          changes.map((folder) => ({ id: folder.id, parentId })),
+        );
+        await get().refreshLibrary();
+        const went = new Set(moved);
+        const used = changes.filter((folder) => went.has(folder.id));
+        if (used.length === 0) return;
+        const before = folderPathLabel(groups, used[0]?.parentId ?? null);
+        const afterLabel = parentId === null ? null : folderPathLabel(groups, parentId);
+        push({
+          said: (t) => {
+            const line =
+              used.length === 1
+                ? parentId === null
+                  ? t("folder.moved.out", { name: used[0]?.name ?? "", from: before })
+                  : t("folder.moved.into", { name: used[0]?.name ?? "", into: afterLabel ?? "" })
+                : parentId === null
+                  ? t("folder.moved.many.top", { count: used.length })
+                  : t("folder.moved.many.into", {
+                      count: used.length,
+                      into: afterLabel ?? "",
+                    });
+            const suffix = wallLines(t, walls.entered, walls.left);
+            return suffix ? `${line}${t("text.sentenceBreak")}${suffix}` : line;
+          },
+          name: (t) => t(used.length === 1 ? "undo.name.moveFolder" : "undo.name.moveFolders"),
+          undo: async () => {
+            await core.moveLibraryGroups(
+              used.map((folder) => ({ id: folder.id, parentId: folder.parentId })),
+            );
+            await get().refreshLibrary();
+          },
+          redo: async () => {
+            await core.moveLibraryGroups(used.map((folder) => ({ id: folder.id, parentId })));
+            await get().refreshLibrary();
+          },
+        });
+      }),
 
     // Its Minds' list follows the core's "minds.changed" event, the Library its "library.changed".
     deleteFolder: (folderId) =>

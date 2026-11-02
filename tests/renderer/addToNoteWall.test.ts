@@ -17,7 +17,7 @@ vi.mock("../../src/renderer/src/core", () => ({
 }));
 
 const library = {
-  groups: [{ id: "a", name: "Client A", keepInside: true }],
+  groups: [{ id: "a", name: "Client A", parentId: null, keepInside: true }],
   assignments: [{ documentId: "lease-a", groupId: "a" }],
 };
 const reportError = vi.fn();

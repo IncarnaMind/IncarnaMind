@@ -11,6 +11,7 @@ const group = (id: string, name: string): LibraryGroup => ({
   id,
   name,
   description: "",
+  parentId: null,
   countsOwnFiles: false,
   keepInside: false,
   createdAt: "",

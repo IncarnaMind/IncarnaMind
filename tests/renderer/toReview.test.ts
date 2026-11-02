@@ -11,6 +11,7 @@ const folder = (id: string, name = id): LibraryGroup => ({
   id,
   name,
   description: "",
+  parentId: null,
   countsOwnFiles: false,
   keepInside: false,
   createdAt: "2026-10-01T00:00:00.000Z",
@@ -111,5 +112,20 @@ describe("the summary line", () => {
     const one = toReviewOf([doc("a")], [finance], [waiting("a", "finance")]);
     expect(reviewSummary(one, en)).toBe("Sorted 1 Document: 1 → Finance");
     expect(reviewSummary(one, zh)).toBe("已整理 1 个文档：1 个 → “Finance”");
+  });
+});
+
+describe("a Folder named out of its tree (#246)", () => {
+  const thesis = folder("thesis", "Thesis");
+  const chapter = { ...folder("chapter", "Chapter 2"), parentId: "thesis" };
+
+  test("To review names it by its path", () => {
+    const review = toReviewOf(
+      [doc("a")],
+      [thesis, chapter],
+      [{ documentId: "a", groupId: "chapter", suggested: true }],
+    );
+    expect(review.groups.map((each) => each.path)).toEqual(["Thesis › Chapter 2"]);
+    expect(reviewSummary(review, en)).toBe("Sorted 1 Document: 1 → Thesis › Chapter 2");
   });
 });

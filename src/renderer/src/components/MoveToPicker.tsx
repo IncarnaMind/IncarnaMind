@@ -1,3 +1,5 @@
+import type { LibraryGroup } from "../../../core/api";
+import { buildFolderTree, flattenFolderTree, folderPath, isInsideFolder } from "../folders";
 import { useT } from "../i18n";
 import { matchName, queryWords } from "../matcher";
 import { useAppStore } from "../store";
@@ -7,16 +9,58 @@ import { type PickerOption, type PickerSection, SearchPicker } from "./SearchPic
 type Choice = string | null | { newFolder: string };
 
 /**
+ * The Folders as an indented tree: each with the depth the picker indents it by
+ * and, while a query narrows the list, its place beside its name ("Chapter 2
+ * sources in Thesis: urban heat"), so a Folder is still placed out of its tree.
+ */
+function treeOptions(
+  groups: readonly LibraryGroup[],
+  query: string,
+  t: (key: "move.inFolder", params: { path: string }) => string,
+): PickerOption<Choice>[] {
+  const words = queryWords(query);
+  const options = flattenFolderTree(buildFolderTree(groups)).flatMap(({ folder, depth }) => {
+    const parentPath = folderPath(groups, folder.parentId).join(" › ");
+    return [
+      {
+        id: folder.id,
+        label: folder.name,
+        indent: depth,
+        keywords: parentPath ? [parentPath] : [],
+        data: { "data-folder-id": folder.id },
+        icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />,
+      },
+    ];
+  });
+  if (words.length === 0) return options;
+  return options.flatMap((option) => {
+    const byName = matchName(words, option.label);
+    const byPath = option.keywords?.some((each) => matchName(words, each));
+    if (!byName && !byPath) return [];
+    const folder = groups.find((each) => each.id === option.id);
+    const path = folder?.parentId ? folderPath(groups, folder.parentId).join(" › ") : "";
+    return [{ ...option, indent: 0, ...(path && { detail: t("move.inFolder", { path }) }) }];
+  });
+}
+
+function taken(names: readonly string[], wanted: string): boolean {
+  return names.some((name) => name.toLocaleLowerCase() === wanted);
+}
+
+/**
  * "Move to…": a Folder picker that opens beside what is moved (`anchor`),
- * with a field to find a Folder by name, or a Chinese one by its pinyin.
- * "Not in a Folder" first, then every Folder by name; the one it is in now is
- * ticked. Typing filters, the arrows move, Enter moves it there, Esc closes.
- * Shared by every Move to…: the menus, the Library's selection, ⇧⌘M and ⌘K.
+ * with a field to find a Folder by name, or a Chinese one by its pinyin. "Not
+ * in a Folder" first (or the top level, for a Folder), then every Folder as an
+ * indented tree; the one it is in now is ticked. Typing filters, the arrows
+ * move, Enter moves it there, Esc closes. Moving a Folder leaves out the two
+ * that would put it inside itself. Shared by every Move to…: the menus, the
+ * Library's selection, ⇧⌘M and ⌘K.
  */
 export function MoveToPicker({
   anchor,
   name,
   current,
+  forFolder,
   onChoose,
   onCreate,
   onClose,
@@ -27,49 +71,64 @@ export function MoveToPicker({
   name: string;
   /** Where it is now (null: Not in a Folder), or undefined for things in different places. */
   current: string | null | undefined;
+  /** Set while a Folder is moved: itself, so it and the Folders inside it can't be chosen. */
+  forFolder?: LibraryGroup | undefined;
   onChoose(folderId: string | null): void;
   /** Given, a name typed that no Folder has is offered as a new Folder to move into. */
   onCreate?(folderName: string): void;
   onClose(): void;
 }) {
   const t = useT();
-  const groups = useAppStore((state) => state.library?.groups) ?? [];
-  const options: PickerOption<Choice>[] = [
-    { id: null, label: t("library.unsorted") },
-    ...groups.map((group) => ({ id: group.id, label: group.name })),
-  ].map((option) => ({
-    ...option,
-    data: { "data-folder-id": option.id ?? "" },
-    icon: (
-      <FolderLineIcon
-        className={`size-4 shrink-0 text-ink-meta ${option.id === null ? "opacity-60" : ""}`}
-      />
-    ),
-  }));
+  const all = useAppStore((state) => state.library?.groups) ?? [];
+  const groups = forFolder
+    ? all.filter((group) => !isInsideFolder(all, group.id, forFolder.id))
+    : all;
+  const topLevel: PickerOption<Choice>[] = forFolder
+    ? [
+        {
+          id: null,
+          label: t("folder.topLevel"),
+          data: { "data-folder-id": "" },
+          icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />,
+        },
+      ]
+    : [
+        {
+          id: null,
+          label: t("library.unsorted"),
+          data: { "data-folder-id": "" },
+          icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta opacity-60" />,
+        },
+      ];
   const matching = (query: string): PickerSection<Choice>[] => {
     const words = queryWords(query);
-    const found =
-      words.length === 0
-        ? options
-        : options
-            .flatMap((option) => {
-              const match = matchName(words, option.label);
-              return match ? [{ option, score: match.score }] : [];
-            })
-            .sort((a, b) => b.score - a.score)
-            .map(({ option }) => option);
+    if (words.length === 0) return [{ options: [...topLevel, ...treeOptions(groups, "", t)] }];
+    // "Not in a Folder" (or the top level) is found by typing its words too, and ranked with
+    // the Folders: an exact Folder named "Folder" comes before "Not in a Folder".
+    const scoreOf = (option: PickerOption<Choice>) =>
+      Math.max(
+        matchName(words, option.label)?.score ?? 0,
+        ...(option.keywords ?? []).map((text) => matchName(words, text)?.score ?? 0),
+      );
+    const found = [...topLevel, ...treeOptions(groups, query, t)]
+      .map((option) => ({ option, score: scoreOf(option) }))
+      .filter((each) => each.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(({ option }) => option);
     const wanted = query.toLocaleLowerCase();
-    const taken = [t("library.unsorted"), ...groups.map((group) => group.name)].some(
-      (label) => label.toLocaleLowerCase() === wanted,
-    );
-    if (!onCreate || !query || taken) return [{ options: found }];
-    const newFolder: PickerOption<Choice> = {
-      id: { newFolder: query },
-      label: t("move.newFolder", { name: query }),
-      data: { "data-new-folder": "true" },
-      icon: <FolderPlusLineIcon className="size-4 shrink-0 text-ink-meta" />,
-    };
-    return [{ options: [...found, newFolder] }];
+    const names = [t("library.unsorted"), t("folder.topLevel"), ...all.map((g) => g.name)];
+    const newFolder: PickerOption<Choice>[] =
+      onCreate && query && !taken(names, wanted)
+        ? [
+            {
+              id: { newFolder: query },
+              label: t("move.newFolder", { name: query }),
+              data: { "data-new-folder": "true" },
+              icon: <FolderPlusLineIcon className="size-4 shrink-0 text-ink-meta" />,
+            },
+          ]
+        : [];
+    return [{ options: [...found, ...newFolder] }];
   };
   return (
     <SearchPicker<Choice>
@@ -79,7 +138,7 @@ export function MoveToPicker({
       noMatch={() => t("move.none")}
       options={matching}
       current={current}
-      currentLabel={t("move.here")}
+      currentLabel={forFolder ? t("folder.hereIn") : t("move.here")}
       onChoose={(choice) => {
         if (choice !== null && typeof choice === "object") onCreate?.(choice.newFolder);
         else onChoose(choice);
