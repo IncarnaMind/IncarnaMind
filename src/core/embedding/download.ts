@@ -83,16 +83,19 @@ const PROGRESS_INTERVAL_MS = 250;
  */
 export function progressReporter(report: () => void): () => void {
   let last = 0;
-  let held: ReturnType<typeof setTimeout> | undefined;
+  let holding = false;
   const send = () => {
-    held = undefined;
+    holding = false;
     last = Date.now();
     report();
   };
   return () => {
     const wait = last + PROGRESS_INTERVAL_MS - Date.now();
     if (wait <= 0) send();
-    else held ??= setTimeout(send, wait);
+    else if (!holding) {
+      holding = true;
+      setTimeout(send, wait);
+    }
   };
 }
 
