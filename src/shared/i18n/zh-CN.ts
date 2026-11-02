@@ -1119,7 +1119,8 @@ export const zhCN = {
   "claim.reason.cut-short": "模型的回复达到长度上限，已截断。",
   "claim.reason.no-evidence": "不显示结论：模型给出的引文不在那个文档中。",
   "claim.reason.unread": "不显示结论：模型没有读取你的文档。",
-  "claim.reason.unnamed-measure": "不显示结论：模型没有用句子和文档中的几个词说明这个数字指的是什么。",
+  "claim.reason.unnamed-measure":
+    "不显示结论：模型没有用句子和文档中的几个词说明这个数字指的是什么。",
   "claim.reason.rate-limit": "模型服务暂时繁忙，请稍后重新核对。",
   "claim.reason.cost-cap": "核对这句话可能超出你设置的每月上限。",
   "claim.reason.plan-limit": "已达到套餐的用量上限。",
