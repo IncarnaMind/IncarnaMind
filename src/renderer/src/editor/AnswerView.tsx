@@ -6,6 +6,7 @@ import {
   BLOCK_ID_ATTRIBUTE,
   type ChatModelChoice,
   type ProviderErrorKind,
+  type SearchScope,
   type SignInRouteProblem,
   SKILL_SCRIPT_LIMITS,
   type SkillScriptApprovalRequest,
@@ -23,6 +24,7 @@ import { useApprovals, waitingFor } from "../approvals";
 import { signInAgain } from "../chatGptSignIn";
 import { AskCall } from "../components/assistant/AskCall";
 import { CommandCall } from "../components/assistant/CommandCall";
+import { FoundPassages } from "../components/assistant/FoundPassages";
 import { MindCall } from "../components/assistant/MindCall";
 import { DetailsLine } from "../components/DetailsLine";
 import { useIsExampleAnswer } from "../components/GettingStarted";
@@ -47,8 +49,10 @@ import {
   useKeyRefusals,
   useKeySavedSince,
 } from "../keyRefusals";
+import { useFoundPassages } from "../localPassages";
 import { requestModelMenu, retryModel } from "../modelMenu";
 import { useModelNames, useServiceName } from "../modelNames";
+import { useOnline } from "../online";
 import { useStoppedByPlanLimit } from "../planLimits";
 import { ANSWER_PROBLEMS, failedAnswerLine, retry } from "../problems";
 import { useRouteOffered } from "../routeSignIn";
@@ -314,6 +318,7 @@ export function AnswerError({
   onRetryWith,
   modelNow = null,
   chooseHere = false,
+  question = null,
   onOpenSettings,
 }: {
   kind: ProviderErrorKind;
@@ -335,6 +340,8 @@ export function AnswerError({
   modelNow?: ChatModelChoice | null;
   /** The composer's model menu is here: "Choose another model" opens it, not Settings. */
   chooseHere?: boolean;
+  /** What was asked, where its Question is known: offline, a local search shows what the Documents say (#763). */
+  question?: { text: string; scope: SearchScope | null } | null;
   onOpenSettings(page: SettingsPage): void;
 }) {
   const t = useT();
@@ -377,6 +384,32 @@ export function AnswerError({
       : undefined;
   const offered = useRouteOffered(isSignInRoute(provider) ? provider : null);
   const billingUrl = billingUrlOfProvider(providerInUse);
+  const online = useOnline();
+  const offline = kind === "network" && !online;
+  const found = useFoundPassages(
+    offline && question ? question.text : null,
+    question?.scope ?? null,
+  );
+  if (offline) {
+    return (
+      <div contentEditable={false} data-testid="answer-error" data-error-kind={kind}>
+        <ProblemLine
+          action={
+            onRetry
+              ? { label: t("answer.error.retry"), testId: "answer-error-action", onClick: onRetry }
+              : undefined
+          }
+        >
+          {t("answer.offline.line")}
+        </ProblemLine>
+        {question && (
+          <div className="mt-1">
+            <FoundPassages passages={found} emptyNote />
+          </div>
+        )}
+      </div>
+    );
+  }
   const shown = failedAnswerLine(kind, provider, signInRoute, offered, {
     ...(billingUrl && { billingUrl }),
     ...(providerInUse && { local: providerInUse.service === null }),

@@ -199,6 +199,7 @@ export function AssistantAnswer({
           onRetryWith={(model) => void regenerateAnswer(answer.id, { model })}
           modelNow={modelNow}
           chooseHere
+          question={question ? { text: question.text, scope: question.scope } : null}
           onOpenSettings={openSettings}
         />
       )}

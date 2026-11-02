@@ -146,6 +146,7 @@ export const en = {
   "library.inside.failed": "The words inside Documents couldn’t be searched: {reason}",
   "library.inside.retry": "Try again",
   "library.classify": "Organize",
+  "library.sortIntoFolders": "Sort these into Folders",
   "library.progress.one": "Organizing 1 Document…",
   "library.progress.other": "Organizing {count} Documents…",
   "library.progressWith.one": "Organizing 1 Document with {service}…",
@@ -2537,7 +2538,7 @@ export const en = {
 
   "providers.setup.later": "Set up later",
   "setup.title": "Set up your AI",
-  "setup.waiting": "Waiting for you to choose a model",
+  "setup.waiting": "Waiting for an AI model",
   "setup.chatgpt.use": "Use my ChatGPT plan",
   "setup.chatgpt.line": "Plus or Pro \u00b7 no key needed",
   "setup.chatgpt.line.china": "Plus or Pro, outside mainland China \u00b7 no key needed",
@@ -3448,6 +3449,9 @@ export const en = {
   "answer.refused.noSuchMind": "There is no note called “{name}”, so the change wasn’t made.",
   "answer.refused.noSuchMind.many":
     "There are no notes called {names}, so those changes weren’t made.",
+  "answer.found": "Here’s what your Documents say:",
+  "answer.offline.line": "You’re offline, so the model can’t answer yet.",
+  "answer.offline.none": "Nothing in your Documents matched.",
   "answer.error.thisModel": "this model",
   "answer.error.auth": "The key for {model} was refused",
   "answer.error.thisService": "This service",

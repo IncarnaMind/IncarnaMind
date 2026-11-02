@@ -15,7 +15,7 @@ import {
   namesOfMoving,
   undoMoves,
 } from "../../src/renderer/src/moves";
-import { scopeChips, scopeCounts } from "../../src/renderer/src/scope";
+import { scopeChips, scopeCounts, scopeDocumentIds } from "../../src/renderer/src/scope";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 import {
   chosenScope,
@@ -368,5 +368,38 @@ describe("how many Documents each Folder and Tag holds (#764)", () => {
     expect(counts.get("filed")).toBe(1);
     expect(counts.get("empty")).toBe(0);
     expect(counts.get("t1")).toBe(1);
+  });
+
+  test("reads a scope's Documents for a search on this computer, in the Library's order", () => {
+    const folder = (id: string, parentId: string | null) => ({ id, name: id, parentId }) as never;
+    const library = {
+      folders: [folder("root", null), folder("deep", "root"), folder("quiet", null)],
+      groups: [group("filed", "Filed")],
+      tags: [{ id: "t1", name: "Tide" }] as never,
+      documents: [
+        document("a", { folderId: "root", tags: [{ tagId: "t1" }] }),
+        document("b", { folderId: "deep" }),
+        document("scan", { folderId: "deep", status: "no-text" }),
+        document("gone", { folderId: "root", fileStatus: "missing" }),
+        document("c"),
+      ],
+      assignments: [
+        { documentId: "c", groupId: "filed" },
+        { documentId: "scan", groupId: "filed" },
+      ] as never,
+    };
+    // A Folder on disk reads its sub-Folders' Documents too, and a Document with no text is left out.
+    expect(scopeDocumentIds(library, { folderIds: ["root"], tagIds: [], documentIds: [] })).toEqual(
+      ["a", "b"],
+    );
+    expect(scopeDocumentIds(library, { folderIds: [], tagIds: ["t1"], documentIds: [] })).toEqual([
+      "a",
+    ]);
+    expect(
+      scopeDocumentIds(library, { folderIds: ["filed"], tagIds: [], documentIds: [] }),
+    ).toEqual(["c"]);
+    expect(scopeDocumentIds(library, { folderIds: [], tagIds: [], documentIds: ["c"] })).toEqual([
+      "c",
+    ]);
   });
 });

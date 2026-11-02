@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import {
   addDocuments,
   createDataFolder,
@@ -170,3 +171,63 @@ test("after adding ten Documents, in Chinese, ⌘K's Organize proposes Folders a
     await app.close();
   }
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the Library's one primary action sorts 8 loose Documents into Folders, in ${language} (#1942)`, async () => {
+    test.setTimeout(180_000);
+    const paths = await files(4);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await useLocalChatModel(window);
+    try {
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      await sortWithLocalModel(window);
+      await window.getByTestId("add-documents-input").setInputFiles(paths.slice(0, 7));
+      await expect.poll(() => bridge(window).ready(), { timeout: 30_000 }).toBe(7);
+      await runCommand(
+        window,
+        "library.open",
+        language === "en" ? "Open the Library" : "打开资料库",
+      );
+      const button = window.getByTestId("library-sort-into-folders");
+      // Seven is one short: nothing offers Folders yet.
+      await expect(button).toHaveCount(0);
+
+      await window.getByTestId("add-documents-input").setInputFiles(paths.slice(7));
+      await expect.poll(() => bridge(window).ready(), { timeout: 30_000 }).toBe(8);
+      await expect(button).toBeVisible();
+      await expect(button).toHaveText(translate(language, "library.sortIntoFolders"));
+
+      // It holds at the narrowest and the widest window, inside them.
+      for (const width of [900, 1600]) {
+        await setWindowSize(app, window, width, 700);
+        await expect(button).toBeVisible();
+        const [box, size] = await Promise.all([
+          button.boundingBox(),
+          window.evaluate(() => ({ width: innerWidth })),
+        ]);
+        expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(size.width);
+        await motionSettled(window);
+        await screenshot(window, `sort-offer-${language}-${width}`);
+      }
+
+      // One click, in place: Organize proposes the Folders from what the Documents say, and one
+      // Undo takes the suggestions and the Folders back, so the offer is there again.
+      await pointAndClick(window, button);
+      const review = window.getByTestId("library-review");
+      await expect(review.getByTestId("library-review-summary")).toHaveText(
+        language === "en"
+          ? "Sorted 8 Documents: 4 → Kitchen, 4 → Race"
+          : "已整理 8 个文档：4 个 → “Kitchen”，4 个 → “Race”",
+        { timeout: 30_000 },
+      );
+      expect(await bridge(window).folders()).toEqual(["Kitchen", "Race"]);
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect.poll(() => bridge(window).folders()).toEqual([]);
+      await expect(button).toBeVisible();
+      await expect(review).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+}

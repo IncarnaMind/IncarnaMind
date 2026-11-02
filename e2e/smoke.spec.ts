@@ -216,7 +216,7 @@ test("first run asks for no model; the first own Question waits while the setup 
   const card = window.getByTestId("model-setup");
   await expect(card).toBeVisible();
   await expect(window.getByTestId("assistant-waiting-model")).toHaveText(
-    "Waiting for you to choose a model",
+    "Waiting for an AI model · Choose…",
   );
   await expect(card).toContainText("Set up your AI");
   await expect(card.getByTestId("setup-key")).toHaveAttribute("placeholder", "Paste an API key");
