@@ -789,18 +789,21 @@ test("five changes in one paragraph with a middle one edited since: one Restore 
   await expect(removed).toHaveCount(5);
 
   // The one Restore puts the other four back in one step; the edited change stays where it was:
-  // its label right of its own new words' start, its struck old words just before them, never at
-  // the paragraph's start.
+  // its label in the same place, and its struck old words, never at the paragraph's start.
+  const labelBefore = await note.getByTestId("change-changed-since").boundingBox();
+  if (!labelBefore) throw new Error("The edited change isn't drawn.");
   await pointAndClick(window, restores);
   await expect.poll(() => reviewedWords(note)).toBe(FOUR_BACK);
-  const [typed, label, struck] = await Promise.all([
-    wordsBoxInView(window, note, "port"),
+  const [first, label, struck] = await Promise.all([
+    wordsBoxInView(window, note, "The"),
     note.getByTestId("change-changed-since").boundingBox(),
     note.locator("del.applied-old").filter({ hasText: "harbour office" }).boundingBox(),
   ]);
   if (!label || !struck) throw new Error("The edited change isn't drawn.");
-  expect(label.x > typed.left).toBe(true);
-  expect(struck.x + struck.width).toBeGreaterThan(typed.left - 8);
+  expect(Math.abs(label.x - labelBefore.x)).toBeLessThanOrEqual(2);
+  expect(Math.abs(label.y - labelBefore.y)).toBeLessThanOrEqual(2);
+  expect(label.x).toBeGreaterThan(first.left + 100);
+  expect(struck.x).toBeGreaterThan(first.left + 100);
 
   // ⌘Z brings exactly those four back.
   await window.keyboard.press("ControlOrMeta+z");
