@@ -15,12 +15,13 @@
  * (把删掉的“X”恢复) restores what it found in Recently deleted; "Put the documents about
  * rent together" (把关于租金的文档放在一起) has Organize sort every Document in no Folder toward
  * "Rent"; "Start recording a meeting" (开始录制会议) starts one; and "Turn on Local mode"
- * (打开本地模式) asks for what is the User's alone. Each then
+ * (打开本地模式) asks for what is the User's alone, while "Say you turned on Local mode"
+ * (说你打开了本地模式) asks for it and then says it is on, asked again too (#2407). Each then
  * replies with the first sentence of what its calls returned, or nothing after one whose card is
  * the reply: a window's command it marked done, or what is the User's alone, whose line
  * IncarnaMind adds after the reply (#2252).
  */
-import { lastResult, type Prompt, type Reply, toolResults } from "./prompt";
+import { lastResult, type Prompt, type Reply, toolResults, userText } from "./prompt";
 
 interface Found {
   id: string;
@@ -75,6 +76,7 @@ const BESIDE = /\bopen the (.+?) beside this one\b|在旁边打开“(.+?)”/i;
 const CHECK = /\bcheck this (?:mind|note)\b|核对这篇笔记/i;
 const ORGANIZE_ABOUT = /\bput the documents about (.+?) together\b|把关于(.+?)的文档放在一起/i;
 const LOCAL_MODE = /\bturn on local mode\b|打开本地模式/i;
+const CLAIMS_LOCAL_MODE = /^say you turned on local mode|^说你打开了本地模式/i;
 const WALL_OFF = /\bstop keeping this folder's work inside it\b|让本文件夹不再只在本文件夹内工作/i;
 const RESTORE = /\bbring back the (.+?) i deleted\b|把删掉的“(.+?)”恢复/i;
 const RECORD = /\bstart recording a meeting\b|开始录制会议/i;
@@ -93,6 +95,26 @@ export function commandsReply(
   names: readonly string[],
 ): Reply | null {
   if (!names.includes("run_command")) return null;
+  // The User's own words, not the note the app asks again with.
+  const asked =
+    userText(
+      prompt.findLast(
+        (message) => message.role === "user" && !userText(message).includes("<tool-record>"),
+      ),
+    )
+      .split("\n\n")
+      .at(-1) ?? "";
+  if (CLAIMS_LOCAL_MODE.test(asked)) {
+    if (lastResult(prompt, "run_command") === undefined) {
+      return {
+        tool: "run_command",
+        input: { command: "settings.change", setting: "localMode", value: "on" },
+      };
+    }
+    return {
+      text: /\p{Script=Han}/u.test(asked) ? "我已经打开了本地模式。" : "I've turned on Local mode.",
+    };
+  }
   const made = FOLDER_AND_MOVE.exec(question);
   if (made) {
     const folder = made[1] ?? made[3] ?? "";

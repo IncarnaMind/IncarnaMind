@@ -7,7 +7,7 @@
  * left is flagged, by every check, the same way: an Answer flagged with
  * Regenerate (`claims-unbacked`).
  */
-import type { ClaimedChange, ClaimedTool } from "../api";
+import type { ClaimedChange, ClaimedCommand, ClaimedTool } from "../api";
 
 /** What a check found wrong in the reply. */
 export interface TurnFinding {
@@ -24,6 +24,8 @@ export interface TurnFinding {
   claims: readonly ClaimedChange[];
   /** The Tools the reply says ran that didn't (#1796), which flag it too. */
   tools?: readonly ClaimedTool[];
+  /** What the reply says it did in the app that no call did (#2407), which flags it too. */
+  commands?: readonly ClaimedCommand[];
 }
 
 export interface TurnCheck {
@@ -52,20 +54,47 @@ export function createNudges(maxSteps: number, steps: () => number): Nudges {
   };
 }
 
-/** What flags a reply that stands: the changes and the Tools it claims that none of its calls made. */
+/**
+ * What flags a reply that stands: the changes, the Tools and what in the app it claims that none
+ * of its calls made.
+ */
 export interface Flags {
   claims: ClaimedChange[];
   tools?: ClaimedTool[];
+  commands?: ClaimedCommand[];
 }
 
 /**
  * What the checks make of a reply: to ask the model once more (and the Tools
  * the ask is about, which the Answer shows as a step, and the one it must call
- * first), or what to flag it with.
+ * first, and what flags the reply should it stand after all), or what to flag it with.
  */
 export type Settled =
-  | { nudge: string; requires?: string; writeOnly?: true; tools?: readonly ClaimedTool[] }
+  | {
+      nudge: string;
+      requires?: string;
+      writeOnly?: true;
+      tools?: readonly ClaimedTool[];
+      flags: Flags;
+    }
   | Flags;
+
+const flagsOfFinding = (found: TurnFinding): Flags => ({
+  claims: [...found.claims],
+  ...(found.tools && found.tools.length > 0 && { tools: [...found.tools] }),
+  ...(found.commands && found.commands.length > 0 && { commands: [...found.commands] }),
+});
+
+/** Both sets of flags, each claim once. */
+export function mergedFlags(one: Flags, other: Flags): Flags {
+  const tools = [...new Set([...(one.tools ?? []), ...(other.tools ?? [])])];
+  const commands = [...new Set([...(one.commands ?? []), ...(other.commands ?? [])])];
+  return {
+    claims: [...new Set([...one.claims, ...other.claims])],
+    ...(tools.length > 0 && { tools }),
+    ...(commands.length > 0 && { commands }),
+  };
+}
 
 export async function settleReply(
   checks: readonly TurnCheck[],
@@ -74,6 +103,7 @@ export async function settleReply(
 ): Promise<Settled> {
   const claims = new Set<ClaimedChange>();
   const tools = new Set<ClaimedTool>();
+  const commands = new Set<ClaimedCommand>();
   for (const each of checks) {
     const found = await each.check(reply);
     if (!found) continue;
@@ -83,12 +113,18 @@ export async function settleReply(
         ...(found.requires && { requires: found.requires }),
         ...(found.writeOnly && { writeOnly: true }),
         ...(found.tools && found.tools.length > 0 && { tools: found.tools }),
+        flags: flagsOfFinding(found),
       };
     }
     for (const claim of found.claims) claims.add(claim);
     for (const tool of found.tools ?? []) tools.add(tool);
+    for (const command of found.commands ?? []) commands.add(command);
   }
-  return { claims: [...claims], ...(tools.size > 0 && { tools: [...tools] }) };
+  return {
+    claims: [...claims],
+    ...(tools.size > 0 && { tools: [...tools] }),
+    ...(commands.size > 0 && { commands: [...commands] }),
+  };
 }
 
 /** What flags a reply that is not asked about again. */

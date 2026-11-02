@@ -1118,7 +1118,9 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
     const answer = await askAssistant(core, { text: "add risks", mindId: mind.id });
 
     expect(instructions).toContain("For every claim, about says what the sentence is about");
-    expect(instructions).toContain("Only a claim about a mind counts.");
+    expect(instructions).toContain(
+      "Only a claim about a mind, the app, local_mode, keys, spending_cap, approval_rules or deleted_for_good counts.",
+    );
     expect(instructions).toContain("The record's Tool names and fields say mind for a Note.");
     expect(instructions).not.toContain("A Note is called a Mind in the record.");
     expect(instructions).toContain(
