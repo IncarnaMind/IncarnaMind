@@ -399,6 +399,91 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     narrow.destroy();
   });
 
+  // protects=#2313: through the editor's own mark (every attribute set, an unread Document list as []), a quoted result holds after a Folder move and an Unsupported re-checks; fails_when=the empty list reads as a whole-Folder check, or an Unsupported is kept in a Folder never read.
+  test("a quoted result holds after a Folder move through the editor's mark, and an Unsupported re-checks", () => {
+    const quote = {
+      passageId: "p1",
+      documentId: "d1",
+      documentName: "Tides.md",
+      contentHash: "h1",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Spring tides happen at new moon and at full moon.",
+      check: "found" as const,
+      checkReason: null,
+    };
+    const doc = source([
+      paragraph([
+        checked("Spring tides happen at new and full moon.", "supported", {
+          evidence: quote,
+          versions: [{ documentId: "d1", contentHash: "h1" }],
+          scope: { folderId: "folder-a", widened: false },
+        }),
+      ]),
+      paragraph([
+        checked("Penguins nest on the cliffs above the harbour.", "unsupported", {
+          unsupported: { reason: null, covered: null, uncovered: null, found: true },
+          scope: { folderId: "folder-a", widened: false },
+        }),
+      ]),
+    ]);
+    const { health: readHealth, state } = readNoteState({
+      cellFigures: [],
+      doc,
+      documents: [{ id: "d1", contentHash: "h1" }],
+      keptCitationTexts: [],
+      folderId: "folder-b",
+    });
+    expect(readHealth.supported).toBe(1);
+    expect(readHealth.toCheck).toHaveLength(1);
+    expect(state).toMatchObject({ kind: "not-checked" });
+    doc.destroy();
+  });
+
+  // protects=#2313: an edit of a sentence whose Document changed since does not become the green's caveat; fails_when=an edited-and-superseded check counts as one a re-run would settle, so the Note reads Checked.
+  test("an edit beside a Document's new version keeps the Note Not checked", () => {
+    const quote = {
+      passageId: "p1",
+      documentId: "d1",
+      documentName: "Tides.md",
+      contentHash: "old",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Spring tides happen at new moon and at full moon.",
+      check: "found" as const,
+      checkReason: null,
+    };
+    const doc = source([
+      paragraph([
+        checked("Spring tides happen at new and full moon.", "supported", {
+          evidence: quote,
+          versions: [{ documentId: "d1", contentHash: "old" }],
+          scope: { folderId: "folder-a", widened: false },
+        }),
+      ]),
+      paragraph([
+        checked("Harbours publish the times of high water every week.", "supported", {
+          evidence: quote,
+          text: "Harbours publish the times of high water every year.",
+          versions: [{ documentId: "d1", contentHash: "old" }],
+          scope: { folderId: "folder-a", widened: false },
+        }),
+      ]),
+    ]);
+    const { health: readHealth, state } = readNoteState({
+      cellFigures: [],
+      doc,
+      documents: [{ id: "d1", contentHash: "new" }],
+      keptCitationTexts: [],
+      folderId: "folder-a",
+    });
+    expect(readHealth.edited).toHaveLength(0);
+    expect(state).toMatchObject({ kind: "not-checked" });
+    doc.destroy();
+  });
+
   // protects=#2313: a sentence a change made need a check leaves the Note Checked, naming it, while a sentence whose check never ran stays Not checked after an edit; fails_when=the pill turns the whole Note back while other claims keep their checks, or an edit upgrades one that never ran; no_claim=the run that checks it.
   test("is Checked while a changed sentence needs a check, naming it, in English and Chinese", () => {
     const sentences = [

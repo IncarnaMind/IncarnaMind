@@ -6196,6 +6196,7 @@ export const zhCN = {
   "selfCheck.left": "已核对 {checked} 句 · {left} 条说法待核对",
   "selfCheck.left.one": "已核对 {checked} 句 · 1 条说法待核对",
   "selfCheck.checkedOnly": "已核对 {checked} 句",
+  "selfCheck.checkedOnly.one": "已核对 1 句",
   "selfCheck.costCap": "{count} 句未能核对：已达到费用上限",
   "selfCheck.costCap.one": "1 句未能核对：已达到费用上限",
   "selfCheck.changeCap": "修改上限",

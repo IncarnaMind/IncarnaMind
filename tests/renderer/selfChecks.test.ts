@@ -124,6 +124,23 @@ describe("What a write's check left to do", () => {
         action: null,
       },
     ]);
+    // One sentence checked, with the rest of the write left and no live count to say by how much.
+    expect(
+      words("en", of({ request: "w", checkable: 3, cited: 1, sent: 1, checked: 1, failed: 0 })),
+    ).toEqual([
+      {
+        kind: "left",
+        text: "Checked 1 sentence",
+        details: [],
+        action: { label: "Check", does: "check" },
+      },
+    ]);
+    expect(
+      words(
+        "zh-CN",
+        of({ request: "w", checkable: 3, cited: 1, sent: 1, checked: 1, failed: 0 }),
+      )[0]?.text,
+    ).toBe("已核对 1 句");
     expect(
       words(
         "zh-CN",

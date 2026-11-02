@@ -101,7 +101,9 @@ export function selfCheckLines(
       kind: "left",
       text:
         remaining === null
-          ? t("selfCheck.checkedOnly", { checked: check.checked })
+          ? t(check.checked === 1 ? "selfCheck.checkedOnly.one" : "selfCheck.checkedOnly", {
+              checked: check.checked,
+            })
           : t(remaining === 1 ? "selfCheck.left.one" : "selfCheck.left", {
               checked: check.checked,
               left: remaining,

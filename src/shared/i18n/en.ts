@@ -6526,6 +6526,7 @@ export const en = {
   "selfCheck.left": "Checked {checked} sentences · {left} claims not checked yet",
   "selfCheck.left.one": "Checked {checked} sentences · 1 claim not checked yet",
   "selfCheck.checkedOnly": "Checked {checked} sentences",
+  "selfCheck.checkedOnly.one": "Checked 1 sentence",
   "selfCheck.costCap": "{count} sentences couldn’t be checked: spending cap reached",
   "selfCheck.costCap.one": "1 sentence couldn’t be checked: spending cap reached",
   "selfCheck.changeCap": "Change the cap",

@@ -267,11 +267,13 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
         if (claim && cantBeChecked(claim.shown)) health.uncheckable.push(from);
       } else if (state.why === "recheck") {
         health.recheck.push(from);
-        // An edit marks a check that ran; one that never ran stays Not checked in the headline (#2313).
+        // An edit marks a check that ran and would still hold with its own words; one that never
+        // ran, or whose Document changed since, stays Not checked in the headline (#2313).
         if (
           claim?.shown.state === "needs-recheck" &&
           claim.shown.why === "edited" &&
-          RAN.has(claim.check.state)
+          RAN.has(claim.check.state) &&
+          claim.holdsWithItsText === true
         )
           health.edited.push(from);
       }

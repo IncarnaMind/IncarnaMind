@@ -6,6 +6,7 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { translate } from "../../src/shared/i18n";
+import { folderScope } from "../../src/shared/searchScope";
 import {
   checkGenerate,
   checkingModel as checkingModelOf,
@@ -2712,6 +2713,23 @@ describe("Needs re-check", () => {
     expect(
       claimCheckShown(mixed, { text: mixed.text, versions, folderId: "folder-b", scope: null }),
     ).toEqual({ state: "needs-recheck", why: "scope" });
+    // A widened search, and the User's own chosen scope, do not follow the Folder.
+    expect(
+      claimCheckShown(
+        {
+          ...quoted,
+          scope: { folderId: "folder-a", widened: true },
+        },
+        now("folder-b"),
+      ),
+    ).toEqual({ state: "supported" });
+    const chosen = folderScope("folder-x");
+    expect(
+      claimCheckShown(
+        { ...absence, scope: { folderId: "folder-a", widened: false, chosen } },
+        { text: absence.text, versions, folderId: "folder-b", scope: chosen },
+      ),
+    ).toEqual({ state: "supported" });
     // A check that landed nothing is not rewritten: the move has no result to protect.
     for (const [reason, left] of [
       ["cost-cap", { state: "not-checked", reason: "cost-cap" }],

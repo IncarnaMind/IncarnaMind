@@ -369,9 +369,18 @@ function readWholeFolder(check: {
   readDocuments?: readonly ClaimReadDocument[];
   parts?: readonly ClaimCheckPart[];
 }): boolean {
+  // The editor's mark declares every attribute, so an unread Document list is [] and not absent.
   return (
-    check.readDocuments !== undefined ||
-    (check.parts ?? []).some((part) => part.readDocuments !== undefined)
+    (check.readDocuments?.length ?? 0) > 0 ||
+    (check.parts ?? []).some((part) => (part.readDocuments?.length ?? 0) > 0)
+  );
+}
+
+/** Whether anything the check judged is Unsupported: a quote backs only what it states, and the rest said nothing in the Folder it searched (#2313). */
+function saysUnsupported(check: ClaimCheckBasis): boolean {
+  return (
+    check.state === "unsupported" ||
+    (check.parts ?? []).some((part) => part.verdict === "unsupported")
   );
 }
 
@@ -531,7 +540,7 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
     !check.scope.widened &&
     !check.scope.chosen &&
     check.scope.folderId !== now.folderId &&
-    (!backedByCitation(check) || readWholeFolder(check))
+    (!backedByCitation(check) || readWholeFolder(check) || saysUnsupported(check))
   ) {
     return { state: "needs-recheck", why: "scope" };
   }
