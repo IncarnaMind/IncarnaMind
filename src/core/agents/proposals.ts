@@ -30,6 +30,7 @@ import {
   readProposalAttribute,
   readProposalRef,
   recordProposalRequest,
+  resolveProposals,
   targetHash,
   waitingChanges,
 } from "../../shared/proposals";
@@ -39,9 +40,7 @@ import { createElement } from "../answers/blocks";
 import { emphasisOf, markdownToBlocks, withoutEmphasisEscapes } from "../answers/markdown";
 import {
   BLOCK_ID_ATTRIBUTE,
-  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
-  FOOTNOTE_NODE,
   MIND_CONTENT_FIELD,
   type OutsideAgentRequest,
   PROPOSAL_ATTRIBUTE,
@@ -50,6 +49,7 @@ import {
   type ProposalAttribute,
 } from "../api";
 import { readRemovals } from "../edits/prompt";
+import { citationKey, citingKey, holdsOnlyPlaced, tally, tallyCiting } from "../proposals/placed";
 import {
   layout,
   proposeRewrite,
@@ -249,6 +249,10 @@ export interface CitedToken {
   citable: boolean;
 }
 
+/**
+ * What `proposeNamed` writes with. It writes twice, on a copy and then into the Note, so each
+ * callback must give the same answer for the same question both times.
+ */
 export interface ProposeOptions {
   request: string;
   made: OutsideAgentRequest;
@@ -496,83 +500,6 @@ function addAfter(
   );
 }
 
-/** The nodes that cite or hold a note: in an agent's change, only IncarnaMind places them. */
-const CITING: ReadonlySet<string> = new Set([CITATION_NODE, FOOTNOTE_NODE, CALCULATED_FIGURE_NODE]);
-
-/** How many of each citing node, by `citingKey`. */
-type CitingNodes = Map<string, number>;
-
-/**
- * A node by all it holds but its ids: its name, its other attributes (nulls left out, in order)
- * and each child's key or text. One changed in any of them is another node.
- */
-const nodeKey = (name: string, attributes: Attributes, children: readonly string[] = []) =>
-  JSON.stringify([
-    name,
-    Object.entries(attributes)
-      .filter(
-        ([key, value]) =>
-          key !== BLOCK_ID_ATTRIBUTE &&
-          key !== PROPOSAL_ATTRIBUTE &&
-          value !== null &&
-          value !== undefined,
-      )
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
-    ...children,
-  ]);
-
-const citationKey = (attributes: Attributes): string => nodeKey(CITATION_NODE, attributes);
-
-/** A citing node by all it holds (`nodeKey`), its children's own included. */
-export function citingKey(element: Y.XmlElement): string {
-  const children = element
-    .toArray()
-    .map((child) => (child instanceof Y.XmlElement ? citingKey(child) : child.toString()));
-  return nodeKey(element.nodeName, element.getAttributes(), children);
-}
-
-function tally(counts: CitingNodes, key: string, by: number): void {
-  const total = (counts.get(key) ?? 0) + by;
-  if (total === 0) counts.delete(key);
-  else counts.set(key, total);
-}
-
-/**
- * Adds to `counts` (or, with `by` -1, takes away) the citing nodes in `root` as it reads with
- * `request`'s changes accepted and no other's.
- */
-function tallyCiting(
-  counts: CitingNodes,
-  root: Y.XmlFragment | Y.XmlElement,
-  request: string,
-  by = 1,
-): CitingNodes {
-  for (const child of root.toArray()) {
-    if (!(child instanceof Y.XmlElement)) continue;
-    const proposal = readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE));
-    const othersToAdd = proposal?.kind === "insert" && proposal.request !== request;
-    const takenOut = proposal?.kind === "delete" && proposal.request === request;
-    if (othersToAdd || takenOut) continue;
-    if (CITING.has(child.nodeName)) tally(counts, citingKey(child), by);
-    tallyCiting(counts, child, request, by);
-  }
-  return counts;
-}
-
-/**
- * Whether the Note, with `request`'s changes accepted, holds exactly the citing nodes IncarnaMind
- * placed (#352): the last check on what was written, whatever the readings before it made of
- * the agent's text.
- */
-export function holdsOnlyPlaced(
-  blocks: Y.XmlFragment,
-  request: string,
-  placed: ReadonlyMap<string, number>,
-): boolean {
-  const written = tallyCiting(new Map(), blocks, request);
-  return written.size === placed.size && [...written].every(([key, n]) => placed.get(key) === n);
-}
-
 /**
  * The sentences a request's changes leave with no Citation, as the bar of each of them counts
  * them (`uncitedSpans`): each paragraph they are in, read with them accepted and no other.
@@ -649,7 +576,17 @@ export function proposeNamed(
   } finally {
     draft.destroy();
   }
-  return writeNamed(blocks, note, changes, options);
+  try {
+    return writeNamed(blocks, note, changes, options);
+  } catch (error) {
+    // The copy took it, so only a callback that answered differently gets here: what it wrote goes.
+    resolveProposals(blocks, (each) => each.request === options.request, "reject");
+    console.error(
+      `Proposals: an outside agent's request ${options.request} failed in the Note after its copy took it; its changes were rejected`,
+      error,
+    );
+    throw error;
+  }
 }
 
 function writeNamed(
@@ -720,6 +657,7 @@ function writeNamed(
     if (written.unmadeTable || (written.unplaced?.length ?? 0) > 0) {
       throw new ChangeRefused("agents.propose.table", name);
     }
+    if (written.notPlaced) throw new ChangeRefused("agents.propose.unplaced", "");
   }
   for (const { element, nodes } of additions) {
     if (nodes.length > 0) addAfter(blocks, element, nodes, options);
