@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { Dragged } from "../../src/renderer/src/dragDrop";
 import type { ObjectRef } from "../../src/renderer/src/objects";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 type Store = typeof import("../../src/renderer/src/store");
 type Targets = typeof import("../../src/renderer/src/folderDrag");
@@ -79,6 +80,29 @@ describe("the Folder and Tag targets", () => {
         .tagTarget("t")
         .accepts({ kind: "objects", refs: [doc("a"), { kind: "mind", id: "m" }] }, at),
     ).toBeNull();
+  });
+});
+
+describe("files from Finder dropped on a Folder (#212)", () => {
+  test("a Folder takes them into it; Not in a Folder leaves them to the window", () => {
+    store.setState({
+      documents: [],
+      library: { groups: [{ id: "f", name: "Finance" }], assignments: [] } as never,
+    });
+    const one: Dragged = { kind: "files", types: ["text/plain"], names: ["Budget.txt"] };
+    const target = targets.folderTarget("f");
+    const en = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
+    expect(target.accepts(one, at)?.said?.(en)).toBe("Add to Finance");
+    expect(target.accepts({ ...one, names: ["Budget.txt", "Ledger.txt"] }, at)?.said?.(en)).toBe(
+      "Add 2 files to Finance",
+    );
+    expect(targets.folderTarget(null).accepts(one, at)).toBeNull();
+
+    const addDropped = vi.fn(async () => undefined);
+    store.setState({ addDropped });
+    const files = [new File(["budget"], "Budget.txt")];
+    target.drop({ kind: "files", files, folders: [] }, { kind: "import" });
+    expect(addDropped).toHaveBeenCalledWith(files, [], "f");
   });
 });
 

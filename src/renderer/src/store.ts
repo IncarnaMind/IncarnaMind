@@ -366,9 +366,15 @@ export interface AppState extends LayoutSlice {
   /**
    * What dropping on the window does: files are added as Documents, and each
    * folder opens the link dialog (see `addLinkedFolder`), one after another.
-   * `folders` are the dropped items the drop said are folders.
+   * `folders` are the dropped items the drop said are folders. Given a
+   * `folderId`, a Folder took the drop: each new Document is filed there, as
+   * the User's choice (#212).
    */
-  addDropped(dropped: readonly File[], folders: readonly File[]): Promise<void>;
+  addDropped(
+    dropped: readonly File[],
+    folders: readonly File[],
+    folderId?: string | null,
+  ): Promise<void>;
   /**
    * The same, given absolute paths: a path that turns out to be a folder is
    * offered for linking. For the smoke tests, which can't drop a folder.
@@ -381,6 +387,11 @@ export interface AppState extends LayoutSlice {
    * picked are added and a folder picked is offered to be read where it is.
    */
   pickDocumentsOrFolder(): Promise<void>;
+  /**
+   * "Add Documents here…" on a Folder's menu (#212): the system's open dialog,
+   * then each file picked is added and filed in that Folder as the User's choice.
+   */
+  pickDocumentsIntoFolder(folderId: string): Promise<void>;
   /** While that dialog is open: the buttons that open it wait, so it isn't opened twice. */
   pickingDocuments: boolean;
   /**
@@ -882,19 +893,21 @@ export const useAppStore = create<AppState>()((set, get) => {
   /**
    * Adds files by path, as Documents: names those IncarnaMind has already,
    * and those it can't take, once (in the footer), and offers any that turn
-   * out to be folders for linking.
+   * out to be folders for linking. Given a `folderId`, the new Documents are
+   * filed in that Folder as the User's choice.
    */
   const addByPath = async (
     paths: readonly string[],
     folders: readonly string[],
     notOnDisk: readonly string[],
+    folderId: string | null = null,
   ) => {
     // Before adding: what status events bring meanwhile is new, not something added before.
     documentUpdates.flush();
     const known = new Set(get().documents.map((each) => each.id));
     const result =
       paths.length > 0
-        ? await core.addDocuments([...paths])
+        ? await core.addDocuments([...paths], folderId === null ? undefined : { groupId: folderId })
         : { documents: [], skipped: [], added: [] };
     const linkable: LinkingFolder[] = folders.map((path) => ({ path, preview: null, error: null }));
     const skipped: SkippedFileInfo[] = [];
@@ -1670,12 +1683,12 @@ export const useAppStore = create<AppState>()((set, get) => {
         await addByPath(paths, [], notOnDisk);
       }),
 
-    addDropped: (dropped, folders) =>
+    addDropped: (dropped, folders, folderId = null) =>
       attempt(async () => {
         const folderPaths = pathsOf(folders).paths;
         const { paths, notOnDisk } = pathsOf(dropped);
         const filePaths = paths.filter((path) => !folderPaths.includes(path));
-        await addByPath(filePaths, folderPaths, notOnDisk);
+        await addByPath(filePaths, folderPaths, notOnDisk, folderId);
       }),
 
     addPaths: (paths) => attempt(() => addByPath(paths, [], [])),
@@ -1699,6 +1712,18 @@ export const useAppStore = create<AppState>()((set, get) => {
         try {
           const { files: paths, folders } = await files.pickDocumentsOrFolder();
           if (paths.length > 0 || folders.length > 0) await addByPath(paths, folders, []);
+        } finally {
+          set({ pickingDocuments: false });
+        }
+      }),
+
+    pickDocumentsIntoFolder: (folderId) =>
+      attempt(async () => {
+        if (get().pickingDocuments) return;
+        set({ pickingDocuments: true });
+        try {
+          const paths = await files.pickDocuments();
+          if (paths.length > 0) await addByPath(paths, [], [], folderId);
         } finally {
           set({ pickingDocuments: false });
         }
