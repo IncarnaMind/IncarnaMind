@@ -3,7 +3,7 @@
  * profile of its own. A script on the PATH stands in for LibreOffice here,
  * so nothing on the machine running the tests starts a real one.
  */
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { createOfficeConverter } from "../../src/main/officeConverter";
@@ -74,8 +74,10 @@ describe("The LibreOffice adapter", () => {
       if (result.outcome !== "converted") throw new Error("not converted");
       expect(result.name).toBe("Contract.docx");
       expect(new TextDecoder().decode(result.bytes)).toBe("converted bytes");
-      // Nothing wrote the User's file.
+      // Nothing wrote the User's file, and nothing was written beside it: the copy went to
+      // the private folder the adapter made, now gone.
       expect(await readFile(original)).toEqual(before);
+      expect((await readdir(home)).sort()).toEqual(["Contract.doc", "bin"]);
     },
   );
 

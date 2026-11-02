@@ -1823,7 +1823,7 @@ export const zhCN = {
   "skipped.next.keynote": "请从 Keynote 导出为 PDF，然后再添加",
   "skipped.next.caj": "请在 CAJViewer 中打印为 PDF，然后再添加",
   "skipped.next.other":
-    "IncarnaMind 可读取 PDF、Word、Excel、PowerPoint、图片、RTF、HTML 和文本文件",
+    "IncarnaMind 可读取 PDF、Word、Excel、PowerPoint、CSV、Markdown、图片、RTF、HTML 和文本文件",
   "skipped.next.convert": "请用 LibreOffice 把副本转换为 {ext}，然后再添加",
   "skipped.convert": "用 LibreOffice 转换",
   "skipped.converting": "正在转换…",

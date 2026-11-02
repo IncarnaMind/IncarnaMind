@@ -319,6 +319,13 @@ describe("reading Markdown for the viewer", () => {
       "Three",
     ]);
   });
+  test("a converted file's words stay words: emphasis, code and links are not read (#762)", () => {
+    const source = "# Fees\n\nCost *estimate* and a [link], `code`, C#_notes.";
+    expect(show(source, parseMarkdown(source, { literal: true }))).toEqual([
+      { h1: [{ text: "Fees" }] },
+      { p: [{ text: "Cost *estimate* and a [link], `code`, C#_notes." }] },
+    ]);
+  });
 });
 
 /** A heading's text range in the source. */

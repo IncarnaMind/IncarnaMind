@@ -4,11 +4,12 @@
  * their headings, and the old Office, WPS, Pages and Keynote files a skip
  * names the next step for — or converts with the User's own LibreOffice.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
 import { describe, expect, test } from "vitest";
 import type { OfficeConverter, TextRecognizer } from "../../src/core/adapters";
+import { htmlTextToMarkdown } from "../../src/core/documents/formats/html";
 import { PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { BUILT_IN_TEXT_RECOGNITION_MODEL } from "../../src/core/documents/scan/model";
@@ -35,6 +36,8 @@ const RTF = String.raw`{\rtf1\ansi\ansicpg1252\deff0
 \pard\fs24 The harbour master keeps the records.\par
 \pard\s2 Scope\par
 \pard A fine of \u163?100 applies to every berth.\par
+\pard See [Exhibit A] and a *starred* word.\par
+\pard - not a list, just a dash: C#_notes.\par
 }
 `;
 
@@ -48,6 +51,7 @@ const HTML = `<!DOCTYPE html>
 <h2>Fees</h2>
 <ul><li>Berthing &amp; mooring: 42<li>Tonnage: 18</ul>
 <table><tr><th>Port<td>Leith<tr><td>Fee<td>42</table>
+<p>Cost *estimate* only, and a [link] that is words.</p>
 </body></html>
 `;
 
@@ -184,6 +188,17 @@ describe("RTF and HTML are read as text with their headings (#762)", () => {
     expect(text.pages[0]?.text).toContain("The harbour master keeps the records.");
     expect(text.pages[1]?.text).toContain("## Scope");
     expect(text.pages[1]?.text).toContain("£100 applies to every berth.");
+    // The words as the file holds them: no Markdown escape sits between a quote and the text.
+    expect(text.pages[1]?.text).toContain("See [Exhibit A] and a *starred* word.");
+    expect(text.pages[1]?.text).toContain("- not a list, just a dash: C#_notes.");
+    const quoted = await core.readableQuote({
+      documentId: document?.id ?? "",
+      contentHash: null,
+      pageFrom: 2,
+      pageTo: 2,
+      quote: "See [Exhibit A]",
+    });
+    expect(quoted).toContain("See [Exhibit A]");
     const [found] = await core.searchPassages("harbour master records", { mode: "keyword" });
     expect(found).toMatchObject({ documentId: document?.id, pageFrom: 1 });
   });
@@ -209,10 +224,27 @@ describe("RTF and HTML are read as text with their headings (#762)", () => {
     expect(all).toContain("## Fees");
     expect(all).toContain("Berthing & mooring: 42");
     expect(all).toContain("Port | Leith");
+    expect(all).toContain("Cost *estimate* only, and a [link] that is words.");
     expect(all).not.toContain("never read");
     expect(all).not.toContain("color: red");
     const [found] = await core.searchPassages("tide tables", { mode: "keyword" });
     expect(found).toMatchObject({ documentId: document?.id, pageFrom: 1 });
+    const quoted = await core.readableQuote({
+      documentId: document?.id ?? "",
+      contentHash: null,
+      pageFrom: 2,
+      pageTo: 2,
+      quote: "Cost *estimate* only",
+    });
+    expect(quoted).toContain("Cost *estimate* only");
+  });
+
+  test("a page whose head is never closed is still read, as a browser closes it", () => {
+    const markdown = htmlTextToMarkdown(
+      "<head><title>Harbour notice</title><body><h1>Harbour notice</h1><p>tide tables",
+    );
+    expect(markdown).toContain("# Harbour notice");
+    expect(markdown).toContain("tide tables");
   });
 });
 
@@ -231,8 +263,12 @@ describe("Old Office, WPS, Pages and Keynote files say the plain next step (#762
     expect(zh(skippedStep("Report.pages").message)).toBe("请从 Pages 导出为 PDF，然后再添加");
     expect(en(skippedStep("Talk.key").message)).toBe("Export it as PDF from Keynote, then add it");
     expect(zh(skippedStep("Talk.key").message)).toBe("请从 Keynote 导出为 PDF，然后再添加");
-    expect(en(skippedStep("Archive.zip").message)).toContain("IncarnaMind reads PDF");
-    expect(zh(skippedStep("Archive.zip").message)).toContain("IncarnaMind 可读取");
+    expect(en(skippedStep("Archive.zip").message)).toBe(
+      "IncarnaMind reads PDF, Word, Excel, PowerPoint, CSV, Markdown, pictures, RTF, HTML and text files",
+    );
+    expect(zh(skippedStep("Archive.zip").message)).toBe(
+      "IncarnaMind 可读取 PDF、Word、Excel、PowerPoint、CSV、Markdown、图片、RTF、HTML 和文本文件",
+    );
   });
 
   test("adding them skips them, and only a file an add skipped can be shown in the file manager", async () => {
@@ -335,6 +371,23 @@ describe("Convert with LibreOffice adds a copy and leaves the original untouched
     expect(after.refusal).toBeNull();
     expect(en("wordImport.convert")).toBe("Convert with LibreOffice");
     expect(zh("wordImport.convert")).toBe("用 LibreOffice 转换");
+
+    // Importing it removes the temporary copy, and never adds it as the User's original.
+    const folder = dirname(converted.path);
+    const imported = await core.importWordFile({
+      path: converted.path,
+      origin: "own",
+      addOriginal: true,
+    });
+    expect(imported).toMatchObject({ ok: true });
+    expect(existsSync(folder)).toBe(false);
+
+    // Cancelling does too.
+    const cancelled = await core.convertWordFile(legacy);
+    if (cancelled.outcome !== "converted") throw new Error(JSON.stringify(cancelled));
+    expect(existsSync(dirname(cancelled.path))).toBe(true);
+    await core.discardWordFile(cancelled.path);
+    expect(existsSync(dirname(cancelled.path))).toBe(false);
   });
 
   test("with no LibreOffice, a .doc's check offers no conversion", async () => {
@@ -351,9 +404,9 @@ describe("Convert with LibreOffice adds a copy and leaves the original untouched
 });
 
 describe("The processing version (#762)", () => {
-  test("this change raises it above main's 21", () => {
-    // Main's highest when this branch was cut; it goes up again at the final push if another
-    // change came first.
-    expect(PROCESSING_VERSION).toBeGreaterThan(21);
+  test("this change's processing version is 22", () => {
+    // Main's highest was 21 when this branch was cut; it is renumbered at the final push if
+    // another change came first.
+    expect(PROCESSING_VERSION).toBe(22);
   });
 });

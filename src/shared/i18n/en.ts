@@ -1904,7 +1904,7 @@ export const en = {
   "skipped.next.keynote": "Export it as PDF from Keynote, then add it",
   "skipped.next.caj": "Print it to PDF in CAJViewer, then add it",
   "skipped.next.other":
-    "IncarnaMind reads PDF, Word, Excel, PowerPoint, pictures, RTF, HTML and text files",
+    "IncarnaMind reads PDF, Word, Excel, PowerPoint, CSV, Markdown, pictures, RTF, HTML and text files",
   "skipped.next.convert": "Convert a copy to {ext} with LibreOffice, then add it",
   "skipped.convert": "Convert with LibreOffice",
   "skipped.converting": "Converting…",

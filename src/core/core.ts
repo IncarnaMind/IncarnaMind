@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { basename, dirname, extname, isAbsolute, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
@@ -4496,6 +4496,21 @@ export function createCore(adapters: CoreAdapters): Core {
     return { ...result, batchId };
   };
 
+  /** The temporary .docx copies the Word import screen has, each with the folder to remove (#104). */
+  const wordConversions = new Map<string, string>();
+
+  /** Removes a converted Word copy's temporary folder, once nothing needs it. */
+  const discardWordCopy = async (path: string): Promise<void> => {
+    const folder = wordConversions.get(path);
+    if (folder === undefined) return;
+    wordConversions.delete(path);
+    await rm(folder, { recursive: true, force: true }).catch((error: unknown) => {
+      (adapters.log ?? silentLogger).warn("word.convert.cleanupFailed", {
+        code: (error as NodeJS.ErrnoException).code ?? "unknown",
+      });
+    });
+  };
+
   /** The kind an old Office or WPS file is converted to, by its extension; null for any other file. */
   const CONVERTIBLE: Readonly<Record<string, "docx" | "xlsx" | "pptx">> = {
     ".doc": "docx",
@@ -4575,7 +4590,22 @@ export function createCore(adapters: CoreAdapters): Core {
       return minds.get(copy.id);
     },
     checkWordFile: async (path, folderId) => wordImports.check(path, folderId),
-    importWordFile: async (input) => wordImports.import(input),
+    importWordFile: async (input) => {
+      const path = isRecord(input) && typeof input.path === "string" ? input.path : null;
+      // A .doc's converted copy is not the User's original: it is never added as one, and its
+      // temporary folder goes once the import is done.
+      const converted = path !== null && wordConversions.has(path);
+      try {
+        return await wordImports.import(
+          converted && isRecord(input) ? { ...input, addOriginal: false } : input,
+        );
+      } finally {
+        if (path !== null) await discardWordCopy(path);
+      }
+    },
+    discardWordFile: async (pathInput) => {
+      await discardWordCopy(filePathOf(pathInput));
+    },
     addWordOriginal: async (mindId, path) => {
       const mind = writableMind(mindId);
       return wordImports.addOriginal(mind.id, path);
@@ -4590,6 +4620,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const folder = await mkdtemp(join(adapters.paths.tempDir ?? tmpdir(), "incarnamind-word-"));
       const converted = join(folder, copy.name);
       await writeFile(converted, copy.converted, { mode: 0o600 });
+      wordConversions.set(converted, folder);
       return { outcome: "converted", path: converted, name: copy.name };
     },
     officeConverter: async () => ({

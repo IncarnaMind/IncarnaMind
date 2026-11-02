@@ -130,19 +130,6 @@ function headingOfStyle(style: Style | undefined): number | null {
 }
 
 /**
- * Escapes the characters that would make Markdown show something else than
- * the file's text. `markdownUnits` reads the escapes back, so a heading of
- * the text never turns into a heading of the Document.
- */
-export function escapeMarkdownLine(text: string): string {
-  let line = text.replace(/\\/g, "\\\\").replaceAll("[", "\\[").replaceAll("]", "\\]");
-  line = line.replace(/^([ \t]*)([#>+\-*])/, "$1\\$2");
-  line = line.replace(/^([ \t]*\d+)([.)])(?=[ \t])/, "$1\\$2");
-  line = line.replace(/^( {0,3})(`{3,}|~{3,})/, "$1\\$2");
-  return line.trimEnd();
-}
-
-/**
  * An RTF file as Markdown: each paragraph its own block, a heading as `#`s
  * (its level) and its text, and the file's unread groups left out. Throws
  * `ExtractionError` when the file isn't RTF.
@@ -191,7 +178,7 @@ export function rtfMarkdown(bytes: Uint8Array): string {
       .trim();
     chunks = [];
     if (value === "") return;
-    const line = escapeMarkdownLine(value.replace(/[ \t]*\n[ \t]*/g, " "));
+    const line = value.replace(/[ \t]*\n[ \t]*/g, " ");
     if (line !== "") out.push(heading === null ? line : `${"#".repeat(heading)} ${line}`);
     heading = null;
   };

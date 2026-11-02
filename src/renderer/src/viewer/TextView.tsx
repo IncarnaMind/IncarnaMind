@@ -141,6 +141,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
           <TextContent
             text={loaded.text}
             markdown={markdown}
+            literal={document.kind !== "markdown"}
             source={source}
             units={units}
             outline={outlineOpen ? outline : null}
@@ -181,6 +182,7 @@ function headingIndexes(units: readonly SourceUnit[]): Map<SourceUnit, number> {
 function TextContent({
   text,
   markdown,
+  literal,
   source,
   units,
   outline,
@@ -188,6 +190,8 @@ function TextContent({
 }: {
   text: string;
   markdown: boolean;
+  /** The text is the words it holds: no emphasis, code or links to read (#762). */
+  literal: boolean;
   /** A Markdown file's text as written, rather than formatted. */
   source: boolean;
   units: readonly SourceUnit[];
@@ -233,7 +237,10 @@ function TextContent({
     }
     return findQuote(text, quote) ?? NO_HIGHLIGHT;
   }, [text, target.quote, target.pageFrom, cited]);
-  const blocks = useMemo(() => (markdown ? parseMarkdown(text) : null), [text, markdown]);
+  const blocks = useMemo(
+    () => (markdown ? parseMarkdown(text, { literal }) : null),
+    [text, markdown, literal],
+  );
   const code = useMemo(() => !markdown && looksLikeCode(text), [text, markdown]);
   const citedHeading = useMemo(() => {
     if (!cited) return null;

@@ -10,11 +10,22 @@
  */
 import { decodeText } from "../decode";
 import { ExtractionError } from "./errors";
-import { escapeMarkdownLine } from "./rtf";
 import { decodeEntities } from "./xml";
 
 /** Elements whose content is never read as the page's text. */
 const SILENT = new Set(["script", "style", "noscript", "template", "svg", "head"]);
+
+/** The elements that belong in a page's `head`: anything else closes it, as a browser does. */
+const IN_HEAD = new Set([
+  "title",
+  "meta",
+  "link",
+  "base",
+  "style",
+  "script",
+  "noscript",
+  "template",
+]);
 
 /** Elements that start a block of their own. */
 const BLOCKS = new Set([
@@ -96,16 +107,14 @@ export function htmlTextToMarkdown(source: string): string {
     block = null;
     if (!current || value === "") return;
     if (current.kind === "heading") {
-      out.push(
-        `${"#".repeat(Math.min(6, Math.max(1, current.level)))} ${escapeMarkdownLine(value)}`,
-      );
+      out.push(`${"#".repeat(Math.min(6, Math.max(1, current.level)))} ${value}`);
       return;
     }
     if (current.kind === "listItem") {
-      out.push(`- ${escapeMarkdownLine(value)}`);
+      out.push(`- ${value}`);
       return;
     }
-    out.push(escapeMarkdownLine(value));
+    out.push(value);
   };
 
   const flushPre = () => {
@@ -131,7 +140,7 @@ export function htmlTextToMarkdown(source: string): string {
     if (row === null) return;
     const cells = row;
     row = null;
-    if (cells.some(Boolean)) out.push(escapeMarkdownLine(cells.join(" | ")));
+    if (cells.some(Boolean)) out.push(cells.join(" | "));
   };
 
   const closeUntil = (name: string) => {
@@ -196,8 +205,13 @@ export function htmlTextToMarkdown(source: string): string {
   }
 
   function textAfter(raw: string) {
-    if (silent > 0) return;
     const value = decodeEntities(raw);
+    // A `head` a page never closes is closed by the first words of its body, as a browser does.
+    if (silent > 0) {
+      // Only the head's own text closes it; a title's or a style's is the head's.
+      if (open.at(-1) === "head" && value.trim() !== "") closeUntil("head");
+      else return;
+    }
     if (inPre > 0) {
       pre += value;
       return;
@@ -211,6 +225,10 @@ export function htmlTextToMarkdown(source: string): string {
   }
 
   function startTag(name: string, tag: string, selfClosing: boolean) {
+    // A `head` a page never closes is closed by the first element that isn't its own, as a browser does.
+    if (silent > 0 && open.includes("head") && name !== "head" && !IN_HEAD.has(name)) {
+      closeUntil("head");
+    }
     if (name === "br") {
       if (silent > 0) return;
       if (inPre > 0) pre += "\n";
@@ -265,36 +283,9 @@ export function htmlTextToMarkdown(source: string): string {
   }
 
   function closeTag(name: string) {
-    if (SILENT.has(name)) {
-      closeUntil(name);
-      return;
-    }
-    if (silent > 0) return;
-    if (name === "pre") {
-      if (inPre > 0) inPre--;
-      if (inPre === 0) {
-        flushPre();
-        block = null;
-        text = "";
-      }
-      closeUntil(name);
-      return;
-    }
-    if (name === "tr") {
-      endRow();
-      closeUntil(name);
-      return;
-    }
-    if (name === "td" || name === "th") {
-      endCell();
-      closeUntil(name);
-      return;
-    }
-    if (HEADING.test(name) || name === "li" || BLOCKS.has(name)) {
-      flushBlock();
-      closeUntil(name);
-      return;
-    }
+    // An end tag ends its block whether or not the element was opened (HTML leaves tags out);
+    // closing up the stack also restores the silence a closed `head`, `style` or `script` had.
+    if (HEADING.test(name) || name === "li" || BLOCKS.has(name)) flushBlock();
     closeUntil(name);
   }
 

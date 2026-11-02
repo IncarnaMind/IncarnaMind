@@ -46,7 +46,8 @@ export function WordImportDialog() {
   const t = useT();
   const language = useLanguage();
   const state = useWordImport();
-  const { path, check, origin, importing, refusal, dropped, addOriginal, newVersion } = state;
+  const { path, check, origin, importing, refusal, dropped, addOriginal, newVersion, converted } =
+    state;
   const dialog = useModal(path !== null);
   const id = useId();
   const fileName = check?.fileName ?? path?.split(/[\\/]/).pop() ?? "";
@@ -155,17 +156,19 @@ export function WordImportDialog() {
               </p>
             )}
             <p className="mt-3 text-[13px] leading-5 text-ink-meta">{t("wordImport.keeps")}</p>
-            <label className={tickClass}>
-              <input
-                type="checkbox"
-                data-testid="word-import-add-original"
-                checked={addOriginal}
-                onChange={(event) => state.setAddOriginal(event.target.checked)}
-                className={tickBoxClass}
-              />
-              {t("wordImport.addOriginal")}
-            </label>
-            {addOriginal && check.earlierDraft && (
+            {!converted && (
+              <label className={tickClass}>
+                <input
+                  type="checkbox"
+                  data-testid="word-import-add-original"
+                  checked={addOriginal}
+                  onChange={(event) => state.setAddOriginal(event.target.checked)}
+                  className={tickBoxClass}
+                />
+                {t("wordImport.addOriginal")}
+              </label>
+            )}
+            {!converted && addOriginal && check.earlierDraft && (
               <label className={`${tickClass} ml-6`}>
                 <input
                   type="checkbox"
@@ -181,7 +184,7 @@ export function WordImportDialog() {
         )}
 
         <div className={dialogActionsClass}>
-          {dropped && (
+          {dropped && !converted && (
             <button
               type="button"
               data-testid="word-import-as-document"

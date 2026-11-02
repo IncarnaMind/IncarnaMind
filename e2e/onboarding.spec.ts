@@ -669,8 +669,9 @@ test("Add files… with only a file it can't take says why in step 1, which stay
   await interceptOpenDialog(app, archive);
   await pointAndClick(window, files.getByTestId("first-open-add-files"));
   const problem = files.getByTestId("first-open-skipped");
-  await expect(problem).toContainText("IncarnaMind reads PDF, Word, Excel, PowerPoint");
-  await expect(problem).toContainText("Archive.zip");
+  await expect(problem).toContainText(
+    "Archive.zip: IncarnaMind reads PDF, Word, Excel, PowerPoint, CSV, Markdown, pictures, RTF, HTML and text files",
+  );
   await expect(files).toHaveAttribute("data-state", "open");
   await app.close();
 });

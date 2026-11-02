@@ -116,6 +116,8 @@ interface Context {
   source: string;
   /** Reference link definitions, by their label in lower case. */
   definitions: Map<string, string>;
+  /** Text the file holds is shown as words, not read for emphasis, code or links (#762). */
+  literal?: boolean;
 }
 
 /** Whether a line starts a block, so it ends a paragraph before it. */
@@ -209,10 +211,10 @@ export function sectionHeadings(blocks: readonly Block[]): Map<Block, number> {
   return headings;
 }
 
-export function parseMarkdown(source: string): Block[] {
+export function parseMarkdown(source: string, options: { literal?: boolean } = {}): Block[] {
   const lines = splitLines(source);
   const { definitions, at } = readDefinitions(lines);
-  const context: Context = { source, definitions };
+  const context: Context = { source, definitions, ...(options.literal && { literal: true }) };
   const blocks: Block[] = [];
   let from = 0;
   // Front matter: "---" on the first line, closed by "---" or "...", holding no "#" heading
@@ -581,6 +583,8 @@ function bareUrl(source: string, at: number, end: number): number {
 /** Parses the inline Markdown in `source` from `start` to `end`. */
 function parseInlines(context: Context, start: number, end: number): Inline[] {
   const { source } = context;
+  // A converted file's text is the words it holds: no "*", "_", "`" or "[" is markup.
+  if (context.literal) return [{ kind: "text", start, end }];
   const inlines: Inline[] = [];
   let textStart = start;
   let at = start;

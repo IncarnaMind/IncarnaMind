@@ -10646,6 +10646,12 @@ export interface CoreApi {
    */
   convertWordFile(path: string): Promise<WordConversionResult>;
   /**
+   * Removes the temporary `.docx` copy `convertWordFile` made, once the import
+   * screen is done with it: it is added to a Mind, or the User cancels. Only a
+   * copy the core made can be removed.
+   */
+  discardWordFile(path: string): Promise<void>;
+  /**
    * Whether this computer has LibreOffice (#762): found where it is installed,
    * by its real path, never bundled or downloaded. Cached for the session.
    */
@@ -12686,6 +12692,7 @@ const methods: Record<CoreApiMethod, true> = {
   importWordFile: true,
   addWordOriginal: true,
   convertWordFile: true,
+  discardWordFile: true,
   officeConverter: true,
   convertWithOffice: true,
   showSkippedFile: true,
