@@ -1125,6 +1125,7 @@ export const en = {
   "claim.unsupported.currency.uncovered": "the currency ({currency})",
   "claim.unsupported.scale.uncovered": "the currency, unit or scale in {figure}",
   "claim.unsupported.unit": "The Document gives {amount}, not {figure}.",
+  "claim.unsupported.otherMeasure": "The Document gives {amount} for {measure}, not for {claimed}.",
   "claim.unsupported.whichDollar": "“{document}” gives “{amount}” without saying which currency",
   "claim.unsupported.yuanSign": "“{document}” gives “{amount}”, and in Chinese text ¥ means 人民币",
   "claim.currencyClause": "The Document states the currency ({source}): {quote}",
@@ -1194,6 +1195,8 @@ export const en = {
   "claim.reason.cut-short": "The model’s reply reached its length limit and was cut short.",
   "claim.reason.no-evidence": "Verdict hidden: the model’s quote isn’t in that Document.",
   "claim.reason.unread": "Verdict hidden: the model didn’t read your Documents.",
+  "claim.reason.other-cell":
+    "Verdict hidden: the model named another row or column of the Document’s table for this number.",
   "claim.reason.rate-limit": "The model’s service is busy for now. Check again in a moment.",
   "claim.reason.cost-cap": "Checking it could pass your monthly cap.",
   "claim.reason.plan-limit": "Your plan’s usage limit is reached.",
