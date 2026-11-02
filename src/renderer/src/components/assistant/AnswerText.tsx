@@ -15,6 +15,7 @@ import { CitationNumbers } from "../../editor/citationNumbers";
 import { CopyCitations } from "../../editor/copyCitations";
 import { JudgedAnswerContext, RegenerateAnswerContext } from "../../editor/mindContext";
 import { noteExtensions } from "../../editor/noteSchema";
+import { UncheckedFigures } from "../../editor/uncheckedFigures";
 import { useT } from "../../i18n";
 import { useTableFades } from "../useTableFades";
 import { OpenAsTable } from "./OpenAsTable";
@@ -107,6 +108,8 @@ export function AnswerText({
           figureRuns: (selected) => readFigureRunClosure(selected, receipts.current),
         }),
         AnswerTableSlots,
+        // A figure an Answer read from a scan's unsure word shows quietly, with a "?" (#535).
+        UncheckedFigures,
       ],
     },
     [],

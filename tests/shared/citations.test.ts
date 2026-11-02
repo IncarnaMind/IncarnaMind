@@ -14,9 +14,11 @@ import {
   citedTextKept,
   closestWordsMessage,
   fetchedAgainOn,
+  newVersionCitation,
   parseQuotedWords,
   quotedWordsFoundIn,
   quoteStanding,
+  quoteWashedOnOpen,
   shownDocumentName,
   versionMoment,
   withShownName,
@@ -890,5 +892,60 @@ describe("a Citation's attributes as a node holds them", () => {
       location: null,
       quote: null,
     });
+  });
+});
+
+describe("A scan's page confirmation (#535)", () => {
+  const scanned: CitationAttributes = {
+    ...found,
+    quote: "The lease began in 2o25.",
+    check: "cant-check",
+    checkReason: "unsure-word",
+    unsure: ["2o25"],
+  };
+  const recheck: CitationRecheck = {
+    check: "found",
+    checkReason: null,
+    contentHash: "v2",
+    passageId: "passage",
+    pageFrom: 20,
+    pageTo: 20,
+    location: { kind: "page", from: 20, to: 20 },
+  };
+
+  test("makes the unsure-word check found, and only that check", () => {
+    expect(citationState({ ...scanned, pageChecked: true }, null)).toMatchObject({
+      check: "found",
+      reason: null,
+      pageChecked: true,
+    });
+    // A later check that isn't that one isn't found by a confirmation given for it.
+    expect(
+      citationState(
+        { ...scanned, check: "not-found", checkReason: "quote-not-on-pages", pageChecked: true },
+        null,
+      ),
+    ).toMatchObject({ check: "not-found", reason: "quote-not-on-pages" });
+  });
+
+  test("opening its page washes the quote, while another can't-check Citation opens without one", () => {
+    expect(quoteWashedOnOpen({ check: "found", reason: null })).toBe(true);
+    expect(quoteWashedOnOpen({ check: "cant-check", reason: "unsure-word" })).toBe(true);
+    expect(quoteWashedOnOpen({ check: "cant-check", reason: "no-text" })).toBe(false);
+    expect(quoteWashedOnOpen({ check: "not-found", reason: "quote-not-on-pages" })).toBe(false);
+  });
+
+  test("is cleared when the Citation moves to another version, with that version's unsure words", () => {
+    expect(
+      newVersionCitation(
+        {
+          pageFrom: scanned.pageFrom,
+          pageTo: scanned.pageTo,
+          location: scanned.location,
+          quote: scanned.quote,
+        },
+        recheck,
+      ),
+    ).toMatchObject({ check: "found", pageChecked: null, unsure: null, contentHash: "v2" });
   });
 });
