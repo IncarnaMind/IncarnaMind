@@ -213,10 +213,10 @@ for (const { width, label } of [
         await core.createTag({ name: "Moons" });
       }, long);
       await tagDocument(window, "Tides", "Moons");
-      const moons = window.getByTestId("sidebar-tag").filter({ hasText: "Moons" });
-      await moons.getByRole("treeitem").first().focus();
-      await window.keyboard.press("F2");
-      await window.getByTestId("sidebar-tags").getByRole("textbox").fill(long);
+      // A new Tag named what another is: the core refuses it, and its message names the Tag in the way.
+      await window.getByTestId("tags-toggle").hover();
+      await window.getByTestId("tags-add").click();
+      await window.getByTestId("sidebar-tag-new-name").fill(long);
       await window.keyboard.press("Enter");
 
       const notice = window.getByTestId("error-notice");

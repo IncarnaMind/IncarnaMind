@@ -196,7 +196,7 @@ function TagRow({
   const language = useLanguage();
   const asked = useRequests((state) => state.manageTag);
   const [mode, setMode] = useState<"view" | "edit" | "merge">(
-    asked?.id === tag.id ? "edit" : "view",
+    asked?.id === tag.id ? (asked.mode ?? "edit") : "view",
   );
   const [into, setInto] = useState("");
 

@@ -77,6 +77,50 @@ export function ReviewRing() {
   );
 }
 
+/**
+ * The eight colours as a row of dots, each one choice, chosen where it is: a
+ * Tag's menu and the menu its dot opens. The chosen one is ringed as Finder
+ * rings it. A menu item each, so the menu's arrow keys reach them.
+ */
+export function TagColourChoices({
+  value,
+  onPick,
+}: {
+  value: string | undefined;
+  onPick(colour: TagColour): void;
+}) {
+  const t = useT();
+  const chosen = known(value);
+  return (
+    <span className="flex shrink-0 items-center">
+      {TAG_COLOURS.map((colour) => (
+        <button
+          key={colour}
+          type="button"
+          role="menuitemradio"
+          aria-checked={chosen === colour}
+          aria-label={t(`tags.colour.${colour}`)}
+          title={t(`tags.colour.${colour}`)}
+          data-testid="tag-colour-choice"
+          data-colour={colour}
+          onClick={() => onPick(colour)}
+          className="flex size-[17px] shrink-0 items-center justify-center rounded-full focus-visible:outline-offset-0"
+        >
+          <span
+            className={`flex size-[11px] items-center justify-center rounded-full ${
+              chosen === colour
+                ? "shadow-[0_0_0_2px_var(--color-sheet),0_0_0_3.5px_var(--color-ink)]"
+                : ""
+            }`}
+          >
+            <TagDot colour={colour} size="md" />
+          </span>
+        </button>
+      ))}
+    </span>
+  );
+}
+
 /** Choosing a Tag's colour: a row of its dots, one choice, arrow keys between them. */
 export function TagColourPicker({
   value,
