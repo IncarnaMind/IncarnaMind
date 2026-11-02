@@ -4646,6 +4646,21 @@ export interface AddedLinkedFolder extends LinkedFolder {
  */
 export type SearchMode = "hybrid" | "keyword" | "vector";
 
+/**
+ * Where a search on this computer stands among the Folder walls (#1934), judged as the Answer's
+ * turn is: the turn a Question waits on, or the place one already asked recorded. A place whose
+ * Folder isn't known reads nothing.
+ */
+export type PassageSearchPlace =
+  | ({ kind: "turn" } & TurnPlace)
+  | {
+      kind: "asked";
+      /** The Note it was asked from, as the conversation recorded it; null: none (Home). */
+      askedFrom: { mindId: string | null; deleted?: boolean } | null;
+      /** The Folder recorded with it; left out: not recorded, and such a turn reads nothing. */
+      folderAskedIn?: string;
+    };
+
 export interface SearchPassagesOptions {
   /** Defaults to "hybrid". */
   mode?: SearchMode;
@@ -4653,6 +4668,14 @@ export interface SearchPassagesOptions {
   limit?: number;
   /** Only Passages of these Documents (a Search scope). Omitted: every Document. */
   documentIds?: string[];
+  /** The Question's Search scope, as an Answer resolves it (#1934). Omitted: the default Documents. */
+  scope?: SearchScope | null;
+  /**
+   * The Question's place among the Folder walls. With it, the search reads only what its side of
+   * the walls holds, as the Answer of that turn would; omitted, `documentIds` (or every Document).
+   * Not with `documentIds`.
+   */
+  place?: PassageSearchPlace;
 }
 
 export interface PassageSearchResult {
