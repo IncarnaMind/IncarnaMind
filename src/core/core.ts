@@ -1495,10 +1495,8 @@ export function createCore(adapters: CoreAdapters): Core {
   // its Notes, wherever in its tree that Note is, and wherever the file was indexed again (a
   // Linked folder holding the Output location).
   const behindWall = (folderId: string) => {
-    const inside = library
-      .folders()
-      .filter((folder) => library.wallOf(folder.id) === folderId)
-      .map((folder) => folder.id);
+    const walls = library.wallsOf();
+    const inside = [...walls].filter(([, wall]) => wall === folderId).map(([id]) => id);
     return [...library.allTreeDocumentIds(folderId), ...ownFiles.writtenFrom(inside)];
   };
   const wallOfDocument = (documentId: string) =>

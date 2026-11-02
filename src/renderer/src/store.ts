@@ -91,6 +91,7 @@ import { resolveSettingsPage, type SettingsPage, type SettingsTarget } from "./s
 import { returnFocusAfterTabClose } from "./tabFocus";
 import { tabTitle } from "./tabs";
 import { asOneStep, makeInTurn, sayWhileSlow, type Undoable, UndoRefused, useUndo } from "./undo";
+import { wallLines } from "./walls";
 
 type Status = { kind: "loading" } | { kind: "ready" } | { kind: "failed"; message: string };
 
@@ -692,6 +693,27 @@ export const useAppStore = create<AppState>()((set, get) => {
   };
 
   /**
+   * The walls a move crosses, by the paths Move to… shows: the wall it enters and those it leaves.
+   * An item already behind the wall it goes to crosses none.
+   */
+  const wallChange = (
+    groups: readonly LibraryGroup[],
+    fromFolders: readonly (string | null)[],
+    into: string | null,
+  ): { entered: string | null; left: string[] } => {
+    const after = into === null ? null : folderWallOf(groups, into);
+    const crossed = fromFolders.flatMap((from) => {
+      const before = from === null ? null : folderWallOf(groups, from);
+      return before === after ? [] : [{ before, after }];
+    });
+    const path = (id: string) => folderPathLabel(groups, id);
+    return {
+      entered: after !== null && crossed.length > 0 ? path(after) : null,
+      left: [...new Set(crossed.flatMap(({ before }) => (before === null ? [] : [path(before)])))],
+    };
+  };
+
+  /**
    * Built here, not in the action that reads the Minds, Documents and Library: closures made in
    * one scope all keep what any of them uses, and the undo stack keeps these as long as the session.
    * `named` and `names` are cut to what the line and the refusal say.
@@ -703,9 +725,9 @@ export const useAppStore = create<AppState>()((set, get) => {
     named: Names;
     names: ReadonlyMap<string, string>;
     done: FolderMove;
-    outOfWall?: boolean;
+    walls?: { entered: string | null; left: readonly string[] };
   }): Undoable => {
-    const { moving, folderId, folderName, named, names, outOfWall = false } = made;
+    const { moving, folderId, folderName, named, names, walls } = made;
     let { done } = made;
     return {
       said: (t) => {
@@ -715,7 +737,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           folderId === null ? t("library.unsorted") : folderName,
           named,
         );
-        return outOfWall ? `${message} ${t("move.outOfWall")}` : message;
+        const suffix = walls ? wallLines(t, walls.entered, walls.left) : "";
+        return suffix ? `${message} ${suffix}` : message;
       },
       name: (t) => moveName(t, moving, named),
       undo: () => putBack(done, names),
@@ -732,16 +755,17 @@ export const useAppStore = create<AppState>()((set, get) => {
     named: Names;
     names: ReadonlyMap<string, string>;
     done: FolderMove | null;
-    outOfWall?: boolean;
+    walls?: { entered: string | null; left: readonly string[] };
   }) => {
-    const { folderId, going, named, names, outOfWall = false } = made;
+    const { folderId, going, named, names, walls } = made;
     let { done } = made;
     return (folderName: string): Undoable => {
       let kept = false;
       return {
         said: (t) => {
           const message = madeMessage(t, folderName, going, named);
-          return outOfWall ? `${message} ${t("move.outOfWall")}` : message;
+          const suffix = walls ? wallLines(t, walls.entered, walls.left) : "";
+          return suffix ? `${message} ${suffix}` : message;
         },
         name: (t) => t("undo.name.newFolder"),
         undoneNote: () => (kept ? (t) => t("commands.kept.folder", { name: folderName }) : null),
@@ -1178,8 +1202,14 @@ export const useAppStore = create<AppState>()((set, get) => {
           named: namesOfMoving(moving, { minds, documents }),
           names: namesOfFolders(library, [folderId, ...foldersMovedFrom(done)]),
           done,
-          outOfWall: foldersMovedFrom(done).some(
-            (id) => folderWallOf(library?.groups ?? [], id) !== null,
+          walls: wallChange(
+            library?.groups ?? [],
+            [
+              ...done.minds.map((item) => item.from),
+              ...done.documents.map((item) => item.from),
+              ...done.conversations.map((item) => item.from),
+            ],
+            folderId,
           ),
         });
         push(change);
@@ -1213,9 +1243,17 @@ export const useAppStore = create<AppState>()((set, get) => {
           named: namesOfMoving(going ?? {}, { minds, documents }),
           names: namesOfFolders(library, done ? foldersMovedFrom(done) : []),
           done,
-          outOfWall: done
-            ? foldersMovedFrom(done).some((id) => folderWallOf(library?.groups ?? [], id) !== null)
-            : false,
+          walls: done
+            ? wallChange(
+                library?.groups ?? [],
+                [
+                  ...done.minds.map((item) => item.from),
+                  ...done.documents.map((item) => item.from),
+                  ...done.conversations.map((item) => item.from),
+                ],
+                parentId ?? null,
+              )
+            : undefined,
         });
         const step = stepNamed(name);
         justMade = { id: folder.id, step, stepNamed };
@@ -1305,12 +1343,20 @@ export const useAppStore = create<AppState>()((set, get) => {
         if (changes.length === 0) return;
         // Work that leaves or enters a wall says so, as a Document's move does.
         const after = parentId === null ? null : folderWallOf(groups, parentId);
-        const crossed = changes.map((folder) => ({
-          before: folderWallOf(groups, folder.id),
-          after: folder.keepInside ? folder.id : after,
-        }));
-        const outOfWall = crossed.some(({ before, after }) => before !== null && before !== after);
-        const intoWall = crossed.some(({ before, after }) => after !== null && before !== after);
+        const crossed = changes
+          .map((folder) => ({
+            before: folderWallOf(groups, folder.id),
+            after: folder.keepInside ? folder.id : after,
+          }))
+          .filter(({ before, after }) => before !== after);
+        const path = (id: string) => folderPathLabel(groups, id);
+        const entered = crossed.find(({ after }) => after !== null)?.after ?? null;
+        const walls = {
+          entered: entered === null ? null : path(entered),
+          left: [
+            ...new Set(crossed.flatMap(({ before }) => (before === null ? [] : [path(before)]))),
+          ],
+        };
         const moved = await core.moveLibraryGroups(
           changes.map((folder) => ({ id: folder.id, parentId })),
         );
@@ -1333,11 +1379,8 @@ export const useAppStore = create<AppState>()((set, get) => {
                       count: used.length,
                       into: afterLabel ?? "",
                     });
-            const walls = [
-              ...(outOfWall ? [t("move.outOfWall")] : []),
-              ...(intoWall ? [t("move.intoWall")] : []),
-            ];
-            return walls.length > 0 ? `${line} ${walls.join(" ")}` : line;
+            const suffix = wallLines(t, walls.entered, walls.left);
+            return suffix ? `${line} ${suffix}` : line;
           },
           name: (t) => t(used.length === 1 ? "undo.name.moveFolder" : "undo.name.moveFolders"),
           undo: async () => {

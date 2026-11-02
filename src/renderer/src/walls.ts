@@ -5,6 +5,7 @@
 import { CITATION_NODE, type LibrarySnapshot, type SearchScope } from "../../core/api";
 import type { NodeJSON } from "../../shared/blockJson";
 import { folderWallOf, isInsideFolder } from "./folders";
+import type { Translate } from "./objects";
 
 /** What of the Library the walls are read from. */
 type Walls = {
@@ -14,6 +15,34 @@ type Walls = {
   >[];
   assignments: readonly Pick<LibrarySnapshot["assignments"][number], "documentId" | "groupId">[];
 } | null;
+
+/**
+ * What a move across walls says after its own line, in the ruled words: the wall it entered and
+ * those it left, each by the path Move to… shows. The move's own sentence says what moved, so
+ * these have no subject; a wall left for another is one sentence.
+ */
+export function wallLines(t: Translate, entered: string | null, left: readonly string[]): string {
+  const leaving = [...new Set(left)].filter((name) => name !== entered);
+  const first = leaving[0];
+  if (entered !== null && first !== undefined) {
+    return leaving.length === 1
+      ? t("move.wallToWall", { into: entered, from: first })
+      : leaving.length === 2
+        ? t("move.wallToWall.many.one", { into: entered, from: first })
+        : t("move.wallToWall.many", {
+            into: entered,
+            from: first,
+            n: leaving.length - 1,
+            total: leaving.length,
+          });
+  }
+  if (entered !== null) return t("move.intoWall", { folder: entered });
+  if (first === undefined) return "";
+  if (leaving.length === 1) return t("move.outOfWall", { folder: first });
+  return leaving.length === 2
+    ? t("move.outOfWall.many.one", { folder: first })
+    : t("move.outOfWall.many", { folder: first, n: leaving.length - 1, total: leaving.length });
+}
 
 /** The walled Folder that keeps a Folder or a Document's Folder inside it; null outside every wall. */
 const wallBehind = (

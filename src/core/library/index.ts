@@ -524,16 +524,56 @@ export function createLibrary(options: {
   const deletedWith = (folderId: string, at: string): string[] =>
     db.all<{ id: string }>(DELETED_SUBTREE, [folderId, at, at]).map((row) => row.id);
   /**
+   * Every live Folder's nearest walled Folder, or null, in one pass: kept until the Library
+   * changes, so a search or a move over many Folders reads them once, not once per Folder.
+   */
+  let wallsCache: { revision: number; walls: Map<string, string | null> } | null = null;
+  const wallsOf = (): ReadonlyMap<string, string | null> => {
+    if (wallsCache?.revision === revision) return wallsCache.walls;
+    const folders = groups();
+    const byId = new Map(folders.map((folder) => [folder.id, folder]));
+    const walls = new Map<string, string | null>();
+    const nearest = (id: string): string | null => {
+      const known = walls.get(id);
+      if (known !== undefined) return known;
+      const chain: string[] = [];
+      const seen = new Set<string>();
+      let at: string | null = id;
+      let wall: string | null = null;
+      while (at !== null && !seen.has(at)) {
+        const cached = walls.get(at);
+        if (cached !== undefined) {
+          wall = cached;
+          break;
+        }
+        seen.add(at);
+        const folder = byId.get(at);
+        if (!folder) break;
+        if (folder.keepInside) {
+          wall = folder.id;
+          break;
+        }
+        chain.push(at);
+        at = folder.parentId;
+      }
+      for (const each of chain) walls.set(each, wall);
+      walls.set(id, wall);
+      return wall;
+    };
+    for (const folder of folders) nearest(folder.id);
+    wallsCache = { revision, walls };
+    return walls;
+  };
+  /**
    * The id of the Folder keeping its work inside it that a Folder is in, or is; null outside
    * every wall. `deleted`: a Folder in Recently deleted reads the walls around it as they were,
    * deleted Folders included.
    */
   const wallOf = (folderId: string, deleted = false): string | null => {
+    if (!deleted) return wallsOf().get(folderId) ?? null;
     const byId = new Map(
       db
-        .all<GroupRow>(
-          `SELECT ${GROUP_COLUMNS} FROM library_groups${deleted ? "" : " WHERE deleted_at IS NULL"}`,
-        )
+        .all<GroupRow>(`SELECT ${GROUP_COLUMNS} FROM library_groups`)
         .map((row) => [row.id, toGroup(row)]),
     );
     const seen = new Set<string>();
@@ -1187,6 +1227,7 @@ export function createLibrary(options: {
     subtree,
     deletedWith,
     wallOf,
+    wallsOf,
     treeDocumentIds(folderId: string): string[] {
       return [...new Set(tree(folderId).flatMap((id) => filedDocumentIdsOf(id)))];
     },

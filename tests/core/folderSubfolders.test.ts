@@ -284,7 +284,8 @@ describe("Folders inside Folders", () => {
     await core.deleteLibraryGroup(chapter.id);
     await core.deleteLibraryGroup(thesis.id);
 
-    await core.restore([{ kind: "folder", id: chapter.id }]);
+    const result = await core.restore([{ kind: "folder", id: chapter.id }]);
+    expect(result.toTopLevel).toEqual([chapter.id]);
     const restored = (await core.getLibrary()).groups.find((group) => group.id === chapter.id);
     expect(restored?.parentId).toBeNull();
     // Restoring Thesis later does not pull it back inside.

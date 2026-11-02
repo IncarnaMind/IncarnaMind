@@ -409,8 +409,15 @@ export const en = {
   "move.done.documents": "Moved {count} Documents to {folder}",
   "move.done.items": "Moved {count} items to {folder}",
   "move.done.conversations": "Moved {count} conversations to {folder}",
-  "move.outOfWall": "It is no longer limited to that Folder’s Documents and notes.",
-  "move.intoWall": "It is now limited to that Folder’s Documents and notes.",
+  "move.outOfWall": "No longer kept inside “{folder}”.",
+  "move.outOfWall.many.one": "No longer kept inside “{folder}” and 1 other Folder.",
+  "move.outOfWall.many": "No longer kept inside “{folder}” and {n} other Folders.",
+  "move.intoWall": "Now kept inside “{folder}”.",
+  "move.wallToWall": "Now kept inside “{into}”, no longer inside “{from}”.",
+  "move.wallToWall.many.one":
+    "Now kept inside “{into}”, no longer inside “{from}” and 1 other Folder.",
+  "move.wallToWall.many":
+    "Now kept inside “{into}”, no longer inside “{from}” and {n} other Folders.",
   "drop.moveTo": "Move to {folder}",
   "drop.moveTo.minds": "Move {count} notes to {folder}",
   "drop.moveTo.documents": "Move {count} Documents to {folder}",
