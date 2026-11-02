@@ -9464,14 +9464,21 @@ export interface TagLinkState {
   removedByUser?: boolean;
 }
 
+/** A Tag's name, description and colour: what the User sees of it. */
+export interface TagAsShown {
+  name: string;
+  description: string;
+  colour: TagColour;
+}
+
 /**
  * Whether a Tag was the User's before an edit or a merge made it so, to put back with its Undo:
- * only while the Tag still is as it was when the change finished, at `expectedUpdatedAt`.
+ * only while the Tag still shows what the change left.
  */
 export interface TagSourceRevert {
   madeByUser: boolean;
-  /** The Tag's `updatedAt` when the change finished; a Tag changed since keeps its source. */
-  expectedUpdatedAt: string;
+  /** What the Tag showed when the change finished; a Tag changed since keeps its source. */
+  expected: TagAsShown;
 }
 
 export interface TagMerge {
@@ -12029,7 +12036,7 @@ export interface CoreApi {
    * Changes a Tag's name or description and returns the Tag. Documents keep
    * their Tags; "Re-tag" applies the new definition to the automatic ones. With
    * `source`, the Undo of an edit, it also puts back whether the Tag was the
-   * User's, if it still is as it was at `expectedUpdatedAt`.
+   * User's, if the Tag still shows what the edit left.
    */
   updateTag(tagId: string, patch: UpdateTagInput, source?: TagSourceRevert): Promise<Tag>;
   /** Soft-deletes a Tag, and takes it off every Document. */

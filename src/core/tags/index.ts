@@ -11,7 +11,14 @@
 import { randomUUID } from "node:crypto";
 import { sameName } from "../../shared/names";
 import { isTagColour, nextTagColour, type TagColour } from "../../shared/tagColours";
-import type { DocumentTag, Tag, TagLinkState, TagSource, TagSourceRevert } from "../api";
+import type {
+  DocumentTag,
+  Tag,
+  TagAsShown,
+  TagLinkState,
+  TagSource,
+  TagSourceRevert,
+} from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { Language } from "../language";
 import type { Database } from "../storage";
@@ -55,16 +62,28 @@ const toTag = (row: TagRow): Tag => ({
   updatedAt: row.updated_at,
 });
 
+function parseShown(value: unknown): TagAsShown {
+  if (
+    !isRecord(value) ||
+    typeof value.name !== "string" ||
+    typeof value.description !== "string" ||
+    !isTagColour(value.colour)
+  ) {
+    throw new InvalidInputError(
+      "The Undo of a Tag needs whether it was the User's and what it showed.",
+    );
+  }
+  return { name: value.name, description: value.description, colour: value.colour };
+}
+
 function parseSourceRevert(source: unknown): TagSourceRevert | undefined {
   if (source === undefined) return undefined;
-  if (
-    !isRecord(source) ||
-    typeof source.madeByUser !== "boolean" ||
-    typeof source.expectedUpdatedAt !== "string"
-  ) {
-    throw new InvalidInputError("The Undo of a Tag edit needs whether it was the User's and when.");
+  if (!isRecord(source) || typeof source.madeByUser !== "boolean") {
+    throw new InvalidInputError(
+      "The Undo of a Tag edit needs whether it was the User's and what it showed.",
+    );
   }
-  return { madeByUser: source.madeByUser, expectedUpdatedAt: source.expectedUpdatedAt };
+  return { madeByUser: source.madeByUser, expected: parseShown(source.expected) };
 }
 
 function parseTagId(id: unknown): string {
@@ -316,7 +335,7 @@ export function createTags(db: Database, now: () => string) {
 
     /**
      * Changes a Tag's name, description or colour. With `source`, the Undo of an edit, it also
-     * puts back whether the Tag was the User's, if it still is as it was at `expectedUpdatedAt`.
+     * puts back whether the Tag was the User's, if it still shows what the edit left.
      */
     update(tagId: unknown, patch: unknown, source?: unknown): Tag {
       if (!isRecord(patch)) throw new InvalidInputError("updateTag expects an object.");
@@ -332,13 +351,12 @@ export function createTags(db: Database, now: () => string) {
         const description =
           patch.description === undefined ? tag.description : parseDescription(patch.description);
         const colour = patch.colour === undefined ? tag.colour : parseColour(patch.colour);
-        const putsBack = revert !== undefined && tag.updatedAt === revert.expectedUpdatedAt;
-        if (
-          name === tag.name &&
-          description === tag.description &&
-          colour === tag.colour &&
-          !putsBack
-        )
+        const putsBack =
+          revert !== undefined &&
+          tag.name === revert.expected.name &&
+          tag.description === revert.expected.description &&
+          tag.colour === revert.expected.colour;
+        if (name === tag.name && description === tag.description && colour === tag.colour)
           return tag;
         checkUnique(name, tag.id);
         const at = now();
@@ -353,23 +371,29 @@ export function createTags(db: Database, now: () => string) {
     },
 
     /**
-     * Puts back whether a Tag was the User's, if it still is as it was at `expectedUpdatedAt`:
-     * the Undo of a merge. A Tag changed since, or deleted since, keeps its source. Returns
-     * whether it changed.
+     * Puts back whether a Tag was the User's, if it still shows `expected`: the Undo of a merge.
+     * A Tag changed since, or deleted since, keeps its source. Returns whether it changed.
      */
-    setSource(tagId: unknown, madeByUser: unknown, expectedUpdatedAt: unknown): boolean {
-      if (typeof madeByUser !== "boolean" || typeof expectedUpdatedAt !== "string") {
+    setSource(tagId: unknown, madeByUser: unknown, expected: unknown): boolean {
+      if (typeof madeByUser !== "boolean") {
         throw new InvalidInputError(
-          "Putting back a Tag's source needs whether it was the User's and when.",
+          "Putting back a Tag's source needs whether it was the User's and what it showed.",
         );
       }
+      const shown = parseShown(expected);
       return db.transaction(() => {
         const id = parseTagId(tagId);
         const row = db.get<TagRow>(
           `SELECT ${COLUMNS} FROM tags WHERE id = ? AND deleted_at IS NULL`,
           [id],
         );
-        if (!row || row.updated_at !== expectedUpdatedAt) return false;
+        if (
+          !row ||
+          row.name !== shown.name ||
+          row.description !== shown.description ||
+          row.colour !== shown.colour
+        )
+          return false;
         if ((row.made_by_user !== 0) === madeByUser) return false;
         db.run("UPDATE tags SET made_by_user = ?, updated_at = ? WHERE id = ?", [
           madeByUser ? 1 : 0,

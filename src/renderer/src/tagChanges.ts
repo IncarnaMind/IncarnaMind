@@ -60,7 +60,11 @@ export async function editTag(tagId: string, patch: UpdateTagInput): Promise<Tag
     undo: async () => {
       await core.updateTag(tagId, before, {
         madeByUser: wasUser,
-        expectedUpdatedAt: edited.updatedAt,
+        expected: {
+          name: edited.name,
+          description: edited.description,
+          colour: edited.colour,
+        },
       });
     },
     redo: async () => {
@@ -103,7 +107,11 @@ export async function mergeTags(tagId: string, intoTagId: string, renamed = fals
           {
             tagId: intoTagId,
             madeByUser: merge.keptMadeByUserBefore,
-            expectedUpdatedAt: merge.tag.updatedAt,
+            expected: {
+              name: merge.tag.name,
+              description: merge.tag.description,
+              colour: merge.tag.colour,
+            },
           },
         ],
       });

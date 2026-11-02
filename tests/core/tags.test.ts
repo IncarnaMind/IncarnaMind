@@ -191,7 +191,10 @@ describe("Managing Tags", () => {
     const undone = await core.updateTag(
       slides.id,
       { colour: slides.colour },
-      { madeByUser: slides.madeByUser, expectedUpdatedAt: edited.updatedAt },
+      {
+        madeByUser: slides.madeByUser,
+        expected: { name: edited.name, description: edited.description, colour: edited.colour },
+      },
     );
     expect(undone.madeByUser).toBe(false);
     expect((await tagNamed(core, "Slides")).madeByUser).toBe(false);
@@ -207,12 +210,46 @@ describe("Managing Tags", () => {
     const undone = await core.updateTag(
       slides.id,
       { description: slides.description },
-      { madeByUser: slides.madeByUser, expectedUpdatedAt: edited.updatedAt },
+      {
+        madeByUser: slides.madeByUser,
+        expected: { name: edited.name, description: edited.description, colour: edited.colour },
+      },
     );
 
     expect(undone.madeByUser).toBe(true);
     expect(undone.description).toBe(slides.description);
     expect((await tagNamed(core, "Slides")).madeByUser).toBe(true);
+  });
+
+  test("two edits' Undos put a preset Tag's source back in turn", async () => {
+    const core = startCore(await createTempDataFolder(), { now: tickingClock() });
+    const slides = await tagNamed(core, "Slides");
+    const colour = await core.updateTag(slides.id, { colour: "teal" });
+    const description = await core.updateTag(slides.id, { description: "Decks, in order." });
+
+    await core.updateTag(
+      slides.id,
+      { description: colour.description },
+      {
+        madeByUser: true,
+        expected: {
+          name: description.name,
+          description: description.description,
+          colour: description.colour,
+        },
+      },
+    );
+    expect((await tagNamed(core, "Slides")).madeByUser).toBe(true);
+
+    await core.updateTag(
+      slides.id,
+      { colour: slides.colour },
+      {
+        madeByUser: slides.madeByUser,
+        expected: { name: colour.name, description: colour.description, colour: colour.colour },
+      },
+    );
+    expect((await tagNamed(core, "Slides")).madeByUser).toBe(false);
   });
 
   test("a Tag needs a name, and a name no other Tag has (ignoring case)", async () => {
@@ -984,7 +1021,11 @@ describe("Merging Tags", { timeout: 30_000 }, () => {
         {
           tagId: book.id,
           madeByUser: merged.keptMadeByUserBefore,
-          expectedUpdatedAt: merged.tag.updatedAt,
+          expected: {
+            name: merged.tag.name,
+            description: merged.tag.description,
+            colour: merged.tag.colour,
+          },
         },
       ],
     });
@@ -1003,7 +1044,11 @@ describe("Merging Tags", { timeout: 30_000 }, () => {
         {
           tagId: book.id,
           madeByUser: merged.keptMadeByUserBefore,
-          expectedUpdatedAt: merged.tag.updatedAt,
+          expected: {
+            name: merged.tag.name,
+            description: merged.tag.description,
+            colour: merged.tag.colour,
+          },
         },
       ],
     });
@@ -1011,6 +1056,45 @@ describe("Merging Tags", { timeout: 30_000 }, () => {
     const after = await tagNamed(core, "Book");
     expect(after.description).toBe("Mine now.");
     expect(after.madeByUser).toBe(true);
+  });
+
+  test("two merges' Undos put the kept Tag's source back in turn", async () => {
+    const core = startCore(await createTempDataFolder(), { now: tickingClock() });
+    const book = await tagNamed(core, "Book");
+    const aa = await core.createTag({ name: "Aa" });
+    const bb = await core.createTag({ name: "Bb" });
+    const first = await core.mergeTags(aa.id, book.id);
+    const second = await core.mergeTags(bb.id, book.id);
+
+    await core.restore([second.merged], {
+      tagSources: [
+        {
+          tagId: book.id,
+          madeByUser: second.keptMadeByUserBefore,
+          expected: {
+            name: second.tag.name,
+            description: second.tag.description,
+            colour: second.tag.colour,
+          },
+        },
+      ],
+    });
+    expect((await tagNamed(core, "Book")).madeByUser).toBe(true);
+
+    await core.restore([first.merged], {
+      tagSources: [
+        {
+          tagId: book.id,
+          madeByUser: first.keptMadeByUserBefore,
+          expected: {
+            name: first.tag.name,
+            description: first.tag.description,
+            colour: first.tag.colour,
+          },
+        },
+      ],
+    });
+    expect((await tagNamed(core, "Book")).madeByUser).toBe(false);
   });
 
   test("merging into a Tag the User made leaves it the User's, and its Undo says so", async () => {
@@ -1026,7 +1110,11 @@ describe("Merging Tags", { timeout: 30_000 }, () => {
         {
           tagId: findings.id,
           madeByUser: merged.keptMadeByUserBefore,
-          expectedUpdatedAt: merged.tag.updatedAt,
+          expected: {
+            name: merged.tag.name,
+            description: merged.tag.description,
+            colour: merged.tag.colour,
+          },
         },
       ],
     });

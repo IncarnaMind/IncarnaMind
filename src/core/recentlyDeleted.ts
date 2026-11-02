@@ -11,6 +11,8 @@
  */
 import type { MessageKey, MessageParams } from "../shared/i18n";
 import { sameName } from "../shared/names";
+import { isTagColour } from "../shared/tagColours";
+import type { TagAsShown } from "./api";
 import {
   DELETED_KINDS,
   type DeletedItem,
@@ -79,7 +81,7 @@ function parseRefs(input: unknown, what: string): RestoreRef[] {
 /** The Tags whose source a restore puts back, from its `tagSources` option. */
 function parseTagSources(
   options: unknown,
-): { tagId: string; madeByUser: boolean; expectedUpdatedAt: string }[] {
+): { tagId: string; madeByUser: boolean; expected: TagAsShown }[] {
   if (!isRecord(options) || options.tagSources === undefined) return [];
   if (!Array.isArray(options.tagSources))
     throw new InvalidInputError("restore's tagSources must be a list.");
@@ -89,16 +91,23 @@ function parseTagSources(
       typeof each.tagId !== "string" ||
       each.tagId === "" ||
       typeof each.madeByUser !== "boolean" ||
-      typeof each.expectedUpdatedAt !== "string"
+      !isRecord(each.expected) ||
+      typeof each.expected.name !== "string" ||
+      typeof each.expected.description !== "string" ||
+      !isTagColour(each.expected.colour)
     ) {
       throw new InvalidInputError(
-        "A Tag source says which Tag, whether it was the User's, and when.",
+        "A Tag source says which Tag, whether it was the User's, and what it showed.",
       );
     }
     return {
       tagId: each.tagId,
       madeByUser: each.madeByUser,
-      expectedUpdatedAt: each.expectedUpdatedAt,
+      expected: {
+        name: each.expected.name,
+        description: each.expected.description,
+        colour: each.expected.colour,
+      },
     };
   });
 }
@@ -472,8 +481,8 @@ export function createRecentlyDeleted(options: {
         checkLinks(links);
         for (const id of tags.revert(links)) restored.tagged.add(id);
         let sourcesChanged = false;
-        for (const { tagId, madeByUser, expectedUpdatedAt } of tagSources) {
-          if (tags.setSource(tagId, madeByUser, expectedUpdatedAt)) sourcesChanged = true;
+        for (const { tagId, madeByUser, expected } of tagSources) {
+          if (tags.setSource(tagId, madeByUser, expected)) sourcesChanged = true;
         }
         return { restored, sourcesChanged };
       });

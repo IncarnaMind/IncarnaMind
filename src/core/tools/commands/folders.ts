@@ -200,7 +200,11 @@ export const FOLDER_CHECKERS = {
               { name: tag.name },
               {
                 madeByUser: tag.madeByUser,
-                expectedUpdatedAt: renamed.updatedAt,
+                expected: {
+                  name: renamed.name,
+                  description: renamed.description,
+                  colour: renamed.colour,
+                },
               },
             );
             return null;

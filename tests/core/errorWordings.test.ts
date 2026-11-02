@@ -72,7 +72,7 @@ const SENTENCES_LEFT: Record<string, number> = {
   "sources/index.ts": 8,
   "sources/tool.ts": 2,
   "suggestions/index.ts": 6,
-  "tags/index.ts": 13,
+  "tags/index.ts": 14,
   "tags/jev.ts": 5,
   "tags/tagger.ts": 1,
   "tools/web/tools.ts": 1,
