@@ -9,7 +9,6 @@ import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "@playwright/test";
 import { isRecord } from "../src/core/errors";
-import { MAPPED_WAL_RETRY_MS } from "../src/core/storage/node-sqlite";
 import { heldByAnotherCopy } from "../src/main/instanceLock";
 import {
   coreOf,
@@ -313,9 +312,10 @@ try {
       new RegExp(`WARN +storage\\.walOpen\\.gaveUp attempts=${walOpen.length - 1} elapsedMs=\\d+$`),
     );
     const elapsed = walOpen.map((line) => Number(/ elapsedMs=(\d+)/.exec(line)?.[1]));
-    // A try that blocks on a loaded disk may end past the window; no new try may start after it.
-    expect(elapsed.slice(0, -2).filter((ms) => !(ms <= MAPPED_WAL_RETRY_MS))).toEqual([]);
-    expect(elapsed.at(-1)).toBeGreaterThanOrEqual(MAPPED_WAL_RETRY_MS);
+    // Each try is stamped when it ends, and one native call can't be cut short: only the last
+    // try may end past the five-second window.
+    expect(elapsed.slice(0, -2).filter((ms) => !(ms <= 5_000))).toEqual([]);
+    expect(elapsed.at(-1)).toBeGreaterThanOrEqual(5_000);
     expect(copiesWith(tag)).toEqual([]);
     expect(
       heldByAnotherCopy(dataDir, (what, error) => {
