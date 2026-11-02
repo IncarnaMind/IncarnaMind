@@ -92,7 +92,7 @@ export function coverageOf(
   asked: { each: boolean; main: number | null },
   documents: readonly SizedDocument[],
 ): AnswerCoverage | null {
-  const named = (each: SizedDocument) => ({ id: each.id, name: each.name });
+  const named = (each: SizedDocument) => ({ id: each.id, name: displayName(each) });
   if (asked.main !== null && documents.length > asked.main) {
     return {
       kind: "main",
@@ -235,11 +235,7 @@ export function coverageInstructions(
   each: boolean,
   documents: readonly SizedDocument[],
 ): string {
-  const covered =
-    coverage?.used.map((each) => {
-      const document = documents.find((one) => one.id === each.id);
-      return displayName(document ?? each);
-    }) ?? [];
+  const covered = coverage?.used.map((document) => document.name) ?? [];
   const searchEach =
     "Search each one (search_documents with its document), cite each at least once, and say in your reply which, if any, you couldn't cover. Nothing about your searching goes into a Note.";
   if (coverage?.kind === "main") {

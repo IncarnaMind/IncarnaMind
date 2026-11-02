@@ -1295,12 +1295,14 @@ const LEFT_OUT = [
   { id: "d11", name: "Report 12" },
 ];
 
-const cappedSteps = (): AnswerSteps => ({
+const cappedSteps = (
+  ids: readonly string[] = LEFT_OUT.map((document) => document.id),
+): AnswerSteps => ({
   sentAt: null,
   finishedAt: null,
   phases: [],
   reasoning: null,
-  coverage: { kind: "largest", used: [], rest: LEFT_OUT.map((document) => document.id) },
+  coverage: { kind: "largest", used: [], rest: [...ids] },
 });
 
 const leftOut = (text: string, coverageAsks: number): RequestOutcome =>
@@ -1332,6 +1334,26 @@ describe("A capped summary's left-out Documents (#894)", () => {
     );
 
     expect(failures).toEqual([{ kind: "left-out-unnamed", documents: ["Report 12"] }]);
+  });
+
+  // protects=a machine-made name is matched by the title the User sees; fails_when=it is reported missing; no_claim=what the model writes.
+  test("a machine-made name is named by its title", () => {
+    const failures = requestFailures(
+      outcome({
+        expected: { write: false, cite: false, coverAll: false, either: true, leftOutAsk: true },
+        answer: {
+          text: "“Annual Report 2023” is left for the next summary.",
+          citations: [],
+          toolCalls: [],
+          steps: cappedSteps(["d8"]),
+        },
+        coverageAsks: 1,
+        scoped: [{ id: "d8", name: "IMG_0042", title: "Annual Report 2023" }],
+        citedInMinds: [],
+      }),
+    );
+
+    expect(failures).toEqual([]);
   });
 
   // protects=one ask and all four named passes; fails_when=it fails; no_claim=what the model writes.

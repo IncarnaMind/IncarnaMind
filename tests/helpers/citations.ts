@@ -286,7 +286,6 @@ export async function askAndFinish(
   return { answerId, finished: ended.payload };
 }
 
-/** The Citation nodes under `root`, in reading order, as the editor reads them: without the `proposal` attribute every inline node has. */
 function citationsUnder(root: ProseMirrorNode): CitationAttributes[] {
   const found: CitationAttributes[] = [];
   root.descendants((node) => {

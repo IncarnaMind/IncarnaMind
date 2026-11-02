@@ -13,7 +13,7 @@
 - **No marker without a Citation**: every Citation marker in the Answer's text ("[^2]") has its Citation. A model that writes markers without calling `cite` is asked once for its Citations (`src/core/answers/unmarkedQuotes.ts`), and the app takes out any marker still unbacked; the report says how many it took out, and a marker left in the text fails the request.
 - **No tool-call text**: nothing in the Answer's text is a Tool's call written as words, such as a `<cite>` block. The app takes it out, and gives the records of a `<cite>` block back to be recorded (`src/core/answers/toolText.ts`); one left in the text fails the request.
 - **Every Document is covered**: asked about all the Documents in scope, each is cited, or named in a sentence saying it wasn't covered, or that it is left for the next summary, and nothing outside the scope, such as the example's, is cited. The report counts, per request, the Documents cited, those named as not covered, those left out without a word, and those cited from outside the scope.
-- **A capped summary that leaves out Documents is asked again** (#894): when the answer names none of the Documents the next summary takes, the app asks the model once more with their names, and the reply the User reads names them. The `reports-left-` requests put their own first reply in place of the model's (`firstReply`), naming none of the four, so the ask is measured on a real model; no search runs and no Note is written for them. Before the change, the same requests fail with no ask.
+- **A capped summary that leaves out Documents is asked again** (#894): when the reply leaves out any of the Documents the next summary takes, the app asks the model once more with their names, and the reply the User reads names them. The `reports-left-` requests put their own first reply in place of the model's (`firstReply`), naming none of the four, so the ask is measured on a real model; before the change, the same requests fail with no ask.
 - **Only what was asked changes**: asked about one paragraph, the others read as they did once the Answer's changes are accepted.
 - **Changed in place**: asked to make the summary in the Mind longer, it changes that summary rather than adding a second version beside it.
 - **About the Question asked**: after the example's Answer, written in advance, the reply says nothing of an earlier Answer.
@@ -127,11 +127,13 @@ guard did not read as saying they were left out. The app now asks once more with
 summary's reply leaves any of them unsaid, and the guard reads "不在".
 
 Rerun at this branch, both arms scored with the same guard: `main` at `a832fcbf` (its `src` put under this
-evaluation's files) and the branch. `reports-page` and `reports-all-zh` ran three times each at `adb85749b`
-(source identical to the head) with the watcher as it was then, which could not see a write-only ask: their
-claimed-change asks are known, their coverage asks are unknown rather than zero. The two `reports-left-`
-requests ran once each at the head; their first reply is the evaluation's own (`firstReply`), so the check
-meets a reply that names none of the four. Claims judged by Claude Sonnet 5.5.
+evaluation's files) and the branch's app source at `adb85749b`; the forced requests ran at `fb7ae4b88`,
+whose source differs from the head only in which words count as a name and the display names, the same for
+this library's names. `reports-page` and `reports-all-zh` ran three times each at `adb85749b` with the
+watcher as it was then, which could not see a write-only ask: their claimed-change asks are known, their
+coverage asks are unknown rather than zero. The two `reports-left-` requests ran once each at `fb7ae4b88`;
+their first reply is the evaluation's own (`firstReply`), so the check meets a reply that names none of the
+four. Claims judged by Claude Sonnet 5.5.
 
 | Request | Before | After |
 |---|---|---|
@@ -140,9 +142,9 @@ meets a reply that names none of the four. Claims judged by Claude Sonnet 5.5.
 | `reports-left-en` | 0 of 1; names none of the four; 0 asks | 1 of 1; 1 ask for the left-out Documents; names the four |
 | `reports-left-zh` | 0 of 1; names none of the four; 0 asks | 1 of 1; 1 ask for the left-out Documents; names the four |
 
-The `reports-left-` requests are forced by `firstReply` on the first call (Anthropic keeps Tools on every
-request, so the engine's answer step still calls the model): no search runs and no Note is written, and the
-check meets the model's own answer, which names none of the four.
+The `reports-left-` requests are forced by `firstReply` on the first call: no search runs and no Note is
+written, and the check meets the evaluation's canned first reply, which names none of the four; the only
+real model call is the rewrite after the ask, which names them.
 
 An earlier run of the same fix, before the ask's last wording, also passed 3 of 3 on each: two Chinese
 Answers were asked again inside the turn and the reply the User read still named the four. Spend, priced
@@ -150,7 +152,7 @@ from each invocation's tokens at Haiku 5.5's prices ($0.10/M in, $0.01/M cached,
 out) and Claude Sonnet 5.5's for the judge ($2/M in, $0.10/M cached, $2.50/M written, $10/M out): the
 before invocation's 300,346 uncached input, 2,940,709 cache-read, 716,150 cache-written and 110,710 output
 tokens are about $0.20, the after invocation's 287,742, 2,231,705, 612,955 and 100,921 about $0.18, and the
-two forced requests about $0.001 and $0.014. The four invocations are about $0.39, their four judges about
+two forced invocations $0.0001 and $0.007. The four invocations are about $0.39, their four judges about
 $0.024, $0.41 in all, inside the $2.00 cap. The earlier three-invocation total was about $0.60, or about
 $0.62 with its judges; its after invocation was $0.18, not $0.22.
 

@@ -194,7 +194,7 @@ describe("The ask when a reply leaves out Documents (#894)", () => {
     const documents = reports(9, { 8: { name: "Tuning the Tuner" } });
 
     expect(
-      coverageNudge(largest(documents), documents, "“Tuning the Tuner”留待下次总结。"),
+      coverageNudge(largest(documents), documents, "Tuning the Tuner留待下次总结。"),
     ).toBeNull();
   });
 
@@ -205,6 +205,13 @@ describe("The ask when a reply leaves out Documents (#894)", () => {
     expect(
       coverageNudge(largest(documents), documents, "The contents are set out below."),
     ).toContain("“Report 9” is left for the next summary");
+  });
+
+  // protects=the line above an Answer names a covered Document as the User sees it; fails_when=it shows a machine-made name; no_claim=what the model writes.
+  test("a covered Document is named as the User sees it", () => {
+    const documents = reports(9, { 0: { name: "IMG_0001", title: "Alpha Report" } });
+
+    expect(largest(documents)?.used[0]).toEqual({ id: "d0", name: "Alpha Report" });
   });
 
   // protects=the system prompt names the covered and left Documents as the User sees them; fails_when=a machine-made name reaches the model; no_claim=what the model writes.
