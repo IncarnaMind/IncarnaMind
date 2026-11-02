@@ -2370,7 +2370,8 @@ export function createAnswers(options: AnswersOptions) {
         if (finished) return;
         const kept = newestWithin(heard?.passages ?? [], listenedTokens(prepared.window));
         if (heard) messages = withTranscript(messages, session.show(kept));
-        if (heard && messages.length > 1) {
+        const hasEarlierTurns = messages.length > 1;
+        if (heard && hasEarlierTurns) {
           messages = withLineBefore(messages, CALL_SCOPE_NOTE, context.question, context.question);
         }
         if (help && heard?.behind) {
