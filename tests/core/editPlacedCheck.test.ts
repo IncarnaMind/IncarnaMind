@@ -13,13 +13,19 @@ import {
   CITATION_NODE,
   type Document,
   FOOTNOTE_NODE,
+  MIND_CONTENT_FIELD,
 } from "../../src/core";
 import { createElement } from "../../src/core/answers/blocks";
-import { addsOnlyPlaced, blocksOf, citingKey, splitCiting } from "../../src/core/proposals/placed";
+import { addsOnlyPlaced, citingKey, splitCiting } from "../../src/core/proposals/placed";
 import { layout, proposeRewrite, readSelection, setProposal } from "../../src/core/proposals/write";
 import { translate } from "../../src/shared/i18n";
-import { decideProposals, pendingProposals, targetHash } from "../../src/shared/proposals";
-import { userNote } from "../helpers/agentChanges";
+import {
+  decideProposals,
+  outOfDateProposals,
+  pendingProposals,
+  targetHash,
+} from "../../src/shared/proposals";
+import { propose, userNote } from "../helpers/agentChanges";
 import { setUpWithDocuments } from "../helpers/citations";
 import { editingModel, wholeParagraph } from "../helpers/editing";
 import { readMind, writeMind } from "../helpers/minds";
@@ -27,8 +33,26 @@ import { random } from "../helpers/random";
 
 type Drift = "add" | "alter" | "footnote";
 
-/** What the writing below the check does of its own, as a writer that drifted would. */
-const drift = vi.hoisted(() => ({ mode: null as Drift | null }));
+/**
+ * What the writing below the check does of its own, as a writer that drifted would: after a
+ * paragraph is written (`mode`), or in each Citation it makes from a marker (`forge`).
+ */
+const drift = vi.hoisted(() => ({ mode: null as Drift | null, forge: false }));
+
+vi.mock("../../src/core/answers/blocks", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../../src/core/answers/blocks")>();
+  return {
+    ...real,
+    createElement: (...args: Parameters<typeof real.createElement>) => {
+      const [node] = args;
+      const made =
+        drift.forge && node.type === CITATION_NODE
+          ? { ...node, attrs: { ...node.attrs, quote: "The Moon is made of cheese." } }
+          : node;
+      return real.createElement(made);
+    },
+  };
+});
 
 vi.mock("../../src/core/proposals/write", async (importOriginal) => {
   const real = await importOriginal<typeof import("../../src/core/proposals/write")>();
@@ -77,8 +101,9 @@ function driftIn(paragraph: Y.XmlElement, request: string, mode: Drift): void {
     paragraph.insert(paragraph.length, [note]);
   }
   // In place, in the next paragraph: the User's Citation made to quote other words.
-  const next = blocksOf(paragraph)
-    ?.toArray()
+  const next = paragraph.doc
+    ?.getXmlFragment(MIND_CONTENT_FIELD)
+    .toArray()
     .find((each) => each !== paragraph);
   const theirs = (name: string) =>
     next instanceof Y.XmlElement
@@ -154,7 +179,12 @@ type Language = keyof typeof WORDS;
 type Path = keyof typeof ACTIONS;
 
 /** A Note of two cited paragraphs, the second with a footnote, and Edit with AI over the first. */
-async function editing(language: Language, path: Path, reply: string = PATHS[language][path]) {
+async function editing(
+  language: Language,
+  path: Path,
+  reply: string = PATHS[language][path],
+  block = "first",
+) {
   const set = await setUpWithDocuments(
     editingModel(() => reply),
     [TIDES],
@@ -186,7 +216,7 @@ async function editing(language: Language, path: Path, reply: string = PATHS[lan
   const input = wholeParagraph(
     set.client,
     set.mind.id,
-    "first",
+    block,
     action,
     "instruction" in asked ? asked.instruction : undefined,
   );
@@ -215,10 +245,15 @@ describe("Edit with AI's last check on what it writes (#2424)", () => {
     }
   }
 
-  test.each(["alter", "footnote"] as const)(
-    "refuses it when the writing does %s of its own",
-    async (mode) => {
-      const { core, client, input } = await editing("en", "improve");
+  test.each([
+    { mode: "alter", language: "en" },
+    { mode: "footnote", language: "en" },
+    { mode: "alter", language: "zh-CN" },
+    { mode: "footnote", language: "zh-CN" },
+  ] as const)(
+    "refuses it when the writing does $mode of its own ($language)",
+    async ({ mode, language }) => {
+      const { core, client, input } = await editing(language, "improve");
       const before = readMind(client).toJSON();
       drift.mode = mode;
       try {
@@ -231,6 +266,77 @@ describe("Edit with AI's last check on what it writes (#2424)", () => {
       expect(readMind(client).toJSON()).toEqual(before);
     },
   );
+
+  test("refuses Regenerate's change when the writing adds a Citation its reply didn't place", async () => {
+    const { core, client, mind, input } = await editing("en", "improve");
+    const made = await core.editWithAi(input);
+    expect(made.kind).toBe("proposed");
+    await client.settled();
+    // The User types in the words the change takes out: it is out of date, for Regenerate.
+    const [stale] = pendingProposals(client.blocks);
+    const paragraph = client.blocks.get(0);
+    const words = paragraph instanceof Y.XmlElement ? paragraph.get(0) : null;
+    if (!(words instanceof Y.XmlText) || !stale) throw new Error("No change to put out of date.");
+    words.insert("Spring tides ha".length, "p");
+    await client.settled();
+    expect(outOfDateProposals(client.blocks).has(stale.id)).toBe(true);
+    const before = readMind(client).toJSON();
+
+    drift.mode = "add";
+    try {
+      expect(
+        await core.regenerateProposal({
+          requestId: "again",
+          mindId: mind.id,
+          proposalId: stale.id,
+        }),
+      ).toEqual({ kind: "not-placed" });
+    } finally {
+      drift.mode = null;
+    }
+    await client.settled();
+    expect(readMind(client).toJSON()).toEqual(before);
+  });
+
+  test("marks a rewrite whose writer makes a Citation other than the one its marker names", () => {
+    const rewrite = (text: string) => {
+      const { doc, blocks } = userNote();
+      const paragraph = blocks.get(0);
+      if (!(paragraph instanceof Y.XmlElement)) throw new Error("No paragraph.");
+      const size = layout(paragraph).reduce((sum, child) => sum + child.size, 0);
+      const read = readSelection(
+        blocks,
+        { blockId: "p1", offset: 0 },
+        { blockId: "p1", offset: size },
+      );
+      if (!read.ok) throw new Error(`The paragraph can't be read: ${read.reason}.`);
+      return doc.transact(() =>
+        proposeRewrite(read.selection, text, "edit-request", () => crypto.randomUUID()),
+      );
+    };
+    // The kept marker moved: its Citation is made again where the reply put it.
+    const moved = "[1] Spring tides come at new moon, as noted.";
+    expect(rewrite(moved).notPlaced).toBeUndefined();
+    drift.forge = true;
+    try {
+      expect(rewrite(moved).notPlaced).toBe(true);
+    } finally {
+      drift.forge = false;
+    }
+  });
+
+  test("refuses an outside agent's change when the writer makes a Citation other than its token's", () => {
+    const text = "Moon rocks are grey [cite:moona001].";
+    expect(propose("rewrite", text).outcome).toBe("accepted");
+    drift.forge = true;
+    try {
+      const { blocks, outcome } = propose("rewrite", text);
+      expect(outcome).toBe("agents.propose.unplaced");
+      expect(pendingProposals(blocks)).toEqual([]);
+    } finally {
+      drift.forge = false;
+    }
+  });
 
   test("finds a figure changed in place, and holds one left as it was", () => {
     const { blocks } = userNote();
@@ -252,10 +358,10 @@ describe("Edit with AI's last check on what it writes (#2424)", () => {
 
   test("says why in the User's language", () => {
     expect(translate("en", "edit.problem.not-placed")).toBe(
-      "The AI’s rewrite would add a Citation, footnote or figure its reply didn’t place, so nothing changed. Try again.",
+      "The AI’s rewrite would add or change a Citation, footnote or figure that its text doesn’t cite, so nothing changed. Try again.",
     );
     expect(translate("zh-CN", "edit.problem.not-placed")).toBe(
-      "AI 的改写会加入回复里没有的引用、脚注或计算结果，因此没有改动。可以再试一次。",
+      "AI 的改写会加入或改动文字里没有的引用、脚注或计算结果，因此没有改动。可以再试一次。",
     );
   });
 });
@@ -295,7 +401,20 @@ const HONEST = [
   { path: "remove", reply: "Harbours publish the times." },
 ] as const;
 
+/** Honest replies over the paragraph with a footnote, which keep it, move it or drop it. */
+const HONEST_NOTED = [
+  "[^1] Neap tides are weaker [1].",
+  "Neap tides are much weaker [1], as noted [^1].",
+  "Neap tides are weaker [1] [^1]. They come at the quarter moons [1].",
+  "Neap tides are weaker.",
+] as const;
+
 describe("Edit with AI's honest edits (#2424)", () => {
+  test.each(HONEST_NOTED)("are never refused where a footnote moves: %s", async (reply) => {
+    const { core, input } = await editing("en", "improve", reply, "second");
+    expect((await core.editWithAi(input)).kind).toBe("proposed");
+  });
+
   test.each(HONEST)("are never refused: $reply", async ({ path, reply }) => {
     const { core, input } = await editing("en", path, reply);
     expect((await core.editWithAi(input)).kind).toBe("proposed");

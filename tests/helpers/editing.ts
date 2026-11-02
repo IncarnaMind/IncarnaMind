@@ -71,7 +71,10 @@ export function plainOf(client: MindClient, blockId: string): string {
   let found = "";
   readMind(client).descendants((node) => {
     if (node.attrs.id !== blockId) return true;
-    found = node.textBetween(0, node.content.size, "", "￼");
+    // An inline node is one character, a footnote's text none: what it holds isn't the paragraph's.
+    node.forEach((child) => {
+      found += child.isText ? (child.text ?? "") : "￼";
+    });
     return false;
   });
   return found;
@@ -87,7 +90,7 @@ export function wholeParagraph(
 ): EditWithAiInput {
   const plain = plainOf(client, blockId);
   return {
-    requestId: `edit-${++requests}`,
+    requestId: `paragraph-edit-${++requests}`,
     mindId,
     from: { blockId, offset: 0 },
     to: { blockId, offset: plain.length },

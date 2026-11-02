@@ -174,6 +174,8 @@ test.skipIf(apiKey === undefined)(
         await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${line}\n`);
       }
     }
-    expect(outcomes.filter((kind) => kind === "not-placed")).toEqual([]);
+    // Each honest edit comes back as changes, or as none: never refused, and never failed.
+    expect(outcomes.filter((kind) => kind !== "proposed" && kind !== "unchanged")).toEqual([]);
+    expect(outcomes.filter((kind) => kind === "proposed").length).toBeGreaterThan(CASES.length / 2);
   },
 );

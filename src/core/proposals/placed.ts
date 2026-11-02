@@ -143,13 +143,3 @@ export function addsOnlyPlaced(
     ([key, n]) => n - (before.added.get(key) ?? 0) <= (placed.get(key) ?? 0),
   );
 }
-
-/** The Mind's Blocks an element is in. */
-export function blocksOf(element: Y.XmlElement): Y.XmlFragment | null {
-  let at: Y.XmlElement | Y.XmlFragment | null = element;
-  while (at instanceof Y.XmlElement) {
-    const parent: unknown = at.parent;
-    at = parent instanceof Y.XmlElement || parent instanceof Y.XmlFragment ? parent : null;
-  }
-  return at;
-}

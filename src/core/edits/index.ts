@@ -814,7 +814,8 @@ export function createEdits(options: EditsOptions) {
     const named = NAMES_SHOWN.has(ask.action);
 
     const blocks = fork.getXmlFragment(MIND_CONTENT_FIELD);
-    const before = splitCiting(blocks, request);
+    // Explain's words cite nothing: what it writes is checked against the Mind as it was.
+    const asItWas = explain ? splitCiting(blocks, request) : null;
     const { requestId } = hooks;
     // Explain's few sentences go in once they are all there.
     const stream = explain
@@ -899,10 +900,10 @@ export function createEdits(options: EditsOptions) {
         if (changed) recordProposalRequest(fork, request, made);
       });
       if (!changed) return;
-      // Checked in the copy before it reaches the Mind (#2424). Explain's words cite nothing.
+      // Checked in the copy before it reaches the Mind (#2424).
       notPlaced = stream
         ? !stream.placedOnly()
-        : !addsOnlyPlaced(before, blocks, request, new Map());
+        : asItWas !== null && !addsOnlyPlaced(asItWas, blocks, request, new Map());
       if (notPlaced) return;
       if (!wrote) hooks.beforeWriting?.();
       wrote = true;
@@ -986,6 +987,10 @@ export function createEdits(options: EditsOptions) {
       if (stream) {
         step(() => stream.stop());
         held = requestId !== undefined && holdsBack(stream);
+      }
+      if (notPlaced) {
+        takeBackWritten();
+        return ended({ kind: "not-placed" });
       }
       if (!refused) return ended(wrote ? arrived() : { kind: "cancelled" });
     }

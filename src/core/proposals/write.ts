@@ -84,7 +84,6 @@ import {
 import { diffSteps, hunksOf, type Step, splitWords } from "./diff";
 import {
   addsOnlyPlaced,
-  blocksOf,
   CITING,
   type CitingNodes,
   citingKey,
@@ -2289,8 +2288,8 @@ export function createRewriteStream(
   const notes = notesOf();
   // Only the paragraphs the model was shown: an empty one between two isn't in its text.
   const segments = selection.segments.filter((segment) => segment.shown);
-  const blocks = selection.segments[0] ? blocksOf(selection.segments[0].element) : null;
-  const before = blocks && splitCiting(blocks, request);
+  const blocks = segments[0]?.element.doc?.getXmlFragment(MIND_CONTENT_FIELD);
+  const citingBefore = blocks && splitCiting(blocks, request);
   /** The text may leave paragraphs out, which stay: where a new one stands may say nothing of which it is (#2333). */
   const keeps = onLeftOut === "keep";
   const wordsIn = segments.map((segment) => new Set(wordsOf(segment.tokens)));
@@ -2940,7 +2939,6 @@ export function createRewriteStream(
   const wrote = (write: () => void): boolean => {
     const before = proposals.length;
     write();
-    const blocks = segments[0]?.element.doc?.getXmlFragment(MIND_CONTENT_FIELD);
     if (blocks) settleCitedIds(selection, blocks, newId);
     return proposals.length > before;
   };
@@ -2951,7 +2949,9 @@ export function createRewriteStream(
      * and adds none but those the text placed as it was read, nor more often (#2424).
      */
     placedOnly: (): boolean =>
-      !blocks || !before || addsOnlyPlaced(before, blocks, request, placedBy(seen)),
+      blocks !== undefined &&
+      citingBefore !== undefined &&
+      addsOnlyPlaced(citingBefore, blocks, request, placedBy(seen)),
 
     /**
      * The model's text so far: the paragraphs it has finished (all but the
