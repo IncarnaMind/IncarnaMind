@@ -661,16 +661,16 @@ test("while the ready Question's Answer streams, its button waits and asks once 
 });
 
 test("Add files… with only a file it can't take says why in step 1, which stays open (#123)", async () => {
-  const picture = join(sources, "Picture.png");
-  await writeFile(picture, "not a document");
+  const archive = join(sources, "Archive.zip");
+  await writeFile(archive, "not a document");
   const { app, window } = await launchApp(dataDir, { examples: true });
   const files = step(window, "files");
   await expect(files).toHaveAttribute("data-state", "open");
-  await interceptOpenDialog(app, picture);
+  await interceptOpenDialog(app, archive);
   await pointAndClick(window, files.getByTestId("first-open-add-files"));
   const problem = files.getByTestId("first-open-skipped");
-  await expect(problem).toContainText("Only PDF, Word, PowerPoint, Excel, CSV, TXT and Markdown");
-  await expect(problem).toContainText("Picture.png");
+  await expect(problem).toContainText("IncarnaMind reads PDF, Word, Excel, PowerPoint");
+  await expect(problem).toContainText("Archive.zip");
   await expect(files).toHaveAttribute("data-state", "open");
   await app.close();
 });

@@ -89,17 +89,42 @@ export function WordImportDialog() {
             {t("wordImport.reading", { name: fileName })}
           </p>
         ) : refusedSaid ? (
-          <ProblemLine
-            testId="word-import-refusal"
-            title={refusedSaid.fullMessage}
-            action={{
-              label: t("wordImport.chooseAnother"),
-              testId: "word-import-choose-another",
-              onClick: () => void state.pick(),
-            }}
-          >
-            {refusedSaid.message}
-          </ProblemLine>
+          <>
+            <ProblemLine
+              testId="word-import-refusal"
+              title={refusedSaid.fullMessage}
+              action={
+                check?.canConvert === true
+                  ? {
+                      label: t(state.converting ? "wordImport.converting" : "wordImport.convert"),
+                      testId: "word-import-convert",
+                      disabled: state.converting,
+                      onClick: () => void state.convert(),
+                    }
+                  : {
+                      label: t("wordImport.chooseAnother"),
+                      testId: "word-import-choose-another",
+                      onClick: () => void state.pick(),
+                    }
+              }
+              also={
+                check?.canConvert === true
+                  ? {
+                      label: t("wordImport.chooseAnother"),
+                      testId: "word-import-choose-another",
+                      onClick: () => void state.pick(),
+                    }
+                  : undefined
+              }
+            >
+              {refusedSaid.message}
+            </ProblemLine>
+            {state.conversionFailed && (
+              <ProblemLine testId="word-import-convert-failed">
+                {t("wordImport.convertFailed", { name: fileName })}
+              </ProblemLine>
+            )}
+          </>
         ) : (
           <fieldset disabled={importing}>
             <legend className={`mb-1.5 ${fieldLabelClass}`}>{t("wordImport.whose")}</legend>

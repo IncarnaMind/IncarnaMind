@@ -165,6 +165,9 @@ const KIND_MARK: Record<Exclude<DocumentKind, "web" | "transcript">, string> = {
   pptx: "M8 11.5h8v4.5H8zM12 16v2.5M9.5 18.5h5",
   markdown: "M8 17.5v-5.5l2 2.5 2-2.5v5.5M16 12v5.5M14.5 16l1.5 1.5 1.5-1.5",
   text: "M9 13h6M9 17h4",
+  image: "M8 12l2.2 2.2L13 11.4l3 3M8.6 11h.01",
+  rtf: "M9 13h6M9 17h4M14.5 17h1",
+  html: "M10 12.5L8.5 15l1.5 2.5M14 12.5l1.5 2.5-1.5 2.5M12.7 11.7l-1.4 6.6",
 };
 
 /**

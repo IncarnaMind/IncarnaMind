@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, extname, isAbsolute, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
@@ -912,6 +912,7 @@ export function createCore(adapters: CoreAdapters): Core {
       log: adapters.log ?? silentLogger,
       model: embedding.model,
       textRecognition: textRecognitionModel && timedRecognition(textRecognitionModel),
+      ...(adapters.decodePicture && { decodePicture: adapters.decodePicture }),
       ...(adapters.scansAtOnce !== undefined && { scansAtOnce: adapters.scansAtOnce }),
       pdfPassword: (id) => pdfPasswords.of(id),
       readingSpeed: {
@@ -3422,6 +3423,8 @@ export function createCore(adapters: CoreAdapters): Core {
     mindsChanged,
     now,
     log: adapters.log ?? silentLogger,
+    canConvert: async () =>
+      adapters.officeConverter ? await adapters.officeConverter.available() : false,
   });
   wordImports.resume();
   wordImports.dropPurged().catch((error: unknown) => console.error(error));
@@ -4471,6 +4474,9 @@ export function createCore(adapters: CoreAdapters): Core {
     reportError: (error) => console.error(error),
   });
 
+  /** The files the last add skipped: only those can be shown in the file manager (#762). */
+  const skippedForShowing = new Set<string>();
+
   const addDocuments = async (
     paths: string[],
     options?: Parameters<CoreApi["addDocuments"]>[1],
@@ -4484,8 +4490,59 @@ export function createCore(adapters: CoreAdapters): Core {
         onNew?.(documentId);
       })
       .finally(() => batches.done(batchId));
+    skippedForShowing.clear();
+    for (const skipped of result.skipped) skippedForShowing.add(skipped.path);
     usageData.record({ event: "documents_added", fields: addedCounts(result, since) });
     return { ...result, batchId };
+  };
+
+  /** The kind an old Office or WPS file is converted to, by its extension; null for any other file. */
+  const CONVERTIBLE: Readonly<Record<string, "docx" | "xlsx" | "pptx">> = {
+    ".doc": "docx",
+    ".dot": "docx",
+    ".docm": "docx",
+    ".wps": "docx",
+    ".odt": "docx",
+    ".wpd": "docx",
+    ".xls": "xlsx",
+    ".xlt": "xlsx",
+    ".xlsm": "xlsx",
+    ".xlsb": "xlsx",
+    ".et": "xlsx",
+    ".ods": "xlsx",
+    ".ppt": "pptx",
+    ".pot": "pptx",
+    ".pps": "pptx",
+    ".pptm": "pptx",
+    ".dps": "pptx",
+    ".odp": "pptx",
+  };
+
+  /** A file path a call gave: an absolute path, as `addDocuments` takes. */
+  const filePathOf = (path: unknown): string => {
+    if (typeof path !== "string" || !isAbsolute(path)) {
+      throw new InvalidInputError("The file must be given as an absolute path.");
+    }
+    return path;
+  };
+
+  /**
+   * Converts `path` with the LibreOffice on this computer (#762), if it is a
+   * file IncarnaMind converts and one is found; `problem` says why not.
+   */
+  const convertedCopy = async (
+    path: string,
+    target: "docx" | "xlsx" | "pptx",
+  ): Promise<{ converted: Uint8Array; name: string } | { problem: "unavailable" | "failed" }> => {
+    const converter = adapters.officeConverter;
+    if (!converter || !(await converter.available())) return { problem: "unavailable" };
+    const converted = await converter.convert(path, target);
+    if (converted.outcome === "failed") {
+      // Never the file's name or LibreOffice's own words, which carry its path.
+      (adapters.log ?? silentLogger).warn("documents.convert.failed", { target });
+      return { problem: "failed" };
+    }
+    return { converted: converted.bytes, name: converted.name };
   };
   mindIndex.start();
 
@@ -4522,6 +4579,43 @@ export function createCore(adapters: CoreAdapters): Core {
     addWordOriginal: async (mindId, path) => {
       const mind = writableMind(mindId);
       return wordImports.addOriginal(mind.id, path);
+    },
+    convertWordFile: async (pathInput) => {
+      const path = filePathOf(pathInput);
+      if (![".doc", ".dot"].includes(extname(path).toLowerCase())) {
+        return { outcome: "problem", problem: "unsupported" };
+      }
+      const copy = await convertedCopy(path, "docx");
+      if ("problem" in copy) return { outcome: "problem", problem: copy.problem };
+      const folder = await mkdtemp(join(adapters.paths.tempDir ?? tmpdir(), "incarnamind-word-"));
+      const converted = join(folder, copy.name);
+      await writeFile(converted, copy.converted, { mode: 0o600 });
+      return { outcome: "converted", path: converted, name: copy.name };
+    },
+    officeConverter: async () => ({
+      available: adapters.officeConverter ? await adapters.officeConverter.available() : false,
+    }),
+    convertWithOffice: async (pathInput) => {
+      const path = filePathOf(pathInput);
+      const target = CONVERTIBLE[extname(path).toLowerCase()];
+      if (!target) return { outcome: "problem", problem: "unsupported" };
+      const copy = await convertedCopy(path, target);
+      if ("problem" in copy) return { outcome: "problem", problem: copy.problem };
+      const document = await documents.addConverted({
+        from: basename(path),
+        name: copy.name,
+        kind: target,
+        bytes: copy.converted,
+      });
+      return { outcome: "added", document };
+    },
+    showSkippedFile: async (pathInput) => {
+      const path = filePathOf(pathInput);
+      if (!skippedForShowing.has(path)) {
+        throw new InvalidInputError("Only a file an add skipped can be shown.");
+      }
+      if (!adapters.shell) throw new Error("This copy of IncarnaMind can't show files.");
+      adapters.shell.showItemInFolder(path);
     },
     wordFonts: async (mindId) => {
       const mind = minds.get(mindId);

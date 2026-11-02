@@ -9,6 +9,8 @@ import {
 } from "react";
 import type { Document } from "../../../core/api";
 import { decodeText } from "../../../core/documents/decode";
+import { htmlMarkdown } from "../../../core/documents/formats/html";
+import { rtfMarkdown } from "../../../core/documents/formats/rtf";
 import { lineUnits, markdownUnits, type SourceUnit } from "../../../core/documents/formats/text";
 import { findQuote, type TextRange } from "../../../shared/quoteMatch";
 import { DocumentFix } from "../components/DocumentFix";
@@ -57,8 +59,14 @@ export function TextView({ document, target }: { document: Document; target: Vie
     const controller = new AbortController();
     loadDocumentBytes(document.id, controller.signal).then(
       (bytes) => {
-        // Decoded the way processing decodes it, so quotes from its Passages match.
-        const text = decodeText(bytes);
+        // Decoded the way processing decodes it, so quotes from its Passages match: an RTF
+        // or HTML file as the text it reads as (#762), Markdown and text as written.
+        const text =
+          document.kind === "rtf"
+            ? rtfMarkdown(bytes)
+            : document.kind === "html"
+              ? htmlMarkdown(bytes)
+              : decodeText(bytes);
         setLoaded(text === null ? { kind: "failed", message: "" } : { kind: "ready", text });
       },
       (error: unknown) => {
@@ -77,7 +85,8 @@ export function TextView({ document, target }: { document: Document; target: Vie
         ? loaded.message || loaded.kind
         : null,
   );
-  const markdown = document.kind === "markdown";
+  const markdown = document.kind !== "text";
+  const written = document.kind === "markdown";
   const units = useMemo(
     () =>
       loaded.kind !== "ready" ? [] : markdown ? markdownUnits(loaded.text) : lineUnits(loaded.text),
@@ -96,7 +105,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
           )
         }
       >
-        {markdown && loaded.kind === "ready" && (
+        {written && loaded.kind === "ready" && (
           <button
             type="button"
             data-testid="viewer-markdown-source"

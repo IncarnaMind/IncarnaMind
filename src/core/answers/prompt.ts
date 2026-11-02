@@ -604,6 +604,7 @@ type WholeReason = Exclude<UnreadReason, "parts">;
 /** Why a Document couldn't be read, as the note tells the model. */
 const UNREAD_WORDS: Record<WholeReason, (pages: readonly number[]) => string> = {
   scan: () => "a scan with no text",
+  picture: () => "a picture with no text",
   pages: (pages) => {
     if (pages.length === 0) return "some page content couldn't be read";
     const shown = pages.slice(0, 10).join(", ") + (pages.length > 10 ? ", …" : "");

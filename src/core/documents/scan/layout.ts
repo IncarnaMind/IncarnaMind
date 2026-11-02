@@ -198,7 +198,8 @@ function fractionQuad(line: RecognizedLine, width: number, height: number): numb
  * a space (a tab across a wide gap, as between a table's cells), rows by line
  * breaks. Each line is anchored ("line1", "line2", … in reading order) with
  * its box as fractions of the picture (`Anchor.quad`); the label says who
- * read it (`reader`) and which words it was unsure of.
+ * read it (`reader`) and which words it was unsure of. `fromPicture`: the
+ * lines are a picture file's, not a page of a PDF (#762).
  */
 export function scannedUnit(
   page: number,
@@ -206,6 +207,7 @@ export function scannedUnit(
   picture: { width: number; height: number },
   reader: string,
   turn: QuarterTurn = 0,
+  fromPicture = false,
 ): TextUnit {
   let text = "";
   const anchors: Anchor[] = [];
@@ -235,6 +237,7 @@ export function scannedUnit(
   const scan: UnitScan = {
     reader,
     ...(turn !== 0 && { turn }),
+    ...(fromPicture && { picture: true as const }),
     ...(unsure.length > 0 && { unsure }),
   };
   return { page, kind: "page", label: { scan }, text, anchors };

@@ -22,7 +22,14 @@ export function documentFix(doc: Document): DocumentFix | null {
     return { reason: "library.fix.empty", open: false, retry: here ? "retry" : null };
   }
   if (doc.status === "no-text") {
-    return { reason: "library.fix.scan", open: here, retry: here ? "readAgain" : null };
+    // Only a scan and a picture are said so; another file with no text is empty.
+    const reason =
+      doc.kind === "pdf"
+        ? "library.fix.scan"
+        : doc.kind === "image"
+          ? "library.fix.pictureNoText"
+          : "library.fix.empty";
+    return { reason, open: here, retry: here ? "readAgain" : null };
   }
   if (doc.status !== "failed" || !doc.failure) return null;
   switch (doc.failure.reason) {
@@ -37,7 +44,11 @@ export function documentFix(doc: Document): DocumentFix | null {
     case "too-large":
       return { reason: "library.fix.tooLarge", open: here, retry: null };
     case "pages-unread":
-      return { reason: "library.fix.pages", open: here, retry: here ? "readAgain" : null };
+      return {
+        reason: doc.kind === "image" ? "library.fix.picture" : "library.fix.pages",
+        open: here,
+        retry: here ? "readAgain" : null,
+      };
     case "forms-unread":
       return { reason: "library.fix.forms", open: here, retry: here ? "print" : null };
     case "processing-error":

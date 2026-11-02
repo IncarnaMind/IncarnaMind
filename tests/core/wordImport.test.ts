@@ -668,6 +668,7 @@ describe("whose document it is", () => {
     expect(await core.checkWordFile(clean)).toEqual({
       fileName: "Mine.docx",
       refusal: null,
+      canConvert: false,
       origin: "own",
       authors: [],
       changes: 0,

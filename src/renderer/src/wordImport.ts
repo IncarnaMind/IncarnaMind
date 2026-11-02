@@ -28,6 +28,10 @@ interface WordImportState {
   importing: boolean;
   /** Why importing refused it, when the file changed after it was read. */
   refusal: WordRefusalReason | null;
+  /** LibreOffice is converting a .doc to a .docx copy: the import waits. */
+  converting: boolean;
+  /** Why the conversion failed, in the file's plain next step; null otherwise. */
+  conversionFailed: boolean;
   /** The Minds whose original the Library couldn't take at import, each with its file, to try again. */
   notAdded: Record<string, string>;
   /** The Mind whose original is being added again. */
@@ -42,6 +46,8 @@ interface WordImportState {
   confirm(): Promise<void>;
   /** For a dropped file: adds it as a Document, as a drop elsewhere would, instead. */
   addAsDocument(): Promise<void>;
+  /** A .doc the LibreOffice here can convert: makes a .docx copy and reads that (#104). */
+  convert(): Promise<void>;
   /** Adds a Mind's original to the Library again, after it couldn't be added at import. */
   retryOriginal(mindId: string): Promise<void>;
   close(): void;
@@ -60,6 +66,8 @@ export const useWordImport = create<WordImportState>()((set, get) => ({
   newVersion: true,
   importing: false,
   refusal: null,
+  converting: false,
+  conversionFailed: false,
   notAdded: {},
   retrying: null,
 
@@ -78,6 +86,8 @@ export const useWordImport = create<WordImportState>()((set, get) => ({
       newVersion: true,
       importing: false,
       refusal: null,
+      converting: false,
+      conversionFailed: false,
     });
     try {
       const check = await core.checkWordFile(path);
@@ -126,6 +136,23 @@ export const useWordImport = create<WordImportState>()((set, get) => ({
     if (path) await useAppStore.getState().addPaths([path]);
   },
 
+  async convert() {
+    const { path, converting } = get();
+    if (!path || converting) return;
+    set({ converting: true, conversionFailed: false });
+    try {
+      const result = await core.convertWordFile(path);
+      if (result.outcome === "problem") {
+        set({ converting: false, conversionFailed: true });
+        return;
+      }
+      await get().open(result.path, false);
+    } catch (error) {
+      set({ converting: false, conversionFailed: true });
+      reportError(error);
+    }
+  },
+
   async retryOriginal(mindId) {
     const path = get().notAdded[mindId];
     if (path === undefined || get().retrying !== null) return;
@@ -143,5 +170,13 @@ export const useWordImport = create<WordImportState>()((set, get) => ({
     }
   },
 
-  close: () => set({ path: null, check: null, importing: false, refusal: null }),
+  close: () =>
+    set({
+      path: null,
+      check: null,
+      importing: false,
+      refusal: null,
+      converting: false,
+      conversionFailed: false,
+    }),
 }));

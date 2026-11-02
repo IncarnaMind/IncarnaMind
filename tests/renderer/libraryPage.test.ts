@@ -226,8 +226,8 @@ describe("the problem line", () => {
     const one = problemOf([doc(), doc({ status: "no-text" })]);
     expect(one).toEqual({ kind: "no-text", count: 1, statuses: ["no-text"] });
     if (!one) throw new Error("No problem found.");
-    expect(problemText(one, en)).toBe("1 Document has no text: a scan");
-    expect(problemText(one, zh)).toBe("1 个文档没有文字：扫描件");
+    expect(problemText(one, en)).toBe("1 Document has no text");
+    expect(problemText(one, zh)).toBe("1 个文档没有文字");
     const two = problemOf([doc({ fileStatus: "missing" }), doc({ fileStatus: "missing" })]);
     if (!two) throw new Error("No problem found.");
     expect(problemText(two, en)).toBe("2 Documents’ files are missing");

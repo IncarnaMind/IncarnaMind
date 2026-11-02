@@ -157,6 +157,9 @@ const KIND_NAMES: Record<DocumentKind, string> = {
   pptx: "PowerPoint deck",
   xlsx: "Excel workbook",
   csv: "CSV table",
+  image: "picture",
+  rtf: "RTF document",
+  html: "web page file",
   web: "web page",
   transcript: "meeting transcript",
 };

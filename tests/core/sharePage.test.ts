@@ -582,7 +582,7 @@ const card = (check: CitationCheck, more: Partial<CitationCard> = {}): CitationC
   spoken: "Tides, page 2",
   quote: "Spring tides come twice a month",
   changedAfterCited: false,
-  content: { kind: "quote", text: "Spring tides come twice a month", scan: false },
+  content: { kind: "quote", text: "Spring tides come twice a month", from: null },
   ...more,
 });
 
@@ -765,7 +765,7 @@ describe("what a web page to share says of its checks", () => {
     expect(kept.content).toEqual({
       kind: "quote",
       text: "Spring tides come twice a month",
-      scan: false,
+      from: null,
     });
     expect(changed.changedAfterCited).toBe(true);
     expect(pageOf([changed]).document.querySelector(".card-verdict")?.textContent).toBe(

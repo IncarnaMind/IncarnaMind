@@ -32,7 +32,7 @@ const failureMessages: Record<DocumentFailureReason, MessageKey> = {
  * failed. `scanning` is what says so while its scanned pages are read.
  */
 export function documentStatusText(
-  item: Pick<Document, "status" | "failure" | "progress">,
+  item: Pick<Document, "kind" | "status" | "failure" | "progress">,
   t: Translate,
   language: Language,
   scanning: string | null,
@@ -42,7 +42,7 @@ export function documentStatusText(
     return t("documents.status.failed", {
       reason:
         unread && item.failure
-          ? unreadPages(item.failure, t, language, "reason")
+          ? unreadPages(item.failure, t, language, "reason", item.kind)
           : t(failureMessages[item.failure?.reason ?? "processing-error"]),
     });
   }
