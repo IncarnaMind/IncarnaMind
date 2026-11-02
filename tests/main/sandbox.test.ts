@@ -19,7 +19,7 @@ import { createRequire } from "node:module";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterAll, afterEach, describe, expect, test } from "vitest";
 import type { ExecRequest } from "../../src/core";
 import { WORKING_FOLDER } from "../../src/core/execution";
 import { createScriptRunner } from "../../src/core/skills/scripts";
@@ -32,6 +32,9 @@ const runtime = dirname(
   dirname(createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime")),
 );
 const guard = createSweepGuard();
+// Outside each case's folders, which the cases list and remove.
+const runRecords = guard.records(await mkdtemp(join(tmpdir(), "incarnamind-test-runs-")));
+afterAll(() => rm(runRecords, { recursive: true, force: true }));
 const sandbox = await loadOsSandbox({
   seccompHelper: join(runtime, "vendor", "seccomp", process.arch, "apply-seccomp"),
 });
@@ -91,7 +94,7 @@ async function setUp(
     reportError: (error) => {
       throw error;
     },
-    runRecords: guard.records(join(data, "runs")),
+    runRecords,
     sweep: { stopper: guard.stopper },
   });
   return { executor, home, canary, data, database, skillDir, outside, tempDir };

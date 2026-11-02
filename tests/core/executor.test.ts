@@ -11,7 +11,8 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readdir, readFile, realpath } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, onTestFinished, test, vi } from "vitest";
 import type { ExecAllow, ExecRequest, Executor, ProcessLauncher } from "../../src/core";
@@ -488,9 +489,12 @@ executorContract("the local executor (sandbox level none)", ({ tempDir, processe
 
 const osSandbox = await loadOsSandbox();
 const guard = createSweepGuard();
-afterAll(() => {
+// Outside each case's temporary folder, which the contract checks is left empty.
+const runRecords = guard.records(await mkdtemp(join(tmpdir(), "incarnamind-test-runs-")));
+afterAll(async () => {
   // Each pid a run's sweep signalled was a member of one of this file's own runs.
   expect(guard.refused).toEqual([]);
+  await rm(runRecords, { recursive: true, force: true });
 });
 executorContract(
   "the OS sandbox (sandbox level os)",
@@ -503,7 +507,7 @@ executorContract(
       tempDir,
       denyRead: [join(tempDir, "stand-in-home"), join(tempDir, "stand-in-data")],
       reportError: failOnError,
-      runRecords: guard.records(join(tempDir, "stand-in-data", "runs")),
+      runRecords,
       sweep: { stopper: guard.stopper },
     });
   },
