@@ -9,7 +9,7 @@ import {
 import { figureCellText, figureResultText, figureText, rawColumn } from "../../shared/figures";
 import type { AnswerAnalysis } from "../api";
 import type { Language } from "../language";
-import { rowsText } from "./figureRows";
+import { cellsText, notNumbersText, rowsText } from "./figureRows";
 
 const count = (n: number) => figureText("en", n);
 
@@ -77,14 +77,9 @@ export function analysisReport(analysis: AnswerAnalysis, language: Language): st
     );
   }
   for (const cells of output.notNumbers) {
-    const listed = cells.cells.map(
-      (each) => `${each.row}${each.value ? ` "${each.value}"` : " empty"}`,
-    );
-    const more = cells.count > cells.cells.length ? ", …" : "";
-    const what = cells.count === 1 ? "1 cell of" : `${count(cells.count)} cells of`;
-    const are = cells.count === 1 ? "isn't a number and was" : "aren't numbers and were";
+    const what = notNumbersText(cells.count, cells.column, `in ${cells.input}`);
     lines.push(
-      `${what} ${cells.input}'s column ${cells.column} ${are} read as missing (rows ${listed.join(", ")}${more}).`,
+      `${what}, so the code reads ${cells.count === 1 ? "it" : "them"} as missing: ${cellsText(cells.cells, cells.count)}.`,
     );
   }
   if (output.literals.length > 0) {

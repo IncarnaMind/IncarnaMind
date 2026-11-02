@@ -674,14 +674,14 @@ describe("an Analysis an Answer runs", () => {
     const { core } = await setUp(model, () => ({
       output: {
         results: [
-          // 120 + 150.5 + 80; row 5's "n/a" is no number, as pandas reads it.
+          // 120 + 150.5 + 80, the rows before row 5's "n/a".
           {
             kind: "figure",
             name: "total",
             label: "Total",
             unit: "USD",
             value: 350.5,
-            of: sales([[2, 5]], "sum"),
+            of: sales([[2, 4]], "sum"),
           },
           {
             kind: "figure",
@@ -745,7 +745,7 @@ describe("an Analysis an Answer runs", () => {
     ]);
     const report = told(model, "run_analysis")[0] ?? "";
     expect(report).toContain(
-      "- [=1] Total: 350.5 USD (the sum of Revenue in 4 rows of sales (rows 2–5), worked out again by IncarnaMind from its cells)",
+      "- [=1] Total: 350.5 USD (the sum of Revenue in 3 rows of sales (rows 2–4), worked out again by IncarnaMind from its cells)",
     );
     expect(report).toContain(
       "- north: no marker, so it can't be used: figure() gave 999, but the sum of Revenue in those rows of sales comes to 270.5",
@@ -766,7 +766,7 @@ describe("an Analysis an Answer runs", () => {
     expect(run?.values).toEqual([
       expect.objectContaining({
         name: "total",
-        of: sales([[2, 5]], "sum"),
+        of: sales([[2, 4]], "sum"),
         check: { kind: "same", value: 350.5 },
       }),
       expect.objectContaining({
@@ -988,7 +988,9 @@ describe("an Analysis an Answer runs", () => {
 
     const [first] = told(model, "run_analysis");
     expect(first).toContain("Numbers written in the code: 0.2 (line 1)");
-    expect(first).toContain("1 cell of sales's column Revenue isn't a number");
+    expect(first).toContain(
+      '1 cell of Revenue in sales isn\'t a number, so the code reads it as missing: row 5 "n/a".',
+    );
     expect(first).toContain("KeyError: 'Revnue'");
     expect(first).toContain("Fix the code and run it again");
   });
