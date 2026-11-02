@@ -7030,6 +7030,11 @@ export interface AnswerSteps {
    */
   unbackedClaims?: ClaimedChange[];
   /**
+   * What its reply says it did in the app that none of its calls did, even once the model was
+   * asked again with what they did (#2407). Absent: none.
+   */
+  unbackedCommands?: ClaimedCommand[];
+  /**
    * What its reply says a Tool did that none of its calls did (#1796): a figure calculated or
    * checked, or a search. Absent: none.
    */
@@ -7090,6 +7095,24 @@ export interface AnswerCoverage {
  */
 export const CLAIMED_CHANGES = ["made", "added", "changed", "removed"] as const;
 export type ClaimedChange = (typeof CLAIMED_CHANGES)[number];
+
+/**
+ * What an Answer's reply can say it did in the app (#2407): changed one of what only the User
+ * changes, named so that it never reads as done, or ran any other command or changed any other
+ * setting.
+ */
+export const CLAIMED_COMMANDS = [
+  "privacy",
+  "keys",
+  "spending",
+  "approvals",
+  "permanent",
+  "wall",
+  "signOff",
+  "authorship",
+  "command",
+] as const satisfies readonly (Yours | "command")[];
+export type ClaimedCommand = (typeof CLAIMED_COMMANDS)[number];
 
 /** What an Answer's reply can say a Tool did (#1796): calculated or checked a figure, or searched. */
 export const CLAIMED_TOOLS = ["calculate", "search"] as const;
