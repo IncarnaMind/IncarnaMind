@@ -6,6 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import { xlsxPackage } from "../../tests/helpers/office";
+import { zipFingerprint } from "../../tests/helpers/zip";
 import type { TaskInputs } from "./task";
 
 /** A sequence of numbers in [0, 1) from `seed`: mulberry32. */
@@ -109,10 +110,19 @@ export function xlsx(sheets: readonly SheetData[]): Uint8Array {
   });
 }
 
-/** SHA-256 over a task's files and data, in order: what reference.json was worked out from. */
+const ZIP = [0x50, 0x4b, 0x03, 0x04];
+
+/**
+ * SHA-256 over a task's files and data, in order: what reference.json was worked out from. A
+ * workbook, document or deck counts by its zip fingerprint, since its deflated bytes differ
+ * between builds of zlib (on CI's Linux and on macOS).
+ */
 export function inputsHash(inputs: TaskInputs): string {
   const hash = createHash("sha256");
-  for (const file of inputs.files) hash.update(`file:${file.name}\n`).update(file.bytes);
+  for (const file of inputs.files) {
+    const zipped = ZIP.every((byte, index) => file.bytes[index] === byte);
+    hash.update(`file:${file.name}\n`).update(zipped ? zipFingerprint(file.bytes) : file.bytes);
+  }
   for (const [name, text] of Object.entries(inputs.data))
     hash.update(`data:${name}\n`).update(text);
   return hash.digest("hex");
