@@ -142,8 +142,9 @@ describe("run_code's Tool", () => {
   test("a figure over a table the code didn't read isn't worked out again, and isn't cited", async () => {
     const { analysis, figures } = await call(ran(30, []));
     expect(analysis?.inputs).toEqual([]);
-    expect(analysis?.recalculations?.map((each) => each.check.kind)).not.toContain("same");
-    expect(figures.every((figure) => figure.inputs.length === 0)).toBe(true);
+    expect(analysis?.recalculations?.map((each) => each.check.kind)).toEqual(["unchecked"]);
+    expect(analysis?.markers.figures).toEqual([]);
+    expect(figures).toEqual([]);
   });
 
   test("a run that ended in an error gives no marker and no figure", async () => {
