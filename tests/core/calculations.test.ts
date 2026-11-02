@@ -3247,7 +3247,7 @@ describe("An earlier page's whole-Document scale line states the scale when quot
     );
 
     expect(answer.figures).toEqual([]);
-    expect(asked).toContain("is on another page");
+    expect(asked).toContain("is after");
   });
 
   /** Cites two rows of a three-page scan and quotes `unitQuote` for them. */
@@ -3356,6 +3356,271 @@ describe("An earlier page's whole-Document scale line states the scale when quot
 
     expect(answer.figures).toEqual([]);
     expect(asked).toContain("may include a word the scan misread");
+  });
+});
+
+// protects=#2365; fails_when=a nearer scale line in the figure's own Unit is ignored, a scale line below a figure is applied to it, a later repeated parent heading's line is applied to an earlier figure, or a parent heading's whole-Document line is refused.
+describe("A scale line states the numbers under it, in its own Unit (#2365)", {
+  timeout: 120_000,
+}, () => {
+  test.each(["pdf", "word", "sheet"] as const)(
+    "a nearer line in the figure's own Unit refutes a wider one: %s",
+    async (format) => {
+      const title = "Same unit accounts";
+      const wider = "All amounts in £'000";
+      const nearer = "Amounts in £m";
+      const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+      const quoteOf = (row: string) =>
+        format === "sheet"
+          ? `${row.slice(0, row.lastIndexOf(" ")).trim()}\t${row.slice(row.lastIndexOf(" ")).trim().replace(/,/g, "")}`
+          : row;
+      const number = (row: string) =>
+        format === "sheet"
+          ? row.slice(row.lastIndexOf(" ")).trim().replace(/,/g, "")
+          : row.slice(row.lastIndexOf(" ")).trim();
+      const model = calculatingModel({
+        queries: ["same unit revenue costs"],
+        steps: [
+          (passages) => {
+            const passage = passageWriting(passages, title, quoteOf(rows[0]));
+            const location = passage.location ?? "p. 1";
+            return [
+              {
+                tool: "cite",
+                input: {
+                  citations: [
+                    { marker: 1, passage: passage.id, location, quote: quoteOf(rows[0]) },
+                    { marker: 2, passage: passage.id, location, quote: quoteOf(rows[1]) },
+                  ],
+                },
+              },
+              {
+                tool: "calculate",
+                input: {
+                  figures: [
+                    {
+                      marker: 1,
+                      label: "Difference",
+                      formula: "rev - cost",
+                      inputs: [
+                        {
+                          name: "rev",
+                          label: "Revenue",
+                          citation: 1,
+                          number: number(rows[0]),
+                          unitQuote: wider,
+                        },
+                        {
+                          name: "cost",
+                          label: "Costs",
+                          citation: 2,
+                          number: number(rows[1]),
+                          unitQuote: wider,
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ];
+          },
+        ],
+        answer: "[=1][^1]",
+      });
+      const contents =
+        format === "pdf"
+          ? buildPdf([{ lines: [title, wider, nearer, ...rows] }])
+          : format === "word"
+            ? docxOf([
+                { text: title, heading: 1 },
+                { text: wider },
+                { text: nearer },
+                ...rows.map((text) => ({ text })),
+              ])
+            : xlsxOf([
+                {
+                  name: title,
+                  rows: [[title], [wider], [nearer], ["Revenue", 1234.5], ["Costs", 334.5]],
+                },
+              ]);
+      const extension = format === "pdf" ? "pdf" : format === "word" ? "docx" : "xlsx";
+      const { core } = await setUpCalculating(model, [{ name: `${title}.${extension}`, contents }]);
+      const { answer } = await askAndRead(core, "What is the difference?");
+      core.close();
+
+      expect(answer.figures).toEqual([]);
+      expect(told(model, "calculate")[0] ?? "").toContain("but a nearer line states a scale");
+    },
+  );
+
+  test("a line below the figure is refused, and an earlier whole-Document line states it", {
+    timeout: 60_000,
+  }, async () => {
+    const title = "Below amounts";
+    const earlier = "All amounts in £'000";
+    const below = "Amounts in £m";
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const model = calculatingModel({
+      queries: ["below revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, title, rows[0]);
+          const location = passage.location ?? "p. 2";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: rows[0] },
+                  { marker: 2, passage: passage.id, location, quote: rows[1] },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  scaleFigure(1, { revenue: "1,234.5", costs: "334.5" }, earlier),
+                  scaleFigure(2, { revenue: "1,234.5", costs: "334.5" }, below),
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1] [=2][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: `${title}.pdf`,
+        contents: buildPdf([
+          { lines: ["Below notes", earlier, ...fillerLines(false)] },
+          { lines: [title, ...rows, below] },
+        ]),
+      },
+    ]);
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+
+    const asked = told(model, "calculate")[0] ?? "";
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
+    expect(asked).toContain("[=2]");
+    expect(asked).toContain("is after");
+  });
+
+  /** Runs `rev - cost` over two rows of a Word file, quoting each line in `quotes` for its own figure. */
+  async function wordUnder(
+    name: string,
+    contents: Buffer,
+    rows: [string, string],
+    quotes: readonly string[],
+  ) {
+    const [revenue, costs] = rows.map((row) => row.slice(row.lastIndexOf(" ") + 1)) as [
+      string,
+      string,
+    ];
+    const model = calculatingModel({
+      queries: ["revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, name, rows[0]);
+          const location = passage.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: rows[0] },
+                  { marker: 2, passage: passage.id, location, quote: rows[1] },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: quotes.map((unitQuote, index) =>
+                  scaleFigure(index + 1, { revenue, costs }, unitQuote),
+                ),
+              },
+            },
+          ];
+        },
+      ],
+      answer: `${quotes.map((_, index) => `[=${index + 1}]`).join(" ")}[^1]`,
+    });
+    const { core } = await setUpCalculating(model, [{ name: `${name}.docx`, contents }]);
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+    return { answer, asked: told(model, "calculate")[0] ?? "" };
+  }
+
+  test("a later repeated parent heading's line doesn't reach an earlier section", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const earlier = "All amounts in £m";
+    const later = "All amounts in £'000";
+    const contents = docxOf([
+      { text: "Financial statements", heading: 1 },
+      { text: earlier },
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Income statement", heading: 2 },
+      { text: rows[0] },
+      { text: rows[1] },
+      { text: "Financial statements", heading: 1 },
+      { text: later },
+      ...fillerLines(false).map((text) => ({ text })),
+    ]);
+
+    const { answer, asked } = await wordUnder("Repeated parent", contents, rows, [earlier, later]);
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 900_000_000],
+    ]);
+    expect(asked).toContain("is after");
+  });
+
+  test("an earlier parent line doesn't reach past a repeated heading to a later section", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const line = "All amounts in £'000";
+    const contents = docxOf([
+      { text: "Financial statements", heading: 1 },
+      { text: line },
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Financial statements", heading: 1 },
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Income statement", heading: 2 },
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer, asked } = await wordUnder("Repeated ancestor", contents, rows, [line]);
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is in a section that doesn't state");
+  });
+
+  test("a parent heading's line that excepts the notes states the scale", {
+    timeout: 60_000,
+  }, async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const line = "All amounts are in £m except where stated in the notes";
+    const contents = docxOf([
+      { text: "Financial statements", heading: 1 },
+      { text: line },
+      ...fillerLines(false).map((text) => ({ text })),
+      { text: "Income statement", heading: 2 },
+      { text: rows[0] },
+      { text: rows[1] },
+    ]);
+
+    const { answer } = await wordUnder("Note scoped parent", contents, rows, [line]);
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 900_000_000],
+    ]);
   });
 });
 

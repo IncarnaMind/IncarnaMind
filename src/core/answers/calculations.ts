@@ -570,6 +570,11 @@ function pageLineProblem(quote: string, chars: string): string {
   return `the unitQuote "${quote}" is on another page, and it doesn't state ${chars}'s scale: a page's line states the numbers on its own page, or those after it only when it says it holds for the whole Document.`;
 }
 
+/** Why a line after the number can't be its unitQuote. */
+function afterLineProblem(quote: string, chars: string): string {
+  return `the unitQuote "${quote}" is after ${chars}; a scale line states the numbers under it, not those above it.`;
+}
+
 /** Why a number with no unit of its own can't be calculated where its page states a scale. */
 function candidateProblem(chars: string, where: string, candidate: Stated): string {
   if (candidate.unquotable === "header")
@@ -918,6 +923,32 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   }
 
   /**
+   * Whether an ancestor heading's section still contains the number: it comes before it, and no
+   * later heading of its own level reparents the number in between (#2365). A repeated parent
+   * heading starts a new section, so an earlier one's scale doesn't reach across it.
+   */
+  function ancestorContains(
+    units: readonly PageText[],
+    ancestor: PageText,
+    number: PageText,
+  ): boolean {
+    if (ancestor.page === null || number.page === null || ancestor.page >= number.page)
+      return false;
+    if (!strictAncestor(ancestor, number)) return false;
+    const level = (ancestor.label?.path ?? []).length;
+    const path = (unit: PageText) => (unit.label?.path ?? []).join("\u0000");
+    const section = path(ancestor);
+    for (const unit of units) {
+      if (unit.page === null || unit.page <= ancestor.page || unit.page >= number.page) continue;
+      const theirs = unit.label?.path ?? [];
+      if (theirs.length !== level) continue;
+      if (path(unit) === section && unit.label?.part !== undefined) continue;
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * Whether `line` and `number` are earlier and later parts of one heading section, split by
    * length, rather than two occurrences of a heading with the same text (#2365): a split
    * section's Units run 1, 2, 3… with the same path, and a repeated heading starts again at 1.
@@ -937,28 +968,97 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     });
   }
 
+  /** The scale statements in a Unit, with their offsets; a running header's marker is at 0. */
+  function scalesInUnit(
+    unit: PageText,
+    context: FigureContext,
+  ): { start: number; end: number; text: string }[] {
+    const found: { start: number; end: number; text: string }[] = [];
+    for (const each of readStatedUnits(unit.text, context)) {
+      if (each.scale !== 1) found.push({ start: each.start, end: each.end, text: each.chars });
+    }
+    for (const each of unsettledScales(unit.text, context)) {
+      const at = unit.text.indexOf(each);
+      if (at >= 0) found.push({ start: at, end: at + each.length, text: each });
+    }
+    if (unit.scaleMarker && !unit.text.includes(unit.scaleMarker))
+      found.push({ start: 0, end: 0, text: unit.scaleMarker });
+    return found.sort((a, b) => a.start - b.start);
+  }
+
+  /** Where a quoted line and the figure sit, by Unit and by offset within it. */
+  interface LinePlace {
+    lineIndex: number;
+    figureIndex: number;
+    /** The line's start and end within its Unit. */
+    lineStart: number;
+    lineEnd: number;
+    /** The figure's start within its Unit. */
+    figureAt: number;
+  }
+
+  /** Where the line in `lineUnit` and `figure` sit; null when either can't be placed. */
+  function placeOf(
+    quoted: Quoted,
+    figure: Figure,
+    lineUnit: PageText,
+    lineText: string,
+    numbersUnit: PageText,
+  ): LinePlace | null {
+    const units = unitsOf(quoted.citation);
+    const indexOf = (each: PageText) =>
+      units.findIndex(
+        (other) => other === each || (other.page !== null && other.page === each.page),
+      );
+    const lineIndex = indexOf(lineUnit);
+    const figureIndex = indexOf(numbersUnit);
+    if (lineIndex < 0 || figureIndex < 0) return null;
+    const range = findQuote(lineUnit.text, lineText, quoted.matching)?.[0] ?? null;
+    if (!range) return null;
+    const at = quoted.units.indexOf(numbersUnit);
+    if (at < 0) return null;
+    const { starts } = joinUnits(quoted.units);
+    const figureAt = onPage(quoted).at + figure.start - (starts[at] ?? 0);
+    if (figureAt < 0) return null;
+    return { lineIndex, figureIndex, lineStart: range.start, lineEnd: range.end, figureAt };
+  }
+
   /**
-   * The scale line nearer to the figure than the quoted line, in a Unit that states the figure's
-   * scale: its own Unit, or a heading section between that contains it (not a sibling's, which
-   * states that sibling's numbers). A nearer line states the figure's scale instead (#2365).
+   * The scale line nearer to the figure than the quoted line, between it and the figure, as
+   * written: in the figure's own Unit before the figure, in a later part of its own section, or
+   * in a heading section between that contains it (not a sibling's, which states its own
+   * numbers). A line after the figure never states it (#2365).
    */
-  function nearerScale(quoted: Quoted, from: PageText, to: PageText): string | null {
-    if (from.page === null || to.page === null) return null;
+  function nearerScale(
+    quoted: Quoted,
+    place: LinePlace,
+    units: readonly PageText[],
+    numbersUnit: PageText,
+  ): string | null {
     const context = contextOf(quoted.citation);
     const path = (unit: PageText) => (unit.label?.path ?? []).join("\u0000");
-    for (const unit of unitsOf(quoted.citation)) {
-      if (unit.page === null || unit.page <= from.page || unit.page > to.page) continue;
-      const applies =
-        unit.page === to.page ||
-        (to.kind === "section" &&
-          (strictAncestor(unit, to) ||
-            (path(unit) === path(to) && (unit.label?.part ?? 1) < (to.label?.part ?? 1))));
-      if (!applies) continue;
-      const stated = readStatedUnits(unit.text, context).find((each) => each.scale !== 1);
-      if (stated) return stated.chars;
-      const [unsettled] = unsettledScales(unit.text, context);
-      if (unsettled) return unsettled;
-      if (unit.scaleMarker && !unit.text.includes(unit.scaleMarker)) return unit.scaleMarker;
+    for (let index = place.lineIndex; index <= place.figureIndex; index++) {
+      const unit = units[index];
+      if (!unit) continue;
+      const inLine = index === place.lineIndex;
+      const inFigure = index === place.figureIndex;
+      // A line on another page or in another section keeps the lines under it there to itself:
+      // its own page's later captions state their tables, not a figure further on (#2365).
+      if (inLine && !inFigure) continue;
+      if (!inLine && !inFigure) {
+        const applies =
+          numbersUnit.kind === "section" &&
+          unit.kind === "section" &&
+          (strictAncestor(unit, numbersUnit) ||
+            (path(unit) === path(numbersUnit) &&
+              (unit.label?.part ?? 1) < (numbersUnit.label?.part ?? 1)));
+        if (!applies) continue;
+      }
+      for (const scale of scalesInUnit(unit, context)) {
+        if (inLine && scale.start < place.lineEnd) continue;
+        if (inFigure && scale.start > place.figureAt) continue;
+        return scale.text;
+      }
     }
     return null;
   }
@@ -980,10 +1080,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
 
   /**
    * Whether a quoted line may state the figure's scale, and if not why (#2365, #2386): it must be
-   * in the figure's own Unit, a later part of its own heading section, a strict ancestor section
-   * that says it holds for the whole Document, or an earlier page that says so. An unsure word,
-   * a named note or table and a nearer scale line each refuse; everything else is refused by
-   * default.
+   * before the figure, in the figure's own Unit, a later part of its own heading section, a
+   * strict ancestor section that says it holds for the whole Document, or an earlier page that
+   * says so. An unsure word, a named note or table, a line after the figure and a nearer scale
+   * line each refuse; everything else is refused by default.
    */
   function judgeLine(quoted: Quoted, figure: Figure, facts: LineFacts, chars: string): LineVerdict {
     if (facts.unsure)
@@ -997,27 +1097,42 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         ok: false,
         problem: `the unitQuote "${facts.text}" can't be placed in ${quoted.passage}; quote the line as it is written there.`,
       };
-    // Units come from different reads of the same pages; their number is what places them.
-    if (facts.unit.page !== null && facts.unit.page === numbersUnit.page) return { ok: true };
-    if (numbersUnit.kind !== "section" && numbersUnit.kind !== "page")
-      return facts.inPassage
-        ? { ok: true }
-        : { ok: false, problem: sectionLineProblem(facts.text, chars) };
-    if (!sameSection(unitsOf(quoted.citation), facts.unit, numbersUnit)) {
+    const units = unitsOf(quoted.citation);
+    const place = placeOf(quoted, figure, facts.unit, facts.text, numbersUnit);
+    if (!place)
+      return {
+        ok: false,
+        problem: `the unitQuote "${facts.text}" can't be placed in ${quoted.passage}; quote the line as it is written there.`,
+      };
+    // A line after the number never states its scale, in its Unit or in a later one.
+    if (
+      place.lineIndex > place.figureIndex ||
+      (place.lineIndex === place.figureIndex && place.lineStart > place.figureAt)
+    )
+      return { ok: false, problem: afterLineProblem(facts.text, chars) };
+    const sameSectionLine =
+      place.lineIndex === place.figureIndex || sameSection(units, facts.unit, numbersUnit);
+    if (!sameSectionLine) {
       if (numbersUnit.kind === "section") {
-        if (!strictAncestor(facts.unit, numbersUnit) || !statesForWholeDocument(facts.text))
+        if (
+          !ancestorContains(units, facts.unit, numbersUnit) ||
+          !statesForWholeDocument(facts.text)
+        )
           return { ok: false, problem: sectionLineProblem(facts.text, chars) };
-      } else if (
-        facts.unit.kind !== "page" ||
-        facts.unit.page === null ||
-        numbersUnit.page === null ||
-        facts.unit.page >= numbersUnit.page ||
-        !statesForWholeDocument(facts.text)
-      ) {
-        return { ok: false, problem: pageLineProblem(facts.text, chars) };
+      } else if (numbersUnit.kind === "page") {
+        if (
+          facts.unit.kind !== "page" ||
+          facts.unit.page === null ||
+          numbersUnit.page === null ||
+          facts.unit.page >= numbersUnit.page ||
+          !statesForWholeDocument(facts.text)
+        )
+          return { ok: false, problem: pageLineProblem(facts.text, chars) };
+      } else if (!facts.inPassage) {
+        return { ok: false, problem: sectionLineProblem(facts.text, chars) };
       }
     }
-    const nearer = nearerScale(quoted, facts.unit, numbersUnit);
+    const nearer = nearerScale(quoted, place, units, numbersUnit);
     if (nearer !== null)
       return {
         ok: false,

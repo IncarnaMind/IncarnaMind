@@ -1102,8 +1102,10 @@ const BEFORE_CN_SCALE = `${CN_NUMERAL_CHARS}零壹贰叁肆伍陆柒捌玖拾佰
 const STATED_CURRENCY =
   "US\\$|HK\\$|A\\$|C\\$|S\\$|NT\\$|\\$|€|£|¥|₹|Rs\\.?|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF|INR";
 // Where a statement written in a short token ("$m", "'000s") ends: the end of its line, cell or
-// bracket. "USD B Acc" is a share class, "USD M&A" a business and "1,000s of users" a count.
-const ENDS_STATEMENT = "(?=[ \\u00a0]*(?:$|[\\n\\t)）|,;:]|\\.(?!\\d)))";
+// bracket, or the start of an exception that leaves part of it out ("£m except the notes").
+// "USD B Acc" is a share class, "USD M&A" a business and "1,000s of users" a count.
+const ENDS_STATEMENT =
+  "(?=[ \\u00a0]*(?:$|[\\n\\t)）|,;:]|\\.(?!\\d)|(?:except|unless|save|other[ \\u00a0]+than)\\b))";
 const STATEMENTS: readonly RegExp[] = [
   new RegExp(
     `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
@@ -1280,24 +1282,43 @@ export function readStatedUnits(
 // part's scale, never the Document's ("All figures in Note 5", "本报表", "附注五", "下列").
 const PART_SCOPED =
   /\b(?:notes?|sections?|tables?|charts?|schedules?|appendi(?:x|ces)|exhibits?|statements?)\b|附注|註釋|注释|本表|本節|本节|本页|本頁|上表|上节|上節|下表|下节|下節|表中|表内|表內|下列|如上|以下|报表|報表/i;
-// A line states a rule for the whole Document only in these shapes, at its start.
+// The consolidated statements are the Document, not a part of it ("All amounts in the
+// consolidated financial statements are in £m").
+const DOCUMENT_STATEMENTS = /\b(?:consolidated\s+)?financial\s+statements?\b/gi;
+const DOCUMENT_STATEMENTS_ZH = /(?:本|合并)?财务报表/g;
+// An exception for the notes leaves the line's scope whole ("All amounts are in £m except where
+// stated in the notes"), so the line is read without it.
+const EXCEPTION = /\s*(?:[,;]\s*)?(?:except|unless|save|other\s+than)\b[\s\S]*$/i;
+const EXCEPTION_ZH =
+  /\s*(?:[,;，；]\s*)?(?:但|惟|除非|除[^,;，；。]{0,24}?外|另有(?:说明|指明|注明))[\s\S]*$/;
+// A line states a rule for the whole Document only in these shapes.
 const WHOLE_DOCUMENT =
-  /^\s*[(（]?\s*(?:unless\s+(?:otherwise\s+)?(?:stated|indicated|noted)|except\s+(?:where|as)\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown)|throughout\s+(?:this|the)\s+(?:document|report)|all\s+(?:of\s+the\s+)?(?:amounts?|figures?|sums?|values?|numbers?)|every\s+(?:amount|figure|sum|value|number))\b/i;
+  /^\s*[(（]?\s*(?:unless\s+(?:otherwise\s+)?(?:stated|indicated|noted)|except\s+(?:where|as)\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown)|throughout\s+(?:this|the)\s+(?:document|report)|(?:amounts?|figures?|sums?|values?|numbers?)\s+(?:throughout|across)\s+(?:this|the)\s+(?:document|report|(?:consolidated\s+)?financial\s+statements?)|all\s+(?:of\s+the\s+)?(?:amounts?|figures?|sums?|values?|numbers?)|every\s+(?:amount|figure|sum|value|number))\b/i;
 const WHOLE_DOCUMENT_ZH =
-  /^\s*[(（]?\s*(?:除非|除另有|除特别|所有|全部|一切|本文件|本报告|本招股|全文)/;
+  /^\s*[(（]?\s*(?:除非|除另有|除特别|所有|全部|一切|本文件|本报告|本招股|全文|(?:本|合并)?财务报表[中内]?\s*(?:所有|全部|一切))/;
+
+function wholeDocumentLine(line: string): boolean {
+  if (PART_SCOPED.test(line.replace(DOCUMENT_STATEMENTS, " ").replace(DOCUMENT_STATEMENTS_ZH, " ")))
+    return false;
+  return WHOLE_DOCUMENT.test(line) || WHOLE_DOCUMENT_ZH.test(line);
+}
 
 /**
- * Whether a scale line says, in its own words and at its start, that it holds for the whole
- * Document ("All amounts in £'000", "Unless otherwise stated, all figures are in thousands",
- * "所有金额单位：千元", "除另有说明外…"), rather than naming a note, section or table whose scale it
- * is. Only such a line may state the scale of a figure outside its own section (#2365).
+ * Whether a scale line says, in its own words, that it holds for the whole Document ("All amounts
+ * in £'000", "Figures throughout this document are in millions", "所有金额单位：千元",
+ * "除另有说明外…"), rather than naming a note, section or table whose scale it is. Only such a
+ * line may state the scale of a figure outside its own section (#2365).
  */
 export function statesForWholeDocument(text: string): boolean {
   const line = text
     .normalize("NFKC")
     .replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
-  if (PART_SCOPED.test(line)) return false;
-  return WHOLE_DOCUMENT.test(line) || WHOLE_DOCUMENT_ZH.test(line);
+  if (wholeDocumentLine(line)) return true;
+  const main = line
+    .replace(EXCEPTION, "")
+    .replace(EXCEPTION_ZH, "")
+    .replace(/^[\s,;，；、]+/, "");
+  return main !== line && wholeDocumentLine(main);
 }
 
 function statedUnitsOf(prepared: Prepared, text: string, statements: Statement[]): StatedUnit[] {

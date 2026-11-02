@@ -1124,6 +1124,14 @@ describe("stated units", () => {
       "本報告金額單位：萬元",
       "全文金额均以千元列示",
       "除另有说明外，金额单位：万元",
+      "Figures throughout this document are in £m",
+      "Amounts throughout this report are in thousands",
+      "All amounts in the consolidated financial statements are in £m",
+      "All amounts are in £m except where stated in the notes",
+      "本文件中所有金额单位均为百万英镑",
+      "本报告所有金额单位：千元",
+      "合并财务报表中所有金额单位：万元",
+      "所有金额单位：万元，但附注另有说明者除外",
     ])
       expect([line, statesForWholeDocument(line)]).toEqual([line, true]);
     for (const line of [
@@ -1132,6 +1140,9 @@ describe("stated units", () => {
       "All amounts in this table are in £'000",
       "All figures in the section below are in thousands",
       "All figures in Note 5 are in £m",
+      "All amounts in the consolidated financial statements' notes are in £m",
+      "合并财务报表附注金额单位：万元",
+      "合并财务报表中本表金额单位：万元",
       "金额单位：千元",
       "金額單位：千元",
       "本表金额单位：万元",
