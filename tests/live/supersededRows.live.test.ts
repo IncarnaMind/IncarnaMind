@@ -28,7 +28,8 @@ import {
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
   process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
-  (catalogProvider("anthropic")?.roles.quickTasks as string);
+  catalogProvider("anthropic")?.roles.quickTasks ??
+  "claude-haiku-5-5";
 const RUNS = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 1);
 const PRICE = catalogModel("anthropic", MODEL)?.price;
 const MAX_USD = Number(process.env.INCARNAMIND_LIVE_MAX_USD ?? Number.POSITIVE_INFINITY);

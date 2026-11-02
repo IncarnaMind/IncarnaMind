@@ -409,7 +409,7 @@ export const SUPERSEDED_HELD_OUT_SECOND: readonly HeldOutCase[] = [
       ]),
     question: "如果服务器的数量改成 8 台，预算合计会是多少？",
     cites: [],
-    gives: [["30,000", "30000"]],
+    gives: [["30,000", "30000", "3万"]],
     never: [],
     whatIf: { cell: "预算!D7", input: "预算!C6", value: 8, result: 30000 },
     read: "The what-if changes the shown server quantity (C6) and works out the shown total (D7) as 30,000, never the hidden rows' 36,000.",

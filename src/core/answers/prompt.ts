@@ -514,7 +514,7 @@ export function formulaRowsNote(passages: string): string {
  */
 export function setAsideRowsNote(passages: string): string {
   if (!SET_ASIDE_MARK.test(passages)) return "";
-  return 'A line of a sheet that starts with a mark such as "[row 4, struck through]" or "[row 4, hidden]" is a row the file strikes through or hides: the file has set it aside, as people do with an earlier or removed row. Where a set-aside row and an unmarked one give one item different figures, the unmarked one is the sheet\'s current figure, and the set-aside one is never given as current. Whenever you give a figure from a set-aside row, say that the file strikes it through or hides it. The mark is never part of a quote.';
+  return 'A line of a sheet that starts with a mark such as "[row 4, struck through]" or "[row 4, hidden]" is a row the file strikes through or hides: the file has set it aside, as people do with an earlier or removed row. Where a set-aside row and an unmarked one give one item different figures, the unmarked one is the sheet\'s current figure, and the set-aside one is never given as current. Whenever you give a figure from a set-aside row, say in your own words that the file strikes it through or hides it: the mark itself is never written in the Answer, nor in a quote.';
 }
 
 const ROW_CONTEXT = "Revision worksheets need every item row and its revision, no bare values";
