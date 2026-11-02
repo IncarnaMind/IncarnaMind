@@ -710,23 +710,64 @@ const MIDDLE_EDITED =
 const FOUR_BACK =
   "The harbour office posts the times, the harbour office answers the phone, the port board keeps the tables, the harbour office cleans the quay, and the harbour office lists the ferries.";
 
+/** The box of the `nth` `words` of a line, scrolled into the Mind's view first. */
+async function wordsBoxInView(window: Page, line: Locator, words: string, nth = 1) {
+  await line.evaluate(
+    (element, wanted) => {
+      const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const texts: Text[] = [];
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) texts.push(node as Text);
+      const all = texts.map((text) => text.data).join("");
+      let at = -1;
+      for (let found = 0; found < wanted.nth; found++) at = all.indexOf(wanted.words, at + 1);
+      if (at < 0) return;
+      let start = 0;
+      let text: Text | undefined;
+      for (const each of texts) {
+        if (at < start + each.length) {
+          text = each;
+          break;
+        }
+        start += each.length;
+      }
+      const scroller = element.closest(".mind-scroller");
+      if (!text || !scroller) return;
+      const range = element.ownerDocument.createRange();
+      range.setStart(text, at - start);
+      range.collapse(true);
+      const rect = range.getBoundingClientRect();
+      const view = scroller.getBoundingClientRect();
+      if (rect.top < view.top + 8 || rect.bottom > view.bottom - 8) {
+        scroller.scrollTop += rect.top - view.top - 24;
+      }
+    },
+    { words, nth },
+  );
+  await motionSettled(window);
+  return wordsBox(line, words, nth);
+}
+
 /** Selects the `nth` `words` of a line with the mouse, as a person does. */
 async function selectNth(window: Page, line: Locator, words: string, nth: number) {
-  const box = await wordsBox(line, words, nth);
-  await window.mouse.move(box.left - 6, box.y, { steps: 4 });
-  await window.mouse.move(box.left + 1, box.y, { steps: 2 });
-  await window.mouse.down();
-  await window.mouse.move(box.right - 1, box.y, { steps: 12 });
-  await window.mouse.up();
-  // After a drag, ProseMirror puts its selection back into the page in a task queued as the mouse
-  // comes up; a key pressed before that task runs is undone by it.
-  await window.evaluate(() => new Promise((resolve) => setTimeout(resolve)));
-  expect(await window.evaluate(() => getSelection()?.toString())).toBe(words);
+  let tries = 0;
+  await expect(async () => {
+    const box = await wordsBoxInView(window, line, words, nth);
+    if (tries++ > 0) await window.mouse.click(box.left - 6, box.y);
+    await window.mouse.move(box.left - 6, box.y, { steps: 4 });
+    await window.mouse.move(box.left + 1, box.y, { steps: 2 });
+    await window.mouse.down();
+    await window.mouse.move(box.right - 1, box.y, { steps: 12 });
+    await window.mouse.up();
+    // After a drag, ProseMirror puts its selection back into the page in a task queued as the
+    // mouse comes up; a key pressed before that task runs is undone by it.
+    await window.evaluate(() => new Promise((resolve) => setTimeout(resolve)));
+    expect(await window.evaluate(() => getSelection()?.toString())).toBe(words);
+  }).toPass();
 }
 
 /** Clicks inside a line's `words`, as a person putting the cursor in them. */
 async function clickInWords(window: Page, line: Locator, words: string) {
-  const box = await wordsBox(line, words);
+  const box = await wordsBoxInView(window, line, words);
   await window.mouse.move(box.left + 4, box.y, { steps: 4 });
   await window.mouse.click(box.left + 4, box.y);
 }
