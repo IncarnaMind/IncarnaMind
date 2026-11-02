@@ -36,6 +36,7 @@ import type {
   ChatModelChoice,
   CitationSupport,
   ClaimedChange,
+  ClaimedCommand,
   ClaimedTool,
   Conversation,
   ConversationAnswer,
@@ -54,7 +55,7 @@ import type {
   SearchScope,
   ThirdPartySource,
 } from "../api";
-import { CLAIMED_CHANGES, CLAIMED_TOOLS, MOST_ASKED_QUOTES } from "../api";
+import { CLAIMED_CHANGES, CLAIMED_COMMANDS, CLAIMED_TOOLS, MOST_ASKED_QUOTES } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { isSignInRouteProblem } from "../providers/signInRoutes";
 import { parseSearchScope } from "../scope";
@@ -252,6 +253,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     firstWordMs,
     careful,
     unbackedClaims,
+    unbackedCommands,
     unrunTools,
     calculateUnavailable,
     askedAgainFor,
@@ -265,6 +267,11 @@ function storedSteps(value: string | null): AnswerSteps | null {
   const claimed = Array.isArray(unbackedClaims)
     ? unbackedClaims.filter((each): each is ClaimedChange =>
         CLAIMED_CHANGES.some((claim) => claim === each),
+      )
+    : [];
+  const commands = Array.isArray(unbackedCommands)
+    ? unbackedCommands.filter((each): each is ClaimedCommand =>
+        CLAIMED_COMMANDS.some((claim) => claim === each),
       )
     : [];
   const unrun = claimedTools(unrunTools);
@@ -293,6 +300,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     ...(typeof firstWordMs === "number" && firstWordMs >= 0 && { firstWordMs }),
     ...(careful === true && { careful }),
     ...(claimed.length > 0 && { unbackedClaims: claimed }),
+    ...(commands.length > 0 && { unbackedCommands: commands }),
     ...(unrun.length > 0 && {
       unrunTools: unrun,
       ...(calculateUnavailable === true && { calculateUnavailable }),

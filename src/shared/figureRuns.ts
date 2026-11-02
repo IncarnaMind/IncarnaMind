@@ -11,9 +11,15 @@ import {
   MIND_CONTENT_FIELD,
   MIND_FIGURE_RUNS_FIELD,
   type RetainedFigureAnalysis,
+  type RetainedFigureValue,
 } from "../core/api";
 import { InvalidInputError, isRecord } from "../core/errors";
-import { ANALYSIS_LIMITS, type AnalysisVersions, readFigureRows } from "./analysis";
+import {
+  ANALYSIS_LIMITS,
+  type AnalysisRecalculation,
+  type AnalysisVersions,
+  readFigureRows,
+} from "./analysis";
 import type { NodeJSON } from "./blockJson";
 import {
   calculatedFigureNode,
@@ -117,6 +123,17 @@ function readVersions(value: unknown): AnalysisVersions | null {
   };
 }
 
+/** What IncarnaMind made of a kept figure when its Analysis ran; null for a record that isn't one. */
+function readRecalculation(value: unknown): AnalysisRecalculation | null {
+  if (!isRecord(value)) return null;
+  if (value.kind === "unchecked")
+    return text(value.reason) ? { kind: "unchecked", reason: value.reason } : null;
+  if (value.kind !== "same" && value.kind !== "differs") return null;
+  return typeof value.value === "number" && Number.isFinite(value.value)
+    ? { kind: value.kind, value: value.value }
+    : null;
+}
+
 /** Reads provenance only; a clipboard record is not proof that its code ran. */
 export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
   if (
@@ -156,6 +173,8 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
       return null;
     const of = result.of === undefined ? undefined : readFigureRows(result.of);
     if (of === null) return null;
+    const check = result.check == null ? undefined : readRecalculation(result.check);
+    if (result.check != null && check === null) return null;
     names.add(result.name);
     values.push({
       kind: "figure",
@@ -164,6 +183,7 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
       unit: result.unit,
       value: result.value,
       ...(of && { of }),
+      ...(check && { check }),
     });
   }
   const versions = value.versions === null ? null : readVersions(value.versions);
@@ -181,6 +201,34 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
   };
 }
 
+/**
+ * The records a clipboard gives, without a check: only a record this app keeps of an Analysis it ran
+ * proves what the core made of its figure, and a clipboard's can say anything (#2378).
+ */
+export function withoutChecks(records: unknown): unknown {
+  if (!Array.isArray(records)) return records;
+  return records.map((record) => {
+    if (!isRecord(record) || !Array.isArray(record.values)) return record;
+    return {
+      ...record,
+      values: record.values.map((value) => {
+        if (!isRecord(value)) return value;
+        const copy: Record<string, unknown> = { ...value };
+        delete copy.check;
+        return copy;
+      }),
+    };
+  });
+}
+
+/** A kept value without what the core made of it: what a clipboard record and the Note's own must share. */
+function withoutCheck(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const copy: Record<string, unknown> = { ...value };
+  delete copy.check;
+  return copy;
+}
+
 export function retainFigureAnalysis(
   analysis: AnswerAnalysis,
   id: string,
@@ -191,10 +239,13 @@ export function retainFigureAnalysis(
     (node) => node.analysisId === id && node.figure.analysis?.analysis === analysis.number,
   );
   if (uses.length === 0) return null;
-  const results = analysis.output.results.filter(
-    (result) =>
-      result.kind === "figure" && uses.some((node) => node.figure.analysis?.result === result.name),
-  );
+  const checks = new Map((analysis.recalculations ?? []).map((each) => [each.result, each.check]));
+  const results: RetainedFigureValue[] = analysis.output.results.flatMap((result) => {
+    if (result.kind !== "figure") return [];
+    if (!uses.some((node) => node.figure.analysis?.result === result.name)) return [];
+    const check = checks.get(result.name);
+    return [check ? { ...result, check } : result];
+  });
   if (
     uses.some(
       (node) =>
@@ -303,8 +354,14 @@ export function installFigureRuns(doc: Y.Doc, records: readonly unknown[]): void
     for (const value of values) {
       const key = valueKey(next.id, value.name);
       const old = planned.get(key) ?? runs.get(key);
-      if (old !== undefined && JSON.stringify(old) !== JSON.stringify(value))
-        throw new Error("The calculated figures name different values from the same Analysis.");
+      if (old !== undefined && JSON.stringify(old) !== JSON.stringify(value)) {
+        // A clipboard record carries no check (#2378): the Note's own record of the same value keeps its own.
+        if (JSON.stringify(withoutCheck(old)) !== JSON.stringify(withoutCheck(value)))
+          throw new Error("The calculated figures name different values from the same Analysis.");
+        if (isRecord(old) && old.check !== undefined && value.check !== undefined)
+          throw new Error("The calculated figures name different values from the same Analysis.");
+        if (value.check === undefined) continue;
+      }
       planned.set(key, value);
     }
     const prefix = `${key.slice(0, -1)},`;
@@ -394,3 +451,12 @@ export function labelledCitations(
 
 export const calculatedCitations = (sources: CalculatedSources): Citation[] =>
   labelledCitations(sources).map(({ citation }) => citation);
+
+/** What IncarnaMind made of a kept figure when the Analysis ran; null when the Note kept no check. */
+export function retainedCheck(
+  sources: CalculatedSources | null,
+  result: string | undefined,
+): AnalysisRecalculation | null {
+  if (!sources?.analysis || result === undefined) return null;
+  return sources.analysis.values.find((value) => value.name === result)?.check ?? null;
+}

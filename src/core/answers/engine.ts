@@ -76,6 +76,7 @@ import type {
   AnswerPhase,
   CitationSupport,
   ClaimedChange,
+  ClaimedCommand,
   ClaimedTool,
   FigureRetry,
   ProviderError,
@@ -130,7 +131,14 @@ import { replyJson, retryQuotes } from "./quoteRetry";
 import { formatDocumentPages, readDocumentPages } from "./readDocumentPages";
 import { type SmallCallModel, smallCallModel } from "./smallCalls";
 import { heldBackFrom, TOOL_TEXT_TAGS, takeToolText } from "./toolText";
-import { createNudges, type Flags, flagsOf, settleReply, type TurnCheck } from "./turnChecks";
+import {
+  createNudges,
+  type Flags,
+  flagsOf,
+  mergedFlags,
+  settleReply,
+  type TurnCheck,
+} from "./turnChecks";
 import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
 import { createWindowBudget, SEARCH_RESERVE_TOKENS, type WindowBudget } from "./window";
 
@@ -513,8 +521,11 @@ export interface AnswerRequest {
    * a turn that ended after a refused Tool still says why. Null: end blank.
    */
   blankReply?(): string | null;
-  /** A line to append after a Tool refused the request, without replacing the model's reply. Null: none. */
-  refusalSuffix?(): string | null;
+  /**
+   * What to append after the reply when a Tool refused the request, without replacing it: the
+   * lines `reply` doesn't already hold. Null: none.
+   */
+  refusalSuffix?(reply: string): string | null;
   /** Stops generating. The stream then ends, with neither "finished" nor "failed". */
   signal: AbortSignal;
 }
@@ -600,7 +611,12 @@ export type AnswerEngineEvent =
    * The reply claims these changes to a Mind, or says these Tools ran (#1796), which none of the
    * Answer's Tool calls made or ran.
    */
-  | { type: "claims-unbacked"; claims: ClaimedChange[]; tools?: ClaimedTool[] }
+  | {
+      type: "claims-unbacked";
+      claims: ClaimedChange[];
+      tools?: ClaimedTool[];
+      commands?: ClaimedCommand[];
+    }
   /** The reply said these Tools ran, and none had: the model was asked once more (#1796). */
   | { type: "asked-again"; tools: readonly ClaimedTool[] }
   /** The Answer is complete. Nothing follows. */
@@ -1894,6 +1910,11 @@ async function* toolLoop(
   const rambling = new AbortController();
   /** The reply that stands if the model, asked once more, fails: as it was before the last ask. */
   let standing: string | null = null;
+  /**
+   * What the check that asked found in `standing`: it still flags that reply should it stand, even
+   * when the checks can't be run on it again (#2407).
+   */
+  let standingFlags: Flags = { claims: [] };
   let again: readonly RunMessage[] | null = null;
   /** The Tool the ask said to call: the asked-again Run's first step calls it. */
   let mustCall: string | null = null;
@@ -1914,18 +1935,16 @@ async function* toolLoop(
   const toolTextTags = [...new Set([...TOOL_TEXT_TAGS, ...offered.keys()])];
   const releasable = (text: string) =>
     Math.min(request.shownUpTo?.(text) ?? text.length, heldBackFrom(text, toolTextTags));
-  async function* flag(text: string): AsyncGenerator<AnswerEngineEvent> {
-    yield* flagged(await flagsOf(request.turnChecks ?? [], text));
-  }
   async function* backToFirst(written: string): AsyncGenerator<AnswerEngineEvent> {
     if (released > 0) yield { type: "text-retracted", length: released };
     released = 0;
     keptText = written;
     stepText = "";
     yield* release(keptText.length);
-    yield* flag(keptText);
+    yield* flagged(mergedFlags(standingFlags, await flagsOf(request.turnChecks ?? [], keptText)));
   }
-  async function* endAnswer(suffix: string | null = null): AsyncGenerator<AnswerEngineEvent> {
+  async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
+    const suffix = request.refusalSuffix?.(keptText) ?? null;
     if (keptText.trim() !== "" || suffix === null) {
       if (!request.documents.wroteIntoMind?.()) {
         const figured = request.documents.citeFigures?.(keptText) ?? keptText;
@@ -2126,7 +2145,7 @@ async function* toolLoop(
         // Asked once more, the reply before stands: trying another way now would call its Tools again.
         if (standing !== null) {
           yield* backToFirst(standing);
-          yield* endAnswer(request.refusalSuffix?.() ?? null);
+          yield* endAnswer();
           return;
         }
         // Too long only with a window, so sized to one.
@@ -2145,13 +2164,12 @@ async function* toolLoop(
         if (standing !== null) {
           console.error(`Asking again for a better reply failed: ${event.error.message}`);
           yield* backToFirst(standing);
-          yield* endAnswer(request.refusalSuffix?.() ?? null);
+          yield* endAnswer();
           return;
         }
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
-        const refused = request.refusalSuffix?.() ?? null;
         if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
           keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
@@ -2164,7 +2182,7 @@ async function* toolLoop(
           (request.blankReply?.() ?? null) === null
         ) {
           yield* backToFirst(standing);
-          yield* endAnswer(request.refusalSuffix?.() ?? null);
+          yield* endAnswer();
           return;
         }
         if (mode === "tools" && !request.documents.wroteIntoMind?.()) {
@@ -2180,10 +2198,17 @@ async function* toolLoop(
             );
           }
         }
-        const settled = await settleReply(request.turnChecks ?? [], taken.text, nudges);
+        const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
+        const settled = await settleReply(
+          request.turnChecks ?? [],
+          taken.text,
+          nudges,
+          afterSearch,
+        );
         if ("nudge" in settled) {
           if (settled.tools) yield { type: "asked-again", tools: settled.tools };
           standing = taken.text;
+          standingFlags = settled.flags;
           if (released > 0) yield { type: "text-retracted", length: released };
           released = 0;
           keptText = "";
@@ -2196,7 +2221,6 @@ async function* toolLoop(
           writeOnly = settled.writeOnly === true;
           break;
         }
-        const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
         if (afterSearch.length > 0) yield { type: "text-set-aside", texts: afterSearch };
         // A turn that ends with no reply after a refused Tool says why in the app's words.
         const text = taken.text.trim() === "" ? (request.blankReply?.() ?? taken.text) : taken.text;
@@ -2207,7 +2231,7 @@ async function* toolLoop(
         }
         yield* release(keptText.length);
         yield* flagged(settled);
-        yield* endAnswer(refused);
+        yield* endAnswer();
         return;
       }
     }
@@ -2365,9 +2389,14 @@ async function* flagClaims(
   yield* flagged(await flagsOf(request.turnChecks ?? [], text));
 }
 
-function* flagged({ claims, tools }: Flags): Generator<AnswerEngineEvent> {
-  if (claims.length > 0 || tools) {
-    yield { type: "claims-unbacked", claims, ...(tools && { tools }) };
+function* flagged({ claims, tools, commands }: Flags): Generator<AnswerEngineEvent> {
+  if (claims.length > 0 || tools || commands) {
+    yield {
+      type: "claims-unbacked",
+      claims,
+      ...(tools && { tools }),
+      ...(commands && { commands }),
+    };
   }
 }
 

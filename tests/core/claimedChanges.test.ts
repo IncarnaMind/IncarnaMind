@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindChange } from "../../src/core";
 import { unbackedClaims } from "../../src/core/answers/claimedChanges";
+import { toolRecordLines } from "../../src/core/answers/toolRecord";
 import { scriptedModel } from "../helpers/models";
 
 const MINDS = [
@@ -98,6 +99,38 @@ describe("The quick model's verdict", () => {
     ]);
   });
 
+  test("a chart the record says wasn't drawn is in the judge's record, so a reply claiming it is asked again (#2378)", async () => {
+    const reply = "I added the bar chart of total order amount by region to the Note.";
+    const call = mindCall("add_to_mind", { tables: 1, chartNotDrawn: "noTable" });
+    const model = judge({
+      claims: [{ sentence: reply, kind: "added", about: "mind", backed: false }],
+    });
+    const result = await check(model, reply, [call]);
+    expect(result.claims).toEqual(["added"]);
+    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    expect(prompt).toContain('\\"chartNotDrawn\\": \\"noTable\\"');
+  });
+
+  test("the turn's record names a chart drawn, and one asked for but not drawn (#2378)", () => {
+    expect(toolRecordLines([mindCall("add_to_mind", { tables: 1, charts: 1 })], names)).toEqual([
+      "- add_to_mind “Q3 review”: proposed 2 new Blocks, waiting for the User, 1 table among them, 1 chart among them",
+    ]);
+    expect(
+      toolRecordLines([mindCall("add_to_mind", { tables: 1, chartNotDrawn: "noTable" })], names),
+    ).toEqual([
+      "- add_to_mind “Q3 review”: proposed 2 new Blocks, waiting for the User, 1 table among them; the chart asked for was not drawn: nothing was written as a table",
+    ]);
+  });
+
+  test("a chart the record says was drawn is named in it", async () => {
+    const reply = "I added the bar chart to the Note.";
+    const model = judge({
+      claims: [{ sentence: reply, kind: "added", about: "mind", backed: true }],
+    });
+    await check(model, reply, [mindCall("add_to_mind", { charts: 1 })]);
+    expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain('\\"charts\\": 1');
+  });
+
   test("a claim about the focused Mind is checked with its name", async () => {
     const reply = "我已把摘要写进你的笔记里。";
     const model = judge({ claims: [] });
@@ -157,6 +190,8 @@ describe("The quick model's verdict", () => {
         "An honest Answer.",
       );
       expect(result.claims).toEqual([]);
+      // It named a claim it couldn't place, so the check can't say the reply is clean (#2407).
+      expect(result.failed).toBe(true);
     },
   );
 
@@ -217,5 +252,157 @@ describe("What the judge says the sentence is about (#2194)", () => {
       const result = await check(judge({ claims: [claim] }), reply);
       expect(result.claims).toEqual(["added"]);
     }
+  });
+});
+
+describe("A claim of something done in the app (#2407)", () => {
+  const english = "Local mode is on now.";
+  const chinese = "已经为你开启了本地模式。";
+
+  // protects=each value the judge gives a claim in the app counts as that claim, apart from a Note's change, in English and Chinese; fails_when=one is dropped, or read as a change to a Note (whose line says nothing was written); no_claim=what a real judge answers.
+  test.each([
+    ["app", "command"],
+    ["local_mode", "privacy"],
+    ["keys", "keys"],
+    ["spending_cap", "spending"],
+    ["approval_rules", "approvals"],
+    ["deleted_for_good", "permanent"],
+  ] as const)("about %s counts as %s", async (about, command) => {
+    for (const reply of [english, chinese]) {
+      const result = await check(
+        judge({ claims: [{ sentence: reply, kind: "changed", about, backed: false }] }),
+        reply,
+      );
+      expect(result.commands).toEqual([command]);
+      expect(result.claims).toEqual([]);
+    }
+  });
+
+  // protects=a claim in the app the record backs counts for nothing, beside one it doesn't; fails_when=a backed claim flags; no_claim=none beyond protects.
+  test("a backed claim in the app finds nothing, beside one that isn't", async () => {
+    const reply = "I opened the lease beside your note. Local mode is on now.";
+    const result = await check(
+      judge({
+        claims: [
+          {
+            sentence: "I opened the lease beside your note.",
+            kind: "changed",
+            about: "app",
+            backed: true,
+          },
+          { sentence: english, kind: "changed", about: "local_mode", backed: false },
+        ],
+      }),
+      reply,
+    );
+    expect(result.commands).toEqual(["privacy"]);
+  });
+
+  // protects=a claim in the app counts whatever kind the judge gave it, and one item's unknown kind never voids the rest of the verdict, as a provider that doesn't hold the schema's enum sends; fails_when=a verdict with "opened" as a kind drops a real claim about Local mode; no_claim=none beyond protects.
+  test("an unknown kind voids nothing", async () => {
+    const reply = "I opened Settings. Local mode is on now.";
+    const result = await check(
+      judge({
+        claims: [
+          { sentence: "I opened Settings.", kind: "opened", about: "app", backed: false },
+          { sentence: english, kind: "turned on", about: "local_mode", backed: false },
+          { sentence: "I opened Settings.", kind: "opened", about: "mind", backed: false },
+        ],
+      }),
+      reply,
+    );
+    expect(result.commands).toEqual(["command", "privacy"]);
+    expect(result.claims).toEqual(["changed"]);
+    expect(result.failed).toBeUndefined();
+  });
+
+  // protects=an item that names an unbacked sentence of the reply but can't be placed (an unknown about with an unknown kind, no about with an unknown kind) fails the check, so a turn that refused something names it; "false" as a string is no backing; fails_when=such an item is dropped and the check reads as clean; no_claim=none beyond protects.
+  test.each([
+    { item: { kind: "enabled", about: "settings", backed: false }, failed: true, commands: [] },
+    { item: { kind: "enabled", backed: false }, failed: true, commands: [] },
+    {
+      item: { kind: "changed", about: "local_mode", backed: "false" },
+      failed: undefined,
+      commands: ["privacy"],
+    },
+  ])("an item it can't place fails the check: $item", async ({ item, failed, commands }) => {
+    for (const reply of [english, chinese]) {
+      const result = await check(judge({ claims: [{ sentence: reply, ...item }] }), reply);
+      expect(result.failed).toBe(failed);
+      expect(result.commands).toEqual(commands);
+    }
+    const backed = await check(
+      judge({ claims: [{ sentence: english, ...item, backed: "true" }] }),
+      english,
+    );
+    expect(backed.failed).toBeUndefined();
+    expect(backed.commands).toEqual([]);
+  });
+
+  // protects=a check that couldn't run or couldn't be read says so, apart from one that found nothing; fails_when=a failed check reads as a clean one, which can't then fail closed; no_claim=none beyond protects.
+  test("a failed check says it failed", async () => {
+    const down = scriptedModel(() => ({ text: "" }), {
+      generate: () => ({ error: { status: 503, message: "offline" } }),
+    });
+    expect((await check(down, english)).failed).toBe(true);
+    expect((await check(judge("not JSON"), english)).failed).toBe(true);
+    expect((await check(judge({ claims: [] }), english)).failed).toBeUndefined();
+  });
+
+  // protects=the record gives each run_command what it did, so a refusal (whose status is done) reads as having done nothing; fails_when=a refusal or a denied call reads as done; no_claim=none beyond protects.
+  test("the record says what each command did", async () => {
+    const model = judge({ claims: [] });
+    const calls: AnswerToolCall[] = [
+      {
+        id: "refused",
+        tool: "run_command",
+        source: "commands",
+        input: { command: "settings.change", setting: "localMode", value: "on" },
+        status: "done",
+        resultCount: null,
+        command: { command: "settings.change", run: "r1", items: [], yours: "privacy" },
+      },
+      {
+        id: "denied",
+        tool: "run_command",
+        source: "commands",
+        input: { command: "document.delete", ids: ["d1"] },
+        status: "failed",
+        approval: "denied",
+        resultCount: null,
+      },
+      {
+        id: "going-on",
+        tool: "run_command",
+        source: "commands",
+        input: { command: "mind.check" },
+        status: "done",
+        resultCount: null,
+        command: {
+          command: "mind.check",
+          run: "r1",
+          items: [],
+          window: { changed: false, running: true },
+        },
+      },
+      {
+        id: "edit",
+        tool: "edit_mind",
+        source: "minds",
+        input: {},
+        status: "done",
+        resultCount: null,
+        mindChange: { mindId: "q3", created: false, request: "r1", proposals: 1 },
+      },
+    ];
+
+    await check(model, english, calls);
+
+    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    expect(prompt).toContain(`\\"outcome\\": \\"refused: the User's alone\\"`);
+    expect(prompt).toContain(`\\"outcome\\": \\"not allowed by the User\\"`);
+    expect(prompt).toContain(`\\"outcome\\": \\"started\\"`);
+    // Only the commands' calls carry one: an edit's change says what it did itself.
+    expect(prompt.match(/\\"outcome\\":/g)).toHaveLength(3);
   });
 });
