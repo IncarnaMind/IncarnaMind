@@ -738,7 +738,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           named,
         );
         const suffix = walls ? wallLines(t, walls.entered, walls.left) : "";
-        return suffix ? `${message} ${suffix}` : message;
+        return suffix ? `${message}${t("text.sentenceBreak")}${suffix}` : message;
       },
       name: (t) => moveName(t, moving, named),
       undo: () => putBack(done, names),
@@ -765,7 +765,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         said: (t) => {
           const message = madeMessage(t, folderName, going, named);
           const suffix = walls ? wallLines(t, walls.entered, walls.left) : "";
-          return suffix ? `${message} ${suffix}` : message;
+          return suffix ? `${message}${t("text.sentenceBreak")}${suffix}` : message;
         },
         name: (t) => t("undo.name.newFolder"),
         undoneNote: () => (kept ? (t) => t("commands.kept.folder", { name: folderName }) : null),
@@ -1380,7 +1380,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                       into: afterLabel ?? "",
                     });
             const suffix = wallLines(t, walls.entered, walls.left);
-            return suffix ? `${line} ${suffix}` : line;
+            return suffix ? `${line}${t("text.sentenceBreak")}${suffix}` : line;
           },
           name: (t) => t(used.length === 1 ? "undo.name.moveFolder" : "undo.name.moveFolders"),
           undo: async () => {

@@ -106,7 +106,8 @@ function wallIn(library: LibrarySnapshot | null | undefined, id: string): string
     }
     at = folder.parentId;
   }
-  return wall === null ? null : folderPathLabel(folders, wall);
+  // A Folder that keeps its own work inside it is still behind itself at the top level: nothing left.
+  return wall === null || wall === id ? null : folderPathLabel(folders, wall);
 }
 
 /** Puts each back where it was, and says so; Undo deletes them again. */
@@ -145,7 +146,7 @@ export async function restoreItems(items: readonly DeletedItem[]): Promise<void>
     said: (t, cut) => {
       const message = restoredMessage(items, () => audio)(t, cut);
       const suffix = wallLines(t, null, leftWalls(audio));
-      return suffix ? `${message} ${suffix}` : message;
+      return suffix ? `${message}${t("text.sentenceBreak")}${suffix}` : message;
     },
     name: (t) => t("undo.name.restore"),
     undo: () =>

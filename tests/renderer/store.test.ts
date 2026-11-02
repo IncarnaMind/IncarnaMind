@@ -408,6 +408,21 @@ describe("changes the User can take back", () => {
     expect(said(top())).toContain("No longer kept inside “Research”.");
   });
 
+  test("a Document moved behind the same wall says nothing", async () => {
+    const group = researchGroup(true);
+    const inner = { ...researchGroup(), id: "inner", name: "Inner", parentId: "g" };
+    const filed = assignment("a", "classified", "g");
+    useAppStore.setState({ library: { ...snapshot([filed]), groups: [group, inner] } });
+    method("moveToFolder").mockResolvedValue({
+      folderId: "inner",
+      minds: [],
+      documents: [movedDocument("a", "g", filed, "inner")],
+      conversations: [],
+    });
+    await useAppStore.getState().moveToFolder({ documentIds: ["a"] }, "inner");
+    expect(said(top())).not.toContain("kept inside");
+  });
+
   test("moving into a walled Folder says it is kept inside it now", async () => {
     const group = researchGroup(true);
     useAppStore.setState({ library: { ...snapshot([]), groups: [group] } });
@@ -944,10 +959,43 @@ describe("changes the User can take back", () => {
       toTopLevel: ["chapter"],
     });
     await restoreItems([item]);
-    expect(said(top())).toBe("Restored “Chapter 2” No longer kept inside “Client A”.");
+    expect(said(top())).toBe("Restored “Chapter 2”. No longer kept inside “Client A”.");
     expect(undoLines((key, params) => translate("zh-CN", key, params)).said(top())).toBe(
-      "已恢复“Chapter 2” 不再仅在“Client A”内使用。",
+      "已恢复“Chapter 2”。不再仅在“Client A”内使用。",
     );
+  });
+
+  test("restoring a walled sub-Folder to the top level says nothing: it keeps its own wall", async () => {
+    const { restoreItems } = await import("../../src/renderer/src/recentlyDeleted");
+    const client = { ...researchGroup(true), id: "client", name: "Client A" };
+    const chapter = {
+      ...researchGroup(true),
+      id: "chapter",
+      name: "Chapter 2",
+      parentId: "client",
+    };
+    useAppStore.setState({
+      library: { ...snapshot([]), groups: [], deletedGroups: [client, chapter] },
+    });
+    method("listDeleted").mockResolvedValue([]);
+    method("restore").mockResolvedValue({
+      audioLost: [],
+      audioExpired: [],
+      toTopLevel: ["chapter"],
+    });
+
+    await restoreItems([
+      {
+        kind: "folder",
+        id: "chapter",
+        name: "Chapter 2",
+        deletedAt: "2026-10-06T09:00:00.000Z",
+        documentKind: null,
+        groupId: null,
+        linkedFolderId: null,
+      },
+    ]);
+    expect(said(top())).toBe("Restored “Chapter 2”");
   });
 });
 
@@ -1556,8 +1604,13 @@ describe("moving Folders", () => {
 
     expect(method("moveLibraryGroups")).toHaveBeenCalledWith([{ id: "drafts", parentId: null }]);
     expect(said(useUndo.getState().done.at(-1))).toBe(
-      "Moved the Folder “Drafts” out of “Client A” No longer kept inside “Client A”.",
+      "Moved the Folder “Drafts” out of “Client A”. No longer kept inside “Client A”.",
     );
+    expect(
+      undoLines((key, params) => translate("zh-CN", key, params)).said(
+        useUndo.getState().done.at(-1),
+      ),
+    ).toBe("已将文件夹“Drafts”移出“Client A”。不再仅在“Client A”内使用。");
     await useUndo.getState().undo();
     expect(method("moveLibraryGroups")).toHaveBeenLastCalledWith([
       { id: "drafts", parentId: "client" },
@@ -1578,7 +1631,7 @@ describe("moving Folders", () => {
     await useAppStore.getState().moveFolders(["drafts"], "client");
 
     expect(said(useUndo.getState().done.at(-1))).toBe(
-      "Moved the Folder “Drafts” into “Client A” Now kept inside “Client A”.",
+      "Moved the Folder “Drafts” into “Client A”. Now kept inside “Client A”.",
     );
   });
 
@@ -1598,19 +1651,19 @@ describe("moving Folders", () => {
 
     await useAppStore.getState().moveFolders(["loose"], "b");
     expect(said(useUndo.getState().done.at(-1))).toBe(
-      "Moved the Folder “Loose” into “Client B” Now kept inside “Client B”.",
+      "Moved the Folder “Loose” into “Client B”. Now kept inside “Client B”.",
     );
     expect(zh.said(useUndo.getState().done.at(-1))).toBe(
-      "已将文件夹“Loose”移入“Client B” 现在仅在“Client B”内使用。",
+      "已将文件夹“Loose”移入“Client B”。现在仅在“Client B”内使用。",
     );
 
     method("moveLibraryGroups").mockResolvedValue(["drafts"]);
     await useAppStore.getState().moveFolders(["drafts"], "b");
     expect(said(useUndo.getState().done.at(-1))).toBe(
-      "Moved the Folder “Drafts” into “Client B” Now kept inside “Client B”, no longer inside “Client A”.",
+      "Moved the Folder “Drafts” into “Client B”. Now kept inside “Client B”, no longer inside “Client A”.",
     );
     expect(zh.said(useUndo.getState().done.at(-1))).toBe(
-      "已将文件夹“Drafts”移入“Client B” 现在仅在“Client B”内使用，不再在“Client A”内。",
+      "已将文件夹“Drafts”移入“Client B”。现在仅在“Client B”内使用，不再在“Client A”内。",
     );
   });
 
@@ -1634,11 +1687,49 @@ describe("moving Folders", () => {
     expect(said(useUndo.getState().done.at(-1))).toBe(
       "Moved the Folder “Drafts” into “Client A › Archive”",
     );
+    expect(
+      undoLines((key, params) => translate("zh-CN", key, params)).said(
+        useUndo.getState().done.at(-1),
+      ),
+    ).toBe("已将文件夹“Drafts”移入“Client A › Archive”");
 
     method("moveLibraryGroups").mockResolvedValue(["drafts"]);
     await useAppStore.getState().moveFolders(["drafts"], "private");
     expect(said(useUndo.getState().done.at(-1))).toBe(
-      "Moved the Folder “Drafts” into “Client A › Private” Now kept inside “Client A › Private”, no longer inside “Client A”.",
+      "Moved the Folder “Drafts” into “Client A › Private”. Now kept inside “Client A › Private”, no longer inside “Client A”.",
+    );
+  });
+
+  test("a move of several Folders between walls says one sentence", async () => {
+    const clientA = folder("a", "Client A", null, true);
+    const clientB = folder("b", "Client B", null, true);
+    const clientC = folder("c", "Client C", null, true);
+    const drafts = folder("drafts", "Drafts", "a");
+    const notes = folder("notes", "Notes", "b");
+    const library = {
+      ...snapshot([]),
+      groups: [clientA, clientB, clientC, drafts, notes],
+    };
+    useAppStore.setState({ library });
+    method("moveLibraryGroups").mockResolvedValue(["drafts", "notes"]);
+    method("getLibrary").mockResolvedValue({
+      ...library,
+      groups: [
+        clientA,
+        clientB,
+        clientC,
+        { ...drafts, parentId: "c" },
+        { ...notes, parentId: "c" },
+      ],
+    });
+    const zh = undoLines((key, params) => translate("zh-CN", key, params));
+
+    await useAppStore.getState().moveFolders(["drafts", "notes"], "c");
+    expect(said(useUndo.getState().done.at(-1))).toBe(
+      "Moved 2 Folders into “Client C”. Now kept inside “Client C”, no longer inside “Client A” and 1 other Folder.",
+    );
+    expect(zh.said(useUndo.getState().done.at(-1))).toBe(
+      "已将 2 个文件夹移入“Client C”。现在仅在“Client C”内使用，不再在“Client A”等 2 个文件夹内。",
     );
   });
 
@@ -1658,10 +1749,10 @@ describe("moving Folders", () => {
 
     await useAppStore.getState().moveFolders(["drafts", "notes"], null);
     expect(said(useUndo.getState().done.at(-1))).toBe(
-      "Moved 2 Folders to the top level No longer kept inside “Client A” and 1 other Folder.",
+      "Moved 2 Folders to the top level. No longer kept inside “Client A” and 1 other Folder.",
     );
     expect(zh.said(useUndo.getState().done.at(-1))).toBe(
-      "已将 2 个文件夹移到顶层 不再在“Client A”等 2 个文件夹内使用。",
+      "已将 2 个文件夹移到顶层。不再仅在“Client A”等 2 个文件夹内使用。",
     );
   });
 

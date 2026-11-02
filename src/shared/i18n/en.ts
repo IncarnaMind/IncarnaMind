@@ -409,6 +409,7 @@ export const en = {
   "move.done.documents": "Moved {count} Documents to {folder}",
   "move.done.items": "Moved {count} items to {folder}",
   "move.done.conversations": "Moved {count} conversations to {folder}",
+  "text.sentenceBreak": ". ",
   "move.outOfWall": "No longer kept inside “{folder}”.",
   "move.outOfWall.many.one": "No longer kept inside “{folder}” and 1 other Folder.",
   "move.outOfWall.many": "No longer kept inside “{folder}” and {n} other Folders.",

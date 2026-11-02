@@ -118,6 +118,16 @@ describe("an export of walled work, indexed again through a Linked folder", () =
     const from = s.calls.length;
     await askAssistant(s.core, { text: "What is the settlement offer?", mindId: outer.id });
     expect(searched(s.calls, from)).not.toContain("2.5 million zeta");
+
+    // The copy is the inner wall's, not the outer wall's: a turn behind the outer wall can't
+    // move it, and a turn behind the inner wall can.
+    await expect(
+      s.core.moveToFolder({ documentIds: [copy.id], folderId: clientA.id, wall: clientA.id }),
+    ).rejects.toMatchObject({ wording: { key: "error.folder.wallMove" } });
+    await s.core.moveToFolder({ documentIds: [copy.id], folderId: drafts.id, wall: clientB.id });
+    expect(
+      (await s.core.getLibrary()).assignments.find((each) => each.documentId === copy.id)?.groupId,
+    ).toBe(drafts.id);
   });
 
   test("a Note in a sub-Folder of the wall keeps its export behind the wall too", async () => {
