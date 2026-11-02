@@ -149,9 +149,9 @@ export function folderTarget(
     accepts(dragged, at) {
       if (dragged.kind === "links") return { kind: "add" };
       if (dragged.kind === "files") {
-        // A file from Finder files into a Folder; "Not in a Folder" adds it nowhere, as the window does (#212).
+        // Before the drop, a file is known by its type alone; its name comes with the drop.
         if (folderId === null) return null;
-        const count = dragged.names?.length ?? 0;
+        const count = dragged.types.length;
         return {
           kind: "import",
           said: (t) =>

@@ -301,8 +301,11 @@ function Workspace() {
         <Workbench
           ref={workbench}
           sidebarHidden={sidebar.hidden}
-          // Links dropped become web pages, so the card is where they go (#261).
-          cardOverlay={fileDrop.active && fileDrop.links ? <DropOverlay links /> : null}
+          // Files and links are dropped on the card: the sidebar's Folders, which take both, stay in
+          // sight, and the window stays quiet while one of them takes the drag (#212, #261).
+          cardOverlay={
+            fileDrop.active && !takenInside ? <DropOverlay links={fileDrop.links} /> : null
+          }
         />
         <DropLabel />
         <PanelBoundary name="overlays">
@@ -333,7 +336,6 @@ function Workspace() {
           <FileWriteDialog />
         </PanelBoundary>
         <ErrorNotices />
-        {fileDrop.active && !fileDrop.links && !takenInside && <DropOverlay />}
         <p role="status" data-testid="sidebar-announcement" className="sr-only">
           {announcement}
         </p>

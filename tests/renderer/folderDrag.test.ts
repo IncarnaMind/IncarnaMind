@@ -89,11 +89,12 @@ describe("files from Finder dropped on a Folder (#212)", () => {
       documents: [],
       library: { groups: [{ id: "f", name: "Finance" }], assignments: [] } as never,
     });
-    const one: Dragged = { kind: "files", types: ["text/plain"], names: ["Budget.txt"] };
+    // A real drag says only the files' types; their names come with the drop.
+    const one: Dragged = { kind: "files", types: ["text/plain"], names: null };
     const target = targets.folderTarget("f");
     const en = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
     expect(target.accepts(one, at)?.said?.(en)).toBe("Add to Finance");
-    expect(target.accepts({ ...one, names: ["Budget.txt", "Ledger.txt"] }, at)?.said?.(en)).toBe(
+    expect(target.accepts({ ...one, types: ["text/plain", "text/plain"] }, at)?.said?.(en)).toBe(
       "Add 2 files to Finance",
     );
     expect(targets.folderTarget(null).accepts(one, at)).toBeNull();

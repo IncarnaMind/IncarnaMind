@@ -9,9 +9,11 @@ import {
   decisionServer,
   dismissChatSetup,
   dragOnto,
+  interceptOpenDialog,
   launchApp,
   leaveText,
   motionSettled,
+  paletteFound,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -23,13 +25,15 @@ import {
 /*
  * Filing Documents with the shared building blocks (#212): a row dragged onto
  * a sidebar Folder or "Not in a Folder", several selected dragged together, a
- * file from Finder dropped on a Folder, Move to… by ⇧⌘M and from the Folder
- * line a search shows, each with one ⌘Z that puts every Document back; the
- * registry's menus on a Document and a Folder, with Add Documents here…,
- * Rename and Delete; no dropdown on a row and no row of text buttons on the
- * Folder's page; the sidebar's and the Library's counts after every move; and
- * an automatic Folder kept automatic when a move is taken back. English and
- * Simplified Chinese, at 900 and 1,600 pixels.
+ * file from Finder dropped on a Folder while only the Folder lights and the
+ * card's overlay stays quiet, Move to… by ⇧⌘M and from the Folder line a
+ * search shows, each move with one ⌘Z that puts every Document back; the
+ * registry's menus on a Document and a Folder, with Add Documents here… run
+ * from the menu by keyboard and from ⌘K, New note here, Rename and Delete; no
+ * dropdown on a row and no row of text buttons on the Folder's page; the
+ * sidebar's and the Library's counts after every move; and an automatic
+ * Folder kept automatic when a move is taken back. English and Simplified
+ * Chinese, at 900 and 1,600 pixels.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -58,6 +62,7 @@ const WORDS = {
     moveLabel: (folder: string) => `Move to ${folder}`,
     moveLabelMany: (count: number, folder: string) => `Move ${count} Documents to ${folder}`,
     dropFiles: (folder: string) => `Add to ${folder}`,
+    cardDrop: "Drop files to add them, or a folder to link it",
     addedOne: "Added 1 Document",
     folderRenamed: (name: string) => `Renamed to “${name}”`,
     folderDeleted: (name: string) => `Moved “${name}” to Recently deleted`,
@@ -76,6 +81,7 @@ const WORDS = {
     moveLabel: (folder: string) => `移动到“${folder}”`,
     moveLabelMany: (count: number, folder: string) => `将 ${count} 个文档移动到“${folder}”`,
     dropFiles: (folder: string) => `添加到“${folder}”`,
+    cardDrop: "松开即可添加文件；松开文件夹则添加为关联文件夹",
     addedOne: "已添加 1 个文档",
     folderRenamed: (name: string) => `已重命名为“${name}”`,
     folderDeleted: (name: string) => `已将“${name}”移到回收站`,
@@ -252,29 +258,38 @@ async function droppedFile(name: string): Promise<string> {
 /**
  * Drops files from outside the window onto `target`, as Finder does: the
  * browser's own drag events, carrying real paths, at the target's middle.
+ * Given `entering`, the drag goes over that first, and `check` looks at what
+ * the window shows before it moves on to `target`.
  */
 async function dropFromFinder(
   window: Page,
   target: Locator,
   paths: readonly string[],
   whileOver?: () => Promise<void>,
+  entering?: { at: Locator; check: () => Promise<void> },
 ): Promise<void> {
-  await target.scrollIntoViewIfNeeded();
-  const box = await target.boundingBox();
-  if (!box) throw new Error("The drop target isn't showing.");
-  const x = Math.round(box.x + box.width / 2);
-  const y = Math.round(box.y + box.height / 2);
-  const session = await window.context().newCDPSession(window);
+  const middleOf = async (locator: Locator) => {
+    await locator.scrollIntoViewIfNeeded();
+    const box = await locator.boundingBox();
+    if (!box) throw new Error("The drop target isn't showing.");
+    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  };
   const data = {
     items: [{ mimeType: "text/plain", data: "" }],
     files: [...paths],
     dragOperationsMask: 1,
   };
+  const session = await window.context().newCDPSession(window);
   try {
-    await session.send("Input.dispatchDragEvent", { type: "dragEnter", x, y, data });
-    await session.send("Input.dispatchDragEvent", { type: "dragOver", x, y, data });
+    const start = await middleOf(entering?.at ?? target);
+    await session.send("Input.dispatchDragEvent", { type: "dragEnter", ...start, data });
+    await session.send("Input.dispatchDragEvent", { type: "dragOver", ...start, data });
+    await entering?.check();
+    const point = await middleOf(target);
+    if (entering)
+      await session.send("Input.dispatchDragEvent", { type: "dragOver", ...point, data });
     await whileOver?.();
-    await session.send("Input.dispatchDragEvent", { type: "drop", x, y, data });
+    await session.send("Input.dispatchDragEvent", { type: "drop", ...point, data });
   } finally {
     await session.detach();
   }
@@ -417,23 +432,40 @@ for (const [language, width] of [
       await undo(window);
       await expect.poll(() => folderOfDocument(window, fourth)).toBe(seeded.finance);
 
-      // A file dropped from Finder onto the Folder is added into it, through the same target.
+      // A file dropped from Finder onto the Folder is added into it, through the same target. Over
+      // the card the card lights for the Library's add; over the Folder only the Folder lights, and
+      // the card's overlay hides, so the Folder being aimed at is never covered.
       const droppedName = language === "en" ? "Field notes" : "现场记录";
       const dropped = await droppedFile(droppedName);
-      await dropFromFinder(window, finance.getByTestId("folder-row"), [dropped], async () => {
-        await expect(finance).toHaveAttribute("data-drop-target", "true");
-        await expect(window.getByTestId("drop-label")).toHaveText(
-          words.dropFiles(words.folders.finance),
-        );
-        await screenshot(window, `finder-drop-${language}-${width}`);
-      });
+      await dropFromFinder(
+        window,
+        finance.getByTestId("folder-row"),
+        [dropped],
+        async () => {
+          await expect(finance).toHaveAttribute("data-drop-target", "true");
+          await expect(window.getByTestId("drop-label")).toHaveText(
+            words.dropFiles(words.folders.finance),
+          );
+          await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
+          await screenshot(window, `finder-drop-${language}-${width}`);
+        },
+        {
+          at: library.getByTestId("library-heading"),
+          check: async () => {
+            await expect(window.getByTestId("card").getByTestId("drop-overlay")).toContainText(
+              words.cardDrop,
+            );
+            await expect(finance).not.toHaveAttribute("data-drop-target", "true");
+          },
+        },
+      );
       await expect(window.getByTestId("drop-label")).toHaveCount(0);
       await expect(undoMessage(window)).toHaveText(words.addedOne);
       await expect
         .poll(() => folderOfDocument(window, droppedName), { timeout: 30_000 })
         .toBe(seeded.finance);
       await expect(libraryRow(library, droppedName)).toHaveCount(1);
-      // Minutes stayed in Finance when its move out was taken back, so one Document is loose the fewer.
+      // The fourth Document stayed in Finance when its move out was taken back, so one is loose the fewer.
       await expectCounts(window, library, seeded, {
         finance: 2,
         research: 0,
@@ -463,8 +495,22 @@ for (const [language, width] of [
       await window.keyboard.press("Enter");
       await expect(undoMessage(window)).toHaveText(words.movedOne(second, words.folders.archive));
       await expect.poll(() => folderOfDocument(window, second)).toBe(seeded.archive);
+      await expectCounts(window, library, seeded, {
+        finance: 1,
+        research: 0,
+        archive: 1,
+        loose: loose - 2,
+        total: loose,
+      });
       await undo(window);
       await expect.poll(() => folderOfDocument(window, second)).toBeNull();
+      await expectCounts(window, library, seeded, {
+        finance: 1,
+        research: 0,
+        archive: 0,
+        loose: loose - 1,
+        total: loose,
+      });
 
       // A search shows the row's Folder as a quiet text button with a chevron on hover, which opens
       // Move to…; the row has no dropdown.
@@ -475,28 +521,65 @@ for (const [language, width] of [
       await typeFolderInto(window, picker, words.folders.research);
       await window.keyboard.press("Enter");
       await expect.poll(() => folderOfDocument(window, third)).toBe(seeded.research);
+      await expectCounts(window, library, seeded, {
+        finance: 1,
+        research: 1,
+        archive: 0,
+        loose: loose - 2,
+        total: loose,
+      });
       await search.fill(third);
       const placedLine = libraryRow(library, third).getByTestId("library-path");
       await expect(placedLine).toHaveText(words.folders.research);
       const chevron = libraryRow(library, third).getByTestId("library-path-chevron");
-      // Pointed away from the row, the chevron is quiet until the row or the line is pointed at.
+      // Pointed away from the line, the chevron is quiet until the line is pointed at.
       await pointAt(window, library.getByTestId("library-heading"));
       await expect(chevron).toHaveCSS("opacity", "0");
       await pointAt(window, placedLine);
       await expect(chevron).toHaveCSS("opacity", "1");
       await screenshot(window, `folder-line-${language}-${width}`);
+      // A ⌘-click on the line only changes the selection, as anywhere in the row; it does not
+      // open Move to….
+      const bar = library.getByTestId("library-selection");
+      const surveyRow = libraryRow(library, third);
+      const selectedBefore = (await surveyRow.getAttribute("aria-selected")) === "true";
+      await pointAndClick(window, placedLine, { modifiers: ["ControlOrMeta"] });
+      await expect(picker).toHaveCount(0);
+      await expect(surveyRow).toHaveAttribute("aria-selected", String(!selectedBefore));
       await pointAndClick(window, placedLine);
       await expect(picker.getByTestId("move-to-search")).toBeFocused();
       await typeFolderInto(window, picker, words.folders.archive);
       await window.keyboard.press("Enter");
       await expect(undoMessage(window)).toHaveText(words.movedOne(third, words.folders.archive));
       await expect.poll(() => folderOfDocument(window, third)).toBe(seeded.archive);
+      // Every Folder's section shows the counts once the search is cleared.
+      await search.fill("");
+      await expectCounts(window, library, seeded, {
+        finance: 1,
+        research: 0,
+        archive: 1,
+        loose: loose - 2,
+        total: loose,
+      });
       // Back to the Folder it was in, then out of every Folder.
       await undo(window);
       await expect.poll(() => folderOfDocument(window, third)).toBe(seeded.research);
+      await expectCounts(window, library, seeded, {
+        finance: 1,
+        research: 1,
+        archive: 0,
+        loose: loose - 2,
+        total: loose,
+      });
       await undo(window);
       await expect.poll(() => folderOfDocument(window, third)).toBeNull();
-      await search.fill("");
+      await expectCounts(window, library, seeded, {
+        finance: 1,
+        research: 0,
+        archive: 0,
+        loose: loose - 1,
+        total: loose,
+      });
       await expect(library.locator("select")).toHaveCount(0);
 
       // A right-click on a Document opens the registry's menu, whose Move to… moves it.
@@ -508,11 +591,26 @@ for (const [language, width] of [
       await typeFolderInto(window, picker, words.folders.archive);
       await window.keyboard.press("Enter");
       await expect.poll(() => folderOfDocument(window, fourth)).toBe(seeded.archive);
+      await expectCounts(window, library, seeded, {
+        finance: 0,
+        research: 0,
+        archive: 1,
+        loose: loose - 1,
+        total: loose,
+      });
       await undo(window);
       await expect.poll(() => folderOfDocument(window, fourth)).toBe(seeded.finance);
+      await expectCounts(window, library, seeded, {
+        finance: 1,
+        research: 0,
+        archive: 0,
+        loose: loose - 1,
+        total: loose,
+      });
 
       // A right-click on a Folder opens the same menu, with New note here, Add Documents here…,
-      // Rename and Delete last; each one does what it says, and ⌘Z takes it back.
+      // Rename and Delete last; each one does what it says, and the add, the rename and the delete
+      // are each taken back by ⌘Z.
       const financeRow = () =>
         window
           .getByTestId("library-folders")
@@ -528,7 +626,10 @@ for (const [language, width] of [
       await expect(folderMenu.getByTestId("folder.delete")).toContainText(words.delete);
       await screenshot(window, `folder-menu-${language}-${width}`);
 
-      // The same menu by keyboard alone: Shift+F10 on the focused Folder, then the arrows.
+      // The same menu by keyboard alone: Shift+F10 on the focused Folder, the arrows, then Enter
+      // runs Add Documents here… on a file the system's dialog gives.
+      const addedByKeyboard = language === "en" ? "Added by keyboard" : "通过键盘添加";
+      await interceptOpenDialog(app, await droppedFile(addedByKeyboard));
       await window.keyboard.press("Escape");
       await financeRow().focus();
       await window.keyboard.press("Shift+F10");
@@ -538,30 +639,18 @@ for (const [language, width] of [
       await expect(keyboardMenu.getByTestId("folder.newMind")).toBeFocused();
       await window.keyboard.press("ArrowDown");
       await expect(keyboardMenu.getByTestId("folder.addDocuments")).toBeFocused();
-      await window.keyboard.press("Escape");
+      await window.keyboard.press("Enter");
       await expect(keyboardMenu).toHaveCount(0);
-
-      // New note here makes a note in this Folder.
-      await pointAndClick(window, financeRow(), { button: "right" });
-      await pointAndClick(
-        window,
-        window
-          .getByTestId("folder-actions")
-          .filter({ visible: true })
-          .getByTestId("folder.newMind"),
-      );
-      await expect.poll(() => mindCount(window, seeded.finance)).toBe(1);
-      await openLibrary(window);
+      await expect
+        .poll(() => folderOfDocument(window, addedByKeyboard), { timeout: 30_000 })
+        .toBe(seeded.finance);
+      await expect(undoMessage(window)).toHaveText(words.addedOne);
+      await undo(window);
+      await expect(libraryRow(library, addedByKeyboard)).toHaveCount(0);
 
       // Add Documents here… adds the file the system's dialog gives into this Folder.
       const addedHere = language === "en" ? "Added here" : "在此添加";
-      const addedPath = await droppedFile(addedHere);
-      await app.evaluate(({ dialog }, file: string) => {
-        dialog.showOpenDialog = (async () => ({
-          canceled: false,
-          filePaths: [file],
-        })) as unknown as typeof dialog.showOpenDialog;
-      }, addedPath);
+      await interceptOpenDialog(app, await droppedFile(addedHere));
       await pointAndClick(window, financeRow(), { button: "right" });
       await pointAndClick(
         window,
@@ -574,8 +663,44 @@ for (const [language, width] of [
         .poll(() => folderOfDocument(window, addedHere), { timeout: 30_000 })
         .toBe(seeded.finance);
       await expect(undoMessage(window)).toHaveText(words.addedOne);
+      await expectCounts(window, library, seeded, {
+        finance: 2,
+        research: 0,
+        archive: 0,
+        loose: loose - 1,
+        total: loose + 1,
+      });
       await undo(window);
-      await expect.poll(() => folderOfDocument(window, addedHere)).toBeNull();
+      // The Undo takes the added Document out of the Library, not just out of the Folder.
+      await expect(libraryRow(library, addedHere)).toHaveCount(0);
+      await expectCounts(window, library, seeded, {
+        finance: 1,
+        research: 0,
+        archive: 0,
+        loose: loose - 1,
+        total: loose,
+      });
+
+      // ⌘K runs the same Add Documents here… for the Folder with the focus.
+      const addedFromPalette = language === "en" ? "Added from ⌘K" : "通过命令面板添加";
+      await interceptOpenDialog(app, await droppedFile(addedFromPalette));
+      if ((await bar.count()) > 0) {
+        await pointAndClick(window, bar.getByTestId("library-selection-clear"));
+      }
+      await financeRow().focus();
+      await window.keyboard.press("ControlOrMeta+k");
+      await expect(window.getByTestId("palette-search")).toBeFocused();
+      await window.keyboard.type(words.addDocumentsHere.replace(/…$/, ""));
+      const paletteItem = paletteFound(window).filter({ hasText: words.addDocumentsHere });
+      await expect(paletteItem).toHaveCount(1);
+      await window.keyboard.press("Enter");
+      await expect(window.getByTestId("palette")).toHaveCount(0);
+      await expect
+        .poll(() => folderOfDocument(window, addedFromPalette), { timeout: 30_000 })
+        .toBe(seeded.finance);
+      await expect(undoMessage(window)).toHaveText(words.addedOne);
+      await undo(window);
+      await expect(libraryRow(library, addedFromPalette)).toHaveCount(0);
 
       // Rename renames the Folder in place, with Undo.
       const renamed = language === "en" ? "Finance renamed" : "财务改名";
@@ -604,6 +729,18 @@ for (const [language, width] of [
       await undo(window);
       await expect.poll(() => folderNames(window)).toContain(words.folders.finance);
       await expect.poll(() => folderOfDocument(window, fourth)).toBe(seeded.finance);
+
+      // New note here adds a note to this Folder. It comes last: a Folder's sidebar count includes
+      // its notes, so it would change the Document counts checked above.
+      await pointAndClick(window, financeRow(), { button: "right" });
+      await pointAndClick(
+        window,
+        window
+          .getByTestId("folder-actions")
+          .filter({ visible: true })
+          .getByTestId("folder.newMind"),
+      );
+      await expect.poll(() => mindCount(window, seeded.finance)).toBe(1);
 
       // The Folder's page has no row of text buttons, and no Library row has a dropdown.
       await expect(library2.getByRole("button", { name: words.folderPageButtons })).toHaveCount(0);

@@ -176,13 +176,16 @@ test("a link pasted or dropped on a Folder in the sidebar is saved there; one th
   await expect(folder).toHaveAttribute("data-count", "1");
   await expect(folder.getByTestId("document-list-item")).toContainText(TITLE);
 
-  // Dragged over the window, the Folders stay in sight; dropped on one, it is saved there.
-  await dragLink(row, `${site}/tea-dropped`, false);
+  // Over the card, it lights with the page's words; over a Folder only the Folder lights and the
+  // card's overlay is quiet, so the Folder being aimed at stays in sight; dropped on it, it is
+  // saved there.
+  await dragLink(window.getByTestId("tab-groups"), `${site}/tea-dropped`, false);
   await expect(window.getByTestId("drop-overlay")).toContainText("drop it on a Folder");
+  await dragLink(row, `${site}/tea-dropped`, false);
+  await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
   await expect(folder).toHaveAttribute("data-drop-target", "true");
   await screenshot(window, "web-page-drag");
   await dragLink(row, `${site}/tea-dropped`);
-  await expect(window.getByTestId("drop-overlay")).toBeHidden();
   await expect(folder).toHaveAttribute("data-count", "2");
 
   await paste(window, `${site}/gone`);

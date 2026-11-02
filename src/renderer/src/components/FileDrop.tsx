@@ -36,10 +36,11 @@ export function useFileDrop(
 }
 
 /**
- * Shown while files are dragged over the window: blue, as something to act
- * on. Opaque, so nothing under it (an empty Mind's words) shows through its
- * own. For links it covers only the card, so the sidebar's Folders, which
- * take a link too, stay in sight.
+ * Shown while files or links are dragged over the window: blue, as something
+ * to act on. It covers only the card, so the sidebar's Folders, which take
+ * either, stay in sight and are the one target lit while the drag is over
+ * one; opaque, so nothing under it (an empty Mind's words) shows through its
+ * own.
  */
 export function DropOverlay({ links = false }: { links?: boolean }) {
   const t = useT();

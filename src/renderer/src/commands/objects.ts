@@ -420,8 +420,8 @@ export const folderCommands: readonly Command[] = [
     id: "folder.addDocuments",
     label: "folder.addDocumentsHere",
     group: "main",
-    top: 23,
     appliesTo: ["folder"],
+    when: onlyOne,
     // It waits for the User's choice in a file picker.
     assistant: false,
     reversible: true,
