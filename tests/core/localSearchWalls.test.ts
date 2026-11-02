@@ -153,6 +153,39 @@ describe("a search on this computer keeps to the Folder walls (#1934)", () => {
     core.close();
   });
 
+  test("an asked Question reads its Note while it can, and the Folder recorded with it after", async () => {
+    const core = startCore(await createTempDataFolder());
+    const documents = await files(core);
+    const wall = await core.createLibraryGroup({
+      name: "Client work",
+      description: "",
+      keepInside: true,
+    });
+    await core.assignDocumentGroup(named(documents, "Lease").id, wall.id);
+    const inside = await core.createMind({ title: "Inside", folderId: wall.id });
+    const outside = await core.createMind({ title: "Outside" });
+    const asked = (mindId: string, folderAskedIn: string, deleted?: true) => ({
+      kind: "asked" as const,
+      askedFrom: { mindId, ...(deleted && { deleted }) },
+      folderAskedIn,
+    });
+    const at = async (place: ReturnType<typeof asked>, word: string) =>
+      names(await core.searchPassages(word, { mode: "keyword", place }));
+
+    // Asked from the Note in the wall, recorded outside it: the Note is read, so only its wall.
+    expect(await at(asked(inside.id, ""), "lease")).toEqual(["Lease"]);
+    expect(await at(asked(inside.id, ""), "tide")).toEqual([]);
+
+    // Asked from the Note outside, recorded inside: the Note is read, so never the wall.
+    expect(await at(asked(outside.id, wall.id), "tide")).toEqual(["Tide"]);
+    expect(await at(asked(outside.id, wall.id), "lease")).toEqual([]);
+
+    // Recorded as deleted when it was asked: the Folder recorded with it decides, not the Note now.
+    expect(await at(asked(outside.id, wall.id, true), "lease")).toEqual(["Lease"]);
+    expect(await at(asked(outside.id, wall.id, true), "tide")).toEqual([]);
+    core.close();
+  });
+
   test("reads nothing when an asked Question's Folder wasn't recorded", async () => {
     const core = startCore(await createTempDataFolder());
     await files(core);
