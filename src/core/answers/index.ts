@@ -1482,7 +1482,6 @@ export function createAnswers(options: AnswersOptions) {
      * model, once prepared (ADR-0021). Off, the Answer is as it was before them.
      */
     let calculating = false;
-    let analysisOffered = false;
     /** Its `calculate` calls, as one Tool call (see `calculatedCall`), once a figure is recorded. */
     let calculated: AnswerToolCall | null = null;
     const recordedFigures = new Set<number>();
@@ -2305,7 +2304,6 @@ export function createAnswers(options: AnswersOptions) {
         return;
       }
       calculating = offersCalculate(prepared.capabilities);
-      analysisOffered = offersAnalysis(prepared.capabilities);
       workbookToolsOffered =
         offersWorkbookTools(prepared.capabilities) &&
         input.toolSet === undefined &&
@@ -2826,7 +2824,7 @@ export function createAnswers(options: AnswersOptions) {
         : [];
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
-        analysisOffered &&
+        offersAnalysis(prepared.capabilities) &&
         input.toolSet === undefined &&
         !help &&
         (input.analyse === true || options.documents.searchableHasSheets(documentIds))

@@ -6,8 +6,11 @@ import { type ChatProviderKind, chatProviderKinds } from "../../src/core/api";
 import { automaticTagging } from "../../src/core/library/tagging";
 import {
   calculates,
+  checkCalculates,
   cloudWindow,
   givesStructuredOutput,
+  offersAnalysis,
+  offersWorkbookTools,
   readsImages,
   resolveCapabilities,
   startingSupport,
@@ -361,6 +364,25 @@ describe("The provider catalog", () => {
     // Only models measured to use it well (#438, then the evaluation #441).
     expect(calculates(fromCatalog(kind, modelId))).toBe(offered);
   });
+
+  test.each<[ChatProviderKind, string, boolean]>([
+    ["anthropic", "claude-haiku-5-5", true],
+    ["claude-account", "claude-sonnet-5-5", true],
+    ["openai", "gpt-6-luna", true],
+    ["chatgpt", "gpt-6-sol", true],
+    ["deepseek", "deepseek-flash", false],
+    ["deepseek", "deepseek-v4-flash", false],
+  ])(
+    "%s %s is offered the workbook Tools, the Analysis Tool and calculate in checks: %s",
+    (kind, modelId, offered) => {
+      const capabilities = fromCatalog(kind, modelId);
+      expect([
+        offersWorkbookTools(capabilities),
+        offersAnalysis(capabilities),
+        checkCalculates(capabilities),
+      ]).toEqual([offered, offered, offered]);
+    },
+  );
 
   test.each<[ChatProviderKind, string, boolean]>([
     ["anthropic", "claude-sonnet-5-5", true],

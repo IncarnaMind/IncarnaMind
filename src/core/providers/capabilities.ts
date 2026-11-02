@@ -81,7 +81,7 @@ export const offersWorkbookTools = (capabilities: ModelCapabilities): boolean =>
 
 /** Whether an Answer that offers `calculate` also offers the Analysis Tool: only when a source says so. */
 export const offersAnalysis = (capabilities: ModelCapabilities): boolean =>
-  calculates(capabilities) && capabilities.facts.analysis === true;
+  calculates(capabilities) && capabilities.facts.analysisTool === true;
 
 /** Whether a claim check offers the model `calculate`: only when a source says so. */
 export const checkCalculates = (capabilities: ModelCapabilities): boolean =>

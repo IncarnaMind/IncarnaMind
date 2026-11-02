@@ -44,11 +44,10 @@ const KIMI = { temperature: false, forcedToolChoice: false } as const;
 /** GLM takes JSON mode but no JSON schema, and only automatic Tool choice. */
 const GLM = { structuredOutput: "json_object", forcedToolChoice: false } as const;
 
-/** `calculate` in Answers and checks, with the workbook and Analysis Tools beside it. */
 const CALCULATES_EVERYWHERE = {
   calculates: true,
   workbookTools: true,
-  analysis: true,
+  analysisTool: true,
   checkCalculates: true,
 } as const;
 
@@ -132,8 +131,9 @@ export const OVERRIDES: CatalogOverrides = {
     },
     deepseek: {
       // calculate in Answers only: DeepSeek Flash used it on #441's 72 Questions with no figure
-      // wrongly marked checked (#2399). Its workbook, Analysis and claim-check calculate weren't
-      // measured, nor were V4 Pro and the vision model.
+      // wrongly marked checked (#2399). DeepSeek's API now serves deepseek-v4-flash as this model,
+      // so it gets the same. Its workbook, Analysis and claim-check calculate weren't measured, nor
+      // were V4 Pro and the vision model.
       "deepseek-flash": {
         calculates: true,
         // The peak price, from the Chinese price page; the rest of the day it is half.
