@@ -6614,6 +6614,24 @@ export const en = {
   "answer.notCalculated.unavailable":
     "No calculation ran: this model can’t use IncarnaMind’s calculation Tool, so the figures worked out in this reply are unchecked",
   "answer.notSearched": "No search ran: this reply wasn’t drawn from a search",
+  "answer.notDone.command":
+    "The assistant didn’t do everything in the app that this reply says it did",
+  "answer.notDone.privacy":
+    "“Keep everything on this computer” and what goes to cloud services weren’t changed. Only you can change them, in Settings › Privacy",
+  "answer.notDone.keys":
+    "Keys and sign-ins weren’t changed. Only you can change them, in Settings › Models",
+  "answer.notDone.spending":
+    "The monthly spending cap wasn’t changed. Only you can change it, in Settings › General",
+  "answer.notDone.approvals":
+    "What the assistant may do without asking wasn’t changed. Only you can change it, in Settings › Privacy",
+  "answer.notDone.permanent":
+    "Nothing was deleted for good. Only you can do that, in Recently deleted",
+  "answer.notDone.wall":
+    "Whether a Folder keeps its work inside it wasn’t changed. Only you can change it, in the Folder’s ⋯ menu",
+  "answer.notDone.signOff":
+    "Nothing was marked “Checked by me”. Only you can do that, on each Citation’s card",
+  "answer.notDone.authorship":
+    "No text was marked as yours. Only you can do that: select it and choose “Mark as mine”",
   "answer.uncitedReply":
     "This reply has no Citations, so none of it was checked against your Documents",
   "answer.uncitedWrite":

@@ -806,6 +806,12 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
           line += `\n  ${calls.join("\n  ")}\n  window: ${seen.window.map((each) => each.command).join(", ") || "none"}\n  > ${answer.text.replace(/\s+/g, " ").slice(0, 600)}`;
           if (seen.questions.length > 0)
             line += `\n  questions: ${seen.questions.map((each) => each.request.question.question).join(" | ")}`;
+          // What the claim check left under the reply (#2407).
+          const flagged = [
+            ...(answer.steps?.unbackedCommands ?? []),
+            ...(answer.steps?.unbackedClaims ?? []).map((claim) => `note ${claim}`),
+          ];
+          line += `\n  lines under the reply: ${flagged.join(", ") || "none"}`;
           try {
             request.check(seen);
             ranOnce(seen);
