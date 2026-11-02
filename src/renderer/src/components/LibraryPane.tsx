@@ -35,8 +35,9 @@ import {
 } from "../libraryPage";
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
+import { looseDocumentIds, organizeDocuments, useProposing } from "../organizeDocuments";
 import { organizeStateOf } from "../organizeOutcome";
-import { ownsATag, useLibraryDocuments } from "../ownDocuments";
+import { DAY_ONE_DOCUMENTS, ownsATag, useLibraryDocuments, useOwnDocuments } from "../ownDocuments";
 import { useDeleted } from "../recentlyDeleted";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
@@ -257,6 +258,23 @@ export function LibraryPane() {
     () => documents.length > 0 && documents.every((doc) => states.get(doc.id)?.place === "sorted"),
     [documents, states],
   );
+  // 8 or more loose Documents of the User's own and no Folder yet: sorting them is the page's
+  // one primary action (#1942). It runs here, and one Undo takes back the suggestions and the
+  // Folders it made. The example's own Documents are not counted: they are never sorted.
+  const ownDocuments = useOwnDocuments();
+  const looseOwn = useMemo(
+    () => ownDocuments.filter((document) => folderOf(document.id) === null).length,
+    [ownDocuments, folderOf],
+  );
+  const proposing = useProposing((state) => state.proposing);
+  const organizing = proposing || [...states.values()].some((state) => state.run === "working");
+  const sortIntoFolders =
+    folders.length === 0 && looseOwn >= DAY_ONE_DOCUMENTS && !narrowing
+      ? () =>
+          organizeDocuments(looseDocumentIds(useAppStore.getState())).catch(
+            useAppStore.getState().reportError,
+          )
+      : null;
   const review = useMemo(
     () => toReviewOf(ordered, folders, snapshot?.assignments ?? []),
     [ordered, folders, snapshot?.assignments],
@@ -405,6 +423,8 @@ export function LibraryPane() {
             notSorted={notSortedCount}
             sorted={allSorted}
             onReview={() => useAppStore.getState().openLibrary("review")}
+            onSortIntoFolders={sortIntoFolders}
+            sorting={organizing}
             search={search}
             onSearch={setSearch}
             onEnter={askAbout}

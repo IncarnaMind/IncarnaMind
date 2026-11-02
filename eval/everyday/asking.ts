@@ -548,7 +548,7 @@ export async function runCase(
     { choose: each.answerAsk, stopped: () => (stoppedAtAsk.last = true) },
   );
   const answeredSeconds = (Date.now() - started) / 1000;
-  const asks = watch ? { ...watch.end() } : { again: 0, citations: 0 };
+  const asks = watch ? { ...watch.end() } : { again: 0, coverage: 0, citations: 0 };
   const forced = deciding ? deciding.forcing.end() : 0;
   const decision = decided.last;
   counting();
@@ -653,7 +653,8 @@ export async function runCase(
     writtenInMinds,
     addedToPage: page,
     givenToMinds,
-    askedAgain: asks.again > 0,
+    askedAgain: asks.again > 0 || asks.coverage > 0,
+    coverageAsks: asks.coverage,
     scoped,
     texts: each.expected.textDates ? DATED_TEXTS : undefined,
     stoppedAtAsk: stoppedAtAsk.last,

@@ -21,7 +21,7 @@ import {
 import { judgeClaims, judgeDocumentAbsence, verdictIn } from "../../eval/everyday/judge";
 import { languageRates, rowRates } from "../../eval/everyday/rates";
 import { ASKED_AGAIN } from "../../eval/everyday/reasks";
-import type { AnswerToolCall } from "../../src/core";
+import type { AnswerSteps, AnswerToolCall } from "../../src/core";
 import { askAgainNote } from "../../src/core/answers/claimedChanges";
 import { scriptedModel } from "../helpers/models";
 
@@ -314,6 +314,7 @@ describe("The everyday request guards", () => {
       "已写好教程的“总结”。2306.10683v1 留待下次总结。",
       "Made “Summary” of the tutorial.\n\nThis one is left for the next summary, as one covers 8 at a time:\n- “2306.10683v1”",
       "已写好教程的“总结”。以下文档留待下次总结：\n\n1. 2306.10683v1",
+      "已写好教程的“总结”。“2306.10683v1”这份不在本次摘要中，因为一次最多覆盖八份。",
     ]) {
       expect(requestFailures(one(text))).toEqual([]);
       expect(documentsCovered(one(text))).toEqual({
@@ -328,6 +329,35 @@ describe("The everyday request guards", () => {
     expect(documentsCovered(unsaid).unsaid).toEqual(["2306.10683v1"]);
     const listed = one("Made “Summary” of the tutorial. The papers here:\n- 2306.10683v1");
     expect(documentsCovered(listed)).toMatchObject({ named: [], unsaid: ["2306.10683v1"] });
+  });
+
+  // protects=the reply the 2026-11-02 run wrote, naming four Documents as "不在本次摘要中", counts each as said; fails_when="不在" is not read as saying they weren't covered (#894); no_claim=none beyond protects.
+  test("“不在本次摘要中” says the four Documents were not covered", () => {
+    const cited = [
+      { id: "risk", name: "National Risk Register 2023" },
+      { id: "mamba", name: "Mamba" },
+    ];
+    const left = [
+      { id: "stats", name: "中华人民共和国2023年国民经济和社会发展统计公报" },
+      { id: "corpus", name: "What a Corpus Teaches" },
+      { id: "keys", name: "Weighted Keys Shorter Paths" },
+      { id: "tuner", name: "Tuning the Tuner" },
+    ];
+    const answer = outcome({
+      answer: {
+        text: "“中华人民共和国2023年国民经济和社会发展统计公报”、“What a Corpus Teaches”、“Weighted Keys Shorter Paths”和“Tuning the Tuner”这四份文档不在本次摘要中，因为一次最多只能覆盖八份。",
+        citations: [],
+        toolCalls: [created],
+        steps: null,
+      },
+      citedInMinds: cited.map((each) => each.id),
+      scoped: [...cited, ...left],
+    });
+    expect(documentsCovered(answer)).toMatchObject({
+      named: left.map((each) => each.name),
+      unsaid: [],
+    });
+    expect(requestFailures(answer)).toEqual([]);
   });
 
   // protects=a standalone “Yet” in ordinary prose does not count as saying an uncited Document was left out; fails_when=it does (#894); no_claim=none beyond protects.
@@ -1278,5 +1308,86 @@ describe("The filing guards", () => {
     expect(
       missing("季报中的现金转换周期是缺失的。", [], [READ], ["季报中的现金转换周期是缺失的。"]),
     ).toEqual([]);
+  });
+});
+
+const LEFT_OUT = [
+  { id: "d8", name: "Report 9" },
+  { id: "d9", name: "Report 10" },
+  { id: "d10", name: "Report 11" },
+  { id: "d11", name: "Report 12" },
+];
+
+const cappedSteps = (
+  ids: readonly string[] = LEFT_OUT.map((document) => document.id),
+): AnswerSteps => ({
+  sentAt: null,
+  finishedAt: null,
+  phases: [],
+  reasoning: null,
+  coverage: { kind: "largest", used: [], rest: [...ids] },
+});
+
+const leftOut = (text: string, coverageAsks: number): RequestOutcome =>
+  outcome({
+    expected: { write: false, cite: false, coverAll: false, either: true, leftOutAsk: true },
+    answer: { text, citations: [], toolCalls: [], steps: cappedSteps() },
+    coverageAsks,
+    scoped: LEFT_OUT,
+    citedInMinds: [],
+  });
+
+describe("A capped summary's left-out Documents (#894)", () => {
+  // protects=a reply that names them all but was never asked again fails on the missing ask; fails_when=it passes; no_claim=what the model writes.
+  test("no ask fails", () => {
+    const failures = requestFailures(
+      leftOut(
+        "“Report 9”, “Report 10”, “Report 11” and “Report 12” are left for the next summary.",
+        0,
+      ),
+    );
+
+    expect(failures.map((failure) => failure.kind)).toEqual(["no-left-out-ask"]);
+  });
+
+  // protects=the reply the User reads must name every one; fails_when=a missing Document is not reported; no_claim=what the model writes.
+  test("a missing Document is named", () => {
+    const failures = requestFailures(
+      leftOut("“Report 9”, “Report 10” and “Report 11” are left for the next summary.", 1),
+    );
+
+    expect(failures).toEqual([{ kind: "left-out-unnamed", documents: ["Report 12"] }]);
+  });
+
+  // protects=a machine-made name is matched by the title the User sees; fails_when=it is reported missing; no_claim=what the model writes.
+  test("a machine-made name is named by its title", () => {
+    const failures = requestFailures(
+      outcome({
+        expected: { write: false, cite: false, coverAll: false, either: true, leftOutAsk: true },
+        answer: {
+          text: "“Annual Report 2023” is left for the next summary.",
+          citations: [],
+          toolCalls: [],
+          steps: cappedSteps(["d8"]),
+        },
+        coverageAsks: 1,
+        scoped: [{ id: "d8", name: "IMG_0042", title: "Annual Report 2023" }],
+        citedInMinds: [],
+      }),
+    );
+
+    expect(failures).toEqual([]);
+  });
+
+  // protects=one ask and all four named passes; fails_when=it fails; no_claim=what the model writes.
+  test("one ask and all four named passes", () => {
+    const failures = requestFailures(
+      leftOut(
+        "“Report 9”, “Report 10”, “Report 11” and “Report 12” are left for the next summary.",
+        1,
+      ),
+    );
+
+    expect(failures).toEqual([]);
   });
 });
