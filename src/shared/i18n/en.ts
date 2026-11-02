@@ -6697,6 +6697,10 @@ export const en = {
     "In {name}, a Citation sits between two dollar signs, which read as a formula: write it outside them.",
   "agents.propose.table":
     "The text for {name} has lines that read as a table’s rows but make no table.",
+  "agents.propose.lost":
+    "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
+  "agents.propose.unplaced":
+    "These changes would add a Citation, footnote or figure IncarnaMind didn’t place, so nothing was written. Cite only with [cite:…] tokens.",
   "agents.mind.namedChoice": "named must be true or false.",
   // Settings → Agents (#351): plain words for people who never edit a settings file.
   "settings.pages.agents": "Agents",

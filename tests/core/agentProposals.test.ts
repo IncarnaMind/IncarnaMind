@@ -687,6 +687,20 @@ describe("an outside agent's proposed changes (#352)", () => {
         ),
       ).toBe(said);
     }
+    expect(
+      refusal(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: mind.id,
+            version: again.version,
+            changes: [{ paragraph: "¶1+", text: `潮差 $x ${spring} y$。` }],
+          },
+        }),
+      ),
+    ).toBe(
+      "¶1+ 中有引用位于无法保留为引用的位置，例如公式或链接地址中：把它写在它所引用的文字之后。",
+    );
     await core.updateAgent(pairing.id, { propose: false });
     expect(
       refusal(
@@ -1240,14 +1254,23 @@ describe("an outside agent's proposed changes (#352)", () => {
         await propose([fine, { paragraph: "¶1", text: "Costs rose.\n| a | b |\nnot a row" }]),
       ),
     ).toBe("The text for ¶1 has lines that read as a table’s rows but make no table.");
+    expect(
+      refusal(await propose([fine, { paragraph: "¶2+", text: `Costs rose $x ${spring} y$.` }])),
+    ).toBe(
+      "In ¶2+, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
+    );
     expect(pendingProposals(client.blocks)).toEqual([]);
-    // Outside the dollar signs, the same token cites.
+    // Outside the formulas, the same token cites, in a rewrite and in new paragraphs.
     structured<Proposed>(
-      await propose([fine, { paragraph: "¶1", text: `Costs were $5 and $6 ${spring}.` }]),
+      await propose([
+        fine,
+        { paragraph: "¶1", text: `Costs were $5 and $6 ${spring}.` },
+        { paragraph: "¶2+", text: `Costs rose by $x$ ${spring}.` },
+      ]),
     );
     await client.settled();
     decide(client, undoOf(client), () => true, "accept");
-    expect(citationsIn(client)).toHaveLength(1);
+    expect(citationsIn(client)).toHaveLength(2);
   });
 
   it("can't propose until the User allows it: a pairing made without the grant only reads", async () => {
