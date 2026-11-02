@@ -532,7 +532,7 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
   await app.close();
 });
 
-test("the line that says nothing changed goes when a Document is edited or deleted, and stays when a Document or the Mind leaves the Folder (#2313)", async () => {
+test("the line that says nothing changed goes when a Document is edited or deleted, or the Mind leaves the Folder, and stays when a cited Document does (#2313)", async () => {
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   await writeFile(
     join(sources, "Garden.pdf"),
@@ -610,19 +610,20 @@ test("the line that says nothing changed goes when a Document is edited or delet
   await expect(check).toHaveAttribute("title", /sentences? to check$/);
   await checkedAgain();
 
-  // A Folder move changes what a new check searches, not the results the Note already holds:
-  // the line stays, and a press still finds nothing to send (#2313).
+  // A cited Document leaves the Folder: a result its quote backs holds wherever the Note is
+  // filed, so the line stays and a press still finds nothing to send (#2313).
   await inFolder(["Tides"], false, null);
   await checkCard(window);
   await expect(unchanged).toBeVisible();
   await pointAndClick(window, check);
   await expect(unchanged).toBeVisible();
 
+  // The Mind goes to another Folder: its Unsupported-with-no-quote results rested on the Folder
+  // they were read in, so they are checked in the new one (#2313).
   await inFolder([], true, null);
-  await checkCard(window);
-  await expect(unchanged).toBeVisible();
-  await pointAndClick(window, check);
-  await expect(unchanged).toBeVisible();
+  await expect(unchanged).toHaveCount(0);
+  await expect(check).toHaveAttribute("title", /sentences? to check$/);
+  await checkedAgain();
 
   await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;

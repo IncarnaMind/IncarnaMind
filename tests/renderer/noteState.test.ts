@@ -351,8 +351,9 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       ]);
       doc.destroy();
     }
-    // A retryable failure — a provider error, a rate limit — could be settled next time: Not checked.
-    for (const reason of ["failed", "rate-limit", "no-evidence"] as const) {
+    // A retryable failure — a provider error, a rate limit, a cap — could be settled next time, and
+    // an edit does not upgrade one: Not checked.
+    for (const reason of ["failed", "rate-limit", "cost-cap", "no-evidence"] as const) {
       const held = source([
         paragraph([checked("Spring tides happen at new and full moon.", "supported")]),
         paragraph([
@@ -367,7 +368,11 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     }
     // A file a narrow check couldn't read could hold the evidence: the unread reading wins.
     const narrow = source([
-      paragraph([checked("Spring tides happen at new and full moon.", "supported")]),
+      paragraph([
+        checked("Spring tides happen at new and full moon.", "supported", {
+          scope: { folderId: "tides", widened: false },
+        }),
+      ]),
       paragraph([
         checked("Harbours publish the times of high water every week.", "not-checked", {
           reason: "kept-inside",
@@ -377,7 +382,15 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       ]),
     ]);
     recordCheckUnread(narrow, "r1", [unreadFile("Locked.pdf")], new Set(["r1"]));
-    expect(read(narrow).state).toMatchObject({
+    expect(
+      readNoteState({
+        cellFigures: [],
+        doc: narrow,
+        documents: [],
+        keptCitationTexts: [],
+        folderId: "tides",
+      }).state,
+    ).toMatchObject({
       kind: "needs-look",
       tone: "warning",
       unreadMatters: true,
@@ -386,7 +399,7 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     narrow.destroy();
   });
 
-  // protects=#2313: a sentence a change made need a check leaves the Note Checked, naming it, not Not checked; fails_when=the pill turns the whole Note back while other claims keep their checks; no_claim=the run that checks it.
+  // protects=#2313: a sentence a change made need a check leaves the Note Checked, naming it, while a sentence whose check never ran stays Not checked after an edit; fails_when=the pill turns the whole Note back while other claims keep their checks, or an edit upgrades one that never ran; no_claim=the run that checks it.
   test("is Checked while a changed sentence needs a check, naming it, in English and Chinese", () => {
     const sentences = [
       paragraph([checked("Spring tides happen at new and full moon.", "supported")]),
@@ -423,6 +436,20 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     ]);
     expect(read(fresh).state).toMatchObject({ kind: "not-checked" });
     fresh.destroy();
+    // Nor does an edit upgrade a check that never ran: it still reads Not checked.
+    for (const reason of ["cost-cap", "rate-limit", "stopped", "too-many", "failed"] as const) {
+      const neverRan = source([
+        paragraph([checked("Spring tides happen at new and full moon.", "supported")]),
+        paragraph([
+          checked("Harbours publish the times of high water every week.", "not-checked", {
+            reason,
+            text: "Harbours publish the times of high water every year.",
+          }),
+        ]),
+      ]);
+      expect(read(neverRan).state).toMatchObject({ kind: "not-checked" });
+      neverRan.destroy();
+    }
   });
 
   test("stays amber when the note's Folder was searched and a file in it couldn't be read (D261)", () => {

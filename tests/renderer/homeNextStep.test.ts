@@ -134,6 +134,22 @@ describe("Home's next step", () => {
     // A note a check reads nothing in has no export step: there is nothing it checked.
     expect(choose({ note: note() })).toBeNull();
     expect(choose({ note: note({ checkable: 1, checking: [1] }) })).toBeNull();
+    // A sentence a change left to check is not ready to send, though the Note reads Checked; the
+    // count is that sentence alone, never one a check cannot settle beside it (#2313).
+    expect(
+      choose({
+        note: note({
+          checkable: 3,
+          supported: 1,
+          toCheck: [10, 18],
+          edited: [10],
+          recheck: [10],
+          failed: [18],
+          uncheckable: [18],
+          checkedAt: "2026-10-20T09:00:00.000Z",
+        }),
+      }),
+    ).toMatchObject({ kind: "check", count: 1 });
   });
 
   test("an own export ends the first path: only the latest note's check states, and none when it is done", () => {

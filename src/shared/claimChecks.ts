@@ -12,7 +12,9 @@ import {
   type ClaimCheckAttributes,
   type ClaimCheckBasis,
   type ClaimCheckFailure,
+  type ClaimCheckPart,
   type ClaimCheckScope,
+  type ClaimReadDocument,
   type ClaimVerdict,
   claimCheckActions,
   type FigureCheckAttributes,
@@ -294,14 +296,16 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
 /**
  * Why a check no longer holds: its sentence was edited (an accepted change
  * or a restored Checkpoint edits it too), a Document it read has a new
- * version, one its result rests on was deleted, or the Search scope the User
- * set for the Mind changed. Moving the Mind to another Folder changes what a
- * new check searches, not a result its Citations and their sources still back.
+ * version, one its result rests on was deleted, the Mind moved to another
+ * Folder while the result rests on a whole Folder's contents ("scope"), or the
+ * Search scope the User set for the Mind changed. A result its Citations back
+ * stays true wherever the Note is filed.
  */
 export type RecheckReason =
   | "edited"
   | "new-version"
   | "document-removed"
+  | "scope"
   | "search-scope"
   /** Checked before each of its figures was checked with its own source (#1459). */
   | "figures"
@@ -346,6 +350,28 @@ export interface ClaimCheckNow {
   note?: RecordCiteNote;
   /** The sentence as the Note holds it, its Citations included, where `text` leaves them out: what its record cites are read in. */
   noteText?(): string;
+}
+
+/** A verdict a check landed, the only kind a Folder move has a result to keep (#2313). */
+const LANDED: ReadonlySet<ClaimCheckBasis["state"]> = new Set([
+  "supported",
+  "unsupported",
+  "contradicted",
+]);
+
+/** Whether a result rests on any Citation at all: a found quote stays true wherever the Note is filed (#2313). */
+const backedByCitation = (check: ClaimCheckBasis): boolean =>
+  restsOn(check).some((each) => each.documentId !== null);
+
+/** Whether the check read whole Documents: an absence rests on the Folder's contents, and a move changes them (#2313). */
+function readWholeFolder(check: {
+  readDocuments?: readonly ClaimReadDocument[];
+  parts?: readonly ClaimCheckPart[];
+}): boolean {
+  return (
+    check.readDocuments !== undefined ||
+    (check.parts ?? []).some((part) => part.readDocuments !== undefined)
+  );
 }
 
 /** Whether a sentence's `Id.` or `supra` refers back through other cites now than when it was checked. */
@@ -495,6 +521,18 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
         return { state: "needs-recheck", why: "new-version" };
       }
     }
+  }
+  // A landed result searched the Folder it was in: filed elsewhere with Documents never read, a
+  // whole-Folder read or a result with no quote to rest on must be checked there (#2313). A check
+  // that landed nothing is not a result the move can rewrite.
+  if (
+    LANDED.has(check.state) &&
+    !check.scope.widened &&
+    !check.scope.chosen &&
+    check.scope.folderId !== now.folderId &&
+    (!backedByCitation(check) || readWholeFolder(check))
+  ) {
+    return { state: "needs-recheck", why: "scope" };
   }
   // Contradiction watch looks in the Mind's Folder, and a whole read in the User's pick.
   if (

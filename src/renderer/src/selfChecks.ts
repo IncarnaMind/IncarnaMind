@@ -94,15 +94,18 @@ export function selfCheckLines(
   }
   const checkable = checkableOf(check);
   if (check.sent < checkable) {
-    // A failure line above counts its sentences already: this line adds only what it left
-    // beyond them, so the two add up to this write's claims (#2313).
-    const remaining = left == null ? null : failed === 0 ? left : Math.max(0, left - failed);
+    // The live count of what no check covers now, as the badge counts it (#1909): the saved
+    // failures were true when the write landed, and the User may have settled some since (#2313).
+    const remaining = left ?? null;
     lines.push({
       kind: "left",
       text:
         remaining === null
           ? t("selfCheck.checkedOnly", { checked: check.checked })
-          : t("selfCheck.left", { checked: check.checked, left: remaining }),
+          : t(remaining === 1 ? "selfCheck.left.one" : "selfCheck.left", {
+              checked: check.checked,
+              left: remaining,
+            }),
       details: [],
       action: remaining === 0 ? null : { label: t("mindCheck.command"), does: "check" },
     });

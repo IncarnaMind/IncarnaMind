@@ -1189,6 +1189,8 @@ export const en = {
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
   "claim.recheck.document-removed": "A Document it was checked against was deleted.",
+  "claim.recheck.scope":
+    "The note is in another Folder now, and this result rested on the whole Folder.",
   "claim.recheck.search-scope": "The note’s Search scope has changed since.",
   "claim.recheck.figures":
     "It was checked before each of its figures was checked with its own source.",
@@ -3431,7 +3433,6 @@ export const en = {
     "1 figure couldn’t be calculated: {figures}. It was written without a calculation IncarnaMind could check.",
   "answer.figures.uncalculated.named":
     "{count} figures couldn’t be calculated: {figures}. They were written without a calculation IncarnaMind could check.",
-  "answer.figures.uncalculated.join": " and ",
   "answer.sourceNotKept": "(source couldn’t be kept)",
   "answer.status.stopped": "Stopped",
   "answer.stop": "Stop",
@@ -4498,6 +4499,8 @@ export const en = {
   "export.comment.sentence.needs-recheck.edited": "Needs re-check: changed since it was checked.",
   "export.comment.sentence.needs-recheck.new-version":
     "Needs re-check: a Document it was checked against has a new version.",
+  "export.comment.sentence.needs-recheck.scope":
+    "Needs re-check: the note is in another Folder now, and this result rested on the whole Folder.",
   "export.comment.sentence.needs-recheck.document-removed":
     "Needs re-check: a Document it was checked against was deleted.",
   "export.comment.sentence.needs-recheck.search-scope":
@@ -6490,6 +6493,7 @@ export const en = {
   "selfCheck.failed": "{count} sentences couldn’t be checked",
   "selfCheck.failed.one": "1 sentence couldn’t be checked",
   "selfCheck.left": "Checked {checked} sentences · {left} claims not checked yet",
+  "selfCheck.left.one": "Checked {checked} sentences · 1 claim not checked yet",
   "selfCheck.checkedOnly": "Checked {checked} sentences",
   "selfCheck.costCap": "{count} sentences couldn’t be checked: spending cap reached",
   "selfCheck.costCap.one": "1 sentence couldn’t be checked: spending cap reached",

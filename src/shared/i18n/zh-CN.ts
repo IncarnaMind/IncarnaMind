@@ -1150,6 +1150,7 @@ export const zhCN = {
   "claim.recheck.edited": "核对之后，这句话改过了。",
   "claim.recheck.new-version": "核对时用到的文档有了新版本。",
   "claim.recheck.document-removed": "核对时用到的文档已删除。",
+  "claim.recheck.scope": "这篇笔记已移到别的文件夹，而这条结果依赖整个文件夹的内容。",
   "claim.recheck.search-scope": "这篇笔记的搜索范围已更改。",
   "claim.recheck.figures": "核对它时，其中的数字尚未逐个对照各自的来源。",
   "claim.recheck.referent": "其中 Id. 或 supra 所指的记录引用已改动。",
@@ -3268,7 +3269,6 @@ export const zhCN = {
   "answer.figures.uncalculated.named.one": "1 个数字未能计算：{figures}。写入时没有可核对的算式。",
   "answer.figures.uncalculated.named":
     "{count} 个数字未能计算：{figures}。写入时没有可核对的算式。",
-  "answer.figures.uncalculated.join": "、",
   "answer.sourceNotKept": "（未能保留来源）",
   "answer.status.stopped": "已停止",
   "answer.stop": "停止",
@@ -4302,6 +4302,8 @@ export const zhCN = {
     "无依据：你的文档支持{covered}，但不支持{uncovered}的部分（“{quote}”，{source}）",
   "export.comment.sentence.needs-recheck.edited": "需重新核对：核对后已修改。",
   "export.comment.sentence.needs-recheck.new-version": "需重新核对：核对时用到的文档有了新版本。",
+  "export.comment.sentence.needs-recheck.scope":
+    "需重新核对：这篇笔记已移到别的文件夹，而这条结果依赖整个文件夹的内容。",
   "export.comment.sentence.needs-recheck.document-removed": "需重新核对：核对时用到的文档已删除。",
   "export.comment.sentence.needs-recheck.search-scope": "需重新核对：这篇笔记的搜索范围已更改。",
   "export.comment.sentence.needs-recheck.figures":
@@ -6164,6 +6166,7 @@ export const zhCN = {
   "selfCheck.failed": "{count} 句未能核对",
   "selfCheck.failed.one": "1 句未能核对",
   "selfCheck.left": "已核对 {checked} 句 · {left} 条说法待核对",
+  "selfCheck.left.one": "已核对 {checked} 句 · 1 条说法待核对",
   "selfCheck.checkedOnly": "已核对 {checked} 句",
   "selfCheck.costCap": "{count} 句未能核对：已达到费用上限",
   "selfCheck.costCap.one": "1 句未能核对：已达到费用上限",

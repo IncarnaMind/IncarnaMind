@@ -2633,6 +2633,98 @@ describe("Needs re-check", () => {
     ]);
   });
 
+  // protects=#2313: a Folder move keeps a result its Citations back and asks for a re-check of one the whole Folder backed (an absence with no quote); fails_when=a quoted result is forgotten, or a whole-Folder result is kept in a Folder whose Documents were never read.
+  test("a Folder move keeps a quoted result and needs a re-check for a whole-Folder one", () => {
+    const quote = {
+      passageId: "p1",
+      documentId: "d1",
+      documentName: "Tides.md",
+      contentHash: "h1",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Spring tides happen at new moon and at full moon.",
+      check: "found" as const,
+      checkReason: null,
+    };
+    const versions = new Map([["d1", "h1"]]);
+    const quoted: ClaimCheckAttributes = {
+      ...LEFT_CHECKING,
+      state: "supported",
+      text: SUPPORTED,
+      evidence: quote,
+      scope: { folderId: "folder-a", widened: false },
+      versions: [{ documentId: "d1", contentHash: "h1" }],
+    };
+    const absence: ClaimCheckAttributes = {
+      ...LEFT_CHECKING,
+      state: "supported",
+      text: "The lease has no break clause.",
+      evidence: null,
+      scope: { folderId: "folder-a", widened: false },
+      versions: [],
+      readDocuments: [
+        { documentId: "d1", documentName: "Lease.md", contentHash: "h1", locations: [] },
+      ],
+    };
+    const now = (folderId: string) => ({
+      text: SUPPORTED,
+      versions,
+      folderId,
+      scope: null,
+    });
+    expect(claimCheckShown(quoted, now("folder-a"))).toEqual({ state: "supported" });
+    expect(claimCheckShown(quoted, now("folder-b"))).toEqual({ state: "supported" });
+    expect(claimCheckShown(absence, { ...now("folder-b"), text: absence.text })).toEqual({
+      state: "needs-recheck",
+      why: "scope",
+    });
+    // A mixed claim keeps its quote but its absence part was read whole: the move still re-checks it.
+    const part = (start: number, end: number, more: object) => ({
+      span: { start, end },
+      kind: "fact" as const,
+      verdict: "supported" as const,
+      evidence: [],
+      says: null,
+      unsupported: null,
+      calculation: null,
+      reason: null,
+      detail: null,
+      versions: [],
+      excluded: [],
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      ...more,
+    });
+    const mixed: ClaimCheckAttributes = {
+      ...quoted,
+      text: "The lease has no break clause. The rent is £10,000.",
+      evidence: null,
+      parts: [
+        part(0, 29, {
+          readDocuments: [
+            { documentId: "d1", documentName: "Lease.md", contentHash: "h1", locations: [] },
+          ],
+        }),
+        part(30, 54, { evidence: [quote] }),
+      ],
+    };
+    expect(
+      claimCheckShown(mixed, { text: mixed.text, versions, folderId: "folder-b", scope: null }),
+    ).toEqual({ state: "needs-recheck", why: "scope" });
+    // A check that landed nothing is not rewritten: the move has no result to protect.
+    for (const [reason, left] of [
+      ["cost-cap", { state: "not-checked", reason: "cost-cap" }],
+      ["kept-inside", { state: "not-checked", reason: "kept-inside" }],
+    ] as const)
+      expect(
+        claimCheckShown(
+          { ...quoted, state: "not-checked", reason, evidence: null },
+          now("folder-b"),
+        ),
+      ).toEqual(left);
+  });
+
   test("Tidy's spaces and comma widths alone keep a check without parts' verdict", () => {
     const check: ClaimCheckAttributes = {
       ...LEFT_CHECKING,

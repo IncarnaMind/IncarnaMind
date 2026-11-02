@@ -4,6 +4,7 @@
  * Answer wrote, so its end says what is missing and why (#2313).
  */
 import type { AnswerToolCall, UncalculatedFigure } from "../../core/api";
+import type { Language } from "../../core/language";
 import type { Translate } from "./objects";
 
 export interface AnswerFigures {
@@ -27,22 +28,24 @@ export function figuresOf(calls: readonly AnswerToolCall[]): AnswerFigures {
 
 /**
  * What the Answer's end says for its figures: "1 figure couldn't be calculated:
- * 6.55. It was written without a calculation IncarnaMind could check." A
- * figure with no number written before it is named by its marker, as "[=1]".
+ * 6.55. It was written without a calculation IncarnaMind could check.", with a
+ * list in the language's pattern for more. A figure the Answer wrote no number
+ * before keeps only the count, never the marker's syntax (#2313).
  */
-export function uncalculatedWords(figures: AnswerFigures, t: Translate): string {
-  const named = figures.missing
-    .map((figure) => figure.written ?? `[=${figure.marker}]`)
-    .join(t("answer.figures.uncalculated.join"));
-  if (figures.uncalculated === 1) {
-    return figures.missing.length === 0
+export function uncalculatedWords(
+  figures: AnswerFigures,
+  t: Translate,
+  language: Language,
+): string {
+  const named = figures.missing.flatMap((figure) => (figure.written ? [figure.written] : []));
+  const everyFigureNamed = figures.uncalculated > 0 && named.length === figures.uncalculated;
+  if (!everyFigureNamed) {
+    return figures.uncalculated === 1
       ? t("answer.figures.uncalculated.one")
-      : t("answer.figures.uncalculated.named.one", { figures: named });
+      : t("answer.figures.uncalculated", { count: figures.uncalculated });
   }
-  return figures.missing.length === 0
-    ? t("answer.figures.uncalculated", { count: figures.uncalculated })
-    : t("answer.figures.uncalculated.named", {
-        count: figures.uncalculated,
-        figures: named,
-      });
+  const list = new Intl.ListFormat(language, { type: "conjunction" }).format(named);
+  return figures.uncalculated === 1
+    ? t("answer.figures.uncalculated.named.one", { figures: list })
+    : t("answer.figures.uncalculated.named", { count: figures.uncalculated, figures: list });
 }

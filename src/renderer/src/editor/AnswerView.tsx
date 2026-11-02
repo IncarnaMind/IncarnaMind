@@ -1207,9 +1207,10 @@ export function SkillRow({ name, use, reads }: SkillUse) {
 /** Under an Answer whose figures some couldn't be calculated: which they were, and why their numbers are missing from its text (#2313). */
 export function UncalculatedLine({ figures }: { figures: AnswerFigures }) {
   const t = useT();
+  const language = useLanguage();
   return (
     <p contentEditable={false} data-testid="answer-uncalculated" className="answer-info">
-      {uncalculatedWords(figures, t)}
+      {uncalculatedWords(figures, t, language)}
     </p>
   );
 }

@@ -67,11 +67,14 @@ export interface NoteState {
 
 /**
  * The state from `noteHealth` alone. Null when a check reads nothing: a note of headings, or
- * one whose every sentence is kept as the User's view, has nothing to show. A claim a check
- * failed, that no longer holds, or is checking right now is "Not checked": nothing has checked
- * it since its last edit, and a run in flight is never done. Unread files that could hold the
- * evidence — a check searched a scope narrower than all Documents — keep the state amber and are
- * named; files only a search of all Documents couldn't read stay in the green's count, and the
+ * one whose every sentence is kept as the User's view, has nothing to show. "Not checked" while a
+ * claim has no check a run could not settle: none yet, one that failed in a way a retry can, one
+ * whose Sentence or Document changed, or one a run is checking right now. When at least one claim
+ * a check covered holds, and all that is left is a result a re-run cannot settle or a change to a
+ * checked sentence, the state is Checked and names what is left after its time; with nothing
+ * covered it stays Not checked. Unread files that could hold the evidence — a check searched a
+ * scope narrower than all Documents — keep the state amber and are named, even beside the green's
+ * caveats; files only a search of all Documents couldn't read stay in the green's count, and the
  * card and the Saved line name them in every state.
  */
 export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): NoteState | null {
