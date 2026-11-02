@@ -1,0 +1,31 @@
+{
+  "task": "L04",
+  "inputs": {
+    "en": "1c90e317d03a76fdea8f1705de00f35191027e8f7ad0b6747f36d36dc69d8821",
+    "zh": "72d2c1dfa7c1ba3782d230460ecbeec55031e77c5bbd037bb6a6a97b96aa79f9"
+  },
+  "values": {
+    "themes": [
+      {
+        "key": "price",
+        "count": 214
+      },
+      {
+        "key": "delivery",
+        "count": 187
+      },
+      {
+        "key": "support",
+        "count": 163
+      },
+      {
+        "key": "quality",
+        "count": 139
+      },
+      {
+        "key": "app",
+        "count": 97
+      }
+    ]
+  }
+}

@@ -219,6 +219,8 @@ export interface LaunchOptions {
   extraEnv?: Record<string, string>;
   /** Keeps the app's trace at `tracePath` when it closes, as INCARNAMIND_KEEP_ARTIFACTS does, without the video. */
   trace?: boolean;
+  /** Chromium switches the app starts with, such as a proxy that stands in for the network. */
+  switches?: readonly string[];
 }
 
 /**
@@ -288,6 +290,7 @@ export async function launchApp(
     realEngines = false,
     extraEnv,
     trace = false,
+    switches = [],
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
@@ -338,6 +341,7 @@ export async function launchApp(
     ...(packaged && { executablePath: mainExecutable() }),
     args: [
       ...KEYCHAIN_ARGS,
+      ...switches,
       ...(sandboxNotice === "switch" ? ["--no-sandbox"] : []),
       ...(packaged ? [] : [appDir]),
       ...APP_ARGS,
