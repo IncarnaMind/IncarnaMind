@@ -7,7 +7,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
-import { citingKey, holdsOnlyPlaced } from "../../src/core/agents/proposals";
+import { type NamedChange, namedNote, proposeNamed } from "../../src/core/agents/proposals";
 import { createElement } from "../../src/core/answers/blocks";
 import {
   CALCULATED_FIGURE_NODE,
@@ -17,6 +17,7 @@ import {
   PROPOSAL_ATTRIBUTE,
   type ProposalAttribute,
 } from "../../src/core/api";
+import { citingKey, holdsOnlyPlaced } from "../../src/core/proposals/placed";
 import { setProposal } from "../../src/core/proposals/write";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { pendingProposals, readProposalAttribute, targetHash } from "../../src/shared/proposals";
@@ -24,6 +25,7 @@ import {
   citingIn,
   figure,
   harbours,
+  optionsWith,
   propose,
   proposeIn,
   QUOTES,
@@ -215,6 +217,39 @@ describe("the last check on what an agent's change writes (#352)", () => {
       expect(citingIn(blocks)).toEqual(asWritten);
     } finally {
       drift.dropsTokens = false;
+    }
+  });
+
+  it("rejects what the Note's write wrote when a callback answers there what it didn't on the copy, and says so", () => {
+    const changes: NamedChange[] = [
+      { kind: "rewrite", at: 0, text: "Moon rocks are grey [cite:moona001]." },
+      { kind: "add", after: 0, text: "Moonquakes are rare [cite:moonc003]." },
+    ];
+    const proposeOn = (note: ReturnType<typeof userNote>, newId: () => string) => {
+      const named = namedNote(note.blocks, { citation: () => null, waiting: "", busy: "" });
+      note.doc.transact(() => proposeNamed(note.blocks, named, changes, optionsWith(newId)));
+    };
+    // Both writes ask the same questions: on the copy, then in the Note.
+    let asked = 0;
+    proposeOn(userNote(), () => `id-${++asked}`);
+    expect(asked % 2).toBe(0);
+
+    const note = userNote();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let calls = 0;
+    const drifting = () => {
+      calls += 1;
+      if (calls === asked) throw new Error("A new id can't be made now.");
+      return `id-${calls}`;
+    };
+    try {
+      expect(() => proposeOn(note, drifting)).toThrow("A new id can't be made now.");
+      expect(calls).toBe(asked);
+      expect(pendingProposals(note.blocks)).toEqual([]);
+      expect(citingIn(note.blocks)).toEqual(asWritten);
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining(REQUEST), expect.any(Error));
+    } finally {
+      logged.mockRestore();
     }
   });
 

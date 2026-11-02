@@ -72,6 +72,7 @@ export type EditProblem = (
         | "unplaced"
         | "misnamed"
         | "typed-tag"
+        | "not-placed"
         | "cut-short"
         | "late"
         | "part-changed"

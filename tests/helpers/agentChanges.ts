@@ -11,6 +11,7 @@ import {
   type CitedToken,
   type NamedChange,
   namedNote,
+  type ProposeOptions,
   proposeNamed,
 } from "../../src/core/agents/proposals";
 import {
@@ -145,6 +146,20 @@ export type Outcome = "accepted" | ChangeRefused["key"];
 
 let ids = 0;
 
+/** What `proposeNamed` writes the agent's change with, its ids from `newId`. */
+export const optionsWith = (newId: () => string): ProposeOptions => ({
+  request: REQUEST,
+  made: {
+    source: "outside-agent",
+    agent: "Codex",
+    pairingId: "pairing",
+    createdAt: "2026-11-02T09:00:00.000Z",
+  },
+  cited: tokenOf,
+  notFound: "[quote not found]",
+  newId,
+});
+
 /** The agent's change to a new `userNote`, as `proposeIn` proposes it. */
 export const propose = (path: "rewrite" | "add", text: string) => proposeIn(userNote(), path, text);
 
@@ -160,18 +175,12 @@ export function proposeIn(
   let outcome: Outcome = "accepted";
   doc.transact(() => {
     try {
-      proposeNamed(blocks, note, [change], {
-        request: REQUEST,
-        made: {
-          source: "outside-agent",
-          agent: "Codex",
-          pairingId: "pairing",
-          createdAt: "2026-11-02T09:00:00.000Z",
-        },
-        cited: tokenOf,
-        notFound: "[quote not found]",
-        newId: () => `id-${++ids}`,
-      });
+      proposeNamed(
+        blocks,
+        note,
+        [change],
+        optionsWith(() => `id-${++ids}`),
+      );
     } catch (error) {
       if (!(error instanceof ChangeRefused)) throw error;
       outcome = error.key;
