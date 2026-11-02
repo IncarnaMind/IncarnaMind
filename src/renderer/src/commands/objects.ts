@@ -4,6 +4,7 @@ import { displayName } from "../../../shared/documentNames";
 import { core, files } from "../core";
 import { useDocumentPasswords } from "../documentPasswords";
 import { showFileLabelKey, userFile } from "../fileInfo";
+import { isInsideFolder } from "../folders";
 import { countNow, translateNow } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { bridgeFrom, type LibraryBridge } from "../libraryBridges";
@@ -416,6 +417,29 @@ export const folderCommands: readonly Command[] = [
     },
   },
   {
+    id: "folder.newInside",
+    label: "folder.newInside",
+    group: "main",
+    appliesTo: ["folder"],
+    when: onlyOne,
+    reversible: true,
+    async run(ctx) {
+      const id = idsOf(ctx, "folder")[0];
+      if (id) await store().createFolder(undefined, undefined, id);
+    },
+  },
+  {
+    id: "folder.moveTo",
+    label: "folder.moveTo",
+    rowKeys: "CmdOrCtrl+Shift+M",
+    group: "move",
+    top: 30,
+    appliesTo: ["folder"],
+    when: (ctx) => onlyOne(ctx) && ctx.here?.["folder.moveTo"] !== undefined,
+    reversible: true,
+    run: (ctx) => ctx.here?.["folder.moveTo"]?.(),
+  },
+  {
     id: "folder.ask",
     assistant: false,
     label: "library.ask.folder",
@@ -518,6 +542,14 @@ export const folderCommands: readonly Command[] = [
   },
 ];
 
+/** Opens Manage Tags on one Tag, to edit it or to merge it into another. */
+const manageTag = (ctx: CommandContext, mode: "edit" | "merge") => {
+  useRequests.getState().ask({ manageTag: { id: idsOf(ctx, "tag")[0] ?? "", mode } });
+  store().openTagsDialog();
+};
+
+const liveTags = () => store().tags.length;
+
 export const tagCommands: readonly Command[] = [
   {
     id: "tag.open",
@@ -530,6 +562,38 @@ export const tagCommands: readonly Command[] = [
       store().setTagFilter(idsOf(ctx, "tag").slice(0, 1));
       store().openLibrary();
     },
+  },
+  {
+    id: "tag.colour",
+    label: "tag.changeColor",
+    menuLabel: "tag.color",
+    keywords: ["tags.colour.label"],
+    group: "main",
+    appliesTo: ["tag"],
+    reversible: true,
+    run(ctx) {
+      // In its row, its dot opens the eight colours; elsewhere, in the Tags dialog.
+      if (ctx.here?.["tag.colour"]) return ctx.here["tag.colour"]();
+      manageTag(ctx, "edit");
+    },
+  },
+  {
+    id: "tag.editDescription",
+    label: "tag.editDescription",
+    group: "main",
+    appliesTo: ["tag"],
+    reversible: true,
+    run: (ctx) => manageTag(ctx, "edit"),
+  },
+  {
+    id: "tag.merge",
+    label: "tag.merge",
+    group: "main",
+    appliesTo: ["tag"],
+    // Another Tag is what a merge needs.
+    when: () => liveTags() > 1,
+    reversible: true,
+    run: (ctx) => manageTag(ctx, "merge"),
   },
   {
     id: "tag.rename",
@@ -564,7 +628,7 @@ export const tagCommands: readonly Command[] = [
     run: () => store().openTagsDialog(),
   },
   {
-    // From anywhere, as ⌘K offers it: the sidebar lists only the Tags in use.
+    // From anywhere: ⌘K offers it with no Tag row focused.
     id: "tags.manage",
     label: "tags.menu.manage",
     group: "main",
@@ -585,7 +649,7 @@ export const mixedSelectionCommands: readonly Command[] = [
     label: (ctx, t) => t("selection.moveTo", { count: countNow(ctx.selection.length) }),
     rowKeys: "CmdOrCtrl+Shift+M",
     group: "move",
-    // Folders don't go inside Folders until #246.
+    // A Folder moves on its own (`folder.moveTo`): one Folder at a time, and no Documents with it.
     appliesTo: ["mind", "document"],
     when: (ctx) => kindsIn(ctx) > 1 && rowMoveTo(ctx) !== undefined,
     reversible: true,
@@ -605,10 +669,17 @@ export const mixedSelectionCommands: readonly Command[] = [
   },
 ];
 
+/** The Documents a Folder holds, those in the Folders inside it too. */
 const folderDocumentIds = (ctx: CommandContext): string[] => {
   const id = idsOf(ctx, "folder")[0];
+  if (!id) return [];
+  const groups = store().library?.groups ?? [];
+  const inside = new Set(
+    groups.filter((group) => isInsideFolder(groups, group.id, id)).map((group) => group.id),
+  );
+  inside.add(id);
   return (store().library?.assignments ?? []).flatMap((item) =>
-    item.groupId === id ? [item.documentId] : [],
+    item.groupId !== null && inside.has(item.groupId) ? [item.documentId] : [],
   );
 };
 

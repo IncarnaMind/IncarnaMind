@@ -1,0 +1,16 @@
+{
+  "task": "F08",
+  "inputs": {
+    "en": "eb0cc607a00e6048d33e314becbae469e610e15fc9529ba572e7efa7f3ce8e01"
+  },
+  "values": {
+    "balance_difference": 18350,
+    "cash_difference": 2736,
+    "retained_difference": 64125,
+    "failing_years": [
+      2022,
+      2024,
+      2023
+    ]
+  }
+}

@@ -12,7 +12,9 @@ import {
   type ClaimCheckAttributes,
   type ClaimCheckBasis,
   type ClaimCheckFailure,
+  type ClaimCheckPart,
   type ClaimCheckScope,
+  type ClaimReadDocument,
   type ClaimVerdict,
   claimCheckActions,
   type FigureCheckAttributes,
@@ -296,7 +298,9 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
  * Why a check no longer holds: its sentence was edited (an accepted change
  * or a restored Checkpoint edits it too), a Document it read has a new
  * version, one its result rests on was deleted, the Mind moved to another
- * Folder ("scope"), or the Search scope the User set for the Mind changed.
+ * Folder while the result rests on a whole Folder's contents ("scope"), or the
+ * Search scope the User set for the Mind changed. A result its Citations back
+ * stays true wherever the Note is filed.
  */
 export type RecheckReason =
   | "edited"
@@ -317,6 +321,19 @@ export type ClaimCheckShown =
   | { state: "needs-recheck"; why: RecheckReason }
   | { state: "kept" };
 
+/**
+ * The one failure a check on the same sentence and Documents cannot settle: the Citation it needs
+ * is kept inside another Folder. A reply that failed, was refused or couldn't be used, a service
+ * limit, a cap, a stop, or a sentence a later Check takes may be settled next time, so those stay
+ * Not checked.
+ */
+export const UNCHECKABLE_FAILURES: ReadonlySet<ClaimCheckFailure> = new Set(["kept-inside"]);
+
+/** Whether a check's result is one a check cannot settle for this sentence, rather than one still to make. */
+export function cantBeChecked(shown: ClaimCheckShown): boolean {
+  return shown.state === "not-checked" && UNCHECKABLE_FAILURES.has(shown.reason);
+}
+
 /** What a check is compared with. */
 export interface ClaimCheckNow {
   figureContexts?: ReadonlyMap<string, string> | null;
@@ -334,6 +351,37 @@ export interface ClaimCheckNow {
   note?: RecordCiteNote;
   /** The sentence as the Note holds it, its Citations included, where `text` leaves them out: what its record cites are read in. */
   noteText?(): string;
+}
+
+/** A verdict a check landed, the only kind a Folder move has a result to keep (#2313). */
+const LANDED: ReadonlySet<ClaimCheckBasis["state"]> = new Set([
+  "supported",
+  "unsupported",
+  "contradicted",
+]);
+
+/** Whether a result rests on any Citation at all: a found quote stays true wherever the Note is filed (#2313). */
+const backedByCitation = (check: ClaimCheckBasis): boolean =>
+  restsOn(check).some((each) => each.documentId !== null);
+
+/** Whether the check read whole Documents: an absence rests on the Folder's contents, and a move changes them (#2313). */
+function readWholeFolder(check: {
+  readDocuments?: readonly ClaimReadDocument[];
+  parts?: readonly ClaimCheckPart[];
+}): boolean {
+  // The editor's mark declares every attribute, so an unread Document list is [] and not absent.
+  return (
+    (check.readDocuments?.length ?? 0) > 0 ||
+    (check.parts ?? []).some((part) => (part.readDocuments?.length ?? 0) > 0)
+  );
+}
+
+/** Whether anything the check judged is Unsupported: a quote backs only what it states, and the rest said nothing in the Folder it searched (#2313). */
+function saysUnsupported(check: ClaimCheckBasis): boolean {
+  return (
+    check.state === "unsupported" ||
+    (check.parts ?? []).some((part) => part.verdict === "unsupported")
+  );
 }
 
 /** Whether a sentence's `Id.` or `supra` refers back through other cites now than when it was checked. */
@@ -484,7 +532,16 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
       }
     }
   }
-  if (!check.scope.widened && !check.scope.chosen && check.scope.folderId !== now.folderId) {
+  // A landed result searched the Folder it was in: filed elsewhere with Documents never read, a
+  // whole-Folder read or a result with no quote to rest on must be checked there (#2313). A check
+  // that landed nothing is not a result the move can rewrite.
+  if (
+    LANDED.has(check.state) &&
+    !check.scope.widened &&
+    !check.scope.chosen &&
+    check.scope.folderId !== now.folderId &&
+    (!backedByCitation(check) || readWholeFolder(check) || saysUnsupported(check))
+  ) {
     return { state: "needs-recheck", why: "scope" };
   }
   // Contradiction watch looks in the Mind's Folder, and a whole read in the User's pick.

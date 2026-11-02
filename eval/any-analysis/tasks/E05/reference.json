@@ -1,0 +1,18 @@
+{
+  "task": "E05",
+  "inputs": {
+    "en": "69bde9816f1dc367a8afdabe7fe84c6ac492a86ab7c1a822b9cf9ccec8137251",
+    "zh": "8bc69ac43bd3f4bfd0c7afd726afbaa9de361cdc6064eb7d35b2ae677a60d9ec"
+  },
+  "values": {
+    "rows": 27,
+    "full_year_total": [
+      14880.4,
+      14880400
+    ],
+    "east_total": [
+      3041,
+      3041000
+    ]
+  }
+}

@@ -14,10 +14,12 @@ import {
   paletteOffers,
   pointAndClick,
   removeDataFolder,
+  reviewedWords,
   setLanguage,
   setWindowSize,
   slideSelect,
   useLocalChatModel,
+  wordsBox,
 } from "./app";
 
 /*
@@ -121,7 +123,7 @@ test("⌘J applies the change at once as AI text, with Changed 1 paragraph · Un
   await expect(note.locator("del.proposal-delete, ins.proposal-insert")).toHaveCount(0);
 });
 
-test("Shorten from the menu applies at once; Review changes shows what it did, struck and underlined, over text that stays applied, each with Restore original; Done keeps the rest, and Undo all takes all back", async () => {
+test("Shorten from the menu applies at once; Review changes shows what it did, struck and underlined, over text that stays applied, with one Restore original for the paragraph; Undo all takes it back", async () => {
   const { window } = await launch();
   await useLocalChatModel(window);
   const { editor, paragraphs } = await mindWith(window, [TIDES]);
@@ -144,22 +146,24 @@ test("Shorten from the menu applies at once; Review changes shows what it did, s
   await motionSettled(window);
   await screenshot(window, "applied-review-en");
 
-  // Restoring one leaves the other.
+  // One Restore original puts the paragraph's two changes back together, in one step.
   const restores = note.getByTestId("change-restore");
-  await expect(restores).toHaveText(["Restore original", "Restore original"]);
-  await pointAndClick(window, restores.first());
-  await expect(removed).toHaveText(["really "]);
-  await expect(note).toContainText("are very strong");
-  await expect(window.getByTestId("undo-message")).toHaveText("Restored the original");
-  await expect(line.getByTestId("applied-count")).toHaveText("1 paragraph changed by Edit with AI");
-  await pointAndClick(window, line.getByTestId("applied-done"));
-  await expect(note).toHaveText("The tides here are very strong and regular.");
+  await expect(restores).toHaveText(["Restore original"]);
+  await pointAndClick(window, restores);
   await expect(removed).toHaveCount(0);
+  await expect(note).toHaveText(TIDES);
+  await expect(window.getByTestId("undo-message")).toHaveText("Restored the original");
   await expect(line).toHaveCount(0);
+
+  // Its Undo puts the edit's words back; a second Undo takes the edit itself back.
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(note).toHaveText("The tides here are strong and regular.");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(note).toHaveText(TIDES);
 
   // Undo all, in Chinese.
   await setLanguage(window, "zh-CN");
-  await slideSelect(window, note, "The tides here are very strong and regular.");
+  await slideSelect(window, note, TIDES);
   await pointAndClick(window, window.getByTestId("selection-action-shorten"));
   await expect(note).toHaveText("The tides here are strong and regular.");
   await pointAndClick(window, line.getByTestId("applied-review"));
@@ -167,7 +171,7 @@ test("Shorten from the menu applies at once; Review changes shows what it did, s
   await expect(line.getByTestId("applied-done")).toHaveText("完成");
   await expect(note.getByTestId("change-restore")).toHaveText("恢复原文");
   await pointAndClick(window, line.getByTestId("applied-undo-all"));
-  await expect(note).toHaveText("The tides here are very strong and regular.");
+  await expect(note).toHaveText(TIDES);
   await expect(line).toHaveCount(0);
 });
 
@@ -695,4 +699,78 @@ test("after Shorten, a word it took out comes back only while the words either s
   await expect(paragraphs).toHaveText(["", FIRST]);
   expect(await paletteOffers(window, "edit.reviewApplied", "Review changes")).toBe(0);
   await expect(paragraphs).toHaveText(["", FIRST]);
+});
+
+const HARBOURS =
+  "The harbour office posts the times, the harbour office answers the phone, the harbour office keeps the tables, the harbour office cleans the quay, and the harbour office lists the ferries.";
+const AUTHORITIES =
+  "The port authority posts the times, the port authority answers the phone, the port authority keeps the tables, the port authority cleans the quay, and the port authority lists the ferries.";
+const MIDDLE_EDITED =
+  "The port authority posts the times, the port authority answers the phone, the port authority keeps the tables, the port board cleans the quay, and the port authority lists the ferries.";
+const ONE_BACK =
+  "The harbour office posts the times, the port authority answers the phone, the port authority keeps the tables, the port board cleans the quay, and the port authority lists the ferries.";
+
+/** The box of the `nth` `words` of a line, with the line scrolled into the Mind's view first. */
+async function wordsBoxInView(window: Page, line: Locator, words: string, nth = 1) {
+  await line.scrollIntoViewIfNeeded();
+  await motionSettled(window);
+  return wordsBox(line, words, nth);
+}
+
+/** Selects the `nth` `words` of a line with one mouse drag, as a person does. */
+async function selectNth(window: Page, line: Locator, words: string, nth: number) {
+  const box = await wordsBoxInView(window, line, words, nth);
+  await window.mouse.move(box.left - 6, box.y, { steps: 4 });
+  await window.mouse.move(box.left + 1, box.y, { steps: 2 });
+  await window.mouse.down();
+  await window.mouse.move(box.right - 1, box.y, { steps: 12 });
+  await window.mouse.up();
+  // After a drag, ProseMirror puts its selection back into the page in a task queued as the mouse
+  // comes up; a key pressed before that task runs is undone by it.
+  await expect.poll(() => window.evaluate(() => getSelection()?.toString())).toBe(words);
+}
+
+test("five changes in one paragraph get one Restore original; with a middle one edited since each other change keeps its own, and one Restore puts that change back and ⌘Z brings it back", async () => {
+  const { window } = await launch();
+  await useLocalChatModel(window);
+  const { editor, paragraphs } = await mindWith(window, [HARBOURS]);
+  const note = paragraphs.first();
+
+  await slideSelect(window, note, HARBOURS);
+  await askToChange(window, "replace harbour office with port authority");
+  await expect(note).toHaveText(AUTHORITIES);
+
+  // A paragraph with no change edited since: one Restore original for all five.
+  await fromPalette(window, "edit.reviewApplied", "Review changes");
+  const restores = note.getByTestId("change-restore");
+  const removed = note.locator("del.applied-old");
+  await expect(restores).toHaveCount(1);
+  await expect(removed).toHaveCount(5);
+  await pointAndClick(window, lineOf(editor).getByTestId("applied-done"));
+
+  // The fourth of the five changes' new words typed over, as a person does.
+  await selectNth(window, note, "port authority", 4);
+  await window.keyboard.type("port board");
+  await expect(note).toHaveText(MIDDLE_EDITED);
+
+  // One change edited since: each other change keeps its own Restore, and the edited one has none.
+  await fromPalette(window, "edit.reviewApplied", "Review changes");
+  await expect(note.getByTestId("change-changed-since")).toHaveText("You changed this since");
+  await expect(restores).toHaveCount(4);
+  await expect(removed).toHaveCount(5);
+
+  // One Restore puts its one change back. Known and pre-existing (#2443): a Restore in the
+  // paragraph collapses the edited change's own one-character place, so its label moves to the
+  // paragraph's start; this pins the Restore's work, not that place.
+  await pointAndClick(window, restores.first());
+  await expect.poll(() => reviewedWords(note)).toBe(ONE_BACK);
+  await expect(restores).toHaveCount(3);
+  await expect(removed).toHaveCount(4);
+  await expect(note.getByTestId("change-changed-since")).toBeVisible();
+
+  // ⌘Z brings that one back.
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => reviewedWords(note)).toBe(MIDDLE_EDITED);
+  await expect(restores).toHaveCount(4);
+  await expect(removed).toHaveCount(5);
 });
