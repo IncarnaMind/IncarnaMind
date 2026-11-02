@@ -3,8 +3,8 @@
  * memo's, checked by Check this Note against invented accounts, in English and in Chinese. Each
  * wrong figure must come back Contradicted or Unsupported, and no figure may end with no check
  * made for it, or the run fails. The report keeps how the sort decided each table cell that holds
- * a figure (a claim, no claim, or nothing said), every figure that came out other than expected,
- * and the tokens of every request. Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY, so
+ * a figure and each row's label it was shown (a claim, no claim, or nothing said), every figure
+ * that came out other than expected, and the tokens of every request. Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY, so
  * `npx vitest run` makes no request without one.
  *
  * - INCARNAMIND_LIVE_ANTHROPIC_MODEL: the model (Claude Haiku 5.5 when unset).
@@ -73,6 +73,15 @@ const PACKS: Record<string, Pack> = {
             ["Ophthalmology", 5120, 15],
           ],
         },
+        {
+          name: "Fleet",
+          rows: [
+            ["Depot", "Vans", "Drivers", "Status"],
+            ["Leeds", 46, 58, "Open"],
+            ["York", 31, 40, "Open"],
+            ["Hull", 27, 33, "Closed for refit"],
+          ],
+        },
       ],
     },
     title: "Operations review, September 2026",
@@ -123,6 +132,15 @@ const PACKS: Record<string, Pack> = {
           ["Westmoor", ["74.9%", "wrong"]],
         ],
       },
+      {
+        caption: "Vans and drivers by depot",
+        head: ["", "Vans", "Drivers", "Status"],
+        rows: [
+          ["Leeds", ["46", "supported"], ["58", "supported"], "Open"],
+          ["York", ["31", "supported"], ["44", "wrong"], "Open"],
+          ["Hull", ["72", "wrong"], ["33", "supported"], "Closed for refit"],
+        ],
+      },
     ],
   },
   zh: {
@@ -148,6 +166,15 @@ const PACKS: Record<string, Pack> = {
             ["日化", 1240, "31.0%"],
             ["家电", 2970, "16.4%"],
             ["服饰", 860, "38.5%"],
+          ],
+        },
+        {
+          name: "仓库",
+          rows: [
+            ["仓库", "车辆数", "司机人数", "状态"],
+            ["宁波仓库", 62, 75, "营业"],
+            ["温州仓库", 38, 46, "营业"],
+            ["绍兴仓库", 35, 41, "停业整修"],
           ],
         },
       ],
@@ -200,6 +227,15 @@ const PACKS: Record<string, Pack> = {
           ["苏州", ["74", "wrong"]],
         ],
       },
+      {
+        caption: "各仓库车辆与司机（2026年10月）",
+        head: ["", "车辆数", "司机人数", "状态"],
+        rows: [
+          ["宁波仓库", ["62", "supported"], ["75", "supported"], "营业"],
+          ["温州仓库", ["38", "supported"], ["49", "wrong"], "营业"],
+          ["绍兴仓库", ["53", "wrong"], ["41", "supported"], "停业整修"],
+        ],
+      },
     ],
   },
 };
@@ -208,7 +244,7 @@ const text = (value: string): JSONContent => ({ type: "text", text: value });
 const paragraph = (value: string): JSONContent => ({
   type: "paragraph",
   attrs: { id: randomUUID() },
-  content: [text(value)],
+  ...(value !== "" && { content: [text(value)] }),
 });
 const cell = (value: string, header = false): JSONContent => ({
   type: header ? "tableHeader" : "tableCell",
@@ -216,10 +252,19 @@ const cell = (value: string, header = false): JSONContent => ({
 });
 const wordsOf = (each: Cell) => (typeof each === "string" ? each : each[0]);
 
-/** The Note's blocks, every figure in reading order, and the words of each table cell that holds one. */
-function noteOf(pack: Pack): { blocks: JSONContent[]; truth: Figure[]; cells: Set<string> } {
+/**
+ * The Note's blocks, every figure in reading order, the words of each table cell that holds one,
+ * and each row's label.
+ */
+function noteOf(pack: Pack): {
+  blocks: JSONContent[];
+  truth: Figure[];
+  cells: Set<string>;
+  labels: Set<string>;
+} {
   const truth: Figure[] = [];
   const cells = new Set<string>();
+  const labels = new Set<string>();
   const blocks: JSONContent[] = [
     { type: "heading", attrs: { id: randomUUID(), level: 1 }, content: [text(pack.title)] },
   ];
@@ -240,14 +285,17 @@ function noteOf(pack: Pack): { blocks: JSONContent[]; truth: Figure[]; cells: Se
         })),
       ],
     });
-    for (const row of table.rows)
+    for (const row of table.rows) {
+      const [label] = row;
+      if (typeof label === "string") labels.add(label);
       for (const each of row)
         if (typeof each !== "string") {
           truth.push(each);
           cells.add(wordsOf(each));
         }
+    }
   }
-  return { blocks, truth, cells };
+  return { blocks, truth, cells, labels };
 }
 
 interface SortCall {
@@ -256,8 +304,8 @@ interface SortCall {
 }
 
 /**
- * How the sort decided each table cell that holds a figure, read as the core reads its replies:
- * a later ask decides what the earlier left unsaid.
+ * How the sort decided each table cell among `cells` that it was shown, read as the core reads its
+ * replies: a later ask decides what the earlier left unsaid.
  */
 function sortedCells(calls: readonly SortCall[], cells: ReadonlySet<string>) {
   const decided = new Map<number, "claim" | "none">();
@@ -327,8 +375,8 @@ for (const language of LANGUAGES) {
     `every figure of a Note's tables gets a look, and each wrong one needs a look (${language})`,
     { timeout: 3_600_000 },
     async () => {
-      const { blocks, truth, cells } = noteOf(pack);
-      expect(truth).toHaveLength(24);
+      const { blocks, truth, cells, labels } = noteOf(pack);
+      expect(truth).toHaveLength(30);
       for (let run = 1; run <= RUNS; run++) {
         const sorts: SortCall[] = [];
         const dataDir = await createTempDataFolder();
@@ -417,6 +465,7 @@ for (const language of LANGUAGES) {
           usage,
           sortRequests: sorts.length,
           sortedCells: sortedCells(sorts, cells),
+          sortedLabels: sortedCells(sorts, labels),
           ...counts,
           misses,
         };
