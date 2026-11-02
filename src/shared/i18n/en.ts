@@ -4569,6 +4569,7 @@ export const en = {
   "export.change.inserted.noDate": "Inserted by {author}",
   "export.change.deleted": "Deleted by {author}, {date}",
   "export.change.deleted.noDate": "Deleted by {author}",
+  "export.change.incarnaMind": "IncarnaMind",
   "export.change.someone": "someone",
   "export.change.replaced": "Replaced by {author}, {date}",
   "export.change.replaced.noDate": "Replaced by {author}",

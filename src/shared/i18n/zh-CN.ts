@@ -4366,6 +4366,7 @@ export const zhCN = {
   "export.change.inserted.noDate": "插入：{author}",
   "export.change.deleted": "删除：{author}，{date}",
   "export.change.deleted.noDate": "删除：{author}",
+  "export.change.incarnaMind": "IncarnaMind",
   "export.change.someone": "未知作者",
   "export.change.replaced": "替换：{author}，{date}",
   "export.change.replaced.noDate": "替换：{author}",

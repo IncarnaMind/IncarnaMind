@@ -372,6 +372,47 @@ describe("the source pack: each format's cited page, its quote highlighted", () 
       "1 · Quote not found on this page: “Neap tides come at the quarter moons.”",
     ]);
   });
+
+  test("two Citations of one note whose quote the saved page doesn't show say it once", async () => {
+    const { core, mind, printed } = await citedMind({
+      files: [
+        {
+          name: "Tides.md",
+          contents:
+            "# Tides\n\nSpring tides happen at new moon and at full moon, when the Sun and Moon line up.\n\nNeap tides come at the quarter moons.\n",
+        },
+      ],
+      lines: {
+        Tides: [
+          "Tides",
+          "Spring tides happen at new moon and",
+          "at full moon, when the Sun and Moon line up.",
+        ],
+      },
+      query: "spring neap tides",
+      records: (passages) =>
+        [
+          "Spring tides happen at new moon",
+          "Neap tides come at the quarter moons.",
+          "Neap tides come at the quarter moons.",
+        ].map((quote, index) => ({
+          marker: index + 1,
+          passage: byDocument(passages, "Tides"),
+          location: "§ Tides",
+          quote,
+        })),
+      answer: "Spring tides [^1]; neap tides at the quarters [^2] and [^3].",
+    });
+
+    await core.exportMind(mind.id, { format: "source-pack" });
+
+    const { sheets } = pack(printed[0]?.body ?? "");
+    const [sheet] = sheets;
+    expect(sheet?.marks).toEqual([mark(1, 0, 31)]);
+    expect(sheet?.notes).toEqual([
+      "1 · Quote not found on this page: “Neap tides come at the quarter moons.”",
+    ]);
+  });
 });
 
 describe("the source pack: after the file is gone, and without the page", () => {

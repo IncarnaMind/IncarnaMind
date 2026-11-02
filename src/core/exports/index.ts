@@ -68,7 +68,7 @@ import {
   reviewReading,
   theirChangesReading,
 } from "../mindText";
-import { withChangesAccepted } from "../shownChanges";
+import { withTheirChangesAccepted } from "../shownChanges";
 import { type CitationCard, citationCard } from "./citationCards";
 import { addSources, listCitations, styleCitations, withFigureNotes } from "./citations";
 import { piecesOf, renderDocx } from "./docx";
@@ -258,8 +258,9 @@ export function createExports(deps: ExportsDependencies) {
       const fromWord = doc !== null && wordFileOf(doc) !== null;
       // A Word file shows what is waiting as tracked changes, and can mark AI text (#107); the
       // others show someone's changes from the Word file as changes, or accepted (#734). A source
-      // pack and a PDF are readings of the Note as the Note shows it, waiting changes included (#2292).
-      if (format === "docx" || format === "source-pack" || format === "pdf")
+      // pack, a PDF and an HTML file are readings of the Note as the Note shows it, waiting changes
+      // included; accepted applies someone else's only (#2292).
+      if (format === "docx" || format === "source-pack" || format === "pdf" || format === "html")
         readOptions.review = reviewReading(fragment);
       else if (doc && fromWord) readOptions.review = theirChangesReading(doc);
       readOptions.sentenceChecks = failedSentences(fragment, {
@@ -302,7 +303,9 @@ export function createExports(deps: ExportsDependencies) {
       commentsNow !== null ? { ...parsed, commentFailedChecks: commentsNow } : parsed;
     const shown = withoutEmptyTitle(read);
     const blocks =
-      format !== "docx" && options.theirChanges === "accepted" ? withChangesAccepted(shown) : shown;
+      format !== "docx" && options.theirChanges === "accepted"
+        ? withTheirChangesAccepted(shown)
+        : shown;
     // A source pack holds the Citations the Mind numbers; the others, every footnote.
     const footnotes =
       format === "source-pack"

@@ -201,7 +201,10 @@ export function exportLabels(language: Language): ExportLabels {
       );
     },
     change: ({ kind, pending }) => {
-      const author = pending.by || t("export.change.someone");
+      const author =
+        pending.by === undefined
+          ? t("export.change.incarnaMind")
+          : pending.by || t("export.change.someone");
       // The day the Word file names, not the day it falls on here: Word writes its own clock's time.
       const date = pending.at ? formatDate(pending.at, language, { timeZone: "UTC" }) : "";
       const key = (
