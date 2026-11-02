@@ -469,7 +469,12 @@ export function createRecentlyDeleted(options: {
       if (done.tags) options.tagsChanged();
       if (done.tagged.size > 0) options.tagged([...done.tagged]);
       const audio = options.meetings.restored(done.meetings);
-      return { audioLost: audio.lost, audioExpired: audio.expired, toTopLevel: done.toTopLevel };
+      return {
+        audioLost: audio.lost,
+        audioExpired: audio.expired,
+        // Only when a Folder went somewhere: the result keeps its shape for every other restore.
+        ...(done.toTopLevel.length > 0 && { toTopLevel: done.toTopLevel }),
+      };
     },
 
     /**
