@@ -13,12 +13,14 @@
  * - INCARNAMIND_LIVE_LANGUAGES: "en", "zh" or both ("en,zh" when unset).
  * - INCARNAMIND_LIVE_REPORT: a file to keep each run's verdicts, requests, tokens and cost.
  * - INCARNAMIND_LIVE_TRACE: a file to keep each check's last request and what the model wrote back.
+ * - INCARNAMIND_LIVE_MEASURES: a file to keep each figure's measure, as the check read it, to
+ *   replay the replies through other code (`measureLog.ts`).
  */
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { wrapLanguageModel } from "ai";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -26,6 +28,10 @@ import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core"
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
+
+vi.mock(import("../../src/core/answers/checks/figureMeasures"), async (original) =>
+  (await import("./measureLog")).keptMeasures(await original()),
+);
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
