@@ -335,7 +335,7 @@ export function toolRecordLines(
   return calls.flatMap((call) => {
     const line = lineOf(call, names, states);
     // A name or a command's input can hold "</tool-record>": the record stays one block (#2423).
-    return line ? [`- ${asData(line)}`] : [];
+    return line ? [`- ${asData(line, ["tool-record"])}`] : [];
   });
 }
 

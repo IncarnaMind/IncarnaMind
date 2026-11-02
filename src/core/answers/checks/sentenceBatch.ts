@@ -6,7 +6,7 @@
  */
 
 import { isRecord } from "../../../shared/record";
-import { asData, tagged } from "../../promptData";
+import { asAttribute, asData, type PromptTag, tagged } from "../../promptData";
 import { replyJson } from "../quoteRetry";
 
 /** The most sentences one request judges. */
@@ -60,13 +60,17 @@ export const SENTENCE_BATCH_INSTRUCTIONS = [
   '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","says":"…"}]}',
 ].join("\n");
 
+/** The batch's tags: none of them may be opened or closed by what they hold (#2423). */
+const BATCH_TAGS: readonly PromptTag[] = ["passage", "sentence"];
+
 const passageTag = (passage: BatchPassage, number: number) =>
   tagged(
     "passage",
     passage.text,
-    ` id="P${number}" document="${asData(passage.documentName)}"${
-      passage.location ? ` location="${asData(passage.location)}"` : ""
+    ` id="P${number}" document="${asAttribute(passage.documentName, BATCH_TAGS)}"${
+      passage.location ? ` location="${asAttribute(passage.location, BATCH_TAGS)}"` : ""
     }`,
+    BATCH_TAGS,
   );
 
 /** A batch's request: its Passages, each once, then its sentences, numbered, with what each cites. */
@@ -83,11 +87,13 @@ export function batchPrompt(sentences: readonly BatchSentence[]): string {
     "",
     "The sentences to check:",
     ...sentences.flatMap((each, index) => [
-      tagged("sentence", each.sentence.trim(), ` number="${index + 1}"`),
+      tagged("sentence", each.sentence.trim(), ` number="${index + 1}"`, BATCH_TAGS),
       ...(each.context.trim() && each.context.trim() !== each.sentence.trim()
-        ? [asData(`Its paragraph: ${each.context.trim()}`)]
+        ? [asData(`Its paragraph: ${each.context.trim()}`, BATCH_TAGS)]
         : []),
-      ...each.quotes.map((quote) => asData(`It cites ${quote.documentName}: “${quote.quote}”`)),
+      ...each.quotes.map((quote) =>
+        asData(`It cites ${quote.documentName}: “${quote.quote}”`, BATCH_TAGS),
+      ),
       "",
     ]),
   ].join("\n");

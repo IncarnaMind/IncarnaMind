@@ -13,7 +13,7 @@ import {
   type MindProblem,
 } from "../api";
 import { isRecord } from "../errors";
-import { asData, tagged } from "../promptData";
+import { asData, type PromptTag, tagged } from "../promptData";
 import type { ChatLanguageModel } from "../providers/models";
 import { outputTokens } from "../providers/outputLimits";
 import { tokenUsageOf } from "../providers/promptCache";
@@ -41,6 +41,9 @@ export const CLAIM_ABOUT = [
 ] as const;
 
 export type ClaimAbout = (typeof CLAIM_ABOUT)[number];
+
+/** The claim check's tags: none of them may be opened or closed by what they hold (#2423). */
+const JUDGED_TAGS: readonly PromptTag[] = ["reply", "tool-record", "focused-mind"];
 
 const IN_THE_APP: Readonly<Partial<Record<ClaimAbout, ClaimedCommand>>> = {
   app: "command",
@@ -237,7 +240,7 @@ function verdictOf(value: unknown, reply: string): (Unbacked & { unsure: boolean
   const claims = new Set<ClaimedChange>();
   const commands = new Set<ClaimedCommand>();
   // The judge read the reply with its prompts' tags written as data, and may copy them so.
-  const replies = [reply, asData(reply)].map(comparableSentence);
+  const replies = [reply, asData(reply, JUDGED_TAGS)].map(comparableSentence);
   const inReply = (sentence: string) =>
     replies.some((each) => each.includes(comparableSentence(sentence)));
   let unsure = false;
@@ -298,12 +301,14 @@ export async function unbackedClaims(
   const started = Date.now();
   const named: MindNames = (id) => names(id) ?? minds.find((mind) => mind.id === id)?.name ?? null;
   const prompt = [
-    tagged("tool-record", JSON.stringify(recordOf(calls, named, states), null, 2)),
+    tagged("tool-record", JSON.stringify(recordOf(calls, named, states), null, 2), "", JUDGED_TAGS),
     tagged(
       "focused-mind",
       focused ? JSON.stringify({ id: focused, name: named(focused) }) : "none",
+      "",
+      JUDGED_TAGS,
     ),
-    tagged("reply", reply),
+    tagged("reply", reply, "", JUDGED_TAGS),
   ].join("\n");
   let value: unknown;
   let usage: TokenUsage | null = null;

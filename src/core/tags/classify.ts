@@ -186,14 +186,15 @@ function taggingPrompt(tags: readonly TagDefinition[], excerpt: DocumentExcerpt)
     ...tags.map((tag) =>
       asData(
         tag.description ? `- ${oneLine(tag.name)}: ${oneLine(tag.description)}` : `- ${tag.name}`,
+        ["document"],
       ),
     ),
     "",
     EXCERPT_START,
-    asData(`Name: ${excerpt.name}`),
+    asData(`Name: ${excerpt.name}`, ["document"]),
     `Type: ${documentType(excerpt)}`,
     "Text:",
-    asData(excerpt.text),
+    asData(excerpt.text, ["document"]),
     EXCERPT_END,
   ].join("\n");
 }
