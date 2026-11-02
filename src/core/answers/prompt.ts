@@ -523,7 +523,7 @@ export function sheetRowsNote(passages: string): string {
     HIDDEN_ROWS_PASSAGE.test(passages) &&
       'In a Passage marked hidden="…", the file hides the rows it names: the User doesn\'t see them in the sheet. Where a hidden row and a shown one give one item different figures, the shown one is the figure the sheet shows now, and the hidden one an earlier or other figure; say the file hides it when you give it.',
     REPEATED_ROWS_PASSAGE.test(passages) &&
-      'In a Passage marked repeated="…", each group of rows it names gives one item, in the same words, different figures: separate entries, or an earlier and a later version of the item. For the item as it stands now, find in the Document what tells them apart: a heading over them, a status, revision or date in them, or the file striking out or hiding one. If nothing does, say that the Document doesn\'t make clear which row is current, give each with its Citation, and never take one for the current figure by its place in the sheet, nor add the versions together.',
+      'In a Passage marked repeated="…", each group of rows it names gives one item, in the same words, different figures. Such rows are usually separate entries, to list or add up as the Question asks. Only a Question about the item as it stands now, or about what changed, makes them an earlier and a later version of it: then find in the Document what tells them apart (a heading over them, a status, revision or date in them, or the file striking out or hiding one), and if nothing does, say that the Document doesn\'t make clear which row is current, give each with its Citation, and never take one for the current figure by its place in the sheet.',
   ]
     .filter((line) => typeof line === "string")
     .join(" ");

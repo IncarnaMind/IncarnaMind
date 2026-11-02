@@ -118,7 +118,10 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
     expect(passageTag(result)).toContain('repeated="rows 2 and 5; rows 3 and 6; rows 4 and 7"');
     expect(passageTag(result)).not.toMatch(/struck=|hidden=/);
     expect(result).toContain(
-      "If nothing does, say that the Document doesn't make clear which row is current, give each with its Citation, and never take one for the current figure by its place in the sheet, nor add the versions together.",
+      "Such rows are usually separate entries, to list or add up as the Question asks. Only a Question about the item as it stands now, or about what changed, makes them an earlier and a later version of it",
+    );
+    expect(result).toContain(
+      "if nothing does, say that the Document doesn't make clear which row is current, give each with its Citation, and never take one for the current figure by its place in the sheet.",
     );
   });
 
