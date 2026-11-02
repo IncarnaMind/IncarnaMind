@@ -133,26 +133,29 @@ const RULE = /^\s*\|(?:\s*:?-{2,}:?\s*\|)+\s*$/;
 const LIST = /^\s*(?:[-*•]|\d+[.)])\s/;
 const HAN = /\p{Script=Han}/u;
 
-const CHECKED_EN = `(?:re-?calculated|re-?checked|verified|checked|worked out again)`;
+const CHECKED_EN = `(?:(?:app|auto)-)?(?:re-?calculated|re-?checked|(?:re-?)?verified|checked|worked out again)`;
 const BY_APP = String.raw`\s+by\s+(?:the app|IncarnaMind)`;
 const CHECKED_ZH = `(?:重新计算|复算|复核|验证|核验|核对|校验)`;
 const BY_APP_ZH = String.raw`(?:由|经)?\s*(?:IncarnaMind|应用)\s*`;
 const TICK = String.raw`\s*[✓✔]?\s*`;
+/** Where a label set off by a dash, a dot or a tick ends: punctuation, a closing bracket, the line's end. */
+const LABEL_END = String.raw`(?=[.,;:!?)\]】。，；！？]|$)`;
 
 /**
- * Words that label a number as recalculated by the app, as its figure cards do, bracketed or set off
- * by a dash or a dot: "(recalculated)", "[verified ✓]", "— checked by the app", "（已复核）". A
- * model's own voice ("I recalculated the total", "double-checked") is not a label, and neither is a
+ * Words that label a number as recalculated by the app, as its figure cards do: bracketed
+ * ("(recalculated)", "[verified ✓]", "（已复核）"), or bare after a dash, a dot or a tick
+ * ("— checked by the app.", "✓ recalculated"). The model's own voice is no label: "I recalculated
+ * the total", "double-checked", "— verified against page 5", "——核对财务摘要表后得出", nor a
  * list's bullet ("- Checked the totals").
  */
 const RECALCULATED = new RegExp(
   [
     String.raw`[(\[【]${TICK}${CHECKED_EN}(?:${BY_APP})?${TICK}[)\]】]`,
-    String.raw`(?:[—–·]|(?<=\S)\s+-)\s*${CHECKED_EN}\b`,
+    String.raw`(?:[—–·✓✔]|(?<=\S)\s+-)\s*${CHECKED_EN}(?:${BY_APP})?${TICK}${LABEL_END}`,
     String.raw`\b${CHECKED_EN}${BY_APP}\b`,
     `IncarnaMind (?:has )?${CHECKED_EN}`,
     String.raw`[(【]${TICK}(?:已|经)?\s*(?:${BY_APP_ZH})?${CHECKED_ZH}过?${TICK}[)】]`,
-    String.raw`(?:——|[—–·])\s*(?:已|经)?\s*(?:${BY_APP_ZH})?${CHECKED_ZH}`,
+    String.raw`(?:——|[—–·✓✔])\s*(?:已|经)?\s*(?:${BY_APP_ZH})?${CHECKED_ZH}过?${TICK}${LABEL_END}`,
     String.raw`(?:由|经)\s*(?:IncarnaMind|应用)\s*已?${CHECKED_ZH}|IncarnaMind\s*已?${CHECKED_ZH}`,
   ].join("|"),
   "i",
