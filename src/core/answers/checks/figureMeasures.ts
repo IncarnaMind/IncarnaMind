@@ -5,7 +5,7 @@
  * that measures something else ("Revenue grew 12%" for "Operating margin was 12%") backs nothing.
  */
 import { MARKER } from "../../../shared/answerSentences";
-import { readFigures, readingsOf, readStatedUnits } from "../../../shared/figures";
+import { type Figure, readFigures, readingsOf, readStatedUnits } from "../../../shared/figures";
 import { sameNumber } from "../../../shared/formula";
 import { isRecord } from "../../errors";
 
@@ -72,10 +72,34 @@ export const namesSomething = (text: string): boolean => /\p{L}/u.test(withoutNu
  * Whether `text` holds the measure's `words`, their digits left out of both: Claude Haiku 5.5 named
  * "employed drivers" for "employed 1,840 drivers", and "kilometres" for "96 million kilometres".
  */
-const namedIn = (text: string, words: string): boolean => {
-  const named = (each: string) => wordsOf(each).filter((word) => !/^\p{N}+$/u.test(word));
-  return inOrder(named(text), named(words));
-};
+const named = (text: string): string[] => wordsOf(text).filter((word) => !/^\p{N}+$/u.test(word));
+const namedIn = (text: string, words: string): boolean => inOrder(named(text), named(words));
+
+const HAN = /\p{Script=Han}/u;
+
+/**
+ * Whether `texts` hold `words`: whole, or by the pieces between their spaces, and a Chinese piece
+ * as two runs of two characters or more, since Chinese writes no spaces: a cell's measure may join
+ * its row label and its table's caption ("生鲜食品收入" for 生鲜食品 under 分部收入, as Claude Haiku
+ * 5.5 named it).
+ */
+function heldIn(texts: readonly string[], words: string): boolean {
+  const own = (part: string) => texts.some((text) => namedIn(text, part));
+  const halves = (piece: string) => {
+    const characters = named(piece);
+    for (let at = 2; HAN.test(piece) && at <= characters.length - 2; at++)
+      if (own(characters.slice(0, at).join(" ")) && own(characters.slice(at).join(" ")))
+        return true;
+    return false;
+  };
+  return (
+    own(words) ||
+    words
+      .split(/\s+/u)
+      .filter((piece) => /[\p{L}\p{N}]/u.test(piece))
+      .every((piece) => own(piece) || halves(piece))
+  );
+}
 
 /** A table's row: its cells apart by tabs or bars. */
 const isRow = (line: string): boolean => line.includes("\t") || /\S\s*\|\s*\S/.test(line);
@@ -195,37 +219,50 @@ export interface BoundNumber {
 
 const digitsOf = (chars: string): string => chars.normalize("NFKC").replace(/\D/gu, "");
 
-/** Whether `words` write the figure's own number, or its source's, in digits or in value. */
-function restates(words: string, bound: BoundNumber): boolean {
+/** Whether `figure` writes the figure's own number, or its source's, in digits or in value. */
+function writesNumber(figure: Figure, bound: BoundNumber): boolean {
   const written = new Set([digitsOf(bound.chars), digitsOf(bound.figure)].filter(Boolean));
-  return readFigures(words, { midLine: true }).some(
-    (figure) =>
-      written.has(digitsOf(figure.chars)) ||
-      readingsOf(figure).some((reading) =>
-        bound.values.some((value) => sameNumber(reading.value, value)),
-      ),
+  return (
+    written.has(digitsOf(figure.chars)) ||
+    readingsOf(figure).some((reading) =>
+      bound.values.some((value) => sameNumber(reading.value, value)),
+    )
   );
 }
 
 /**
- * The most a measure's words may run to, from the longest Claude Haiku 5.5 named without its number
- * in this issue's live runs: 8 words ("Net finance cost over the last 12 months") and 11 Han
- * characters ("服装 · 2025年第三季度 分部收入"). Han and kana count by the character; the rest by
- * the word between spaces ("like-for-like" is one). Past either, the words are a copied clause.
+ * The most a measure's words may run to, its own number taken out, from the longest Claude Haiku
+ * 5.5 named in this issue's live runs: 8 words ("Net finance cost over the last 12 months") and 11
+ * Han characters ("服装 · 2025年第三季度 分部收入"). Han and kana count by the character; the rest
+ * by the word between spaces ("like-for-like" is one). Past either, the words are a copied clause.
  */
 const MEASURE_WORDS = 10;
 const MEASURE_HAN = 16;
 const CHARACTER_SCRIPTS = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu;
 
-/** Whether `words` are a measure's short name: within the caps, and not restating the number. */
-function aName(words: string, bound: BoundNumber): boolean {
-  const characters = words.match(CHARACTER_SCRIPTS)?.length ?? 0;
-  const spaced = words
+const withinCaps = (words: string): boolean =>
+  (words.match(CHARACTER_SCRIPTS)?.length ?? 0) <= MEASURE_HAN &&
+  words
     .replace(CHARACTER_SCRIPTS, " ")
     .split(/\s+/u)
-    .filter((word) => /[\p{L}\p{N}]/u.test(word)).length;
-  if (characters > MEASURE_HAN || spaced > MEASURE_WORDS) return false;
-  return !restates(words, bound);
+    .filter((word) => /[\p{L}\p{N}]/u.test(word)).length <= MEASURE_WORDS;
+
+/**
+ * A measure's words as a name. Words that write the figure's own number are the clause around it
+ * ("leverage was 3.1x", "新开门店14家"), and name the measure in the rest once the number and the
+ * unit read with it are taken out (`clause`). Null when nothing is left, the rest is past the caps,
+ * or it still writes another number, so it is a clause about two ("毛利率为38.6%，2025年第三季度为").
+ */
+function nameOf(words: string, bound: BoundNumber): { words: string; clause: boolean } | null {
+  const own = readFigures(words, { midLine: true })
+    .filter((figure) => writesNumber(figure, bound))
+    .sort((a, b) => b.start - a.start);
+  if (own.length === 0) return withinCaps(words) ? { words, clause: false } : null;
+  let rest = words;
+  for (const { start, end } of own) rest = `${rest.slice(0, start)} ${rest.slice(end)}`;
+  rest = rest.replace(/\s+/gu, " ").trim();
+  if (!namesSomething(rest) || !withinCaps(rest)) return null;
+  return readFigures(rest, { midLine: true }).length > 0 ? null : { words: rest, clause: true };
 }
 
 export type MeasureFinding =
@@ -251,15 +288,16 @@ export function measureFinding(
   passage: () => readonly string[],
 ): MeasureFinding {
   if (!measure) return { kind: "unread" };
-  const said = measure.sentence;
-  const quoted = measure.quote;
-  // A whole clause copied for a measure ("Operating margin was 12% in 2025") names nothing apart.
-  if (!aName(said, bound) || (quoted !== null && !aName(quoted, bound))) return { kind: "unread" };
-  // A table cell's measure may join its row label and its caption ("生鲜食品 分部收入"): each piece
-  // is the sentence's own words when its label, context or paragraph holds it.
-  const pieces = said.split(/\s+/u).filter((piece) => /[\p{L}\p{N}]/u.test(piece));
-  const own = (words: string) => sentence.some((text) => namedIn(text, words));
-  const owned = namesSomething(said) && (own(said) || pieces.every(own));
+  const named = nameOf(measure.sentence, bound);
+  const naming = measure.quote === null ? null : nameOf(measure.quote, bound);
+  if (named === null || (measure.quote !== null && naming === null)) return { kind: "unread" };
+  const said = named.words;
+  const quoted = naming?.words ?? null;
+  const owned = namesSomething(said) && heldIn(sentence, said);
+  // A reply that copies the clause around a number names no measure of its own, so its match
+  // can't tell the fleet's kilometres from rail partners' (Claude Haiku 5.5 called them the same):
+  // the quote's clause must write the sentence's measure itself.
+  const copied = named.clause || naming?.clause === true;
   // The first text that holds the quote decides, its cited pages before the rest of its Document:
   // a quote it holds twice is in no one place.
   let place: ReturnType<typeof placeOf> | undefined;
@@ -292,12 +330,12 @@ export function measureFinding(
     return {
       kind: "differs",
       shown:
-        quoted !== null && owned && asWritten(quoted, found) && asWritten(said, sentence)
+        quoted !== null && owned && !copied && asWritten(quoted, found) && asWritten(said, sentence)
           ? { measured: quoted, claimed: said }
           : null,
     };
   }
-  if (!owned) return { kind: "unread" };
+  if (!owned || (copied && (quoted === null || !heldIn([quoted], said)))) return { kind: "unread" };
   if (found.length > 0) return { kind: "same" };
   // Only a table's cell may name nothing of its own: a number in prose has its measure beside it.
   const cell = quoted === null && !namesSomething(quote) ? where() : null;

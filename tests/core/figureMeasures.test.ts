@@ -446,22 +446,114 @@ test.each([
   }
 });
 
-// protects=measure words that write the figure's own number, in digits or in Chinese numerals the figure reader reads, are a clause, not a name (#2255); fails_when=a measure restating the number is accepted; no_claim=that English number words ("twelve per cent") are caught: the reader doesn't read them.
+// protects=words that write the figure's own number are the clause around it, named by the rest once the number and the unit read with it are out: the clauses Claude Haiku 5.5 copied in the tie-out name their measure; nothing left, a rest past the caps or a rest that writes another number is Not checked; and a copied clause names no measure apart, so the quote's clause must write the sentence's measure, and the fleet's kilometres never back rail partners' (Haiku called them the same in the held-out run) (#2255); fails_when=a clause that names its measure is refused, or a clause about another measure or about two numbers is accepted; no_claim=that the quote's clause writing the sentence's words makes them the same measure.
 test.each([
-  { said: "Operating margin was 12%", quoted: "Revenue", kind: "unread" },
-  { said: "Operating margin", quoted: "Revenue grew 12%", kind: "unread" },
-  { said: "Operating margin", quoted: "Operating margin", kind: "same" },
-])("a measure that restates the number: $said / $quoted", ({ said, quoted, kind }) => {
-  const sentence = "Operating margin was 12% in 2025.";
-  const quote = "Operating margin and revenue grew 12% in 2025.";
+  {
+    sentence: "Net debt was £5.7bn and leverage was 3.1x on EBITDA of £1,840m.",
+    quote: "leverage was 3.1x EBITDA of £1,840m",
+    number: ["3.1x", 3.1],
+    said: "leverage",
+    quoted: "leverage was 3.1x",
+    kind: "same",
+  },
+  {
+    sentence: "The group opened 14 new stores and closed 9 in the quarter.",
+    quote: "The group opened 14 new stores and closed 6 in the quarter.",
+    number: ["14", 14],
+    said: "new stores opened",
+    quoted: "opened 14 new stores",
+    kind: "same",
+  },
+  {
+    sentence: "The group employed 41,250 people, and the interim dividend is 4.2 pence per share.",
+    quote: "The interim dividend is 4.2 pence per share.",
+    number: ["4.2", 4.2],
+    said: "interim dividend",
+    quoted: "The interim dividend is 4.2 pence per share",
+    kind: "same",
+  },
+  {
+    sentence: "净债务为57亿元，杠杆率为3.1倍，低于3.5倍的契约上限。",
+    quote: "杠杆率契约上限为3.5倍",
+    number: ["3.5倍", 3.5],
+    said: "契约上限",
+    quoted: "杠杆率契约上限为3.5倍",
+    kind: "same",
+  },
+  {
+    sentence: "员工人数为41,250人，中期股息为每股0.42元。",
+    quote: "中期股息为每股0.42元",
+    number: ["0.42元", 0.42],
+    said: "中期股息每股",
+    quoted: "中期股息为每股0.42元",
+    kind: "same",
+  },
+  {
+    sentence: "毛利率为38.6%，上年同期为40.5%。",
+    quote: "毛利率为38.6%，2025年第三季度为40.5%",
+    number: ["40.5%", 0.405],
+    said: "上年同期毛利率",
+    quoted: "毛利率为38.6%，2025年第三季度为40.5%",
+    kind: "unread",
+  },
+  {
+    sentence: "Revenue grew 12% in 2025.",
+    quote: "Revenue grew 12% in 2025, to £48.2m.",
+    number: ["12%", 0.12],
+    said: "Revenue",
+    quoted: "Revenue grew 12% in 2025, to £48.2m.",
+    kind: "unread",
+  },
+  {
+    sentence: "Net debt was £5.7bn and leverage was 3.1x on EBITDA of £1,840m.",
+    quote: "leverage was 3.1x EBITDA of £1,840m",
+    number: ["3.1x", 3.1],
+    said: "leverage",
+    quoted: "3.1x",
+    kind: "unread",
+  },
+  {
+    sentence: "Fuel cost Harbourline £14.2m in 2025.",
+    quote: "Fuel costs were £14.2m for the year, helped by lower diesel prices and hedging.",
+    number: ["£14.2m", 14_200_000],
+    said: "Fuel",
+    quoted: "Fuel costs were £14.2m for the year, helped by lower diesel prices and hedging",
+    kind: "unread",
+  },
+  {
+    sentence: "Rail partners carried Harbourline's freight 96 million kilometres in 2025.",
+    quote: "The fleet drove 96 million kilometres over the year.",
+    number: ["96 million", 96_000_000],
+    said: "freight kilometres",
+    quoted: "The fleet drove 96 million kilometres",
+    kind: "unread",
+  },
+  {
+    sentence: "Operating margin was 12% in 2025.",
+    quote: "Operating margin and revenue grew 12% in 2025.",
+    number: ["12%", 0.12],
+    said: "Operating margin was 12%",
+    quoted: "Revenue",
+    kind: "unread",
+  },
+  {
+    sentence: "Operating margin was 12% in 2025.",
+    quote: "Operating margin and revenue grew 12% in 2025.",
+    number: ["12%", 0.12],
+    said: "Operating margin",
+    quoted: "Revenue grew 12%",
+    kind: "unread",
+  },
+])("a measure that writes its number: $said / $quoted", (example) => {
+  const [chars, value] = example.number as [string, number];
   const finding = measureFinding(
-    { sentence: said, quote: quoted, match: "same" },
-    [sentence],
-    quote,
-    bound("12%", 0.12, quote.indexOf("12%")),
+    { sentence: example.said, quote: example.quoted, match: "same" },
+    [example.sentence],
+    example.quote,
+    { chars, at: example.quote.indexOf(chars), figure: chars, values: [value] },
     () => [],
   );
-  expect(finding.kind).toBe(kind);
+  expect(finding.kind).toBe(example.kind);
 });
 
 // protects=a Chinese sentence checked against an English Document gets the reason in Chinese, the quote's English words spaced from the Chinese around them (docs/agents/zh-CN.md), and its own Chinese measure in its place (#2255); fails_when=the reason runs Latin words into Chinese or names the measures the wrong way round; no_claim=how a real model words either measure.
@@ -899,16 +991,66 @@ describe("where a table's headings line up (#2255's review)", () => {
   });
 });
 
-// protects=Chinese numerals that read as the figure's value restate it, as digits do (#2255); fails_when=a measure written with the figure's number in Chinese numerals is accepted; no_claim=none beyond protects.
-test("a measure that restates the number in Chinese numerals", () => {
-  const quote = "乙方每月向甲方支付租金人民币一千五百元。";
+// protects=Chinese numerals that read as the figure's value are its number, as digits are: they come out of the measure's words, and a rest that writes another sum is a clause about two (#2255); fails_when=a measure writing the number in Chinese numerals keeps it, or one about two sums is accepted; no_claim=none beyond protects.
+test("a measure that writes the number in Chinese numerals", () => {
+  const quote = "乙方每月向甲方支付租金人民币一千五百元，押金人民币三千元。";
   const finding = (words: string) =>
     measureFinding(
-      { sentence: words, quote: words, match: "same" },
+      { sentence: "租金", quote: words, match: "same" },
       ["乙方每月向甲方支付租金一千五百元。"],
       quote,
       { chars: "一千五百", at: quote.indexOf("一千五百"), figure: "一千五百元", values: [1500] },
       () => [],
     ).kind;
-  expect([finding("租金一千五百元"), finding("租金")]).toEqual(["unread", "same"]);
+  expect([
+    finding("租金一千五百元"),
+    finding("租金一千五百元，押金三千元"),
+    finding("租金"),
+  ]).toEqual(["same", "unread", "same"]);
+});
+
+// protects=a Chinese measure written without spaces is the sentence's own when it splits into two pieces of two characters or more, each held by its label, context or paragraph ("生鲜食品收入": the row label 生鲜食品 and the caption's 收入), never a piece of one character or three pieces (#2255); fails_when=a joined cell measure is refused, or one held only in smaller pieces is accepted; no_claim=that the joined words name the cell's measure.
+test.each([
+  { said: "生鲜食品收入", kind: "same" },
+  { said: "生鲜食品利润", kind: "unread" },
+  { said: "生鲜食品入", kind: "unread" },
+  { said: "生鲜食品第三季度收入", kind: "unread" },
+])("a Chinese measure joined without spaces: $said", ({ said, kind }) => {
+  const sheet = [
+    "单位：人民币百万元",
+    "分部\t2026年第三季度\t2025年第三季度",
+    "日用食品\t2160\t2100",
+    "生鲜食品\t1420\t1350",
+  ].join("\n");
+  const quote = "生鲜食品\t1420\t1350";
+  const finding = measureFinding(
+    { sentence: said, quote: "生鲜食品", match: "same" },
+    [
+      "1,420",
+      "生鲜食品 · 2026年第三季度",
+      "2026年第三季度\n生鲜食品 | 1,420\n2026年第三季度分部收入（单位：人民币百万元）\n1,420",
+    ],
+    quote,
+    { chars: "1420", at: quote.indexOf("1420"), figure: "1,420", values: [1420] },
+    () => [sheet],
+  );
+  expect(finding.kind).toBe(kind);
+});
+
+// protects=the caps count a hyphenated word as one word and kana by the character, as Han, by Unicode script with no word list: an 8-word name with three hyphenated words passes, 16 katakana pass and 17 are Not checked (#2255); fails_when=hyphens split a word into several, or kana count as one word; no_claim=none beyond protects.
+test.each([
+  { words: "year-on-year growth in like-for-like sales per full-time employee", kind: "same" },
+  { words: "ゼンキヒカクエイギョウリエキリツ", kind: "same" },
+  { words: "ゼンキヒカクノエイギョウリエキリツ", kind: "unread" },
+])("a measure's length by script: $words", ({ words, kind }) => {
+  const sentence = `In 2025 「${words}」 was 12%.`;
+  const quote = `「${words}」 rose 12%`;
+  const finding = measureFinding(
+    { sentence: words, quote: words, match: "same" },
+    [sentence],
+    quote,
+    bound("12%", 0.12, quote.indexOf("12%")),
+    () => [],
+  );
+  expect(finding.kind).toBe(kind);
 });
