@@ -160,7 +160,8 @@ const corner = ([growth, wacc]: (typeof CORNERS)[number]): ExpectedNumber => ({
   kind: "number",
   label: `Enterprise value at ${percent(growth)}% terminal growth and ${percent(wacc)}% WACC`,
   unit: "plain",
-  tolerance: { rel: 1e-6 },
+  // A sheet or table shows $000 to a decimal or none: 5e-6 of 156,378 is 0.78.
+  tolerance: { rel: 5e-6 },
 });
 
 export const task: Task = {
@@ -202,7 +203,7 @@ export const task: Task = {
       kind: "number",
       label: "The grid's cell at the workbook's own inputs (its own enterprise value)",
       unit: "plain",
-      tolerance: { rel: 1e-6 },
+      tolerance: { rel: 5e-6 },
       near: /base|workbook|model's own|own inputs|current|as it is|基准|当前/i,
     },
   ],

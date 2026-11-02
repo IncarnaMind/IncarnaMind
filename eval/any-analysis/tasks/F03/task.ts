@@ -51,7 +51,8 @@ export const task: Task = {
       kind: "number",
       label: "Total interest over the term",
       unit: "plain",
-      tolerance: { abs: 1 },
+      // Rounding each of the 360 payments to the cent, as a loan does, moves the total by up to $1.80.
+      tolerance: { abs: 2 },
       near: /total interest|总利息/i,
     },
     {

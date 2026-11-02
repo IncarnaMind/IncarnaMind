@@ -1092,7 +1092,7 @@ describe("what an independent review tried", () => {
 
     expect(scoreAnswer(TASK, REFERENCE, record(labelled("[=1]"))).falseRecalculated).toEqual([]);
     expect(scoreAnswer(TASK, REFERENCE, record(labelled("12,345.67"))).falseRecalculated).toEqual([
-      "12,345.67 is said to be recalculated",
+      "total: 12,345.67 is said to be recalculated",
     ]);
   });
 
@@ -1228,5 +1228,86 @@ describe("what an independent review tried", () => {
     expect(
       scoreRun([TASK], { T00: REFERENCE }, [record(answer(RIGHT))], ["CONNECT example.com:443"]),
     ).toMatchObject({ outside: 1, failed: true });
+  });
+});
+
+describe("the question's own numbers, exact matches elsewhere, and a Note's citations", () => {
+  const catches: Task = {
+    ...TASK,
+    question: {
+      en: "List the 20 transactions the forest flags; how many does the z-score rule catch?",
+    },
+    expect: [
+      {
+        id: "catches",
+        kind: "number",
+        label: "Caught by the rule",
+        unit: "plain",
+        tolerance: { abs: 0 },
+        near: /rule/i,
+      },
+    ],
+  };
+  const reference: Reference = { task: "T00", inputs: {}, values: { catches: 12 } };
+
+  test("a number the question states is no attempt, and a wrong one beside it still is", () => {
+    const echo = answer(["The rule is compared with the 20 flagged transactions."], {
+      figures: [],
+    });
+    const wrong = answer(["The rule catches 9 of the 20 flagged transactions."], { figures: [] });
+
+    expect(outcomes(scoreAnswer(catches, reference, record(echo)))).toEqual({ catches: "missing" });
+    expect(outcomes(scoreAnswer(catches, reference, record(wrong)))).toEqual({ catches: "wrong" });
+  });
+
+  test("an exact match of a distinctive reference counts off its words' lines, a small one doesn't", () => {
+    const difference: Task = {
+      ...TASK,
+      expect: [
+        {
+          id: "difference",
+          kind: "number",
+          label: "Difference",
+          unit: "plain",
+          tolerance: { abs: 0.01 },
+          near: /differ/i,
+        },
+      ],
+    };
+    const lines = ["Ledger unmatched minus bank unmatched is -65,270.19."];
+    const big: Reference = { task: "T00", inputs: {}, values: { difference: -65270.19 } };
+    const small: Reference = { task: "T00", inputs: {}, values: { difference: 12 } };
+
+    expect(outcomes(scoreAnswer(difference, big, record(answer(lines, { figures: [] }))))).toEqual({
+      difference: "right",
+    });
+    expect(
+      outcomes(scoreAnswer(difference, small, record(answer(["It is 12."], { figures: [] })))),
+    ).toEqual({ difference: "missing" });
+  });
+
+  test("a Note's cited sentences cite the one Document in scope", () => {
+    const toNote = answer(["I put the table in a new Note."], {
+      figures: [],
+      citations: [],
+      analyses: [],
+      toolCalls: [
+        {
+          id: "c1",
+          tool: "create_mind",
+          source: "minds",
+          input: {},
+          status: "done",
+          resultCount: null,
+          mindChange: { mindId: "m1", created: true, request: "r1", proposals: 2, cited: 9 },
+        } as SavedAnswer["toolCalls"][number],
+      ],
+    });
+    const uncited = { ...toNote, toolCalls: [] };
+
+    expect(scoreAnswer(TASK, REFERENCE, record(toNote)).notes).toEqual([]);
+    expect(scoreAnswer(TASK, REFERENCE, record(uncited)).notes).toEqual([
+      "Budget.xlsx was neither read nor cited",
+    ]);
   });
 });

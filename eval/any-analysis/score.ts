@@ -406,6 +406,7 @@ function verdict(
   candidate: Candidate,
   references: readonly number[],
   wanted: Wanted,
+  asides: ReadonlySet<number> = new Set(),
 ): "right" | "plausible" | null {
   let plausible = false;
   for (const reading of readings(candidate, wanted.unit)) {
@@ -422,7 +423,8 @@ function verdict(
       if (candidate.figure && sameNumber(value, target)) return "right";
       if (Math.abs(value - target) <= allowed + reading.half + Math.abs(target) * 1e-12)
         return "right";
-      if (candidate.word) continue;
+      // A word, or a number the question itself states ("the 20 transactions"), is no attempt.
+      if (candidate.word || (!candidate.figure && asides.has(reading.value))) continue;
       const ratio = target === 0 ? null : Math.abs(value) / Math.abs(target);
       if (
         ratio === null ? Math.abs(value) <= 3 * Math.max(allowed, 1) : ratio >= 1 / 3 && ratio <= 3
@@ -443,10 +445,11 @@ function judge(
   candidates: readonly Candidate[],
   references: readonly number[],
   wanted: Wanted,
+  asides: ReadonlySet<number> = new Set(),
 ): Found {
   let wrong: Candidate | null = null;
   for (const candidate of candidates) {
-    const said = verdict(candidate, references, wanted);
+    const said = verdict(candidate, references, wanted, asides);
     if (said === "right") return { outcome: "right", candidate };
     if (said === "plausible") wrong ??= candidate;
   }
@@ -464,6 +467,13 @@ function nearCandidates(line: Line, near: RegExp): Candidate[] {
   return cells.flatMap((cell, index) => (test(headings[index] ?? "") ? cell.candidates : []));
 }
 
+/** The significant figures a number is written with at its shortest: 0.00095 has 2, -65270.19 has 7. */
+const significant = (value: number): number =>
+  Number(value.toPrecision(15))
+    .toString()
+    .replace(/^-?0*\.?0*/, "")
+    .replace(/\.|e.*$/g, "").length;
+
 const numbersOf = (value: ReferenceValue | undefined): number[] =>
   typeof value === "number"
     ? [value]
@@ -475,6 +485,7 @@ function scoreNumber(
   expected: ExpectedNumber,
   value: ReferenceValue | undefined,
   lines: readonly Line[],
+  asides: ReadonlySet<number>,
 ): Found {
   const references = numbersOf(value);
   if (references.length === 0) return { outcome: "missing", candidate: null };
@@ -484,19 +495,30 @@ function scoreNumber(
       lines.flatMap((line) => nearCandidates(line, near)),
       references,
       expected,
+      asides,
     );
     if (found.outcome !== "missing") return found;
   }
-  // Elsewhere, only a calculated figure the model labelled with the result's words counts: any
-  // small number would otherwise pass for a small p-value.
+  // Elsewhere, only a calculated figure the model labelled with the result's words, or a number
+  // exactly the reference's to at least four figures, counts: any small number would otherwise
+  // pass for a small p-value.
+  const distinct = (candidate: Candidate) =>
+    references.some(
+      (reference) =>
+        significant(reference) >= 4 &&
+        readings(candidate, expected.unit).some(
+          ({ value }) => Math.abs(value - reference) <= Math.abs(reference) * 1e-9,
+        ),
+    );
   const anywhere = judge(
     lines.flatMap((line) =>
       line.candidates.filter(
-        (each) => !near || (each.figure && once(near).test(each.figure.label)),
+        (each) => !near || (each.figure && once(near).test(each.figure.label)) || distinct(each),
       ),
     ),
     references,
     expected,
+    asides,
   );
   return anywhere.outcome === "right" ? anywhere : { outcome: "missing", candidate: null };
 }
@@ -532,6 +554,7 @@ function scoreRows(
   expected: ExpectedRows,
   value: ReferenceValue | undefined,
   lines: readonly Line[],
+  asides: ReadonlySet<number>,
 ): RowsFound {
   const rows = (Array.isArray(value) ? value : []).filter(
     (row): row is ReferenceRow => typeof row === "object" && row !== null && "key" in row,
@@ -556,6 +579,7 @@ function scoreRows(
         column,
         row[column.id],
         holding.flatMap((line) => candidatesFor(line, key, column)),
+        asides,
       );
       if (found.outcome === "right" && found.candidate) right.push(found.candidate);
       else if (found.outcome === "wrong" && found.candidate)
@@ -587,9 +611,10 @@ function judgeColumn(
   column: ExpectedColumn,
   value: number | string | undefined,
   candidates: readonly Candidate[],
+  asides: ReadonlySet<number>,
 ): Found {
   if (typeof value !== "number") return { outcome: "missing", candidate: null };
-  return judge(candidates, [value], column);
+  return judge(candidates, [value], column, asides);
 }
 
 /** A table row's numbers for a column: the cell under its heading, where the column names one. */
@@ -793,6 +818,8 @@ export function scoreAnswer(task: Task, reference: Reference, record: AnswerReco
   const own = record.answer ?? NO_ANSWER;
   const { answer, cited: noted } = withNotes(record, own);
   const lines = linesOf(answer);
+  const question = task.question[record.language] ?? task.question.en;
+  const asides = new Set(written(normalised(question), -1).map((each) => each.value));
   const whole = lines.map((line) => line.text).join("\n");
   const expectations: ExpectationScore[] = [];
   /** Each candidate an expectation took as its answer, right or wrong. */
@@ -806,7 +833,7 @@ export function scoreAnswer(task: Task, reference: Reference, record: AnswerReco
       expectations.push({ id: expected.id, label: expected.label, outcome, detail });
     switch (expected.kind) {
       case "number": {
-        const found = scoreNumber(expected, value, lines);
+        const found = scoreNumber(expected, value, lines, asides);
         if (found.candidate) {
           taken.set(found.candidate, { id: expected.id, right: found.outcome === "right" });
           if (found.outcome === "right") rightLines.set(expected.id, found.candidate.line);
@@ -816,7 +843,7 @@ export function scoreAnswer(task: Task, reference: Reference, record: AnswerReco
         break;
       }
       case "rows": {
-        const found = scoreRows(expected, value, lines);
+        const found = scoreRows(expected, value, lines, asides);
         for (const candidate of found.right) taken.set(candidate, { id: expected.id, right: true });
         for (const each of found.wrong) {
           taken.set(each.candidate, { id: expected.id, right: false });
@@ -856,6 +883,10 @@ export function scoreAnswer(task: Task, reference: Reference, record: AnswerReco
   // C2: every input opens where it was read, and every "recalculated" figure is recalculated and right.
   const notes: string[] = [];
   const read = [...readDocuments(answer), ...[...noted.values()].map((each) => each.text)];
+  // A Note's Proposals cite only Documents in the question's scope: with one, they cite it.
+  const notesCite = own.toolCalls.some((call) => (call.mindChange?.cited ?? 0) > 0);
+  if (notesCite && record.documents.length === 1 && record.documents[0])
+    read.push(record.documents[0].name);
   for (const name of task.sources?.documents ?? []) {
     const document = record.documents.find((each) => each.english === name);
     // The app names a Document by its file's name without the extension.
