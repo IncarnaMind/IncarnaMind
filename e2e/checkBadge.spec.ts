@@ -228,7 +228,7 @@ test("in Chinese and a narrow pane the badge keeps its state to its mark; Tab re
   await expect(editor.getByTestId("citation")).toHaveCount(1);
   await setLanguage(window, "zh-CN");
   const open = window.getByTestId("check-badge-open");
-  await expect(open).toHaveAccessibleName("说法和引用：未核对");
+  await expect(open).toHaveAccessibleName("说法和引用：说法未核对");
   const words = window.getByTestId("check-badge").locator(".check-badge-words");
   await expect(words).toHaveText("说法未核对");
   await expect(words).toBeVisible();

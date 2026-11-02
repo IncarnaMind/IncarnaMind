@@ -177,11 +177,10 @@ export function useMindCheckRun(doc: Y.Doc): MindCheckRun | null {
  * Runs a whole-Note check again: a check of chosen figures checks those figures again, never the
  * whole Note; any other is planned and asked again.
  */
+// A retry runs the Check the User already agreed to, so it never asks again (#2313).
 const again =
   (mindId: string, mode: CheckMindMode, allDocuments: boolean, figureIds?: string[]) => () =>
-    void (figureIds
-      ? checkMind(mindId, mode, { allDocuments, figureIds })
-      : startMindCheck(mindId, mode, { allDocuments }));
+    void checkMind(mindId, mode, { allDocuments, ...(figureIds && { figureIds }) });
 
 /**
  * Checks the Note's claims now, as `mode` says: what changed, every sentence,
@@ -342,7 +341,11 @@ async function start(
     keeps = outcome !== null && outcome.kind === "asked";
     return outcome;
   } catch (error) {
-    setCheckProblem(mindId, { kind: "failed", error, retry: () => void start(mindId, planned) });
+    setCheckProblem(mindId, {
+      kind: "failed",
+      error,
+      retry: () => void start(mindId, planned, false),
+    });
     return { kind: "threw", error };
   } finally {
     // A shown question keeps the Note for the run it asks for, and a run frees its own hold at its end.

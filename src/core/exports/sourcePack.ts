@@ -28,9 +28,10 @@ export interface PackCitation {
  * The Mind's Citations, in order, numbered as every surface numbers them (`FootnoteNumbering`):
  * in Numbered, one footnote for each source and place, a later Citation of it repeating its
  * number; among the User's footnotes in every style; side by side as one in a note style; among
- * themselves in a style that cites in the text. A calculated figure takes a number as a footnote
- * does, or a place among the Citations in a style that cites in the text. A Chart's sources have
- * no number in the Mind, so they aren't here.
+ * themselves in a style that cites in the text. A calculated figure numbers among the Note's
+ * figures, not its footnotes, so a Citation's number never skips over one (#2313): in a style
+ * that cites in the text it takes a cited ordinal. A Chart's sources have no number in the Mind,
+ * so they aren't here.
  */
 export function numberCitations(
   blocks: readonly Block[],
@@ -73,7 +74,6 @@ export function numberCitations(
         together = false;
       } else if (item.kind === "figure") {
         if (form === "in-text") cited += 1;
-        else numbering.footnote();
         together = false;
       } else if (!isBlank(item)) {
         together = false;
