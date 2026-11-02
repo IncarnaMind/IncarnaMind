@@ -310,6 +310,7 @@ async function checkWith(options: {
       catalog: {
         tools: true,
         calculates: true,
+        checkCalculates: true,
         temperature: true,
         forcedToolChoice: options.forcedToolChoice,
       },

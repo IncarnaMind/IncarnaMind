@@ -15,6 +15,7 @@ import {
   installFigureRuns,
   pruneFigureRuns,
   readFigureRunClosure,
+  withoutChecks,
 } from "../../../shared/figureRuns";
 import { useAppStore } from "../store";
 import { clipboardBlocks, FIGURE_RUNS_ATTRIBUTE } from "./copyCitations";
@@ -65,7 +66,9 @@ export const FigureEvidence = Extension.create<{ doc: Y.Doc | null }>({
                 throw new Error("The pasted figures need one Analysis record carrier.");
               runs = readFigureRunClosure(
                 blocks,
-                JSON.parse(carriers[0]?.getAttribute(FIGURE_RUNS_ATTRIBUTE) ?? "null"),
+                withoutChecks(
+                  JSON.parse(carriers[0]?.getAttribute(FIGURE_RUNS_ATTRIBUTE) ?? "null"),
+                ),
               );
               const preview = new Y.Doc();
               try {

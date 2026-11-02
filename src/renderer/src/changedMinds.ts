@@ -56,7 +56,11 @@ export function changedMinds(answer: Pick<ConversationAnswer, "toolCalls">): Cha
       row.changed += change.changed ?? change.proposals - tables;
     } else row.wrote += (change.paragraphs ?? 0) - (replaced?.paragraphs ?? 0);
     row.tables += tables - (replaced?.tables ?? 0);
-    row.charts += (change.charts ?? 0) - (replaced?.charts ?? 0);
+    const charts = (change.charts ?? 0) - (replaced?.charts ?? 0);
+    row.charts += charts;
+    // The line is about the Note as it is now: a chart a later call drew there answers an
+    // earlier call's "No chart", and only the latest refusal still says there is none.
+    if (charts > 0) row.chartNotDrawn = null;
     if (change.chartNotDrawn) row.chartNotDrawn = change.chartNotDrawn;
     row.unlinkedSources += change.unlinkedSources ?? 0;
     row.droppedSources += change.droppedSources ?? 0;
