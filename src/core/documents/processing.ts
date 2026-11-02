@@ -23,11 +23,10 @@ import {
 } from "../referenceRecords/read";
 import { BOILERPLATE_PARAMETERS, stripBoilerplate } from "./boilerplate";
 import { creationDate, pdfDate, w3cDate } from "./creationDate";
-import { decodeText } from "./decode";
 import { addDepositionAnchors, hasPrintedLines } from "./deposition";
 import { ExtractionError, extractText, type PageReading, pdfMetadata } from "./extract";
 import { officeProperties } from "./formats/coreProperties";
-import { htmlTitle } from "./formats/html";
+import { htmlTitleOf } from "./formats/html";
 import { readWebPage, SAVED_PICTURE } from "./formats/web";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
@@ -571,7 +570,7 @@ async function readMetadataOf(
       if (firstPages === null) parts.firstPages = pdf.firstPages;
     } else if (kind === "html") {
       // The page's own title, as its head says it; its text names it otherwise.
-      property = htmlTitle(decodeText(bytes) ?? "");
+      property = htmlTitleOf(bytes);
     } else if (hasMetadata(kind)) {
       const office = await officeProperties(bytes);
       fromMetadata = [office.created === null ? null : w3cDate(office.created)];

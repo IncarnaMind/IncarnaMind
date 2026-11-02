@@ -10,7 +10,8 @@ import { dirname, join } from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
 import { describe, expect, test } from "vitest";
 import type { OfficeConverter, TextRecognizer } from "../../src/core/adapters";
-import { htmlTextToMarkdown } from "../../src/core/documents/formats/html";
+import { htmlMarkdown, htmlTextToMarkdown, htmlTitle } from "../../src/core/documents/formats/html";
+import { rtfMarkdown } from "../../src/core/documents/formats/rtf";
 import { PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { BUILT_IN_TEXT_RECOGNITION_MODEL } from "../../src/core/documents/scan/model";
@@ -52,7 +53,9 @@ const HTML = `<!DOCTYPE html>
 <script>var hidden = "never read";</script></head>
 <body>
 <h1>Harbour notice</h1>
+<script>var later = "body script";</script>
 <p>The harbour master publishes the tide tables.<br>Every 12 months.
+<p>Net&nbsp;income&mdash;&euro;5&nbsp;m &ldquo;quoted&rdquo; &copy;</p>
 <h2>Fees</h2>
 <ul><li>Berthing &amp; mooring: 42<li>Tonnage: 18</ul>
 <table><tr><th>Port<td>Leith<tr><td>Fee<br>note<td>42</table>
@@ -81,6 +84,18 @@ function pictureRecognizer(lines: string[]): TextRecognizer {
 }
 
 const picture = () => createCanvas(640, 360).toBuffer("image/png");
+
+/** A PNG whose header claims a size: the guard reads the header, never the pixels. */
+function pngClaiming(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(24);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(8, 13);
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return bytes;
+}
 
 /** A LibreOffice that "converts" to a real .docx, counting what it was asked. */
 function fakeConverter(calls: { path: string; target: string }[]): OfficeConverter {
@@ -153,6 +168,23 @@ describe("A picture is read as a scanned page is (#762)", { timeout: 60_000 }, (
     });
     expect(document?.failure?.message).toContain("The picture couldn't be read");
     expect(document?.failure?.message).not.toContain("Scanned page");
+  });
+
+  test("a picture whose header claims more pixels than the cap is refused before it is decoded", async () => {
+    const core = startCore(await createTempDataFolder(), {
+      textRecognizer: pictureRecognizer(["should never be read"]),
+      textRecognitionModelSource: NO_MODEL_FILES,
+    });
+    const sources = await createSourceFolder();
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Bomb.png", pngClaiming(30_000, 30_000)),
+    ]);
+    expect(document).toMatchObject({
+      kind: "image",
+      status: "failed",
+      failure: { reason: "unreadable" },
+    });
+    expect(document?.failure?.message).toContain("too large to open");
   });
 
   test("a picture with no text found says a picture in the unread list, not a scan", async () => {
@@ -238,10 +270,12 @@ describe("RTF and HTML are read as text with their headings (#762)", () => {
     expect(all).toContain("Port | Leith");
     expect(all).toContain("Cost *estimate* only, and a [link] that is words.");
     expect(all).toContain("Fee\nnote | 42");
+    expect(all).toContain("Net income—€5 m “quoted” ©");
     for (const line of ["# not a heading.", "> not a quote.", "1. not a list.", "~~~ not code."]) {
       expect(all).toContain(line);
     }
     expect(all).not.toContain("never read");
+    expect(all).not.toContain("body script");
     expect(all).not.toContain("color: red");
     const [found] = await core.searchPassages("tide tables", { mode: "keyword" });
     expect(found).toMatchObject({ documentId: document?.id, pageFrom: 1 });
@@ -262,6 +296,102 @@ describe("RTF and HTML are read as text with their headings (#762)", () => {
     expect(markdown).toContain("#\tHarbour notice");
     expect(markdown).toContain("tide tables");
   });
+
+  test("its named references are read, in the body and in its title", () => {
+    const markdown = htmlTextToMarkdown(
+      "<p>Net&nbsp;income&mdash;&euro;5&nbsp;m &ldquo;q&rdquo; &copy; &hellip; &alpha; &rarr;</p>",
+    );
+    expect(markdown).toContain("Net income—€5 m “q” © … α →");
+    expect(htmlTitle("<title>A &amp; B&nbsp;&mdash;&nbsp;C</title>")).toBe("A & B — C");
+  });
+
+  test("the encoding its head declares is the one it is read in", () => {
+    const ascii = (text: string) => [...text].map((char) => char.charCodeAt(0));
+    const page = (...parts: (string | number[])[]) =>
+      new Uint8Array(parts.flatMap((part) => (typeof part === "string" ? ascii(part) : part)));
+    expect(
+      htmlMarkdown(page('<meta charset="big5"><p>', [0xa4, 0xa4, 0xa4, 0xe5], "</p>")),
+    ).toContain("中文");
+    expect(
+      htmlMarkdown(page('<meta charset="shift_jis"><p>', [0x93, 0xfa, 0x96, 0x7b], "</p>")),
+    ).toContain("日本");
+    const httpEquiv = '<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">';
+    expect(htmlMarkdown(page(httpEquiv, "<p>caf", [0xe9], " ", [0x80], "</p>"))).toContain(
+      "café €",
+    );
+  });
+
+  test("an HTML Document's title is read in the encoding its page declares", async () => {
+    const core = startCore(await createTempDataFolder());
+    const sources = await createSourceFolder();
+    const ascii = (text: string) => [...text].map((char) => char.charCodeAt(0));
+    const bytes = new Uint8Array([
+      ...ascii('<meta charset="big5"><title>'),
+      0xa4,
+      0xa4,
+      0xa4,
+      0xe5,
+      ...ascii("</title><p>tide tables</p>"),
+    ]);
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(sources, "title.html", bytes),
+    ]);
+    expect(document?.title).toBe("中文");
+  });
+
+  test("a stray < is the page's text, and a > inside an attribute ends no tag", () => {
+    expect(htmlTextToMarkdown("<p>if a < b and c > d then</p>")).toContain(
+      "if a < b and c > d then",
+    );
+    expect(htmlTextToMarkdown("<p>x <3 y</p>")).toContain("x <3 y");
+    expect(htmlTextToMarkdown("<p>tail < no close")).toContain("tail < no close");
+    expect(htmlTextToMarkdown('<a title="x>y">link</a>')).toBe("link\n");
+  });
+
+  test("a page too large to read is refused with its limit, and stray end tags stay linear", () => {
+    expect(() => htmlMarkdown(new Uint8Array(64 * 1024 * 1024 + 1))).toThrow(
+      "Too large to open (limit 64 MB).",
+    );
+    const timed = (depth: number) => {
+      const source = `${"<div>".repeat(depth)}x${"</span>".repeat(depth)}`;
+      const start = performance.now();
+      htmlTextToMarkdown(source);
+      return performance.now() - start;
+    };
+    timed(20_000);
+    const small = Math.min(timed(100_000), timed(100_000));
+    const large = Math.min(timed(200_000), timed(200_000));
+    expect(large).toBeLessThan(small * 12);
+  });
+});
+
+describe("The RTF reader stands up to broken files (#762)", () => {
+  const rtf = (body: string) => rtfMarkdown(new TextEncoder().encode(`{\\rtf1\\ansi ${body}}`));
+
+  test("a code point out of range is the replacement character, not a crash", () => {
+    expect(rtf("\\u1114112?")).toContain("\uFFFD");
+    expect(rtf("\\u-70000?")).toContain("\uFFFD");
+  });
+
+  test("\\bin's bytes are data, so the text behind a picture is still read", () => {
+    expect(rtf("{\\pict\\bin4 {{{{}after")).toContain("after");
+    const later = rtf("{\\pict\\bin5 ab}cd}tail");
+    expect(later).not.toContain("cd");
+    expect(later).toContain("tail");
+  });
+
+  test("a fallback count ends with its group, so the words after it survive", () => {
+    expect(rtf("\\uc2 \\u2032 {X}bc")).toContain("Xbc");
+  });
+
+  test("a code page other than the CJK ones is decoded as it says", () => {
+    expect(
+      rtfMarkdown(new TextEncoder().encode("{\\rtf1\\ansi\\ansicpg1251 \\'cf\\'f0\\'e8}")),
+    ).toContain("При");
+    expect(rtfMarkdown(new TextEncoder().encode("{\\rtf1\\ansi\\ansicpg1253 \\'c4}"))).toContain(
+      "Δ",
+    );
+  });
 });
 
 describe("Old Office, WPS, Pages and Keynote files say the plain next step (#762)", () => {
@@ -273,6 +403,12 @@ describe("Old Office, WPS, Pages and Keynote files say the plain next step (#762
     expect(skippedStep("Plan.wps").convert).toBe("docx");
     expect(skippedStep("Sheet.et").convert).toBe("xlsx");
     expect(skippedStep("Slides.dps").convert).toBe("pptx");
+    expect(en(skippedStep("Plan.wps").message)).toBe("Save it as .docx in WPS Office, then add it");
+    expect(zh(skippedStep("Plan.wps").message)).toBe("请在 WPS Office 中另存为 .docx，然后再添加");
+    expect(en(skippedStep("Sheet.et").message)).toBe("Save it as .xlsx in WPS Office, then add it");
+    expect(en(skippedStep("Slides.dps").message)).toBe(
+      "Save it as .pptx in WPS Office, then add it",
+    );
     expect(en(skippedStep("Report.pages").message)).toBe(
       "Export it as PDF from Pages, then add it",
     );

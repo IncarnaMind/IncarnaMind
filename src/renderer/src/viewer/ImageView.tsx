@@ -9,6 +9,7 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Document } from "../../../core/api";
 import { isHeifPicture } from "../../../core/documents/formats/images";
+import { pictureLimitProblem } from "../../../core/documents/web/pictures";
 import { displayName } from "../../../shared/documentNames";
 import { findQuoteInPages } from "../../../shared/quoteMatch";
 import { DocumentFix } from "../components/DocumentFix";
@@ -81,11 +82,21 @@ export function ImageView({ document, target }: { document: Document; target: Vi
     let url: string | null = null;
     loadDocumentBytes(document.id, controller.signal)
       .then(async (bytes) => {
+        // A picture whose header claims a size this big is refused before anything draws it,
+        // as the reader refuses it: drawing it would take the same memory (#762).
+        if (pictureLimitProblem(bytes) !== null) {
+          setLoaded({ kind: "failed", message: t("viewer.pictureTooLarge") });
+          return;
+        }
         // A HEIC is a picture the web engine can't show: this computer's decoder makes it a PNG.
         const decoded = isHeifPicture(bytes)
           ? await files.decodePicture(bytes).catch(() => null)
           : null;
         const display = decoded ?? bytes;
+        if (pictureLimitProblem(display) !== null) {
+          setLoaded({ kind: "failed", message: t("viewer.pictureTooLarge") });
+          return;
+        }
         if (controller.signal.aborted) return;
         const copy = display.buffer.slice(
           display.byteOffset,
@@ -105,7 +116,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
       controller.abort();
       if (url) URL.revokeObjectURL(url);
     };
-  }, [document.id, document.path, document.contentHash, attempt]);
+  }, [document.id, document.path, document.contentHash, attempt, t]);
 
   // The width the picture is fitted to; a resize fits it again at once.
   // biome-ignore lint/correctness/useExhaustiveDependencies: measured again when the picture is there to fit

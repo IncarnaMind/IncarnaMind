@@ -140,6 +140,7 @@ import { unreadMessage } from "./unreadMessage";
 import { createVectorIndex } from "./vectors";
 import type { WatchFolder } from "./watcher";
 import type { SnapshotFile } from "./web";
+import { PictureTooLargeError, pictureLimitProblem } from "./web/pictures";
 import { currentLookHash, lookName, showsPicture, webPageInfo } from "./web/store";
 
 const DEFAULT_SEARCH_LIMIT = 20;
@@ -1447,6 +1448,8 @@ export function createDocuments(options: DocumentsOptions) {
         options.decodePicture && isHeifPicture(file)
           ? ((await options.decodePicture(file)) ?? file)
           : file;
+      const problem = pictureLimitProblem(readable);
+      if (problem !== null) throw new PictureTooLargeError(problem);
       return textRecognition.readFile(readable, page);
     },
     isUnavailable: (error) => error instanceof TextRecognitionUnavailableError,

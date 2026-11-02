@@ -24,7 +24,13 @@ import { type CanvasFactory, isScanned, pagePicture } from "./scan/pages";
 import { anchorsBack, readWithQuarterTurn } from "./scan/rotation";
 import { findTables, type TableGrid, textItemOf, textLayerRows } from "./tables";
 import { unreadMessage } from "./unreadMessage";
-import { PICTURE_LIMITS, pictureSize, pictureType } from "./web/pictures";
+import {
+  PICTURE_LIMITS,
+  PictureTooLargeError,
+  pictureLimitProblem,
+  pictureSize,
+  pictureType,
+} from "./web/pictures";
 
 export { ExtractionError };
 
@@ -115,6 +121,10 @@ async function extractImage(
     parts: null,
   });
   if (!reading) return unread("The picture can't be read here.");
+  // The same pixel cap a saved page's pictures get: a small file can claim a size
+  // whose decoding takes a gigabyte, before the OCR engine ever sees it (#762).
+  const problem = pictureLimitProblem(bytes);
+  if (problem !== null) throw new ExtractionError("unreadable", problem);
   reading.progress(0, 1, null);
   try {
     const picture = await reading.readFile(1, bytes);
@@ -125,6 +135,9 @@ async function extractImage(
     reading.signal.throwIfAborted();
     if (error instanceof ReadingUnavailable) {
       return unread(error.message);
+    }
+    if (error instanceof PictureTooLargeError) {
+      throw new ExtractionError("unreadable", error.message);
     }
     throw new ExtractionError(
       "unreadable",

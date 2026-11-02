@@ -82,7 +82,25 @@ function codePageOf(cp: number): string {
   if (cp === 950) return "big5";
   if (cp === 932) return "shift_jis";
   if (cp === 949) return "euc-kr";
+  if (cp === 874 || (cp >= 1250 && cp <= 1258)) return `windows-${cp}`;
   return "windows-1252";
+}
+
+/** The decoder for a code page; one this platform doesn't know reads as windows-1252. */
+function decoderOf(cp: number): TextDecoder {
+  try {
+    return new TextDecoder(codePageOf(cp));
+  } catch {
+    return new TextDecoder("windows-1252");
+  }
+}
+
+/** A `\uN` code point as its character; one out of range or a lone surrogate is the replacement. */
+function characterOf(value: number): string {
+  const code = value < 0 ? value + 65536 : value;
+  return code >= 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff)
+    ? String.fromCodePoint(code)
+    : "\uFFFD";
 }
 
 /** Bytes as Latin-1: control words are ASCII, and each `\'hh` is one byte. */
@@ -144,7 +162,7 @@ export function rtfMarkdown(bytes: Uint8Array): string {
   /** Text of the paragraph being read. */
   let chunks: string[] = [];
   let raw: number[] = [];
-  let decoder = new TextDecoder(codePageOf(1252));
+  let decoder = decoderOf(1252);
   let codePage = 1252;
   let uc = 1;
   /** Characters of a \uN fallback to skip. */
@@ -188,6 +206,8 @@ export function rtfMarkdown(bytes: Uint8Array): string {
     const char = source[at] as string;
     if (char === "{") {
       groups.push({ skip: false, uc });
+      // A fallback count belongs to the group it was given in, as its \uc does.
+      fallback = 0;
       at++;
       continue;
     }
@@ -195,6 +215,7 @@ export function rtfMarkdown(bytes: Uint8Array): string {
       const ended = groups.pop();
       if (ended) {
         uc = ended.uc;
+        fallback = 0;
         if (ended.skip) writing = Math.max(0, writing - 1);
       }
       at++;
@@ -249,6 +270,11 @@ export function rtfMarkdown(bytes: Uint8Array): string {
     at += 1 + match[0].length;
     const word = match[1] as string;
     const value = match[2] === undefined ? null : Number(match[2]);
+    // \binN is N bytes of data, not syntax: it is skipped even inside a group we don't read.
+    if (word === "bin") {
+      if (value !== null && value > 0) at += Math.min(value, source.length - at);
+      continue;
+    }
     if (skipped()) continue;
     if (fallback > 0) {
       fallback--;
@@ -267,7 +293,7 @@ export function rtfMarkdown(bytes: Uint8Array): string {
         if (value !== null && value !== codePage) {
           flushRaw();
           codePage = value;
-          decoder = new TextDecoder(codePageOf(codePage));
+          decoder = decoderOf(codePage);
         }
         break;
       case "uc":
@@ -276,7 +302,7 @@ export function rtfMarkdown(bytes: Uint8Array): string {
       case "u":
         if (value !== null) {
           flushRaw();
-          chunks.push(String.fromCodePoint(value < 0 ? value + 65536 : value));
+          chunks.push(characterOf(value));
           fallback = uc;
         }
         break;

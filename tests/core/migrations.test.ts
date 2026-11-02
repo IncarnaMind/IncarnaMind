@@ -11,6 +11,10 @@ const userVersion = (db: ReturnType<typeof openDatabase>) =>
   db.get<{ user_version: number }>("PRAGMA user_version")?.user_version;
 
 describe("Migrations", () => {
+  test("the newest migration is 122, and a new one takes main's next number (#762)", () => {
+    expect(migrations.at(-1)?.version).toBe(122);
+  });
+
   test("existing remote Connectors keep their OAuth configuration when header metadata is introduced", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "connectors.db"));
     migrate(

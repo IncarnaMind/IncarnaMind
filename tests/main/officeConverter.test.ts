@@ -6,6 +6,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import type { SpawnOptions } from "../../src/core";
 import { createOfficeConverter } from "../../src/main/officeConverter";
 import { createProcessLauncher } from "../../src/main/processes";
 import { createTempDataFolder } from "../helpers/core";
@@ -41,14 +42,19 @@ exit 3
 `;
 
 /** A folder with one executable named `soffice`, and the launcher that finds it on its PATH. */
-async function withLibreOffice(script: string) {
+async function withLibreOffice(script: string, seen?: (options: SpawnOptions | undefined) => void) {
   const home = await createTempDataFolder();
   const bin = join(home, "bin");
   await mkdir(bin);
   await writeFile(join(bin, "soffice"), script, { mode: 0o755 });
   const processes = createProcessLauncher(async () => ({ PATH: bin }));
   const converter = createOfficeConverter({
-    processes,
+    processes: {
+      spawn: (command, args, options) => {
+        seen?.(options);
+        return processes.spawn(command, args, options);
+      },
+    },
     home,
     platform: "linux",
     env: {},
@@ -64,7 +70,8 @@ describe("The LibreOffice adapter", () => {
   test.skipIf(process.platform === "win32")(
     "finds it on the PATH, converts a copy, and leaves the original as it was",
     async () => {
-      const { home, converter } = await withLibreOffice(CONVERTS);
+      const seen: (SpawnOptions | undefined)[] = [];
+      const { home, converter } = await withLibreOffice(CONVERTS, (options) => seen.push(options));
       const original = join(home, "Contract.doc");
       await writeFile(original, "the original .doc");
       const before = await readFile(original);
@@ -80,6 +87,10 @@ describe("The LibreOffice adapter", () => {
       // the private folder the adapter made, now gone.
       expect(await readFile(original)).toEqual(before);
       expect((await readdir(home)).sort()).toEqual(["Contract.doc", "bin"]);
+      // LibreOffice never gets a variable whose name looks like a secret, as the PR claims.
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((options) => options?.omitEnv?.("OPENAI_API_KEY") === true)).toBe(true);
+      expect(seen.every((options) => options?.omitEnv?.("PATH") === false)).toBe(true);
     },
   );
 

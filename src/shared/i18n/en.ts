@@ -1676,6 +1676,7 @@ export const en = {
   "viewer.locked.wrong": "That password doesn’t open it.",
   "viewer.notText": "This file doesn’t hold readable text.",
   "viewer.pictureNotShown": "This picture can’t be shown here.",
+  "viewer.pictureTooLarge": "This picture is too large to open.",
   "viewer.removed.body": "This Document has been deleted from IncarnaMind, so it can’t be shown.",
   "viewer.removed.unlinked":
     "This Document’s Linked folder was unlinked. IncarnaMind kept the text your Citation quotes.",
@@ -1901,6 +1902,9 @@ export const en = {
   "skipped.next.docx": "Save it as .docx in Word, then add it",
   "skipped.next.xlsx": "Save it as .xlsx in Excel, then add it",
   "skipped.next.pptx": "Save it as .pptx in PowerPoint, then add it",
+  "skipped.next.wps.docx": "Save it as .docx in WPS Office, then add it",
+  "skipped.next.wps.xlsx": "Save it as .xlsx in WPS Office, then add it",
+  "skipped.next.wps.pptx": "Save it as .pptx in WPS Office, then add it",
   "skipped.next.pages": "Export it as PDF from Pages, then add it",
   "skipped.next.numbers": "Export it as PDF from Numbers, then add it",
   "skipped.next.keynote": "Export it as PDF from Keynote, then add it",

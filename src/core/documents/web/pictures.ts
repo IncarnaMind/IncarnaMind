@@ -138,6 +138,27 @@ function gifSize(bytes: Uint8Array): { width: number; height: number } | null {
   return { width, height };
 }
 
+/** A picture refused before it is decoded: drawing it would take more memory than it may. */
+export class PictureTooLargeError extends Error {
+  override name = "PictureTooLargeError";
+}
+
+/**
+ * Why a picture at its header's size must not be drawn or read (#762): over
+ * the memory cap, or its size unreadable though it says it is a picture. Null
+ * when it is fine, and for a format whose size isn't read here (a HEIF, which
+ * the caller checks after decoding).
+ */
+export function pictureLimitProblem(bytes: Uint8Array): string | null {
+  const type = pictureType(bytes);
+  if (!type) return null;
+  const size = pictureSize(bytes, type);
+  if (!size) return "The picture’s size couldn’t be read.";
+  return size.width * size.height > PICTURE_LIMITS.maxPixels
+    ? `The picture is too large to open (${size.width} × ${size.height} pixels).`
+    : null;
+}
+
 /** A picture's size in pixels, from its header; null when it can't be read. */
 export function pictureSize(
   bytes: Uint8Array,

@@ -59,15 +59,20 @@ export function TextView({ document, target }: { document: Document; target: Vie
     const controller = new AbortController();
     loadDocumentBytes(document.id, controller.signal).then(
       (bytes) => {
-        // Decoded the way processing decodes it, so quotes from its Passages match: an RTF
-        // or HTML file as the text it reads as (#762), Markdown and text as written.
-        const text =
-          document.kind === "rtf"
-            ? rtfMarkdown(bytes)
-            : document.kind === "html"
-              ? htmlMarkdown(bytes)
-              : decodeText(bytes);
-        setLoaded(text === null ? { kind: "failed", message: "" } : { kind: "ready", text });
+        try {
+          // Decoded the way processing decodes it, so quotes from its Passages match: an RTF
+          // or HTML file as the text it reads as (#762), Markdown and text as written.
+          const text =
+            document.kind === "rtf"
+              ? rtfMarkdown(bytes)
+              : document.kind === "html"
+                ? htmlMarkdown(bytes)
+                : decodeText(bytes);
+          setLoaded(text === null ? { kind: "failed", message: "" } : { kind: "ready", text });
+        } catch (error) {
+          // A reader that refuses a file (too large, or a broken one) says so here, never "loading" forever.
+          setLoaded({ kind: "failed", message: error instanceof Error ? error.message : "" });
+        }
       },
       (error: unknown) => {
         if (controller.signal.aborted) return;
