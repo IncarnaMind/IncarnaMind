@@ -28,12 +28,17 @@ export interface RunCodeToolOptions {
   language: Language;
   now(): Date;
   ran(toolCallId: string, analysis: AnswerAnalysis): void;
+  /** run_analysis is offered in the same Answer, so an analysis Python can't run goes there. */
+  analysisOffered: boolean;
 }
 
 const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
-/** What the model reads when Python can't be had: plainly why, and to analyse in Pyodide instead. */
-function noPython(error: EmbeddingModelError | null): string {
+/**
+ * What the model reads when Python can't be had: plainly why, and to analyse in Pyodide instead
+ * where run_analysis is offered, else to say so.
+ */
+function noPython(error: EmbeddingModelError | null, analysisOffered: boolean): string {
   const why = !error
     ? "this copy of IncarnaMind has no Python of its own"
     : error.kind === "network"
@@ -43,7 +48,10 @@ function noPython(error: EmbeddingModelError | null): string {
         : error.kind === "storage"
           ? "it couldn't be saved to IncarnaMind's data folder"
           : "it couldn't start on this computer";
-  return `Python didn't run: ${why}. Run this analysis with run_analysis instead, on ranges of the sheets you found; it needs no download. bash still runs here.`;
+  const instead = analysisOffered
+    ? "Run this analysis with run_analysis instead, on ranges of the sheets you found; it needs no download."
+    : "Say in the Answer that the analysis couldn't run.";
+  return `Python didn't run: ${why}. ${instead} bash still runs here.`;
 }
 
 export function runCodeTool(options: RunCodeToolOptions): Tool {
@@ -128,7 +136,7 @@ export function runCodeTool(options: RunCodeToolOptions): Tool {
           ranAt,
           markers: noMarkers(),
         });
-        return noPython(run.error);
+        return noPython(run.error, options.analysisOffered);
       }
       const read = new Set(run.read);
       const used = run.tables.filter((table) => read.has(table.job.name));

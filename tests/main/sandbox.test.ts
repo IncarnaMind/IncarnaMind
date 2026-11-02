@@ -26,10 +26,12 @@ import { createScriptRunner } from "../../src/core/skills/scripts";
 import { createProcessLauncher } from "../../src/main/processes";
 import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
 import { createTempDataFolder } from "../helpers/core";
+import { createSweepGuard } from "../helpers/sweepGuard";
 
 const runtime = dirname(
   dirname(createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime")),
 );
+const guard = createSweepGuard();
 const sandbox = await loadOsSandbox({
   seccompHelper: join(runtime, "vendor", "seccomp", process.arch, "apply-seccomp"),
 });
@@ -89,7 +91,8 @@ async function setUp(
     reportError: (error) => {
       throw error;
     },
-    runRecords: join(data, "runs"),
+    runRecords: guard.records(join(data, "runs")),
+    sweep: { stopper: guard.stopper },
   });
   return { executor, home, canary, data, database, skillDir, outside, tempDir };
 }
@@ -179,6 +182,8 @@ let servers: Server[] = [];
 afterEach(() => {
   for (const server of servers) server.close();
   servers = [];
+  // Each pid a run's sweep signalled was a member of one of this file's own runs.
+  expect(guard.refused).toEqual([]);
 });
 
 describe("the folders no program may read", () => {

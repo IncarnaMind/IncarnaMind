@@ -76,8 +76,8 @@ async function setUp(
     level?: "os" | "none";
     codeRuntime?: boolean;
     manifestUrl?: string;
-    /** sales.csv's rows below its heading. */
-    salesRows?: string[];
+    /** sales.csv's rows below its heading; null: no sales.csv, so no sheet to run_analysis. */
+    salesRows?: string[] | null;
   } = {},
 ) {
   const dataDir = await createTempDataFolder();
@@ -116,11 +116,15 @@ async function setUp(
   const sources = await createTempDataFolder();
   await addAndProcess(core, [
     await writeSourceFile(sources, "server.log.txt", LOG),
-    await writeSourceFile(
-      sources,
-      "sales.csv",
-      ["Region,Revenue", ...(options.salesRows ?? ["North,1", "South,2"]), ""].join("\n"),
-    ),
+    ...(options.salesRows === null
+      ? []
+      : [
+          await writeSourceFile(
+            sources,
+            "sales.csv",
+            ["Region,Revenue", ...(options.salesRows ?? ["North,1", "South,2"]), ""].join("\n"),
+          ),
+        ]),
   ]);
   return core;
 }
@@ -291,6 +295,26 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
       "Python didn't run: this copy of IncarnaMind has no Python of its own. Run this analysis with run_analysis instead, on ranges of the sheets you found; it needs no download. bash still runs here.",
     );
     expect(answer.analyses[0]?.end).toMatchObject({ kind: "unavailable", reason: "missing" });
+  });
+
+  test("Python in a copy without its own, with no sheet for run_analysis: the model is told to say so", async () => {
+    const { model, offered } = codingModel([
+      (passage) => ({
+        tool: "run_code",
+        input: {
+          title: "Count",
+          language: "python",
+          documents: [passage("server")],
+          code: "print(1)",
+        },
+      }),
+    ]);
+    await ask(await setUp(model, { salesRows: null }), "How many errors are in the log?");
+    expect(offered.at(-1)).not.toContain("run_analysis");
+    expect(offered.at(-1)).toContain("run_code");
+    expect(told(model, "run_code")[0]).toBe(
+      "Python didn't run: this copy of IncarnaMind has no Python of its own. Say in the Answer that the analysis couldn't run. bash still runs here.",
+    );
   });
 
   test("Python that can't be downloaded: the step says why, and the model is told to analyse in Pyodide", async () => {

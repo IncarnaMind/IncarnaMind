@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, onTestFinished, test, vi } from "vitest";
+import { afterAll, describe, expect, onTestFinished, test, vi } from "vitest";
 import type { ExecAllow, ExecRequest, Executor, ProcessLauncher } from "../../src/core";
 import {
   createLocalExecutor,
@@ -26,6 +26,7 @@ import { createProcessLauncher } from "../../src/main/processes";
 import { loadOsSandbox } from "../../src/main/sandbox";
 import { isRunning } from "../helpers/connectors";
 import { createTempDataFolder } from "../helpers/core";
+import { createSweepGuard } from "../helpers/sweepGuard";
 
 type Environment = Record<string, string>;
 
@@ -486,6 +487,11 @@ executorContract("the local executor (sandbox level none)", ({ tempDir, processe
 );
 
 const osSandbox = await loadOsSandbox();
+const guard = createSweepGuard();
+afterAll(() => {
+  // Each pid a run's sweep signalled was a member of one of this file's own runs.
+  expect(guard.refused).toEqual([]);
+});
 executorContract(
   "the OS sandbox (sandbox level os)",
   ({ tempDir, processes, environment }) => {
@@ -497,7 +503,8 @@ executorContract(
       tempDir,
       denyRead: [join(tempDir, "stand-in-home"), join(tempDir, "stand-in-data")],
       reportError: failOnError,
-      runRecords: join(tempDir, "stand-in-data", "runs"),
+      runRecords: guard.records(join(tempDir, "stand-in-data", "runs")),
+      sweep: { stopper: guard.stopper },
     });
   },
   osSandbox.available ? undefined : osSandbox.reason,

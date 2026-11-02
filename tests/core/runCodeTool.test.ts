@@ -104,6 +104,7 @@ async function call(run: CodeRun) {
     language: "en",
     now: () => new Date("2026-11-02T12:00:00Z"),
     ran: (_id, analysis) => analyses.push(analysis),
+    analysisOffered: true,
   });
   const report = await tool.call(
     { title: "Revenue", language: "python", documents: ["P1"], code: "figure(...)" },

@@ -674,11 +674,20 @@ describe("an Analysis an Answer runs", () => {
     const { core } = await setUp(model, () => ({
       output: {
         results: [
-          // 120 + 150.5 + 80; row 5's "n/a" is no number, as pandas reads it.
+          // 120 + 150.5 + 80.
           {
             kind: "figure",
             name: "total",
             label: "Total",
+            unit: "USD",
+            value: 350.5,
+            of: sales([[2, 4]], "sum"),
+          },
+          // The same, with row 5's "n/a", which pandas reads as missing and the file doesn't.
+          {
+            kind: "figure",
+            name: "withText",
+            label: "With text",
             unit: "USD",
             value: 350.5,
             of: sales([[2, 5]], "sum"),
@@ -735,6 +744,10 @@ describe("an Analysis an Answer runs", () => {
     ]);
     expect(answer.analyses[0]?.recalculations).toEqual([
       { result: "total", check: { kind: "same", value: 350.5 } },
+      {
+        result: "withText",
+        check: { kind: "unchecked", reason: 'row 5 of Revenue in sales holds "n/a", not a number' },
+      },
       { result: "north", check: { kind: "differs", value: 270.5 } },
       { result: "late", check: { kind: "unchecked", reason: "sales has no row 9" } },
       { result: "huge", check: { kind: "unchecked", reason: "sales has no row 6" } },
@@ -745,7 +758,10 @@ describe("an Analysis an Answer runs", () => {
     ]);
     const report = told(model, "run_analysis")[0] ?? "";
     expect(report).toContain(
-      "- [=1] Total: 350.5 USD (the sum of Revenue in 4 rows of sales (rows 2–5), worked out again by IncarnaMind from its cells)",
+      "- [=1] Total: 350.5 USD (the sum of Revenue in 3 rows of sales (rows 2–4), worked out again by IncarnaMind from its cells)",
+    );
+    expect(report).toContain(
+      "- withText: no marker, so it can't be used: IncarnaMind couldn't work it out again: row 5 of Revenue in sales holds \"n/a\", not a number.",
     );
     expect(report).toContain(
       "- north: no marker, so it can't be used: figure() gave 999, but the sum of Revenue in those rows of sales comes to 270.5",
@@ -766,7 +782,7 @@ describe("an Analysis an Answer runs", () => {
     expect(run?.values).toEqual([
       expect.objectContaining({
         name: "total",
-        of: sales([[2, 5]], "sum"),
+        of: sales([[2, 4]], "sum"),
         check: { kind: "same", value: 350.5 },
       }),
       expect.objectContaining({

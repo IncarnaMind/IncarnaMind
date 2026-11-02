@@ -1,0 +1,53 @@
+/**
+ * A run's folder holds copies of the User's Documents: one a crash or a failed removal left is
+ * removed by the next runner, once it is older than any run takes, and nothing else is.
+ */
+import { chmod, mkdir, mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, onTestFinished, test, vi } from "vitest";
+import type { Executor } from "../../src/core/adapters";
+import { createCodeRunner } from "../../src/main/runCode/runner";
+
+const NOTHING_RUNS: Executor = {
+  level: "os",
+  run: () => Promise.reject(new Error("Nothing runs here.")),
+};
+
+async function runFolder(tempDir: string, name: string, ageMs: number) {
+  const folder = join(tempDir, name);
+  await mkdir(join(folder, "inputs"), { recursive: true });
+  await writeFile(join(folder, "inputs", "sales.csv"), "region,revenue\nNorth,1\n");
+  await chmod(join(folder, "inputs", "sales.csv"), 0o444);
+  await chmod(join(folder, "inputs"), 0o555);
+  const when = new Date(Date.now() - ageMs);
+  await utimes(folder, when, when);
+  return folder;
+}
+
+test("a run folder left over an hour ago is removed when a runner is made; a newer one and other folders stay", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "incarnamind-left-behind-"));
+  onTestFinished(async () => {
+    for (const name of await readdir(tempDir)) {
+      await chmod(join(tempDir, name, "inputs"), 0o755).catch(() => undefined);
+    }
+    await rm(tempDir, { recursive: true, force: true });
+  });
+  await runFolder(tempDir, "incarnamind-code-old", 61 * 60 * 1000);
+  await runFolder(tempDir, "incarnamind-code-new", 59 * 60 * 1000);
+  await runFolder(tempDir, "someone-else-old", 3 * 60 * 60 * 1000);
+  const errors: unknown[] = [];
+  createCodeRunner({
+    executor: NOTHING_RUNS,
+    tempDir,
+    python: null,
+    helper: "",
+    font: null,
+    appVersion: "test",
+    reportError: (error) => errors.push(error),
+  });
+  await vi.waitFor(async () => {
+    expect((await readdir(tempDir)).sort()).toEqual(["incarnamind-code-new", "someone-else-old"]);
+  });
+  expect(errors).toEqual([]);
+});

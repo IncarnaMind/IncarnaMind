@@ -67,24 +67,36 @@ export function recalculate(
   }
   const rowNumbers = input.rowNumbers ?? input.rows.map((_, index) => input.firstRow + index);
   const byRow = new Map(rowNumbers.map((row, index) => [row, input.rows[index] ?? []]));
-  const cells: AnalysisCell[] = [];
+  const cells: { row: number; cell: AnalysisCell }[] = [];
   // Row by row, stopping at the first the input doesn't have: the sandbox names the runs, and a
   // run as long as it likes is no more work than the input's own rows.
   for (const [from, to] of of.rows) {
     for (let row = from; row <= to; row++) {
       const cellsOfRow = byRow.get(row);
       if (!cellsOfRow) return { kind: "unchecked", reason: `${of.input} has no row ${row}` };
-      cells.push(cellsOfRow[column] ?? null);
+      cells.push({ row, cell: cellsOfRow[column] ?? null });
     }
   }
   const numbers = numeric(input.rows.map((row) => row[column] ?? null));
   if (how !== "count" && !numbers) {
     return { kind: "unchecked", reason: `${heading} in ${of.input} holds text, not numbers` };
   }
+  // Text in a column of numbers ("(100)", "$1,200", "#N/A") is skipped as pandas skips it, so
+  // the code's figure and this one agree while the file says otherwise: no "same" for it.
+  const text = numbers
+    ? cells.find(({ cell }) => cell !== null && cell !== "" && !isNumber(cell))
+    : undefined;
+  if (text) {
+    return {
+      kind: "unchecked",
+      reason: `row ${text.row} of ${heading} in ${of.input} holds "${String(text.cell)}", not a number`,
+    };
+  }
+  const named = cells.map(({ cell }) => cell);
   const worked =
     how === "count"
-      ? cells.filter(numbers ? isNumber : (cell) => cell !== null).length
-      : reduce(how, cells.filter(isNumber));
+      ? named.filter(numbers ? isNumber : (cell) => cell !== null).length
+      : reduce(how, named.filter(isNumber));
   if (worked === null) {
     return { kind: "unchecked", reason: `the rows it names hold no numbers in ${heading}` };
   }

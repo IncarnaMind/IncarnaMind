@@ -2946,6 +2946,7 @@ export function createAnswers(options: AnswersOptions) {
                 language: answerLanguage(context.question),
                 now: () => new Date(),
                 ran: ranAnalysis,
+                analysisOffered: fromAnalysis.length > 0,
               }),
             ]
           : [];

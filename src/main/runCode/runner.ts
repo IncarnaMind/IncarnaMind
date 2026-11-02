@@ -245,8 +245,37 @@ function endOf(exec: ExecResult, signal: AbortSignal, limitMs: number): Analysis
 const printedOf = (exec: ExecResult) =>
   [exec.stdout.trimEnd(), exec.stdoutTruncated ? "(cut)" : ""].filter(Boolean).join("\n");
 
+/** Longer than any run takes: a run's folder older than this was left by one that ended. */
+const LEFT_BEHIND_MS = 60 * 60 * 1000;
+
+/** Removes a run's folder, with the copies of Documents its inputs/ holds read-only. */
+async function removeRunFolder(run: string): Promise<void> {
+  await chmod(join(run, "inputs"), 0o755).catch((error: NodeJS.ErrnoException) => {
+    // It never got as far as copying anything.
+    if (error.code !== "ENOENT") throw error;
+  });
+  await rm(run, { recursive: true, force: true, maxRetries: 3 });
+}
+
+/** The folders of runs that ended without removing theirs: a crash, or a removal that failed. */
+async function removeLeftBehind(tempDir: string, report: (error: unknown) => void) {
+  const names = await readdir(tempDir).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") report(error);
+    return [];
+  });
+  for (const name of names) {
+    if (!name.startsWith("incarnamind-code-")) continue;
+    const folder = join(tempDir, name);
+    const info = await lstat(folder).catch(() => null);
+    if (!info?.isDirectory() || info.uid !== process.getuid?.()) continue;
+    if (Date.now() - info.mtimeMs < LEFT_BEHIND_MS) continue;
+    await removeRunFolder(folder).catch(report);
+  }
+}
+
 export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
   const timeLimitMs = options.timeLimitMs ?? RUN_CODE_TIME_LIMIT_MS;
+  void removeLeftBehind(options.tempDir, options.reportError);
   const helperSha256 = sha256(`${options.helper}\n${runnerSource}`);
 
   async function stage(
@@ -541,12 +570,9 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
           versions,
         };
       } finally {
-        // Copies of Documents must not stay behind: a failure is reported, and the run's folder
-        // is removed at the next start if it is still there.
-        await chmod(join(run, "inputs"), 0o755).catch(() => undefined);
-        await rm(run, { recursive: true, force: true, maxRetries: 3 }).catch((error: unknown) =>
-          options.reportError(error),
-        );
+        // Copies of Documents must not stay behind: a failure is reported, and the folder is
+        // removed by the first runner made after the hour any run could take.
+        await removeRunFolder(run).catch((error: unknown) => options.reportError(error));
       }
     },
   };

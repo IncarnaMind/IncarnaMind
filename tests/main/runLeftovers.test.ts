@@ -26,6 +26,7 @@ import {
 } from "../../src/main/runLeftovers";
 import { loadOsSandbox } from "../../src/main/sandbox";
 import { sandboxCheck } from "../../src/main/sandboxCheck";
+import { createSweepGuard } from "../helpers/sweepGuard";
 
 const RUN: RunRecord = {
   id: "0f0e0d0c-0b0a-4908-8706-050403020100",
@@ -462,6 +463,19 @@ describe.runIf(process.platform === "darwin" && sandbox.available)(
       }
     }, 90_000);
 
+    test("the tests' guard on the real stopper refuses a pid no run of theirs holds", async () => {
+      const records = join(root, "records-guard");
+      await mkdir(records);
+      const guard = createSweepGuard();
+      guard.records(records);
+      // The test's own process with no sandbox: the only one a broken guard could reach.
+      const plain = foreign.get("no sandbox") ?? 0;
+      expect(await guard.stopper(plain, "SIGSTOP")).toBe(false);
+      expect([guard.signalled, guard.refused.map((each) => each.pid)]).toEqual([[], [plain]]);
+      const rows = await listProcesses();
+      expect(rows.some((each) => each.pid === plain)).toBe(true);
+    });
+
     test("a run's own sweep stops the process that left its group, and signals nothing else", async () => {
       if (!sandbox.available) throw new Error("No OS sandbox.");
       const folder = join(root, "run-real");
@@ -470,13 +484,15 @@ describe.runIf(process.platform === "darwin" && sandbox.available)(
       const env = { PATH: process.env.PATH ?? "/usr/bin:/bin" };
       const signals: unknown[] = [];
       const errors: unknown[] = [];
+      const guard = createSweepGuard();
       const executor = sandbox.createExecutor({
         processes: createProcessLauncher(async () => env),
         environment: async () => env,
         tempDir: root,
         denyRead: [],
         reportError: (error) => errors.push(error),
-        runRecords: records,
+        runRecords: guard.records(records),
+        sweep: { stopper: guard.stopper },
         log: {
           info: (_event, fields) => signals.push(fields),
           warn: () => {},
@@ -505,12 +521,11 @@ describe.runIf(process.platform === "darwin" && sandbox.available)(
       const [name] = await readdir(records);
       const run = JSON.parse(await readFile(join(records, name ?? ""), "utf8")) as RunRecord;
       const listed = await classify(await listProcesses(), run, context(decoy.pid), sandboxCheck);
-      expect(
-        listed
-          .filter((each) => each.verdict === "member")
-          .map((each) => each.pid)
-          .sort((x, y) => x - y),
-      ).toEqual([decoy.pid, decoy.child].sort((x, y) => x - y));
+      const members = listed
+        .filter((each) => each.verdict === "member")
+        .map((each) => each.pid)
+        .sort((x, y) => x - y);
+      expect(members).toEqual([decoy.pid, decoy.child].sort((x, y) => x - y));
 
       const uid = process.getuid?.() ?? -1;
       const before = (await listProcesses()).filter((each) => each.uid === uid);
@@ -519,7 +534,20 @@ describe.runIf(process.platform === "darwin" && sandbox.available)(
       const after = (await listProcesses()).filter((each) => each.uid === uid);
       const still = new Set(after.map((each) => `${each.pid}@${each.startedMs}`));
       const vanished = before.filter((each) => !still.has(`${each.pid}@${each.startedMs}`));
-      report.realStop = { run: run.id, decoy, signals, before, after, vanished };
+      report.realStop = {
+        run: run.id,
+        decoy,
+        members,
+        signals,
+        signalled: guard.signalled,
+        refused: guard.refused,
+        before,
+        after,
+        vanished,
+      };
+
+      expect(guard.refused).toEqual([]);
+      expect(guard.signalled.every((each) => members.includes(each.pid))).toBe(true);
 
       expect(after.some((each) => each.pid === decoy.child)).toBe(false);
       // The program itself may still be listed, ending, when the first sweep looks.

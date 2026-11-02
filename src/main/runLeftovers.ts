@@ -225,7 +225,7 @@ export async function listProcesses(): Promise<ProcessRow[]> {
 }
 
 /** Sends `signal` to one pid; false when it has gone. */
-export type Stopper = (pid: number, signal: "SIGSTOP" | "SIGKILL") => boolean;
+export type Stopper = (pid: number, signal: "SIGSTOP" | "SIGKILL") => boolean | Promise<boolean>;
 
 /** The stopper the app uses. */
 export const killProcess: Stopper = (pid, signal) => {
@@ -284,12 +284,12 @@ export async function sweepRun(run: RunRecord, group: number, deps: SweepDeps): 
       if (found.length === 0) break;
       for (const each of found) {
         deps.log({ pid: each.pid, signal: "SIGSTOP", reason: "run's profile" });
-        if (deps.stopper(each.pid, "SIGSTOP")) stopped.add(key(each));
+        if (await deps.stopper(each.pid, "SIGSTOP")) stopped.add(key(each));
       }
     }
     for (const each of await members(run, group, deps)) {
       deps.log({ pid: each.pid, signal: "SIGKILL", reason: "run's profile, found again" });
-      deps.stopper(each.pid, "SIGKILL");
+      await deps.stopper(each.pid, "SIGKILL");
     }
   }
   // SIGKILL ends a process soon after, not at once: wait for that, a bounded while.

@@ -37,6 +37,7 @@ import { sandboxCheck } from "../../src/main/sandboxCheck";
 import { PLOT_FONT } from "../../src/shared/analysisWindow";
 import analysisHelper from "../../src/shared/incarnamind.py?raw";
 import { LOCAL_FETCH } from "../helpers/core";
+import { createSweepGuard } from "../helpers/sweepGuard";
 
 const seccomp = join(
   dirname(dirname(createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime"))),
@@ -47,6 +48,7 @@ const seccomp = join(
 );
 const sandbox = await loadOsSandbox({ seccompHelper: seccomp });
 const unavailable = sandbox.available ? undefined : sandbox.reason;
+const guard = createSweepGuard();
 const runtimeFolder = process.env.INCARNAMIND_TEST_PYTHON_RUNTIME;
 const repository = join(import.meta.dirname, "..", "..");
 const font = join(repository, "resources", "fonts", PLOT_FONT);
@@ -102,7 +104,8 @@ function executor() {
     reportError: (error) => {
       throw error;
     },
-    runRecords: join(data, "runs"),
+    runRecords: guard.records(join(data, "runs")),
+    sweep: { stopper: guard.stopper },
   });
 }
 
@@ -159,6 +162,8 @@ beforeAll(async () => {
 }, 20 * 60_000);
 
 afterAll(async () => {
+  // Each pid a run's sweep signalled was a member of one of this file's own runs.
+  expect(guard.refused).toEqual([]);
   python?.close();
   await new Promise<void>((resolve) => (listener ? listener.close(() => resolve()) : resolve()));
   await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
@@ -212,6 +217,7 @@ function tool(documents: Record<string, CodeDocument>, timeLimitMs?: number) {
     language: "en",
     now: () => new Date("2026-11-02T12:00:00Z"),
     ran: (_id, analysis) => analyses.push(analysis),
+    analysisOffered: true,
   });
   let calls = 0;
   const call = (language: "python" | "bash", code: string, ids: string[] = []) =>

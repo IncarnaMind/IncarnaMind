@@ -39,13 +39,14 @@ describe("a figure() figure worked out again from the cells", () => {
     ["min", 40],
     ["max", 150.5],
     ["count", 4],
-  ] as const)("its %s skips the cells that aren't numbers, as pandas does", (how, value) => {
+  ] as const)("its %s skips the empty cells, as pandas does", (how, value) => {
     expect(
       recalculate(
         value,
         of(
           [
-            [2, 6],
+            [2, 4],
+            [6, 6],
             [8, 8],
           ],
           how,
@@ -53,6 +54,49 @@ describe("a figure() figure worked out again from the cells", () => {
         [SALES],
       ),
     ).toEqual({ kind: "same", value });
+  });
+
+  test.each(["sum", "mean", "min", "max", "count"] as const)(
+    "its %s over rows with text in a column of numbers isn't the same, whatever pandas made of it",
+    (how) => {
+      const values = { sum: 390.5, mean: 97.625, min: 40, max: 150.5, count: 4 };
+      expect(
+        recalculate(
+          values[how],
+          of(
+            [
+              [2, 6],
+              [8, 8],
+            ],
+            how,
+          ),
+          [SALES],
+        ),
+      ).toEqual({
+        kind: "unchecked",
+        reason: 'row 5 of Revenue in sales holds "n/a", not a number',
+      });
+    },
+  );
+
+  test("a total over an accounting negative in brackets isn't the same as the cells pandas read", () => {
+    const ledger: AnalysisInput = {
+      kind: "table",
+      name: "ledger",
+      columns: ["Amount"],
+      firstRow: 2,
+      rows: [["(100)"], [50], [10]],
+    };
+    expect(
+      recalculate(
+        60,
+        { input: "ledger", columns: ["Amount"], rows: [[2, 4]], count: 3, how: "sum" },
+        [ledger],
+      ),
+    ).toEqual({
+      kind: "unchecked",
+      reason: 'row 2 of Amount in ledger holds "(100)", not a number',
+    });
   });
 
   test("a value its cells don't come to differs, and says what they come to", () => {
