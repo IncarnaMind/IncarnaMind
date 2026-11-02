@@ -49,8 +49,8 @@ export function SidebarTags() {
   // The Tag just named, put where a keyboard expects after its field goes: on its new row.
   const [focusing, setFocusing] = useState<string | null>(null);
   // Every Tag the User made is listed, with 0 until a Document carries it, so one made with the +
-  // doesn't vanish at a restart. The presets, which exist before the User makes anything, show
-  // once a Document carries one (DESIGN.md, Sidebar; flagged for the owner in #205's pull request).
+  // doesn't vanish at a restart. The presets exist before the User makes anything, so they show
+  // only once a Document carries one (#205).
   const listed = tags.filter((tag) => !tag.preset || byTag.has(tag.id));
   useEffect(() => {
     if (focusing === null) return;
