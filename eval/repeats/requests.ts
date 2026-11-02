@@ -26,6 +26,9 @@ export interface WatchedRequest {
   /** The check was asked to search again before it says the sentence isn't found (#1608). */
   searchAgain: boolean;
   inputTokens: number;
+  /** Of `inputTokens`, those read from the provider's prompt cache and those written to it. */
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   ms: number;
 }
@@ -119,6 +122,8 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
       asked: [],
       searchAgain: asked.includes(SEARCH_AGAIN),
       inputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 0,
       ms: 0,
     };
@@ -143,6 +148,8 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
               request.asked.push(queryOf(part.input));
             } else if (part.type === "finish") {
               request.inputTokens = part.usage.inputTokens.total ?? 0;
+              request.cacheReadTokens = part.usage.inputTokens.cacheRead ?? 0;
+              request.cacheWriteTokens = part.usage.inputTokens.cacheWrite ?? 0;
               request.outputTokens = part.usage.outputTokens.total ?? 0;
               request.ms = performance.now() - began;
             }
@@ -157,6 +164,8 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
       const result = await doGenerate();
       for (const part of result.content) if (part.type === "text") request.reply += part.text;
       request.inputTokens = result.usage.inputTokens.total ?? 0;
+      request.cacheReadTokens = result.usage.inputTokens.cacheRead ?? 0;
+      request.cacheWriteTokens = result.usage.inputTokens.cacheWrite ?? 0;
       request.outputTokens = result.usage.outputTokens.total ?? 0;
       request.ms = performance.now() - began;
       return result;
