@@ -12,6 +12,7 @@ import {
   setLanguage,
   setWindowSize,
   useLocalChatModel,
+  reviewedWords as wordsOf,
 } from "./app";
 
 /*
@@ -72,18 +73,6 @@ test.beforeEach(async () => {
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
-
-const wordsOf = (paragraph: Locator) =>
-  paragraph.evaluate((node) => {
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-    let words = "";
-    for (let each = walker.nextNode(); each; each = walker.nextNode()) {
-      if (!each.parentElement?.closest(".applied-old, [contenteditable='false']")) {
-        words += each.textContent ?? "";
-      }
-    }
-    return words;
-  });
 
 const controlsOverText = (editor: Locator) =>
   editor.evaluate((node) => {

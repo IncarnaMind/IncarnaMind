@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import {
   askToChange,
@@ -14,6 +15,7 @@ import {
   paletteOffers,
   pointAndClick,
   removeDataFolder,
+  reviewedWords,
   setLanguage,
   setWindowSize,
   slideSelect,
@@ -697,4 +699,108 @@ test("after Shorten, a word it took out comes back only while the words either s
   await expect(paragraphs).toHaveText(["", FIRST]);
   expect(await paletteOffers(window, "edit.reviewApplied", "Review changes")).toBe(0);
   await expect(paragraphs).toHaveText(["", FIRST]);
+});
+
+const HARBOURS =
+  "The harbour office posts the times, the harbour office answers the phone, the harbour office keeps the tables, the harbour office cleans the quay, and the harbour office lists the ferries.";
+const AUTHORITIES =
+  "The port authority posts the times, the port authority answers the phone, the port authority keeps the tables, the port authority cleans the quay, and the port authority lists the ferries.";
+const MIDDLE_EDITED =
+  "The port authority posts the times, the port authority answers the phone, the port board keeps the tables, the port authority cleans the quay, and the port authority lists the ferries.";
+const FOUR_BACK =
+  "The harbour office posts the times, the harbour office answers the phone, the port board keeps the tables, the harbour office cleans the quay, and the harbour office lists the ferries.";
+
+/** Where the `nth` `words` of an applied edit start, in the editor's own positions. */
+async function nthPlace(editor: Locator, words: string, nth: number): Promise<number> {
+  const from = await editor.evaluate(
+    (dom, wanted) => {
+      const tiptap = (dom as unknown as { editor: Editor }).editor;
+      let seen = 0;
+      let found = -1;
+      tiptap.state.doc.descendants((node, pos) => {
+        if (found >= 0 || !node.isText) return true;
+        const text = node.text ?? "";
+        for (
+          let at = text.indexOf(wanted.words);
+          at >= 0;
+          at = text.indexOf(wanted.words, at + 1)
+        ) {
+          seen++;
+          if (seen === wanted.nth) {
+            found = pos + at;
+            return false;
+          }
+        }
+        return true;
+      });
+      return found;
+    },
+    { words, nth },
+  );
+  if (from < 0) throw new Error(`No occurrence ${nth} of "${words}".`);
+  return from;
+}
+
+/** Types `typed` over the `nth` `words` of an applied edit, as the User editing one change. */
+async function editNth(window: Page, editor: Locator, words: string, nth: number, typed: string) {
+  const from = await nthPlace(editor, words, nth);
+  await editor.evaluate(
+    (dom, range) => {
+      (dom as unknown as { editor: Editor }).editor.chain().focus().setTextSelection(range).run();
+    },
+    { from, to: from + words.length },
+  );
+  await window.keyboard.type(typed);
+}
+
+/** Puts the cursor where a "You changed this since" label is drawn, as clicking it would. */
+async function caretOnChangedSince(editor: Locator) {
+  const at = await editor.evaluate((dom) => {
+    const tiptap = (dom as unknown as { editor: Editor }).editor;
+    const label = dom.querySelector('[data-testid="change-changed-since"]');
+    return label ? tiptap.view.posAtDOM(label, 0) : -1;
+  });
+  if (at < 0) throw new Error("No changed-since label is drawn.");
+  await editor.evaluate((dom, pos) => {
+    (dom as unknown as { editor: Editor }).editor.chain().focus().setTextSelection(pos).run();
+  }, at);
+}
+
+test("five changes in one paragraph with the middle one edited since: one Restore original for the other four, ⌘⌫ on the edited one does nothing, and ⌘Z brings exactly those four back", async () => {
+  const { window } = await launch();
+  await useLocalChatModel(window);
+  const { editor, paragraphs } = await mindWith(window, [HARBOURS]);
+  const note = paragraphs.first();
+
+  await slideSelect(window, note, HARBOURS);
+  await askToChange(window, "replace harbour office with port authority");
+  await expect(note).toHaveText(AUTHORITIES);
+  await fromPalette(window, "edit.reviewApplied", "Review changes");
+  const restores = note.getByTestId("change-restore");
+  const removed = note.locator("del.applied-old");
+  await expect(removed).toHaveCount(5);
+  await expect(restores).toHaveCount(1);
+
+  // The middle change's new words typed over: that change can't be restored any more.
+  await editNth(window, editor, "port authority", 3, "port board");
+  await expect(note).toHaveText(MIDDLE_EDITED);
+  await fromPalette(window, "edit.reviewApplied", "Review changes");
+  await expect(note.getByTestId("change-changed-since")).toHaveText("You changed this since");
+  await expect(restores).toHaveCount(1);
+  await expect(removed).toHaveCount(5);
+
+  // ⌘⌫ with the cursor on the edited change's "You changed this since" does nothing, rather than
+  // restore its neighbours.
+  await caretOnChangedSince(editor);
+  await window.keyboard.press("ControlOrMeta+Backspace");
+  await expect.poll(() => reviewedWords(note)).toBe(MIDDLE_EDITED);
+  await expect(restores).toHaveCount(1);
+
+  // The one Restore puts the other four back in one step; the edited words stay.
+  await pointAndClick(window, restores);
+  await expect.poll(() => reviewedWords(note)).toBe(FOUR_BACK);
+
+  // ⌘Z brings exactly those four back.
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => reviewedWords(note)).toBe(MIDDLE_EDITED);
 });

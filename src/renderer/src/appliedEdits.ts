@@ -899,10 +899,20 @@ export function reviewedChangeAt(state: EditorState): number | null {
   const line = appliedLineIn(state);
   if (line?.kind !== "review") return null;
   const { from } = state.selection;
-  const index = changeGroupsOf(state, changesLeft(line)).findIndex(
-    (group) => group.from <= from && from <= group.to,
-  );
-  return index >= 0 ? index : null;
+  const groups = changeGroupsOf(state, changesLeft(line));
+  // A paragraph's changes span the ones the User edited since, which stand alone: the narrowest
+  // group holding the cursor is the change there, so ⌘⌫ in an edited one does nothing.
+  let found: number | null = null;
+  let narrowest = Number.POSITIVE_INFINITY;
+  for (const [index, group] of groups.entries()) {
+    if (group.from > from || from > group.to) continue;
+    const span = group.to - group.from;
+    if (span < narrowest) {
+      narrowest = span;
+      found = index;
+    }
+  }
+  return found;
 }
 
 /** Whether the group the cursor is in can be restored: the User hasn't changed it since. */

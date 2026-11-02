@@ -2377,6 +2377,19 @@ export async function wordsBox(line: Locator, words: string) {
   return box;
 }
 
+/** A paragraph's words as the User reads them, without Review changes' struck old words or buttons. */
+export const reviewedWords = (paragraph: Locator) =>
+  paragraph.evaluate((node) => {
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    let words = "";
+    for (let each = walker.nextNode(); each; each = walker.nextNode()) {
+      if (!each.parentElement?.closest(".applied-old, [contenteditable='false']")) {
+        words += each.textContent ?? "";
+      }
+    }
+    return words;
+  });
+
 /**
  * Returns once ProseMirror has settled its selection with the page after the editor got the
  * focus. 20 ms after the focus it puts its own selection back into the page if the page's has

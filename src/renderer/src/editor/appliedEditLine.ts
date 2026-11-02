@@ -802,8 +802,9 @@ function groupsOf(
       last: (written.length > 0 ? written : members).reduce((a, b) =>
         b.place.to >= a.place.to ? b : a,
       ),
-      from: Math.min(...members.map(({ place }) => place.from)),
-      to: Math.max(...members.map(({ place }) => place.to)),
+      // A change typed over can end before it starts: its place still marks where it was.
+      from: Math.min(...members.map(({ place }) => Math.min(place.from, place.to))),
+      to: Math.max(...members.map(({ place }) => Math.max(place.from, place.to))),
       restorable: members.every(({ written }) => written),
     };
   });
