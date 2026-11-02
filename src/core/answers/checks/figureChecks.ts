@@ -1,6 +1,6 @@
 import { MARKER } from "../../../shared/answerSentences";
 import { aggregateFigureResults } from "../../../shared/figureChecks";
-import { readFigures } from "../../../shared/figures";
+import { readFigures, readingsOf } from "../../../shared/figures";
 import { evaluateFormula, sameNumber, showResult } from "../../../shared/formula";
 import { escapedInStrings } from "../../../shared/jsonText";
 import type { UnitText } from "../../../shared/units";
@@ -652,6 +652,12 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
             item.measure,
             [options.claim, target.label ?? "", target.context ?? "", options.paragraph ?? ""],
             bound.citation.quote,
+            {
+              chars: bound.number.chars,
+              at: bound.number.at,
+              figure: target.reading.chars,
+              values: [bound.number.value, ...readingsOf(target.reading).map((each) => each.value)],
+            },
             () => options.around(bound.citation),
           )
         : null;
@@ -736,7 +742,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     }
     // An equal number is Supported only on words that show it measures what the figure does.
     if (agrees && measure?.kind === "unread") {
-      rows.push({ ...base, sourceInput, result: unavailable("malformed") });
+      rows.push({ ...base, sourceInput, result: unavailable("unnamed-measure") });
       continue;
     }
     const difference = target.reading.value - compared.value;

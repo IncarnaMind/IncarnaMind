@@ -5,7 +5,8 @@
  * that measures something else ("Revenue grew 12%" for "Operating margin was 12%") backs nothing.
  */
 import { MARKER } from "../../../shared/answerSentences";
-import { readFigures, readStatedUnits } from "../../../shared/figures";
+import { readFigures, readingsOf, readStatedUnits } from "../../../shared/figures";
+import { sameNumber } from "../../../shared/formula";
 import { isRecord } from "../../errors";
 
 /** The words a Figures item names for what its number measures, as the reply gives them. */
@@ -112,24 +113,45 @@ function placesOf(text: string, quote: string): { start: number; end: number }[]
     .filter(({ start, end }) => !runsOn(part[0], start - 1, -1) && !runsOn(part.at(-1), end, 1));
 }
 
+/** Where `bound` is in flat `text`'s stretch from `start` to `end`: the one the quote writes, counted from its start. */
+function boundAt(
+  text: string,
+  { start, end }: { start: number; end: number },
+  quote: string,
+  bound: BoundNumber,
+): number {
+  const nth = placesOf(flat(quote.slice(0, bound.at + bound.chars.length)), bound.chars).length - 1;
+  const inside = placesOf(text.slice(start, end), bound.chars);
+  const pick = inside[nth] ?? inside[0];
+  return pick ? start + pick.start : start;
+}
+
+/** A row's cells, by the separator it uses: tabs in a sheet, else bars. */
+const cellsOf = (line: string): string[] => line.split(line.includes("\t") ? "\t" : "|");
+
+/** Which cell of `line` holds offset `at`. */
+const cellAt = (line: string, at: number): number => cellsOf(line.slice(0, at)).length - 1;
+
 /**
  * The words `quote`'s number has around it in `text`, once `text` holds the quote once: in a
- * table's row, that row and its headings (the rows above a Markdown table's rule, else its first
- * row), never another row's label; in prose, its own sentence from its start to the quote's end
- * ("Revenue was £4,983.4m, up from £4,860.0m"), never a heading or another line above it.
- * "ambiguous" when `text` holds the quote more than once; null when it doesn't hold it.
+ * table's row, the row's label and the heading of the number's own column (the rows above a
+ * Markdown table's rule, else its first row), never another row's label or another column's
+ * heading; in prose, its own sentence from its start to the quote's end ("Revenue was £4,983.4m,
+ * up from £4,860.0m"), never a heading or another line above it. "ambiguous" when `text` holds
+ * the quote more than once; null when it doesn't hold it.
  */
 function placeOf(
   text: string,
   quote: string,
+  bound: BoundNumber,
 ): { kind: "row" | "sentence"; words: string } | "ambiguous" | null {
   const all = flat(text);
   const [found, more] = placesOf(all, quote);
   if (!found) return null;
   if (more) return "ambiguous";
-  const { start, end } = found;
-  const lineStart = all.lastIndexOf("\n", start - 1) + 1;
-  const lineEnd = all.indexOf("\n", end) < 0 ? all.length : all.indexOf("\n", end);
+  const at = boundAt(all, found, quote, bound);
+  const lineStart = all.lastIndexOf("\n", at - 1) + 1;
+  const lineEnd = all.indexOf("\n", at) < 0 ? all.length : all.indexOf("\n", at);
   const line = all.slice(lineStart, lineEnd);
   if (isRow(line)) {
     const lines = all.slice(0, lineStart).split("\n").slice(0, -1);
@@ -138,12 +160,60 @@ function placeOf(
     const above = lines.slice(first);
     const rule = above.findIndex(isRule);
     const headings = rule >= 0 ? above.slice(0, rule) : above.slice(0, 1);
-    return { kind: "row", words: [...headings, line].join("\n") };
+    const column = cellAt(line, at - lineStart);
+    const label = cellsOf(line).find((cell, index) => index !== column && cell.trim() !== "");
+    const named = headings.map((heading) => cellsOf(heading)[column] ?? "");
+    return { kind: "row", words: [label ?? "", ...named].join("\n") };
   }
-  const ends = [...all.slice(lineStart, start).matchAll(/[.!?;](?:\s|$)|[。！？；]/gu)];
+  const lineOfQuote = all.lastIndexOf("\n", found.start - 1) + 1;
+  const ends = [...all.slice(lineOfQuote, found.start).matchAll(/[.!?;](?:\s|$)|[。！？；]/gu)];
   const last = ends.at(-1);
-  const from = lineStart + (last?.index === undefined ? 0 : last.index + last[0].length);
-  return { kind: "sentence", words: all.slice(from, end) };
+  const from = lineOfQuote + (last?.index === undefined ? 0 : last.index + last[0].length);
+  return { kind: "sentence", words: all.slice(from, found.end) };
+}
+
+/**
+ * The number a figure is bound to, as its quote writes it and where (`chars`, `at`), the figure as
+ * the sentence writes it (`figure`), and the values either takes.
+ */
+export interface BoundNumber {
+  chars: string;
+  at: number;
+  figure: string;
+  values: readonly number[];
+}
+
+const digitsOf = (chars: string): string => chars.normalize("NFKC").replace(/\D/gu, "");
+
+/** Whether `words` write the figure's own number, or its source's, in digits or in value. */
+function restates(words: string, bound: BoundNumber): boolean {
+  const written = new Set([digitsOf(bound.chars), digitsOf(bound.figure)].filter(Boolean));
+  return readFigures(words, { midLine: true }).some(
+    (figure) =>
+      written.has(digitsOf(figure.chars)) ||
+      readingsOf(figure).some((reading) =>
+        bound.values.some((value) => sameNumber(reading.value, value)),
+      ),
+  );
+}
+
+/**
+ * The most a measure's words may run to, from the longest Claude Haiku 5.5 named without its number
+ * in this issue's live runs: 8 words ("Net finance cost over the last 12 months") and 10 Chinese
+ * characters ("每吨货物的碳排放下降"). Words for scripts that space them, characters for Han and
+ * kana; past either, the words are a copied clause, not a measure's name.
+ */
+const MEASURE_WORDS = 10;
+const MEASURE_HAN = 16;
+
+/** Whether `words` are a measure's short name: within the caps, and not restating the number. */
+function aName(words: string, bound: BoundNumber): boolean {
+  const all = wordsOf(words);
+  const han = all.filter((word) =>
+    /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]$/u.test(word),
+  );
+  if (han.length > MEASURE_HAN || all.length - han.length > MEASURE_WORDS) return false;
+  return !restates(words, bound);
 }
 
 export type MeasureFinding =
@@ -152,29 +222,32 @@ export type MeasureFinding =
   | { kind: "differs"; shown: { measured: string; claimed: string } | null }
   /** A bare cell of a table's row, and the reply names nothing for it: its table's headings decide. */
   | { kind: "unnamed" }
-  /** Words the reply doesn't give, or that aren't where it says it copied them. */
+  /** Words the reply doesn't give, that aren't a measure's short name, or that aren't where it says it copied them. */
   | { kind: "unread" };
 
 /**
  * Whether a figure's source measures what the sentence's figure does. `sentence`: the texts the
  * sentence's words may come from (the sentence, its figure's label and context, its paragraph);
- * `quote`: the source quote; `passage`: the texts the quote is in, its cited pages first, read
- * only when the quote itself doesn't hold the words.
+ * `quote`: the source quote, and `bound` the number in it; `passage`: the texts the quote is in,
+ * its cited pages first, read only when the quote alone can't say.
  */
 export function measureFinding(
   measure: FigureMeasure | null,
   sentence: readonly string[],
   quote: string,
+  bound: BoundNumber,
   passage: () => readonly string[],
 ): MeasureFinding {
   if (!measure) return { kind: "unread" };
   const said = measure.sentence;
+  const quoted = measure.quote;
+  // A whole clause copied for a measure ("Operating margin was 12% in 2025") names nothing apart.
+  if (!aName(said, bound) || (quoted !== null && !aName(quoted, bound))) return { kind: "unread" };
   // A table cell's measure may join its row label and its caption ("生鲜食品 分部收入"): each piece
   // is the sentence's own words when its label, context or paragraph holds it.
   const pieces = said.split(/\s+/u).filter((piece) => /[\p{L}\p{N}]/u.test(piece));
   const own = (words: string) => sentence.some((text) => namedIn(text, words));
   const owned = namesSomething(said) && (own(said) || pieces.every(own));
-  const quoted = measure.quote;
   // The first text that holds the quote decides, its cited pages before the rest of its Document:
   // a quote it holds twice is in no one place.
   let place: ReturnType<typeof placeOf> | undefined;
@@ -182,23 +255,24 @@ export function measureFinding(
     if (place !== undefined) return place;
     place = null;
     for (const text of passage()) {
-      place = placeOf(text, quote);
+      place = placeOf(text, quote, bound);
       if (place !== null) break;
     }
     return place;
   };
-  const around = (words: string): string[] => {
-    const where = placed();
-    return where !== null && where !== "ambiguous" && namedIn(where.words, words)
-      ? [where.words]
-      : [];
+  // A quote from a table's row names its cells' measures by their columns: the bound number's own
+  // column and its row, never the rest of the row it quotes.
+  const tabled = quote.split("\n").some(isRow);
+  const where = () => {
+    const found = placed();
+    return found === null || found === "ambiguous" ? null : found;
   };
   const found =
     quoted === null || !namesSomething(quoted)
       ? []
-      : namedIn(quote, quoted)
+      : !tabled && namedIn(quote, quoted)
         ? [quote]
-        : around(quoted);
+        : [where()?.words ?? ""].filter((words) => words !== "" && namedIn(words, quoted));
   // A measure the reply itself says differs backs nothing, whatever words it gives for either.
   if (measure.match === "differs") {
     const asWritten = (words: string, texts: readonly string[]) =>
@@ -214,8 +288,6 @@ export function measureFinding(
   if (!owned) return { kind: "unread" };
   if (found.length > 0) return { kind: "same" };
   // Only a table's cell may name nothing of its own: a number in prose has its measure beside it.
-  const where = quoted === null && !namesSomething(quote) ? placed() : null;
-  return where !== null && where !== "ambiguous" && where.kind === "row"
-    ? { kind: "unnamed" }
-    : { kind: "unread" };
+  const cell = quoted === null && !namesSomething(quote) ? where() : null;
+  return cell?.kind === "row" ? { kind: "unnamed" } : { kind: "unread" };
 }

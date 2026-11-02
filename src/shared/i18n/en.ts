@@ -1150,6 +1150,8 @@ export const en = {
   "claim.reason.cut-short": "The model’s reply reached its length limit and was cut short.",
   "claim.reason.no-evidence": "Verdict hidden: the model’s quote isn’t in that Document.",
   "claim.reason.unread": "Verdict hidden: the model didn’t read your Documents.",
+  "claim.reason.unnamed-measure":
+    "Verdict hidden: the model didn’t name what the number measures, in a few words your sentence and the Document hold.",
   "claim.reason.rate-limit": "The model’s service is busy for now. Check again in a moment.",
   "claim.reason.cost-cap": "Checking it could pass your monthly cap.",
   "claim.reason.plan-limit": "Your plan’s usage limit is reached.",

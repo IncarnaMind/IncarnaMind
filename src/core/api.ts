@@ -5950,7 +5950,9 @@ export type ClaimCheckFailure =
   | "workbook-circular"
   | "workbook-not-read"
   | "workbook-no-saved-value"
-  | "workbook-unsupported";
+  | "workbook-unsupported"
+  /** A figure's equal number whose measure the reply didn't name in a few words found where it says. */
+  | "unnamed-measure";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {

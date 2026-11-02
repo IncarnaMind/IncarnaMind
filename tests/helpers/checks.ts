@@ -102,21 +102,53 @@ export function requestedFigures(call: ModelCall): {
   });
 }
 
+/** Words as a measure is named: a Han character on its own, a run of letters, never digits. */
+const measureWords = (text: string): string[] =>
+  (text.normalize("NFKC").match(/\p{Script=Han}|(?:(?!\p{Script=Han})\p{L})+/gu) ?? []).map(
+    (word) => word.toLowerCase(),
+  );
+
+/** The longest run of words `a` and `b` both hold, at most `most` long, as a measure writes it. */
+function shared(a: string, b: string, most = 6): string | null {
+  const left = measureWords(a);
+  const right = measureWords(b);
+  let best: string[] = [];
+  for (let i = 0; i < left.length; i++)
+    for (let j = 0; j < right.length; j++) {
+      let length = 0;
+      while (
+        length < most &&
+        left[i + length] !== undefined &&
+        left[i + length] === right[j + length]
+      )
+        length++;
+      if (length > best.length) best = left.slice(i, i + length);
+    }
+  if (best.length === 0) return null;
+  return best.join(best.every((word) => /^\p{Script=Han}$/u.test(word)) ? "" : " ");
+}
+
 /**
- * What a figure item says its number measures, as a model copies the words: the sentence's own (a
- * table cell's label, or the words around a part that is its number alone), and the quote's, or
- * null for a quote that is a number alone.
+ * What a figure item says its number measures, as a model names it in a few words: the words its
+ * sentence (a table cell's label, or the words around a part that is its number alone) and its
+ * quote share, the same measure; the quote's words null for a quote that is a number alone.
  */
 export const sameMeasure = (
   sentence: string,
   quote: string,
   label: string | null = null,
   context: string | null = null,
-) => ({
-  sentence: label ?? (namesSomething(sentence) ? sentence : (context ?? sentence)),
-  quote: namesSomething(quote) ? quote : null,
-  match: "same" as const,
-});
+) => {
+  const own = label ?? (namesSomething(sentence) ? sentence : (context ?? sentence));
+  const words = shared(own, quote) ?? measureWords(own).slice(0, 2).join(" ");
+  return {
+    sentence: words,
+    quote: namesSomething(quote)
+      ? (shared(own, quote) ?? measureWords(quote).slice(0, 2).join(" "))
+      : null,
+    match: "same" as const,
+  };
+};
 
 /** The sentence a check Run is asked about. */
 /**

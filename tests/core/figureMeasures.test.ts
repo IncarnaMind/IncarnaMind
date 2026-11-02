@@ -86,6 +86,14 @@ const ROWS = {
   ].join("\n"),
 };
 
+/** The number a quote of it alone binds, and the figure's, the same. */
+const bound = (chars: string, value: number, at = 0) => ({
+  chars,
+  at,
+  figure: chars,
+  values: [value],
+});
+
 const paragraph = (id: string, value: string): JSONContent => ({
   type: "paragraph",
   attrs: { id },
@@ -645,15 +653,21 @@ describe("where a quote's words may come from (#2255's review)", () => {
     const document = `${page}\n\nOperating margin was 12% in 2024.`;
     const sentence = (said: string) => [`${said} was 12% in 2025.`];
     const finding = (said: string) =>
-      measureFinding({ sentence: said, quote: null, match: "same" }, sentence(said), "12%", () => [
-        page,
-        document,
-      ]).kind;
+      measureFinding(
+        { sentence: said, quote: null, match: "same" },
+        sentence(said),
+        "12%",
+        bound("12%", 0.12),
+        () => [page, document],
+      ).kind;
     const named = (said: string) =>
-      measureFinding({ sentence: said, quote: said, match: "same" }, sentence(said), "12%", () => [
-        page,
-        document,
-      ]).kind;
+      measureFinding(
+        { sentence: said, quote: said, match: "same" },
+        sentence(said),
+        "12%",
+        bound("12%", 0.12),
+        () => [page, document],
+      ).kind;
     expect([named("Revenue"), named("Operating margin"), finding("Revenue")]).toEqual([
       "same",
       "unread",
@@ -684,6 +698,7 @@ describe("where a quote's words may come from (#2255's review)", () => {
       { sentence: row, quote: row, match: "same" },
       [`${row} was 21% in 2025.`],
       "21%",
+      bound("21%", 0.21),
       () => [text],
     );
     expect(finding.kind).toBe(kind);
