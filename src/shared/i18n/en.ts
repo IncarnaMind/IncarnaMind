@@ -4623,7 +4623,7 @@ export const en = {
   "error.startup.body":
     "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\n{message}",
   "error.startup.held":
-    "Another program is still using IncarnaMind’s data. Your data is unchanged. Wait a moment, then open IncarnaMind again.",
+    "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
   "error.startup.busy":
     "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
   "error.startup.starting":

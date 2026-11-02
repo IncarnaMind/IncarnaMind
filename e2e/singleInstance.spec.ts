@@ -303,7 +303,7 @@ try {
       {
         title: "IncarnaMind couldn’t start",
         content:
-          "Another program is still using IncarnaMind’s data. Your data is unchanged. Wait a moment, then open IncarnaMind again.",
+          "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
         ready: true,
       },
     ]);

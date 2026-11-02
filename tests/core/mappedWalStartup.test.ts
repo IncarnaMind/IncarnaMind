@@ -126,11 +126,11 @@ test("a Windows start the mapping never lets go of shows the plain startup probl
   expect(startupDialog(failure, "en")).toMatchObject({
     title: "IncarnaMind couldn’t start",
     detail:
-      "Another program is still using IncarnaMind’s data. Your data is unchanged. Wait a moment, then open IncarnaMind again.",
+      "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
   });
   expect(startupDialog(failure, "zh-CN")).toMatchObject({
     title: "IncarnaMind 无法启动",
-    detail: "另一个程序仍在使用 IncarnaMind 的数据。数据未改动，请稍候，再重新打开 IncarnaMind。",
+    detail: "另一个程序仍在使用 IncarnaMind 的数据。数据不会丢失，请稍候，再重新打开 IncarnaMind。",
   });
 
   vi.mocked(DatabaseSync.prototype.exec).mockRestore();

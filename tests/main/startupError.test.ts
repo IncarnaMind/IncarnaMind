@@ -61,10 +61,10 @@ describe("startupDialog", () => {
   ])("says another program holds the data, and that it is safe, for %s", (_name, error) => {
     onPlatform("win32", () => {
       expect(startupDialog(error, "en").detail).toBe(
-        "Another program is still using IncarnaMind’s data. Your data is unchanged. Wait a moment, then open IncarnaMind again.",
+        "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
       );
       expect(startupDialog(error, "zh-CN").detail).toBe(
-        "另一个程序仍在使用 IncarnaMind 的数据。数据未改动，请稍候，再重新打开 IncarnaMind。",
+        "另一个程序仍在使用 IncarnaMind 的数据。数据不会丢失，请稍候，再重新打开 IncarnaMind。",
       );
     });
   });
@@ -80,7 +80,7 @@ describe("startupDialog", () => {
         native("disk I/O error"),
       );
       expect(startupDialog(sqliteError(5, "database is locked"), "en").detail).toBe(
-        "Another program is still using IncarnaMind’s data. Your data is unchanged. Wait a moment, then open IncarnaMind again.",
+        "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
       );
     });
   });
