@@ -311,6 +311,13 @@ export interface ExecRequest {
    */
   env: Readonly<Record<string, string>>;
   /**
+   * "minimal": of the login environment, only `MINIMAL_ENVIRONMENT` is passed on, then `env`: for
+   * code a model wrote, which could print any variable to it (`DATABASE_URL`, `SSH_AUTH_SOCK`)
+   * or be steered by one (`BASH_ENV`, `DYLD_*`, `LD_PRELOAD`). Not given: all of it, less names
+   * that look like secrets.
+   */
+  environment?: "minimal";
+  /**
    * What it may read, write and reach. Enforced from "os" up; at "none" it is
    * only declared, for approvals (see `declaredAccess` in ./execution).
    */

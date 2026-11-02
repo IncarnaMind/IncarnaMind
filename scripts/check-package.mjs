@@ -190,6 +190,9 @@ for (const asar of asars) {
 	if (runtime?.platform !== platform) {
 		failures.push(`${asar}: python-native/runtime.json is for ${runtime?.platform}, not ${platform}`);
 	}
+	if (!String(runtime?.url).startsWith("https://")) {
+		failures.push(`${asar}: python-native/runtime.json downloads run_code's Python from ${runtime?.url}, not over https`);
+	}
 }
 
 for (const file of files.filter(isInstaller)) {

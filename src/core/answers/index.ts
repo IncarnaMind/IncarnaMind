@@ -162,6 +162,7 @@ import {
   givesStructuredOutput,
   offersAnalysis,
   calculates as offersCalculate,
+  offersCode,
   offersWorkbookTools,
 } from "../providers/capabilities";
 import type { AnswerFlow } from "../providers/catalog/answerPaths";
@@ -2865,7 +2866,12 @@ export function createAnswers(options: AnswersOptions) {
         figure: (figure) => figures.record(figure),
         language: answerLanguage(context.question),
       });
+      // Once run_code couldn't get Python in this Answer, a cut range has nowhere else to go.
+      let pythonMissed = false;
       const ranAnalysis = (toolCallId: string, analysis: AnswerAnalysis) => {
+        if (analysis.end.kind === "unavailable" && analysis.end.reason === "python") {
+          pythonMissed = true;
+        }
         analyses.push(analysis);
         analysisCalls.set(toolCallId, {
           number: analysis.number,
@@ -2893,6 +2899,7 @@ export function createAnswers(options: AnswersOptions) {
       const codeOffered =
         code !== undefined &&
         analysing &&
+        offersCode(prepared.capabilities) &&
         (input.analyse === true || options.documents.searchableBySize(documentIds).length > 0);
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
@@ -2908,7 +2915,9 @@ export function createAnswers(options: AnswersOptions) {
                 language: answerLanguage(context.question),
                 now: () => new Date(),
                 ran: ranAnalysis,
-                codeOffered: codeOffered && code?.runner.hasPython === true,
+                // Asked at each call: Python can fail to download partway through the Answer.
+                codeOffered: () =>
+                  codeOffered && code?.runner.pythonUsable() === true && !pythonMissed,
               }),
             ]
           : [];

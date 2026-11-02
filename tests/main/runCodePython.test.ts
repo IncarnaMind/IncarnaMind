@@ -23,8 +23,13 @@ import {
 import { type TarEntry, writeTarZst } from "../../src/main/runCode/tar";
 import { createTempDataFolder, LOCAL_FETCH } from "../helpers/core";
 
-// biome-ignore lint/suspicious/noTemplateCurlyInString: the shell script's own variable.
-const INTERPRETER = '#!/bin/sh\necho imported >> "$IMPORTS"\nexit ${STAND_IN_EXIT:-0}\n';
+/**
+ * Notes each first import in the font cache's folder, the one place a first import writes, and
+ * ends with `exit`. It gets only the minimal environment code gets, so nothing else reaches it.
+ */
+const interpreterExiting = (exit: number) =>
+  `#!/bin/sh\necho imported >> "$MPLCONFIGDIR/imported"\nexit ${exit}\n`;
+const INTERPRETER = interpreterExiting(0);
 
 /**
  * A stand-in runtime archive, served from a stand-in release; `served` counts its downloads.
@@ -110,15 +115,11 @@ async function release(options: { interpreter?: string; stallAfter?: number } = 
   };
 }
 
-async function runtimeFor(manifest: PythonRuntimeManifest, env: Record<string, string> = {}) {
+async function runtimeFor(manifest: PythonRuntimeManifest) {
   const dataDir = await createTempDataFolder();
-  const imports = join(dataDir, "imports.txt");
+  const imports = join(pythonRuntimeFolder(dataDir, manifest.sha256), "matplotlib", "imported");
   const executor = createLocalExecutor({
-    processes: createProcessLauncher(async () => ({
-      PATH: process.env.PATH ?? "/usr/bin:/bin",
-      IMPORTS: imports,
-      ...env,
-    })),
+    processes: createProcessLauncher(async () => ({ PATH: process.env.PATH ?? "/usr/bin:/bin" })),
     tempDir: dataDir,
     reportError: (error) => {
       throw error;
@@ -257,8 +258,8 @@ describe.skipIf(process.platform === "win32")("run_code's own Python", () => {
   });
 
   test("a runtime whose packages don't import fails as one that can't start here", async () => {
-    const { manifest } = await release();
-    const { make, imports } = await runtimeFor(manifest, { STAND_IN_EXIT: "3" });
+    const { manifest } = await release({ interpreter: interpreterExiting(3) });
+    const { make, imports } = await runtimeFor(manifest);
     const runtime = make();
     const failed = await runtime.ensure(new AbortController().signal);
     expect(failed).toMatchObject({ ok: false, error: { kind: "load" } });

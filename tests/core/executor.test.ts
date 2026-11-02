@@ -394,7 +394,7 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
     });
 
     test.skipIf(process.platform === "win32")(
-      "a process in a session of its own doesn't keep the run waiting, and ends with it",
+      "a process in a session of its own doesn't keep the run waiting, and in the OS sandbox ends with it",
       async () => {
         const { executor } = await setUp();
         const pidFolder = await createTempDataFolder();
@@ -419,9 +419,13 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
           }
         });
 
-        // Out of the program's group, it holds the output open; only the run's sweep ends it.
+        // Out of the program's group, it holds the output open. In the OS sandbox the run's sweep
+        // finds it by its profile and ends it; with no sandbox nothing tells it from any other.
         expect(run).toMatchObject({ exitCode: null, timedOut: true });
-        expect(runningWith(marker)).toEqual([]);
+        expect(runningWith(`${marker}-child`)).toHaveLength(executor.level === "os" ? 0 : 1);
+        expect(
+          runningWith(marker).filter((pid) => !runningWith(`${marker}-child`).includes(pid)),
+        ).toEqual([]);
       },
       RUNNER_LIMIT,
     );

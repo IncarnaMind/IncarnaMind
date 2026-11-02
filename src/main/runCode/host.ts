@@ -38,6 +38,12 @@ export function createCodeHost(options: CodeHostOptions): CodeHost {
         font: options.font,
         appVersion: options.appVersion,
         ...(options.timeLimitMs !== undefined && { timeLimitMs: options.timeLimitMs }),
+        reportError: (error) =>
+          context.log
+            ? context.log.error("runCode.cleanupFailed", {
+                reason: error instanceof Error ? error.message : String(error),
+              })
+            : console.error(error),
       });
       return { runner, python };
     },

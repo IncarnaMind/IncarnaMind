@@ -17,7 +17,7 @@
  *   only ever read as bytes, and a link or a file with another name is skipped.
  */
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, createReadStream, createWriteStream } from "node:fs";
 import {
   chmod,
   copyFile,
@@ -34,6 +34,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { ExecLimits, ExecResult, Executor } from "../../core/adapters";
 import { readRange, sheetRows, sheetsOf, WHOLE } from "../../core/analysis/ranges";
 import { rangeInput } from "../../core/analysis/tool";
@@ -113,6 +115,8 @@ export interface CodeRunnerOptions {
   appVersion: string;
   /** How long one run may take; `RUN_CODE_TIME_LIMIT_MS` unless a test says. */
   timeLimitMs?: number;
+  /** Told when a run's folder, with its copies of Documents, couldn't be removed. */
+  reportError(error: unknown): void;
 }
 
 const sha256 = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
@@ -126,6 +130,33 @@ async function hashFile(path: string): Promise<string> {
     await handle.close();
   }
   return hash.digest("hex");
+}
+
+/**
+ * Copies `from` to `to` if it is still `size` bytes: a clone where the disk makes them, which
+ * takes no space, else a copy that stops one byte past `size`. False when the sizes differ.
+ */
+async function copyUpTo(from: string, to: string, size: number): Promise<boolean> {
+  const cloned = await copyFile(from, to, constants.COPYFILE_FICLONE_FORCE).then(
+    () => true,
+    () => false,
+  );
+  if (cloned) return (await stat(to)).size === size;
+  let copied = 0;
+  const limit = new Transform({
+    transform(chunk: Buffer, _encoding, done) {
+      copied += chunk.byteLength;
+      if (copied > size) done(new Error("grew"));
+      else done(null, chunk);
+    },
+  });
+  try {
+    await pipeline(createReadStream(from), limit, createWriteStream(to, { flags: "wx" }));
+  } catch (error) {
+    if (copied > size) return false;
+    throw error;
+  }
+  return copied === size;
 }
 
 /** A file name the code can type, kept apart from the run's others. */
@@ -241,7 +272,12 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
       // The file's own name, extension and all: a Document's name drops it, and the User may rename it.
       const name = safeName(basename(document.path), taken);
       const copy = join(inputs, name);
-      await copyFile(document.path, copy, constants.COPYFILE_FICLONE);
+      // A file that grew since it was measured is refused, and never copied past that size.
+      if (!(await copyUpTo(document.path, copy, size))) {
+        return {
+          refused: `${source.documentName} changed since IncarnaMind read it, so nothing ran. Search it again, then run the code on what you find.`,
+        };
+      }
       if ((await hashFile(copy)) !== source.contentHash) {
         return {
           refused: `${source.documentName} changed since IncarnaMind read it, so nothing ran. Search it again, then run the code on what you find.`,
@@ -294,6 +330,7 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
     level: options.executor.level,
     /** Whether Python can run here at all: this copy has IncarnaMind's own. */
     hasPython: options.python !== null,
+    pythonUsable: () => options.python !== null && options.python.status().state !== "failed",
     async run(request: CodeRequest): Promise<CodeRun> {
       let command: string;
       let fontCache: string | null = null;
@@ -416,6 +453,7 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
           },
           timeoutMs: timeLimitMs,
           maxOutputBytes: RUN_CODE_OUTPUT_BYTES,
+          environment: "minimal",
           limits: RUN_CODE_LIMITS,
           signal: request.signal,
         });
@@ -500,8 +538,12 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
           versions,
         };
       } finally {
+        // Copies of Documents must not stay behind: a failure is reported, and the run's folder
+        // is removed at the next start if it is still there.
         await chmod(join(run, "inputs"), 0o755).catch(() => undefined);
-        await rm(run, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+        await rm(run, { recursive: true, force: true, maxRetries: 3 }).catch((error: unknown) =>
+          options.reportError(error),
+        );
       }
     },
   };

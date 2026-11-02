@@ -389,6 +389,7 @@ function codeRuntime(log: Logger): CoreAdapters["codeRuntime"] {
       manifest,
       runtimePlatform(process.platform, process.arch),
       (reason) => log.warn("pythonRuntime.manifest", { reason }),
+      { standIn: import.meta.env.MODE === "test" },
     ),
     font: join(pythonFolder(), PLOT_FONT),
     appVersion: app.getVersion(),

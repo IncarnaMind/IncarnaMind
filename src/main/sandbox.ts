@@ -32,14 +32,27 @@
  */
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { access, realpath, stat } from "node:fs/promises";
-import { delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import {
+  access,
+  lstat,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import type { ExecRequest, Executor, ProcessLauncher } from "../core";
 import type { SandboxProblem } from "../core/api";
 import { engineModule } from "../core/engineModules";
 import { type Confinement, createLocalExecutor, folderPath } from "../core/execution";
+import { createRunSweeper, type RunSweeper } from "./runLeftovers";
 
 type SandboxManager = typeof import("@anthropic-ai/sandbox-runtime")["SandboxManager"];
 
@@ -106,14 +119,19 @@ export interface ReadDeniedOptions {
   dataDir: string;
   /** Where a run without a `cwd` gets its working folder (`os.tmpdir()`). */
   temporaryFolder: string;
-  /** The User's id, where the system has one: on Linux this User's mounts land under `/run/user/<uid>`. */
+  /**
+   * The User's id, where the system has one: on Linux `/run/user/<uid>` holds this User's
+   * session bus, systemd user manager, keyring and ssh-agent sockets and drive mounts.
+   */
   uid?: number;
 }
 
 /**
  * The folders no program may read, except the folders inside them its request
- * allows: the User's own, the shared temporary folders every app on the
- * computer writes to, and the roots this system mounts volumes under (#2350).
+ * allows: every account's home (the User's and others'), the shared temporary
+ * folders every app on the computer writes to, the roots this system mounts
+ * volumes under (#2350), and on Linux this User's runtime folder. What stays
+ * readable is the system's own files.
  * A run's working folder is inside the temporary folder, and its request's
  * allow rules re-open it within the deny. Windows has no OS sandbox, so
  * nothing is denied there.
@@ -124,8 +142,8 @@ export function readDeniedFolders(options: ReadDeniedOptions): string[] {
   const folders = [home, dataDir, temporaryFolder];
   if (temporaryFolder !== "/tmp") folders.push("/tmp");
   if (platform === "linux") {
-    folders.push("/var/tmp", "/media", "/mnt", "/run/media");
-    if (uid !== undefined) folders.push(`/run/user/${uid}/gvfs`);
+    folders.push("/home", "/root", "/var/tmp", "/media", "/mnt", "/run/media");
+    if (uid !== undefined) folders.push(`/run/user/${uid}`);
     return folders;
   }
   // The User's other temporary and cache folders beside T (.../C, .../0), where
@@ -135,8 +153,83 @@ export function readDeniedFolders(options: ReadDeniedOptions): string[] {
   if (beside.startsWith("/var/folders/") || beside.startsWith("/private/var/folders/")) {
     folders.push(beside);
   }
-  folders.push("/private/tmp", "/var/tmp", "/private/var/tmp", "/Volumes");
+  folders.push("/Users", "/private/tmp", "/var/tmp", "/private/var/tmp", "/Volumes");
   return folders;
+}
+
+/**
+ * What the macOS profile denies on top of sandbox-runtime's: in Seatbelt the last rule that
+ * matches wins. LaunchServices (`open` starts any app or the browser outside the sandbox, with
+ * a URL carrying what the code read), the security server (the Keychain), and distributed
+ * notifications (a channel to other apps). Nothing a run needs uses them.
+ */
+export const MAC_DENIED = [
+  "(deny mach-lookup",
+  '  (global-name "com.apple.coreservices.launchservicesd")',
+  '  (global-name "com.apple.lsd.mapdb")',
+  '  (global-name "com.apple.SecurityServer")',
+  '  (global-name "com.apple.securityd.xpc"))',
+  "(deny distributed-notification-post)",
+].join("\n");
+
+/**
+ * The profile sandbox-runtime builds, with `MAC_DENIED` after it: its sandbox-exec, which it
+ * names by path, is started through a shell that adds them. Fails, so nothing runs, when the
+ * command isn't the shape this expects.
+ */
+function withMacDenials(wrapped: string): string {
+  const call = " /usr/bin/sandbox-exec -p ";
+  const at = wrapped.indexOf(call);
+  if (at < 0 || wrapped.indexOf(call, at + 1) >= 0) {
+    throw new Error("sandbox-runtime's command for macOS isn't the one IncarnaMind adds to.");
+  }
+  const stricter = ` /bin/sh -c 'p=$1; shift; exec /usr/bin/sandbox-exec -p "$p
+$0" "$@"' ${quote(MAC_DENIED)} `;
+  return `${wrapped.slice(0, at)}${stricter}${wrapped.slice(at + call.length)}`;
+}
+
+/** The most each folder bubblewrap mounts over a denied one may hold: it is memory. */
+export const DENIED_MOUNT_BYTES = 1024 * 1024;
+
+/**
+ * bubblewrap, with a size on each tmpfs it mounts over a denied folder, which is otherwise as
+ * large as memory and counted by no limit. sandbox-runtime runs this in its place. A profile
+ * long enough to go through an arguments file can't be sized here, so it doesn't run.
+ */
+const bwrapScript = (bwrap: string) =>
+  [
+    "#!/bin/sh",
+    `real=${quote(bwrap)}`,
+    'n=$#; past=""',
+    "for a do",
+    '  if [ -z "$past" ] && [ "$a" = --args ]; then',
+    '    echo "The sandbox profile is too long to size its folders." >&2; exit 125',
+    "  fi",
+    `  if [ -z "$past" ] && [ "$a" = --tmpfs ]; then set -- "$@" --size ${DENIED_MOUNT_BYTES} --tmpfs`,
+    '  else set -- "$@" "$a"; fi',
+    '  if [ "$a" = -- ]; then past=1; fi',
+    "done",
+    'shift "$n"',
+    'exec "$real" "$@"',
+    "",
+  ].join("\n");
+
+/**
+ * Writes `bwrapScript` where only this User can change it, in a folder of this User's own
+ * (the shared /tmp is checked: a folder someone else made there is refused).
+ */
+async function sizedBwrap(): Promise<string> {
+  const real = await findCommand("bwrap", process.env.PATH, "/");
+  const folder = join(tmpdir(), `incarnamind-bwrap-${process.getuid?.() ?? 0}`);
+  await mkdir(folder, { recursive: true, mode: 0o700 });
+  const info = await lstat(folder);
+  if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) {
+    throw new Error(`${folder} isn't a private folder of this User's.`);
+  }
+  const script = join(folder, "bwrap");
+  await writeFile(`${script}.new`, bwrapScript(real), { mode: 0o700 });
+  await rename(`${script}.new`, script);
+  return script;
 }
 
 /** No network: an empty allowlist, and no proxy to let anything through. */
@@ -241,16 +334,31 @@ async function wrap(
   config: Partial<SandboxRuntimeConfig>,
 ): Promise<{ command: string; args: string[] }> {
   const { argv } = await sandbox.wrapWithSandboxArgv(script, undefined, config);
-  const [command, ...args] = argv;
-  if (command === undefined) throw new Error("sandbox-runtime gave no command to run.");
-  return { command, args };
+  const [command, flag, wrapped, ...rest] = argv;
+  if (command === undefined || flag !== "-c" || wrapped === undefined || rest.length > 0) {
+    throw new Error("sandbox-runtime gave no command IncarnaMind can run.");
+  }
+  return {
+    command,
+    args: [flag, process.platform === "darwin" ? withMacDenials(wrapped) : wrapped],
+  };
 }
 
-/** Runs each program in the OS sandbox, with only what its request allows. */
-function osConfinement(sandbox: SandboxManager, options: OsExecutorOptions): Confinement {
+/**
+ * Runs each program in the OS sandbox, with only what its request allows. `readable`: what every
+ * program must read wherever it is (sandbox-runtime's seccomp helper, which runs inside).
+ */
+function osConfinement(
+  sandbox: SandboxManager,
+  options: OsExecutorOptions,
+  readable: readonly string[],
+  sweeper: RunSweeper,
+): Confinement {
   return {
     level: "os",
     async confine(request: ExecRequest, workingFolder: string) {
+      const blocked = await sweeper.stuck();
+      if (blocked !== null) throw new Error(blocked);
       if (request.allow.network !== "none") {
         throw new Error(
           "The OS sandbox gives programs no network, and this one asks for it, so it didn't run.",
@@ -267,6 +375,7 @@ function osConfinement(sandbox: SandboxManager, options: OsExecutorOptions): Con
           allowRead: [
             ...paths(request.allow.read),
             ...(await installFolders(command, options.denyRead)),
+            ...readable,
           ],
           allowWrite: paths(request.allow.write),
           denyWrite: SANDBOX_RUNTIME_TEMP,
@@ -278,7 +387,11 @@ function osConfinement(sandbox: SandboxManager, options: OsExecutorOptions): Con
         `exec ${[command, ...request.args].map(quote).join(" ")}`,
       ].join("; ");
       try {
-        return { ...(await wrap(sandbox, script, config)), env: request.env };
+        const program = await wrap(sandbox, script, config);
+        // Its profile lets it write its working folder and not the one above (ADR-0025).
+        const folder = await realpath(workingFolder);
+        const sweep = await sweeper.begin(folder, dirname(folder));
+        return { ...program, env: request.env, sweep };
       } catch (error) {
         throw new Error(
           `The OS sandbox couldn't start, so the program didn't run: ${messageOf(error)}`,
@@ -297,11 +410,20 @@ function osConfinement(sandbox: SandboxManager, options: OsExecutorOptions): Con
  * runs `true` in it. bubblewrap can be installed and still fail, e.g. where
  * Ubuntu 24.04 restricts user namespaces.
  */
-async function cantRunHere(sandbox: SandboxManager): Promise<string | undefined> {
+async function cantRunHere(
+  sandbox: SandboxManager,
+  readable: readonly string[],
+): Promise<string | undefined> {
+  // A denied folder, as every run has: on Linux that is where bubblewrap's sized mounts go.
+  const denied = await mkdtemp(join(tmpdir(), "incarnamind-sandbox-probe-"));
   let program: { command: string; args: string[] };
   try {
-    program = await wrap(sandbox, "true", { network: NO_NETWORK, filesystem: NO_FILE_RULES });
+    program = await wrap(sandbox, "true", {
+      network: NO_NETWORK,
+      filesystem: { ...NO_FILE_RULES, denyRead: [denied], allowRead: [...readable] },
+    });
   } catch (error) {
+    await rm(denied, { recursive: true, force: true });
     return messageOf(error);
   }
   try {
@@ -313,7 +435,16 @@ async function cantRunHere(sandbox: SandboxManager): Promise<string | undefined>
     return `a program in it couldn't start${said ? `: ${said}` : ` (${messageOf(error)})`}`;
   } finally {
     sandbox.cleanupAfterCommand();
+    await rm(denied, { recursive: true, force: true });
   }
+}
+
+/** sandbox-runtime's own seccomp helper for this computer's processor. */
+function bundledSeccompHelper(): string {
+  const runtime = dirname(
+    dirname(createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime")),
+  );
+  return join(runtime, "vendor", "seccomp", process.arch, "apply-seccomp");
 }
 
 export interface OsSandboxOptions {
@@ -344,15 +475,42 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
   if (!sandbox.isSupportedPlatform()) {
     return { available: false, reason: "sandbox-runtime doesn't support this system (WSL 1)" };
   }
-  if (seccompHelper !== undefined) {
-    // Only the helper's place is taken from this: each wrap brings its own file and network rules.
+  // On Linux the seccomp helper runs inside the sandbox, so its folder stays readable.
+  const readable: string[] = [];
+  if (process.platform === "linux") {
+    const helper = seccompHelper ?? bundledSeccompHelper();
+    readable.push(dirname(helper));
+    let bwrapPath: string | undefined;
+    try {
+      bwrapPath = await sizedBwrap();
+    } catch (error) {
+      // Not installed: the dependency check below names it with whatever else is missing.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        return { available: false, reason: messageOf(error), problem: { kind: "start" } };
+      }
+    }
+    // Only the helper's and bubblewrap's places are taken from this: each wrap brings its own
+    // file and network rules.
+    sandbox.updateConfig({
+      network: NO_NETWORK,
+      filesystem: NO_FILE_RULES,
+      seccomp: { applyPath: helper },
+      ...(bwrapPath !== undefined && { bwrapPath }),
+    });
+  } else if (seccompHelper !== undefined) {
     sandbox.updateConfig({
       network: NO_NETWORK,
       filesystem: NO_FILE_RULES,
       seccomp: { applyPath: seccompHelper },
     });
   }
-  const { errors } = await sandbox.checkDependenciesAsync();
+  const { errors, warnings } = await sandbox.checkDependenciesAsync();
+  // Without its seccomp filter the sandbox lets a program open unix sockets (the session bus,
+  // systemd, ssh-agent): sandbox-runtime runs anyway and only warns, so this fails closed.
+  const unfiltered = warnings.filter((warning) => /seccomp/i.test(warning));
+  if (process.platform === "linux" && errors.length === 0 && unfiltered.length > 0) {
+    return { available: false, reason: unfiltered.join("; "), problem: { kind: "start" } };
+  }
   if (errors.length > 0) {
     const packages = missingPackages(errors);
     return {
@@ -364,7 +522,7 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
         }),
     };
   }
-  const reason = await cantRunHere(sandbox);
+  const reason = await cantRunHere(sandbox, readable);
   if (reason !== undefined) {
     return {
       available: false,
@@ -375,6 +533,14 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
   return {
     available: true,
     createExecutor: (options) =>
-      createLocalExecutor({ ...options, confinement: osConfinement(sandbox, options) }),
+      createLocalExecutor({
+        ...options,
+        confinement: osConfinement(
+          sandbox,
+          options,
+          readable,
+          createRunSweeper(options.reportError),
+        ),
+      }),
   };
 }

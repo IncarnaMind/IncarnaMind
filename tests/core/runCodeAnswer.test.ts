@@ -204,6 +204,43 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
     expect(told(without.model, "run_analysis")[0]).toContain("say so in the Answer");
   }, 90_000);
 
+  test("once run_code couldn't get Python, a range cut later is to be said so, not run again there", async () => {
+    const revenue = (passage: Passages) => ({
+      tool: "run_analysis",
+      input: {
+        title: "Revenue",
+        inputs: [{ name: "sales", passage: passage("sales") }],
+        code: 'result("n", len(inputs["sales"]), "Rows")',
+      },
+    });
+    const { model } = codingModel([
+      revenue,
+      (passage) => ({
+        tool: "run_code",
+        input: {
+          title: "Revenue",
+          language: "python",
+          documents: [passage("sales")],
+          code: 'df = read_table("sales.csv")\nfigure("total", df["Revenue"], "sum", "Revenue")',
+        },
+      }),
+      revenue,
+    ]);
+    const rows = Array.from({ length: 20_050 }, (_, index) => `R${index % 7},${index}`);
+    // Nothing listens there: the first download fails, as it does offline.
+    const core = await setUp(model, {
+      salesRows: rows,
+      manifestUrl: "http://127.0.0.1:9/python-runtime-test.tar.zst",
+    });
+    const answer = await ask(core, "What is the revenue over every row?");
+    const [before, after] = told(model, "run_analysis");
+    expect(before).toContain("run it again with run_code, which reads every row");
+    expect(told(model, "run_code")[0]).toContain("Python didn't run");
+    expect(after).toContain("the most this Analysis can read; say so in the Answer");
+    expect(after).not.toContain("run_code");
+    expect(answer.analyses.map((each) => each.end.kind)).toEqual(["done", "unavailable", "done"]);
+  }, 90_000);
+
   test("runs bash on a copy of the Document, as an Analysis numbered after one in Pyodide", async () => {
     const { model } = codingModel([
       (passage) => ({
@@ -232,7 +269,9 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
     const report = told(model, "run_code")[0] ?? "";
     expect(report).toContain("Analysis 2: Errors in the log");
     expect(report).toContain("Files in ../inputs:\n- server.log.txt (server.log): ");
-    expect(report).toContain("Its numbers are calculated by code and not checked");
+    expect(report).toContain(
+      "bash is for looking around: no number it printed may be given in the Answer.",
+    );
   });
 
   test("Python in a copy without its own: the model is told to analyse in Pyodide instead", async () => {

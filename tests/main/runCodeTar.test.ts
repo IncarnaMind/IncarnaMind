@@ -111,6 +111,31 @@ describe("the runtime's archive", () => {
     await expect(stat(join(folder, "escaped.txt"))).rejects.toThrow();
   });
 
+  test("refuses a link that only reads as inside, and on macOS an entry through a link in other case", async () => {
+    const link = (path: string, target: string): TarEntry => ({
+      kind: "symlink",
+      path,
+      mode: 0o777,
+      mtime: 1_700_000_000,
+      target,
+    });
+    const climbing = await archive([link("t", "."), link("u", "t/.."), file("v.txt", "v")], {
+      "v.txt": "v",
+    });
+    await expect(unpackTarZst(climbing.file, join(climbing.folder, "out"), LIMITS)).rejects.toThrow(
+      "The archive has an entry that resolves outside it: u",
+    );
+    const cased = await archive([link("a", "."), file("A/x.txt", "x")], { "A/x.txt": "x" });
+    const unpacking = unpackTarZst(cased.file, join(cased.folder, "out"), LIMITS);
+    if (process.platform === "darwin") {
+      await expect(unpacking).rejects.toThrow(
+        "The archive has an entry inside one of its own links: A/x.txt",
+      );
+    } else {
+      expect((await unpacking).entries).toBe(2);
+    }
+  });
+
   test("refuses an archive past its limits", async () => {
     const { folder, file: tar } = await archive([file("python/a.txt", "abc")], {
       "python/a.txt": "abc",

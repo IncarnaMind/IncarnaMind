@@ -10,6 +10,7 @@ import {
   cloudWindow,
   givesStructuredOutput,
   offersAnalysis,
+  offersCode,
   offersWorkbookTools,
   readsImages,
   resolveCapabilities,
@@ -383,6 +384,17 @@ describe("The provider catalog", () => {
       ]).toEqual([offered, offered, offered]);
     },
   );
+
+  test("run_code is offered to the models its routing was measured on, and no other", () => {
+    const offered = providersWithModels().flatMap((provider) =>
+      catalogModels(provider)
+        .filter((model) =>
+          offersCode(resolveCapabilities({ catalog: catalogFacts(provider, model.id) })),
+        )
+        .map((model) => `${provider}/${model.id}`),
+    );
+    expect(offered).toEqual(["anthropic/claude-haiku-5-5", "anthropic/claude-sonnet-5-5"]);
+  });
 
   test.each<[ChatProviderKind, string, boolean]>([
     ["anthropic", "claude-sonnet-5-5", true],

@@ -98,7 +98,7 @@ for (const language of ["en", "zh-CN"] as const) {
   const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
     translate(language, key, params);
 
-  test(`${language}: bash counts a log's errors on its copy, as an Analysis`, async () => {
+  test(`${language}: bash looks at a log on its copy, as an Analysis, and its numbers never reach the Answer`, async () => {
     test.skip(process.platform !== "darwin", NO_SANDBOX);
     test.setTimeout(120_000);
     const { app, window } = await launch(language, null);
@@ -109,8 +109,12 @@ for (const language of ["en", "zh-CN"] as const) {
           ? "How many errors are in the log server.log?"
           : "server.log 日志里有多少个错误？",
       );
-      await expect(answer).toContainText(
-        language === "en" ? "The log has 2 errors" : "日志里有 2 个错误",
+      // This copy has no Python to count with, and bash's own count is never typed in.
+      const text = answer.getByTestId("assistant-answer-text");
+      await expect(text).toHaveText(
+        language === "en"
+          ? "I looked at the log's error lines, but Python couldn't run this time to count them."
+          : "我看了日志里的错误行，但这次无法运行 Python 来数清有多少。",
       );
       await pointAndClick(window, answer.getByTestId("answer-steps"));
       await expect(answer.getByTestId("answer-timeline")).toContainText(

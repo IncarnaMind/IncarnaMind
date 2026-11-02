@@ -8,8 +8,8 @@
  * would land outside the folder it unpacks into.
  */
 import { createReadStream, createWriteStream } from "node:fs";
-import { chmod, mkdir, symlink, utimes } from "node:fs/promises";
-import { dirname, isAbsolute, join, posix } from "node:path";
+import { chmod, mkdir, realpath, symlink, utimes } from "node:fs/promises";
+import { dirname, isAbsolute, join, posix, sep } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
@@ -214,18 +214,43 @@ export async function unpackTarZst(
   let bytes = 0;
   let ended = false;
 
+  // macOS's volumes are case-insensitive as a rule: "A/x" is written through a link named "a".
+  const key = (path: string) => (process.platform === "darwin" ? path.toLowerCase() : path);
   const underLink = (path: string) => {
     for (let at = path.indexOf("/"); at !== -1; at = path.indexOf("/", at + 1)) {
-      if (links.has(path.slice(0, at))) return true;
+      if (links.has(key(path.slice(0, at)))) return true;
     }
     return false;
   };
   const place = (given: string) => {
     const path = safePath(given);
-    if (underLink(path) || links.has(path)) {
+    if (underLink(path) || links.has(key(path))) {
       throw new TarError(`The archive has an entry inside one of its own links: ${given}`);
     }
     return { path, target: join(folder, ...path.split("/")) };
+  };
+  await mkdir(folder, { recursive: true });
+  const realFolder = await realpath(folder);
+  // A folder found inside stays so: no link can later take its place, nor an entry go under one.
+  const checked = new Set<string>();
+  /** Refuses `path` unless what it resolves to, as far as it exists, is inside the folder. */
+  const inside = async (path: string, given: string) => {
+    if (checked.has(path)) return;
+    let existing = path;
+    for (;;) {
+      const real = await realpath(existing).catch(() => null);
+      if (real !== null) {
+        if (real === realFolder || real.startsWith(`${realFolder}${sep}`)) {
+          if (existing === path) checked.add(path);
+          return;
+        }
+        throw new TarError(`The archive has an entry that resolves outside it: ${given}`);
+      }
+      const above = dirname(existing);
+      if (above === existing)
+        throw new TarError(`The archive has an entry with no place: ${given}`);
+      existing = above;
+    }
   };
   const closeFile = async () => {
     if (!file) return;
@@ -252,6 +277,7 @@ export async function unpackTarZst(
     const mode = number(block, 100, 8) & 0o777;
     const mtime = number(block, 136, 12);
     const { path, target } = place(name);
+    await inside(dirname(target), name);
     if (type === "5") {
       await mkdir(target, { recursive: true, mode: 0o755 });
       times.push({ path: target, mtime });
@@ -261,9 +287,11 @@ export async function unpackTarZst(
           `The archive has a link that points outside it: ${name} → ${linkTarget}`,
         );
       }
+      // Not joined: "t/.." must be resolved through the link t, as the system will.
+      await inside(`${dirname(target)}${sep}${linkTarget}`, name);
       await mkdir(dirname(target), { recursive: true });
       await symlink(linkTarget, target);
-      links.add(path);
+      links.add(key(path));
     } else if (type === "0") {
       bytes += size;
       if (bytes > limits.maxBytes) throw new TarError("The archive holds more than allowed.");

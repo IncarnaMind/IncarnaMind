@@ -15,12 +15,14 @@ const GOOD = {
   packages: { numpy: "2.5.4", pandas: "3.1.0" },
 };
 
-async function manifest(content: unknown) {
+async function manifest(content: unknown, standIn = false) {
   const folder = await mkdtemp(join(tmpdir(), "manifest-"));
   const file = join(folder, "runtime.json");
   await writeFile(file, typeof content === "string" ? content : JSON.stringify(content));
   const warnings: string[] = [];
-  const read = readPythonManifest(file, "darwin-arm64", (reason) => warnings.push(reason));
+  const read = readPythonManifest(file, "darwin-arm64", (reason) => warnings.push(reason), {
+    standIn,
+  });
   return { read, warnings };
 }
 
@@ -34,8 +36,11 @@ describe("the runtime manifest built into the app", () => {
   test("a copy without one runs bash alone, and says nothing", async () => {
     const warnings: string[] = [];
     expect(
-      readPythonManifest(join(tmpdir(), "no-such-runtime.json"), "linux-x64", (r) =>
-        warnings.push(r),
+      readPythonManifest(
+        join(tmpdir(), "no-such-runtime.json"),
+        "linux-x64",
+        (r) => warnings.push(r),
+        { standIn: false },
       ),
     ).toBe(null);
     expect(warnings).toEqual([]);
@@ -55,12 +60,12 @@ describe("the runtime manifest built into the app", () => {
     expect(warnings).toHaveLength(1);
   });
 
-  test("a stand-in release on this computer is allowed, as tests serve one", async () => {
-    const { read } = await manifest({
-      ...GOOD,
-      url: "http://127.0.0.1:4100/python-runtime-darwin-arm64.tar.zst",
-    });
-    expect(read?.url).toBe("http://127.0.0.1:4100/python-runtime-darwin-arm64.tar.zst");
+  test("a stand-in release on this computer is allowed in a test build only", async () => {
+    const standIn = { ...GOOD, url: "http://127.0.0.1:4100/python-runtime-darwin-arm64.tar.zst" };
+    expect((await manifest(standIn, true)).read?.url).toBe(
+      "http://127.0.0.1:4100/python-runtime-darwin-arm64.tar.zst",
+    );
+    expect((await manifest(standIn, false)).read).toBe(null);
   });
 
   test("names this computer as the archives do", () => {

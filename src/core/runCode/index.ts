@@ -85,6 +85,8 @@ export interface CodeRunner {
   level: SandboxLevel;
   /** Whether this copy has IncarnaMind's own Python at all; bash runs without it. */
   hasPython: boolean;
+  /** Whether Python can be had now: this copy has it, and its download or start hasn't failed. */
+  pythonUsable(): boolean;
   run(request: CodeRequest): Promise<CodeRun>;
 }
 

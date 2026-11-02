@@ -25,6 +25,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createAnalysisRecorder } from "../../src/core/analysis/recorder";
 import type { AnswerAnalysis, CalculatedFigure } from "../../src/core/api";
 import type { CitationSource } from "../../src/core/documents";
+import { WORKING_FOLDER } from "../../src/core/execution";
 import type { CodeDocument } from "../../src/core/runCode";
 import { runCodeTool } from "../../src/core/runCode/tool";
 import { createProcessLauncher } from "../../src/main/processes";
@@ -32,6 +33,7 @@ import { readPythonManifest, runtimePlatform } from "../../src/main/runCode/mani
 import { createPythonRuntime, type PythonRuntime } from "../../src/main/runCode/python";
 import { createCodeRunner } from "../../src/main/runCode/runner";
 import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
+import { sandboxCheck } from "../../src/main/sandboxCheck";
 import { PLOT_FONT } from "../../src/shared/analysisWindow";
 import analysisHelper from "../../src/shared/incarnamind.py?raw";
 import { LOCAL_FETCH } from "../helpers/core";
@@ -131,6 +133,7 @@ beforeAll(async () => {
     (reason) => {
       throw new Error(reason);
     },
+    { standIn: true },
   );
   if (!manifest)
     throw new Error("INCARNAMIND_TEST_PYTHON_RUNTIME names no runtime for this platform.");
@@ -197,6 +200,9 @@ function tool(documents: Record<string, CodeDocument>, timeLimitMs?: number) {
     font,
     appVersion: "0.0.0-test",
     ...(timeLimitMs !== undefined && { timeLimitMs }),
+    reportError: (error) => {
+      throw error;
+    },
   });
   const runCode = runCodeTool({
     runner,
@@ -229,11 +235,15 @@ describe.skipIf(unavailable !== undefined)(
       const document = await sales();
       const { call, analyses } = tool({ P1: document });
       const volumes = process.platform === "darwin" ? "/Volumes" : "/mnt";
+      const homes = process.platform === "darwin" ? "/Users" : "/home";
       const report = await call(
         "bash",
         [
           `try() { if eval "$2" >/dev/null 2>&1; then echo "$1: allowed"; else echo "$1: denied"; fi; }`,
           `try home "cat '${homeCanary}'"`,
+          `try homes "ls -A '${homes}' | grep -q ."`,
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: the shell's own command.
+          'try runtime-folder "ls -A /run/user/$(id -u) | grep -q ."',
           `try data "cat '${dataCanary}'"`,
           `try temp "cat '${tempCanary}'"`,
           `try volumes "ls -A '${volumes}' | grep -q ."`,
@@ -242,12 +252,15 @@ describe.skipIf(unavailable !== undefined)(
           `try change-input "echo x >> ../inputs/sales.csv"`,
           `try write-home "echo x > '${home}/written.txt'"`,
           `try write-temp "echo x > '${tmpdir()}/incarnamind-written-${process.pid}.txt'"`,
+          `try fill-temp "head -c 3000000 /dev/zero > '${tmpdir()}/incarnamind-fill-${process.pid}'"`,
           `try write-own "echo x > out/note.txt"`,
           `try dns "getent hosts example.com || host example.com || nslookup example.com"`,
           `try internet "curl -sS -m 3 https://example.com"`,
           `try loopback "curl -sS -m 3 telnet://127.0.0.1:${loopbackPort} </dev/null"`,
+          // LaunchServices reached would say no application claims the scheme.
+          'echo "launch: $(open incarnamind-probe://x 2>&1 | grep -c -- -10814)"',
           // biome-ignore lint/suspicious/noTemplateCurlyInString: the shell's own variables.
-          'echo "token: ${GITHUB_TOKEN:-none} setting: ${PLAIN_SETTING:-none}"',
+          'echo "token: ${GITHUB_TOKEN:-none} setting: ${PLAIN_SETTING:-none} path: ${PATH:+set}"',
         ].join("\n"),
         ["P1"],
       );
@@ -255,6 +268,8 @@ describe.skipIf(unavailable !== undefined)(
       const printed = analyses[0]?.output.printed.split("\n") ?? [];
       expect(printed).toEqual([
         "home: denied",
+        "homes: denied",
+        "runtime-folder: denied",
         "data: denied",
         "temp: denied",
         "volumes: denied",
@@ -265,11 +280,15 @@ describe.skipIf(unavailable !== undefined)(
         // bubblewrap puts an empty folder of the run's own over /tmp: what is written there never
         // reaches the real one (checked below). macOS refuses the write.
         `write-temp: ${process.platform === "linux" ? "allowed" : "denied"}`,
+        // That folder holds 1 MB: on Linux it is memory, which no other limit counts.
+        "fill-temp: denied",
         "write-own: allowed",
         "dns: denied",
         "internet: denied",
         "loopback: denied",
-        "token: none setting: kept",
+        "launch: 0",
+        // Of the login environment only PATH, LANG, LC_* and TZ come through.
+        "token: none setting: none path: set",
       ]);
       expect(existsSync(join(home, "written.txt"))).toBe(false);
       expect(existsSync(join(tmpdir(), `incarnamind-written-${process.pid}.txt`))).toBe(false);
@@ -277,6 +296,47 @@ describe.skipIf(unavailable !== undefined)(
       expect(report).toContain("Files in ../inputs:\n- sales.csv (sales): ");
       expect(await readFile(document.path, "utf8")).toBe(SALES);
     }, 60_000);
+
+    test.runIf(process.platform === "darwin")(
+      "on macOS its profile refuses LaunchServices, the Keychain's server and nothing it needs",
+      async () => {
+        const stop = new AbortController();
+        const running = executor().run({
+          command: "/bin/sleep",
+          args: ["7.2351"],
+          env: {},
+          environment: "minimal",
+          allow: { read: [WORKING_FOLDER], write: [WORKING_FOLDER], network: "none" },
+          timeoutMs: 20_000,
+          maxOutputBytes: 1024,
+          signal: stop.signal,
+        });
+        const { execFileSync } = await import("node:child_process");
+        const pidOf = () =>
+          execFileSync("ps", ["-A", "-ww", "-o", "pid=,command="], { encoding: "utf8" })
+            .split("\n")
+            .find((line) => line.trim().endsWith("/bin/sleep 7.2351"))
+            ?.trim()
+            .split(/\s+/)[0];
+        await expect.poll(pidOf).toMatch(/^\d+$/);
+        const pid = Number(pidOf());
+        const services = [
+          "com.apple.coreservices.launchservicesd",
+          "com.apple.lsd.mapdb",
+          "com.apple.SecurityServer",
+          "com.apple.securityd.xpc",
+          "com.apple.logd",
+          "com.apple.system.opendirectoryd.libinfo",
+        ];
+        const answers = await sandboxCheck(
+          services.map((value) => ({ pid, operation: "mach-lookup" as const, value })),
+        );
+        stop.abort();
+        await running;
+        expect(answers).toEqual([1, 1, 1, 1, 0, 0]);
+      },
+      30_000,
+    );
 
     test("a Document that changed since it was read doesn't run", async () => {
       const document = await sales(`${SALES}West,Q3,1\n`);
@@ -348,10 +408,14 @@ describe.skipIf(unavailable !== undefined)(
       await call("bash", "bomb() { bomb | bomb & }; bomb; sleep 200");
       expect(analyses[1]?.end).toEqual({ kind: "timed-out", limitMs: 4000 });
       const { execFileSync } = await import("node:child_process");
-      const left = execFileSync("ps", ["-A", "-o", "command="], { encoding: "utf8" })
-        .split("\n")
-        .filter((line) => line.includes(join(root, "temp")));
-      expect(left).toEqual([]);
+      // Killed processes leave the list as their parents collect them, a moment later.
+      await expect
+        .poll(() =>
+          execFileSync("ps", ["-A", "-ww", "-o", "command="], { encoding: "utf8" })
+            .split("\n")
+            .filter((line) => line.includes(join(root, "temp"))),
+        )
+        .toEqual([]);
     }, 60_000);
 
     test("the loopback server the probes knock on answers this test", async () => {

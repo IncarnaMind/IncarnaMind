@@ -227,7 +227,7 @@ function endLine(analysis: AnswerAnalysis, end: AnswerAnalysis["end"]): string {
   switch (end.kind) {
     case "done":
       if (analysis.language === "bash") {
-        return "It ran to its end. Its numbers are calculated by code and not checked: say so where the Answer gives one.";
+        return "It ran to its end. bash is for looking around: no number it printed may be given in the Answer. Give each number the Answer uses with Python's result() or figure() in run_code, and write its marker.";
       }
       return analysis.output.results.length > 0 ||
         analysis.output.charts.length > 0 ||

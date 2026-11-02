@@ -628,29 +628,46 @@ function everyRowReply(prompt: Prompt, question: string, searched: string): Repl
   };
 }
 
-/** Counts a log's errors with bash in the OS sandbox (`run_code`, ADR-0025), then says how many. */
+/**
+ * Looks at a log with bash in the OS sandbox (`run_code`, ADR-0025), then counts its errors in
+ * Python with result(): a number bash prints is never given in the Answer (ADR-0025 decision 3).
+ */
 function logReply(prompt: Prompt, question: string, searched: string): Reply | null {
   const chinese = /\p{Script=Han}/u.test(question);
-  const ran = toolResults(prompt, "run_code").at(-1);
-  if (ran !== undefined) {
-    const count = /Printed:\n(\d+)/.exec(ran)?.[1] ?? "?";
+  const runs = toolResults(prompt, "run_code");
+  const log = passagesIn(searched).find((passage) => /log/i.test(passage.document));
+  if (runs.length === 0) {
+    if (!log) return null;
     return {
-      text: chinese
-        ? `日志里有 ${count} 个错误，由代码计算，未经核对。`
-        : `The log has ${count} errors, counted by code and not checked.`,
+      tool: "run_code",
+      input: {
+        title: chinese ? "日志里的错误行" : "Error lines in the log",
+        language: "bash",
+        documents: [log.id],
+        code: "grep ' 500' ../inputs/*",
+      },
     };
   }
-  const log = passagesIn(searched).find((passage) => /log/i.test(passage.document));
-  if (!log) return null;
-  return {
-    tool: "run_code",
-    input: {
-      title: chinese ? "日志中的错误" : "Errors in the log",
-      language: "bash",
-      documents: [log.id],
-      code: "grep -c ' 500' ../inputs/*",
-    },
-  };
+  if (runs.length === 1 && log) {
+    return {
+      tool: "run_code",
+      input: {
+        title: chinese ? "日志中的错误数" : "Errors in the log",
+        language: "python",
+        documents: [log.id],
+        code: 'import glob\nlines = [line for name in glob.glob("../inputs/*") for line in open(name) if " 500" in line]\nresult("errors", len(lines), "Errors in the log")',
+      },
+    };
+  }
+  const counted = runs.at(-1) ?? "";
+  if (counted.startsWith("Python didn't run")) {
+    return {
+      text: chinese
+        ? "我看了日志里的错误行，但这次无法运行 Python 来数清有多少。"
+        : "I looked at the log's error lines, but Python couldn't run this time to count them.",
+    };
+  }
+  return { text: chinese ? "日志里有 [=1] 个错误。" : "The log has [=1] errors." };
 }
 
 function analysisReply(prompt: Prompt, question: string, searched: string): Reply | null {

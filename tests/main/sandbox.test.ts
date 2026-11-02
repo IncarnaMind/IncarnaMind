@@ -183,7 +183,7 @@ afterEach(() => {
 describe("the folders no program may read", () => {
   const user = { home: "/Users/Ada", dataDir: "/home/Ada/data", uid: 501 };
 
-  test("on macOS: the User's own, the shared temporary folders, and the roots volumes are mounted under", () => {
+  test("on macOS: every account's home, the shared temporary folders, and the roots volumes are mounted under", () => {
     expect(
       readDeniedFolders({ ...user, platform: "darwin", temporaryFolder: "/var/folders/xy/abc/T" }),
     ).toEqual([
@@ -192,6 +192,7 @@ describe("the folders no program may read", () => {
       "/var/folders/xy/abc/T",
       "/tmp",
       "/var/folders/xy/abc",
+      "/Users",
       "/private/tmp",
       "/var/tmp",
       "/private/var/tmp",
@@ -207,6 +208,7 @@ describe("the folders no program may read", () => {
       "/home/Ada/data",
       "/Users/Ada/tmp",
       "/tmp",
+      "/Users",
       "/private/tmp",
       "/var/tmp",
       "/private/var/tmp",
@@ -214,16 +216,18 @@ describe("the folders no program may read", () => {
     ]);
   });
 
-  test("on Linux: the same, and this User's drive and network mounts", () => {
+  test("on Linux: the same, and this User's runtime folder (session bus, systemd, keyring, agents, mounts)", () => {
     expect(readDeniedFolders({ ...user, platform: "linux", temporaryFolder: "/tmp" })).toEqual([
       "/Users/Ada",
       "/home/Ada/data",
       "/tmp",
+      "/home",
+      "/root",
       "/var/tmp",
       "/media",
       "/mnt",
       "/run/media",
-      "/run/user/501/gvfs",
+      "/run/user/501",
     ]);
   });
 
@@ -235,11 +239,13 @@ describe("the folders no program may read", () => {
       "/home/Ada/data",
       "/home/Ada/tmp",
       "/tmp",
+      "/home",
+      "/root",
       "/var/tmp",
       "/media",
       "/mnt",
       "/run/media",
-      "/run/user/501/gvfs",
+      "/run/user/501",
     ]);
   });
 

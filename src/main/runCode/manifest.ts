@@ -13,21 +13,24 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const text = (value: unknown): value is string => typeof value === "string" && value !== "";
 
-/** https, or a stand-in on this computer, which only tests serve. */
-const allowedUrl = (url: URL) =>
-  url.protocol === "https:" || (url.protocol === "http:" && url.hostname === "127.0.0.1");
+/** https; in a test build, also a stand-in release on this computer, which only tests serve. */
+const allowedUrl = (url: URL, standIn: boolean) =>
+  url.protocol === "https:" ||
+  (standIn && url.protocol === "http:" && url.hostname === "127.0.0.1");
 
 /** This computer's platform as the runtime's archives are named: "darwin-arm64", "linux-x64". */
 export const runtimePlatform = (platform: NodeJS.Platform, arch: string) => `${platform}-${arch}`;
 
 /**
  * The manifest in `file`, checked field by field; null when there is none, or it is for
- * another platform, or anything in it is wrong, which the log says.
+ * another platform, or anything in it is wrong, which the log says. `standIn`: a test build,
+ * which may download from a release served on this computer.
  */
 export function readPythonManifest(
   file: string,
   platform: string,
   warn: (reason: string) => void,
+  { standIn }: { standIn: boolean },
 ): PythonRuntimeManifest | null {
   let given: unknown;
   try {
@@ -48,7 +51,7 @@ export function readPythonManifest(
     /^[\w.-]+\.tar\.zst$/.test(archive) &&
     text(url) &&
     URL.canParse(url) &&
-    allowedUrl(new URL(url)) &&
+    allowedUrl(new URL(url), standIn) &&
     typeof size === "number" &&
     Number.isSafeInteger(size) &&
     size > 0 &&

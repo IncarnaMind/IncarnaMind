@@ -23,8 +23,7 @@
  * behind the same `Executor`, so the Tools that use it don't change.
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { lstat, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { promisify } from "node:util";
@@ -37,7 +36,6 @@ import type {
   ProcessLauncher,
   SandboxLevel,
 } from "./adapters";
-import { RUN_VARIABLE, type RunIdentity, stopLeftovers } from "./runLeftovers";
 
 /** The run's own working folder, in an `ExecRequest`'s `allow` sets. */
 export const WORKING_FOLDER = { kind: "working-folder" } as const satisfies ExecFolder;
@@ -55,6 +53,10 @@ export const folderPath = (folder: ExecFolder, workingFolder: string): string =>
  */
 export const looksLikeSecret = (name: string): boolean =>
   /KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL/i.test(name);
+
+/** What a request with `environment: "minimal"` gets of the login environment: the path and the locale. */
+export const MINIMAL_ENVIRONMENT = (name: string): boolean =>
+  name === "PATH" || name === "LANG" || name === "TZ" || name.startsWith("LC_");
 
 /** A program as an Executor starts it: what it runs, and the variables added to its environment. */
 export interface Program {
@@ -79,9 +81,20 @@ export interface Confinement {
    * nothing runs unconfined. A command that isn't found rejects with an
    * error whose `code` is "ENOENT".
    */
-  confine(request: ExecRequest, workingFolder: string): Promise<Program>;
+  confine(request: ExecRequest, workingFolder: string): Promise<ConfinedProgram>;
   /** Called once for each program `confine` gave, when it has ended or couldn't start. */
   release(): void;
+}
+
+/** A program as a confinement starts it, with how to stop what it leaves outside its group. */
+export interface ConfinedProgram extends Program {
+  /**
+   * Stops every process of this run still running (one that left the program's process group:
+   * a daemon, a worker pool). Called once the program has ended or was stopped, and once more
+   * when the run ends, with the program's process group (its pid; 0 if it never started); it
+   * never rejects.
+   */
+  sweep?(group: number): Promise<void>;
 }
 
 /**
@@ -381,39 +394,29 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
       const cwd = request.cwd ?? (await mkdtemp(join(options.tempDir, "incarnamind-script-")));
       const temporary = request.cwd === undefined ? cwd : undefined;
       try {
-        const program = confinement ? await confinement.confine(request, cwd) : request;
-        const run: RunIdentity = {
-          marker: randomUUID(),
-          folder: await realpath(cwd),
-          startedMs: Date.now(),
-        };
-        // One sweep at a time: the program's end and a stop each ask for one. Once one has found
-        // nothing left, nothing of the run is left to start another process.
+        const program: ConfinedProgram = confinement
+          ? await confinement.confine(request, cwd)
+          : request;
+        // One sweep at a time: the program's end, a stop and the run's end each ask for one.
         let sweeping = Promise.resolve();
-        let clean = false;
+        let group = 0;
         const leftovers = () => {
-          sweeping = sweeping.then(() =>
-            stopLeftovers(run, Date.now()).then(
-              (stopped) => {
-                clean = stopped.length === 0;
-              },
-              (error: unknown) => options.reportError(error),
-            ),
-          );
+          sweeping = sweeping.then(() => program.sweep?.(group));
           return sweeping;
         };
         try {
           const child = await options.processes.spawn(program.command, program.args, {
             cwd,
-            env: { ...program.env, [RUN_VARIABLE]: run.marker },
-            omitEnv: looksLikeSecret,
+            env: program.env,
+            omitEnv:
+              request.environment === "minimal"
+                ? (name) => !MINIMAL_ENVIRONMENT(name)
+                : looksLikeSecret,
             processGroup: true,
           });
-          // Started detached, it leads a session of its own (macOS and Linux).
-          if (process.platform !== "win32") run.session = child.pid;
+          group = child.pid ?? 0;
           const result = await collect(child, request, cwd, leftovers);
-          await sweeping;
-          if (!clean) await leftovers();
+          await leftovers();
           return result;
         } finally {
           confinement?.release();

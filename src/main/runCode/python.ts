@@ -154,6 +154,7 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
       allow: { read: [fontCache], write: [WORKING_FOLDER, fontCache], network: "none" },
       timeoutMs: FIRST_IMPORT_MS,
       maxOutputBytes: 16 * 1024,
+      environment: "minimal",
       signal,
     });
     if (ran.exitCode !== 0) {
