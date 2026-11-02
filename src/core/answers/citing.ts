@@ -19,7 +19,14 @@ import type { CitationSource } from "../documents";
 import { keywordTerms, keywordText } from "../documents/keywords";
 import type { PageText } from "../documents/passages";
 import type { WindowedPassage } from "../documents/search";
-import { checkCitation, cleanQuote, locateQuote, matchingOf, type PageRange } from "./citations";
+import {
+  checkCitation,
+  cleanQuote,
+  locateQuote,
+  matchingOf,
+  type PageRange,
+  quoteAsIn,
+} from "./citations";
 
 /** What citing needs from Documents: Answers' search, and what Citations point to. */
 export interface CitingDocuments {
@@ -227,10 +234,10 @@ export function createCiting(documents: CitingDocuments): Citing {
     citeQuote(passageId, given) {
       const source = documents.citationSource(passageId);
       if (!source) return null;
-      const quote = cleanQuote(given);
       const own: PageRange = { pageFrom: source.pageFrom, pageTo: source.pageTo };
       const hasUnits = own.pageFrom !== null && own.pageTo !== null;
       const matching = matchingFor(source);
+      const quote = quoteAsIn(unitsOf(source, own), cleanQuote(given), matching);
       const range =
         (hasUnits && quote !== "" && locateQuote(unitsOf(source, own), quote, matching)) || own;
       return citationOf(source, own, range, quote, matching);

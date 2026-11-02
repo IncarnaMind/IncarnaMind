@@ -637,7 +637,7 @@ describe.each([
   },
 );
 
-// protects=a sentence a Document states word for word stays Supported when the Document holds one of the check's tags (a TEI "<quote>") or code with "<" (#2423): the check reads the tag defused, and the quote it copies so still matches the Document; code is shown as written; in English and Chinese; fails_when=the defused quote reads as not found, or code is changed; no_claim=how a real model quotes.
+// protects=a sentence a Document states word for word stays Supported when the Document holds one of the check's tags (a TEI "<quote>"), the same tag written as "&lt;quote>", or code with "<" (#2423): the check reads the tag defused, and the quote it copies so still matches the Document; a Document's own "&lt;" and code are quoted as written; in English and Chinese; fails_when=either quote reads as not found, or code is changed; no_claim=how a real model quotes.
 describe.each([
   ["English", EN],
   ["Chinese", ZH],
@@ -648,6 +648,10 @@ describe.each([
       {
         sentence: "The edition marks each speech with a <quote> element.",
         shown: "The edition marks each speech with a &lt;quote> element.",
+      },
+      {
+        sentence: "The page escapes each speech as &lt;quote> in its HTML.",
+        shown: "The page escapes each speech as &lt;quote> in its HTML.",
       },
       {
         sentence: "The loop goes on while i<sentence.length holds.",

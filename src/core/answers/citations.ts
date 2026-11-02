@@ -143,12 +143,11 @@ export const QUOTE_PAIRS: readonly (readonly [string, string])[] = [
 
 /**
  * The quote as the model meant it: without location marks, without the
- * ellipses and quotation marks models put around a quote, and with a prompt's tag it was shown
- * defused (#2423) as the Passage has it. Its words are left alone.
+ * ellipses and quotation marks models put around a quote. Its words are left alone.
  */
 export function cleanQuote(raw: string): string {
   // The marks of a scan's unsure words (#535) are the Passage's, never the quote's.
-  let quote = fromData(raw).replace(/[⟦⟧]/gu, "").replace(LOCATION_MARK, " ").trim();
+  let quote = raw.replace(/[⟦⟧]/gu, "").replace(LOCATION_MARK, " ").trim();
   for (;;) {
     const before = quote;
     quote = quote
@@ -240,6 +239,16 @@ function citedUnits(
   }
   const located = locatedAmong(units, own, record, matching);
   return { range: located ?? own, requested: null, unresolved: false };
+}
+
+/**
+ * A model's quote as these Units hold it: as written, else with the prompt tags its Passage was
+ * shown with defused (#2423) taken back. A Document's own "&lt;" is never changed.
+ */
+export function quoteAsIn(units: readonly PageText[], written: string, matching: Matching): string {
+  if (quoteInUnits(units, written, matching)) return written;
+  const back = fromData(written);
+  return back !== written && quoteInUnits(units, back, matching) ? back : written;
 }
 
 /** Where the record's quote is within these pages of the Passage's Units, when they are more than one. */
@@ -1494,14 +1503,18 @@ export function createCitationSession(
     const named = typeof input.passage === "string" ? input.passage : "";
     const kept = ids?.get(named);
     if (kept) return takeKept(issuedForm(named), kept, marker);
-    const quote = cleanQuote(typeof input.quote === "string" ? input.quote : "");
+    const written = cleanQuote(typeof input.quote === "string" ? input.quote : "");
     // Structured output can't be told it named no Passage (see `CiteOptions`): its id read loosely,
     // else the Passage it was given that holds its quote.
     const known = <Found extends { passageId: string }>(each: Found | null): Found | null =>
       each && documents.citationSource(each.passageId) ? each : null;
     const found =
       known(resolve(named)) ??
-      (options.structured ? (known(resolve(loosely(named))) ?? passageWithQuote(quote)) : null);
+      (options.structured
+        ? (known(resolve(loosely(named))) ??
+          passageWithQuote(written) ??
+          passageWithQuote(fromData(written)))
+        : null);
     const source = found && documents.citationSource(found.passageId);
     if (!found || !source) {
       return {
@@ -1521,6 +1534,7 @@ export function createCitationSession(
       source.pageFrom,
       source.pageTo,
     );
+    const quote = quoteAsIn(passageUnits, written, matchingFor(source));
     const { range, requested, unresolved } = citedUnits(
       { ...input, quote },
       source,
