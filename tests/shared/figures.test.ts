@@ -1132,6 +1132,9 @@ describe("stated units", () => {
       "本报告所有金额单位：千元",
       "合并财务报表中所有金额单位：万元",
       "所有金额单位：万元，但附注另有说明者除外",
+      "All amounts of the Group are in thousands",
+      "All amounts in the Group's financial statements are in thousands",
+      "Unless otherwise stated, all amounts for the year ended 31 December 2024 are in thousands",
     ])
       expect([line, statesForWholeDocument(line)]).toEqual([line, true]);
     for (const line of [

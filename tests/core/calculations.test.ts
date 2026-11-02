@@ -3696,6 +3696,9 @@ describe("A nearer line, page, section, row head or column head decides the scal
   test.each([
     ["a same-page line (in £)", "Directors' fees (in £)", "(in £)"],
     ["a same-page bracket (£)", "Directors' fees (£)", "(£)"],
+    ["a bracket with more words", "Directors' fees (in £ and pence)", "(in £ and pence)"],
+    ["a bracket listing a code", "Directors' fees (in £, GBP)", "(in £, GBP)"],
+    ["a bracket pointing at a note", "Directors' fees (in £, see note 3)", "(in £, see note 3)"],
   ])("%s states a currency with no scale", async (_label, nearer, statement) => {
     const wider = "All amounts in £'000";
     const { answer, asked } = await figuresUnder(
@@ -3947,6 +3950,202 @@ describe("A nearer line, page, section, row head or column head decides the scal
       expect(asked).toContain("without guessing");
     },
   );
+
+  test("a column head whose scale ends the line isn't applied to another column", async () => {
+    const head = "项目 本期 上期（万元）";
+    const row = "收入 1200 1100";
+    const model = calculatingModel({
+      queries: ["母公司账目 收入"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, "母公司账目", row);
+          const location = passage.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: { citations: [{ marker: 1, passage: passage.id, location, quote: row }] },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "本期收入",
+                    formula: "x * 1",
+                    inputs: [
+                      {
+                        name: "x",
+                        label: "本期收入",
+                        citation: 1,
+                        number: "1200",
+                        unitQuote: head,
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "母公司账目.pdf",
+        contents: buildPdf([{ chineseLines: ["母公司账目", head, row] }]),
+      },
+    ]);
+    const { answer } = await askAndRead(core, "本期收入是多少？");
+    core.close();
+
+    expect(answer.figures).toEqual([]);
+    expect(told(model, "calculate")[0] ?? "").toContain(
+      "one column of a row whose head states the scale of another",
+    );
+  });
+
+  test("a tab-separated column head states one column's scale, not another's", async () => {
+    const head = "项目\t本期（万元）\t上期";
+    const row = "收入\t1200\t1100";
+    const model = calculatingModel({
+      queries: ["母公司账目 收入"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, "母公司账目", row);
+          const location = passage.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: { citations: [{ marker: 1, passage: passage.id, location, quote: row }] },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "本期",
+                    formula: "x * 1",
+                    inputs: [
+                      { name: "x", label: "本期", citation: 1, number: "1200", unitQuote: head },
+                    ],
+                  },
+                  {
+                    marker: 2,
+                    label: "上期",
+                    formula: "y * 1",
+                    inputs: [
+                      { name: "y", label: "上期", citation: 1, number: "1100", unitQuote: head },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1] [=2][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "母公司账目.xlsx",
+        contents: xlsxOf([
+          {
+            name: "母公司账目",
+            rows: [
+              ["项目", "本期（万元）", "上期"],
+              ["收入", 1200, 1100],
+            ],
+          },
+        ]),
+      },
+    ]);
+    const { answer } = await askAndRead(core, "本期和上期的收入是多少？");
+    core.close();
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 12_000_000],
+    ]);
+  });
+
+  test("a line below the figure isn't offered as its unitQuote", async () => {
+    const rows: [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
+    const model = calculatingModel({
+      queries: ["revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, "Below hint", rows[0]);
+          const location = passage.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: rows[0] },
+                  { marker: 2, passage: passage.id, location, quote: rows[1] },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Difference",
+                    formula: "rev - cost",
+                    inputs: [
+                      { name: "rev", label: "Revenue", citation: 1, number: "1,234.5" },
+                      { name: "cost", label: "Costs", citation: 2, number: "334.5" },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "Below hint.docx",
+        contents: docxOf([
+          { text: "Financial statements", heading: 1 },
+          { text: rows[0] },
+          { text: rows[1] },
+          { text: "All amounts in millions" },
+        ]),
+      },
+    ]);
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+
+    const asked = told(model, "calculate")[0] ?? "";
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("is below it");
+    expect(asked).not.toContain("give that line as unitQuote");
+  });
+
+  test("a nearer line with the same scale in another currency refuses", async () => {
+    const wider = "All amounts in £ thousands";
+    const nearer = "(in $ thousands)";
+    const { answer, asked } = await figuresUnder(
+      "Currency amounts",
+      {
+        name: "Currency amounts.pdf",
+        contents: buildPdf([{ lines: ["Currency amounts", wider, nearer, ...rows] }]),
+      },
+      rows,
+      [wider, wider],
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
+    expect(asked).toContain("$ thousands");
+  });
 
   test("a column head's scale for 本期 isn't applied to 上期", async () => {
     const head = "项目 本期（万元） 上期";

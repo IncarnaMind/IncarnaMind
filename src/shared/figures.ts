@@ -1157,8 +1157,10 @@ const STATEMENTS: readonly RegExp[] = [
   /[(（][ \u00a0]?in[ \u00a0](?<scale>000)[ \u00a0]?[)）]/dg,
   /[(（][ \u00a0]?(?<scale>'?000(?:'?s)?)[ \u00a0]omitted[ \u00a0]?[)）]/dg,
   /(?<![\dA-Za-z.,'])(?<scale>'?000(?:'?s)?)[ \u00a0]omitted(?![A-Za-z])/dg,
-  /[(（][ \u00a0]?(?:in[ \u00a0]+)?(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?[)）]/dg,
-  /[(（][ \u00a0]?(?:in[ \u00a0]+)?(?<cur>U\.S\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling)[ \u00a0]?[)）]/dgi,
+  /[(（][ \u00a0]?(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?[)）]/dg,
+  /[(（][ \u00a0]?in[ \u00a0]+(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)(?![ \u00a0]*(?:['’]?0{3}s?|thousands?|millions?|billions?|MM|mm|mn|bn|m|M|k|K|b|B))[^()（）\n]{0,40}[)）]/dg,
+  /[(（][ \u00a0]?(?<cur>U\.S\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling)[ \u00a0]?[)）]/dgi,
+  /[(（][ \u00a0]?in[ \u00a0]+(?<cur>U\.S\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling)(?![ \u00a0]*(?:['’]?0{3}s?|thousands?|millions?|billions?|MM|mm|mn|bn|m|M|k|K|b|B))[^()（）\n]{0,40}[)）]/dgi,
   // A heading's "Unit: million tonnes", "(thousand tonnes)" or a row's "thousand tonnes" cell; in a
   // sentence, "78 million tonnes" is a figure and "a million people" states nothing.
   /(?<=(?:^|[\n\t(（|]|\bunits?[ \u00a0]?[:：])[ \u00a0]*)(?<scale>thousands?|millions?|billions?)(?:[ \u00a0]of)?[ \u00a0](?<unit>[a-z]+(?:[ \u00a0][a-z]+)?)(?=[ \u00a0]*(?:$|[\n\t)）|]))/dgi,
@@ -1301,7 +1303,7 @@ const WHOLE_DOCUMENT_ZH =
 // (consolidated) financial statements, or a unit. Anything else ("in the remuneration report",
 // "for 2024") is a part's scale.
 const WHOLE_SCOPE =
-  /^(?:(?:this|the)\s+(?:document|report)\b|(?:this|these|the)\s+(?:consolidated\s+)?financial\s+statements\b|(?:consolidated\s+)?financial\s+statements\b|(?:document|report)\b|(?:this|these)\b|'?0{3}s?|0{3}s?|thousands?|millions?|billions?|trillions?|lakhs?|crores?|(?:US\s+)?dollars?\b|pounds?(?:\s+sterling)?\b|euros?\b|yuan\b|renminbi\b|sterling\b|[$£€¥₹]|(?:USD|GBP|EUR|HKD|CNY|RMB|JPY|AUD|CAD|SGD|TWD|CHF|INR)\b|%)/i;
+  /^(?:(?:this|the)\s+(?:document|report)\b|(?:this|these|the)\s+(?:consolidated\s+)?financial\s+statements\b|(?:consolidated\s+)?financial\s+statements\b|(?:the\s+)?group'?s?\b|(?:the\s+)?(?:financial\s+)?year\b|(?:the\s+)?period\b|(?:document|report)\b|(?:this|these)\b|'?0{3}s?|0{3}s?|thousands?|millions?|billions?|trillions?|lakhs?|crores?|(?:US\s+)?dollars?\b|pounds?(?:\s+sterling)?\b|euros?\b|yuan\b|renminbi\b|sterling\b|[$£€¥₹]|(?:USD|GBP|EUR|HKD|CNY|RMB|JPY|AUD|CAD|SGD|TWD|CHF|INR)\b|%)/i;
 const SCOPE_PHRASE = /\b(?:in|for|of)\s+(?:the\s+)?([A-Za-z0-9][\w'’-]*)/gi;
 
 function scopedPart(line: string): boolean {

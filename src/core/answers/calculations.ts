@@ -544,7 +544,7 @@ interface Stated {
    * another part of the Document, which this Passage doesn't hold, or written in a form that reads
    * more than one way ("in MM").
    */
-  unquotable?: "header" | "elsewhere" | "unsettled" | "noted" | "row";
+  unquotable?: "header" | "elsewhere" | "unsettled" | "noted" | "row" | "after";
   /** For one stated elsewhere: where. */
   where?: string;
   /** Stated in another Passage that may state it for this number too: the model may quote it (#2365). */
@@ -588,6 +588,8 @@ function candidateProblem(chars: string, where: string, candidate: Stated): stri
     return `${chars} has no unit, and ${where} writes "${candidate.statement}", which can be read as more than one scale or unit; it can't be calculated without guessing its scale.`;
   if (candidate.unquotable === "row")
     return `${chars} is on a row whose head writes "${candidate.statement}", which may state a scale; it can't be calculated without guessing its scale.`;
+  if (candidate.unquotable === "after")
+    return `${chars} has no unit, and "${candidate.statement}" is below it; a scale line states the numbers under it, so it can't be ${chars}'s scale; it can't be calculated without guessing its scale.`;
   if (candidate.quotable)
     return `${chars} has no unit, and ${candidate.where ? `${candidate.where} states a scale ("${candidate.statement}") in another Passage of the same Document` : `another Passage of the same Document states a scale ("${candidate.statement}")`}; give that line as unitQuote.`;
   return `${chars} has no unit, and ${where} says "${candidate.statement}"; give that line as unitQuote.`;
@@ -1636,15 +1638,34 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     /(?:项目|科目|金额|單位|单位|item|items|amount|amounts|currency|unit|units|description|particulars|note)\s*$/i;
 
   /** Whether a head line puts a scale inside a bracket between two words (a named column), with no tabs to place it. */
-  function columnScopedHead(line: string, context: FigureContext): boolean {
-    if (line.includes("\t")) return false;
-    for (const each of readStatedUnits(line, context)) {
-      if (each.scale === 1 || !/^\s*[(（]/.test(each.chars)) continue;
+  const cellOfLine = (text: string, at: number) =>
+    text.slice(text.lastIndexOf("\n", at - 1) + 1, at).split("\t").length - 1;
+
+  function columnScopedHead(
+    unit: Quoted,
+    quoted: Quoted,
+    figure: Figure,
+    context: FigureContext,
+  ): boolean {
+    const line = unit.citation.quote;
+    const statements = readStatedUnits(line, context).filter(
+      (each) => each.scale !== 1 && /^\s*[(（]/.test(each.chars),
+    );
+    if (statements.length === 0) return false;
+    const page = onPage(quoted);
+    const figureCell = cellOfLine(page.text, page.at + figure.start);
+    return statements.some((each) => {
       const before = /([\p{L}\p{N}]+)\s*$/u.exec(line.slice(0, each.start))?.[1] ?? null;
-      const after = /^\s*(\p{L}[\p{L}\p{N}]*)/u.exec(line.slice(each.end))?.[1] ?? null;
-      if (before !== null && after !== null && !GENERIC_HEAD.test(before)) return true;
-    }
-    return false;
+      if (before === null || GENERIC_HEAD.test(before)) return false;
+      if (line.includes("\t")) return figureCell !== cellOfLine(line, each.start);
+      const words = [
+        ...line.slice(0, each.start).matchAll(/[\p{L}][\p{L}\p{N}]*/gu),
+        ...line.slice(each.end).matchAll(/[\p{L}][\p{L}\p{N}]*/gu),
+      ]
+        .map((match) => match[0] ?? "")
+        .filter((word) => word !== "" && word !== before && !GENERIC_HEAD.test(word));
+      return words.length > 0;
+    });
   }
 
   /** How many amounts the figure's line writes. */
@@ -1862,7 +1883,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       if (
         !onFigure &&
         !bracketLine &&
-        columnScopedHead(unit.citation.quote, context) &&
+        !conflicting(statedLine) &&
+        columnScopedHead(unit, quoted, figure, context) &&
         amountsOnFigureLine(quoted, figure, quoteContext) > 1
       )
         return `${figure.chars} is in one column of a row whose head states the scale of another ("${unit.citation.quote}"); the text doesn't say which column it is, so its scale can't be settled.`;
@@ -1946,7 +1968,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       const ownRow = rowOf(quoted, figure);
       const rowLabel = ownRow?.label ?? "";
       const numbersUnit = unitOf(quoted, figure);
-      for (const unit of quoted.units) {
+      const numberIndex = numbersUnit ? quoted.units.indexOf(numbersUnit) : -1;
+      const { starts } = joinUnits(quoted.units);
+      const figureAt =
+        numberIndex >= 0 ? onPage(quoted).at + figure.start - (starts[numberIndex] ?? 0) : -1;
+      for (const [unitIndex, unit] of quoted.units.entries()) {
         for (const statement of readStatedUnits(unit.text, context)) {
           if (exceptedBy(statement, rowLabel)) continue;
           if (notedOut(statement, rowLabel)) {
@@ -1962,15 +1988,20 @@ export function createCalculationSession(options: CalculationSessionOptions) {
             numbersUnit.page !== null &&
             unit.page < numbersUnit.page &&
             !statesForWholeDocument(lineOf(unit.text, statement.start, statement.end));
+          const afterFigure =
+            figureAt >= 0 &&
+            (unitIndex > numberIndex || (unitIndex === numberIndex && statement.start > figureAt));
           const line = lineOf(unit.text, statement.start, statement.end);
           for (const each of statedReading(quote, figure.start, quoteContext, line)) {
             if (!changes(each)) continue;
-            const target = elsewherePage ? refusedHere : found;
+            const refused = elsewherePage || afterFigure;
+            const target = refused ? refusedHere : found;
             if (!target.some((other) => same(other.reading, each)))
               target.push({
                 statement: statement.chars,
                 reading: each,
                 ...(elsewherePage && { unquotable: "elsewhere" as const }),
+                ...(afterFigure && !elsewherePage && { unquotable: "after" as const }),
               });
           }
         }
@@ -1999,7 +2030,6 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       // A row head's own scale, a bare "(M)"/"(m)" or a bracket scale ("(K)"), is not a plain
       // number: it refuses when the result depends on the scale (#2365).
       const rowScale = ownRow?.ownBracket ?? null;
-      // A row head's own scale is not a plain number: it refuses when the result depends on it.
       const rowCandidate: Stated | null = ownRow?.ownUnsettled
         ? { statement: ownRow.ownUnsettled, reading: thousandfold(base), unquotable: "row" }
         : rowScale
