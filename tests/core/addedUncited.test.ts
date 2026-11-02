@@ -7,7 +7,7 @@ import { sentenceNumbers } from "../../src/core/tools/minds/sentenceNumbers";
  * words but states a number that sentence doesn't is added, whatever script the number is in.
  */
 describe("A sentence added with a figure the old one doesn't state", () => {
-  // protects=a changed figure makes a sentence new, in digits, separators, percents, days and Chinese numerals; fails_when=950 → 1,200, 5 → 15 days, 12% → 15% or 五天 → 十五天 passes as a restatement; no_claim=a number written out in words beyond ninety-nine.
+  // protects=a changed figure makes a sentence new, in digits, separators, percents, days and Chinese numerals; fails_when=950 → 1,200, 5 → 15 days, 12% → 15% or 五天 → 十五天 passes as a restatement; no_claim=numbers swapped or a range cut to one end ("from 950 to 1,200" → "from 1,200 to 950"), ordinals and fractions in words, and Roman numerals: only a number the old sentence doesn't state is caught.
   test.each([
     ["The rent is 950 per month for the flat.", "The rent is 1,200 per month for the flat."],
     ["Up to 5 unused holiday days carry over.", "Up to 15 unused holiday days carry over."],
@@ -16,6 +16,11 @@ describe("A sentence added with a figure the old one doesn't state", () => {
     ["未休年假最多可结转五天至下一年。", "未休年假最多可结转十五天至下一年。"],
     ["年薪为人民币415,000元，按月发放。", "年薪为人民币450,000元，按月发放。"],
     ["年薪为三万元，按月发放。", "年薪为4万元，按月发放。"],
+    ["预算为3千万元，由财务部管理。", "预算为3千元，由财务部管理。"],
+    ["The fund holds $1.2 million in cash.", "The fund holds $1.2 billion in cash."],
+    ["The fund holds $950 in cash.", "The fund holds €950 in cash."],
+    ["The loss was -5 million in the year.", "The loss was 5 million in the year."],
+    ["Rent is due on 3 March 2025 at the latest.", "Rent is due on 3 May 2025 at the latest."],
   ])("“%s” → “%s”", (old, added) => {
     expect(addedUncited(old, added)).toEqual([added]);
   });
@@ -28,6 +33,12 @@ describe("A sentence added with a figure the old one doesn't state", () => {
     ["未休年假最多可结转5天至下一年。", "未休年假最多可结转五天至下一年。"],
     ["年薪为三万元，按月发放。", "年薪为3万元，按月发放。"],
     ["The tenant pays for water and power.", "The tenant pays for the water and the power."],
+    ["The fund holds $950 in cash.", "The fund holds 950 in cash."],
+    [
+      "试用期内任何一方提前两周通知即可解除合同。",
+      "试用期内任何一方须提前两周通知，方可进一步解除合同。",
+    ],
+    ["No one may sublet the flat.", "No one may sublet the flat at all."],
   ])("“%s” → “%s” restates it", (old, added) => {
     expect(addedUncited(old, added)).toEqual([]);
   });
@@ -53,5 +64,14 @@ describe("A sentence added with a figure the old one doesn't state", () => {
       "25",
     ]);
     expect([...sentenceNumbers("自2025年3月3日起")]).toEqual(["2025", "3"]);
+    // Digits are read first, then Chinese numerals.
+    expect([...sentenceNumbers("两万五 · 一亿三千万 · 一百零五 · 3千万")]).toEqual([
+      "30000000",
+      "25000",
+      "130000000",
+      "105",
+    ]);
+    expect([...sentenceNumbers("进一步，一般而言，任何一方; no one, one of them")]).toEqual([]);
+    expect([...sentenceNumbers("一天 and one month")]).toEqual(["1"]);
   });
 });
