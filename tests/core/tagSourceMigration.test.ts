@@ -1,5 +1,5 @@
 /**
- * Migration 123 (#205): a Tag records whether the User made it or changed its
+ * Migration 125 (#205): a Tag records whether the User made it or changed its
  * name, colour or description. Tags made before it have no record of where they
  * came from: one whose updated_at moved was edited or restored by the User; a
  * preset is not theirs, nor is one automatic tagging linked the moment it made
@@ -15,13 +15,13 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 
 const AT = "2026-10-01T09:00:00.000Z";
 
-describe("Migration 123: a Tag says whether the User made or changed it", () => {
+describe("Migration 125: a Tag says whether the User made or changed it", () => {
   test("an existing preset is not the User's, and an existing other Tag is", async () => {
     const dataDir = await createTempDataFolder();
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     migrate(
       db,
-      migrations.filter((each) => each.version <= 122),
+      migrations.filter((each) => each.version <= 124),
     );
     const book = randomUUID();
     const drafts = randomUUID();

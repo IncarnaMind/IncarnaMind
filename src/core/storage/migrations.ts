@@ -2219,6 +2219,26 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 123,
+    description: "A Document converted from another file says which one it came from (#762)",
+    sql: `
+      -- A copy IncarnaMind converted with the User's own LibreOffice (#762) says which
+      -- file it came from, by name: the original's, with its extension ("Report.doc").
+      -- Null for every other Document.
+      ALTER TABLE documents ADD COLUMN converted_from TEXT;
+    `,
+  },
+  {
+    version: 124,
+    description: "Folders hold Folders, at any depth (#246)",
+    // parent_id is NULL at the top level. No foreign key: a later sync may deliver a Folder
+    // before its parent.
+    sql: `
+      ALTER TABLE library_groups ADD COLUMN parent_id TEXT;
+      CREATE INDEX library_groups_by_parent ON library_groups (parent_id) WHERE deleted_at IS NULL;
+    `,
+  },
+  {
+    version: 125,
     description:
       "A Tag records whether the User made it or changed its name, colour or description, so the sidebar lists a Tag with no Documents only then (#205)",
     sql: `

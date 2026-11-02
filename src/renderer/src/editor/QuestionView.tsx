@@ -18,6 +18,7 @@ import { SkillIcon } from "../components/icons";
 import { SparkLineIcon } from "../components/lineIcons";
 import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessLine } from "../components/providers/ChatReadinessNotice";
+import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
 import { useModelNames } from "../modelNames";
 import { skillTitle } from "../skills";
@@ -64,13 +65,12 @@ export function QuestionView({ node, editor, updateAttributes }: ReactNodeViewPr
   const folderId = useAppStore(
     (state) => state.minds.find((mind) => mind.id === mindId)?.folderId ?? null,
   );
-  const walled = useAppStore(
-    (state) =>
-      folderId !== null &&
-      state.library?.groups.some((group) => group.id === folderId && group.keepInside === true) ===
-        true,
-  );
-  const scope = walled && folderId !== null ? folderScope(folderId) : searchScopeOf(node.attrs);
+  // A Note inside a wall, not only in the wall's own Folder, searches that whole wall.
+  const walled = useAppStore((state) => {
+    const groups = state.library?.groups ?? [];
+    return folderId !== null ? folderWallOf(groups, folderId) : null;
+  });
+  const scope = walled !== null ? folderScope(walled) : searchScopeOf(node.attrs);
   const removeFromScope = (kind: ScopeKind, id: string) => {
     const left = scopeIds(scope, kind).filter((each) => each !== id);
     updateAttributes({ [SCOPE_ATTRIBUTES[kind]]: left.length > 0 ? left : null });

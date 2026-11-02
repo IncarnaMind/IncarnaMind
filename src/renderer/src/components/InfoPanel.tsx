@@ -329,6 +329,11 @@ function DocumentInfo({ document }: { document: Document }) {
             {linkedName ? t("info.from.linked", { name: linkedName }) : t("info.from.own")}
           </Row>
         )}
+        {document.convertedFrom && (
+          <Row label={t("info.convertedFrom")} testId="info-converted-from">
+            {document.convertedFrom}
+          </Row>
+        )}
         <Row label={t("info.folder")} testId="info-folder">
           {folder?.name ?? t("library.unsorted")}
         </Row>

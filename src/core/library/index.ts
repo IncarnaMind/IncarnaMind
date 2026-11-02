@@ -104,7 +104,40 @@ interface DocumentRow {
   status: string;
 }
 const GROUP_COLUMNS =
-  "id, name, description, counts_own_files, keep_inside, created_at AS createdAt, updated_at AS updatedAt";
+  "id, name, description, parent_id AS parentId, counts_own_files, keep_inside, created_at AS createdAt, updated_at AS updatedAt";
+
+/** A live Folder and every live Folder inside it, at any depth; none for a deleted one. */
+const SUBTREE = `
+  WITH RECURSIVE subtree (id) AS (
+    SELECT id FROM library_groups WHERE id = ? AND deleted_at IS NULL
+    UNION
+    SELECT g.id FROM library_groups g JOIN subtree ON g.parent_id = subtree.id
+    WHERE g.deleted_at IS NULL
+  )
+  SELECT id FROM subtree`;
+
+/** A Folder and the Folders deleted with it: those inside it whose deleted_at is its own. */
+const DELETED_SUBTREE = `
+  WITH RECURSIVE subtree (id) AS (
+    SELECT id FROM library_groups WHERE id = ? AND deleted_at = ?
+    UNION
+    SELECT g.id FROM library_groups g JOIN subtree ON g.parent_id = subtree.id
+    WHERE g.deleted_at = ?
+  )
+  SELECT id FROM subtree`;
+
+/**
+ * A Folder and the Folders inside it, stopping at a Folder that keeps its work inside it: that
+ * Folder's work is behind its own wall, never the wall around it (#1934, #246).
+ */
+const TREE = `
+  WITH RECURSIVE tree (id, wall) AS (
+    SELECT id, 0 FROM library_groups WHERE id = ? AND deleted_at IS NULL
+    UNION
+    SELECT g.id, g.keep_inside FROM library_groups g JOIN tree ON g.parent_id = tree.id
+    WHERE g.deleted_at IS NULL AND tree.wall = 0
+  )
+  SELECT id FROM tree WHERE wall = 0`;
 
 /** A stored Folder: its switches are 0 or 1. */
 type GroupRow = Omit<LibraryGroup, "countsOwnFiles" | "keepInside"> & {
@@ -482,6 +515,96 @@ export function createLibrary(options: {
     if (!value) throw new NotFoundError({ key: "error.folder.notFound" });
     return value;
   };
+  /** A live Folder and every live Folder inside it, at any depth. */
+  const subtree = (folderId: string): string[] =>
+    db.all<{ id: string }>(SUBTREE, [folderId]).map((row) => row.id);
+  /** A live Folder and the live Folders inside it up to the next wall, that Folder's own excluded. */
+  const tree = (folderId: string): string[] =>
+    db.all<{ id: string }>(TREE, [folderId]).map((row) => row.id);
+  /** A deleted Folder and the Folders deleted with it, at any depth. */
+  const deletedWith = (folderId: string, at: string): string[] =>
+    db.all<{ id: string }>(DELETED_SUBTREE, [folderId, at, at]).map((row) => row.id);
+  /**
+   * Every live Folder's nearest walled Folder, or null, in one pass: kept until the Library
+   * changes, so a search or a move over many Folders reads them once, not once per Folder.
+   */
+  let wallsCache: { revision: number; walls: Map<string, string | null> } | null = null;
+  const wallsOf = (): ReadonlyMap<string, string | null> => {
+    if (wallsCache?.revision === revision) return wallsCache.walls;
+    const folders = groups();
+    const byId = new Map(folders.map((folder) => [folder.id, folder]));
+    const walls = new Map<string, string | null>();
+    const nearest = (id: string): string | null => {
+      const known = walls.get(id);
+      if (known !== undefined) return known;
+      const chain: string[] = [];
+      const seen = new Set<string>();
+      let at: string | null = id;
+      let wall: string | null = null;
+      while (at !== null && !seen.has(at)) {
+        const cached = walls.get(at);
+        if (cached !== undefined) {
+          wall = cached;
+          break;
+        }
+        seen.add(at);
+        const folder = byId.get(at);
+        if (!folder) break;
+        if (folder.keepInside) {
+          wall = folder.id;
+          break;
+        }
+        chain.push(at);
+        at = folder.parentId;
+      }
+      for (const each of chain) walls.set(each, wall);
+      walls.set(id, wall);
+      return wall;
+    };
+    for (const folder of folders) nearest(folder.id);
+    wallsCache = { revision, walls };
+    return walls;
+  };
+  /**
+   * The id of the Folder keeping its work inside it that a Folder is in, or is; null outside
+   * every wall. `deleted`: a Folder in Recently deleted reads the walls around it as they were,
+   * deleted Folders included.
+   */
+  const wallOf = (folderId: string, deleted = false): string | null => {
+    if (!deleted) return wallsOf().get(folderId) ?? null;
+    const byId = new Map(
+      db
+        .all<GroupRow>(`SELECT ${GROUP_COLUMNS} FROM library_groups`)
+        .map((row) => [row.id, toGroup(row)]),
+    );
+    const seen = new Set<string>();
+    let at: string | null = folderId;
+    while (at !== null && !seen.has(at)) {
+      seen.add(at);
+      const folder = byId.get(at);
+      if (!folder) return null;
+      if (folder.keepInside) return folder.id;
+      at = folder.parentId;
+    }
+    return null;
+  };
+  /** The Documents filed in this Folder (a suggestion too, unless the Folder keeps its work inside it). */
+  const filedDocumentIdsOf = (folderId: string): string[] => {
+    const walled = wallOf(folderId) !== null;
+    return db
+      .all<{ document_id: string }>(
+        `SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL${walled ? " AND a.source = 'user'" : ""}`,
+        [folderId],
+      )
+      .map((row) => row.document_id);
+  };
+  const everyFiledDocumentIdsOf = (folderId: string): string[] =>
+    db
+      .all<{ document_id: string }>(
+        "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL",
+        [folderId],
+      )
+      .map((row) => row.document_id);
   const document = (id: unknown) => {
     if (typeof id !== "string") throw new InvalidInputError("A Document id must be text.");
     const value = db.get<DocumentRow>(
@@ -948,12 +1071,13 @@ export function createLibrary(options: {
     const at = now();
     const id = randomUUID();
     db.run(
-      `INSERT INTO library_groups (id, name, description, counts_own_files, keep_inside, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO library_groups (id, name, description, parent_id, counts_own_files, keep_inside, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         value.name,
         value.description,
+        value.parentId ?? null,
         value.countsOwnFiles ? 1 : 0,
         value.keepInside ? 1 : 0,
         at,
@@ -977,12 +1101,20 @@ export function createLibrary(options: {
       throw new InvalidInputError({ key: "error.folder.nameTaken" });
     if (!exceptId && groups().length >= 100)
       throw new InvalidInputError({ key: "error.folder.limit" });
-    const { countsOwnFiles, keepInside } = input;
+    const { countsOwnFiles, keepInside, parentId } = input;
     if (countsOwnFiles !== undefined && typeof countsOwnFiles !== "boolean")
       throw new InvalidInputError("countsOwnFiles must be true or false.");
     if (keepInside !== undefined && typeof keepInside !== "boolean")
       throw new InvalidInputError({ key: "error.folder.keepInside" });
-    return { name, description, countsOwnFiles, keepInside };
+    if (parentId !== undefined && parentId !== null && typeof parentId !== "string")
+      throw new InvalidInputError({ key: "error.folder.parentId" });
+    const inside = parentId === undefined ? undefined : parentId;
+    if (inside !== undefined && inside !== null) {
+      group(inside);
+      if (exceptId !== undefined && (inside === exceptId || subtree(exceptId).includes(inside)))
+        throw new InvalidInputError({ key: "error.folder.insideItself" });
+    }
+    return { name, description, countsOwnFiles, keepInside, parentId: inside };
   }
 
   const documentIdsOf = (input: unknown): string[] => {
@@ -1091,21 +1223,17 @@ export function createLibrary(options: {
       announce(ids);
       resume();
     },
-    documentIds(folderId: string): string[] {
-      return db
-        .all<{ document_id: string }>(
-          "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL AND (g.keep_inside = 0 OR a.source = 'user')",
-          [folderId],
-        )
-        .map((row) => row.document_id);
+    documentIds: filedDocumentIdsOf,
+    allDocumentIds: everyFiledDocumentIdsOf,
+    subtree,
+    deletedWith,
+    wallOf,
+    wallsOf,
+    treeDocumentIds(folderId: string): string[] {
+      return [...new Set(tree(folderId).flatMap((id) => filedDocumentIdsOf(id)))];
     },
-    allDocumentIds(folderId: string): string[] {
-      return db
-        .all<{ document_id: string }>(
-          "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL",
-          [folderId],
-        )
-        .map((row) => row.document_id);
+    allTreeDocumentIds(folderId: string): string[] {
+      return [...new Set(tree(folderId).flatMap((id) => everyFiledDocumentIdsOf(id)))];
     },
     /**
      * The live Documents in no live Folder now, the Library's "Not in a Folder": one with a
@@ -1203,14 +1331,71 @@ export function createLibrary(options: {
       const value = parseGroup(input, existing.id);
       const counts = value.countsOwnFiles ?? existing.countsOwnFiles;
       const keepInside = value.keepInside ?? existing.keepInside;
+      const parentId = value.parentId === undefined ? existing.parentId : value.parentId;
       db.run(
-        `UPDATE library_groups SET name = ?, description = ?, counts_own_files = ?, keep_inside = ?, updated_at = ?
+        `UPDATE library_groups SET name = ?, description = ?, parent_id = ?, counts_own_files = ?, keep_inside = ?, updated_at = ?
          WHERE id = ?`,
-        [value.name, value.description, counts ? 1 : 0, keepInside ? 1 : 0, now(), existing.id],
+        [
+          value.name,
+          value.description,
+          parentId,
+          counts ? 1 : 0,
+          keepInside ? 1 : 0,
+          now(),
+          existing.id,
+        ],
       );
       revision++;
       changed();
       return group(existing.id);
+    },
+    /**
+     * Moves Folders in one step: each to its new parent (null: the top level). A Folder moved
+     * with one of its own Folders stays where it is, so the tree keeps its shape; one already
+     * there, or gone since, is left. Nothing changes when any move is refused.
+     */
+    moveGroups(moves: readonly { id: string; parentId: string | null }[]): string[] {
+      const wanted = [...new Map(moves.map((move) => [move.id, move])).values()];
+      if (wanted.length === 0) return [];
+      const live = new Map(groups().map((folder) => [folder.id, folder]));
+      const changing = wanted.filter((move) => {
+        const folder = live.get(move.id);
+        return folder !== undefined && folder.parentId !== move.parentId;
+      });
+      // A Folder moving with one of its own Folders goes with it; one listed beside a Folder that
+      // stays where it is moves as it asks.
+      const moving = changing.filter(
+        (move) =>
+          !changing.some((other) => other.id !== move.id && subtree(other.id).includes(move.id)),
+      );
+      for (const move of moving) if (move.parentId !== null) group(move.parentId);
+      // The Folders as they will be, to catch a loop formed by the moves together: X into Y while
+      // Y comes into X leaves both in no tree at all.
+      const parentAfter = new Map([...live].map(([id, folder]) => [id, folder.parentId]));
+      for (const move of moving) parentAfter.set(move.id, move.parentId);
+      for (const id of parentAfter.keys()) {
+        const seen = new Set<string>();
+        let at: string | null | undefined = id;
+        while (at !== null && at !== undefined && !seen.has(at)) {
+          seen.add(at);
+          at = parentAfter.get(at) ?? null;
+        }
+        if (at !== null && at !== undefined)
+          throw new InvalidInputError({ key: "error.folder.insideItself" });
+      }
+      const changes = moving;
+      if (changes.length === 0) return [];
+      db.transaction(() => {
+        const at = now();
+        for (const change of changes)
+          db.run(
+            "UPDATE library_groups SET parent_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+            [change.parentId, at, change.id],
+          );
+      });
+      revision++;
+      changed();
+      return changes.map((change) => change.id);
     },
     /** The citation style new Minds in a live Folder start in (#289); null if none was chosen. */
     citationStyle(id: string): CitationStyleId | null {
@@ -1229,43 +1414,57 @@ export function createLibrary(options: {
       changed();
     },
     /**
-     * Deletes a Folder: its Documents go to Not in a Folder, as the Minds and conversations
-     * the caller took out of it did, and all are recorded so that restoring it puts them back.
-     * `at`: when Undo of a Restore deletes it again.
+     * Deletes a Folder and the Folders inside it: their Documents go to Not in a Folder, as the
+     * Minds and conversations the caller took out of them did, and all are recorded folder by
+     * folder so that restoring it puts them back. `at`: when Undo of a Restore deletes it again.
      */
     delete(
       id: unknown,
-      taken: { minds?: readonly string[]; conversations?: readonly string[] } = {},
+      taken: {
+        minds?: Readonly<Record<string, readonly string[]>>;
+        conversations?: Readonly<Record<string, readonly string[]>>;
+      } = {},
       at: string = now(),
     ): Pick<FolderDeletion, "assignments"> {
       const existing = group(id);
-      const record = (kind: "document" | "mind" | "conversation", itemId: string, suggested = 0) =>
+      const folders = subtree(existing.id);
+      const record = (
+        folderId: string,
+        kind: "document" | "mind" | "conversation",
+        itemId: string,
+        suggested = 0,
+      ) =>
         db.run(
           `INSERT INTO deleted_folder_items
              (id, folder_id, item_kind, item_id, suggested, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [randomUUID(), existing.id, kind, itemId, suggested, at, at],
+          [randomUUID(), folderId, kind, itemId, suggested, at, at],
         );
       const assignments = db.transaction(() => {
         const rows = db.all<AssignmentRow & { live: number }>(
           `SELECT g.*, d.deleted_at IS NULL AS live FROM document_groups g
            JOIN documents d ON d.id = g.document_id
-           WHERE g.group_id = ? AND g.deleted_at IS NULL ORDER BY g.rowid`,
-          [existing.id],
+           WHERE g.group_id IN (SELECT value FROM json_each(?)) AND g.deleted_at IS NULL
+           ORDER BY g.rowid`,
+          [JSON.stringify(folders)],
         );
-        db.run("UPDATE library_groups SET deleted_at = ?, updated_at = ? WHERE id = ?", [
-          at,
-          at,
-          existing.id,
-        ]);
-        for (const row of rows) record("document", row.document_id, row.suggested);
-        for (const mindId of taken.minds ?? []) record("mind", mindId);
-        for (const conversationId of taken.conversations ?? []) {
-          record("conversation", conversationId);
+        db.run(
+          "UPDATE library_groups SET deleted_at = ?, updated_at = ? WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL",
+          [at, at, JSON.stringify(folders)],
+        );
+        for (const row of rows) {
+          if (row.group_id !== null)
+            record(row.group_id, "document", row.document_id, row.suggested);
+        }
+        for (const [folderId, ids] of Object.entries(taken.minds ?? {})) {
+          for (const mindId of ids) record(folderId, "mind", mindId);
+        }
+        for (const [folderId, ids] of Object.entries(taken.conversations ?? {})) {
+          for (const conversationId of ids) record(folderId, "conversation", conversationId);
         }
         db.run(
-          "UPDATE document_groups SET group_id = NULL, suggested = 0, updated_at = ? WHERE group_id = ? AND deleted_at IS NULL",
-          [at, existing.id],
+          "UPDATE document_groups SET group_id = NULL, suggested = 0, updated_at = ? WHERE group_id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL",
+          [at, JSON.stringify(folders)],
         );
         return rows.filter((row) => row.live).map((row) => assignmentOf(row));
       });
@@ -1274,42 +1473,85 @@ export function createLibrary(options: {
       return { assignments };
     },
     /**
-     * Brings back a deleted Folder (the caller checks it may), and the Documents its
-     * deletion took out that are in no Folder now. Returns the Minds and conversations it
-     * took out, for the caller to put back. Throws if its name is taken or the Library is
-     * full. Run in the caller's transaction, then `restored`.
+     * Brings back a deleted Folder, the Folders deleted with it and the Documents its deletion
+     * took out that are in no Folder now. Returns each restored Folder's Minds and conversations,
+     * for the caller to put back. Throws if a name is taken or the Library is full. Run in the
+     * caller's transaction, then `restored`.
      */
-    restore(id: string): { minds: string[]; conversations: string[] } {
-      const row = db.get<{ name: string }>("SELECT name FROM library_groups WHERE id = ?", [id]);
+    restore(id: string): {
+      folders: string[];
+      minds: { folderId: string; ids: string[] }[];
+      conversations: { folderId: string; ids: string[] }[];
+      /** Folders put at the top level, the Folder they were in still deleted. */
+      toTopLevel: string[];
+    } {
+      const row = db.get<{ name: string; deleted_at: string | null }>(
+        "SELECT name, deleted_at FROM library_groups WHERE id = ?",
+        [id],
+      );
       if (!row) throw new NotFoundError({ key: "error.folder.notFound" });
-      if (groups().some((item) => sameName(item.name, row.name)))
-        throw new InvalidInputError({
-          key: "error.restore.folderNameTaken",
-          values: { name: row.name },
-        });
-      if (groups().length >= 100) throw new InvalidInputError({ key: "error.restore.folderLimit" });
+      const folders = row.deleted_at === null ? [id] : deletedWith(id, row.deleted_at);
+      const live = groups();
+      const takenNames = new Set(live.map((folder) => folder.name.toLowerCase()));
+      for (const folder of db.all<{ name: string }>(
+        "SELECT name FROM library_groups WHERE id IN (SELECT value FROM json_each(?))",
+        [JSON.stringify(folders)],
+      )) {
+        if (takenNames.has(folder.name.toLowerCase()))
+          throw new InvalidInputError({
+            key: "error.restore.folderNameTaken",
+            values: { name: folder.name },
+          });
+      }
+      if (live.length + folders.length > 100)
+        throw new InvalidInputError({ key: "error.restore.folderLimit" });
       const at = now();
-      db.run("UPDATE library_groups SET deleted_at = NULL, updated_at = ? WHERE id = ?", [at, id]);
+      const list = JSON.stringify(folders);
+      db.run(
+        "UPDATE library_groups SET deleted_at = NULL, updated_at = ? WHERE id IN (SELECT value FROM json_each(?))",
+        [at, list],
+      );
+      // A Folder restored without the Folder it was in (still deleted) goes to the top level,
+      // rather than point at a Folder that isn't there and come back inside it later.
+      const orphaned = `id IN (SELECT value FROM json_each(?))
+           AND parent_id IS NOT NULL
+           AND parent_id NOT IN (SELECT id FROM library_groups WHERE deleted_at IS NULL)`;
+      const toTopLevel = db
+        .all<{ id: string }>(`SELECT id FROM library_groups WHERE ${orphaned}`, [list])
+        .map((folder) => folder.id);
+      db.run(`UPDATE library_groups SET parent_id = NULL, updated_at = ? WHERE ${orphaned}`, [
+        at,
+        list,
+      ]);
       db.run(
         `UPDATE document_groups SET group_id = item.folder_id, suggested = item.suggested,
            updated_at = ?
          FROM deleted_folder_items item
-         WHERE item.folder_id = ? AND item.item_kind = 'document' AND item.deleted_at IS NULL
+         WHERE item.folder_id IN (SELECT value FROM json_each(?))
+           AND item.item_kind = 'document' AND item.deleted_at IS NULL
            AND item.item_id = document_groups.document_id
            AND document_groups.deleted_at IS NULL AND document_groups.group_id IS NULL`,
-        [at, id],
+        [at, list],
       );
-      const taken = (kind: "mind" | "conversation") =>
-        db
-          .all<{ item_id: string }>(
-            "SELECT item_id FROM deleted_folder_items WHERE folder_id = ? AND item_kind = ? AND deleted_at IS NULL",
-            [id, kind],
-          )
-          .map((each) => each.item_id);
-      const items = { minds: taken("mind"), conversations: taken("conversation") };
+      const taken = (kind: "mind" | "conversation") => {
+        const byFolder = new Map<string, string[]>();
+        for (const row of db.all<{ folder_id: string; item_id: string }>(
+          "SELECT folder_id, item_id FROM deleted_folder_items WHERE folder_id IN (SELECT value FROM json_each(?)) AND item_kind = ? AND deleted_at IS NULL",
+          [list, kind],
+        )) {
+          byFolder.set(row.folder_id, [...(byFolder.get(row.folder_id) ?? []), row.item_id]);
+        }
+        return [...byFolder].map(([folderId, ids]) => ({ folderId, ids }));
+      };
+      const items = {
+        folders,
+        minds: taken("mind"),
+        conversations: taken("conversation"),
+        toTopLevel,
+      };
       db.run(
-        "UPDATE deleted_folder_items SET deleted_at = ?, updated_at = ? WHERE folder_id = ? AND deleted_at IS NULL",
-        [at, at, id],
+        "UPDATE deleted_folder_items SET deleted_at = ?, updated_at = ? WHERE folder_id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL",
+        [at, at, list],
       );
       return items;
     },

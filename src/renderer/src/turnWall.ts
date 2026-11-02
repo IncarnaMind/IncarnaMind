@@ -10,6 +10,7 @@ import { useConversations, useOpenConversation } from "./conversations";
 import { core } from "./core";
 import { MindIdContext } from "./editor/mindContext";
 import { describeError } from "./errors";
+import { folderWallOf } from "./folders";
 import { useAppStore } from "./store";
 import { keptInsideName } from "./walls";
 
@@ -21,19 +22,29 @@ const GONE: ReadonlySet<string> = new Set(["error.mind.notFound", "error.convers
  * core has answered for the place as it is now, so nothing shows a wall the turn won't have (#2243).
  */
 export function useTurnWall({ mindId, conversationId }: TurnPlace): string | null | undefined {
-  const walls = useAppStore((state) =>
-    (state.library?.groups ?? [])
-      .filter((group) => group.keepInside)
-      .map((group) => group.id)
-      .join(" "),
-  );
+  const groups = useAppStore((state) => state.library?.groups);
   const noteFolder = useAppStore(
     (state) => state.minds.find((each) => each.id === mindId)?.folderId,
   );
   const conversationFolder = useConversations(
     (state) => state.list.find((each) => each.id === conversationId)?.folderId,
   );
-  const asked = JSON.stringify([mindId, conversationId, noteFolder, conversationFolder, walls]);
+  // The wall of each place, so moving a Folder into or out of a wall asks again, not only
+  // switching a wall on or off.
+  const noteWall =
+    groups !== undefined && noteFolder != null ? folderWallOf(groups, noteFolder) : null;
+  const conversationWall =
+    groups !== undefined && conversationFolder != null
+      ? folderWallOf(groups, conversationFolder)
+      : null;
+  const asked = JSON.stringify([
+    mindId,
+    conversationId,
+    noteFolder,
+    conversationFolder,
+    noteWall,
+    conversationWall,
+  ]);
   const [answer, setAnswer] = useState<{ asked: string; wall: string | null } | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `asked` holds the place and all the wall depends on.
   useEffect(() => {

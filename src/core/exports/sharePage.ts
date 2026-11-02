@@ -393,7 +393,7 @@ function contentHtml(content: CardContent, spoken: string, t: Translate): string
     }
     case "quote":
       if (!content.text) return "";
-      return `<div class="card-body"><p class="card-passage">“${escapeHtml(content.text)}”</p></div>${content.scan ? small(t("citation.scan")) : ""}`;
+      return `<div class="card-body"><p class="card-passage">“${escapeHtml(content.text)}”</p></div>${content.from === "scan" ? small(t("citation.scan")) : content.from === "picture" ? small(t("citation.picture")) : ""}`;
     case "picture": {
       const alt = t("share.card.pictureAlt", { source: spoken });
       const note = t(content.slide ? "share.card.slidePicture" : "share.card.pagePicture");
