@@ -193,6 +193,14 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(first.citations.length).toBeGreaterThan(0);
     const prior = await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" });
     const priorAnswer = await answerOf(core, prior);
+    const helpCall = calls.find(
+      (call) =>
+        call.prompt.includes("<help>") &&
+        call.prompt.includes(translate(language, "meetings.help.notCovered")),
+    );
+    expect(helpCall).toBeDefined();
+    // A named help press stands alone: no call scope note, and no earlier turn to take for the call.
+    expect(helpCall?.prompt).not.toContain("<call>");
     const typed = language === "en" ? "What have we covered so far?" : "我们聊到哪了？";
     const before = calls.length;
     const second = await answerOf(
@@ -213,12 +221,17 @@ for (const language of ["en", "zh-CN"] as const) {
       "The live transcript above is what was said in this call. An earlier reply is not part of the call: it is there for follow-ups about it.",
     );
     expect(scope).toContain(
+      "When <live-transcript> is empty, say there is no call content yet; never summarize Library Documents or the earlier reply instead.",
+    );
+    expect(scope).toContain(
       "A recap or summary of the call is what was said in it: a short list, each line citing the live-transcript passage it rests on, plus the written notes when the Question asks for them.",
     );
     expect(scope).toContain(
       "A recap has no heading or closing line, and adds no unrequested suggestion, question to ask, or topic still to cover.",
     );
     expect(scope).toContain("</call>");
+    expect(scope.indexOf("</live-transcript>")).toBeLessThan(scope.indexOf("<call>"));
+    expect(scope.indexOf("<call>")).toBeLessThan(scope.indexOf(typed));
     // The guide's reply stays in the conversation: follow-ups about it still read it.
     const guideSaid =
       language === "en"
@@ -278,6 +291,35 @@ for (const language of ["en", "zh-CN"] as const) {
     // A recap after the call ended keeps the earlier reply and takes no call to scope.
     expect(endedCall?.prompt).not.toContain("<call>");
     expect(endedCall?.prompt).toContain(guideSaid);
+  });
+
+  test(`${language}: a recap before speech says there is no call content, with no Library summary`, async () => {
+    const { core, meeting, calls, fact } = await setup(language, false);
+    await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
+    const prior = await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" });
+    const priorAnswer = await answerOf(core, prior);
+    const recap = translate(language, "meeting.ask.recap");
+    const before = calls.length;
+    const answer = await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: priorAnswer.conversationId,
+        mindId: meeting.mindId,
+        text: recap,
+      }),
+    );
+    const call = calls
+      .slice(before)
+      .find((each) => each.prompt.includes(recap) && each.prompt.includes("<live-transcript>"));
+    expect(call).toBeDefined();
+    expect(call?.prompt).toContain("<call>");
+    expect(call?.prompt).toContain(
+      "When <live-transcript> is empty, say there is no call content yet; never summarize Library Documents or the earlier reply instead.",
+    );
+    expect(answer.text).toBe(
+      language === "en" ? "Not enough call content yet." : "通话内容还不够。",
+    );
+    expect(answer.text).not.toContain(fact);
   });
 
   for (const heard of [false, true]) {

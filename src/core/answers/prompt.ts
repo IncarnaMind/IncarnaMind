@@ -373,6 +373,7 @@ export function meetingInstructions(listening: boolean): string {
 export const CALL_SCOPE_NOTE = [
   "<call>",
   "The live transcript above is what was said in this call. An earlier reply is not part of the call: it is there for follow-ups about it.",
+  "When <live-transcript> is empty, say there is no call content yet; never summarize Library Documents or the earlier reply instead.",
   "A recap or summary of the call is what was said in it: a short list, each line citing the live-transcript passage it rests on, plus the written notes when the Question asks for them.",
   "A recap has no heading or closing line, and adds no unrequested suggestion, question to ask, or topic still to cover.",
   "</call>",
