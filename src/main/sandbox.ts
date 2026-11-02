@@ -85,6 +85,7 @@ export function missingPackages(errors: readonly string[]): string[] {
   const packages: string[] = [];
   if (errors.some((error) => /bubblewrap|bwrap/.test(error))) packages.push("bubblewrap");
   if (errors.some((error) => /socat/.test(error))) packages.push("socat");
+  if (errors.some((error) => /ripgrep/.test(error))) packages.push("ripgrep");
   return packages;
 }
 

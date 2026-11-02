@@ -17,7 +17,7 @@ import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Executor, Logger } from "../adapters";
 import type { EmbeddingModelError, EmbeddingModelStatus } from "../api";
-import { downloadModel, ModelDownloadError } from "../embedding/download";
+import { downloadModel, ModelDownloadError, progressReporter } from "../embedding/download";
 import { STALL_MS } from "../embedding/modelSources";
 import { WORKING_FOLDER } from "../execution";
 import { unpackTarZst } from "./tar";
@@ -147,15 +147,16 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
     error: null,
   };
   if (status.state === "ready") status.downloadedBytes = manifest.size;
-  let preparing: Promise<PythonReady> | null = null;
-  let lastProgress = 0;
+  /** The preparation under way, and how many calls wait on it: it stops when the last one does. */
+  let preparing: { done: Promise<PythonReady>; stop: AbortController; waiting: number } | null =
+    null;
 
   const update = (patch: Partial<EmbeddingModelStatus>) => {
     status = { ...status, ...patch };
     if (!lifetime.signal.aborted) options.emitStatus(status);
   };
 
-  async function firstImport(): Promise<void> {
+  async function firstImport(signal: AbortSignal): Promise<void> {
     const started = performance.now();
     await rm(fontCache, { recursive: true, force: true });
     await mkdir(fontCache, { recursive: true });
@@ -167,7 +168,7 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
       allow: { read: [fontCache], write: [WORKING_FOLDER, fontCache], network: "none" },
       timeoutMs: FIRST_IMPORT_MS,
       maxOutputBytes: 16 * 1024,
-      signal: lifetime.signal,
+      signal,
     });
     if (ran.exitCode !== 0) {
       const said = ran.stderr.trim().split("\n").slice(-3).join(" ");
@@ -198,8 +199,9 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
     }
   }
 
-  async function prepare(): Promise<void> {
+  async function prepare(signal: AbortSignal): Promise<void> {
     const download = join(folder, "download");
+    const report = progressReporter(() => update({}));
     await downloadModel({
       directory: download,
       source: {
@@ -209,12 +211,10 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
         ],
       },
       sources: releaseSources(options.fetch),
-      signal: lifetime.signal,
+      signal,
       onProgress: (bytes) => {
         status = { ...status, downloadedBytes: bytes };
-        if (Date.now() - lastProgress < 250) return;
-        lastProgress = Date.now();
-        update({});
+        report();
       },
     });
     update({ downloadedBytes: manifest.size });
@@ -230,53 +230,83 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
       // The archive matched its SHA-256, so a failure here is the disk's, or an archive the build got wrong.
       throw new ModelDownloadError("storage", `Couldn't unpack Python: ${messageOf(error)}`);
     }
-    await firstImport();
+    signal.throwIfAborted();
+    await firstImport(signal);
     await writeFile(join(folder, READY_FILE), JSON.stringify({ sha256: manifest.sha256 }));
     await rm(download, { recursive: true, force: true });
     await removeOthers();
+  }
+
+  /** A preparation, once the one before it (stopped) has let go of the folder. */
+  function startPreparing(after: Promise<unknown>) {
+    const stop = new AbortController();
+    const close = () => stop.abort(lifetime.signal.reason);
+    lifetime.signal.addEventListener("abort", close, { once: true });
+    const done = after.then(async (): Promise<PythonReady> => {
+      update({ state: "downloading", error: null, downloadedBytes: 0 });
+      try {
+        stop.signal.throwIfAborted();
+        await prepare(stop.signal);
+        update({ state: "ready", downloadedBytes: manifest.size, error: null });
+        return { ok: true, python: { command, fontCache, manifest } };
+      } catch (error) {
+        if (stop.signal.aborted) {
+          update({ state: "not-downloaded", error: null, downloadedBytes: 0 });
+          return { ok: false, error: { kind: "network", message: "Stopped." } };
+        }
+        const failure: EmbeddingModelError =
+          error instanceof ModelDownloadError
+            ? { kind: error.kind, message: error.message }
+            : {
+                kind: error instanceof FirstImportError ? "load" : "storage",
+                message: messageOf(error),
+              };
+        options.log?.warn("pythonRuntime.failed", { kind: failure.kind, reason: failure.message });
+        update({ state: "failed", error: failure });
+        return { ok: false, error: failure };
+      } finally {
+        lifetime.signal.removeEventListener("abort", close);
+        if (preparing?.stop === stop) preparing = null;
+      }
+    });
+    return { done, stop, waiting: 0 };
   }
 
   return {
     manifest,
     status: (): EmbeddingModelStatus => status,
     /**
-     * The runtime, downloaded, unpacked and imported first if it isn't yet; every caller waits on
-     * the same preparation, which only `close` stops. A failure is kept in the status, and the
-     * next call tries again: the download resumes.
+     * The runtime, downloaded, unpacked and imported first if it isn't yet. Every call waits on the
+     * same preparation, which stops when every call waiting on it was stopped: what was downloaded
+     * is kept, and the next call resumes it. A failure is kept in the status, and the next call
+     * tries again. Rejects with the signal's reason once `signal` stops.
      */
-    ensure(): Promise<PythonReady> {
+    ensure(signal: AbortSignal): Promise<PythonReady> {
+      if (signal.aborted) return Promise.reject(signal.reason);
       if (ready()) {
         if (status.state !== "ready")
           update({ state: "ready", downloadedBytes: manifest.size, error: null });
         return Promise.resolve({ ok: true, python: { command, fontCache, manifest } });
       }
-      preparing ??= (async (): Promise<PythonReady> => {
-        update({ state: "downloading", error: null, downloadedBytes: 0 });
-        try {
-          await prepare();
-          update({ state: "ready", downloadedBytes: manifest.size, error: null });
-          return { ok: true, python: { command, fontCache, manifest } };
-        } catch (error) {
-          const failure: EmbeddingModelError =
-            error instanceof ModelDownloadError
-              ? { kind: error.kind, message: error.message }
-              : {
-                  kind: error instanceof FirstImportError ? "load" : "storage",
-                  message: messageOf(error),
-                };
-          if (!lifetime.signal.aborted) {
-            options.log?.warn("pythonRuntime.failed", {
-              kind: failure.kind,
-              reason: failure.message,
-            });
-          }
-          update({ state: "failed", error: failure });
-          return { ok: false, error: failure };
-        } finally {
-          preparing = null;
-        }
-      })();
-      return preparing;
+      if (!preparing || preparing.stop.signal.aborted) {
+        preparing = startPreparing(preparing?.done ?? Promise.resolve(null));
+      }
+      const current = preparing;
+      current.waiting++;
+      return new Promise<PythonReady>((resolve, reject) => {
+        const leave = () => {
+          current.waiting--;
+          if (current.waiting === 0) current.stop.abort(signal.reason);
+          reject(signal.reason);
+        };
+        signal.addEventListener("abort", leave, { once: true });
+        void current.done.then((result) => {
+          if (signal.aborted) return;
+          signal.removeEventListener("abort", leave);
+          current.waiting--;
+          resolve(result);
+        });
+      });
     },
     close(): void {
       lifetime.abort();

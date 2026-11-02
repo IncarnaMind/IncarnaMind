@@ -71,7 +71,13 @@ function codingModel(calls: ((passage: Passages) => { tool: string; input: unkno
 
 async function setUp(
   model: MockLanguageModelV4,
-  options: { level?: "os" | "none"; codeRuntime?: boolean; manifestUrl?: string } = {},
+  options: {
+    level?: "os" | "none";
+    codeRuntime?: boolean;
+    manifestUrl?: string;
+    /** sales.csv's rows below its heading. */
+    salesRows?: string[];
+  } = {},
 ) {
   const dataDir = await createTempDataFolder();
   const core: Core = startCore(dataDir, {
@@ -109,7 +115,11 @@ async function setUp(
   const sources = await createTempDataFolder();
   await addAndProcess(core, [
     await writeSourceFile(sources, "server.log.txt", LOG),
-    await writeSourceFile(sources, "sales.csv", "Region,Revenue\nNorth,1\nSouth,2\n"),
+    await writeSourceFile(
+      sources,
+      "sales.csv",
+      ["Region,Revenue", ...(options.salesRows ?? ["North,1", "South,2"]), ""].join("\n"),
+    ),
   ]);
   return core;
 }
@@ -152,6 +162,26 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
     );
     expect(without.offered.at(-1)).not.toContain("run_code");
   });
+
+  test("a sheet run_analysis read only in part is to be run again with run_code", async () => {
+    const { model } = codingModel([
+      (passage) => ({
+        tool: "run_analysis",
+        input: {
+          title: "Revenue",
+          inputs: [{ name: "sales", passage: passage("sales") }],
+          code: 'result("n", len(inputs["sales"]), "Rows")',
+        },
+      }),
+    ]);
+    const rows = Array.from({ length: 20_050 }, (_, index) => `R${index % 7},${index}`);
+    const core = await setUp(model, { salesRows: rows });
+    const answer = await ask(core, "What is the revenue over every row?");
+    expect(answer.analyses[0]?.inputs[0]).toMatchObject({ kind: "range", cut: true });
+    expect(told(model, "run_analysis")[0]).toContain(
+      "the most run_analysis reads; run it again with run_code, which reads every row",
+    );
+  }, 60_000);
 
   test("runs bash on a copy of the Document, as an Analysis numbered after one in Pyodide", async () => {
     const { model } = codingModel([

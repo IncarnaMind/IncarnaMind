@@ -2881,6 +2881,12 @@ export function createAnswers(options: AnswersOptions) {
         });
         writeSoon();
       };
+      // Code in the OS sandbox on whole files (ADR-0025): never from outside, never unsandboxed.
+      const code = !outside && options.code?.runner.level === "os" ? options.code : undefined;
+      const codeOffered =
+        code !== undefined &&
+        analysing &&
+        (input.analyse === true || options.documents.searchableBySize(documentIds).length > 0);
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
         analysing &&
@@ -2895,15 +2901,12 @@ export function createAnswers(options: AnswersOptions) {
                 language: answerLanguage(context.question),
                 now: () => new Date(),
                 ran: ranAnalysis,
+                codeOffered,
               }),
             ]
           : [];
-      // Code in the OS sandbox on whole files (ADR-0025): never from outside, never unsandboxed.
-      const code = !outside && options.code?.runner.level === "os" ? options.code : undefined;
       const fromCode: Tool[] =
-        code &&
-        analysing &&
-        (input.analyse === true || options.documents.searchableBySize(documentIds).length > 0)
+        code && codeOffered
           ? [
               runCodeTool({
                 runner: code.runner,

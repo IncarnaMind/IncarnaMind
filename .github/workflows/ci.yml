@@ -201,8 +201,8 @@ jobs:
         run: npm run typecheck
       - if: matrix.shard == 1
         run: npm run lint
-      # tests/main/sandbox.test.ts runs the OS sandbox, which needs bubblewrap and socat on Linux,
-      # and unprivileged user namespaces, which Ubuntu 24.04 restricts through AppArmor.
+      # tests/main/sandbox.test.ts runs the OS sandbox, which needs bubblewrap, socat and ripgrep on
+      # Linux, and unprivileged user namespaces, which Ubuntu 24.04 restricts through AppArmor.
       - name: Install bubblewrap for the OS sandbox
         uses: ./.github/actions/apt-install
         with:
@@ -211,6 +211,10 @@ jobs:
         uses: ./.github/actions/apt-install
         with:
           package: socat
+      - name: Install ripgrep for the OS sandbox
+        uses: ./.github/actions/apt-install
+        with:
+          package: ripgrep
       - name: Let the OS sandbox start
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: npm test -- --shard=${{ matrix.shard }}/3
@@ -258,6 +262,10 @@ jobs:
         uses: ./.github/actions/apt-install
         with:
           package: socat
+      - name: Install ripgrep for the OS sandbox
+        uses: ./.github/actions/apt-install
+        with:
+          package: ripgrep
       - name: Let the OS sandbox start
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # The uv scripts/pythonNative/pins.ts names: the build stops on any other.

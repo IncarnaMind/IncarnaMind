@@ -75,5 +75,6 @@ test("the packages a Linux sandbox lacks are named as distributions name them", 
     "socat",
   ]);
   expect(missingPackages(["socat not installed"])).toEqual(["socat"]);
+  expect(missingPackages(["ripgrep (rg) not found"])).toEqual(["ripgrep"]);
   expect(missingPackages(["seccomp not available"])).toEqual([]);
 });

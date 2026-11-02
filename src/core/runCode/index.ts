@@ -28,6 +28,7 @@ import {
   open,
   readdir,
   readFile,
+  rename,
   rm,
   stat,
   writeFile,
@@ -258,25 +259,6 @@ function endOf(exec: ExecResult, signal: AbortSignal, limitMs: number): Analysis
   return null;
 }
 
-/** `promise`, or the signal's reason once it is stopped: what it waits on goes on without it. */
-function untilStopped<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(signal.reason);
-  return new Promise<T>((resolve, reject) => {
-    const stop = () => reject(signal.reason);
-    signal.addEventListener("abort", stop, { once: true });
-    promise.then(
-      (value) => {
-        signal.removeEventListener("abort", stop);
-        resolve(value);
-      },
-      (error: unknown) => {
-        signal.removeEventListener("abort", stop);
-        reject(error);
-      },
-    );
-  });
-}
-
 const printedOf = (exec: ExecResult) =>
   [exec.stdout.trimEnd(), exec.stdoutTruncated ? "(cut)" : ""].filter(Boolean).join("\n");
 
@@ -329,6 +311,7 @@ export function createCodeRunner(options: CodeRunnerOptions) {
   }
 
   async function collect(out: string): Promise<{ files: CodeOutFile[]; left: number }> {
+    if (!(await lstat(out).catch(() => null))?.isDirectory()) return { files: [], left: 0 };
     const names = (await readdir(out).catch(() => [] as string[])).sort();
     const files: CodeOutFile[] = [];
     let left = 0;
@@ -366,7 +349,7 @@ export function createCodeRunner(options: CodeRunnerOptions) {
       let versions: AnalysisVersions;
       if (request.language === "python") {
         if (!options.python) return { kind: "no-python", error: null };
-        const ready = await untilStopped(options.python.ensure(), request.signal);
+        const ready = await options.python.ensure(request.signal);
         if (!ready.ok) return { kind: "no-python", error: ready.error };
         command = ready.python.command;
         fontCache = ready.python.fontCache;
@@ -480,12 +463,21 @@ export function createCodeRunner(options: CodeRunnerOptions) {
           signal: request.signal,
         });
         const ms = Math.round(performance.now() - started);
+        // Read back from where the sandbox can't write: a process the code left running (a session
+        // of its own escapes the stop on macOS) can no longer swap a file or a folder for a link.
+        // `rename` moves a link itself, never what it points at.
+        const done = join(run, "done");
+        await rename(work, done).catch((error: unknown) => {
+          // The code removed its own folder: it left nothing to read.
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        });
+        const folder = (await lstat(done).catch(() => null))?.isDirectory() ? done : null;
         const stopped = endOf(exec, request.signal, timeLimitMs);
         let end: AnalysisEnd;
         let output = noAnalysisOutput();
         let read: string[] = [];
         if (request.language === "python") {
-          const raw = await ownFile(result, 64 * 1024 * 1024);
+          const raw = folder && (await ownFile(join(folder, basename(result)), 64 * 1024 * 1024));
           let given: unknown = null;
           try {
             given = raw ? JSON.parse(raw.toString("utf8")) : null;
@@ -536,7 +528,7 @@ export function createCodeRunner(options: CodeRunnerOptions) {
                   line: null,
                 });
         }
-        const collected = await collect(out);
+        const collected = folder ? await collect(join(folder, "out")) : { files: [], left: 0 };
         return {
           kind: "ran",
           end,

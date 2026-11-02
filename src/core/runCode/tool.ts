@@ -137,7 +137,7 @@ export function runCodeTool(options: RunCodeToolOptions): Tool {
           ? recorder.mark(
               number,
               run.output,
-              run.tables.map((table) => table.job),
+              used.map((table) => table.job),
             )
           : { markers: noMarkers() };
       const files: AnalysisFile[] = run.files;

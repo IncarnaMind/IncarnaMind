@@ -28,14 +28,14 @@ This lifts the rule for the whole system, not just for IncarnaMind, and the AppI
 
 ## Code on whole files and Skill scripts
 
-When the assistant analyses whole files (Python or a shell command on copies of your Documents) or runs a Skill's script, the code runs in a second sandbox, the operating system's own: bubblewrap. It needs two packages:
+When the assistant analyses whole files (Python or a shell command on copies of your Documents) or runs a Skill's script, the code runs in a second sandbox, the operating system's own: bubblewrap. It needs three packages:
 
 ```sh
-sudo apt install bubblewrap socat      # Debian, Ubuntu
-sudo dnf install bubblewrap socat      # Fedora
-sudo pacman -S bubblewrap socat        # Arch
+sudo apt install bubblewrap socat ripgrep      # Debian, Ubuntu
+sudo dnf install bubblewrap socat ripgrep      # Fedora
+sudo pacman -S bubblewrap socat ripgrep        # Arch
 ```
 
 Then restart IncarnaMind. Settings › Skills says when this sandbox can't start, and why. Until it can, the assistant analyses only in the app's own sandbox, on the rows IncarnaMind has read, and each Skill script asks before it runs, with no sandbox.
 
-On Ubuntu 23.10 and later, the AppArmor rule above can stop bubblewrap from starting a sandbox even when both packages are installed; Settings then says this computer doesn't let IncarnaMind start one. The last resort above lifts that rule.
+On Ubuntu 23.10 and later, the AppArmor rule above can stop bubblewrap from starting a sandbox even when all three packages are installed; Settings then says this computer doesn't let IncarnaMind start one. The last resort above lifts that rule.

@@ -924,8 +924,8 @@ export interface CoreAdapters {
   };
   /**
    * Why the OS sandbox can't start on this computer, when it can't and the User can fix it:
-   * Linux without bubblewrap or socat, or one that doesn't let apps start a sandbox. Settings
-   * says so, with how to fix it; absent: it starts, or there is none to start (Windows).
+   * Linux without bubblewrap, socat or ripgrep, or one that doesn't let apps start a sandbox.
+   * Settings says so, with how to fix it; absent: it starts, or there is none to start (Windows).
    */
   sandboxProblem?: SandboxProblem;
   /**

@@ -1059,6 +1059,8 @@ describe("an Analysis an Answer runs", () => {
 
     expect(answer.analyses[0]?.inputs[0]).toMatchObject({ kind: "range", cut: true });
     expect(told(model, "run_analysis")[0]).toContain("cut: only its first");
+    expect(told(model, "run_analysis")[0]).toContain("say so in the Answer");
+    expect(told(model, "run_analysis")[0]).not.toContain("run_code");
   }, 60_000);
 
   test("it is offered only with a sheet or CSV to read, or when the User chose Analyse data", async () => {

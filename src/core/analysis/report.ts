@@ -48,7 +48,15 @@ const bytesText = (bytes: number) =>
       ? `${figureText("en", Math.round(bytes / 102.4) / 10)} KB`
       : `${figureText("en", Math.round(bytes / 104857.6) / 10)} MB`;
 
-export function analysisReport(analysis: AnswerAnalysis, language: Language): string {
+/**
+ * What the model reads of an Analysis. `codeOffered`: run_code is in the same Run, so a range
+ * run_analysis cut is to be run again there, which reads every row.
+ */
+export function analysisReport(
+  analysis: AnswerAnalysis,
+  language: Language,
+  codeOffered = false,
+): string {
   const { output, end } = analysis;
   const lines = [`Analysis ${analysis.number}: ${analysis.title}`];
   if (analysis.files) {
@@ -65,9 +73,11 @@ export function analysisReport(analysis: AnswerAnalysis, language: Language): st
     if (input.kind === "range") {
       const sheet = input.citation.location?.kind === "rows" ? input.citation.location.sheet : null;
       const where = `${input.citation.documentName}${sheet ? `, sheet "${sheet}"` : ""}, ${input.range}`;
-      const cut = input.cut
-        ? ` (cut: only its first ${rowsOf(input.rows)} were read, the most an Analysis reads; say so in the Answer)`
-        : "";
+      const cut = !input.cut
+        ? ""
+        : codeOffered && !analysis.files
+          ? ` (cut: only its first ${rowsOf(input.rows)} were read, the most run_analysis reads; run it again with run_code, which reads every row)`
+          : ` (cut: only its first ${rowsOf(input.rows)} were read, the most this Analysis can read; say so in the Answer)`;
       lines.push(
         `- ${input.name}: ${where}: ${rowsOf(input.rows)} × ${input.columns} columns${cut}`,
       );

@@ -148,7 +148,7 @@ beforeAll(async () => {
     emitStatus: () => {},
   });
   const started = performance.now();
-  const ready = await python.ensure();
+  const ready = await python.ensure(new AbortController().signal);
   pythonPrepared = performance.now() - started;
   if (!ready.ok) throw new Error(`The runtime didn't get ready: ${ready.error.message}`);
 }, 20 * 60_000);
@@ -215,6 +215,11 @@ function tool(documents: Record<string, CodeDocument>, timeLimitMs?: number) {
 }
 
 const lastLine = (text: string) => text.trim().split("\n").at(-1) ?? "";
+
+// CI's real-runtime job gives a runtime: there a sandbox that can't start fails, rather than skips.
+test.runIf(runtimeFolder !== undefined)("the OS sandbox starts where a runtime is given", () => {
+  expect(unavailable).toBeUndefined();
+});
 
 describe.skipIf(unavailable !== undefined)(
   `run_code's bash in the OS sandbox${unavailable ? ` (skipped: ${unavailable})` : ""}`,
@@ -291,6 +296,36 @@ describe.skipIf(unavailable !== undefined)(
         files: [{ name: "kept.txt", bytes: 5, sha256: sha256("kept\n"), text: "kept\n" }],
         left: 2,
       });
+    });
+
+    test("an out/ or a working folder swapped for a link brings back nothing from where it points", async () => {
+      const bait = join(home, "bait");
+      await mkdir(join(bait, "out"), { recursive: true });
+      await writeFile(join(bait, "out", "secret.txt"), "HOME BAIT");
+      const { call, analyses } = tool({});
+      await call("bash", `rm -rf out && ln -s '${dirname(homeCanary)}' out && echo swapped`);
+      expect(analyses[0]?.output.printed).toBe("swapped");
+      expect(analyses[0]?.outFiles).toEqual({ files: [], left: 0 });
+      await call("bash", `rm -rf "$PWD" && ln -s '${bait}' "$PWD" && echo moved`);
+      expect(analyses[1]?.output.printed).toBe("moved");
+      expect(analyses[1]?.outFiles).toEqual({ files: [], left: 0 });
+      await call("bash", "echo kept > out/kept.txt");
+      expect(analyses[2]?.outFiles?.files.map((file) => file.name)).toEqual(["kept.txt"]);
+    });
+
+    test("what it starts in the background ends with it", async () => {
+      const { call, analyses } = tool({});
+      await call("bash", "sleep 2351 > /dev/null 2>&1 & echo started");
+      expect(analyses[0]?.end).toEqual({ kind: "done" });
+      expect(analyses[0]?.output.printed).toBe("started");
+      const { execFileSync } = await import("node:child_process");
+      await expect
+        .poll(() =>
+          execFileSync("ps", ["-A", "-o", "command="], { encoding: "utf8" })
+            .split("\n")
+            .filter((line) => line.trim() === "sleep 2351"),
+        )
+        .toEqual([]);
     });
 
     test("is stopped at its file and process limits, and leaves nothing running", async () => {

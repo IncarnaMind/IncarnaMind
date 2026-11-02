@@ -42,6 +42,8 @@ export interface AnalysisToolOptions {
   ran(toolCallId: string, analysis: AnswerAnalysis): void;
   /** Numbers its runs and their results, shared with `run_code` in the same Answer. */
   recorder?: AnalysisRecorder;
+  /** run_code is offered in the same Run: a range cut here is to be run again there. */
+  codeOffered?: boolean;
 }
 
 const fields = (value: unknown): Record<string, unknown> =>
@@ -319,7 +321,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         ...marked,
       };
       options.ran(toolCallId, analysis);
-      return analysisReport(analysis, options.language);
+      return analysisReport(analysis, options.language, options.codeOffered === true);
     },
   };
 }

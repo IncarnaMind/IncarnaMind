@@ -64,6 +64,15 @@ const SLEEP = [
   "setInterval(() => {}, 1000);",
 ].join("\n");
 
+/** Starts a process of its own in the background, with its output closed, writes both pids and ends. */
+const BACKGROUND = [
+  'const { spawn } = require("node:child_process");',
+  'const { writeFileSync } = require("node:fs");',
+  'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });',
+  "writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid, child: child.pid }));",
+  "child.unref();",
+].join("\n");
+
 /** Starts a process in a session of its own, which a stop can't reach, holding the output open. */
 const ESCAPE = [
   'const { spawn } = require("node:child_process");',
@@ -254,6 +263,23 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
         expect(run).toMatchObject({ exitCode: null, timedOut: true, stdout: "started\n" });
         await expectStopped(await pidsIn(pidFile));
         expect(await readdir(tempDir)).toEqual([]);
+      },
+      RUNNER_LIMIT,
+    );
+
+    test.skipIf(process.platform === "win32")(
+      "what it left running in the background ends when it does",
+      async () => {
+        const { executor } = await setUp();
+        const pidFolder = await createTempDataFolder();
+        const pidFile = join(pidFolder, "pids.json");
+
+        const run = await executor.run(
+          request(node(BACKGROUND, pidFile), { allow: writingTo(pidFolder) }),
+        );
+
+        expect(run).toMatchObject({ exitCode: 0, timedOut: false });
+        await expectStopped(await pidsIn(pidFile));
       },
       RUNNER_LIMIT,
     );

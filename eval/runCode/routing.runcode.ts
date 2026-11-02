@@ -2,13 +2,15 @@
  * `npm run eval:run-code` (#2351): where a real model sends each held-out request (./cases):
  * `run_code`, an Analysis in Pyodide (`run_analysis`), or neither, asked in the assistant as the
  * app asks it. `run_code` runs for real, in the OS sandbox and IncarnaMind's own Python, so its
- * figures, failed calls and times are counted too; `run_analysis` has no Pyodide outside the app,
- * so an Answer stops at its first `run_analysis` call, which is all its route needs.
+ * figures, failed calls and times are counted too. `run_analysis` has no Pyodide outside the app
+ * (a stand-in answers it), so an Answer stops at its first `run_analysis` call, which is all its
+ * route needs; one that should reach `run_code` goes on, as a range `run_analysis` cut is to be
+ * run again there, and `reached` says whether it did.
  *
  * Settings: INCARNAMIND_EVAL_CHAT_* as for `npm run eval`; INCARNAMIND_TEST_PYTHON_RUNTIME, the
  * folder `npm run python:native` wrote the archive to (without it, Python can't run and the
  * model is told so); INCARNAMIND_EVAL_RUNCODE_CASES, case ids to run. Run on `main` too, where no
- * `run_code` exists, for the baseline. The report goes to eval/runCode/results/.
+ * `run_code` exists, for the baseline. The report goes to eval/results/.
  */
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -57,6 +59,10 @@ interface Observed {
   expected: Route;
   /** The first Analysis Tool it called, or none. */
   routed: Route;
+  /** Whether it called `run_code` at all, after `run_analysis` or not. */
+  reached: boolean;
+  /** What each `run_code` call that ran nothing was told, in short. */
+  refused: string[];
   codeCalls: number;
   /** `run_code` calls that didn't end done. */
   failedCalls: number;
@@ -154,6 +160,7 @@ test("run_code routing", async () => {
     const of = observed.filter((each) => each.expected === route);
     return `${of.filter((each) => each.routed === route).length} of ${of.length}`;
   };
+  const toCode = observed.filter((each) => each.expected === "run_code");
   const sum = (key: keyof Billed) => observed.reduce((total, each) => total + each.usage[key], 0);
   const report = {
     run: {
@@ -167,6 +174,7 @@ test("run_code routing", async () => {
       run_code: totals("run_code"),
       run_analysis: totals("run_analysis"),
       none: totals("none"),
+      reachedRunCode: `${toCode.filter((each) => each.reached).length} of ${toCode.length}`,
     },
     usage: {
       requests: sum("requests"),
@@ -181,14 +189,13 @@ test("run_code routing", async () => {
   const out = join(
     root,
     "eval",
-    "runCode",
     "results",
-    `${started.toISOString().replaceAll(":", "-")}.json`,
+    `${started.toISOString().replaceAll(":", "-")}-run-code.json`,
   );
   await mkdir(dirname(out), { recursive: true });
   await writeFile(out, `${JSON.stringify(report, null, 2)}\n`);
   log(
-    `Routed as expected: run_code ${report.routed.run_code}, run_analysis ${report.routed.run_analysis}, neither ${report.routed.none}`,
+    `Routed as expected: run_code ${report.routed.run_code}, run_analysis ${report.routed.run_analysis}, neither ${report.routed.none}; run_code reached in the end ${report.routed.reachedRunCode}`,
   );
   log(
     `Spent $${report.usage.spentUsd.toFixed(4)} in ${report.usage.requests} requests. Report: ${out}`,
@@ -209,7 +216,7 @@ async function ask(core: Core, dataDir: string, each: RoutingCase, log: (line: s
     if (event.answerId !== asked.answerId || first !== "none" || !isAnalysis(event.call)) return;
     first = event.call.tool === "run_code" ? "run_code" : "run_analysis";
     // No Pyodide runs here: its first call is all its route needs, and what follows would be noise.
-    if (first === "run_analysis") {
+    if (first === "run_analysis" && each.route !== "run_code") {
       void core.stopConversationAnswer({
         conversationId: asked.conversation.id,
         answerId: asked.answerId,
@@ -243,12 +250,19 @@ async function ask(core: Core, dataDir: string, each: RoutingCase, log: (line: s
     ),
   );
   const code = analyses.filter((analysis) => codeRuns.has(analysis.number));
+  const refused = calls.flatMap((call) =>
+    call.tool === "run_code" && !call.analysis
+      ? [`${call.status}${call.error ? `: ${call.error.message}` : ""}`.slice(0, 160)]
+      : [],
+  );
   const checks = code.flatMap((analysis) => analysis.recalculations ?? []);
   const after = billedIn(dataDir);
   const observed: Observed = {
     id: each.id,
     expected: each.route,
     routed: first,
+    reached: calls.some((call) => call.tool === "run_code"),
+    refused,
     codeCalls: code.length,
     failedCalls: code.filter((analysis) => analysis.end.kind !== "done").length,
     recalculated: checks.filter((check) => check.check.kind === "same").length,
@@ -266,7 +280,7 @@ async function ask(core: Core, dataDir: string, each: RoutingCase, log: (line: s
     ...(error && { error }),
   };
   log(
-    `${each.id}: expected ${each.route}, routed ${first}${observed.codeCalls ? `, ${observed.codeCalls} run_code call(s), ${observed.failedCalls} failed, ${observed.recalculated} recalculated` : ""} (${observed.seconds} s, $${observed.spent.toFixed(4)})`,
+    `${each.id}: expected ${each.route}, routed ${first}${observed.routed !== "run_code" && observed.reached ? ", then run_code" : ""}${refused.length ? `, ${refused.length} refused` : ""}${observed.codeCalls ? `, ${observed.codeCalls} run_code call(s), ${observed.failedCalls} failed, ${observed.recalculated} recalculated` : ""} (${observed.seconds} s, $${observed.spent.toFixed(4)})`,
   );
   return observed;
 }
