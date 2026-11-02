@@ -8,6 +8,7 @@
  */
 import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
 import { countFor, countText, mostlyCjk } from "../../../shared/wordCount";
+import { sentenceNumbers } from "./sentenceNumbers";
 import { tokensOf } from "./words";
 
 interface Size {
@@ -109,22 +110,28 @@ function sentencesIn(text: string): string[] {
 
 /**
  * The sentences `markdown` adds to `before` that make a claim with no Citation or calculated
- * figure: ones that restate no sentence of the old text. Each is held to the old sentence
- * closest to it, as words from two old sentences ("Two months are due on the first") say
+ * figure: ones that restate no sentence of the old text, its words and every number it states.
+ * Each is held to one old sentence, as words from two ("Two months are due on the first") say
  * something neither did. Headings and tables are left out: a heading claims nothing, and a
  * table's cells are cited apart.
  */
 export function addedUncited(before: string, markdown: string): string[] {
-  const old = sentencesIn(before).map(tokensOf);
+  const old = sentencesIn(before).map((sentence) => ({
+    tokens: tokensOf(sentence),
+    numbers: sentenceNumbers(sentence),
+  }));
   return sentencesIn(markdown)
     .filter((sentence) => !sentence.includes(INLINE_NODE))
     .filter((sentence) => {
       if (!isClaim(sentence)) return false;
       const tokens = tokensOf(sentence);
       if (tokens.size === 0) return false;
+      const numbers = [...sentenceNumbers(sentence)];
       const restated = old.some((each) => {
+        // A figure the old sentence doesn't state is new, however many of its words it keeps.
+        if (!numbers.every((number) => each.numbers.has(number))) return false;
         let shared = 0;
-        for (const token of tokens) if (each.has(token)) shared++;
+        for (const token of tokens) if (each.tokens.has(token)) shared++;
         return shared / tokens.size >= RESTATED;
       });
       return !restated;
