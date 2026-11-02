@@ -25,7 +25,9 @@ export function SkippedFilesLine({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const converter = useOfficeConverter(files.length > 0);
+  const converter = useOfficeConverter(
+    files.some((file) => file.path !== null && skippedStep(file.name).convert !== null),
+  );
   if (files.length === 0) return null;
   // One file: its next step and what to do about it show without a click.
   if (files.length === 1 && files[0]) {
@@ -62,7 +64,9 @@ export function useSkippedFilesDetails(
 ): { toggle: ReactNode; panel: ReactNode } {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const converter = useOfficeConverter(files.length > 0);
+  const converter = useOfficeConverter(
+    files.some((file) => file.path !== null && skippedStep(file.name).convert !== null),
+  );
   return {
     toggle: (
       <LineAction

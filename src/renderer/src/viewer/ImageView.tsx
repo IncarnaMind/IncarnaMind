@@ -82,15 +82,18 @@ export function ImageView({ document, target }: { document: Document; target: Vi
     loadDocumentBytes(document.id, controller.signal)
       .then(async (bytes) => {
         // A HEIC is a picture the web engine can't show: this computer's decoder makes it a PNG.
-        const display = isHeifPicture(bytes)
-          ? ((await files.decodePicture(bytes).catch(() => null)) ?? bytes)
-          : bytes;
+        const decoded = isHeifPicture(bytes)
+          ? await files.decodePicture(bytes).catch(() => null)
+          : null;
+        const display = decoded ?? bytes;
         if (controller.signal.aborted) return;
         const copy = display.buffer.slice(
           display.byteOffset,
           display.byteOffset + display.byteLength,
         ) as ArrayBuffer;
-        url = URL.createObjectURL(new Blob([copy], { type: pictureType(document.path) }));
+        url = URL.createObjectURL(
+          new Blob([copy], { type: decoded ? "image/png" : pictureType(document.path) }),
+        );
         setLoaded({ kind: "ready", url, width: 0, height: 0 });
       })
       .catch((error: unknown) => {
