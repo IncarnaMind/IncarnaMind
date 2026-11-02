@@ -1198,7 +1198,8 @@ export const en = {
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
   "claim.recheck.document-removed": "A Document it was checked against was deleted.",
-  "claim.recheck.scope": "The note is in another Folder now.",
+  "claim.recheck.scope":
+    "The note is in another Folder now, and this result rested on the whole Folder.",
   "claim.recheck.search-scope": "The note’s Search scope has changed since.",
   "claim.recheck.figures":
     "It was checked before each of its figures was checked with its own source.",
@@ -1236,6 +1237,14 @@ export const en = {
   "health.state.look": "{count} need a look",
   "health.state.checked": "Checked {time}",
   "health.state.checked.noTime": "Checked",
+  "health.state.cantCheck.one": "1 sentence can’t be checked",
+  "health.state.cantCheck": "{count} sentences can’t be checked",
+  "health.state.needsCheck.one": "1 sentence needs a check",
+  "health.state.needsCheck": "{count} sentences need a check",
+  "health.state.cantCheck.short.one": "1 can’t be checked",
+  "health.state.cantCheck.short": "{count} can’t be checked",
+  "health.state.needsCheck.short.one": "1 needs a check",
+  "health.state.needsCheck.short": "{count} need a check",
   "health.kept.one": "1 kept as your view",
   "health.kept": "{count} kept as your view",
   "badge.label": "{label}: {parts}",
@@ -3475,6 +3484,10 @@ export const en = {
   "answer.figures.calculated.one": "Calculated 1 figure",
   "answer.figures.uncalculated": "{count} figures couldn’t be calculated",
   "answer.figures.uncalculated.one": "1 figure couldn’t be calculated",
+  "answer.figures.uncalculated.named.one":
+    "1 figure couldn’t be calculated: {figures}. It was written without a calculation IncarnaMind could check.",
+  "answer.figures.uncalculated.named":
+    "{count} figures couldn’t be calculated: {figures}. They were written without a calculation IncarnaMind could check.",
   "answer.sourceNotKept": "(source couldn’t be kept)",
   "answer.status.stopped": "Stopped",
   "answer.stop": "Stop",
@@ -4553,10 +4566,10 @@ export const en = {
   "export.comment.sentence.needs-recheck.edited": "Needs re-check: changed since it was checked.",
   "export.comment.sentence.needs-recheck.new-version":
     "Needs re-check: a Document it was checked against has a new version.",
+  "export.comment.sentence.needs-recheck.scope":
+    "Needs re-check: the note is in another Folder now, and this result rested on the whole Folder.",
   "export.comment.sentence.needs-recheck.document-removed":
     "Needs re-check: a Document it was checked against was deleted.",
-  "export.comment.sentence.needs-recheck.scope":
-    "Needs re-check: the note is in another Folder now.",
   "export.comment.sentence.needs-recheck.search-scope":
     "Needs re-check: the note’s Search scope has changed since.",
   "export.comment.sentence.needs-recheck.figures":
@@ -6564,8 +6577,10 @@ export const en = {
   "mindCall.checking.one": "Checking 1 sentence in “{mind}”…",
   "selfCheck.failed": "{count} sentences couldn’t be checked",
   "selfCheck.failed.one": "1 sentence couldn’t be checked",
-  "selfCheck.left": "Checked {checked} sentences · {left} claims not checked yet",
   "selfCheck.checkedOnly": "Checked {checked} sentences",
+  "selfCheck.checkedOnly.one": "Checked 1 sentence",
+  "selfCheck.leftPart": "{left} claims not checked yet",
+  "selfCheck.leftPart.one": "1 claim not checked yet",
   "selfCheck.costCap": "{count} sentences couldn’t be checked: spending cap reached",
   "selfCheck.costCap.one": "1 sentence couldn’t be checked: spending cap reached",
   "selfCheck.changeCap": "Change the cap",
