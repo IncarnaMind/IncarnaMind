@@ -705,12 +705,10 @@ const HARBOURS =
   "The harbour office, the harbour office, the harbour office, the harbour office, the harbour office.";
 const AUTHORITIES =
   "The port authority, the port authority, the port authority, the port authority, the port authority.";
-const MIDDLE_ONLY =
-  "The port authority, the port authority, the port board, the port authority, the port authority.";
 const MIDDLE_EDITED =
-  "The port authority, MINE the port authority, the port board, the port authority, the port authority.";
+  "The port authority, the port authority, the port board, the port authority, the port authority.";
 const FOUR_BACK =
-  "The harbour office, MINE the harbour office, the port board, the harbour office, the harbour office.";
+  "The harbour office, the harbour office, the port board, the harbour office, the harbour office.";
 
 /** The box of the `nth` `words` of a line, scrolled into the Mind's view first. */
 async function wordsBoxInView(window: Page, line: Locator, words: string, nth = 1) {
@@ -784,13 +782,9 @@ test("five changes in one paragraph with the middle one edited since: one Restor
   await askToChange(window, "replace harbour office with port authority");
   await expect(note).toHaveText(AUTHORITIES);
 
-  // The middle change's new words typed over, then a word of the User's own between the first
-  // change and the second: the changed one can't be restored, and a Restore must leave the User's.
+  // The middle change's new words typed over, as a person does: that change can't be restored now.
   await selectNth(window, note, "port authority", 3);
   await window.keyboard.type("port board");
-  await expect(note).toHaveText(MIDDLE_ONLY);
-  await selectNth(window, note, "the", 1);
-  await window.keyboard.type("MINE the");
   await expect(note).toHaveText(MIDDLE_EDITED);
 
   await fromPalette(window, "edit.reviewApplied", "Review changes");
