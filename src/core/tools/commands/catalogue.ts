@@ -248,6 +248,15 @@ async function wallAskedAbout(
   return folder && { id: folder.id, name: folder.name };
 }
 
+/**
+ * A command of the core's for Notes given no ids acts on the Note the Question was asked from, as
+ * the window's do: "export this note" needs no search for it.
+ */
+function onThisNote(input: CommandInput, mindId: string | null): CommandInput {
+  if (input.ids.length > 0 || mindId === null || !isCoreCommand(input.command)) return input;
+  return CORE_COMMANDS[input.command].on === "mind" ? { ...input, ids: [mindId] } : input;
+}
+
 export interface CheckContext extends WindowRun, CommandPlace {
   /** The window's commands, as it offered them for this Answer. */
   offered: readonly OfferedCommand[];
@@ -259,10 +268,11 @@ export interface CheckContext extends WindowRun, CommandPlace {
  * it offered. Throws for one that can't run.
  */
 export async function checkCommand(
-  input: CommandInput,
+  given: CommandInput,
   host: CommandsHost,
   context: CheckContext,
 ): Promise<CheckedCommand> {
+  const input = onThisNote(given, context.mindId);
   // A Folder's wall is the User's alone, whatever the window offered (#1934).
   if (input.command === WALL_SWITCH) {
     return yoursChecked(WALL_SWITCH, "wall", await wallAskedAbout(input, host, context.mindId));

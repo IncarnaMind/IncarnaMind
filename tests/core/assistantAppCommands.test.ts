@@ -1,3 +1,4 @@
+import { readdir } from "node:fs/promises";
 import { describe, expect, test, vi } from "vitest";
 import type {
   ApprovalRequest,
@@ -457,6 +458,47 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     const after = await core.getLibrary();
     expect(after.groups.map((each) => each.name)).not.toContain("Leases");
     expect(after.assignments.filter((each) => each.suggested)).toEqual([]);
+  });
+
+  // protects=Organize with nothing to sort makes no Folder, so the card's "Nothing changed" is true and there is nothing to undo; fails_when=the Folder is made; no_claim=Organize's choices.
+  test("Organize with nothing to sort makes no Folder", async () => {
+    const model = calling(
+      run("documents.organize", { folder: "Leases", about: "Lease papers" }, false),
+    );
+    const { core, mind } = await setUpWithDocuments(model, []);
+
+    const answer = await askAssistant(core, {
+      text: "Put the documents about leases together",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect((await core.getLibrary()).groups).toEqual([]);
+    const done = commandCalls(answer).at(-1)?.command;
+    expect(done).toMatchObject({ command: "documents.organize", items: [] });
+    expect(done?.into).toBeUndefined();
+  });
+
+  // protects="export this note as a Word file" exports the Note the Question was asked from when the call names no Note, as the window's commands take it, into the Output location at once; fails_when=a Note command with no ids is refused, or acts on another Note; no_claim=the file's contents.
+  test("a Note command with no ids acts on the Note the Question was asked from", async () => {
+    const model = calling(run("mind.export", { format: "docx" }, false));
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    await core.createMind({ title: "Other note" });
+    const output = await createTempDataFolder();
+    await core.setOutputLocation(output);
+    const approved = approvals(core, "deny");
+
+    const answer = await askAssistant(core, {
+      text: "Export this note as a Word file",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(approved).toEqual([]);
+    expect(commandCalls(answer).at(-1)?.command?.items).toEqual([
+      expect.objectContaining({ id: mind.id, name: "Tides" }),
+    ]);
+    expect(await readdir(output)).toEqual(["Tides.docx"]);
   });
 
   // protects=a setting the User could change in Settings changes, and Undo puts it back; fails_when=it stays after Undo; no_claim=every setting.

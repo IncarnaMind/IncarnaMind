@@ -1,9 +1,9 @@
 /**
  * Organize by what the Documents say (#1421): the Library's own Organize, on the Documents named
  * or found, or those in no Folder, with the Folder the request names among those it may choose,
- * made for it if there is none. Organize reads each and suggests a Folder; its suggestions wait in
- * To review (#241) for the User, and nothing moves before they accept. One Undo takes back the
- * suggestions it made and the Folder.
+ * made for it if there is none and there is something to sort. Organize reads each and suggests
+ * a Folder; its suggestions wait in To review (#241) for the User, and nothing moves before they
+ * accept. One Undo takes back the suggestions it made and the Folder.
  */
 import type { AssignmentState, DocumentGroupAssignment } from "../../api";
 import {
@@ -64,10 +64,18 @@ export const organizeChecker: Checker = async (input, { core }) => {
   const ids = documents.map((each) => each.id);
   return {
     ...inApp("documents.organize", items, name, async () => {
+      // With nothing to sort, a Folder made would be one the card says nothing of and can't undo.
+      if (ids.length === 0) {
+        return {
+          done: { items },
+          step: null,
+          said: "No Document is in no Folder, so Organize had nothing to sort, and no Folder was made.",
+        };
+      }
       const before = await assignmentsOf(core, ids);
       const { folder, made } = await folderNamed(core, name, input.about ?? "");
       try {
-        if (ids.length > 0) await core.classifyDocuments(ids);
+        await core.classifyDocuments(ids);
       } catch (error) {
         if (made) await unmake(core, "folder", folder.id);
         throw error;
@@ -98,13 +106,10 @@ export const organizeChecker: Checker = async (input, { core }) => {
           redo: async () => {
             if (removed) await core.restore([{ kind: "folder", id: folder.id }]);
             removed = null;
-            if (ids.length > 0) await core.classifyDocuments(ids);
+            await core.classifyDocuments(ids);
           },
         },
-        said:
-          ids.length === 0
-            ? `No Document is in no Folder, so Organize had nothing to sort.${made ? ` It made the Folder “${folder.name}”.` : ""}`
-            : `Organize is reading ${plural(ids.length, "Document")} (${names.join(", ")}${ids.length > names.length ? ", …" : ""}) and suggests a Folder for each from what it says, “${folder.name}”${made ? ", which this made," : ""} among them. Its suggestions wait in To review for the User to accept; nothing has moved, and nothing moves before they accept it.`,
+        said: `Organize is reading ${plural(ids.length, "Document")} (${names.join(", ")}${ids.length > names.length ? ", …" : ""}) and suggests a Folder for each from what it says, “${folder.name}”${made ? ", which this made," : ""} among them. Its suggestions wait in To review for the User to accept; nothing has moved, and nothing moves before they accept it.`,
       };
     }),
     // Organize only suggests: nothing moves, so nothing counts towards the Answer's limit.
