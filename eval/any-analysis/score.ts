@@ -94,6 +94,8 @@ interface Candidate {
   text: string;
   line: number;
   figure: MarkedFigure | null;
+  /** Written as a word ("five"): it can make a result right, never wrong. */
+  word?: boolean;
 }
 
 interface Cell {
@@ -111,6 +113,8 @@ interface Line {
   cites: number[];
   /** Lines of one table, one list or one paragraph share a block. */
   block: number;
+  /** For a list's or a table's line, the line that leads into it: "**Welch ANOVA:**". */
+  lead: string;
   /** A table's row: its cells, and the table's headings. */
   row: { cells: Cell[]; headings: string[] } | null;
 }
@@ -177,6 +181,46 @@ function scientific(
   });
 }
 
+const WORDS: Readonly<Record<string, number>> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  一: 1,
+  两: 2,
+  二: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+  七: 7,
+  八: 8,
+  九: 9,
+  十: 10,
+};
+const WORD =
+  /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b|([一两二三四五六七八九十])(?=个|组|对|类|种|项|条)/gi;
+
+function words(text: string, line: number): Candidate[] {
+  return [...text.matchAll(WORD)].map((match) => ({
+    value: WORDS[(match[1] ?? match[2] ?? "").toLowerCase()] ?? 0,
+    kind: "plain",
+    half: 0,
+    text: match[0],
+    line,
+    figure: null,
+    word: true,
+  }));
+}
+
 function written(text: string, line: number): Candidate[] {
   const language = HAN.test(text) ? "zh-CN" : "en";
   const powers = scientific(text, line);
@@ -205,7 +249,7 @@ function written(text: string, line: number): Candidate[] {
       figure: null,
     });
   }
-  return [...read, ...powers.map((power) => power.candidate)];
+  return [...read, ...powers.map((power) => power.candidate), ...words(text, line)];
 }
 
 /** A line's text as shown, and its numbers, its figures by their markers. */
@@ -246,6 +290,8 @@ function linesOf(answer: SavedAnswer): Line[] {
   let block = 0;
   let headings: string[] | null = null;
   let previous: "table" | "list" | "text" | "blank" = "blank";
+  let lastText = "";
+  let lead = "";
   for (const [index, raw] of raws.entries()) {
     const shape = TABLE.test(raw)
       ? "table"
@@ -256,11 +302,14 @@ function linesOf(answer: SavedAnswer): Line[] {
           : "blank";
     if (shape !== previous || shape === "text") block++;
     if (shape !== "table") headings = null;
+    if (shape !== previous && (shape === "table" || shape === "list")) lead = lastText;
     previous = shape;
     if (shape === "blank" || RULE.test(raw)) continue;
     const read = readLine(raw, index, figures);
+    if (shape === "text") lastText = read.text;
+    const context = shape === "text" ? "" : lead;
     if (shape !== "table") {
-      lines.push({ ...read, index, block, row: null });
+      lines.push({ ...read, index, block, lead: context, row: null });
       continue;
     }
     const cells = cellsOf(raw).map((cell) => {
@@ -269,10 +318,10 @@ function linesOf(answer: SavedAnswer): Line[] {
     });
     if (headings === null) {
       headings = cells.map((cell) => cell.text);
-      lines.push({ ...read, candidates: [], index, block, row: null });
+      lines.push({ ...read, candidates: [], index, block, lead: context, row: null });
       continue;
     }
-    lines.push({ ...read, index, block, row: { cells, headings } });
+    lines.push({ ...read, index, block, lead: context, row: { cells, headings } });
   }
   return lines;
 }
@@ -320,6 +369,7 @@ function verdict(
       if (candidate.figure && sameNumber(value, target)) return "right";
       if (Math.abs(value - target) <= allowed + reading.half + Math.abs(target) * 1e-12)
         return "right";
+      if (candidate.word) continue;
       const ratio = target === 0 ? null : Math.abs(value) / Math.abs(target);
       if (
         ratio === null ? Math.abs(value) <= 3 * Math.max(allowed, 1) : ratio >= 1 / 3 && ratio <= 3
@@ -353,7 +403,7 @@ function judge(
 /** The candidates a line holds near `near`: a table row's cells under or beside a matching word. */
 function nearCandidates(line: Line, near: RegExp): Candidate[] {
   const test = (text: string) => once(near).test(text);
-  if (!line.row) return test(line.text) ? line.candidates : [];
+  if (!line.row) return test(line.text) || (line.lead && test(line.lead)) ? line.candidates : [];
   const { cells, headings } = line.row;
   if (cells.some((cell) => cell.candidates.length === 0 && test(cell.text))) {
     return cells.flatMap((cell) => cell.candidates);
@@ -577,6 +627,55 @@ function recalculatedMarkers(answer: SavedAnswer): Map<number, number> {
   return markers;
 }
 
+/** A Note's footnote, as its Markdown export writes a Citation: "[^3]: Contract, p. 7 …". */
+const FOOTNOTE = /^\[\^([^\]]+)\]:\s*(.+)$/;
+const PAGE = /\b(?:p|pp|page|pages)\.?\s*(\d+)(?:\s*[-–]\s*(\d+))?|第\s*(\d+)\s*页/i;
+
+/** Where a Note's Citations point, by their marker in the text this scorer reads. */
+interface NoteCitation {
+  text: string;
+  pages: [number, number] | null;
+}
+
+/**
+ * The Answer with the Notes it wrote its results into read after its own text, each Note's
+ * footnote markers renumbered past the Answer's own, so a result written there counts.
+ */
+function withNotes(record: AnswerRecord, answer: SavedAnswer) {
+  const cited = new Map<number, NoteCitation>();
+  let next = Math.max(0, ...answer.citations.map((citation) => citation.marker)) + 1000;
+  const texts: string[] = [];
+  for (const note of record.notes ?? []) {
+    const renumbered = new Map<string, number>();
+    const marker = (label: string) => {
+      const known = renumbered.get(label);
+      if (known !== undefined) return known;
+      renumbered.set(label, next);
+      return next++;
+    };
+    const body: string[] = [];
+    for (const line of note.markdown.split("\n")) {
+      const footnote = FOOTNOTE.exec(line);
+      if (footnote) {
+        const page = PAGE.exec(footnote[2] ?? "");
+        const from = Number(page?.[1] ?? page?.[3] ?? Number.NaN);
+        const to = Number(page?.[2] ?? from);
+        cited.set(marker(footnote[1] ?? ""), {
+          text: footnote[2] ?? "",
+          pages: Number.isFinite(from) ? [from, to] : null,
+        });
+        continue;
+      }
+      body.push(line.replace(/\[\^([^\]]+)\]/g, (_, label: string) => `[^${marker(label)}]`));
+    }
+    texts.push(body.join("\n"));
+  }
+  return {
+    answer: texts.length ? { ...answer, text: [answer.text, ...texts].join("\n\n") } : answer,
+    cited,
+  };
+}
+
 const NO_ANSWER: SavedAnswer = {
   status: "failed",
   text: "",
@@ -590,7 +689,8 @@ const NO_ANSWER: SavedAnswer = {
 };
 
 export function scoreAnswer(task: Task, reference: Reference, record: AnswerRecord): TaskScore {
-  const answer = record.answer ?? NO_ANSWER;
+  const own = record.answer ?? NO_ANSWER;
+  const { answer, cited: noted } = withNotes(record, own);
   const lines = linesOf(answer);
   const whole = lines.map((line) => line.text).join("\n");
   const expectations: ExpectationScore[] = [];
@@ -654,16 +754,23 @@ export function scoreAnswer(task: Task, reference: Reference, record: AnswerReco
 
   // C2: every input opens where it was read, and every "recalculated" figure is recalculated and right.
   const notes: string[] = [];
-  const read = readDocuments(answer);
+  const read = [...readDocuments(answer), ...[...noted.values()].map((each) => each.text)];
   for (const name of task.sources?.documents ?? []) {
     const document = record.documents.find((each) => each.english === name);
-    if (!document || !read.has(document.name)) notes.push(`${name} was neither read nor cited`);
+    // The app names a Document by its file's name without the extension.
+    const title = document?.name.replace(/\.[^.]+$/, "") ?? null;
+    if (!title || !read.some((each) => each === document?.name || each.includes(title)))
+      notes.push(`${name} was neither read nor cited`);
   }
   const citations = new Map(answer.citations.map((citation) => [citation.marker, citation]));
   for (const [id, page] of Object.entries(task.sources?.pages ?? {})) {
     const at = rightLines.get(id);
     const cites = lines.find((line) => line.index === at)?.cites ?? [];
-    if (!cites.some((marker) => covers(citations.get(marker), page)))
+    const inNote = (marker: number) => {
+      const pages = noted.get(marker)?.pages;
+      return pages ? pages[0] <= page && page <= pages[1] : false;
+    };
+    if (!cites.some((marker) => covers(citations.get(marker), page) || inNote(marker)))
       notes.push(`${id} doesn't cite page ${page}`);
   }
   for (const analysis of answer.analyses) {
@@ -716,7 +823,7 @@ export function scoreAnswer(task: Task, reference: Reference, record: AnswerReco
     answer.analyses.length,
     answer.toolCalls.filter((call) => call.source === "analysis").length,
   );
-  const answered = record.answer !== null && answer.status === "done";
+  const answered = record.answer !== null && own.status === "done";
   const C5 = answered && record.seconds <= SLOWEST_SECONDS && runs <= MOST_RUNS;
 
   const end: TaskEnd = !answered

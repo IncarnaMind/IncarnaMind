@@ -712,3 +712,124 @@ describe("p-values", () => {
     expect(outcomes(scoreAnswer(tiny, reference, record(large)))).toEqual({ p: "missing" });
   });
 });
+
+describe("results the Answer wrote into a Note", () => {
+  const terms: Task = {
+    ...TASK,
+    expect: [
+      {
+        id: "total",
+        kind: "number",
+        label: "Total",
+        unit: "plain",
+        tolerance: { abs: 0.01 },
+        near: /total/i,
+      },
+    ],
+    sources: { documents: ["Budget.xlsx"], pages: { total: 7 } },
+  };
+  const pointer = answer(
+    ["I put the table in a new Note, Key terms, with each term's page cited."],
+    {
+      figures: [],
+      analyses: [],
+      citations: [],
+    },
+  );
+  const note = (page: number) => ({
+    mindId: "m1",
+    markdown: [
+      "# Key terms",
+      "",
+      "| Term | Value |",
+      "| --- | --- |",
+      "| Total | 12,345.67[^a] |",
+      "",
+      `[^a]: Budget, p. ${page}: "Total 12,345.67"`,
+    ].join("\n"),
+  });
+
+  test("count, with the Note's page Citation, and the app's name for the Document", () => {
+    const score = scoreAnswer(terms, REFERENCE, record(pointer, { notes: [note(7)] }));
+
+    expect(outcomes(score)).toEqual({ total: "right" });
+    expect(score.checks).toMatchObject({ C1: true, C2: true });
+  });
+
+  test("and a Note citing another page fails C2", () => {
+    const score = scoreAnswer(terms, REFERENCE, record(pointer, { notes: [note(8)] }));
+
+    expect(outcomes(score)).toEqual({ total: "right" });
+    expect(score.notes).toEqual(["total doesn't cite page 7"]);
+  });
+});
+
+test("a Document is known by the app's name for it, without its extension", () => {
+  const named = answer(RIGHT, {
+    citations: [{ ...citation(1, "Budget.xlsx", null), documentName: "Budget" }],
+    analyses: [
+      analysis({
+        inputs: [
+          {
+            kind: "range",
+            name: "budget",
+            citation: { ...citation(0, "Budget.xlsx", null), documentName: "Budget" },
+            range: "A1:N41",
+            rows: 40,
+            columns: 14,
+            rowCount: 40,
+            cut: false,
+            sha256: "sha",
+          },
+        ],
+      }),
+    ],
+  });
+
+  expect(scoreAnswer(TASK, REFERENCE, record(named)).checks.C2).toBe(true);
+});
+
+describe("results under a lead-in line, and counts in words", () => {
+  const welch: Task = {
+    ...TASK,
+    expect: [
+      {
+        id: "f",
+        kind: "number",
+        label: "Welch's F",
+        unit: "plain",
+        tolerance: { abs: 0.05 },
+        near: /welch/i,
+      },
+      {
+        id: "pairs",
+        kind: "number",
+        label: "Pairs that differ",
+        unit: "plain",
+        tolerance: { abs: 0 },
+        near: /pairs/i,
+      },
+    ],
+  };
+  const reference: Reference = { task: "T00", inputs: {}, values: { f: 33.09, pairs: 5 } };
+  const lines = (f: string, pairs: string) =>
+    answer(["**Welch ANOVA:** the depots differ.", `- F = ${f}`, "- df = 3 and 118", "", pairs], {
+      figures: [],
+    });
+
+  test("read a bullet by its lead-in's words, and a count written as a word", () => {
+    expect(
+      outcomes(
+        scoreAnswer(welch, reference, record(lines("33.09", "Five of the six pairs differ."))),
+      ),
+    ).toEqual({ f: "right", pairs: "right" });
+  });
+
+  test("a wrong number in the bullet is wrong, and a wrong word is never taken", () => {
+    expect(
+      outcomes(
+        scoreAnswer(welch, reference, record(lines("33.38", "Four of the six pairs differ."))),
+      ),
+    ).toEqual({ f: "wrong", pairs: "missing" });
+  });
+});

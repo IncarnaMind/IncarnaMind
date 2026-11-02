@@ -23,7 +23,14 @@ import { openPackage } from "../../src/core/documents/formats/zip";
 import { commitOf } from "../lib/commit";
 import { inputsHash } from "./inputs";
 import { tasksNamed } from "./load";
-import type { DocumentEnd, RequestUsage, RunRecord, SavedAnswer, SavedFile } from "./record";
+import type {
+  DocumentEnd,
+  RequestUsage,
+  RunRecord,
+  SavedAnswer,
+  SavedFile,
+  SavedNote,
+} from "./record";
 import { dollarsIn } from "./spend";
 import type { Task, TaskLanguage } from "./task";
 
@@ -310,6 +317,7 @@ test("the any-analysis set", async () => {
         inputs: inputsHash(inputs),
         documents: ends,
         answer: answer ? saved(answer) : null,
+        notes: answer ? await notesOf(core, answer) : [],
         problem: answer ? null : `No Answer within ${ANSWER_LIMIT_MS / 1000} s.`,
         seconds,
         requests: requestsSince(dataDir, since),
@@ -346,6 +354,23 @@ test("the any-analysis set", async () => {
 });
 
 type Bridged = ReturnType<typeof bridge>;
+
+/** The Notes the Answer made or changed, read back as their Markdown export, where its results may be. */
+async function notesOf(core: Bridged, answer: ConversationAnswer): Promise<SavedNote[]> {
+  const ids = [
+    ...new Set(
+      answer.toolCalls.flatMap((call) => (call.mindChange?.mindId ? [call.mindChange.mindId] : [])),
+    ),
+  ];
+  return core.call(async (bridged, given) => {
+    const notes = [];
+    for (const mindId of given as string[]) {
+      const exported = await bridged.exportMind(mindId, { format: "markdown" });
+      notes.push({ mindId, markdown: new TextDecoder().decode(exported.data) });
+    }
+    return notes;
+  }, ids);
+}
 type ListedDocument = { id: string; status: string; failure: string | null };
 
 async function waitForDocuments(core: Bridged, ids: readonly string[]): Promise<ListedDocument[]> {

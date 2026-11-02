@@ -63,6 +63,12 @@ export interface SavedFile {
   formulas: number;
 }
 
+/** A Note the Answer made or changed, as its Markdown export reads (citations as footnotes). */
+export interface SavedNote {
+  mindId: string;
+  markdown: string;
+}
+
 export interface AnswerRecord {
   task: string;
   language: TaskLanguage;
@@ -72,6 +78,8 @@ export interface AnswerRecord {
   inputs: string;
   documents: DocumentEnd[];
   answer: SavedAnswer | null;
+  /** The Notes it wrote its results into; absent in runs before they were kept. */
+  notes?: SavedNote[];
   /** Why there is no Answer: the run's own words. */
   problem: string | null;
   /** From asking to the Answer's end. */

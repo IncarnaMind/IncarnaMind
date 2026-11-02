@@ -26,11 +26,16 @@ grid = {(g, w): enterprise_value(g / 100, w / 100) for g in range(0, 7) for w in
 base = enterprise_value(given["terminal"], given["wacc"])
 assert abs(base - workbook) <= 1e-9 * abs(workbook)
 
+# In $000 as the workbook states it, or the same in dollars: both are the right figure.
+def scales(value):
+    return [value, value * 1000]
+
+
 result = {
-    "value_g0_w7": grid[(0, 7)],
-    "value_g6_w7": grid[(6, 7)],
-    "value_g0_w12": grid[(0, 12)],
-    "value_g6_w12": grid[(6, 12)],
-    "base_case": workbook,
+    "value_g0_w7": scales(grid[(0, 7)]),
+    "value_g6_w7": scales(grid[(6, 7)]),
+    "value_g0_w12": scales(grid[(0, 12)]),
+    "value_g6_w12": scales(grid[(6, 12)]),
+    "base_case": scales(workbook),
     "grid": [{"key": f"{g}%", **{f"wacc_{w}": grid[(g, w)] for w in range(7, 13)}} for g in range(0, 7)],
 }
