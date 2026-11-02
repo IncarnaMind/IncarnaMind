@@ -53,6 +53,8 @@ interface Case {
   roles: string;
   /** More lines of its reply, such as a Coverage line. */
   extra?: string[];
+  /** Its Roles line once asked for the sentence's own words; the same line again when absent. */
+  again?: string;
   /** The Document's number each figure of the sentence is bound to, when it has one. */
   number?: string;
 }
@@ -81,12 +83,13 @@ function replying(each: Case, calls: ModelCall[]) {
           ],
         };
       }
+      const asked = call.prompt.includes(ASKED);
       const lines = [
         `Verdict: ${each.verdict}`,
         "Absence: no",
         "Scope: none, same",
         "Topic: found",
-        `Roles: ${each.roles}`,
+        `Roles: ${asked ? (each.again ?? each.roles) : each.roles}`,
         "Time: none / none, same",
         "The Document gives this to the Tenant [^1].",
         "Evidence: [1]",
@@ -120,14 +123,20 @@ function replying(each: Case, calls: ModelCall[]) {
   );
 }
 
+/** How the check's ask for the sentence's own words in its Roles line starts. */
+const ASKED = "Your Roles line's first side isn't the sentence's own words";
+
 const paragraph = (id: string, value: string): JSONContent => ({
   type: "paragraph",
   attrs: { id },
   content: [{ type: "text", text: value }],
 });
 
-async function check(each: Case, document: { name: string; contents: string }) {
-  const calls: ModelCall[] = [];
+async function check(
+  each: Case,
+  document: { name: string; contents: string },
+  calls: ModelCall[] = [],
+) {
   const setup = await setUpWithDocuments(replying(each, calls), [document]);
   writeMind(setup.client, [paragraph("point", each.sentence)]);
   await setup.client.settled();
@@ -362,5 +371,69 @@ describe("a Coverage line that names no member and says the membership isn't kno
     const checked = await check(each, document);
     expect(checked?.state).toBe("unsupported");
     expect(checked?.state).not.toBe("supported");
+  });
+});
+
+describe("asked once for the sentence's own words, a reply is judged on them (#1766)", () => {
+  const asks = (calls: readonly ModelCall[]) => calls.filter((call) => call.prompt.includes(ASKED));
+  test.each<[string, Case, typeof RULES, "supported" | "unsupported"]>([
+    [
+      "en, should for may, copied once asked",
+      {
+        sentence: "The Tenant should keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: "none / The Tenant may keep a cat, same",
+        again: "The Tenant should keep a cat / The Tenant may keep a cat, differs",
+      },
+      RULES,
+      "unsupported",
+    ],
+    [
+      "zh, the reversed parties, copied once asked",
+      {
+        sentence: "物业管理员向乙方报修。",
+        quote: "乙方向物业管理员报修。",
+        verdict: "supported",
+        roles: "乙方向物业管理员报修 / 乙方向物业管理员报修, same",
+        again: "物业管理员向乙方报修 / 乙方向物业管理员报修, differs",
+      },
+      RULES_ZH,
+      "unsupported",
+    ],
+    [
+      "en, a faithful sentence copied once asked",
+      {
+        sentence: "Repairs are always reported by the Tenant to the caretaker.",
+        quote: "The Tenant reports repairs to the caretaker.",
+        verdict: "supported",
+        roles: "The Tenant reports repairs / The Tenant reports repairs to the caretaker, same",
+        again:
+          "reported by the Tenant to the caretaker / The Tenant reports repairs to the caretaker, same",
+      },
+      RULES,
+      "supported",
+    ],
+  ])("%s", async (_, each, document, state) => {
+    const calls: ModelCall[] = [];
+    const checked = await check(each, document, calls);
+    expect(checked?.state).toBe(state);
+    expect(asks(calls)).toHaveLength(1);
+  });
+
+  test("a reply that gives the sentence's own words is asked nothing", async () => {
+    const calls: ModelCall[] = [];
+    const checked = await check(
+      {
+        sentence: "乙方每次都向物业管理员报修。",
+        quote: "乙方向物业管理员报修。",
+        verdict: "supported",
+        roles: "乙方 向物业管理员报修 / 乙方向物业管理员报修, same",
+      },
+      RULES_ZH,
+      calls,
+    );
+    expect(checked?.state).toBe("supported");
+    expect(asks(calls)).toHaveLength(0);
   });
 });

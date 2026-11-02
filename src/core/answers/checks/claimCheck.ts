@@ -1100,6 +1100,16 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
                 }
               : null,
         },
+        {
+          name: "roles-own-words",
+          // Asked once; a reply that still gives other words than the sentence's is Not checked.
+          check: (text, aside) => {
+            const verdict = readVerdict(replyAcrossTurns(text, aside ?? []));
+            return verdict && comparesOtherWords(verdict, request.claim)
+              ? { claims: [], writeOnly: true, note: ROLES_OWN_WORDS }
+              : null;
+          },
+        },
       ],
       signal,
     })) {
@@ -1733,6 +1743,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
  * "人力资源总监向乙方汇报"), "none" for "should be carried over", then called the two the same
  * (#1766). It can't be read as support.
  */
+const ROLES_OWN_WORDS =
+  "Your Roles line's first side isn't the sentence's own words. Copy from the sentence, word for word and in its own order, the words that say who does it, for or to whom, and whether it must or may happen; then \" / \" and the Passage's words; then same, differs or other. Then give your whole reply again.";
+
 function comparesOtherWords(verdict: ReadVerdict, claim: string): boolean {
   return (
     verdict.verdict === "supported" &&
