@@ -385,7 +385,12 @@ const figuresOfBlock = perBlock((block) => {
   return found;
 });
 
-/** Prune inside the same transaction as the content change, before its Undo item is captured. */
+/**
+ * Removes the records of figures a Note no longer holds. Only a caller that knows it dropped a
+ * figure calls this, inside the transaction its Undo brings back (the editor, on an edit that
+ * takes a figure away). A write that merely leaves a figure out for a moment is no removal, and
+ * taking its record then leaves the figure a later write puts back without one (#2378).
+ */
 export function pruneFigureRuns(doc: Y.Doc): void {
   if (doc.store.pendingStructs !== null || doc.store.pendingDs !== null) return;
   const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);

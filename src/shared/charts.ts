@@ -20,6 +20,7 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
 } from "../core/api";
+import type { AnalysisTableMatch } from "./analysisTables";
 import type { NodeJSON } from "./blockJson";
 import { readCalculatedFigureAttributes } from "./calculatedFigures";
 import { type Figure, type FigureUnit, figureContextOf, readFigures } from "./figures";
@@ -621,6 +622,8 @@ export interface SourceCell extends SourceLine {
   header: boolean;
   /** It spans down or across from another slot: its value is that slot's, its words read again. */
   continued?: boolean;
+  /** The number it holds where something knows it better than its text: an Analysis's own value (#2378). */
+  number?: number;
 }
 
 /** A table laid out on its grid, row by row: a cell in each slot, or null where none is. */
@@ -897,6 +900,11 @@ export function chartFromTable(
   const { first, headingRow, firstDataRow, dataRows, columns, figuresIn } = table;
   if (!numericSeries(table)) return null;
 
+  // A heading can cite what its column states, as an Analysis's own table cites the inputs it read:
+  // every value beneath it rests on that Citation too (#2378).
+  const headingCitation = (column: number) =>
+    headingRow ? (first[column]?.citation ?? null) : null;
+
   const valueAt = (cell: SourceCell | null, row: number, column: number): ChartValue | null => {
     if (!cell || cell.continued || cell.text.trim() === "") return null;
     const read = figureIn(figuresIn(cell.text, column));
@@ -905,10 +913,10 @@ export function chartFromTable(
     const worked = calculated.figure?.figure.value;
     return {
       shown: cell.text.trim(),
-      value: typeof worked === "number" ? worked : (read?.value ?? null),
+      value: typeof worked === "number" ? worked : (cell.number ?? read?.value ?? null),
       unit: read ? read.figure.unit : null,
       scale: read ? read.figure.scale : null,
-      citation: calculated.figure ? null : cell.citation,
+      citation: calculated.figure ? null : (cell.citation ?? headingCitation(column)),
       ...calculated,
       from: { kind: "cell", row, column },
     };
@@ -1112,6 +1120,23 @@ export function gridOfTable(table: NodeJSON): SourceGrid {
   });
   const width = Math.max(0, ...grid.map((row) => row.length));
   return grid.map((row) => Array.from({ length: width }, (_, column) => row[column] ?? null));
+}
+
+/**
+ * A grid with the numbers the Analysis gave where its cells read: its own value, never the number
+ * a rounded display reads as, and the Citation its inputs have (#2378).
+ */
+export function withAnalysisValues(grid: SourceGrid, match: AnalysisTableMatch): SourceGrid {
+  const citation = match.citations[0] ?? null;
+  return grid.map((row, at) =>
+    row.map((cell, column) => {
+      if (!cell || at === 0) return cell;
+      const value = match.value(at - 1, column);
+      return value === null
+        ? cell
+        : { ...cell, number: value, citation: cell.citation ?? citation };
+    }),
+  );
 }
 
 /** What separates a label from the figure after it: "Q1: 289.4", "Revenue – $1.2bn". */

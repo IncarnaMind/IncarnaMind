@@ -4,12 +4,14 @@
  * does (#436), and put it right after that table, in the same change. Every
  * value keeps its cell's Citation.
  */
+import type { AnalysisTableMatch } from "../../../shared/analysisTables";
 import {
   CHART_KINDS,
   type ChartKind,
   chartFromTable,
   gridOfTable,
   kindFits,
+  withAnalysisValues,
 } from "../../../shared/charts";
 import { FIGURE_MARKER, numberBefore, type PlacedFigure } from "../../../shared/figureMarkers";
 import { translate } from "../../../shared/i18n";
@@ -96,7 +98,8 @@ export function calculatedCells(
  * The chart Block of `table`, whose id is `tableId`; or, when none may be drawn, why, and what
  * to tell the model, which keeps the table. A table the model writes (`calculated` given) draws
  * only values that are cited or come from calculate; a table already in the Mind is charted as
- * "Chart from table" charts it.
+ * "Chart from table" charts it. `analysis`, when the table is an Analysis's own, draws its values
+ * as the Analysis gave them, each cited to the Analysis's inputs (#2378).
  */
 export function chartOfTable(
   table: NodeJSON,
@@ -104,8 +107,10 @@ export function chartOfTable(
   asked: ChartAsked,
   language: Language,
   calculated: ((row: number, column: number) => boolean) | null,
+  analysis: AnalysisTableMatch | null = null,
 ): { chart: NodeJSON } | { problem: ChartProblem; why: string } {
-  const chart = chartFromTable(gridOfTable(table), {
+  const grid = gridOfTable(table);
+  const chart = chartFromTable(analysis ? withAnalysisValues(grid, analysis) : grid, {
     blockId: tableId,
     title: asked.title,
     language,
