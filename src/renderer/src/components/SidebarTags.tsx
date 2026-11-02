@@ -26,7 +26,7 @@ import {
   rowIconClass,
 } from "./sidebarRows";
 import { TagColourChoices, TagDot } from "./TagColour";
-import { menuClass } from "./ui";
+import { menuFrameClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 
 /**
@@ -288,7 +288,7 @@ function TagRow({ tag, count }: { tag: Tag; count: number }) {
           role="menu"
           aria-label={colourLabel}
           data-testid="tag-colour-menu"
-          className={menuClass}
+          className={`${menuFrameClass} w-max`}
         >
           {colours.open && (
             <div className="p-2">
