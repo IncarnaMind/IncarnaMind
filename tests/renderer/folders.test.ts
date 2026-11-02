@@ -61,4 +61,15 @@ describe("the Folder tree", () => {
     expect(folderWallOf(walled, "finance")).toBe("finance");
     expect(folderWallOf(walled, "other")).toBeNull();
   });
+
+  test("a wall inside a wall is the inner one, as the core reads it", () => {
+    const walls = [
+      folder("clientA", null, true),
+      folder("clientB", "clientA", true),
+      folder("drafts", "clientB"),
+    ];
+    expect(folderWallOf(walls, "drafts")).toBe("clientB");
+    expect(folderWallOf(walls, "clientB")).toBe("clientB");
+    expect(folderWallOf(walls, "clientA")).toBe("clientA");
+  });
 });

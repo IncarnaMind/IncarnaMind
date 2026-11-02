@@ -77,10 +77,14 @@ export function isInsideFolder(
   return folderChain(folders, id).some((folder) => folder.id === ancestorId);
 }
 
-/** The Folder keeping its work inside it that this Folder is inside, or is; null outside every wall. */
+/**
+ * The Folder keeping its work inside it that this Folder is inside, or is: the nearest one, as
+ * the core reads them, so a wall inside a wall is the inner wall's (#1934, #246); null outside
+ * every wall.
+ */
 export function folderWallOf<T extends TreeFolder & { keepInside?: boolean }>(
   folders: readonly T[],
   id: string,
 ): string | null {
-  return folderChain(folders, id).find((folder) => folder.keepInside === true)?.id ?? null;
+  return folderChain(folders, id).findLast((folder) => folder.keepInside === true)?.id ?? null;
 }

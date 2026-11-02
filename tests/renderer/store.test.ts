@@ -1464,6 +1464,74 @@ describe("making a Folder", () => {
   });
 });
 
+describe("moving Folders", () => {
+  const folder = (id: string, name: string, parentId: string | null, keepInside = false) => ({
+    id,
+    name,
+    description: "",
+    parentId,
+    countsOwnFiles: false,
+    keepInside,
+    createdAt: "",
+    updatedAt: "",
+  });
+  let useUndo: typeof import("../../src/renderer/src/undo").useUndo;
+
+  beforeAll(async () => {
+    ({ useUndo } = await import("../../src/renderer/src/undo"));
+  });
+
+  beforeEach(() => {
+    useUndo.setState({ done: [], undone: [], line: null });
+    useAppStore.setState({ settings: { language: "en" } as never });
+  });
+
+  test("a Folder moved out of a wall says so, and one Undo puts it back", async () => {
+    const client = folder("client", "Client A", null, true);
+    const drafts = folder("drafts", "Drafts", "client");
+    const library = { ...snapshot([]), groups: [client, drafts] };
+    useAppStore.setState({ library });
+    method("moveLibraryGroups").mockResolvedValue(["drafts"]);
+    method("getLibrary").mockResolvedValue({
+      ...library,
+      groups: [client, { ...drafts, parentId: null }],
+    });
+
+    await useAppStore.getState().moveFolders(["drafts"], null);
+
+    expect(method("moveLibraryGroups")).toHaveBeenCalledWith([{ id: "drafts", parentId: null }]);
+    expect(said(useUndo.getState().done.at(-1))).toBe(
+      "Moved the Folder “Drafts” out of “Client A” It is no longer limited to that Folder’s Documents and notes.",
+    );
+    await useUndo.getState().undo();
+    expect(method("moveLibraryGroups")).toHaveBeenLastCalledWith([
+      { id: "drafts", parentId: "client" },
+    ]);
+  });
+
+  test("a sub-Folder selected with its parent goes with it: one call, one Undo", async () => {
+    const thesis = folder("thesis", "Thesis", null);
+    const chapter = folder("chapter", "Chapter 2", "thesis");
+    const archive = folder("archive", "Archive", null);
+    const library = { ...snapshot([]), groups: [thesis, chapter, archive] };
+    useAppStore.setState({ library });
+    method("moveLibraryGroups").mockResolvedValue(["thesis"]);
+    method("getLibrary").mockResolvedValue({
+      ...library,
+      groups: [{ ...thesis, parentId: "archive" }, chapter, archive],
+    });
+
+    await useAppStore.getState().moveFolders(["thesis", "chapter"], "archive");
+
+    expect(method("moveLibraryGroups")).toHaveBeenCalledTimes(1);
+    expect(method("moveLibraryGroups")).toHaveBeenCalledWith([
+      { id: "thesis", parentId: "archive" },
+    ]);
+    expect(useUndo.getState().done).toHaveLength(1);
+    expect(said(useUndo.getState().done.at(-1))).toBe("Moved the Folder “Thesis” into “Archive”");
+  });
+});
+
 describe("loading keeps a list the core pushed after reading it", () => {
   beforeEach(() => {
     method("listMinds").mockResolvedValue([]);

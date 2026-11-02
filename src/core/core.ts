@@ -1438,10 +1438,15 @@ export function createCore(adapters: CoreAdapters): Core {
     const walled = library.folders().filter((folder) => folder.keepInside);
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const ownWall = own === null ? null : library.wallOf(own);
-    const wallIds = wanted.folderIds.filter((id) => library.wallOf(id) !== null);
+    const wallIds = new Set(
+      wanted.folderIds.flatMap((id) => {
+        const wall = library.wallOf(id);
+        return wall === null ? [] : [wall];
+      }),
+    );
     const explicitFolderScope =
       mindId === null &&
-      wallIds.length === 1 &&
+      wallIds.size === 1 &&
       wanted.folderIds.every((id) => library.wallOf(id) !== null) &&
       wanted.tagIds.length === 0 &&
       wanted.documentIds.length === 0;
@@ -1548,9 +1553,10 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   /**
    * The one place deciding where the assistant files what it makes (#1934): work behind the wall
-   * `wallId` files it in that Folder, whatever Folder was `asked`; work outside every wall never
-   * files it in a walled Folder. Null: it can't be filed, so nothing may be made, as when the
-   * wall's Folder is gone or the turn's wall isn't known.
+   * `wallId` files it in that Folder, or in a Folder inside it when that is the one `asked`; it
+   * never leaves the wall. Work outside every wall never files in a walled Folder. Null: it
+   * can't be filed, so nothing may be made, as when the wall's Folder is gone or the turn's
+   * wall isn't known.
    */
   const filedWithin = (
     wallId: string | null,
@@ -1562,7 +1568,13 @@ export function createCore(adapters: CoreAdapters): Core {
       if (walledFolderId(asked) !== null) return { folderId: null };
       return library.folders().some((folder) => folder.id === asked) ? { folderId: asked } : null;
     }
-    return library.folders().some((folder) => folder.id === wallId) ? { folderId: wallId } : null;
+    const wall = library.folders().find((folder) => folder.id === wallId);
+    // The wall's Folder is gone: nothing may be made. Its wall switched off since: no wall is left
+    // to stay inside, so the file goes where it asks, as before it had one (#2250).
+    if (!wall) return null;
+    if (!wall.keepInside) return { folderId: asked ?? wallId };
+    if (asked === null) return { folderId: wallId };
+    return library.wallOf(asked) === wallId ? { folderId: asked } : null;
   };
   /**
    * Whether work on the wall `wallId`'s side (null: outside every wall) may be filed in `folderId`
@@ -4393,6 +4405,7 @@ export function createCore(adapters: CoreAdapters): Core {
           name: folder.name,
           keepInside: folder.keepInside,
         })),
+      wallOf: (folderId) => library.wallOf(folderId),
       foldersInScope: folderIdsInScope,
       documentsIn: (folderIds) => {
         // A pairing granted a Folder behind a wall reads that Folder and the Folders inside it,
@@ -5325,6 +5338,7 @@ export function createCore(adapters: CoreAdapters): Core {
     getLibrary: async () => library.snapshot(),
     createLibraryGroup: async (input) => library.create(input),
     updateLibraryGroup: async (id, input) => library.update(id, input),
+    moveLibraryGroups: async (moves) => library.moveGroups(moves),
     deleteLibraryGroup: async (id) => removeFolder(id),
     addLibraryStarterGroups: async (keys) => library.addStarters(keys),
     saveLibrarySettings: async (input) => {

@@ -1290,44 +1290,60 @@ export const useAppStore = create<AppState>()((set, get) => {
     moveFolders: (folderIds, parentId) =>
       attempt(async () => {
         const groups = get().library?.groups ?? [];
-        const moving = folderIds.flatMap((folderId) => {
+        const chosen = [...new Set(folderIds)].flatMap((folderId) => {
           const folder = groups.find((group) => group.id === folderId);
-          if (!folder || folder.parentId === parentId) return [];
-          // A Folder can't go inside itself or one of its own sub-Folders.
-          if (parentId !== null && isInsideFolder(groups, parentId, folderId)) return [];
-          return [folder];
+          return folder ? [folder] : [];
         });
-        if (moving.length === 0) return;
-        const putIn = (entries: readonly { id: string; parent: string | null }[]) => async () => {
-          for (const entry of entries) {
-            const groups = useAppStore.getState().library?.groups ?? [];
-            const moved = groups.find((group) => group.id === entry.id);
-            if (!moved) continue;
-            await core.updateLibraryGroup(entry.id, {
-              name: moved.name,
-              description: moved.description,
-              countsOwnFiles: moved.countsOwnFiles,
-              keepInside: moved.keepInside,
-              parentId: entry.parent,
-            });
-          }
-          await get().refreshLibrary();
-        };
-        await putIn(moving.map((folder) => ({ id: folder.id, parent: parentId })))();
-        const before = folderPathLabel(groups, moving[0]?.parentId ?? null);
-        const after = parentId === null ? null : folderPathLabel(groups, parentId);
+        // A Folder moved with one of its own Folders goes with it, so the tree keeps its shape.
+        const moving = chosen.filter(
+          (folder) =>
+            !chosen.some(
+              (other) => other.id !== folder.id && isInsideFolder(groups, folder.id, other.id),
+            ),
+        );
+        const changes = moving.filter((folder) => folder.parentId !== parentId);
+        if (changes.length === 0) return;
+        // Work that leaves a wall says so, as a Document's move does.
+        const after = parentId === null ? null : folderWallOf(groups, parentId);
+        const outOfWall = changes.some((folder) => {
+          const before = folderWallOf(groups, folder.id);
+          return before !== null && before !== (folder.keepInside ? folder.id : after);
+        });
+        const moved = await core.moveLibraryGroups(
+          changes.map((folder) => ({ id: folder.id, parentId })),
+        );
+        await get().refreshLibrary();
+        const went = new Set(moved);
+        const used = changes.filter((folder) => went.has(folder.id));
+        if (used.length === 0) return;
+        const before = folderPathLabel(groups, used[0]?.parentId ?? null);
+        const afterLabel = parentId === null ? null : folderPathLabel(groups, parentId);
         push({
-          said: (t) =>
-            moving.length === 1
-              ? parentId === null
-                ? t("folder.moved.out", { name: moving[0]?.name ?? "", from: before })
-                : t("folder.moved.into", { name: moving[0]?.name ?? "", into: after ?? "" })
-              : parentId === null
-                ? t("folder.moved.many.top", { count: moving.length })
-                : t("folder.moved.many.into", { count: moving.length, into: after ?? "" }),
-          name: (t) => t(moving.length === 1 ? "undo.name.moveFolder" : "undo.name.moveFolders"),
-          undo: putIn(moving.map((folder) => ({ id: folder.id, parent: folder.parentId }))),
-          redo: putIn(moving.map((folder) => ({ id: folder.id, parent: parentId }))),
+          said: (t) => {
+            const line =
+              used.length === 1
+                ? parentId === null
+                  ? t("folder.moved.out", { name: used[0]?.name ?? "", from: before })
+                  : t("folder.moved.into", { name: used[0]?.name ?? "", into: afterLabel ?? "" })
+                : parentId === null
+                  ? t("folder.moved.many.top", { count: used.length })
+                  : t("folder.moved.many.into", {
+                      count: used.length,
+                      into: afterLabel ?? "",
+                    });
+            return outOfWall ? `${line} ${t("move.outOfWall")}` : line;
+          },
+          name: (t) => t(used.length === 1 ? "undo.name.moveFolder" : "undo.name.moveFolders"),
+          undo: async () => {
+            await core.moveLibraryGroups(
+              used.map((folder) => ({ id: folder.id, parentId: folder.parentId })),
+            );
+            await get().refreshLibrary();
+          },
+          redo: async () => {
+            await core.moveLibraryGroups(used.map((folder) => ({ id: folder.id, parentId })));
+            await get().refreshLibrary();
+          },
         });
       }),
 

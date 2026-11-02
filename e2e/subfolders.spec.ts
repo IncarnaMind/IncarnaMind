@@ -171,7 +171,12 @@ for (const [language, width] of [
 
       // A Folder can't go inside itself or one of its own sub-Folders: the target says why.
       await dragOnto(window, row(window, thesis), row(window, chapter), async () => {
-        await expect(window.getByTestId("drop-refusal")).toBeVisible();
+        const refusal = window.getByTestId("drop-refusal");
+        await expect(refusal).toBeVisible();
+        // The whole line shows: it wraps rather than being cut off at the row's width.
+        expect(
+          await refusal.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+        ).toBe(true);
         await screenshot(window, `subfolders-${language}-${width}-drag-refusal`);
       });
       expect(await folders(window)).toMatchObject({ [thesis]: null, [chapter]: thesis });
@@ -367,6 +372,13 @@ for (const [language, width] of [
         .getByTestId("library-subfolder-name")
         .filter({ hasText: chapter });
       await subfolder.focus();
+      // → opens the row and ← closes it, as the sidebar's tree does.
+      await window.keyboard.press("ArrowLeft");
+      await expect(subfolder).toHaveAttribute("aria-expanded", "false");
+      await window.keyboard.press("ArrowRight");
+      await expect(subfolder).toHaveAttribute("aria-expanded", "true");
+      await window.keyboard.press("ArrowLeft");
+      await expect(subfolder).toHaveAttribute("aria-expanded", "false");
       await window.keyboard.press("Enter");
       await expect(subfolder).toHaveAttribute("aria-expanded", "true");
       await motionSettled(window);

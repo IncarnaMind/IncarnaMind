@@ -380,6 +380,60 @@ describe("outside agents", () => {
     );
   });
 
+  it("never reads the wall inside the wall it is paired to, and refuses two Folders behind one wall", async () => {
+    const { core } = await startAgentsCore(replyingModel());
+    const sources = await createSourceFolder();
+    const [harbour, moon] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Harbour.md", "# Harbour\n\nThe harbour wall holds.\n"),
+      await writeSourceFile(sources, "Moon.md", "# Moon\n\nThe harbour at night.\n"),
+    ]);
+    if (!harbour || !moon) throw new Error("The Documents weren't added.");
+    const clientA = await core.createLibraryGroup({ name: "Client A", description: "" });
+    const clientB = await core.createLibraryGroup({ name: "Client B", description: "" });
+    for (const folder of [clientA, clientB])
+      await core.updateLibraryGroup(folder.id, {
+        name: folder.name,
+        description: folder.description,
+        keepInside: true,
+      });
+    const drafts = await core.createLibraryGroup({
+      name: "Drafts",
+      description: "",
+      parentId: clientB.id,
+    });
+    await core.assignDocumentGroup(harbour.id, clientA.id);
+    await core.assignDocumentGroup(moon.id, drafts.id);
+    await core.updateLibraryGroup(clientB.id, {
+      name: clientB.name,
+      description: clientB.description,
+      keepInside: true,
+      parentId: clientA.id,
+    });
+    await core.setAgentsEnabled(true);
+
+    // Paired to the outer wall: its own Documents, never the inner wall's.
+    const outer = await core.connectAgent({ name: "Claude Code", folderIds: [clientA.id] });
+    const agent = await connectLegacyAgent(outer.launch);
+    const listed = structured<{
+      folders: { id: string; name: string; documents: number; minds: unknown[] }[];
+    }>(await agent.callTool({ name: "list_minds", arguments: {} }));
+    expect(listed.folders).toEqual([{ id: clientA.id, name: "Client A", documents: 1, minds: [] }]);
+    const found = structured<SearchOut>(
+      await agent.callTool({ name: "search", arguments: { query: "harbour" } }),
+    );
+    expect([...new Set(found.passages.map((passage) => passage.documentId))]).toEqual([harbour.id]);
+    const inner = await agent.callTool({
+      name: "read_passages",
+      arguments: { documentId: moon.id },
+    });
+    expect(inner.isError).toBe(true);
+
+    // Two Folders behind one wall would read nothing together, so they are refused.
+    await expect(
+      core.connectAgent({ name: "Codex", folderIds: [drafts.id, clientB.id] }),
+    ).rejects.toThrow(/keeps its work inside it/);
+  });
+
   it("refuses an explicitly named Folder that a wall removed from an existing pairing", async () => {
     const { core } = await startAgentsCore(replyingModel());
     const { coast, finance } = await withLibrary(core);

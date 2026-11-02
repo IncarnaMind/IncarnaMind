@@ -177,6 +177,135 @@ describe("Folders inside Folders", () => {
     expect(restored?.parentId).toBe(thesis.id);
   });
 
+  test("a wall inside a wall is the inner wall's: the outer wall's Note never reaches it", async () => {
+    const { core, searches, documentId, folder } = await setUp();
+    const clientA = await folder("Client A");
+    const clientB = await folder("Client B");
+    await core.updateLibraryGroup(clientA.id, {
+      name: clientA.name,
+      description: "",
+      keepInside: true,
+    });
+    await core.updateLibraryGroup(clientB.id, {
+      name: clientB.name,
+      description: "",
+      keepInside: true,
+    });
+    const drafts = await folder("Drafts", clientB.id);
+    await core.assignDocumentGroup(documentId("Harbour"), clientA.id);
+    await core.assignDocumentGroup(documentId("Moon"), drafts.id);
+    // The inner wall moves inside the outer one.
+    await core.updateLibraryGroup(clientB.id, {
+      name: clientB.name,
+      description: "",
+      keepInside: true,
+      parentId: clientA.id,
+    });
+
+    const outer = await core.createMind({ title: "Outer", folderId: clientA.id });
+    await ask(core, outer.id);
+    expect(searches.at(-1)).toEqual(["Harbour"]);
+
+    const inner = await core.createMind({ title: "Inner", folderId: drafts.id });
+    await ask(core, inner.id);
+    expect(searches.at(-1)).toEqual(["Moon"]);
+  });
+
+  test("two sub-Folders of one wall are one wall's scope, not none", async () => {
+    const { core, documentId, folder } = await setUp();
+    const client = await folder("Client A");
+    await core.updateLibraryGroup(client.id, {
+      name: client.name,
+      description: "",
+      keepInside: true,
+    });
+    const drafts = await folder("Drafts", client.id);
+    const filed = await folder("Filed", client.id);
+    await core.assignDocumentGroup(documentId("Harbour"), drafts.id);
+    await core.assignDocumentGroup(documentId("Moon"), filed.id);
+    expect(
+      await core.countScopeDocuments({
+        folderIds: [drafts.id, filed.id],
+        tagIds: [],
+        documentIds: [],
+      }),
+    ).toBe(2);
+  });
+
+  test("moving several Folders keeps a sub-Folder in its parent, and a refused move changes nothing", async () => {
+    const { core, folder } = await setUp();
+    const thesis = await folder("Thesis");
+    const chapter = await folder("Chapter 2", thesis.id);
+    const archive = await folder("Archive");
+
+    // Chapter 2 goes with Thesis rather than out of it, as Finder moves a whole tree.
+    expect(
+      await core.moveLibraryGroups([
+        { id: thesis.id, parentId: archive.id },
+        { id: chapter.id, parentId: archive.id },
+      ]),
+    ).toEqual([thesis.id]);
+    const groups = (await core.getLibrary()).groups;
+    expect(groups.find((group) => group.id === thesis.id)?.parentId).toBe(archive.id);
+    expect(groups.find((group) => group.id === chapter.id)?.parentId).toBe(thesis.id);
+
+    // One move that would put a Folder inside itself moves none of them.
+    await expect(
+      core.moveLibraryGroups([
+        { id: archive.id, parentId: null },
+        { id: thesis.id, parentId: chapter.id },
+      ]),
+    ).rejects.toThrow(InvalidInputError);
+    const after = (await core.getLibrary()).groups;
+    expect(after.find((group) => group.id === archive.id)?.parentId).toBeNull();
+    expect(after.find((group) => group.id === thesis.id)?.parentId).toBe(archive.id);
+  });
+
+  test("a sub-Folder restored while its parent is still deleted goes to the top level", async () => {
+    const { core, folder } = await setUp();
+    const thesis = await folder("Thesis");
+    const chapter = await folder("Chapter 2", thesis.id);
+    await core.deleteLibraryGroup(chapter.id);
+    await core.deleteLibraryGroup(thesis.id);
+
+    await core.restore([{ kind: "folder", id: chapter.id }]);
+    const restored = (await core.getLibrary()).groups.find((group) => group.id === chapter.id);
+    expect(restored?.parentId).toBeNull();
+    // Restoring Thesis later does not pull it back inside.
+    await core.restore([{ kind: "folder", id: thesis.id }]);
+    const after = (await core.getLibrary()).groups.find((group) => group.id === chapter.id);
+    expect(after?.parentId).toBeNull();
+  });
+
+  test("inside a wall, the assistant files into a sub-Folder of the wall, never outside it", async () => {
+    const { core, documentId, folder } = await setUp();
+    const client = await folder("Client A");
+    await core.updateLibraryGroup(client.id, {
+      name: client.name,
+      description: "",
+      keepInside: true,
+    });
+    const drafts = await folder("Drafts", client.id);
+    const outside = await folder("Outside");
+    const document = documentId("Harbour");
+    await core.assignDocumentGroup(document, client.id);
+
+    const filed = await core.moveToFolder({
+      documentIds: [document],
+      folderId: drafts.id,
+      wall: client.id,
+    });
+    expect(filed.folderId).toBe(drafts.id);
+    expect(filed.documents.map((item) => item.id)).toEqual([document]);
+    expect(
+      (await core.getLibrary()).assignments.find((each) => each.documentId === document)?.groupId,
+    ).toBe(drafts.id);
+
+    await expect(
+      core.moveToFolder({ documentIds: [document], folderId: outside.id, wall: client.id }),
+    ).rejects.toThrow(InvalidInputError);
+  });
+
   test("a Folder that keeps its work inside it keeps the Folders inside it inside the wall too", async () => {
     const { core, searches, documentId, folder } = await setUp();
     const finance = await folder("Finance");

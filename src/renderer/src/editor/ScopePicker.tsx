@@ -25,6 +25,7 @@ import {
   LockLineIcon,
   TagLineIcon,
 } from "../components/lineIcons";
+import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
 import { type ScopeChoice, scopeChoices } from "../scope";
 import { useAppStore } from "../store";
@@ -210,8 +211,11 @@ export function ScopeChoiceList({
   const t = useT();
   const folders = useAppStore((state) => state.folders);
   const groups = useAppStore((state) => state.library?.groups);
+  // The Note's Folder may be inside a wall, not only be one.
   const currentWalled =
-    groups?.find((group) => group.id === ownFolderId && group.keepInside)?.id ?? null;
+    groups && ownFolderId !== undefined && ownFolderId !== null
+      ? folderWallOf(groups, ownFolderId)
+      : null;
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
   const assignments = useAppStore((state) => state.library?.assignments);
@@ -224,7 +228,11 @@ export function ScopeChoiceList({
     if (item.walled !== currentWalled) return true;
     if (item.kind !== "document") return false;
     const filings = (assignments ?? []).filter(
-      (each) => each.documentId === item.id && each.groupId === currentWalled,
+      (each) =>
+        each.documentId === item.id &&
+        each.groupId !== null &&
+        groups !== undefined &&
+        folderWallOf(groups, each.groupId) === currentWalled,
     );
     return !filings.some((each) => each.source === "user");
   };

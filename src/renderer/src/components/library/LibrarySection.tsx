@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Document,
   LibraryGroup,
@@ -27,7 +27,7 @@ import { useOrganizeAsk } from "../../organizeRun";
 import { useRequests } from "../../requests";
 import { useSidebarMove } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
-import { isMoveToKey, TREE_ROW } from "../../treeKeys";
+import { foldKeys, isMoveToKey, TREE_ROW } from "../../treeKeys";
 import { useRename } from "../../useRename";
 import { DetailsLine } from "../DetailsLine";
 import { InlineName } from "../InlineName";
@@ -286,7 +286,7 @@ function SubfolderRow({
                 onKeyDown={(event) => {
                   rename.nameProps.onKeyDown(event);
                   // ← closes it and → opens it, as the sidebar's tree does.
-                  foldKeys(folder.id, open)(event);
+                  foldKeys(open, toggle)(event);
                   if (isMoveToKey(event)) {
                     event.preventDefault();
                     useSidebarMove.getState().show(menuAnchorOf(element.current), object);
@@ -397,7 +397,7 @@ function SubfolderRow({
 }
 
 /** ← folds a section and → opens it, as in the sidebar's tree. */
-function foldKeys(key: string, open: boolean) {
+function sectionFoldKeys(key: string, open: boolean) {
   return (event: KeyboardEvent) => {
     if ((event.key === "ArrowRight" && !open) || (event.key === "ArrowLeft" && open)) {
       event.preventDefault();
@@ -439,7 +439,8 @@ function FolderHead({
     useLibraryFolds.getState().setOpen(folder.id, true);
     useRequests.getState().clear("editFolder");
   }, [editFolder, folder.id]);
-  const arrows = foldKeys(folder.id, open);
+  const arrows = sectionFoldKeys(folder.id, open);
+  const head = useRef<HTMLDivElement>(null);
   const drop = useDropTarget(
     `library-folder:${folder.id}`,
     folderTarget(folder.id),
@@ -512,6 +513,7 @@ function FolderHead({
         }
         tip={folder.description}
         testId="library-section-head"
+        rowRef={head}
         rowProps={rename.renaming ? {} : { ...objectMenu.rowProps, ...dragSource }}
         drop={drop}
         end={
@@ -538,9 +540,7 @@ function FolderHead({
                       useSidebarMove
                         .getState()
                         .show(
-                          document.querySelector<HTMLElement>(
-                            `[data-object-menu="folder:${CSS.escape(folder.id)}"]`,
-                          ),
+                          head.current?.querySelector<HTMLElement>("[data-object-menu]") ?? null,
                           { kind: "folder", id: folder.id },
                         ),
                     ),
@@ -584,7 +584,7 @@ function LooseHead({ documents, open }: { documents: readonly Document[]; open: 
           data-testid="library-section-name"
           aria-expanded={open}
           onClick={toggle}
-          onKeyDown={foldKeys(NOT_IN_A_FOLDER, open)}
+          onKeyDown={sectionFoldKeys(NOT_IN_A_FOLDER, open)}
           className={sectionNameClass}
         >
           {label}

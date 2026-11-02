@@ -10411,6 +10411,12 @@ export interface CoreApi {
   createLibraryGroup(input: LibraryGroupInput): Promise<LibraryGroup>;
   updateLibraryGroup(groupId: string, input: LibraryGroupInput): Promise<LibraryGroup>;
   /**
+   * Moves Folders in one step: each to its new parent (null: the top level). A Folder moved with
+   * one of its own Folders stays where it is, so the tree keeps its shape. Returns the Folders
+   * that moved; nothing moves when any of them can't.
+   */
+  moveLibraryGroups(moves: { id: string; parentId: string | null }[]): Promise<string[]>;
+  /**
    * Its Minds, Documents and conversations go to Not in a Folder. Returns what it held,
    * which restoring it puts back.
    */
@@ -12853,6 +12859,7 @@ const methods: Record<CoreApiMethod, true> = {
   getLibrary: true,
   createLibraryGroup: true,
   updateLibraryGroup: true,
+  moveLibraryGroups: true,
   deleteLibraryGroup: true,
   addLibraryStarterGroups: true,
   saveLibrarySettings: true,

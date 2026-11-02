@@ -11,7 +11,7 @@ type Choice = string | null | { newFolder: string };
 /**
  * The Folders as an indented tree: each with the depth the picker indents it by
  * and, while a query narrows the list, its place beside its name ("Chapter 2
- * sources in Thesis: urban heat"), so two Folders of one name are told apart.
+ * sources in Thesis: urban heat"), so a Folder is still placed out of its tree.
  */
 function treeOptions(
   groups: readonly LibraryGroup[],
@@ -102,13 +102,21 @@ export function MoveToPicker({
       ];
   const matching = (query: string): PickerSection<Choice>[] => {
     const words = queryWords(query);
-    // "Not in a Folder" (or the top level) is found by typing its words too, as a Folder is.
-    const top = topLevel.filter(
-      (option) => words.length === 0 || matchName(words, option.label) !== null,
-    );
-    const found = treeOptions(groups, query, t);
+    if (words.length === 0) return [{ options: [...topLevel, ...treeOptions(groups, "", t)] }];
+    // "Not in a Folder" (or the top level) is found by typing its words too, and ranked with
+    // the Folders: an exact Folder named "Folder" comes before "Not in a Folder".
+    const scoreOf = (option: PickerOption<Choice>) =>
+      Math.max(
+        matchName(words, option.label)?.score ?? 0,
+        ...(option.keywords ?? []).map((text) => matchName(words, text)?.score ?? 0),
+      );
+    const found = [...topLevel, ...treeOptions(groups, query, t)]
+      .map((option) => ({ option, score: scoreOf(option) }))
+      .filter((each) => each.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(({ option }) => option);
     const wanted = query.toLocaleLowerCase();
-    const names = [t("library.unsorted"), t("folder.topLevel"), ...groups.map((g) => g.name)];
+    const names = [t("library.unsorted"), t("folder.topLevel"), ...all.map((g) => g.name)];
     const newFolder: PickerOption<Choice>[] =
       onCreate && query && !taken(names, wanted)
         ? [
@@ -120,7 +128,7 @@ export function MoveToPicker({
             },
           ]
         : [];
-    return [{ options: [...top, ...found, ...newFolder] }];
+    return [{ options: [...found, ...newFolder] }];
   };
   return (
     <SearchPicker<Choice>

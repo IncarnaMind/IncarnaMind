@@ -125,6 +125,19 @@ const DELETED_SUBTREE = `
   )
   SELECT id FROM subtree`;
 
+/**
+ * A Folder and the Folders inside it, stopping at a Folder that keeps its work inside it: that
+ * Folder's work is behind its own wall, never the wall around it (#1934, #246).
+ */
+const TREE = `
+  WITH RECURSIVE tree (id, wall) AS (
+    SELECT id, 0 FROM library_groups WHERE id = ? AND deleted_at IS NULL
+    UNION
+    SELECT g.id, g.keep_inside FROM library_groups g JOIN tree ON g.parent_id = tree.id
+    WHERE g.deleted_at IS NULL AND tree.wall = 0
+  )
+  SELECT id FROM tree WHERE wall = 0`;
+
 /** A stored Folder: its switches are 0 or 1. */
 type GroupRow = Omit<LibraryGroup, "countsOwnFiles" | "keepInside"> & {
   counts_own_files: number;
@@ -504,6 +517,9 @@ export function createLibrary(options: {
   /** A live Folder and every live Folder inside it, at any depth. */
   const subtree = (folderId: string): string[] =>
     db.all<{ id: string }>(SUBTREE, [folderId]).map((row) => row.id);
+  /** A live Folder and the live Folders inside it up to the next wall, that Folder's own excluded. */
+  const tree = (folderId: string): string[] =>
+    db.all<{ id: string }>(TREE, [folderId]).map((row) => row.id);
   /** A deleted Folder and the Folders deleted with it, at any depth. */
   const deletedWith = (folderId: string, at: string): string[] =>
     db.all<{ id: string }>(DELETED_SUBTREE, [folderId, at, at]).map((row) => row.id);
@@ -1166,22 +1182,16 @@ export function createLibrary(options: {
       announce(ids);
       resume();
     },
-    /** The Documents filed in this Folder (a suggestion too, unless the Folder keeps its work inside it). */
     documentIds: filedDocumentIdsOf,
     allDocumentIds: everyFiledDocumentIdsOf,
-    /** A live Folder and the live Folders inside it, at any depth. */
     subtree,
-    /** A deleted Folder and the Folders deleted with it, at any depth. */
     deletedWith,
-    /** The id of the Folder keeping its work inside it that this Folder is in, or is; null outside every wall. */
     wallOf,
-    /** The Documents this Folder and the Folders inside it hold, each once. */
     treeDocumentIds(folderId: string): string[] {
-      return [...new Set(subtree(folderId).flatMap((id) => filedDocumentIdsOf(id)))];
+      return [...new Set(tree(folderId).flatMap((id) => filedDocumentIdsOf(id)))];
     },
-    /** Every Document filed in this Folder or a Folder inside it, suggestions included, each once. */
     allTreeDocumentIds(folderId: string): string[] {
-      return [...new Set(subtree(folderId).flatMap((id) => everyFiledDocumentIdsOf(id)))];
+      return [...new Set(tree(folderId).flatMap((id) => everyFiledDocumentIdsOf(id)))];
     },
     /**
      * The live Documents in no live Folder now, the Library's "Not in a Folder": one with a
@@ -1297,6 +1307,45 @@ export function createLibrary(options: {
       changed();
       return group(existing.id);
     },
+    /**
+     * Moves Folders in one step: each to its new parent (null: the top level). A Folder moved
+     * with one of its own Folders stays where it is, so the tree keeps its shape; one already
+     * there, or gone since, is left. Nothing changes when any move is refused.
+     */
+    moveGroups(moves: readonly { id: string; parentId: string | null }[]): string[] {
+      const wanted = [...new Map(moves.map((move) => [move.id, move])).values()];
+      if (wanted.length === 0) return [];
+      const live = new Map(groups().map((folder) => [folder.id, folder]));
+      const changing = wanted.filter((move) => {
+        const folder = live.get(move.id);
+        return folder !== undefined && folder.parentId !== move.parentId;
+      });
+      // A Folder moving with one of its own Folders goes with it; one listed beside a Folder that
+      // stays where it is moves as it asks.
+      const moving = changing.filter(
+        (move) =>
+          !changing.some((other) => other.id !== move.id && subtree(other.id).includes(move.id)),
+      );
+      for (const move of moving) {
+        if (move.parentId === null) continue;
+        group(move.parentId);
+        if (move.parentId === move.id || subtree(move.id).includes(move.parentId))
+          throw new InvalidInputError({ key: "error.folder.insideItself" });
+      }
+      const changes = moving;
+      if (changes.length === 0) return [];
+      db.transaction(() => {
+        const at = now();
+        for (const change of changes)
+          db.run(
+            "UPDATE library_groups SET parent_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+            [change.parentId, at, change.id],
+          );
+      });
+      revision++;
+      changed();
+      return changes.map((change) => change.id);
+    },
     /** The citation style new Minds in a live Folder start in (#289); null if none was chosen. */
     citationStyle(id: string): CitationStyleId | null {
       return citationStyleOf(group(id).id);
@@ -1407,6 +1456,15 @@ export function createLibrary(options: {
       const list = JSON.stringify(folders);
       db.run(
         "UPDATE library_groups SET deleted_at = NULL, updated_at = ? WHERE id IN (SELECT value FROM json_each(?))",
+        [at, list],
+      );
+      // A Folder restored without the Folder it was in (still deleted) goes to the top level,
+      // rather than point at a Folder that isn't there and come back inside it later.
+      db.run(
+        `UPDATE library_groups SET parent_id = NULL, updated_at = ?
+         WHERE id IN (SELECT value FROM json_each(?))
+           AND parent_id IS NOT NULL
+           AND parent_id NOT IN (SELECT id FROM library_groups WHERE deleted_at IS NULL)`,
         [at, list],
       );
       db.run(

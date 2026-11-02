@@ -266,13 +266,17 @@ export function createAgents(options: AgentsOptions) {
 
   const assertFoldersCanShare = (folderIds: readonly string[]) => {
     if (folderIds.length < 2) return;
-    const walled = options.access
-      .folders()
-      .find((folder) => folder.keepInside === true && folderIds.includes(folder.id));
-    if (walled) {
+    const folders = options.access.folders();
+    const wall = folders
+      .filter((folder) => folderIds.includes(folder.id))
+      .map((folder) => options.access.wallOf(folder.id))
+      .find((id) => id !== null);
+    if (wall !== undefined && wall !== null) {
       throw new AgentRefusedError(
         "outside-scope",
-        say("agents.problem.wallShared", { folder: walled.name }),
+        say("agents.problem.wallShared", {
+          folder: folders.find((folder) => folder.id === wall)?.name ?? "",
+        }),
       );
     }
   };
