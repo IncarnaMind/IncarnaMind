@@ -1,5 +1,5 @@
 ---
-status: decision 1, and decision 3 for Analyses, accepted (2026-10-31, #2346); decisions 2 and 4–6, and decision 3 for run_code, proposed (#2351)
+status: decision 1, and decision 3 for Analyses, accepted (2026-10-31, #2346); decisions 2, 3 for run_code, 4 and 6 accepted as amended on 2026-11-01 (#2351); decision 5 proposed
 ---
 
 # Deep analysis: more Python in the Analysis sandbox first, then code runs in the OS sandbox
@@ -13,7 +13,28 @@ The spike on `spike/run-code-sandbox` measured three ways to give the assistant 
 
 The prototype is `src/core/runCode/`. Its tests are `tests/main/runCode*.test.ts`, and the probes and their results are in `spike/run-code/`, all on that branch.
 
-What #2346 built is decision 1, and decision 3 as it applies to Analyses. `run_code` and everything else here waits for #2351, and stays proposed until it is built.
+What #2346 built is decision 1, and decision 3 as it applies to Analyses. #2351 builds decisions 2, 3 for `run_code`, 4 and 6 on macOS and Linux; Windows (decision 5) stays proposed.
+
+## Amendment, 2026-11-01: `run_code`'s Python is IncarnaMind's own, downloaded on first use (#2351)
+
+The project owner decided three things on 2026-11-01, which replace decision 2's "the User's own `python3`" and the Considered option that chose it:
+
+1. **Python is IncarnaMind's own.** A pinned CPython from python-build-standalone, with a fixed set of wheels locked by their SHA-256: numpy, pandas, scipy, statsmodels, scikit-learn, matplotlib, pillow and openpyxl, and what they depend on. The User's own `python3` is never used.
+   - **One lock, one build per platform.** `scripts/pythonNative/requirements.in` names the eight packages; `uv pip compile --universal --generate-hashes` writes `scripts/pythonNative/lock.txt`, with every wheel's hash for every platform. `scripts/pythonNative.ts` builds the runtime on the platform it runs on, as each platform's runner does: it fetches the pinned python-build-standalone archive and checks it against the SHA-256 recorded beside the lock, fetches this platform's wheels with pip's `--require-hashes`, then installs them with uv offline (`--offline --no-index --find-links`), so nothing is resolved from an index.
+   - **The oldest systems the app runs on.** The wheels are chosen for macOS 12 on Apple silicon and for glibc 2.28 on Linux x86-64 (`manylinux_2_28`), not for the runner's own newer system. Those are the two platforms `run_code` is offered on (decision 5 covers Windows).
+   - **What it records.** Each run records CPython's version, each package's version and the runtime's SHA-256, beside the helper's, as an Analysis in Pyodide records Pyodide's.
+2. **It is downloaded on first use, as the speech model is,** so no installer grows.
+   - **Where from.** The release workflow builds it on each platform's runner and uploads it to the same GitHub Release as the app, as `python-runtime-<platform>.tar.zst`. Its size and SHA-256 are written into the app at build time (`python-native/runtime.json` in the app's resources), so the app only accepts the file built with it. A version whose runtime is byte-for-byte the same as the last one's (the same lock, the same python-build-standalone, the same build script) keeps the copy already downloaded.
+   - **When.** The first `run_code` call that runs Python, never at launch and never in the background. The step of that call says what is downloading, how big it is and how far it has got ("Getting Python ready for analyses · 31 of 74 MB"), where the User asked. bash needs no download.
+   - **Checked and stored like a model.** The file downloads to `runtimes/` in the app's data folder, resumably, and is kept only when its size and SHA-256 are the ones built into the app (`embedding/download.ts`). It is unpacked there, never in the User's home, and imports its packages once, in the OS sandbox, before its first run. A runtime that fails its check is deleted.
+   - **When it can't come.** Offline, a download that fails, or a file that doesn't match: the step says so in plain words, the model is told, and it runs the Analysis in Pyodide instead (decision 1), which needs no download. The next call that needs Python tries again.
+   - **No consent card (ADR-0022).** ADR-0022 asks before anything of the User's goes to a service. The download sends nothing of the User's: one GET for a file IncarnaMind published, from the host its updates come from, carrying no Document, Question or setting, as the model downloads do. The Privacy page lists it with the other traffic that carries no User content.
+   - **Signing.** The runtime is not part of the app bundle, so the app's signature and notarization don't cover it, and its 336 native libraries are not signed one by one. On Apple silicon each carries the ad-hoc signature its builder's linker gave it, which is what macOS requires to load it; a file IncarnaMind writes itself carries no quarantine attribute, so Gatekeeper doesn't assess it. Importing every package once before the first run takes the first-load cost macOS adds while the step says Python is getting ready, rather than in the User's first analysis.
+   - **Figures can be run again.** The runtime is pinned, so a figure from code without `of` can be run again to the same result with the same runtime, as an Analysis's can in Pyodide. The branch for "the User's own Python, which can't be run again" is dropped.
+3. **python-build-standalone's MPL-2.0 is allowed, shipped unmodified** (`AGENTS.md` rule 8 names it beside Pyodide).
+   - Its `install_only` archives carry only CPython's own `LICENSE.txt`. The licence texts of what CPython is built with (OpenSSL, SQLite, libffi, mpdecimal, expat, zlib, bzip2, liblzma, zstd, libedit, ncurses, Tcl/Tk, libuuid, and on Linux libX11, libXau and libxcb) are in the same release's full archive, under `python/licenses/`. The build copies them all, with the wheels' own licence files, into the runtime's `LICENSES/` folder, and checks that every library the build includes has its text.
+   - **One module is left out.** On Linux, the `_dbm` module links Berkeley DB under the Sleepycat licence, which asks that the source of software using it be offered. No analysis needs `dbm.ndbm` (`dbm` falls back to SQLite), so `lib-dynload/_dbm*.so` and its licence are left out of the Linux runtime. No other file of python-build-standalone's is changed.
+   - **The wheels' own libraries.** scipy's wheels on every platform, numpy's on Linux and on macOS 12, and scikit-learn's on Linux bundle the GCC runtime (libgfortran, libgcc_s, libgomp: GPL-3.0-or-later with the GCC Runtime Library Exception 3.1) and libquadmath (LGPL-2.1-or-later), each as a library of its own that the package links to as it runs. They ship unmodified, as their wheels have them, with their licence texts and where GCC's source is.
 
 ## Decision
 
@@ -32,12 +53,12 @@ In this order:
    - **Limits:**
      - a time limit (120 s);
      - 64 KiB of each output stream kept;
-     - the largest file it may write;
-     - how many processes it may start, counted over those the User's account already runs;
-     - its memory;
-     - the size of its folder.
+     - the largest file it may write (100 MB);
+     - how many processes it may start, counted over those the User's account already runs (64);
+     - its memory (2 GB, its processes together);
+     - the size of its folder (200 MB).
    - **What comes back:** what it leaves in `out/`, up to 20 files of 5 MB each. Nothing it writes reaches a Linked folder or a Note by itself. The assistant adds a file or a figure the usual ways.
-   - **Python is the User's own `python3`,** when it can import what the code needs: pandas at least, checked once in the sandbox at startup. Otherwise `run_code` offers bash only, and the assistant uses an Analysis for Python. A bundled CPython is not shipped now (Considered options).
+   - **Python is IncarnaMind's own** (amended 2026-11-01, above). bash is the system's own `/bin/bash`, with the tools the system has.
    - **What the sandbox denies reading:** the home and data folders as now, and also the shared temporary folder (`os.tmpdir()`) and removable and network volumes (`/Volumes` on macOS; `/media`, `/mnt` and `/run/media` on Linux). Each run's own folders are allowed again inside them. The spike found that the shared temporary folder was readable from the sandbox.
 3. **A figure from code keeps the trust story of ADR-0021.** The model never types a number. Code gives a figure the app can check with `figure(name, column, how, label, unit)`, and any other number with `result(name, value, label, unit)`.
    - **For Analyses (accepted, #2346):**
@@ -47,15 +68,15 @@ In this order:
      - **Figures without a way to work them out.** A regression coefficient, a p-value or a forecast is an Analysis figure, kept with its code, its Inputs' Document versions and hashes, and the runtime's versions, and shown as calculated by code and not recalculated. `result(..., of=rows)` names the rows and columns of an Input it was worked out from, such as those a model was fitted on, and its card shows them.
      - **Not yet.** A sentence's check still treats every Analysis figure as not checked, so none gets the green check; working a `figure()` figure out again on Recalculate, with no sandbox, comes with `run_code`'s figures (#2351).
    - **For `run_code` (proposed, #2351):**
-     - **Where the column comes from.** `read_table` gives a DataFrame whose rows carry their row number in the sheet, the headings being row 1. In the shipped version it reads the rows as the app's index read them, the same Units Citations are checked against, and keeps each row's number in a column of its own, since a merge resets a DataFrame's index (measured). In the spike it reads the copied CSV and numbers the index.
+     - **Where the column comes from.** `read_table(name, sheet)` gives a DataFrame whose rows carry their row number in the sheet, the headings being row 1. IncarnaMind reads the copy itself, with the reader its index uses, so the cells are the ones Citations are checked against, and hands the code those rows; past the index's 20,000 rows, up to 200,000 rows and 2,000,000 cells of a Document. Each row's number is kept in a column of its own, the frame's index, named `row`, as an Analysis's Inputs keep it, never among the data a sum or a model would take in. A merge, a group-by, a concat or `reset_index()` drops it, and `figure()` then refuses the column, so a check fails rather than name the wrong rows (measured in the spike: a merge resets the index; tested).
      - **What a figure records.** The column is taken from that DataFrame, after any filtering. `how` is sum, mean, min, max or count. The helper works the value out itself, so the value and its cells can't disagree. The figure keeps the column's heading and exact row numbers, its input's Document version, and `how`.
-     - **The check.** The app reads those cells itself from its own reading of the Document version, works the figure out again with its own arithmetic, and compares the two to Excel's 15 digits. A match is "Inputs found · recalculated", and its Inputs are cited as a rows Citation. A mismatch is never shown as a figure, and the model is told the number the cells come to. The check needs no sandbox, so it runs again on Recalculate as `calculate`'s does.
-     - **Figures without `of`.** A regression coefficient, a p-value or a forecast is an Analysis figure. It is kept with its code, its Inputs' Document versions and hashes, and the runtime's versions, and shown as calculated by code and not recalculated. It can be run again only where its runtime is pinned: Pyodide, or a bundled CPython. With the User's own Python it is marked as one that can't be run again.
+     - **The check.** The app reads those cells itself from its own reading of the Document version, works the figure out again with its own arithmetic, and compares the two to Excel's 15 digits. A match is "Inputs found · recalculated", and its Inputs are cited as a rows Citation. A mismatch is never shown as a figure, and the model is told the number the cells come to. The check needs no sandbox, so it can run again on Recalculate as `calculate`'s does; #2351 checks when the code runs, as Analyses do, and working it out again on Recalculate comes with the sentence's check of Analysis figures.
+     - **Figures without `of`.** A regression coefficient, a p-value or a forecast is an Analysis figure. It is kept with its code, its Inputs' Document versions and hashes, and the runtime's versions, and shown as calculated by code and not recalculated. Both runtimes are pinned, so it can be run again to the same result (amended 2026-11-01).
      - **One contract for both runtimes.** `run_code`'s helper takes the same `figure()` an Analysis's does (above), and the check on Recalculate covers both.
      - **What run_code's figures go through.** They reach an Answer only as markers (`[=n]`), as an Analysis's do. A number the reply writes without a marker is caught as ADR-0021 already catches one (#1796).
 4. **What asks.** The rules are approvals by Effect, as ADR-0013 sets out:
    - **Runs without asking.** `run_code` at level "os" is "sandboxed code", ADR-0023's Effect scope, which now covers both sandboxes. It reads only copies of Documents the Run may already read, writes only its own folder, and can't send anything. So it runs without asking, also after the Run has read third-party text (#78).
-   - **Asks every time, Allow or Don't allow, never "always":** a call that names a folder outside the Library to read (a granted folder).
+   - **Asks every time, Allow or Don't allow, never "always":** a call that names a folder outside the Library to read (a granted folder). #2351 builds none: `run_code` reads only Documents named by their Passages, so nothing it does asks.
    - **Not offered:** network for code, writing outside its own folder, and `run_code` wherever the OS sandbox can't start. ADR-0013's rule for a Shell is that it fails closed and never gets Tool-level "always", and bash on the User's computer is a Shell.
 5. **Windows.**
    - **Until Windows has an "os" level,** `run_code` isn't offered there. Analyses run there now, in Chromium's sandbox.
@@ -67,7 +88,7 @@ In this order:
      - kill-on-close for every process it started.
    - **Its limits:** system folders stay readable, and writing to `NUL` fails (below).
    - **MXC replaces it** once most Users run Windows 11 24H2 build 26100.9278 or later. MXC is Microsoft's container SDK, which Codex prefers.
-6. **Linux.** The OS sandbox needs bubblewrap and socat, and unprivileged user namespaces. Ubuntu 24.04 restricts those through AppArmor. Where the sandbox can't start, `run_code` isn't offered, and the User reads why and how to fix it, as Analyses already say when Chromium's sandbox is off.
+6. **Linux.** The OS sandbox needs bubblewrap and socat, and unprivileged user namespaces. Ubuntu 24.04 restricts those through AppArmor. Where the sandbox can't start, `run_code` isn't offered, and the User reads why and how to fix it, as Analyses already say when Chromium's sandbox is off: Settings › Skills says the sandbox can't start, names the packages to install, and links to `docs/linux-sandbox.md`, which says how to allow user namespaces. The assistant then analyses in Pyodide alone.
 
 ## Measured
 
@@ -147,16 +168,15 @@ On the M2 Max used for ADR-0023, with macOS 26.5, Electron 44.9.1 and Pyodide 31
 - **Pyodide alone, as the whole answer.**
   - Kept as the first step.
   - Not enough alone: it has no shell, a 32-bit WebAssembly memory (a `MemoryError` near 4 GB), one thread, and Inputs limited to the rows the index keeps.
-- **A bundled CPython (python-build-standalone, wheels installed by uv).** Deferred until Users ask for more than Pyodide gives. Its costs:
-  - 98–140 MB more per installer, for each platform;
-  - 336 native libraries to sign one by one with the hardened runtime on macOS;
-  - on Windows, SignPath Foundation's terms allow signing only what the project builds, so `python.exe` and every `.pyd` would ship unsigned, which Smart App Control blocks where it enforces;
-  - 42 s for the first import on macOS.
+- **A bundled CPython (python-build-standalone, wheels installed by uv).** Chosen on 2026-11-01, downloaded on first use rather than in the installer (the amendment above). Its costs, as the spike measured them for a bundle:
+  - 98–140 MB more per installer, for each platform: none, downloaded instead;
+  - 336 native libraries to sign one by one with the hardened runtime on macOS: none, since they are outside the app bundle;
+  - on Windows, SignPath Foundation's terms allow signing only what the project builds, so `python.exe` and every `.pyd` would ship unsigned, which Smart App Control blocks where it enforces: for decision 5;
+  - 42 s for the first import on macOS: taken while the step says Python is getting ready.
   - What it gives: native speed, every package, and figures that can be run again.
 - **The User's own `python3` for `run_code`.**
-  - Chosen. It costs nothing to ship, and the people who need more than Pyodide often have their own.
-  - On a Mac out of the box it is Xcode's Python 3.9.6, without pandas, so `run_code` offers bash only there.
-  - Its versions vary, so its figures without `of` can't be run again, and they are marked so.
+  - Chosen first, then rejected on 2026-11-01. It costs nothing to ship, but on a Mac out of the box it is Xcode's Python 3.9.6, without pandas, so most Users would have had bash only.
+  - Its versions vary, so its figures without `of` couldn't be run again.
 - **No sandbox, asking before every run.** This is the classic Open Interpreter and Cline. Rejected:
   - ADR-0013's rule for a Shell;
   - Anthropic found users approve about 93% of permission prompts;
@@ -204,7 +224,7 @@ Of the rest, once built (#2351):
 - **The OS sandbox** also denies the shared temporary folder and removable and network volumes, for Skill scripts too.
 - **sandbox-runtime.** It moves from 0.0.79 to the latest (0.0.81) in the same change. On Linux, 0.0.80 stops commands from creating namespaces and lets `denyWrite` win over `allowWrite`.
 - **Effect scope "sandbox"** names sandboxed code in either sandbox. Its approvals don't change.
-- **A word for the interface.** CONTEXT.md gains a word for a run of `run_code`. It is not an Analysis, which runs with no files, and not a Skill script. The word is decided with the interface's wording.
+- **A word for the interface.** A run of `run_code` is an Analysis (数据分析) in the interface, as one in Pyodide is: which sandbox ran it makes no difference to the User (#2351). CONTEXT.md's Analysis runs "in a sandbox, with no network, reading only the files it was given". "Run code" appears only in the Details view, beside the code.
 - **Linux in CI.** The jobs install bubblewrap and socat and lift Ubuntu's AppArmor restriction on user namespaces for the test step. Without that, the OS sandbox's tests and `run_code`'s stay skipped, as now.
 - **Windows.** The AppContainer helper is a new native component to build, sign with the app's certificate, and test on Windows 10 22H2 and Windows 11 with Smart App Control enforcing.
 - **The hosted version** doesn't offer `run_code` until it has a remote sandbox (ADR-0013).
