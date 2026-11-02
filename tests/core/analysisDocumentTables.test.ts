@@ -814,7 +814,7 @@ describe("a Word table's own layout (#448)", { timeout: 60_000 }, () => {
   });
 });
 
-/** Two pages, each a table headed the same under its own caption, as a report's notes set them. */
+/** Two pages, each a table headed the same under a caption that differs only by its numbers. */
 function twoTablesPdf(): Uint8Array {
   const page = (
     caption: string,
@@ -826,12 +826,12 @@ function twoTablesPdf(): Uint8Array {
     ),
   });
   return buildPdf([
-    page("Table 4. Revenue by region (GBP thousands)", [
+    page("Table 4. Revenue by region, 2024 (GBP thousands)", [
       ["North", "1,200", "1,100"],
       ["South", "800", "760"],
       ["West", "640", "600"],
     ]),
-    page("Table 5. Operating costs by region (GBP thousands)", [
+    page("Table 5. Revenue by region, 2025 (GBP thousands)", [
       ["North", "420", "400"],
       ["South", "310", "300"],
       ["West", "250", "240"],
@@ -843,8 +843,8 @@ describe("tables on pages that follow each other (#448)", { timeout: 60_000 }, (
   test("two captioned tables headed the same stay two tables", async () => {
     const { analyses, inputs } = await ask({
       files: [{ name: "Regions.pdf", contents: twoTablesPdf() }],
-      question: "Total the 2025 operating costs.",
-      query: "operating costs by region",
+      question: "Total the second table's 2025 column.",
+      query: "revenue by region",
       runs: [run("Regions", [{ name: "costs", table: 2 }])],
       helper: sumOf("2025"),
     });
