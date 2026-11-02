@@ -6,7 +6,9 @@
  * "<br>" as a line break in a cell), and math as KaTeX formulas (`$…$` or
  * `\(…\)` inline, `$$…$$` or `\[…\]` as a block), with bold, italic,
  * strikethrough, inline code and links. Anything else (HTML) stays as text.
- * A line break inside a paragraph is kept.
+ * A line break inside a paragraph is kept. A line starting `\[` is a formula
+ * only when a `\]` follows it, on a later line too; with none it stays text,
+ * its words kept (#2422). An unclosed `$$` runs to the end.
  *
  * While an Answer streams, the text is cut off at an arbitrary point. With
  * `streaming`, what would still change how it looks is held back (a half-typed
@@ -180,26 +182,30 @@ function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
       let closed = false;
       let after = "";
       let remaining = rest;
+      let end = i;
       for (;;) {
-        const end = remaining.indexOf(closer);
-        if (end >= 0) {
-          body.push(remaining.slice(0, end));
-          after = remaining.slice(end + closer.length);
+        const close = remaining.indexOf(closer);
+        if (close >= 0) {
+          body.push(remaining.slice(0, close));
+          after = remaining.slice(close + closer.length);
           closed = true;
-          i++;
           break;
         }
         body.push(remaining);
-        i++;
-        if (i >= lines.length) break;
-        remaining = lines[i] as string;
+        end++;
+        if (end >= lines.length) break;
+        remaining = lines[end] as string;
       }
       // An unclosed formula would show as a KaTeX error until it's complete.
       if (!closed && open) break;
-      const latex = body.join("\n").trim();
-      if (latex) blocks.push({ type: "blockMath", attrs: { latex } });
-      if (after.trim()) blocks.push(paragraph(after.trim(), open && i >= lines.length));
-      continue;
+      // A "\[" that never closes is text, not a formula: its paragraph keeps the words (#2422).
+      if (closed || opener === "$$") {
+        i = closed ? end + 1 : lines.length;
+        const latex = body.join("\n").trim();
+        if (latex) blocks.push({ type: "blockMath", attrs: { latex } });
+        if (after.trim()) blocks.push(paragraph(after.trim(), open && i >= lines.length));
+        continue;
+      }
     }
 
     const heading = HEADING.exec(line);
