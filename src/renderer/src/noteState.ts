@@ -1,6 +1,6 @@
 /**
  * Whether a note is done (D266, #1915), one rule for the corner badge, Home's Recent row and
- * the Export menu: "Not checked" while a claim has no check (none yet, or one this Note has
+ * the Export menu: "Claims not checked" while a claim has no check (none yet, or one this Note has
  * never had checked), "{n} need a look" while a check found a problem, and "Checked {time}"
  * once every claim is covered, naming the files the checks couldn't read and the sentences a
  * check couldn't settle or a change made need one. It reads `noteHealth`, the one count
@@ -67,7 +67,7 @@ export interface NoteState {
 
 /**
  * The state from `noteHealth` alone. Null when a check reads nothing: a note of headings, or
- * one whose every sentence is kept as the User's view, has nothing to show. "Not checked" while a
+ * one whose every sentence is kept as the User's view, has nothing to show. "Claims not checked" while a
  * claim has no check a run could not settle: none yet, one that failed in a way a retry can, one
  * whose Sentence or Document changed, or one a run is checking right now. When at least one claim
  * a check covered holds, and all that is left is a result a re-run cannot settle or a change to a

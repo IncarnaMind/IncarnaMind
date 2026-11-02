@@ -336,8 +336,8 @@ export interface HealthSummary {
  * rows show, so the two can never disagree (#1941): "everything checked" only
  * when nothing is left — no claim that needs a look, none not checked, no
  * supported claim with no Citation, and no file a narrowed check couldn't read
- * (D266) — otherwise what is left, in D276's words. Null while a check runs or
- * a problem shows: the card says that in its place.
+ * (D266) — otherwise the supported claims the rows don't count (#2313). Null
+ * while a check runs or a problem shows: the card says that in its place.
  */
 export function healthSummary(
   health: NoteHealth,

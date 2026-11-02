@@ -1,9 +1,10 @@
 /**
  * How every surface numbers a Note's footnotes (#2292): one footnote for each source and place,
- * a later Citation of it repeating that footnote's number (#1381); a footnote the User wrote, or
- * a calculated figure's note, takes the next number as it comes. The Note, the Word export, the
- * PDF and Copy with Citations all number with this, so a Citation's number is the same in all of
- * them, and what counts as "the same source and place" has one definition (`footnoteSubjectKey`).
+ * a later Citation of it repeating that footnote's number (#1381); a footnote the User wrote
+ * takes the next number as it comes. The Note, the Word export, the PDF and Copy with Citations
+ * all number with this, so a Citation's number is the same in all of them, and what counts as
+ * "the same source and place" has one definition (`footnoteSubjectKey`). A calculated figure is
+ * not a footnote and numbers among figures, so a Citation's number never skips over one (#2313).
  */
 import type { FootnoteSubject } from "./citations";
 import { footnoteSubjectKey } from "./citations";
@@ -32,7 +33,7 @@ export class FootnoteNumbering {
     return { number, first: true };
   }
 
-  /** The number for a footnote that is not a Citation's: the User's own, or a figure's note. */
+  /** The number for a footnote that is not a Citation's: the User's own. */
   footnote(): number {
     const number = this.next;
     this.next += 1;

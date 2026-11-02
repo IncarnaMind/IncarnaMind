@@ -472,7 +472,7 @@ test("the folded line opens by click, Enter and Space, at once, to the reasoning
   await expect(source).toHaveCount(1);
   await expect(source).toHaveText("Tidesp. 2");
   await expect(timeline.locator('[data-step="check"]')).toHaveText(
-    "Checked 1 Citation against its source · found",
+    "Citation check: 1 Citation against its source · found",
   );
   await expect(answer.getByTestId("answer-regenerate")).toBeVisible();
   await screenshot(window, "steps-open-en");
@@ -519,17 +519,31 @@ test("a sentence its quote doesn't support loses its green check, and the check 
   await expect(beyond.getByTestId("citation")).toHaveAttribute("data-check", "unsupported");
   await pointAndClick(window, beyond.getByTestId("answer-steps"));
   await expect(beyond.getByTestId("answer-timeline").locator('[data-step="check"]')).toHaveText(
-    "Checked 1 Citation against its source · 1 needs a look",
+    "Citation check: 1 Citation against its source · 1 needs a look",
   );
   await screenshot(window, "beyond-its-quote-en");
+
+  // On one Note, the Answer's line names the Citation check and the Note's badge names the
+  // claim check (#2313): a Citation found is not a claim checked.
+  await pointAndClick(window, kept.getByTestId("answer-add"));
+  await expect(kept.getByTestId("answer-added")).toBeVisible();
+  const frontBadge = window
+    .getByTestId("mind-pane")
+    .filter({ visible: true })
+    .getByTestId("check-badge");
+  await expect(frontBadge.locator(".check-badge-words")).toHaveText("Claims not checked");
 
   await core(window).language("zh-CN");
   const chinese = await ask(window, "spring tides 什么时候出现？超出引文");
   await expect(chinese.getByTestId("citation")).toHaveAttribute("data-check", "unsupported");
   await pointAndClick(window, chinese.getByTestId("answer-steps"));
   await expect(chinese.getByTestId("answer-timeline").locator('[data-step="check"]')).toHaveText(
-    "把 1 处引用和原文核对 · 1 处需要留意",
+    "引用核对：1 处引用和原文对照 · 1 处需要留意",
   );
+  // The same Note's badge says its claim check in its own words, in Chinese too.
+  await pointAndClick(window, chinese.getByTestId("answer-add"));
+  await expect(chinese.getByTestId("answer-added")).toBeVisible();
+  await expect(frontBadge.locator(".check-badge-words")).toHaveText("说法未核对");
   await screenshot(window, "beyond-its-quote-zh");
   await app.close();
 });
@@ -555,7 +569,7 @@ test("in Chinese, the line and the timeline; after a restart the steps are still
   );
   await expect(timeline.getByTestId("answer-step-found")).toContainText("用了 1 段");
   await expect(timeline.locator('[data-step="check"]')).toHaveText(
-    "把 1 处引用和原文核对 · 找到了",
+    "引用核对：1 处引用和原文对照 · 找到了",
   );
   await expect(answer.getByTestId("answer-regenerate")).toHaveText("重新生成");
   await screenshot(window, "steps-open-zh");

@@ -62,7 +62,7 @@ const keptNote = (node: ProseMirrorNode): "footnote" | "endnote" | null => {
 
 export interface NumberedFigure {
   pos: number;
-  /** The note number, or the shared cited ordinal in an in-text style. */
+  /** Its number among the Note's calculated figures, from 1. */
   number: number;
   attributes: CalculatedFigureAttributes;
 }
@@ -93,12 +93,11 @@ export function sideBySide(doc: ProseMirrorNode, before: number, after: number):
  * later Citation of the same one repeats its number (#1381); in a note style,
  * Citations side by side are one note, one number; in a style that cites in
  * the text, none is a footnote, and Citations use a cited ordinal for their
- * margin marks, the User's footnotes on their own. Calculated figures join the
- * footnote numbers, or the cited ordinal in an in-text style; the latter
- * identifies their input clusters and doesn't make a footnote. A Citation
- * inside a footnote is part of that footnote's text and has no number of its
- * own. `live` settles each Citation's check as the app shows it, so a removed
- * Document's found and not-found Citations are one unverified footnote.
+ * margin marks, the User's footnotes on their own. Calculated figures number
+ * among themselves, from 1, so no Citation's number skips over one (#2313). A
+ * Citation inside a footnote is part of that footnote's text and has no number
+ * of its own. `live` settles each Citation's check as the app shows it, so a
+ * removed Document's found and not-found Citations are one unverified footnote.
  */
 export function numberFootnotes(
   doc: ProseMirrorNode,
@@ -111,6 +110,7 @@ export function numberFootnotes(
   const numbering = new FootnoteNumbering();
   let endnotes = 0;
   let cited = 0;
+  let figured = 0;
   doc.forEach((block, offset, index) => {
     const id = block.attrs[BLOCK_ID_ATTRIBUTE];
     const blockKey = typeof id === "string" ? id : `#${index}`;
@@ -140,12 +140,7 @@ export function numberFootnotes(
       if (name === CALCULATED_FIGURE_NODE) {
         const attributes = readCalculatedFigureAttributes(node.attrs);
         if (!attributes) return false;
-        if (form === "in-text") cited += 1;
-        figures.push({
-          pos: offset + 1 + pos,
-          number: form === "in-text" ? cited : numbering.footnote(),
-          attributes,
-        });
+        figures.push({ pos: offset + 1 + pos, number: ++figured, attributes });
         return false;
       }
       if (name !== CITATION_NODE) return true;

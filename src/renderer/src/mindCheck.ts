@@ -66,8 +66,6 @@ interface Asking {
   count: number;
   /** Checked against the Note's Folder: the question names it. */
   inFolder: boolean;
-  /** The Note's Folder holds other Documents; `claims` is every cited claim a full watch reads. */
-  watch: { claims: number } | null;
   /** Null for a plan or a model on this computer, or when `estimateRun` failed. */
   estimate: EstimateLine | null;
   /** `estimateRun` failed: the ask says the cost couldn't be estimated. */
@@ -306,9 +304,14 @@ export interface Planned {
 
 /**
  * Shows the Note, keeps it for this Check from planning to its end, plans the run, and says in
- * place if it can't or another window checks it.
+ * place if it can't or another window checks it. `ask` is the question before a run billed per
+ * token, which only the one Check skips (#2313).
  */
-async function start(mindId: string, planned: () => Promise<Planned>): Promise<CheckOutcome> {
+async function start(
+  mindId: string,
+  planned: () => Promise<Planned>,
+  ask = true,
+): Promise<CheckOutcome> {
   const { openMind } = useAppStore.getState();
   await openMind(mindId);
   if (useChecks.getState().running[mindId]) return { kind: "running" };
@@ -326,9 +329,16 @@ async function start(mindId: string, planned: () => Promise<Planned>): Promise<C
     }
     held = true;
     const { mode, allDocuments, plan, watch } = await planned();
-    const outcome = await askOrCheck(mindId, requestId, { mode, allDocuments, watch }, plan, () => {
-      ranCheck = true;
-    });
+    const outcome = await askOrCheck(
+      mindId,
+      requestId,
+      { mode, allDocuments, watch },
+      plan,
+      () => {
+        ranCheck = true;
+      },
+      ask,
+    );
     keeps = outcome !== null && outcome.kind === "asked";
     return outcome;
   } catch (error) {
@@ -397,9 +407,48 @@ async function fullWatchNeeded(mindId: string, watch: { claims: number }): Promi
   return record === null || record.stop !== null;
 }
 
-/** The one Check: everything the Note can be checked for, in one press. */
+/** What a run sends, as the estimate prices it: the Note's sentences and the watch's. */
+async function checkItems(
+  mindId: string,
+  run: CheckToRun,
+  plan: Extract<MindCheckPlan, { kind: "ready" }>,
+): Promise<number> {
+  const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
+  const extra =
+    run.watch === null
+      ? 0
+      : full
+        ? run.watch.claims
+        : ((await readSentencesToCheck(mindId))?.count ?? 0);
+  return plan.sentences + extra;
+}
+
+/**
+ * The price line the Note's card shows before its one Check runs, from the plan it holds: above
+ * $1 or with a spending cap, else nothing (#1941). Null when no price is known.
+ */
+export async function checkEstimate(
+  mindId: string,
+  planned: Planned,
+): Promise<EstimateLine | null> {
+  const { plan } = planned;
+  if (plan.kind !== "ready") return null;
+  const estimated = await core
+    .estimateRun({
+      items: await checkItems(mindId, planned, plan),
+      each: "check",
+      ...(plan.model && { model: plan.model }),
+    })
+    .catch((error: unknown) => {
+      console.warn(`Couldn't estimate checking Note ${mindId}; its card shows no price.`, error);
+      return null;
+    });
+  return estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
+}
+
+/** The one Check: everything the Note can be checked for in one press, never a question first (#2313). */
 export const startCheck = (mindId: string): Promise<CheckOutcome> =>
-  start(mindId, () => planCheckThisMind(mindId));
+  start(mindId, () => planCheckThisMind(mindId), false);
 
 /**
  * The assistant's Check (#1421), in the window that asked: the Note's one Check, or every sentence
@@ -455,7 +504,11 @@ export async function confirmCheck(mindId: string): Promise<void> {
   const asking = useMindCheck.getState().asking[mindId];
   if (!asking) return;
   try {
-    await runCheck(mindId, asking.requestId, asking);
+    await runCheck(mindId, asking.requestId, {
+      mode: asking.mode,
+      allDocuments: asking.allDocuments,
+      watch: null,
+    });
   } catch (error) {
     setCheckProblem(mindId, {
       kind: "failed",
@@ -519,6 +572,7 @@ async function askOrCheck(
   run: CheckToRun,
   plan: MindCheckPlan,
   started: () => void,
+  ask: boolean,
 ): Promise<CheckOutcome> {
   // A check of this Note that started while this one was held and planned has the badge, with
   // Stop: this one changes nothing beside it (#2302).
@@ -541,6 +595,12 @@ async function askOrCheck(
     );
     return null;
   }
+  // The one Check runs from its one press; the price line it shows is its card's, never a
+  // question before the run (#2313).
+  if (!ask) {
+    started();
+    return runCheck(mindId, requestId, run);
+  }
   const pending = plan.findsClaims ? await readSentencesToCheck(mindId) : null;
   const onlyRechecks =
     !plan.findsClaims ||
@@ -552,16 +612,9 @@ async function askOrCheck(
   }
   clearAsk(mindId);
   dismissCheckProblem(mindId);
-  const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
-  const extra =
-    run.watch === null
-      ? 0
-      : full
-        ? run.watch.claims
-        : ((await readSentencesToCheck(mindId))?.count ?? 0);
   const estimated = await core
     .estimateRun({
-      items: plan.sentences + extra,
+      items: await checkItems(mindId, run, plan),
       each: "check",
       ...(plan.model && { model: plan.model }),
     })
@@ -586,7 +639,6 @@ async function askOrCheck(
         allDocuments: run.allDocuments,
         count: plan.sentences,
         inFolder: plan.inFolder,
-        watch: run.watch,
         estimate,
         unestimated: estimated === null,
       },

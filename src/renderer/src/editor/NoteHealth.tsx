@@ -120,46 +120,22 @@ export function partLabel(
   }
 }
 
-/** The summary's parts: what a check found, and what is left of it, in D276's words. */
+/**
+ * The summary's one part the rows don't name: the claims a check found supported (#2313). What is
+ * left — needs a look, not checked yet, no Citation — is each a row a click moves to.
+ */
 function summaryParts(
   summary: HealthSummary,
   t: ReturnType<typeof useT>,
   format: (value: number) => string,
 ): string[] {
-  const shown = (value: number) => format(value);
-  const parts: string[] = [];
-  if (summary.supported > 0) {
-    parts.push(
-      t(summary.supported === 1 ? "health.supported.one" : "health.supported", {
-        count: shown(summary.supported),
-      }),
-    );
-  }
-  const look = summary.look.claims;
-  if (look > 0) {
-    const reasons = (["contradicted", "unsupported", "notFound"] as const)
-      .filter((reason) => summary.look[reason] > 0)
-      .map((reason) => {
-        const count = summary.look[reason];
-        return t(
-          count === 1 ? `health.look.reason.${reason}.one` : `health.look.reason.${reason}`,
-          { count: shown(count) },
-        );
-      });
-    parts.push(
-      t(look === 1 ? "health.look.one" : "health.look", {
-        count: shown(look),
-        reasons: reasons.join(t("health.look.separator")),
-      }),
-    );
-  }
-  if (summary.toCheck > 0) {
-    parts.push(partLabel(t, "toCheck", summary.toCheck, shown(summary.toCheck)));
-  }
-  if (summary.noCitation > 0) {
-    parts.push(partLabel(t, "noCitation", summary.noCitation, shown(summary.noCitation)));
-  }
-  return parts;
+  return summary.supported > 0
+    ? [
+        t(summary.supported === 1 ? "health.supported.one" : "health.supported", {
+          count: format(summary.supported),
+        }),
+      ]
+    : [];
 }
 
 /** Each part's small mark, as the margin draws its state; none for sentences with no Citation. */
@@ -435,14 +411,16 @@ export function HealthCard({
           {t("health.allChecked")}
         </p>
       )}
-      {summary?.kind === "left" && (
+      {summary?.kind === "left" && summary.summary.supported > 0 && (
         <MetaLine
           data-testid="health-summary"
           className="mind-health-summary"
           parts={summaryParts(summary.summary, t, format)}
         />
       )}
-      {summarySpace && <p aria-hidden="true" className="mind-health-summary" />}
+      {((summary?.kind === "left" && summary.summary.supported === 0) || summarySpace) && (
+        <p aria-hidden="true" className="mind-health-summary" />
+      )}
       {/* One line of note, in one place, from the moment the check starts: the sentence it is
           on, then when it was checked. Rows above it never move as the run ends (#1312). It
           stays once a run has started here: a run ends a moment before its record reaches the

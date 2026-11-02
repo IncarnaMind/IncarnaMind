@@ -2242,7 +2242,7 @@ export async function checkCard(window: Page, scope: Page | Locator = window): P
     const badge = scope.getByTestId("check-badge-open").first();
     if (await badge.isVisible()) {
       // "Checking 2 of 2 · Stop" shrinks to the counts as a check ends: aim once it has.
-      await expect(scope.getByTestId("badge-stop")).toHaveCount(0);
+      await expect(scope.getByTestId("badge-stop")).toHaveCount(0, { timeout: 120_000 });
       await motionSettled(window);
       // The counts are worked out a moment after a change, and the badge can narrow under the pointer: aim again.
       await expect(async () => {

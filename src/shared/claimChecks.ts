@@ -423,11 +423,31 @@ export function coveredPart(
 }
 
 /**
+ * Whether the card lists a check's parts as rows (#2002): more than one, or one with a card of
+ * its own. A check with rows shows each part's own result there, so the sentence's result is the
+ * parts' verdict, never Not found (#2313).
+ */
+export function showsPartRows(check: Pick<ClaimCheckAttributes, "parts">): boolean {
+  return Boolean(
+    check.parts &&
+      (check.parts.length > 1 ||
+        check.parts.some(
+          (part) =>
+            part.kind === "opinion" ||
+            part.coverage ||
+            part.evidence.length > 1 ||
+            part.unsupported?.kind,
+        )),
+  );
+}
+
+/**
  * Whether nothing in its scope was about an unsupported sentence (#1608): its card is headed Not
  * found and says where it looked, and its Word comment says the same. A Passage the check found
  * makes it Unsupported: one quoted as saying something different or as stating part of it, or one
  * it read and judged (`UnsupportedReason.found`). A sentence with Citations, one citing a court
- * decision no Document holds, and one only the User's own workings state have cards of their own.
+ * decision no Document holds, one only the User's own workings state, and one whose parts the
+ * card lists as rows have cards of their own.
  */
 export function saysNotFound(
   shown: ClaimCheckShown,
@@ -436,6 +456,7 @@ export function saysNotFound(
 ): boolean {
   return (
     shown.state === "unsupported" &&
+    !showsPartRows(check) &&
     citations === 0 &&
     check.evidence === null &&
     !check.citedCaseUnchecked &&

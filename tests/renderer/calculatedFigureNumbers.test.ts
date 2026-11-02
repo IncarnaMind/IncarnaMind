@@ -62,7 +62,7 @@ const calc = (id: string, language: Language = "en"): JSONContent =>
   );
 
 test.each(["en", "zh-CN"] as const)(
-  "calculated figures share Note-order numbering in %s",
+  "calculated figures number among themselves, so no Citation's number skips in %s",
   (language) => {
     const state = EditorState.create({
       doc: schema.nodeFromJSON({
@@ -74,12 +74,39 @@ test.each(["en", "zh-CN"] as const)(
       }),
     });
     const numbered = numberFootnotes(state.doc);
-    expect(numbered.citations.map((each) => each.number)).toEqual([2, 5]);
-    expect(numbered.footnotes.map((each) => each.number)).toEqual([3]);
+    expect(numbered.citations.map((each) => each.number)).toEqual([1, 3]);
+    expect(numbered.footnotes.map((each) => each.number)).toEqual([2]);
     expect(numbered.figures.map((each) => [each.attributes.id, each.number])).toEqual([
       ["f1", 1],
-      ["f2", 4],
+      ["f2", 2],
     ]);
+  },
+);
+
+// protects=#2313: one reply's Citations run 1, 2, 3, 4 though two calculated figures sit among them, in English and Chinese; fails_when=a figure's note takes a Citation's number and the markers skip; no_claim=the figure's own label (Calculated figure 1) or where a figure's inputs point (citationClusters.test.ts).
+test.each(["en", "zh-CN"] as const)(
+  "one reply's Citations run without gaps past its calculated figures in %s",
+  (language) => {
+    const state = stateWith([
+      paragraph(
+        "a",
+        citation("c1"),
+        calc("f1", language),
+        text(language === "en" ? " and " : "、"),
+        citation("c2"),
+      ),
+      paragraph(
+        "b",
+        text(language === "en" ? "Then " : "随后"),
+        citation("c3"),
+        calc("f2", language),
+        text(language === "en" ? " and " : "、"),
+        citation("c4"),
+      ),
+    ]);
+    const numbered = numberFootnotes(state.doc);
+    expect(numbered.citations.map((each) => each.number)).toEqual([1, 2, 3, 4]);
+    expect(numbered.figures.map((each) => each.number)).toEqual([1, 2]);
   },
 );
 
@@ -119,14 +146,14 @@ test("note-style clusters stay grouped until a calculated figure separates them"
     "note",
   );
   const numbered = numberFootnotes(state.doc, "note");
-  expect(numbered.citations.map((each) => each.number)).toEqual([1, 1, 3, 3]);
+  expect(numbered.citations.map((each) => each.number)).toEqual([1, 1, 2, 2]);
   expect(numbered.citations.map((each) => each.footnote)).toEqual([true, false, true, false]);
-  expect(numbered.figures.map((each) => each.number)).toEqual([2, 5]);
-  expect(numbered.footnotes.map((each) => each.number)).toEqual([4]);
+  expect(numbered.figures.map((each) => each.number)).toEqual([1, 2]);
+  expect(numbered.footnotes.map((each) => each.number)).toEqual([3]);
   expect(numberedFigures(state)).toEqual(numbered.figures);
 });
 
-test("in-text figures share the existing cited ordinal only, leaving user notes independent", () => {
+test("in-text citations keep their own ordinal, and figures number apart from them", () => {
   const state = stateWith(
     [
       paragraph(
@@ -142,13 +169,13 @@ test("in-text figures share the existing cited ordinal only, leaving user notes 
     "in-text",
   );
   const numbered = numberFootnotes(state.doc, "in-text");
-  expect(numbered.figures.map((each) => each.number)).toEqual([1, 3]);
-  expect(numbered.citations.map((each) => each.number)).toEqual([2, 4]);
+  expect(numbered.figures.map((each) => each.number)).toEqual([1, 2]);
+  expect(numbered.citations.map((each) => each.number)).toEqual([1, 2]);
   expect(numbered.citations.every((each) => !each.footnote)).toBe(true);
   expect(numbered.footnotes.map((each) => each.number)).toEqual([1, 2]);
   expect(
     numberedFigures(state).map((each) => figureNumberOf(decorationsAt(state, each.pos))),
-  ).toEqual([1, 3]);
+  ).toEqual([1, 2]);
 });
 
 test.each([
@@ -206,7 +233,7 @@ test("two equal displayed occurrences each count once, not their input citations
   const state = stateWith([paragraph("a", first, text(" "), second, citation("source"))]);
   const numbered = numberFootnotes(state.doc);
   expect(numbered.figures.map((each) => each.number)).toEqual([1, 2]);
-  expect(numbered.citations.map((each) => each.number)).toEqual([3]);
+  expect(numbered.citations.map((each) => each.number)).toEqual([1]);
 });
 
 test("malformed receipts do not consume numbers or retain claimed verdicts", () => {
@@ -225,7 +252,7 @@ test("malformed receipts do not consume numbers or retain claimed verdicts", () 
   const numbered = numberFootnotes(state.doc);
   expect(numbered.figures.map((each) => each.number)).toEqual([1]);
   expect(numbered.figures[0]?.attributes).toEqual(readCalculatedFigureAttributes(valid.attrs));
-  expect(numbered.citations.map((each) => each.number)).toEqual([2]);
+  expect(numbered.citations.map((each) => each.number)).toEqual([1]);
 });
 
 test.each(["delete", "convert"])("%s and Undo/Redo update the same numbered stream", (action) => {
@@ -247,7 +274,7 @@ test.each(["delete", "convert"])("%s and Undo/Redo update the same numbered stre
     }),
   ).toBe(true);
   expect(numberedFigures(state).map((each) => each.number)).toEqual([1]);
-  expect(numberFootnotes(state.doc).citations.map((each) => each.number)).toEqual([2]);
+  expect(numberFootnotes(state.doc).citations.map((each) => each.number)).toEqual([1]);
   expect(
     redo(state, (change) => {
       state = state.apply(change);
@@ -270,11 +297,11 @@ test("the typing fast path maps figure positions and decorations without changin
   expect(numberedFigures(state).map((each) => each.pos)).toEqual(
     before.map((each) => each.pos + 3),
   );
-  expect(numberedFigures(state).map((each) => each.number)).toEqual([1, 3]);
+  expect(numberedFigures(state).map((each) => each.number)).toEqual([1, 2]);
   expect(numberedFigures(state)[0]?.attributes).toBe(before[0]?.attributes);
   expect(
     numberedFigures(state).map((each) => figureNumberOf(decorationsAt(state, each.pos))),
-  ).toEqual([1, 3]);
+  ).toEqual([1, 2]);
   expect(figureNumberOf([])).toBe(0);
 });
 
@@ -298,7 +325,7 @@ test("replacing figure metadata leaves the fast path and refreshes the normalize
 
 test("the existing style-change and redraw transactions refresh figure decorations", () => {
   let state = stateWith([paragraph("a", calc("f1"), footnote("n1"), calc("f2"))]);
-  expect(numberedFigures(state).map((each) => each.number)).toEqual([1, 3]);
+  expect(numberedFigures(state).map((each) => each.number)).toEqual([1, 2]);
   state = state.apply(state.tr.setMeta("citationForm", "in-text"));
   expect(numberedFigures(state).map((each) => each.number)).toEqual([1, 2]);
   const first = numberedFigures(state)[0];

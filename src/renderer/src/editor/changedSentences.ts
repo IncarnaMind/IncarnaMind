@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type * as Y from "yjs";
-import { type Planned, planCheckThisMind } from "../mindCheck";
+import type { EstimateLine } from "../cost";
+import { useLanguage } from "../i18n";
+import { checkEstimate, type Planned, planCheckThisMind } from "../mindCheck";
 import type { Translate } from "../objects";
 import { useAppStore } from "../store";
 
@@ -46,6 +48,38 @@ export function useCheckThisMindPlan(doc: Y.Doc, mindId: string, paused: boolean
     };
   }, [doc, mindId, paused, documents, library, minds]);
   return planned;
+}
+
+/**
+ * The price line the one Check's card shows before it runs, from the plan the card holds:
+ * above $1 or with a spending cap, else nothing (#1941). Null while no price is known.
+ */
+export function useCheckEstimate(mindId: string, planned: Planned | null): EstimateLine | null {
+  const language = useLanguage();
+  const [estimate, setEstimate] = useState<EstimateLine | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the language redraws its words.
+  useEffect(() => {
+    if (planned === null) {
+      setEstimate(null);
+      return;
+    }
+    let current = true;
+    checkEstimate(mindId, planned).then(
+      (line) => {
+        if (current) setEstimate(line);
+      },
+      (failure: unknown) => {
+        console.warn(
+          `Couldn't estimate checking Note ${mindId}; its card shows no price.`,
+          failure,
+        );
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [mindId, planned, language]);
+  return estimate;
 }
 
 /**

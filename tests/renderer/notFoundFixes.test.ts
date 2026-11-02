@@ -11,12 +11,14 @@ import {
 } from "../../src/core/api";
 import { citationNumbersPlugin } from "../../src/renderer/src/editor/citationNumbers";
 import {
+  claimPartRows,
   claimPlaces,
   claimSpans,
   type ShownClaim,
 } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { claimCheckShown, readClaimCheck } from "../../src/shared/claimChecks";
+import { cantBeChecked, claimCheckShown, readClaimCheck } from "../../src/shared/claimChecks";
+import { type MessageKey, translate } from "../../src/shared/i18n";
 
 vi.mock("../../src/renderer/src/core", () => ({ core: {} }));
 vi.mock("../../src/renderer/src/editWithAi", () => ({
@@ -334,6 +336,232 @@ describe("The heading of a sentence's check (#1608)", () => {
     );
   });
 });
+
+/** A Citation a part's check found, as `checkedCitation` reads one. */
+const partCitation = {
+  passageId: "passage-1",
+  documentId: "lease",
+  documentName: "Lease",
+  contentHash: "v1",
+  pageFrom: 1,
+  pageTo: 1,
+  location: null,
+  quote: "a quote",
+  check: "found" as const,
+  checkReason: null,
+};
+
+/** A part as the core writes one into a check's mark (#2002). */
+const partOf = (
+  start: number,
+  end: number,
+  verdict: "supported" | "unsupported" | "contradicted" | "not-checked",
+  over: Record<string, unknown> = {},
+) => ({
+  span: { start, end },
+  kind: "fact",
+  verdict,
+  evidence: [],
+  says: null,
+  unsupported: null,
+  calculation: null,
+  reason: verdict === "not-checked" ? "failed" : null,
+  detail: null,
+  versions: [],
+  excluded: [],
+  citedCaseUnchecked: false,
+  citedCaseFound: false,
+  ...over,
+});
+
+/** The card a sentence with parts shows, read from its mark and shown as the window shows it. */
+function partsClaim(
+  editor: Editor,
+  block: number,
+  index: number,
+  parts: Record<string, unknown>[],
+  now?: string,
+): ShownClaim {
+  let start = 0;
+  for (let i = 0; i < block; i++) start += editor.state.doc.child(i).nodeSize;
+  const node = editor.state.doc.child(block);
+  const span = claimPlaces(node, start).sentences[index];
+  if (!span) throw new Error("No such sentence.");
+  const check = readClaimCheck({
+    id: "parts",
+    request: "",
+    action: "check-against-documents",
+    state: "supported",
+    text: span.text,
+    evidence: null,
+    says: null,
+    unsupported: null,
+    calculation: null,
+    reason: null,
+    detail: null,
+    providerId: null,
+    modelId: null,
+    citedCaseUnchecked: false,
+    citedCaseFound: false,
+    scope: { folderId: null, widened: false },
+    versions: [],
+    excluded: [],
+    checkedAt: "2026-11-02T14:25:00.000Z",
+    parts,
+  });
+  if (!check) throw new Error("The parts check didn't read.");
+  return {
+    check,
+    from: span.from,
+    to: span.to,
+    sentence: { from: span.from, to: span.to, text: span.text },
+    shown: claimCheckShown(check, {
+      text: now ?? span.text,
+      versions: new Map(),
+      folderId: null,
+      scope: null,
+    }),
+  } as unknown as ShownClaim;
+}
+
+const HEAD_WORDS = {
+  en: {
+    supported: "Supported",
+    unsupported: "Needs a look · Unsupported",
+    contradicted: "Needs a look · Contradicted",
+    "not-checked": "Not checked",
+    "needs-recheck": "Needs a look · Needs re-check",
+    notFound: "Needs a look · Not found",
+  },
+  "zh-CN": {
+    supported: "有依据",
+    unsupported: "需要留意：无依据",
+    contradicted: "需要留意：与文档矛盾",
+    "not-checked": "未核对",
+    "needs-recheck": "需要留意：需重新核对",
+    notFound: "需要留意：未找到",
+  },
+} as const;
+
+// protects=#2313: a sentence's card header names the same result its rows do, from the one verdict `resultFromParts` gives the sentence, in English and Chinese; fails_when=the header is worked out apart from the rows (a row of Unsupported under "Not found"); no_claim=which margin glyph the sentence takes (claimChecks.test.ts).
+test.each(["en", "zh-CN"] as const)(
+  "the card's header takes the parts' verdict, all Unsupported in %s",
+  (language) => {
+    const { editor } = editorHolding([paragraph("Revenue rose and costs fell")]);
+    const claim = partsClaim(editor, 0, 0, [
+      partOf(0, 12, "unsupported"),
+      partOf(17, 27, "unsupported"),
+    ]);
+    const words = HEAD_WORDS[language];
+    expect(translate(language, checkStateKey(editor, claim))).toBe(words.unsupported);
+    expect(translate(language, checkStateKey(editor, claim))).not.toBe(words.notFound);
+    const rows = claimPartRows(claim.check) ?? [];
+    expect(rows).toHaveLength(2);
+    expect(
+      rows.map((part) => translate(language, `claim.state.${part.verdict}` as MessageKey)),
+    ).toEqual([words.unsupported, words.unsupported]);
+  },
+);
+
+// protects=#2313: a sentence whose parts differ still heads with the sentence's own verdict, and its rows keep theirs, in English and Chinese; fails_when=the header is a result no row shows, or a supported part is called Not found; no_claim=the row's quote and its Add as Citation (claimPartsCoverage.test.ts).
+test.each(["en", "zh-CN"] as const)(
+  "the card's header and its rows keep their verdicts when the parts differ in %s",
+  (language) => {
+    const { editor } = editorHolding([paragraph("Revenue rose and costs fell")]);
+    const claim = partsClaim(editor, 0, 0, [
+      partOf(0, 12, "supported", { evidence: [partCitation] }),
+      partOf(17, 27, "unsupported"),
+    ]);
+    const words = HEAD_WORDS[language];
+    expect(translate(language, checkStateKey(editor, claim))).toBe(words.unsupported);
+    expect(translate(language, checkStateKey(editor, claim))).not.toBe(words.notFound);
+    const rows = claimPartRows(claim.check) ?? [];
+    expect(
+      rows.map((part) => translate(language, `claim.state.${part.verdict}` as MessageKey)),
+    ).toEqual([words.supported, words.unsupported]);
+  },
+);
+
+// protects=#2313: the header and both rows agree in every state a parts card shows, in English and Chinese; fails_when=one state names a result the rows do not; no_claim=what the card's body offers in each state.
+test.each(["en", "zh-CN"] as const)(
+  "the header and both rows agree for every state a parts card shows, in %s",
+  (language) => {
+    const words = HEAD_WORDS[language];
+    const both = (verdict: "supported" | "unsupported" | "contradicted" | "not-checked") => [
+      partOf(0, 12, verdict, verdict === "supported" ? { evidence: [partCitation] } : {}),
+      partOf(17, 27, verdict, verdict === "supported" ? { evidence: [partCitation] } : {}),
+    ];
+    const CASES = [
+      {
+        name: "supported",
+        parts: both("supported"),
+        header: "supported",
+        rows: ["supported", "supported"],
+      },
+      {
+        name: "unsupported",
+        parts: both("unsupported"),
+        header: "unsupported",
+        rows: ["unsupported", "unsupported"],
+      },
+      {
+        name: "contradicted",
+        parts: [
+          partOf(0, 12, "contradicted", { evidence: [partCitation] }),
+          partOf(17, 27, "supported", { evidence: [partCitation] }),
+        ],
+        header: "contradicted",
+        rows: ["contradicted", "supported"],
+      },
+      {
+        name: "not checked",
+        parts: [
+          partOf(0, 12, "not-checked"),
+          partOf(17, 27, "supported", { evidence: [partCitation] }),
+        ],
+        header: "not-checked",
+        rows: ["not-checked", "supported"],
+      },
+      {
+        name: "can't be checked",
+        parts: [
+          partOf(0, 12, "not-checked", { reason: "kept-inside" }),
+          partOf(17, 27, "not-checked", { reason: "kept-inside" }),
+        ],
+        header: "not-checked",
+        rows: ["not-checked", "not-checked"],
+        uncheckable: true,
+      },
+      {
+        name: "needs re-check",
+        parts: both("supported"),
+        header: "needs-recheck",
+        rows: ["needs-recheck", "needs-recheck"],
+      },
+    ] as const;
+    for (const each of CASES) {
+      const { editor } = editorHolding([paragraph("Revenue rose and costs fell")]);
+      const claim = partsClaim(
+        editor,
+        0,
+        0,
+        [...each.parts],
+        each.name === "needs re-check" ? "Changed words." : undefined,
+      );
+      expect(translate(language, checkStateKey(editor, claim)), each.name).toBe(words[each.header]);
+      const rows = claimPartRows(claim.check) ?? [];
+      expect(rows, each.name).toHaveLength(2);
+      const rowState = (part: { verdict: string | null }) =>
+        claim.shown.state === "needs-recheck" ? "needs-recheck" : part.verdict;
+      expect(
+        rows.map((part) => translate(language, `claim.state.${rowState(part)}` as MessageKey)),
+        each.name,
+      ).toEqual(each.rows.map((row) => words[row]));
+      if ("uncheckable" in each && each.uncheckable)
+        expect(cantBeChecked(claim.shown), each.name).toBe(true);
+    }
+  },
+);
 
 describe("Keep as my view on a contradicted sentence", () => {
   beforeEach(() => {

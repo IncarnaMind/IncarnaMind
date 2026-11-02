@@ -68,7 +68,7 @@ export function RecentMinds({
 }
 
 /**
- * A note's own state (D266): "Not checked", "2 need a look", or "Checked 14:25" and, after an
+ * A note's own state (D266): "Claims not checked", "2 need a look", or "Checked 14:25" and, after an
  * export of it in this session, " · exported as Word". It stands where the snippet did: the
  * state is what Home is for.
  */

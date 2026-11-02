@@ -10,6 +10,8 @@ import {
   sentencesIn,
   suggestionPlace,
 } from "../../src/renderer/src/editor/suggestionPlace";
+import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
+import { FORMULA_VERSION } from "../../src/shared/formula";
 
 const schema = getSchema(noteExtensions());
 
@@ -94,6 +96,32 @@ describe("where a suggestion goes", () => {
     expect(
       citationNumberAt(state, at, { documentId: "d", check: "found", pageFrom: 2, pageTo: 2 }),
     ).toBe(2);
+  });
+
+  test("a suggested Citation skips no calculated figure's marker (#2313)", () => {
+    const figure = calculatedFigureNode(
+      {
+        label: "Growth",
+        formula: "",
+        inputs: [],
+        value: 0.2,
+        unit: { kind: "percent" },
+        approximate: false,
+        shown: "20.0%",
+        show: { language: "en", as: "percent", decimals: 1, scale: null },
+        literals: [],
+        engine: FORMULA_VERSION,
+        written: null,
+        analysis: { analysis: 1, result: "growth" },
+      },
+      "figure-1",
+      "run-1",
+    );
+    const state = stateWith(
+      [paragraph(text("One "), figure, text(" "), citation, text(LONG))],
+      endOfFirst,
+    );
+    expect(citationNumberAt(state, endOfFirst(state.doc))).toBe(2);
   });
 
   test("a suggested Citation after two marks of one footnote takes the number after it", () => {

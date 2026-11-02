@@ -97,8 +97,6 @@ test("a sentence nothing supported is offered a check again once a Document is a
 
   await window.getByTestId("mind-tab").first().click({ button: "right" });
   await pointAndClick(window, window.getByRole("menuitem", { name: "Check", exact: true }));
-  const ask = window.getByTestId("check-card").getByTestId("mind-check-ask");
-  await pointAndClick(window, ask.getByTestId("mind-check-check"));
   const marks = window.getByTestId("claim-mark");
   await expect(marks).toHaveCount(2);
   await expect(marks.and(window.locator('[data-check="unsupported"]'))).toHaveCount(1);
@@ -186,13 +184,6 @@ for (const widened of [false, true]) {
     await fileInto(window, ["Tides"]);
     await window.getByTestId("mind-tab").first().click({ button: "right" });
     await pointAndClick(window, window.getByRole("menuitem", { name: "Check", exact: true }));
-    await pointAndClick(
-      window,
-      window
-        .getByTestId("check-card")
-        .getByTestId("mind-check-ask")
-        .getByTestId("mind-check-check"),
-    );
     await expect(
       window.getByTestId("claim-mark").and(window.locator('[data-check="unsupported"]')),
     ).toHaveCount(1);

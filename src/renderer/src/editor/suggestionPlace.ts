@@ -80,15 +80,15 @@ export function nextWord(text: string): string {
 /**
  * The number a Citation inserted at `pos` gets: in Numbered, the footnote a Citation of the same
  * Document and place already has, which a later one repeats (#1381); else one more than the
- * numbers the editor has given the Citations, footnotes and figures before it. A Citation inside
- * a footnote has no number of its own.
+ * numbers the editor has given the Citations and footnotes before it (figures number among
+ * themselves, #2313). A Citation inside a footnote has no number of its own.
  */
 export function citationNumberAt(
   state: EditorState,
   pos: number,
   attributes?: Partial<CitationAttributes>,
 ): number {
-  const { citations, footnotes, figures } = numberFootnotes(
+  const { citations, footnotes } = numberFootnotes(
     state.doc,
     citationFormOf(state),
     citationLiveOf(state),
@@ -106,7 +106,6 @@ export function citationNumberAt(
   const taken = [
     ...citations.filter((each) => each.pos < pos),
     ...footnotes.filter((each) => each.pos < pos && !each.endnote),
-    ...figures.filter((each) => each.pos < pos),
   ];
   return taken.reduce((most, each) => Math.max(most, each.number), 0) + 1;
 }

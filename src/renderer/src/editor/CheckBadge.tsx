@@ -7,6 +7,7 @@ import type * as Y from "yjs";
 import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
+import { MetaLine } from "../components/MetaLine";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
 import { useContradictions } from "../contradictions";
@@ -24,7 +25,7 @@ import { checkClaims, stopVerify } from "../verify";
 import { useWatchAddedDocuments } from "./AddedDocumentsLine";
 import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
-import { checkTitle, useCheckThisMindPlan } from "./changedSentences";
+import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
 import { useCardPlace } from "./checkPlace";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
@@ -172,6 +173,7 @@ function CheckActions({
   const running = useChecks((state) => state.running[mindId] !== undefined);
   const editing = useEdits((state) => state.pending[mindId] !== undefined);
   const planned = useCheckThisMindPlan(doc, mindId, running);
+  const estimate = useCheckEstimate(mindId, planned);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
   const unchanged = useMindCheck((state) => state.unchanged[mindId]);
   const place = useCardPlace(mindId);
@@ -186,6 +188,9 @@ function CheckActions({
     <>
       {unchanged && planned?.plan.kind === "unchanged" && (
         <MindUnchanged mindId={mindId} since={planned.plan.since} />
+      )}
+      {estimate && (
+        <MetaLine data-testid="check-estimate" parts={estimate.parts} title={estimate.title} />
       )}
       <div className="check-card-actions">
         {correctable > 0 && (
