@@ -116,6 +116,25 @@ depends on how the record states a change; the stronger evidence is the real `ow
 before the clause, where the app's check flagged "changed, added" under "…is now longer, at about 422
 words. Some sentences are marked in the Note…".
 
+### 2026-11-02: a capped summary's left-out Documents survive the app's re-ask (#894)
+
+Asked for "write a summary page of these documents" over the mixed `reports` library's 12 Documents, the
+Answer covers the 8 largest and must name the four left for the next summary. On `main` at `1c2e02926`,
+`reports-all-zh` passed 1 of 3: in one run the app asked the model again inside the turn and the reply the
+User reads no longer named the four; in one the reply said "这四份文档不在本次摘要中", which the cover-all
+guard did not read as saying they were left out. The app now asks once more with their names when a capped
+summary's reply leaves any of them unsaid, and the guard reads "不在". Each request three times; the claims
+judged by Claude Sonnet 5.5. Before is `main` at `1c2e02926`, after is the branch.
+
+| Request | Model | Before | After |
+|---|---|---|---|
+| `reports-page` | Claude Haiku 5.5 | 3 of 3; 24 of 36 cited, 12 named, 0 unsaid | 3 of 3; 24 cited, 12 named, 0 unsaid |
+| `reports-all-zh` | Claude Haiku 5.5 | 1 of 3; 24 cited, 4 named, 8 unsaid | 3 of 3; 24 cited, 12 named, 0 unsaid |
+
+An earlier run of the same fix, before the ask's last wording, also passed 3 of 3 on each: two Chinese Answers
+were asked again inside the turn and the reply the User read still named the four. Spend: about $0.19 to
+$0.22 a run at Haiku 5.5's prices, from the tokens the report gives; the judge added under $0.01 a run.
+
 ### 2026-10-31: a summary of more Documents than it covers (#894)
 
 Asked to summarise the 12 Documents of the mixed `reports` library, the Answer covers the 8
