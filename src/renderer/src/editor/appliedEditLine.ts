@@ -783,22 +783,30 @@ export interface ChangeGroup {
 
 /**
  * The groups an edit's changes are restored in, in reading order: a section rewritten as a whole,
- * else a paragraph, so a paragraph with several changes has one Restore original (#1358).
+ * else a paragraph, so a paragraph with several changes has one Restore original (#1358). A
+ * paragraph where the User has edited a change since keeps one Restore for each change: one span
+ * across the edited one would move it when restored (the changed-since place), so it is left out.
  */
 function groupsOf(
   placed: readonly PlacedChange[],
   sections: readonly RewrittenSection[],
 ): ChangeGroup[] {
-  const groups = new Map<RewrittenSection | string | PlacedChange, PlacedChange[]>();
+  const grouped = new Map<RewrittenSection | string | PlacedChange, PlacedChange[]>();
   for (const each of placed) {
     const whole = each.block.how === "added" || each.block.how === "removed";
-    // A change the User has edited since stands alone, so a paragraph's other changes keep their Restore.
-    const key =
-      sectionOf(each.block, sections) ??
-      (whole || !each.written ? each : `block:${each.block.pos}`);
-    groups.set(key, [...(groups.get(key) ?? []), each]);
+    const key = sectionOf(each.block, sections) ?? (whole ? each : `block:${each.block.pos}`);
+    grouped.set(key, [...(grouped.get(key) ?? []), each]);
   }
-  return [...groups.values()].map((members) => {
+  const groups: PlacedChange[][] = [];
+  for (const [key, members] of grouped) {
+    const paragraph = typeof key === "string";
+    if (paragraph && members.some((each) => !each.written)) {
+      for (const each of members) groups.push([each]);
+    } else {
+      groups.push(members);
+    }
+  }
+  return groups.map((members) => {
     const end = ({ place }: PlacedChange) => Math.max(place.from, place.to);
     return {
       members,

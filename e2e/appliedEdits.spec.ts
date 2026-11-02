@@ -707,8 +707,8 @@ const AUTHORITIES =
   "The port authority posts the times, the port authority answers the phone, the port authority keeps the tables, the port authority cleans the quay, and the port authority lists the ferries.";
 const MIDDLE_EDITED =
   "The port authority posts the times, the port authority answers the phone, the port authority keeps the tables, the port board cleans the quay, and the port authority lists the ferries.";
-const FOUR_BACK =
-  "The harbour office posts the times, the harbour office answers the phone, the harbour office keeps the tables, the port board cleans the quay, and the harbour office lists the ferries.";
+const ONE_BACK =
+  "The harbour office posts the times, the port authority answers the phone, the port authority keeps the tables, the port board cleans the quay, and the port authority lists the ferries.";
 
 /** The box of the `nth` `words` of a line, scrolled into the Mind's view first. */
 async function wordsBoxInView(window: Page, line: Locator, words: string, nth = 1) {
@@ -765,47 +765,53 @@ async function selectNth(window: Page, line: Locator, words: string, nth: number
   }).toPass();
 }
 
-test("five changes in one paragraph with a middle one edited since: one Restore original for the other four, which restores exactly those four and leaves the edited one in its place, and ⌘Z brings them back", async () => {
+test("five changes in one paragraph get one Restore original; with a middle one edited since each other change keeps its own, restoring one leaves the edited one in its place, and ⌘Z brings it back", async () => {
   const { window } = await launch();
   await useLocalChatModel(window);
-  const { paragraphs } = await mindWith(window, [HARBOURS]);
+  const { editor, paragraphs } = await mindWith(window, [HARBOURS]);
   const note = paragraphs.first();
 
   await slideSelect(window, note, HARBOURS);
   await askToChange(window, "replace harbour office with port authority");
   await expect(note).toHaveText(AUTHORITIES);
 
-  // The fourth of the five changes' new words typed over, as a person does: that change can't be
-  // restored now.
+  // A paragraph with no change edited since: one Restore original for all five.
+  await fromPalette(window, "edit.reviewApplied", "Review changes");
+  const restores = note.getByTestId("change-restore");
+  const removed = note.locator("del.applied-old");
+  await expect(restores).toHaveCount(1);
+  await expect(removed).toHaveCount(5);
+  await pointAndClick(window, lineOf(editor).getByTestId("applied-done"));
+
+  // The fourth of the five changes' new words typed over, as a person does.
   await selectNth(window, note, "port authority", 4);
   await window.keyboard.type("port board");
   await expect(note).toHaveText(MIDDLE_EDITED);
 
+  // One change edited since: each other change keeps its own Restore, and the edited one has none.
   await fromPalette(window, "edit.reviewApplied", "Review changes");
-  const restores = note.getByTestId("change-restore");
-  const removed = note.locator("del.applied-old");
   await expect(note.getByTestId("change-changed-since")).toHaveText("You changed this since");
-  await expect(restores).toHaveCount(1);
+  await expect(restores).toHaveCount(4);
   await expect(removed).toHaveCount(5);
-
-  // The one Restore puts the other four back in one step; the edited change stays where it was:
-  // its label in the same place, and its struck old words, never at the paragraph's start.
   const labelBefore = await note.getByTestId("change-changed-since").boundingBox();
+  const first = await wordsBoxInView(window, note, "The");
   if (!labelBefore) throw new Error("The edited change isn't drawn.");
-  await pointAndClick(window, restores);
-  await expect.poll(() => reviewedWords(note)).toBe(FOUR_BACK);
-  const [first, label, struck] = await Promise.all([
-    wordsBoxInView(window, note, "The"),
-    note.getByTestId("change-changed-since").boundingBox(),
-    note.locator("del.applied-old").filter({ hasText: "harbour office" }).boundingBox(),
-  ]);
-  if (!label || !struck) throw new Error("The edited change isn't drawn.");
+
+  // One Restore puts its one change back; the edited change's label stays where it was, never at
+  // the paragraph's start.
+  await pointAndClick(window, restores.first());
+  await expect.poll(() => reviewedWords(note)).toBe(ONE_BACK);
+  await expect(restores).toHaveCount(3);
+  await expect(removed).toHaveCount(4);
+  const label = await note.getByTestId("change-changed-since").boundingBox();
+  if (!label) throw new Error("The edited change isn't drawn.");
   expect(Math.abs(label.x - labelBefore.x)).toBeLessThanOrEqual(2);
   expect(Math.abs(label.y - labelBefore.y)).toBeLessThanOrEqual(2);
   expect(label.x).toBeGreaterThan(first.left + 100);
-  expect(struck.x).toBeGreaterThan(first.left + 100);
 
-  // ⌘Z brings exactly those four back.
+  // ⌘Z brings that one back.
   await window.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => reviewedWords(note)).toBe(MIDDLE_EDITED);
+  await expect(restores).toHaveCount(4);
+  await expect(removed).toHaveCount(5);
 });
