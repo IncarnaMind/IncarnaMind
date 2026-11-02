@@ -1627,6 +1627,7 @@ export const en = {
   "edit.review.undoAll": "Undo all",
   "edit.review.done": "Done",
   "edit.review.restore": "Restore original",
+  "edit.review.restore.count": "Restore {count} changes",
   "edit.review.changedSince": "You changed this since",
   "edit.review.restored.one": "Restored the original",
   "change.was": "Was: {text}",

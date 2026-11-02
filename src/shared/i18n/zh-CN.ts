@@ -1557,6 +1557,7 @@ export const zhCN = {
   "edit.review.undoAll": "全部撤销",
   "edit.review.done": "完成",
   "edit.review.restore": "恢复原文",
+  "edit.review.restore.count": "恢复这 {count} 处修改",
   "edit.review.changedSince": "你之后改过这里",
   "edit.review.restored.one": "已恢复原文",
   "change.was": "原文：{text}",

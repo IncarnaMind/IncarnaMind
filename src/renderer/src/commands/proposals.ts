@@ -39,8 +39,9 @@ import type { Command, CommandContext } from "./registry";
 /*
  * Proposals (#93), Edit with AI and Mark as mine (#95), from the keyboard
  * and ⌘K. ⌘↵ and ⌘⌫ act in the note, on the change the cursor is in or the
- * changes a selection touches (a section, as in Word); anywhere else they do
- * what they always do.
+ * proposals a selection touches (a section, as in Word), and under Review
+ * changes on the group at the selection's start; anywhere else they do what
+ * they always do.
  */
 
 /** The note the cursor's Block is in, while the cursor or the selection is on a Proposal. */
