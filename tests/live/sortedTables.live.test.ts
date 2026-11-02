@@ -18,7 +18,6 @@ import { appendFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { wrapLanguageModel } from "ai";
 import { expect, test } from "vitest";
-import { readClaimParts } from "../../src/core/answers/checks/claims";
 import type { FigureScheduleRow } from "../../src/core/api";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
@@ -27,6 +26,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
 import { xlsxOf } from "../helpers/office";
+import { sortedCells, sortRecorder } from "../helpers/sortCalls";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
@@ -298,34 +298,6 @@ function noteOf(pack: Pack): {
   return { blocks, truth, cells, labels };
 }
 
-interface SortCall {
-  asked: { number: number; text: string }[];
-  reply: string;
-}
-
-/**
- * How the sort decided each table cell among `cells` that it was shown, read as the core reads its
- * replies: a later ask decides what the earlier left unsaid.
- */
-function sortedCells(calls: readonly SortCall[], cells: ReadonlySet<string>) {
-  const decided = new Map<number, "claim" | "none">();
-  const asked = new Map<number, string>();
-  for (const call of calls) {
-    for (const each of call.asked) asked.set(each.number, each.text);
-    for (const [number, parts] of readClaimParts(call.reply, call.asked) ?? []) {
-      if (!decided.has(number))
-        decided.set(number, parts.some((part) => part.kind === "fact") ? "claim" : "none");
-    }
-  }
-  const counts = { cells: 0, claim: 0, none: 0, undecided: 0 };
-  for (const [number, words] of asked) {
-    if (!cells.has(words.trim())) continue;
-    counts.cells++;
-    counts[decided.get(number) ?? "undecided"]++;
-  }
-  return counts;
-}
-
 function score(rows: readonly FigureScheduleRow[], truth: readonly Figure[]) {
   const counts = {
     wrong: 0,
@@ -378,43 +350,13 @@ for (const language of LANGUAGES) {
       const { blocks, truth, cells, labels } = noteOf(pack);
       expect(truth).toHaveLength(30);
       for (let run = 1; run <= RUNS; run++) {
-        const sorts: SortCall[] = [];
+        const sorts = sortRecorder(async (call) => {
+          if (TRACE) await appendFile(TRACE, `${JSON.stringify({ language, ...call })}\n`);
+        });
         const dataDir = await createTempDataFolder();
         const core = startCore(dataDir, {
           createChatModel: (spec) =>
-            wrapLanguageModel({
-              model: createAiSdkChatModel(spec),
-              middleware: {
-                specificationVersion: "v4",
-                wrapGenerate: async ({ doGenerate, params }) => {
-                  const result = await doGenerate();
-                  const [system, user] = params.prompt;
-                  if (
-                    system?.role === "system" &&
-                    system.content.startsWith("You sort the sentences") &&
-                    user?.role === "user"
-                  ) {
-                    const prompt = user.content.flatMap((part) =>
-                      part.type === "text" ? [part.text] : [],
-                    );
-                    const reply = result.content.flatMap((part) =>
-                      part.type === "text" ? [part.text] : [],
-                    );
-                    const { sentences } = JSON.parse(prompt.join("")) as {
-                      sentences: SortCall["asked"];
-                    };
-                    const call: SortCall = {
-                      asked: sentences.map(({ number, text }) => ({ number, text })),
-                      reply: reply.join(""),
-                    };
-                    sorts.push(call);
-                    if (TRACE)
-                      await appendFile(TRACE, `${JSON.stringify({ language, ...call })}\n`);
-                  }
-                  return result;
-                },
-              },
-            }),
+            wrapLanguageModel({ model: createAiSdkChatModel(spec), middleware: sorts.middleware }),
         });
         core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
         await core.updateSettings({ user: { language: language === "zh" ? "zh-CN" : "en" } });
@@ -463,9 +405,9 @@ for (const language of LANGUAGES) {
           figures: schedule.rows.length,
           seconds,
           usage,
-          sortRequests: sorts.length,
-          sortedCells: sortedCells(sorts, cells),
-          sortedLabels: sortedCells(sorts, labels),
+          sortRequests: sorts.calls.length,
+          sortedCells: sortedCells(sorts.calls, cells),
+          sortedLabels: sortedCells(sorts.calls, labels),
           ...counts,
           misses,
         };
