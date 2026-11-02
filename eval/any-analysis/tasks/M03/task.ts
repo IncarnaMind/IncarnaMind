@@ -87,8 +87,13 @@ export const task: Task = {
       label: "Each segment's customers and mean spend",
       key: /\bS[1-9]\b/g,
       columns: [
-        { id: "customers", unit: "plain", tolerance: { abs: 0 } },
-        { id: "mean_spend", unit: "plain", tolerance: { abs: 0.5 } },
+        {
+          id: "customers",
+          unit: "plain",
+          tolerance: { abs: 0 },
+          heading: /customers|^\s*n\s*$|count|size|客户数|人数|数量/i,
+        },
+        { id: "mean_spend", unit: "plain", tolerance: { abs: 0.5 }, heading: /spend|消费/i },
       ],
     },
     {

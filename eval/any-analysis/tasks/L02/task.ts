@@ -124,9 +124,14 @@ export const task: Task = {
       label: "Each signature's count, first and last line",
       key: /\b(?:SocketTimeoutException|NullPointerException|SQLTransientConnectionException|IllegalStateException|IOException)\b/g,
       columns: [
-        { id: "count", unit: "plain", tolerance: { abs: 0 } },
-        { id: "first", unit: "plain", tolerance: { abs: 0 } },
-        { id: "last", unit: "plain", tolerance: { abs: 0 } },
+        {
+          id: "count",
+          unit: "plain",
+          tolerance: { abs: 0 },
+          heading: /count|occurr|times|次数|数量/i,
+        },
+        { id: "first", unit: "plain", tolerance: { abs: 0 }, heading: /first|首次|最早/i },
+        { id: "last", unit: "plain", tolerance: { abs: 0 }, heading: /last|末次|最后|最晚/i },
       ],
     },
   ],

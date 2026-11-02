@@ -54,7 +54,6 @@ export const task: Task = {
       unit: "plain",
       tolerance: { abs: 0.01 },
       near: /differ|mean|均值|平均/i,
-      signless: true,
     },
     {
       id: "ci_low",
@@ -63,7 +62,6 @@ export const task: Task = {
       unit: "plain",
       tolerance: { abs: 0.02 },
       near: /interval|CI\b|置信区间/i,
-      signless: true,
     },
     {
       id: "ci_high",
@@ -72,7 +70,6 @@ export const task: Task = {
       unit: "plain",
       tolerance: { abs: 0.02 },
       near: /interval|CI\b|置信区间/i,
-      signless: true,
     },
     {
       id: "welch_t",

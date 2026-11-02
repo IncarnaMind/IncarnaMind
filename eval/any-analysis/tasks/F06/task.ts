@@ -120,10 +120,16 @@ export const task: Task = {
       label: "Each fund's annual return, volatility, Sharpe ratio and maximum drawdown",
       key: /\b(?:Halvard|Merrow|Quinlan)\b/gi,
       columns: [
-        { id: "annual_return", unit: "percent", ...statistic },
-        { id: "volatility", unit: "percent", ...statistic },
-        { id: "sharpe", unit: "plain", tolerance: { abs: 0.005 } },
-        { id: "max_drawdown", unit: "percent", ...statistic, signless: true },
+        { id: "annual_return", unit: "percent", ...statistic, heading: /return|cagr|收益/i },
+        { id: "volatility", unit: "percent", ...statistic, heading: /volatil|std|波动/i },
+        { id: "sharpe", unit: "plain", tolerance: { abs: 0.005 }, heading: /sharpe|夏普/i },
+        {
+          id: "max_drawdown",
+          unit: "percent",
+          ...statistic,
+          signless: true,
+          heading: /drawdown|回撤/i,
+        },
       ],
     },
     {

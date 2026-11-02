@@ -93,6 +93,8 @@ interface Candidate {
   half: number;
   text: string;
   line: number;
+  /** Where it starts in its line's text. */
+  at: number;
   figure: MarkedFigure | null;
   /** Written as a word ("five"): it can make a result right, never wrong. */
   word?: boolean;
@@ -135,7 +137,7 @@ const RECALCULATED =
 
 /** Words that say the Answer couldn't do something, in English and Chinese. */
 const CANT =
-  /\b(?:can(?:no|['’])t|unable to|not able to|isn['’]?t possible|is not possible|could(?:n['’]t| not)|wasn['’]?t able|no way to|not supported|isn['’]?t supported|doesn['’]?t support|not offered|isn['’]?t offered|over the limit|too large|only (?:the first|read|reads|part)|(?:was|were) cut|truncated|left out|not available|isn['’]?t available)\b|无法|不能|没法|未能|不支持|超出|超过了?(?:上限|限制)|太大|只读取|只读了|截断|做不到|无从|不可用|没有办法/i;
+  /\b(?:can(?:no|['’])t|unable to|not able to|isn['’]?t possible|is not possible|could(?:n['’]t| not)|wasn['’]?t able|no way to|not supported|isn['’]?t supported|doesn['’]?t support|not offered|isn['’]?t offered|over the limit|too large|only (?:the first|read|reads|part)|(?:was|were) cut|truncated|left out|not available|isn['’]?t available)\b|无法|不能|没法|未能|不支持|超出了?(?:上限|限制)|超过了?(?:上限|限制)|太大|只读取|只读了|截断|做不到|无从|不可用|没有办法/i;
 
 const normalised = (text: string): string => text.normalize("NFKC");
 
@@ -173,6 +175,7 @@ function scientific(
         half: 10 ** (exponent - decimals) / 2,
         text: match[0],
         line,
+        at: match.index,
         figure: null,
       },
       start: match.index,
@@ -207,7 +210,7 @@ const WORDS: Readonly<Record<string, number>> = {
   十: 10,
 };
 const WORD =
-  /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b|([一两二三四五六七八九十])(?=个|组|对|类|种|项|条)/gi;
+  /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b|(?<![一两二三四五六七八九十百千万零])([一两二三四五六七八九十])(?=个|组|对|类|种|项|条)/gi;
 
 function words(text: string, line: number): Candidate[] {
   return [...text.matchAll(WORD)].map((match) => ({
@@ -216,6 +219,7 @@ function words(text: string, line: number): Candidate[] {
     half: 0,
     text: match[0],
     line,
+    at: match.index,
     figure: null,
     word: true,
   }));
@@ -227,12 +231,19 @@ function written(text: string, line: number): Candidate[] {
   const figures = readFigures(text, { language }).filter(
     (figure) => !powers.some((power) => figure.start < power.end && power.start < figure.end),
   );
-  const read = figures.map((figure): Candidate => {
+  const read = figures.flatMap((figure): Candidate[] => {
     const kind = kindOf(figure);
     const place =
       figure.precision ??
       10 ** -figure.decimals * figure.scale * (figure.unit.kind === "percent" ? 0.01 : 1);
-    return { value: figure.value, kind, half: place / 2, text: figure.chars, line, figure: null };
+    const one = { kind, half: place / 2, text: figure.chars, line, at: figure.start, figure: null };
+    // A range ("0.25 to 1.62", "2–3%") is both its ends.
+    return figure.rangeTo === null
+      ? [{ ...one, value: figure.value }]
+      : [
+          { ...one, value: figure.value },
+          { ...one, value: figure.rangeTo },
+        ];
   });
   for (const match of text.matchAll(DURATION)) {
     const start = match.index;
@@ -246,13 +257,17 @@ function written(text: string, line: number): Candidate[] {
       half: 10 ** -decimals / 2,
       text: match[0],
       line,
+      at: start,
       figure: null,
     });
   }
   return [...read, ...powers.map((power) => power.candidate), ...words(text, line)];
 }
 
-/** A line's text as shown, and its numbers, its figures by their markers. */
+/**
+ * A line's text as shown, and its numbers, its figures by their markers. The text is built piece
+ * by piece beside a twin with each figure blanked out, so a number's place is the same in both.
+ */
 function readLine(
   raw: string,
   line: number,
@@ -261,18 +276,29 @@ function readLine(
   const cites = [...raw.matchAll(CITE)].map((match) => Number(match[1]));
   const bare = raw.replace(CITE, "");
   const shown: Candidate[] = [];
+  let text = "";
+  let masked = "";
+  let from = 0;
   for (const match of bare.matchAll(FIGURE)) {
+    const before = normalised(bare.slice(from, match.index));
+    text += before;
+    masked += before;
+    from = match.index + match[0].length;
     const figure = figures.get(Number(match[1]));
-    if (!figure || typeof figure.value !== "number") continue;
-    const kind: NumberKind =
-      figure.unit.kind === "percent" || figure.unit.kind === "points" ? "percent" : "plain";
-    shown.push({ value: figure.value, kind, half: 0, text: figure.shown, line, figure });
+    if (!figure) continue;
+    const as = normalised(figure.shown);
+    if (typeof figure.value === "number") {
+      const kind: NumberKind =
+        figure.unit.kind === "percent" || figure.unit.kind === "points" ? "percent" : "plain";
+      shown.push({ value: figure.value, kind, half: 0, text: as, line, at: text.length, figure });
+    }
+    text += as;
+    masked += " ".repeat(as.length);
   }
-  const text = normalised(
-    bare.replace(FIGURE, (_, marker: string) => figures.get(Number(marker))?.shown ?? ""),
-  );
-  const withoutFigures = normalised(bare.replace(FIGURE, " "));
-  return { text, candidates: [...shown, ...written(withoutFigures, line)], cites };
+  const rest = normalised(bare.slice(from));
+  text += rest;
+  masked += rest;
+  return { text, candidates: [...shown, ...written(masked, line)], cites };
 }
 
 const cellsOf = (line: string): string[] =>
@@ -325,6 +351,7 @@ function linesOf(answer: SavedAnswer): Line[] {
         half: 10 ** -decimals / 2,
         text: own.text.trim(),
         line: index,
+        at: 0,
         figure: null,
       };
       bare.push(candidate);
@@ -387,10 +414,11 @@ function verdict(
       const target = wanted.signless ? Math.abs(reference) : reference;
       const allowed = toleranceOf(wanted.tolerance, target);
       if (Math.abs(value - target) <= Math.abs(target) * 1e-9) return "right";
-      // A written number may be rounded as shown, but not so coarsely it can't tell right from
-      // wrong; a whole number written whole, or a percent to a tenth of a point, never is.
+      // A written number may be rounded as shown, but no coarser than the result's tolerance, so
+      // "$217k" doesn't pass for 216,995.66; a whole number written whole, or a percent to a tenth
+      // of a point, always may.
       const shown = wanted.unit === "percent" ? 0.0005 : Number.isInteger(target) ? 0.5 : 0;
-      if (reading.half > Math.max(allowed, Math.abs(target) * 0.005, shown)) continue;
+      if (reading.half > Math.max(allowed, shown)) continue;
       if (candidate.figure && sameNumber(value, target)) return "right";
       if (Math.abs(value - target) <= allowed + reading.half + Math.abs(target) * 1e-12)
         return "right";
@@ -450,13 +478,23 @@ function scoreNumber(
 ): Found {
   const references = numbersOf(value);
   if (references.length === 0) return { outcome: "missing", candidate: null };
-  if (expected.near) {
-    const near = lines.flatMap((line) => nearCandidates(line, expected.near as RegExp));
-    const found = judge(near, references, expected);
+  const { near } = expected;
+  if (near) {
+    const found = judge(
+      lines.flatMap((line) => nearCandidates(line, near)),
+      references,
+      expected,
+    );
     if (found.outcome !== "missing") return found;
   }
+  // Elsewhere, only a calculated figure the model labelled with the result's words counts: any
+  // small number would otherwise pass for a small p-value.
   const anywhere = judge(
-    lines.flatMap((line) => line.candidates),
+    lines.flatMap((line) =>
+      line.candidates.filter(
+        (each) => !near || (each.figure && once(near).test(each.figure.label)),
+      ),
+    ),
     references,
     expected,
   );
@@ -466,16 +504,20 @@ function scoreNumber(
 const keyText = (key: string): string => normalised(key).trim().replace(/\s+/g, " ").toLowerCase();
 
 /** The keys a line names, as the reference writes them where the expectation has aliases, with the words each was named by. */
-function keysIn(text: string, expected: ExpectedRows): { key: string; written: string }[] {
+function keysIn(
+  text: string,
+  expected: ExpectedRows,
+): { key: string; written: string; at: number }[] {
   const found = [...text.matchAll(every(expected.key))].map((match) => ({
     key: keyText(match[0]),
     written: normalised(match[0]).trim(),
+    at: match.index,
   }));
   const aliases = Object.entries(expected.aliases ?? {});
   if (aliases.length === 0) return found;
   return found.map((each) => {
     const named = aliases.find(([, alias]) => once(alias).test(each.written));
-    return named ? { key: keyText(named[0]), written: each.written } : each;
+    return named ? { ...each, key: keyText(named[0]) } : each;
   });
 }
 
@@ -497,6 +539,8 @@ function scoreRows(
   const wanted = rows.map((row) => keyText(String(row.key)));
   const holds = (line: Line, key: string) =>
     keysIn(line.text, expected).some((each) => each.key === key);
+  const candidatesFor = (line: Line, key: string, column: ExpectedColumn) =>
+    line.row ? cellCandidates(line, column) : segment(line, key, expected);
   const wrong: RowsFound["wrong"] = [];
   const right: Candidate[] = [];
   const missing: string[] = [];
@@ -508,7 +552,11 @@ function scoreRows(
       continue;
     }
     for (const column of expected.columns) {
-      const found = judgeColumn(column, row[column.id], holding);
+      const found = judgeColumn(
+        column,
+        row[column.id],
+        holding.flatMap((line) => candidatesFor(line, key, column)),
+      );
       if (found.outcome === "right" && found.candidate) right.push(found.candidate);
       else if (found.outcome === "wrong" && found.candidate)
         wrong.push({ label: `${row.key} ${column.id}`, candidate: found.candidate });
@@ -538,14 +586,33 @@ function scoreRows(
 function judgeColumn(
   column: ExpectedColumn,
   value: number | string | undefined,
-  holding: readonly Line[],
+  candidates: readonly Candidate[],
 ): Found {
   if (typeof value !== "number") return { outcome: "missing", candidate: null };
-  return judge(
-    holding.flatMap((line) => line.candidates),
-    [value],
-    column,
-  );
+  return judge(candidates, [value], column);
+}
+
+/** A table row's numbers for a column: the cell under its heading, where the column names one. */
+function cellCandidates(line: Line, column: ExpectedColumn): Candidate[] {
+  if (!line.row) return line.candidates;
+  const { cells, headings } = line.row;
+  const at = column.heading
+    ? headings.findIndex((heading) => once(column.heading as RegExp).test(heading))
+    : -1;
+  return at < 0 ? line.candidates : (cells[at]?.candidates ?? []);
+}
+
+/**
+ * The numbers a line states for one key: those after it and before the next key ("CC07 1,250.50,
+ * CC12 980.25"), and any before the first key go to the first.
+ */
+function segment(line: Line, key: string, expected: ExpectedRows): Candidate[] {
+  const places = keysIn(line.text, expected);
+  if (places.length < 2) return line.candidates;
+  return line.candidates.filter((candidate) => {
+    const owner = places.filter((place) => place.at <= candidate.at).at(-1) ?? places[0];
+    return owner?.key === key;
+  });
 }
 
 /**
@@ -564,16 +631,22 @@ function listBlock(expected: ExpectedRows, wanted: readonly string[], lines: rea
     }
     blocks.set(line.block, keys);
   }
-  let best: string[] = [];
-  let members = 0;
-  for (const keys of blocks.values()) {
-    const count = keys.filter((key) => wanted.includes(key)).length;
-    if (count === 0 || keys.length > 2 * wanted.length) continue;
-    if (count > members) {
-      best = keys;
-      members = count;
+  // A block of more than twice the members' keys is a full table beside the list, unless no
+  // other block lists them: then it is the list, and its other keys are extra.
+  const choose = (fits: (keys: readonly string[]) => boolean) => {
+    let best: string[] = [];
+    let members = 0;
+    for (const keys of blocks.values()) {
+      const count = keys.filter((key) => wanted.includes(key)).length;
+      if (count > members && fits(keys)) {
+        best = keys;
+        members = count;
+      }
     }
-  }
+    return best;
+  };
+  const listed = choose((keys) => keys.length <= 2 * wanted.length);
+  const best = listed.length ? listed : choose(() => true);
   return {
     extra: best.filter((key) => !wanted.includes(key)).map((key) => written.get(key) ?? key),
     order: best.filter((key) => wanted.includes(key)),
@@ -635,9 +708,15 @@ const covers = (citation: MarkedCitation | undefined, page: number): boolean => 
   );
 };
 
-/** The figures the app recalculated to the same number, by marker (ADR-0025): those shown as recalculated. */
+/** The figures shown, or shown once checked, as recalculated, by marker, with the value recalculated. */
 function recalculatedMarkers(answer: SavedAnswer): Map<number, number> {
   const markers = new Map<number, number>();
+  // A figure the app worked out itself, from cited inputs or a workbook's own formulas, can show as
+  // "Inputs found · recalculated" once checked: every one is taken as labelled.
+  for (const figure of answer.figures) {
+    if (!figure.analysis && typeof figure.value === "number")
+      markers.set(figure.marker, figure.value);
+  }
   for (const analysis of answer.analyses) {
     for (const each of analysis.recalculations ?? []) {
       if (each.check.kind !== "same") continue;
@@ -786,8 +865,17 @@ export function scoreAnswer(task: Task, reference: Reference, record: AnswerReco
   }
   const citations = new Map(answer.citations.map((citation) => [citation.marker, citation]));
   for (const [id, page] of Object.entries(task.sources?.pages ?? {})) {
-    const at = rightLines.get(id);
-    const cites = lines.find((line) => line.index === at)?.cites ?? [];
+    const expected = task.expect.find((each) => each.id === id);
+    const references = numbersOf(reference.values[id]);
+    // Any line that states the result rightly may be the one that cites it.
+    const cites = lines
+      .filter(
+        (line) =>
+          line.index === rightLines.get(id) ||
+          (expected?.kind === "number" &&
+            line.candidates.some((each) => verdict(each, references, expected) === "right")),
+      )
+      .flatMap((line) => line.cites);
     const inNote = (marker: number) => {
       const pages = noted.get(marker)?.pages;
       return pages ? pages[0] <= page && page <= pages[1] : false;
@@ -814,13 +902,17 @@ export function scoreAnswer(task: Task, reference: Reference, record: AnswerReco
       falseRecalculated.push(`${use.id}: ${candidate.text} was recalculated, but is wrong`);
   }
   for (const line of lines) {
-    if (!RECALCULATED.test(line.text)) continue;
-    for (const candidate of line.candidates) {
-      const marker = candidate.figure?.marker;
+    for (const label of line.text.matchAll(every(RECALCULATED))) {
+      // A label is the number's just before it, or the line's first after it.
+      const labelled =
+        line.candidates.filter((each) => each.at < label.index).sort((a, b) => b.at - a.at)[0] ??
+        line.candidates.filter((each) => each.at >= label.index).sort((a, b) => a.at - b.at)[0];
+      if (!labelled) continue;
+      const marker = labelled.figure?.marker;
       if (marker !== undefined && recalculated.has(marker)) continue;
-      const use = taken.get(candidate);
+      const use = taken.get(labelled);
       falseRecalculated.push(
-        `${use ? `${use.id}: ` : ""}${candidate.text} is said to be recalculated`,
+        `${use ? `${use.id}: ` : ""}${labelled.text} is said to be recalculated`,
       );
     }
   }
@@ -832,7 +924,10 @@ export function scoreAnswer(task: Task, reference: Reference, record: AnswerReco
   const wrongUnlabelled = wrongCandidates
     .filter((each) => each.candidate.figure === null)
     .map((each) => `${each.id}: ${each.candidate.text}`);
-  const C3 = C1 || cant || (troubles.length === 0 && wrongUnlabelled.length === 0);
+  // A "can't" excuses what was left out, never a number guessed beside it; a run the model fixed
+  // itself is nothing it has to say.
+  const said = troubles.every((each) => each === "code error") || cant;
+  const C3 = C1 || (wrongUnlabelled.length === 0 && said);
 
   const { containment } = record;
   const C4 =
@@ -938,6 +1033,8 @@ export interface RunScore {
   falseRecalculated: number;
   /** Answers that weren't contained: one fails the whole run. */
   notContained: number;
+  /** Connections the listener heard between tasks: one fails the whole run. */
+  outside: number;
   failed: boolean;
   medianSeconds: number;
   p95Seconds: number;
@@ -953,6 +1050,8 @@ export function scoreRun(
   tasks: readonly Task[],
   references: Readonly<Record<string, Reference>>,
   records: readonly AnswerRecord[],
+  /** Every connection the run's listener heard, where the run kept them. */
+  connections: readonly string[] = [],
 ): RunScore {
   const scores = records.flatMap((record) => {
     const task = tasks.find((each) => each.id === record.task);
@@ -964,16 +1063,29 @@ export function scoreRun(
         `${record.task} (${record.language}) was asked about other inputs than its reference was worked out from: run it again.`,
       );
     }
+    const question = task.question[record.language] ?? task.question.en;
+    if (record.question !== undefined && record.question !== question) {
+      throw new Error(
+        `${record.task} (${record.language}) was asked another question: run it again.`,
+      );
+    }
     return [scoreAnswer(task, reference, record)];
   });
   const falseRecalculated = scores.filter((score) => score.falseRecalculated.length > 0).length;
   const notContained = scores.filter((score) => !score.checks.C4).length;
+  // A connection heard outside every task's window still means something left the sandbox.
+  const outside = Math.max(
+    0,
+    connections.length -
+      records.reduce((sum, each) => sum + each.containment.connections.length, 0),
+  );
   const seconds = scores.filter((score) => score.end !== "failed").map((score) => score.seconds);
   return {
     scores,
     falseRecalculated,
     notContained,
-    failed: falseRecalculated > 0 || notContained > 0,
+    outside,
+    failed: falseRecalculated > 0 || notContained > 0 || outside > 0,
     medianSeconds: rank(seconds, 0.5),
     p95Seconds: rank(seconds, 0.95),
   };

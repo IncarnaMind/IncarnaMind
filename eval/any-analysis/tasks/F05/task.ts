@@ -268,10 +268,14 @@ export const task: Task = {
       label: "Each customer's balance in the four buckets",
       key: /\bC1(?:0[1-9]|10)\b/g,
       columns: [
-        { id: "days_0_30", ...bucket },
-        { id: "days_31_60", ...bucket },
-        { id: "days_61_90", ...bucket },
-        { id: "over_90", ...bucket },
+        { id: "days_0_30", ...bucket, heading: /\b0\s*[-–至]\s*30\b|current|未到期/i },
+        { id: "days_31_60", ...bucket, heading: /\b31\s*[-–至]\s*60\b/ },
+        { id: "days_61_90", ...bucket, heading: /\b61\s*[-–至]\s*90\b/ },
+        {
+          id: "over_90",
+          ...bucket,
+          heading: /over\s*90|90\s*\+|>\s*90|91\s*\+|90\s*天以上|超过\s*90|90以上/i,
+        },
       ],
     },
     {

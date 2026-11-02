@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { taskFolder } from "./load";
-import type { RunRecord } from "./record";
+import type { RequestUsage, RunRecord } from "./record";
 import {
   type FailureClass,
   MEDIAN_SECONDS,
@@ -38,18 +38,21 @@ export function referencesOf(tasks: readonly Task[]): Record<string, Reference> 
  * One record per model from runs made in parts: a task asked again in a later run replaces its
  * earlier Answer, and the requests of both stay counted, since both were paid for.
  */
-export function byModel(
-  runs: readonly RunRecord[],
-): { record: RunRecord; paid: RunRecord["answers"] }[] {
-  const models = new Map<string, { record: RunRecord; paid: RunRecord["answers"] }>();
+export function byModel(runs: readonly RunRecord[]): { record: RunRecord; paid: RequestUsage[] }[] {
+  const models = new Map<string, { record: RunRecord; paid: RequestUsage[] }>();
   for (const run of runs) {
-    const kept = models.get(run.run.model) ?? { record: { run: run.run, answers: [] }, paid: [] };
+    const kept = models.get(run.run.model) ?? {
+      record: { run: run.run, answers: [], connections: [] },
+      paid: [],
+    };
+    // A run that kept its own total also counts the requests made between its tasks.
+    kept.paid.push(...(run.requests ?? run.answers.flatMap((each) => each.requests)));
+    kept.record.connections = [...(kept.record.connections ?? []), ...(run.connections ?? [])];
     for (const answer of run.answers) {
       kept.record.answers = kept.record.answers.filter(
         (each) => each.task !== answer.task || each.language !== answer.language,
       );
       kept.record.answers.push(answer);
-      kept.paid.push(answer);
     }
     models.set(run.run.model, kept);
   }
@@ -70,7 +73,7 @@ export function modelResults(
 ): ModelResult[] {
   const references = referencesOf(tasks);
   return runs.map((record) => {
-    const run = scoreRun(tasks, references, record.answers);
+    const run = scoreRun(tasks, references, record.answers, record.connections);
     const passed = Object.fromEntries(
       NEEDS.map((need) => [need, { passed: 0, of: 0 }]),
     ) as ModelResult["passed"];
@@ -141,7 +144,7 @@ export function reportLines(given: readonly RunRecord[], tasks: readonly Task[] 
       score.wrongUnlabelled.map((each) => `${score.task} ${score.language}: ${each}`),
     );
     lines.push(
-      `- ${result.model}: C4 failures ${uncontained.length}${uncontained.length ? ` (${uncontained.map((each) => `${each.task} ${each.language}`).join(", ")})` : ""}; false "recalculated" ${falseRecalculated.length}${falseRecalculated.length ? ` (${falseRecalculated.join("; ")})` : ""}; wrong numbers without the calculated label ${unlabelled.length}${unlabelled.length ? ` (${unlabelled.join("; ")})` : ""}; median ${result.run.medianSeconds.toFixed(0)} s (bar ${MEDIAN_SECONDS}), 95th percentile ${result.run.p95Seconds.toFixed(0)} s (bar ${SLOWEST_SECONDS}).`,
+      `- ${result.model}: C4 failures ${uncontained.length + result.run.outside}${uncontained.length ? ` (${uncontained.map((each) => `${each.task} ${each.language}`).join(", ")})` : ""}; false "recalculated" ${falseRecalculated.length}${falseRecalculated.length ? ` (${falseRecalculated.join("; ")})` : ""}; wrong numbers without the calculated label ${unlabelled.length}${unlabelled.length ? ` (${unlabelled.join("; ")})` : ""}; median ${result.run.medianSeconds.toFixed(0)} s (bar ${MEDIAN_SECONDS}), 95th percentile ${result.run.p95Seconds.toFixed(0)} s (bar ${SLOWEST_SECONDS}).`,
     );
   }
   lines.push("", "Failure classes:");
@@ -158,7 +161,7 @@ export function reportLines(given: readonly RunRecord[], tasks: readonly Task[] 
   );
   let total = 0;
   for (const { record, paid } of merged) {
-    for (const [model, tokens] of tokensByModel(paid.flatMap((each) => each.requests))) {
+    for (const [model, tokens] of tokensByModel(paid)) {
       total += tokens.dollars;
       lines.push(
         `| ${model} (run on ${record.run.model.replace(/^anthropic\//, "")}) | ${tokens.requests} | ${tokens.uncached} | ${tokens.cacheReads} | ${tokens.cacheWrites} | ${tokens.output} | ${dollars(tokens.dollars)} |`,

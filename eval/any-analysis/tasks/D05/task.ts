@@ -131,8 +131,18 @@ export const task: Task = {
       label: "Every number in the deck that differs from the workbook",
       key: /\b(?:Northgate|Riverside|Hillcrest|Lakeshore|Westbrook|Eastfield|Southmoor|Oakridge)\b/gi,
       columns: [
-        { id: "deck", unit: "plain", tolerance: { abs: 0.05 } },
-        { id: "workbook", unit: "plain", tolerance: { abs: 0.05 } },
+        {
+          id: "deck",
+          unit: "plain",
+          tolerance: { abs: 0.05 },
+          heading: /deck|slide|ppt|幻灯片|演示/i,
+        },
+        {
+          id: "workbook",
+          unit: "plain",
+          tolerance: { abs: 0.05 },
+          heading: /workbook|excel|sheet|xlsx|工作簿|表格/i,
+        },
       ],
     },
   ],

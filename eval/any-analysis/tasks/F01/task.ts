@@ -140,8 +140,8 @@ export const task: Task = {
       label: "The five cost centres most over budget, worst first",
       key: /\bCC\d{2}\b/g,
       columns: [
-        { id: "amount", unit: "plain", tolerance: { abs: 0.01 }, signless: true },
-        { id: "share", unit: "percent", tolerance: { abs: 0.0005 }, signless: true },
+        { id: "amount", unit: "plain", tolerance: { abs: 0.01 } },
+        { id: "share", unit: "percent", tolerance: { abs: 0.0005 } },
       ],
       ordered: true,
     },
@@ -152,7 +152,6 @@ export const task: Task = {
       unit: "plain",
       tolerance: { abs: 0.01 },
       near: /total|overall|all 40|合计|总/i,
-      signless: true,
     },
   ],
   sources: { documents: [NAMES.en] },

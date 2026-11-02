@@ -72,6 +72,8 @@ export interface ExpectedColumn {
   unit: NumberKind;
   tolerance: Tolerance;
   signless?: boolean;
+  /** In a table, the heading of the column that holds it: only that cell counts. */
+  heading?: RegExp;
 }
 
 /**

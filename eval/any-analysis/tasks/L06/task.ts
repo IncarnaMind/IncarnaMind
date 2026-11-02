@@ -84,8 +84,8 @@ export const task: Task = {
   needs: ["P"],
   seed: 5601,
   question: {
-    en: "Store takings October.csv is an export from our tills: one row per store per day, with the takings in yuan. Some amounts were typed with full-width digits, thousands separators or a yuan sign. What is the total takings and how many rows are there? List what you had to normalise to add the amounts up.",
-    zh: "《10月门店营业额.csv》是收银系统导出的数据：每家门店每天一行，营业额单位是元。有些金额是用全角数字、千分位分隔符或人民币符号录入的。营业额合计是多少？一共有多少行？请列出为了相加金额做了哪些规范化处理。",
+    en: "Store takings October.csv is an export from our tills: one row for each takings report a store sent in October, with the takings in yuan. Some amounts were typed with full-width digits, thousands separators or a yuan sign. What is the total takings and how many rows are there? List what you had to normalise to add the amounts up.",
+    zh: "《10月门店营业额.csv》是收银系统导出的数据：每行是一家门店在 10 月上报的一笔营业额，单位是元。有些金额是用全角数字、千分位分隔符或人民币符号录入的。营业额合计是多少？一共有多少行？请列出为了相加金额做了哪些规范化处理。",
   },
   inputs,
   expect: [

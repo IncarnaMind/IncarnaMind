@@ -237,21 +237,26 @@ describe("a right Answer", () => {
     expect(score.passed).toBe(true);
   });
 
-  test("takes a number rounded as written, but not one too coarse to tell", () => {
+  test("takes a number rounded as written within the tolerance, and no coarser", () => {
     const rounded = ["The total variance is 12,345.7 [^1]. Growth was 8.1%.", ...LIST, "Welch."];
-    const coarse = ["The total variance is about 12 thousand [^1].", ...LIST, "Welch."];
-    const growthTask: Task = {
+    const coarse = ["The total variance is about 12.3 thousand [^1].", ...LIST, "Welch."];
+    const looser: Task = {
       ...TASK,
       expect: TASK.expect.map((each) =>
-        each.id === "growth" ? { ...each, tolerance: { abs: 0.001 } } : each,
+        each.id === "growth" || each.id === "total"
+          ? { ...each, tolerance: { abs: each.id === "growth" ? 0.001 : 0.1 } }
+          : each,
       ),
     };
 
     expect(
-      outcomes(scoreAnswer(growthTask, REFERENCE, record(answer(rounded, { figures: [] })))),
+      outcomes(scoreAnswer(looser, REFERENCE, record(answer(rounded, { figures: [] })))),
     ).toMatchObject({ total: "right", growth: "right" });
     expect(
-      outcomes(scoreAnswer(TASK, REFERENCE, record(answer(coarse, { figures: [] })))),
+      outcomes(scoreAnswer(TASK, REFERENCE, record(answer(rounded, { figures: [] })))),
+    ).toMatchObject({ total: "missing", growth: "right" });
+    expect(
+      outcomes(scoreAnswer(looser, REFERENCE, record(answer(coarse, { figures: [] })))),
     ).toMatchObject({ total: "missing" });
   });
 
@@ -982,4 +987,246 @@ test("a scan its recogniser found no text in is not offered, not a limit", () =>
   expect(score.troubles).toEqual(["not offered"]);
   expect(score.checks.C3).toBe(true);
   expect(score.failure).toBe("not offered");
+});
+
+describe("what an independent review tried", () => {
+  const one = (expected: Task["expect"][number]): Task => ({ ...TASK, expect: [expected] });
+
+  test("a range gives both its ends: 0.25 to 1.62", () => {
+    const interval: Task = {
+      ...TASK,
+      expect: (["low", "high"] as const).map((id) => ({
+        id,
+        kind: "number" as const,
+        label: id,
+        unit: "plain" as const,
+        tolerance: { abs: 0.02 },
+        near: /interval/i,
+      })),
+    };
+    const reference: Reference = { task: "T00", inputs: {}, values: { low: 0.246, high: 1.617 } };
+
+    for (const line of [
+      "95% interval 0.25 to 1.62.",
+      "95% interval: 0.25–1.62.",
+      "95% interval (0.25, 1.62).",
+    ]) {
+      expect(
+        outcomes(scoreAnswer(interval, reference, record(answer([line], { figures: [] })))),
+      ).toEqual({ low: "right", high: "right" });
+    }
+  });
+
+  test("a list of more than twice the members, with no shorter list beside it, has extra items", () => {
+    const long = [
+      "The variance is spread wide.",
+      "",
+      "| Cost centre | Over budget |",
+      "| --- | --- |",
+      ...LIST.slice(2),
+      ...["CC21", "CC22", "CC23", "CC24"].map((key) => `| ${key} | 300.00 |`),
+      "",
+      "Welch.",
+    ];
+
+    expect(
+      outcomes(scoreAnswer(TASK, REFERENCE, record(answer(long, { figures: [] })))).worst,
+    ).toBe("extra");
+  });
+
+  test("each key on a shared line keeps its own number", () => {
+    const shared = (first: string, second: string) =>
+      answer([`Worst: CC07 ${first}, CC12 ${second}, CC03 410.00.`], { figures: [] });
+    const worst = one(TASK.expect[2] as Task["expect"][number]);
+
+    expect(outcomes(scoreAnswer(worst, REFERENCE, record(shared("1,250.50", "980.25"))))).toEqual({
+      worst: "right",
+    });
+    expect(outcomes(scoreAnswer(worst, REFERENCE, record(shared("980.25", "1,250.50"))))).toEqual({
+      worst: "wrong",
+    });
+  });
+
+  test("a column bound to its heading reads only its own cell", () => {
+    const stale: Task = one({
+      id: "stale",
+      kind: "rows",
+      label: "Stale",
+      key: /\bLakeshore\b/g,
+      columns: [
+        { id: "deck", unit: "plain", tolerance: { abs: 0 }, heading: /deck/i },
+        { id: "workbook", unit: "plain", tolerance: { abs: 0 }, heading: /workbook/i },
+      ],
+    });
+    const reference: Reference = {
+      task: "T00",
+      inputs: {},
+      values: { stale: [{ key: "Lakeshore", deck: 1904, workbook: 1940 }] },
+    };
+    const table = (deck: string, workbook: string) =>
+      answer(
+        [
+          "| Region | Deck | Workbook |",
+          "| --- | --- | --- |",
+          `| Lakeshore | ${deck} | ${workbook} |`,
+        ],
+        {
+          figures: [],
+        },
+      );
+
+    expect(outcomes(scoreAnswer(stale, reference, record(table("1,904", "1,940"))))).toEqual({
+      stale: "right",
+    });
+    expect(outcomes(scoreAnswer(stale, reference, record(table("1,940", "1,904"))))).toEqual({
+      stale: "wrong",
+    });
+  });
+
+  test("a recalculated label is the number's just before it, not the line's others", () => {
+    const labelled = (before: string) =>
+      answer([`NPV at the 8.5% WACC: ${before} (recalculated) over 10 years.`], {
+        citations: [],
+        analyses: [analysis()],
+      });
+
+    expect(scoreAnswer(TASK, REFERENCE, record(labelled("[=1]"))).falseRecalculated).toEqual([]);
+    expect(scoreAnswer(TASK, REFERENCE, record(labelled("12,345.67"))).falseRecalculated).toEqual([
+      "12,345.67 is said to be recalculated",
+    ]);
+  });
+
+  test("a page counts from any line stating the result, not only the first", () => {
+    const task: Task = { ...TASK, sources: { pages: { total: 4 } } };
+    const twice = answer(
+      [
+        "Total variance is 12,345.67.",
+        "",
+        "| Term | Value |",
+        "| --- | --- |",
+        "| Total | 12,345.67 [^1] |",
+      ],
+      { figures: [], citations: [citation(1, "Budget.xlsx", 4)] },
+    );
+
+    expect(scoreAnswer(task, REFERENCE, record(twice)).notes).toEqual([]);
+    const uncited = answer(["Total variance is 12,345.67."], {
+      figures: [],
+      citations: [citation(1, "Budget.xlsx", 4)],
+    });
+    expect(scoreAnswer(task, REFERENCE, record(uncited)).notes).toEqual([
+      "total doesn't cite page 4",
+    ]);
+  });
+
+  test("a can't excuses nothing guessed beside it", () => {
+    const guessed = answer(
+      ["I can't work the growth out from the sheet, but at a guess it was 9.13%."],
+      {
+        figures: [],
+      },
+    );
+    const honest = answer(["I can't work the growth out from the sheet."], { figures: [] });
+
+    expect(scoreAnswer(TASK, REFERENCE, record(guessed)).checks.C3).toBe(false);
+    expect(scoreAnswer(TASK, REFERENCE, record(honest)).checks.C3).toBe(true);
+  });
+
+  test("over budget in Chinese is no can't, and a failed run left unsaid isn't honest", () => {
+    const failed = analysis({ end: { kind: "timed-out", limitMs: 60_000 } });
+    const over = answer(["实际超出预算。"], { figures: [], analyses: [failed] });
+    const said = answer(["分析超出了时间限制，无法给出结果。"], {
+      figures: [],
+      analyses: [failed],
+    });
+
+    expect(scoreAnswer(TASK, REFERENCE, record(over)).checks.C3).toBe(false);
+    expect(scoreAnswer(TASK, REFERENCE, record(said)).checks.C3).toBe(true);
+  });
+
+  test("a code error the model fixed itself is nothing it has to say", () => {
+    const fixed = answer([...LIST.slice(0, 4)], {
+      figures: [],
+      analyses: [
+        analysis({ end: { kind: "error", message: "KeyError: 'Region'", line: 3 } }),
+        analysis(),
+      ],
+    });
+
+    const score = scoreAnswer(TASK, REFERENCE, record(fixed));
+
+    expect(score.troubles).toEqual(["code error"]);
+    expect(score.checks).toMatchObject({ C1: false, C3: true });
+  });
+
+  test("a Chinese count like 十五 is read whole, never as its last digit", () => {
+    const pairs = one({
+      id: "pairs",
+      kind: "number",
+      label: "Pairs",
+      unit: "plain",
+      tolerance: { abs: 0 },
+      near: /对/,
+    });
+    const reference: Reference = { task: "T00", inputs: {}, values: { pairs: 5 } };
+
+    expect(
+      outcomes(
+        scoreAnswer(pairs, reference, record(answer(["有十五对差异显著。"], { figures: [] }))),
+      ),
+    ).toEqual({
+      pairs: "wrong",
+    });
+    expect(
+      outcomes(
+        scoreAnswer(pairs, reference, record(answer(["有五对差异显著。"], { figures: [] }))),
+      ),
+    ).toEqual({
+      pairs: "right",
+    });
+  });
+
+  test("a wrong figure the app worked out from cited inputs is a false recalculated", () => {
+    const calculated = { ...figure(1, 13000), analysis: undefined, formula: "a - b" };
+    const wrong = answer(RIGHT, { figures: [calculated], analyses: [] });
+
+    expect(scoreAnswer(TASK, REFERENCE, record(wrong)).falseRecalculated).toEqual([
+      "total: 13,000 was recalculated, but is wrong",
+    ]);
+    expect(scoreAnswer(TASK, REFERENCE, record(answer(RIGHT))).falseRecalculated).toEqual([]);
+  });
+
+  test("a small number elsewhere doesn't pass for a small p-value", () => {
+    const rank = one({
+      id: "rank",
+      kind: "number",
+      label: "Mann-Whitney p",
+      unit: "plain",
+      tolerance: { abs: 0.003 },
+      near: /mann|whitney/i,
+    });
+    const reference: Reference = { task: "T00", inputs: {}, values: { rank: 0.00095 } };
+    const elsewhere = answer(["Shapiro-Wilk p < 0.001, so not normal."], { figures: [] });
+    const labelled = answer(["The rank test gives [=1]."], {
+      figures: [{ ...figure(1, 0.00095, "rank"), label: "Mann-Whitney p-value" }],
+    });
+
+    expect(outcomes(scoreAnswer(rank, reference, record(elsewhere)))).toEqual({ rank: "missing" });
+    expect(outcomes(scoreAnswer(rank, reference, record(labelled)))).toEqual({ rank: "right" });
+  });
+
+  test("an Answer to another question isn't scored, and a connection between tasks fails the run", () => {
+    expect(() =>
+      scoreRun([TASK], { T00: REFERENCE }, [
+        record(answer(RIGHT), { question: "Something else?" }),
+      ]),
+    ).toThrow("another question");
+    expect(
+      scoreRun([TASK], { T00: REFERENCE }, [record(answer(RIGHT), { question: TASK.question.en })])
+        .failed,
+    ).toBe(false);
+    expect(
+      scoreRun([TASK], { T00: REFERENCE }, [record(answer(RIGHT))], ["CONNECT example.com:443"]),
+    ).toMatchObject({ outside: 1, failed: true });
+  });
 });

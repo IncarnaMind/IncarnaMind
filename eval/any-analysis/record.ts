@@ -76,6 +76,8 @@ export interface AnswerRecord {
   /** SHA-256 of the inputs it was given (`inputsHash`): scored only against the reference worked out from them. */
   inputs: string;
   documents: DocumentEnd[];
+  /** The question asked; absent in runs before it was kept. */
+  question?: string;
   answer: SavedAnswer | null;
   /** The Notes it wrote its results into; absent in runs before they were kept. */
   notes?: SavedNote[];
@@ -99,4 +101,8 @@ export interface RunRecord {
     runtime: string;
   };
   answers: AnswerRecord[];
+  /** Every model request of the run, between tasks too; absent in runs before it was kept. */
+  requests?: RequestUsage[];
+  /** Every connection the listener heard in the run, by its first line; absent before it was kept. */
+  connections?: string[];
 }
