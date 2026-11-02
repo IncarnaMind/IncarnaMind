@@ -123,6 +123,7 @@ describe("Documents", { timeout: 30_000 }, () => {
         web: null,
         reference: null,
         ownFile: null,
+        convertedFrom: null,
         notCited: false,
         found: null,
         importedAs: null,

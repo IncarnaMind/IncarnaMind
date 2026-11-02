@@ -161,6 +161,7 @@
   "modelSetup.spec.ts": 176,
   "modelSources.spec.ts": 9,
   "modelsSettings.spec.ts": 8,
+  "moreFileKinds.spec.ts": 20,
   "motion.spec.ts": 29,
   "moveTo.spec.ts": 15,
   "naming.spec.ts": 59,

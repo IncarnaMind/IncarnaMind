@@ -26,6 +26,7 @@ import { creationDate, pdfDate, w3cDate } from "./creationDate";
 import { addDepositionAnchors, hasPrintedLines } from "./deposition";
 import { ExtractionError, extractText, type PageReading, pdfMetadata } from "./extract";
 import { officeProperties } from "./formats/coreProperties";
+import { htmlTitleOf } from "./formats/html";
 import { readWebPage, SAVED_PICTURE } from "./formats/web";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
@@ -33,6 +34,7 @@ import { joinCjkLineWraps } from "./lineWrap";
 import { type BuiltPassage, buildPassages } from "./passages";
 import { documentTitle } from "./title";
 import { unreadMessage } from "./unreadMessage";
+import type { PictureProblem } from "./web/pictures";
 
 /**
  * The version of this pipeline: text extraction, Passage building, text
@@ -66,9 +68,10 @@ import { unreadMessage } from "./unreadMessage";
  * workbook's rows Units keep each cell's formula beside its saved value, and
  * its first Unit its defined names and what of it wasn't read). 21: #2365 (a
  * Word section's headers and footers, and more forms of a scale, are read for
- * it).
+ * it). 22: #762 (pictures are read as scanned pages are; RTF and HTML files
+ * are read).
  */
-export const PROCESSING_VERSION = 21;
+export const PROCESSING_VERSION = 22;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -98,7 +101,10 @@ export const PROCESSING_VERSION = 21;
  * PDFs': a Word section keeps the scale its header or footer writes, and a
  * PDF's running header the forms the reader now knows ("(000 omitted)",
  * "金额（万）"), each as the Unit's scale marker; their text, Passages and
- * embeddings come out as they were (#2365).
+ * embeddings come out as they were (#2365). Version 22 adds the kinds of
+ * Document from #762: a picture's one page read from it, and RTF and HTML
+ * files read as text with their headings. No other kind's Passage or Unit
+ * changes.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 21,
@@ -108,6 +114,9 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pptx: 5,
   xlsx: 20,
   csv: 5,
+  image: 22,
+  rtf: 22,
+  html: 22,
   web: 7,
   transcript: 7,
 };
@@ -251,8 +260,8 @@ type Processed =
        * as the Passages were built from it (see ./boilerplate), with its label and anchors.
        */
       pages: TextUnit[];
-      /** PDF pages with unread content, and why; null when all could be read. */
-      unread: { pages: number[]; message: string; forms?: true } | null;
+      /** PDF pages with unread content, and why; null when all could be read. `picture`: a picture's page. */
+      unread: { pages: number[]; message: string; forms?: true; picture?: true } | null;
       /** What of it wasn't read when the rest was (#740); null when all was. */
       parts: UnreadParts | null;
     }
@@ -323,8 +332,11 @@ export type WorkerResult = ProcessingResult | MetadataResult | KeywordsResult;
 export interface ReadingChannel {
   /** The lines on a page's picture. Rejects with `ReadingUnavailable` when no page can be read now. */
   read(page: number, picture: PagePicture): Promise<RecognizedLine[]>;
-  /** The lines on a picture file, read where the model runs (`TextRecognizer.readFile`). */
-  readFile(page: number, file: Uint8Array): Promise<PictureRead>;
+  /**
+   * The lines on a picture file, read where the model runs (`TextRecognizer.readFile`), or why
+   * it was refused (a HEIC decoded to an oversized PNG, for one).
+   */
+  readFile(page: number, file: Uint8Array): Promise<PictureRead | { refused: PictureProblem }>;
   log(event: string, fields: LogFields): void;
   /** `read` of `of` scanned pages of version `contentHash` are read; `unit` is the one just read. */
   progress(contentHash: string, read: number, of: number, unit: TextUnit | null): void;
@@ -344,6 +356,7 @@ export type WorkerRequest =
       request: number;
       lines?: RecognizedLine[];
       read?: PictureRead;
+      refused?: PictureProblem;
       error?: { message: string; unavailable: boolean };
     };
 
@@ -560,6 +573,9 @@ async function readMetadataOf(
       parts.xmp = pdf.xmpPacket;
       parts.firstPageLines = pdf.firstPageLines;
       if (firstPages === null) parts.firstPages = pdf.firstPages;
+    } else if (kind === "html") {
+      // The page's own title, as its head says it; its text names it otherwise.
+      property = htmlTitleOf(bytes);
     } else if (hasMetadata(kind)) {
       const office = await officeProperties(bytes);
       fromMetadata = [office.created === null ? null : w3cDate(office.created)];

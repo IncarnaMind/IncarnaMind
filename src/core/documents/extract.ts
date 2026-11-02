@@ -24,7 +24,13 @@ import { type CanvasFactory, isScanned, pagePicture } from "./scan/pages";
 import { anchorsBack, readWithQuarterTurn } from "./scan/rotation";
 import { findTables, type TableGrid, textItemOf, textLayerRows } from "./tables";
 import { unreadMessage } from "./unreadMessage";
-import { PICTURE_LIMITS, pictureSize, pictureType } from "./web/pictures";
+import {
+  PICTURE_LIMITS,
+  type PictureProblem,
+  pictureProblem,
+  pictureSize,
+  pictureType,
+} from "./web/pictures";
 
 export { ExtractionError };
 
@@ -36,8 +42,8 @@ export interface PageReading {
   keep: ReadonlyMap<number, TextUnit>;
   /** The lines on a page's picture. Rejects with `ReadingUnavailable` when no page can be read now. */
   read(page: number, picture: PagePicture): Promise<RecognizedLine[]>;
-  /** As `read`, for a picture file, decoded where the model runs. */
-  readFile(page: number, file: Uint8Array): Promise<PictureRead>;
+  /** As `read`, for a picture file, decoded where the model runs; a refusal when it must not be read. */
+  readFile(page: number, file: Uint8Array): Promise<PictureRead | { refused: PictureProblem }>;
   /** Logs in the core, with the Document's id: the worker's own console reaches no log. */
   log(event: string, fields: LogFields): void;
   /** `read` of `of` scanned pages are read; `unit` is the one just read. */
@@ -55,8 +61,8 @@ export interface ExtractedText {
   /** PDFs only. */
   pageCount: number | null;
   units: TextUnit[];
-  /** PDF pages with unread content, and why; null when all could be read. */
-  unread: { pages: number[]; message: string; forms?: true } | null;
+  /** PDF pages with unread content, and why; null when all could be read. `picture`: a picture Document's one page. */
+  unread: { pages: number[]; message: string; forms?: true; picture?: true } | null;
   /** What of the file wasn't read when the rest was (#740): a workbook's hidden sheets and rows; null when all was. */
   parts: UnreadParts | null;
   /**
@@ -82,6 +88,7 @@ export async function extractText(
   readHiddenSheets = false,
 ): Promise<ExtractedText> {
   if (kind === "pdf") return extractPdf(bytes, reading, password);
+  if (kind === "image") return extractImage(bytes, reading);
   if (kind === "web" && reading && readPicture) {
     return {
       pageCount: null,
@@ -95,6 +102,58 @@ export async function extractText(
     return { pageCount: null, units, unread: null, parts: unreadPartsOf(workbook) };
   }
   return { pageCount: null, units: await extractUnits(kind, bytes), unread: null, parts: null };
+}
+
+/**
+ * A picture Document (#762) as a scanned page is: its one page is its picture,
+ * read on this computer. Without a reader, or while the model can't be had,
+ * the page is left unread so Retry reads it; a file that isn't a picture is
+ * unreadable.
+ */
+async function extractImage(
+  bytes: Uint8Array,
+  reading: PageReading | null,
+): Promise<ExtractedText> {
+  const unread = (message: string): ExtractedText => ({
+    pageCount: 1,
+    units: [],
+    unread: { pages: [1], message, picture: true },
+    parts: null,
+  });
+  if (!reading) return unread("The picture can't be read here.");
+  // The same pixel cap a saved page's pictures get: a small file can claim a size
+  // whose decoding takes a gigabyte, before the OCR engine ever sees it (#762).
+  const problem = pictureProblem(bytes);
+  if (problem !== null) {
+    throw new ExtractionError(
+      problem.kind === "too-large" ? "too-large" : "picture-unreadable",
+      problem.message,
+    );
+  }
+  reading.progress(0, 1, null);
+  try {
+    const picture = await reading.readFile(1, bytes);
+    if ("refused" in picture) {
+      throw new ExtractionError(
+        picture.refused.kind === "too-large" ? "too-large" : "picture-unreadable",
+        picture.refused.message,
+      );
+    }
+    const unit = scannedUnit(1, picture.lines, picture, reading.reader, 0, true);
+    reading.progress(1, 1, unit);
+    return { pageCount: 1, units: [unit], unread: null, parts: null };
+  } catch (error) {
+    reading.signal.throwIfAborted();
+    if (error instanceof ReadingUnavailable) {
+      return unread(error.message);
+    }
+    // A refusal already says its reason; only a reader's own failure is wrapped.
+    if (error instanceof ExtractionError) throw error;
+    throw new ExtractionError(
+      "unreadable",
+      `The picture couldn't be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /**
@@ -161,6 +220,10 @@ async function readFigure(
     return null;
   }
   const picture = await reading.readFile(number, file);
+  if ("refused" in picture) {
+    reading.log("documents.pictureNotRead", { picture: src, message: picture.refused.message });
+    return null;
+  }
   const read = scannedUnit(number, picture.lines, picture, reading.reader);
   const unsure = read.label?.scan?.unsure;
   return {

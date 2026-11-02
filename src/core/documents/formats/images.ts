@@ -25,3 +25,28 @@ export function dataUrlOf(data: Uint8Array, type: string): string {
   }
   return `data:${type};base64,${btoa(binary)}`;
 }
+
+/** The brands an ISO base media file uses for HEIC and HEIF pictures. */
+const HEIF_BRANDS = new Set([
+  "heic",
+  "heix",
+  "hevc",
+  "hevx",
+  "heim",
+  "heis",
+  "hevm",
+  "hevs",
+  "mif1",
+  "msf1",
+]);
+
+/**
+ * Whether the bytes are a HEIC or HEIF picture (a phone photo, say), which
+ * the engine that draws pictures can't read where the app runs (#1937).
+ */
+export function isHeifPicture(bytes: Uint8Array): boolean {
+  if (bytes.length < 12) return false;
+  const marker = String.fromCharCode(...bytes.subarray(4, 8));
+  const brand = String.fromCharCode(...bytes.subarray(8, 12)).toLowerCase();
+  return marker === "ftyp" && HEIF_BRANDS.has(brand);
+}

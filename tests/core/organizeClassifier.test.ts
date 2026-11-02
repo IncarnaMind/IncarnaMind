@@ -17,6 +17,7 @@ const groups: LibraryGroup[] = [
   { id: "g-reports", name: "Reports", description: "Reports and decks" },
 ].map((group) => ({
   ...group,
+  parentId: null,
   countsOwnFiles: false,
   keepInside: false,
   createdAt: "",

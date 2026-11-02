@@ -19,8 +19,9 @@ import { isSignInRoute, isSignInRouteProblem } from "../../../core/providers/sig
 import { asksAfterThirdParty } from "../../../shared/approvalRules";
 import { searchScopeOf } from "../../../shared/searchScope";
 import { toolCallsOf } from "../../../shared/toolCalls";
+import { type AnswerFigures, figuresOf, uncalculatedWords } from "../answerFigures";
 import { AnswerWriting } from "../answerPhase";
-import { isCalculated, RUN_SCRIPT, SEARCH } from "../answerSteps";
+import { RUN_SCRIPT, SEARCH } from "../answerSteps";
 import { documentReadText } from "../answerStepWords";
 import { useAnswers } from "../answers";
 import { useApprovals, waitingFor } from "../approvals";
@@ -192,7 +193,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
       />,
     );
   }
-  const { calculated, uncalculated } = figuresOf(toolCalls);
+  const figures = figuresOf(toolCalls);
 
   return (
     <NodeViewWrapper
@@ -218,11 +219,11 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
         data-generated-marks={node.attrs.generatedMarks === true ? "" : undefined}
       />
 
-      {!streaming && uncalculated > 0 && <UncalculatedLine count={uncalculated} />}
+      {!streaming && figures.uncalculated > 0 && <UncalculatedLine figures={figures} />}
 
       {searchesOpen && (
         <div contentEditable={false} className="answer-searches-open">
-          <SearchList searches={searches} calculated={calculated} />
+          <SearchList searches={searches} calculated={figures.calculated} />
         </div>
       )}
 
@@ -1273,23 +1274,13 @@ export function SkillRow({ name, use, reads }: SkillUse) {
   );
 }
 
-/** How many calculated figures an Answer shows, and how many it couldn't, from its one `calculate` call. */
-export function figuresOf(calls: readonly AnswerToolCall[]): {
-  calculated: number;
-  uncalculated: number;
-} {
-  const call = calls.find(isCalculated);
-  return { calculated: call?.resultCount ?? 0, uncalculated: call?.uncalculated ?? 0 };
-}
-
-/** Under an Answer whose figures some couldn't be calculated: their numbers are missing from its text. */
-export function UncalculatedLine({ count }: { count: number }) {
+/** Under an Answer whose figures some couldn't be calculated: which they were, and why their numbers are missing from its text (#2313). */
+export function UncalculatedLine({ figures }: { figures: AnswerFigures }) {
   const t = useT();
+  const language = useLanguage();
   return (
     <p contentEditable={false} data-testid="answer-uncalculated" className="answer-info">
-      {count === 1
-        ? t("answer.figures.uncalculated.one")
-        : t("answer.figures.uncalculated", { count })}
+      {uncalculatedWords(figures, t, language)}
     </p>
   );
 }

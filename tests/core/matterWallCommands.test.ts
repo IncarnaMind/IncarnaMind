@@ -489,6 +489,28 @@ describe("the assistant's move judges the walls again when it moves", () => {
     );
   });
 
+  test("a turn whose wall was switched off files by the outside rule, so it can't file into another wall", async () => {
+    const s = await setUp();
+    const vault = await s.core.createLibraryGroup({ name: "Vault", description: "" });
+    await s.core.updateLibraryGroup(vault.id, {
+      name: "Vault",
+      description: "",
+      keepInside: true,
+    });
+    const sub = await s.core.createLibraryGroup({
+      name: "Vault sub",
+      description: "",
+      parentId: vault.id,
+    });
+    const off = await s.core.createLibraryGroup({ name: "Off", description: "" });
+
+    await expect(
+      s.core.moveToFolder({ documentIds: [s.general.id], folderId: sub.id, wall: off.id }),
+    ).rejects.toMatchObject({ wording: { key: "error.folder.wallMove" } });
+    const { assignments } = await s.core.getLibrary();
+    expect(assignments.find((each) => each.documentId === s.general.id)?.groupId).not.toBe(sub.id);
+  });
+
   test("control: the same move with no wall switched moves the Document", async () => {
     const s = await setUp();
     const outbox = await s.core.createLibraryGroup({ name: "Outbox", description: "" });
