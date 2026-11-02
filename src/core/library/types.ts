@@ -5,6 +5,8 @@ export interface LibraryGroup {
   id: string;
   name: string;
   description: string;
+  /** The Folder this one is in, or null at the top level. A Folder holds Folders, Minds and Documents. */
+  parentId: string | null;
   /**
    * Checks count the files IncarnaMind wrote in this Folder as evidence (#80):
    * the User switched their exclusion off here. False by default.
@@ -242,6 +244,8 @@ export interface LibrarySnapshot {
 export interface LibraryGroupInput {
   name: string;
   description: string;
+  /** The Folder it is inside, or null at the top level. Left out, it stays as it was (null for a new Folder). */
+  parentId?: string | null;
   /** See `LibraryGroup.countsOwnFiles`. Left out, it stays as it was (false for a new Folder). */
   countsOwnFiles?: boolean;
   /** See `LibraryGroup.keepInside`. Left out, it stays as it was (false for a new Folder). */

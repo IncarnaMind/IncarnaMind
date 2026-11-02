@@ -126,6 +126,7 @@ describe("Requests to OpenAI say not to store", () => {
           id: "g-reports",
           name: "Reports",
           description: "Reports",
+          parentId: null,
           countsOwnFiles: false,
           keepInside: false,
           createdAt: "",

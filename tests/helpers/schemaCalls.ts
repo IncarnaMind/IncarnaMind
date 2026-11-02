@@ -88,6 +88,7 @@ export async function callEverySchema(model: ChatLanguageModel): Promise<AnswerE
         id: "g-reports",
         name: "Reports",
         description: "Reports",
+        parentId: null,
         countsOwnFiles: false,
         keepInside: false,
         createdAt: "",

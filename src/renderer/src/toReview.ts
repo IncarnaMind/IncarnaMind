@@ -1,5 +1,6 @@
 import type { Document, DocumentGroupAssignment, LibraryGroup } from "../../core/api";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
+import { folderPathLabel } from "./folders";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -7,6 +8,8 @@ export const TO_REVIEW = "to-review";
 
 export interface ReviewGroup {
   folder: LibraryGroup;
+  /** Its place, "Thesis › Chapter 2": Organize names a Folder out of its tree here. */
+  path: string;
   documents: Document[];
 }
 
@@ -29,7 +32,11 @@ export function toReviewOf(
   const byFolder = new Map<string, Document[]>(folders.map((folder) => [folder.id, []]));
   for (const document of documents) byFolder.get(waiting.get(document.id) ?? "")?.push(document);
   const groups = folders
-    .map((folder) => ({ folder, documents: byFolder.get(folder.id) ?? [] }))
+    .map((folder) => ({
+      folder,
+      path: folderPathLabel(folders, folder.id),
+      documents: byFolder.get(folder.id) ?? [],
+    }))
     .filter((group) => group.documents.length > 0)
     .sort((a, b) => b.documents.length - a.documents.length);
   return { count: groups.reduce((sum, group) => sum + group.documents.length, 0), groups };
@@ -40,9 +47,7 @@ export const reviewIds = (review: ToReview): string[] =>
 
 export function reviewSummary(review: ToReview, t: Translate): string {
   const parts = review.groups
-    .map((group) =>
-      t("library.review.part", { count: group.documents.length, folder: group.folder.name }),
-    )
+    .map((group) => t("library.review.part", { count: group.documents.length, folder: group.path }))
     .join(t("library.review.separator"));
   return t(review.count === 1 ? "library.review.summary.one" : "library.review.summary", {
     count: review.count,

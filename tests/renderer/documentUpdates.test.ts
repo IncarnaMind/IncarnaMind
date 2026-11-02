@@ -128,6 +128,7 @@ describe("applying gathered assignments to the Library", () => {
         id: "g",
         name: "Research",
         description: "",
+        parentId: null,
         countsOwnFiles: false,
         keepInside: false,
         createdAt: "",

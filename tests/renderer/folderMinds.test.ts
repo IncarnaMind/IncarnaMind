@@ -45,6 +45,7 @@ const group = (id: string, name: string): LibraryGroup => ({
   id,
   name,
   description: "",
+  parentId: null,
   countsOwnFiles: false,
   keepInside: false,
   createdAt: "",
@@ -142,12 +143,20 @@ describe("a Search scope's chips", () => {
         kind: "folder",
         id: "live",
         name: "Vendor selection",
+        path: ["Vendor selection"],
         deleted: false,
         documentKind: null,
         count: 0,
       },
-      { kind: "folder", id: "gone", name: "Finance", deleted: true, documentKind: null },
-      { kind: "folder", id: "unknown", name: null, deleted: true, documentKind: null },
+      {
+        kind: "folder",
+        id: "gone",
+        name: "Finance",
+        path: [],
+        deleted: true,
+        documentKind: null,
+      },
+      { kind: "folder", id: "unknown", name: null, path: [], deleted: true, documentKind: null },
     ]);
   });
 });

@@ -2204,6 +2204,16 @@ export const migrations: readonly Migration[] = [
       WHERE preset = 'invoice' AND description = '要求或确认付款的账单或收据，列有项目、金额和日期。';
     `,
   },
+  {
+    version: 122,
+    description: "Folders hold Folders, at any depth (#246)",
+    // parent_id is NULL at the top level. No foreign key: a later sync may deliver a Folder
+    // before its parent.
+    sql: `
+      ALTER TABLE library_groups ADD COLUMN parent_id TEXT;
+      CREATE INDEX library_groups_by_parent ON library_groups (parent_id) WHERE deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**

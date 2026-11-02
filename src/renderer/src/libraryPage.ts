@@ -62,12 +62,71 @@ export function sectionShows(
   return documents.some((doc) => !filed.has(doc.id));
 }
 
+/** The Folders at the top of the tree: those with no parent, or whose parent isn't listed. */
+export function rootFolders<T extends { id: string; parentId: string | null }>(
+  folders: readonly T[],
+): T[] {
+  const ids = new Set(folders.map((folder) => folder.id));
+  return folders.filter((folder) => folder.parentId === null || !ids.has(folder.parentId));
+}
+
+/** The Folders directly inside a Folder (or the top level), in the order given. */
+export function childrenOf(
+  folders: readonly LibraryGroup[],
+  parentId: string | null,
+): LibraryGroup[] {
+  return folders.filter((folder) => folder.parentId === parentId);
+}
+
 /**
- * One section per Folder, in the order given, then Not in a Folder, each with
- * its Documents in the order given. A Document whose Folder isn't among them
- * is Not in a Folder. Every Folder shows, empty or not, unless the page is
- * narrowed, when a section with no match is left out; Not in a Folder shows
- * only while it holds something.
+ * The Documents the page draws, by id: a section's own while it is open, and
+ * those in the sub-Folders opened inside it. A search opens every sub-Folder
+ * that holds a match.
+ */
+export function listedDocumentIds({
+  sections,
+  folders,
+  documentsOf,
+  folded,
+  subOpen,
+  narrowing,
+}: {
+  sections: readonly LibrarySection[];
+  folders: readonly LibraryGroup[];
+  /** The Documents filed in a Folder itself, in the page's order. */
+  documentsOf(folderId: string): readonly Document[];
+  folded: ReadonlySet<string>;
+  /** The sub-Folders showing what is inside them. */
+  subOpen: ReadonlySet<string>;
+  narrowing: boolean;
+}): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const walk = (folderId: string) => {
+    if (seen.has(folderId)) return;
+    seen.add(folderId);
+    for (const document of documentsOf(folderId)) ids.push(document.id);
+    for (const child of childrenOf(folders, folderId)) {
+      if (narrowing || subOpen.has(child.id)) walk(child.id);
+    }
+  };
+  for (const section of sections) {
+    if (folded.has(section.key)) continue;
+    if (section.folder === null) {
+      for (const document of section.documents) ids.push(document.id);
+    } else {
+      walk(section.folder.id);
+    }
+  }
+  return [...new Set(ids)];
+}
+
+/**
+ * One section per Folder at the top of the tree, in the order given, then Not
+ * in a Folder, each with its own Documents in the order given. A Document whose
+ * Folder isn't among them is Not in a Folder. Every Folder shows, empty or not,
+ * unless the page is narrowed, when a section with no match is left out; Not in
+ * a Folder shows only while it holds something.
  */
 export function sectionsOf(
   folders: readonly LibraryGroup[],
@@ -75,36 +134,96 @@ export function sectionsOf(
   folderOf: (documentId: string) => string | null,
   narrowing: boolean,
 ): LibrarySection[] {
-  const byFolder = new Map<string, Document[]>(folders.map((folder) => [folder.id, []]));
+  const known = new Set(folders.map((folder) => folder.id));
+  const parentOf = new Map(folders.map((folder) => [folder.id, folder.parentId]));
+  const topFolder = (id: string): string | null => {
+    const seen = new Set<string>();
+    let at: string | null = id;
+    while (at !== null && known.has(at) && !seen.has(at)) {
+      seen.add(at);
+      const parent: string | null = parentOf.get(at) ?? null;
+      if (parent === null || !known.has(parent)) return at;
+      at = parent;
+    }
+    return at;
+  };
+  const byFolder = new Map<string, Document[]>();
   const loose: Document[] = [];
+  const matchesIn = new Set<string>();
   for (const document of documents) {
-    const list = byFolder.get(folderOf(document.id) ?? "");
-    if (list) list.push(document);
-    else loose.push(document);
+    const id = folderOf(document.id);
+    if (id !== null && known.has(id)) {
+      const list = byFolder.get(id);
+      if (list) list.push(document);
+      else byFolder.set(id, [document]);
+      const top = topFolder(id);
+      if (top !== null) matchesIn.add(top);
+    } else loose.push(document);
   }
-  const sections: LibrarySection[] = folders.map((folder) => ({
+  const sections: LibrarySection[] = rootFolders(folders).map((folder) => ({
     key: folder.id,
     folder,
     documents: byFolder.get(folder.id) ?? [],
   }));
   sections.push({ key: NOT_IN_A_FOLDER, folder: null, documents: loose });
   return sections.filter(
-    (section) => section.documents.length > 0 || (section.folder !== null && !narrowing),
+    (section) =>
+      section.documents.length > 0 ||
+      (section.folder !== null && (!narrowing || matchesIn.has(section.folder.id))),
   );
 }
 
-/** How many Documents each Folder holds, counted as the Library page lists them. */
+/**
+ * How many Documents each Folder holds, its sub-Folders included, counted as
+ * the Library page lists them: those filed in it or in a Folder inside it.
+ */
 export function folderCounts(
   folders: readonly LibraryGroup[],
   documents: readonly Document[],
   assignments: readonly Pick<DocumentGroupAssignment, "documentId" | "groupId">[],
 ): Map<string, number> {
   const folderOf = new Map(assignments.map((each) => [each.documentId, each.groupId]));
-  return new Map(
-    sectionsOf(folders, documents, (id) => folderOf.get(id) ?? null, false).flatMap((section) =>
-      section.folder ? [[section.folder.id, section.documents.length] as const] : [],
-    ),
+  return treeCounts(
+    folders,
+    documents.flatMap((document) => {
+      const id = folderOf.get(document.id) ?? null;
+      return id === null ? [] : [{ folderId: id }];
+    }),
   );
+}
+
+/**
+ * How many of these things each Folder holds, its sub-Folders included: each
+ * with the Folder it is in, so a thing in a sub-Folder counts for it too.
+ */
+export function treeCounts<T extends { id: string; parentId: string | null }>(
+  folders: readonly T[],
+  items: readonly { folderId: string }[],
+): Map<string, number> {
+  const known = new Set(folders.map((folder) => folder.id));
+  const children = new Map<string, string[]>();
+  for (const folder of folders) {
+    if (folder.parentId !== null && known.has(folder.parentId))
+      children.set(folder.parentId, [...(children.get(folder.parentId) ?? []), folder.id]);
+  }
+  const direct = new Map<string, number>();
+  for (const item of items) {
+    if (known.has(item.folderId)) direct.set(item.folderId, (direct.get(item.folderId) ?? 0) + 1);
+  }
+  const counted = new Map<string, number>();
+  const count = (id: string, seen: Set<string>): number => {
+    const held = counted.get(id);
+    if (held !== undefined) return held;
+    if (seen.has(id)) return 0;
+    seen.add(id);
+    const total =
+      (direct.get(id) ?? 0) +
+      (children.get(id) ?? []).reduce((sum, child) => sum + count(child, seen), 0);
+    counted.set(id, total);
+    return total;
+  };
+  for (const folder of folders) count(folder.id, new Set());
+  return counted;
 }
 
 /** How a Document matches the Library's search. */
@@ -333,17 +452,31 @@ export function sourceFacet(
 
 /** By Folder: the Folders in the order given, then Not in a Folder. */
 export function folderFacet(
-  folders: readonly Pick<LibraryGroup, "id" | "name">[],
+  folders: readonly Pick<LibraryGroup, "id" | "name" | "parentId">[],
   folderOf: (documentId: string) => string | null,
 ): LibraryFacet<Document> {
   const names = new Map(folders.map((folder) => [folder.id, folder.name]));
+  const parentOf = new Map(folders.map((folder) => [folder.id, folder.parentId]));
   const order = [...folders.map((folder) => folder.id), NOT_IN_A_FOLDER];
+  // A Folder's own Documents and those in the Folders inside it, as its Search scope covers them.
+  const withParents = (id: string): string[] => {
+    const chain: string[] = [];
+    const seen = new Set<string>();
+    let at: string | null = id;
+    while (at !== null && !seen.has(at)) {
+      seen.add(at);
+      if (!names.has(at)) break;
+      chain.push(at);
+      at = parentOf.get(at) ?? null;
+    }
+    return chain;
+  };
   return {
     id: "folder",
     title: "library.filter.folder",
     values: (document) => {
       const id = folderOf(document.id);
-      return [id !== null && names.has(id) ? id : NOT_IN_A_FOLDER];
+      return id !== null && names.has(id) ? withParents(id) : [NOT_IN_A_FOLDER];
     },
     label: (value, t) =>
       value === NOT_IN_A_FOLDER ? t("library.unsorted") : (names.get(value) ?? value),

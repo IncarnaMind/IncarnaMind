@@ -3,21 +3,24 @@ import { create } from "zustand";
 import type { Document, LibraryGroup, Mind } from "../../../core/api";
 import { shortcutLabel } from "../commands/keymap";
 import { commands } from "../commands/registry";
-import { useDropTarget } from "../dragDrop";
+import { useDraggedRef, useDragSource, useDropTarget } from "../dragDrop";
 import { useFolderContents } from "../folderContents";
-import { folderTarget, useDraggedOutOfFolder } from "../folderDrag";
+import { folderRowDrag, folderTarget, folderTopTarget, useDraggedOutOfFolder } from "../folderDrag";
+import { buildFolderTree, type FolderNode, folderPathLabel } from "../folders";
 import { useLanguage, useT } from "../i18n";
 import { currentMindIdOf, currentTabOf } from "../layoutSlice";
+import { treeCounts } from "../libraryPage";
 import { formatCount } from "../linkedFolders";
 import { DAY_ONE_DOCUMENTS } from "../ownDocuments";
 import { useRequests } from "../requests";
 import { useSelectable, useSeveralSelected } from "../selection";
 import { FIRST_DOCUMENTS, moreDocumentsToShow } from "../sidebarList";
+import { useSidebarMove } from "../sidebarMoves";
 import { sorted } from "../sort";
 import { type SortScope, sortOf, useSort } from "../sortChoices";
 import { documentFields, mindFields } from "../sortFields";
 import { allExamples, exampleMindIds, isOwnDocument, useAppStore } from "../store";
-import { foldKeys, useTreeItem } from "../treeKeys";
+import { foldKeys, isMoveToKey, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
 import { ExamplesMenu } from "./ExamplesMenu";
 import { InlineName } from "./InlineName";
@@ -33,6 +36,8 @@ import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
 import { SidebarSection } from "./SidebarSection";
 import {
   clearsActions,
+  dropAfterClass,
+  dropBeforeClass,
   dropIntoClass,
   rowActionButtonClass,
   rowActionsClass,
@@ -60,6 +65,8 @@ interface Folds {
   toggle(folderId: string): void;
   /** Opens a Folder (e.g. the open Mind's), if it isn't. */
   reveal(folderId: string): void;
+  /** Opens the Folders this one is inside, so its row shows, and then it. */
+  revealPath(folderId: string, parentOf: (id: string) => string | null): void;
   toggleTags(): void;
   showMore(key: string, count: number): void;
 }
@@ -109,6 +116,18 @@ export const useFolds = create<Folds>()((set, get) => {
     reveal(folderId) {
       if (get().open.has(folderId)) return;
       change({ open: new Set([...get().open, folderId]) });
+    },
+    revealPath(folderId, parentOf) {
+      const open = new Set(get().open);
+      const seen = new Set<string>();
+      let parent = parentOf(folderId);
+      while (parent !== null && !seen.has(parent)) {
+        seen.add(parent);
+        open.add(parent);
+        parent = parentOf(parent);
+      }
+      open.add(folderId);
+      change({ open });
     },
     toggleTags() {
       change({ tagsFolded: !get().tagsFolded });
@@ -163,6 +182,10 @@ export function LibraryFolders({
   const { orderedGroups, documentsByFolder, mindsByFolder } = useFolderContents(documents, {
     hideExamples,
   });
+  const parentOf = useMemo(() => {
+    const parents = new Map(orderedGroups.map((folder) => [folder.id, folder.parentId]));
+    return (id: string) => parents.get(id) ?? null;
+  }, [orderedGroups]);
   const assignments = useAppStore((state) => state.library?.assignments);
   const suggestedByFolder = useMemo(() => {
     const byFolder = new Map<string, Set<string>>();
@@ -174,6 +197,53 @@ export function LibraryFolders({
     }
     return byFolder;
   }, [assignments]);
+  // How many Documents and Minds each Folder holds, those in its sub-Folders too (its row's count).
+  const counts = useMemo(
+    () =>
+      treeCounts(orderedGroups, [
+        ...orderedGroups.flatMap((folder) =>
+          (documentsByFolder.get(folder.id) ?? NO_DOCUMENTS).map(() => ({ folderId: folder.id })),
+        ),
+        ...orderedGroups.flatMap((folder) =>
+          (mindsByFolder.get(folder.id) ?? NO_MINDS).map(() => ({ folderId: folder.id })),
+        ),
+      ]),
+    [orderedGroups, documentsByFolder, mindsByFolder],
+  );
+  // How many Documents each Folder only suggests, those suggested inside it too.
+  const suggestedCounts = useMemo(
+    () =>
+      treeCounts(
+        orderedGroups,
+        orderedGroups.flatMap((folder) =>
+          [...(suggestedByFolder.get(folder.id) ?? NO_DOCUMENT_IDS)].map(() => ({
+            folderId: folder.id,
+          })),
+        ),
+      ),
+    [orderedGroups, suggestedByFolder],
+  );
+  const tree = useMemo(() => buildFolderTree(orderedGroups), [orderedGroups]);
+  const paths = useMemo(
+    () =>
+      new Map(
+        orderedGroups.map((folder) => [folder.id, folderPathLabel(orderedGroups, folder.id)]),
+      ),
+    [orderedGroups],
+  );
+  const topLevelDrop = useDropTarget("sidebar-folders-top", folderTopTarget());
+
+  // The open Mind's Folder opens, so its row is in sight: when it opens, or moves there.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: another Mind of the same Folder opened reveals it again.
+  useEffect(() => {
+    if (openMindFolder) useFolds.getState().revealPath(openMindFolder, parentOf);
+  }, [openMindId, openMindFolder, parentOf]);
+
+  // A Folder just made inside another opens what it is in, so its row, and its name field, show.
+  const nameFolder = useRequests((state) => state.nameFolder);
+  useEffect(() => {
+    if (nameFolder) useFolds.getState().revealPath(nameFolder, parentOf);
+  }, [nameFolder, parentOf]);
 
   const draggingOut = useDraggedOutOfFolder();
   const looseMinds = mindsByFolder.get(null) ?? NO_MINDS;
@@ -187,6 +257,7 @@ export function LibraryFolders({
           testId="folders-section"
           title={t("library.groups")}
           headingTestId="folders-title"
+          drop={topLevelDrop}
           actions={
             <button
               type="button"
@@ -203,13 +274,17 @@ export function LibraryFolders({
           }
         >
           <ul role="none">
-            {orderedGroups.map((folder) => (
+            {tree.map((node) => (
               <FolderGroup
-                key={folder.id}
-                folder={folder}
-                minds={mindsByFolder.get(folder.id) ?? NO_MINDS}
-                documents={documentsByFolder.get(folder.id) ?? NO_DOCUMENTS}
-                suggested={suggestedByFolder.get(folder.id) ?? NO_DOCUMENT_IDS}
+                key={node.folder.id}
+                node={node}
+                mindsByFolder={mindsByFolder}
+                documentsByFolder={documentsByFolder}
+                suggestedByFolder={suggestedByFolder}
+                counts={counts}
+                suggestedCounts={suggestedCounts}
+                paths={paths}
+                parentOf={parentOf}
                 renderDocument={renderDocument}
               />
             ))}
@@ -230,11 +305,12 @@ export function LibraryFolders({
   );
 }
 
-/** A Folder's or Not in a Folder's contents: its Minds, then its first Documents and "Show N more". */
+/** A Folder's or Not in a Folder's contents: its sub-Folders, then its Minds and Documents. */
 function Contents({
   listKey,
   scope,
   depth,
+  subfolders,
   minds,
   documents,
   renderDocument,
@@ -243,6 +319,8 @@ function Contents({
   /** Whose sort it follows: its Folder's, or the sidebar's for Not in a Folder. */
   scope: SortScope;
   depth: number;
+  /** The Folders inside it, when it has any: they come first, as on the Library page. */
+  subfolders?: ReactNode;
   minds: readonly Mind[];
   documents: readonly Document[];
   renderDocument(document: Document, depth: number): ReactNode;
@@ -269,10 +347,11 @@ function Contents({
   }, [minds, documents, sort, language, t]);
   const more = moreDocumentsToShow(extra, documents.length - listed);
   const showMoreItem = useTreeItem({ depth });
-  if (minds.length === 0 && documents.length === 0) return null;
+  if (!subfolders && minds.length === 0 && documents.length === 0) return null;
   let documentsListed = 0;
   return (
     <ul role="none">
+      {subfolders}
       {rows.map((each) => {
         if ("autoTitle" in each) return <MindRow key={each.id} mind={each} depth={depth} />;
         documentsListed += 1;
@@ -297,41 +376,60 @@ function Contents({
   );
 }
 
+/** What a Folder's row needs to show its place, its count and what is inside it. */
+interface FolderGroupProps {
+  node: FolderNode<LibraryGroup>;
+  mindsByFolder: ReadonlyMap<string | null, readonly Mind[]>;
+  documentsByFolder: ReadonlyMap<string | null, readonly Document[]>;
+  suggestedByFolder: ReadonlyMap<string, ReadonlySet<string>>;
+  /** How many Documents and Minds each Folder holds, its sub-Folders too. */
+  counts: ReadonlyMap<string, number>;
+  suggestedCounts: ReadonlyMap<string, number>;
+  /** Each Folder's place, "Thesis › Chapter 2", for its tooltip while it is inside another Folder. */
+  paths: ReadonlyMap<string, string>;
+  parentOf: (id: string) => string | null;
+  renderDocument(document: Document, depth: number): ReactNode;
+}
+
 /**
- * A Folder's row and, while open, what is in it. Clicking (or Enter, or
- * Space) opens and closes it in place; ⌘-click and Shift-click select it;
- * double-click or F2 renames it. Its row takes a drop, and opens when a drag
- * rests on it folded, as in Finder.
+ * A Folder's row and, while open, what is in it: the Folders inside it, then
+ * its Minds and Documents. Clicking (or Enter, or Space) opens and closes it
+ * in place; ⌘-click and Shift-click select it; double-click or F2 renames it.
+ * Its row takes a drop, and opens when a drag rests on it folded, as in
+ * Finder. A Folder dragged onto it goes inside when it is dropped on the row's
+ * middle, and beside it near an edge (#246).
  */
 function FolderGroup({
-  folder,
-  minds,
-  documents,
-  suggested,
+  node,
+  mindsByFolder,
+  documentsByFolder,
+  suggestedByFolder,
+  counts,
+  suggestedCounts,
+  paths,
+  parentOf,
   renderDocument,
-}: {
-  folder: LibraryGroup;
-  minds: readonly Mind[];
-  documents: readonly Document[];
-  /** The Documents this Folder only suggests, of those it lists. */
-  suggested: ReadonlySet<string>;
-  renderDocument(document: Document, depth: number): ReactNode;
-}) {
+}: FolderGroupProps) {
+  const { folder, depth, children } = node;
+  const path = paths.get(folder.id) ?? folder.name;
   const expanded = useFolds((state) => state.open.has(folder.id));
   const shownInLibrary = useAppStore(
     (state) =>
       currentTabOf(state.layout)?.item.kind === "library" && state.libraryFilter === folder.id,
   );
   const toggle = () => useFolds.getState().toggle(folder.id);
+  const row = useRef<HTMLDivElement>(null);
   const drop = useDropTarget(
     `sidebar-folder:${folder.id}`,
-    folderTarget(folder.id),
+    folderTarget(folder.id, () => row.current?.getBoundingClientRect() ?? null),
     expanded ? undefined : () => useFolds.getState().reveal(folder.id),
   );
   const object = { kind: "folder", id: folder.id } as const;
   const select = useSelectable(object, "sidebar", toggle);
   const several = useSeveralSelected("sidebar");
   const lit = select.selected || shownInLibrary;
+  const dragSource = useDragSource(() => folderRowDrag(folder, "sidebar"));
+  const dragged = useDraggedRef(object);
   // The first click of a double-click folds or unfolds it: back as it was before renaming.
   const rename = useRename<HTMLButtonElement>(`folder:${folder.id}`, toggle);
   // A Folder just made opens its name field here, once; that first name is part of making it.
@@ -354,32 +452,62 @@ function FolderGroup({
   const t = useT();
   const language = useLanguage();
   const objectMenu = useObjectMenu(object);
-  const treeItem = useTreeItem({ depth: 0, expanded, selected: lit });
+  const treeItem = useTreeItem({ depth, expanded, selected: lit });
   const fold = foldKeys(expanded, toggle);
   const Chevron = expanded ? ChevronDownLineIcon : ChevronRightLineIcon;
-  const suggestedCount = useMemo(
-    () => documents.reduce((count, doc) => count + (suggested.has(doc.id) ? 1 : 0), 0),
-    [documents, suggested],
-  );
+  const count = counts.get(folder.id) ?? 0;
+  const suggestedCount = suggestedCounts.get(folder.id) ?? 0;
+  const place =
+    drop.over?.place === "before"
+      ? dropBeforeClass
+      : drop.over?.place === "after"
+        ? dropAfterClass
+        : drop.over
+          ? dropIntoClass
+          : "";
+  const inside =
+    expanded && children.length > 0
+      ? children.map((child) => (
+          <FolderGroup
+            key={child.folder.id}
+            node={child}
+            mindsByFolder={mindsByFolder}
+            documentsByFolder={documentsByFolder}
+            suggestedByFolder={suggestedByFolder}
+            counts={counts}
+            suggestedCounts={suggestedCounts}
+            paths={paths}
+            parentOf={parentOf}
+            renderDocument={renderDocument}
+          />
+        ))
+      : null;
 
   return (
     <li
       role="none"
       data-testid="library-folder"
       data-folder-id={folder.id}
-      data-count={documents.length}
-      data-minds={minds.length}
+      data-depth={depth}
+      data-count={documentsByFolder.get(folder.id)?.length ?? 0}
+      data-minds={mindsByFolder.get(folder.id)?.length ?? 0}
       data-expanded={expanded}
       data-drop-target={drop.over ? "true" : undefined}
+      data-dragging={dragged || undefined}
       {...select.refProps}
     >
       <div
+        ref={row}
         {...(rename.renaming ? {} : objectMenu.rowProps)}
+        {...(rename.renaming ? {} : dragSource)}
         {...drop.props}
-        className={`${rowClass(lit, "app", several && select.selected)} ${drop.over ? dropIntoClass : ""}`}
+        className={`${rowClass(lit, "app", several && select.selected, dragged)} ${place}`}
       >
         {rename.renaming ? (
-          <span className="flex h-full w-full min-w-0 items-center gap-2 pr-1 pl-2">
+          <span
+            className="flex h-full w-full min-w-0 items-center gap-2 pr-1 pl-2"
+            style={rowPadding(depth)}
+          >
             <FolderLineIcon className={rowIconClass(lit)} />
             <InlineName
               value={folder.name}
@@ -399,7 +527,15 @@ function FolderGroup({
             {...treeItem}
             data-testid="folder-row"
             aria-current={shownInLibrary ? "page" : undefined}
-            title={folder.description ? `${folder.name}\n${folder.description}` : folder.name}
+            title={
+              path === folder.name
+                ? folder.description
+                  ? `${folder.name}\n${folder.description}`
+                  : folder.name
+                : folder.description
+                  ? `${path}\n${folder.description}`
+                  : path
+            }
             onClick={(event) => {
               if (event.metaKey || event.ctrlKey || event.shiftKey) select.onClick(event);
               // A plain click only opens or closes it: the Mind the User is in stays the one lit.
@@ -409,8 +545,13 @@ function FolderGroup({
             onKeyDown={(event) => {
               rename.nameProps.onKeyDown(event);
               fold(event);
+              if (isMoveToKey(event)) {
+                event.preventDefault();
+                useSidebarMove.getState().show(row.current, object);
+              }
             }}
             className={`${rowButtonClass} ${clearsActions.menu}`}
+            style={rowPadding(depth)}
           >
             <FolderLineIcon className={rowIconClass(lit)} />
             <span data-testid="row-text" className="min-w-0 flex-1 truncate">
@@ -431,7 +572,7 @@ function FolderGroup({
               data-testid="browse-count"
               className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-ink-meta actions-shown:hidden"
             >
-              {minds.length + documents.length}
+              {count}
               {suggestedCount > 0 &&
                 ` · ${t("sidebar.folder.suggested", {
                   count: formatCount(suggestedCount, language),
@@ -446,7 +587,18 @@ function FolderGroup({
               target={object}
               label={t("folder.more", { name: folder.name })}
               tabIndex={-1}
-              here={{ "folder.rename": rename.start }}
+              here={{
+                "folder.rename": rename.start,
+                "folder.moveTo": () =>
+                  requestAnimationFrame(() =>
+                    useSidebarMove
+                      .getState()
+                      .show(
+                        row.current?.querySelector<HTMLElement>("[data-object-menu]") ?? null,
+                        object,
+                      ),
+                  ),
+              }}
             />
           </div>
         )}
@@ -455,9 +607,10 @@ function FolderGroup({
         <Contents
           listKey={folder.id}
           scope={`folder:${folder.id}`}
-          depth={1}
-          minds={minds}
-          documents={documents}
+          depth={depth + 1}
+          subfolders={inside}
+          minds={mindsByFolder.get(folder.id) ?? NO_MINDS}
+          documents={documentsByFolder.get(folder.id) ?? NO_DOCUMENTS}
           renderDocument={renderDocument}
         />
       )}

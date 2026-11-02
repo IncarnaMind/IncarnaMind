@@ -420,3 +420,39 @@ describe("Migrations", () => {
     db.close();
   });
 });
+
+describe("Folders inside Folders (#246)", () => {
+  test("a Folder made before the migration starts at the top level, and its column is there after it", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 122),
+    );
+    const at = "2026-10-30T09:00:00.000Z";
+    db.run(
+      "INSERT INTO library_groups (id, name, description, counts_own_files, keep_inside, created_at, updated_at) VALUES (?, ?, '', 0, 0, ?, ?)",
+      ["folder-a", "Thesis", at, at],
+    );
+
+    migrate(db);
+
+    expect(
+      db.get<{ parent_id: string | null }>(
+        "SELECT parent_id FROM library_groups WHERE id = 'folder-a'",
+      ),
+    ).toEqual({ parent_id: null });
+    db.run(
+      "INSERT INTO library_groups (id, name, description, parent_id, counts_own_files, keep_inside, created_at, updated_at) VALUES (?, ?, '', ?, 0, 0, ?, ?)",
+      ["folder-b", "Chapter 2", "folder-a", at, at],
+    );
+    expect(
+      db.all<{ id: string; parent_id: string | null }>(
+        "SELECT id, parent_id FROM library_groups ORDER BY id",
+      ),
+    ).toEqual([
+      { id: "folder-a", parent_id: null },
+      { id: "folder-b", parent_id: "folder-a" },
+    ]);
+    db.close();
+  });
+});

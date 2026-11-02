@@ -15,7 +15,7 @@ import {
   type ScopeKind,
   scopeIds,
 } from "../../shared/searchScope";
-import { buildFolderTree, flattenFolderTree } from "./folders";
+import { buildFolderTree, flattenFolderTree, folderPath } from "./folders";
 import { matchName, queryWords } from "./matcher";
 
 /** What a scope item gone without its name is called: "Deleted Folder". */
@@ -67,6 +67,8 @@ export interface ScopeChip {
    * in-app Folder deleted keeps its name here.
    */
   name: string | null;
+  /** Its place, a Folder's own name last: "Thesis › Chapter 2"; empty for a Tag or Document. */
+  path: string[];
   /** Deleted since: the search ignores it. */
   deleted: boolean;
   documentKind: DocumentKind | null;
@@ -77,40 +79,84 @@ const MAX_CHOICES_PER_KIND = 50;
 
 /**
  * How many Documents each Folder and Tag holds that can be searched (#764): an in-app
- * Folder's filed Documents (suggested ones too, as a search counts them), a
- * Linked folder's Documents with those in its sub-Folders, and a Tag's.
+ * Folder's filed Documents and those of the Folders inside it (suggested ones too, unless
+ * a Folder there keeps its work inside it), a Linked folder's Documents with those in its
+ * sub-Folders, and a Tag's.
  */
 export function scopeCounts(library: ScopeLibrary): Map<string, number> {
   const counts = new Map<string, number>();
   const live = library.documents.filter(holdsText);
   const liveIds = new Set(live.map((document) => document.id));
-  for (const group of library.groups ?? []) {
-    const filed = (library.assignments ?? []).filter(
-      (each) =>
-        each.groupId === group.id &&
-        liveIds.has(each.documentId) &&
-        (!group.keepInside || each.source === "user"),
-    );
-    counts.set(group.id, filed.length);
-  }
-  const children = new Map<string, string[]>();
-  for (const folder of library.folders) {
-    if (folder.parentId)
-      children.set(folder.parentId, [...(children.get(folder.parentId) ?? []), folder.id]);
-  }
-  const direct = new Map<string, number>();
-  for (const document of live) {
-    if (document.folderId) direct.set(document.folderId, (direct.get(document.folderId) ?? 0) + 1);
-  }
-  const within = (id: string, seen = new Set<string>()): number => {
-    if (seen.has(id)) return 0;
-    seen.add(id);
-    return (
-      (direct.get(id) ?? 0) +
-      (children.get(id) ?? []).reduce((sum, child) => sum + within(child, seen), 0)
-    );
+  const groups = library.groups ?? [];
+  const assignments = library.assignments ?? [];
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  const insideWall = (id: string): boolean => {
+    const seen = new Set<string>();
+    let at: LibraryGroup | undefined = byId.get(id);
+    while (at && !seen.has(at.id)) {
+      seen.add(at.id);
+      if (at.keepInside) return true;
+      at = at.parentId === null ? undefined : byId.get(at.parentId);
+    }
+    return false;
   };
-  for (const folder of library.folders) counts.set(folder.id, within(folder.id));
+  const sumUp = (
+    ids: readonly string[],
+    parentOf: (id: string) => string | null,
+    direct: ReadonlyMap<string, number>,
+  ): Map<string, number> => {
+    const known = new Set(ids);
+    const children = new Map<string, string[]>();
+    for (const id of ids) {
+      const parent = parentOf(id);
+      if (parent !== null && known.has(parent))
+        children.set(parent, [...(children.get(parent) ?? []), id]);
+    }
+    const counted = new Map<string, number>();
+    const count = (id: string, seen: Set<string>): number => {
+      const held = counted.get(id);
+      if (held !== undefined) return held;
+      if (seen.has(id)) return 0;
+      seen.add(id);
+      const total =
+        (direct.get(id) ?? 0) +
+        (children.get(id) ?? []).reduce((sum, child) => sum + count(child, seen), 0);
+      counted.set(id, total);
+      return total;
+    };
+    for (const id of ids) count(id, new Set());
+    return counted;
+  };
+  const groupDirect = new Map<string, number>();
+  for (const group of groups) {
+    groupDirect.set(
+      group.id,
+      assignments.filter(
+        (each) =>
+          each.groupId === group.id &&
+          liveIds.has(each.documentId) &&
+          (!insideWall(group.id) || each.source === "user"),
+      ).length,
+    );
+  }
+  for (const [id, held] of sumUp(
+    groups.map((group) => group.id),
+    (id) => byId.get(id)?.parentId ?? null,
+    groupDirect,
+  ))
+    counts.set(id, held);
+  const linkedById = new Map(library.folders.map((folder) => [folder.id, folder]));
+  const linkedDirect = new Map<string, number>();
+  for (const document of live) {
+    if (document.folderId)
+      linkedDirect.set(document.folderId, (linkedDirect.get(document.folderId) ?? 0) + 1);
+  }
+  for (const [id, held] of sumUp(
+    library.folders.map((folder) => folder.id),
+    (id) => linkedById.get(id)?.parentId ?? null,
+    linkedDirect,
+  ))
+    counts.set(id, held);
   for (const tag of library.tags) {
     counts.set(
       tag.id,
@@ -123,13 +169,22 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
 /** Every Folder, Tag and Document, in the sidebar's order: Folders as a tree, depth first. */
 function everything(library: ScopeLibrary): ScopeChoice[] {
   const counts = scopeCounts(library);
-  const walls = new Map(
-    (library.groups ?? []).filter((group) => group.keepInside).map((group) => [group.id, group.id]),
-  );
-  const documentWall = (documentId: string) =>
-    (library.assignments ?? []).find(
-      (each) => each.documentId === documentId && walls.has(each.groupId ?? ""),
-    )?.groupId ?? null;
+  const groups = library.groups ?? [];
+  const groupById = new Map(groups.map((group) => [group.id, group]));
+  const groupWall = (id: string): string | null => {
+    const seen = new Set<string>();
+    let at: LibraryGroup | undefined = groupById.get(id);
+    while (at && !seen.has(at.id)) {
+      seen.add(at.id);
+      if (at.keepInside) return at.id;
+      at = at.parentId === null ? undefined : groupById.get(at.parentId);
+    }
+    return null;
+  };
+  const documentWall = (documentId: string) => {
+    const filed = (library.assignments ?? []).find((each) => each.documentId === documentId);
+    return filed?.groupId ? groupWall(filed.groupId) : null;
+  };
   const names = new Map(library.folders.map((folder) => [folder.id, folder.name]));
   const parents = new Map(library.folders.map((folder) => [folder.id, folder.parentId]));
   const pathOf = (folder: Folder) => {
@@ -144,15 +199,15 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
     return path;
   };
   return [
-    ...(library.groups ?? []).map(
-      (group): ScopeChoice => ({
+    ...flattenFolderTree(buildFolderTree(groups)).map(
+      ({ folder }): ScopeChoice => ({
         kind: "folder",
-        id: group.id,
-        name: group.name,
-        path: [],
+        id: folder.id,
+        name: folder.name,
+        path: folderPath(groups, folder.id).slice(0, -1),
         documentKind: null,
-        count: counts.get(group.id) ?? 0,
-        walled: group.keepInside ? group.id : null,
+        count: counts.get(folder.id) ?? 0,
+        walled: groupWall(folder.id),
       }),
     ),
     ...flattenFolderTree(buildFolderTree(library.folders)).map(
@@ -161,7 +216,7 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
         id: folder.id,
         name: folder.name,
         path: pathOf(folder),
-        sourceLocation: (library.groups?.length ?? 0) > 0,
+        sourceLocation: groups.length > 0,
         documentKind: null,
         count: counts.get(folder.id) ?? 0,
       }),
@@ -240,6 +295,7 @@ export function scopeChips(library: ScopeLibrary, scope: SearchScope): ScopeChip
         kind: "folder",
         id,
         name: live?.name ?? deletedFolders.get(id)?.name ?? null,
+        path: folderPath(library.groups ?? [], id),
         deleted: !live,
         documentKind: null,
         ...(live && { count: counts.get(id) ?? 0 }),
@@ -251,6 +307,7 @@ export function scopeChips(library: ScopeLibrary, scope: SearchScope): ScopeChip
         kind: "tag",
         id,
         name: tag?.name ?? null,
+        path: [],
         deleted: !tag,
         documentKind: null,
         ...(tag && { count: counts.get(id) ?? 0 }),
@@ -262,6 +319,7 @@ export function scopeChips(library: ScopeLibrary, scope: SearchScope): ScopeChip
         kind: "document",
         id,
         name: document?.name ?? null,
+        path: [],
         deleted: !document,
         documentKind: document?.kind ?? null,
       };

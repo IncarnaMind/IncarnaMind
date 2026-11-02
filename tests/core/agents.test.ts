@@ -305,6 +305,81 @@ describe("outside agents", () => {
     expect(resultText(outside)).toMatch(/No such passage, Document, note or Citation/);
   });
 
+  it("reads the Folder it is paired to inside a wall, never its sibling, and the whole wall when that is paired", async () => {
+    const { core } = await startAgentsCore(replyingModel());
+    const sources = await createSourceFolder();
+    const [drafts, filed] = await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Drafts.md",
+        "# Drafts\n\nThe harbour lease draft runs to forty pages.\n",
+      ),
+      await writeSourceFile(
+        sources,
+        "Filed.md",
+        "# Filed\n\nThe harbour notice was served in June.\n",
+      ),
+    ]);
+    if (!drafts || !filed) throw new Error("The Documents weren't added.");
+    const client = await core.createLibraryGroup({ name: "Client A", description: "One client." });
+    await core.updateLibraryGroup(client.id, {
+      name: client.name,
+      description: client.description,
+      keepInside: true,
+    });
+    const draftsFolder = await core.createLibraryGroup({
+      name: "Drafts",
+      description: "",
+      parentId: client.id,
+    });
+    const filedFolder = await core.createLibraryGroup({
+      name: "Filed",
+      description: "",
+      parentId: client.id,
+    });
+    await core.assignDocumentGroup(drafts.id, draftsFolder.id);
+    await core.assignDocumentGroup(filed.id, filedFolder.id);
+    await core.setAgentsEnabled(true);
+
+    // Paired to one Folder inside the wall: what it names, and never its sibling.
+    const inside = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [draftsFolder.id],
+    });
+    const agent = await connectLegacyAgent(inside.launch);
+    const listed = structured<{
+      folders: { id: string; name: string; documents: number; minds: unknown[] }[];
+    }>(await agent.callTool({ name: "list_minds", arguments: {} }));
+    expect(listed.folders).toEqual([
+      { id: draftsFolder.id, name: "Drafts", documents: 1, minds: [] },
+    ]);
+    const found = structured<SearchOut>(
+      await agent.callTool({ name: "search", arguments: { query: "harbour" } }),
+    );
+    expect([...new Set(found.passages.map((passage) => passage.documentId))]).toEqual([drafts.id]);
+    const sibling = await agent.callTool({
+      name: "read_passages",
+      arguments: { documentId: filed.id },
+    });
+    expect(sibling.isError).toBe(true);
+
+    // Paired to the wall itself: what it names, and the Folders inside it.
+    const whole = await core.connectAgent({ name: "Codex", folderIds: [client.id] });
+    const wallAgent = await connectLegacyAgent(whole.launch);
+    const wholeListed = structured<{
+      folders: { id: string; name: string; documents: number; minds: unknown[] }[];
+    }>(await wallAgent.callTool({ name: "list_minds", arguments: {} }));
+    expect(wholeListed.folders).toEqual([
+      { id: client.id, name: "Client A", documents: 2, minds: [] },
+    ]);
+    const wholeFound = structured<SearchOut>(
+      await wallAgent.callTool({ name: "search", arguments: { query: "harbour" } }),
+    );
+    expect([...new Set(wholeFound.passages.map((passage) => passage.documentId))].sort()).toEqual(
+      [drafts.id, filed.id].sort(),
+    );
+  });
+
   it("refuses an explicitly named Folder that a wall removed from an existing pairing", async () => {
     const { core } = await startAgentsCore(replyingModel());
     const { coast, finance } = await withLibrary(core);

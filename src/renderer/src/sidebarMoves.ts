@@ -31,6 +31,8 @@ interface MoveRequest {
   /** What the picker opens beside, and gives the focus back to: the row, or its ⋯. */
   anchor: HTMLElement;
   items: MoveItems;
+  /** The Folder moved, when a Folder is what moves: into another, or to the top level. */
+  folderId?: string;
 }
 
 /** Opens Move to… from a row's menu, beside its ⋯, for the row or the selection it is in. */
@@ -81,10 +83,15 @@ function shownBy(ref: ObjectRef): ObjectRef {
 
 export function moveFromPalette(targets: readonly ObjectRef[]): void {
   const refs = targets.map(shownBy);
-  const items = itemsOfRefs(refs.filter(movable));
+  const [only] = refs;
+  // A Folder moves on its own: into another Folder, or to the top level.
+  const folder = refs.length === 1 && only?.kind === "folder" ? only : null;
+  const items = folder ? {} : itemsOfRefs(refs.filter(movable));
   requestAnimationFrame(() => {
     const anchor = anchorFor(refs);
-    if (anchor) useSidebarMove.setState({ request: { anchor, items } });
+    if (!anchor) return;
+    if (folder) useSidebarMove.setState({ request: { anchor, items, folderId: folder.id } });
+    else useSidebarMove.setState({ request: { anchor, items } });
   });
 }
 
@@ -96,7 +103,12 @@ export const useSidebarMove = create<{
 }>()((set) => ({
   request: null,
   show: (anchor, row, surface = "sidebar") => {
-    if (anchor) set({ request: { anchor, items: itemsOfRefs(movedFrom(row, surface)) } });
+    if (!anchor) return;
+    if (row.kind === "folder") {
+      set({ request: { anchor, items: {}, folderId: row.id } });
+      return;
+    }
+    set({ request: { anchor, items: itemsOfRefs(movedFrom(row, surface)) } });
   },
   hide: () => set({ request: null }),
 }));

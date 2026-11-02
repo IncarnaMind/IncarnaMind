@@ -4,6 +4,7 @@ import { displayName } from "../../../shared/documentNames";
 import { core, files } from "../core";
 import { useDocumentPasswords } from "../documentPasswords";
 import { showFileLabelKey, userFile } from "../fileInfo";
+import { isInsideFolder } from "../folders";
 import { countNow, translateNow } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { bridgeFrom, type LibraryBridge } from "../libraryBridges";
@@ -416,6 +417,29 @@ export const folderCommands: readonly Command[] = [
     },
   },
   {
+    id: "folder.newInside",
+    label: "folder.newInside",
+    group: "main",
+    appliesTo: ["folder"],
+    when: onlyOne,
+    reversible: true,
+    async run(ctx) {
+      const id = idsOf(ctx, "folder")[0];
+      if (id) await store().createFolder(undefined, undefined, id);
+    },
+  },
+  {
+    id: "folder.moveTo",
+    label: "folder.moveTo",
+    rowKeys: "CmdOrCtrl+Shift+M",
+    group: "move",
+    top: 30,
+    appliesTo: ["folder"],
+    when: (ctx) => onlyOne(ctx) && ctx.here?.["folder.moveTo"] !== undefined,
+    reversible: true,
+    run: (ctx) => ctx.here?.["folder.moveTo"]?.(),
+  },
+  {
     id: "folder.ask",
     assistant: false,
     label: "library.ask.folder",
@@ -585,7 +609,7 @@ export const mixedSelectionCommands: readonly Command[] = [
     label: (ctx, t) => t("selection.moveTo", { count: countNow(ctx.selection.length) }),
     rowKeys: "CmdOrCtrl+Shift+M",
     group: "move",
-    // Folders don't go inside Folders until #246.
+    // A Folder moves on its own (`folder.moveTo`): one Folder at a time, and no Documents with it.
     appliesTo: ["mind", "document"],
     when: (ctx) => kindsIn(ctx) > 1 && rowMoveTo(ctx) !== undefined,
     reversible: true,
@@ -605,10 +629,17 @@ export const mixedSelectionCommands: readonly Command[] = [
   },
 ];
 
+/** The Documents a Folder holds, those in the Folders inside it too. */
 const folderDocumentIds = (ctx: CommandContext): string[] => {
   const id = idsOf(ctx, "folder")[0];
+  if (!id) return [];
+  const groups = store().library?.groups ?? [];
+  const inside = new Set(
+    groups.filter((group) => isInsideFolder(groups, group.id, id)).map((group) => group.id),
+  );
+  inside.add(id);
   return (store().library?.assignments ?? []).flatMap((item) =>
-    item.groupId === id ? [item.documentId] : [],
+    item.groupId !== null && inside.has(item.groupId) ? [item.documentId] : [],
   );
 };
 

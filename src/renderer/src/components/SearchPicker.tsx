@@ -32,6 +32,8 @@ export interface PickerOption<Id> {
   /** What else typing finds it by: other names, the other language's label. */
   keywords?: readonly string[];
   icon?: ReactNode;
+  /** How deep it is shown in a tree: each level indents it 16px, for a list of Folders. */
+  indent?: number;
   /** More attributes on its row, e.g. `data-folder-id`. */
   data?: Record<string, string>;
   /** How its label is drawn: a font's name in its own face. */
@@ -288,12 +290,13 @@ export function SearchPicker<Id>({
           data-testid={`${testId}-option-label`}
           className="min-w-0 flex-1 truncate"
           title={option.label}
-          style={option.labelStyle}
+          style={{ ...option.labelStyle, paddingLeft: (option.indent ?? 0) * 16 }}
         >
           {option.label}
         </span>
         {detail && (
           <span
+            data-testid={`${testId}-option-detail`}
             className="min-w-0 max-w-[55%] shrink-0 truncate text-[12px] text-ink-meta"
             title={detail}
           >
