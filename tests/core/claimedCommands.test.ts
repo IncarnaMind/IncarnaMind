@@ -84,7 +84,7 @@ interface Scripted {
 function assistant(
   reply: string,
   steps: Step[],
-  claims: { sentence: string; about: string }[] = [],
+  claims: { sentence: string; about?: string; kind?: string; backed?: unknown }[] = [],
   { judgeFails = () => false, askFails, order }: Scripted = {},
 ) {
   const judged: GenerateCall[] = [];
@@ -109,7 +109,7 @@ function assistant(
           text: JSON.stringify({
             claims: claims
               .filter((claim) => said.includes(claim.sentence))
-              .map((claim) => ({ ...claim, kind: "changed", backed: false })),
+              .map((claim) => ({ kind: "changed", backed: false, ...claim })),
           }),
         };
       },
@@ -426,27 +426,82 @@ describe("A claim in the app is never left reading as done when the check can't 
     core.close();
   });
 
-  // protects=after a command that was refused, failed or not allowed, the reply shows only once it is checked, so a Stop meanwhile leaves no unchecked claim; after commands that all ran, it streams as it is written; in English and Chinese; fails_when=the reply shows before its check after a refusal, or never streams after a command that ran; no_claim=how long the check takes.
+  // protects=after a command that was refused, failed or not allowed, the reply shows only once it is checked, so a Stop meanwhile leaves no unchecked claim; after commands that all ran, it streams as it is written; in English and Chinese; fails_when=the reply shows before its check after a refusal, a window command that failed or a delete the User didn't allow, or never streams after a command that ran; no_claim=how long the check takes.
   test.each([
     { language: "en", reply: "Local mode is on, and Mill Lane is open beside your note." },
     { language: "zh-CN", reply: "本地模式已开启，Mill Lane 也已在右边打开。" },
-  ])("$language: shown only once checked after a refusal", async ({ reply }) => {
-    for (const refused of [true, false]) {
+  ])("$language: shown only once checked after a command not done", async ({ reply }) => {
+    for (const first of ["refused", "failed", "denied", "ran"] as const) {
       const order: string[] = [];
+      const before: Record<typeof first, Step[]> = {
+        refused: REFUSED_LOCAL_MODE,
+        failed: [run("settings.open", {}, false)],
+        denied: [find("Q3 commentary"), run("document.delete")],
+        ran: [],
+      };
       const { model } = assistant(
         reply,
-        [...(refused ? REFUSED_LOCAL_MODE : []), find("Mill Lane"), run("document.openBeside")],
+        [...before[first], find("Mill Lane"), run("document.openBeside")],
         [],
         { order },
       );
       const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
-      windowOf(core, () => ({ ran: true, changed: false }));
+      windowOf(core, (request) =>
+        request.command === "settings.open"
+          ? { ran: false, why: "It didn't run.", wording: null }
+          : { ran: true, changed: false },
+      );
+      denying(core);
       core.on("answer.delta", () => order.push("text"));
 
       await askAssistant(core, { text: "Open Mill Lane", mindId: mind.id, ...FROM_WINDOW });
 
-      expect(order.indexOf("judge")).toBeGreaterThanOrEqual(0);
-      expect(order.indexOf("text") > order.indexOf("judge")).toBe(refused);
+      expect(order.indexOf("judge"), first).toBeGreaterThanOrEqual(0);
+      expect(order.indexOf("text") > order.indexOf("judge"), first).toBe(first !== "ran");
+      core.close();
+    }
+  });
+
+  // protects=a reply that stands because the model, asked again, failed keeps what the first check found, also when the turn refused nothing, so only that verdict can name it, though the check then fails on it; fails_when=the line is lost when the second judgement fails; no_claim=none beyond protects.
+  test.each(["Harbour Street is open on the right now.", "Harbour Street 已在右边打开。"])(
+    "nothing refused, the ask and then the judge fail: “%s” keeps its line",
+    async (reply) => {
+      const { model, judged } = assistant(reply, [], [{ sentence: reply, about: "app" }], {
+        askFails: true,
+        judgeFails: (nth) => nth > 1,
+      });
+      const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+
+      const answer = await askAssistant(core, {
+        text: "Open Harbour Street beside this",
+        mindId: mind.id,
+        ...FROM_WINDOW,
+      });
+
+      expect(askedAgain(model)).toHaveLength(1);
+      expect(judged).toHaveLength(2);
+      expect(lines(answer)).toEqual({ commands: ["command"], claims: [] });
+      core.close();
+    },
+  );
+
+  // protects=a judge item that names the reply's Local mode sentence but can't be placed (about "settings", no about with kind "enabled") fails the check, and one whose backing is "false" as a string counts, so the turn that refused Local mode keeps it on the line, in English and Chinese; fails_when=the item is dropped and "Local mode is on now." stands with no line; no_claim=what a real judge sends.
+  test.each([
+    { kind: "enabled", about: "settings" },
+    { kind: "enabled" },
+    { kind: "changed", about: "local_mode", backed: "false" },
+  ])("a judge item it can't place: $kind $about $backed", async (item) => {
+    for (const reply of ["Local mode is on now.", "本地模式已经开启。"]) {
+      const { model } = assistant(reply, REFUSED_LOCAL_MODE, [{ sentence: reply, ...item }]);
+      const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+
+      const answer = await askAssistant(core, {
+        text: "Go local",
+        mindId: mind.id,
+        ...FROM_WINDOW,
+      });
+
+      expect(lines(answer)).toEqual({ commands: ["privacy"], claims: [] });
       core.close();
     }
   });

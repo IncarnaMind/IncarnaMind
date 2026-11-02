@@ -219,19 +219,23 @@ interface Unbacked {
   commands: ClaimedCommand[];
 }
 
-function verdictOf(value: unknown, reply: string): Unbacked | null {
+/** `unplaced`: an item names a sentence of the reply as unbacked, but neither what it is about nor its kind says what kind of claim. */
+function verdictOf(value: unknown, reply: string): (Unbacked & { unplaced: boolean }) | null {
   if (!isRecord(value) || !Array.isArray(value.claims)) return null;
   const claims = new Set<ClaimedChange>();
   const commands = new Set<ClaimedCommand>();
+  let unplaced = false;
   for (const item of value.claims) {
     if (!isRecord(item)) continue;
     const { sentence, kind, about, backed } = item;
+    // Only a verdict that backs the sentence lets it go: a provider may not hold the schema's
+    // types, and "false" as a string is no backing.
     if (
       typeof sentence !== "string" ||
       sentence.trim() === "" ||
       !comparableSentence(reply).includes(comparableSentence(sentence)) ||
-      typeof backed !== "boolean" ||
-      backed
+      backed === true ||
+      backed === "true"
     ) {
       continue;
     }
@@ -240,16 +244,21 @@ function verdictOf(value: unknown, reply: string): Unbacked | null {
     const command = inTheApp(about);
     const claimed = CLAIMED_CHANGES.find((claim) => claim === kind);
     if (command) commands.add(command);
-    else if (claimed && !(typeof about === "string" && NOT_COUNTED.includes(about)))
-      claims.add(claimed);
+    else if (typeof about === "string" && NOT_COUNTED.includes(about)) continue;
+    else if (claimed) claims.add(claimed);
+    else if (about === "mind") claims.add("changed");
+    else unplaced = true;
   }
-  return { claims: [...claims], commands: [...commands] };
+  return { claims: [...claims], commands: [...commands], unplaced };
 }
 
 export interface ClaimCheckResult extends Unbacked {
   usage: TokenUsage | null;
   durationMs: number;
-  /** The check failed or its verdict couldn't be read, so it found nothing either way. */
+  /**
+   * The check failed, its verdict couldn't be read, or it named an unbacked sentence it couldn't
+   * place: what it found is not all there is.
+   */
   failed?: true;
 }
 
@@ -318,12 +327,19 @@ export async function unbackedClaims(
       };
     }
   }
-  const unbacked = verdictOf(value, reply);
-  if (unbacked === null) {
+  const verdict = verdictOf(value, reply);
+  if (verdict === null) {
     console.error("The reply's change-claim check returned no readable verdict.");
     return { claims: [], commands: [], usage, durationMs: Date.now() - started, failed: true };
   }
-  return { ...unbacked, usage, durationMs: Date.now() - started };
+  const { unplaced, ...unbacked } = verdict;
+  if (unplaced) console.error("The reply's change-claim check named a claim it couldn't place.");
+  return {
+    ...unbacked,
+    usage,
+    durationMs: Date.now() - started,
+    ...(unplaced && { failed: true as const }),
+  };
 }
 
 const CLAIMED_WORDS: Record<ClaimedChange, string> = {

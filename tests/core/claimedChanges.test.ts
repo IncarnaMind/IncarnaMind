@@ -190,6 +190,8 @@ describe("The quick model's verdict", () => {
         "An honest Answer.",
       );
       expect(result.claims).toEqual([]);
+      // It named a claim it couldn't place, so the check can't say the reply is clean (#2407).
+      expect(result.failed).toBe(true);
     },
   );
 
@@ -310,8 +312,31 @@ describe("A claim of something done in the app (#2407)", () => {
       reply,
     );
     expect(result.commands).toEqual(["command", "privacy"]);
-    expect(result.claims).toEqual([]);
+    expect(result.claims).toEqual(["changed"]);
     expect(result.failed).toBeUndefined();
+  });
+
+  // protects=an item that names an unbacked sentence of the reply but can't be placed (an unknown about with an unknown kind, no about with an unknown kind) fails the check, so a turn that refused something names it; "false" as a string is no backing; fails_when=such an item is dropped and the check reads as clean; no_claim=none beyond protects.
+  test.each([
+    { item: { kind: "enabled", about: "settings", backed: false }, failed: true, commands: [] },
+    { item: { kind: "enabled", backed: false }, failed: true, commands: [] },
+    {
+      item: { kind: "changed", about: "local_mode", backed: "false" },
+      failed: undefined,
+      commands: ["privacy"],
+    },
+  ])("an item it can't place fails the check: $item", async ({ item, failed, commands }) => {
+    for (const reply of [english, chinese]) {
+      const result = await check(judge({ claims: [{ sentence: reply, ...item }] }), reply);
+      expect(result.failed).toBe(failed);
+      expect(result.commands).toEqual(commands);
+    }
+    const backed = await check(
+      judge({ claims: [{ sentence: english, ...item, backed: "true" }] }),
+      english,
+    );
+    expect(backed.failed).toBeUndefined();
+    expect(backed.commands).toEqual([]);
   });
 
   // protects=a check that couldn't run or couldn't be read says so, apart from one that found nothing; fails_when=a failed check reads as a clean one, which can't then fail closed; no_claim=none beyond protects.
