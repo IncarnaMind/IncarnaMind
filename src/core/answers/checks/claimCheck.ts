@@ -109,6 +109,7 @@ import {
 import { figuresMatch, nearestLine } from "./nearest";
 import {
   type AbsenceAnswer,
+  CHECK_TAGS,
   CONFIRM_INSTRUCTIONS,
   COVERED_EVIDENCE_INSTRUCTIONS,
   checkInstructions,
@@ -564,7 +565,7 @@ export function checkRunStart(
         documents.pageTexts(documentId, contentHash, from, to),
       documentDate: NO_DATE,
     },
-    { onRecord: () => undefined },
+    { onRecord: () => undefined, defuses: CHECK_TAGS },
   );
   const mode = model.support ?? "tools";
   const tools: AnswerTools = {
@@ -663,7 +664,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     // Which of two Documents that disagree is newer orders a correction's choices (#1481): the
     // host's own date for each, never shown to the model as the Document's words.
     const newestFirst = (documentId: string) => deps.documents.documentDate(documentId);
-    const session = createCitationSession(scoped, { onRecord: () => undefined });
+    const session = createCitationSession(scoped, {
+      onRecord: () => undefined,
+      defuses: CHECK_TAGS,
+    });
     // The words a Citation quotes don't say where they stand: a sheet row's year is in its
     // sheet's name and heading row, which the check reads only in the Passage itself (#1459).
     const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);

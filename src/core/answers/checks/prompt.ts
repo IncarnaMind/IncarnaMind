@@ -8,11 +8,16 @@ import type { Reading } from "../../../shared/figures";
 import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
 import { asAttribute, asData, type PromptTag, tagged } from "../../promptData";
+import { PART_RULES, PARTS_LINE } from "./claims";
 
 /** The checks' tags: none of them may be opened or closed by what they hold (#2423). */
-const CHECK_TAGS: readonly PromptTag[] = ["sentence", "paragraph", "passage", "quote", "figures"];
-
-import { PART_RULES, PARTS_LINE } from "./claims";
+export const CHECK_TAGS: readonly PromptTag[] = [
+  "sentence",
+  "paragraph",
+  "passage",
+  "quote",
+  "figures",
+];
 
 const VERDICTS: readonly ClaimVerdict[] = ["supported", "unsupported", "contradicted"];
 

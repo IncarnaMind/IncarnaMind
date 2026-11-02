@@ -636,3 +636,34 @@ describe.each([
     });
   },
 );
+
+// protects=a sentence a Document states word for word stays Supported when the Document holds one of the check's tags (a TEI "<quote>") or code with "<" (#2423): the check reads the tag defused, and the quote it copies so still matches the Document; code is shown as written; in English and Chinese; fails_when=the defused quote reads as not found, or code is changed; no_claim=how a real model quotes.
+describe.each([
+  ["English", EN],
+  ["Chinese", ZH],
+] as const)(
+  "a Document holding a check's tag or code with “<” (#2423), in %s",
+  (_name, language) => {
+    test.each([
+      {
+        sentence: "The edition marks each speech with a <quote> element.",
+        shown: "The edition marks each speech with a &lt;quote> element.",
+      },
+      {
+        sentence: "The loop goes on while i<sentence.length holds.",
+        shown: "The loop goes on while i<sentence.length holds.",
+      },
+    ])("“$sentence” stays Supported", async ({ sentence, shown }) => {
+      const withTags = {
+        ...language,
+        documents: [{ name: "Edition notes.md", contents: `# Edition notes\n\n${sentence}\n` }],
+      };
+      const { check } = await checkWith(
+        withTags,
+        sentence,
+        plainSplitting(shown, `The Documents say: ${shown} [^1]`),
+      );
+      expect(check).toMatchObject({ state: "supported", evidence: { quote: sentence } });
+    });
+  },
+);

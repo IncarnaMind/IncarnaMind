@@ -38,6 +38,7 @@ import {
   runFailureOf,
 } from "./claimCheck";
 import {
+  CHECK_TAGS,
   confirmPrompt,
   PRESENCE_INSTRUCTIONS,
   presencePrompt,
@@ -212,7 +213,7 @@ export function createWholeRead(options: WholeReadOptions) {
           documents.pageTexts(documentId, contentHash, from, to),
         documentDate: NO_DATE,
       },
-      { onRecord: () => undefined },
+      { onRecord: () => undefined, defuses: CHECK_TAGS },
     );
   };
 

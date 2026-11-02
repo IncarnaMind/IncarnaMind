@@ -73,7 +73,7 @@ import type { PageText } from "../documents/passages";
 import { unsureSpansIn } from "../documents/scan/layout";
 import type { WindowedPassage } from "../documents/search";
 import { writtenInCjk } from "../documents/textLanguage";
-import { asAttribute, tagged } from "../promptData";
+import { asAttribute, fromData, type PromptTag, tagged } from "../promptData";
 import { diffSteps, splitWords } from "../proposals/diff";
 import { formulaRows } from "../workbooks/formulaCells";
 import { closestWords } from "./closestWords";
@@ -143,11 +143,12 @@ export const QUOTE_PAIRS: readonly (readonly [string, string])[] = [
 
 /**
  * The quote as the model meant it: without location marks, without the
- * ellipses and quotation marks models put around a quote. Its words are left alone.
+ * ellipses and quotation marks models put around a quote, and with a prompt's tag it was shown
+ * defused (#2423) as the Passage has it. Its words are left alone.
  */
 export function cleanQuote(raw: string): string {
   // The marks of a scan's unsure words (#535) are the Passage's, never the quote's.
-  let quote = raw.replace(/[⟦⟧]/gu, "").replace(LOCATION_MARK, " ").trim();
+  let quote = fromData(raw).replace(/[⟦⟧]/gu, "").replace(LOCATION_MARK, " ").trim();
   for (;;) {
     const before = quote;
     quote = quote
@@ -1159,7 +1160,7 @@ interface ShownPassage {
 }
 
 /** Passages as the model sees them, each with its short id, Document, its date, and pages or Location. */
-function formatPassages(passages: readonly ShownPassage[]): string {
+function formatPassages(passages: readonly ShownPassage[], also: readonly PromptTag[]): string {
   return passages
     .map(({ id, documentName, date, range, location, text, notCited, formulas }) => {
       const pages = pagesLabel(range);
@@ -1177,6 +1178,7 @@ function formatPassages(passages: readonly ShownPassage[]): string {
         "passage",
         text,
         ` id="${id}" document="${attribute(documentName)}"${dated}${where}${worked}${never}`,
+        also,
       );
     })
     .join("\n\n");
@@ -1246,6 +1248,11 @@ export interface CitationSessionEvents {
   onRecord(marker: number, citation: Citation): void;
   /** Whether a workbook's Passage names the rows its formulas work out: when the model can trace them (#2372). */
   marksFormulas?(): boolean;
+  /**
+   * The tags of the prompt the Passages are shown in besides `passage`, which their text may not
+   * open or close: a check's own (#2423). A quote copied from them still matches (`cleanQuote`).
+   */
+  defuses?: readonly PromptTag[];
 }
 
 /**
@@ -1770,7 +1777,7 @@ export function createCitationSession(
         formulas: events.marksFormulas?.() ? formulaRows(units) : null,
       };
     });
-    return formatPassages(formatted);
+    return formatPassages(formatted, events.defuses ?? []);
   }
 
   function coverageOf(found: readonly WindowedPassage[]) {
