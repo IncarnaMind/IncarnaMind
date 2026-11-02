@@ -212,7 +212,7 @@ describe("an outside agent's change, whatever it writes (#352)", () => {
         const keepsNote = keepsAll || written.keepsNote ? 1 : 0;
         add(FOOTNOTE_NODE, keepsNote);
         add(`harbours: ${harbours.quote}`, keepsNote);
-        add(CALCULATED_FIGURE_NODE, keepsAll ? 1 : 0);
+        add(CALCULATED_FIGURE_NODE, keepsAll ? 2 : 1);
         if (accepted) {
           for (const [token, n] of Object.entries(written.tokens)) {
             add(`moon: ${QUOTES[token as Citable]}`, n);

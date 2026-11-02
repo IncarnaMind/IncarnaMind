@@ -1,8 +1,9 @@
 /**
  * The last check on what an outside agent's change writes (#352): every Citation, footnote and
  * figure the Note holds once it is accepted is one IncarnaMind placed, whatever the readings
- * before made of the agent's text, and each is told apart by what it holds. A node the writing
- * adds, or swaps for one of its own, refuses the whole change, and the Note is as it was.
+ * before made of the agent's text, and each is told apart by all it holds. A node the writing
+ * adds, swaps for one of its own or changes in place refuses the whole change, and the Note is
+ * as it was. The change is written as the Note's own client, so its state vector doesn't grow.
  */
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
@@ -12,25 +13,43 @@ import {
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   FOOTNOTE_NODE,
+  MIND_CONTENT_FIELD,
   PROPOSAL_ATTRIBUTE,
   type ProposalAttribute,
 } from "../../src/core/api";
 import { setProposal } from "../../src/core/proposals/write";
+import type { NodeJSON } from "../../src/shared/blockJson";
 import { pendingProposals, readProposalAttribute, targetHash } from "../../src/shared/proposals";
 import {
   citingIn,
   figure,
   harbours,
   propose,
+  proposeIn,
+  QUOTES,
   REQUEST,
   tides,
   userNote,
 } from "../helpers/agentChanges";
 
+type Drift = "add" | "unmarked" | "footnote" | "citation" | "figure" | "endnote" | "source";
+
 /** What the writing below the check does of its own, as a reader that drifted would. */
-const drift = vi.hoisted(() => ({
-  mode: null as "add" | "unmarked" | "footnote" | "citation" | null,
-}));
+const drift = vi.hoisted(() => ({ mode: null as Drift | null, dropsTokens: false }));
+
+// A parse that drops what holds a token's place, as a Markdown reader changed one day might.
+vi.mock("../../src/core/answers/markdown", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../../src/core/answers/markdown")>();
+  const dropHeld = (node: NodeJSON): NodeJSON[] =>
+    drift.dropsTokens && node.type === "text" && (node.text ?? "").includes("\uE000")
+      ? []
+      : [node.content ? { ...node, content: node.content.flatMap(dropHeld) } : node];
+  return {
+    ...real,
+    markdownToBlocks: (...args: Parameters<typeof real.markdownToBlocks>) =>
+      real.markdownToBlocks(...args).flatMap(dropHeld),
+  };
+});
 
 vi.mock("../../src/core/proposals/write", async (importOriginal) => {
   const real = await importOriginal<typeof import("../../src/core/proposals/write")>();
@@ -75,10 +94,36 @@ const nodesIn = (element: Y.XmlElement, name: string) =>
     return each instanceof Y.XmlElement && each.nodeName === name;
   });
 
-function drifted(
-  paragraph: Y.XmlElement,
-  mode: "add" | "unmarked" | "footnote" | "citation",
-): void {
+/** Each node of `name` in the Note the change doesn't take out. */
+function staying(paragraph: Y.XmlElement, name: string): Y.XmlElement[] {
+  const found: Y.XmlElement[] = [];
+  const visit = (node: Y.XmlFragment | Y.XmlElement) => {
+    for (const child of node.toArray()) {
+      if (!(child instanceof Y.XmlElement)) continue;
+      if (readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE))?.kind === "delete") {
+        continue;
+      }
+      if (child.nodeName === name) found.push(child);
+      visit(child);
+    }
+  };
+  const blocks = paragraph.doc?.getXmlFragment(MIND_CONTENT_FIELD);
+  if (blocks) visit(blocks);
+  return found;
+}
+
+function drifted(paragraph: Y.XmlElement, mode: Drift): void {
+  // Changed in place, with no Proposal: a figure marked checked with no check run, and the
+  // User's footnote made an endnote or given other Word XML to write back.
+  for (const each of mode === "figure" ? staying(paragraph, CALCULATED_FIGURE_NODE) : []) {
+    each.setAttribute("claimCheck", "checked");
+  }
+  for (const each of mode === "endnote" ? staying(paragraph, FOOTNOTE_NODE) : []) {
+    each.setAttribute("endnote", "true");
+  }
+  for (const each of mode === "source" ? staying(paragraph, FOOTNOTE_NODE) : []) {
+    each.setAttribute("source", "<w:t>EVIL</w:t>");
+  }
   if (mode === "add") paragraph.insert(paragraph.length, [added(CITATION_NODE)]);
   // Written as if it were the User's, with no Proposal to reject.
   if (mode === "unmarked") {
@@ -129,6 +174,21 @@ describe("the last check on what an agent's change writes (#352)", () => {
       what: "the token's Citation swapped for one of another passage",
       text: "Moon rocks are grey [cite:moona001].",
     },
+    {
+      drift: "figure",
+      what: "the User's figure in another paragraph marked checked",
+      text: "The moon is made of green cheese.",
+    },
+    {
+      drift: "endnote",
+      what: "the User's footnote made an endnote",
+      text: "Spring tides come at new moon [kept:1] as noted [note:1].",
+    },
+    {
+      drift: "source",
+      what: "the User's footnote given other Word XML",
+      text: "Spring tides come at new moon [kept:1] as noted [note:1].",
+    },
   ] as const)("refuses the whole change when the writing leaves $what", ({ drift: mode, text }) => {
     // As written, the rewrite waits.
     expect(propose("rewrite", text).outcome).toBe("accepted");
@@ -142,6 +202,33 @@ describe("the last check on what an agent's change writes (#352)", () => {
     } finally {
       drift.mode = null;
     }
+  });
+
+  it("refuses new paragraphs when the parse drops what holds a token's place", () => {
+    const text = "Moon rocks are grey [cite:moona001].";
+    expect(propose("add", text).outcome).toBe("accepted");
+
+    drift.dropsTokens = true;
+    try {
+      const { blocks, outcome } = propose("add", text);
+      expect(outcome).toBe("agents.propose.lost");
+      expect(citingIn(blocks)).toEqual(asWritten);
+    } finally {
+      drift.dropsTokens = false;
+    }
+  });
+
+  it("writes each change as the Note's own client: its state vector doesn't grow", () => {
+    const note = userNote();
+    const clients = () => Y.decodeStateVector(Y.encodeStateVector(note.doc)).size;
+    expect(clients()).toBe(1);
+    for (const n of [1, 2, 3]) {
+      expect(proposeIn(note, "add", `Moon rocks are grey ${n} [cite:moona001].`).outcome).toBe(
+        "accepted",
+      );
+    }
+    expect(citingIn(note.blocks)).toEqual({ ...asWritten, [`moon: ${QUOTES.moona001}`]: 3 });
+    expect(clients()).toBe(1);
   });
 
   /** Each citing node in `blocks`, by `citingKey`, as IncarnaMind would place them. */

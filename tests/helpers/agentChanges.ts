@@ -77,10 +77,11 @@ export const harbours = {
 
 /** A calculated figure of the User's: a rewrite never keeps one, as Edit with AI's doesn't. */
 export const figure = { id: "fig-1", value: 12, shown: "12%" };
+const range = { id: "fig-2", value: 7, shown: "7 m" };
 
 /**
- * A Note of one paragraph of the User's: a Citation of Tides, a footnote that cites Harbours,
- * and a calculated figure.
+ * A Note of the User's: a paragraph with a Citation of Tides, a footnote that cites Harbours and
+ * a calculated figure, and one after it with a figure no change touches.
  */
 export function userNote(): { doc: Y.Doc; blocks: Y.XmlFragment } {
   const doc = new Y.Doc();
@@ -103,6 +104,15 @@ export function userNote(): { doc: Y.Doc; blocks: Y.XmlFragment } {
         },
         { type: "text", text: ", by " },
         { type: CALCULATED_FIGURE_NODE, attrs: { id: "f1", figure } },
+        { type: "text", text: "." },
+      ],
+    },
+    {
+      type: "paragraph",
+      attrs: { id: "p2" },
+      content: [
+        { type: "text", text: "Their range is " },
+        { type: CALCULATED_FIGURE_NODE, attrs: { id: "f2", figure: range } },
         { type: "text", text: "." },
       ],
     },
@@ -133,13 +143,20 @@ export function citingIn(blocks: Y.XmlFragment): Record<string, number> {
 
 export type Outcome = "accepted" | ChangeRefused["key"];
 
-/** The agent's change as it proposes it, through `proposeNamed`, and accepted when it waits. */
-export function propose(path: "rewrite" | "add", text: string) {
-  const { doc, blocks } = userNote();
+let ids = 0;
+
+/** The agent's change to a new `userNote`, as `proposeIn` proposes it. */
+export const propose = (path: "rewrite" | "add", text: string) => proposeIn(userNote(), path, text);
+
+/** The agent's change to the Note's first paragraph, through `proposeNamed`, accepted when it waits. */
+export function proposeIn(
+  { doc, blocks }: { doc: Y.Doc; blocks: Y.XmlFragment },
+  path: "rewrite" | "add",
+  text: string,
+) {
   const note = namedNote(blocks, { citation: () => null, waiting: "", busy: "" });
   const change: NamedChange =
     path === "rewrite" ? { kind: "rewrite", at: 0, text } : { kind: "add", after: 0, text };
-  let ids = 0;
   let outcome: Outcome = "accepted";
   doc.transact(() => {
     try {

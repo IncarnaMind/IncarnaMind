@@ -502,11 +502,14 @@ const CITING: ReadonlySet<string> = new Set([CITATION_NODE, FOOTNOTE_NODE, CALCU
 /** How many of each citing node, by `citingKey`. */
 type CitingNodes = Map<string, number>;
 
-/** A Citation by all it holds but its ids: one changed in any of them is another Citation. */
-const citationKey = (attributes: Attributes): string =>
+/**
+ * A node by all it holds but its ids: its name, its other attributes (nulls left out, in order)
+ * and each child's key or text. One changed in any of them is another node.
+ */
+const nodeKey = (name: string, attributes: Attributes, children: readonly string[] = []) =>
   JSON.stringify([
-    CITATION_NODE,
-    ...Object.entries(attributes)
+    name,
+    Object.entries(attributes)
       .filter(
         ([key, value]) =>
           key !== BLOCK_ID_ATTRIBUTE &&
@@ -515,24 +518,17 @@ const citationKey = (attributes: Attributes): string =>
           value !== undefined,
       )
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+    ...children,
   ]);
 
-/** A citing node by what it holds: a Citation's attributes, a footnote's words, a figure's figure. */
+const citationKey = (attributes: Attributes): string => nodeKey(CITATION_NODE, attributes);
+
+/** A citing node by all it holds (`nodeKey`), its children's own included. */
 export function citingKey(element: Y.XmlElement): string {
-  if (element.nodeName === CITATION_NODE) return citationKey(element.getAttributes());
-  if (element.nodeName !== FOOTNOTE_NODE) {
-    return JSON.stringify([element.nodeName, element.getAttribute("figure") ?? null]);
-  }
-  const words = element
+  const children = element
     .toArray()
-    .map((child) =>
-      child instanceof Y.XmlElement
-        ? CITING.has(child.nodeName)
-          ? citingKey(child)
-          : child.nodeName
-        : child.toString(),
-    );
-  return JSON.stringify([FOOTNOTE_NODE, ...words]);
+    .map((child) => (child instanceof Y.XmlElement ? citingKey(child) : child.toString()));
+  return nodeKey(element.nodeName, element.getAttributes(), children);
 }
 
 function tally(counts: CitingNodes, key: string, by: number): void {
@@ -643,12 +639,17 @@ export function proposeNamed(
   if (!doc || doc.getXmlFragment(MIND_CONTENT_FIELD) !== blocks) {
     throw new Error("The Note's Blocks aren't in its document.");
   }
-  // Written on a copy first, then into the Note as one update: a refusal leaves it as it was.
+  // Written on a copy first, so a refusal leaves the Note as it was; then into the Note itself,
+  // as its own client. Applying the copy's update instead would add a client to its state
+  // vector, and Yjs gives a document a new client when an update writes under its own.
   const draft = new Y.Doc();
-  Y.applyUpdate(draft, Y.encodeStateAsUpdate(doc));
-  const written = writeNamed(draft.getXmlFragment(MIND_CONTENT_FIELD), note, changes, options);
-  Y.applyUpdate(doc, Y.encodeStateAsUpdate(draft, Y.encodeStateVector(doc)));
-  return written;
+  try {
+    Y.applyUpdate(draft, Y.encodeStateAsUpdate(doc));
+    writeNamed(draft.getXmlFragment(MIND_CONTENT_FIELD), note, changes, options);
+  } finally {
+    draft.destroy();
+  }
+  return writeNamed(blocks, note, changes, options);
 }
 
 function writeNamed(
