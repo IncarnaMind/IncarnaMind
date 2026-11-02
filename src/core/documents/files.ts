@@ -23,6 +23,11 @@ export const DOCUMENT_EXTENSIONS: Readonly<Record<DocumentKind, readonly string[
   pptx: ["pptx"],
   xlsx: ["xlsx"],
   csv: ["csv"],
+  // A picture is read as a scanned page is, with the text recognition model (#762).
+  image: ["jpg", "jpeg", "png", "webp", "heic", "heif"],
+  rtf: ["rtf"],
+  // A saved .html file; a page saved by its address is a web page Document (#261).
+  html: ["html", "htm", "xhtml"],
   // Saved by their address, never added as files: a .html file isn't a web page Document.
   web: [],
   transcript: ["vtt"],
@@ -30,8 +35,8 @@ export const DOCUMENT_EXTENSIONS: Readonly<Record<DocumentKind, readonly string[
 
 /**
  * Document formats IncarnaMind doesn't read yet, by extension: a file with one
- * is left out of a search, and says so (#740). Other kinds of file (pictures,
- * programs, mail) aren't Documents, and aren't named.
+ * is left out of a search, and says so (#740). Other kinds of file (programs,
+ * mail, videos) aren't Documents, and aren't named.
  */
 export const UNREAD_FORMATS: ReadonlySet<string> = new Set([
   ".doc",
@@ -49,7 +54,6 @@ export const UNREAD_FORMATS: ReadonlySet<string> = new Set([
   ".et",
   ".dps",
   ".caj",
-  ".rtf",
   ".odt",
   ".ods",
   ".odp",

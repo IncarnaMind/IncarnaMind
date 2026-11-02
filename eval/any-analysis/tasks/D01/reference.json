@@ -1,0 +1,11 @@
+{
+  "task": "D01",
+  "inputs": {
+    "en": "cff065f2510c653058c4d9b8850797b561e73597e669c0dca63fb2092724e698"
+  },
+  "values": {
+    "revenue_growth": 0.09794947994056469,
+    "gross_margin": 0.4205597358306718,
+    "operating_margin": 0.14301954203432035
+  }
+}

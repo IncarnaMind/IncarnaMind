@@ -195,7 +195,18 @@ export const FOLDER_CHECKERS = {
         done: { items: [tagItem(tag, renamed)] },
         step: {
           undo: async () => {
-            await core.updateTag(tag.id, { name: tag.name });
+            await core.updateTag(
+              tag.id,
+              { name: tag.name },
+              {
+                madeByUser: tag.madeByUser,
+                expected: {
+                  name: renamed.name,
+                  description: renamed.description,
+                  colour: renamed.colour,
+                },
+              },
+            );
             return null;
           },
           redo: async () => {

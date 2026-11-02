@@ -138,6 +138,7 @@ test("compare text and PDF images on fixed, labelled local fixtures", async () =
     id: hash(subject).slice(0, 32),
     name: set.subjects[subject] ?? subject,
     description,
+    parentId: null,
     countsOwnFiles: false,
     keepInside: false,
     createdAt: "",

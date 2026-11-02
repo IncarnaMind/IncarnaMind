@@ -360,10 +360,11 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await expect(folderActions.getByRole("menuitem")).toHaveText([
       /^Open in the Library$/,
       /^New note here$/,
-      /^New Folder(⇧⌘N|Ctrl\+Shift\+N)$/,
+      /^New Folder inside$/,
       /^Organize this Folder$/,
       /^Edit description…$/,
       /^Sort by…$/,
+      /^Move to…(⇧⌘M|Ctrl\+Shift\+M)$/,
       /^RenameF2$/,
       /^Get info(⌘I|Ctrl\+I)$/,
       /^Delete$/,

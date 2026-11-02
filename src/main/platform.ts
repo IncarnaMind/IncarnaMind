@@ -43,8 +43,10 @@ import { documentsFolder } from "./documentsFolder";
 import { createUtilityProcessEmbedder } from "./embedder";
 import { createElectronAudioCapture } from "./meetings/capture";
 import { createModelRuntimeFolder } from "./modelRuntimeFolder";
+import { createOfficeConverter } from "./officeConverter";
 import { createFakeOllamaApp, createOllamaApp } from "./ollamaApp";
 import { createPageLook } from "./pageLook";
+import { decodePictureToPng } from "./pictureDecode";
 import { createElectronPictures } from "./pictures";
 import { createElectronPrinter } from "./printPdf";
 import { createLoginShellProcesses } from "./processes";
@@ -853,6 +855,14 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     textRecognizer: createUtilityProcessTextRecognizer(
       fakeEmbedder ? { fake: { script: fakeScans } } : {},
     ),
+    decodePicture: decodePictureToPng,
+    officeConverter: createOfficeConverter({
+      processes: loginShellProcesses,
+      home: homeFolder(),
+      platform: process.platform,
+      env: process.env,
+      tempDir: tmpdir(),
+    }),
     scansAtOnce:
       testScansAtOnce > 0 ? testScansAtOnce : scansAtOnce(availableParallelism(), totalmem()),
     // The fake models have no files to download.

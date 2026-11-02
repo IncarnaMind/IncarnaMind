@@ -6,6 +6,7 @@ const group = (id: string, name: string): LibraryGroup => ({
   id,
   name,
   description: "",
+  parentId: null,
   countsOwnFiles: false,
   keepInside: false,
   createdAt: "",
@@ -16,6 +17,7 @@ const tag = (id: string, name: string): Tag => ({
   name,
   description: "",
   preset: false,
+  madeByUser: true,
   colour: "gray",
   createdAt: "",
   updatedAt: "",
@@ -52,5 +54,23 @@ describe('the "@" picker\'s choices', () => {
 
   test("a typo doesn't offer one: typing over a name still adds the name itself", () => {
     expect(names("finanse")).toEqual([]);
+  });
+
+  test("a Folder inside a wall is marked with the nearest wall, as the core reads it", () => {
+    const walls: ScopeLibrary = {
+      folders: [],
+      groups: [
+        { ...group("g-a", "Client A"), keepInside: true },
+        { ...group("g-b", "Client B"), parentId: "g-a", keepInside: true },
+        { ...group("g-drafts", "Drafts"), parentId: "g-b" },
+      ],
+      tags: [],
+      documents: [],
+      assignments: [],
+    };
+    const choices = scopeChoices(walls, noScope, "");
+    expect(choices.find((choice) => choice.id === "g-drafts")?.walled).toBe("g-b");
+    expect(choices.find((choice) => choice.id === "g-b")?.walled).toBe("g-b");
+    expect(choices.find((choice) => choice.id === "g-a")?.walled).toBe("g-a");
   });
 });

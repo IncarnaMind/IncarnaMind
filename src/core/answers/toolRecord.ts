@@ -7,6 +7,7 @@
  * (./claimedChanges). In English, as the rest of the instructions are.
  */
 import type { AnswerToolCall, CommandDone, MindChange, MindProblem } from "../api";
+import { asData } from "../promptData";
 import { COMMAND_TOOLS } from "../tools";
 
 /** A Mind's name now, by its id; null for one deleted or unknown. */
@@ -333,7 +334,8 @@ export function toolRecordLines(
 ): string[] {
   return calls.flatMap((call) => {
     const line = lineOf(call, names, states);
-    return line ? [`- ${line}`] : [];
+    // A name or a command's input can hold "</tool-record>": the record stays one block (#2423).
+    return line ? [`- ${asData(line, ["tool-record"])}`] : [];
   });
 }
 

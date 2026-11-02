@@ -365,6 +365,23 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(after.assignments.filter((each) => each.groupId !== null)).toEqual([]);
   });
 
+  // protects=renaming a preset Tag with the assistant and undoing puts back that it was not the User's; fails_when=the preset stays the User's at 0; no_claim=a real model's ids.
+  test("renaming a preset Tag and undoing puts back that it was not the User's", async () => {
+    const model = calling(find("Slides", "tag"), run("tag.rename", { name: "Decks" }));
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+
+    const answer = await askAssistant(core, {
+      text: "Rename the Slides Tag to Decks",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect((await core.listTags()).find((tag) => tag.name === "Decks")?.madeByUser).toBe(true);
+    await core.undoCommands(runOf(answer));
+    expect((await core.listTags()).find((tag) => tag.name === "Slides")?.madeByUser).toBe(false);
+    expect((await core.listTags()).map((tag) => tag.name)).not.toContain("Decks");
+  });
+
   // protects="put the documents about leases together" runs the Library's Organize, which reads what each says (the scan's name says nothing), and its suggestions wait in To review: nothing moves; one Undo takes them and the Folder back; fails_when=a Document is filed as the User's choice, the scan is left out, or Undo leaves a suggestion; no_claim=a real classifier's choices.
   test("Organize by content suggests, and nothing moves before the User accepts", async () => {
     const answers = scriptedModel(

@@ -326,11 +326,13 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "folder.open",
     "—",
     "folder.newMind",
-    "folder.new",
+    "folder.newInside",
     "folder.organize",
     "folder.editDescription",
     "folder.keepInside",
     "folder.sort",
+    "—",
+    "folder.moveTo",
     "—",
     "folder.rename",
     "—",
@@ -348,7 +350,17 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     tag.getByTestId("tag-menu"),
     tag.getByTestId("tag-actions"),
   );
-  expect(tagMenu).toEqual(["tag.open", "—", "tag.manage", "tag.rename", "—", "tag.delete"]);
+  expect(tagMenu).toEqual([
+    "tag.open",
+    "—",
+    "tag.colour",
+    "tag.editDescription",
+    "tag.merge",
+    "—",
+    "tag.rename",
+    "—",
+    "tag.delete",
+  ]);
 
   // A Linked folder, in the Linked folders section.
   await linkFolderFromSidebar(app, window, library);

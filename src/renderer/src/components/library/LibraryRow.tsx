@@ -140,6 +140,7 @@ const KEEPS_MODIFIER_CLICKS =
  */
 export const LibraryRow = memo(function LibraryRow({
   doc,
+  depth = 0,
   suggestedIn,
   review = false,
   notSorted,
@@ -148,6 +149,8 @@ export const LibraryRow = memo(function LibraryRow({
   path,
 }: {
   doc: Document;
+  /** How deep in a Folder's sub-Folders it is: each level indents it 16px, up to 3. */
+  depth?: number;
   /** The Suggested Folder it waits in, if Organize suggested one. */
   suggestedIn: string | null;
   review?: boolean;
@@ -263,6 +266,7 @@ export const LibraryRow = memo(function LibraryRow({
       <LibrarySelectBox document={doc} />
       <div
         {...(rename.renaming ? {} : dragSource)}
+        style={depth > 0 ? { paddingLeft: 16 * Math.min(depth, 3) } : undefined}
         className={
           review
             ? REVIEW_ROW

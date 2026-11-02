@@ -2204,6 +2204,64 @@ export const migrations: readonly Migration[] = [
       WHERE preset = 'invoice' AND description = '要求或确认付款的账单或收据，列有项目、金额和日期。';
     `,
   },
+  {
+    version: 122,
+    description:
+      "An outside agent may propose changes to Notes when the User allows it, and the AI use record names the agent (#352)",
+    sql: `
+      -- 1: the User let this agent propose changes to the Notes in its Folders, which wait for
+      -- them as Proposals. Off for every pairing made before.
+      ALTER TABLE agent_pairings ADD COLUMN propose INTEGER NOT NULL DEFAULT 0;
+      -- The outside agent that wrote an accepted change, by the name its pairing had then; NULL
+      -- for IncarnaMind's own AI, which provider_id and model_id name.
+      ALTER TABLE ai_use ADD COLUMN agent TEXT;
+    `,
+  },
+  {
+    version: 123,
+    description: "A Document converted from another file says which one it came from (#762)",
+    sql: `
+      -- A copy IncarnaMind converted with the User's own LibreOffice (#762) says which
+      -- file it came from, by name: the original's, with its extension ("Report.doc").
+      -- Null for every other Document.
+      ALTER TABLE documents ADD COLUMN converted_from TEXT;
+    `,
+  },
+  {
+    version: 124,
+    description: "Folders hold Folders, at any depth (#246)",
+    // parent_id is NULL at the top level. No foreign key: a later sync may deliver a Folder
+    // before its parent.
+    sql: `
+      ALTER TABLE library_groups ADD COLUMN parent_id TEXT;
+      CREATE INDEX library_groups_by_parent ON library_groups (parent_id) WHERE deleted_at IS NULL;
+    `,
+  },
+  {
+    version: 125,
+    description:
+      "A Tag records whether the User made it or changed its name, colour or description, so the sidebar lists a Tag with no Documents only then (#205)",
+    sql: `
+      -- Automatic tagging and the preset Tags leave this 0; createTag, an edit by the User and a
+      -- merge into it set it. A Tag that exists now was the User's if its updated_at moved after
+      -- it was made, by an edit or a restore; otherwise a preset is not, nor one automatic
+      -- tagging linked the moment it made it, nor Research's, which say so in their description.
+      ALTER TABLE tags ADD COLUMN made_by_user INTEGER NOT NULL DEFAULT 0;
+      UPDATE tags SET made_by_user = 1
+      WHERE preset IS NULL
+        AND (
+          updated_at > created_at
+          OR (
+            NOT EXISTS (
+              SELECT 1 FROM document_tags l
+              WHERE l.tag_id = tags.id AND l.created_at = tags.created_at
+            )
+            AND description NOT LIKE 'From Research on “%'
+            AND description NOT LIKE '来自研究“%'
+          )
+        );
+    `,
+  },
 ];
 
 /**

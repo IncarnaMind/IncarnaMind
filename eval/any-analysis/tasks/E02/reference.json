@@ -1,0 +1,28 @@
+{
+  "task": "E02",
+  "inputs": {
+    "en": "faea17bce7dd6c652ee7d2a55fcf59101d0699729594181f6024ac626facd926"
+  },
+  "values": {
+    "defects": [
+      {
+        "key": "Summary!B4"
+      },
+      {
+        "key": "Summary!B5"
+      },
+      {
+        "key": "Sales!H8"
+      },
+      {
+        "key": "Sales!E4"
+      },
+      {
+        "key": "Sales!J6"
+      }
+    ],
+    "fixed_total": 1282768,
+    "fixed_average": 213794.66666666666,
+    "saved_total": 1215114
+  }
+}

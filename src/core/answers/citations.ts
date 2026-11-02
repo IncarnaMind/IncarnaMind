@@ -73,6 +73,7 @@ import type { PageText } from "../documents/passages";
 import { unsureSpansIn } from "../documents/scan/layout";
 import type { WindowedPassage } from "../documents/search";
 import { writtenInCjk } from "../documents/textLanguage";
+import { asAttribute, fromData, type PromptTag, tagged } from "../promptData";
 import { diffSteps, splitWords } from "../proposals/diff";
 import { formulaRows } from "../workbooks/formulaCells";
 import { closestWords } from "./closestWords";
@@ -238,6 +239,16 @@ function citedUnits(
   }
   const located = locatedAmong(units, own, record, matching);
   return { range: located ?? own, requested: null, unresolved: false };
+}
+
+/**
+ * A model's quote as these Units hold it: as written, else with the prompt tags its Passage was
+ * shown with defused (#2423) taken back. A Document's own "&lt;" is never changed.
+ */
+export function quoteAsIn(units: readonly PageText[], written: string, matching: Matching): string {
+  if (quoteInUnits(units, written, matching)) return written;
+  const back = fromData(written);
+  return back !== written && quoteInUnits(units, back, matching) ? back : written;
 }
 
 /** Where the record's quote is within these pages of the Passage's Units, when they are more than one. */
@@ -1140,7 +1151,7 @@ function withUnsureMarks(text: string, units: readonly PageText[]): string {
   return marked;
 }
 
-const attribute = (value: string) => value.replace(/"/g, "'").replace(/\s+/g, " ");
+const attribute = (value: string) => asAttribute(value, ["passage"]);
 
 /** A Passage as the model sees it: its short id, Document and its date, where it is, and its text. */
 interface ShownPassage {
@@ -1158,7 +1169,7 @@ interface ShownPassage {
 }
 
 /** Passages as the model sees them, each with its short id, Document, its date, and pages or Location. */
-function formatPassages(passages: readonly ShownPassage[]): string {
+function formatPassages(passages: readonly ShownPassage[], also: readonly PromptTag[]): string {
   return passages
     .map(({ id, documentName, date, range, location, text, notCited, formulas }) => {
       const pages = pagesLabel(range);
@@ -1172,7 +1183,12 @@ function formatPassages(passages: readonly ShownPassage[]): string {
         : "";
       const never = notCited ? NOT_CITED_ATTRIBUTE : "";
       const worked = formulas ? ` formulas="${attribute(formulas)}"` : "";
-      return `<passage id="${id}" document="${attribute(documentName)}"${dated}${where}${worked}${never}>\n${text}\n</passage>`;
+      return tagged(
+        "passage",
+        text,
+        ` id="${id}" document="${attribute(documentName)}"${dated}${where}${worked}${never}`,
+        also,
+      );
     })
     .join("\n\n");
 }
@@ -1241,6 +1257,11 @@ export interface CitationSessionEvents {
   onRecord(marker: number, citation: Citation): void;
   /** Whether a workbook's Passage names the rows its formulas work out: when the model can trace them (#2372). */
   marksFormulas?(): boolean;
+  /**
+   * The tags of the prompt the Passages are shown in besides `passage`, which their text may not
+   * open or close: a check's own (#2423). A quote copied from them still matches (`quoteAsIn`).
+   */
+  defuses?: readonly PromptTag[];
 }
 
 /**
@@ -1482,14 +1503,18 @@ export function createCitationSession(
     const named = typeof input.passage === "string" ? input.passage : "";
     const kept = ids?.get(named);
     if (kept) return takeKept(issuedForm(named), kept, marker);
-    const quote = cleanQuote(typeof input.quote === "string" ? input.quote : "");
+    const written = cleanQuote(typeof input.quote === "string" ? input.quote : "");
     // Structured output can't be told it named no Passage (see `CiteOptions`): its id read loosely,
     // else the Passage it was given that holds its quote.
     const known = <Found extends { passageId: string }>(each: Found | null): Found | null =>
       each && documents.citationSource(each.passageId) ? each : null;
     const found =
       known(resolve(named)) ??
-      (options.structured ? (known(resolve(loosely(named))) ?? passageWithQuote(quote)) : null);
+      (options.structured
+        ? (known(resolve(loosely(named))) ??
+          passageWithQuote(written) ??
+          passageWithQuote(fromData(written)))
+        : null);
     const source = found && documents.citationSource(found.passageId);
     if (!found || !source) {
       return {
@@ -1509,6 +1534,7 @@ export function createCitationSession(
       source.pageFrom,
       source.pageTo,
     );
+    const quote = quoteAsIn(passageUnits, written, matchingFor(source));
     const { range, requested, unresolved } = citedUnits(
       { ...input, quote },
       source,
@@ -1765,7 +1791,7 @@ export function createCitationSession(
         formulas: events.marksFormulas?.() ? formulaRows(units) : null,
       };
     });
-    return formatPassages(formatted);
+    return formatPassages(formatted, events.defuses ?? []);
   }
 
   function coverageOf(found: readonly WindowedPassage[]) {

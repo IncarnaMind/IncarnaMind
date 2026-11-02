@@ -5,6 +5,7 @@ import { CJK, nameKey } from "../../shared/text";
 import type { CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, type Language } from "../language";
+import { asData, tagged } from "../promptData";
 import type { LoadedSkill, SkillSummary } from "../skills";
 
 const CJK_CHARACTERS = new RegExp(`[${CJK}]`, "gu");
@@ -630,6 +631,7 @@ type WholeReason = Exclude<UnreadReason, "parts">;
 /** Why a Document couldn't be read, as the note tells the model. */
 const UNREAD_WORDS: Record<WholeReason, (pages: readonly number[]) => string> = {
   scan: () => "a scan with no text",
+  picture: () => "a picture with no text",
   pages: (pages) => {
     if (pages.length === 0) return "some page content couldn't be read";
     const shown = pages.slice(0, 10).join(", ") + (pages.length > 10 ? ", …" : "");
@@ -883,10 +885,10 @@ export function figureRetryPrompt(figures: readonly FigureToRetry[]): string {
   return figures
     .map((figure) =>
       [
-        `[=${figure.marker}] as you gave it: ${figure.given}`,
+        asData(`[=${figure.marker}] as you gave it: ${figure.given}`, ["passage"]),
         `Why it couldn't be worked out: ${figure.problems.join(" ")}`,
-        ...figure.passages.map(
-          (passage) => `<passage id="${attribute(passage.id)}">\n${passage.text}\n</passage>`,
+        ...figure.passages.map((passage) =>
+          tagged("passage", passage.text, ` id="${attribute(passage.id)}"`),
         ),
       ].join("\n"),
     )
@@ -911,11 +913,14 @@ export function quoteRetryPrompt(records: readonly QuoteToRetry[]): string {
   return records
     .map((record) =>
       [
-        `[^${record.marker}] is on this sentence of the Answer: ${record.sentence}`,
-        `Its quote, not found word for word: ${record.quote ? `"${record.quote}"` : "(none)"}`,
-        `<passage id="${attribute(record.passage)}">`,
-        record.text,
-        "</passage>",
+        asData(`[^${record.marker}] is on this sentence of the Answer: ${record.sentence}`, [
+          "passage",
+        ]),
+        asData(
+          `Its quote, not found word for word: ${record.quote ? `"${record.quote}"` : "(none)"}`,
+          ["passage"],
+        ),
+        tagged("passage", record.text, ` id="${attribute(record.passage)}"`),
       ].join("\n"),
     )
     .join("\n\n");
@@ -939,12 +944,10 @@ export function citeRetryPrompt(
   passages: readonly { id: string; text: string }[],
 ): string {
   return [
-    "<answer>",
-    answer,
-    "</answer>",
+    tagged("answer", answer, "", ["passage"]),
     "",
     ...passages.map((passage) =>
-      [`<passage id="${attribute(passage.id)}">`, passage.text, "</passage>"].join("\n"),
+      tagged("passage", passage.text, ` id="${attribute(passage.id)}"`, ["answer"]),
     ),
   ].join("\n");
 }
@@ -953,11 +956,9 @@ export function citeRetryPrompt(
 export function searchQueryPrompt(earlier: string, question: string): string {
   return [
     "The notebook text above the Question:",
-    "<notebook>",
-    earlier,
-    "</notebook>",
+    tagged("notebook", earlier),
     "",
-    `The Question: ${question}`,
+    asData(`The Question: ${question}`, ["notebook"]),
   ].join("\n");
 }
 
