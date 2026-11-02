@@ -12,6 +12,7 @@ import {
   leaveText,
   motionSettled,
   pointAndClick,
+  pointAt,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -174,9 +175,18 @@ for (const [language, width] of [
         await screenshot(window, `subfolders-${language}-${width}-drag-refusal`);
       });
       expect(await folders(window)).toMatchObject({ [thesis]: null, [chapter]: thesis });
-      await dragOnto(window, row(window, thesis), row(window, thesis), async () => {
+      // A Folder dropped on its own row is refused too. The drag moves off the row and back:
+      // a 2px move is under the browser's drag threshold on Linux, and no drag would start.
+      const self = row(window, thesis);
+      const start = await pointAt(window, self);
+      await window.mouse.down();
+      try {
+        await window.mouse.move(start.x + 40, start.y + 24, { steps: 6 });
+        await window.mouse.move(start.x + 2, start.y, { steps: 6 });
         await expect(window.getByTestId("drop-refusal")).toBeVisible();
-      });
+      } finally {
+        await window.mouse.up();
+      }
       expect(await folders(window)).toMatchObject({ [thesis]: null });
 
       // Move to… (⇧⌘M) takes it out to the top level: one ⌘Z puts it back.

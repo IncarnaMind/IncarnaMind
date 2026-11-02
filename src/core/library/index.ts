@@ -1050,7 +1050,7 @@ export function createLibrary(options: {
     if (keepInside !== undefined && typeof keepInside !== "boolean")
       throw new InvalidInputError({ key: "error.folder.keepInside" });
     if (parentId !== undefined && parentId !== null && typeof parentId !== "string")
-      throw new InvalidInputError("parentId must be a Folder id or null.");
+      throw new InvalidInputError({ key: "error.folder.parentId" });
     const inside = parentId === undefined ? undefined : parentId;
     if (inside !== undefined && inside !== null) {
       group(inside);

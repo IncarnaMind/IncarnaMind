@@ -385,6 +385,7 @@ export const en = {
   "error.folder.wallAcceptInside":
     "Not accepted: inside a Folder that keeps its work inside it, the assistant accepts only suggestions for that Folder. You can still accept the others yourself in To review.",
   "error.folder.keepInside": "keepInside must be true or false.",
+  "error.folder.parentId": "parentId must be a Folder id or null.",
   "undo.folderWallOn": "“{name}” now keeps its work inside it",
   "undo.folderWallOff": "“{name}” no longer keeps its work inside it",
   "undo.readHiddenSheets": "Read the hidden sheets of “{name}”",

@@ -489,7 +489,7 @@ function FolderGroup({
       data-testid="library-folder"
       data-folder-id={folder.id}
       data-depth={depth}
-      data-count={count}
+      data-count={documentsByFolder.get(folder.id)?.length ?? 0}
       data-minds={mindsByFolder.get(folder.id)?.length ?? 0}
       data-expanded={expanded}
       data-drop-target={drop.over ? "true" : undefined}

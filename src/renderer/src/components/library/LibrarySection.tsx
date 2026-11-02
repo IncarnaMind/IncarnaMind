@@ -140,7 +140,6 @@ export function LibrarySection({
           <LibraryRow
             key={doc.id}
             doc={doc}
-            depth={section.folder ? 1 : 0}
             suggestedIn={suggestedOf(doc.id)}
             notSorted={notSortedOf(doc.id)}
             sortFailed={sortFailedOf(doc.id)}

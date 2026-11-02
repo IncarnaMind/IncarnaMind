@@ -375,6 +375,7 @@ export const zhCN = {
   "error.folder.wallAcceptInside":
     "未接受：在只在本文件夹内工作的文件夹中，助手只能接受放进该文件夹的推荐。其余推荐，你仍可以在“待确认”中自己接受。",
   "error.folder.keepInside": "keepInside 必须是 true 或 false。",
+  "error.folder.parentId": "parentId 必须是文件夹 id 或 null。",
   "undo.folderWallOn": "已开启“{name}”只在本文件夹内工作",
   "undo.folderWallOff": "已关闭“{name}”只在本文件夹内工作",
   "undo.readHiddenSheets": "已读取“{name}”的隐藏工作表",

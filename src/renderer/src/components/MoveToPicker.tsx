@@ -102,6 +102,10 @@ export function MoveToPicker({
       ];
   const matching = (query: string): PickerSection<Choice>[] => {
     const words = queryWords(query);
+    // "Not in a Folder" (or the top level) is found by typing its words too, as a Folder is.
+    const top = topLevel.filter(
+      (option) => words.length === 0 || matchName(words, option.label) !== null,
+    );
     const found = treeOptions(groups, query, t);
     const wanted = query.toLocaleLowerCase();
     const names = [t("library.unsorted"), t("folder.topLevel"), ...groups.map((g) => g.name)];
@@ -116,7 +120,7 @@ export function MoveToPicker({
             },
           ]
         : [];
-    return [{ options: [...(words.length === 0 ? topLevel : []), ...found, ...newFolder] }];
+    return [{ options: [...top, ...found, ...newFolder] }];
   };
   return (
     <SearchPicker<Choice>
