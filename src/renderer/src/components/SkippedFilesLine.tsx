@@ -64,6 +64,10 @@ export function useSkippedFilesDetails(
 ): { toggle: ReactNode; panel: ReactNode } {
   const t = useT();
   const [open, setOpen] = useState(false);
+  // The status goes when nothing is left; a later add starts folded again.
+  useEffect(() => {
+    if (files.length === 0) setOpen(false);
+  }, [files.length]);
   const converter = useOfficeConverter(
     files.some((file) => file.path !== null && skippedStep(file.name).convert !== null),
   );
