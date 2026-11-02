@@ -160,9 +160,19 @@ function placeOf(
     const above = lines.slice(first);
     const rule = above.findIndex(isRule);
     const headings = rule >= 0 ? above.slice(0, rule) : above.slice(0, 1);
+    const cells = cellsOf(line);
     const column = cellAt(line, at - lineStart);
-    const label = cellsOf(line).find((cell, index) => index !== column && cell.trim() !== "");
-    const named = headings.map((heading) => cellsOf(heading)[column] ?? "");
+    // The label is the nearest cell to the left that names something: in side-by-side panels
+    // ("| Revenue | 12% | Operating margin | 94% |") the first cell labels another number.
+    const label = cells
+      .slice(0, column)
+      .reverse()
+      .find((cell) => namesSomething(cell));
+    // A heading row that doesn't line up with the row (a reader that drops a blank corner cell,
+    // a merged heading written once) can't say which heading is the number's: none counts.
+    const named = headings
+      .filter((heading) => cellsOf(heading).length === cells.length)
+      .map((heading) => cellsOf(heading)[column] ?? "");
     return { kind: "row", words: [label ?? "", ...named].join("\n") };
   }
   const lineOfQuote = all.lastIndexOf("\n", found.start - 1) + 1;
@@ -199,20 +209,22 @@ function restates(words: string, bound: BoundNumber): boolean {
 
 /**
  * The most a measure's words may run to, from the longest Claude Haiku 5.5 named without its number
- * in this issue's live runs: 8 words ("Net finance cost over the last 12 months") and 10 Chinese
- * characters ("每吨货物的碳排放下降"). Words for scripts that space them, characters for Han and
- * kana; past either, the words are a copied clause, not a measure's name.
+ * in this issue's live runs: 8 words ("Net finance cost over the last 12 months") and 11 Han
+ * characters ("服装 · 2025年第三季度 分部收入"). Han and kana count by the character; the rest by
+ * the word between spaces ("like-for-like" is one). Past either, the words are a copied clause.
  */
 const MEASURE_WORDS = 10;
 const MEASURE_HAN = 16;
+const CHARACTER_SCRIPTS = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu;
 
 /** Whether `words` are a measure's short name: within the caps, and not restating the number. */
 function aName(words: string, bound: BoundNumber): boolean {
-  const all = wordsOf(words);
-  const han = all.filter((word) =>
-    /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]$/u.test(word),
-  );
-  if (han.length > MEASURE_HAN || all.length - han.length > MEASURE_WORDS) return false;
+  const characters = words.match(CHARACTER_SCRIPTS)?.length ?? 0;
+  const spaced = words
+    .replace(CHARACTER_SCRIPTS, " ")
+    .split(/\s+/u)
+    .filter((word) => /[\p{L}\p{N}]/u.test(word)).length;
+  if (characters > MEASURE_HAN || spaced > MEASURE_WORDS) return false;
   return !restates(words, bound);
 }
 

@@ -446,7 +446,7 @@ test.each([
   }
 });
 
-// protects=measure words that write the figure's own number, in digits or in words, are a clause, not a name (#2255); fails_when=a measure restating the number is accepted; no_claim=none beyond protects.
+// protects=measure words that write the figure's own number, in digits or in Chinese numerals the figure reader reads, are a clause, not a name (#2255); fails_when=a measure restating the number is accepted; no_claim=that English number words ("twelve per cent") are caught: the reader doesn't read them.
 test.each([
   { said: "Operating margin was 12%", quoted: "Revenue", kind: "unread" },
   { said: "Operating margin", quoted: "Revenue grew 12%", kind: "unread" },
@@ -816,4 +816,99 @@ test.each([
   const measure = readMeasure({ sentence: said, quote: quoted, match: "differs" });
   const finding = measureFinding(measure, [sentence], quote, bound("12%", 0.12, 13), () => []);
   expect(finding).toEqual({ kind: "differs", shown });
+});
+
+describe("where a table's headings line up (#2255's review)", () => {
+  // protects=a heading row that doesn't line up with the quote's row lends no heading, since its cells can't say which is the number's: the DOCX reader drops a blank corner cell, and a merged heading is written once; aligned heading rows, two of them in Markdown, a blank corner kept, and a transposed table still name the number (#2255); fails_when=a shifted heading makes another column's name the number's, or an aligned one stops naming it; no_claim=that every reader keeps blank and merged cells (#2426).
+  test.each([
+    {
+      name: "the DOCX reader's row, its blank corner dropped",
+      text: "On-time rate\tSpace occupancy\nFelixstowe\t94%\t81%",
+      quote: "94%",
+      found: { "Space occupancy": "unread", "On-time rate": "unread", Felixstowe: "same" },
+    },
+    {
+      name: "a merged heading written once",
+      text: "\tRates\tOccupancy\nDepot\tOn-time\tLate\tSpace\tYard\nFelixstowe\t81%\t94%\t70%\t60%",
+      quote: "94%",
+      found: { Occupancy: "unread", Rates: "unread", Felixstowe: "same" },
+    },
+    {
+      name: "a Markdown row with its blank corner kept",
+      text: "|  | On-time rate | Space occupancy |\n| --- | --- | --- |\n| Felixstowe | 94% | 81% |",
+      quote: "94%",
+      found: { "Space occupancy": "unread", "On-time rate": "same" },
+    },
+    {
+      name: "two heading rows",
+      text: "| Depot | 2025 | 2025 |\n| Depot | On-time rate | Space occupancy |\n| --- | --- | --- |\n| Felixstowe | 94% | 81% |",
+      quote: "94%",
+      found: { "Space occupancy": "unread", "On-time rate": "same" },
+    },
+    {
+      name: "a transposed table",
+      text: "| Measure | Felixstowe | Leeds |\n| --- | --- | --- |\n| On-time rate | 94% | 89% |\n| Space occupancy | 81% | 70% |",
+      quote: "94%",
+      found: { "Space occupancy": "unread", "On-time rate": "same", Felixstowe: "same" },
+    },
+  ])("headings that line up: $name", ({ text, quote, found }) => {
+    for (const [words, kind] of Object.entries(found))
+      expect(
+        measureFinding(
+          { sentence: words, quote: words, match: "same" },
+          [`In 2025 ${words.toLowerCase()} was 94%.`],
+          quote,
+          bound("94%", 0.94),
+          () => [text],
+        ).kind,
+        words,
+      ).toBe(kind);
+  });
+
+  // protects=a number's row label is the nearest cell to its left that names something, so side-by-side panels never lend the first panel's label to the second's number (#2255); fails_when=another panel's label makes a figure Supported; no_claim=none beyond protects.
+  test("side-by-side panels: the label left of the number", () => {
+    const text =
+      "| Measure | 2025 | Measure | 2025 |\n| --- | --- | --- | --- |\n| Revenue | 12% | Operating margin | 94% |";
+    const quote = "Operating margin | 94%";
+    const finding = (words: string) =>
+      measureFinding(
+        { sentence: words, quote: words, match: "same" },
+        [`In 2025 ${words.toLowerCase()} was 94%.`],
+        quote,
+        bound("94%", 0.94, quote.indexOf("94%")),
+        () => [text],
+      ).kind;
+    expect([finding("Revenue"), finding("Operating margin")]).toEqual(["unread", "same"]);
+  });
+
+  // protects=a quote that is itself a table, its heading row and its data row, names its number only by the number's own column, though the quote's text holds every heading (#2255); fails_when=another column's heading in the quote makes the figure Supported; no_claim=none beyond protects.
+  test("a quote of a table's rows names only its own column", () => {
+    const text =
+      "| Depot | On-time rate | Space occupancy |\n| --- | --- | --- |\n| Felixstowe | 94% | 81% |";
+    const quote =
+      "| Depot | On-time rate | Space occupancy |\n| --- | --- | --- |\n| Felixstowe | 94% | 81% |";
+    const finding = (words: string) =>
+      measureFinding(
+        { sentence: words, quote: words, match: "same" },
+        [`In 2025 ${words.toLowerCase()} was 94%.`],
+        quote,
+        bound("94%", 0.94, quote.indexOf("94%")),
+        () => [text],
+      ).kind;
+    expect([finding("Space occupancy"), finding("On-time rate")]).toEqual(["unread", "same"]);
+  });
+});
+
+// protects=Chinese numerals that read as the figure's value restate it, as digits do (#2255); fails_when=a measure written with the figure's number in Chinese numerals is accepted; no_claim=none beyond protects.
+test("a measure that restates the number in Chinese numerals", () => {
+  const quote = "乙方每月向甲方支付租金人民币一千五百元。";
+  const finding = (words: string) =>
+    measureFinding(
+      { sentence: words, quote: words, match: "same" },
+      ["乙方每月向甲方支付租金一千五百元。"],
+      quote,
+      { chars: "一千五百", at: quote.indexOf("一千五百"), figure: "一千五百元", values: [1500] },
+      () => [],
+    ).kind;
+  expect([finding("租金一千五百元"), finding("租金")]).toEqual(["unread", "same"]);
 });
