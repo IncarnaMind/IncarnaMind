@@ -57,7 +57,12 @@ export function fakeChangeClaims(options: GenerateOptions): string | null {
   if (!checksChangeClaims(options)) return null;
   const reply = /<reply>\n([\s\S]*)\n<\/reply>/.exec(lastUserText(options.prompt))?.[1] ?? "";
   const unmade = /I've added a risks section|我已经把风险部分/.test(reply);
+  const localMode = /I've turned on Local mode|我已经打开了本地模式/.test(reply);
   return JSON.stringify({
-    claims: unmade ? [{ sentence: reply, kind: "added", about: "mind", backed: false }] : [],
+    claims: unmade
+      ? [{ sentence: reply, kind: "added", about: "mind", backed: false }]
+      : localMode
+        ? [{ sentence: reply, kind: "changed", about: "local_mode", backed: false }]
+        : [],
   });
 }
