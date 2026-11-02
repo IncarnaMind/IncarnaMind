@@ -26,6 +26,10 @@ import { para, pptxOf, sp, txBody } from "../helpers/pptx";
 interface Plan {
   /** Its search asks for the file properties: true unless false. */
   properties?: boolean;
+  /** Its search's words: the sentence's unless given. */
+  query?: string;
+  /** It searches the same words without the file properties first. */
+  searchesTextFirst?: boolean;
   /** The Document its search names. */
   document?: string;
   verdict: "supported" | "unsupported" | "contradicted";
@@ -36,6 +40,10 @@ interface Plan {
   /** Its Property line once asked for it, none before. */
   propertyWhenAsked?: string;
   says?: string;
+  /** For contradicted: the sentence's words to change, and to what, from its quote. */
+  change?: [string, string];
+  /** For unsupported: what its quote covers of the sentence, and what it doesn't. */
+  covered?: [string, string];
 }
 
 const PROPERTY_ASK = "Your reply has no Property line";
@@ -48,15 +56,16 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
       if (!isCheckRun(call)) throw new Error("Only checks run here.");
       const plan = plans[sentenceOf(call)] ?? { verdict: "unsupported" };
       const searches = call.results.filter((result) => result.tool === "search_documents");
-      if (searches.length === 0) {
+      const first = searches.length === 0;
+      if (first || (plan.searchesTextFirst && searches.length === 1)) {
         const input = {
-          query: sentenceOf(call),
-          ...(plan.properties !== false && { properties: true }),
+          query: plan.query ?? sentenceOf(call),
+          ...(plan.properties !== false && !(plan.searchesTextFirst && first) && { properties: true }),
           ...(plan.document && { document: plan.document }),
         };
         const search = { tool: "search_documents", input };
         // A check in a Note names its sentence's parts in its first turn.
-        if (!call.system.includes("Parts:")) return { calls: [search] };
+        if (!first || !call.system.includes("Parts:")) return { calls: [search] };
         const parts = [{ kind: "fact", text: sentenceOf(call) }];
         return { text: `Parts: ${JSON.stringify(parts)}`, calls: [search] };
       }
@@ -79,7 +88,10 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
         `Verdict: ${plan.verdict}`,
         ...(property === null ? [] : [`Property: ${property}`]),
         "Absence: no",
+        "Topic: found",
         ...(plan.says ? [`${plan.says}${quote ? " [^1]" : ""}`] : []),
+        ...(plan.change ? [`Change 1: ${plan.change[0]}`, `To 1: ${plan.change[1]} [^1]`] : []),
+        ...(plan.covered ? [`Covered: ${plan.covered[0]}`, `Not covered: ${plan.covered[1]}`] : []),
       ];
       return { text: lines.join("\n") };
     },
@@ -185,7 +197,13 @@ describe.each(["en", "zh-CN"] as const)("a sentence about a Word file's modified
           contents: agreement({ modified: "2026-10-30T16:45:00Z" }),
         },
       ],
-      plan("contradicted", "Modified: 2026-10-30T16:45:00Z"),
+      {
+        [sentence]: {
+          ...plan("contradicted", "Modified: 2026-10-30T16:45:00Z")[sentence],
+          verdict: "contradicted",
+          change: ["2026-11-02", "2026-10-30T16:45:00Z"],
+        },
+      },
       language,
     );
     const contradicted = await wrong.core.checkClaim({ claim: sentence });
@@ -468,6 +486,50 @@ describe("What decides a sentence", () => {
     }
   });
 
+  // protects=an Unsupported sentence shows a property as its nearest line, or as the part it covers, only when its Property line names that property; fails_when=the file's modified date is shown as "the Documents say something different" for when the agreement was signed.
+  test("a property is a nearest line or a covered part only of a sentence about it", async () => {
+    const NEAR_TEXT = "The agreement was signed on 3 November 2026.";
+    // Its words are nearest the Modified line, though the reply says it is about the text.
+    const NEAR_PROPERTY = "The agreement's date in the file is 2026-11-03, as modified.";
+    const BY_WHOM = "The file was last modified on 2 November 2026 by its third reviewer.";
+    const SIGNED_ALSO = "The agreement was signed on 2 November 2026, as its file's date shows.";
+    const plans: Record<string, Plan> = {
+      [NEAR_TEXT]: { verdict: "unsupported", property: "none" },
+      [NEAR_PROPERTY]: { verdict: "unsupported", property: "none" },
+      [BY_WHOM]: {
+        verdict: "unsupported",
+        quote: "Modified: 2026-11-02T09:00:00Z",
+        property: "modified",
+        covered: ["the modified date", "the third reviewer"],
+      },
+      [SIGNED_ALSO]: {
+        verdict: "unsupported",
+        quote: "Modified: 2026-11-02T09:00:00Z",
+        property: "none",
+        covered: ["the date", "the signing"],
+      },
+    };
+    const setup = await setUp(files(), plans);
+    const document = setup.named(FILE);
+
+    expect(await setup.core.checkClaim({ claim: NEAR_TEXT })).toMatchObject({
+      verdict: "unsupported",
+      evidence: { documentId: document.id, contentHash: document.contentHash, check: "found" },
+    });
+    expect(setup.sent()).toContain("Modified: 2026-11-02T09:00:00Z");
+    expect(await setup.core.checkClaim({ claim: NEAR_PROPERTY })).toMatchObject({
+      verdict: "unsupported",
+      evidence: null,
+    });
+    expect(await setup.core.checkClaim({ claim: BY_WHOM })).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { quoted: { location: property("modified", "2026-11-02T09:00:00Z") } },
+    });
+    const signed = await setup.core.checkClaim({ claim: SIGNED_ALSO });
+    expect(signed).toMatchObject({ verdict: "unsupported", unsupported: { covered: "the date" } });
+    expect(signed.verdict === "unsupported" && signed.unsupported).not.toHaveProperty("quoted");
+  });
+
   test("a search that doesn't ask for them shows no properties, and the sentence is checked as before", async () => {
     const setup = await setUp(files(), {
       [SIGNED]: { verdict: "unsupported", properties: false },
@@ -522,6 +584,7 @@ describe("Which Documents' properties a check shows", () => {
   // protects=properties are Document content: a Document outside the check's scope, or kept as the User's own workings, never shows them; fails_when=a property of a Document the check may not use decides the sentence.
   test("only Documents the check may use show theirs: none outside its scope or kept as workings", async () => {
     const SENTENCE = "Orrin memo.docx was last modified on 5 November 2026.";
+    const TEXT = "The memo is between Halden Ltd and Orrin plc.";
     const setup = await setUp(
       [
         { name: "Services agreement.docx", contents: agreement({ modified: "2026-11-02T09:00:00Z" }) },
@@ -533,14 +596,25 @@ describe("Which Documents' properties a check shows", () => {
           quote: "Modified: 2026-11-05T10:00:00Z",
           property: "modified",
         },
+        [TEXT]: {
+          verdict: "supported",
+          properties: false,
+          document: "Orrin memo",
+          quote: "between Halden Ltd and Orrin plc",
+        },
       },
     );
     const services = setup.named("Services agreement.docx");
     const memo = setup.named("Orrin memo.docx");
     const scope = { folderIds: [], tagIds: [], documentIds: [services.id] };
+    const quoted = await setup.core.checkClaim({ claim: TEXT });
+    const passageId = quoted.verdict === "supported" ? quoted.evidence?.passageId : undefined;
+    expect(quoted).toMatchObject({ verdict: "supported", evidence: { documentId: memo.id } });
+    // A sentence citing the memo, checked where the memo isn't, is shown nothing of it.
+    const cited = [{ documentName: memo.name, quote: "between Halden Ltd and Orrin plc", passageId }];
 
     // The quote the model gives is in no Passage it was shown, so nothing backs the sentence.
-    expect(await setup.core.checkClaim({ claim: SENTENCE, scope })).toMatchObject({
+    expect(await setup.core.checkClaim({ claim: SENTENCE, scope, cited })).toMatchObject({
       verdict: "not-checked",
       reason: "no-evidence",
     });
@@ -611,5 +685,120 @@ describe("Which Documents' properties a check shows", () => {
       state: "supported",
       evidence: { documentId: lease.id, location: property("modified", "2026-11-02T09:00:00Z") },
     });
+  });
+
+  // protects=a small scope shows its Documents' properties on a search that finds none of their text, and a search asked again with them is a new search; fails_when=a sentence whose words match no text never sees the file's properties.
+  test("a scope of a few Documents shows theirs though the search finds no text, and asking again for them is a new search", async () => {
+    const UNMATCHED = "It was last modified on 2 November 2026.";
+    const AGAIN = "The agreement's file was last modified on 2 November 2026.";
+    const setup = await setUp(
+      [{ name: "Services agreement.docx", contents: agreement({ modified: "2026-11-02T09:00:00Z" }) }],
+      {
+        [UNMATCHED]: {
+          verdict: "supported",
+          query: "zebra quartz",
+          quote: "Modified: 2026-11-02T09:00:00Z",
+          property: "modified",
+        },
+        [AGAIN]: {
+          verdict: "supported",
+          searchesTextFirst: true,
+          quote: "Modified: 2026-11-02T09:00:00Z",
+          property: "modified",
+        },
+      },
+    );
+
+    for (const claim of [UNMATCHED, AGAIN]) {
+      expect(await setup.core.checkClaim({ claim }), claim).toMatchObject({
+        verdict: "supported",
+        evidence: { location: property("modified", "2026-11-02T09:00:00Z") },
+      });
+    }
+  });
+});
+
+describe("What a Document keeps of its file's properties", () => {
+  const propertiesOf = async (files: readonly SourceFile[]) => {
+    const setup = await setUp(files, {});
+    const listed = await setup.core.listDocuments();
+    return (name: string) => listed.find((each) => each.path.endsWith(name))?.properties;
+  };
+
+  test("dates as the file writes them, offset and all; its author, Chinese too; a workbook's sheets", async () => {
+    const of = await propertiesOf([
+      {
+        name: "Brief.docx",
+        contents: docxOf([{ text: "Brief" }], {
+          coreXml: corePropertiesXml({
+            created: "2026-10-01T08:00:00+08:00",
+            modified: "2026-11-02T23:59:00-05:00",
+            creator: "  王  小明  ",
+          }),
+        }),
+      },
+      {
+        name: "Report.pdf",
+        contents: buildPdf([{ lines: ["Report"] }], {
+          info: { CreationDate: "D:20260930", ModDate: "D:20261102093000Z", Author: "Ana Ruiz" },
+        }),
+      },
+      {
+        name: "Model.xlsx",
+        contents: xlsxOf(
+          [
+            { name: "A", rows: [["x", 1]] },
+            { name: "B", rows: [["y", 2]], state: "veryHidden" },
+          ],
+          { coreXml: corePropertiesXml({ modified: "2026-11-01T10:00:00Z" }) },
+        ),
+      },
+    ]);
+
+    expect(of("Brief.docx")).toEqual({
+      created: "2026-10-01T08:00:00+08:00",
+      modified: "2026-11-02T23:59:00-05:00",
+      author: "王 小明",
+      sheets: null,
+    });
+    expect(of("Report.pdf")).toEqual({
+      created: "2026-09-30",
+      modified: "2026-11-02T09:30:00Z",
+      author: "Ana Ruiz",
+      sheets: null,
+    });
+    expect(of("Model.xlsx")).toEqual({
+      created: null,
+      modified: "2026-11-01T10:00:00Z",
+      author: "IncarnaMind tests",
+      sheets: { count: 2, hidden: 1 },
+    });
+  });
+
+  // protects=a property that can't be read as the file's is none, never a guess: an empty, garbled or overlong author, a zero or future date; fails_when=a placeholder or damaged value is shown and cited as the file's own.
+  test("an empty, garbled or overlong author, and a zero or future date, are none", async () => {
+    const office = (core: Parameters<typeof corePropertiesXml>[0]) =>
+      docxOf([{ text: "Text" }], { coreXml: corePropertiesXml(core) });
+    const of = await propertiesOf([
+      { name: "Empty.docx", contents: office({ creator: "   ", modified: "1980-01-01T00:00:00Z" }) },
+      { name: "Garbled.docx", contents: office({ creator: "J��nes", modified: "2099-05-01" }) },
+      { name: "Long.docx", contents: office({ creator: "A".repeat(201), created: "2026-13-40" }) },
+      { name: "Edge.docx", contents: office({ creator: "B".repeat(200) }) },
+    ]);
+
+    for (const name of ["Empty.docx", "Garbled.docx", "Long.docx"]) {
+      expect(of(name), name).toEqual({ created: null, modified: null, author: null, sheets: null });
+    }
+    expect(of("Edge.docx")?.author).toBe("B".repeat(200));
+  });
+
+  test("a text file records none of its own; a kind whose properties aren't read has none known", async () => {
+    const of = await propertiesOf([
+      { name: "Notes.md", contents: "# Notes\n\nText.\n" },
+      { name: "Letter.rtf", contents: "{\\rtf1\\ansi{\\info{\\author Jo}}Dear Jo,\\par}" },
+    ]);
+
+    expect(of("Notes.md")).toEqual({ created: null, modified: null, author: null, sheets: null });
+    expect(of("Letter.rtf")).toBeNull();
   });
 });

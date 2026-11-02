@@ -537,7 +537,7 @@ const NO_PROPERTIES: FileProperties = { created: null, modified: null, author: n
  * kind's are read from the file, and are unknown (null) when they can't be (#2458).
  */
 const recordsNone = (kind: DocumentKind) =>
-  kind === "text" || kind === "markdown" || kind === "csv";
+  kind === "text" || kind === "markdown" || kind === "csv" || kind === "transcript";
 
 /** The longest text a file's property is taken as: longer is no name a person wrote. */
 const MAX_PROPERTY_CHARACTERS = 200;
