@@ -20,7 +20,7 @@ import type {
 import { isRecord } from "../../errors";
 import { figureAgain, keptReason, whatIfAgain } from "../../workbooks/trace";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
-import { agreesAtShownPrecision } from "./calculated";
+import { agreesAtShownPrecision, comparedFigure } from "./calculated";
 import { FIGURES, type ReadVerdict, readVerdict } from "./prompt";
 import type { BoundNumber } from "./units";
 
@@ -527,7 +527,6 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     let sourceInput: FigureInput | null = null;
     let pageUnread = false;
     let calculation: CalculatedFigure | null = null;
-    let costs: ReadonlySet<string> = new Set();
     // A saved calculation is checked by working it out again from its own inputs: a source or a
     // calculation the model names beside it would give the verdict one number and the card another.
     const replayed = target.calculated !== null && !target.calculated.figure.analysis;
@@ -556,7 +555,6 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         sourceInput = input.input;
     } else if (item.calculation !== null) {
       calculation = calculations.figure(item.calculation);
-      costs = options.costs(item.calculation);
       if (
         calculation?.analysis ||
         calculation?.inputs.some(
@@ -566,6 +564,8 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         )
       )
         calculation = null;
+      else if (calculation)
+        calculation = comparedFigure(target.reading, calculation, options.costs(item.calculation));
     }
     const framed = inSourceFrame(
       original,
@@ -641,9 +641,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
           : calculation;
     const relation: LimitRelation | undefined =
       item.relation === "equals" ? undefined : item.relation;
-    const agrees = compared
-      ? agreesAtShownPrecision(target.reading, compared, { relation, costs })
-      : null;
+    const agrees = compared ? agreesAtShownPrecision(target.reading, compared, { relation }) : null;
     if (agrees === null || !compared || typeof compared.value !== "number" || !evidence) {
       rows.push({ ...base, sourceInput, result: unavailable() });
       continue;

@@ -1474,6 +1474,77 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     });
   });
 
+  // protects=the working a card shows is the one the sentence was compared with: a cost printed in
+  // brackets taken at its size, ABS(fc), while its input keeps the quote's "(41.2)" and its sign;
+  // fails_when=the card shows "187.3 ÷ (41.2) = -4.55x" beside a verdict reached on +4.55x.
+  test.each([
+    ["en", COVERED("4.55x"), "4.55x", "supported", "4.55x"],
+    ["en", "Adjusted EBITDA covers finance costs at least 5x.", "5x", "contradicted", "4.55x"],
+    ["zh-CN", "以 (41.2) 的财务费用估算，利息覆盖倍数为4.55倍。", "4.55倍", "supported", "4.55倍"],
+  ] as const)(
+    "in %s, “%s” shows the working it was judged on",
+    async (language, claim, stated, verdict, shown) => {
+      const relation = stated === "5x" ? { relation: "at least" as const } : {};
+      const said = verdict === "supported" ? "contradicted" : "supported";
+      const result = await checked(
+        RESULTS,
+        claim,
+        { ...COVER, stated, ...relation },
+        said,
+        undefined,
+        language,
+      );
+      expect(result).toMatchObject({
+        verdict,
+        calculation: { stated, figure: { formula: "fy / ABS(fc)", shown } },
+      });
+      if (result.verdict === "not-checked") throw new Error("Not checked.");
+      expect(result.calculation?.figure.value).toBeCloseTo(4.546, 3);
+      expect(result.calculation?.figure.inputs[1]?.number).toMatchObject({
+        chars: "(41.2)",
+        value: -41.2,
+      });
+    },
+  );
+
+  test("checked in a Note, a cover worked out from a cost in brackets shows the size it was judged on", async () => {
+    const claim = "Adjusted EBITDA covers finance costs 4.55 times.";
+    const plans = {
+      [claim]: { verdict: "supported", calculation: { ...COVER, stated: "4.55 times" } },
+    } as const;
+    const setup = await setUpWithDocuments(checkingModel(plans), [RESULTS]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+    const block = paragraph(text(claim));
+    writeMind(setup.client, [block]);
+    await setup.client.settled();
+
+    await setup.core.checkSentences({
+      requestId: "r1",
+      mindId: setup.mind.id,
+      action: "check-against-documents",
+      ...whole(block, claim.length),
+    });
+
+    const [checked] = await shownChecks(setup.core, setup.client);
+    expect(checked?.shown).toEqual({ state: "supported" });
+    const [figure] = checked?.check.figures ?? [];
+    expect(figure?.state).toBe("supported");
+    expect(figure?.calculation).toMatchObject({
+      agrees: true,
+      figure: { formula: "fy / ABS(fc)", shown: "4.55x" },
+    });
+    expect(figure?.calculation?.figure.value).toBeCloseTo(4.546, 3);
+    expect(figure?.calculation?.figure.inputs[1]?.number).toMatchObject({
+      chars: "(41.2)",
+      value: -41.2,
+    });
+  });
+
   test("a stated monetary unit and scale can support the same calculated claim", async () => {
     const stated = {
       ...RESULTS,

@@ -94,7 +94,7 @@ import {
 } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
 import { checkAbsence, fitsWholeRead, type Presence } from "./absence";
-import { agreesWith, statedFigure } from "./calculated";
+import { agreesWith, comparedFigure, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
   checkFigureReply,
@@ -1752,12 +1752,18 @@ function calculated(
       )
     )
       continue;
-    const agrees = agreesWith(number, figure, { relation, costs });
-    if (agrees === null) continue;
+    const compared = comparedFigure(number, figure, costs);
+    const agrees = compared && agreesWith(number, compared, { relation });
+    if (!compared || agrees === null) continue;
     const worked = {
       number,
       evidence: first,
-      calculation: { figure, stated: number.chars, agrees, ...(relation && { relation }) },
+      calculation: {
+        figure: compared,
+        stated: number.chars,
+        agrees,
+        ...(relation && { relation }),
+      },
     };
     checked.push(worked);
   }
