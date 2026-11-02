@@ -53,6 +53,14 @@ const folderNames = async (window: Page) =>
     .map((group) => group.name)
     .sort();
 
+/** Each Folder's name and the Folder it is in, by name, so a Folder inside another can't pass for one beside it. */
+const folderPlaces = async (window: Page): Promise<Record<string, string | null>> =>
+  (await coreOf(window)).evaluate(async (core) => {
+    const groups = (await core.getLibrary()).groups;
+    const nameOf = (id: string | null) => groups.find((each) => each.id === id)?.name ?? null;
+    return Object.fromEntries(groups.map((group) => [group.name, nameOf(group.parentId)]));
+  });
+
 /** The Folder each Document is filed in, by name (null: Not in a Folder), as the core has it. */
 async function filedIn(window: Page, names: string[]): Promise<(string | null)[]> {
   const ids = await Promise.all(names.map((name) => documentIdOf(window, name)));
@@ -141,7 +149,7 @@ test("⇧⌘N makes “Untitled Folder” with its name open in the tree: Enter 
   }
 });
 
-test("the + menu and a Folder's ⋯ make one too, and show the keys", async () => {
+test("the + menu makes a Folder at the top level, and a Folder's ⋯ makes one inside it", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1100, 700);
@@ -159,18 +167,25 @@ test("the + menu and a Folder's ⋯ make one too, and show the keys", async () =
     await window.keyboard.press("Enter");
     await expect(sidebarFolder(window, "Reading")).toHaveCount(1);
 
-    // The Folder's ⋯ has it after "New note here": the new Folder is a Folder of its own.
+    // The Folder's ⋯ has "New Folder inside" after "New note here": one item, making a Folder
+    // inside Reading, not beside it.
     const reading = sidebarFolder(window, "Reading");
     await reading.getByTestId("folder-row").hover();
     await pointAndClick(window, reading.getByTestId("folder-menu"));
-    const entry = window.getByTestId("folder.new");
-    await expect(entry).toContainText("New Folder");
-    await expect(entry).toContainText(/⇧⌘N|Ctrl\+Shift\+N/);
+    const entry = window.getByTestId("folder.newInside");
+    await expect(entry).toContainText("New Folder inside");
     await pointAndClick(window, entry);
     await expect(field).toBeFocused();
     await expect(field).toHaveValue("Untitled Folder");
-    await window.keyboard.press("Escape");
-    await expect.poll(() => folderNames(window)).toEqual(["Reading", "Untitled Folder"]);
+    await window.keyboard.type("Studies");
+    await window.keyboard.press("Enter");
+    await expect
+      .poll(() => folderPlaces(window))
+      .toEqual({
+        Reading: null,
+        Studies: "Reading",
+      });
+    await expect(sidebarFolder(window, "Studies")).toHaveAttribute("data-depth", "1");
   } finally {
     await app.close();
   }

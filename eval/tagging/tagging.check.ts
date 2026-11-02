@@ -198,6 +198,7 @@ async function organizeWalk(
   const groups: LibraryGroup[] = proposed.map((folder, at) => ({
     id: `g-${at}`,
     ...folder,
+    parentId: null,
     countsOwnFiles: false,
     keepInside: false,
     createdAt: "",

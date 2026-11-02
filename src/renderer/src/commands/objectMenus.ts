@@ -1,6 +1,6 @@
 import { registerMenu, registerMixedMenu } from "./menus";
 
-// Later features add their items with registerMenu: Move to… (#229, #212), Add to note (#201), History (#300), Tag colour and merge (#205).
+// A feature adds its items with registerMenu, where they belong in the shared order.
 
 /**
  * Export… (the Export button's short menu: the formats, its options), then the AI use statement
@@ -63,19 +63,27 @@ registerMenu("document", [
 registerMenu("folder", [
   "folder.open",
   "folder.newMind",
-  "folder.new",
+  "folder.newInside",
   "folder.ask",
   "folder.organize",
   "folder.tagWithAi",
   "folder.editDescription",
   "folder.keepInside",
   "folder.sort",
+  "folder.moveTo",
   "folder.rename",
   "file.info",
   "folder.delete",
 ]);
 
-registerMenu("tag", ["tag.open", "tag.manage", "tag.rename", "tag.delete"]);
+registerMenu("tag", [
+  "tag.open",
+  "tag.colour",
+  "tag.editDescription",
+  "tag.merge",
+  "tag.rename",
+  "tag.delete",
+]);
 
 registerMixedMenu(["selection.moveTo", "selection.delete"]);
 

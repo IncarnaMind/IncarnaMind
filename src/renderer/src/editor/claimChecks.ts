@@ -357,6 +357,11 @@ export function figurePlacesOf(
 /** A check where it is, and how it shows: never one the User keeps as their own view, which shows nothing. */
 export interface ShownClaim extends ClaimSpan {
   shown: Exclude<ClaimCheckShown, { state: "kept" }>;
+  /**
+   * A needs-recheck its sentence's edit made, where the check would still hold with the words it was
+   * checked on: what an edit leaves to check only if nothing else moved since (#2313).
+   */
+  holdsWithItsText?: boolean;
 }
 
 interface ClaimState {
@@ -406,6 +411,15 @@ export function claimsOf(
       ...(figured !== undefined && { figured }),
       ...note(span),
     });
+    const holdsWithItsText =
+      shown.state === "needs-recheck" && shown.why === "edited"
+        ? claimCheckShown(span.check, {
+            ...context,
+            text: span.check.text,
+            ...(figured !== undefined && { figured }),
+            ...note(span),
+          })
+        : null;
     if (span.kind === "chart") {
       const node = doc.nodeAt(span.from);
       const chart = readChart(node?.attrs ?? {});
@@ -421,7 +435,18 @@ export function claimsOf(
     }
     if (shown.state === "kept") {
       kept.push({ from: span.from, to: span.to, text: span.sentence.text });
-    } else claims.push({ ...span, shown });
+    } else
+      claims.push({
+        ...span,
+        shown,
+        ...(holdsWithItsText !== null && {
+          holdsWithItsText:
+            holdsWithItsText.state === "supported" ||
+            holdsWithItsText.state === "unsupported" ||
+            holdsWithItsText.state === "contradicted" ||
+            holdsWithItsText.state === "kept",
+        }),
+      });
   }
   return { claims, kept };
 }

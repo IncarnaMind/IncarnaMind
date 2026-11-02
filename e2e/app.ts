@@ -219,6 +219,8 @@ export interface LaunchOptions {
   extraEnv?: Record<string, string>;
   /** Keeps the app's trace at `tracePath` when it closes, as INCARNAMIND_KEEP_ARTIFACTS does, without the video. */
   trace?: boolean;
+  /** Chromium switches the app starts with, such as a proxy that stands in for the network. */
+  switches?: readonly string[];
 }
 
 /**
@@ -288,6 +290,7 @@ export async function launchApp(
     realEngines = false,
     extraEnv,
     trace = false,
+    switches = [],
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
@@ -338,6 +341,7 @@ export async function launchApp(
     ...(packaged && { executablePath: mainExecutable() }),
     args: [
       ...KEYCHAIN_ARGS,
+      ...switches,
       ...(sandboxNotice === "switch" ? ["--no-sandbox"] : []),
       ...(packaged ? [] : [appDir]),
       ...APP_ARGS,
@@ -2343,39 +2347,54 @@ export async function dragBlock(window: Page, block: Locator, target: Locator): 
  * Where `words` are drawn in a line of text: their left and right edges, and
  * their middle line. They may run across marks (AI text and the User's, bold).
  */
-export async function wordsBox(line: Locator, words: string) {
-  const box = await line.evaluate((element, wanted) => {
-    const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-    const texts: Text[] = [];
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) texts.push(node as Text);
-    const at = texts
-      .map((text) => text.data)
-      .join("")
-      .indexOf(wanted);
-    if (at < 0) return null;
-    /** The text and offset `offset` characters in; an end falls at the end of a text, a start at the next. */
-    const place = (offset: number, end: boolean) => {
-      let start = 0;
-      for (const text of texts) {
-        if (offset < start + text.length || (end && offset === start + text.length)) {
-          return { text, offset: offset - start };
+export async function wordsBox(line: Locator, words: string, nth = 1) {
+  const box = await line.evaluate(
+    (element, wanted) => {
+      const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const texts: Text[] = [];
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) texts.push(node as Text);
+      const all = texts.map((text) => text.data).join("");
+      let at = -1;
+      for (let found = 0; found < wanted.nth; found++) at = all.indexOf(wanted.words, at + 1);
+      if (at < 0) return null;
+      /** The text and offset `offset` characters in; an end falls at the end of a text, a start at the next. */
+      const place = (offset: number, end: boolean) => {
+        let start = 0;
+        for (const text of texts) {
+          if (offset < start + text.length || (end && offset === start + text.length)) {
+            return { text, offset: offset - start };
+          }
+          start += text.length;
         }
-        start += text.length;
-      }
-      return null;
-    };
-    const from = place(at, false);
-    const to = place(at + wanted.length, true);
-    if (!from || !to) return null;
-    const range = element.ownerDocument.createRange();
-    range.setStart(from.text, from.offset);
-    range.setEnd(to.text, to.offset);
-    const rect = range.getBoundingClientRect();
-    return { left: rect.left, right: rect.right, y: rect.top + rect.height / 2 };
-  }, words);
+        return null;
+      };
+      const from = place(at, false);
+      const to = place(at + wanted.words.length, true);
+      if (!from || !to) return null;
+      const range = element.ownerDocument.createRange();
+      range.setStart(from.text, from.offset);
+      range.setEnd(to.text, to.offset);
+      const rect = range.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, y: rect.top + rect.height / 2 };
+    },
+    { words, nth },
+  );
   if (!box) throw new Error(`"${words}" isn't in the line.`);
   return box;
 }
+
+/** A paragraph's words as the User reads them, without Review changes' struck old words or buttons. */
+export const reviewedWords = (paragraph: Locator) =>
+  paragraph.evaluate((node) => {
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    let words = "";
+    for (let each = walker.nextNode(); each; each = walker.nextNode()) {
+      if (!each.parentElement?.closest(".applied-old, [contenteditable='false']")) {
+        words += each.textContent ?? "";
+      }
+    }
+    return words;
+  });
 
 /**
  * Returns once ProseMirror has settled its selection with the page after the editor got the

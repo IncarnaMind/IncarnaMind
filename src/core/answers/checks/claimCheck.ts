@@ -110,6 +110,7 @@ import {
 import { figuresMatch, nearestLine } from "./nearest";
 import {
   type AbsenceAnswer,
+  CHECK_TAGS,
   CONFIRM_INSTRUCTIONS,
   COVERED_EVIDENCE_INSTRUCTIONS,
   checkInstructions,
@@ -413,6 +414,10 @@ function figuresReplied(
  */
 export const NO_DATE = (): null => null;
 
+/** Passages as every check shows them, and so counts them: with its prompt's tags defused (#2423). */
+export const checkSession = (documents: Parameters<typeof createCitationSession>[0]) =>
+  createCitationSession(documents, { onRecord: () => undefined, defuses: CHECK_TAGS });
+
 function citedSources(
   cited: readonly CheckedCitation[],
   scope: EvidenceScope,
@@ -559,15 +564,12 @@ export function checkRunStart(
   const start = runStart(request, deps.language(), calculating);
   const cited = citedSources(request.cited ?? [], request.scope, deps.documents);
   const { documents } = deps;
-  const session = createCitationSession(
-    {
-      citationSource: (passageId) => documents.citationSource(passageId),
-      pageTexts: (documentId, contentHash, from, to) =>
-        documents.pageTexts(documentId, contentHash, from, to),
-      documentDate: NO_DATE,
-    },
-    { onRecord: () => undefined },
-  );
+  const session = checkSession({
+    citationSource: (passageId) => documents.citationSource(passageId),
+    pageTexts: (documentId, contentHash, from, to) =>
+      documents.pageTexts(documentId, contentHash, from, to),
+    documentDate: NO_DATE,
+  });
   const mode = model.support ?? "tools";
   const tools: AnswerTools = {
     documentCount: 1,
@@ -665,7 +667,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     // Which of two Documents that disagree is newer orders a correction's choices (#1481): the
     // host's own date for each, never shown to the model as the Document's words.
     const newestFirst = (documentId: string) => deps.documents.documentDate(documentId);
-    const session = createCitationSession(scoped, { onRecord: () => undefined });
+    const session = checkSession(scoped);
     // The words a Citation quotes don't say where they stand: a sheet row's year is in its
     // sheet's name and heading row, which the check reads only in the Passage itself (#1459).
     const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);

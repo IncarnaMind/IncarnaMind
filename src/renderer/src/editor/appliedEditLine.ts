@@ -2,7 +2,7 @@
  * The lines over an edit the User asked for (#880; DESIGN.md, AI edits),
  * drawn in the text above the Block they are about, and under Review
  * changes a Restore original after the new words of each section rewritten
- * as a whole and of each other change.
+ * as a whole, of each paragraph, and of each Block added or removed.
  * ProposalBars handles their buttons, by `data-applied-action` and
  * `data-applied-restore`. They go once the User edits.
  */
@@ -198,13 +198,16 @@ function button(action: AppliedAction, label: string): HTMLButtonElement {
   return each;
 }
 
-function restoreButton(index: number, count: number, t: Translate): HTMLButtonElement {
+function restoreButton(index: number, changes: number, t: Translate): HTMLButtonElement {
   const each = document.createElement("button");
   each.type = "button";
   each.className = "proposal-action applied-restore";
   each.dataset.appliedRestore = String(index);
   each.dataset.testid = "change-restore";
-  each.title = `${t("proposal.position", { index: index + 1, count })} · ${isMacOS() ? "⌘⌫" : "Ctrl+Backspace"}`;
+  // What it puts back, not its place among the Restores: a group of five changes is five.
+  const label =
+    changes > 1 ? t("edit.review.restore.count", { count: changes }) : t("edit.review.restore");
+  each.title = `${label} · ${isMacOS() ? "⌘⌫" : "Ctrl+Backspace"}`;
   each.setAttribute("aria-keyshortcuts", isMacOS() ? "Meta+Backspace" : "Control+Backspace");
   each.textContent = t("edit.review.restore");
   return each;
@@ -767,10 +770,10 @@ interface PlacedChange {
   block: ChangedBlock;
 }
 
-/** What one Restore original restores: a section rewritten as a whole, or a single change. */
+/** What one Restore original restores: a section rewritten as a whole, a paragraph, or a Block added or removed. */
 export interface ChangeGroup {
   members: readonly PlacedChange[];
-  /** The member whose new words come last, or the last of them when none has any: its Restore sits after it. */
+  /** The member whose text comes last: its Restore sits after it. */
   last: PlacedChange;
   from: number;
   to: number;
@@ -778,24 +781,39 @@ export interface ChangeGroup {
   restorable: boolean;
 }
 
+/**
+ * The groups an edit's changes are restored in, in reading order: a section rewritten as a whole,
+ * else a paragraph, so a paragraph with several changes has one Restore original (#1358). A
+ * paragraph where the User has edited a change since keeps one Restore for each change: one span
+ * across the edited one would move it when restored (the changed-since place), so it is left out.
+ */
 function groupsOf(
   placed: readonly PlacedChange[],
   sections: readonly RewrittenSection[],
 ): ChangeGroup[] {
-  const groups = new Map<RewrittenSection | PlacedChange, PlacedChange[]>();
+  const grouped = new Map<RewrittenSection | string | PlacedChange, PlacedChange[]>();
   for (const each of placed) {
-    const key = sectionOf(each.block, sections) ?? each;
-    groups.set(key, [...(groups.get(key) ?? []), each]);
+    const whole = each.block.how === "added" || each.block.how === "removed";
+    const key = sectionOf(each.block, sections) ?? (whole ? each : `block:${each.block.pos}`);
+    grouped.set(key, [...(grouped.get(key) ?? []), each]);
   }
-  return [...groups.values()].map((members) => {
-    const written = members.filter(({ place }) => place.to > place.from);
+  const groups: PlacedChange[][] = [];
+  for (const [key, members] of grouped) {
+    const paragraph = typeof key === "string";
+    if (paragraph && members.some((each) => !each.written)) {
+      for (const each of members) groups.push([each]);
+    } else {
+      groups.push(members);
+    }
+  }
+  return groups.map((members) => {
+    const end = ({ place }: PlacedChange) => Math.max(place.from, place.to);
     return {
       members,
-      last: (written.length > 0 ? written : members).reduce((a, b) =>
-        b.place.to >= a.place.to ? b : a,
-      ),
-      from: Math.min(...members.map(({ place }) => place.from)),
-      to: Math.max(...members.map(({ place }) => place.to)),
+      last: members.reduce((a, b) => (end(b) >= end(a) ? b : a)),
+      // A change typed over can end before it starts: its place still marks where it was.
+      from: Math.min(...members.map(({ place }) => Math.min(place.from, place.to))),
+      to: Math.max(...members.map(({ place }) => Math.max(place.from, place.to))),
       restorable: members.every(({ written }) => written),
     };
   });
@@ -919,7 +937,7 @@ function changeMarks(
         () =>
           restoreHolder(
             restorable
-              ? restoreButton(at, groups.length, t)
+              ? restoreButton(at, group.members.length, t)
               : text("applied-changed", label, "change-changed-since"),
             ownLine,
           ),

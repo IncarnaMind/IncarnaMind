@@ -3,7 +3,10 @@ import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import type { ClaimCheckAction, ClaimCheckAttributes, Core, Document } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
 import { claimCheckShown } from "../../src/shared/claimChecks";
+import { translate } from "../../src/shared/i18n";
+import { folderScope } from "../../src/shared/searchScope";
 import {
   checkGenerate,
   checkingModel as checkingModelOf,
@@ -30,6 +33,10 @@ import {
   scriptedModels,
 } from "../helpers/models";
 import { xlsxOf } from "../helpers/office";
+
+const fail = (): never => {
+  throw new Error("The Note's state is null.");
+};
 
 const TIDES = {
   name: "Tides.md",
@@ -2698,6 +2705,177 @@ describe("Needs re-check", () => {
     ]);
   });
 
+  // protects=#2313: a Folder move keeps a result its Citations back and asks for a re-check of one the whole Folder backed (an absence with no quote); fails_when=a quoted result is forgotten, or a whole-Folder result is kept in a Folder whose Documents were never read.
+  test("a Folder move keeps a quoted result and needs a re-check for a whole-Folder one", () => {
+    const quote = {
+      passageId: "p1",
+      documentId: "d1",
+      documentName: "Tides.md",
+      contentHash: "h1",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Spring tides happen at new moon and at full moon.",
+      check: "found" as const,
+      checkReason: null,
+    };
+    const versions = new Map([["d1", "h1"]]);
+    const quoted: ClaimCheckAttributes = {
+      ...LEFT_CHECKING,
+      state: "supported",
+      text: SUPPORTED,
+      evidence: quote,
+      scope: { folderId: "folder-a", widened: false },
+      versions: [{ documentId: "d1", contentHash: "h1" }],
+    };
+    const absence: ClaimCheckAttributes = {
+      ...LEFT_CHECKING,
+      state: "supported",
+      text: "The lease has no break clause.",
+      evidence: null,
+      scope: { folderId: "folder-a", widened: false },
+      versions: [],
+      readDocuments: [
+        { documentId: "d1", documentName: "Lease.md", contentHash: "h1", locations: [] },
+      ],
+    };
+    const now = (folderId: string) => ({
+      text: SUPPORTED,
+      versions,
+      folderId,
+      scope: null,
+    });
+    expect(claimCheckShown(quoted, now("folder-a"))).toEqual({ state: "supported" });
+    expect(claimCheckShown(quoted, now("folder-b"))).toEqual({ state: "supported" });
+    expect(claimCheckShown(absence, { ...now("folder-b"), text: absence.text })).toEqual({
+      state: "needs-recheck",
+      why: "scope",
+    });
+    // A mixed claim keeps its quote but its absence part was read whole: the move still re-checks it.
+    const part = (start: number, end: number, more: object) => ({
+      span: { start, end },
+      kind: "fact" as const,
+      verdict: "supported" as const,
+      evidence: [],
+      says: null,
+      unsupported: null,
+      calculation: null,
+      reason: null,
+      detail: null,
+      versions: [],
+      excluded: [],
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      ...more,
+    });
+    const mixed: ClaimCheckAttributes = {
+      ...quoted,
+      text: "The lease has no break clause. The rent is £10,000.",
+      evidence: null,
+      parts: [
+        part(0, 29, {
+          readDocuments: [
+            { documentId: "d1", documentName: "Lease.md", contentHash: "h1", locations: [] },
+          ],
+        }),
+        part(30, 54, { evidence: [quote] }),
+      ],
+    };
+    expect(
+      claimCheckShown(mixed, { text: mixed.text, versions, folderId: "folder-b", scope: null }),
+    ).toEqual({ state: "needs-recheck", why: "scope" });
+    // A widened search, and the User's own chosen scope, do not follow the Folder.
+    expect(
+      claimCheckShown(
+        {
+          ...quoted,
+          scope: { folderId: "folder-a", widened: true },
+        },
+        now("folder-b"),
+      ),
+    ).toEqual({ state: "supported" });
+    const chosen = folderScope("folder-x");
+    expect(
+      claimCheckShown(
+        { ...absence, scope: { folderId: "folder-a", widened: false, chosen } },
+        { text: absence.text, versions, folderId: "folder-b", scope: chosen },
+      ),
+    ).toEqual({ state: "supported" });
+    // An Unsupported verdict says nothing in the Folder stated the rest, so a move re-checks it
+    // even when its quote is found there.
+    const unstated: ClaimCheckAttributes = {
+      ...quoted,
+      state: "unsupported",
+      evidence: null,
+      unsupported: {
+        reason: "The lease doesn't say it.",
+        covered: "the rent",
+        uncovered: "the break clause",
+        quoted: quote,
+      },
+    };
+    expect(claimCheckShown(unstated, now("folder-a"))).toEqual({ state: "unsupported" });
+    expect(claimCheckShown(unstated, now("folder-b"))).toEqual({
+      state: "needs-recheck",
+      why: "scope",
+    });
+    // A mixed claim that is not Unsupported overall, with one Unsupported part: the same.
+    const mixedUnsupported: ClaimCheckAttributes = {
+      ...quoted,
+      state: "contradicted",
+      text: "The rent is £10,000 and there is no break clause.",
+      evidence: quote,
+      parts: [
+        part(0, 22, { verdict: "supported", evidence: [quote] }),
+        part(23, 50, { verdict: "unsupported" }),
+      ],
+    };
+    expect(
+      claimCheckShown(mixedUnsupported, {
+        text: mixedUnsupported.text,
+        versions,
+        folderId: "folder-b",
+        scope: null,
+      }),
+    ).toEqual({ state: "needs-recheck", why: "scope" });
+    // A whole read under a widened search is not the Folder's: the move keeps the verdict.
+    expect(
+      claimCheckShown(
+        { ...absence, scope: { folderId: "folder-a", widened: true } },
+        { ...now("folder-b"), text: absence.text },
+      ),
+    ).toEqual({ state: "supported" });
+    // A part with an empty read list is no whole read: the move keeps a quoted claim.
+    const emptyPartRead: ClaimCheckAttributes = {
+      ...quoted,
+      text: "The rent is £10,000 and the term is five years.",
+      evidence: null,
+      parts: [
+        part(0, 22, { evidence: [quote], readDocuments: [] }),
+        part(23, 46, { evidence: [quote] }),
+      ],
+    };
+    expect(
+      claimCheckShown(emptyPartRead, {
+        text: emptyPartRead.text,
+        versions,
+        folderId: "folder-b",
+        scope: null,
+      }),
+    ).toEqual({ state: "supported" });
+    // A check that landed nothing is not rewritten: the move has no result to protect.
+    for (const [reason, left] of [
+      ["cost-cap", { state: "not-checked", reason: "cost-cap" }],
+      ["kept-inside", { state: "not-checked", reason: "kept-inside" }],
+    ] as const)
+      expect(
+        claimCheckShown(
+          { ...quoted, state: "not-checked", reason, evidence: null },
+          now("folder-b"),
+        ),
+      ).toEqual(left);
+  });
+
   test("Tidy's spaces and comma widths alone keep a check without parts' verdict", () => {
     const check: ClaimCheckAttributes = {
       ...LEFT_CHECKING,
@@ -2779,17 +2957,70 @@ describe("Needs re-check", () => {
     expect(retained()).toEqual([{ deleted: 1 }]);
   });
 
-  test("moving the Mind to another Folder makes its checks need a re-check", async () => {
-    const { core, client, check, mind } = await mindWith([SUPPORTED]);
-    await check();
-    const folder = await core.createLibraryGroup({ name: "Coasts", description: "" });
-    await core.moveToFolder({ mindIds: [mind.id], folderId: folder.id });
+  // protects=#2313: filing a checked Note in a Folder that holds the Documents its Citations quote keeps every result, and the Note reads Checked in English and Chinese; fails_when=the move makes its checks need a re-check, or anything but the Documents' own change does; no_claim=what a new check's Search scope is after the move (checkScope.test.ts).
+  test.each(["en", "zh-CN"] as const)(
+    "moving the Mind to another Folder keeps its checks, in %s",
+    async (language) => {
+      const { core, client, check, mind, tides } = await mindWith([SUPPORTED]);
+      await core.updateSettings({ user: { language } });
+      await check();
+      const before = noteStateParts(
+        readNoteState({
+          cellFigures: [],
+          doc: client.doc,
+          documents: await core.listDocuments(),
+          keptCitationTexts: [],
+          folderId: null,
+        }).state ?? fail(),
+        (key, params) => translate(language, key, params),
+        language,
+      );
+      expect(before[0]).toMatch(language === "en" ? /^Checked / : /^已核对 /);
 
-    expect((await shownChecks(core, client, folder.id))[0]?.shown).toEqual({
-      state: "needs-recheck",
-      why: "scope",
-    });
-  });
+      const folder = await core.createLibraryGroup({ name: "Coasts", description: "" });
+      await core.moveToFolder({ documentIds: [tides.id], folderId: folder.id });
+      await core.moveToFolder({ mindIds: [mind.id], folderId: folder.id });
+
+      expect((await shownChecks(core, client, folder.id))[0]?.shown).toEqual({
+        state: "supported",
+      });
+      const after = readNoteState({
+        cellFigures: [],
+        doc: client.doc,
+        documents: await core.listDocuments(),
+        keptCitationTexts: [],
+        folderId: folder.id,
+      });
+      expect(after.state).toMatchObject({ kind: "checked", look: 0 });
+      expect(
+        noteStateParts(
+          after.state ?? fail(),
+          (key, params) => translate(language, key, params),
+          language,
+        )[0],
+      ).toBe(before[0]);
+
+      // The pair: a new version of the Document it quotes makes it need a re-check again.
+      const changed = `${TIDES.contents}\n\nNeap tides come in between.`;
+      await writeFile(tides.path, changed);
+      await core.reconcileDocuments();
+      const [processed] = await waitForProcessing(core, [tides.id]);
+      expect(processed?.contentHash).toBe(sha256(changed));
+      expect((await shownChecks(core, client, folder.id))[0]?.shown).toMatchObject({
+        state: "needs-recheck",
+        why: "new-version",
+      });
+      expect(
+        readNoteState({
+          cellFigures: [],
+          doc: client.doc,
+          documents: await core.listDocuments(),
+          keptCitationTexts: [],
+          folderId: folder.id,
+        }).state,
+      ).toMatchObject({ kind: "not-checked" });
+    },
+  );
 });
 
 describe("Stopping", () => {

@@ -7,6 +7,7 @@
  * (./claimedChanges). In English, as the rest of the instructions are.
  */
 import type { AnswerToolCall, CommandDone, MindChange, MindProblem } from "../api";
+import { asData } from "../promptData";
 import { COMMAND_TOOLS } from "../tools";
 
 /** A Mind's name now, by its id; null for one deleted or unknown. */
@@ -92,6 +93,8 @@ function whyNot(problem: MindProblem | undefined): string {
       return "the User asked for a new Note: make it with create_mind";
     case "uncited":
       return "its sources were written as text, as markers with no Citation recorded, or not cited at all";
+    case "length":
+      return "the new text wasn't the length the User asked for";
     case "local-mode":
       return "“Keep everything on this computer” is on";
     case "not-ready":
@@ -333,7 +336,8 @@ export function toolRecordLines(
 ): string[] {
   return calls.flatMap((call) => {
     const line = lineOf(call, names, states);
-    return line ? [`- ${line}`] : [];
+    // A name or a command's input can hold "</tool-record>": the record stays one block (#2423).
+    return line ? [`- ${asData(line, ["tool-record"])}`] : [];
   });
 }
 
