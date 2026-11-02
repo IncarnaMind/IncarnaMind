@@ -147,6 +147,8 @@ async function extractImage(
     if (error instanceof ReadingUnavailable) {
       return unread(error.message);
     }
+    // A refusal already says its reason; only a reader's own failure is wrapped.
+    if (error instanceof ExtractionError) throw error;
     throw new ExtractionError(
       "unreadable",
       `The picture couldn't be read: ${error instanceof Error ? error.message : String(error)}`,
