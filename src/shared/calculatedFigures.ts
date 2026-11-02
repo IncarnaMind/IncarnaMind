@@ -56,7 +56,8 @@ function locationOf(value: unknown): CitationLocation | null | undefined {
     }
   }
   const location = parseLocation(raw);
-  if (!location || !isRecord(raw)) return undefined;
+  // A figure's input is read from a Document's text, never from its file's properties (#2458).
+  if (!location || !isRecord(raw) || location.kind === "properties") return undefined;
   if (location.kind === "section") {
     if (optionalText(raw.heading) === undefined) return undefined;
     if (raw.paragraphs != null && !location.paragraphs) return undefined;

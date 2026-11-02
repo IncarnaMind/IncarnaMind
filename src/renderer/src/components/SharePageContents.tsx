@@ -1,7 +1,7 @@
 import type { SharePagePreview } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { useGap, useT } from "../i18n";
-import { formatBytes } from "../linkedFolders";
+import { formatBytes } from "../../../shared/bytes";
 import { LARGE_BYTES, pictured, sharedSize, withFewerPictures } from "../sharePageSize";
 import { ProblemLine, ProblemMark } from "./ProblemLine";
 

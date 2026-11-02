@@ -360,6 +360,8 @@ const XMP_CREATE_DATE = /xmp:CreateDate\s*(?:=\s*(["'])([^"'<>]*)\1|>([^<]*)<)/i
 export interface PdfMetadata {
   /** Its Info dictionary's CreationDate, a PDF date string. */
   info: string | null;
+  /** Its Info dictionary's ModDate, a PDF date string (#2458). */
+  modified: string | null;
   /** Its XMP metadata's xmp:CreateDate, an ISO 8601 date. */
   xmp: string | null;
   /** Its Info dictionary's Title (#213). */
@@ -376,8 +378,8 @@ export interface PdfMetadata {
 
 /**
  * A PDF's metadata as written: its document information dictionary's
- * CreationDate (#53), Title (#213) and Author, and its XMP metadata, whose
- * xmp:CreateDate is read here; never its ModDate. Its first page's lines, and
+ * CreationDate (#53), Title (#213), Author and ModDate (#2458), and its XMP
+ * metadata, whose xmp:CreateDate is read here. Its first page's lines, and
  * with `pages`, the text of its first pages too (#286: a DOI or an arXiv id is
  * printed there). Throws if the PDF can't be opened.
  */
@@ -415,6 +417,7 @@ export async function pdfMetadata(
     }
     return {
       info: entry("CreationDate"),
+      modified: entry("ModDate"),
       xmp: xmp ? (xmp[2] ?? xmp[3] ?? null) : null,
       title: entry("Title"),
       author: entry("Author"),

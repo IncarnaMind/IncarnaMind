@@ -106,6 +106,7 @@ import {
   verdictMarkers,
   withSentenceVerdict,
 } from "./figureChecks";
+import { withFileProperties } from "./fileProperties";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
   type AbsenceAnswer,
@@ -584,6 +585,10 @@ export function checkRunStart(
 }
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
+  return withFileProperties(deps, createSentenceCheck);
+}
+
+function createSentenceCheck(deps: ClaimCheckDependencies) {
   const check = async function checkClaim(
     request: ClaimCheckRequest,
   ): Promise<AtomicClaimCheckResult> {

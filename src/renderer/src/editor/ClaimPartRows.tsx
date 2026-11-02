@@ -42,6 +42,7 @@ import {
   useDocumentVersions,
   usePersonId,
 } from "./signOffActions";
+import { PropertySource, showFileProperties } from "./PropertySource";
 import { CitationChip, OpenCitation } from "./UnsupportedCited";
 
 function PartCitation({
@@ -61,6 +62,7 @@ function PartCitation({
   const state = citationState(citation, documents, kept);
   const quote = useReadableQuote(citation);
   const location = citationLocation(citation);
+  const property = location?.kind === "properties" ? location : null;
   const where = location ? formatLocation(location, t) : null;
   const source = [shownDocumentName(citation, documents), where].filter(Boolean).join(" · ");
   const { records } = useContext(SignOffsContext);
@@ -83,6 +85,7 @@ function PartCitation({
   };
   const open = () => {
     if (!citation.documentId) return;
+    if (property) return showFileProperties(citation.documentId, onOpen);
     void openCited(
       { ...citation, documentId: state.documentId ?? citation.documentId },
       { check: state.check, withQuote: quoteSaysSo(state.check), label: where },
@@ -99,7 +102,15 @@ function PartCitation({
   );
   return (
     <div data-testid="claim-part-receipt" data-citation-id={id ?? undefined} {...menu.rowProps}>
-      {citation.documentId ? (
+      {property ? (
+        <PropertySource
+          citation={citation}
+          location={property}
+          className="claim-part-citation claim-part-source claim-property"
+          testId="claim-part-property"
+          onOpen={onOpen}
+        />
+      ) : citation.documentId ? (
         <button
           type="button"
           className="claim-part-citation"

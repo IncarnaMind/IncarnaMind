@@ -145,6 +145,14 @@ const plausible = (date: string, thisYear: number) => {
 };
 
 /**
+ * One of a file's own dates (#2458), when it can stand as the file's: the first of `dates` (null
+ * where there is none, or it was malformed) that is plausible, or null.
+ */
+export function ownDate(dates: readonly (string | null)[], thisYear: number): string | null {
+  return dates.find((date): date is string => date !== null && plausible(date, thisYear)) ?? null;
+}
+
+/**
  * The year written in a text, if any: of the years standing alone in it
  * from 1900 to this year, the latest. A Document mentions years before its
  * own (prior work, a previous quarter) more often than after it, and a
@@ -171,8 +179,8 @@ export function creationDate(
   firstUnit: string | null,
   thisYear: number,
 ): string | null {
-  for (const date of fromMetadata) {
-    if (date !== null && plausible(date, thisYear)) return date;
-  }
-  return firstUnit === null ? null : yearWritten(firstUnit, thisYear);
+  return (
+    ownDate(fromMetadata, thisYear) ??
+    (firstUnit === null ? null : yearWritten(firstUnit, thisYear))
+  );
 }
