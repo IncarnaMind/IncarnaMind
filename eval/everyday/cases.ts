@@ -386,6 +386,25 @@ const THIS_DOCUMENT: readonly EverydayCase[] = [
     request: "把这个加到我的笔记里。",
     expected: { ...EDIT, into: "asked-from", addsAnswer: true },
   },
+  // A copy request, in the words of #1431: the last Answer goes into the Note as it is.
+  {
+    id: "copy-note-en",
+    language: "en",
+    library: "dated",
+    mind: CALL_NOTES,
+    before: ["How much notice does the employment contract require?"],
+    request: "Put that in my Note.",
+    expected: { ...EDIT, into: "asked-from", addsAnswer: true },
+  },
+  {
+    id: "copy-note-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: CALL_NOTES_ZH,
+    before: ["劳动合同的解除通知期是多久？"],
+    request: "把刚才的回答放进笔记。",
+    expected: { ...EDIT, into: "asked-from", addsAnswer: true },
+  },
   {
     id: "notes-on-documents-en",
     language: "en",
@@ -860,6 +879,26 @@ export const CASES: readonly EverydayCase[] = [
     request: "帮我写一份 GraphST 论文的简短摘要。",
     expected: { ...WRITE, into: "asked-from" },
   },
+  // Its own summary, just written into the empty Mind in front: the follow-up changes that
+  // summary in place, never reads it as the User's own text and never asks for another page (#1431).
+  {
+    id: "own-summary-longer-en",
+    language: "en",
+    library: "papers",
+    mind: EMPTY,
+    before: ["Write a short summary of the GraphST paper."],
+    request: "Make the summary longer.",
+    expected: { ...EDIT, into: "asked-from", inPlace: true, longer: true },
+  },
+  {
+    id: "own-summary-longer-zh",
+    language: "zh-CN",
+    library: "papers",
+    mind: EMPTY,
+    before: ["帮我写一份 GraphST 论文的简短摘要。"],
+    request: "把摘要写长一点。",
+    expected: { ...EDIT, into: "asked-from", inPlace: true, longer: true },
+  },
   // The User's own text, changed.
   {
     id: "edit-shorten",
@@ -1250,7 +1289,7 @@ export const CASES: readonly EverydayCase[] = [
     before: ["What does the tutorial paper say? Answer in a short paragraph."],
     addToNote: true,
     request: "Make the summary longer.",
-    expected: { ...EDIT, inPlace: true },
+    expected: { ...EDIT, inPlace: true, longer: true },
   },
   {
     id: "added-longer-zh",
@@ -1260,7 +1299,7 @@ export const CASES: readonly EverydayCase[] = [
     before: ["这篇教程论文讲了什么？请用一小段话回答。"],
     addToNote: true,
     request: "把摘要写长一点。",
-    expected: { ...EDIT, inPlace: true },
+    expected: { ...EDIT, inPlace: true, longer: true },
   },
   {
     id: "follow-shorter",
