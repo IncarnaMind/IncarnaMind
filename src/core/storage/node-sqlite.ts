@@ -8,12 +8,26 @@ export const MAPPED_WAL_RETRY_MS = 5_000;
 const MAPPED_WAL_PAUSE_MS = 250;
 const WAL = "PRAGMA journal_mode = WAL";
 
+const SQLITE_BUSY = 5;
 /** SQLITE_IOERR_TRUNCATE: on Windows, another process still maps the `-shm` file. */
-const isMappedShm = (error: unknown) =>
-  isRecord(error) && error.code === "ERR_SQLITE_ERROR" && error.errcode === 1546;
+const SQLITE_IOERR_TRUNCATE = 1546;
 
 const errcodeOf = (error: unknown) =>
   isRecord(error) && typeof error.errcode === "number" ? error.errcode : undefined;
+
+const isMappedShm = (error: unknown) =>
+  isRecord(error) && error.code === "ERR_SQLITE_ERROR" && error.errcode === SQLITE_IOERR_TRUNCATE;
+
+/**
+ * Whether SQLite failed because another process holds the database: a lock (any SQLITE_BUSY), or
+ * on Windows a `-shm` it still maps (#2067). Elsewhere a failed truncate is a real I/O error.
+ */
+export function heldByAnotherProcess(error: unknown): boolean {
+  const errcode = errcodeOf(error);
+  if (errcode === undefined) return false;
+  if ((errcode & 0xff) === SQLITE_BUSY) return true;
+  return process.platform === "win32" && errcode === SQLITE_IOERR_TRUNCATE;
+}
 
 /**
  * The `node:sqlite` adapter for the storage port. `node:sqlite` ships with

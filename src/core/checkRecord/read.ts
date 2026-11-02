@@ -14,6 +14,7 @@ import {
   shownDocumentName,
 } from "../../shared/citations";
 import { claimCheckShown, type SentenceResult, sentenceResultOf } from "../../shared/claimChecks";
+import { withoutInertBrackets } from "../../shared/inertBrackets";
 import type { Translate } from "../../shared/locations";
 import { mindScopeOf } from "../../shared/mindScope";
 import { comparableSentence, INLINE_NODE, sentenceSpans } from "../../shared/sentences";
@@ -162,6 +163,13 @@ function documentOf(
   };
 }
 
+/**
+ * A sentence as the record lists it: the record is a file that leaves the app, so an outside
+ * agent's brackets read as written (#352).
+ */
+const recordSentence = (sentence: string): string =>
+  withoutInertBrackets(comparableSentence(sentence));
+
 /** A record cite's resolved source is its stable id, never a same-content replacement. */
 function recordCiteDocumentOf(
   cite: RecordCiteResult,
@@ -265,7 +273,7 @@ export function readRecord(sources: RecordSources): {
     };
     sentences.push({
       kind: "sentence",
-      text: comparableSentence(sentence),
+      text: recordSentence(sentence),
       result,
       origin,
       says: check.says,
@@ -275,7 +283,7 @@ export function readRecord(sources: RecordSources): {
     for (const cite of check.recordCites ?? []) {
       recordCites.push({
         kind: "record-cite",
-        sentence: comparableSentence(sentence),
+        sentence: recordSentence(sentence),
         raw: cite.raw,
         from: cite.from ?? null,
         to: cite.to ?? null,
@@ -309,6 +317,7 @@ export function readRecord(sources: RecordSources): {
     },
     trimBeforeCitation: false,
     review: reviewReading(fragment),
+    leavesApp: true,
   };
   const marks = fragment.doc ? signOffsOf(fragment.doc) : [];
   const signedOff = citationSentences(fragment);
@@ -345,7 +354,7 @@ export function readRecord(sources: RecordSources): {
     if (inlineIds.has(id) || isProposed(topOf(fragment, element))) continue;
     citations.push({
       kind: "citation",
-      text: comparableSentence(sentence),
+      text: recordSentence(sentence),
       result: citationState(citation, sources.documents, sources.kept).check,
       origin: blockOrigin(fragment, element) ?? "user",
       says: citation.verdict ?? null,
