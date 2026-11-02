@@ -83,6 +83,7 @@ import { setTextOrigin } from "../../shared/textOrigins";
 import { unrunToolNotes } from "../../shared/unrunTools";
 import type { AnalysisRuntime } from "../adapters";
 import { withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
+import { createAnalysisRecorder } from "../analysis/recorder";
 import { analysisTool } from "../analysis/tool";
 import {
   ANSWER_BLOCK,
@@ -161,6 +162,8 @@ import type { ModelCallKind } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { WebResult } from "../providers/webSearch";
 import { messageReference } from "../references";
+import type { CodeRunner } from "../runCode";
+import { runCodeTool } from "../runCode/tool";
 import { currentTask } from "../runs/current";
 import type { GateDecision } from "../runs/engine";
 import type { SkillScript, SkillSession } from "../skills";
@@ -305,6 +308,7 @@ import { paragraphAsked } from "./paragraphAsked";
 import {
   analysisInstructions,
   answerInstructions,
+  codeInstructions,
   commandInstructions,
   connectorInstructions,
   documentInstructions,
@@ -612,6 +616,11 @@ export interface AnswersOptions {
   documents: DocumentsForAnswers;
   /** Runs Analyses (#447, ADR-0023); absent: no Answer is offered `run_analysis`. */
   analysisRuntime?: AnalysisRuntime;
+  /**
+   * Runs code in the OS sandbox on copies of Documents (ADR-0025), with where a Document's file
+   * is; absent, or at a level below "os": no Answer is offered `run_code`.
+   */
+  code?: { runner: CodeRunner; file(documentId: string): Promise<string> };
   /** What an Answer is written in when its Question has no language of its own. */
   interfaceLanguage(): Language;
   /** The ids of the live Documents a Search scope covers; null with no Search scope (every Document). */
@@ -2817,40 +2826,70 @@ export function createAnswers(options: AnswersOptions) {
             language: answerLanguage(context.question),
           })
         : [];
+      const analysing = calculating && input.toolSet === undefined && !help;
+      const recorder = createAnalysisRecorder({
+        figure: (figure) => figures.record(figure),
+        language: answerLanguage(context.question),
+      });
+      const ranAnalysis = (toolCallId: string, analysis: AnswerAnalysis) => {
+        analyses.push(analysis);
+        analysisCalls.set(toolCallId, {
+          number: analysis.number,
+          title: analysis.title,
+          documents: [
+            ...new Set([
+              ...(analysis.files ?? []).map((each) => each.documentName),
+              ...analysis.inputs.map((each) =>
+                each.kind === "range"
+                  ? each.citation.documentName
+                  : each.input.citation.documentName,
+              ),
+            ]),
+          ],
+          end: analysis.end.kind,
+          ...(analysis.end.kind === "unavailable" && { reason: analysis.end.reason }),
+          ...(analysis.end.kind === "unavailable" &&
+            analysis.end.python && { python: analysis.end.python }),
+          ...(analysis.end.kind === "timed-out" && { limitMs: analysis.end.limitMs }),
+        });
+        writeSoon();
+      };
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
-        calculating &&
-        input.toolSet === undefined &&
-        !help &&
+        analysing &&
         (input.analyse === true || options.documents.searchableHasSheets(documentIds))
           ? [
               analysisTool({
+                recorder,
                 runtime,
                 passage: shownPassage,
                 number: (given) => figures.number(given),
                 figure: (figure) => figures.record(figure),
                 language: answerLanguage(context.question),
                 now: () => new Date(),
-                ran: (toolCallId, analysis) => {
-                  analyses.push(analysis);
-                  analysisCalls.set(toolCallId, {
-                    number: analysis.number,
-                    title: analysis.title,
-                    documents: [
-                      ...new Set(
-                        analysis.inputs.map((each) =>
-                          each.kind === "range"
-                            ? each.citation.documentName
-                            : each.input.citation.documentName,
-                        ),
-                      ),
-                    ],
-                    end: analysis.end.kind,
-                    ...(analysis.end.kind === "unavailable" && { reason: analysis.end.reason }),
-                    ...(analysis.end.kind === "timed-out" && { limitMs: analysis.end.limitMs }),
-                  });
-                  writeSoon();
+                ran: ranAnalysis,
+              }),
+            ]
+          : [];
+      // Code in the OS sandbox on whole files (ADR-0025): never from outside, never unsandboxed.
+      const code = !outside && options.code?.runner.level === "os" ? options.code : undefined;
+      const fromCode: Tool[] =
+        code &&
+        analysing &&
+        (input.analyse === true || options.documents.searchableBySize(documentIds).length > 0)
+          ? [
+              runCodeTool({
+                runner: code.runner,
+                document: async (id) => {
+                  const shown = shownPassage(id);
+                  if (!shown) return null;
+                  const path = await code.file(shown.source.documentId).catch(() => null);
+                  return path === null ? null : { source: shown.source, path };
                 },
+                recorder,
+                language: answerLanguage(context.question),
+                now: () => new Date(),
+                ran: ranAnalysis,
               }),
             ]
           : [];
@@ -3101,6 +3140,7 @@ export function createAnswers(options: AnswersOptions) {
             webTools: withWebTools = false,
             mindTools: withMindTools = false,
             analysisTools: withAnalysisTools = false,
+            codeTools: withCodeTools = false,
             workbookTools: withWorkbookTools = false,
             commandTools: withCommandTools = false,
           } = {},
@@ -3143,6 +3183,7 @@ export function createAnswers(options: AnswersOptions) {
             input.assistant && !help ? THIS_DOCUMENT_RULE : "",
             emptyMindNote(withMindTools, focusedEmpty),
             analysisInstructions(withAnalysisTools),
+            codeInstructions(withCodeTools, withAnalysisTools),
             workbookInstructions(withWorkbookTools),
             meetingInstructions(heard !== null),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
@@ -3177,6 +3218,7 @@ export function createAnswers(options: AnswersOptions) {
           ...fromWeb,
           ...(mindsTools?.tools ?? []),
           ...fromAnalysis,
+          ...fromCode,
           ...fromWorkbooks,
           ...(commandsOffered?.tools ?? []),
           ...(asking ? [asking] : []),

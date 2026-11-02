@@ -156,7 +156,7 @@ if (engineCheckReport && ownsDataFolder) {
 }
 
 // Whether Skill scripts run in the OS sandbox, found out while Electron starts.
-const scriptExecutor = ownsDataFolder ? chooseExecutor(logger) : Promise.resolve(undefined);
+const scriptSandbox = ownsDataFolder ? chooseExecutor(logger) : Promise.resolve({});
 
 /** Set by electron-vite in development; absent in a built app. */
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
@@ -493,7 +493,7 @@ app.whenReady().then(async () => {
   showDevelopmentDockIcon();
   const createChatModel = await testChatModel();
   const taskKinds = await testTaskKinds();
-  const executor = await scriptExecutor;
+  const { executor, problem: sandboxProblem } = await scriptSandbox;
   if (instance.kind === "owner") instance.owner.starting();
   // A page's frame takes the scheme handlers there are when it loads, so this one is in place
   // before the window, and answers once the core has started.
@@ -524,6 +524,7 @@ app.whenReady().then(async () => {
       ...adapters,
       notifications: createSystemNotifications(appWindows),
       ...(executor && { executor }),
+      ...(sandboxProblem && { sandboxProblem }),
       ...(createChatModel && { createChatModel }),
       // A smoke test never reaches an Ollama that happens to run on the computer: only a
       // stand-in it starts at another address.

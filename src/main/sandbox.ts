@@ -37,6 +37,7 @@ import { delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:pat
 import { promisify } from "node:util";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import type { ExecRequest, Executor, ProcessLauncher } from "../core";
+import type { SandboxProblem } from "../core/api";
 import { engineModule } from "../core/engineModules";
 import { type Confinement, createLocalExecutor, folderPath } from "../core/execution";
 
@@ -71,10 +72,21 @@ export interface OsExecutorOptions {
   reportError(error: unknown): void;
 }
 
-/** Whether the OS sandbox can start here; if it can, how to make its Executors. */
+/**
+ * Whether the OS sandbox can start here; if it can, how to make its Executors. Where it can't
+ * on Linux, `problem` says what the User can do about it (ADR-0025).
+ */
 export type OsSandbox =
   | { available: true; createExecutor(options: OsExecutorOptions): Executor }
-  | { available: false; reason: string };
+  | { available: false; reason: string; problem?: SandboxProblem };
+
+/** The packages sandbox-runtime's dependency errors name, as a Linux distribution calls them. */
+export function missingPackages(errors: readonly string[]): string[] {
+  const packages: string[] = [];
+  if (errors.some((error) => /bubblewrap|bwrap/.test(error))) packages.push("bubblewrap");
+  if (errors.some((error) => /socat/.test(error))) packages.push("socat");
+  return packages;
+}
 
 /**
  * sandbox-runtime's own temporary folder, which it keeps writable for the
@@ -191,6 +203,36 @@ async function installFolders(command: string, denied: readonly string[]): Promi
   return [...folders];
 }
 
+const execFileAsync = promisify(execFile);
+
+/** How many processes the User's account runs now, as `ps` counts them. */
+async function accountProcesses(): Promise<number> {
+  const { stdout } = await execFileAsync("ps", [
+    "-U",
+    String(process.getuid?.() ?? 0),
+    "-o",
+    "pid=",
+  ]);
+  return stdout.split("\n").filter((line) => line.trim() !== "").length;
+}
+
+/**
+ * The shell lines that set a request's file and process limits before its
+ * program starts; a limit the shell can't set stops the run there. bash
+ * counts `ulimit -f` in KiB. The process limit is per account on macOS and
+ * Linux, so it is the account's processes now plus the request's.
+ */
+async function limitLines(limits: ExecRequest["limits"]): Promise<string[]> {
+  const lines: string[] = [];
+  if (limits?.fileBytes !== undefined) {
+    lines.push(`ulimit -f ${Math.max(1, Math.floor(limits.fileBytes / 1024))} || exit 125`);
+  }
+  if (limits?.processes !== undefined) {
+    lines.push(`ulimit -u ${(await accountProcesses()) + limits.processes} || exit 125`);
+  }
+  return lines;
+}
+
 /** The program and arguments that run `script` in the sandbox `config` describes. */
 async function wrap(
   sandbox: SandboxManager,
@@ -229,7 +271,11 @@ function osConfinement(sandbox: SandboxManager, options: OsExecutorOptions): Con
           denyWrite: SANDBOX_RUNTIME_TEMP,
         },
       };
-      const script = `export TMPDIR=${quote(workingFolder)}; exec ${[command, ...request.args].map(quote).join(" ")}`;
+      const script = [
+        `export TMPDIR=${quote(workingFolder)}`,
+        ...(await limitLines(request.limits)),
+        `exec ${[command, ...request.args].map(quote).join(" ")}`,
+      ].join("; ");
       try {
         return { ...(await wrap(sandbox, script, config)), env: request.env };
       } catch (error) {
@@ -244,8 +290,6 @@ function osConfinement(sandbox: SandboxManager, options: OsExecutorOptions): Con
     release: () => sandbox.cleanupAfterCommand(),
   };
 }
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Why a program can't run in the sandbox here, or undefined if it can: it
@@ -308,9 +352,25 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
     });
   }
   const { errors } = await sandbox.checkDependenciesAsync();
-  if (errors.length > 0) return { available: false, reason: errors.join("; ") };
+  if (errors.length > 0) {
+    const packages = missingPackages(errors);
+    return {
+      available: false,
+      reason: errors.join("; "),
+      ...(process.platform === "linux" &&
+        packages.length > 0 && {
+          problem: { kind: "missing" as const, packages },
+        }),
+    };
+  }
   const reason = await cantRunHere(sandbox);
-  if (reason !== undefined) return { available: false, reason };
+  if (reason !== undefined) {
+    return {
+      available: false,
+      reason,
+      ...(process.platform === "linux" && { problem: { kind: "start" as const } }),
+    };
+  }
   return {
     available: true,
     createExecutor: (options) =>

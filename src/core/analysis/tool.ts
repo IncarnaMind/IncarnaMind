@@ -1,11 +1,4 @@
-import { type AnalysisInput, type AnalysisValue, noAnalysisOutput } from "../../shared/analysis";
-import { figureText, rawColumn } from "../../shared/figures";
-import {
-  FORMULA_VERSION,
-  type FormulaResult,
-  type ResultUnit,
-  showResult,
-} from "../../shared/formula";
+import { type AnalysisInput, noAnalysisOutput } from "../../shared/analysis";
 import type { UnitText } from "../../shared/units";
 import type { AnalysisRuntime } from "../adapters";
 import type {
@@ -20,12 +13,17 @@ import type { CitationSource } from "../documents";
 import type { Language } from "../language";
 import { ANALYSIS_TOOLS, type Tool, type ToolProviderInfo } from "../tools";
 import { runAnalysis, sha256 } from ".";
-import { recalculate } from "./figureRows";
-import { parseRange, readRange, sheetRows, sheetsOf } from "./ranges";
-import { analysisReport } from "./report";
+import {
+  type AnalysisRecorder,
+  createAnalysisRecorder,
+  MAX_ANALYSES_PER_ANSWER,
+  noMarkers,
+} from "./recorder";
 
-/** The most Analyses one Answer runs: a seventh is refused, so the model answers. */
-export const MAX_ANALYSES_PER_ANSWER = 6;
+export { MAX_ANALYSES_PER_ANSWER };
+
+import { parseRange, type ReadRange, readRange, sheetRows, sheetsOf } from "./ranges";
+import { analysisReport } from "./report";
 
 const ANALYSIS_PROVIDER: ToolProviderInfo = { kind: "analysis", id: "analysis", name: "Analysis" };
 
@@ -42,6 +40,8 @@ export interface AnalysisToolOptions {
   now(): Date;
   /** An Analysis ran, for its Tool call: the record the Answer keeps. */
   ran(toolCallId: string, analysis: AnswerAnalysis): void;
+  /** Numbers its runs and their results, shared with `run_code` in the same Answer. */
+  recorder?: AnalysisRecorder;
 }
 
 const fields = (value: unknown): Record<string, unknown> =>
@@ -50,19 +50,6 @@ const fields = (value: unknown): Record<string, unknown> =>
     : {};
 
 const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
-
-/** What models give as a figure's unit to say it has none, taking unit for its type. */
-const NO_UNIT = /^(?:number|numeric|float|int|integer|value|none|null|unitless|-)$/i;
-
-/** A figure statistics give far below 0.01, such as a p-value, which two decimals show as 0.00. */
-const TINY = 0.005;
-
-function unitOf(unit: string | null): ResultUnit {
-  if (!unit || NO_UNIT.test(unit.trim())) return { kind: "plain" };
-  if (/^[A-Z]{3}$/.test(unit)) return { kind: "currency", code: unit };
-  if (unit === "%" || /^percent$/i.test(unit)) return { kind: "percent" };
-  return { kind: "other", word: unit };
-}
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -106,14 +93,74 @@ function readTwice(reads: readonly ReadInput[]): string | null {
   return null;
 }
 
+/** What the model reads once an Answer has run as many Analyses as it may. */
+export const analysesAtTheLimit = () =>
+  `You have run ${MAX_ANALYSES_PER_ANSWER} analyses for this Question, as many as one Answer may: answer now with their results.`;
+
 const sheetOf = (citation: Citation): string | null =>
   citation.location?.kind === "rows" ? citation.location.sheet : null;
 
+/**
+ * A range of a sheet as an Analysis reads it: the job's table, its rows numbered as the sheet
+ * numbers them, and the record the Answer keeps, cited to its rows under `source`'s Passage,
+ * quoting the headings. `units` are those its rows were read from.
+ */
+export function rangeInput(
+  name: string,
+  source: CitationSource,
+  units: readonly UnitText[],
+  named: string | null,
+  read: ReadRange,
+): { job: Extract<AnalysisInput, { kind: "table" }>; record: Omit<AnalysisRangeInput, "sha256"> } {
+  const heading = units.find(
+    (unit) =>
+      unit.kind === "rows" &&
+      (unit.label?.sheet ?? null) === named &&
+      unit.label?.rows?.includes(read.headingRow),
+  );
+  const headingLine = heading?.label?.rows?.indexOf(read.headingRow) ?? -1;
+  const citation: Citation = {
+    passageId: source.passageId,
+    documentId: source.documentId,
+    documentName: source.documentName,
+    contentHash: source.contentHash,
+    pageFrom: source.pageFrom,
+    pageTo: source.pageTo,
+    location: {
+      kind: "rows",
+      sheet: named,
+      from: read.headingRow,
+      to: read.rowNumbers.at(-1) ?? read.headingRow,
+    },
+    quote: heading?.text.split("\n")[headingLine] ?? source.text,
+    check: "found",
+    checkReason: null,
+  };
+  const record: Omit<AnalysisRangeInput, "sha256"> = {
+    kind: "range",
+    name,
+    citation: heading?.page ? { ...citation, pageFrom: heading.page } : citation,
+    range: read.range,
+    rows: read.rows.length,
+    columns: read.columns.length,
+    rowCount: read.rowCount,
+    cut: read.cut,
+  };
+  return {
+    job: {
+      kind: "table",
+      name,
+      columns: read.columns,
+      rows: read.rows,
+      firstRow: read.rowNumbers[0] ?? 2,
+      rowNumbers: read.rowNumbers,
+    },
+    record,
+  };
+}
+
 export function analysisTool(options: AnalysisToolOptions): Tool {
-  let runs = 0;
-  let tables = 0;
-  let charts = 0;
-  let pictures = 0;
+  const recorder = options.recorder ?? createAnalysisRecorder(options);
 
   const readRangeInput = (name: string, given: Record<string, unknown>): Read => {
     const passageId = text(given.passage);
@@ -148,52 +195,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         problem: `the range has no rows under its headings in ${source.documentName}`,
       };
     }
-    const heading = units.find(
-      (unit) =>
-        unit.kind === "rows" &&
-        (unit.label?.sheet ?? null) === named &&
-        unit.label?.rows?.includes(read.headingRow),
-    );
-    const headingLine = heading?.label?.rows?.indexOf(read.headingRow) ?? -1;
-    const citation: Citation = {
-      passageId: source.passageId,
-      documentId: source.documentId,
-      documentName: source.documentName,
-      contentHash: source.contentHash,
-      pageFrom: source.pageFrom,
-      pageTo: source.pageTo,
-      location: {
-        kind: "rows",
-        sheet: named,
-        from: read.headingRow,
-        to: read.rowNumbers.at(-1) ?? read.headingRow,
-      },
-      quote: heading?.text.split("\n")[headingLine] ?? source.text,
-      check: "found",
-      checkReason: null,
-    };
-    const record: Omit<AnalysisRangeInput, "sha256"> = {
-      kind: "range",
-      name,
-      citation: heading?.page ? { ...citation, pageFrom: heading.page } : citation,
-      range: read.range,
-      rows: read.rows.length,
-      columns: read.columns.length,
-      rowCount: read.rowCount,
-      cut: read.cut,
-    };
-    return {
-      ok: true,
-      job: {
-        kind: "table",
-        name,
-        columns: read.columns,
-        rows: read.rows,
-        firstRow: read.rowNumbers[0] ?? 2,
-        rowNumbers: read.rowNumbers,
-      },
-      record,
-    };
+    return { ok: true, ...rangeInput(name, source, units, named, read) };
   };
 
   const readInput = (given: unknown): Read => {
@@ -215,44 +217,6 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       job: { kind: "number", name, value },
       record: { kind: "figure", name, input: read.input },
     };
-  };
-
-  const shownFigure = (result: Extract<AnalysisValue, { kind: "figure" }>, analysis: number) => {
-    const unit = unitOf(result.unit);
-    const worked: FormulaResult = {
-      ok: true,
-      version: FORMULA_VERSION,
-      value: result.value,
-      unit,
-      approximate: false,
-      literals: [],
-      scales: [],
-    };
-    // A count a model gives (its observations, a cluster's size) is whole: "29", not "29.00".
-    const whole = unit.kind === "plain" && Number.isInteger(result.value);
-    const show = { language: options.language, as: null, decimals: whole ? 0 : null, scale: null };
-    const shown = showResult(worked, show);
-    const figure: CalculatedFigure = {
-      label: result.label,
-      formula: "",
-      inputs: [],
-      value: result.value,
-      unit,
-      approximate: false,
-      shown: rawColumn(result.label)
-        ? String(result.value)
-        : unit.kind === "plain" && result.value !== 0 && Math.abs(result.value) < TINY
-          ? String(Number(result.value.toPrecision(2)))
-          : shown.ok
-            ? shown.shown
-            : figureText(options.language, result.value),
-      show,
-      literals: [],
-      engine: FORMULA_VERSION,
-      written: null,
-      analysis: { analysis, result: result.name },
-    };
-    return options.figure(figure);
   };
 
   return {
@@ -299,9 +263,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     // What the code prints and gives comes from the User's Documents.
     untrustedResult: true,
     async call(input, { toolCallId, signal }) {
-      if (runs >= MAX_ANALYSES_PER_ANSWER) {
-        return `You have run ${MAX_ANALYSES_PER_ANSWER} analyses for this Question, as many as one Answer may: answer now with their results.`;
-      }
+      if (recorder.full()) return analysesAtTheLimit();
       const title = text(input.title) || "Analysis";
       const code = typeof input.code === "string" ? input.code : "";
       if (!code.trim()) return "Give the code to run.";
@@ -316,7 +278,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       if (problems.length > 0) {
         return `Nothing ran. Fix the inputs and run it again:\n- ${problems.join("\n- ")}`;
       }
-      const number = ++runs;
+      const number = recorder.next();
       const ok = reads.flatMap((read) => (read.ok ? [read] : []));
       const run = await runAnalysis(
         options.runtime,
@@ -325,30 +287,13 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       );
       const output = run.result.end.kind === "unavailable" ? noAnalysisOutput() : run.result.output;
       const usable = run.result.end.kind === "done";
-      const markers: AnswerAnalysis["markers"] = {
-        figures: [],
-        tables: [],
-        charts: [],
-        pictures: [],
-      };
-      const recalculations: NonNullable<AnswerAnalysis["recalculations"]> = [];
-      if (usable) {
-        const jobInputs = ok.map((read) => read.job);
-        for (const result of output.results) {
-          if (result.kind === "table") {
-            markers.tables.push({ result: result.name, marker: ++tables });
-            continue;
-          }
-          if (result.of?.how) {
-            const check = recalculate(result.value, result.of, jobInputs);
-            recalculations.push({ result: result.name, check });
-            if (check.kind !== "same") continue;
-          }
-          markers.figures.push({ result: result.name, marker: shownFigure(result, number) });
-        }
-        for (const _chart of output.charts) markers.charts.push(++charts);
-        for (const _picture of output.pictures ?? []) markers.pictures?.push(++pictures);
-      }
+      const marked = usable
+        ? recorder.mark(
+            number,
+            output,
+            ok.map((read) => read.job),
+          )
+        : { markers: noMarkers() };
       const analysis: AnswerAnalysis = {
         number,
         title,
@@ -371,8 +316,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         output,
         ms: run.result.ms,
         ranAt: options.now().toISOString(),
-        markers,
-        ...(recalculations.length > 0 && { recalculations }),
+        ...marked,
       };
       options.ran(toolCallId, analysis);
       return analysisReport(analysis, options.language);

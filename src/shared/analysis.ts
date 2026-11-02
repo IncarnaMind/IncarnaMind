@@ -9,8 +9,11 @@
 import { CHART_KINDS, type ChartKind, MAX_CHART_VALUES } from "./charts";
 import type { MessageKey } from "./i18n";
 
-/** The languages an Analysis is written in: Python first; JavaScript on QuickJS later (ADR-0023). */
-export type AnalysisLanguage = "python";
+/**
+ * The languages an Analysis is written in: Python, in Pyodide or in the OS sandbox, and bash in
+ * the OS sandbox only (`run_code`, ADR-0025); JavaScript on QuickJS later (ADR-0023).
+ */
+export type AnalysisLanguage = "python" | "bash";
 
 /** A cell of a table an Analysis reads or gives: what its sheet stores, null where it is empty. */
 export type AnalysisCell = string | number | boolean | null;
@@ -70,6 +73,9 @@ export const ANALYSIS_LIMITS = {
   cellCharacters: 300,
   errorCharacters: 4000,
 } as const;
+
+/** What comes back of out/ in `run_code` (ADR-0025): this many files, of at most this many bytes each. */
+export const OUT_FILES = { count: 20, bytes: 5 * 1024 * 1024 } as const;
 
 /** A table a run gave, cut to the limits. */
 export interface AnalysisTable {
@@ -223,9 +229,11 @@ export interface AnalysisOutput {
  * - "missing": this copy of IncarnaMind has no runtime, or its files are missing;
  * - "start": its sandbox or interpreter couldn't start;
  * - "no-sandbox": the app runs with Chromium's sandbox off (`--no-sandbox`), so
- *   nothing would keep the code from the computer.
+ *   nothing would keep the code from the computer;
+ * - "python": `run_code`'s Python couldn't be downloaded or start (ADR-0025), so the
+ *   assistant runs the Analysis in Pyodide instead.
  */
-export type AnalysisUnavailableReason = "missing" | "start" | "no-sandbox";
+export type AnalysisUnavailableReason = "missing" | "start" | "no-sandbox" | "python";
 
 /** How to turn the sandbox back on, for the distributions that block it. */
 export const LINUX_SANDBOX_HELP_URL =
@@ -240,6 +248,7 @@ export const UNAVAILABLE_LINES: Readonly<
 > = {
   missing: { text: "analysis.unavailable.missing" },
   start: { text: "analysis.unavailable.start" },
+  python: { text: "analysis.unavailable.python" },
   "no-sandbox": {
     text: "analysis.unavailable.noSandbox",
     fix: { label: "analysis.unavailable.noSandbox.fix", url: LINUX_SANDBOX_HELP_URL },
@@ -256,8 +265,16 @@ export type AnalysisEnd =
   | { kind: "out-of-memory" }
   /** Python or its window stopped under the code, for no reason it gave: the log has the detail. */
   | { kind: "crashed" }
-  /** `detail`: technical, in English, for the log. */
-  | { kind: "unavailable"; reason: AnalysisUnavailableReason; detail: string };
+  /**
+   * `detail`: technical, in English, for the log. `python`: why `run_code`'s Python couldn't be
+   * had, as a model download fails (reason "python").
+   */
+  | {
+      kind: "unavailable";
+      reason: AnalysisUnavailableReason;
+      detail: string;
+      python?: "network" | "integrity" | "storage" | "load";
+    };
 
 /** What the User reads of a run that crashed. */
 export const CRASHED_LINE: MessageKey = "analysis.crashed";

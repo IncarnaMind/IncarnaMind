@@ -4,6 +4,7 @@ import { tmpdir, userInfo } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
+import analysisHelper from "../renderer/analysis/incarnamind.py?raw";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
@@ -301,6 +302,8 @@ import {
 import { parseReference } from "./references";
 import { BUILT_IN_RERANKING_MODEL, createRerankingModel } from "./reranking";
 import { createResearch } from "./research";
+import { createCodeRunner } from "./runCode";
+import { createPythonRuntime } from "./runCode/python";
 import { createTasks, type TaskKind, type TaskNotice } from "./runs/tasks";
 import { parseSearchScope, resolveSearchScope } from "./scope";
 import { createSecrets } from "./secrets";
@@ -709,6 +712,7 @@ export function createCore(adapters: CoreAdapters): Core {
     scriptSandbox,
     !capture ? "none" : capture.systemAudio ? "both" : "microphone",
     () => adapters.systemUserName?.() || accountName(),
+    adapters.sandboxProblem ?? null,
   );
   const folders = createFolders(db, now);
   const foldersChanged = () => events.emit("folders.changed", folders.list());
@@ -1327,6 +1331,29 @@ export function createCore(adapters: CoreAdapters): Core {
     });
   // Running Skill scripts (#41), each in its own temporary folder.
   const scriptRunner = createScriptRunner({ executor, runtimes: adapters.scriptRuntimes });
+  // Code on whole Documents, in the OS sandbox only (ADR-0025): Python is IncarnaMind's own,
+  // downloaded the first time code needs it.
+  const codeHost = executor.level === "os" ? adapters.codeRuntime : undefined;
+  const pythonRuntime = codeHost?.python
+    ? createPythonRuntime({
+        dataDir,
+        manifest: codeHost.python,
+        executor,
+        fetch: adapters.modelDownloads?.fetch ?? fetch,
+        emitStatus: (status) => events.emit("pythonRuntime.status", status),
+        ...(adapters.log && { log: adapters.log }),
+      })
+    : null;
+  const codeRunner = codeHost
+    ? createCodeRunner({
+        executor,
+        tempDir: adapters.paths.tempDir ?? tmpdir(),
+        python: pythonRuntime,
+        helper: analysisHelper,
+        font: codeHost.font,
+        appVersion: codeHost.appVersion,
+      })
+    : undefined;
 
   // Asking the User before a Connector Tool that may change something runs (#38).
   const approvals = createApprovals({
@@ -1864,6 +1891,9 @@ export function createCore(adapters: CoreAdapters): Core {
     events,
     engine: answerEngine,
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
+    ...(codeRunner && {
+      code: { runner: codeRunner, file: (documentId: string) => documents.filePath(documentId) },
+    }),
     requireMind: (mindId) => writableMind(mindId).id,
     mindExists,
     readableMindName: (mindId) => {
@@ -3691,6 +3721,16 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     listed: () => transcriber !== undefined && transcriptionSource.files.length > 0,
   });
+  if (pythonRuntime) {
+    const pythonHost = new URL(pythonRuntime.manifest.url);
+    privacy.traffic.register({
+      id: "python-runtime",
+      service: {
+        id: pythonHost.origin,
+        name: pythonHost.host === "github.com" ? "GitHub" : pythonHost.host,
+      },
+    });
+  }
   // Any built-in model may come from these instead, and the probe asks hf-mirror.com until our
   // ModelScope copy exists (#1578).
   const modelScopeCopy = modelCopyUrl(modelCopies.modelscope);
@@ -5014,6 +5054,7 @@ export function createCore(adapters: CoreAdapters): Core {
     downloadEmbeddingModel: async () => embeddingModel.retry(),
     getTextRecognitionModel: async () =>
       textRecognitionModel?.status() ?? textRecognitionUnavailable,
+    getPythonRuntime: async () => pythonRuntime?.status() ?? null,
     downloadTextRecognitionModel: async () =>
       textRecognitionModel?.retry() ?? textRecognitionUnavailable,
 
@@ -6127,6 +6168,7 @@ export function createCore(adapters: CoreAdapters): Core {
       skillDrafts.stopAll();
       scriptRunner.close();
       adapters.analysisRuntime?.close();
+      pythonRuntime?.close();
       approvals.close();
       connectors.close();
       tagger.close();

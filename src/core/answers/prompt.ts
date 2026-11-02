@@ -142,6 +142,20 @@ export function analysisInstructions(offered: boolean): string {
   ].join("\n");
 }
 
+/**
+ * When to run code in the OS sandbox (`run_code`, ADR-0025) rather than an Analysis in Pyodide:
+ * whole files, more rows than an Analysis reads, logs, a workbook's own file, a shell.
+ */
+export function codeInstructions(offered: boolean, analysisOffered: boolean): string {
+  if (!offered) return "";
+  return [
+    `run_code runs Python or bash on copies of whole files on this computer. Use it for what ${analysisOffered ? "run_analysis can't do" : "a search can't answer"}: a sheet or CSV of more than 20,000 rows, a log or other text file, a workbook's own file (its formulas, with openpyxl), several files at once, or shell tools.${analysisOffered ? " For anything else over a sheet, use run_analysis: it needs nothing downloaded. When run_analysis says a range was cut, run it again with run_code." : ""}`,
+    "- In Python, read a sheet with read_table(file, sheet). Give each sum, mean, min, max or count of a column with figure(name, df[column], how, label, unit), which IncarnaMind works out again from the cells, and every other figure or table with result(name, value, label, unit). Write each figure's marker, never a number the code printed.",
+    "- A number bash gives is calculated by code and not checked: for a figure the Answer gives, use Python with figure().",
+    `- When it says Python didn't run, ${analysisOffered ? "do the analysis with run_analysis" : "say so"}.`,
+  ].join("\n");
+}
+
 export function commandInstructions(offered: boolean): string {
   if (!offered) return "";
   return [

@@ -34,3 +34,73 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(textOf(t, call)).toBe(translate(language, "analysis.call.running"));
   });
 }
+
+const runCode = (
+  language: unknown,
+  status: AnswerToolCall["status"] = "running",
+): AnswerToolCall => ({
+  id: "code",
+  tool: "run_code",
+  source: "analysis",
+  input: { title: "Probe", language },
+  status,
+  resultCount: null,
+});
+
+const python = (downloadedBytes: number) => ({
+  name: "Python 3.14.10",
+  host: "github.com",
+  state: "downloading" as const,
+  downloadedBytes,
+  totalBytes: 74_000_000,
+  error: null,
+});
+
+test.each([
+  ["en", "Getting Python ready for analyses · 31 of 74 MB", "Getting Python ready for analyses…"],
+  ["zh-CN", "正在准备数据分析所需的 Python：31 / 74 MB", "正在准备数据分析所需的 Python…"],
+] as const)(
+  "%s: a run_code call waiting on Python says how far its download has come",
+  (language, downloading, unpacking) => {
+    const t: Translate = (key, params) => translate(language, key, params);
+    expect(textOf(t, runCode("python"), python(31_400_000))).toBe(downloading);
+    expect(textOf(t, runCode("python"), python(74_000_000))).toBe(unpacking);
+    expect(textOf(t, runCode("bash"), python(31_400_000))).toBe(
+      translate(language, "analysis.call.running"),
+    );
+    expect(textOf(t, runCode("python"), { ...python(74_000_000), state: "ready" })).toBe(
+      translate(language, "analysis.call.running"),
+    );
+  },
+);
+
+test.each([
+  ["en", "network", "Couldn’t get Python for this analysis: check your internet connection."],
+  ["en", "load", "Couldn’t get Python for this analysis: it couldn’t start on this computer."],
+  ["zh-CN", "network", "无法获取数据分析所需的 Python：请检查网络连接。"],
+  ["zh-CN", "integrity", "无法获取数据分析所需的 Python：下载的文件已损坏。"],
+] as const)(
+  "%s: a run_code call whose Python couldn't be had says why (%s)",
+  (language, kind, said) => {
+    const t: Translate = (key, params) => translate(language, key, params);
+    const call: AnswerToolCall = {
+      ...runCode("python", "done"),
+      analysis: {
+        number: 1,
+        title: "Probe",
+        documents: ["sales.csv"],
+        end: "unavailable",
+        reason: "python",
+        python: kind,
+      },
+    };
+    expect(textOf(t, call)).toBe(said);
+    const ran: AnswerToolCall = {
+      ...call,
+      analysis: { number: 1, title: "Probe", documents: ["sales.csv"], end: "done" },
+    };
+    expect(textOf(t, ran)).toBe(
+      language === "en" ? "Ran an analysis on sales.csv" : "对“sales.csv”运行了数据分析",
+    );
+  },
+);

@@ -2101,6 +2101,7 @@ export const en = {
   "modelSource.modelscope": "ModelScope",
   "modelSource.hfMirror": "hf-mirror.com",
   "modelSource.copy": "IncarnaMind’s copy",
+  "modelSource.github": "GitHub",
   "status.downloadFailed": "Search model download failed",
   "status.modelFailed": "Search model couldn’t start",
   "status.rerankDownloading": "Getting search ready",
@@ -3128,6 +3129,9 @@ export const en = {
   "privacy.traffic.transcription-model": "Speech model download",
   "privacy.traffic.transcription-model.tip":
     "The speech model for meetings, and the models that tell speakers apart, are downloaded once, the first time a meeting is recorded or transcribed. Nothing you say is sent.",
+  "privacy.traffic.python-runtime": "Python for analyses",
+  "privacy.traffic.python-runtime.tip":
+    "IncarnaMind’s own Python, which analyses of whole files run in, is downloaded once from where this version came from, the first time one runs. None of your files are sent.",
   "privacy.traffic.model-source-modelscope": "Built-in models from ModelScope",
   "privacy.traffic.model-source-modelscope.tip":
     "Before a built-in model downloads, IncarnaMind asks ModelScope and Hugging Face which answers first, to choose where to download from. Nothing of yours is sent.",
@@ -4061,6 +4065,11 @@ export const en = {
   "scripts.settings.bodySandboxed": "Scripts run in a sandbox and ask before each run.",
   "scripts.settings.bodySandboxed.details":
     "They can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in their own working folder, and have no internet. Unless you chose “Always run” for a Skill, each run asks first.",
+  "scripts.settings.sandboxMissing":
+    "The sandbox for code can’t start on this computer: install {packages}, then restart IncarnaMind. Until then, analyses of whole files are off, and each script asks first with no sandbox.",
+  "scripts.settings.sandboxStart":
+    "This computer doesn’t let IncarnaMind start a sandbox for code, so analyses of whole files are off, and each script asks first with no sandbox.",
+  "scripts.settings.sandboxPackages.and": "{first} and {last}",
   "scripts.settings.timeout": "Stop a script that runs longer than",
   "scripts.settings.seconds": "seconds",
 
@@ -6901,6 +6910,10 @@ export const en = {
   "analysis.unavailable.start": "Analysis can’t run on this computer: its sandbox couldn’t start.",
   "analysis.unavailable.noSandbox": "Analyses need the app’s sandbox, which is off",
   "analysis.unavailable.noSandbox.fix": "How to fix",
+  "analysis.unavailable.python": "Couldn’t get Python for this analysis: {reason}.",
+  "analysis.python.failure.load": "it couldn’t start on this computer",
+  "analysis.call.preparing": "Getting Python ready for analyses · {downloaded} of {total} MB",
+  "analysis.call.preparing.unpacking": "Getting Python ready for analyses…",
   "analysis.crashed": "The analysis stopped unexpectedly. Run it again.",
   "analysis.command": "Analyse data…",
   "analysis.command.keywords": "analysis analyze python pandas data sheet csv calculate table",

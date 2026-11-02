@@ -25,3 +25,17 @@ sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 ```
 
 This lifts the rule for the whole system, not just for IncarnaMind, and the AppImage then starts with its sandbox on. Any program can then create user namespaces again. Attacks on the kernel often use them, which is why Ubuntu added the rule. The setting lasts until you restart the computer. To keep it after that, put `kernel.apparmor_restrict_unprivileged_userns=0` in a file in `/etc/sysctl.d/`. Use this only if you can't install the .deb.
+
+## Code on whole files and Skill scripts
+
+When the assistant analyses whole files (Python or a shell command on copies of your Documents) or runs a Skill's script, the code runs in a second sandbox, the operating system's own: bubblewrap. It needs two packages:
+
+```sh
+sudo apt install bubblewrap socat      # Debian, Ubuntu
+sudo dnf install bubblewrap socat      # Fedora
+sudo pacman -S bubblewrap socat        # Arch
+```
+
+Then restart IncarnaMind. Settings › Skills says when this sandbox can't start, and why. Until it can, the assistant analyses only in the app's own sandbox, on the rows IncarnaMind has read, and each Skill script asks before it runs, with no sandbox.
+
+On Ubuntu 23.10 and later, the AppArmor rule above can stop bubblewrap from starting a sandbox even when both packages are installed; Settings then says this computer doesn't let IncarnaMind start one. The last resort above lifts that rule.

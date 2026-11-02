@@ -5,6 +5,7 @@
  * build fakes; a future hosted server would pass its own. The core never
  * imports Electron (ADR-0004, ADR-0006).
  */
+
 import type { ChildProcess } from "node:child_process";
 import type {
   AnalysisEnd,
@@ -22,6 +23,7 @@ import type {
   EngineSwitchReason,
   ExternalService,
   SandboxLevel,
+  SandboxProblem,
   SecretProtection,
   TranscriptionEngine,
   WebPageLookFailure,
@@ -42,6 +44,7 @@ import type { LocalServers } from "./providers/localServers";
 import type { ChatModelFactory } from "./providers/models";
 import type { OllamaModels } from "./providers/ollamaModels";
 import type { RerankingModelFactory } from "./providers/rerank";
+import type { PythonRuntimeManifest } from "./runCode/python";
 import type { RunEngine } from "./runs/engine";
 import type { TaskKind } from "./runs/tasks";
 import type { PaceTimers } from "./sources/pace";
@@ -316,8 +319,28 @@ export interface ExecRequest {
   timeoutMs: number;
   /** How much of each output is kept: the start of its standard output, the end of its error output. */
   maxOutputBytes: number;
+  /** Bounds beyond its time and output, for code a model wrote (`ExecLimits`). */
+  limits?: ExecLimits;
   /** Stops it at once, with every process it started (e.g. the User stops the Answer). */
   signal: AbortSignal;
+}
+
+/**
+ * What a program may use besides time and output. Files and processes are
+ * the kernel's limits, set where the program starts (`ulimit`, macOS and
+ * Linux); memory and the working folder are watched while it runs, since
+ * macOS refuses a memory limit, and it is stopped with every process it
+ * started when it goes over (`ExecResult.limit`).
+ */
+export interface ExecLimits {
+  /** The largest file it may write, in bytes. */
+  fileBytes?: number;
+  /** How many more processes it may run at once than the User's account already runs. */
+  processes?: number;
+  /** Its processes' resident memory together, in bytes. */
+  memoryBytes?: number;
+  /** What its working folder may hold, in bytes. */
+  folderBytes?: number;
 }
 
 /** How a program an `Executor` ran ended, and what it wrote (see `SkillScriptRun`, which adds `error`). */
@@ -334,6 +357,8 @@ export interface ExecResult {
   stdoutTruncated: boolean;
   /** It wrote more to its error output than is kept. */
   stderrTruncated: boolean;
+  /** It went over this limit of its `ExecLimits`, so it was stopped with every process it started. */
+  limit?: "memory" | "folder";
 }
 
 /**
@@ -886,6 +911,23 @@ export interface CoreAdapters {
   executor?: Executor;
   /** What Skill scripts run with (see `ScriptRuntimes`); the defaults suit the desktop app. */
   scriptRuntimes?: ScriptRuntimes;
+  /**
+   * What `run_code` runs with (ADR-0025), on an `executor` at level "os" only: the archive of
+   * IncarnaMind's own Python this build goes with (null: this copy has none, so it runs bash
+   * alone), the font plots draw Chinese with, and this build's version, recorded with each run.
+   * Absent: no Answer is offered `run_code`.
+   */
+  codeRuntime?: {
+    python: PythonRuntimeManifest | null;
+    font: string | null;
+    appVersion: string;
+  };
+  /**
+   * Why the OS sandbox can't start on this computer, when it can't and the User can fix it:
+   * Linux without bubblewrap or socat, or one that doesn't let apps start a sandbox. Settings
+   * says so, with how to fix it; absent: it starts, or there is none to start (Windows).
+   */
+  sandboxProblem?: SandboxProblem;
   /**
    * Outside agents (#351): how an agent starts the shim that reaches this app
    * (the desktop app's own binary, run as Node, with its shim script), where

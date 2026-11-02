@@ -22,10 +22,11 @@
  * sandbox (Seatbelt, bubblewrap) now; a container or a remote machine later,
  * behind the same `Executor`, so the Tools that use it don't change.
  */
-import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
+import { lstat, mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { promisify } from "node:util";
 import type {
   ExecAllow,
   ExecFolder,
@@ -187,22 +188,104 @@ class Tail {
 /** How long a stopped program's output may stay open before the run ends without it. */
 const STOP_GRACE_MS = 2000;
 
+/** How often a program's memory and working folder are measured against its limits. */
+const WATCH_MS = 250;
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * The resident memory of every process in the process group `group`, in
+ * bytes, as `ps` reports it on macOS and Linux; null where it can't be read
+ * (Windows, where a Job Object would hold the limit instead). A process that
+ * left the group (a session of its own) isn't counted.
+ */
+async function groupMemory(group: number): Promise<number | null> {
+  if (process.platform === "win32") return null;
+  try {
+    const { stdout } = await execFileAsync("ps", ["-A", "-o", "pgid=,rss="], {
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    let kib = 0;
+    for (const line of stdout.split("\n")) {
+      const [pgid, rss] = line.trim().split(/\s+/);
+      if (Number(pgid) === group) kib += Number(rss) || 0;
+    }
+    return kib * 1024;
+  } catch {
+    return null;
+  }
+}
+
+/** The bytes the files under `folder` hold; links aren't followed. */
+async function folderSize(folder: string): Promise<number> {
+  let total = 0;
+  const pending = [folder];
+  for (let current = pending.pop(); current !== undefined; current = pending.pop()) {
+    const entries = await readdir(current, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const path = join(current, entry.name);
+      if (entry.isDirectory()) pending.push(path);
+      else if (entry.isFile()) total += (await lstat(path).catch(() => null))?.size ?? 0;
+    }
+  }
+  return total;
+}
+
+/**
+ * Measures the program's memory and working folder every `WATCH_MS` while it
+ * runs, and calls `over` with the first limit it goes past. Returns what
+ * stops the watching.
+ */
+function watchLimits(
+  child: ChildProcess,
+  request: ExecRequest,
+  cwd: string,
+  over: (limit: NonNullable<ExecResult["limit"]>) => void,
+): () => void {
+  const { memoryBytes, folderBytes } = request.limits ?? {};
+  const { pid } = child;
+  if ((memoryBytes === undefined && folderBytes === undefined) || pid === undefined) {
+    return () => undefined;
+  }
+  let measuring = false;
+  const timer = setInterval(async () => {
+    if (measuring) return;
+    measuring = true;
+    try {
+      if (memoryBytes !== undefined && ((await groupMemory(pid)) ?? 0) > memoryBytes) {
+        over("memory");
+      } else if (folderBytes !== undefined && (await folderSize(cwd)) > folderBytes) {
+        over("folder");
+      }
+    } finally {
+      measuring = false;
+    }
+  }, WATCH_MS);
+  return () => clearInterval(timer);
+}
+
 /** Waits for the process to end, keeping what it writes; stops it on its timeout or signal. */
-const collect = (child: ChildProcess, request: ExecRequest) =>
+const collect = (child: ChildProcess, request: ExecRequest, cwd: string) =>
   new Promise<ExecResult>((resolve) => {
     const stdout = new Head(request.maxOutputBytes);
     const stderr = new Tail(request.maxOutputBytes);
     let timedOut = false;
     let stopped = false;
     let settled = false;
+    let limit: ExecResult["limit"];
     const timer = setTimeout(() => {
       timedOut = true;
       stop();
     }, request.timeoutMs);
+    const stopWatching = watchLimits(child, request, cwd, (over) => {
+      limit ??= over;
+      stop();
+    });
     const finish = (code: number | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      stopWatching();
       request.signal.removeEventListener("abort", stop);
       resolve({
         exitCode: stopped ? null : code,
@@ -211,6 +294,7 @@ const collect = (child: ChildProcess, request: ExecRequest) =>
         stderr: stderr.text(),
         stdoutTruncated: stdout.truncated,
         stderrTruncated: stderr.truncated,
+        ...(limit === undefined ? {} : { limit }),
       });
     };
     function stop() {
@@ -270,7 +354,7 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
             omitEnv: looksLikeSecret,
             processGroup: true,
           });
-          return await collect(child, request);
+          return await collect(child, request, cwd);
         } finally {
           confinement?.release();
         }

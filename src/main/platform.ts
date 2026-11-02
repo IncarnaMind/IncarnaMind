@@ -27,6 +27,7 @@ import {
   type UsageDataSender,
 } from "../core";
 import { runAnalysis } from "../core/analysis";
+import type { SandboxProblem } from "../core/api";
 import { scansAtOnce } from "../core/documents/processor";
 import type { PageFetch } from "../core/documents/web/fetch";
 import type { ModelCopies } from "../core/embedding/modelSources";
@@ -36,6 +37,7 @@ import { type Resolve, systemResolve } from "../core/tools/web/addresses";
 import type { FakeTranscriberOptions } from "../core/transcription/fake";
 import { SHOW_AGENT_CONNECTION } from "../shared/agentConnection";
 import type { AnalysisJob } from "../shared/analysis";
+import { PLOT_FONT } from "../shared/analysisWindow";
 import { createElectronAnalysisRuntime } from "./analysis";
 import { createCitedPageCapture } from "./citedPageCapture";
 import { createSentryCrashReporter } from "./crashReports";
@@ -49,6 +51,7 @@ import { createElectronPictures } from "./pictures";
 import { createElectronPrinter } from "./printPdf";
 import { createLoginShellProcesses } from "./processes";
 import { createUtilityProcessCrossEncoder } from "./reranker";
+import { readPythonManifest, runtimePlatform } from "./runCode";
 import { loadOsSandbox, readDeniedFolders } from "./sandbox";
 import { createUtilityProcessTextRecognizer } from "./scanReader";
 import { createFileKeychain, SECRETS_FILE, type SecretCipher } from "./secretsFile";
@@ -175,15 +178,17 @@ export function seccompHelper(): string | undefined {
  * Found out once, at startup: the log says which, and why not "os". Call
  * once `userData` is set.
  */
-export async function chooseExecutor(log: Logger): Promise<Executor | undefined> {
+export async function chooseExecutor(
+  log: Logger,
+): Promise<{ executor?: Executor; problem?: SandboxProblem }> {
   try {
     const sandbox = await loadOsSandbox({ seccompHelper: seccompHelper() });
     if (!sandbox.available) {
       log.info("scripts.sandbox", { level: "none", reason: sandbox.reason });
-      return undefined;
+      return sandbox.problem ? { problem: sandbox.problem } : {};
     }
     log.info("scripts.sandbox", { level: "os" });
-    return sandbox.createExecutor({
+    const executor = sandbox.createExecutor({
       processes: loginShellProcesses,
       environment: () => loginShellProcesses.environment(),
       tempDir: tmpdir(),
@@ -196,12 +201,13 @@ export async function chooseExecutor(log: Logger): Promise<Executor | undefined>
       }),
       reportError: (error) => console.error(error),
     });
+    return { executor };
   } catch (error) {
     log.error("scripts.sandbox", {
       level: "none",
       reason: error instanceof Error ? error.message : String(error),
     });
-    return undefined;
+    return {};
   }
 }
 
@@ -361,6 +367,31 @@ function pythonFolder(): string {
   return app.isPackaged
     ? join(process.resourcesPath, "python")
     : join(app.getAppPath(), "resources", "python");
+}
+
+/**
+ * What `run_code` runs with (ADR-0025): the manifest of IncarnaMind's own Python this build was
+ * made with, beside the app's other resources (in a test build, the one the test names), and
+ * the plot font Analyses bundle. None on Windows, where code has no OS sandbox to run in.
+ */
+function codeRuntime(log: Logger): CoreAdapters["codeRuntime"] {
+  if (process.platform === "win32") return undefined;
+  const testManifest =
+    import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_PYTHON_RUNTIME : undefined;
+  const manifest =
+    testManifest ||
+    (app.isPackaged
+      ? join(process.resourcesPath, "python-native", "runtime.json")
+      : join(app.getAppPath(), "resources", "python-native", "runtime.json"));
+  return {
+    python: readPythonManifest(
+      manifest,
+      runtimePlatform(process.platform, process.arch),
+      (reason) => log.warn("pythonRuntime.manifest", { reason }),
+    ),
+    font: join(pythonFolder(), PLOT_FONT),
+    appVersion: app.getVersion(),
+  };
 }
 
 export function analysisRuntime(log: Logger): AnalysisRuntime {
@@ -773,6 +804,7 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     audioCapture: audioCapture(log),
     capturePage: createCitedPageCapture({ rendererUrl: process.env.ELECTRON_RENDERER_URL, log }),
     analysisRuntime: analysisRuntime(log),
+    codeRuntime: codeRuntime(log),
     paths: {
       dataDir,
       builtInSkills: builtInSkillsFolder(),

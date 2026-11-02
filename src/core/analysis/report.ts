@@ -5,6 +5,7 @@ import {
   type AnalysisRecalculation,
   type AnalysisTable,
   type AnalysisValue,
+  OUT_FILES,
 } from "../../shared/analysis";
 import { figureCellText, figureResultText, figureText, rawColumn } from "../../shared/figures";
 import type { AnswerAnalysis } from "../api";
@@ -40,10 +41,26 @@ function tableText(table: AnalysisTable, shownRows: number, language: Language):
 
 const ROWS_READ = 20;
 
+const bytesText = (bytes: number) =>
+  bytes < 1024
+    ? `${count(bytes)} bytes`
+    : bytes < 1024 * 1024
+      ? `${figureText("en", Math.round(bytes / 102.4) / 10)} KB`
+      : `${figureText("en", Math.round(bytes / 104857.6) / 10)} MB`;
+
 export function analysisReport(analysis: AnswerAnalysis, language: Language): string {
   const { output, end } = analysis;
   const lines = [`Analysis ${analysis.number}: ${analysis.title}`];
-  lines.push("Inputs:");
+  if (analysis.files) {
+    lines.push(
+      "Files in ../inputs:",
+      ...analysis.files.map(
+        (file) =>
+          `- ${file.name}${file.name === file.documentName ? "" : ` (${file.documentName})`}: ${bytesText(file.bytes)}`,
+      ),
+    );
+  }
+  if (analysis.inputs.length > 0 || !analysis.files) lines.push("Inputs:");
   for (const input of analysis.inputs) {
     if (input.kind === "range") {
       const sheet = input.citation.location?.kind === "rows" ? input.citation.location.sheet : null;
@@ -95,6 +112,19 @@ export function analysisReport(analysis: AnswerAnalysis, language: Language): st
   }
   if (output.printed) {
     lines.push(`Printed:\n${output.printed.trimEnd()}${output.cut.printed ? "\n(cut)" : ""}`);
+  }
+  const out = analysis.outFiles;
+  if (out && (out.files.length > 0 || out.left > 0)) {
+    lines.push("Files it left in out/:");
+    for (const file of out.files) {
+      lines.push(`- ${file.name}: ${bytesText(file.bytes)}`);
+      if (file.text !== undefined) lines.push(file.text.trimEnd());
+    }
+    if (out.left > 0) {
+      lines.push(
+        `(${count(out.left)} more left out: at most ${OUT_FILES.count} files of ${OUT_FILES.bytes / 1024 / 1024} MB come back, and never a link)`,
+      );
+    }
   }
   if (end.kind === "done") {
     const results = resultLines(analysis, language);
@@ -186,6 +216,9 @@ function refusal(
 function endLine(analysis: AnswerAnalysis, end: AnswerAnalysis["end"]): string {
   switch (end.kind) {
     case "done":
+      if (analysis.language === "bash") {
+        return "It ran to its end. Its numbers are calculated by code and not checked: say so where the Answer gives one.";
+      }
       return analysis.output.results.length > 0 ||
         analysis.output.charts.length > 0 ||
         (analysis.output.pictures ?? []).length > 0
