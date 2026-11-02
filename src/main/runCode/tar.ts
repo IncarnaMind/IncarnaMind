@@ -208,6 +208,8 @@ export async function unpackTarZst(
     out: Writable;
     mtime: number;
     mode: number;
+    /** Why writing it failed (a full disk, a name taken twice), read at its next write. */
+    failed: Error | null;
   } | null = null;
   let skip = 0;
   let entries = 0;
@@ -252,6 +254,8 @@ export async function unpackTarZst(
       existing = above;
     }
   };
+  // The file being written stays open otherwise.
+  const abandonFile = () => file?.out.destroy();
   const closeFile = async () => {
     if (!file) return;
     const done = file;
@@ -296,14 +300,19 @@ export async function unpackTarZst(
       bytes += size;
       if (bytes > limits.maxBytes) throw new TarError("The archive holds more than allowed.");
       await mkdir(dirname(target), { recursive: true });
-      file = {
+      const opened: NonNullable<typeof file> = {
         path: target,
         left: size,
         pad: stored - size,
         out: createWriteStream(target, { flags: "wx", mode: 0o600 }),
         mtime,
         mode,
+        failed: null,
       };
+      opened.out.on("error", (error) => {
+        opened.failed = error;
+      });
+      file = opened;
       if (size === 0) await closeFile();
     } else {
       throw new TarError(`The archive has an entry of a kind it can't hold (${type}): ${name}`);
@@ -318,8 +327,22 @@ export async function unpackTarZst(
         if (part.byteLength === 0) return;
         pending = pending.subarray(part.byteLength);
         file.left -= part.byteLength;
-        const out = file.out;
-        if (!out.write(part)) await new Promise((resolve) => out.once("drain", resolve));
+        const writing = file;
+        if (writing.failed) throw writing.failed;
+        if (!writing.out.write(part)) {
+          await new Promise<void>((resolve, reject) => {
+            const drained = () => {
+              writing.out.off("error", failed);
+              resolve();
+            };
+            const failed = (error: Error) => {
+              writing.out.off("drain", drained);
+              reject(error);
+            };
+            writing.out.once("drain", drained);
+            writing.out.once("error", failed);
+          });
+        }
         if (file.left === 0) await closeFile();
         continue;
       }
@@ -349,15 +372,20 @@ export async function unpackTarZst(
     }
   };
 
-  await pipeline(
-    createReadStream(archive),
-    createZstdDecompress(),
-    new Writable({
-      write(chunk: Buffer, _encoding, callback) {
-        take(chunk).then(() => callback(), callback);
-      },
-    }),
-  );
+  try {
+    await pipeline(
+      createReadStream(archive),
+      createZstdDecompress(),
+      new Writable({
+        write(chunk: Buffer, _encoding, callback) {
+          take(chunk).then(() => callback(), callback);
+        },
+      }),
+    );
+  } catch (error) {
+    abandonFile();
+    throw error;
+  }
   if (!ended || file) throw new TarError("The archive ended before its last entry.");
   // Deepest first, so a folder's time is set after everything written into it.
   for (const each of times.reverse()) await utimes(each.path, each.mtime, each.mtime);

@@ -136,6 +136,16 @@ describe("the runtime's archive", () => {
     }
   });
 
+  test("a file it can't write fails the unpack, with the reason, rather than ending the app", async () => {
+    const { folder, file: tar } = await archive(
+      [file("python/a.txt", "one"), file("python/a.txt", "two")],
+      { "python/a.txt": "one" },
+    );
+    await expect(unpackTarZst(tar, join(folder, "out"), LIMITS)).rejects.toMatchObject({
+      code: "EEXIST",
+    });
+  });
+
   test("refuses an archive past its limits", async () => {
     const { folder, file: tar } = await archive([file("python/a.txt", "abc")], {
       "python/a.txt": "abc",

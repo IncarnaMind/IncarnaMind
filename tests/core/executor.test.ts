@@ -403,6 +403,15 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
         const pidFolder = await createTempDataFolder();
         const pidFile = join(pidFolder, "pids.json");
         const marker = markerOf();
+        // The test's own clean-up, as the Executor can't end what escaped with no sandbox: the
+        // child it wrote down, by its pid, while that pid is still the child with its marker.
+        onTestFinished(async () => {
+          const started = await readFile(pidFile, "utf8").catch(() => null);
+          const child = started === null ? 0 : (JSON.parse(started) as { child: number }).child;
+          if (child > 1 && runningWith(`${marker}-child`).includes(child)) {
+            process.kill(child, "SIGKILL");
+          }
+        });
 
         const run = await executor.run(
           request(node(escaping(marker), pidFile), {
@@ -411,21 +420,18 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
           }),
         );
         await startedIn(pidFile, marker);
-        // The test's own clean-up: what escaped is beyond the Executor.
-        onTestFinished(() => {
-          for (const pid of runningWith(`${marker}-child`)) {
-            try {
-              process.kill(pid, "SIGKILL");
-            } catch {
-              // Gone already.
-            }
-          }
-        });
 
         // Out of the program's group, it holds the output open. In the OS sandbox the run's sweep
         // finds it by its profile and ends it; with no sandbox nothing tells it from any other.
         expect(run).toMatchObject({ exitCode: null, timedOut: true });
-        expect(runningWith(`${marker}-child`)).toHaveLength(executor.level === "os" ? 0 : 1);
+        if (executor.level === "os") {
+          await vi.waitFor(() => expect(runningWith(`${marker}-child`)).toEqual([]), {
+            timeout: 5_000,
+            interval: 25,
+          });
+        } else {
+          expect(runningWith(`${marker}-child`)).toHaveLength(1);
+        }
         expect(
           runningWith(marker).filter((pid) => !runningWith(`${marker}-child`).includes(pid)),
         ).toEqual([]);

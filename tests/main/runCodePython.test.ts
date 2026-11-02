@@ -36,7 +36,9 @@ const INTERPRETER = interpreterExiting(0);
  * `stallAfter` sends that many bytes and then nothing more until `resume`; `dropped` counts the
  * downloads the app gave up before the end.
  */
-async function release(options: { interpreter?: string; stallAfter?: number } = {}) {
+async function release(
+  options: { interpreter?: string; stallAfter?: number; extra?: TarEntry[] } = {},
+) {
   const root = await createTempDataFolder();
   const interpreter = options.interpreter ?? INTERPRETER;
   const entries: TarEntry[] = [
@@ -56,6 +58,7 @@ async function release(options: { interpreter?: string; stallAfter?: number } = 
       target: "python3.14",
     },
     { kind: "file", path: "LICENSES/cpython.txt", mode: 0o644, mtime: 1_700_000_000, size: 3 },
+    ...(options.extra ?? []),
   ];
   const archive = join(root, "python-runtime-test.tar.zst");
   await writeTarZst(
@@ -182,6 +185,33 @@ describe.skipIf(process.platform === "win32")("run_code's own Python", () => {
     expect(await readdir(join(folder, "download")).catch(() => [])).toEqual([]);
     const right = await runtimeFor(manifest);
     expect((await right.make().ensure(new AbortController().signal)).ok).toBe(true);
+  });
+
+  test("an archive with a link out of its folder fails as one that can't be kept, and nothing of it is", async () => {
+    const { manifest } = await release({
+      extra: [
+        {
+          kind: "symlink",
+          path: "python/lib",
+          mode: 0o777,
+          mtime: 1_700_000_000,
+          target: "../../..",
+        },
+      ],
+    });
+    const { dataDir, statuses, make } = await runtimeFor(manifest);
+    const done = await make().ensure(new AbortController().signal);
+    expect(done).toMatchObject({
+      ok: false,
+      error: {
+        kind: "storage",
+        message:
+          "Couldn't unpack Python: The archive has a link that points outside it: python/lib → ../../..",
+      },
+    });
+    expect(statuses.at(-1)).toMatchObject({ state: "failed" });
+    const folder = pythonRuntimeFolder(dataDir, manifest.sha256);
+    expect((await readdir(folder)).filter((name) => name !== "download")).toEqual([]);
   });
 
   test("shows how far the download came when the release stalls after a burst", async () => {

@@ -213,7 +213,9 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
       await unpackTarZst(join(download, manifest.file), partial, UNPACK_LIMITS);
       await rename(partial, files);
     } catch (error) {
-      await rm(partial, { recursive: true, force: true }).catch(() => undefined);
+      await rm(partial, { recursive: true, force: true }).catch((cleanup: unknown) =>
+        options.log?.warn("pythonRuntime.cleanupFailed", { reason: messageOf(cleanup) }),
+      );
       // The archive matched its SHA-256, so a failure here is the disk's, or an archive the build got wrong.
       throw new ModelDownloadError("storage", `Couldn't unpack Python: ${messageOf(error)}`);
     }
