@@ -641,18 +641,21 @@ print(json.dumps(seen))
       expect(analyses[0]?.output.printed.startsWith("xxxx")).toBe(true);
       await call(
         "python",
-        // Random bytes: macOS compresses a run of one byte to almost nothing, which isn't memory
-        // used. Held until stopped: the limit is measured every 250 ms, not at each allocation.
-        "import time\nheld = []\nfor n in range(60):\n    held.append(np.random.default_rng(n).bytes(50_000_000))\ntime.sleep(60)",
-      );
-      expect(analyses[1]?.end).toEqual({ kind: "out-of-memory" });
-      await call(
-        "python",
         "import time\nfor n in range(30):\n    open(f'fill{n}.bin', 'wb').write(b'x' * 10_000_000)\n    time.sleep(0.05)",
       );
-      expect(analyses[2]?.end.kind === "error" && analyses[2].end.message).toContain("200 MB");
+      expect(analyses[1]?.end.kind === "error" && analyses[1].end.message).toContain("200 MB");
       await call("python", "while True: pass");
-      expect(analyses[3]?.end).toEqual({ kind: "timed-out", limitMs: 15_000 });
-    }, 120_000);
+      expect(analyses[2]?.end).toEqual({ kind: "timed-out", limitMs: 15_000 });
+      // Memory has its own run, with the full 120 s: a loaded computer allocates 3 GB slowly,
+      // and the run must end at its memory limit, never at its time.
+      const roomy = tool({});
+      await roomy.call(
+        "python",
+        // Random bytes: macOS compresses a run of one byte to almost nothing, which isn't memory
+        // used. Held until stopped: the limit is measured every 250 ms, not at each allocation.
+        "import time\nheld = []\nfor n in range(60):\n    held.append(np.random.default_rng(n).bytes(50_000_000))\ntime.sleep(300)",
+      );
+      expect(roomy.analyses[0]?.end).toEqual({ kind: "out-of-memory" });
+    }, 240_000);
   },
 );

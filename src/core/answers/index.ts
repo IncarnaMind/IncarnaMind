@@ -632,7 +632,11 @@ export interface AnswersOptions {
    * Runs code in the OS sandbox on copies of Documents (ADR-0025), with where a Document's file
    * is; absent, or at a level below "os": no Answer is offered `run_code`.
    */
-  code?: { runner: CodeRunner; file(documentId: string): Promise<string> };
+  code?: {
+    runner: CodeRunner;
+    /** Its file, and whether the User had its hidden sheets read: then read_table gives them too. */
+    file(documentId: string): Promise<{ path: string; readHiddenSheets: boolean }>;
+  };
   /** What an Answer is written in when its Question has no language of its own. */
   interfaceLanguage(): Language;
   /** The ids of the live Documents a Search scope covers; null with no Search scope (every Document). */
@@ -2929,8 +2933,14 @@ export function createAnswers(options: AnswersOptions) {
                 document: async (id) => {
                   const shown = shownPassage(id);
                   if (!shown) return null;
-                  const path = await code.file(shown.source.documentId).catch(() => null);
-                  return path === null ? null : { source: shown.source, path };
+                  const file = await code.file(shown.source.documentId).catch(() => null);
+                  return file === null
+                    ? null
+                    : {
+                        source: shown.source,
+                        path: file.path,
+                        readHiddenSheets: file.readHiddenSheets,
+                      };
                 },
                 recorder,
                 language: answerLanguage(context.question),

@@ -9224,7 +9224,10 @@ export type EffectScope =
   | { kind: "service"; serviceId: string; name: string } // an external service, as consent names it
   | { kind: "host"; host: string } // a web host
   | { kind: "mind"; mindId: string } // one of the User's Minds
-  | { kind: "sandbox" } // the analysis sandbox, with no files and no network (ADR-0023)
+  // Code in a sandbox, with no network: an Analysis in the app's (inputs only, ADR-0023) or run_code
+  // in the OS's (copies of the Documents given and the system's own files, writing only its own
+  // folder, ADR-0025).
+  | { kind: "sandbox" }
   | { kind: "library" } // the Library: its Documents' names, Folders and Tags, Recently deleted
   | { kind: "output" } // the Output location, the folder the User chose for new files
   | { kind: "anywhere" };

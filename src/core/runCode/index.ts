@@ -22,6 +22,8 @@ export interface CodeDocument {
   source: CitationSource;
   /** Its file, absolute. */
   path: string;
+  /** The User had the Library read its hidden sheets: read_table gives them as well. */
+  readHiddenSheets?: boolean;
 }
 
 export interface CodeRequest {
@@ -29,8 +31,6 @@ export interface CodeRequest {
   code: string;
   documents: readonly CodeDocument[];
   signal: AbortSignal;
-  /** Sheets the model may read that the Library keeps hidden, as `read_hidden_sheets` gave them. */
-  hiddenSheets?: boolean;
 }
 
 /** A Document as the run copied it: the name the code reads it by in ../inputs. */

@@ -175,10 +175,11 @@ function safeName(name: string, taken: Set<string>): string {
 }
 
 /** The sheets read_table gives of a copied Document: none for a kind with no rows. */
-async function readTables(
+export async function readTables(
   file: string,
   name: string,
   source: CitationSource,
+  readHiddenSheets: boolean,
 ): Promise<CodeTable[]> {
   const kind = source.documentKind;
   if (kind !== "csv" && kind !== "xlsx") return [];
@@ -187,7 +188,7 @@ async function readTables(
   const units: UnitText[] =
     kind === "csv"
       ? extractCsv(bytes, TABLE_LIMITS).units
-      : (await extractXlsx(bytes, false, TABLE_LIMITS)).units;
+      : (await extractXlsx(bytes, readHiddenSheets, TABLE_LIMITS)).units;
   const tables: CodeTable[] = [];
   for (const sheet of sheetsOf(units)) {
     const read = readRange(sheetRows(units, sheet), WHOLE, TABLE_LIMITS);
@@ -291,7 +292,9 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
         contentHash: source.contentHash,
         bytes: size,
       });
-      if (request.language === "python") tables.push(...(await readTables(copy, name, source)));
+      if (request.language === "python") {
+        tables.push(...(await readTables(copy, name, source, document.readHiddenSheets === true)));
+      }
     }
     await chmod(inputs, 0o555);
     return { files, tables };

@@ -1881,7 +1881,13 @@ export function createCore(adapters: CoreAdapters): Core {
     engine: answerEngine,
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
     ...(codeRunner && {
-      code: { runner: codeRunner, file: (documentId: string) => documents.filePath(documentId) },
+      code: {
+        runner: codeRunner,
+        file: async (documentId: string) => ({
+          path: await documents.filePath(documentId),
+          readHiddenSheets: documents.get(documentId).readHiddenSheets,
+        }),
+      },
     }),
     requireMind: (mindId) => writableMind(mindId).id,
     mindExists,

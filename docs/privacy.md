@@ -105,6 +105,8 @@ For a reviewer: each file in `src/core` and `src/main` that can send to the netw
 | `src/core/providers/embeddings.ts`, `src/core/embedding/download.ts`, `src/core/embedding/model.ts`, `src/core/embedding/modelSources.ts` | A cloud embedding provider; the built-in models' downloads from each source, and the request to huggingface.co and hf-mirror.com (www.modelscope.cn once IncarnaMind's copy there exists) that picks between them | Document search; model downloads |
 | `src/core/providers/rerank.ts`, `src/core/reranking/model.ts` | Cohere or Voyage AI; the built-in reranking model's download | Reranking; model downloads |
 | `src/core/documents/scan/model.ts`, `src/core/transcription/model.ts`, `src/core/transcription/speakerModel.ts` | The text recognition, speech and speaker models' downloads | Model downloads |
+| `src/core/runCode/index.ts` | The contract that hands the code runner the downloader its Python comes with (no request of its own) | Model downloads |
+| `src/main/runCode/host.ts` | Starts the code runner and its Python with that downloader (no request of its own) | Model downloads |
 | `src/main/runCode/python.ts` | The download of IncarnaMind's own Python for analyses of whole files, from the release of the version you run | Model downloads |
 | `src/core/transcription/cloud/` | Soniox, OpenAI realtime or Qwen realtime on Alibaba Cloud Model Studio | Meeting transcription |
 | `src/core/connectors/` | Remote Connectors, their sign-in and the MCP Registry | Connectors, Connector search, Remote Connectors |

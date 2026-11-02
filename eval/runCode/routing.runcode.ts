@@ -32,7 +32,7 @@ import { commitOf } from "../lib/commit";
 import { chatProviderOf, readConfig } from "../lib/config";
 import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
-import { ROUTING_CASES, type Route, type RoutingCase } from "./cases";
+import { FRESH_CASES, ROUTING_CASES, type Route, type RoutingCase } from "./cases";
 import { writeRoutingDocuments } from "./documents";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -64,6 +64,11 @@ interface Observed {
   reached: boolean;
   /** What each `run_code` call that ran nothing was told, in short. */
   refused: string[];
+  /**
+   * Numbers the reply typed itself, outside its markers and Citations: a figure that reaches the
+   * User unchecked. Dates, years, ordinals and list numbers count too; the report lists them.
+   */
+  typedNumbers: string[];
   codeCalls: number;
   /** `run_code` calls that didn't end done. */
   failedCalls: number;
@@ -111,7 +116,8 @@ test("run_code routing", async () => {
   }
   const provider = chatProviderOf(config.chat);
   const ids = process.env.INCARNAMIND_EVAL_RUNCODE_CASES?.split(",").map((id) => id.trim());
-  const cases = ids ? ROUTING_CASES.filter((each) => ids.includes(each.id)) : ROUTING_CASES;
+  const set = process.env.INCARNAMIND_EVAL_RUNCODE_SET === "fresh" ? FRESH_CASES : ROUTING_CASES;
+  const cases = ids ? set.filter((each) => ids.includes(each.id)) : set;
   const sandbox = await loadOsSandbox();
   const sources = await mkdtemp(join(tmpdir(), "incarnamind-eval-run-code-sources-"));
   const runtime = await pythonRuntime(process.env.INCARNAMIND_TEST_PYTHON_RUNTIME);
@@ -203,6 +209,10 @@ test("run_code routing", async () => {
   );
 });
 
+/** The numbers a reply's text gives, with its markers ([=1], [=table 1]) and Citations ([1]) left out. */
+const typedNumbersIn = (text: string): string[] =>
+  text.replace(/\[[^\]]*\]/g, " ").match(/\d[\d,.]*/g) ?? [];
+
 const isAnalysis = (call: AnswerToolCall) =>
   call.tool === "run_code" || call.tool === "run_analysis";
 
@@ -263,6 +273,7 @@ async function ask(core: Core, dataDir: string, each: RoutingCase, log: (line: s
     expected: each.route,
     routed: first,
     reached: calls.some((call) => call.tool === "run_code"),
+    typedNumbers: typedNumbersIn(answer?.kind === "answer" ? answer.text : ""),
     refused,
     codeCalls: code.length,
     failedCalls: code.filter((analysis) => analysis.end.kind !== "done").length,
@@ -281,7 +292,7 @@ async function ask(core: Core, dataDir: string, each: RoutingCase, log: (line: s
     ...(error && { error }),
   };
   log(
-    `${each.id}: expected ${each.route}, routed ${first}${observed.routed !== "run_code" && observed.reached ? ", then run_code" : ""}${refused.length ? `, ${refused.length} refused` : ""}${observed.codeCalls ? `, ${observed.codeCalls} run_code call(s), ${observed.failedCalls} failed, ${observed.recalculated} recalculated` : ""} (${observed.seconds} s, $${observed.spent.toFixed(4)})`,
+    `${each.id}: expected ${each.route}, routed ${first}${observed.routed !== "run_code" && observed.reached ? ", then run_code" : ""}${refused.length ? `, ${refused.length} refused` : ""}${observed.codeCalls ? `, ${observed.codeCalls} run_code call(s), ${observed.failedCalls} failed, ${observed.recalculated} recalculated, ${observed.unchecked} unchecked` : ""}${observed.typedNumbers.length ? `, typed ${observed.typedNumbers.join(" ")}` : ""} (${observed.seconds} s, $${observed.spent.toFixed(4)})`,
   );
   return observed;
 }
