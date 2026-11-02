@@ -12,6 +12,9 @@
 //   5. macOS is Apple silicon only (#2199): no app that runs on Intel Macs (lipo reads each one's
 //      architectures on macOS), no Intel or universal installer, and latest-mac.yml, which the
 //      auto-updater reads, offers arm64 files and nothing else.
+//   6. Each macOS and Linux x64 app has python-native/runtime.json beside app.asar, with the size
+//      and SHA-256 of the Python run_code downloads on first use (ADR-0025), for its own platform;
+//      and no app holds that archive, which is never shipped (npm run python:native).
 // Usage: node scripts/check-package.mjs [dist-folder]   (default: dist)
 // Exit code 1 when a check fails.
 import { spawnSync } from "node:child_process";
@@ -156,6 +159,37 @@ for (const asar of asars) {
 	}
 	const notice = readFileSync(join(dirname(asar), "notices", "python.txt"), "utf8");
 	for (const problem of noticeProblems(notice, packages, fonts)) failures.push(`${asar}: ${problem}`);
+}
+
+/** The platform of the Python run_code downloads for the app of `asar`; null where there is none. */
+function nativePythonPlatform(asar) {
+	if (asar.includes(`${sep}mac-arm64${sep}`)) return "darwin-arm64";
+	if (asar.includes(`${sep}linux-unpacked${sep}`)) return "linux-x64";
+	return null;
+}
+
+for (const asar of asars) {
+	const app = join(distDir, relative(distDir, asar).split(sep)[0] ?? "");
+	for (const archive of files.filter((file) => file.startsWith(`${app}${sep}`))) {
+		if (/^python-runtime-.*\.tar\.zst$/.test(basename(archive))) {
+			failures.push(`${archive} is run_code's Python, which the app downloads and never ships`);
+		}
+	}
+	const platform = nativePythonPlatform(asar);
+	if (!platform) continue;
+	let runtime;
+	try {
+		runtime = JSON.parse(readFileSync(join(dirname(asar), "python-native", "runtime.json"), "utf8"));
+	} catch {
+		failures.push(`${asar} has no python-native/runtime.json beside it (npm run python:native)`);
+		continue;
+	}
+	if (!/^[0-9a-f]{64}$/.test(runtime?.sha256) || !Number.isSafeInteger(runtime?.size) || runtime.size <= 0) {
+		failures.push(`${asar}: python-native/runtime.json gives no SHA-256 and size for run_code's Python`);
+	}
+	if (runtime?.platform !== platform) {
+		failures.push(`${asar}: python-native/runtime.json is for ${runtime?.platform}, not ${platform}`);
+	}
 }
 
 for (const file of files.filter(isInstaller)) {
