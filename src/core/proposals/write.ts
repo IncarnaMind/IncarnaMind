@@ -83,13 +83,14 @@ import {
 } from "../edits/prompt";
 import { diffSteps, hunksOf, type Step, splitWords } from "./diff";
 import {
-  addsOnlyPlaced,
   CITING,
   type CitingNodes,
   citingKey,
   nodeKey,
   splitCiting,
   tally,
+  type Unplaced,
+  unplacedSince,
 } from "./placed";
 
 /** The Blocks whose text can be edited: Notes' and Answers' paragraphs and headings. */
@@ -2208,7 +2209,7 @@ export function proposeRewrite(
   rewrite.write(text, true);
   rewrite.finish();
   const written = rewrite.written();
-  return rewrite.placedOnly() ? written : { ...written, notPlaced: true };
+  return rewrite.unplaced() === null ? written : { ...written, notPlaced: true };
 }
 
 /** A <removed> tag as the User may type it, in any of the shapes a model writes the mark. */
@@ -2945,13 +2946,13 @@ export function createRewriteStream(
 
   return {
     /**
-     * Whether what it wrote leaves every Citation, footnote and figure that was there as it was,
-     * and adds none but those the text placed as it was read, nor more often (#2424).
+     * What it wrote that changes a Citation, footnote or figure that was there, or adds one the
+     * text didn't place as it was read, or more often (#2424); null when it wrote neither.
      */
-    placedOnly: (): boolean =>
-      blocks !== undefined &&
-      citingBefore !== undefined &&
-      addsOnlyPlaced(citingBefore, blocks, request, placedBy(seen)),
+    unplaced: (): Unplaced | null =>
+      blocks === undefined || citingBefore === undefined
+        ? { changed: {}, added: { unread: 1 } }
+        : unplacedSince(citingBefore, blocks, request, placedBy(seen)),
 
     /**
      * The model's text so far: the paragraphs it has finished (all but the

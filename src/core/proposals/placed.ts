@@ -3,7 +3,7 @@
  * and figures it holds afterwards are the ones what wrote it placed, each told apart by all it
  * holds. An outside agent's change must leave exactly the nodes IncarnaMind placed for it
  * (`holdsOnlyPlaced`); Edit with AI's must leave every node that was there as it was, and add
- * none its reply didn't place (`addsOnlyPlaced`).
+ * none its reply didn't place (`unplacedSince`).
  */
 import * as Y from "yjs";
 import { readProposalAttribute } from "../../shared/proposals";
@@ -126,20 +126,46 @@ export function splitCiting(root: Y.XmlFragment | Y.XmlElement, request: string)
   return split;
 }
 
+/** What a change wrote that it may not have, by node name and count: never any text. */
+export interface Unplaced {
+  /** Nodes that were there and are no longer as they were. */
+  changed: Record<string, number>;
+  /** Nodes it added beyond what was placed, outside a Proposal or as a node changed in place. */
+  added: Record<string, number>;
+}
+
+const nameOf = (key: string): string => {
+  const parsed: unknown = JSON.parse(key);
+  return Array.isArray(parsed) && typeof parsed[0] === "string" ? parsed[0] : "node";
+};
+
+const count = (into: Record<string, number>, key: string, by: number) => {
+  if (by > 0) into[nameOf(key)] = (into[nameOf(key)] ?? 0) + by;
+};
+
 /**
- * Whether what `request` wrote since `before` leaves every citing node that was there as it
- * was, a change taking it out or not, and adds none `placed` doesn't hold, nor more often (#2424):
- * Edit with AI's change, whose reply may cite again what the passage cites.
+ * What `request` wrote since `before` that it may not have, or null when it left every citing
+ * node that was there as it was, a change taking it out or not, and added none `placed` doesn't
+ * hold, nor more often (#2424): Edit with AI's change, whose reply may cite again what the
+ * passage cites.
  */
-export function addsOnlyPlaced(
+export function unplacedSince(
   before: CitingSplit,
   root: Y.XmlFragment | Y.XmlElement,
   request: string,
   placed: ReadonlyMap<string, number>,
-): boolean {
+): Unplaced | null {
   const now = splitCiting(root, request);
-  if (!same(now.others, before.others)) return false;
-  return [...now.added].every(
-    ([key, n]) => n - (before.added.get(key) ?? 0) <= (placed.get(key) ?? 0),
-  );
+  const found: Unplaced = { changed: {}, added: {} };
+  for (const key of new Set([...now.others.keys(), ...before.others.keys()])) {
+    const was = before.others.get(key) ?? 0;
+    const is = now.others.get(key) ?? 0;
+    count(found.changed, key, was - is);
+    count(found.added, key, is - was);
+  }
+  for (const [key, n] of now.added) {
+    count(found.added, key, n - (before.added.get(key) ?? 0) - (placed.get(key) ?? 0));
+  }
+  const none = Object.keys(found.changed).length === 0 && Object.keys(found.added).length === 0;
+  return none ? null : found;
 }

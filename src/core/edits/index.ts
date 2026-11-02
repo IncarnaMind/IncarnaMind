@@ -77,7 +77,7 @@ import {
   replaceOwn,
   waitingIn,
 } from "../proposals/ownWaiting";
-import { addsOnlyPlaced, splitCiting } from "../proposals/placed";
+import { splitCiting, unplacedSince } from "../proposals/placed";
 import {
   acceptedText,
   addNotes,
@@ -901,10 +901,17 @@ export function createEdits(options: EditsOptions) {
       });
       if (!changed) return;
       // Checked in the copy before it reaches the Mind (#2424).
-      notPlaced = stream
-        ? !stream.placedOnly()
-        : asItWas !== null && !addsOnlyPlaced(asItWas, blocks, request, new Map());
-      if (notPlaced) return;
+      const unplaced = stream
+        ? stream.unplaced()
+        : asItWas && unplacedSince(asItWas, blocks, request, new Map());
+      if (unplaced) {
+        notPlaced = true;
+        console.error(
+          `Edit with AI: request ${request} (${ask.action}) wrote what its reply didn't place; refused`,
+          unplaced,
+        );
+        return;
+      }
       if (!wrote) hooks.beforeWriting?.();
       wrote = true;
       const update = forkChanges(draft.base, fork, content.state(mindId));

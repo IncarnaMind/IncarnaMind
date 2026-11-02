@@ -16,7 +16,7 @@ import {
   MIND_CONTENT_FIELD,
 } from "../../src/core";
 import { createElement } from "../../src/core/answers/blocks";
-import { addsOnlyPlaced, citingKey, splitCiting } from "../../src/core/proposals/placed";
+import { citingKey, splitCiting, unplacedSince } from "../../src/core/proposals/placed";
 import { layout, proposeRewrite, readSelection, setProposal } from "../../src/core/proposals/write";
 import { translate } from "../../src/shared/i18n";
 import {
@@ -27,17 +27,18 @@ import {
 } from "../../src/shared/proposals";
 import { propose, userNote } from "../helpers/agentChanges";
 import { setUpWithDocuments } from "../helpers/citations";
-import { editingModel, wholeParagraph } from "../helpers/editing";
+import { editingModel, plainOf, wholeParagraph } from "../helpers/editing";
 import { readMind, writeMind } from "../helpers/minds";
 import { random } from "../helpers/random";
 
 type Drift = "add" | "alter" | "footnote";
 
 /**
- * What the writing below the check does of its own, as a writer that drifted would: after a
- * paragraph is written (`mode`), or in each Citation it makes from a marker (`forge`).
+ * What the writing below the check does of its own, as a writer that drifted would: after the
+ * `at`-th write that writes anything (`mode`), or in each Citation it makes from a marker
+ * (`forge`).
  */
-const drift = vi.hoisted(() => ({ mode: null as Drift | null, forge: false }));
+const drift = vi.hoisted(() => ({ mode: null as Drift | null, at: 1, forge: false }));
 
 vi.mock("../../src/core/answers/blocks", async (importOriginal) => {
   const real = await importOriginal<typeof import("../../src/core/answers/blocks")>();
@@ -61,11 +62,11 @@ vi.mock("../../src/core/proposals/write", async (importOriginal) => {
     createRewriteStream: (...args: Parameters<typeof real.createRewriteStream>) => {
       const stream = real.createRewriteStream(...args);
       const [selection, request] = args;
-      let drifted = false;
+      let writes = 0;
       const after = (wrote: boolean) => {
         const element = selection.segments[0]?.element;
-        if (wrote && !drifted && drift.mode && element) {
-          drifted = true;
+        if (wrote) writes += 1;
+        if (wrote && writes === drift.at && drift.mode && element) {
           driftIn(element, request, drift.mode);
         }
         return wrote;
@@ -75,6 +76,13 @@ vi.mock("../../src/core/proposals/write", async (importOriginal) => {
         write: (text: string, done?: boolean) => after(stream.write(text, done)),
         finish: () => after(stream.finish()),
       };
+    },
+    proposeAfter: (...args: Parameters<typeof real.proposeAfter>) => {
+      const written = real.proposeAfter(...args);
+      const [, selection, , request] = args;
+      const element = selection.segments[0]?.element;
+      if (drift.mode && element) driftIn(element, request, drift.mode);
+      return written;
     },
   };
 });
@@ -267,6 +275,72 @@ describe("Edit with AI's last check on what it writes (#2424)", () => {
     },
   );
 
+  test("takes back what earlier paragraphs merged when a later one adds a Citation its reply didn't place", async () => {
+    const reply = [
+      "Spring tides come at new moon and at full moon [1]. Harbours publish the times.",
+      "Neap tides are much weaker [2] [^1].",
+      "Both follow the Moon.",
+    ].join("\n\n");
+    const whole = async () => {
+      const { core, client, mind, input } = await editing("en", "improve", reply);
+      const second = plainOf(client, "second");
+      return {
+        core,
+        client,
+        input: {
+          ...input,
+          to: { blockId: "second", offset: second.length },
+          text: `${input.text}\n${second}`,
+        },
+        mind,
+      };
+    };
+    const honest = await whole();
+    expect((await honest.core.editWithAi(honest.input)).kind).toBe("proposed");
+
+    // The first paragraph is in the Note when the second is written, with its forged Citation.
+    const { core, client, input } = await whole();
+    const before = readMind(client).toJSON();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    drift.mode = "add";
+    drift.at = 2;
+    try {
+      expect(await core.editWithAi(input)).toEqual({ kind: "not-placed" });
+      // Said with the request and the action, by kind and count, and none of the words.
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("(improve)"), {
+        changed: {},
+        added: { citation: 1 },
+      });
+    } finally {
+      drift.mode = null;
+      drift.at = 1;
+      logged.mockRestore();
+    }
+    await client.settled();
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    expect(readMind(client).toJSON()).toEqual(before);
+  });
+
+  test("refuses Explain's words when the writing adds a Citation to them", async () => {
+    const explaining = async () => {
+      const set = await editing("en", "improve", "It says when spring tides come.");
+      return { ...set, input: wholeParagraph(set.client, set.mind.id, "first", "explain") };
+    };
+    const honest = await explaining();
+    expect((await honest.core.editWithAi(honest.input)).kind).toBe("proposed");
+
+    const { core, client, input } = await explaining();
+    const before = readMind(client).toJSON();
+    drift.mode = "add";
+    try {
+      expect(await core.editWithAi(input)).toEqual({ kind: "not-placed" });
+    } finally {
+      drift.mode = null;
+    }
+    await client.settled();
+    expect(readMind(client).toJSON()).toEqual(before);
+  });
+
   test("refuses Regenerate's change when the writing adds a Citation its reply didn't place", async () => {
     const { core, client, mind, input } = await editing("en", "improve");
     const made = await core.editWithAi(input);
@@ -341,7 +415,7 @@ describe("Edit with AI's last check on what it writes (#2424)", () => {
   test("finds a figure changed in place, and holds one left as it was", () => {
     const { blocks } = userNote();
     const before = splitCiting(blocks, "edit-request");
-    expect(addsOnlyPlaced(before, blocks, "edit-request", new Map())).toBe(true);
+    expect(unplacedSince(before, blocks, "edit-request", new Map())).toBeNull();
     const figures: Y.XmlElement[] = [];
     const visit = (node: Y.XmlFragment | Y.XmlElement) => {
       for (const child of node.toArray()) {
@@ -353,15 +427,19 @@ describe("Edit with AI's last check on what it writes (#2424)", () => {
     visit(blocks);
     figures[0]?.setAttribute("claimCheck", "checked");
     expect(figures).not.toHaveLength(0);
-    expect(addsOnlyPlaced(before, blocks, "edit-request", new Map())).toBe(false);
+    // Reported by kind and count, with none of its words.
+    expect(unplacedSince(before, blocks, "edit-request", new Map())).toEqual({
+      changed: { calculatedFigure: 1 },
+      added: { calculatedFigure: 1 },
+    });
   });
 
   test("says why in the User's language", () => {
     expect(translate("en", "edit.problem.not-placed")).toBe(
-      "The AI’s rewrite would add or change a Citation, footnote or figure that its text doesn’t cite, so nothing changed. Try again.",
+      "The AI’s rewrite would add a Citation, footnote or figure it didn’t write, or change one already there, so nothing changed. Try again.",
     );
     expect(translate("zh-CN", "edit.problem.not-placed")).toBe(
-      "AI 的改写会加入或改动文字里没有的引用、脚注或计算结果，因此没有改动。可以再试一次。",
+      "AI 的改写会加入它没写的引用、脚注或计算结果，或改动已有的，所以没有改动。请重试。",
     );
   });
 });

@@ -1398,7 +1398,7 @@ export const zhCN = {
   "edit.problem.unchanged.said": "没有改动。AI 说：“{said}”",
   "edit.problem.typed-tag": "AI 改写时漏掉了你输入的 <removed> 标记，没有改动。请重试。",
   "edit.problem.not-placed":
-    "AI 的改写会加入或改动文字里没有的引用、脚注或计算结果，因此没有改动。可以再试一次。",
+    "AI 的改写会加入它没写的引用、脚注或计算结果，或改动已有的，所以没有改动。请重试。",
   "edit.problem.misnamed": "AI 没有说清每处修改替换哪一段，没有改动。请重试。",
   "edit.problem.late": "这次修改送达太慢，没有直接应用。请接受或拒绝这些修订。",
   "edit.problem.busy": "上一次修改还在进行。等它完成，或先停止。",
@@ -6281,7 +6281,7 @@ export const zhCN = {
   "mindCall.failed.unplaced": "标出要删除的文字在“{mind}”里找不到唯一一处原文，因此没有改动",
   "mindCall.failed.typedTag": "改写漏掉了你在“{mind}”里输入的 <removed> 标记，因此没有改动",
   "mindCall.failed.notPlaced":
-    "改写会在“{mind}”里加入或改动文字里没有的引用、脚注或计算结果，因此没有改动",
+    "改写会在“{mind}”里加入它没写的引用、脚注或计算结果，或改动已有的，所以没有改动",
   "mindCall.failed.misnamed": "改写没有说清每处修改替换“{mind}”里的哪一段，因此没有改动",
   "mindCall.failed.uncited": "未添加到“{mind}”：出处没有引用",
   "mindCall.failed.noChart.noTable": "没有生成图表：“{mind}”里没有表格",
