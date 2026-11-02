@@ -289,6 +289,20 @@ async function importWord(library: Library, word: NonNullable<EverydayCase["word
   );
 }
 
+/** The top-level Blocks that are headings: they name the text, which is what a follow-up changes. */
+function headingIdsOf(doc: Y.Doc): Set<string> {
+  return new Set(
+    doc
+      .getXmlFragment(MIND_CONTENT_FIELD)
+      .toArray()
+      .flatMap((block) =>
+        block instanceof Y.XmlElement && block.nodeName === "heading"
+          ? [String(block.getAttribute(BLOCK_ID_ATTRIBUTE))]
+          : [],
+      ),
+  );
+}
+
 /** The top-level Blocks, by id, as they read once these requests' changes are accepted. */
 function acceptedTexts(doc: Y.Doc, requests: ReadonlySet<string>): Map<string, string> {
   const copy = new Y.Doc();
@@ -470,6 +484,21 @@ export async function runCase(
     earlierCalls.push(...answer.toolCalls);
     last = answer;
   }
+  // The window applies an Answer's asked changes at once with Undo; without it a follow-up reads
+  // them waiting. Apply the before step's write first, so the follow-up sees the User's state.
+  if (client && last && each.before?.length && each.expected.inPlace) {
+    const asked = last.toolCalls.flatMap((call) =>
+      call.mindChange ? [{ mindId: call.mindChange.mindId, request: call.mindChange.request }] : [],
+    );
+    const byMind = new Map<string, string[]>();
+    for (const { mindId, request } of asked) {
+      byMind.set(mindId, [...(byMind.get(mindId) ?? []), request]);
+    }
+    for (const [mindId, requests] of byMind) {
+      await core.applyAskedChanges({ answerId: last.id, mindId, requests });
+    }
+    if (byMind.size > 0) await client.settled();
+  }
   let addedBlocks: number[] | undefined;
   if (each.addToNote && last && mind && client) {
     const earlier = new Set(ids);
@@ -484,7 +513,8 @@ export async function runCase(
     });
     await client.settled();
     ids = idsNow();
-    addedBlocks = ids.flatMap((id, block) => (earlier.has(id) ? [] : [block]));
+    const headings = headingIdsOf(client.doc);
+    addedBlocks = ids.flatMap((id, block) => (earlier.has(id) || headings.has(id) ? [] : [block]));
     before = acceptedTexts(client.doc, new Set());
   }
   // An in-place follow-up after the assistant wrote in `before` must change that text: the
@@ -494,8 +524,10 @@ export async function runCase(
     await client.settled();
     ids = idsNow();
     before = acceptedTexts(client.doc, new Set());
-    addedBlocks = [...before.values()].some((text) => text.trim() !== "")
-      ? ids.map((_, block) => block)
+    const headings = headingIdsOf(client.doc);
+    const body = ids.flatMap((id, block) => (headings.has(id) ? [] : [block]));
+    addedBlocks = body.some((block) => (before.get(ids[block] ?? "") ?? "").trim() !== "")
+      ? body
       : [];
   }
   const quoted = each.quote ? await quoteOf(core, scoped, each.quote) : null;
@@ -576,8 +608,12 @@ export async function runCase(
         ? []
         : [{ block, before: before.get(id) ?? "", after: after.get(id) ?? "(removed)" }],
     );
+    const headings = headingIdsOf(client.doc);
     const length = (texts: Map<string, string>) =>
-      [...texts.values()].reduce((total, text) => total + text.trim().length, 0);
+      [...texts.entries()].reduce(
+        (total, [id, text]) => total + (headings.has(id) ? 0 : text.trim().length),
+        0,
+      );
     longer = length(after) > length(before);
   }
   const changedBlocks = changes.map((change) => change.block);

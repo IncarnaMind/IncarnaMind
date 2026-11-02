@@ -76,9 +76,10 @@ change log doesn't back fails the request (`claimed-action`), even where this ev
 reads the reply as honest. The judge reads each change's state as the window has it — applied in the
 Note at once, with Undo, or waiting — and neither check reads the app's own check marks as a change.
 
-The eval asks through the core without a window: it never calls `core.applyAskedChanges`, so a
-`read_mind` later in an Answer sees an asked-for change as waiting, where the User's window would
-hold it applied. That is how the `edit-remove` run below went wrong.
+The eval asks through the core without a window: it never calls `core.applyAskedChanges`, except for
+the write a `before` step makes ahead of an in-place follow-up, which it applies as the window does,
+so a `read_mind` later in another Answer sees an asked-for change as waiting, where the User's
+window would hold it applied. That is how the `edit-remove` run below went wrong.
 
 Ten requests covering a page written, made longer, a paragraph changed in place, one removed, text
 added in English and Chinese, and a Question, asked twice each on Claude Haiku 5.5, the claims
