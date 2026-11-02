@@ -9,6 +9,10 @@
  *   names every input that changed; equal totals and line totals in both versions are the decoys.
  * - Nothing in the file says which row is current (a budget; an allowance, in Chinese): the
  *   Answer says so and gives both, never one of them or their sum as the current figure.
+ * - The set-aside rows come after the current ones (insurance, struck through; a supplier's
+ *   prices, hidden, in Chinese), so the order of the rows doesn't give the current ones away. These
+ *   two were added after the first run of main, before any run of the change: main had read the
+ *   later rows as current in every case above, and was right only because they came last.
  * - Decoys: an expense log whose repeated items are separate entries to add up; a rate card whose
  *   dates say which rate is current; a budget whose status column says which version is.
  */
@@ -83,6 +87,43 @@ export const SUPERSEDED_HELD_OUT: readonly HeldOutCase[] = [
     ],
     never: [],
     read: "The current figures are cited to rows 5–7, never to hidden rows 2–4; the audit fee's unit price (18,000 to 21,000) and the tax advice quantity (6 to 8) are both named as changed.",
+  },
+  {
+    name: "insurance, older rows struck through below the current ones",
+    language: "en",
+    file: "Insurance schedule.xlsx",
+    workbook: () =>
+      sheetWithRows("Policies", [
+        { cells: ["Policy", "Annual premium", "Excess"] },
+        { cells: ["Buildings", whole(2450), whole(500)] },
+        { cells: ["Contents", whole(610), whole(100)] },
+        { cells: ["Buildings", whole(2180), whole(250)], struck: true },
+        { cells: ["Contents", whole(610), whole(100)], struck: true },
+      ]),
+    question:
+      "What are the buildings policy's annual premium and excess now, and what changed from before?",
+    cites: [2],
+    gives: [["2,450", "2450"], ["500"]],
+    never: [],
+    read: "The current premium and excess are cited to row 2, never to struck row 4; the premium (2,180 to 2,450) and the excess (250 to 500) are both named as changed.",
+  },
+  {
+    name: "supplier prices, older rows hidden below the current ones",
+    language: "zh-CN",
+    file: "供应商报价.xlsx",
+    workbook: () =>
+      sheetWithRows("报价", [
+        { cells: ["物料", "单价（元）", "起订量"] },
+        { cells: ["铝型材", money(26.8), whole(500)] },
+        { cells: ["紧固件", money(0.35), whole(2000)] },
+        { cells: ["铝型材", money(24.5), whole(300)], hidden: true },
+        { cells: ["紧固件", money(0.35), whole(1000)], hidden: true },
+      ]),
+    question: "铝型材现在的单价和起订量是多少？与之前相比有什么变化？",
+    cites: [2],
+    gives: [["26.80"], ["500"]],
+    never: [],
+    read: "The current price and minimum order are cited to row 2, never to hidden row 4; the price (24.50 to 26.80) and the minimum order (300 to 500) are both named as changed.",
   },
   {
     name: "budget, nothing says which row is current",
