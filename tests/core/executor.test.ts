@@ -16,14 +16,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, onTestFinished, test, vi } from "vitest";
 import type { ExecAllow, ExecRequest, Executor, ProcessLauncher } from "../../src/core";
-import {
-  createLocalExecutor,
-  declaredAccess,
-  footprints,
-  treeMemory,
-  WORKING_FOLDER,
-} from "../../src/core/execution";
+import { createLocalExecutor, declaredAccess, WORKING_FOLDER } from "../../src/core/execution";
 import { createProcessLauncher } from "../../src/main/processes";
+import { footprints, treeMemory } from "../../src/main/programMeter";
 import { loadOsSandbox } from "../../src/main/sandbox";
 import { isRunning } from "../helpers/connectors";
 import { createTempDataFolder } from "../helpers/core";
@@ -550,6 +545,35 @@ describe("Declared access, from the sandbox level", () => {
       expect(declaredAccess(level, allow)).toEqual({ confined: true, ...allow });
     }
   });
+});
+
+test("a program with a memory or folder limit doesn't run where nothing can measure it", async () => {
+  const started: string[] = [];
+  const executor = createLocalExecutor({
+    processes: {
+      spawn: async (command) => {
+        started.push(command);
+        throw new Error("Nothing is to start.");
+      },
+    },
+    tempDir: await createTempDataFolder(),
+    reportError: failOnError,
+  });
+  const run = (limits: ExecRequest["limits"]) =>
+    executor.run({
+      command: "/bin/sleep",
+      args: ["1"],
+      env: {},
+      allow: { read: [], write: [], network: "none" },
+      timeoutMs: 1000,
+      maxOutputBytes: 1024,
+      signal: new AbortController().signal,
+      limits,
+    });
+  const refusal = "This Executor can't measure a program's memory or folder";
+  await expect(run({ memoryBytes: 2_000_000_000 })).rejects.toThrow(refusal);
+  await expect(run({ folderBytes: 200_000_000 })).rejects.toThrow(refusal);
+  expect(started).toEqual([]);
 });
 
 describe("a program's memory, as its limit counts it", () => {

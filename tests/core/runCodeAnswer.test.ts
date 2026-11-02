@@ -11,6 +11,7 @@ import type { Executor } from "../../src/core/adapters";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import { createLocalExecutor } from "../../src/core/execution";
 import { createProcessLauncher } from "../../src/main/processes";
+import { programMeter } from "../../src/main/programMeter";
 import { createCodeHost } from "../../src/main/runCode/host";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -26,6 +27,7 @@ async function executorAt(level: "os" | "none"): Promise<Executor> {
     reportError: (error) => {
       throw error;
     },
+    meter: programMeter,
   });
   return { level, run: (request) => local.run(request) };
 }
