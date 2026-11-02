@@ -28,8 +28,8 @@ import {
 } from "../../src/shared/proposals";
 import { propose, userNote } from "../helpers/agentChanges";
 import { setUpWithDocuments } from "../helpers/citations";
-import { editingModel, plainOf, wholeParagraph } from "../helpers/editing";
-import { readMind, writeMind } from "../helpers/minds";
+import { editingModel, plainOf, wholeMind, wholeParagraph } from "../helpers/editing";
+import { note, readMind, writeMind } from "../helpers/minds";
 import { controlledModel } from "../helpers/models";
 import { random } from "../helpers/random";
 
@@ -450,7 +450,7 @@ describe("Edit with AI's last check on what it writes (#2424)", () => {
     );
   });
 
-  test("takes back what was merged when the write Stop makes adds a Citation its reply didn't place", async () => {
+  test("takes back what was merged when the write made on Stop adds a Citation its reply didn't place", async () => {
     const stopped = async (forged: boolean) => {
       const controlled = controlledModel();
       const { core, client, input } = await editing("en", "improve", "", "first", controlled.model);
@@ -480,12 +480,57 @@ describe("Edit with AI's last check on what it writes (#2424)", () => {
         drift.at = 1;
       }
     };
-    expect((await stopped(false)).done.kind).toBe("proposed");
+    const notRefused = await stopped(false);
+    expect(notRefused.done.kind).toBe("proposed");
+    // Stop without a refusal keeps what is finished.
+    expect(pendingProposals(notRefused.client.blocks).length).toBeGreaterThan(0);
 
     const { done, client, before } = await stopped(true);
     expect(done).toEqual({ kind: "not-placed" });
     expect(pendingProposals(client.blocks)).toEqual([]);
     expect(readMind(client).toJSON()).toEqual(before);
+  });
+
+  test("a part refused on Stop says why, and every part goes, as when a part fails", async () => {
+    // Each paragraph is about 10,800 characters: the two are edited as two parts (#2348).
+    const LINE = "Sailors kept their own tables of the tides and the times of high water. ";
+    const body = (index: number) =>
+      `Tide table ${index}, the water is very high. ${LINE.repeat(150)}`;
+    const controlled = controlledModel();
+    const set = await setUpWithDocuments(controlled.model, [TIDES]);
+    writeMind(set.client, [note(body(0)), note(body(1))]);
+    await set.client.settled();
+    const input = { ...wholeMind(set.client, set.mind.id, ""), action: "shorten" as const };
+    const before = readMind(set.client).toJSON();
+    const parts: number[] = [];
+    set.core.on("mind.writing", ({ part }) => {
+      if (part) parts.push(part.at);
+    });
+
+    const editing = set.core.editWithAi(input);
+    await controlled.requested(1);
+    // The first part merges its paragraph; the change is in the Note when the next part starts.
+    controlled.push(body(0).replaceAll(" very", ""));
+    controlled.finish();
+    await vi.waitFor(() => expect(pendingProposals(set.client.blocks).length).toBeGreaterThan(0));
+    await controlled.requested(2);
+    // The User presses Stop with nothing of the second part placed; what Stop writes adds a
+    // Citation its reply didn't place.
+    controlled.push("Neap tides are weaker.\n\nNeap");
+    await vi.waitFor(() => expect(parts.at(-1)).toBe(2));
+    drift.mode = "add";
+    drift.at = 1;
+    try {
+      await set.core.cancelEdit(input.requestId);
+      expect(await editing).toEqual({ kind: "not-placed" });
+    } finally {
+      drift.mode = null;
+      drift.at = 1;
+    }
+    await set.client.settled();
+    // The refusal is the edit's answer, not a Stop: every part is taken back, and the Note is as it was.
+    expect(pendingProposals(set.client.blocks)).toEqual([]);
+    expect(readMind(set.client).toJSON()).toEqual(before);
   });
 });
 
