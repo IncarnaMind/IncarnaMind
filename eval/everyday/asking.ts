@@ -488,7 +488,7 @@ export async function runCase(
     before = acceptedTexts(client.doc, new Set());
   }
   const quoted = each.quote ? await quoteOf(core, scoped, each.quote) : null;
-  watch?.begin(each.firstReply ?? null);
+  watch?.begin(each.firstReply ?? null, each.answerReply ?? null);
   await decideFirst(each.request);
   const stoppedAtAsk = { last: false };
   asking?.();

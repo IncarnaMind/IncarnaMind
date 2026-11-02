@@ -51,6 +51,11 @@ export interface EverydayCase {
   summary?: true;
   /** What the model's first reply is, in place of its own, so the app must ask again (./reasks). */
   firstReply?: string;
+  /**
+   * What every step that may only write gets instead of the model's own, after its Tools: the
+   * Answer a capped summary's check reads, so it can be made to leave out Documents (./reasks).
+   */
+  answerReply?: string;
   /** The Documents open on screen, by name, the focused group's first, as the composer sends them (#1334). */
   onScreen?: readonly string[];
   /**
@@ -1303,9 +1308,9 @@ export const CASES: readonly EverydayCase[] = [
     language: "en",
     library: "reports",
     mind: { title: "Briefing", blocks: ["Notes for Monday's briefing."] },
-    request: "Summarise these documents",
-    firstReply:
-      "These documents cover risk, statistics, research and committee work. I can summarise the eight largest now and continue with the rest in a follow-up.",
+    request: "Write a summary page of these documents",
+    firstReply: "These documents cover risk, statistics, research and committee work.",
+    answerReply: "These documents cover risk, statistics, research and committee work.",
     expected: { ...EITHER, cite: false, leftOutAsk: true },
     hard: true,
   },
@@ -1314,9 +1319,9 @@ export const CASES: readonly EverydayCase[] = [
     language: "zh-CN",
     library: "reports",
     mind: { title: "简报", blocks: ["周一简报的笔记。"] },
-    request: "总结这些文档",
-    firstReply:
-      "这些文档涉及风险、统计、研究和委员会工作。我可以先总结其中最大的八份，其余的稍后继续。",
+    request: "写一页这些文档的摘要",
+    firstReply: "这些文档涉及风险、统计、研究和委员会工作。",
+    answerReply: "这些文档涉及风险、统计、研究和委员会工作。",
     expected: { ...EITHER, cite: false, leftOutAsk: true },
     hard: true,
   },

@@ -1,8 +1,9 @@
 /**
  * Watches the chat model's requests for the app's own asks inside one Answer
- * (#1226): the end-of-turn checks asking again, and the one request for
- * Citations. It can also put a reply of its own in place of the model's first,
- * so a request meets an ask every time, not only when the model slips.
+ * (#1226): the end-of-turn checks asking again, the ask for a capped summary's
+ * left-out Documents (#894), and the one request for Citations. It can also put
+ * a reply of its own in place of the model's, so a request meets an ask every
+ * time, not only when the model slips.
  */
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { ChatModelFactory } from "../../src/core";
@@ -23,8 +24,13 @@ export interface Asks {
 
 export interface ReaskWatch {
   chatModels(inner: ChatModelFactory): ChatModelFactory;
-  /** Starts watching an Answer; `firstReply` is what the model's first request gets instead of its own reply. */
-  begin(firstReply: string | null): void;
+  /**
+   * Starts watching an Answer. `firstReply` is what the model's first request
+   * with Tools gets instead of its own reply; `answerReply` is what every step
+   * that may only write gets until the app asks for the left-out Documents,
+   * which the engine writes the Answer in after the Tools (#894).
+   */
+  begin(firstReply: string | null, answerReply?: string | null): void;
   end(): Asks;
 }
 
@@ -46,16 +52,26 @@ const textOf = ({ content }: Message): string =>
 export function watchReasks(): ReaskWatch {
   let asks: Asks = { again: 0, coverage: 0, citations: 0 };
   let pending: string | null = null;
+  /** What every step that may only write gets, until the ask for the left-out Documents comes. */
+  let answer: string | null = null;
+  let askedForCoverage = false;
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
     wrapStream: async ({ doStream, params }) => {
       const last = params.prompt.at(-1);
-      if (last?.role === "user" && textOf(last).includes(ASKED_AGAIN)) {
+      // A write-only ask is sent with the engine's last-step note after it.
+      const recent = params.prompt
+        .slice(-2)
+        .map((message) => textOf(message))
+        .join("\n");
+      if (recent.includes(ASKED_FOR_COVERAGE)) {
+        if (!askedForCoverage) asks.coverage++;
+        askedForCoverage = true;
+        answer = null;
+      } else if (last?.role === "user" && textOf(last).includes(ASKED_AGAIN)) {
         asks.again++;
         const before = params.prompt.at(-2);
         if (before?.role === "assistant") asks.replies = [...(asks.replies ?? []), textOf(before)];
-      } else if (last?.role === "user" && textOf(last).includes(ASKED_FOR_COVERAGE)) {
-        asks.coverage++;
       }
       if (
         params.prompt.some(
@@ -69,14 +85,19 @@ export function watchReasks(): ReaskWatch {
         pending = null;
         return { stream: streamedReply(reply, params.abortSignal, { chunkSize: 40 }) };
       }
+      if (answer !== null && params.toolChoice?.type === "none") {
+        return { stream: streamedReply(answer, params.abortSignal, { chunkSize: 40 }) };
+      }
       return doStream();
     },
   };
   return {
     chatModels: (inner) => (spec) => wrapLanguageModel({ model: inner(spec), middleware }),
-    begin(firstReply) {
+    begin(firstReply, answerReply = null) {
       asks = { again: 0, coverage: 0, citations: 0 };
       pending = firstReply;
+      answer = answerReply;
+      askedForCoverage = false;
     },
     end: () => asks,
   };
