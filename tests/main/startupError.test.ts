@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DataFromNewerVersionError } from "../../src/core/errors";
 import { startupDialog, startupProblem, updateStartupDialog } from "../../src/main/startupError";
+import { DatabaseHeldError } from "../../src/main/storageStart";
 
 describe("startupDialog", () => {
   const newer = new DataFromNewerVersionError(58);
@@ -36,6 +37,52 @@ describe("startupDialog", () => {
         : "无法打开你的数据文件夹。请关闭此提示，然后重新打开 IncarnaMind。\n\ndisk I/O error",
     );
     expect(dialog.buttons).toEqual([]);
+  });
+
+  const sqliteError = (errcode: number, message: string) =>
+    Object.assign(new Error(message), { code: "ERR_SQLITE_ERROR", errcode });
+  const native = (message: string) =>
+    `Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\n${message}`;
+  const onPlatform = (value: NodeJS.Platform, run: () => void) => {
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    if (!platform) throw new Error("The test could not read the native platform.");
+    Object.defineProperty(process, "platform", { configurable: true, value });
+    try {
+      run();
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+    }
+  };
+
+  it.each([
+    ["a -shm another process maps on Windows (#2067)", sqliteError(1546, "disk I/O error")],
+    ["a lock SQLite met", sqliteError(5, "database is locked")],
+    ["a lock the migration worker met", new DatabaseHeldError(sqliteError(517, "x"))],
+  ])("says another program holds the data, and that it is safe, for %s", (_name, error) => {
+    onPlatform("win32", () => {
+      expect(startupDialog(error, "en").detail).toBe(
+        "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
+      );
+      expect(startupDialog(error, "zh-CN").detail).toBe(
+        "另一个程序仍在使用 IncarnaMind 的数据。数据不会丢失，请稍候，再重新打开 IncarnaMind。",
+      );
+    });
+  });
+
+  it("keeps SQLite's words for a disk that really failed, and for a failed truncate off Windows", () => {
+    onPlatform("win32", () => {
+      expect(startupDialog(sqliteError(10, "disk I/O error"), "en").detail).toBe(
+        native("disk I/O error"),
+      );
+    });
+    onPlatform("darwin", () => {
+      expect(startupDialog(sqliteError(1546, "disk I/O error"), "en").detail).toBe(
+        native("disk I/O error"),
+      );
+      expect(startupDialog(sqliteError(5, "database is locked"), "en").detail).toBe(
+        "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
+      );
+    });
   });
 
   it("says in plain words that another copy may still be starting, in both languages", () => {
