@@ -16,12 +16,13 @@ import { buttonStyle, menuClass, menuItemClass, menuRuleClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 
 /**
- * The Library's one primary button, "Add Documents ▾": files from this
- * computer, a folder read where it is, a web page, Find sources (#296), an
- * app to connect, and references from a reference manager (#287). A menu
- * button, its items reached with the arrow keys, as the sidebar's "+" is.
+ * The Library's "Add Documents ▾": files from this computer, a folder read where it is, a web
+ * page, Find sources (#296), an app to connect, and references from a reference manager (#287).
+ * A menu button, its items reached with the arrow keys, as the sidebar's "+" is. It steps back
+ * to a secondary button while sorting loose Documents into Folders is the page's one primary
+ * action (#1942).
  */
-export function AddDocumentsMenu() {
+export function AddDocumentsMenu({ secondary = false }: { secondary?: boolean }) {
   const t = useT();
   const menu = usePopoverMenu();
   const picking = useAppStore((state) => state.pickingDocuments);
@@ -40,7 +41,7 @@ export function AddDocumentsMenu() {
         {...menu.buttonProps}
         type="button"
         data-testid="library-add-documents"
-        className={`${buttonStyle("primary")} pr-2.5 pl-2.5`}
+        className={`${buttonStyle(secondary ? "secondary" : "primary")} pr-2.5 pl-2.5`}
       >
         <PlusLineIcon className="size-4" />
         {t("documents.add")}

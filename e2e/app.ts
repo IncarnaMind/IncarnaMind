@@ -2988,7 +2988,12 @@ export function blocksUpdate(blocks: Y.XmlElement[]): Uint8Array {
 export type BlockFromBefore =
   | { note: string }
   | { heading: string }
-  | { question: string; answer: string };
+  | {
+      question: string;
+      answer: string;
+      /** The Answer failed, as one asked with no reachable model is stored (#763). */
+      failed?: { errorKind: string; errorMessage: string; providerId: string; modelId: string };
+    };
 
 /**
  * Makes a Mind as one written before Questions were asked in the assistant
@@ -3026,7 +3031,13 @@ export async function mindWrittenBefore(
       const answer = new Y.XmlElement("answer");
       answer.setAttribute("id", crypto.randomUUID());
       answer.setAttribute("questionId", questionId);
-      answer.setAttribute("status", "done");
+      answer.setAttribute("status", block.failed === undefined ? "done" : "failed");
+      if (block.failed) {
+        answer.setAttribute("errorKind", block.failed.errorKind);
+        answer.setAttribute("errorMessage", block.failed.errorMessage);
+        answer.setAttribute("providerId", block.failed.providerId);
+        answer.setAttribute("modelId", block.failed.modelId);
+      }
       answer.insert(0, [element("paragraph", block.answer)]);
       fragment.push([question, answer]);
     }

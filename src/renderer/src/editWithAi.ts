@@ -349,7 +349,8 @@ async function arrived(
       problem({ kind: "part-changed" });
     return;
   }
-  if (stopped) return;
+  // Only a Stop of this request is silent: a refusal that came before it still says why (#2424).
+  if (!mine || (stopped && result.kind === "cancelled")) return;
 
   if (result.kind === "proposed") {
     const first = await whenShown(editor, result.request);

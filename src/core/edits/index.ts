@@ -742,8 +742,9 @@ export function createEdits(options: EditsOptions) {
           said ||= result.said;
           continue;
         }
-        // Stopped between two parts: what is finished stays, as for a request stopped midway.
-        if (result.kind === "cancelled" || signal.aborted) {
+        // Only a cancelled part is a Stop, keeping what is finished: a refusal that happened
+        // before the Stop takes back every part and says why (#2424).
+        if (result.kind === "cancelled") {
           stopped = true;
           break;
         }

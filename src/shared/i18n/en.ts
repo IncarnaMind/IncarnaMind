@@ -152,6 +152,7 @@ export const en = {
   "library.inside.failed": "The words inside Documents couldn’t be searched: {reason}",
   "library.inside.retry": "Try again",
   "library.classify": "Organize",
+  "library.sortIntoFolders": "Sort these into Folders",
   "library.progress.one": "Organizing 1 Document…",
   "library.progress.other": "Organizing {count} Documents…",
   "library.progressWith.one": "Organizing 1 Document with {service}…",
@@ -1502,7 +1503,7 @@ export const en = {
   "edit.problem.typed-tag":
     "The AI’s rewrite left out a <removed> tag you typed, so nothing changed. Try again.",
   "edit.problem.not-placed":
-    "The AI’s rewrite would add a Citation, footnote or figure it didn’t write, or change one already there, so nothing changed. Try again.",
+    "The AI’s rewrite would have added or edited a Citation, footnote or figure, so nothing changed. Try again.",
   "edit.problem.misnamed":
     "The AI didn’t say clearly which paragraph each change replaces, so nothing changed. Try again.",
   "edit.problem.late": "This edit arrived too late to apply. Accept or reject its changes.",
@@ -2628,7 +2629,7 @@ export const en = {
 
   "providers.setup.later": "Set up later",
   "setup.title": "Set up your AI",
-  "setup.waiting": "Waiting for you to choose a model",
+  "setup.waiting": "No AI model chosen yet",
   "setup.chatgpt.use": "Use my ChatGPT plan",
   "setup.chatgpt.line": "Plus or Pro \u00b7 no key needed",
   "setup.chatgpt.line.china": "Plus or Pro, outside mainland China \u00b7 no key needed",
@@ -3550,6 +3551,9 @@ export const en = {
   "answer.refused.noSuchMind": "There is no note called “{name}”, so the change wasn’t made.",
   "answer.refused.noSuchMind.many":
     "There are no notes called {names}, so those changes weren’t made.",
+  "answer.found": "Matches in your Documents:",
+  "answer.offline.line": "You’re offline, so the model can’t answer yet.",
+  "answer.offline.none": "Nothing in your Documents matched.",
   "answer.error.thisModel": "this model",
   "answer.error.auth": "The key for {model} was refused",
   "answer.error.thisService": "This service",
@@ -4824,6 +4828,7 @@ export const en = {
   "error.document.notLocked": "This PDF isn’t locked: it opens without a password.",
   "error.search.limit": "The limit must be a whole number from 1 to {max}.",
   "error.search.options": "The search’s options must be given as a list of settings.",
+  "error.search.place": "The search’s place isn’t valid.",
   "error.tag.notFound": "That Tag doesn’t exist or has been deleted.",
   "error.tag.nameEmpty": "A Tag’s name can’t be empty.",
   "error.tag.nameTooLong": "A Tag’s name can’t be longer than {max} characters.",
@@ -6692,7 +6697,7 @@ export const en = {
   "mindCall.failed.typedTag":
     "The rewrite left out a <removed> tag you typed in “{mind}”, so nothing changed",
   "mindCall.failed.notPlaced":
-    "The rewrite would add a Citation, footnote or figure it didn’t write to “{mind}”, or change one already there, so nothing changed",
+    "The rewrite would have added or edited a Citation, footnote or figure in “{mind}”, so nothing changed",
   "mindCall.failed.misnamed":
     "The rewrite didn’t say clearly which paragraph of “{mind}” each change replaces, so nothing changed",
   "mindCall.failed.uncited": "Didn’t add to “{mind}”: its sources weren’t cited",
