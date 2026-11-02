@@ -7,6 +7,7 @@
 import type { Reading } from "../../../shared/figures";
 import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
+import { asData, tagged } from "../../promptData";
 import { PART_RULES, PARTS_LINE } from "./claims";
 
 const VERDICTS: readonly ClaimVerdict[] = ["supported", "unsupported", "contradicted"];
@@ -215,46 +216,45 @@ export function claimPrompt(input: {
   const cited = input.cited ?? [];
   return [
     ...(context && context !== input.claim.trim()
-      ? [
-          "The paragraph it is in, for what its words refer to:",
-          `<paragraph>\n${context}\n</paragraph>`,
-          "",
-        ]
+      ? ["The paragraph it is in, for what its words refer to:", tagged("paragraph", context), ""]
       : []),
     ...(cited.length > 0
       ? [
           "The User cites this for it. Check the claim itself, not only that the quote is there:",
-          ...cited.map((each) => `- ${each.documentName}: “${each.quote}”`),
+          ...cited.map((each) => asData(`- ${each.documentName}: “${each.quote}”`)),
           ...(input.citedShown ? ["", "The Passages it quotes:", input.citedShown] : []),
           "",
         ]
       : []),
     "The sentence to check:",
-    `<sentence>\n${input.claim.trim()}\n</sentence>`,
+    tagged("sentence", input.claim.trim()),
     ...((input.figures?.length ?? 0) > 0
       ? [
           "",
           "Exact requested occurrences; their ids and locations distinguish repeated equal values:",
-          `<figures>\n${JSON.stringify(
-            input.figures?.map(({ id, locator, reading, calculated, context, label }) => ({
-              id,
-              locator,
-              shown: reading.chars,
-              unit: reading.unit,
-              ...(reading.ambiguous.length > 0 && {
-                ambiguities: reading.ambiguous.map(({ kind, readings }) => ({
-                  kind,
-                  readings: readings.map((each, index) => ({
-                    reading: index + 1,
-                    means: readingWords(each),
+          tagged(
+            "figures",
+            JSON.stringify(
+              input.figures?.map(({ id, locator, reading, calculated, context, label }) => ({
+                id,
+                locator,
+                shown: reading.chars,
+                unit: reading.unit,
+                ...(reading.ambiguous.length > 0 && {
+                  ambiguities: reading.ambiguous.map(({ kind, readings }) => ({
+                    kind,
+                    readings: readings.map((each, index) => ({
+                      reading: index + 1,
+                      means: readingWords(each),
+                    })),
                   })),
-                })),
-              }),
-              ...(context && { context }),
-              ...(label && { label }),
-              ...(calculated && { saved: calculated.figure }),
-            })),
-          )}\n</figures>`,
+                }),
+                ...(context && { context }),
+                ...(label && { label }),
+                ...(calculated && { saved: calculated.figure }),
+              })),
+            ),
+          ),
         ]
       : []),
     "",
@@ -294,9 +294,9 @@ export function evidencePrompt(input: {
   passages: readonly { id: string; text: string }[];
 }): string {
   return [
-    `<sentence>\n${input.claim.trim()}\n</sentence>`,
-    `Your verdict: ${input.verdict}${input.says ? `. ${input.says}` : ""}`,
-    ...(input.covered ? [`Covered: ${input.covered}`] : []),
+    tagged("sentence", input.claim.trim()),
+    asData(`Your verdict: ${input.verdict}${input.says ? `. ${input.says}` : ""}`),
+    ...(input.covered ? [asData(`Covered: ${input.covered}`)] : []),
     ...(input.markers?.length
       ? [
           `Missing Citation markers: ${JSON.stringify(input.markers)}`,
@@ -305,7 +305,7 @@ export function evidencePrompt(input: {
       : []),
     "",
     "The Passages:",
-    ...input.passages.map((each) => `<passage id="${each.id}">\n${each.text}\n</passage>`),
+    ...input.passages.map((each) => tagged("passage", each.text, ` id="${each.id}"`)),
   ].join("\n");
 }
 
@@ -419,10 +419,10 @@ export function confirmPrompt(input: {
   quantity?: { chars: string; start: number; end: number };
 }): string {
   return [
-    `<sentence>\n${input.claim.trim()}\n</sentence>`,
-    `<quote>\n${input.quote.trim()}\n</quote>`,
+    tagged("sentence", input.claim.trim()),
+    tagged("quote", input.quote.trim()),
     "The Passage it is quoted from, for what its words refer to:",
-    `<passage>\n${input.passage.trim()}\n</passage>`,
+    tagged("passage", input.passage.trim()),
     ...(input.quantity
       ? [
           `Quantity to confirm: ${JSON.stringify(input.quantity)}`,
@@ -488,11 +488,11 @@ export function presencePrompt(input: {
   const absent = input.absent?.trim();
   const document = input.document.replace(/\s+/g, " ").replace(/"/g, "'").trim();
   return [
-    `<sentence>\n${input.claim.trim()}\n</sentence>`,
-    ...(absent ? [`What it says is absent: ${absent}`] : []),
-    `<quote document="${document}">\n${input.quote.trim()}\n</quote>`,
+    tagged("sentence", input.claim.trim()),
+    ...(absent ? [asData(`What it says is absent: ${absent}`)] : []),
+    tagged("quote", input.quote.trim(), ` document="${asData(document)}"`),
     "The Passage it is quoted from, for what its words refer to:",
-    `<passage>\n${input.passage.trim()}\n</passage>`,
+    tagged("passage", input.passage.trim()),
   ].join("\n");
 }
 

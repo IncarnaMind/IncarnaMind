@@ -7,6 +7,7 @@ import { jsonSchema } from "ai";
 import { englishPlace } from "../../shared/locations";
 import { normaliseText } from "../../shared/text";
 import type { FoundPassage } from "../answers/citing";
+import { asData, tagged } from "../promptData";
 
 /** The most words a suggestion may have, and the most CJK characters: one short sentence. */
 export const MAX_WORDS = 30;
@@ -82,7 +83,7 @@ export const suggestionSchema = jsonSchema<SuggestionReply>({
   additionalProperties: false,
 });
 
-const attribute = (value: string) => value.replace(/"/g, "'").replace(/\s+/g, " ");
+const attribute = (value: string) => asData(value.replace(/"/g, "'").replace(/\s+/g, " "));
 
 /** The Passages' short ids, as the model sees them: P1, P2… in the order given. */
 const passageHandle = (index: number) => `P${index + 1}`;
@@ -92,14 +93,18 @@ export function suggestionPrompt(paragraph: string, passages: readonly FoundPass
   const shown = passages.map((passage, index) => {
     const place = englishPlace(passage.location);
     const where = place ? ` location="${attribute(place)}"` : "";
-    return `<passage id="${passageHandle(index)}" document="${attribute(passage.documentName)}"${where}>\n${passage.text}\n</passage>`;
+    return tagged(
+      "passage",
+      passage.text,
+      ` id="${passageHandle(index)}" document="${attribute(passage.documentName)}"${where}`,
+    );
   });
   // Named on its own, small models finish the sentence rather than start another.
   const unfinished = unfinishedSentence(paragraph);
   const task = unfinished
-    ? `The paragraph's last sentence is unfinished: “${unfinished}”. Your text finishes it.`
+    ? asData(`The paragraph's last sentence is unfinished: “${unfinished}”. Your text finishes it.`)
     : "The paragraph ends with a full sentence. Your text is the next one.";
-  return [`<paragraph>\n${paragraph}\n</paragraph>`, task, ...shown].join("\n\n");
+  return [tagged("paragraph", paragraph), task, ...shown].join("\n\n");
 }
 
 /** The sentence a paragraph stops in the middle of, or "" when it ends with a full stop. */

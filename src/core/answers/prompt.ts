@@ -5,6 +5,7 @@ import { CJK, nameKey } from "../../shared/text";
 import type { CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, type Language } from "../language";
+import { asData, tagged } from "../promptData";
 import type { LoadedSkill, SkillSummary } from "../skills";
 
 const CJK_CHARACTERS = new RegExp(`[${CJK}]`, "gu");
@@ -939,13 +940,9 @@ export function citeRetryPrompt(
   passages: readonly { id: string; text: string }[],
 ): string {
   return [
-    "<answer>",
-    answer,
-    "</answer>",
+    tagged("answer", answer),
     "",
-    ...passages.map((passage) =>
-      [`<passage id="${attribute(passage.id)}">`, passage.text, "</passage>"].join("\n"),
-    ),
+    ...passages.map((passage) => tagged("passage", passage.text, ` id="${attribute(passage.id)}"`)),
   ].join("\n");
 }
 
@@ -953,11 +950,9 @@ export function citeRetryPrompt(
 export function searchQueryPrompt(earlier: string, question: string): string {
   return [
     "The notebook text above the Question:",
-    "<notebook>",
-    earlier,
-    "</notebook>",
+    tagged("notebook", earlier),
     "",
-    `The Question: ${question}`,
+    asData(`The Question: ${question}`),
   ].join("\n");
 }
 

@@ -8,6 +8,7 @@
 import { generateText, jsonSchema, Output } from "ai";
 import type { DocumentKind, ExternalService } from "../api";
 import { approximateTokens } from "../documents/passages";
+import { asData } from "../promptData";
 import type { ChatLanguageModel } from "../providers/models";
 import { outputTokens } from "../providers/outputLimits";
 import { sameName } from "./index";
@@ -183,14 +184,16 @@ function taggingPrompt(tags: readonly TagDefinition[], excerpt: DocumentExcerpt)
   return [
     tags.length > 0 ? "Tags:" : "Tags: none yet.",
     ...tags.map((tag) =>
-      tag.description ? `- ${oneLine(tag.name)}: ${oneLine(tag.description)}` : `- ${tag.name}`,
+      asData(
+        tag.description ? `- ${oneLine(tag.name)}: ${oneLine(tag.description)}` : `- ${tag.name}`,
+      ),
     ),
     "",
     EXCERPT_START,
-    `Name: ${excerpt.name}`,
+    asData(`Name: ${excerpt.name}`),
     `Type: ${documentType(excerpt)}`,
     "Text:",
-    excerpt.text,
+    asData(excerpt.text),
     EXCERPT_END,
   ].join("\n");
 }

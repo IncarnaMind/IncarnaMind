@@ -73,6 +73,7 @@ import type { PageText } from "../documents/passages";
 import { unsureSpansIn } from "../documents/scan/layout";
 import type { WindowedPassage } from "../documents/search";
 import { writtenInCjk } from "../documents/textLanguage";
+import { asData, tagged } from "../promptData";
 import { diffSteps, splitWords } from "../proposals/diff";
 import { formulaRows } from "../workbooks/formulaCells";
 import { closestWords } from "./closestWords";
@@ -1140,7 +1141,7 @@ function withUnsureMarks(text: string, units: readonly PageText[]): string {
   return marked;
 }
 
-const attribute = (value: string) => value.replace(/"/g, "'").replace(/\s+/g, " ");
+const attribute = (value: string) => asData(value.replace(/"/g, "'").replace(/\s+/g, " "));
 
 /** A Passage as the model sees it: its short id, Document and its date, where it is, and its text. */
 interface ShownPassage {
@@ -1172,7 +1173,11 @@ function formatPassages(passages: readonly ShownPassage[]): string {
         : "";
       const never = notCited ? NOT_CITED_ATTRIBUTE : "";
       const worked = formulas ? ` formulas="${attribute(formulas)}"` : "";
-      return `<passage id="${id}" document="${attribute(documentName)}"${dated}${where}${worked}${never}>\n${text}\n</passage>`;
+      return tagged(
+        "passage",
+        text,
+        ` id="${id}" document="${attribute(documentName)}"${dated}${where}${worked}${never}`,
+      );
     })
     .join("\n\n");
 }

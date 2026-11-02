@@ -6,6 +6,7 @@
  */
 
 import { isRecord } from "../../../shared/record";
+import { asData, tagged } from "../../promptData";
 import { replyJson } from "../quoteRetry";
 
 /** The most sentences one request judges. */
@@ -60,9 +61,13 @@ export const SENTENCE_BATCH_INSTRUCTIONS = [
 ].join("\n");
 
 const passageTag = (passage: BatchPassage, number: number) =>
-  `<passage id="P${number}" document="${passage.documentName}"${
-    passage.location ? ` location="${passage.location}"` : ""
-  }>\n${passage.text}\n</passage>`;
+  tagged(
+    "passage",
+    passage.text,
+    ` id="P${number}" document="${asData(passage.documentName)}"${
+      passage.location ? ` location="${asData(passage.location)}"` : ""
+    }`,
+  );
 
 /** A batch's request: its Passages, each once, then its sentences, numbered, with what each cites. */
 export function batchPrompt(sentences: readonly BatchSentence[]): string {
@@ -78,13 +83,11 @@ export function batchPrompt(sentences: readonly BatchSentence[]): string {
     "",
     "The sentences to check:",
     ...sentences.flatMap((each, index) => [
-      `<sentence number="${index + 1}">`,
-      each.sentence.trim(),
-      "</sentence>",
+      tagged("sentence", each.sentence.trim(), ` number="${index + 1}"`),
       ...(each.context.trim() && each.context.trim() !== each.sentence.trim()
-        ? [`Its paragraph: ${each.context.trim()}`]
+        ? [asData(`Its paragraph: ${each.context.trim()}`)]
         : []),
-      ...each.quotes.map((quote) => `It cites ${quote.documentName}: “${quote.quote}”`),
+      ...each.quotes.map((quote) => asData(`It cites ${quote.documentName}: “${quote.quote}”`)),
       "",
     ]),
   ].join("\n");
