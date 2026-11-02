@@ -321,7 +321,16 @@ function linesOf(answer: SavedAnswer): Line[] {
       lines.push({ ...read, candidates: [], index, block, lead: context, row: null });
       continue;
     }
-    lines.push({ ...read, index, block, lead: context, row: { cells, headings } });
+    // A table may write a key across its first heading and cell: "| S | 1 |" is segment S1.
+    const joined = `${headings[0] ?? ""}${cells[0]?.text ?? ""}`.replace(/\s+/g, "");
+    lines.push({
+      ...read,
+      text: `${read.text} ${joined}`,
+      index,
+      block,
+      lead: context,
+      row: { cells, headings },
+    });
   }
   return lines;
 }

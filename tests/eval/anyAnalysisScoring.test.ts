@@ -881,3 +881,43 @@ describe("shares written as percents, and a duration in brackets", () => {
     });
   });
 });
+
+test("a table may write a key across its first heading and cell", () => {
+  const segments: Task = {
+    ...TASK,
+    expect: [
+      {
+        id: "segments",
+        kind: "rows",
+        label: "Segments",
+        key: /\bS\d\b/g,
+        columns: [{ id: "customers", unit: "plain", tolerance: { abs: 0 } }],
+      },
+    ],
+  };
+  const reference: Reference = {
+    task: "T00",
+    inputs: {},
+    values: {
+      segments: [
+        { key: "S1", customers: 300 },
+        { key: "S2", customers: 700 },
+      ],
+    },
+  };
+  const table = answer(
+    [
+      "| S | n | recency |",
+      "| --- | --- | --- |",
+      "| 1 | 300 | 7.7 |",
+      "| 2 | 700 | 30.3 |",
+      "",
+      "S2 sits about 250 days back.",
+    ],
+    {
+      figures: [],
+    },
+  );
+
+  expect(outcomes(scoreAnswer(segments, reference, record(table)))).toEqual({ segments: "right" });
+});
