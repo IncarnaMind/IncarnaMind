@@ -683,7 +683,6 @@ const NO_ANSWER: SavedAnswer = {
   figures: [],
   analyses: [],
   toolCalls: [],
-  usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0 },
   errorKind: null,
   errorMessage: null,
 };

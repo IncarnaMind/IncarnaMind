@@ -168,7 +168,6 @@ function saved(answer: ConversationAnswer): SavedAnswer {
       },
     })),
     toolCalls: answer.toolCalls,
-    usage: answer.usage,
     errorKind: answer.errorKind,
     errorMessage: answer.errorMessage,
   };

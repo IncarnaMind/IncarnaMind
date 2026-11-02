@@ -51,13 +51,18 @@ const KEYS: readonly (keyof Inputs)[] = [
   "terminal",
 ];
 
+/** A formula cell whose saved value is a number, as every cell of the DCF is. */
+interface Worked extends FormulaCell {
+  value: number;
+}
+
 /** The DCF sheet's rows, as formulas with the values Excel saves, at the model's own inputs. */
 function dcf(inputs: Inputs): { rows: SheetCell[][]; value: number } {
-  const year = (make: (column: string, index: number) => FormulaCell): FormulaCell[] =>
+  const year = (make: (column: string, index: number) => Worked): Worked[] =>
     Array.from({ length: YEARS }, (_, index) => make(columnName(index + 1), index));
-  const at = (cells: FormulaCell[], index: number) => cells[index]?.value ?? 0;
+  const at = (cells: Worked[], index: number) => cells[index]?.value ?? 0;
   const previous = (column: string) => String.fromCharCode(column.charCodeAt(0) - 1);
-  const revenue: FormulaCell[] = [];
+  const revenue: Worked[] = [];
   for (let index = 0; index < YEARS; index++) {
     const column = columnName(index + 1);
     revenue.push(

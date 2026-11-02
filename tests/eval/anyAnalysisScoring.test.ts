@@ -144,7 +144,6 @@ function answer(lines: readonly string[], overrides: Partial<SavedAnswer> = {}):
     figures: [figure(1, 12345.67)],
     analyses: [analysis()],
     toolCalls: [],
-    usage: { inputTokens: 1000, outputTokens: 100, cachedInputTokens: 0, cacheWriteTokens: 0 },
     errorKind: null,
     errorMessage: null,
     ...overrides,

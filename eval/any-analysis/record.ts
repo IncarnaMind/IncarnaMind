@@ -16,7 +16,6 @@ export type SavedAnswer = Pick<
   | "figures"
   | "analyses"
   | "toolCalls"
-  | "usage"
   | "errorKind"
   | "errorMessage"
 >;
