@@ -1280,6 +1280,7 @@ export interface AnalysisCall {
  * out isn't in the Mind word for word, so none of its text went in (#2180).
  * "misnamed": the rewrite named a paragraph wrongly, so none of its text went in (#2356).
  * "typed-tag": the rewrite left out a <removed> tag the User typed, so none of its text went in (#2356).
+ * "not-placed": the rewrite would hold a Citation, footnote or figure its reply didn't place, so none of its text went in (#2424).
  */
 export type MindProblem =
   | { kind: "waiting"; mindId: string; count: number; mixed: boolean }
@@ -1302,6 +1303,7 @@ export type MindProblem =
         | "unplaced"
         | "misnamed"
         | "typed-tag"
+        | "not-placed"
         | "uncited"
         // Only in Answers written before #1559.
         | "new-mind";
@@ -6008,6 +6010,11 @@ export type EditWithAiResult =
    * their words out (#2356): nothing was written.
    */
   | { kind: "typed-tag" }
+  /**
+   * What the change wrote would hold a Citation, footnote or figure its reply didn't place, or
+   * change one that was there (#2424): nothing was written.
+   */
+  | { kind: "not-placed" }
   /** The model failed, or gave nothing back. */
   | { kind: "failed"; error: ProviderError };
 

@@ -77,6 +77,7 @@ import {
   replaceOwn,
   waitingIn,
 } from "../proposals/ownWaiting";
+import { addsOnlyPlaced, splitCiting } from "../proposals/placed";
 import {
   acceptedText,
   addNotes,
@@ -813,6 +814,7 @@ export function createEdits(options: EditsOptions) {
     const named = NAMES_SHOWN.has(ask.action);
 
     const blocks = fork.getXmlFragment(MIND_CONTENT_FIELD);
+    const before = splitCiting(blocks, request);
     const { requestId } = hooks;
     // Explain's few sentences go in once they are all there.
     const stream = explain
@@ -882,19 +884,26 @@ export function createEdits(options: EditsOptions) {
       explain || ask.action === "translate" || (stream?.extent().mapped ?? false);
     let wrote = false;
     let refused = false;
+    /** What it wrote holds a Citation, footnote or figure its reply didn't place: nothing more goes in. */
+    let notPlaced = false;
     /**
      * Writes in the copy; once that has written Proposals, merges the copy
      * into the Mind, the first time after `beforeWriting`. A merge that would
      * change the User's text is refused, and nothing more is written.
      */
     const step = (write: () => boolean): void => {
-      if (refused) return;
+      if (refused || notPlaced) return;
       let changed = false;
       fork.transact(() => {
         changed = write();
         if (changed) recordProposalRequest(fork, request, made);
       });
       if (!changed) return;
+      // Checked in the copy before it reaches the Mind (#2424). Explain's words cite nothing.
+      notPlaced = stream
+        ? !stream.placedOnly()
+        : !addsOnlyPlaced(before, blocks, request, new Map());
+      if (notPlaced) return;
       if (!wrote) hooks.beforeWriting?.();
       wrote = true;
       const update = forkChanges(draft.base, fork, content.state(mindId));
@@ -927,6 +936,7 @@ export function createEdits(options: EditsOptions) {
      * none of it goes in.
      */
     const untrusted = (): EditWithAiResult | null => {
+      if (notPlaced) return { kind: "not-placed" };
       const written = stream?.written();
       if (written?.misnamed) return { kind: "misnamed" };
       if (written?.droppedTypedTag) return { kind: "typed-tag" };
@@ -960,6 +970,10 @@ export function createEdits(options: EditsOptions) {
       if (stream) noteWriting(mindId, null);
     }
     const { raw, failure } = streamed;
+    if (notPlaced) {
+      takeBackWritten();
+      return ended({ kind: "not-placed" });
+    }
 
     if (signal.aborted && closing) return ended({ kind: "cancelled" });
     const early = failure === null ? untrusted() : null;
@@ -1196,6 +1210,7 @@ export function createEdits(options: EditsOptions) {
       if (written.unmadeTable) return nothing({ kind: "no-table", text: textOf(reply, named) });
       if (written.misnamed) return nothing({ kind: "misnamed" });
       if (written.droppedTypedTag) return nothing({ kind: "typed-tag" });
+      if (written.notPlaced) return nothing({ kind: "not-placed" });
       if (written.unplaced) return nothing({ kind: "unplaced", quotes: written.unplaced });
       if (written.proposals.length === 0 || written.onlyAside)
         return nothing({ kind: "unchanged" });
