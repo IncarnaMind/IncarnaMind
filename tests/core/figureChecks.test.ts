@@ -237,6 +237,8 @@ async function checkWith(options: {
   /** Asked once more for its record, it gives this quote, under the markers asked for if any. */
   recordWhenAsked?: string;
   scope?: { documentIds: string[] | null; excluded: Map<string, "own-file"> };
+  /** Its Document has no pages, as a whole TXT or Markdown file cited before Units. */
+  pagesless?: boolean;
 }) {
   const body =
     options.body ?? "Revenue in 2024 was £20; revenue in 2025 was £21. The licence has expired.";
@@ -342,8 +344,8 @@ async function checkWith(options: {
     documentKind: options.units?.some((unit) => unit.kind === "rows") ? "xlsx" : "pdf",
     contentHash: "hash-1",
     text: body,
-    pageFrom: 1,
-    pageTo: 1,
+    pageFrom: options.pagesless ? null : 1,
+    pageTo: options.pagesless ? null : 1,
     documentDeleted: false,
     notCited: false,
   };
@@ -1558,6 +1560,27 @@ test.each([
     expect(result.figures?.[0]?.result.verdict).toBe(verdict);
   },
 );
+
+// protects=a quote cited with no pages is placed in its Document, not in itself, so a number quoted alone takes its measure from its own sentence there (#2255); fails_when=a pages-less quote is read as its whole text, and its figure Not checked; no_claim=none beyond protects.
+test("a quote cited with no pages takes its measure from its Document", async () => {
+  const claim = "Revenue grew 12% in 2025.";
+  const { result } = await checkWith({
+    figures: [target("f1", "12%", claim)],
+    claim,
+    body: "Revenue grew 12% in 2025, to £48.2m.",
+    quotes: ["12%"],
+    pagesless: true,
+    text: reply([
+      {
+        ...item(),
+        source: { citation: 1, number: "12%", unitQuote: null },
+        measure: { sentence: "Revenue", quote: "Revenue", match: "same" },
+      },
+    ]),
+  });
+  expect(result.figures?.[0]?.source?.pageFrom).toBeNull();
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
 
 test("a quoted heading states the scale and currency the bare digits lack", async () => {
   const body = "Net debt (£m)\n528.9";

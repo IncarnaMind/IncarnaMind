@@ -11,7 +11,7 @@
 import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
-import { measureFinding } from "../../src/core/answers/checks/figureMeasures";
+import { measureFinding, readMeasure } from "../../src/core/answers/checks/figureMeasures";
 import type { FigureCheckAttributes } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -317,7 +317,7 @@ describe.each([
         one(example.wrong, { quote: example.quote, number: "12%", measure }),
       );
       expect(figures).toMatchObject([
-        { sentence: example.wrong, state: "not-checked", reason: "malformed" },
+        { sentence: example.wrong, state: "not-checked", reason: "unnamed-measure" },
       ]);
       expect(figures[0]?.sentenceState).not.toBe("supported");
     },
@@ -389,7 +389,7 @@ test.each([
   expect(figures).toMatchObject([{ sentence, state, why: null }]);
 });
 
-// protects=a reply that copies its sentence and its whole quote line as the measure, as a model may, settles the check Supported, in English and Chinese: long measure words are found and never leave a check running (#2255); fails_when=a whole-line measure is Not checked, unsettled or Supported for another reason than its words; no_claim=how long a real model's reply takes.
+// protects=a reply that copies its sentence and its whole quote line as the measure names no measure: it restates the number, so the figure is Not checked with its own reason, never Supported, whether the quote is about the same measure or another, in English and Chinese (#2255); fails_when=a whole-line measure is Supported or Unsupported, or the check doesn't settle; no_claim=how long a real model's reply takes.
 test.each([
   {
     language: "en" as const,
@@ -398,23 +398,71 @@ test.each([
     quote: "Revenue grew 12% in 2025, to £48.2m.",
   },
   {
+    language: "en" as const,
+    document: EN_DOCUMENT,
+    sentence: "Operating margin was 12% in 2025.",
+    quote: "Revenue grew 12% in 2025, to £48.2m.",
+  },
+  {
     language: "zh-CN" as const,
     document: ZH_DOCUMENT,
-    sentence: "2025年收入增长了12%。",
+    sentence: "2025年营业利润率为12%。",
     quote: "2025年收入增长12%，达到4.82亿元。",
   },
-])(
-  "a whole quote line as the measure ($language)",
-  async ({ language, document, sentence, quote }) => {
-    const { figures } = await checkNote(
-      language,
-      document,
-      [paragraph("whole", sentence)],
-      one(sentence, { quote, number: "12%", measure: { sentence, quote, match: "same" } }),
-    );
-    expect(figures).toMatchObject([{ sentence, state: "supported", sentenceState: "supported" }]);
-  },
-);
+])("a whole line as the measure: $sentence", async ({ language, document, sentence, quote }) => {
+  const { figures } = await checkNote(
+    language,
+    document,
+    [paragraph("whole", sentence)],
+    one(sentence, { quote, number: "12%", measure: { sentence, quote, match: "same" } }),
+  );
+  expect(figures).toMatchObject([{ sentence, state: "not-checked", reason: "unnamed-measure" }]);
+  expect(figures[0]?.sentenceState).not.toBe("supported");
+});
+
+// protects=a measure's name may run to 10 words in a script that spaces them and 16 Han characters, by script with no word list: "net cash from operating activities" and "经营活动产生的现金流量净额" pass, one word or character more is Not checked, whatever match it gives (#2255); fails_when=a name within the caps is refused, or one past them is accepted; no_claim=that the caps fit every Document.
+test.each([
+  { words: "net cash from operating activities", kind: "same" },
+  { words: "net cash from operating activities of the group after tax", kind: "same" },
+  { words: "net cash from operating activities of the whole group after tax", kind: "unread" },
+  { words: "经营活动产生的现金流量净额", kind: "same" },
+  { words: "本集团经营活动产生的现金流量净额", kind: "same" },
+  { words: "集团全部经营活动产生的现金流量净额", kind: "unread" },
+])("a measure's length: $words", ({ words, kind }) => {
+  const sentence = /\p{Script=Han}/u.test(words)
+    ? `2025年${words}为12%。`
+    : `In 2025 ${words} rose 12%.`;
+  const quote = /\p{Script=Han}/u.test(words) ? `${words}增长12%` : `${words} rose 12%`;
+  const at = quote.indexOf("12%");
+  for (const match of ["same", "differs"] as const) {
+    const found = measureFinding(
+      { sentence: words, quote: words, match },
+      [sentence],
+      quote,
+      bound("12%", 0.12, at),
+      () => [],
+    ).kind;
+    expect(found, match).toBe(kind === "unread" ? "unread" : match);
+  }
+});
+
+// protects=measure words that write the figure's own number, in digits or in words, are a clause, not a name (#2255); fails_when=a measure restating the number is accepted; no_claim=none beyond protects.
+test.each([
+  { said: "Operating margin was 12%", quoted: "Revenue", kind: "unread" },
+  { said: "Operating margin", quoted: "Revenue grew 12%", kind: "unread" },
+  { said: "Operating margin", quoted: "Operating margin", kind: "same" },
+])("a measure that restates the number: $said / $quoted", ({ said, quoted, kind }) => {
+  const sentence = "Operating margin was 12% in 2025.";
+  const quote = "Operating margin and revenue grew 12% in 2025.";
+  const finding = measureFinding(
+    { sentence: said, quote: quoted, match: "same" },
+    [sentence],
+    quote,
+    bound("12%", 0.12, quote.indexOf("12%")),
+    () => [],
+  );
+  expect(finding.kind).toBe(kind);
+});
 
 // protects=a Chinese sentence checked against an English Document gets the reason in Chinese, the quote's English words spaced from the Chinese around them (docs/agents/zh-CN.md), and its own Chinese measure in its place (#2255); fails_when=the reason runs Latin words into Chinese or names the measures the wrong way round; no_claim=how a real model words either measure.
 test("the reason names an English quote's measure in a Chinese sentence's reason", async () => {
@@ -703,4 +751,69 @@ describe("where a quote's words may come from (#2255's review)", () => {
     );
     expect(finding.kind).toBe(kind);
   });
+
+  // protects=a table's number is named by its row's label and its own column's heading, never another column's, whether the quote is the cell, the cells of its row, the whole row or a sheet's tab-separated row (#2255); fails_when=another column's heading makes a figure Supported, or its own column's doesn't; no_claim=none beyond protects.
+  test.each([
+    { form: "the cell", quote: "94%" },
+    { form: "the row's cells", quote: "Felixstowe | 94% | 81%" },
+    { form: "the whole row", quote: "| Felixstowe | 94% | 81% |" },
+    { form: "a sheet's row", quote: "Felixstowe\t94%\t81%", sheet: true },
+  ])("only the number's own column: $form", ({ quote, sheet }) => {
+    const text = sheet
+      ? "Depot\tOn-time rate\tSpace occupancy\nFelixstowe\t94%\t81%"
+      : "| Depot | On-time rate | Space occupancy |\n| --- | --- | --- |\n| Felixstowe | 94% | 81% |";
+    const finding = (heading: string) =>
+      measureFinding(
+        { sentence: heading, quote: heading, match: "same" },
+        [`Felixstowe's ${heading.toLowerCase()} was 94% in 2025.`],
+        quote,
+        bound("94%", 0.94, quote.indexOf("94%")),
+        () => [text],
+      ).kind;
+    expect([finding("On-time rate"), finding("Space occupancy"), finding("Felixstowe")]).toEqual([
+      "same",
+      "unread",
+      "same",
+    ]);
+  });
+
+  // protects=a quote that starts or ends in a letter is never placed inside a longer word ("rent rose 12%" in "Current rose 12%"), so that word's sentence lends it no measure (#2255); fails_when=a quote is placed inside another word; no_claim=none beyond protects.
+  test("a quote never runs on into a longer word", () => {
+    const finding = measureFinding(
+      { sentence: "Current", quote: "Current", match: "same" },
+      ["Current rose 12% in 2025."],
+      "rent rose 12%",
+      bound("12%", 0.12, "rent rose ".length),
+      () => ["Current rose 12% in 2025."],
+    );
+    expect(finding.kind).toBe("unread");
+    const placed = measureFinding(
+      { sentence: "Current", quote: "Current", match: "same" },
+      ["Current rose 12% in 2025."],
+      "rose 12%",
+      bound("12%", 0.12, "rose ".length),
+      () => ["Current rose 12% in 2025."],
+    );
+    expect(placed.kind).toBe("same");
+  });
+});
+
+// protects=the reason names the measures only when each fits in 80 characters, and a marker the reply's words carry where they repeat a recorded quote ("Revenue[^1]") is no part of them, so the reason still names the measure (#2255); fails_when=a reason prints a long copy, or a marker keeps the measure from being shown; no_claim=none beyond protects.
+test.each([
+  {
+    said: "consolidated operating expenditure attributable to international distribution partnerships",
+    quoted: "Revenue",
+    shown: null,
+  },
+  {
+    said: "Operating margin",
+    quoted: "Revenue[^1]",
+    shown: { measured: "Revenue", claimed: "Operating margin" },
+  },
+])("the reason's measures: $quoted", ({ said, quoted, shown }) => {
+  const sentence = `In 2025 ${said} was 12%.`;
+  const quote = "Revenue grew 12% in 2025, to £48.2m.";
+  const measure = readMeasure({ sentence: said, quote: quoted, match: "differs" });
+  const finding = measureFinding(measure, [sentence], quote, bound("12%", 0.12, 13), () => []);
+  expect(finding).toEqual({ kind: "differs", shown });
 });

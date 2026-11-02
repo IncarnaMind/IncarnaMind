@@ -104,26 +104,33 @@ export function requestedFigures(call: ModelCall): {
 
 /** Words as a measure is named: a Han character on its own, a run of letters, never digits. */
 const measureWords = (text: string): string[] =>
-  (text.normalize("NFKC").match(/\p{Script=Han}|(?:(?!\p{Script=Han})\p{L})+/gu) ?? []).map(
+  (text.normalize("NFKC").match(/\p{Script=Han}|(?:(?!\p{Script=Han})\p{L}){2,}/gu) ?? []).map(
     (word) => word.toLowerCase(),
   );
 
+/** `text` with its numbers taken out, as a model names a measure: "租金" of "一千五百元租金". */
+const withoutFigures = (text: string): string =>
+  readFigures(text, { dates: true, midLine: true })
+    .sort((a, b) => b.start - a.start)
+    .reduce((rest, { start, end }) => `${rest.slice(0, start)}\n${rest.slice(end)}`, text);
+
 /** The longest run of words `a` and `b` both hold, at most `most` long, as a measure writes it. */
 function shared(a: string, b: string, most = 6): string | null {
-  const left = measureWords(a);
-  const right = measureWords(b);
+  const runs = (text: string) => withoutFigures(text).split("\n").map(measureWords);
   let best: string[] = [];
-  for (let i = 0; i < left.length; i++)
-    for (let j = 0; j < right.length; j++) {
-      let length = 0;
-      while (
-        length < most &&
-        left[i + length] !== undefined &&
-        left[i + length] === right[j + length]
-      )
-        length++;
-      if (length > best.length) best = left.slice(i, i + length);
-    }
+  for (const left of runs(a))
+    for (const right of runs(b))
+      for (let i = 0; i < left.length; i++)
+        for (let j = 0; j < right.length; j++) {
+          let length = 0;
+          while (
+            length < most &&
+            left[i + length] !== undefined &&
+            left[i + length] === right[j + length]
+          )
+            length++;
+          if (length > best.length) best = left.slice(i, i + length);
+        }
   if (best.length === 0) return null;
   return best.join(best.every((word) => /^\p{Script=Han}$/u.test(word)) ? "" : " ");
 }
@@ -140,11 +147,11 @@ export const sameMeasure = (
   context: string | null = null,
 ) => {
   const own = label ?? (namesSomething(sentence) ? sentence : (context ?? sentence));
-  const words = shared(own, quote) ?? measureWords(own).slice(0, 2).join(" ");
+  const words = shared(own, quote) ?? measureWords(withoutFigures(own)).slice(0, 1).join(" ");
   return {
     sentence: words,
     quote: namesSomething(quote)
-      ? (shared(own, quote) ?? measureWords(quote).slice(0, 2).join(" "))
+      ? (shared(own, quote) ?? measureWords(withoutFigures(quote)).slice(0, 1).join(" "))
       : null,
     match: "same" as const,
   };
