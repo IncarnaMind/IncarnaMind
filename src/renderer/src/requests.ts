@@ -16,8 +16,8 @@ interface Requests {
   chooseLocalModel: true | null;
   /** The Folder whose name and description the Library opens to edit. */
   editFolder: string | null;
-  /** The Tag Manage Tags opens on, to rename. */
-  manageTag: { id: string } | null;
+  /** The Tag Manage Tags opens on, to edit, or to merge into another. */
+  manageTag: { id: string; mode?: "edit" | "merge" } | null;
   /** The Folder just made, whose name field the sidebar opens in its row. */
   nameFolder: string | null;
   /** The Linked folder just linked: the sidebar shows where it is, and its row is washed for a moment (#763). */

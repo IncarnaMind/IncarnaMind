@@ -518,6 +518,14 @@ export const folderCommands: readonly Command[] = [
   },
 ];
 
+/** Opens Manage Tags on one Tag, to edit it or to merge it into another. */
+const manageTag = (ctx: CommandContext, mode: "edit" | "merge") => {
+  useRequests.getState().ask({ manageTag: { id: idsOf(ctx, "tag")[0] ?? "", mode } });
+  store().openTagsDialog();
+};
+
+const liveTags = () => store().tags.length;
+
 export const tagCommands: readonly Command[] = [
   {
     id: "tag.open",
@@ -530,6 +538,38 @@ export const tagCommands: readonly Command[] = [
       store().setTagFilter(idsOf(ctx, "tag").slice(0, 1));
       store().openLibrary();
     },
+  },
+  {
+    id: "tag.colour",
+    label: "tag.changeColor",
+    menuLabel: "tag.color",
+    keywords: ["tags.colour.label"],
+    group: "main",
+    appliesTo: ["tag"],
+    reversible: true,
+    run(ctx) {
+      // In its row, its dot opens the eight colours; elsewhere, in the Tags dialog.
+      if (ctx.here?.["tag.colour"]) return ctx.here["tag.colour"]();
+      manageTag(ctx, "edit");
+    },
+  },
+  {
+    id: "tag.editDescription",
+    label: "tag.editDescription",
+    group: "main",
+    appliesTo: ["tag"],
+    reversible: true,
+    run: (ctx) => manageTag(ctx, "edit"),
+  },
+  {
+    id: "tag.merge",
+    label: "tag.merge",
+    group: "main",
+    appliesTo: ["tag"],
+    // Another Tag is what a merge needs.
+    when: () => liveTags() > 1,
+    reversible: true,
+    run: (ctx) => manageTag(ctx, "merge"),
   },
   {
     id: "tag.rename",

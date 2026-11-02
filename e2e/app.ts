@@ -3181,12 +3181,15 @@ export async function menuCommands(menu: Locator): Promise<string[]> {
   // Its items draw a moment after the popover shows.
   await expect(menu.getByRole("menuitem").first()).toBeVisible();
   // A toggle's item (menuitemcheckbox) is an item as any other; a rule is "—".
+  // A control in an item's place (a Tag's eight colours) is a group that names its command.
   return menu.evaluate((element) =>
-    Array.from(element.children).map((child) =>
-      child.getAttribute("role")?.startsWith("menuitem")
-        ? (child.getAttribute("data-testid") ?? "")
-        : "—",
-    ),
+    Array.from(element.children).map((child) => {
+      const testId = child.getAttribute("data-testid");
+      const item =
+        child.getAttribute("role")?.startsWith("menuitem") ||
+        (child.getAttribute("role") === "group" && testId !== null);
+      return item ? (testId ?? "") : "—";
+    }),
   );
 }
 

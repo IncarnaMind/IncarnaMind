@@ -109,7 +109,7 @@ test("a Document renames in its Library row and in the viewer's header, by doubl
   }
 });
 
-test("a Folder renames in its section of the Library, and a Tag in the sidebar: a name another has is a problem, a blank one changes nothing", async () => {
+test("a Folder renames in its section of the Library, and a Tag in the sidebar: a name another has merges them, a blank one changes nothing", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1100, 700);
@@ -119,9 +119,10 @@ test("a Folder renames in its section of the Library, and a Tag in the sidebar: 
       await core.createTag({ name: "Tides" });
       await core.createTag({ name: "Moons" });
     });
-    await addDocuments(window, await writeTexts("Tides"));
+    await addDocuments(window, await writeTexts("Tides", "Waves"));
     await tagDocument(window, "Tides", "Tides");
     await tagDocument(window, "Tides", "Moons");
+    await tagDocument(window, "Waves", "Tides");
 
     // The Folder's section in the Library: its name, by double-click and by F2.
     await sidebarFolder(window, "Finance").getByTestId("folder-row").click({ button: "right" });
@@ -159,13 +160,24 @@ test("a Folder renames in its section of the Library, and a Tag in the sidebar: 
     await expect(tides.getByTestId("row-text")).toHaveText("Tides");
     await expect(window.getByRole("alert")).toHaveCount(0);
 
-    // A name another Tag has is said in a line, and the name stays.
+    // A name another Tag has merges the two, as Bear and Apple Notes do: its Documents follow, and
+    // one Undo brings it back, with its Documents' links.
+    const moons = tags.filter({ hasText: "Moons" });
     await expect(tides.getByRole("treeitem").first()).toBeFocused();
     await window.keyboard.press("F2");
     await tagField.fill("Moons");
     await window.keyboard.press("Enter");
-    await expect(window.getByRole("alert")).toContainText("Moons");
-    await expect(tides.getByTestId("row-text")).toHaveText("Tides");
+    await expect(tides).toHaveCount(0);
+    await expect(moons.getByTestId("browse-count")).toHaveText("2");
+    await expect(window.getByTestId("undo-message")).toHaveText("Merged “Tides” into Moons");
+    const merged = await (await coreOf(window)).evaluate(async (core) =>
+      (await core.listTags()).map((tag) => tag.name).sort(),
+    );
+    expect(merged).toContain("Moons");
+    expect(merged).not.toContain("Tides");
+    await window.getByTestId("undo-line").getByTestId("undo-action").click();
+    await expect(tides).toHaveCount(1);
+    await expect(moons.getByTestId("browse-count")).toHaveText("1");
 
     await tides.getByTestId("row-text").dblclick();
     await tagField.fill("Spring tides");
@@ -184,7 +196,6 @@ test("a Folder renames in its section of the Library, and a Tag in the sidebar: 
     await expect(tags.getByTestId("row-text").filter({ hasText: /^Tides$/ })).toHaveCount(1);
 
     // Its menu's Rename.
-    const moons = tags.filter({ hasText: "Moons" });
     await moons.getByTestId("row-text").click({ button: "right" });
     await moons.getByTestId("tag.rename").click();
     await expect(tagField).toBeFocused();
