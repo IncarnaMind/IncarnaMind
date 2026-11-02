@@ -1027,7 +1027,7 @@ describe("the Roles line read in the shapes a model gives it (#1766)", () => {
         sentence: "The Tenant may keep a cat in the flat.",
         quote: "The Tenant may keep a cat in the flat.",
         verdict: "supported",
-        roles: "The Tenant may keep a cat [^1] / The Tenant may keep a cat, same",
+        roles: "The Tenant may keep a cat [1] / The Tenant may keep a cat, same",
       },
       RULES,
       "supported",

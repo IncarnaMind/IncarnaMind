@@ -826,7 +826,7 @@ function closingWord(
     if (sideStart && !REASON.test(piece.slice(found[0].length))) continue;
     return { word, sides: sides(text.slice(0, at).replace(/[/(:,;—–→、]$/, "")) };
   }
-  const last = closingOf(text.match(/\b(?:same|differs?)\b(?![-‐‑][\p{L}\p{N}])/giu)?.at(-1));
+  const last = closingOf(text.match(/\b(?:same|differs?)\b/gi)?.at(-1));
   return {
     word: last && words.includes(last) ? last : null,
     sides: sides(text.replace(/[,;]?\s*\b(?:same|differs?)\W*$/i, "")),
