@@ -186,6 +186,26 @@ const quotedList = (names: readonly string[]) =>
         .join(", ")} and “${names.at(-1)}”`;
 
 /**
+ * What to tell the model when its reply leaves out Documents a capped summary
+ * left for the next one (#894), as a re-ask after an Answer that named none of
+ * them or only some: their names, and to offer to go on. Null when there is no
+ * capped summary, or the reply names every one already.
+ */
+export function coverageNudge(
+  coverage: AnswerCoverage | null,
+  documents: readonly SizedDocument[],
+  reply: string,
+): string | null {
+  if (coverage?.kind !== "largest") return null;
+  const left = documents.filter((document) => coverage.rest.includes(document.id));
+  const named = (document: SizedDocument) =>
+    reply.toLocaleLowerCase().includes(document.name.toLocaleLowerCase());
+  const missing = left.filter((document) => !named(document));
+  if (missing.length === 0) return null;
+  return `Write the reply again, and don't mention an earlier reply: the User reads only this one. Say in the User's language that ${quotedList(missing.map((document) => document.name))} ${missing.length === 1 ? "is" : "are"} left for the next summary, say why, and offer to go on. Nothing about your searching goes into a Note.`;
+}
+
+/**
  * What the model is told of the Documents a Question asks about, `documents`
  * the Documents in scope, the most text first; "" when nothing.
  */

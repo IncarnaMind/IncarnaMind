@@ -1,7 +1,8 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
+import type { ConversationAnswer, Core } from "../../src/core";
 import {
   COVERED_AT_ONCE,
   coverageOf,
@@ -9,10 +10,20 @@ import {
   namedCoverage,
 } from "../../src/core/answers/coverage";
 import { passagesIn, recordFor, recordsFor } from "../../src/main/fakeChat/passages";
-import { askAssistant } from "../helpers/assistant";
+import { askAssistant, changesIn } from "../helpers/assistant";
+import { mindCitations, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { waitForProcessing } from "../helpers/documents";
-import { type ScriptedReply, scriptedModel, scriptedModels } from "../helpers/models";
+import { waitForDocuments, waitForProcessing } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import {
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+  scriptedModels,
+} from "../helpers/models";
+
+/** The example Documents the app ships. */
+const EXAMPLES = resolve(__dirname, "../../resources/examples");
 
 describe("What a Question asks of the Documents in scope", () => {
   // protects=a summary of the set, in English and Chinese, asks about each Document; fails_when=one reads as an ordinary Question; no_claim=every wording.
@@ -102,8 +113,74 @@ describe("What a Question asks of the Documents in scope", () => {
   });
 });
 
+/** One Passage of each Document the model was shown, with the text it quotes from it. */
+function aPassageOfEachShown(call: ModelCall): { id: string; quote: string }[] {
+  const byDocument = new Map<string, { id: string; quote: string }>();
+  for (const shown of shownPassages(call.prompt)) {
+    if (byDocument.has(shown.document)) continue;
+    const quote = shown.text.trim();
+    if (quote !== "") byDocument.set(shown.document, { id: shown.id, quote });
+  }
+  return [...byDocument.values()];
+}
+
+/** Cites one Passage of each Document it was shown, then writes them into a new Mind as a summary. */
+function summarisingEveryDocument(
+  afterWrites: (call: ModelCall) => ScriptedReply = () => ({ text: "Done." }),
+): (call: ModelCall) => ScriptedReply {
+  let picked: readonly { id: string; quote: string }[] = [];
+  return (call) => {
+    if (call.results.some((each) => each.tool === "create_mind")) return afterWrites(call);
+    if (call.results.some((each) => each.tool === "cite")) {
+      const content = ["## Summary"]
+        .concat(picked.map((each, at) => `${each.quote} [^${at + 1}].`))
+        .join("\n\n");
+      return { calls: [{ tool: "create_mind", input: { title: "Summary", content } }] };
+    }
+    picked = aPassageOfEachShown(call);
+    return {
+      calls: [
+        {
+          tool: "cite",
+          input: {
+            citations: picked.map((each, at) => ({
+              marker: at + 1,
+              passage: each.id,
+              quote: each.quote,
+            })),
+          },
+        },
+      ],
+    };
+  };
+}
+
+/** The Documents a Mind the Answer made cites, as the editor reads its Citations. */
+async function citedInNewMind(core: Core, answer: ConversationAnswer): Promise<string[]> {
+  const made = changesIn(answer).find((change) => change.created);
+  if (!made) throw new Error("No Mind was made.");
+  const client = await connectToMind(core, made.mindId);
+  await client.settled();
+  return mindCitations(client)
+    .map((citation) => citation.documentId ?? "")
+    .sort();
+}
+
+/** A model that searches for "search Report 3 only", that test's one call, and otherwise answers "Covered.". */
+function answeringCovered(call: ModelCall): ScriptedReply {
+  if (call.prompt.includes("search Report 3 only") && call.results.length === 0) {
+    return {
+      calls: [{ tool: "search_documents", input: { query: "tide", document: "Report 3" } }],
+    };
+  }
+  return { text: "Covered." };
+}
+
 describe("A summary of many Documents, through the core", { timeout: 60_000 }, () => {
-  async function withDocuments(count: number) {
+  async function withDocuments(
+    count: number,
+    script: (call: ModelCall) => ScriptedReply = answeringCovered,
+  ) {
     const folder = await mkdtemp(join(tmpdir(), "coverage-"));
     const paths = await Promise.all(
       Array.from({ length: count }, async (_, at) => {
@@ -119,12 +196,7 @@ describe("A summary of many Documents, through the core", { timeout: 60_000 }, (
     const calls: { system: string; results: string[] }[] = [];
     const model = scriptedModel((call): ScriptedReply => {
       calls.push({ system: call.system, results: call.results.map((each) => each.text) });
-      if (call.prompt.includes("search Report 3 only") && call.results.length === 0) {
-        return {
-          calls: [{ tool: "search_documents", input: { query: "tide", document: "Report 3" } }],
-        };
-      }
-      return { text: "Covered." };
+      return script(call);
     });
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
@@ -177,6 +249,94 @@ describe("A summary of many Documents, through the core", { timeout: 60_000 }, (
     expect(system).toContain("the next summary takes “Report 9”,");
     expect(system).toContain("and “Report 16”, and 4 more come after those");
     expect(system).not.toContain("“Report 17”");
+  });
+
+  // protects=of 14 Documents the Answer covers the 8 largest, names the 6 left for the next summary, and the follow-up that line offers covers exactly those 6; fails_when=the 6 are unnamed, or the follow-up repeats the first 8 or misses one; no_claim=what the model writes.
+  test.each(["Write a summary page of these documents", "总结这些文档"])(
+    "%s, of 14, names the 6 left, and the follow-up covers them",
+    async (text) => {
+      const { core, mind, scope, calls } = await withDocuments(14, summarisingEveryDocument());
+
+      const answer = await askAssistant(core, { text, mindId: mind.id, scope });
+
+      const covered = answer.steps?.coverage;
+      expect(covered?.kind).toBe("largest");
+      expect(covered?.used.map((each) => each.name)).toEqual(
+        Array.from({ length: 8 }, (_, at) => `Report ${at + 1}`),
+      );
+      const rest = covered?.rest ?? [];
+      expect(rest).toHaveLength(6);
+      expect(calls[0]?.system).toContain("This Answer covers the 8 largest of the 14 Documents");
+      expect(calls[0]?.system).toContain(
+        "“Report 9”, “Report 10”, “Report 11”, “Report 12”, “Report 13” and “Report 14” are left for the next summary",
+      );
+      expect(await citedInNewMind(core, answer)).toEqual(
+        covered?.used.map((each) => each.id).sort(),
+      );
+
+      const followFrom = calls.length;
+      const again = await askAssistant(core, {
+        text,
+        mindId: mind.id,
+        scope: { folderIds: [], tagIds: [], documentIds: rest },
+      });
+
+      expect(again.steps?.coverage).toBeUndefined();
+      expect(calls[followFrom]?.system).toContain("The User asked about each of the 6 Documents.");
+      expect(await citedInNewMind(core, again)).toEqual([...rest].sort());
+    },
+  );
+
+  // protects=a reply that leaves out the Documents a capped summary left is asked once more with their names, and the reply the User reads names them; fails_when=the reply stands without them, or the ask names the wrong ones; no_claim=what the model writes.
+  test("a reply that leaves out the 6 left Documents is asked once more for them", async () => {
+    let nudged = "";
+    const { core, mind, scope } = await withDocuments(
+      14,
+      summarisingEveryDocument((call) => {
+        if (call.prompt.includes("the User reads only this one")) {
+          nudged = call.prompt;
+          return {
+            text: "“Report 9”, “Report 10”, “Report 11”, “Report 12”, “Report 13” and “Report 14” are left for the next summary. I can go on with them.",
+          };
+        }
+        return { text: "Done." };
+      }),
+    );
+
+    const answer = await askAssistant(core, {
+      text: "Write a summary page of these documents",
+      mindId: mind.id,
+      scope,
+    });
+
+    expect(nudged).toContain(
+      "“Report 9”, “Report 10”, “Report 11”, “Report 12”, “Report 13” and “Report 14” are left for the next summary",
+    );
+    expect(answer.text).toContain("“Report 9”");
+    expect(answer.text).toContain("“Report 14”");
+  });
+
+  // protects=a reply that names every Document the next summary takes is not asked again; fails_when=the ask comes anyway; no_claim=what the model writes.
+  test("a reply that names the 6 left Documents is not asked again", async () => {
+    let asks = 0;
+    const { core, mind, scope } = await withDocuments(
+      14,
+      summarisingEveryDocument((call) => {
+        if (call.prompt.includes("the User reads only this one")) asks += 1;
+        return {
+          text: "“Report 9”, “Report 10”, “Report 11”, “Report 12”, “Report 13” and “Report 14” are left for the next summary. I can go on with them.",
+        };
+      }),
+    );
+
+    const answer = await askAssistant(core, {
+      text: "Write a summary page of these documents",
+      mindId: mind.id,
+      scope,
+    });
+
+    expect(asks).toBe(0);
+    expect(answer.text).toContain("“Report 14”");
   });
 
   // protects=a Question about a topic across many Documents searches them all, with no cap; fails_when=it covers only the largest 8; no_claim=what the model writes.
@@ -585,4 +745,51 @@ describe("A name that fits two Documents, through the core (#1512)", { timeout: 
       rest: [idOf("会议纪要（2026年第一季度）")],
     });
   });
+});
+
+describe("A summary of each Document, with the examples there (#894)", { timeout: 120_000 }, () => {
+  // protects=in a Folder of 8 Documents plus the examples, a summary page cites each of the 8 and none of the examples; fails_when=an example is cited, or one of the 8 is left out; no_claim=what the model writes.
+  test.each(["Write a summary page of these documents", "总结这些文档"])(
+    "%s cites the 8 and none of the examples",
+    async (text) => {
+      const folder = await mkdtemp(join(tmpdir(), "coverage-examples-"));
+      const paths = await Promise.all(
+        Array.from({ length: 8 }, async (_, at) => {
+          const name = `Report ${at + 1}`;
+          const path = join(folder, `${name}.md`);
+          await writeFile(
+            path,
+            `# ${name}\n\n${name}, finding: the tide rose ${at} cm over the month, the survey said.\n`,
+          );
+          return path;
+        }),
+      );
+      const dataDir = await createTempDataFolder();
+      const core = startCore(dataDir, {
+        paths: { examples: EXAMPLES },
+        createChatModel: scriptedModels(scriptedModel(summarisingEveryDocument())).createChatModel,
+      });
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      await core.createExamples();
+      const group = await core.createLibraryGroup({ name: "Reports", description: "" });
+      const added = await core.addDocuments(paths, { groupId: group.id });
+      // The examples' Documents appear once their Linked folder is scanned.
+      await waitForDocuments(core, (documents) =>
+        expect(documents.length).toBeGreaterThanOrEqual(10),
+      );
+      const all = (await core.listDocuments()).map((document) => document.id);
+      await waitForProcessing(core, all, 60_000);
+      const examples = new Set<string>();
+      for (const id of all) if (await core.isExampleDocument(id)) examples.add(id);
+      expect(examples.size).toBeGreaterThan(0);
+
+      const mind = await core.createMind({ title: "Notes", folderId: group.id });
+      const answer = await askAssistant(core, { text, mindId: mind.id });
+
+      const own = added.documents.map((document) => document.id).sort();
+      const inPage = await citedInNewMind(core, answer);
+      expect(inPage).toEqual(own);
+      for (const id of examples) expect(inPage.includes(id)).toBe(false);
+    },
+  );
 });
