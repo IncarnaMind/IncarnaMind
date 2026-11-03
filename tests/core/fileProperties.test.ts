@@ -7,7 +7,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { utimes } from "node:fs/promises";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { ClaimCheckAttributes, Core, Document } from "../../src/core";
 import type { Language } from "../../src/core/language";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -22,6 +22,7 @@ import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models
 import { corePropertiesXml, docxOf, xlsxOf } from "../helpers/office";
 import { buildPdf } from "../helpers/pdf";
 import { para, pptxOf, sp, txBody } from "../helpers/pptx";
+import { transcribingCore } from "../helpers/transcription";
 
 /** How the scripted model checks a sentence about a file. */
 interface Plan {
@@ -54,7 +55,8 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
   return scriptedModel(
     (call) => {
       calls.push(call);
-      if (!isCheckRun(call)) throw new Error("Only checks run here.");
+      // A Meeting's notes are filled by the model too: it writes none.
+      if (!isCheckRun(call)) return { text: "" };
       const plan = plans[sentenceOf(call)] ?? { verdict: "unsupported" };
       const searches = call.results.filter((result) => result.tool === "search_documents");
       const first = searches.length === 0;
@@ -704,6 +706,36 @@ describe("Which Documents' properties a check shows", () => {
       verdict: "supported",
       evidence: { documentId: memo.id, location: property("modified", "2026-11-05T10:00:00Z") },
     });
+  });
+
+  // protects=a file IncarnaMind keeps itself, a Meeting's Transcript, has no properties of the User's file to show; fails_when=a check is shown the name, size or dates of IncarnaMind's own Transcript file as the file's.
+  test("a Meeting's Transcript, a file IncarnaMind keeps itself, shows none", async () => {
+    const SENTENCE = "The meeting's transcript file was last modified on 2 November 2026.";
+    const calls: ModelCall[] = [];
+    const model = propertyModel(
+      { [SENTENCE]: { verdict: "unsupported", property: "modified" } },
+      calls,
+    );
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      model,
+      engine: { lines: ["Dana will send the contract by Friday"] },
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(9_000);
+    const now = async () => (await core.listMeetings()).find((each) => each.id === meeting.id);
+    await vi.waitFor(async () => expect((await now())?.transcript?.lines ?? 0).toBeGreaterThan(0));
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () => expect((await now())?.transcript?.state).toBe("saved"));
+    const transcript = (await core.listDocuments()).find((each) => each.kind === "transcript");
+    expect(transcript).toMatchObject({ keptByApp: true, status: "ready" });
+
+    await core.checkClaim({ claim: SENTENCE });
+    const sent = calls.flatMap((call) => call.results.map((result) => result.text)).join("\n");
+    // The search read the Transcript's text, and was shown no properties of its file.
+    expect(sent).toContain("Dana will send the contract by Friday");
+    expect(sent).not.toContain("File properties of");
   });
 
   // protects=a Folder that keeps its work inside it keeps property Citations inside it too; fails_when=a Note outside the wall is shown, or cites, the walled Document's properties.
