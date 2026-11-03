@@ -260,20 +260,30 @@ test("Add to note and Collect into a Mind give quotes whose Citations are found"
   await expect(quote).toContainText("4% is held");
   await expect(quote.getByTestId("citation-chip")).toHaveAttribute("data-check", "found");
 
-  // Collect into a Mind, from the highlight's own menu.
+  // Collect into a Mind, from the highlight's own menu: a new Mind, a section for the Document,
+  // and its quote there with a Citation that is found.
+  const before = await (await coreOf(window)).evaluate(async (core) =>
+    (await core.listMinds()).map((mind) => mind.id),
+  );
   const panel = await openPanel(window, viewer);
   const row = panel.getByTestId("annotation-row").first();
   await row.click({ button: "right" });
   await pointAndClick(window, row.locator('[data-testid="annotation.collect"]').first());
+  let collectedMindId = "";
   await expect
-    .poll(
-      async () =>
-        (await (await coreOf(window)).evaluate(async (core) => (await core.listMinds()).length)) ??
-        0,
-    )
-    .toBeGreaterThan(1);
-  await expect(frontMind(window).locator("h2").filter({ hasText: "Costs" })).toBeVisible();
-  const collected = frontMind(window).locator("blockquote").first();
+    .poll(async () => {
+      const ids = await (await coreOf(window)).evaluate(async (core) =>
+        (await core.listMinds()).map((mind) => mind.id),
+      );
+      collectedMindId = ids.find((id) => !before.includes(id)) ?? "";
+      return collectedMindId;
+    })
+    .not.toBe("");
+  const collectedMind = window.locator(
+    `[data-testid="mind-pane"][data-mind-id="${collectedMindId}"]`,
+  );
+  await expect(collectedMind.locator("h2").filter({ hasText: "Costs" })).toBeVisible();
+  const collected = collectedMind.locator("blockquote").first();
   await expect(collected).toContainText("4% is held");
   await expect(collected.getByTestId("citation-chip")).toHaveAttribute("data-check", "found");
 });
