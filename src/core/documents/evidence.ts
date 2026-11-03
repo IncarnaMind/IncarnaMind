@@ -148,9 +148,15 @@ export function createEvidence(deps: EvidenceDependencies) {
     /**
      * The scope of a check: its Search scope (the Documents it resolves to,
      * or null for every Document) without the Documents left out of its
-     * evidence, for the document being checked, if any.
+     * evidence, for the Mind being checked and the document being checked,
+     * if any. The Mind is always left out of its own evidence (#335), so no
+     * caller can forget it.
      */
-    scope(documentIds: readonly string[] | null, checked: CheckedDocument = {}): EvidenceScope {
+    scope(
+      mindId: string | null,
+      documentIds: readonly string[] | null,
+      checked: CheckedDocument = {},
+    ): EvidenceScope {
       const excluded = new Map<string, EvidenceExclusion>();
       const scoped = documentIds === null ? "" : `AND ${inList("d.id")}`;
       const scopeParams = documentIds === null ? [] : [JSON.stringify(documentIds)];
@@ -176,14 +182,15 @@ export function createEvidence(deps: EvidenceDependencies) {
       );
       for (const row of workings) excluded.set(row.id, "own-workings");
 
-      const ownNoteMinds = checked.ownNoteMindIds ?? [];
-      if (ownNoteMinds.length > 0) {
+      const ownNoteMinds = new Set(checked.ownNoteMindIds ?? []);
+      if (mindId !== null) ownNoteMinds.add(mindId);
+      if (ownNoteMinds.size > 0) {
         const notes = db.all<{ id: string }>(
           `SELECT d.id FROM documents d
            WHERE d.deleted_at IS NULL
              AND d.your_note_mind_id IN (SELECT value FROM json_each(?))
              ${scoped}`,
-          [JSON.stringify(ownNoteMinds), ...scopeParams],
+          [JSON.stringify([...ownNoteMinds]), ...scopeParams],
         );
         for (const row of notes) excluded.set(row.id, "own-note");
       }

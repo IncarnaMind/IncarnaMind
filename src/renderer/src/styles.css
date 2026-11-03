@@ -1141,24 +1141,6 @@
   .mind-word-problem {
     margin: 0 0 16px;
   }
-  /* A Mind used as a source (#335): one quiet line, the whole of it the update. */
-  .mind-source {
-    margin: 0 0 16px;
-    font-family: var(--font-sans);
-    font-size: 12px;
-    line-height: 20px;
-    color: var(--color-ink-meta);
-  }
-  .mind-source-button {
-    border-radius: 4px;
-    padding: 0 2px;
-    text-align: left;
-  }
-  .mind-source-button:hover {
-    background: var(--color-hover);
-    color: var(--color-ink);
-  }
-
   /*
    * Parts joined by middle dots wrap only between parts, and no line starts or
    * ends with a dot (#684): each part draws the dot in the gap before it, and
@@ -5505,6 +5487,10 @@
     &[data-check="supported"] {
       --check-wash: none;
       color: var(--color-success);
+    }
+    /* Supported by the User's own notes alone: the ticked box in the meta ink, not the green tick (#335). */
+    &[data-check="supported"][data-own-note] {
+      color: var(--color-ink-meta);
     }
     /* Contradicted is outlined, so it reads without its colour. */
     &[data-check="contradicted"] {

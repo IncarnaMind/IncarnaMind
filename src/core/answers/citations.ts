@@ -443,6 +443,8 @@ export function documentNamedAmong(
 export interface RecheckDocuments {
   /** The current version of a live Document; null if it was deleted. */
   currentVersion(documentId: string): string | null;
+  /** The day the Document's snapshot was taken, when it is the User's own note (#335). */
+  yourNoteAt?(documentId: string): string | null;
   pageTexts: AnswerDocuments["pageTexts"];
   /** The live Passages of the current version covering these Units, in reading order. */
   passagesCovering(
@@ -496,10 +498,12 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
     const covered = inRange(range);
     // A scan's unsure word was still found: its place is where the quote is (#535).
     const held = check.check === "found" || check.checkReason === "unsure-word";
+    const yourNoteAt = documents.yourNoteAt?.(documentId) ?? null;
     return {
       ...check,
       contentHash,
       passageId: passageFor(range, quote),
+      ...(yourNoteAt && { yourNoteAt }),
       ...range,
       location:
         range.pageFrom === null || range.pageTo === null

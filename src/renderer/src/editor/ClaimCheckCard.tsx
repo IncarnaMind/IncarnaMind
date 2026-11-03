@@ -12,12 +12,13 @@ import {
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
 import type { ClaimCalculation, ClaimCheckPart, ClaimPartSpan } from "../../../core/api";
-import { shownDocumentName } from "../../../shared/citations";
+import { citedName, shownDocumentName } from "../../../shared/citations";
 import {
   checkedScope,
   coveredPart,
   SENTENCES_CHECKED_AT_MOST,
   saysNotFound,
+  supportedByOwnNotesOnly,
 } from "../../../shared/claimChecks";
 import { quotedSourceText } from "../../../shared/figureSchedule";
 import { formulaText } from "../../../shared/formula";
@@ -158,6 +159,8 @@ export function ClaimMark({
   // Its old verdict stands until the read's comes, but the mark says what its card says.
   const reading = useChecks((store) => store.running[mindId]?.read?.checkId === claim.check.id);
   const mark = reading ? "checking" : markOf(claim);
+  // Supported by the User's own notes alone: a box, so shape says it as well as colour (#335).
+  const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(claim.check);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
   const silent = mark === "not-checked";
   const id = claim.check.id;
@@ -186,9 +189,11 @@ export function ClaimMark({
   const editing = useEdits((store) => store.pending[mindId] !== undefined);
   // A check or an Edit with AI under way would write over the words a correction changes.
   const corrections = running || editing ? [] : correctionsFor(editor, claim);
-  const label = t("claim.mark.label", {
-    state: reading ? t("claim.state.checking") : heading,
-  });
+  const label = ownNoteOnly
+    ? t("claim.ownNote")
+    : t("claim.mark.label", {
+        state: reading ? t("claim.state.checking") : heading,
+      });
 
   const hold = useCallback((source: string, on: boolean) => {
     if (on) askers.current.add(source);
@@ -289,6 +294,7 @@ export function ClaimMark({
         data-open={open || undefined}
         data-guided={guided || undefined}
         data-addable={plus || undefined}
+        data-own-note={ownNoteOnly || undefined}
         className={`margin-check claim-mark ${inline ? "claim-mark--inline" : ""} ${reveal ? "margin-check--reveal" : ""}`}
         style={style}
         aria-label={label}
@@ -319,7 +325,9 @@ export function ClaimMark({
           if (event.target === event.currentTarget && reveal) onRevealed();
         }}
       >
-        {!silent && <ClaimMarkIcon state={mark} className="margin-check-icon" />}
+        {!silent && (
+          <ClaimMarkIcon state={mark} ownNoteOnly={ownNoteOnly} className="margin-check-icon" />
+        )}
         {plus && <span aria-hidden="true">+</span>}
       </button>
       {open && outlineLayer && <ClaimOutline editor={editor} id={id} layer={outlineLayer} />}
@@ -662,6 +670,7 @@ export function ClaimCard({
   const { shown, check } = claim;
   const state = shown.state;
   const mark = markOf(claim);
+  const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(check);
   const sentence = comparableSentence(claim.sentence.text);
   const decided = state === "supported" || state === "contradicted";
   const calculation = decided ? check.calculation : null;
@@ -833,8 +842,18 @@ export function ClaimCard({
         <>
           <div className="citation-card-head">
             <p data-testid="claim-badge" data-check={mark} className="citation-badge">
-              <ClaimMarkIcon state={mark} className="citation-badge-icon" />
-              <span>{decisionMissing ? t("claim.courtDecision.title") : heading}</span>
+              <ClaimMarkIcon
+                state={mark}
+                ownNoteOnly={ownNoteOnly}
+                className="citation-badge-icon"
+              />
+              <span>
+                {decisionMissing
+                  ? t("claim.courtDecision.title")
+                  : ownNoteOnly
+                    ? t("claim.ownNote")
+                    : heading}
+              </span>
             </p>
             <p data-testid="claim-sentence" className="claim-card-sentence">
               {t("claim.sentence", { sentence })}
@@ -874,8 +893,18 @@ export function ClaimCard({
         <>
           <div className="citation-card-head">
             <p data-testid="claim-badge" data-check={mark} className="citation-badge">
-              <ClaimMarkIcon state={mark} className="citation-badge-icon" />
-              <span>{decisionMissing ? t("claim.courtDecision.title") : heading}</span>
+              <ClaimMarkIcon
+                state={mark}
+                ownNoteOnly={ownNoteOnly}
+                className="citation-badge-icon"
+              />
+              <span>
+                {decisionMissing
+                  ? t("claim.courtDecision.title")
+                  : ownNoteOnly
+                    ? t("claim.ownNote")
+                    : heading}
+              </span>
             </p>
             {sentence && (
               <p data-testid="claim-sentence" className="claim-card-sentence">
@@ -909,12 +938,25 @@ export function ClaimCard({
             )}
             {evidence && (
               <p data-testid="claim-source" className="citation-card-source">
-                {[shownDocumentName(evidence, documents), where].filter(Boolean).join(" · ")}
+                {[
+                  citedName(
+                    {
+                      ...evidence,
+                      documentName:
+                        shownDocumentName(evidence, documents) || t("export.unnamedDocument"),
+                    },
+                    t,
+                    language,
+                  ),
+                  where,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </p>
             )}
-            {state === "supported" && evidenceDocument?.yourNote && (
+            {ownNoteOnly && (
               <p data-testid="claim-own-note" className="citation-card-note">
-                {t("claim.ownNote")}
+                {t("claim.ownSource")}
               </p>
             )}
             {savedFrom && (

@@ -2278,6 +2278,16 @@ export const migrations: readonly Migration[] = [
         WHERE your_note_mind_id IS NOT NULL AND deleted_at IS NULL;
     `,
   },
+  {
+    version: 127,
+    description:
+      "A Mind copied from another leaves that Mind's own snapshot out of its checks, as a copy leaves its Word original out (#335, #1935)",
+    sql: `
+      -- Null for a Mind not copied from another. A copy's checks leave the source Mind out of
+      -- their evidence, so the copy can't support itself with a snapshot of the words it copied.
+      ALTER TABLE minds ADD COLUMN duplicated_from_mind_id TEXT;
+    `,
+  },
 ];
 
 /**

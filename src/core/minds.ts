@@ -94,6 +94,21 @@ export function createMinds(db: Database, now: () => string) {
   return {
     get,
 
+    /** The Mind this one was copied from, if any: its own snapshot is never the copy's evidence (#335). */
+    duplicatedFrom(mindId: string): string | null {
+      return (
+        db.get<{ duplicated_from_mind_id: string | null }>(
+          "SELECT duplicated_from_mind_id FROM minds WHERE id = ? AND deleted_at IS NULL",
+          [mindId],
+        )?.duplicated_from_mind_id ?? null
+      );
+    },
+
+    /** Keeps a copy's source, for its checks, as a copy keeps its Word original (#335, #1935). */
+    setDuplicatedFrom(mindId: string, sourceMindId: string): void {
+      db.run("UPDATE minds SET duplicated_from_mind_id = ? WHERE id = ?", [sourceMindId, mindId]);
+    },
+
     /**
      * A Mind's name, and when it was deleted (null: it isn't), for what points at it, as
      * `locate` gives a conversation's; null for one deleted permanently or not on this computer.

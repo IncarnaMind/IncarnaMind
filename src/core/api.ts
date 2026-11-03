@@ -2195,6 +2195,8 @@ export interface CitationRecheck {
   pageFrom: number | null;
   pageTo: number | null;
   location: CitationLocation | null;
+  /** The Document is a snapshot of the User's own note: when it was taken (#335). */
+  yourNoteAt?: string;
   /**
    * Asked with the version the Citation quotes, which is no longer the current one: its check
    * in that version, at the Units it cites (ADR-0017's amendment); null once that version's
@@ -3739,6 +3741,8 @@ export interface CheckedDocument {
 export interface SearchEvidenceOptions {
   /** The check's Search scope. None: every Document. */
   scope?: SearchScope;
+  /** The Mind whose own snapshot is never its evidence (#335). None: no Mind. */
+  mindId?: string;
   checked?: CheckedDocument;
 }
 
@@ -6724,6 +6728,8 @@ export interface CheckClaimInput {
   cited?: CitedQuote[];
   /** Where to look. None: every Document. */
   scope?: SearchScope | null;
+  /** The Mind being checked, whose own snapshot is never its evidence (#335). */
+  mindId?: string;
   /** The document being checked, which is never its own evidence (#97). */
   checked?: CheckedDocument;
   /** The model to check with; none, or null, the default chat model. */

@@ -3,6 +3,8 @@
  * "Your note", which keeps what a Citation quoted when the Mind changes,
  * never supports its own Mind, and goes to Recently deleted with Undo.
  */
+import { access, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { Core, Document } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -61,7 +63,7 @@ const textOf = async (core: Core, documentId: string): Promise<string> =>
 
 describe("Using a Mind as a source", () => {
   test("saves a snapshot named after the Mind, in its Folder, marked Your note", async () => {
-    const { core } = await setUp();
+    const { core, dataDir } = await setUp();
     const folder = await core.createLibraryGroup({ name: "Field", description: "" });
     const { mind } = await mindWith(core, "Field visit", CLAIM, folder.id);
 
@@ -70,6 +72,8 @@ describe("Using a Mind as a source", () => {
 
     expect(document.name).toBe("Field visit");
     expect(document.kind).toBe("markdown");
+    expect((await stat(join(dataDir, "Notes", `${document.id}.md`))).mode & 0o777).toBe(0o600);
+    expect((await stat(join(dataDir, "Notes"))).mode & 0o777).toBe(0o700);
     expect(document.yourNote).toMatchObject({ mindId: mind.id });
     expect(document.yourNote?.snapshotAt).not.toBeNull();
     const text = await textOf(core, document.id);
@@ -273,7 +277,10 @@ describe("Using a Mind as a source", () => {
     const document = await ready(core, saved.id);
 
     // Checked from another Mind: the snapshot is evidence, marked as the User's own note.
-    const supported = await core.checkClaim({ claim: CLAIM, checked: { ownNoteMindIds: [] } });
+    const supported = await core.checkClaim({
+      claim: CLAIM,
+      checked: { ownNoteMindIds: [target.mind.id] },
+    });
     expect(supported.verdict).toBe("supported");
     if (!("evidence" in supported)) throw new Error("The supported check has no evidence.");
     expect(supported.evidence).toMatchObject({
@@ -291,7 +298,6 @@ describe("Using a Mind as a source", () => {
     expect(own.excluded).toContainEqual(
       expect.objectContaining({ documentId: document.id, reason: "own-note" }),
     );
-    expect(target.mind.id).toBeTruthy();
   });
 
   test("Remove as a source sends the snapshot to Recently deleted, and Undo brings it back", async () => {
@@ -317,6 +323,135 @@ describe("Using a Mind as a source", () => {
     await core.restore([{ kind: "document", id: document.id }]);
     const back = (await core.listDocuments()).find((each) => each.id === document.id);
     expect(back?.yourNote?.mindId).toBe(mind.id);
+  });
+
+  test("Undo of an update writes the version before it back, dated when it was taken", async () => {
+    const { core, clock } = await setUp();
+    const { mind, client } = await mindWith(core, "Field visit", CLAIM);
+    const saved = await core.saveMindAsSource(mind.id);
+    await ready(core, saved.id);
+    const first = await core.citeSelection({
+      documentId: saved.id,
+      parts: [{ unit: null, text: CLAIM }],
+    });
+    expect(first.yourNoteAt).toBe("2026-10-12T10:00:00.000Z");
+
+    editMind(client, (blocks) => blocks.map((block, at) => (at === 1 ? note(CHANGED) : block)));
+    await client.settled();
+    clock.advance(2 * 24 * 60 * 60 * 1000);
+    const update = await core.updateMindSourceSnapshot(mind.id);
+    await ready(core, saved.id);
+    const updated = await core.citeSelection({
+      documentId: saved.id,
+      parts: [{ unit: null, text: CHANGED }],
+    });
+    expect(updated.yourNoteAt).toBe("2026-10-14T10:00:00.000Z");
+
+    await core.restoreMindSourceSnapshot(saved.id, {
+      text: update.previousText,
+      snapshotAt: update.previousSnapshotAt,
+    });
+    await ready(core, saved.id);
+    expect(await textOf(core, saved.id)).toContain(CLAIM);
+    expect(await textOf(core, saved.id)).not.toContain(CHANGED);
+    const undone = await core.citeSelection({
+      documentId: saved.id,
+      parts: [{ unit: null, text: CLAIM }],
+    });
+    expect(undone.yourNoteAt).toBe("2026-10-12T10:00:00.000Z");
+  });
+
+  test("a new Citation made from the viewer carries the snapshot's date", async () => {
+    const { core } = await setUp();
+    const { mind } = await mindWith(core, "Field visit", CLAIM);
+    const saved = await core.saveMindAsSource(mind.id);
+    await ready(core, saved.id);
+    const cited = await core.citeSelection({
+      documentId: saved.id,
+      parts: [{ unit: null, text: "Harbours publish the times" }],
+    });
+    expect(cited.yourNoteAt).toBe("2026-10-12T10:00:00.000Z");
+  });
+
+  test("deleting the snapshot permanently removes its words from the data folder", async () => {
+    const { core, dataDir } = await setUp();
+    const { mind } = await mindWith(core, "Field visit", CLAIM);
+    const saved = await core.saveMindAsSource(mind.id);
+    const document = await ready(core, saved.id);
+    const file = join(dataDir, "Notes", `${document.id}.md`);
+    await expect(access(file)).resolves.toBeUndefined();
+    await core.deleteDocument(document.id);
+    await core.deletePermanently([{ kind: "document", id: document.id }]);
+    await expect(stat(file)).rejects.toThrow();
+    expect(mind.id).toBeTruthy();
+  });
+
+  test("a copy of a Mind never uses its source Mind's snapshot as evidence", async () => {
+    const { core } = await setUp();
+    const { mind } = await mindWithBlock(core, "Field visit", CLAIM);
+    const sources = await createTempDataFolder();
+    const control = await writeSourceFile(
+      sources,
+      "Tides.txt",
+      "Spring tides come at the new moon and the full moon.",
+    );
+    await addAndProcess(core, [control]);
+    const saved = await core.saveMindAsSource(mind.id);
+    const snapshot = await ready(core, saved.id);
+    const copy = await core.duplicateMind(mind.id);
+    const client = await connectToMind(core, copy.id);
+    writeMind(client, [
+      { type: "paragraph", attrs: { id: "two" }, content: [{ type: "text", text: CLAIM }] },
+    ]);
+    await client.settled();
+    await core.checkSentences({
+      requestId: "copy-check",
+      mindId: copy.id,
+      action: "check-against-documents",
+      from: { blockId: "two", offset: 0 },
+      to: { blockId: "two", offset: CLAIM.length },
+    });
+    await client.settled();
+    const mark = claimSpans(readMind(client))[0];
+    expect(mark?.check.excluded).toContainEqual(
+      expect.objectContaining({ documentId: snapshot.id, reason: "own-note" }),
+    );
+  });
+
+  test("the words for a source, its menu foot, Get info and its check", () => {
+    expect(translate("en", "mind.updateSnapshot")).toBe("Update the snapshot");
+    expect(translate("zh-CN", "mind.updateSnapshot")).toBe("更新快照");
+    expect(translate("en", "mind.removeAsSource")).toBe("Remove as a source");
+    expect(translate("zh-CN", "mind.removeAsSource")).toBe("不再作为来源");
+    expect(translate("zh-CN", "mind.removeAsSourceMany", { count: 2 })).toBe(
+      "不再将 2 篇笔记作为来源",
+    );
+    expect(translate("en", "mind.sourceFoot", { date: "12 Oct", time: "10:00" })).toBe(
+      "Used as a source · snapshot of 12 Oct, 10:00",
+    );
+    expect(translate("zh-CN", "mind.sourceFoot", { date: "10月12日", time: "10:00" })).toBe(
+      "已作为来源 · 快照于 10月12日 10:00",
+    );
+    expect(translate("en", "mind.snapshotAt", { date: "12 Oct", time: "10:00" })).toBe(
+      "snapshot of 12 Oct, 10:00",
+    );
+    expect(translate("zh-CN", "mind.snapshotAt", { date: "10月12日", time: "10:00" })).toBe(
+      "快照于 10月12日 10:00",
+    );
+    expect(translate("en", "claim.ownNote")).toBe("Supported by your own note");
+    expect(translate("zh-CN", "claim.ownNote")).toBe("依据来自你自己的笔记");
+    expect(translate("en", "claim.ownSource")).toBe("Your own record, not an outside source");
+    expect(translate("zh-CN", "claim.ownSource")).toBe("你自己的记录，不是外部来源");
+    expect(translate("en", "citation.ownRecord")).toBe("Your own record");
+    expect(translate("zh-CN", "citation.ownRecord")).toBe("你自己的记录");
+    expect(translate("en", "health.ownNotes", { count: 3 })).toBe(
+      "3 supported only by your own notes",
+    );
+    expect(translate("en", "health.ownNotes.one")).toBe("1 supported only by your own note");
+    expect(translate("zh-CN", "health.ownNotes", { count: 3 })).toBe(
+      "其中 3 句只有你自己的笔记作依据",
+    );
+    expect(translate("zh-CN", "health.ownNotes.one")).toBe("其中 1 句只有你自己的笔记作依据");
   });
 
   test("a Citation to a snapshot reads Your note: its title and the date", () => {

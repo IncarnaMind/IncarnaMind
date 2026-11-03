@@ -12,7 +12,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
-import { access, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { normaliseAddress } from "../../../shared/webAddresses";
 import type { PageLook } from "../../adapters";
@@ -20,6 +20,7 @@ import type { Document, SaveWebPageInput, WebPageOrigin, WebPageResult } from ".
 import { InvalidInputError, isRecord, NotFoundError } from "../../errors";
 import type { Database } from "../../storage";
 import { hashBytes } from "../files";
+import { writeWholeFile } from "../writeWhole";
 import { WebPageError } from "./errors";
 import { type FetchLimits, fetchPage, type PageFetch } from "./fetch";
 import { type FetchedPicture, fetchPictures, type PictureLimits } from "./pictures";
@@ -282,18 +283,7 @@ export function createWebPages(options: WebPagesOptions) {
 
   /** Writes a snapshot over `path`, whole or not at all. */
   async function write(path: string, xhtml: string): Promise<SnapshotFile> {
-    await mkdir(folder, { recursive: true });
-    const bytes = Buffer.from(xhtml, "utf8");
-    const partial = `${path}.${randomUUID()}.part`;
-    try {
-      await writeFile(partial, bytes);
-      await rename(partial, path);
-    } catch (error) {
-      await rm(partial, { force: true });
-      throw error;
-    }
-    const { mtimeMs } = await stat(path);
-    return { path, contentHash: hashBytes(bytes), size: bytes.byteLength, mtimeMs };
+    return writeWholeFile(path, Buffer.from(xhtml, "utf8"));
   }
 
   let looks: Promise<void> = Promise.resolve();

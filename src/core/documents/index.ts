@@ -2915,6 +2915,24 @@ export function createDocuments(options: DocumentsOptions) {
       );
     },
 
+    /** When the live Document's snapshot was taken, or null for a Document that isn't one (#335). */
+    yourNoteAt(documentId: string): string | null {
+      const row = db.get<{
+        mind: string | null;
+        at: string | null;
+        version_at: string | null;
+      }>(
+        `SELECT d.your_note_mind_id AS mind, d.your_note_at AS at,
+           (SELECT dp.version_at FROM document_pages dp
+            WHERE dp.document_id = d.id AND dp.content_hash = d.content_hash
+              AND dp.deleted_at IS NULL
+            ORDER BY dp.page LIMIT 1) AS version_at
+         FROM documents d WHERE d.id = ? AND d.deleted_at IS NULL`,
+        [documentId],
+      );
+      return row && row.mind !== null ? (row.version_at ?? row.at) : null;
+    },
+
     /** The live Document that is this Mind's snapshot, or null (#335). */
     yourNoteDocument(mindId: string): Document | null {
       const row = db.get<DocumentRow>(
@@ -3251,8 +3269,17 @@ export function createDocuments(options: DocumentsOptions) {
       const converted = new Set(
         places.filter((path) => isInside(convertedRoot, path)).map((path) => dirname(path)),
       );
+      // A note's snapshot is a Document's file too: once the Document is purged, its words go (#335).
+      const notes = db
+        .all<{ id: string }>(
+          `SELECT d.id FROM documents d
+           WHERE d.purged_at IS NOT NULL AND d.your_note_mind_id IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM documents o WHERE o.id = d.id AND o.purged_at IS NULL)`,
+        )
+        .map((row) => join(dataDir, "Notes", `${row.id}.md`));
       await Promise.all([
         ...copies.map((path) => rm(path, { force: true }).catch(reportError)),
+        ...notes.map((path) => rm(path, { force: true }).catch(reportError)),
         ...[...converted]
           .filter((folder) => folder !== convertedRoot)
           .map((folder) =>

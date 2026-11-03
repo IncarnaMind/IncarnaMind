@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import type { Document, LibraryGroup, LinkedFolder } from "../../../core/api";
+import { formatShortDate, formatTime } from "../../../shared/dates";
 import { displayName } from "../../../shared/documentNames";
 import { mindName } from "../../../shared/naming";
 import { copyText } from "../copied";
@@ -322,6 +323,14 @@ function DocumentInfo({ document }: { document: Document }) {
         ) : (
           <Row label={t("info.where")} testId="info-path">
             {file ? document.path : t("info.inLibrary")}
+          </Row>
+        )}
+        {document.yourNote && (
+          <Row label={t("mind.yourNote")} testId="info-your-note">
+            {t("mind.snapshotAt", {
+              date: formatShortDate(document.yourNote.snapshotAt, language),
+              time: formatTime(document.yourNote.snapshotAt, language),
+            })}
           </Row>
         )}
         {file && (

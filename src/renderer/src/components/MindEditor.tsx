@@ -79,7 +79,6 @@ import { ListKeys } from "../editor/listKeys";
 import { MarginChecks } from "../editor/MarginChecks";
 import { MathEditing, MathEditor } from "../editor/MathEditor";
 import { MindOutline } from "../editor/MindOutline";
-import { MindSourceLine } from "../editor/MindSourceLine";
 import { MeetingNotes } from "../editor/meetingNotes";
 import {
   CompareSheetSlotContext,
@@ -904,7 +903,6 @@ function MindEditorView({
             <>
               <WordImportProgress doc={doc} />
               <OriginalNotAdded mindId={mindId} />
-              <MindSourceLine mindId={mindId} readOnly={readOnly} />
             </>,
             slots.top,
           )}

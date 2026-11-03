@@ -45,7 +45,8 @@ export async function saveAsSources(minds: readonly Mind[]): Promise<Undoable> {
       for (const document of documents) await core.deleteDocument(document.id);
     },
     redo: async () => {
-      for (const mind of minds) await core.saveMindAsSource(mind.id);
+      // The same Documents come back, so Citations that named them read as they did.
+      await core.restore(documents.map((document) => ({ kind: "document", id: document.id })));
     },
   };
 }

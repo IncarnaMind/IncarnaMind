@@ -9,7 +9,7 @@
  * A Mind's own snapshot is never evidence for that Mind (see ./documents/evidence).
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { formatDate, formatTime } from "../shared/dates";
 import { translate } from "../shared/i18n";
@@ -17,6 +17,7 @@ import { mindName } from "../shared/naming";
 import type { Document, Mind, MindSourceUpdate } from "./api";
 import { hashBytes } from "./documents/files";
 import type { SnapshotFile } from "./documents/web";
+import { writeWholeFile } from "./documents/writeWhole";
 import { NotFoundError } from "./errors";
 import { exportLabels } from "./exports/labels";
 import { renderMarkdown } from "./exports/markdown";
@@ -130,27 +131,22 @@ export function createMindSources(deps: MindSourcesDependencies) {
     })}\n`;
   };
 
-  async function writeFileFor(
+  /** The snapshot's file, whole or not at all, dated when it was taken rather than when it was written. */
+  async function writeSnapshot(
     documentId: string,
     markdown: string,
     at: string,
   ): Promise<SnapshotFile> {
     const path = snapshotPath(dataDir, documentId);
-    const bytes = new TextEncoder().encode(markdown);
     await mkdir(join(dataDir, "Notes"), { recursive: true, mode: 0o700 });
-    await writeFile(path, bytes, { mode: 0o600 });
-    // The version is dated when the snapshot was taken, not by the file's clock.
-    const taken = new Date(at);
-    if (!Number.isNaN(taken.getTime())) await utimes(path, taken, taken);
-    const info = await stat(path);
-    return { path, contentHash: hashBytes(bytes), size: bytes.byteLength, mtimeMs: info.mtimeMs };
+    return writeWholeFile(path, new TextEncoder().encode(markdown), at);
   }
 
   async function create(mindId: string): Promise<Document> {
     const mind = deps.minds.get(mindId);
     const id = randomUUID();
     const at = now();
-    const file = await writeFileFor(id, markdownOf(id, mind, at, null), at);
+    const file = await writeSnapshot(id, markdownOf(id, mind, at, null), at);
     const document = documents.addYourNote(id, nameOf(mind), file, mind.id);
     if (mind.folderId !== null) deps.assign(document.id, mind.folderId);
     return documents.get(document.id);
@@ -164,9 +160,7 @@ export function createMindSources(deps: MindSourcesDependencies) {
     const previousText = await readFile(document.path, "utf8");
     const previousSnapshotAt = document.yourNote?.snapshotAt ?? at;
     const markdown = markdownOf(document.id, mind, at, document.id);
-    await writeFile(document.path, new TextEncoder().encode(markdown), { mode: 0o600 });
-    const taken = new Date(at);
-    if (!Number.isNaN(taken.getTime())) await utimes(document.path, taken, taken);
+    await writeSnapshot(document.id, markdown, at);
     await documents.checkNow(document.path);
     if (document.name !== nameOf(mind)) documents.rename(document.id, nameOf(mind));
     const updated = documents.setYourNoteAt(document.id, at);
@@ -202,10 +196,8 @@ export function createMindSources(deps: MindSourcesDependencies) {
     ): Promise<Document> {
       const document = documents.get(documentId);
       if (!document.yourNote) throw new NotFoundError({ key: "error.mindSource.notSnapshot" });
-      await writeFile(document.path, new TextEncoder().encode(input.text), { mode: 0o600 });
       // The version it was is dated when it was taken, not when Undo wrote it back.
-      const taken = new Date(input.snapshotAt);
-      if (!Number.isNaN(taken.getTime())) await utimes(document.path, taken, taken);
+      await writeSnapshot(document.id, input.text, input.snapshotAt);
       await documents.checkNow(document.path);
       const updated = documents.setYourNoteAt(document.id, input.snapshotAt);
       documents.announce(document.id);

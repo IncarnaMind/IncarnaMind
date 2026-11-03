@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { formatShortDate } from "../src/shared/dates";
+import { formatShortDate, formatTime } from "../src/shared/dates";
 import {
   addDocuments,
   capture,
@@ -40,20 +40,24 @@ type Language = "en" | "zh-CN";
 const strings = (language: Language) =>
   language === "zh-CN"
     ? {
-        sourceLine: "已作为来源 · 更新快照",
         yourNote: "你的笔记",
         supported: "依据来自你自己的笔记",
         ownRecord: "你自己的记录",
+        ownSource: "你自己的记录，不是外部来源",
         removed: "来源已移除。",
         yourNotePrefix: "你的笔记",
+        update: "更新快照",
+        remove: "不再作为来源",
       }
     : {
-        sourceLine: "Used as a source · Update the snapshot",
         yourNote: "Your note",
         supported: "Supported by your own note",
         ownRecord: "Your own record",
+        ownSource: "Your own record, not an outside source",
         removed: "The source was removed.",
         yourNotePrefix: "Your note",
+        update: "Update the snapshot",
+        remove: "Remove as a source",
       };
 
 let dataDirs: string[];
@@ -144,20 +148,42 @@ for (const language of ["en", "zh-CN"] as const) {
     await mindWith(window, "Field visit", CLAIM);
     await motionSettled(window);
     await capture(window, `before-source-${language}-1440`);
+    // The menu before it is a source: Use as a source, and no source foot.
+    const beforeMenu = await openPageMenu(window);
+    await expect(beforeMenu.getByTestId("mind-source-foot")).toBeHidden();
+    await expect(beforeMenu.getByTestId("mind.useAsSource")).toBeVisible();
+    await capture(window, `menu-before-source-${language}-1440`);
+    await window.keyboard.press("Escape");
+    await expect(beforeMenu).toBeHidden();
 
     // The recorded flow: use it as a source, cite it, and read its Citation.
     const citeFlow = async () => {
       const menu = await openPageMenu(window);
       await pointAndClick(window, menu.getByTestId("mind.useAsSource"));
-      const sourceLine = window.getByTestId("mind-source-line");
-      await expect(sourceLine).toHaveText(words.sourceLine);
-      await expect(sourceLine).toBeVisible();
       await expect
         .poll(async () => (await snapshotOf(window, "Field visit"))?.status, { timeout: 60_000 })
         .toBe("ready");
       const source = await snapshotOf(window, "Field visit");
-      if (!source) throw new Error("No snapshot Document.");
+      if (!source?.snapshotAt) throw new Error("The snapshot has no date.");
       expect(source.name).toBe("Field visit");
+      const date = formatShortDate(source.snapshotAt, language);
+      // The built app runs with --lang=en-GB, which writes the time in 24 hours.
+      const time = formatTime(source.snapshotAt, language, { twelveHour: false });
+      const label =
+        language === "zh-CN" ? `你的笔记：Field visit，${date}` : `Your note: Field visit, ${date}`;
+      // The menu's foot says when the snapshot was taken; its own items act.
+      const foot = await openPageMenu(window);
+      await expect(foot.getByTestId("mind-source-foot")).toHaveText(
+        language === "zh-CN"
+          ? `已作为来源 · 快照于 ${date} ${time}`
+          : `Used as a source · snapshot of ${date}, ${time}`,
+      );
+      // Only the items act: the foot's words are a paragraph, not a button.
+      await expect(foot.getByTestId("mind-source-foot")).toHaveJSProperty("tagName", "P");
+      await expect(foot.getByTestId("mind.updateSourceSnapshot")).toHaveText(words.update);
+      await expect(foot.getByTestId("mind.removeAsSource")).toHaveText(words.remove);
+      await capture(window, `menu-source-${language}-1440`);
+      await window.keyboard.press("Escape");
       await capture(window, `after-source-${language}-1440`);
 
       // The Library row carries "Your note", and the snapshot has the Mind's words.
@@ -177,19 +203,20 @@ for (const language of ["en", "zh-CN"] as const) {
       await checkAgainstDocuments(window);
       const mark = window.getByTestId("claim-mark");
       await expect(mark).toHaveAttribute("data-check", "supported", { timeout: 60_000 });
+      // A ticked box, not the green tick: this support is the User's own note alone.
+      await expect(mark).toHaveAttribute("data-own-note", "true");
+      await expect(mark).toHaveAttribute("aria-label", words.supported);
       await pointAndClick(window, mark);
       const claim = window.getByTestId("claim-card");
-      await expect(claim.getByTestId("claim-own-note")).toHaveText(words.supported);
+      await expect(claim.getByTestId("claim-badge")).toContainText(words.supported);
+      await expect(claim.getByTestId("claim-source")).toContainText(label);
+      await expect(claim.getByTestId("claim-own-note")).toHaveText(words.ownSource);
       await capture(window, `supported-${language}-1440`);
       await pointAndClick(window, claim.getByTestId("claim-add-citation"));
       const citation = window.getByTestId("citation").first();
       await expect(citation).toBeVisible();
       await pointAndClick(window, citation);
       const card = window.getByTestId("citation-card");
-      if (!source.snapshotAt) throw new Error("The snapshot has no date.");
-      const date = formatShortDate(source.snapshotAt, language);
-      const label =
-        language === "zh-CN" ? `你的笔记：Field visit，${date}` : `Your note: Field visit, ${date}`;
       await expect(card.getByTestId("citation-source")).toHaveText(label);
       await expect(card.getByTestId("citation-own-record")).toHaveText(words.ownRecord);
       await capture(window, `citation-${language}-1440`);
@@ -210,7 +237,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect
       .poll(() => snapshotText(window, source.id), { timeout: 60_000 })
       .not.toContain("Edited");
-    await pointAndClick(window, window.getByTestId("mind-source-line"));
+    const updateMenu = await openPageMenu(window);
+    await pointAndClick(window, updateMenu.getByTestId("mind.updateSourceSnapshot"));
     await expect
       .poll(() => snapshotText(window, source.id), { timeout: 60_000 })
       .toContain("Edited");
@@ -243,10 +271,12 @@ for (const language of ["en", "zh-CN"] as const) {
     await mindWith(window, "Own record", OTHER);
     const ownMenu = await openPageMenu(window);
     await pointAndClick(window, ownMenu.getByTestId("mind.useAsSource"));
-    await expect(window.getByTestId("mind-source-line")).toBeVisible();
     await expect
       .poll(async () => (await snapshotOf(window, "Own record"))?.status, { timeout: 60_000 })
       .toBe("ready");
+    const ownFoot = await openPageMenu(window);
+    await expect(ownFoot.getByTestId("mind-source-foot")).toBeVisible();
+    await window.keyboard.press("Escape");
     await selectSentence(window, OTHER);
     await checkAgainstDocuments(window);
     const ownMark = window.getByTestId("claim-mark");
@@ -264,7 +294,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await showMind(window, "Field visit");
     const removeMenu = await openPageMenu(window);
     await pointAndClick(window, removeMenu.getByTestId("mind.removeAsSource"));
-    await expect(window.getByTestId("mind-source-line")).toBeHidden();
+    const afterRemove = await openPageMenu(window);
+    await expect(afterRemove.getByTestId("mind-source-foot")).toBeHidden();
+    await expect(afterRemove.getByTestId("mind.useAsSource")).toBeVisible();
+    await window.keyboard.press("Escape");
     await showMind(window, "Draft");
     await pointAndClick(window, window.getByTestId("citation").first());
     await expect(window.getByTestId("citation-card").getByTestId("citation-reason")).toHaveText(
@@ -276,6 +309,27 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await pointAndClick(window, window.getByTestId("undo-action"));
     await showMind(window, "Field visit");
-    await expect(window.getByTestId("mind-source-line")).toBeVisible();
+    const undone = await openPageMenu(window);
+    await expect(undone.getByTestId("mind-source-foot")).toBeVisible();
+    await window.keyboard.press("Escape");
+
+    // Redo of Use as a source brings the same Document back, so its Citations read as they did.
+    await mindWith(window, "Loop", OTHER);
+    const loopMenu = await openPageMenu(window);
+    await pointAndClick(window, loopMenu.getByTestId("mind.useAsSource"));
+    await expect
+      .poll(async () => (await snapshotOf(window, "Loop"))?.status, { timeout: 60_000 })
+      .toBe("ready");
+    const beforeUndo = await snapshotOf(window, "Loop");
+    if (!beforeUndo) throw new Error("No snapshot to undo.");
+    await pointAndClick(window, window.getByTestId("undo-action"));
+    await expect
+      .poll(async () => (await snapshotOf(window, "Loop")) ?? null, { timeout: 60_000 })
+      .toBeNull();
+    // The line's Redo goes after 10 s; the keyboard reaches the same redo at any time.
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => (await snapshotOf(window, "Loop"))?.id ?? null, { timeout: 60_000 })
+      .toBe(beforeUndo.id);
   });
 }
