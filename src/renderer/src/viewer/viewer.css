@@ -553,9 +553,13 @@
   .quote-mark-label {
     @apply ml-[3px] border-l border-current/25 pl-[5px] font-semibold whitespace-nowrap;
   }
-  /* Measured but not shown: there is no room for it beside the page's text. */
-  .quote-mark-label--measured {
+  /* Not shown: there is no room for it beside the page's text. */
+  .quote-mark-label--hidden {
     @apply pointer-events-none invisible absolute;
+  }
+  /* A copy of the mark, never shown, that gives its width with its label and without (#2459). */
+  .quote-mark--copy {
+    @apply invisible top-0 left-0;
   }
 
   /* A deck's or a document's outline: a slide's number before its title. */

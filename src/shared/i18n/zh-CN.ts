@@ -827,6 +827,7 @@ export const zhCN = {
   "figures.inline.note":
     "各项输入均引用自其文档，运算由 IncarnaMind 完成。这并不说明所用数字就是适合此次计算的数字。",
   "figures.inline.analysisNote": "这里显示的是随此数字保留的输入和步骤。保留记录不会重新运行分析。",
+  "figures.inline.analysisUnavailable": "此数字保存的输入和步骤已不可用，IncarnaMind 按数值写出。",
   "figures.inline.analysis": "保留的分析记录：{title}",
   "figures.analysisRows.worked.one": "“{input}”{rows}中{label}的{how}（共 {count} 行）",
   "figures.analysisRows.worked.other": "“{input}”{rows}中{label}的{how}（共 {count} 行）",
@@ -4670,6 +4671,8 @@ export const zhCN = {
   "error.figure.checking": "数字仍在核对。核对完成后，请导出核对表。",
   "error.figure.evidenceMissing": "此数字保留的输入暂不可用。请重新核对数字或选择其来源。",
   "error.figure.paste": "未能粘贴计算依据。请重新复制这个数字，或粘贴为纯文本。",
+  "error.figure.copyIncomplete":
+    "此数字保存的输入不完整，无法连同检查结果一起复制。请改为复制纯文本，或重新核对该数字。",
   "error.conversation.notFound": "这个对话不存在或已删除。",
   "error.question.empty": "先输入问题，再提问。",
   "error.question.analyseChoice": "问题是否可以分析数据只能是 true 或 false。",

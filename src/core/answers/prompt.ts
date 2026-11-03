@@ -136,6 +136,7 @@ export function analysisInstructions(offered: boolean): string {
   return [
     "A search shows only some rows of a sheet or CSV file. For any total, count, average, share, change or join over its rows, call run_analysis: it runs your Python with pandas over every row. Never answer such a question from the rows you were shown, or say you saw only part of the sheet.",
     '- Read data only from inputs["name"]: a Passage of a sheet reads all of it (one input per sheet; a range only for part), or a number quoted from a Passage. A number a calculation uses must be an input, cited, never written in the code.',
+    '- A table in a PDF, Word file or deck is an input too, {"name": "costs", "passage": "P5"}: all its rows, over every page, each cited where the Document has it. Use it to add up, count or compare a table\'s rows; for a figure from two or three numbers a Passage shows, calculate is enough. A table\'s rows can hold its totals, subtotals and the lines it carries over a page: leave those out of a sum of its entries, and compare the sum with the total it prints.',
     '- Call step(label, df) after each change to the rows. Give each sum, mean, min, max or count of an input\'s column with figure(name, df[column], how, label, unit), which IncarnaMind works out again from the cells, and each other figure or table the Answer uses with result(name, value, label, unit): a number or a table, never text. A figure a model or a test works out also names the input\'s rows it used, as of=: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, unit % takes a fraction: 0.081 shows 8.1%. Each run starts clean, with no clock: take a date as an input.',
     "- For statistics, models and forecasts, import scipy, statsmodels or sklearn. Draw a simple series with chart(); plot with matplotlib.pyplot what chart() can't draw, such as points coloured by group, a fitted line or a distribution.",
     "- In the Answer, put each [=table n], [=chart n] and [=picture n] on a line of its own where it goes, and don't write the table yourself.",
@@ -393,6 +394,20 @@ export function meetingInstructions(listening: boolean): string {
 }
 
 /**
+ * What a live call's recap may use, in the Question's message beside the Question so the model
+ * reads it where it answers, not only in the system prompt (#1319): the call is the live transcript,
+ * and an earlier reply is for follow-ups about it, not part of the call.
+ */
+export const CALL_SCOPE_NOTE = [
+  "<call>",
+  "The live transcript above is what was said in this call. An earlier reply is not part of the call: it is there for follow-ups about it.",
+  "When a recap or summary of the call is asked and <live-transcript> is empty, say there is no call content yet rather than summarizing Library Documents or the earlier reply.",
+  "A recap or summary of the call is what was said in it: a short list, each line citing the live-transcript passage it rests on, plus the written notes when the Question asks for them.",
+  "A recap has no heading or closing line, and adds no unrequested suggestion, question to ask, or topic still to cover.",
+  "</call>",
+].join("\n");
+
+/**
  * Connectors that are on but can't be used until the User signs in to them
  * again: their Tools aren't offered, and the Answer says so if it needed them.
  */
@@ -542,14 +557,14 @@ const RECORD = `the Passage's id, where the quote is, and a short quote copied e
  * number it works out, simple ones included.
  */
 const CALCULATE = [
-  'Never work out a number yourself, not even a simple one: for any number the Answer gives that isn\'t written in a Passage (a difference, sum, average, ratio, share, growth rate, CAGR, change in percentage points, conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number\'s place, with no number or unit beside it: "grew [=1] in 2025", not "grew 20.4% [=1]".',
-  '- Name each input\'s number as it is written in its quote, labelled with what it is and its period; give a table heading\'s unit line ("单位：万元", "in millions") as unitQuote. Inputs come in base units with that scale applied: give scale ("亿", "billion") to show another, never convert in the formula.',
-  "- A number copied as it is from a Passage is cited with [^n]; calculate is only for numbers you work out.",
-  "- If calculate refuses a figure, fix what its reply says and call it again; never write that you couldn't calculate a number whose inputs you cited.",
+  'Never work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number\'s place, with no number or unit beside it: "grew [=1] in 2025", not "grew 20.4% [=1]".',
+  '- Name each input\'s number as it is written in its quote, labelled with what it is and its period; give the line that states its scale ("单位：万元", "All amounts in £\'000") as unitQuote, also from a parent section or an earlier whole-Document page. Inputs come in base units with that scale applied: give scale ("亿", "billion") to show another, never convert in the formula.',
+  "- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.",
+  "- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.",
 ].join("\n");
 
 /** Structured output's `calculations`, for a model offered them: what `CALCULATE` is to the Tool loop. */
-const CALCULATIONS = `- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel's syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number's unit or scale is only in a table's heading ("单位：万元"), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it. ${ROW_CONTEXT}.`;
+const CALCULATIONS = `- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel's syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number's unit or scale is only in a table's heading ("单位：万元") or in another Passage whose line says it holds for the whole Document ("All amounts in £'000", under a parent heading or on an earlier page), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it. ${ROW_CONTEXT}.`;
 
 /**
  * For a model that answers without Tools and isn't offered `calculations` (#1796): asked to use

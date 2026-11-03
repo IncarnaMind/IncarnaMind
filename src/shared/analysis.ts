@@ -27,6 +27,8 @@ export type AnalysisInput =
       firstRow: number;
       /** Each row's own number in its sheet, where they don't all follow on from `firstRow`. */
       rowNumbers?: readonly number[];
+      /** Its cells were read from a scan's picture (#448): a figure of them isn't worked out again. */
+      readFromScan?: true;
     }
   | { kind: "number"; name: string; value: number };
 
