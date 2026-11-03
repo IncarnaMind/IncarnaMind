@@ -32,6 +32,7 @@ import {
   pointAt,
   removeDataFolder,
   savedLine,
+  setLanguage,
   setWindowSize,
   showSourceLocations,
   useLocalChatModel,
@@ -835,37 +836,47 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-test("Add to note → New note takes the conversation's title when the User renamed it, never the name from its first Question (#1174)", async () => {
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  await dismissChatSetup(window);
-  await useLocalChatModel(window);
-  await setWindowSize(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height);
-  const core = await coreOf(window);
-  const minds = () => core.evaluate(async (each) => each.listMinds());
+const ADD_TO_NEW_TITLE = {
+  en: { instruction: "Summarise this agreement for me.", title: "Agreement review" },
+  "zh-CN": { instruction: "为这份协议写一份摘要。", title: "协议审阅" },
+} as const;
 
-  const answer = await askInAssistant(window, "Summarise this agreement for me.");
-  const addToNew = async () => {
-    await pointAt(window, answer.getByTestId("assistant-answer-text"));
-    await pointAndClick(window, answer.getByTestId("answer-add-to"));
-    await pointAndClick(
-      window,
-      window.getByTestId("add-to-picker").getByTestId("add-to-option").last(),
-    );
-  };
+for (const language of ["en", "zh-CN"] as const) {
+  const words = ADD_TO_NEW_TITLE[language];
 
-  await addToNew();
-  await expect.poll(async () => (await minds()).length).toBe(1);
-  const [first] = await minds();
-  expect(first?.title).toBe("");
-  expect(first?.autoTitle).toMatch(/^This is a scripted Answer to/);
+  test(`Add to note → New note takes the conversation's title when the User renamed it, never the name from its first Question (${language}) (#1174)`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height);
+    const core = await coreOf(window);
+    const minds = () => core.evaluate(async (each) => each.listMinds());
 
-  const conversationId = (await core.evaluate((each) => each.listConversations()))[0]?.id ?? "";
-  await core.evaluate(
-    (each, id) => each.renameConversation(id, "Agreement review"),
-    conversationId,
-  );
-  await addToNew();
-  await expect.poll(async () => (await minds()).length).toBe(2);
-  expect((await minds()).map((each) => each.title)).toContain("Agreement review");
-  await app.close();
-});
+    const answer = await askInAssistant(window, words.instruction);
+    const addToNew = async () => {
+      await pointAt(window, answer.getByTestId("assistant-answer-text"));
+      await pointAndClick(window, answer.getByTestId("answer-add-to"));
+      await pointAndClick(
+        window,
+        window.getByTestId("add-to-picker").getByTestId("add-to-option").last(),
+      );
+    };
+
+    await addToNew();
+    await expect.poll(async () => (await minds()).length).toBe(1);
+    const [first] = await minds();
+    expect(first?.title).toBe("");
+    expect(first?.autoTitle).toMatch(/^This is a scripted Answer to/);
+
+    const conversationId = (await core.evaluate((each) => each.listConversations()))[0]?.id ?? "";
+    await core.evaluate((each, named) => each.renameConversation(named.id, named.title), {
+      id: conversationId,
+      title: words.title,
+    });
+    await addToNew();
+    await expect.poll(async () => (await minds()).length).toBe(2);
+    expect((await minds()).map((each) => each.title)).toContain(words.title);
+    await app.close();
+  });
+}

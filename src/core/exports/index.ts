@@ -158,7 +158,8 @@ const EXTENSIONS: Readonly<Record<ExportFormat, string>> = {
  * What the note's file is called: the Note's own name, as its tab and the Library show it — the
  * title the User gave it, else the first line it shows, cut as that name is (#2418). Never the
  * Question that made the line. Someone else's file goes back to its author under its own name
- * (#110). A file name is only cut where a file name can't hold it (`safeFileName`).
+ * (#110). A typed title is cut only where a file name can't hold it (`safeFileName`); a name from
+ * the first line is already cut as the Note shows it.
  */
 function exportName(mind: Mind, blocks: Y.XmlFragment): string {
   const verified = blocks.doc ? verificationOf(blocks.doc) : null;

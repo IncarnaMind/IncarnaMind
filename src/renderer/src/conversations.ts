@@ -22,6 +22,7 @@ import { offeredCommands } from "./assistantWindow";
 import { clientId } from "./clientId";
 import { composerKey, useComposer } from "./composer";
 import { core } from "./core";
+import { describeError } from "./errors";
 import { cancelExplain } from "./explainQueue";
 import { translateNow } from "./i18n";
 import { documentsOnScreenOf, groupsMerged, WINDOW_ID } from "./layoutSlice";
@@ -183,16 +184,23 @@ export async function showKeptConversation(conversationId: string): Promise<void
       return;
     }
     useConversations.setState({ openId: conversationId, messages });
-  } catch {
+  } catch (error) {
+    if (describeError(error).wording?.key !== "error.conversation.notFound") {
+      report(error);
+      return;
+    }
     // Gone since: a New chat, unless the User opened another conversation while this was read.
     const { openId } = useConversations.getState();
     keepShown(stayed() && openId === null ? null : openId);
   }
 }
 
-useConversations.subscribe((state, previous) => {
-  if (state.openId !== previous.openId) keepShown(state.openId);
-});
+/** Follows the assistant as it moves, keeping the conversation it shows with the window's layout (#258). */
+export function followShownConversation(): void {
+  useConversations.subscribe((state, previous) => {
+    if (state.openId !== previous.openId) keepShown(state.openId);
+  });
+}
 
 /** A new chat: the assistant shows an empty conversation, which its first Question makes. */
 export function startNewChat(): void {

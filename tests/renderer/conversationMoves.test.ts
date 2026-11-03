@@ -7,6 +7,8 @@ import type {
   ExampleReadyAsked,
   Meeting,
 } from "../../src/core/api";
+import { NotFoundError } from "../../src/core/errors";
+import { errorForWindow } from "../../src/shared/errorWording";
 
 /*
  * The assistant shows the conversation the User moved to last: a reply that comes after they
@@ -432,28 +434,41 @@ test("a reload shows the conversation it showed again when the User stayed", asy
   expect(conversations.useConversations.getState().messages).toEqual([question("kept")]);
 });
 
+const goneError = () => errorForWindow(new NotFoundError({ key: "error.conversation.notFound" }));
+
 test("a conversation gone since the window kept it leaves a New chat, the app's own words for one (#258)", async () => {
-  reads.set("gone", Promise.reject(new Error("There is no such conversation.")));
+  const gone = Promise.withResolvers<{ messages: ConversationMessage[] }>();
+  reads.set("gone", gone.promise);
   await reloadedShowing("gone");
+  gone.reject(goneError());
   await vi.waitFor(() => expect(layoutWrites).toContain(null));
 
   expect(shown()).toBeNull();
 });
 
 test("a gone conversation read does not clear one the User opened meanwhile (#258)", async () => {
-  let rejectGone: (reason: unknown) => void = () => undefined;
-  reads.set(
-    "gone",
-    new Promise((_, reject) => {
-      rejectGone = reject;
-    }),
-  );
+  const gone = Promise.withResolvers<{ messages: ConversationMessage[] }>();
+  reads.set("gone", gone.promise);
   await reloadedShowing("gone");
   await conversations.openConversation("other");
   expect(shown()).toBe("other");
 
-  rejectGone(new Error("There is no such conversation."));
+  gone.reject(goneError());
   // The read that found it gone says nothing about the conversation opened since.
   await vi.waitFor(() => expect(layoutWrites).toEqual(["other", "other"]));
   expect(shown()).toBe("other");
+});
+
+test("a kept conversation read does not replace one already showing (#258)", async () => {
+  const kept = Promise.withResolvers<{ messages: ConversationMessage[] }>();
+  reads.set("kept", kept.promise);
+  await reloadedShowing("kept");
+  conversations.useConversations.setState({ openId: "open", messages: [question("open")] });
+
+  kept.resolve({ messages: [question("kept")] });
+  // The read is awaited by the restore, so its guard has run once this promise is seen to settle.
+  await kept.promise;
+  // A conversation already showing stays, even though the kept one's read lands later.
+  expect(shown()).toBe("open");
+  expect(layoutWrites).not.toContain("kept");
 });

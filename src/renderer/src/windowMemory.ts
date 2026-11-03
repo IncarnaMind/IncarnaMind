@@ -1,5 +1,5 @@
 import { useComposer, withReloaded } from "./composer";
-import { showKeptConversation } from "./conversations";
+import { followShownConversation, showKeptConversation } from "./conversations";
 import { useAppStore } from "./store";
 
 /**
@@ -8,6 +8,9 @@ import { useAppStore } from "./store";
  * assistant shows, which the window's layout keeps (#258).
  */
 const DRAFTS_KEY = "incarnamind.window.drafts";
+
+/** Whether the window follows the assistant's moves, once per page however often it is installed. */
+let following = false;
 
 function read(key: string): unknown {
   try {
@@ -29,6 +32,11 @@ function write(key: string, value: unknown): void {
 
 /** Puts back what a reload of the page left, and keeps it as it changes. */
 export function installWindowMemory(): void {
+  // Only the window's own page writes the layout: other pages import the conversations module too.
+  if (!following) {
+    following = true;
+    followShownConversation();
+  }
   useComposer.setState((state) => ({ drafts: withReloaded(state.drafts, read(DRAFTS_KEY)) }));
   useComposer.subscribe((state, previous) => {
     if (state.drafts !== previous.drafts) write(DRAFTS_KEY, state.drafts);

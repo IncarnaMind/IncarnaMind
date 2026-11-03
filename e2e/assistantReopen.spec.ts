@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
-import { withoutTrailingMarks } from "../src/shared/naming";
 import {
   askInAssistant,
   createDataFolder,
@@ -24,6 +23,12 @@ const QUESTIONS: Record<"en" | "zh-CN", readonly [string, string]> = {
   "zh-CN": ["大潮什么时候出现？", "小潮为什么更弱？"],
 };
 
+/** What each Question is called, as the conversation's title: the Question without its end mark. */
+const NAMES: Record<"en" | "zh-CN", readonly [string, string]> = {
+  en: ["When do spring tides happen", "Why are neap tides weaker"],
+  "zh-CN": ["大潮什么时候出现", "小潮为什么更弱"],
+};
+
 let dataDir: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
@@ -34,10 +39,7 @@ test.afterEach(async () => {
 
 for (const language of ["en", "zh-CN"] as const) {
   const questions = QUESTIONS[language];
-  const names: [string, string] = [
-    withoutTrailingMarks(questions[0]),
-    withoutTrailingMarks(questions[1]),
-  ];
+  const names = NAMES[language];
 
   test(`an empty data folder opens on a New chat, and a conversation the assistant showed comes back after a quit (${language}) (#258)`, async () => {
     // Nothing kept yet: the assistant says a New chat, in the app's own words.

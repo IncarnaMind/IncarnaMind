@@ -701,7 +701,10 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await expect(window.getByTestId("composer-model")).toHaveText("other-model");
     await pointAndClick(window, minds.filter({ hasText: "Default model" }));
     await expect(window.getByTestId("composer-model")).toHaveText("fake-model");
-    // The conversation it showed came back (#258), so this Question is its latest Answer.
+    // The conversation it showed came back (#258); wait for it before counting Answers here.
+    await expect(window.getByTestId("assistant").getByTestId("assistant-question")).toContainText(
+      "Which model answers?",
+    );
     const other = await askInAssistant(window, "And this one?");
     await expect(await openSteps(window, other)).toContainText("Answered by fake-model");
 
