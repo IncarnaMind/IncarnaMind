@@ -72,9 +72,10 @@ import type { PictureProblem } from "./web/pictures";
  * it). 22: #762 (pictures are read as scanned pages are; RTF and HTML files
  * are read). 23: #448 (the tables of a PDF's pages, a Word file's sections and a
  * deck's slides are kept with their Units as rows and columns; a Word table's
- * merged cells keep their columns; raised digits stay raised).
+ * merged cells keep their columns; raised digits stay raised). 24: #1979 (a
+ * workbook's rows Units name the rows the file strikes through or hides).
  */
-export const PROCESSING_VERSION = 23;
+export const PROCESSING_VERSION = 24;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -112,7 +113,9 @@ export const PROCESSING_VERSION = 23;
  * table's row keeps a tab for each of its grid's columns, also the empty ones
  * a merged cell leaves, a merged cell's text repeats down the rows it
  * continues, and digits a Word file or a deck sets raised or lowered are
- * superscript or subscript digits, not plain ones (#448).
+ * superscript or subscript digits, not plain ones (#448). Version 24 only
+ * workbooks', whose rows Units name the rows the file strikes through or
+ * hides; their text, Passages and embeddings come out as they were (#1979).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 23,
@@ -120,7 +123,7 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   markdown: 5,
   docx: 23,
   pptx: 23,
-  xlsx: 20,
+  xlsx: 24,
   csv: 5,
   image: 22,
   rtf: 22,

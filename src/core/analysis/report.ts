@@ -5,12 +5,13 @@ import {
   type AnalysisRecalculation,
   type AnalysisTable,
   type AnalysisValue,
+  OUT_FILES,
 } from "../../shared/analysis";
 import { figureCellText, figureResultText, figureText, rawColumn } from "../../shared/figures";
-import type { AnswerAnalysis } from "../api";
+import type { AnalysisRangeInput, AnswerAnalysis } from "../api";
 import type { Language } from "../language";
 import { tableWhereText } from "./documentTables";
-import { cellsText, notNumbersText, rowsText } from "./figureRows";
+import { cellsText, notNumbersText, rowRuns, rowsText } from "./figureRows";
 
 const count = (n: number) => figureText("en", n);
 
@@ -39,12 +40,49 @@ function tableText(table: AnalysisTable, shownRows: number, language: Language):
   return lines.join("\n");
 }
 
+/** The rows the file sets aside among `rows`, as the report names them; "" for none. */
+function setAsideText(
+  setAside: AnalysisRangeInput["setAside"],
+  rows: (row: number) => boolean = () => true,
+): string {
+  const struck = (setAside?.struck ?? []).filter(rows);
+  const hidden = (setAside?.hidden ?? []).filter(rows);
+  return [
+    ...(struck.length > 0 ? [`${rowsText(rowRuns(struck))}, which the file strikes through`] : []),
+    ...(hidden.length > 0 ? [`${rowsText(rowRuns(hidden))}, which the file hides`] : []),
+  ].join(", and ");
+}
+
 const ROWS_READ = 20;
 
-export function analysisReport(analysis: AnswerAnalysis, language: Language): string {
+const bytesText = (bytes: number) =>
+  bytes < 1024
+    ? `${count(bytes)} bytes`
+    : bytes < 1024 * 1024
+      ? `${figureText("en", Math.round(bytes / 102.4) / 10)} KB`
+      : `${figureText("en", Math.round(bytes / 104857.6) / 10)} MB`;
+
+/**
+ * What the model reads of an Analysis. `codeOffered`: run_code is in the same Run, so a range
+ * run_analysis cut is to be run again there, which reads up to 200,000 rows.
+ */
+export function analysisReport(
+  analysis: AnswerAnalysis,
+  language: Language,
+  codeOffered = false,
+): string {
   const { output, end } = analysis;
   const lines = [`Analysis ${analysis.number}: ${analysis.title}`];
-  lines.push("Inputs:");
+  if (analysis.files) {
+    lines.push(
+      "Files in ../inputs:",
+      ...analysis.files.map(
+        (file) =>
+          `- ${file.name}${file.name === file.documentName ? "" : ` (${file.documentName})`}: ${bytesText(file.bytes)}`,
+      ),
+    );
+  }
+  if (analysis.inputs.length > 0 || !analysis.files) lines.push("Inputs:");
   for (const input of analysis.inputs) {
     if (input.kind === "range") {
       const sheet = input.citation.location?.kind === "rows" ? input.citation.location.sheet : null;
@@ -52,11 +90,17 @@ export function analysisReport(analysis: AnswerAnalysis, language: Language): st
         ? `, table ${input.table.number} (${tableWhereText(input.table.rows, input.citation.location?.kind)})`
         : "";
       const where = `${input.citation.documentName}${sheet ? `, sheet "${sheet}"` : ""}${table}, ${input.range}`;
-      const cut = input.cut
-        ? ` (cut: only its first ${rowsOf(input.rows)} were read, the most an Analysis reads; say so in the Answer)`
+      const cut = !input.cut
+        ? ""
+        : codeOffered && !analysis.files
+          ? ` (cut: only its first ${rowsOf(input.rows)} were read, the most run_analysis reads; run it again with run_code, which reads up to 200,000 rows)`
+          : ` (cut: only its first ${rowsOf(input.rows)} were read, the most this Analysis can read; say so in the Answer)`;
+      const aside = setAsideText(input.setAside);
+      const held = aside
+        ? `; it holds ${aside}: drop such rows by their numbers where they are an earlier version of rows the sheet shows plainly`
         : "";
       lines.push(
-        `- ${input.name}: ${where}: ${rowsOf(input.rows)} × ${input.columns} columns${cut}`,
+        `- ${input.name}: ${where}: ${rowsOf(input.rows)} × ${input.columns} columns${cut}${held}`,
       );
       if (input.table?.scan) {
         lines.push(
@@ -104,6 +148,19 @@ export function analysisReport(analysis: AnswerAnalysis, language: Language): st
   }
   if (output.printed) {
     lines.push(`Printed:\n${output.printed.trimEnd()}${output.cut.printed ? "\n(cut)" : ""}`);
+  }
+  const out = analysis.outFiles;
+  if (out && (out.files.length > 0 || out.left > 0)) {
+    lines.push("Files it left in out/:");
+    for (const file of out.files) {
+      lines.push(`- ${file.name}: ${bytesText(file.bytes)}`);
+      if (file.text !== undefined) lines.push(file.text.trimEnd());
+    }
+    if (out.left > 0) {
+      lines.push(
+        `(${count(out.left)} more left out: at most ${OUT_FILES.count} files of ${OUT_FILES.bytes / 1024 / 1024} MB come back, and never a link)`,
+      );
+    }
   }
   if (end.kind === "done") {
     const results = resultLines(analysis, language);
@@ -160,7 +217,9 @@ function resultLines(analysis: AnswerAnalysis, language: Language): string[] {
         continue;
       }
       const of = result.of ? ` (${tracedRows(result.of)})` : "";
-      lines.push(`- [=${marker}] ${result.label}: ${value}${of}`);
+      lines.push(
+        `- [=${marker}] ${result.label}: ${value}${of}${countsSetAside(analysis, result)}`,
+      );
     } else {
       const marker = table.get(result.name);
       const { rowCount, columnCount } = result.table;
@@ -183,6 +242,21 @@ function resultLines(analysis: AnswerAnalysis, language: Language): string[] {
   return lines;
 }
 
+/** What a figure counts of the rows the file sets aside, said after it; "" when it counts none. */
+function countsSetAside(
+  analysis: AnswerAnalysis,
+  result: Extract<AnalysisValue, { kind: "figure" }>,
+): string {
+  const of = result.of;
+  const input = analysis.inputs.find((each) => each.kind === "range" && each.name === of?.input);
+  if (!of || input?.kind !== "range") return "";
+  const counted = (row: number) => of.rows.some(([from, to]) => row >= from && row <= to);
+  const aside = setAsideText(input.setAside, counted);
+  return aside
+    ? `; it counts ${aside}: never give it as the sheet's current figure unless those rows are current entries, and say so`
+    : "";
+}
+
 function refusal(
   result: Extract<AnalysisValue, { kind: "figure" }>,
   check: AnalysisRecalculation,
@@ -195,6 +269,9 @@ function refusal(
 function endLine(analysis: AnswerAnalysis, end: AnswerAnalysis["end"]): string {
   switch (end.kind) {
     case "done":
+      if (analysis.language === "bash") {
+        return "It ran to its end. bash is for looking around: no number it printed may be given in the Answer. Give each number the Answer uses with Python's result() or figure() in run_code, and write its marker.";
+      }
       return analysis.output.results.length > 0 ||
         analysis.output.charts.length > 0 ||
         (analysis.output.pictures ?? []).length > 0

@@ -24,7 +24,7 @@ import { DocumentFix } from "../DocumentFix";
 import { DocumentStatusLabel, NotCitedLabel } from "../DocumentsSection";
 import { InlineName } from "../InlineName";
 import { LibrarySelectBox } from "../LibrarySelection";
-import { DocumentLineIcon, FolderLineIcon, NoteLineIcon } from "../lineIcons";
+import { ChevronDownLineIcon, DocumentLineIcon, FolderLineIcon, NoteLineIcon } from "../lineIcons";
 import { Marked } from "../Marked";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { draggedRowClass, rowActionButtonClass } from "../sidebarRows";
@@ -196,6 +196,7 @@ export const LibraryRow = memo(function LibraryRow({
   );
   const renameDocument = useAppStore((state) => state.renameDocument);
   const row = useRef<HTMLDivElement>(null);
+  const pathButton = useRef<HTMLButtonElement>(null);
   const moveTo = (anchor: HTMLElement | null) => {
     if (!anchor) return;
     if (review) moveFromReview(doc.id, anchor);
@@ -391,13 +392,22 @@ export const LibraryRow = memo(function LibraryRow({
               </p>
             )}
             {path !== null && (
-              <p
+              <button
+                ref={pathButton}
+                type="button"
                 data-testid="library-path"
-                className="flex min-w-0 items-center gap-1 pl-6 text-[12px] leading-4 text-ink-meta"
+                title={t("documents.moveTo")}
+                onClick={() => moveTo(pathButton.current)}
+                className="group/path flex min-w-0 items-center gap-1 rounded-sm pl-6 text-left text-[12px] leading-4 text-ink-meta hover:text-ink hover:underline"
               >
                 <FolderLineIcon className="size-3 shrink-0" />
                 <span className="truncate">{path}</span>
-              </p>
+                <ChevronDownLineIcon
+                  aria-hidden="true"
+                  data-testid="library-path-chevron"
+                  className="size-3 shrink-0 opacity-0 group-hover/path:opacity-100 group-focus-visible/path:opacity-100"
+                />
+              </button>
             )}
           </div>
         </div>

@@ -103,6 +103,7 @@ import {
   unsureWordsCovered,
 } from "./citations";
 import type { CiteOptions } from "./engine";
+import { setAsideRowsOf } from "./sheetRows";
 
 /** Why a formula mustn't change an amount's scale, and how to show the figure in the scale meant. */
 function scaleChangeProblem(change: ScaleChange, language: Language): string {
@@ -489,6 +490,23 @@ function signNote(negatives: readonly { name: string; chars: string; value: numb
     .map((each) => `${each.name} is ${each.chars}, read as ${plainNumber(each.value)}`)
     .join("; ");
   return ` Check the sign: ${read}, so subtracting ${them} adds ${them}. To take a deduction off, add it (price + fee); if adding ${them} is what you meant, the figure stands.`;
+}
+
+/**
+ * The inputs read from rows the file strikes through or hides (#1979), said after the figure: a
+ * total over an earlier version's rows read as the sheet's current one. "" when none is.
+ */
+function setAsideNote(reads: readonly Pick<ReadInput, "given" | "quoted" | "cell">[]): string {
+  const said = reads.flatMap((read) => {
+    const row = Number(/\d+$/.exec(read.cell?.ref ?? "")?.[0]);
+    const how =
+      read.cell && Number.isInteger(row)
+        ? setAsideRowsOf(read.quoted.units)(read.cell.sheet, row)
+        : null;
+    return how ? [`${read.given.name} is in row ${row}, which the file ${how}`] : [];
+  });
+  if (said.length === 0) return "";
+  return ` ${said.join("; ")}: the file has set ${said.length === 1 ? "that row" : "those rows"} aside, so a figure from ${said.length === 1 ? "it" : "them"} is never the sheet's current one. Where you give this figure, say so.`;
 }
 
 /** One of the reader's readings, as the model is offered it. */
@@ -1002,6 +1020,16 @@ export interface CalculationSessionOptions {
    * offers `what_if` (#2372): only then is a number written in beside it refused as a what-if.
    */
   partOfFormulas?(citation: Citation, sheet: string, ref: string): boolean;
+}
+
+/** What the model is told a recorded figure came to: "[=1] = 20.4% (Revenue growth: $1,482.6 million ÷ $1,231.0 million − 1)". */
+export function toldFigure(marker: number, figure: CalculatedFigure): string {
+  const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
+  const worked = formulaText(
+    figure.formula,
+    (name) => byName.get(name.toLowerCase())?.number.chars ?? null,
+  );
+  return `Recorded [=${marker}] = ${figure.shown} (${figure.label ? `${figure.label}: ` : ""}${worked}).`;
 }
 
 /** One Answer's calculated figures: what `calculate` takes, and the figures by marker. */
@@ -2438,7 +2466,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       scale: given.scale,
     };
     let shown = showResult(result, show);
-    let note = negatives.length > 0 ? signNote(negatives) : "";
+    let note = (negatives.length > 0 ? signNote(negatives) : "") + setAsideNote(reads);
     // A result that can't be shown as asked (a difference of percents "as a percent") is shown in
     // its own unit, which is the right one, rather than refused.
     if (!shown.ok && show.as !== null) {
@@ -2521,16 +2549,6 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return `${lead}: ${numbers} ${one ? "is" : "are"} written into its formula beside ${beside} of ${first.book}, cells that workbook's own formulas work out or read. If ${one ? "it" : "one of them"} is a value the Question supposes for one of the workbook's inputs, this figure is a what-if, and calculate would leave out every formula between that input and the figure: call ${WORKBOOK_TOOLS.whatIf} with the figure's cell, that input and its new value instead. Only if ${one ? "it" : "each"} is a constant of the arithmetic itself (12 months in a year, say), give ${one ? "it" : "them"} as "constants" on this figure and call calculate again.`;
   }
 
-  /** What the model is told a recorded figure came to: "[=1] = 20.4% (Revenue growth: $1,482.6 million ÷ $1,231.0 million − 1)". */
-  function told(marker: number, figure: CalculatedFigure): string {
-    const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
-    const worked = formulaText(
-      figure.formula,
-      (name) => byName.get(name.toLowerCase())?.number.chars ?? null,
-    );
-    return `Recorded [=${marker}] = ${figure.shown} (${figure.label ? `${figure.label}: ` : ""}${worked}).`;
-  }
-
   /** Takes figures; returns what to tell the model about them. */
   function calculate(list: readonly unknown[], { structured = false }: CiteOptions = {}): string {
     if (!structured && ++calls > MAX_CALLS_PER_ANSWER)
@@ -2583,7 +2601,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       failed.delete(marker);
       options.onRecord?.(marker, outcome.recorded.figure);
       lines.push(
-        told(marker, outcome.recorded.figure) +
+        toldFigure(marker, outcome.recorded.figure) +
           outcome.recorded.note +
           (earlier &&
           !earlier.signAsked &&

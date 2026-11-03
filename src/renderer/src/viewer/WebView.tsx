@@ -448,7 +448,12 @@ function WebPageContent({
                   </p>
                 )}
               </header>
-              <div ref={host} data-testid="viewer-web-article" className="document-markdown" />
+              <div
+                ref={host}
+                data-testid="viewer-web-article"
+                data-area-unit=""
+                className="document-markdown"
+              />
               {mark && markTop !== null && (
                 <CitationMark
                   mark={mark}

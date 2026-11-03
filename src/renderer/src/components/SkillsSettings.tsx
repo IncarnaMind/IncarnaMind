@@ -12,8 +12,9 @@ import type { SkillPickKind } from "../../../shared/bridge";
 import { core, files } from "../core";
 import { errorMessage } from "../errors";
 import { showFileLabelKey } from "../fileInfo";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
 import { savedFolderLabel } from "../outputFiles";
+import { openCodeSandboxHelp } from "../sandbox";
 import { formatSize, pickSkill, skillDescription, skillShortLine, skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { DetailsLine } from "./DetailsLine";
@@ -361,6 +362,13 @@ function ExportStatus({
   );
 }
 
+/** "bubblewrap and socat", "bubblewrap、socat 和 ripgrep": the packages the OS sandbox lacks. */
+function packageList(t: ReturnType<typeof useT>, language: string, packages: readonly string[]) {
+  if (packages.length < 2) return packages.join("");
+  const first = packages.slice(0, -1).join(language === "zh-CN" ? "、" : ", ");
+  return t("scripts.settings.sandboxPackages.and", { first, last: packages.at(-1) ?? "" });
+}
+
 /**
  * Settings → Skills → Skill scripts: the switch that lets Skills run their scripts at
  * all (each run still asks, unless the Skill's scripts always run), with
@@ -371,6 +379,8 @@ export function SkillScriptsSettings() {
   const t = useT();
   const enabled = useAppStore((state) => state.settings?.device.skillScriptsEnabled);
   const sandboxed = useAppStore((state) => state.settings?.scriptSandbox === "os");
+  const sandboxProblem = useAppStore((state) => state.settings?.sandboxProblem ?? null);
+  const language = useLanguage();
   const timeout = useAppStore((state) => state.settings?.device.skillScriptTimeoutSeconds);
   const updateSettings = useAppStore((state) => state.updateSettings);
   const [draft, setDraft] = useState<string | null>(null);
@@ -412,6 +422,21 @@ export function SkillScriptsSettings() {
                 </DetailsLine>
               ) : (
                 <p>{t("scripts.settings.body")}</p>
+              )}
+              {sandboxProblem && (
+                <ProblemLine
+                  testId="code-sandbox-problem"
+                  action={{
+                    label: t("analysis.unavailable.noSandbox.fix"),
+                    onClick: openCodeSandboxHelp,
+                  }}
+                >
+                  {sandboxProblem.kind === "missing"
+                    ? t("scripts.settings.problem.sandboxMissing", {
+                        packages: packageList(t, language, sandboxProblem.packages),
+                      })
+                    : t("scripts.settings.problem.sandboxStart")}
+                </ProblemLine>
               )}
             </div>
           </div>

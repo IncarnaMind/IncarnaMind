@@ -108,6 +108,7 @@ import type {
 } from "../runs/engine";
 import { inStep } from "../timing/flows";
 import {
+  ANALYSIS_TOOLS,
   DOCUMENT_TOOLS,
   offeredTools,
   type Tool,
@@ -317,6 +318,8 @@ export interface AnswerTools {
    * figure's sentence or table cell has none (#1831); each quote is recorded as a Citation.
    */
   citeFigures?(text: string): string;
+  /** `text` with each mark of a row the file sets aside that the model copied into it said in words (#1979). */
+  setAsideInWords?(text: string): string;
 }
 
 /** What a Run still owes, by marker (`AnswerTools.owed`). */
@@ -351,6 +354,8 @@ export interface InstructionOptions {
   mindTools?: boolean;
   /** The model is offered `run_analysis` (#447). */
   analysisTools?: boolean;
+  /** The model is offered `run_code` (ADR-0025). */
+  codeTools?: boolean;
   /** The model is offered a workbook's formula Tools (#2347). */
   workbookTools?: boolean;
   /** The model is offered the commands' Tools (#1110). */
@@ -1830,7 +1835,8 @@ async function* toolLoop(
     sourceTools: tools.some((each) => each.provider.kind === "sources"),
     webTools: tools.some((each) => each.provider.kind === "web"),
     mindTools: tools.some((each) => each.provider.kind === "minds"),
-    analysisTools: tools.some((each) => each.provider.kind === "analysis"),
+    analysisTools: tools.some((each) => each.name === ANALYSIS_TOOLS.run),
+    codeTools: tools.some((each) => each.name === ANALYSIS_TOOLS.code),
     workbookTools: tools.some((each) => each.name === WORKBOOK_TOOLS.trace),
     commandTools: tools.some((each) => each.provider.kind === "commands"),
   });
@@ -1944,6 +1950,9 @@ async function* toolLoop(
     yield* flagged(mergedFlags(standingFlags, await flagsOf(request.turnChecks ?? [], keptText)));
   }
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
+    const worded = request.documents.setAsideInWords?.(keptText) ?? keptText;
+    yield* textEdits(keptText, worded);
+    keptText = worded;
     const suffix = request.refusalSuffix?.(keptText) ?? null;
     if (keptText.trim() !== "" || suffix === null) {
       if (!request.documents.wroteIntoMind?.()) {
@@ -2357,7 +2366,8 @@ async function* structured(
   } catch (error) {
     console.error(`The Citations couldn't be recorded: ${messageOf(error)}`);
   }
-  yield* emit(typeof answer === "string" ? takeToolText(answer).text : answer);
+  const worded = (text: string) => request.documents.setAsideInWords?.(text) ?? text;
+  yield* emit(typeof answer === "string" ? worded(takeToolText(answer).text) : answer);
   if (typeof answer === "string") {
     // A small model often gives the records but leaves their markers out.
     const marked = yield* missingMarkerEvents(emitted, records, request.documents);
@@ -2447,7 +2457,8 @@ async function* plain(
     return;
   }
   if (signal.aborted) return;
-  const written = takeToolText(produced).text;
+  const taken = takeToolText(produced).text;
+  const written = request.documents.setAsideInWords?.(taken) ?? taken;
   yield* textEdits(produced, written);
   yield* flagClaims(request, written);
   yield { type: "finished" };

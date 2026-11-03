@@ -13,7 +13,7 @@ import { figureScheduleChange } from "../shared/figureSchedule";
 import type { MessageKey, MessageParams } from "../shared/i18n";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
-import { formatLocation } from "../shared/locations";
+import { formatLocation, parseCitedArea } from "../shared/locations";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
 import {
   HEARD_FROM,
@@ -102,6 +102,7 @@ import {
   type CheckRecordFailure,
   type CheckRecordFormat,
   type CitationAttributes,
+  type CitedArea,
   CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
@@ -535,6 +536,23 @@ function parseQuoted(input: unknown): ScannedQuoteInput {
   };
 }
 
+/** The words just before and after an area (#118), where the view doesn't know its Unit. */
+function parseAround(value: unknown): { before?: string; after?: string } | undefined {
+  if (!isRecord(value)) return undefined;
+  const before = typeof value.before === "string" ? value.before : undefined;
+  const after = typeof value.after === "string" ? value.after : undefined;
+  return before === undefined && after === undefined
+    ? undefined
+    : { ...(before !== undefined && { before }), ...(after !== undefined && { after }) };
+}
+
+/** The region a selection was drawn on (#118), or a refusal when it isn't a rectangle inside a Unit. */
+function selectionArea(value: unknown): CitedArea {
+  const area = parseCitedArea(value);
+  if (!area) throw new InvalidInputError({ key: "error.selection.none" });
+  return area;
+}
+
 function parseSelectedPart(input: unknown): SelectedPart {
   if (!isRecord(input) || typeof input.text !== "string") {
     throw new InvalidInputError({ key: "error.selection.none" });
@@ -721,6 +739,7 @@ export function createCore(adapters: CoreAdapters): Core {
     scriptSandbox,
     !capture ? "none" : capture.systemAudio ? "both" : "microphone",
     () => adapters.systemUserName?.() || accountName(),
+    adapters.sandboxProblem ?? null,
   );
   const folders = createFolders(db, now);
   const foldersChanged = () => events.emit("folders.changed", folders.list());
@@ -1292,6 +1311,9 @@ export function createCore(adapters: CoreAdapters): Core {
     ollamaModels: adapters.ollamaModels ?? createOllamaModels(),
     localOnly: () => embedding.localOnly(),
     meter,
+    ...(adapters.modelFacts && {
+      modelFacts: (provider, modelId) => adapters.modelFacts?.(provider, modelId),
+    }),
   });
 
   /** Set once readiness can be reported: Connectors turned on or off change what chat sends. */
@@ -1366,6 +1388,21 @@ export function createCore(adapters: CoreAdapters): Core {
     });
   // Running Skill scripts (#41), each in its own temporary folder.
   const scriptRunner = createScriptRunner({ executor, runtimes: adapters.scriptRuntimes });
+  // Code on whole Documents, in the OS sandbox only (ADR-0025): Python is IncarnaMind's own,
+  // downloaded the first time code needs it.
+  const codeHost =
+    executor.level === "os"
+      ? adapters.codeRuntime?.start({
+          executor,
+          dataDir,
+          tempDir: adapters.paths.tempDir ?? tmpdir(),
+          fetch: adapters.modelDownloads?.fetch ?? fetch,
+          emitStatus: (status) => events.emit("pythonRuntime.status", status),
+          ...(adapters.log && { log: adapters.log }),
+        })
+      : undefined;
+  const pythonRuntime = codeHost?.python ?? null;
+  const codeRunner = codeHost?.runner;
 
   // Asking the User before a Connector Tool that may change something runs (#38).
   const approvals = createApprovals({
@@ -1950,6 +1987,15 @@ export function createCore(adapters: CoreAdapters): Core {
     events,
     engine: answerEngine,
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
+    ...(codeRunner && {
+      code: {
+        runner: codeRunner,
+        file: async (documentId: string) => ({
+          path: await documents.filePath(documentId),
+          readHiddenSheets: documents.get(documentId).readHiddenSheets,
+        }),
+      },
+    }),
     requireMind: (mindId) => writableMind(mindId).id,
     mindExists,
     readableMindName,
@@ -3826,6 +3872,16 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     listed: () => transcriber !== undefined && transcriptionSource.files.length > 0,
   });
+  if (pythonRuntime) {
+    const pythonHost = new URL(pythonRuntime.manifest.url);
+    privacy.traffic.register({
+      id: "python-runtime",
+      service: {
+        id: pythonHost.origin,
+        name: pythonHost.host === "github.com" ? "GitHub" : pythonHost.host,
+      },
+    });
+  }
   // Any built-in model may come from these instead, and the probe asks hf-mirror.com until our
   // ModelScope copy exists (#1578).
   const modelScopeCopy = modelCopyUrl(modelCopies.modelscope);
@@ -5258,11 +5314,23 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!isRecord(input) || !Array.isArray(input.parts)) {
         throw new InvalidInputError({ key: "error.selection.none" });
       }
+      const area = input.area === undefined ? undefined : selectionArea(input.area);
       const parts = input.parts.map(parseSelectedPart);
-      if (parts.every((part) => part.text.trim() === "")) {
+      if (parts.every((part) => part.text.trim() === "") && area === undefined) {
         throw new InvalidInputError({ key: "error.selection.none" });
       }
-      return citeSelection(documents, { documentId: parseDocumentId(input.documentId), parts });
+      const unit =
+        typeof input.unit === "number" && Number.isInteger(input.unit) && input.unit >= 1
+          ? input.unit
+          : null;
+      const around = parseAround(input.around);
+      return citeSelection(documents, {
+        documentId: parseDocumentId(input.documentId),
+        parts,
+        ...(area !== undefined && { area }),
+        unit,
+        ...(around && { around }),
+      });
     },
     createAnnotation: async (input) => {
       if (!isRecord(input) || !Array.isArray(input.parts)) {
@@ -5380,6 +5448,7 @@ export function createCore(adapters: CoreAdapters): Core {
     downloadEmbeddingModel: async () => embeddingModel.retry(),
     getTextRecognitionModel: async () =>
       textRecognitionModel?.status() ?? textRecognitionUnavailable,
+    getPythonRuntime: async () => pythonRuntime?.status() ?? null,
     downloadTextRecognitionModel: async () =>
       textRecognitionModel?.retry() ?? textRecognitionUnavailable,
 
@@ -6505,6 +6574,7 @@ export function createCore(adapters: CoreAdapters): Core {
       skillDrafts.stopAll();
       scriptRunner.close();
       adapters.analysisRuntime?.close();
+      pythonRuntime?.close();
       approvals.close();
       connectors.close();
       tagger.close();

@@ -111,6 +111,12 @@ export interface UnitLabel {
    * each cell in it again before it reads it.
    */
   tables?: UnitTable[];
+  /**
+   * rows of a workbook (#1979): the rows whose every cell the file strikes through, and those it
+   * hides, as people set an earlier or removed row aside; the text alone doesn't show it.
+   */
+  struckRows?: number[];
+  hiddenRows?: number[];
 }
 
 /** A table on a Unit, as its rows and columns were read: each cell's text, "" for an empty one. */

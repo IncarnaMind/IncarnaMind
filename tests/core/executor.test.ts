@@ -8,16 +8,30 @@
  * Executor at level "none", and the OS sandbox's at "os" (#65) where it can
  * start; what only the sandbox does is in tests/main/sandbox.test.ts.
  */
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readdir, readFile, realpath } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, onTestFinished, test, vi } from "vitest";
+import { afterAll, describe, expect, onTestFinished, test, vi } from "vitest";
 import type { ExecAllow, ExecRequest, Executor, ProcessLauncher } from "../../src/core";
 import { createLocalExecutor, declaredAccess, WORKING_FOLDER } from "../../src/core/execution";
 import { createProcessLauncher } from "../../src/main/processes";
+import { footprints, programMeter, treeMemory } from "../../src/main/programMeter";
 import { loadOsSandbox } from "../../src/main/sandbox";
 import { isRunning } from "../helpers/connectors";
 import { createTempDataFolder } from "../helpers/core";
+import { createSweepGuard } from "../helpers/sweepGuard";
 
 type Environment = Record<string, string>;
 
@@ -49,27 +63,62 @@ const REPORT = [
 /** The test runner's limit for a test that waits on a program that never ends: it stops a hang, it isn't a speed check. */
 const RUNNER_LIMIT = 60_000;
 
+/** A word no other process here has in its command line, for a case's programs to carry. */
+const markerOf = () => `incarnamind-executor-${randomUUID()}`;
+
+/**
+ * The script of a process the program starts, carrying `marker` and "-child" after it, which the
+ * program's own command line doesn't have together.
+ */
+const childScript = (marker: string) =>
+  `["-e", "setInterval(() => {}, 1000) // ${marker}" + "-child"]`;
+
 /** Starts a process of its own, writes both pids to the file it's given, then never ends. */
-const SLEEP = [
-  'const { spawn } = require("node:child_process");',
-  'const { writeFileSync } = require("node:fs");',
-  'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "inherit" });',
-  "writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid, child: child.pid }));",
-  'console.log("started");',
-  "setInterval(() => {}, 1000);",
-].join("\n");
+const sleeping = (marker: string) =>
+  [
+    `// ${marker}`,
+    'const { spawn } = require("node:child_process");',
+    'const { writeFileSync } = require("node:fs");',
+    `const child = spawn(process.execPath, ${childScript(marker)}, { stdio: "inherit" });`,
+    "writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid, child: child.pid }));",
+    'console.log("started");',
+    "setInterval(() => {}, 1000);",
+  ].join("\n");
+
+/**
+ * Starts a process of its own in the background, writes both pids and ends. The process keeps the
+ * run's output open when `holding` (as `cmd &` in a shell does), or closes it.
+ */
+const background = (marker: string, holding: boolean) =>
+  [
+    `// ${marker}`,
+    'const { spawn } = require("node:child_process");',
+    'const { writeFileSync } = require("node:fs");',
+    `const child = spawn(process.execPath, ${childScript(marker)}, { stdio: "${holding ? "inherit" : "ignore"}" });`,
+    "writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid, child: child.pid }));",
+    "child.unref();",
+  ].join("\n");
 
 /** Starts a process in a session of its own, which a stop can't reach, holding the output open. */
-const ESCAPE = [
-  'const { spawn } = require("node:child_process");',
-  'const { writeFileSync } = require("node:fs");',
-  'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "inherit", detached: true });',
-  "writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid, child: child.pid }));",
-  "setInterval(() => {}, 1000);",
-].join("\n");
+const escaping = (marker: string) =>
+  [
+    `// ${marker}`,
+    'const { spawn } = require("node:child_process");',
+    'const { writeFileSync } = require("node:fs");',
+    `const child = spawn(process.execPath, ${childScript(marker)}, { stdio: "inherit", detached: true });`,
+    "writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid, child: child.pid }));",
+    "setInterval(() => {}, 1000);",
+  ].join("\n");
 
-/** The pids SLEEP or ESCAPE wrote, once it has. */
-async function pidsIn(file: string): Promise<{ pid: number; child: number }> {
+/** What a program wrote once it started: its pid and its child's, as it sees them. */
+interface Started {
+  pid: number;
+  child: number;
+  marker: string;
+}
+
+/** The pids the program wrote, once it has. */
+async function startedIn(file: string, marker: string): Promise<Started> {
   let pids: { pid: number; child: number } | undefined;
   await vi.waitFor(
     async () => {
@@ -77,18 +126,39 @@ async function pidsIn(file: string): Promise<{ pid: number; child: number }> {
     },
     { timeout: 10_000, interval: 25 },
   );
-  return pids as { pid: number; child: number };
+  return { ...(pids as { pid: number; child: number }), marker };
 }
 
-/** Waits until neither process runs any more. */
-async function expectStopped(pids: { pid: number; child: number }) {
-  await vi.waitFor(
-    () => {
-      expect(isRunning(pids.pid)).toBe(false);
-      expect(isRunning(pids.child)).toBe(false);
-    },
-    { timeout: 5_000, interval: 25 },
-  );
+/** The pids of the processes here whose command line has `text`. */
+function runningWith(text: string): number[] {
+  const listing = execFileSync("ps", ["-ww", "-A", "-o", "pid=,command="], { encoding: "utf8" });
+  return listing
+    .split("\n")
+    .filter((line) => line.includes(text))
+    .map((line) => Number(line.trim().split(/\s+/)[0]));
+}
+
+/**
+ * Whether the program's child, or anything of the program (the program, its child, a sandbox
+ * around them), still runs. On macOS and Linux they are found by their marker, since a program in
+ * bubblewrap's PID namespace sees pids of its own; Windows has no such sandbox, and its pids are
+ * the system's.
+ */
+const childRuns = (started: Started) =>
+  process.platform === "win32"
+    ? isRunning(started.child)
+    : runningWith(`${started.marker}-child`).length > 0;
+const anythingRuns = (started: Started) =>
+  process.platform === "win32"
+    ? isRunning(started.pid) || isRunning(started.child)
+    : runningWith(started.marker).length > 0;
+
+/** Waits until nothing of the program runs any more. */
+async function expectStopped(started: Started) {
+  await vi.waitFor(() => expect(anythingRuns(started)).toBe(false), {
+    timeout: 5_000,
+    interval: 25,
+  });
 }
 
 /** A request as a Skill script's would be, for `program`, with what the case changes. */
@@ -239,16 +309,44 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
         const { executor, tempDir } = await setUp();
         const pidFolder = await createTempDataFolder();
         const pidFile = join(pidFolder, "pids.json");
+        const marker = markerOf();
 
         // The program never ends on its own, so a run that comes back at all was stopped by the
         // timeout; if it didn't, the test runner's limit ends the test.
         const run = await executor.run(
-          request(node(SLEEP, pidFile), { timeoutMs: 1_000, allow: writingTo(pidFolder) }),
+          request(node(sleeping(marker), pidFile), {
+            timeoutMs: 1_000,
+            allow: writingTo(pidFolder),
+          }),
         );
 
         expect(run).toMatchObject({ exitCode: null, timedOut: true, stdout: "started\n" });
-        await expectStopped(await pidsIn(pidFile));
+        await expectStopped(await startedIn(pidFile, marker));
         expect(await readdir(tempDir)).toEqual([]);
+      },
+      RUNNER_LIMIT,
+    );
+
+    test.skipIf(process.platform === "win32")(
+      "what it left running in the background ends when it does, its output open or not",
+      async () => {
+        const { executor } = await setUp();
+        for (const holding of [false, true]) {
+          const pidFolder = await createTempDataFolder();
+          const pidFile = join(pidFolder, "pids.json");
+          const marker = markerOf();
+
+          // Left running and holding the output, it would keep the run until its timeout.
+          const run = await executor.run(
+            request(node(background(marker, holding), pidFile), {
+              timeoutMs: 30_000,
+              allow: writingTo(pidFolder),
+            }),
+          );
+
+          expect(run).toMatchObject({ exitCode: 0, timedOut: false });
+          await expectStopped(await startedIn(pidFile, marker));
+        }
       },
       RUNNER_LIMIT,
     );
@@ -260,18 +358,22 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
         const pidFolder = await createTempDataFolder();
         const pidFile = join(pidFolder, "pids.json");
         const stop = new AbortController();
+        const marker = markerOf();
 
         const running = executor.run(
-          request(node(SLEEP, pidFile), { signal: stop.signal, allow: writingTo(pidFolder) }),
+          request(node(sleeping(marker), pidFile), {
+            signal: stop.signal,
+            allow: writingTo(pidFolder),
+          }),
         );
-        const pids = await pidsIn(pidFile);
-        expect(isRunning(pids.pid)).toBe(true);
+        const started = await startedIn(pidFile, marker);
+        expect(childRuns(started)).toBe(true);
         stop.abort();
         // The program never ends on its own, so this settles only if the signal stopped it.
         const run = await running;
 
         expect(run).toMatchObject({ exitCode: null, timedOut: false });
-        await expectStopped(pids);
+        await expectStopped(started);
         expect(await readdir(tempDir)).toEqual([]);
       },
       RUNNER_LIMIT,
@@ -299,28 +401,44 @@ function executorContract(name: string, make: (parts: ExecutorParts) => Executor
     });
 
     test.skipIf(process.platform === "win32")(
-      "a process that escapes the stop (a session of its own) doesn't keep the run waiting",
+      "a process in a session of its own doesn't keep the run waiting, and in the OS sandbox ends with it",
       async () => {
         const { executor } = await setUp();
         const pidFolder = await createTempDataFolder();
         const pidFile = join(pidFolder, "pids.json");
-
-        const run = await executor.run(
-          request(node(ESCAPE, pidFile), { timeoutMs: 1_000, allow: writingTo(pidFolder) }),
-        );
-        const pids = await pidsIn(pidFile);
-        // The test's own clean-up: what escaped is beyond the Executor.
-        onTestFinished(() => {
-          try {
-            process.kill(pids.child, "SIGKILL");
-          } catch {
-            // Gone already.
+        const marker = markerOf();
+        // The test's own clean-up, as the Executor can't end what escaped with no sandbox: the
+        // child it wrote down, by its pid, while that pid is still the child with its marker.
+        onTestFinished(async () => {
+          const started = await readFile(pidFile, "utf8").catch(() => null);
+          const child = started === null ? 0 : (JSON.parse(started) as { child: number }).child;
+          if (child > 1 && runningWith(`${marker}-child`).includes(child)) {
+            process.kill(child, "SIGKILL");
           }
         });
 
-        // What escaped holds the output open for good, so the run comes back only if it stopped waiting.
+        const run = await executor.run(
+          request(node(escaping(marker), pidFile), {
+            timeoutMs: 1_000,
+            allow: writingTo(pidFolder),
+          }),
+        );
+        await startedIn(pidFile, marker);
+
+        // Out of the program's group, it holds the output open. In the OS sandbox the run's sweep
+        // finds it by its profile and ends it; with no sandbox nothing tells it from any other.
         expect(run).toMatchObject({ exitCode: null, timedOut: true });
-        await vi.waitFor(() => expect(isRunning(pids.pid)).toBe(false));
+        if (executor.level === "os") {
+          await vi.waitFor(() => expect(runningWith(`${marker}-child`)).toEqual([]), {
+            timeout: 5_000,
+            interval: 25,
+          });
+        } else {
+          expect(runningWith(`${marker}-child`)).toHaveLength(1);
+        }
+        expect(
+          runningWith(marker).filter((pid) => !runningWith(`${marker}-child`).includes(pid)),
+        ).toEqual([]);
       },
       RUNNER_LIMIT,
     );
@@ -380,6 +498,14 @@ executorContract("the local executor (sandbox level none)", ({ tempDir, processe
 );
 
 const osSandbox = await loadOsSandbox();
+const guard = createSweepGuard();
+// Outside each case's temporary folder, which the contract checks is left empty.
+const runRecords = guard.records(await mkdtemp(join(tmpdir(), "incarnamind-test-runs-")));
+afterAll(async () => {
+  // Each pid a run's sweep signalled was a member of one of this file's own runs.
+  expect(guard.refused).toEqual([]);
+  await rm(runRecords, { recursive: true, force: true });
+});
 executorContract(
   "the OS sandbox (sandbox level os)",
   ({ tempDir, processes, environment }) => {
@@ -391,6 +517,8 @@ executorContract(
       tempDir,
       denyRead: [join(tempDir, "stand-in-home"), join(tempDir, "stand-in-data")],
       reportError: failOnError,
+      runRecords,
+      sweep: { stopper: guard.stopper },
     });
   },
   osSandbox.available ? undefined : osSandbox.reason,
@@ -426,4 +554,106 @@ describe("Declared access, from the sandbox level", () => {
       expect(declaredAccess(level, allow)).toEqual({ confined: true, ...allow });
     }
   });
+});
+
+test("a program with a memory or folder limit doesn't run where nothing can measure it", async () => {
+  const started: string[] = [];
+  const executor = createLocalExecutor({
+    processes: {
+      spawn: async (command) => {
+        started.push(command);
+        throw new Error("Nothing is to start.");
+      },
+    },
+    tempDir: await createTempDataFolder(),
+    reportError: failOnError,
+  });
+  const run = (limits: ExecRequest["limits"]) =>
+    executor.run({
+      command: "/bin/sleep",
+      args: ["1"],
+      env: {},
+      allow: { read: [], write: [], network: "none" },
+      timeoutMs: 1000,
+      maxOutputBytes: 1024,
+      signal: new AbortController().signal,
+      limits,
+    });
+  const refusal = "This Executor can't measure a program's memory or folder";
+  await expect(run({ memoryBytes: 2_000_000_000 })).rejects.toThrow(refusal);
+  await expect(run({ folderBytes: 200_000_000 })).rejects.toThrow(refusal);
+  expect(started).toEqual([]);
+});
+
+describe("a program's memory, as its limit counts it", () => {
+  // pid ppid pgid rss(KiB): 100 is the program; bubblewrap's child 200 has a session of its own.
+  const LISTING = [
+    "  1     0     1   9000",
+    "100     1   100   1000",
+    "101   100   100   2000",
+    "200   100   200   4000",
+    "201   200   200   8000",
+    "300     1   300  16000",
+    "",
+  ].join("\n");
+
+  test("counts its group and every process under it, in a session of its own or not", () => {
+    expect(treeMemory(LISTING, 100)).toBe((1000 + 2000 + 4000 + 8000) * 1024);
+  });
+
+  test("counts nothing of another program's", () => {
+    expect(treeMemory(LISTING, 300)).toBe(16000 * 1024);
+    expect(treeMemory(LISTING, 999)).toBe(0);
+  });
+
+  test("counts what macOS swapped or compressed, by each process's footprint where it is larger", () => {
+    // 101 holds 3 GB of which 2 MB is resident; 201's footprint is under its resident memory.
+    const held = new Map([
+      [101, 3_000_000_000],
+      [201, 1024],
+      [300, 5_000_000_000],
+    ]);
+    expect(treeMemory(LISTING, 100, held)).toBe(
+      1000 * 1024 + 3_000_000_000 + 4000 * 1024 + 8000 * 1024,
+    );
+  });
+
+  test("reads each process's footprint from macOS's report", () => {
+    const report = [
+      "======================================================================",
+      "python3.12 [4101]: 64-bit    Footprint: 3000000000 B (16384 bytes per page)",
+      "======================================================================",
+      "",
+      "Auxiliary data:",
+      "    phys_footprint: 3000016384 B",
+      "    phys_footprint_peak: 3100000000 B",
+      "",
+      "======================================================================",
+      "a [name] with brackets [4102]: 64-bit    Footprint: 2015568 B (16384 bytes per page)",
+      "======================================================================",
+      "",
+      "Auxiliary data:",
+      "    phys_footprint: 2031952 B",
+      "    phys_footprint_peak: 2031952 B",
+      "",
+      "======================================================================",
+      "Summary Footprint: 3002031952 B",
+      "======================================================================",
+    ].join("\n");
+    expect([...footprints(report)]).toEqual([
+      [4101, 3000016384],
+      [4102, 2031952],
+    ]);
+  });
+});
+
+test("a folder the program made unreadable counts as more than any folder limit", async () => {
+  const folder = await createTempDataFolder();
+  await mkdir(join(folder, "hide"));
+  await writeFile(join(folder, "hide", "a"), "x".repeat(1000));
+  await writeFile(join(folder, "seen"), "x".repeat(10));
+  expect(await programMeter.folder(folder)).toBe(1010);
+  await chmod(join(folder, "hide"), 0o300);
+  onTestFinished(() => chmod(join(folder, "hide"), 0o700));
+  expect(await programMeter.folder(folder)).toBe(Number.POSITIVE_INFINITY);
 });

@@ -8,11 +8,8 @@
 import { join } from "node:path";
 import type { EmbeddingModelSource } from "../adapters";
 import type { EmbeddingModelError, EmbeddingModelStatus } from "../api";
-import { downloadModel, isModelDownloaded, ModelDownloadError } from "./download";
+import { downloadModel, isModelDownloaded, ModelDownloadError, progressReporter } from "./download";
 import type { ModelSources } from "./modelSources";
-
-/** Progress events are at most this often, apart from state changes. */
-const PROGRESS_INTERVAL_MS = 250;
 
 export interface DownloadableModel {
   status(): EmbeddingModelStatus;
@@ -76,7 +73,6 @@ export function createDownloadableModel<Files>(
   const lifetime = new AbortController();
   let downloading = false;
   let loading: Promise<boolean> | undefined;
-  let lastProgress = 0;
 
   const update = (patch: Partial<EmbeddingModelStatus>) => {
     status = { ...status, ...patch };
@@ -89,6 +85,7 @@ export function createDownloadableModel<Files>(
     if (downloading || lifetime.signal.aborted) return;
     downloading = true;
     update({ state: "downloading", error: null, downloadedBytes: 0 });
+    const report = progressReporter(() => update({}));
     void downloadModel({
       directory,
       source,
@@ -96,10 +93,7 @@ export function createDownloadableModel<Files>(
       signal: lifetime.signal,
       onProgress(downloadedBytes) {
         status = { ...status, downloadedBytes };
-        const now = Date.now();
-        if (now - lastProgress < PROGRESS_INTERVAL_MS) return;
-        lastProgress = now;
-        update({});
+        report();
       },
     }).then(
       () => {

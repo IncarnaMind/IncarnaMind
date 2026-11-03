@@ -68,11 +68,15 @@ export interface CsvResult {
   workbook: Workbook;
 }
 
-export function extractCsv(bytes: Uint8Array): CsvResult {
+/** `limits`: how much is read, the index's by default; `run_code` reads more (ADR-0025). */
+export function extractCsv(
+  bytes: Uint8Array,
+  limits = { rows: MAX_ROWS, cells: MAX_CELLS },
+): CsvResult {
   const text = decodeText(bytes);
   if (text === null)
     throw new ExtractionError("unreadable", "The file holds binary data, not text.");
-  const { rows, truncated } = parseCsv(text.replace(/^\uFEFF/, ""));
+  const { rows, truncated } = parseCsv(text.replace(/^\uFEFF/, ""), limits.rows, limits.cells);
   const cells: Cell[] = [];
   let columnCount = 0;
   rows.forEach((values, index) => {

@@ -31,8 +31,8 @@ Waiting for approval happens above the engine, in a `gate` the engine awaits bef
 
 - Five refactors land before more agent features build on today's shapes: one Tool shape; Effects with one approval decision; the Run engine interface with a contract suite every engine must pass; taint recorded; and the execution seam. Each keeps v1's behaviour and stored data.
 - v1's existing "always" policies keep working; taint is only recorded for them for now. When the OS sandbox lands, an unsandboxed Skill script's "always run" asks again after untrusted content; sandboxed scripts keep running without asking. Connector "always allow" stays until there is evidence. New side-effecting providers follow the taint rule from the start.
-- The first general capability, when one is scheduled, is Files (a granted read folder and a granted output folder) with Library `add_documents` and Schedules. A Shell comes only after the OS sandbox, and never with Tool-level "always".
-- The sandbox follows the industry pattern and stays simple (User, 2026-10-09: "do it the industry-standard way, simple and clean, no over-engineering"; research in `docs/research/sandboxing.md`). Skill scripts run at the "os" level through `@anthropic-ai/sandbox-runtime`, pinned to 0.0.79, on macOS and Linux (#65): Seatbelt or bubblewrap, no network, secret-looking environment variables removed. stdio Connectors stay unsandboxed, as in Claude Code, Cursor, Codex and Muse Code. No extra Connector hardening (environment allowlists, version pinning, description hashing) is built.
+- The first general capability, when one is scheduled, is Files (a granted read folder and a granted output folder) with Library `add_documents` and Schedules. A Shell comes only after the OS sandbox, and never with Tool-level "always". (`run_code`'s bash runs without asking at all, as sandboxed code at level "os": ADR-0025 decision 4.)
+- The sandbox follows the industry pattern and stays simple (User, 2026-10-09: "do it the industry-standard way, simple and clean, no over-engineering"; research in `docs/research/sandboxing.md`). Skill scripts run at the "os" level through `@anthropic-ai/sandbox-runtime`, pinned to 0.0.79 then (0.0.81 since #2351, ADR-0025), on macOS and Linux (#65): Seatbelt or bubblewrap, no network, secret-looking environment variables removed. stdio Connectors stay unsandboxed, as in Claude Code, Cursor, Codex and Muse Code. No extra Connector hardening (environment allowlists, version pinning, description hashing) is built.
 - A later Task's output goes to a Tasks view with its log, and its deliverable to where the User chose (a Mind, a folder or the Library), not all into a Mind.
 - Effect policies on folders belong to one device: they get a `device_id`, unlike today's per-User rows (ADR-0003).
 - Task tables (`runs`, `run_steps`, `schedules`) follow ADR-0003's rules and record the device a Run executes on. "Run" and "Task" enter CONTEXT.md when Tasks are built; "Effect" is in it now.
@@ -62,7 +62,7 @@ The owner asked why we write our own harness rather than use Claude Code's, Code
 - We never bundle an agent's proprietary binary.
 - Codex, Goose, OpenCode, and Gemini CLI on a paid key are hosted first.
 - Claude Code and Claude Desktop connect through the MCP server above, on the User's own sign-in. The User's own Claude Code can also run on their Claude plan, as an opt-in (#385).
-- Signing in with a Claude or GitHub Copilot plan is an experimental sign-in route (ADR-0019): off until the User signs in, never preselected. With either plan, the setup and Settings say that Answers count toward the plan's usage limits.
+- Signing in with a Claude plan is an experimental sign-in route (ADR-0019): off until the User signs in, never preselected. The GitHub Copilot plan is meant to sign in through IncarnaMind's own GitHub OAuth App, the intended regular route, also off until the User signs in and never preselected; only Copilot's editor profile is experimental in the app. No real GitHub/Copilot account has tried the own route yet, so the READMEs keep calling the Copilot sign-in experimental until one has (ADR-0019, amended by #876). With either plan, the setup and Settings say that Answers count toward the plan's usage limits.
 
 **Considered options.**
 - **Run the User's harness as our engine.** Rejected for the reasons above.
@@ -185,3 +185,14 @@ The amendment of 2026-10-21 held a reply's claims to its calls only for the Note
 - **It fails closed on what only the User changes.** Any claim that stands, and a check that couldn't run, name under the reply each of those the turn refused, whatever the judge took a claim to be about. A reply that stands because the model, asked again, failed keeps what the first check found in it. After a command that was refused, failed or not allowed, the reply shows only once it is checked, so a Stop meanwhile leaves no unchecked claim.
 - **A refusal's own line is never read as a claim.** The check reads the model's reply without the lines IncarnaMind ends it with (#2252).
 - **An honest reply is left alone:** one that says a command ran when it did, one that says what didn't happen, and one that offers to do something.
+
+## Amendment, 2026-11-03: the assistant's Organize files the Documents at once (#2252)
+
+The amendment of 2026-10-29 had a request to Organize leave its suggestions in To review, with nothing moved before the User accepted. Asked in words, "re-organise my files" then ended with suggestions and no files moved. That is what the User didn't ask for, and it goes against "Undo instead of confirmations". A request in words asks for the result:
+
+- **The assistant's Organize files the Documents at once,** as one step of the Run with one Undo, and the reply names the Folders and how many went to each. The card lists each move, and nothing is left in To review.
+- **It asks first only where the rules already ask:** the first time a cloud service would read the Documents for it (the Organize card's line, ADR-0022); above 20 Documents (#1110); and a Tag merge, which deletes. Otherwise it runs at once. This is decided in the one place that decides what asks first.
+- **Walls hold.** It never moves a Document across a Folder's wall, in or out. From outside a wall it doesn't see the Documents inside it and never chooses a walled Folder as a destination. Inside one, it files only within it.
+- **The Library's own Organize keeps To review** ("Sort these into Folders", #241): the User is already looking at its suggestions there, and Accept all is one click.
+
+This replaces the "Organize by content" line of the amendment of 2026-10-29 for a request in words.

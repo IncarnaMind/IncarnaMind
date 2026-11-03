@@ -370,6 +370,16 @@ export function ImageLineIcon(props: IconProps) {
   );
 }
 
+/** A range of cells in a sheet (#118): a grid with its heading row. */
+export function TableLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10" />
+    </LineIcon>
+  );
+}
+
 export function CalculatorLineIcon(props: IconProps) {
   return (
     <LineIcon {...props}>
