@@ -563,7 +563,7 @@ describe("A Check another window runs or plans", () => {
 
       expect(translate(language, "mindCheck.waitingForOk")).toBe(
         language === "en"
-          ? "The check is waiting for your OK on the Note."
+          ? "The check is waiting for your OK on the note."
           : "核对在笔记里等你确认。",
       );
       await expect(checkFromAssistant("mind", true, true)).rejects.toMatchObject({
