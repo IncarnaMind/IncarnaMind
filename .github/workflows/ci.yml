@@ -302,6 +302,8 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Run the sweep's and the sandbox's tests
+        env:
+          INCARNAMIND_TEST_OS_SANDBOX: required
         run: npx vitest run tests/main/runLeftovers.test.ts tests/main/runCodeLeftBehind.test.ts tests/main/sandbox.test.ts tests/main/runCode.test.ts
 
   # The packaged app, as the User installs it, loads every engine module the way it runs them,

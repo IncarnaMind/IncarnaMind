@@ -137,7 +137,9 @@ test("run_code routing", async () => {
   const ids = process.env.INCARNAMIND_EVAL_RUNCODE_CASES?.split(",").map((id) => id.trim());
   const sets = { fresh: FRESH_CASES, printed: PRINTED_CASES } as const;
   const named = process.env.INCARNAMIND_EVAL_RUNCODE_SET;
-  const set = named === "fresh" || named === "printed" ? sets[named] : ROUTING_CASES;
+  if (named !== undefined && named !== "fresh" && named !== "printed")
+    throw new Error(`INCARNAMIND_EVAL_RUNCODE_SET is "fresh", "printed" or unset, not "${named}".`);
+  const set = named ? sets[named] : ROUTING_CASES;
   const cases = ids ? set.filter((each) => ids.includes(each.id)) : set;
   const sandbox = await loadOsSandbox();
   const sources = await mkdtemp(join(tmpdir(), "incarnamind-eval-run-code-sources-"));

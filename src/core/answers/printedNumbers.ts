@@ -15,6 +15,7 @@
  * made a figure, and one that matches nothing stays as typed, for the checks every typed number
  * goes through.
  */
+import { ANALYSIS_LIMITS } from "../../shared/analysis";
 import { FENCE, paragraphsOf } from "../../shared/answerSentences";
 import { type PlacedFigure, withFigureText } from "../../shared/figureMarkers";
 import { type Figure, figureContextOf, readFigures, readingsOf } from "../../shared/figures";
@@ -214,6 +215,7 @@ export interface PrintedNumbersText {
  */
 export function createPrintedNumbers(options: PrintedNumbersOptions) {
   const recorded = new Map<string, number>();
+  const kept = new Map<number, Set<string>>();
   // A Note's text is read again as it streams, while the Analyses stay the same.
   let grouped: { runs: readonly AnswerAnalysis[]; groups: PrintedGroup[] } | null = null;
   return (text: string, given: PrintedNumbersText): string => {
@@ -295,6 +297,14 @@ export function createPrintedNumbers(options: PrintedNumbersOptions) {
       );
       if (tried !== withFigureText(line(marked, to), figureOf)) continue;
       const key = JSON.stringify([source.analysis, source.value.name, stated.chars]);
+      const names = kept.get(source.analysis) ?? new Set<string>();
+      // A Note keeps a run's values up to its results' limit: past it, it would keep none of them.
+      const run = given.analyses.find((analysis) => analysis.number === source.analysis);
+      const results = run?.output.results.filter((each) => each.kind === "figure").length ?? 0;
+      if (!names.has(source.value.name) && names.size + results >= ANALYSIS_LIMITS.figures)
+        continue;
+      names.add(source.value.name);
+      kept.set(source.analysis, names);
       const marker = recorded.get(key) ?? options.record(figure, above);
       recorded.set(key, marker);
       placed.set(marker, figure);

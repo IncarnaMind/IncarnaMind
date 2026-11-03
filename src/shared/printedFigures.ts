@@ -43,9 +43,13 @@ function printedTexts(run: PrintedRun): { source: string; text: string }[] {
   ];
 }
 
+// "1.5e+10" is one number, which the figure reader would read as 1.5 and 10.
+const SCIENTIFIC = /\d(?:[\d.]*)[eE][+-]?\d+/g;
+
 /** The values of a line `from` characters into a text: each line is read on its own. */
 function lineValues(source: string, line: string, from: number, taken: ReadonlySet<string>) {
-  return readFigures(line, CODE_NUMBERS).flatMap((reading): PrintedValue[] => {
+  const read = line.replace(SCIENTIFIC, (number) => " ".repeat(number.length));
+  return readFigures(read, CODE_NUMBERS).flatMap((reading): PrintedValue[] => {
     const name = `${source}@${from + reading.start}`;
     if (reading.ambiguous.length > 0 || !Number.isFinite(reading.value) || taken.has(name))
       return [];

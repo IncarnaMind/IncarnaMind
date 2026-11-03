@@ -261,7 +261,7 @@ Of what #2346 built:
 
 Of the rest, once built (#2351):
 
-- **Offered where it was measured.** It shipped off, the catalog's `codeTool` fact on for no model, until a number its code prints was marked in the Answer (on the fresh held-out requests, Claude Haiku 5.5 wrote such numbers into every `run_code` reply). With them marked (#2351), the fact is on for Claude Haiku 5.5 and Sonnet 5.5, through Anthropic's own API, and off for every other model until a run measures it.
+- **Offered where it was measured.** It shipped off, the catalog's `codeTool` fact on for no model, until a number its code prints was marked in the Answer (on the fresh held-out requests, Claude Haiku 5.5 wrote such numbers into every `run_code` reply). With them marked (#2351), the fact is on for Claude Haiku 5.5 and Sonnet 5.5, and off for every other model until a run measures it. It is the model's fact, as `calculates` is: the Claude account's sign-in serves the same two models and reads their facts.
 
 - **The Executor.**
   - `ExecRequest` gains `limits`.

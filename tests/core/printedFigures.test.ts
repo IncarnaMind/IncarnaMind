@@ -281,6 +281,36 @@ describe.skipIf(process.platform === "win32")("numbers code printed, in the Answ
     },
   );
 
+  test.each<[Language, string]>([
+    ["en", "The fit gives 10 as its exponent's digits, over 7 rows."],
+    ["zh-CN", "拟合的指数位是 10，共 7 行。"],
+  ])(
+    "%s: a number in scientific notation is one number, not its exponent",
+    async (language, reply) => {
+      const { answer } = await answered(
+        language,
+        [bash("printf 'scale %s\\nrows %s\\n' 1.5e+10 7")],
+        () => reply,
+      );
+      expect(answer.figures.map((figure) => figure.value)).toEqual([7]);
+      expect(answer.text).toContain("10");
+    },
+  );
+
+  test("a run's printed figures stop at what a Note keeps of one run, so its record is kept", async () => {
+    const printed = Array.from({ length: 105 }, (_, at) => 1001 + at);
+    const { answer } = await answered(
+      "en",
+      [bash("seq 1001 1105")],
+      () => `The values are ${printed.join("; ")}.`,
+    );
+    expect(answer.figures).toHaveLength(100);
+    // Marked from the end of the reply: the first five stay as typed.
+    expect(answer.text).toContain("are 1001; 1002; 1003; 1004; 1005; [=");
+    const blocks = answerBlocks(answer);
+    expect(figureRunsOfAnswer(answer, blocks)[0]?.values).toHaveLength(100);
+  });
+
   test.each<[Language, string, string]>([
     ["en", "Revenue is 1,234 [=2].\n\nWe read 3 rows.", "Revenue is 1,234.\nWe read 3 rows."],
     ["zh-CN", "收入为 1,234 [=2]。\n\n共读了 3 行。", "收入为 1,234。\n共读了 3 行。"],
