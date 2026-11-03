@@ -155,7 +155,7 @@ export const CORE_COMMANDS = {
     on: "tag",
     does: "app",
     takes:
-      "ids: the Tags to merge away, by id or name; tag: the Tag they merge into, which stays, by id or name. merges: every merge, each ids and tag, instead of ids and tag, when more than one Tag stays. Put every merge in one call: the User allows them all once, and one Undo brings them back",
+      "ids: the Tags to merge away, by id or name; tag: the Tag they merge into, which stays, by id or name. merges: every merge, each ids and tag, instead of ids and tag, when more than one Tag stays. Put every merge in one call: the User allows them all once, and one Undo brings them back. Never ask which Tags first: that card is where the User confirms",
     check: FOLDER_CHECKERS["tag.merge"],
   },
   "tag.delete": {

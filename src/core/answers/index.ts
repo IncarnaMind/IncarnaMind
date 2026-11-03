@@ -3351,8 +3351,8 @@ export function createAnswers(options: AnswersOptions) {
             const folders = done.folders;
             if (done.command === "documents.organize" && folders && folders.length > 0) {
               const count = folders.reduce((sum, folder) => sum + folder.count, 0);
-              resultLines.push((each) =>
-                translate(
+              resultLines.push((each) => {
+                const line = translate(
                   each,
                   count === 1 ? "library.review.summary.one" : "library.review.summary",
                   {
@@ -3366,8 +3366,11 @@ export function createAnswers(options: AnswersOptions) {
                       )
                       .join(translate(each, "library.review.separator")),
                   },
-                ),
-              );
+                );
+                // The summary is a card line: in a reply it ends as a sentence, and the line
+                // after it may follow with no space in Chinese.
+                return each === "zh-CN" ? `${line}。` : `${line}.`;
+              });
             }
             if (done.command === "documents.organize" && done.unsorted) {
               const count = done.unsorted;
