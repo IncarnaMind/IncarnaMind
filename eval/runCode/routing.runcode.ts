@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "vitest";
 import type { AnswerAnalysis, AnswerToolCall, ConversationAnswer, Core } from "../../src/core";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
+import { withAnalysisResults } from "../../src/core/analysis/markers";
 import { createPrintedNumbers } from "../../src/core/answers/printedNumbers";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import type { PythonRuntimeManifest } from "../../src/core/runCode";
@@ -260,8 +261,21 @@ function printedIn(answer: ConversationAnswer | null, language: RoutingCase["lan
       new Set(printedValues(analysis).map((each) => each.value.name)),
     ]),
   );
+  // The conversation keeps an Analysis's own tables and charts written out: they are its results,
+  // not numbers the reply typed, so they go back to their markers.
+  let reply = answer.text;
+  for (const analysis of answer.analyses) {
+    const markers = [
+      ...analysis.markers.tables.map(({ marker }) => `[=table ${marker}]`),
+      ...analysis.markers.charts.map((marker) => `[=chart ${marker}]`),
+    ];
+    for (const marker of markers) {
+      const shown = withAnalysisResults(marker, answer.analyses, language).trim();
+      if (shown) reply = reply.replaceAll(shown, marker);
+    }
+  }
   const figures = new Map(answer.figures.map((figure) => [figure.marker, figure]));
-  const printedMarked = [...answer.text.matchAll(FIGURE_MARKER)].flatMap((found) => {
+  const printedMarked = [...reply.matchAll(FIGURE_MARKER)].flatMap((found) => {
     const figure = figures.get(Number(found[1]));
     return figure?.analysis && printed.get(figure.analysis.analysis)?.has(figure.analysis.result)
       ? [figure.shown]
@@ -276,7 +290,7 @@ function printedIn(answer: ConversationAnswer | null, language: RoutingCase["lan
       shown.set(9000 + shown.size, figure.shown);
       return 9000 + shown.size - 1;
     },
-  })(answer.text, {
+  })(reply, {
     analyses: answer.analyses,
     quoteOf: (marker) => quotes.get(marker) ?? null,
     figureOf: (marker) => figures.get(marker) ?? null,
@@ -287,7 +301,7 @@ function printedIn(answer: ConversationAnswer | null, language: RoutingCase["lan
   const tokens = new Set(
     answer.analyses.flatMap((analysis) => printedText(analysis).match(/\d[\d.]*/g) ?? []),
   );
-  const typedAsPrinted = typedNumbersIn(answer.text).filter((typed) =>
+  const typedAsPrinted = typedNumbersIn(reply).filter((typed) =>
     tokens.has(typed.replaceAll(",", "").replace(/\.$/, "")),
   );
   return {
