@@ -50,6 +50,8 @@ const conversation = (id: string): Conversation => ({
 const reads = new Map<string, Promise<{ messages: ConversationMessage[] }>>();
 const readsAsked: string[] = [];
 const stopped: string[] = [];
+/** The conversations the window's layout was told to show, as the assistant moved. */
+const layoutWrites: (string | null)[] = [];
 const listeners = new Map<string, (payload: unknown) => void>();
 let ask: () => Promise<ConversationAskResult> = async () => {
   throw new Error("No Question is asked in this test.");
@@ -80,6 +82,12 @@ const bridge = new Proxy(
     deleteConversation: () => deleting,
     askExampleReadyQuestion: () => exampleAsk(),
     askMeetingHelp: () => helpAsk(),
+    changeLayout: async (
+      _windowId: string,
+      change: { type: string; conversationId?: string | null },
+    ) => {
+      if (change.type === "conversation") layoutWrites.push(change.conversationId ?? null);
+    },
   },
   {
     get: (target: object, name: string) =>
@@ -117,10 +125,11 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  conversations.startNewChat();
   reads.clear();
   readsAsked.length = 0;
   stopped.length = 0;
-  conversations.startNewChat();
+  layoutWrites.length = 0;
 });
 
 const shown = () => conversations.useConversations.getState().openId;
@@ -386,9 +395,19 @@ test("help asked during a call shows its conversation when the User stayed", asy
   expect(shown()).toBe("help");
 });
 
-/** The window as a reload of its page leaves it, with the conversation it showed kept. */
+/** The window as a reload of its page leaves it, with the conversation it showed kept by its layout. */
 async function reloadedShowing(conversationId: string) {
-  sessionStorage.setItem("incarnamind.window.conversation", JSON.stringify(conversationId));
+  const { DEFAULT_ASSISTANT } = await import("../../src/core/api");
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  useAppStore.setState({
+    layout: {
+      groups: [],
+      focusedGroupId: "",
+      reopenable: 0,
+      conversationId,
+      assistant: DEFAULT_ASSISTANT,
+    },
+  });
   const { installWindowMemory } = await import("../../src/renderer/src/windowMemory");
   installWindowMemory();
 }
@@ -399,10 +418,8 @@ test("a New chat clicked while a reload shows the conversation again stays a New
   await reloadedShowing("kept");
   conversations.startNewChat();
   restoring.settle({ messages: [question("kept")] });
-  // A second reload starts in the New chat too: what is kept says so once the read is done.
-  await vi.waitFor(() =>
-    expect(sessionStorage.getItem("incarnamind.window.conversation")).toBeNull(),
-  );
+  // The layout says so too: the next start shows a New chat.
+  await vi.waitFor(() => expect(layoutWrites).toContain(null));
 
   expect(readsAsked).toContain("kept");
   expect(shown()).toBeNull();
@@ -413,4 +430,12 @@ test("a reload shows the conversation it showed again when the User stayed", asy
   await vi.waitFor(() => expect(shown()).toBe("kept"));
 
   expect(conversations.useConversations.getState().messages).toEqual([question("kept")]);
+});
+
+test("a conversation gone since the window kept it leaves a New chat, the app's own words for one (#258)", async () => {
+  reads.set("gone", Promise.reject(new Error("There is no such conversation.")));
+  await reloadedShowing("gone");
+  await vi.waitFor(() => expect(layoutWrites).toContain(null));
+
+  expect(shown()).toBeNull();
 });

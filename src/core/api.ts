@@ -3117,6 +3117,11 @@ export interface WindowLayout {
   focusedGroupId: string;
   /** How many closed tabs ⇧⌘T can reopen, most recent first. */
   reopenable: number;
+  /**
+   * The conversation the assistant shows; null for a New chat. Kept so a quit and reopening, or
+   * a reload of the page, shows it again (#258).
+   */
+  conversationId: string | null;
   /** Where the window's one assistant sits, outside the groups, and its sizes. */
   assistant: AssistantPlace;
 }
@@ -3230,7 +3235,9 @@ export type LayoutChange =
   /** Every group as wide as the others. */
   | { type: "equalize" }
   /** Moves, resizes, folds or unfolds the assistant: what is given changes, the rest stays. */
-  | { type: "assistant"; place: Partial<AssistantPlace> };
+  | { type: "assistant"; place: Partial<AssistantPlace> }
+  /** The conversation the assistant shows; null for a New chat (#258). */
+  | { type: "conversation"; conversationId: string | null };
 
 /**
  * The kinds of Document (ADR-0011): files of PDF, plain text, Markdown, Word

@@ -30,6 +30,8 @@ import { InvalidInputError, isRecord, NotFoundError } from "./errors";
 interface Layout {
   groups: LayoutGroup[];
   focusedGroupId: string;
+  /** The conversation the assistant shows; null for a New chat (#258). */
+  conversationId: string | null;
   assistant: AssistantPlace;
 }
 
@@ -360,6 +362,13 @@ export function parseLayoutChange(value: unknown): LayoutChange {
     }
     case "assistant":
       return { type: "assistant", place: parseAssistantPlace(value.place) };
+    case "conversation": {
+      const conversationId = value.conversationId;
+      if (conversationId !== null && !isId(conversationId)) {
+        throw new InvalidInputError("The assistant shows a conversation, or a New chat.");
+      }
+      return { type: "conversation", conversationId };
+    }
     default:
       throw new InvalidInputError("That isn't a layout change.");
   }
@@ -407,6 +416,7 @@ function readSavedLayout(value: unknown): Layout | null {
   return {
     groups,
     focusedGroupId: (focused as LayoutGroup).id,
+    conversationId: isId(value.conversationId) ? value.conversationId : null,
     assistant: readSavedAssistant(value.assistant),
   };
 }
@@ -430,6 +440,7 @@ function emptyLayout(newId: () => string): Layout {
   return {
     groups: [group],
     focusedGroupId: group.id,
+    conversationId: null,
     assistant: structuredClone(DEFAULT_ASSISTANT),
   };
 }
@@ -786,6 +797,9 @@ class WindowState {
       case "assistant":
         layout.assistant = { ...layout.assistant, ...change.place };
         break;
+      case "conversation":
+        layout.conversationId = change.conversationId;
+        break;
     }
     tidy(layout);
   }
@@ -940,6 +954,7 @@ export function createLayouts(deps: LayoutDependencies) {
     return {
       groups: [group],
       focusedGroupId: group.id,
+      conversationId: null,
       assistant: structuredClone(DEFAULT_ASSISTANT),
     };
   };

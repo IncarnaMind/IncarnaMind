@@ -209,6 +209,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         ],
         focusedGroupId: "right",
         reopenable: 0,
+        conversationId: null,
         assistant: DEFAULT_ASSISTANT,
       } satisfies WindowLayout,
     });

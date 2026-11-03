@@ -42,6 +42,7 @@ const layoutOf = (width: number, tabIds: string[]): WindowLayout => ({
   ],
   focusedGroupId: "group",
   reopenable: 0,
+  conversationId: null,
   assistant: { ...DEFAULT_ASSISTANT, width },
 });
 
