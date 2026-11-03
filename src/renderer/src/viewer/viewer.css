@@ -948,7 +948,7 @@
     }
   }
   /* Tags stay in the Document's menu, where the room is. */
-  @container viewer (width < 520px) {
+  @container viewer (width < 460px) {
     .viewer-header .viewer-tags {
       @apply hidden;
     }
