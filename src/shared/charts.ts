@@ -1114,6 +1114,21 @@ export function gridOfTable(table: NodeJSON): SourceGrid {
   return grid.map((row) => Array.from({ length: width }, (_, column) => row[column] ?? null));
 }
 
+/**
+ * Whether the `cell`th cell of a table's `row` gives a value rather than naming its row: a body
+ * cell after the row's first column, or the only filled cell of its row (#2447). The checks name
+ * each figure in a table by its row's first cell and its column's headings.
+ */
+export function givesValue(grid: SourceGrid, row: number, cell: number): boolean {
+  const slots = grid[row] ?? [];
+  const column = slots.flatMap((slot, at) => (slot && !slot.continued ? [at] : []))[cell];
+  if (column === undefined || slots[column]?.header !== false) return false;
+  return (
+    column > 0 ||
+    slots.every((slot, at) => at === 0 || !slot || slot.continued || slot.text.trim() === "")
+  );
+}
+
 /** What separates a label from the figure after it: "Q1: 289.4", "Revenue – $1.2bn". */
 const LABEL_END = /[\s:：,，;；=\-–—]+$/u;
 const LABEL_START = /^[\s:：,，;；=\-–—•·*]+/u;
