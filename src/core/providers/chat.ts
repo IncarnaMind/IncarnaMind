@@ -348,6 +348,8 @@ export function createChat(options: {
   localOnly(): boolean;
   /** Counts every cloud request of the models handed out, and holds the monthly cap (see ../cost/meter). */
   meter: Pick<Meter, "wrap">;
+  /** Facts the host lays over every source's for a model (`CoreAdapters.modelFacts`). */
+  modelFacts?: (provider: string, modelId: string) => ModelFactsLayer | undefined;
 }) {
   const {
     db,
@@ -533,22 +535,26 @@ export function createChat(options: {
     serviceFor(row.kind as ChatProviderKind, row.base_url, row.endpoint, row.catalog_id);
 
   /**
-   * What is known of a model on a provider, by precedence (see ./capabilities):
-   * the server's word (`server`, else what its model list said), then the
+   * What is known of a model on a provider, by precedence (see ./capabilities): the host's
+   * facts (a test's), the server's word (`server`, else what its model list said), then the
    * catalog's. Nothing the User sets on a model is stored yet.
    */
   const capabilitiesOf = (
     row: ProviderRow,
     modelId: string,
     server?: ModelFactsLayer,
-  ): ModelCapabilities =>
-    resolveCapabilities({
+  ): ModelCapabilities => {
+    const provider = modelsProviderOfKind(
+      row.kind as ChatProviderKind,
+      row.endpoint,
+      row.catalog_id,
+    );
+    return resolveCapabilities({
+      user: options.modelFacts?.(provider, modelId),
       server: server ?? modelLists.get(listKey(row))?.models.find((m) => m.id === modelId)?.facts,
-      catalog: catalogFacts(
-        modelsProviderOfKind(row.kind as ChatProviderKind, row.endpoint, row.catalog_id),
-        modelId,
-      ),
+      catalog: catalogFacts(provider, modelId),
     });
+  };
 
   /**
    * What the model factory needs: a hosted provider's endpoint from the

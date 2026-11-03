@@ -27,15 +27,18 @@ import {
   type UsageDataSender,
 } from "../core";
 import { runAnalysis } from "../core/analysis";
+import type { SandboxProblem } from "../core/api";
 import { scansAtOnce } from "../core/documents/processor";
 import type { PageFetch } from "../core/documents/web/fetch";
 import type { ModelCopies } from "../core/embedding/modelSources";
 import { createFakeCapture, type FakeCapture, wavSamples } from "../core/meetings/fakeCapture";
+import type { ModelFactsLayer } from "../core/providers/capabilities";
 import { type LocalServers, scriptedLocalServers } from "../core/providers/localServers";
 import { type Resolve, systemResolve } from "../core/tools/web/addresses";
 import type { FakeTranscriberOptions } from "../core/transcription/fake";
 import { SHOW_AGENT_CONNECTION } from "../shared/agentConnection";
 import type { AnalysisJob } from "../shared/analysis";
+import { PLOT_FONT } from "../shared/analysisWindow";
 import { createElectronAnalysisRuntime } from "./analysis";
 import { createCitedPageCapture } from "./citedPageCapture";
 import { createSentryCrashReporter } from "./crashReports";
@@ -51,6 +54,8 @@ import { createElectronPictures } from "./pictures";
 import { createElectronPrinter } from "./printPdf";
 import { createLoginShellProcesses } from "./processes";
 import { createUtilityProcessCrossEncoder } from "./reranker";
+import { createCodeHost } from "./runCode/host";
+import { readPythonManifest, runtimePlatform } from "./runCode/manifest";
 import { loadOsSandbox, readDeniedFolders } from "./sandbox";
 import { createUtilityProcessTextRecognizer } from "./scanReader";
 import { createFileKeychain, SECRETS_FILE, type SecretCipher } from "./secretsFile";
@@ -177,15 +182,17 @@ export function seccompHelper(): string | undefined {
  * Found out once, at startup: the log says which, and why not "os". Call
  * once `userData` is set.
  */
-export async function chooseExecutor(log: Logger): Promise<Executor | undefined> {
+export async function chooseExecutor(
+  log: Logger,
+): Promise<{ executor?: Executor; problem?: SandboxProblem }> {
   try {
     const sandbox = await loadOsSandbox({ seccompHelper: seccompHelper() });
     if (!sandbox.available) {
       log.info("scripts.sandbox", { level: "none", reason: sandbox.reason });
-      return undefined;
+      return sandbox.problem ? { problem: sandbox.problem } : {};
     }
     log.info("scripts.sandbox", { level: "os" });
-    return sandbox.createExecutor({
+    const executor = sandbox.createExecutor({
       processes: loginShellProcesses,
       environment: () => loginShellProcesses.environment(),
       tempDir: tmpdir(),
@@ -197,13 +204,16 @@ export async function chooseExecutor(log: Logger): Promise<Executor | undefined>
         uid: typeof process.getuid === "function" ? process.getuid() : undefined,
       }),
       reportError: (error) => console.error(error),
+      runRecords: join(app.getPath("userData"), "runs"),
+      log,
     });
+    return { executor };
   } catch (error) {
     log.error("scripts.sandbox", {
       level: "none",
       reason: error instanceof Error ? error.message : String(error),
     });
-    return undefined;
+    return {};
   }
 }
 
@@ -363,6 +373,45 @@ function pythonFolder(): string {
   return app.isPackaged
     ? join(process.resourcesPath, "python")
     : join(app.getAppPath(), "resources", "python");
+}
+
+/**
+ * Test-only: facts laid over every model's, as JSON (`INCARNAMIND_TEST_MODEL_FACTS`), as a smoke
+ * test turns on run_code, which the catalog offers to no model yet (#2351). Only a test build
+ * (`electron-vite build --mode test`) honours it.
+ */
+function testModelFacts(): Pick<CoreAdapters, "modelFacts"> {
+  const given =
+    import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_MODEL_FACTS : undefined;
+  if (!given) return {};
+  const facts = JSON.parse(given) as ModelFactsLayer;
+  return { modelFacts: () => facts };
+}
+
+/**
+ * What `run_code` runs with (ADR-0025): the manifest of IncarnaMind's own Python this build was
+ * made with, beside the app's other resources (in a test build, the one the test names), and
+ * the plot font Analyses bundle. None on Windows, where code has no OS sandbox to run in.
+ */
+function codeRuntime(log: Logger): CoreAdapters["codeRuntime"] {
+  if (process.platform === "win32") return undefined;
+  const testManifest =
+    import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_PYTHON_RUNTIME : undefined;
+  const manifest =
+    testManifest ||
+    (app.isPackaged
+      ? join(process.resourcesPath, "python-native", "runtime.json")
+      : join(app.getAppPath(), "resources", "python-native", "runtime.json"));
+  return createCodeHost({
+    python: readPythonManifest(
+      manifest,
+      runtimePlatform(process.platform, process.arch),
+      (reason) => log.warn("pythonRuntime.manifest", { reason }),
+      { standIn: import.meta.env.MODE === "test" },
+    ),
+    font: join(pythonFolder(), PLOT_FONT),
+    appVersion: app.getVersion(),
+  });
 }
 
 export function analysisRuntime(log: Logger): AnalysisRuntime {
@@ -775,6 +824,8 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     audioCapture: audioCapture(log),
     capturePage: createCitedPageCapture({ rendererUrl: process.env.ELECTRON_RENDERER_URL, log }),
     analysisRuntime: analysisRuntime(log),
+    codeRuntime: codeRuntime(log),
+    ...testModelFacts(),
     paths: {
       dataDir,
       builtInSkills: builtInSkillsFolder(),

@@ -1,0 +1,8 @@
+numpy
+pandas
+scipy
+statsmodels
+scikit-learn
+matplotlib
+pillow
+openpyxl

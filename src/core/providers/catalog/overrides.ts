@@ -86,7 +86,12 @@ export const OVERRIDES: CatalogOverrides = {
       "claude-fable-5": { thinkingOff: CLAUDE_LOW_EFFORT },
       "claude-fable-5-1": { forcedToolChoice: false, thinkingOff: CLAUDE_LOW_EFFORT },
       "claude-opus-5-5": { forcedToolChoice: false, thinkingOff: CLAUDE_LOW_EFFORT },
-      "claude-sonnet-5-5": { forcedToolChoice: false, thinkingOff: CLAUDE_BETWEEN_TOOLS },
+      // run_code (#2351) is offered to no model yet: the numbers its code prints reach the Answer
+      // unmarked until they are marked. Then Haiku 5.5 and Sonnet 5.5, where it was measured.
+      "claude-sonnet-5-5": {
+        forcedToolChoice: false,
+        thinkingOff: CLAUDE_BETWEEN_TOOLS,
+      },
     },
     openai: {
       // It calls functions (OpenAI's docs, and LiteLLM); models.dev says it doesn't.
