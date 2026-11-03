@@ -37,14 +37,24 @@ import type {
   ClaimCheckDependencies,
   ClaimCheckRequest,
 } from "./claimCheck";
-import { readVerdict, replyAcrossTurns } from "./prompt";
+import { PROPERTY, readVerdict, replyAcrossTurns } from "./prompt";
 
-/** What a Run's searches ask of the Documents' file properties (`ClaimCheckDependencies`). */
+/**
+ * What a Run's searches ask of the Documents' file properties (`ClaimCheckDependencies`). `search`
+ * is the one search's own options, which tell its result from another's run at the same time.
+ */
 export interface FilePropertySearch {
-  /** The property Passages a search adds to `found`: of the Document it names, else of those it found. */
-  add(found: readonly WindowedPassage[], within: readonly string[] | undefined): WindowedPassage[];
-  /** A search's result with what the model is told of the properties it shows. */
-  told(result: SearchResultForModel): SearchResultForModel;
+  /**
+   * The property Passage a search adds to `found`: of the one Document it names, else of the one
+   * it could be about; none when it could be about several.
+   */
+  add(
+    found: readonly WindowedPassage[],
+    within: readonly string[] | undefined,
+    search: object,
+  ): WindowedPassage[];
+  /** A search's result with what the model is told of the properties it shows, or why it shows none. */
+  told(result: SearchResultForModel, search: object): SearchResultForModel;
   /** Asks once for the Property line, of a reply after properties were shown that has none. */
   turnCheck: TurnCheck;
   /** The Run's last reply, which names the properties its sentence states. */
@@ -73,22 +83,23 @@ const VERSION = "file-properties:";
 const isPropertyPassage = (passageId: unknown): boolean =>
   typeof passageId === "string" && passageId.startsWith(VERSION);
 
-/** Most Documents whose properties one search adds: those of its first Passages. */
-const MOST_PER_SEARCH = 5;
-
-/**
- * A scope this small shows every Document's properties: a sentence about "the file" names nothing
- * its text holds, so its words may find no Passage of it.
- */
-const FEW_DOCUMENTS = 3;
+/** Most Documents a search that could be about several names for the model to choose from. */
+const MOST_NAMED = 8;
 
 const english: Translate = (key, params) => translate("en", key, params);
 const grouped = new Intl.NumberFormat("en-US");
 
 export const PROPERTIES_NOTE = [
-  "The file properties above are what each file records about itself, not what its Document says. They decide only a sentence about the file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. They never decide a sentence about what a Document's text says, such as the day a contract was signed or a name its text gives. This computer's dates decide nothing.",
+  "The file properties above are what the file records about itself, not what its Document says. They decide only a sentence about the file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. They never decide a sentence about what a Document's text says, such as the day a contract was signed or a name its text gives. This computer's dates decide nothing.",
   'Cite the one line that decides it. After your Verdict line, add a line "Property: " and the properties the sentence states, from created, modified, author, pages, slides, sheets, size and name, separated by commas, or "Property: none".',
 ].join("\n");
+
+/**
+ * Said when a search for the properties could be about several files: each file has lines like the
+ * others', so the model names the one its sentence is about and is shown that one's alone.
+ */
+const nameOne = (names: readonly string[]) =>
+  `No file properties are shown: ${names.length > 1 ? `this sentence could be about ${names.map((name) => `“${name}”`).join(", ")}` : "they are shown for one Document at a time"}. Search again with properties and the Document the sentence is about in document.`;
 
 const PROPERTY_LINE =
   'Your reply has no Property line. Write your whole reply again, with a line after the Verdict line: "Property: " and the properties the sentence states (created, modified, author, pages, slides, sheets, size or name), or "Property: none" when it is about what a Document says.';
@@ -98,7 +109,8 @@ const PROPERTY_LINE =
  * the line can't be read.
  */
 export function declaredProperties(reply: string): ReadonlySet<FilePropertyName> | null {
-  const line = /^[\s*_-]*Property:\s*(.*)$/im.exec(reply)?.[1];
+  const lines = reply.split("\n").map((each) => each.trim());
+  const line = PROPERTY.exec(lines.findLast((each) => PROPERTY.test(each)) ?? "")?.[1];
   if (line === undefined) return null;
   const words = line
     .toLowerCase()
@@ -114,7 +126,7 @@ function countLine(
   document: Document,
   slides: number | null,
 ): { property: FilePropertyName; label: string; written: string; value: number } | null {
-  if (document.kind === "pdf" && document.pageCount !== null) {
+  if (document.kind === "pdf" && document.pageCount !== null && document.pageCount > 0) {
     const count = document.pageCount;
     return { property: "pages", label: "Pages", written: String(count), value: count };
   }
@@ -191,6 +203,8 @@ function sourceOf(document: Document, slides: number | null): Source | null {
     seq: 0,
     windowFrom: 0,
     windowTo: 0,
+    // Last in a result, it would be the first a small window cuts: the model asked for it.
+    rank: -1,
   };
   return { document, passage, unit: { page: null, text }, lines, computer };
 }
@@ -280,44 +294,55 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
     const source = passageId ? deps.documents.citationSource(passageId) : null;
     return source && !source.documentDeleted ? [source.documentId] : [];
   });
-  let few: readonly string[] | null = null;
-  const fewDocuments = () => {
-    few ??= (() => {
-      const searchable = deps.documents
-        .searchableBySize(scope.documentIds)
-        .filter((each) => inScope(each.id));
-      return searchable.length <= FEW_DOCUMENTS ? searchable.map((each) => each.id) : [];
-    })();
-    return few;
+  let searchable: readonly { id: string; name: string }[] | null = null;
+  const inScopeSearchable = () => {
+    searchable ??= deps.documents
+      .searchableBySize(scope.documentIds)
+      .filter((each) => inScope(each.id));
+    return searchable;
   };
   const shown = new Set<string>();
+  /** The Documents a search that showed no properties could be about, by its options. */
+  const several = new WeakMap<object, readonly string[]>();
 
   const search: FilePropertySearch = {
-    add(found, within) {
-      const wanted =
-        within && within.length > 0
-          ? within
-          : [
-              ...cited,
-              ...[...new Set(found.map((passage) => passage.documentId))].slice(0, MOST_PER_SEARCH),
-              ...fewDocuments(),
-            ];
-      return [...new Set(wanted)].flatMap((documentId) => {
-        if (shown.has(documentId)) return [];
-        const source = sourceFor(documentId);
-        if (!source) return [];
-        shown.add(documentId);
+    add(found, within, asked) {
+      const only = inScopeSearchable().length === 1 ? [inScopeSearchable()[0]?.id ?? ""] : [];
+      const named = within && within.length > 0;
+      const wanted = named ? within : cited.length > 0 ? cited : only;
+      const sources = [...new Set(wanted)].flatMap((documentId) => sourceFor(documentId) ?? []);
+      const [source] = sources;
+      if (source && sources.length === 1) {
+        shown.add(source.document.id);
         return [source.passage];
-      });
+      }
+      if (!named) {
+        const names =
+          sources.length > 1
+            ? sources.map((each) => each.document.name)
+            : [
+                ...found.map((passage) => passage.documentName),
+                ...(inScopeSearchable().length <= MOST_NAMED
+                  ? inScopeSearchable().map((each) => each.name)
+                  : []),
+              ];
+        several.set(asked, [...new Set(names)].slice(0, MOST_NAMED));
+      }
+      return [];
     },
-    told(result) {
+    told(result, asked) {
       const { coverage } = result;
+      const names = several.get(asked);
       return {
         ...result,
         coverage: (fitted) => {
           const covered = coverage?.(fitted) ?? null;
-          if (!fitted.includes("File properties of “")) return covered;
-          return covered ? `${covered}\n\n${PROPERTIES_NOTE}` : PROPERTIES_NOTE;
+          const note = fitted.includes("File properties of “")
+            ? PROPERTIES_NOTE
+            : names
+              ? nameOne(names)
+              : null;
+          return [covered, note].filter((each) => each !== null).join("\n\n") || null;
         },
       };
     },
@@ -412,22 +437,30 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
     ): J => {
       if (judgment.verdict === "not-checked") return judgment;
       if (judgment.verdict === "unsupported") {
-        const { quoted, ...why } = judgment.unsupported ?? { ...UNDECIDED };
+        const why = judgment.unsupported;
+        // The part a property covers is no part of a sentence that isn't about it.
+        const { quoted, found: _found, ...said } = why ?? { ...UNDECIDED };
         return {
           ...judgment,
           evidence: mayDecide(judgment.evidence) ? judgment.evidence : null,
-          ...(judgment.unsupported && {
-            unsupported: quoted && !mayDecide(quoted) ? why : judgment.unsupported,
-          }),
+          ...(why &&
+            quoted &&
+            !mayDecide(quoted) && { unsupported: { ...said, covered: null, uncovered: null } }),
         };
       }
       const correction = judgment.correction?.choices ?? [];
       const all = [judgment.evidence, ...deciding, ...correction.map((each) => each.evidence)];
       const properties = new Set(all.map(propertyOf).filter((each) => each));
+      const decidedBy = propertyOf(judgment.evidence);
+      // Text that looks like a property ("Author: …" in the body, a footer's date) never decides
+      // a sentence about one, for or against.
       const unbackedProperty =
         sentence &&
-        judgment.verdict === "supported" &&
-        [...(declared ?? [])].some((property) => !properties.has(property));
+        declared !== null &&
+        declared.size > 0 &&
+        (judgment.verdict === "supported"
+          ? [...declared].some((property) => !properties.has(property))
+          : !decidedBy || !declared.has(decidedBy));
       if (!all.every(mayDecide) || unbackedProperty) {
         changed = true;
         return unbacked(judgment as Decided) as J;
@@ -454,6 +487,18 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
       ...sentence,
       ...(figures && { figures }),
       ...(result.remainder !== undefined && { remainder }),
+      // What a part's row lists: never a property its sentence isn't about.
+      ...(result.checkedEvidence && { checkedEvidence: result.checkedEvidence.filter(mayDecide) }),
+      ...(result.coverage && {
+        coverage: {
+          ...result.coverage,
+          members: result.coverage.members.map((member) => ({
+            ...member,
+            evidence: member.evidence.filter(mayDecide),
+          })),
+          domainEvidence: result.coverage.domainEvidence.filter(mayDecide),
+        },
+      }),
     };
     return withComputerDate(judged, declared);
   }
@@ -467,16 +512,15 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
     const asked = (property: DatedProperty) => declared === null || declared.has(property);
     const quoted = computerQuoted.filter(({ line }) => asked(line.property));
     const dated = (["modified", "created"] as const).filter((each) => declared?.has(each));
+    // Only when the Run was shown one Document's: its date is the one the sentence is about.
     const shownSources = [...sources.values()].filter((each) => shown.has(each.document.id));
-    const known = dated.flatMap((property) =>
-      shownSources.some((each) => each.lines.some((line) => line.property === property))
-        ? []
-        : shownSources.flatMap((source) =>
-            source.computer.filter((line) => line.property === property),
-          ),
-    );
+    const [one] = shownSources;
+    const known =
+      one && shownSources.length === 1
+        ? dated.flatMap((property) => one.computer.filter((line) => line.property === property))
+        : [];
     const only = new Set(quoted.map(({ line }) => `${line.property}\n${line.value}`)).size === 1;
-    const line = only ? quoted[0]?.line : known.length === 1 ? known[0] : undefined;
+    const line = only ? quoted[0]?.line : known[0];
     if (!line) return result;
     const language = deps.language();
     return {

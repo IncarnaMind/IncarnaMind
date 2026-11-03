@@ -26,6 +26,7 @@ import { BOILERPLATE_PARAMETERS, stripBoilerplate } from "./boilerplate";
 import { creationDate, ownDate, pdfDate, w3cDate } from "./creationDate";
 import { addDepositionAnchors, hasPrintedLines } from "./deposition";
 import { ExtractionError, extractText, type PageReading, pdfMetadata } from "./extract";
+import { readableText } from "./fileProperties";
 import { officeProperties } from "./formats/coreProperties";
 import { htmlTitleOf } from "./formats/html";
 import { readWebPage, SAVED_PICTURE } from "./formats/web";
@@ -539,18 +540,6 @@ const NO_PROPERTIES: FileProperties = { created: null, modified: null, author: n
 const recordsNone = (kind: DocumentKind) =>
   kind === "text" || kind === "markdown" || kind === "csv" || kind === "transcript";
 
-/** The longest text a file's property is taken as: longer is no name a person wrote. */
-const MAX_PROPERTY_CHARACTERS = 200;
-
-/** The first of the values a file records that reads as text, its spaces made single; else null. */
-const readableText = (...written: (string | null | undefined)[]): string | null =>
-  written
-    .map((each) => each?.replace(/\s+/g, " ").trim() ?? "")
-    .find(
-      (each) =>
-        each !== "" && each.length <= MAX_PROPERTY_CHARACTERS && !/[\p{Cc}\uFFFD]/u.test(each),
-    ) ?? null;
-
 /**
  * A version's creation date (see ./creationDate): the metadata's (a PDF's
  * Info dictionary, then its XMP; an Office file's core properties), or else
@@ -607,10 +596,10 @@ async function readMetadataOf(
         return written === undefined ? null : w3cDate(written);
       };
       properties = {
-        created: ownDate(fromMetadata, thisYear()),
+        created: ownDate(fromMetadata, new Date()),
         modified: ownDate(
           [pdf.modified === null ? null : pdfDate(pdf.modified), xmpDate("xmp:ModifyDate")],
-          thisYear(),
+          new Date(),
         ),
         author: readableText(pdf.author, xmp?.get("dc:creator")?.join("; ")),
         sheets: null,
@@ -627,8 +616,8 @@ async function readMetadataOf(
       const office = await officeProperties(bytes);
       fromMetadata = [office.created === null ? null : w3cDate(office.created)];
       properties = {
-        created: ownDate(fromMetadata, thisYear()),
-        modified: ownDate([office.modified === null ? null : w3cDate(office.modified)], thisYear()),
+        created: ownDate(fromMetadata, new Date()),
+        modified: ownDate([office.modified === null ? null : w3cDate(office.modified)], new Date()),
         author: readableText(office.creator),
         sheets: kind === "xlsx" ? await workbookSheets(bytes) : null,
       };

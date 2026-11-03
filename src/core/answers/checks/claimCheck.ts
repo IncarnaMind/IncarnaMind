@@ -646,7 +646,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         );
         const passages =
           options?.properties && deps.fileProperties
-            ? [...matched, ...deps.fileProperties.add(matched, within)]
+            ? [...matched, ...deps.fileProperties.add(matched, within, options)]
             : matched;
         if (!request.window) {
           for (const passage of passages) read.set(passage.documentId, passage.contentHash);
@@ -715,7 +715,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           const found = session.tools.searchDocuments(query, searchSignal, options);
           const { fileProperties } = deps;
           return options?.properties && fileProperties
-            ? found.then((result) => fileProperties.told(result))
+            ? found.then((result) => fileProperties.told(result, options))
             : found;
         }
         // Claude Haiku 5.5 searched a window two or three times, at once or in turn, and each

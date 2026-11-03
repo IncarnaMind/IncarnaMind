@@ -144,12 +144,23 @@ const plausible = (date: string, thisYear: number) => {
   return year >= EARLIEST_YEAR && year <= thisYear && !ZERO_DATE.test(date);
 };
 
+/** A clock a day fast: a file saved where the day has already begun is still the file's own. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
  * One of a file's own dates (#2458), when it can stand as the file's: the first of `dates` (null
- * where there is none, or it was malformed) that is plausible, or null.
+ * where there is none, or it was malformed) that is plausible and no later than `now`, or null.
+ * A date to come is no date a file was saved on.
  */
-export function ownDate(dates: readonly (string | null)[], thisYear: number): string | null {
-  return dates.find((date): date is string => date !== null && plausible(date, thisYear)) ?? null;
+export function ownDate(dates: readonly (string | null)[], now: Date): string | null {
+  return (
+    dates.find(
+      (date): date is string =>
+        date !== null &&
+        plausible(date, now.getFullYear()) &&
+        Date.parse(date) <= now.getTime() + DAY_MS,
+    ) ?? null
+  );
 }
 
 /**
@@ -179,8 +190,8 @@ export function creationDate(
   firstUnit: string | null,
   thisYear: number,
 ): string | null {
-  return (
-    ownDate(fromMetadata, thisYear) ??
-    (firstUnit === null ? null : yearWritten(firstUnit, thisYear))
-  );
+  for (const date of fromMetadata) {
+    if (date !== null && plausible(date, thisYear)) return date;
+  }
+  return firstUnit === null ? null : yearWritten(firstUnit, thisYear);
 }
