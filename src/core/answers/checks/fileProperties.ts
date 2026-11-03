@@ -436,9 +436,8 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
       if (property === undefined) return true;
       return property !== null && declared?.has(property) === true && isAbout(citation?.documentId);
     };
-    // A part of the sentence (a figure, or the words besides its figures) is held to the rules on
-    // its own Citations; the sentence on all of them, so a property that may not decide a part
-    // never leaves the sentence Supported.
+    // A figure, and the words besides a sentence's figures, are held to the rules on their own
+    // Citations; the sentence on all of them, as its result rests on them.
     const held = <J extends ClaimJudgment>(
       judgment: J,
       deciding: readonly (CitationLike | null | undefined)[],

@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { utimes } from "node:fs/promises";
 import { describe, expect, test, vi } from "vitest";
-import type { ClaimCheckAttributes, Core, Document } from "../../src/core";
+import type { CheckFigure, ClaimCheckAttributes, Core, Document } from "../../src/core";
 import type {
   ClaimCheckDependencies,
   ClaimCheckRequest,
@@ -690,6 +690,28 @@ test("a sentence with two figures, one of them backed by a property it may not u
   const { check } = await checkInNote(notAbout.core, SENTENCE, null);
   expect(check?.figures?.map((figure) => figure.state)).toEqual(["supported", "unsupported"]);
   expect(check?.state).toBe("unsupported");
+
+  // The check's own result for the sentence rests on all its figures' Citations, as the Note's does.
+  const figures = readFigures(SENTENCE, { language: "en" }).map(
+    (reading, at): CheckFigure => ({
+      id: `figure-${at}`,
+      locator: {
+        kind: "text",
+        from: { blockId: "p", offset: reading.start },
+        to: { blockId: "p", offset: reading.end },
+      },
+      reading,
+      calculated: null,
+    }),
+  );
+  expect(figures).toHaveLength(2);
+  expect(await named.core.checkClaim({ claim: SENTENCE, figures })).toMatchObject({
+    verdict: "supported",
+    evidence: { quote: "Owners: 4" },
+  });
+  expect(await notAbout.core.checkClaim({ claim: SENTENCE, figures })).toMatchObject({
+    verdict: "unsupported",
+  });
 });
 
 /** The ruled line, with this computer's date as the day it was here, in its own time zone. */
