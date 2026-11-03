@@ -53,7 +53,7 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
         )}
         <ObjectMenu
           target={{ kind: "annotation", id: annotation.id }}
-          label={t("annotations.more", { quote: annotation.quote })}
+          label={t("annotations.more", { quote: annotation.quote.slice(0, 60) })}
           className="annotation-row-menu"
         />
       </span>

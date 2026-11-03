@@ -411,9 +411,10 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
     /** Deletes it softly, so `restore` takes it back. */
     remove(id: string): Annotation {
       const row = stored(id);
+      const at = now();
       db.run("UPDATE document_annotations SET deleted_at = ?, updated_at = ? WHERE id = ?", [
-        now(),
-        now(),
+        at,
+        at,
         id,
       ]);
       return toAnnotation(row);
