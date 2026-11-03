@@ -184,6 +184,10 @@ for (const widened of [false, true]) {
     await fileInto(window, ["Tides"]);
     await window.getByTestId("mind-tab").first().click({ button: "right" });
     await pointAndClick(window, window.getByRole("menuitem", { name: "Check", exact: true }));
+    // A spending cap is set, so a Check from the tab menu asks in the card first.
+    const firstAsk = window.getByTestId("check-card").getByTestId("mind-check-ask");
+    await expect(firstAsk).toContainText("Check this note’s 2 claims against");
+    await pointAndClick(window, firstAsk.getByTestId("mind-check-check"));
     await expect(
       window.getByTestId("claim-mark").and(window.locator('[data-check="unsupported"]')),
     ).toHaveCount(1);
