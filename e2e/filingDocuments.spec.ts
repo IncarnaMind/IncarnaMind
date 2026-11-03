@@ -365,6 +365,19 @@ async function cancelCrossingFinderDrag(
     await session.send("Input.dispatchDragEvent", { type: "dragOver", ...headingPoint, data });
     await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
     await expect(window.getByTestId("drop-label")).toHaveText(addWords);
+
+    // Dragged out of the window, the label goes; brought back, it says the window's add again.
+    await session.send("Input.dispatchDragEvent", {
+      type: "dragOver",
+      x: -30,
+      y: headingPoint.y,
+      data,
+    });
+    await expect(window.getByTestId("drop-label")).toHaveCount(0);
+    await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
+    await session.send("Input.dispatchDragEvent", { type: "dragOver", ...headingPoint, data });
+    await expect(window.getByTestId("drop-label")).toHaveText(addWords);
+
     await session.send("Input.dispatchDragEvent", { type: "dragCancel", ...headingPoint, data });
     await window.mouse.move(headingPoint.x + 24, headingPoint.y + 24);
     await expect(window.getByTestId("drop-label")).toHaveCount(0);
