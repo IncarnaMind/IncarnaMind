@@ -704,6 +704,7 @@ const SIZED = {
       "Survey log.txt is 2-3 MB.",
     ],
     under: "Survey log.txt is under 2 MB.",
+    over: "Survey log.txt is over 0.5 MB.",
     noUnit: "The size of Survey log.txt is 1.2.",
   },
   "zh-CN": {
@@ -714,6 +715,7 @@ const SIZED = {
     ],
     contradicted: ["Survey log.txt 的大小是 2 MB。"],
     under: "Survey log.txt 不到 2 MB。",
+    over: "Survey log.txt 超过 0.5 MB。",
     noUnit: "Survey log.txt 的大小是 1.2。",
   },
 } as const;
@@ -745,6 +747,7 @@ describe.each(["en", "zh-CN"] as const)(
           sentences.contradicted.map((sentence) => [sentence, log("contradicted")]),
         ),
         [sentences.under]: { ...log("supported"), relation: "at most" },
+        [sentences.over]: { ...log("supported"), relation: "at least" },
         [sentences.noUnit]: log("supported"),
       };
       const setup = await setUp(
@@ -757,7 +760,7 @@ describe.each(["en", "zh-CN"] as const)(
         language,
       );
       expect(setup.named("Survey log.txt").size).toBe(1_234_567);
-      for (const sentence of [...sentences.supported, sentences.under]) {
+      for (const sentence of [...sentences.supported, sentences.under, sentences.over]) {
         const { check } = await checkInNote(setup.core, sentence, null);
         expect(check, sentence).toMatchObject({
           state: "supported",
