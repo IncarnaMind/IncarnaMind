@@ -653,6 +653,47 @@ describe("changing a chart in place", () => {
     expect(update?.rows[0]?.values[0]?.inputs).toEqual(inputs);
   });
 
+  test("leaves a copied row its display, never another row's Analysis value (#2378)", () => {
+    const editor = editorWith([
+      {
+        type: "table",
+        attrs: { id: "table-1" },
+        content: [
+          wordsRow(true, "Region", "Amount"),
+          wordsRow(false, "Central", "8,325.44"),
+          wordsRow(false, "North", "9,450.12"),
+        ],
+      },
+      paragraph(),
+    ]);
+    cursorIn(editor, "Central");
+    const inputs = [source("orders"), source("regions")];
+    drawByTheCore(
+      editor,
+      match(inputs, (row, column) => (column === 1 ? ([8325.444, 9450.123][row] ?? null) : null)),
+    );
+    const node = () => editor.state.doc.nodeAt(chartAt(editor).pos);
+    expect(tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en")).toBeNull();
+
+    // The User copies the Central row: the copy has no Analysis value of its own.
+    let at = -1;
+    editor.state.doc.descendants((child, pos) => {
+      if (at < 0 && child.type.name === "tableRow" && child.textContent.startsWith("Central"))
+        at = pos;
+      return at < 0;
+    });
+    const row = editor.state.doc.nodeAt(at);
+    if (!row) throw new Error("Missing row");
+    editor.view.dispatch(editor.state.tr.insert(at + row.nodeSize, row.copy(row.content)));
+    const update = tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en");
+    expect(update?.rows.map((each) => each.label)).toEqual(["Central", "Central", "North"]);
+    expect(update?.rows[0]?.values[0]?.value).toBe(8325.444);
+    // The copy keeps its display and no Citation: the Analysis gave one Central value, not two.
+    expect(update?.rows[1]?.values[0]?.value).toBe(8325.44);
+    expect(update?.rows[1]?.values[0]?.inputs).toBeUndefined();
+    expect(update?.rows[1]?.values[0]?.citation).toBeNull();
+  });
+
   test("reads the cell's own Citation fresh, keeping the Analysis's inputs (#2378)", () => {
     const withOwn = {
       type: "tableRow",

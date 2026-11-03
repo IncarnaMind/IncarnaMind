@@ -180,8 +180,8 @@ export function tableUpdate(
  * The drawn values a chart's table still shows as they were: the assistant draws a chart from an
  * Analysis's own values, which the table's text only rounds, so a cell whose words are unchanged
  * keeps the Analysis's number and inputs (#2378). Its own Citation, unit and scale are read again;
- * a cell is known by its row's label, the series' name, its index and which of that row's cells it
- * is, so a deleted or repeated row moves no value to its neighbour.
+ * a cell is known by its row's label, the series' name and its words, and each stored value is
+ * used once, so a deleted row, a repeated label or a copied row moves no value to its neighbour.
  */
 function keepingStoredValues(fresh: ChartData, stored: ChartData): ChartData {
   const key = (label: string, series: string) => JSON.stringify([label, series]);
