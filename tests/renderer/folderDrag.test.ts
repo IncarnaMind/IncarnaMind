@@ -106,8 +106,8 @@ describe("files from Finder dropped on a Folder (#212)", () => {
     expect(addDropped).toHaveBeenCalledWith(files, [], "f");
   });
 
-  // protects=a link dragged onto a Folder says it will add the web page there, one or several, in English and Chinese, and Not in a Folder takes no link (#261); fails_when=the Folder lights with no words, or with words that don't name it; no_claim=how the page is fetched.
-  test("a Folder says it will add a dropped web page, one or several, in both languages", () => {
+  // protects=a link dragged onto a Folder says it will add the web page there, in English and Chinese, and Not in a Folder takes no link (#261); fails_when=the Folder lights with no words, or with words that don't name it; no_claim=how the page is fetched.
+  test("a Folder says it will add a dropped web page, in both languages", () => {
     store.setState({
       documents: [],
       library: { groups: [{ id: "f", name: "Finance" }], assignments: [] } as never,
@@ -115,17 +115,13 @@ describe("files from Finder dropped on a Folder (#212)", () => {
     const target = targets.folderTarget("f");
     const en = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
     const zh = (key: MessageKey, params?: MessageParams) => translate("zh-CN", key, params);
-    const one: Dragged = { kind: "links" };
-    expect(target.accepts(one, at)?.said?.(en)).toBe("Add the web page to Finance");
-    const many: Dragged = { kind: "links", count: 3 };
-    expect(target.accepts(many, at)?.said?.(en)).toBe("Add 3 web pages to Finance");
+    const link: Dragged = { kind: "links" };
+    expect(target.accepts(link, at)?.said?.(en)).toBe("Add the web page to Finance");
     store.setState({
       library: { groups: [{ id: "f", name: "财务" }], assignments: [] } as never,
     });
-    expect(target.accepts(one, at)?.said?.(zh)).toBe("将网页添加到“财务”");
-    expect(target.accepts(many, at)?.said?.(zh)).toBe("将 3 个网页添加到“财务”");
-    expect(targets.folderTarget(null).accepts(one, at)).toBeNull();
-    expect(targets.folderTarget(null).accepts(many, at)).toBeNull();
+    expect(target.accepts(link, at)?.said?.(zh)).toBe("将网页添加到“财务”");
+    expect(targets.folderTarget(null).accepts(link, at)).toBeNull();
   });
 });
 

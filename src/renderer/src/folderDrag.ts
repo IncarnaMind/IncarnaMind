@@ -150,13 +150,9 @@ export function folderTarget(
       if (dragged.kind === "links") {
         // Not in a Folder takes no link: the window saves one dropped elsewhere, unfiled.
         if (folderId === null) return null;
-        const count = dragged.count ?? 1;
         return {
           kind: "add",
-          said: (t) =>
-            count > 1
-              ? t("drop.addWebPage.many", { count, folder: folderNameNow(folderId) })
-              : t("drop.addWebPage", { folder: folderNameNow(folderId) }),
+          said: (t) => t("drop.addWebPage", { folder: folderNameNow(folderId) }),
         };
       }
       if (dragged.kind === "files") {

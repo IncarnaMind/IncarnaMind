@@ -27,13 +27,12 @@ export interface Point {
 
 /**
  * Before the drop, files are known only by their types; `names` comes with the
- * drop, or with a drag a test makes. A link drag knows how many web addresses
- * it carries from its items: one unless there are several.
+ * drop, or with a drag a test makes.
  */
 export type Dragged =
   | { kind: "objects"; refs: readonly ObjectRef[] }
   | { kind: "files"; types: readonly string[]; names: readonly string[] | null }
-  | { kind: "links"; count?: number };
+  | { kind: "links" };
 
 /** `from`: the list whose selection was dragged. */
 export type Dropped =
@@ -215,12 +214,7 @@ export function draggedIn(data: DragData): Dragged | null {
       names: names.length > 0 ? names : null,
     };
   }
-  if (types.includes("text/uri-list")) {
-    const count = Array.from(data.items ?? []).filter(
-      (item) => item.kind === "string" && item.type === "text/uri-list",
-    ).length;
-    return count > 1 ? { kind: "links", count } : { kind: "links" };
-  }
+  if (types.includes("text/uri-list")) return { kind: "links" };
   return null;
 }
 
@@ -471,6 +465,12 @@ export function useDropArea(target: DropTarget) {
   return {
     over: over ? (entered?.effect ?? null) : null,
     dragged: entered?.dragged ?? null,
+    /** Ends the area's lights, as a cancelled drag's first pointer move does. */
+    reset() {
+      depth.current = 0;
+      setOver(false);
+      setEntered(null);
+    },
     props: {
       onDragEnter(event: DragEvent) {
         const dragged = event.dataTransfer ? draggedIn(event.dataTransfer) : null;

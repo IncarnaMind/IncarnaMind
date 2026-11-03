@@ -446,7 +446,6 @@ export const en = {
   "drop.addFiles": "Add to {folder}",
   "drop.addFiles.many": "Add {count} files to {folder}",
   "drop.addWebPage": "Add the web page to {folder}",
-  "drop.addWebPage.many": "Add {count} web pages to {folder}",
   "drop.addToLibrary": "Add to Library",
   "drop.importWord": "Import the Word file",
   "move.undo": "Undo",

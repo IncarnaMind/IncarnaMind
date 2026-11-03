@@ -494,6 +494,22 @@ for (const [language, width] of [
       const droppedName = language === "en" ? "Field notes" : "现场记录";
       const dropped = await droppedFile(droppedName);
       await cancelFinderDrag(window, finance, [dropped]);
+      // After a cancelled file drag, dragging an app Document must not bring the file words back: a
+      // Document dropped on the Folders heading or the card heading adds nothing.
+      for (const heading of [
+        window.getByTestId("folders-title"),
+        library.getByTestId("library-heading"),
+      ]) {
+        await dragOnto(
+          window,
+          libraryRow(library, first).getByTestId("library-document-name"),
+          heading,
+          async () => {
+            await expect(window.getByTestId("drop-label")).toHaveCount(0);
+            await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
+          },
+        );
+      }
       await dropFromFinder(
         window,
         finance.getByTestId("folder-row"),

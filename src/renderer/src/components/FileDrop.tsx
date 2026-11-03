@@ -1,5 +1,6 @@
+import { useCallback, useRef } from "react";
 import { create } from "zustand";
-import { type DropProps, type Point, useDropArea } from "../dragDrop";
+import { type DropProps, draggedIn, type Point, useDropArea } from "../dragDrop";
 import { useT } from "../i18n";
 import { linksIn } from "../webPages";
 
@@ -31,27 +32,6 @@ function note(event: { clientX: number; clientY: number }): void {
   if (current.at?.x !== at.x || current.at?.y !== at.y || current.zone !== zone) {
     useWindowDrop.setState({ at, zone });
   }
-  watchWindowCancel();
-}
-
-let windowCancel: (() => void) | null = null;
-
-/** A cancelled drag sends the page nothing; the first pointer move after it ends the label. */
-function watchWindowCancel(): void {
-  if (windowCancel || typeof window === "undefined") return;
-  windowCancel = () => {
-    windowCancel = null;
-    forget();
-  };
-  window.addEventListener("pointermove", windowCancel, { capture: true, once: true });
-}
-
-function forget(): void {
-  if (windowCancel) {
-    window.removeEventListener("pointermove", windowCancel, { capture: true });
-    windowCancel = null;
-  }
-  useWindowDrop.setState({ at: null, zone: null });
 }
 
 /**
@@ -80,21 +60,56 @@ export function useFileDrop(
       }
     },
   });
+  const cancelWatch = useRef<(() => void) | null>(null);
+  const forget = useCallback(() => {
+    const watching = cancelWatch.current;
+    if (watching) {
+      window.removeEventListener("pointermove", watching, { capture: true });
+      cancelWatch.current = null;
+    }
+    useWindowDrop.setState({ at: null, zone: null });
+  }, []);
+  // A cancelled drag sends the page nothing, so the first pointer move after it ends the area and
+  // the label.
+  const watchCancel = useCallback(() => {
+    if (cancelWatch.current || typeof window === "undefined") return;
+    cancelWatch.current = () => {
+      cancelWatch.current = null;
+      area.reset();
+      forget();
+    };
+    window.addEventListener("pointermove", cancelWatch.current, { capture: true, once: true });
+  }, [area, forget]);
+  /** Whether the window's own drop takes what is dragged, not an app drag its targets may take. */
+  const windowTakes = (event: { dataTransfer: DataTransfer | null }) => {
+    const dragged = event.dataTransfer ? draggedIn(event.dataTransfer) : null;
+    return dragged?.kind === "files" || (dragged?.kind === "links" && onLinks !== undefined);
+  };
   const handlers: DropProps = {
     onDragEnter(event) {
       area.props.onDragEnter(event);
-      if (event.defaultPrevented) note(event);
+      if (windowTakes(event)) {
+        note(event);
+        watchCancel();
+      }
     },
     onDragLeave(event) {
       area.props.onDragLeave(event);
-      if (!event.relatedTarget) forget();
+      if (!event.relatedTarget) {
+        area.reset();
+        forget();
+      }
     },
     onDragOver(event) {
       area.props.onDragOver(event);
-      if (event.defaultPrevented) note(event);
+      if (windowTakes(event)) {
+        note(event);
+        watchCancel();
+      }
     },
     onDrop(event) {
       area.props.onDrop(event);
+      area.reset();
       forget();
     },
   };
