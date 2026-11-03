@@ -56,6 +56,8 @@ interface Plan {
   number?: string;
   /** For a sentence with figures, a second quote its figures are read from, `quote` backing its words. */
   figureQuote?: string;
+  /** For a sentence with figures, its words besides them, and the quote that backs those, cited last. */
+  remainder?: { text: string; quote: string };
   /** What its Property line names; no line when null; "none" when absent. */
   property?: string | null;
   /** Its Property line once asked for it, none before. */
@@ -97,14 +99,16 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
         return { text: `Parts: ${JSON.stringify(parts)}`, calls: [search] };
       }
       const shown = searches.flatMap((search) => shownPassages(search.text));
-      const { quote, figureQuote } = plan;
+      const { quote, figureQuote, remainder } = plan;
+      const quotes = [quote, figureQuote, remainder?.quote].filter((each) => each !== undefined);
       if (quote && !call.results.some((result) => result.tool === "cite")) {
         const passageOf = (words: string) =>
           (shown.find((each) => each.text.includes(words)) ?? shown[0])?.id;
-        const citations = [
-          { marker: 1, passage: passageOf(quote), quote },
-          ...(figureQuote ? [{ marker: 2, passage: passageOf(figureQuote), quote: figureQuote }] : []),
-        ];
+        const citations = quotes.map((each, at) => ({
+          marker: at + 1,
+          passage: passageOf(each),
+          quote: each,
+        }));
         return { calls: [{ tool: "cite", input: { citations } }] };
       }
       const property =
@@ -142,7 +146,16 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
           source: number ? { citation: figureQuote ? 2 : 1, number } : null,
           calculation: null,
         }));
-        lines.push(`Figures: ${JSON.stringify({ items, remainder: null })}`);
+        const rest = remainder && {
+          text: remainder.text,
+          citation: quotes.length,
+          verdict: plan.verdict,
+          scope: "same",
+          topic: "found",
+          roles: "same",
+          says: null,
+        };
+        lines.push(`Figures: ${JSON.stringify({ items, remainder: rest ?? null })}`);
       }
       return { text: lines.join("\n") };
     },
@@ -431,6 +444,7 @@ const COUNTED = {
     sheets: "Cash forecast.xlsx has 3 sheets.",
     size: "Site notes.txt is 1,200 bytes.",
     wrong: "Plan.pptx has 5 slides.",
+    authored: ["Report.pdf, by Marta Kowalska, is 2 pages long.", "Report.pdf, by Marta Kowalska,"],
   },
   "zh-CN": {
     slides: "Plan.pptx 一共有 3 张幻灯片。",
@@ -438,6 +452,7 @@ const COUNTED = {
     sheets: "Cash forecast.xlsx 共有 3 个工作表。",
     size: "Site notes.txt 的大小是 1,200 字节。",
     wrong: "Plan.pptx 一共有 5 张幻灯片。",
+    authored: ["Report.pdf 的作者是 Marta Kowalska，共有 2 页。", "Report.pdf 的作者是 Marta Kowalska"],
   },
 } as const;
 
@@ -590,6 +605,42 @@ describe.each(["en", "zh-CN"] as const)(
       const { check } = await checkInNote(notAbout.core, sentences.slides, null);
       expect(check?.state).toBe("unsupported");
       expect(check?.figures?.map((figure) => figure.state)).toEqual(["unsupported"]);
+    });
+
+    // protects=the words of a Note's sentence besides its figures are decided by a property only when its Property line names it, and the sentence with them; fails_when=the PDF's author backs "by Marta Kowalska" while the reply names only its pages.
+    test("whose other words a property may not decide is held back with them", async () => {
+      const [sentence, rest] = sentences.authored;
+      const report = buildPdf([{ lines: ["Report"] }, { lines: ["Findings"] }], {
+        info: { Author: "Marta Kowalska" },
+      });
+      const plan = (property: string): Record<string, Plan> => ({
+        [sentence]: {
+          document: "Report",
+          verdict: "supported",
+          quote: "Pages: 2",
+          property,
+          remainder: { text: rest, quote: "Author: Marta Kowalska" },
+        },
+      });
+      const files = [{ name: "Report.pdf", contents: report }];
+      const both = await setUp(files, plan("pages, author"), language);
+      const { check: named } = await checkInNote(both.core, sentence, null);
+      expect(named).toMatchObject({
+        state: "supported",
+        figures: [{ state: "supported", evidence: { location: property("pages", "2") } }],
+        remainder: {
+          state: "supported",
+          evidence: { location: property("author", "Marta Kowalska") },
+        },
+      });
+
+      const pagesOnly = await setUp(files, plan("pages"), language);
+      const { check } = await checkInNote(pagesOnly.core, sentence, null);
+      expect(check).toMatchObject({
+        state: "unsupported",
+        figures: [{ state: "supported", evidence: { location: property("pages", "2") } }],
+        remainder: { state: "unsupported", evidence: null },
+      });
     });
   },
 );
