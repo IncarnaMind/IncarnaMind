@@ -707,8 +707,10 @@ for (const language of ["en", "zh-CN"] as const) {
           `button ${index} of the step in hand`,
         ).toBeLessThan(0.5);
       }
+      // The film has to reach the grown thread, not span the whole growth: the waiting Question's
+      // own lines are replaced when the Answer lands, so the frames can span less than the growth.
       const grown = frames.map((frame) => frame.thread);
-      expect(Math.max(...grown) - Math.min(...grown)).toBeGreaterThan(200);
+      expect(Math.max(...grown)).toBeGreaterThan(before.thread + 200);
 
       const after = await buttonsInView(window);
       expect(after.outside, "buttons outside the card after the Answer").toEqual([]);

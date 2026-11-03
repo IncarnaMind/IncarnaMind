@@ -80,6 +80,31 @@ export function plainOf(client: MindClient, blockId: string): string {
   return found;
 }
 
+/** Edit with AI over all of the Mind's text, in the User's own words. */
+export function wholeMind(
+  client: MindClient,
+  mindId: string,
+  instruction: string,
+): EditWithAiInput {
+  const blocks: { id: string; size: number }[] = [];
+  readMind(client).descendants((node) => {
+    if (!node.isTextblock) return true;
+    blocks.push({ id: String(node.attrs.id), size: node.content.size });
+    return false;
+  });
+  const first = blocks[0] as { id: string };
+  const last = blocks.at(-1) as { id: string; size: number };
+  return {
+    requestId: `whole-edit-${++requests}`,
+    mindId,
+    from: { blockId: first.id, offset: 0 },
+    to: { blockId: last.id, offset: last.size },
+    text: blocks.map((block) => plainOf(client, block.id)).join("\n"),
+    action: "instruction",
+    instruction,
+  };
+}
+
 /** Edit with AI over the whole of one paragraph. */
 export function wholeParagraph(
   client: MindClient,

@@ -16,6 +16,7 @@ import {
   FIND_OWN_CLAIMS_INSTRUCTIONS,
   findClaimsPrompt,
   readClaimParts,
+  type SortedText,
 } from "./claims";
 import { claimsAtOnce } from "./runChecks";
 
@@ -39,7 +40,7 @@ type Asked =
 /** Names the claims among `texts`: someone else's document's, or the User's own draft's, which leaves out their opinions. */
 export async function claimsAmong(
   prepared: PreparedChatModel,
-  texts: readonly string[],
+  texts: readonly SortedText[],
   whose: "someone-else" | "own",
   signal: AbortSignal,
 ): Promise<ClaimsFound> {
@@ -47,10 +48,8 @@ export async function claimsAmong(
   // at once, within the provider's limit, and the first that fails ends the rest.
   const ended = new AbortController();
   const sorting = AbortSignal.any([signal, ended.signal]);
-  const ask = async (
-    batch: readonly { number: number; text: string }[],
-    tries: number,
-  ): Promise<Asked> => {
+  type Batch = readonly ({ number: number } & SortedText)[];
+  const ask = async (batch: Batch, tries: number): Promise<Asked> => {
     for (let tried = 0; tried < tries; tried++) {
       try {
         const { text } = await generateText({
@@ -75,7 +74,7 @@ export async function claimsAmong(
   type Sorted =
     | { kind: "read"; inventories: Map<number, readonly ClaimPartPlan[]> }
     | Exclude<ClaimsFound, { kind: "found" }>;
-  const sortBatch = async (batch: readonly { number: number; text: string }[]): Promise<Sorted> => {
+  const sortBatch = async (batch: Batch): Promise<Sorted> => {
     // A reply that can't be read is asked for once more.
     const first = await ask(batch, 2);
     if (first.kind === "unread") {
@@ -104,12 +103,12 @@ export async function claimsAmong(
     return { kind: "read", inventories };
   };
 
-  const batches: { number: number; text: string }[][] = [];
+  const batches: Batch[] = [];
   for (let start = 0; start < texts.length; start += CLAIM_BATCH) {
     batches.push(
       texts
         .slice(start, start + CLAIM_BATCH)
-        .map((text, index) => ({ number: start + index + 1, text })),
+        .map((sentence, index) => ({ number: start + index + 1, ...sentence })),
     );
   }
   const limit = slots(claimsAtOnce(prepared));
