@@ -789,10 +789,15 @@ const STAGES: Record<Staged, Stage> = {
       const [documentId, annotationId] = key.split(":");
       await openDocumentAt(window, { documentId: documentId ?? "" });
       await expect(window.getByTestId("viewer-header")).toBeVisible();
+      // Its button in the toolbar, or the Document's menu where a narrow toolbar folds it away.
       const toggle = window.getByTestId("viewer-annotations-toggle");
-      await expect(toggle).toBeVisible();
-      if ((await toggle.getAttribute("aria-pressed")) !== "true") {
-        await pointAndClick(window, toggle);
+      if (await toggle.isVisible()) {
+        if ((await toggle.getAttribute("aria-pressed")) !== "true") {
+          await pointAndClick(window, toggle);
+        }
+      } else {
+        await pointAndClick(window, window.getByTestId("document-file-menu").first());
+        await pointAndClick(window, window.getByTestId("document.showAnnotations").first());
       }
       await expect(window.getByTestId("annotations-panel")).toBeVisible();
       return annotationId ?? "";
