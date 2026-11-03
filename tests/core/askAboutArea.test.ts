@@ -121,7 +121,7 @@ describe("An area asked about in a Document's viewer", { timeout: 30_000 }, () =
     });
   });
 
-  test("sends no picture to a model that reads text alone", async () => {
+  test("sends no picture to a model that reads text alone, and says it wasn't sent", async () => {
     const setUp = await setUpWithDocuments(
       scriptedModel(() => ({ text: "A figure." })),
       [{ name: "Rate cuts.pdf", contents: PAPER }],
@@ -131,11 +131,41 @@ describe("An area asked about in a Document's viewer", { timeout: 30_000 }, () =
     await setUp.core.saveChatProvider({
       kind: "openai",
       apiKey: "sk-proj-a-made-up-key",
-      modelId: "gpt-4",
+      modelId: "o3-mini",
     });
     const quote = await areaQuote(setUp.core, paper.id, paper.name);
-    await askArea(setUp, quote);
+    const asked = await askArea(setUp, quote);
+    expect(asked.asked).toBe(true);
+    expect(setUp.models.model.doStreamCalls).toHaveLength(1);
     expect(filesSent(setUp.models.model)).toEqual([]);
+    const prompt = promptOf(setUp.models.model)
+      .map((message) => message.text)
+      .join("\n");
+    expect(prompt).not.toContain("attached to this message.");
+    expect(prompt).toContain("not attached to this message: this model can’t read pictures.");
+  });
+
+  test("makes a picture's check itself, whatever the caller sent", async () => {
+    const setUp = await setUpWithDocuments(
+      scriptedModel(() => ({ text: "A figure." })),
+      [{ name: "Rate cuts.pdf", contents: PAPER }],
+    );
+    const paper = setUp.documents[0];
+    if (!paper) throw new Error("The paper wasn't added.");
+    await setUp.core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-proj-a-made-up-key",
+      modelId: "gpt-4.1",
+    });
+    const quote = await areaQuote(setUp.core, paper.id, paper.name);
+    const asked = await askArea(setUp, { ...quote, check: "found", checkReason: null });
+    const { messages } = await setUp.core.getConversation(asked.conversation.id);
+    const question = messages.find(
+      (message) => message.kind === "question" && message.id === asked.questionId,
+    );
+    expect(question).toMatchObject({
+      quotes: [{ pick: "area", quote: "", check: "cant-check", checkReason: "picture" }],
+    });
   });
 
   test("cites a sheet range to its rows and keeps its cells with the Question", async () => {

@@ -11,6 +11,7 @@
  * deleting it permanently is Recently deleted's (../recentlyDeleted).
  */
 import { randomUUID } from "node:crypto";
+import { PICTURE_DATA_URL } from "../../shared/askedQuote";
 import { withFigureText } from "../../shared/figureMarkers";
 import { parseLocation } from "../../shared/locations";
 import { conversationName, cutTitle } from "../../shared/naming";
@@ -445,7 +446,6 @@ const pageOf = (value: unknown): number | null | undefined =>
       ? value
       : undefined;
 
-const PICTURE_DATA_URL = /^data:(image\/(?:png|jpeg|gif|webp));base64,[\s\S]+$/;
 const CHECK_STATES: readonly CitationCheck[] = [
   "checking",
   "found",

@@ -34,7 +34,7 @@ import type { CellStyle, FontStyle } from "../../../core/documents/formats/xlsxS
 import type { PageArea } from "../../../shared/citedPage";
 import { anchorsCovered, quoteInUnits } from "../../../shared/locations";
 import { columnName, parseCellRef, type TextUnit } from "../../../shared/units";
-import { viewerRangeHandle } from "../commands/handles";
+import { useViewerHandle } from "../commands/handles";
 import { commands } from "../commands/registry";
 import { ProblemLine } from "../components/ProblemLine";
 import { useT } from "../i18n";
@@ -227,11 +227,11 @@ function Sheets({
     for (const each of sheets) {
       const byRow = new Map<number, Cell[]>();
       for (const cell of each.cells) {
-        if (cell.row > 10) continue;
         const list = byRow.get(cell.row) ?? [];
         list.push(cell);
         byRow.set(cell.row, list);
       }
+      // The core takes the first 10 rows that have anything, however far down they start.
       rows.set(each.name, headerRow(byRow));
     }
     return rows;
@@ -643,18 +643,18 @@ function Grid({
   const pickRef = useRef(pick);
   pickRef.current = pick;
   // The range's actions stay in ⌘K while it is selected, whether its menu is open or not (#118).
-  useEffect(() => {
-    if (!rangeSelection) return;
-    const actions = {
-      ...(!settingUp && { ask: () => void askAboutRange(rangeSelection) }),
-      addToNote: () => void addRangeToNote(rangeSelection),
-      copy: () => void copyRange(rangeSelection),
-    };
-    viewerRangeHandle.current = actions;
-    return () => {
-      if (viewerRangeHandle.current === actions) viewerRangeHandle.current = null;
-    };
-  }, [rangeSelection, settingUp]);
+  const rangeActions = useMemo(
+    () =>
+      rangeSelection
+        ? {
+            ...(!settingUp && { ask: () => void askAboutRange(rangeSelection) }),
+            addToNote: () => void addRangeToNote(rangeSelection),
+            copy: () => void copyRange(rangeSelection),
+          }
+        : null,
+    [rangeSelection, settingUp],
+  );
+  useViewerHandle("range", rangeActions);
 
   // As in Excel, empty rows and columns fill the view past the sheet's last ones; a wide
   // sheet gets room past its last column for a Citation's mark beside it.

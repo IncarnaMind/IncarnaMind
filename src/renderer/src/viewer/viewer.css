@@ -20,6 +20,15 @@
     background: var(--selection-overlay);
     pointer-events: none;
   }
+  /* What the area said while its Citation and picture are made: a pick is never a silent pause (#118). */
+  .viewer-area-reading {
+    position: absolute;
+    z-index: 21;
+    transform: translateY(-100%);
+    @apply rounded-md bg-sheet px-2 py-1 text-[12px] font-medium text-ink-secondary;
+    box-shadow: var(--shadow-popover);
+    pointer-events: none;
+  }
   /* A figure a Citation points at, as its area chip opens it: a solid edge under the dashed pick. */
   .viewer-area-region {
     position: absolute;

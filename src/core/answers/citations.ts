@@ -869,8 +869,9 @@ function unitAround(
     after.slice(0, 30),
   ].filter((probe) => probe.trim() !== "");
   for (const probe of probes) {
-    const on = units.find((unit) => quoteInUnits([unit], probe, matching));
-    if (on) return on;
+    const on = units.filter((unit) => quoteInUnits([unit], probe, matching));
+    // Words the User wrote once may be a page's running line repeated on every page: no single Unit is theirs.
+    if (on.length === 1) return on[0];
   }
   return undefined;
 }
@@ -913,7 +914,8 @@ function placeIn(
 ): CitationLocation | null {
   if (contentHash === null) return null;
   const units = documents.pageTexts(documentId, contentHash, null, null);
-  const on = unit === null ? units[0] : units.find((each) => each.page === unit);
+  // A view that names no Unit (Word, Markdown, a web page) must not have its area guessed onto the first.
+  const on = unit === null ? undefined : units.find((each) => each.page === unit);
   return on ? locationOf([on], null) : null;
 }
 

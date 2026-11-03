@@ -84,7 +84,7 @@ describe("A range of cells in a sheet (#118)", () => {
     expect(rangeParts(range({ fromRow: 20, toRow: 22 }), units)).toEqual([]);
   });
 
-  test("reads a later block's rows from its own lines, the header row included first", () => {
+  test("reads a later block's rows from its own lines, the repeated header line first", () => {
     // A Unit after the first repeats the sheet's header as its first row and line (#118).
     const later: TextUnit = {
       page: 2,
@@ -93,11 +93,16 @@ describe("A range of cells in a sheet (#118)", () => {
       text: ["\tQ1\tQ2", "row 51", "row 52", "row 53"].join("\n"),
       anchors: null,
     };
+    // A part that starts at the block's first row starts with the header line before it in the text.
     expect(rangeParts(range({ fromRow: 51, toRow: 52 }), [later])).toEqual([
-      { unit: 2, text: "row 51\nrow 52" },
+      { unit: 2, text: "\tQ1\tQ2\nrow 51\nrow 52" },
     ]);
     expect(rangeParts(range({ fromRow: 4, toRow: 4 }), [later])).toEqual([
       { unit: 2, text: "\tQ1\tQ2" },
+    ]);
+    // A part inside the block doesn't take the far-away header line.
+    expect(rangeParts(range({ fromRow: 52, toRow: 53 }), [later])).toEqual([
+      { unit: 2, text: "row 52\nrow 53" },
     ]);
   });
 
@@ -123,7 +128,7 @@ describe("A range of cells in a sheet (#118)", () => {
     const two = [block(1, 1, 100, false), block(2, 101, 151, true)];
     expect(rangeParts(range({ fromRow: 99, toRow: 102 }), two)).toEqual([
       { unit: 1, text: "row 99\nrow 100" },
-      { unit: 2, text: "row 101\nrow 102" },
+      { unit: 2, text: "\tQ1\tQ2\nrow 101\nrow 102" },
     ]);
   });
 

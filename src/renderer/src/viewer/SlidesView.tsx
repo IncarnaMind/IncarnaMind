@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Document } from "../../../core/api";
+import type { AskedPictureData, Document } from "../../../core/api";
 import {
   extractPptx,
   imageDataUrl,
@@ -15,12 +15,14 @@ import {
 } from "../../../core/documents/formats/pptxDrawing";
 import { withoutArea } from "../../../shared/locations";
 import { findQuoteInPieces, type TextRange } from "../../../shared/quoteMatch";
-import { useHandle, viewerSlideHandle } from "../commands/handles";
+import { useViewerHandle } from "../commands/handles";
 import { ChatLineIcon } from "../components/lineIcons";
-import { core } from "../core";
-import { useT } from "../i18n";
+import { core, files } from "../core";
+import { translateNow, useT } from "../i18n";
 import { useSettingUp } from "../modelSetup";
+import { preparePicture } from "../pictureFile";
 import { useAppStore, type ViewerTarget } from "../store";
+import { visiblePartOf } from "./captureRect";
 import { useCitedArea } from "./citedArea";
 import { FileStates } from "./FileStates";
 import { HighlightedText } from "./highlightedText";
@@ -180,18 +182,54 @@ function Slides({
 
   /**
    * Asks about a whole slide (#118): its own text as the quote, cited to the slide; a slide with
-   * no text is a picture, and that Citation can't be checked.
+   * no text is its picture, cited to the slide, and that Citation can't be checked.
    */
   const askSlide = useCallback(
     async (number: number) => {
       const unit = loaded.deck.units.find((each) => each.page === number);
       const text = unit?.text ?? "";
       try {
+        let picture: AskedPictureData | undefined;
+        let area = { x: 0, y: 0, width: 1, height: 1 };
+        if (text.trim() === "") {
+          const element = slideElements.current.get(number);
+          if (!element) throw new Error(translateNow("viewer.area.outOfView"));
+          const box = element.getBoundingClientRect();
+          const visible = visiblePartOf(element);
+          if (visible.width < 8 || visible.height < 8) {
+            throw new Error(translateNow("viewer.area.outOfView"));
+          }
+          area = {
+            x: (visible.left - box.left) / Math.max(1, box.width),
+            y: (visible.top - box.top) / Math.max(1, box.height),
+            width: visible.width / Math.max(1, box.width),
+            height: visible.height / Math.max(1, box.height),
+          };
+          try {
+            const bytes = await files.captureArea({
+              x: visible.left,
+              y: visible.top,
+              width: visible.width,
+              height: visible.height,
+            });
+            const buffer = new ArrayBuffer(bytes.byteLength);
+            new Uint8Array(buffer).set(bytes);
+            const prepared = await preparePicture(new Blob([buffer], { type: "image/png" }));
+            if ("problem" in prepared) throw new Error(translateNow("viewer.area.failed"));
+            picture = {
+              src: prepared.picture.src,
+              width: prepared.picture.width,
+              height: prepared.picture.height,
+            };
+          } catch (error) {
+            throw new Error(translateNow("viewer.area.failed"), { cause: error });
+          }
+        }
         const cited = await core.citeSelection({
           documentId: document.id,
           parts: text.trim() === "" ? [] : [{ unit: number, text }],
           unit: number,
-          ...(text.trim() === "" && { area: { x: 0, y: 0, width: 1, height: 1 } }),
+          ...(text.trim() === "" && { area }),
         });
         putQuoteInComposer({
           documentId: document.id,
@@ -201,6 +239,7 @@ function Slides({
           pageTo: cited.pageTo,
           location: withoutArea(cited.location),
           pick: "slide",
+          picture,
           check: cited.check,
           checkReason: cited.checkReason,
         });
@@ -214,7 +253,7 @@ function Slides({
     () => (slides.length === 0 || settingUp ? {} : { ask: () => void askSlide(nearestSlide()) }),
     [slides.length, settingUp, askSlide, nearestSlide],
   );
-  useHandle(viewerSlideHandle, slideActions);
+  useViewerHandle("slide", slideActions);
 
   const drawn = useMemo(
     () => new Map((drawing?.slides ?? []).map((slide) => [slide.number, slide])),

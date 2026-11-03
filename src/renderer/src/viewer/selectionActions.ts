@@ -392,23 +392,25 @@ export async function copyRange(selection: RangeSelection): Promise<void> {
   try {
     const cited = await citeRange(selection);
     const citation = citationAttributesOf(cited, selection.document);
-    const source = sourceText(citation, sourceContext()).text;
+    const context = sourceContext();
+    const source = sourceText(citation, context).text;
     const tsv = rangeTsv(selection.table);
-    const html = `<table>${[
-      ...(selection.table.header ? [selection.table.header] : []),
-      ...selection.table.rows,
-    ]
-      .map(
-        (cells) =>
-          `<tr>${cells.map((cell) => `<td>${cell.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</td>`).join("")}</tr>`,
-      )
-      .join("")}</table>`;
+    // The table and its Citation through the schema, as Copy with citation does for words: pasted
+    // into a Note it comes back a Citation, and every cell is escaped by the serializer.
+    if (schema === null) schema = getSchema(noteExtensions());
+    const noteSchema = schema;
+    const fragment = Fragment.fromArray(
+      rangeBlocks(selection.table, citation).map((node) => noteSchema.nodeFromJSON(node)),
+    );
+    const holder = document.createElement("div");
+    holder.append(DOMSerializer.fromSchema(noteSchema).serializeFragment(fragment));
+    addFootnotes(holder, citationsIn(fragment), context);
     await navigator.clipboard.write([
       new ClipboardItem({
         "text/plain": new Blob([`${tsv}\n\n${translateNow("citedSource.title")}\n[1] ${source}`], {
           type: "text/plain",
         }),
-        "text/html": new Blob([`${html}<p>[1] ${source}</p>`], { type: "text/html" }),
+        "text/html": new Blob([wordFootnoteHtml(holder.innerHTML)], { type: "text/html" }),
       }),
     ]);
     useNotices.getState().confirm("viewer.selection.copiedTsv");

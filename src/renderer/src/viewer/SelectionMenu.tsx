@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import type { AskedQuote, Document } from "../../../core/api";
-import { viewerSelectionHandle } from "../commands/handles";
+import { useViewerHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
 import { AddToMindPicker } from "../components/assistant/AddToMindPicker";
 import { ChatLineIcon, CopyLineIcon, PlusLineIcon } from "../components/lineIcons";
@@ -265,14 +265,8 @@ export function SelectionMenu({
       },
     [held, ask, close, heldNow],
   );
-  // Only while there is a selection: another Document's tab may hold one.
-  useEffect(() => {
-    if (!actions) return;
-    viewerSelectionHandle.current = actions;
-    return () => {
-      if (viewerSelectionHandle.current === actions) viewerSelectionHandle.current = null;
-    };
-  }, [actions]);
+  // Only while there is a selection, filed under this viewer's tab: another tab may hold one.
+  useViewerHandle("selection", actions ?? null);
 
   if (!held || !actions || !anchor || !open) return null;
   return (

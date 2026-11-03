@@ -65,10 +65,11 @@ const columnsOf = (range: SheetRange, row: number, textOf: CellText): string[] =
 /**
  * The range's rows as the Document stores them, one part for each Unit: each
  * of the Unit's lines that is a row selected, in the Unit's own order, so the
- * check finds them where the User selected them. A later Unit's `label.rows`
- * begins with the sheet's header row, and its text begins with that row's
- * line too, so a row's line is at the same index in both; a row with nothing
- * in it isn't a line at all.
+ * check finds them where the User selected them. A later Unit's text begins
+ * with the repeated header line, which `label.header` marks even when the
+ * header row isn't selected: the part begins with it too, or the selected rows
+ * wouldn't be one unbroken stretch of the Document's text across a block edge.
+ * A row with nothing in it isn't a line at all.
  */
 export function rangeParts(range: SheetRange, units: readonly TextUnit[]): SelectedPart[] {
   const parts: SelectedPart[] = [];
@@ -76,6 +77,15 @@ export function rangeParts(range: SheetRange, units: readonly TextUnit[]): Selec
     const rows = unit.label?.rows ?? [];
     const lines = unit.text.split("\n");
     const selected: string[] = [];
+    const header = unit.label?.header === true ? rows[0] : undefined;
+    const headerSelected = header !== undefined && header >= range.fromRow && header <= range.toRow;
+    // The header line comes before this block's own rows in the Document: a part that starts
+    // with the block's first row must start with it too, or it isn't one stretch of the text.
+    const from = unit.label?.from ?? 0;
+    const beginsBlock = range.fromRow <= from && range.toRow >= from;
+    if (header !== undefined && beginsBlock && !headerSelected && lines[0] !== undefined) {
+      selected.push(lines[0]);
+    }
     rows.forEach((row, index) => {
       if (row < range.fromRow || row > range.toRow) return;
       const line = lines[index];
@@ -94,14 +104,14 @@ export function rangeTsv(table: AskedTable): string {
     .join("\n");
 }
 
-/** The row and column of a cell's reference, or null. */
+/** Whether a cell's row and column fall inside the range. */
 export const isInRange = (range: SheetRange, row: number, column: number): boolean =>
   row >= range.fromRow &&
   row <= range.toRow &&
   column >= range.fromColumn &&
   column <= range.toColumn;
 
-/** The two corners of a range, in the order the User dragged them. */
+/** The range a drag's two corners cover, each row and column between them. */
 export function rangeBetween(
   anchor: { row: number; column: number },
   focus: { row: number; column: number },

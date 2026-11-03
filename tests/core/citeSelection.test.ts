@@ -585,6 +585,38 @@ describe("citeSelection, for an area of a page (#118)", () => {
     expect(cited.location).toBeNull();
   });
 
+  test("an area under a line two sections repeat names no section, not the first", async () => {
+    const core = startCore(await createTempDataFolder());
+    const line = "Source: company filings and our own estimates.";
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(
+        await createSourceFolder(),
+        "Sections.md",
+        `# Costs\n\nThe first section.\n\n${line}\n\n# Revenue\n\nThe second section.\n\n${line}\n`,
+      ),
+    ]);
+    if (!document) throw new Error("The file wasn't added.");
+
+    const picture = await core.citeSelection({
+      documentId: document.id,
+      parts: [],
+      area: AREA,
+      unit: null,
+      around: { before: line },
+    });
+    expect(picture).toMatchObject({ checkReason: "picture", pageFrom: null, pageTo: null });
+    expect(picture.location).toBeNull();
+
+    const words = await core.citeSelection({
+      documentId: document.id,
+      parts: [{ unit: null, text: line }],
+      area: AREA,
+      unit: null,
+    });
+    expect(words).toMatchObject({ check: "not-found", checkReason: "in-several-places" });
+    expect(words.location).toBeNull();
+  });
+
   test("an area on a deleted Document can't be checked", async () => {
     const core = startCore(await createTempDataFolder());
     const document = await addPaper(core);

@@ -60,6 +60,52 @@ const DECK = pptxOf({
   })),
 });
 
+/** 220 rows of a wide sheet: its block of rows ends well before row 20. */
+const WIDE = xlsxOf([
+  {
+    name: "Wide",
+    rows: [
+      ["Segment", "Q1", "Q2", "Q3", "Q4", "H1", "H2", "Y1", "Y2"],
+      ...Array.from({ length: 220 }, (_, at) => [
+        `Row ${at + 1}`,
+        ...Array.from({ length: 8 }, (_, column) => `${1234567890 + at * 100 + column}`),
+      ]),
+    ],
+  },
+]);
+
+/** A header the sheet starts below its first ten rows. */
+const LATE_HEADER = xlsxOf([
+  {
+    name: "Late",
+    rows: [...Array.from({ length: 12 }, () => []), ["Name", "Value"], ["A", "1"], ["B", "2"]],
+  },
+]);
+
+/** A cell that would be markup if the copy wrote its own HTML. */
+const ESCAPING = xlsxOf([
+  {
+    name: "Cells",
+    rows: [
+      ["Head", "Value"],
+      ["<b>x</b>", "1"],
+    ],
+  },
+]);
+
+/** A slide with no words at all: its shape draws nothing. */
+const BARE_DECK = pptxOf({
+  slides: [
+    { shapes: sp({ spPr: xfrm(914400, 914400, 7315200, 1828800) }) },
+    {
+      shapes: sp({
+        spPr: xfrm(914400, 914400, 7315200, 1828800),
+        body: para("Cash and the final dividend"),
+      }),
+    },
+  ],
+});
+
 /** A page whose chart is drawn as bars, its labels and figures in its text layer. */
 const CHART: PdfPage = {
   lines: ["Promoted share of grocery sales"],
@@ -271,6 +317,26 @@ test("a slide offers Ask about this slide on hover, and the chip names the deck 
   });
 });
 
+test("a slide with no words is asked about as its picture", async () => {
+  const { window } = await setUp({ files: [{ name: "Charts.pptx", bytes: BARE_DECK }] });
+  await openDocument(window, /Charts/);
+  const slide = window.getByTestId("viewer-slide").first();
+  await slide.hover();
+  await pointAndClick(window, slide.getByTestId("viewer-slide-ask"));
+
+  const chip = window.getByTestId("composer-slide-chip");
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveAttribute("data-check", "cant-check");
+  await expect(chip).toHaveAttribute("title", /Picture, not checked/);
+  await expect(window.getByTestId("composer-slide-thumbnail")).toBeVisible();
+
+  await window.keyboard.type("What is on this slide?");
+  await window.keyboard.press("Enter");
+  await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
+    timeout: 45_000,
+  });
+});
+
 /** Draws the rectangle over part of a page of the viewer, the area mode already on. */
 async function dragAreaOver(
   window: Page,
@@ -369,6 +435,27 @@ test("a model whose ability to read pictures isn't known gets the same warning",
     "title",
     /This model can’t read pictures\. Choose a model that can, to ask about one\.$/,
   );
+});
+
+test("a model that reads pictures shows no warning on the area chip", async () => {
+  const { window } = await setUp({
+    files: [{ name: "Picture.pdf", bytes: buildPdf([PICTURE]) }],
+    model: false,
+  });
+  await acceptPlainTextKeys(window);
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreApi }).incarnamind;
+    await bridge.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-proj-a-made-up-key",
+      modelId: "gpt-4.1",
+    });
+  });
+  await openDocument(window, /Picture/);
+  await dragArea(window, 1, { x: 0.3, y: 0.3 }, { x: 0.7, y: 0.6 });
+
+  await expect(areaChip(window)).toHaveAttribute("title", /Picture, not checked/);
+  await expect(areaChip(window)).not.toHaveAttribute("title", /can.t read pictures/);
 });
 
 test("the sheet, slide and area controls and their chips read in Chinese", async () => {
@@ -600,6 +687,51 @@ test("a range of cells in a CSV is cited to its rows, without a sheet name", asy
   await expect(window.getByTestId("composer-table-preview")).toContainText("120");
 });
 
+test("a sheet range across a block edge is found, not refused", async () => {
+  const { window } = await setUp({ files: [{ name: "Wide.xlsx", bytes: WIDE }] });
+  await openDocument(window, /Wide/);
+  await dragCells(window, "B2", "B20");
+  await pointAndClick(window, window.getByTestId("viewer-selection-ask"));
+
+  await expect(tableChip(window)).toBeVisible();
+  await expect(tableChip(window)).toHaveAttribute("data-check", "found");
+  await expect(tableChip(window).getByTestId("composer-table-chip-show")).toHaveText(
+    "Wide · rows 2–20",
+  );
+  await expect(window.getByTestId("error-notice")).toHaveCount(0);
+});
+
+test("a sheet's header below its first ten rows still comes with the range", async () => {
+  const { window } = await setUp({ files: [{ name: "Late.xlsx", bytes: LATE_HEADER }] });
+  await openDocument(window, /Late/);
+  await dragCells(window, "A14", "B14");
+  await pointAndClick(window, window.getByTestId("viewer-selection-ask"));
+
+  await expect(tableChip(window)).toHaveAttribute("data-check", "found");
+  await tableChip(window).hover();
+  const preview = window.getByTestId("composer-table-preview");
+  await expect(preview).toContainText("Name");
+  await expect(preview).toContainText("Value");
+  await expect(preview).toContainText("A");
+});
+
+test("copying a range escapes its cells and pastes back as a Citation", async () => {
+  const { window } = await setUp({ files: [{ name: "Cells.xlsx", bytes: ESCAPING }] });
+  await openDocument(window, /Cells/);
+  const copied = await stubClipboard(window);
+  await dragCells(window, "A1", "B2");
+  await pointAndClick(window, window.getByTestId("viewer-selection-copy"));
+  await expect(window.getByTestId("copied-line")).toContainText("Copied as TSV, with its citation");
+
+  const html = (await copied())["text/html"] ?? "";
+  expect(html).toContain("<table");
+  expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
+  expect(html).not.toContain("<b>x</b>");
+  // The Citation is a node of the schema, as Copy with citation pastes for words, with its footnote.
+  expect(html).toContain("Cells");
+  expect(html).toMatch(/footnote|citation/i);
+});
+
 test("the keyboard picks the page in view as an area", async () => {
   const { window } = await setUp({
     files: [{ name: "Chart.pdf", bytes: buildPdf([CHART]) }],
@@ -613,6 +745,59 @@ test("the keyboard picks the page in view as an area", async () => {
   await expect(areaChip(window)).toBeVisible();
   await expect(areaChip(window)).toHaveAttribute("data-check", "found");
   await expect(areaChip(window).getByTestId("composer-area-chip-show")).toHaveText("Figure · p. 1");
+});
+
+test("the arrows make part of a page, and Enter takes it", async () => {
+  const { window } = await setUp({ files: [{ name: "Chart.pdf", bytes: buildPdf([CHART]) }] });
+  await openDocument(window, /Chart/);
+  await expect(window.getByTestId("viewer").locator(".textLayer")).toContainText("Northwind");
+  await pointAndClick(window, window.getByTestId("viewer-area-select"));
+  await window.keyboard.press("ArrowRight");
+  await expect(window.getByTestId("viewer-area-drawing")).toBeVisible();
+  await window.keyboard.press("Shift+ArrowDown");
+  await window.keyboard.press("Enter");
+  // The pick says it is being read before its chip comes (#118).
+  await expect(window.getByTestId("viewer-area-reading")).toBeVisible();
+  await expect(areaChip(window)).toBeVisible();
+
+  await pointAndClick(window, window.getByTestId("composer-area-chip-show"));
+  const region = await window.getByTestId("viewer-area-region").boundingBox();
+  const page = await window
+    .getByTestId("viewer")
+    .locator('[data-area-unit="1"]')
+    .first()
+    .boundingBox();
+  if (!region || !page) throw new Error("The region isn't drawn.");
+  expect(region.width).toBeLessThan(page.width * 0.9);
+});
+
+test("a zoomed page's keyboard area catches only the part in view", async () => {
+  const { window } = await setUp({
+    files: [{ name: "Zoom.pdf", bytes: buildPdf([CHART, { lines: ["Second page"] }]) }],
+  });
+  await openDocument(window, /Zoom/);
+  await expect(window.getByTestId("viewer").locator(".textLayer").first()).toContainText(
+    "Northwind",
+  );
+  for (let step = 0; step < 4; step++) await window.getByTestId("pdf-zoom-in").click();
+  const scroller = await window.getByTestId("pdf-scroller").boundingBox();
+  const page = await window
+    .getByTestId("viewer")
+    .locator('[data-area-unit="1"]')
+    .first()
+    .boundingBox();
+  if (!scroller || !page) throw new Error("The page isn't in view.");
+  expect(page.width).toBeGreaterThan(scroller.width + 20);
+
+  await pointAndClick(window, window.getByTestId("viewer-area-select"));
+  await window.keyboard.press("Enter");
+  await expect(areaChip(window)).toBeVisible();
+  const width = await window
+    .getByTestId("composer-area-thumbnail")
+    .evaluate((image) => (image as HTMLImageElement).naturalWidth);
+  // The capture is in the window's pixels: a Retina screen counts two for each of the viewer's.
+  const density = await window.evaluate(() => globalThis.devicePixelRatio);
+  expect(width / density).toBeLessThanOrEqual(scroller.width + 1);
 });
 
 test("an area of a Word page and of a slide is found where it is", async () => {

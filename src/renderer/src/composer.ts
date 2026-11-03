@@ -45,8 +45,9 @@ export interface Paste {
 }
 
 /** These words from that place: a draft and a Question hold each once. */
-export const quoteKey = (quote: AskedQuote): string =>
-  `${quote.documentId}:${JSON.stringify(quote.location)}:${quote.quote}`;
+import { quoteKey } from "../../shared/askedQuote";
+
+export { quoteKey };
 
 export const holdsQuote = (quotes: readonly AskedQuote[], quote: AskedQuote): boolean =>
   quotes.some((each) => quoteKey(each) === quoteKey(quote));

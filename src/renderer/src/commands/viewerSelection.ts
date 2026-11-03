@@ -1,22 +1,26 @@
-import {
-  viewerAreaHandle,
-  viewerRangeHandle,
-  viewerSelectionHandle,
-  viewerSlideHandle,
-} from "./handles";
+import { useAppStore } from "../store";
+import { viewerHandleInUse } from "./handles";
 import type { Command } from "./registry";
 
-const selected = () => viewerSelectionHandle.current !== null;
+const selection = () => viewerHandleInUse("selection", useAppStore.getState().layout);
 
-const offersAsk = () => viewerSelectionHandle.current?.ask !== undefined;
+const range = () => viewerHandleInUse("range", useAppStore.getState().layout);
 
-const offersSlideAsk = () => viewerSlideHandle.current?.ask !== undefined;
+const slide = () => viewerHandleInUse("slide", useAppStore.getState().layout);
 
-const offersArea = () => viewerAreaHandle.current?.select !== undefined;
+const area = () => viewerHandleInUse("area", useAppStore.getState().layout);
 
-const rangeSelected = () => viewerRangeHandle.current !== null;
+const selected = () => selection() !== null;
 
-const rangeOffersAsk = () => viewerRangeHandle.current?.ask !== undefined;
+const offersAsk = () => selection()?.ask !== undefined;
+
+const offersSlideAsk = () => slide()?.ask !== undefined;
+
+const offersArea = () => area()?.select !== undefined;
+
+const rangeSelected = () => range() !== null;
+
+const rangeOffersAsk = () => range()?.ask !== undefined;
 
 /** The viewer's selection menu in ⌘K (#101), while text is selected in a Document, and its
  *  slide and area actions (#118). */
@@ -29,7 +33,7 @@ export const viewerSelectionCommands: readonly Command[] = [
     // × on its chip takes it out of the composer.
     reversible: true,
     when: offersSlideAsk,
-    run: () => viewerSlideHandle.current?.ask?.(),
+    run: () => slide()?.ask?.(),
   },
   {
     id: "viewer.area.select",
@@ -39,7 +43,7 @@ export const viewerSelectionCommands: readonly Command[] = [
     // Esc stops it, and nothing changes.
     reversible: true,
     when: offersArea,
-    run: () => viewerAreaHandle.current?.select?.(),
+    run: () => area()?.select?.(),
   },
   {
     id: "viewer.range.ask",
@@ -49,7 +53,7 @@ export const viewerSelectionCommands: readonly Command[] = [
     // × on its chip takes it out of the composer.
     reversible: true,
     when: rangeOffersAsk,
-    run: () => viewerRangeHandle.current?.ask?.(),
+    run: () => range()?.ask?.(),
   },
   {
     id: "viewer.range.addToNote",
@@ -58,7 +62,7 @@ export const viewerSelectionCommands: readonly Command[] = [
     // Undo, on its line, or ⌘Z in the Mind.
     reversible: true,
     when: rangeSelected,
-    run: () => viewerRangeHandle.current?.addToNote(),
+    run: () => range()?.addToNote(),
   },
   {
     id: "viewer.range.copy",
@@ -67,7 +71,7 @@ export const viewerSelectionCommands: readonly Command[] = [
     // Copying changes nothing.
     reversible: true,
     when: rangeSelected,
-    run: () => viewerRangeHandle.current?.copy(),
+    run: () => range()?.copy(),
   },
   {
     id: "viewer.selection.ask",
@@ -77,7 +81,7 @@ export const viewerSelectionCommands: readonly Command[] = [
     // × on its chip takes it out of the composer.
     reversible: true,
     when: offersAsk,
-    run: () => viewerSelectionHandle.current?.ask?.(),
+    run: () => selection()?.ask?.(),
   },
   {
     id: "viewer.selection.addToNote",
@@ -86,7 +90,7 @@ export const viewerSelectionCommands: readonly Command[] = [
     // Undo, on its line, or ⌘Z in the Mind.
     reversible: true,
     when: selected,
-    run: () => viewerSelectionHandle.current?.addToNote(),
+    run: () => selection()?.addToNote(),
   },
   {
     id: "viewer.selection.copy",
@@ -95,6 +99,6 @@ export const viewerSelectionCommands: readonly Command[] = [
     // Copying changes nothing.
     reversible: true,
     when: selected,
-    run: () => viewerSelectionHandle.current?.copy(),
+    run: () => selection()?.copy(),
   },
 ];

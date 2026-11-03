@@ -224,8 +224,8 @@ export interface SelectedBlockQuote {
   place: string | null;
   shown: string;
   table?: AskedTable;
-  /** The entry is an area of a page, whose picture is attached to the message. */
-  pictured?: boolean;
+  /** An area of a page's picture: attached to the message, or withheld from a model that can't read it. */
+  pictureState?: "sent" | "withheld";
 }
 
 /**
@@ -235,9 +235,12 @@ export interface SelectedBlockQuote {
  */
 export function selectedTextBlock(quotes: readonly SelectedBlockQuote[]): string {
   const each = quotes.map((quote) => {
-    const picture = quote.pictured
-      ? "\nThe picture at this place is attached to this message."
-      : "";
+    const picture =
+      quote.pictureState === "sent"
+        ? "\nThe picture at this place is attached to this message."
+        : quote.pictureState === "withheld"
+          ? "\nThe picture at this place is not attached to this message: this model can’t read pictures."
+          : "";
     return `${selected(quote, quote.place)}${picture}\n\n${quote.shown}`;
   });
   return `<selected-text>\nThe User selected these words in their Documents to ask about them, in <selected>: "this", "it", "这段", "这句" and the like in the Question mean them. Answer about them, and cite them before anything else, from the Passage that follows them, at the location their <selected> gives.\n\n${each.join("\n\n")}\n</selected-text>`;

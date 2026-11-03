@@ -49,6 +49,7 @@ import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../sha
 import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
 import { runsByDefault } from "../../shared/approvalRules";
 import { appliedAsAsked } from "../../shared/askedChanges";
+import { PICTURE_DATA_URL, quoteKey } from "../../shared/askedQuote";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { yoursLine } from "../../shared/commands";
@@ -1533,7 +1534,7 @@ export function createAnswers(options: AnswersOptions) {
     // only as footnote definitions (#1831). An input quoted directly is recorded when calculate
     // takes it, numbered far above the model's own, which count from [^1]: a Citation the model
     // writes later never takes a figure's quote.
-    const quoteKey = (quote: QuoteInput) =>
+    const figureQuoteKey = (quote: QuoteInput) =>
       [quote.passage, quote.location, quote.pageFrom, quote.pageTo, quote.quote].join("\n");
     const recordedQuotes = new Map<string, number>();
     const quotesRecorded = new Map<number, QuoteInput>();
@@ -1546,13 +1547,13 @@ export function createAnswers(options: AnswersOptions) {
     const recordQuote = (quote: QuoteInput, marker: number) => {
       session.tools.cite([{ ...quote, marker }], { structured: true });
       if (!session.tools.hasRecord?.(marker)) return false;
-      recordedQuotes.set(quoteKey(quote), marker);
+      recordedQuotes.set(figureQuoteKey(quote), marker);
       quotesRecorded.set(marker, quote);
       return true;
     };
     const recordInputQuotes = (marker: number) => {
       for (const source of figures.inputSources(marker)) {
-        if (typeof source !== "number" && !recordedQuotes.has(quoteKey(source)))
+        if (typeof source !== "number" && !recordedQuotes.has(figureQuoteKey(source)))
           recordQuote(source, nextMarker());
       }
     };
@@ -1596,12 +1597,12 @@ export function createAnswers(options: AnswersOptions) {
       for (const record of records) {
         const quote = quotesRecorded.get(record.marker);
         // The model numbered a Citation of its own with a figure's: the figure's record moves.
-        if (quote && quoteKey(quote) !== quoteKey(record)) {
+        if (quote && figureQuoteKey(quote) !== figureQuoteKey(record)) {
           quotesRecorded.delete(record.marker);
           recordQuote(quote, nextMarker());
         }
       }
-      for (const record of records) recordedQuotes.set(quoteKey(record), record.marker);
+      for (const record of records) recordedQuotes.set(figureQuoteKey(record), record.marker);
       return session.tools.cite(records, citeOptions);
     };
     const wordsOf = (marker: number) => {
@@ -1628,7 +1629,7 @@ export function createAnswers(options: AnswersOptions) {
         (figure, cited) =>
           figures.inputSources(figure).flatMap((source) => {
             const marker =
-              typeof source === "number" ? source : recordedQuotes.get(quoteKey(source));
+              typeof source === "number" ? source : recordedQuotes.get(figureQuoteKey(source));
             if (marker === undefined || !session.tools.hasRecord?.(marker)) return [];
             return cited.some((each) => covers(each, marker)) ? [] : [marker];
           }),
@@ -2354,10 +2355,15 @@ export function createAnswers(options: AnswersOptions) {
       ) {
         const quoted = input.quoted ?? [];
         const pictured = input.pictured ?? [];
-        const key = (quote: AskedQuote) =>
-          `${quote.documentId}:${JSON.stringify(quote.location)}:${quote.quote}`;
-        const seen = new Set(quoted.map(({ quote }) => key(quote)));
-        const picturedKeys = new Set(pictured.map(key));
+        const seen = new Set(quoted.map(({ quote }) => quoteKey(quote)));
+        const picturedKeys = new Set(pictured.map(quoteKey));
+        // A picture is said to be attached only when the model reads pictures and the request carries it.
+        const pictureState = (quote: AskedQuote): "sent" | "withheld" | undefined =>
+          !picturedKeys.has(quoteKey(quote))
+            ? undefined
+            : options.readsImages?.(model) !== false && pickedPicture(quote) !== null
+              ? "sent"
+              : "withheld";
         messages = withBeforeQuestion(
           messages,
           selectedTextBlock([
@@ -2365,15 +2371,15 @@ export function createAnswers(options: AnswersOptions) {
               ...quote,
               place: englishPlace(quote.location),
               shown: session.show(passages),
-              ...(picturedKeys.has(key(quote)) && { pictured: true }),
+              ...(pictureState(quote) && { pictureState: pictureState(quote) }),
             })),
             ...pictured
-              .filter((quote) => !seen.has(key(quote)))
+              .filter((quote) => !seen.has(quoteKey(quote)))
               .map((quote) => ({
                 ...quote,
                 place: englishPlace(quote.location),
                 shown: "",
-                pictured: true,
+                ...(pictureState(quote) && { pictureState: pictureState(quote) }),
               })),
           ]),
         );
@@ -3903,8 +3909,6 @@ export function createAnswers(options: AnswersOptions) {
     };
   }
 
-  const PICTURE_DATA_URL = /^data:(image\/(?:png|jpeg|gif|webp));base64,([\s\S]+)$/;
-
   /** An area's picture as a model takes it (#118), or null when it holds no picture a model reads. */
   function pickedPicture(quote: AskedQuote): AskedPicture | null {
     const match = PICTURE_DATA_URL.exec(quote.picture?.src ?? "");
@@ -3964,12 +3968,9 @@ export function createAnswers(options: AnswersOptions) {
         ...(asked.table && { table: asked.table }),
         ...(picture && { picture }),
         ...((picture !== undefined || asked.pick !== undefined) && {
-          check: noWords ? (removed ? now.check : (asked.check ?? "cant-check")) : now.check,
-          checkReason: noWords
-            ? removed
-              ? now.checkReason
-              : (asked.checkReason ?? "picture")
-            : now.checkReason,
+          // The core words a figure's check itself: nothing the caller sends can make a picture "found".
+          check: noWords ? (removed ? now.check : "cant-check") : now.check,
+          checkReason: noWords ? (removed ? now.checkReason : "picture") : now.checkReason,
         }),
       };
       if (picture) pictured.push(quote);
@@ -3995,11 +3996,9 @@ export function createAnswers(options: AnswersOptions) {
     pictured: readonly AskedQuote[];
   }): AskedQuote[] {
     const all = [...quoted.map((each) => each.quote), ...pictured];
-    const key = (quote: AskedQuote) =>
-      `${quote.documentId}:${JSON.stringify(quote.location)}:${quote.quote}`;
     const seen = new Set<string>();
     return all.filter((quote) => {
-      const at = key(quote);
+      const at = quoteKey(quote);
       if (seen.has(at)) return false;
       seen.add(at);
       return true;

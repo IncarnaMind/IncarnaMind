@@ -13,11 +13,12 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CitedArea, Document, SelectedPart } from "../../../core/api";
+import type { AskedPictureData, CitedArea, Document, SelectedPart } from "../../../core/api";
 import { core, files } from "../core";
-import { translateNow } from "../i18n";
+import { translateNow, useT } from "../i18n";
 import { preparePicture } from "../pictureFile";
 import { useAppStore } from "../store";
+import { visiblePartOf } from "./captureRect";
 import { piecesOf, textNodes } from "./domQuote";
 import { putQuoteInComposer } from "./selectionActions";
 
@@ -43,19 +44,6 @@ interface Unit {
 const intersects = (a: DOMRect, b: DOMRect): boolean =>
   a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
-/** The text nodes under `root` whose drawn text touches `area`. */
-function touchedNodes(root: Element, area: DOMRect): Set<Text> {
-  const nodes = textNodes(root);
-  const owner = root.ownerDocument;
-  const touched = new Set<Text>();
-  for (const node of nodes) {
-    const range = owner.createRange();
-    range.selectNodeContents(node);
-    if ([...range.getClientRects()].some((rect) => intersects(rect, area))) touched.add(node);
-  }
-  return touched;
-}
-
 /** The unit's words just above and below `area`, for a region of a picture that has none of its own. */
 function nearestAround(nodes: readonly Text[], area: DOMRect): { before?: string; after?: string } {
   let above: { text: string; bottom: number } | null = null;
@@ -80,75 +68,117 @@ function nearestAround(nodes: readonly Text[], area: DOMRect): { before?: string
   };
 }
 
+/**
+ * Adds a text node's characters the area draws: a whole line whose box it meets, so no word comes
+ * back cut in two, and none of a line or a block it doesn't meet — another column's, or a shape's.
+ */
+function markCharacters(
+  node: Text,
+  area: DOMRect,
+  add: (char: string, inside: boolean) => void,
+): void {
+  const owner = node.ownerDocument;
+  const range = owner.createRange();
+  range.selectNodeContents(node);
+  const boxes = [...range.getClientRects()].filter((box) => box.width > 0 && box.height > 0);
+  const data = node.data;
+  const lines = boxes.filter((box) => intersects(box, area));
+  if (lines.length === 0) {
+    for (const char of data) add(char, false);
+    return;
+  }
+  if (lines.length === boxes.length) {
+    for (const char of data) add(char, true);
+    return;
+  }
+  const onLine = (box: DOMRect) =>
+    lines.some(
+      (line) => Math.abs(line.top - box.top) < 2 && Math.abs(line.height - box.height) < 2,
+    );
+  for (let at = 0; at < data.length; at++) {
+    range.setStart(node, at);
+    range.setEnd(node, at + 1);
+    const drawn = [...range.getClientRects()].some(
+      (box) => box.width > 0 && box.height > 0 && intersects(box, area) && onLine(box),
+    );
+    add(data[at] as string, drawn);
+  }
+}
+
+/** The characters the area draws, in order, a line break where the page or a block has one. */
+function quotedArea(
+  entries: readonly { node: Text; breakAfter?: boolean }[],
+  area: DOMRect,
+  nodes: readonly Text[],
+): { text: string; before?: string; after?: string } {
+  let full = "";
+  const drawn: boolean[] = [];
+  const add = (char: string, isInside: boolean) => {
+    full += char;
+    drawn.push(isInside);
+  };
+  for (const entry of entries) {
+    markCharacters(entry.node, area, add);
+    if (entry.breakAfter) add("\n", false);
+  }
+  let text = "";
+  let first = -1;
+  let last = -1;
+  let pendingBreak = false;
+  for (let at = 0; at < full.length; at++) {
+    if (drawn[at]) {
+      if (text !== "" && pendingBreak) text += "\n";
+      text += full[at];
+      if (first < 0) first = at;
+      last = at;
+      pendingBreak = false;
+    } else if (full[at] === "\n") {
+      pendingBreak = true;
+    }
+  }
+  if (first < 0) return { text: "", ...nearestAround(nodes, area) };
+  return {
+    text,
+    before: full.slice(Math.max(0, first - AROUND), first),
+    after: full.slice(last + 1, last + 1 + AROUND),
+  };
+}
+
 /** The text of a page's text layer inside `area`, its line breaks as the page has them, and its words around. */
 function textInTextLayer(
   layer: Element,
   area: DOMRect,
 ): { text: string; before?: string; after?: string } {
-  let full = "";
-  let start = -1;
-  let end = -1;
   const owner = layer.ownerDocument;
   const nodes: Text[] = [];
+  const entries: { node: Text; breakAfter?: boolean }[] = [];
   const walker = owner.createTreeWalker(layer, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     if (node.nodeName === "BR") {
-      full += "\n";
+      const before = entries.at(-1);
+      if (before) before.breakAfter = true;
       continue;
     }
     if (node.nodeType !== Node.TEXT_NODE) continue;
-    const text = (node as Text).data;
-    nodes.push(node as Text);
-    const range = owner.createRange();
-    range.selectNodeContents(node);
-    if ([...range.getClientRects()].some((rect) => intersects(rect, area))) {
-      if (start < 0) start = full.length;
-      end = full.length + text.length;
-    }
-    full += text;
+    const text = node as Text;
+    nodes.push(text);
+    entries.push({ node: text });
   }
-  if (start < 0) return { text: "", ...nearestAround(nodes, area) };
-  return {
-    text: full.slice(start, end),
-    before: full.slice(Math.max(0, start - AROUND), start),
-    after: full.slice(end, end + AROUND),
-  };
+  return quotedArea(entries, area, nodes);
 }
 
-/** The text of the text nodes under `root` that `area` touches, a line break between blocks. */
+/** The text of the text nodes under `root` that `area` draws, a line break between blocks. */
 function textInDom(
   root: Element,
   area: DOMRect,
 ): { text: string; before?: string; after?: string } {
   const nodes = textNodes(root);
   const pieces = piecesOf(nodes);
-  const touched = touchedNodes(root, area);
-  let full = "";
-  let start = -1;
-  let end = -1;
-  let pendingBreak = false;
-  let endedBlock = false;
-  nodes.forEach((node, index) => {
-    const kept = touched.has(node);
-    if (kept) {
-      if (full !== "" && pendingBreak) full += "\n";
-      if (start < 0) start = full.length;
-      full += node.data;
-      end = full.length;
-      endedBlock = pieces[index]?.breakAfter ?? false;
-      pendingBreak = false;
-      return;
-    }
-    if (endedBlock || pieces[index]?.breakAfter) pendingBreak = true;
-    endedBlock = false;
-    full += node.data;
-  });
-  if (start < 0) return { text: "", ...nearestAround(nodes, area) };
-  return {
-    text: full.slice(start, end),
-    before: full.slice(Math.max(0, start - AROUND), start),
-    after: full.slice(end, end + AROUND),
-  };
+  const entries = nodes.map((node, index) => ({
+    node,
+    ...(pieces[index]?.breakAfter && { breakAfter: true }),
+  }));
+  return quotedArea(entries, area, nodes);
 }
 
 /** The Unit under a point, inside `section`: the page, slide or section the area starts on. */
@@ -193,16 +223,51 @@ export function AreaOverlay({
   document: Document;
 }) {
   const mode = useContext(AreaModeContext);
+  const t = useT();
   const [drawn, setDrawn] = useState<DOMRect | null>(null);
+  const [reading, setReading] = useState<DOMRect | null>(null);
   const drag = useRef<{ unit: Unit; startX: number; startY: number; box: DOMRect } | null>(null);
+  const keyboard = useRef<{ unit: Unit; rect: DOMRect } | null>(null);
   const busy = useRef(false);
+
+  /** The region where the viewer shows it: a zoomed page's part under the composer isn't the picture. */
+  const visibleRegion = useCallback((unit: Unit, rect: DOMRect): DOMRect => {
+    const box = unit.element.getBoundingClientRect();
+    const visible = visiblePartOf(unit.element);
+    const left = Math.max(rect.left, box.left, visible.left);
+    const top = Math.max(rect.top, box.top, visible.top);
+    const right = Math.min(rect.right, box.right, visible.right);
+    const bottom = Math.min(rect.bottom, box.bottom, visible.bottom);
+    return new DOMRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
+  }, []);
 
   /** The picture and Citation of a region, as the composer's image chip. */
   const take = useCallback(
-    async ({ unit, rect }: Picked) => {
+    async ({ unit, rect: picked }: Picked) => {
       if (busy.current) return;
       busy.current = true;
       try {
+        const rect = visibleRegion(unit, picked);
+        if (rect.width < MIN_SIDE || rect.height < MIN_SIDE) {
+          throw new Error(translateNow("viewer.area.outOfView"));
+        }
+        // The picture is taken first: the Citation may take a moment, and the window mustn't move under it.
+        let picture: AskedPictureData | undefined;
+        try {
+          const bytes = await files.captureArea({
+            x: rect.left,
+            y: rect.top,
+            width: rect.width,
+            height: rect.height,
+          });
+          const buffer = new ArrayBuffer(bytes.byteLength);
+          new Uint8Array(buffer).set(bytes);
+          const prepared = await preparePicture(new Blob([buffer], { type: "image/png" }));
+          if ("problem" in prepared) throw new Error(translateNow("viewer.area.failed"));
+          picture = prepared.picture;
+        } catch (error) {
+          throw new Error(translateNow("viewer.area.failed"), { cause: error });
+        }
         const textLayer = unit.element.querySelector(".textLayer");
         const { text, before, after } = textLayer
           ? textInTextLayer(textLayer, rect)
@@ -225,16 +290,6 @@ export function AreaOverlay({
           unit: unit.number,
           ...(parts.length === 0 && (before || after) && { around: { before, after } }),
         });
-        const bytes = await files.captureArea({
-          x: rect.left,
-          y: rect.top,
-          width: rect.width,
-          height: rect.height,
-        });
-        const buffer = new ArrayBuffer(bytes.byteLength);
-        new Uint8Array(buffer).set(bytes);
-        const prepared = await preparePicture(new Blob([buffer], { type: "image/png" }));
-        if ("problem" in prepared) throw new Error(translateNow("viewer.area.failed"));
         // The pick is done, so the header's square lets go as the chip arrives.
         mode?.setActive(false);
         putQuoteInComposer({
@@ -245,11 +300,7 @@ export function AreaOverlay({
           pageTo: cited.pageTo,
           location: cited.location,
           pick: "area",
-          picture: {
-            src: prepared.picture.src,
-            width: prepared.picture.width,
-            height: prepared.picture.height,
-          },
+          picture,
           check: cited.check,
           checkReason: cited.checkReason,
         });
@@ -257,9 +308,10 @@ export function AreaOverlay({
         useAppStore.getState().reportError(error);
       } finally {
         busy.current = false;
+        setReading(null);
       }
     },
-    [doc, mode],
+    [doc, mode, visibleRegion],
   );
 
   /** A region released, once the rectangle and the drag are gone from the picture. */
@@ -267,6 +319,8 @@ export function AreaOverlay({
     (picked: Picked) => {
       setDrawn(null);
       drag.current = null;
+      keyboard.current = null;
+      setReading(picked.rect);
       requestAnimationFrame(() => requestAnimationFrame(() => void take(picked)));
     },
     [take],
@@ -329,18 +383,78 @@ export function AreaOverlay({
     section.addEventListener("pointermove", onMove, { capture: true });
     section.addEventListener("pointerup", onUp, { capture: true });
     section.addEventListener("pointercancel", onUp, { capture: true });
-    // The keyboard's way, with the viewer in focus: Enter takes the page or slide in view, Esc stops.
+    // The keyboard's way, with the viewer in focus: Enter takes the page or slide in view; the
+    // arrows make a region there, moving it and, with Shift, resizing it; Enter takes it; Esc stops.
     const onKey = (event: KeyboardEvent) => {
       if (!mode?.active) return;
       if (event.key === "Escape") {
-        mode.setActive(false);
+        if (keyboard.current) {
+          keyboard.current = null;
+          setDrawn(null);
+        } else {
+          mode.setActive(false);
+        }
         return;
       }
-      if (event.key !== "Enter") return;
-      const unit = firstUnitInView(section);
-      if (!unit) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const chosen = keyboard.current;
+        if (chosen) {
+          keyboard.current = null;
+          finish({ unit: chosen.unit, rect: chosen.rect });
+          return;
+        }
+        const unit = firstUnitInView(section);
+        if (unit) finish({ unit, rect: unit.element.getBoundingClientRect() });
+        return;
+      }
+      const arrows = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
+      if (!arrows.includes(event.key)) return;
+      let chosen = keyboard.current;
+      if (!chosen) {
+        const unit = firstUnitInView(section);
+        if (!unit) return;
+        const visible = visibleRegion(unit, unit.element.getBoundingClientRect());
+        const width = Math.max(MIN_SIDE * 2, visible.width / 2);
+        const height = Math.max(MIN_SIDE * 2, visible.height / 2);
+        chosen = {
+          unit,
+          rect: new DOMRect(
+            visible.left + (visible.width - width) / 2,
+            visible.top + (visible.height - height) / 2,
+            width,
+            height,
+          ),
+        };
+        keyboard.current = chosen;
+      }
+      const box = chosen.unit.element.getBoundingClientRect();
+      const stepX = Math.max(2, box.width / 50);
+      const stepY = Math.max(2, box.height / 50);
+      let { left, top, width, height } = chosen.rect;
+      const resize = event.shiftKey;
+      if (event.key === "ArrowLeft") {
+        if (resize) width = Math.max(MIN_SIDE, width - stepX);
+        else left -= stepX;
+      }
+      if (event.key === "ArrowRight") {
+        if (resize) width = Math.min(box.right - left, width + stepX);
+        else left += stepX;
+      }
+      if (event.key === "ArrowUp") {
+        if (resize) height = Math.max(MIN_SIDE, height - stepY);
+        else top -= stepY;
+      }
+      if (event.key === "ArrowDown") {
+        if (resize) height = Math.min(box.bottom - top, height + stepY);
+        else top += stepY;
+      }
+      left = Math.min(Math.max(left, box.left), Math.max(box.left, box.right - width));
+      top = Math.min(Math.max(top, box.top), Math.max(box.top, box.bottom - height));
+      const rect = new DOMRect(left, top, Math.max(MIN_SIDE, width), Math.max(MIN_SIDE, height));
+      keyboard.current = { unit: chosen.unit, rect };
+      setDrawn(rect);
       event.preventDefault();
-      finish({ unit, rect: unit.element.getBoundingClientRect() });
     };
     section.addEventListener("keydown", onKey);
     return () => {
@@ -350,10 +464,23 @@ export function AreaOverlay({
       section.removeEventListener("pointercancel", onUp, { capture: true });
       section.removeEventListener("keydown", onKey);
     };
-  }, [section, mode, finish]);
+  }, [section, mode, finish, visibleRegion]);
 
-  if (!drawn || !section) return null;
+  if (!section) return null;
   const origin = section.getBoundingClientRect();
+  if (reading) {
+    return (
+      <div
+        role="status"
+        data-testid="viewer-area-reading"
+        className="viewer-area-reading"
+        style={{ left: reading.left - origin.left, top: reading.top - origin.top }}
+      >
+        {t("viewer.area.reading")}
+      </div>
+    );
+  }
+  if (!drawn) return null;
   return (
     <div
       aria-hidden="true"

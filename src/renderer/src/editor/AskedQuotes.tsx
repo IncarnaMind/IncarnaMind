@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type * as Y from "yjs";
 import type { AskedQuote } from "../../../core/api";
+import { badgeMessage, type CitationState } from "../../../shared/citations";
 import { citationLocation, formatLocation, type Translate } from "../../../shared/locations";
 import { useAnswers } from "../answers";
 import { TableLineIcon } from "../components/lineIcons";
@@ -28,18 +29,76 @@ export function showQuote(quote: AskedQuote): void {
   });
 }
 
+/** What a picked quote is called: its cells' rows, its slide, or its figure. Null for words. */
+function pickLabel(quote: AskedQuote, t: Translate): string | null {
+  const location = citationLocation(quote);
+  switch (quote.pick) {
+    case "rows": {
+      if (location?.kind !== "rows") return quote.documentName;
+      const range = span(location.from, location.to);
+      return location.sheet
+        ? t("composer.chip.rowsWithSheet", { sheet: location.sheet, range })
+        : t("composer.chip.rowsOnly", { range });
+    }
+    case "slide":
+      return location?.kind === "slide"
+        ? t("composer.chip.slide", {
+            document: quote.documentName,
+            range: span(location.from, location.to),
+          })
+        : quote.documentName;
+    case "area":
+      return areaLabel(quote, t).label;
+    default:
+      return null;
+  }
+}
+
+/** A chip's two buttons: the pick's name, which shows it, and × which takes it out. */
+function ChipButtons({
+  kind,
+  label,
+  onShow,
+  onRemove,
+}: {
+  kind: "table" | "slide" | "area";
+  label: string;
+  onShow(): void;
+  onRemove(): void;
+}) {
+  const t = useT();
+  return (
+    <>
+      <button
+        type="button"
+        data-testid={`composer-${kind}-chip-show`}
+        onClick={onShow}
+        className="quote-chip-show"
+      >
+        <span className="truncate">{label}</span>
+      </button>
+      <button
+        type="button"
+        data-testid={`composer-${kind}-chip-remove`}
+        aria-label={t("composer.selection.drop")}
+        title={t("composer.selection.drop")}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onRemove}
+        className="scope-chip-remove"
+      >
+        <RemoveIcon className="size-2.5" />
+      </button>
+    </>
+  );
+}
+
 /** "12–14": a Location's range, as its labels word it. */
 const span = (from: number, to: number) => (to !== from ? `${from}–${to}` : `${from}`);
 
 /** A sheet range's chip: "Revenue · rows 12–14", with a preview of its cells and header row on hover. */
 function RowsChip({ quote, onRemove }: { quote: AskedQuote; onRemove(): void }) {
   const t = useT();
-  const location = citationLocation(quote);
-  const range = location?.kind === "rows" ? span(location.from, location.to) : "";
-  const sheet = location?.kind === "rows" ? location.sheet : null;
-  const label = sheet
-    ? t("composer.chip.rowsWithSheet", { sheet, range })
-    : t("composer.chip.rowsOnly", { range });
+  const label = pickLabel(quote, t) ?? quote.documentName;
   const table = quote.table;
   const check = quote.check === "found" ? t("citation.badge.found.in", { location: label }) : "";
   return (
@@ -50,25 +109,7 @@ function RowsChip({ quote, onRemove }: { quote: AskedQuote; onRemove(): void }) 
       className="question-skill composer-quote composer-quote--rows"
     >
       <TableLineIcon className="question-skill-icon" />
-      <button
-        type="button"
-        data-testid="composer-table-chip-show"
-        onClick={() => showQuote(quote)}
-        className="quote-chip-show"
-      >
-        <span className="truncate">{label}</span>
-      </button>
-      <button
-        type="button"
-        data-testid="composer-table-chip-remove"
-        aria-label={t("composer.selection.drop")}
-        title={t("composer.selection.drop")}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={onRemove}
-        className="scope-chip-remove"
-      >
-        <RemoveIcon className="size-2.5" />
-      </button>
+      <ChipButtons kind="table" label={label} onShow={() => showQuote(quote)} onRemove={onRemove} />
       {table && (
         <span
           data-testid="composer-table-preview"
@@ -108,13 +149,15 @@ function RowsChip({ quote, onRemove }: { quote: AskedQuote; onRemove(): void }) 
 /** A whole slide's chip: "Board pack, October · slide 5". */
 function SlideChip({ quote, onRemove }: { quote: AskedQuote; onRemove(): void }) {
   const t = useT();
-  const location = citationLocation(quote);
-  const range = location?.kind === "slide" ? span(location.from, location.to) : "";
-  const label =
-    location?.kind === "slide"
-      ? t("composer.chip.slide", { document: quote.documentName, range })
-      : quote.documentName;
-  const check = quote.check === "found" ? t("citation.badge.found.on", { location: label }) : "";
+  const label = pickLabel(quote, t) ?? quote.documentName;
+  const state: CitationState = {
+    check: quote.check ?? "not-checked",
+    reason: quote.checkReason ?? null,
+    documentId: quote.documentId,
+    changedAfterCited: false,
+  };
+  const message = badgeMessage(state, quote, t);
+  const check = quote.check ? t(message.key, message.params) : "";
   return (
     <span
       data-testid="composer-slide-chip"
@@ -122,25 +165,15 @@ function SlideChip({ quote, onRemove }: { quote: AskedQuote; onRemove(): void })
       title={[label, check].filter((part) => part !== "").join("\n")}
       className="question-skill composer-quote composer-quote--rows"
     >
-      <button
-        type="button"
-        data-testid="composer-slide-chip-show"
-        onClick={() => showQuote(quote)}
-        className="quote-chip-show"
-      >
-        <span className="truncate">{label}</span>
-      </button>
-      <button
-        type="button"
-        data-testid="composer-slide-chip-remove"
-        aria-label={t("composer.selection.drop")}
-        title={t("composer.selection.drop")}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={onRemove}
-        className="scope-chip-remove"
-      >
-        <RemoveIcon className="size-2.5" />
-      </button>
+      {quote.picture && (
+        <img
+          src={quote.picture.src}
+          alt=""
+          data-testid="composer-slide-thumbnail"
+          className="composer-quote-thumb"
+        />
+      )}
+      <ChipButtons kind="slide" label={label} onShow={() => showQuote(quote)} onRemove={onRemove} />
     </span>
   );
 }
@@ -194,25 +227,7 @@ function AreaChip({
       ) : (
         <span className="composer-quote-thumb composer-quote-thumb--none" />
       )}
-      <button
-        type="button"
-        data-testid="composer-area-chip-show"
-        onClick={() => showQuote(quote)}
-        className="quote-chip-show"
-      >
-        <span className="truncate">{label}</span>
-      </button>
-      <button
-        type="button"
-        data-testid="composer-area-chip-remove"
-        aria-label={t("composer.selection.drop")}
-        title={t("composer.selection.drop")}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={onRemove}
-        className="scope-chip-remove"
-      >
-        <RemoveIcon className="size-2.5" />
-      </button>
+      <ChipButtons kind="area" label={label} onShow={() => showQuote(quote)} onRemove={onRemove} />
     </span>
   );
 }
@@ -260,32 +275,9 @@ export function AskedQuoteLines({ quotes }: { quotes: readonly AskedQuote[] }) {
   const documents = useAppStore((state) => state.documents);
   return quotes.map((quote) => {
     const where = whereOf(quote, t);
-    const location = citationLocation(quote);
     const source = [quote.documentName, where].filter((part) => part !== "").join(" ");
     const here = documents.some((each) => each.id === quote.documentId);
-    const pickLabel = (() => {
-      switch (quote.pick) {
-        case "rows":
-          if (location?.kind !== "rows") return quote.documentName;
-          return location.sheet
-            ? t("composer.chip.rowsWithSheet", {
-                sheet: location.sheet,
-                range: span(location.from, location.to),
-              })
-            : t("composer.chip.rowsOnly", { range: span(location.from, location.to) });
-        case "slide":
-          return location?.kind === "slide"
-            ? t("composer.chip.slide", {
-                document: quote.documentName,
-                range: span(location.from, location.to),
-              })
-            : quote.documentName;
-        case "area":
-          return areaLabel(quote, t).label;
-        default:
-          return null;
-      }
-    })();
+    const picked = pickLabel(quote, t);
     const parts = (
       <>
         <span className="assistant-question-quote-name">{quote.documentName}</span>
@@ -309,11 +301,11 @@ export function AskedQuoteLines({ quotes }: { quotes: readonly AskedQuote[] }) {
       <span key={quoteKey(quote)} className="assistant-question-asked">
         <span
           data-testid="assistant-question-quote"
-          title={quote.quote || pickLabel || ""}
+          title={quote.quote || picked || ""}
           className="assistant-question-quote"
         >
           <span className="sr-only">{t("assistant.question.quote")}</span>
-          {quote.pick ? (pickLabel ?? "") : `“${quote.quote.trim()}”`}
+          {quote.pick ? (picked ?? "") : `“${quote.quote.trim()}”`}
         </span>
         {here ? (
           <button

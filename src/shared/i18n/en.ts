@@ -1797,9 +1797,12 @@ export const en = {
   "viewer.selection.size.columns.one": "1 column",
   "viewer.selection.size.columns": "{count} columns",
   "viewer.area.failed": "The area couldn’t be captured. Try it again.",
+  "viewer.area.reading": "Reading the area…",
+  "viewer.area.outOfView": "That part of the page isn’t in view. Scroll it in and try again.",
   "viewer.area.select": "Select area",
   "viewer.area.selected": "Stop selecting an area",
-  "viewer.area.activeTip": "Stop selecting an area (Enter takes this page)",
+  "viewer.area.activeTip":
+    "Stop selecting an area (Enter takes this page; the arrows choose part of it)",
   "viewer.area.selectTip": "Select area (or hold {key} while dragging)",
   "viewer.slide.ask": "Ask about this slide",
   "viewer.selection.notOpened":
