@@ -38,6 +38,7 @@ import {
   type Figure,
   type FigureContext,
   type FigureFacts,
+  type FigureUnit,
   figureContextOf,
   figureContextOfFacts,
   figureLanguageTag,
@@ -48,6 +49,8 @@ import {
   readStatedUnits,
   type StatedCurrency,
   type StatedUnit,
+  scaleExponent,
+  statesForWholeDocument,
   unsettledScales,
 } from "../../shared/figures";
 import {
@@ -86,6 +89,7 @@ import type {
   FigureShowOptions,
   InputNumber,
 } from "../api";
+import type { PageText } from "../documents/passages";
 import { mixedNumberWord, unsureSpansIn } from "../documents/scan/layout";
 import { detectLanguage } from "../documents/textLanguage";
 import type { Language } from "../language";
@@ -212,6 +216,8 @@ const beforeOnLine = (text: string, at: number) =>
 const MOST_LINES_UP = 12;
 
 const WORDS = /[\p{L}%]/u;
+/** A note's reference, as a column beside a row's amounts prints it: "12(a)", "Note 12". */
+const NOTE_REF = /^(?:notes?\s*)?\d+(?:\.\d+)*\s*(?:\(?[a-z]\)?)?$/i;
 // A number on its own; "m2" or "CO2" in a row head is part of its words.
 const NUMBER = /(?<![\p{L}\d.,])\d[\d,.]*[)）%]?/u;
 // A label: no figure and no sentence's end. "Earnings per share are shown in note 9." is prose.
@@ -540,9 +546,36 @@ interface Stated {
    * another part of the Document, which this Passage doesn't hold, or written in a form that reads
    * more than one way ("in MM").
    */
-  unquotable?: "header" | "elsewhere" | "unsettled" | "noted";
+  unquotable?: "header" | "elsewhere" | "unsettled" | "noted" | "row" | "after";
   /** For one stated elsewhere: where. */
   where?: string;
+  /** Stated in another Passage that may state it for this number too: the model may quote it (#2365). */
+  quotable?: true;
+}
+
+/** A scale line in a Unit of a Document version: the line as written, the scale it states, and where the Unit is. */
+interface ElsewhereScale {
+  unit: PageText;
+  /** The scale the reader found in it, as written ("£'000", "in thousands"). */
+  statement: string;
+  /** Its whole line, which the model quotes, and which says whether it holds for the whole Document. */
+  line: string;
+  where: string;
+}
+
+/** Why a line in a section that doesn't state the number's scale can't be its unitQuote. */
+function sectionLineProblem(quote: string, chars: string): string {
+  return `the unitQuote "${quote}" is in a section that doesn't state ${chars}'s scale; a scale line states only the numbers in its own section, or in a section that says it holds for the whole Document. Give the line above ${chars} in its own section as unitQuote, or one that says all amounts are in it.`;
+}
+
+/** Why a line on another page can't be the number's unitQuote. */
+function pageLineProblem(quote: string, chars: string): string {
+  return `the unitQuote "${quote}" is on another page, and it doesn't state ${chars}'s scale: a page's line states the numbers on its own page, or those after it only when it says it holds for the whole Document.`;
+}
+
+/** Why a line after the number can't be its unitQuote. */
+function afterLineProblem(quote: string, chars: string): string {
+  return `the unitQuote "${quote}" is after ${chars}; a scale line states the numbers under it, not those above it.`;
 }
 
 /** Why a number with no unit of its own can't be calculated where its page states a scale. */
@@ -555,6 +588,12 @@ function candidateProblem(chars: string, where: string, candidate: Stated): stri
     return `${chars} is on a per-share row, and "${candidate.statement}" scales its Document's amounts except where it notes otherwise; it can't be calculated without guessing its scale.`;
   if (candidate.unquotable === "unsettled")
     return `${chars} has no unit, and ${where} writes "${candidate.statement}", which can be read as more than one scale or unit; it can't be calculated without guessing its scale.`;
+  if (candidate.unquotable === "row")
+    return `${chars} is on a row whose head writes "${candidate.statement}", which may state a scale; it can't be calculated without guessing its scale.`;
+  if (candidate.unquotable === "after")
+    return `${chars} has no unit, and "${candidate.statement}" is below it; a scale line states the numbers under it, so it can't be ${chars}'s scale; it can't be calculated without guessing its scale.`;
+  if (candidate.quotable)
+    return `${chars} has no unit, and ${candidate.where ? `${candidate.where} states a scale ("${candidate.statement}") in another Passage of the same Document` : `another Passage of the same Document states a scale ("${candidate.statement}")`}; give that line as unitQuote.`;
   return `${chars} has no unit, and ${where} says "${candidate.statement}"; give that line as unitQuote.`;
 }
 
@@ -563,10 +602,31 @@ const PER_SHARE = /per[- \u00a0]share|\bEPS\b|^\s*(?:basic|diluted)\b(?!.*\bshar
 // A figure per unit of something, as a per-share figure is; "per annum" or "per month" is an amount.
 const PER_UNIT =
   /\bper[- \u00a0](?:unit|user|customer|subscriber|member|tonne|ton|barrel|boe|ounce|oz|head|employee|room|passenger|vehicle|store|visit|order|kg|kilogram|litre|liter|mwh|kwh|square (?:foot|feet|metre|meter)|sq\.? ?(?:ft|m))\b|\bARPU\b|每吨|每单位|单位产品|人均|每户|每人|每平方米|每桶|每盎司/i;
-// A row head's unit of measure, which no money scale applies to: "Capacity (MW)", "装机容量（兆瓦）".
-const MEASURE_HEAD =
-  /[(（]\s*(?:[kMGT]Wh?|m2|m²|m3|m³|sq\.? ?(?:m|ft)|km|tonnes?|t|kt|bbls?|boe|oz|kg|litres?|liters?|units|吨|万吨|千吨|平方米|立方米|兆瓦|千瓦|千瓦时|兆瓦时|公里|桶|盎司|千克|公斤)\s*[)）]/i;
+// A row head's unit of measure, which no money scale applies to: "Capacity (MW)", "Sales (millions
+// of m2)", "装机容量（兆瓦）". The measure may sit anywhere inside the bracket.
+const MEASURE =
+  "(?:[kMGT]Wh?|m2|m²|m3|m³|sq\\.? ?(?:m|ft)|km|kt|tonnes?|t|bbls?|boe|oz|kg|litres?|liters?|units|吨|万吨|千吨|平方米|立方米|兆瓦|千瓦|千瓦时|兆瓦时|公里|桶|盎司|千克|公斤)";
+const MEASURE_HEAD = new RegExp(
+  `[(（][^()（）\\n]{0,40}(?<![A-Za-z])${MEASURE}(?![A-Za-z])[^()（）\\n]{0,40}[)）]`,
+  "i",
+);
+// A row head's bare "(M)" or "(m)": millions, metres or another scale, which the row doesn't settle.
+const UNSETTLED_ROW_HEAD = /([(（]\s*[Mm]\s*[)）])/u;
 const SHARE_COUNT = /\bshares\b|股数|普通股加权平均|加权平均股份/i;
+const MISREAD_SCALE = /^(?:thousands?|millions?|billions?|trillions?)$/;
+
+/** The unsure word in `units` that reads as a scale word once 0, 5 and 1 are taken as o, s and l. */
+function misreadScaleWord(units: readonly PageText[]): string | null {
+  for (const unit of units) {
+    for (const [from, to] of unsureSpansIn(unit)) {
+      const word = unit.text.slice(from, to);
+      const lower = word.toLowerCase();
+      const letters = lower.replace(/0/g, "o").replace(/5/g, "s").replace(/1/g, "l");
+      if (letters !== lower && MISREAD_SCALE.test(letters)) return word;
+    }
+  }
+  return null;
+}
 
 /** Whether `statement`'s exception ("in millions, except per share data") leaves out the number labelled `label`. */
 function exceptedBy(statement: StatedUnit, label: string): boolean {
@@ -616,6 +676,141 @@ function notAnAmount(label: string): string | null {
   return NOT_AN_AMOUNT.find(([, pattern]) => pattern.test(label))?.[0] ?? null;
 }
 
+// A row head's own scale word, inside a unit of measure's bracket: "Sales (millions of m2)".
+const HEAD_SCALE =
+  /\b(thousands?|millions?|billions?|trillions?|bn|mn|k|m)\b|(万亿|亿|千万|百万|十万|万|千|仟)/i;
+
+const ROW_BRACKET = /[(（]([^()（）\n]{1,40})[)）]/g;
+
+function rowScaleOf(label: string): { statement: string; exponent: number } | null {
+  for (const bracket of label.normalize("NFKC").matchAll(ROW_BRACKET)) {
+    const inside = bracket[1] ?? "";
+    // A bare "(M)"/"(m)" stays unsettled: millions, metres or another scale.
+    if (/^\s*[Mm]\s*$/.test(inside)) continue;
+    const word = HEAD_SCALE.exec(inside)?.[0];
+    const exponent = word ? scaleExponent(word) : 0;
+    if (exponent > 0) return { statement: bracket[0], exponent };
+  }
+  return null;
+}
+
+// A bracket states the row's scale only when the whole bracket is one scale, in at most one
+// currency: "(K)", "(£k)", "(thousands)", "(百万元)". "(m/s)" is a speed.
+const WHOLE_BRACKET_SCALE =
+  /^\s*(?:in\s+)?(?:(?:US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|₹|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF|INR)\s*)?(?:'?000(?:'?s)?|thousands?|millions?|billions?|trillions?|bn|bln|mn|mln|[kKmMbB]|Mio\.?|Mrd\.?|Tsd\.?|(?:万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟)(?:元)?)\s*$/i;
+const BRACKET_SCALE_WORD =
+  /'?000(?:'?s)?|\b(?:thousands?|millions?|billions?|trillions?|bn|bln|mn|mln|k|m|b)\b|Mio\.?|Mrd\.?|Tsd\.?|万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟/i;
+
+function wholeScaleBracket(text: string): { statement: string; exponent: number } | null {
+  for (const bracket of text.normalize("NFKC").matchAll(ROW_BRACKET)) {
+    if (!WHOLE_BRACKET_SCALE.test(bracket[1] ?? "")) continue;
+    const word = BRACKET_SCALE_WORD.exec(bracket[1] ?? "")?.[0];
+    const exponent = word ? scaleExponent(word) : 0;
+    if (exponent > 0) return { statement: bracket[0], exponent };
+  }
+  return null;
+}
+
+/** One scale or currency a Unit writes, with its offset; a running header's marker is at 0. */
+interface UnitScale {
+  start: number;
+  end: number;
+  text: string;
+  /** Its power of ten; 0 when it can't be settled. */
+  scale: number;
+  unit: FigureUnit | null;
+  /** An unread currency-and-scale form ("(in £, thousands)"), not a statement. */
+  unread?: boolean;
+  /** A statement on a tab-separated sheet row, such as a column's currency head. */
+  columnHead?: boolean;
+}
+
+const UNREAD_SCALE_WORDS =
+  /\b(?:thousands?|millions?|billions?|trillions?|lakhs?|crores?|mn|bn|mln|bln|MM)\b|['’]0{3}s?|(?<![\d,'’])000s(?![A-Za-z0-9])/gi;
+// Only separators, "in" and at most one currency code may stand between a currency and the scale
+// word it states. The code slot is case-sensitive, so "per thousand" is not the amounts' scale.
+const AFTER_CURRENCY =
+  /^\s*[,;，；、]?\s*(?:in\s+)?(?:(?:US\$|HK\$|A\$|C\$|S\$|NT\$|[£$€¥₹]|[A-Z]{2,3})\s+)?(.*)$/;
+const SCALE_AT_START =
+  /^(?:'?000(?:'?s)?|000s|thousands?|millions?|billions?|trillions?|lakhs?|crores?|mn|bn|mln|bln|MM)\b/i;
+
+// An unread form settles a scale only when it has exactly one scale word right after its
+// currency, or is a × form with no scale word; any other form stays unsettled and refuses (#2365).
+function unreadScaleExponent(form: string): number {
+  const words = form.match(UNREAD_SCALE_WORDS) ?? [];
+  const timesForm = /[×✕]/.test(form);
+  if (timesForm ? words.length > 0 : words.length !== 1) return 0;
+  if (!timesForm) {
+    const currency = CURRENCY_IN_BRACKET.exec(form);
+    if (!currency) return 0;
+    const after = form.slice(currency.index + currency[0].length);
+    if (!SCALE_AT_START.test(AFTER_CURRENCY.exec(after)?.[1] ?? "")) return 0;
+  }
+  const times =
+    /[×✕]\s*(?:US\$|HK\$|A\$|C\$|S\$|NT\$|[£$€¥₹]|[A-Z]{3})?\s*(\d[\d,]*(?:\.\d+)?)/.exec(form) ??
+    /\bunits?\s+of\s+(\d[\d,]*(?:\.\d+)?)/i.exec(form);
+  const digits = times?.[1];
+  if (digits !== undefined) {
+    const power = Math.log10(Number(digits.replace(/,/g, "")));
+    if (Number.isInteger(power) && power >= 1) return power;
+    return 0;
+  }
+  return scaleExponent(words[0] ?? "");
+}
+
+const CURRENCY_IN_BRACKET =
+  /(?:US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|₹|\b(?:USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF|INR)\b|(?:\b(?:US|U\.S\.|Hong\s+Kong|HK|Australian|Canadian|Singapore)\s+)?dollars?\b|\bpounds?(?:\s+sterling)?\b|\beuros?\b|\byuan\b|\b[Rr]enminbi\b|\bsterling\b|\byen\b)/;
+const SCALE_FORM =
+  /(?:\b(?:thousands?|millions?|billions?|trillions?|lakhs?|crores?|mn|bn|mln|bln|Mio|Mrd|Tsd)\b|['’]0{3}s?|(?<![\d,'’])000s(?![A-Za-z0-9])|[×✕]\s*|\bx\s*\d|\bunits?\s+of\s+\d)/i;
+const BRACKET = /[(（]([^()（）\n]{1,60})[)）]/g;
+
+function unreadCurrencyScales(
+  text: string,
+  statements: readonly StatedUnit[],
+  context: FigureContext,
+): UnitScale[] {
+  const found: UnitScale[] = [];
+  const covered = (from: number, to: number) =>
+    statements.some(
+      (each) => each.start <= from && from < each.end && each.start <= to && to < each.end,
+    );
+  const add = (form: string, at: number, end: number, currencyAt: number, scaleAt: number) => {
+    if (covered(currencyAt, scaleAt)) return;
+    const exponent = unreadScaleExponent(form);
+    const [first, second] = [...namedCurrencies(form, context, null)];
+    const code = first !== undefined && second === undefined ? first : null;
+    found.push({
+      start: at,
+      end,
+      text: form,
+      scale: code === null || exponent === 0 ? 0 : 10 ** exponent,
+      unit: code === null || exponent === 0 ? null : { kind: "currency", code },
+      unread: true,
+    });
+  };
+  for (const bracket of text.matchAll(BRACKET)) {
+    const inside = bracket[1] ?? "";
+    const currency = CURRENCY_IN_BRACKET.exec(inside);
+    const scale = SCALE_FORM.exec(inside);
+    if (!currency || !scale) continue;
+    const at = bracket.index;
+    add(bracket[0], at, at + bracket[0].length, at + 1 + currency.index, at + 1 + scale.index);
+  }
+  for (const line of text.matchAll(/[^\n]+/g)) {
+    const bracket = BRACKET.exec(line[0]);
+    BRACKET.lastIndex = 0;
+    if (bracket && CURRENCY_IN_BRACKET.test(bracket[1] ?? "") && SCALE_FORM.test(bracket[1] ?? ""))
+      continue;
+    const currency = CURRENCY_IN_BRACKET.exec(line[0]);
+    const scale = SCALE_FORM.exec(line[0]);
+    if (!currency || !scale) continue;
+    if (readFigures(line[0], { ...context, header: null }).length > 0) continue;
+    const at = line.index;
+    add(line[0], at, at + line[0].length, at + currency.index, at + scale.index);
+  }
+  return found;
+}
+
 /** Whether `statement` scales its amounts "except where noted", and `label` is a per-share row it may leave out. */
 const notedOut = (statement: StatedUnit, label: string): boolean =>
   statement.except === "noted" && PER_SHARE.test(label);
@@ -650,7 +845,11 @@ function conflicting(statements: readonly StatedUnit[]): boolean {
  * too, as it changes no scale.
  */
 function withoutStatement(text: string): RowLabel {
-  const scales = readStatedUnits(text).filter((each) => each.scale !== 1 || each.except);
+  // A head's plain currency is its own statement of scale 1, which a wider scale line of another
+  // scale doesn't override (#2365).
+  const scales = readStatedUnits(text).filter(
+    (each) => each.scale !== 1 || each.except || each.unit.kind === "currency",
+  );
   const page = [
     ...[...text.matchAll(EXCEPTION_WORDS)].map((each) => ({
       start: each.index,
@@ -667,16 +866,43 @@ function withoutStatement(text: string): RowLabel {
   }
   if (!WORDS.test(label) && page.length > 0)
     label = text.slice(0, Math.min(...page.map((each) => each.start)));
-  return {
-    label,
-    ownScales: own.filter((each) => each.scale !== 1).map((each) => each.scale),
-  };
+  const unsettled = UNSETTLED_ROW_HEAD.exec(label.normalize("NFKC"));
+  const ownBracket = rowScaleOf(label);
+  const ownScales = own.map((each) => each.scale);
+  if (
+    ownBracket &&
+    notAnAmount(label) !== "unit of measure" &&
+    !ownScales.includes(10 ** ownBracket.exponent)
+  )
+    ownScales.push(10 ** ownBracket.exponent);
+  const currencies = [
+    ...new Set(
+      own.flatMap((each) =>
+        each.scale === 1 && each.unit.kind === "currency" ? [each.unit.code] : [],
+      ),
+    ),
+  ];
+  const [first, more] = currencies;
+  const ownCurrency = first !== undefined && more === undefined ? first : null;
+  return { label, ownScales, ownCurrency, ownUnsettled: unsettled?.[1] ?? null, ownBracket };
 }
 
-/** A row's label, and the scales its head states for itself ("Net debt (£m)"). */
+/** A row's label, the scales its head states for itself ("Net debt (£m)"), and a bare "(M)"/"(m)" it writes. */
 interface RowLabel {
   label: string;
   ownScales: number[];
+  /** The one currency its head states with no scale ("Revenue (US$)"), which combines with a line's scale. */
+  ownCurrency: string | null;
+  ownUnsettled: string | null;
+  /** A scale inside the row head's own bracket ("(K)", "(millions of m2)"). */
+  ownBracket: { statement: string; exponent: number } | null;
+}
+
+/** The whole line of `text` that `start`–`end` is on, trimmed. */
+function lineOf(text: string, start: number, end: number): string {
+  const from = text.lastIndexOf("\n", start - 1) + 1;
+  const to = text.indexOf("\n", end);
+  return text.slice(from, to < 0 ? undefined : to).trim();
 }
 
 /** The pieces of `text` between its numbers, a stated scale's digits ("£'000") kept whole. */
@@ -753,6 +979,15 @@ export interface CitationQuotes {
   recorded(marker: number): Quoted | null;
   quote(input: QuoteInput, options?: CiteOptions): Quoted | { problem: string };
   passageText(passage: string): string;
+  /**
+   * A line another Passage of the same Document holds, given the Unit it is in: kept as its own
+   * Citation. A Passage the model wasn't shown can't be named with `quote` (#2365).
+   */
+  quoteIn(
+    document: { documentId: string; contentHash: string },
+    unit: PageText,
+    quote: string,
+  ): Quoted | { problem: string };
 }
 
 export interface CalculationSessionOptions {
@@ -787,33 +1022,435 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   let calls = 0;
   const contexts = new Map<string, FigureContext>();
   const scales = new Map<string, { scale: string | null; stale: boolean }>();
-  const unitScales = new Map<string, { page: number | null; scale: string; where: string }[]>();
+  const unitScales = new Map<string, ElsewhereScale[]>();
+  const unitLists = new Map<string, readonly PageText[]>();
+
+  /** Every Unit of a Document version, in reading order, read once. */
+  const unitsOf = (citation: Citation): readonly PageText[] => {
+    const key = `${citation.documentId}\n${citation.contentHash}`;
+    let found = unitLists.get(key);
+    if (!found) {
+      found = documents.pageTexts(citation.documentId, citation.contentHash, null, null);
+      unitLists.set(key, found);
+    }
+    return found;
+  };
 
   /**
    * Each Unit of a Document version that states a scale, read once: in its text, in a form that
    * reads more than one way, or in a running header or Word header kept beside it.
    */
-  const scaledUnitsOf = (citation: Citation) => {
+  const scaledUnitsOf = (citation: Citation): ElsewhereScale[] => {
     const key = `${citation.documentId}\n${citation.contentHash}`;
     let found = unitScales.get(key);
     if (!found) {
       const context = contextOf(citation);
-      found = documents
-        .pageTexts(citation.documentId, citation.contentHash, null, null)
-        .flatMap((unit) => {
-          const scale =
-            readStatedUnits(unit.text, context).find((each) => each.scale !== 1)?.chars ??
-            unsettledScales(unit.text, context)[0] ??
-            (unit.scaleMarker && !unit.text.includes(unit.scaleMarker) ? unit.scaleMarker : null);
-          const location = unitLocation(unit);
-          return scale
-            ? [{ page: unit.page, scale, where: location ? englishLocation(location) : "" }]
-            : [];
-        });
+      found = unitsOf(citation).flatMap((unit) => {
+        const stated = readStatedUnits(unit.text, context).find((each) => each.scale !== 1);
+        const unsettled = stated ? null : (unsettledScales(unit.text, context)[0] ?? null);
+        const marker =
+          stated || unsettled
+            ? null
+            : unit.scaleMarker && !unit.text.includes(unit.scaleMarker)
+              ? unit.scaleMarker
+              : null;
+        const statement = stated?.chars ?? unsettled ?? marker;
+        if (!statement) return [];
+        let line = statement;
+        if (stated !== undefined) line = lineOf(unit.text, stated.start, stated.end);
+        else if (unsettled !== null) {
+          const at = unit.text.indexOf(unsettled);
+          if (at >= 0) line = lineOf(unit.text, at, at + unsettled.length);
+        }
+        const location = unitLocation(unit);
+        return [{ unit, statement, line, where: location ? englishLocation(location) : "" }];
+      });
       unitScales.set(key, found);
     }
     return found;
   };
+
+  /** The Unit of its Passage that holds `at`, an offset in the Passage's joined Units. */
+  function unitAt(quoted: Quoted, at: number): PageText | null {
+    const { starts } = joinUnits(quoted.units);
+    let found: PageText | null = null;
+    quoted.units.forEach((unit, index) => {
+      if ((starts[index] ?? 0) <= at) found = unit;
+    });
+    return found;
+  }
+
+  /** The Unit of its Passage that holds `figure`, whose heading path a scale line in another Unit is judged against. */
+  function unitOf(quoted: Quoted, figure: Figure): PageText | null {
+    const { at } = onPage(quoted);
+    return unitAt(quoted, at < 0 ? figure.start : at + figure.start);
+  }
+
+  function strictAncestor(other: PageText, number: PageText): boolean {
+    const mine = number.label?.path ?? [];
+    const theirs = other.label?.path ?? [];
+    if (theirs.length === 0 || theirs.length >= mine.length) return false;
+    return theirs.every((name, at) => name === mine[at]);
+  }
+
+  /**
+   * Whether an ancestor heading's section still contains the number: it comes before it, and no
+   * later heading of its own level reparents the number in between (#2365). A repeated parent
+   * heading starts a new section, so an earlier one's scale doesn't reach across it.
+   */
+  function ancestorContains(
+    units: readonly PageText[],
+    ancestor: PageText,
+    number: PageText,
+  ): boolean {
+    if (ancestor.page === null || number.page === null) return false;
+    if (!strictAncestor(ancestor, number)) return false;
+    const level = (ancestor.label?.path ?? []).length;
+    const path = (unit: PageText) => (unit.label?.path ?? []).join("\u0000");
+    const section = path(ancestor);
+    for (const unit of units) {
+      if (unit.page === null || unit.page <= ancestor.page || unit.page >= number.page) continue;
+      const theirs = unit.label?.path ?? [];
+      if (theirs.length !== level) continue;
+      if (path(unit) === section && unit.label?.part !== undefined) continue;
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Whether `line` and `number` are earlier and later parts of one heading section, split by
+   * length, rather than two occurrences of a heading with the same text (#2365): a split
+   * section's Units run 1, 2, 3… with the same path, and a repeated heading starts again at 1.
+   */
+  function sameSection(units: readonly PageText[], line: PageText, number: PageText): boolean {
+    if (line.kind !== "section" || number.kind !== "section") return false;
+    const from = line.page;
+    const to = number.page;
+    if (from === null || to === null || to <= from) return false;
+    const path = (unit: PageText) => (unit.label?.path ?? []).join("\u0000");
+    const section = path(line);
+    if (section === "" || section !== path(number)) return false;
+    if (number.label?.part === undefined) return false;
+    return units.every((unit) => {
+      if (unit.page === null || unit.page <= from || unit.page >= to) return true;
+      return path(unit) === section && unit.label?.part !== undefined;
+    });
+  }
+
+  function scalesInUnit(unit: PageText, context: FigureContext): UnitScale[] {
+    const found: UnitScale[] = [];
+    const statements = readStatedUnits(unit.text, context);
+    const unread = unreadCurrencyScales(unit.text, statements, context);
+    // An unread form reads its own currency and scale whole, so a statement inside it is part of
+    // that form, not a separate plain scale ("Remuneration is shown in sterling, in thousands").
+    for (const each of statements.filter(
+      (one) => !unread.some((form) => form.start <= one.start && one.end <= form.end),
+    )) {
+      found.push({
+        start: each.start,
+        end: each.end,
+        text: each.chars,
+        scale: each.scale,
+        unit: each.unit,
+        columnHead: lineOf(unit.text, each.start, each.end).includes("\t"),
+      });
+    }
+    for (const each of unsettledScales(unit.text, context)) {
+      const at = unit.text.indexOf(each);
+      if (at >= 0)
+        found.push({ start: at, end: at + each.length, text: each, scale: 0, unit: null });
+    }
+    for (const each of unread) found.push(each);
+    if (unit.scaleMarker && !unit.text.includes(unit.scaleMarker)) {
+      const [stated] = readStatedUnits(unit.scaleMarker, context);
+      found.push({
+        start: 0,
+        end: 0,
+        text: unit.scaleMarker,
+        scale: stated?.scale ?? 0,
+        unit: stated?.unit ?? null,
+      });
+    }
+    return found.sort((a, b) => a.start - b.start);
+  }
+
+  function statementOf(line: string, context: FigureContext): UnitScale | null {
+    const [first] = readStatedUnits(line, context).filter((each) => each.unit.kind !== "percent");
+    return first
+      ? {
+          start: first.start,
+          end: first.end,
+          text: first.chars,
+          scale: first.scale,
+          unit: first.unit,
+        }
+      : null;
+  }
+
+  const currencyOf = (unit: FigureUnit | null) => (unit?.kind === "currency" ? unit.code : null);
+
+  /** Whether a nearer statement gives the figure a different scale or currency from the quoted line's. */
+  function refutes(scale: UnitScale, from: UnitScale | null): boolean {
+    if (scale.unit?.kind === "percent") return false;
+    if (scale.scale === 0) return true;
+    if (!from) return scale.scale !== 1;
+    // A sheet's currency-only column head ("Amount (US$)") combines with a wider plain scale;
+    // every other nearer currency and wider scale pair conflicts (#2365).
+    const plainCurrency = (each: UnitScale) => each.scale === 1 && each.unit?.kind === "currency";
+    const plainScale = (each: UnitScale) =>
+      each.scale !== 1 && (each.unit === null || each.unit.kind === "plain");
+    if (scale.columnHead && plainCurrency(scale) && plainScale(from)) return false;
+    return scale.scale !== from.scale || currencyOf(scale.unit) !== currencyOf(from.unit);
+  }
+
+  interface LinePlace {
+    lineIndex: number;
+    figureIndex: number;
+    lineStart: number;
+    lineEnd: number;
+    figureAt: number;
+    lineText: string;
+  }
+
+  function placeOf(
+    quoted: Quoted,
+    figure: Figure,
+    lineUnit: PageText,
+    lineText: string,
+    numbersUnit: PageText,
+  ): LinePlace | null {
+    const units = unitsOf(quoted.citation);
+    const indexOf = (each: PageText) =>
+      units.findIndex(
+        (other) => other === each || (other.page !== null && other.page === each.page),
+      );
+    const lineIndex = indexOf(lineUnit);
+    const figureIndex = indexOf(numbersUnit);
+    if (lineIndex < 0 || figureIndex < 0) return null;
+    const range = findQuote(lineUnit.text, lineText, quoted.matching)?.[0] ?? null;
+    if (!range) return null;
+    const at = quoted.units.indexOf(numbersUnit);
+    if (at < 0) return null;
+    const { starts } = joinUnits(quoted.units);
+    const figureAt = onPage(quoted).at + figure.start - (starts[at] ?? 0);
+    if (figureAt < 0) return null;
+    return {
+      lineIndex,
+      figureIndex,
+      lineStart: range.start,
+      lineEnd: range.end,
+      figureAt,
+      lineText,
+    };
+  }
+
+  /**
+   * The statement nearer to the figure than the quoted line, between it and the figure, that gives
+   * a different scale or currency: in the figure's own Unit before the figure, in a later part of
+   * its section, in a section or page between, or in the rest of a section the line is in. A line
+   * after the figure never states it (#2365).
+   */
+  function nearerScale(
+    quoted: Quoted,
+    figure: Figure,
+    place: LinePlace,
+    units: readonly PageText[],
+    numbersUnit: PageText,
+  ): string | null {
+    const context = contextOf(quoted.citation);
+    const from = statementOf(place.lineText, context);
+    // A row label's own currency ("Basic EPS ($)") is the row's, not a nearer line, even when the
+    // label is on the line above the number.
+    const rowLabel = rowOf(quoted, figure)?.label ?? null;
+    const path = (unit: PageText) => (unit.label?.path ?? []).join("\u0000");
+    for (let index = place.lineIndex; index <= place.figureIndex; index++) {
+      const unit = units[index];
+      if (!unit) continue;
+      const inLine = index === place.lineIndex;
+      const inFigure = index === place.figureIndex;
+      // A page keeps its later lines to itself: they state a table below the line, not a figure on
+      // a later page. A section's later lines can state a figure further down (#2365).
+      if (inLine && !inFigure && unit.kind === "page") continue;
+      if (!inLine && !inFigure) {
+        const section =
+          numbersUnit.kind === "section" &&
+          unit.kind === "section" &&
+          (strictAncestor(unit, numbersUnit) ||
+            (path(unit) === path(numbersUnit) &&
+              (unit.label?.part ?? 1) < (numbersUnit.label?.part ?? 1)));
+        const page =
+          unit.kind === "page" &&
+          numbersUnit.kind === "page" &&
+          unit.page !== null &&
+          numbersUnit.page !== null &&
+          unit.page < numbersUnit.page;
+        if (!section && !page) continue;
+      }
+      const figureRow = inFigure
+        ? unit.text.lastIndexOf("\n", Math.max(0, place.figureAt - 1)) + 1
+        : -1;
+      for (const scale of scalesInUnit(unit, context)) {
+        if (inLine && scale.start < place.lineEnd) continue;
+        if (inFigure && scale.start > place.figureAt) continue;
+        // The figure's own row states its own unit ("Diluted EPS ($)"), not a nearer line, and so
+        // does any other row that writes an amount: a row's unit states that row, not the next.
+        if (inFigure && scale.start >= figureRow) continue;
+        if (rowLabel !== null && scale.text !== "" && rowLabel.includes(scale.text)) continue;
+        // An unread form ("(in £, thousands)", "(× €1,000)") is judged whether or not its line
+        // writes a figure; a settled statement on a figure's line is that figure, not a scale line.
+        if (
+          !scale.unread &&
+          readFigures(lineOf(unit.text, scale.start, scale.end), { ...context, header: null })
+            .length > 0
+        )
+          continue;
+        if (refutes(scale, from)) return scale.text;
+      }
+    }
+    return null;
+  }
+
+  type LineVerdict = { ok: true } | { ok: false; problem: string };
+
+  interface LineFacts {
+    unit: PageText | null;
+    text: string;
+    inPassage: boolean;
+    unsure: boolean;
+  }
+
+  /**
+   * Whether a quoted line may state the figure's scale, and if not why (#2365, #2386): it must be
+   * before the figure, in the figure's own Unit, a later part of its own heading section, a
+   * strict ancestor section that says it holds for the whole Document, or an earlier page that
+   * says so. An unsure word, a named note or table, a line after the figure and a nearer statement
+   * of another scale or currency each refuse; everything else is refused by default.
+   */
+  function judgeLine(quoted: Quoted, figure: Figure, facts: LineFacts, chars: string): LineVerdict {
+    if (facts.unsure)
+      return {
+        ok: false,
+        problem: `the unitQuote "${facts.text}" may include a word the scan misread; quote a line that states the unit clearly.`,
+      };
+    const numbersUnit = unitOf(quoted, figure);
+    if (!numbersUnit || !facts.unit)
+      return {
+        ok: false,
+        problem: `the unitQuote "${facts.text}" can't be placed in ${quoted.passage}; quote the line as it is written there.`,
+      };
+    const units = unitsOf(quoted.citation);
+    const place = placeOf(quoted, figure, facts.unit, facts.text, numbersUnit);
+    if (!place)
+      return {
+        ok: false,
+        problem: `the unitQuote "${facts.text}" can't be placed in ${quoted.passage}; quote the line as it is written there.`,
+      };
+    if (
+      place.lineIndex > place.figureIndex ||
+      (place.lineIndex === place.figureIndex && place.lineStart > place.figureAt)
+    )
+      return { ok: false, problem: afterLineProblem(facts.text, chars) };
+    const sameSectionLine =
+      place.lineIndex === place.figureIndex || sameSection(units, facts.unit, numbersUnit);
+    if (!sameSectionLine) {
+      if (numbersUnit.kind === "section") {
+        if (
+          !ancestorContains(units, facts.unit, numbersUnit) ||
+          !statesForWholeDocument(facts.text)
+        )
+          return { ok: false, problem: sectionLineProblem(facts.text, chars) };
+      } else if (numbersUnit.kind === "page") {
+        if (
+          facts.unit.kind !== "page" ||
+          facts.unit.page === null ||
+          numbersUnit.page === null ||
+          facts.unit.page >= numbersUnit.page ||
+          !statesForWholeDocument(facts.text)
+        )
+          return { ok: false, problem: pageLineProblem(facts.text, chars) };
+      } else if (!facts.inPassage) {
+        return { ok: false, problem: sectionLineProblem(facts.text, chars) };
+      }
+    }
+    const nearer = nearerScale(quoted, figure, place, units, numbersUnit);
+    if (nearer !== null)
+      return {
+        ok: false,
+        problem: `the unitQuote "${facts.text}" is a wider line, but a nearer line states a scale ("${nearer}"); quote the nearer line, or one that applies to ${chars}.`,
+      };
+    return { ok: true };
+  }
+
+  /** The Unit of `unit`'s Passage that holds its quoted line. */
+  function lineUnitOf(unit: Quoted): PageText | null {
+    return (
+      unit.units.find((each) => findQuote(each.text, unit.citation.quote, unit.matching)) ?? null
+    );
+  }
+
+  /**
+   * The scale lines in other Units of `figure`'s Document: those that may state its scale too,
+   * and those that a note, a nearer line, a scan or the line's shape keep to themselves.
+   */
+  function elsewhereScales(
+    quoted: Quoted,
+    figure: Figure,
+  ): { quotable: ElsewhereScale[]; refused: ElsewhereScale[] } {
+    const pages = new Set(quoted.units.map((unit) => unit.page));
+    const quotable: ElsewhereScale[] = [];
+    const refused: ElsewhereScale[] = [];
+    for (const each of scaledUnitsOf(quoted.citation)) {
+      if (pages.has(each.unit.page)) continue;
+      const ranges = findQuote(each.unit.text, each.line, quoted.matching) ?? [];
+      const unsure = unsureWordsCovered([each.unit], ranges).length > 0;
+      const verdict = judgeLine(
+        quoted,
+        figure,
+        { unit: each.unit, text: each.line, inPassage: false, unsure },
+        figure.chars,
+      );
+      (verdict.ok ? quotable : refused).push(each);
+    }
+    return { quotable, refused };
+  }
+
+  /**
+   * The Unit another Passage holds that writes `line` and may state `figure`'s scale; or the
+   * first reason a line found elsewhere can't. The figure's own Unit, not the quote's first,
+   * decides where it sits: a Citation may name two Units.
+   */
+  function unitQuoteElsewhere(
+    quoted: Quoted,
+    figure: Figure,
+    line: string,
+  ): { quoted: Quoted } | { problem: string } | null {
+    let problem: string | null = null;
+    for (const unit of unitsOf(quoted.citation)) {
+      if (unit.page !== null && quoted.units.some((each) => each.page === unit.page)) continue;
+      if (!findQuote(unit.text, line, quoted.matching)) continue;
+      const built = quotes.quoteIn(quoted.citation, unit, line);
+      if ("problem" in built) {
+        problem ??= built.problem;
+        continue;
+      }
+      const check = built.check();
+      const verdict = judgeLine(
+        quoted,
+        figure,
+        {
+          unit: lineUnitOf(built),
+          text: line,
+          inPassage: false,
+          unsure: check.checkReason === "unsure-word",
+        },
+        figure.chars,
+      );
+      if (verdict.ok) return { quoted: built };
+      problem ??= verdict.problem;
+    }
+    return problem ? { problem } : null;
+  }
 
   /** How a Document version writes its numbers, read once from all its text. */
   const contextOf = (citation: Citation): FigureContext => {
@@ -1033,7 +1670,15 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const row = `${before}${text.slice(start, end < 0 ? undefined : end)}`;
     const named = (each: RowLabel) => WORDS.test(each.label);
     if (row.includes("\t")) {
-      const cell = withoutStatement(row.split("\t")[0] ?? "");
+      // A Word row can hold a label merged down its left cells before the row's own: the row's
+      // label is the nearest text cell left of the figure, not the first one (#448).
+      const cells = row.split("\t");
+      const at = cells.findIndex((cell) => cell.includes(figure.chars));
+      const label = cells
+        .slice(0, at < 0 ? cells.length : at)
+        .reverse()
+        .find((cell) => /\p{L}/u.test(cell) && !NOTE_REF.test(cell.trim()));
+      const cell = withoutStatement(label ?? "");
       return named(cell) ? cell : null;
     }
     const own = betweenNumbers(before).map(withoutStatement).findLast(named);
@@ -1054,9 +1699,6 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     }
     return null;
   }
-
-  const labelOf = (quoted: Quoted, figure: Figure): string | null =>
-    rowOf(quoted, figure)?.label ?? null;
 
   function lineBefore(quoted: Quoted, figure: Figure): string {
     const { text, at } = onPage(quoted);
@@ -1150,6 +1792,53 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     );
   }
 
+  // A generic head word names no column, so a scale after it states the table's, not a column's.
+  const GENERIC_HEAD =
+    /(?:项目|科目|金额|單位|单位|item|items|amount|amounts|currency|unit|units|description|particulars|note)\s*$/i;
+
+  /** Whether a head line puts a scale inside a bracket between two words (a named column), with no tabs to place it. */
+  const cellOfLine = (text: string, at: number) =>
+    text.slice(text.lastIndexOf("\n", at - 1) + 1, at).split("\t").length - 1;
+
+  function columnScopedHead(
+    unit: Quoted,
+    quoted: Quoted,
+    figure: Figure,
+    context: FigureContext,
+  ): boolean {
+    const line = unit.citation.quote;
+    const statements = readStatedUnits(line, context).filter(
+      (each) => each.scale !== 1 && /^\s*[(（]/.test(each.chars),
+    );
+    if (statements.length === 0) return false;
+    const page = onPage(quoted);
+    const figureCell = cellOfLine(page.text, page.at + figure.start);
+    return statements.some((each) => {
+      const before = /([\p{L}\p{N}]+)\s*$/u.exec(line.slice(0, each.start))?.[1] ?? null;
+      if (before === null || GENERIC_HEAD.test(before)) return false;
+      if (line.includes("\t")) return figureCell !== cellOfLine(line, each.start);
+      const words = [
+        ...line.slice(0, each.start).matchAll(/[\p{L}][\p{L}\p{N}]*/gu),
+        ...line.slice(each.end).matchAll(/[\p{L}][\p{L}\p{N}]*/gu),
+      ]
+        .map((match) => match[0] ?? "")
+        .filter((word) => word !== "" && word !== before && !GENERIC_HEAD.test(word));
+      return words.length > 0;
+    });
+  }
+
+  /** How many amounts the figure's line writes. */
+  function amountsOnFigureLine(quoted: Quoted, figure: Figure, context: FigureContext): number {
+    const { text, at } = onPage(quoted);
+    const start = at + figure.start;
+    const from = text.lastIndexOf("\n", start - 1) + 1;
+    const to = text.indexOf("\n", start);
+    return readFigures(text.slice(from, to < 0 ? undefined : to), {
+      ...context,
+      header: null,
+    }).length;
+  }
+
   /** Reads one input; or says why it can't be read. */
   function readInput(
     given: GivenInput,
@@ -1165,24 +1854,32 @@ export function createCalculationSession(options: CalculationSessionOptions) {
 
     let unit: Quoted | null = null;
     let unitProblem: string | null = null;
+    let lookElsewhere = false;
     if (given.unitQuote) {
-      const line = quotes.quote(
-        { passage: quoted.passage, quote: given.unitQuote },
-        { structured: true },
-      );
-      if ("problem" in line) {
-        unitProblem = `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
-      } else {
-        const check = line.check();
-        if (check.check === "found") {
-          const yen = figureContextOf(line.citation.quote, context.language).yen ?? context.yen;
-          context = { ...context, yen };
-          unit = line;
-        } else if (check.checkReason === "unsure-word") {
-          unitProblem = `the unitQuote may include a word the scan misread; quote a line that states the unit clearly, from the same Passage.`;
+      // A line in the figure's own Passage is judged there; only a line that isn't in it at all
+      // may be taken from another Passage (#2365, #2386).
+      if (quoteInUnits(quoted.units, given.unitQuote, quoted.matching) !== null) {
+        const line = quotes.quote(
+          { passage: quoted.passage, quote: given.unitQuote },
+          { structured: true },
+        );
+        if ("problem" in line) {
+          unitProblem = line.problem;
         } else {
-          unitProblem = `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
+          const check = line.check();
+          if (check.check === "found") {
+            const yen = figureContextOf(line.citation.quote, context.language).yen ?? context.yen;
+            context = { ...context, yen };
+            unit = line;
+          } else if (check.checkReason === "unsure-word") {
+            unitProblem = `the unitQuote "${given.unitQuote}" may include a word the scan misread; quote a line that states the unit clearly.`;
+          } else {
+            unitProblem = `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
+          }
         }
+      } else {
+        unitProblem = `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the Passage it is in.`;
+        lookElsewhere = true;
       }
     }
 
@@ -1190,7 +1887,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     // A quote from the middle of a line ("…，88.0 和 91.5") starts with no list's or heading's number.
     // A sheet row's cells are numbers whatever they look like: "Gross profit	1922" holds no year.
     const cells = quoted.units.some((unit) => unit.kind === "rows");
-    const quoteContext = { ...context, midLine: page.midLine, ...(cells && { dates: true }) };
+    let quoteContext = { ...context, midLine: page.midLine, ...(cells && { dates: true }) };
     const contextProblem = quotePlaceProblem(quote, quoted.units, quoted.matching);
     if (contextProblem) return contextProblem;
     const figures = readFigures(quote, quoteContext);
@@ -1224,6 +1921,24 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     if (!figure) return `the quote has no number "${given.number}"; ${has}.`;
 
     if (unsureWordAt(quoted, figure) !== null) return UNSURE_INPUT;
+
+    // Another Passage's line is judged from the Unit the figure sits in, not the one the quote starts in.
+    if (lookElsewhere && given.unitQuote) {
+      const elsewhere = unitQuoteElsewhere(quoted, figure, given.unitQuote);
+      if (elsewhere && "quoted" in elsewhere) {
+        unit = elsewhere.quoted;
+        unitProblem = null;
+        const yen = figureContextOf(unit.citation.quote, context.language).yen ?? context.yen;
+        context = { ...context, yen };
+        quoteContext = { ...context, midLine: page.midLine, ...(cells && { dates: true }) };
+        const at = figure.start;
+        const chars = figure.chars;
+        const reread = readFigures(quote, quoteContext).find(
+          (each) => each.start === at && each.chars === chars,
+        );
+        if (reread) figure = reread;
+      } else if (elsewhere) unitProblem = elsewhere.problem;
+    }
 
     const currency = figure.ambiguous.find((each) => each.kind === "currency");
     if (currency) {
@@ -1291,6 +2006,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       const row = onLine(unit.citation.quote);
       const statedLine = readStatedUnits(unit.citation.quote, context, true);
       const ownRow = rowOf(quoted, figure);
+      const bracketQuote = wholeScaleBracket(unit.citation.quote);
+      const bracketLine =
+        bracketQuote && ownRow?.ownBracket && ownRow.ownBracket.statement === bracketQuote.statement
+          ? bracketQuote
+          : null;
       const label = ownRow?.label ?? null;
       const [unsure] =
         row || statedLine.length > 0 ? [] : unsettledScales(unit.citation.quote, context);
@@ -1301,9 +2021,43 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         row === null && statedLine.length === 0
           ? currencyOnItsFigure(unit.citation.quote, context)
           : null;
-      if (!row && statedLine.length === 0 && !onFigure)
+      if (!row && statedLine.length === 0 && !onFigure && !bracketLine)
         return `the unitQuote "${unit.citation.quote}" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".`;
-      if (onFigure) {
+      // A line that states a currency on its own amount has its own rule above; a scale line is
+      // judged by where its Unit sits, its shape and a nearer line (#2365, #2386).
+      if (!onFigure && !bracketLine) {
+        const verdict = judgeLine(
+          quoted,
+          figure,
+          {
+            unit: lineUnitOf(unit),
+            text: unit.citation.quote,
+            inPassage: quoteInUnits(quoted.units, unit.citation.quote, quoted.matching) !== null,
+            unsure: unit.check().checkReason === "unsure-word",
+          },
+          figure.chars,
+        );
+        if (!verdict.ok) return verdict.problem;
+      }
+      if (
+        !onFigure &&
+        !bracketLine &&
+        !conflicting(statedLine) &&
+        columnScopedHead(unit, quoted, figure, context) &&
+        amountsOnFigureLine(quoted, figure, quoteContext) > 1
+      )
+        return `${figure.chars} is in one column of a row whose head states the scale of another ("${unit.citation.quote}"); the text doesn't say which column it is, so its scale can't be settled.`;
+      if (bracketLine) {
+        const kind = notAnAmount(label ?? "");
+        if (kind)
+          return `${figure.chars} is on a ${kind} row ("${(label ?? "").trim()}"), and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing its scale.`;
+        const times = 10 ** bracketLine.exponent;
+        stated = {
+          quoted: unit,
+          stated: { ...base, value: base.value * times, scale: base.scale * times },
+          currencyChars: null,
+        };
+      } else if (onFigure) {
         const problem = statementProblem(quoted, unit, onFigure, figure, context);
         if (problem) return problem;
         const named = namedCurrencies(
@@ -1320,17 +2074,48 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         };
       } else if (label === null && row === null && statedLine.some((each) => each.scale !== 1)) {
         return `${figure.chars} has no label on its line or above it that says what its row is, and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing its scale.`;
-      } else if (
-        ownRow?.ownScales.length &&
-        statedLine.some((each) => each.scale !== 1 && !ownRow.ownScales.includes(each.scale))
-      ) {
-        return `${figure.chars} is on a row whose head states its own scale, and the unitQuote "${unit.citation.quote}" states another; quote the row's head as unitQuote.`;
-      } else if (statedLine.some((each) => notedOut(each, label ?? ""))) {
-        return `${figure.chars} is on a per-share row, and the unitQuote "${unit.citation.quote}" scales its Document's amounts except where it notes otherwise; it can't be calculated without guessing its scale.`;
       } else if (statedLine.some((each) => exceptedBy(each, label ?? ""))) {
         const currency = statedLine.find((each) => each.unit.kind === "currency")?.unit;
         if (currency && base.unit.kind === "plain")
           stated = { quoted: unit, stated: { ...base, unit: currency }, currencyChars: null };
+      } else if (statedLine.some((each) => notedOut(each, label ?? ""))) {
+        return `${figure.chars} is on a per-share row, and the unitQuote "${unit.citation.quote}" scales its Document's amounts except where it notes otherwise; it can't be calculated without guessing its scale.`;
+      } else if (
+        ownRow?.ownScales.length &&
+        statedLine.some((each) => each.scale !== 1 && !ownRow.ownScales.includes(each.scale))
+      ) {
+        const lineScales = new Set(
+          statedLine.filter((each) => each.scale !== 1).map((each) => each.scale),
+        );
+        if (lineScales.size > 1)
+          return `the unitQuote "${unit.citation.quote}" states more than one scale; give the one line that applies.`;
+        const lineScale = statedLine.find(
+          (each) => each.scale !== 1 && !ownRow.ownScales.includes(each.scale),
+        );
+        const lineNamesCurrency = statedLine.some((each) => each.unit.kind === "currency");
+        const headIsCurrencyOnly = ownRow.ownScales.every((each) => each === 1);
+        if (
+          lineScale &&
+          headIsCurrencyOnly &&
+          ownRow.ownCurrency !== null &&
+          !lineNamesCurrency &&
+          notAnAmount(label ?? "") === null
+        )
+          stated = {
+            quoted: unit,
+            stated: {
+              ...base,
+              value: base.value * lineScale.scale,
+              scale: base.scale * lineScale.scale,
+              scaleWord: lineScale.scaleWord,
+              unit: { kind: "currency", code: ownRow.ownCurrency },
+            },
+            currencyChars: null,
+          };
+        else
+          return headIsCurrencyOnly
+            ? `${figure.chars} is on a row whose head states its own currency, and the unitQuote "${unit.citation.quote}" states a scale with a currency; the text doesn't say whether the row is scaled, so it can't be calculated without guessing its scale.`
+            : `${figure.chars} is on a row whose head states its own scale, and the unitQuote "${unit.citation.quote}" states another; quote the row's head as unitQuote.`;
       } else {
         const readings = row
           ? [row]
@@ -1344,10 +2129,30 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         // of them a number is in, so it states none of them for it.
         if (conflicting(statedLine))
           return `the unitQuote "${unit.citation.quote}" states more than one unit or scale; give the line or column head that states the unit of ${figure.chars} alone.`;
+        // A scale is dropped silently when the line's currency is not the figure's own: "£m" over
+        // "$1,234.5" leaves $900, so the figure is refused instead (#2365).
+        const ownCurrency = base.unit.kind === "currency" ? base.unit.code : null;
+        const lineCurrency = statedLine.find((each) => each.unit.kind === "currency")?.unit;
+        if (
+          ownCurrency !== null &&
+          lineCurrency?.kind === "currency" &&
+          lineCurrency.code !== ownCurrency
+        )
+          return `the unitQuote "${unit.citation.quote}" states ${lineCurrency.code}, but ${figure.chars} is in ${ownCurrency}; quote a line in ${ownCurrency} that states the scale.`;
         const applies =
           readings.find((each) => each.scale !== 1) ??
           readings.find((each) => each.unit.kind !== base.unit.kind) ??
           null;
+        // A row head's bare "(M)"/"(m)" may be millions, metres or another scale: only a page that
+        // states millions settles a capital (M); every other scale would be a guess (#2365).
+        const ownScale = ownRow?.ownUnsettled ?? null;
+        if (
+          ownScale &&
+          applies &&
+          applies.scale !== 1 &&
+          !(ownScale === "(M)" && applies.scale === 1e6)
+        )
+          return `${figure.chars} is on a row whose head writes "${ownScale}", which can be read as more than one scale or unit, and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing which scale applies.`;
         const kind = applies && applies.scale !== 1 ? notAnAmount(label ?? "") : null;
         if (kind)
           return `${figure.chars} is on a ${kind} row ("${(label ?? "").trim()}"), and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing its scale.`;
@@ -1356,23 +2161,54 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     } else if (!ownUnit) {
       const page = quoted.units.map((each) => each.text).join("\n");
       const found: Stated[] = [];
+      const refusedHere: Stated[] = [];
       let noted: string | null = null;
       const lines = quotedLines(quoted);
       const row = onLine(lines);
       if (row) found.push({ statement: lines, reading: row });
       const same = (a: Reading, b: Reading) =>
         a.value === b.value && JSON.stringify(a.unit) === JSON.stringify(b.unit);
-      const rowLabel = labelOf(quoted, figure) ?? "";
-      for (const statement of readStatedUnits(page, context)) {
-        if (exceptedBy(statement, rowLabel)) continue;
-        if (notedOut(statement, rowLabel)) {
-          noted = noted ?? statement.chars;
-          continue;
-        }
-        for (const each of statedReading(quote, figure.start, quoteContext, statement.chars)) {
-          if (!changes(each)) continue;
-          if (!found.some((other) => same(other.reading, each)))
-            found.push({ statement: statement.chars, reading: each });
+      const ownRow = rowOf(quoted, figure);
+      const rowLabel = ownRow?.label ?? "";
+      const numbersUnit = unitOf(quoted, figure);
+      const numberIndex = numbersUnit ? quoted.units.indexOf(numbersUnit) : -1;
+      const { starts } = joinUnits(quoted.units);
+      const figureAt =
+        numberIndex >= 0 ? onPage(quoted).at + figure.start - (starts[numberIndex] ?? 0) : -1;
+      for (const [unitIndex, unit] of quoted.units.entries()) {
+        for (const statement of readStatedUnits(unit.text, context)) {
+          if (exceptedBy(statement, rowLabel)) continue;
+          if (notedOut(statement, rowLabel)) {
+            noted = noted ?? statement.chars;
+            continue;
+          }
+          // A line on an earlier page of the same Passage can't be quoted for the figure: the
+          // rule refuses it, so the tool must not tell the model to quote it (#2365).
+          const elsewherePage =
+            numbersUnit?.kind === "page" &&
+            unit.kind === "page" &&
+            unit.page !== null &&
+            numbersUnit.page !== null &&
+            unit.page < numbersUnit.page &&
+            !statesForWholeDocument(lineOf(unit.text, statement.start, statement.end));
+          const afterFigure =
+            figureAt >= 0 &&
+            (unitIndex > numberIndex || (unitIndex === numberIndex && statement.start > figureAt));
+          const line = lineOf(unit.text, statement.start, statement.end);
+          for (const each of statedReading(quote, figure.start, quoteContext, line)) {
+            if (!changes(each)) continue;
+            const refused = elsewherePage || afterFigure;
+            const target = refused ? refusedHere : found;
+            if (!target.some((other) => same(other.reading, each)))
+              target.push({
+                statement:
+                  readStatedUnits(line, context).find((one) => one.scale === each.scale)?.chars ??
+                  statement.chars,
+                reading: each,
+                ...(elsewherePage && { unquotable: "elsewhere" as const }),
+                ...(afterFigure && !elsewherePage && { unquotable: "after" as const }),
+              });
+          }
         }
       }
       if (found.length > 1)
@@ -1381,10 +2217,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         ({ text, scaleMarker }) => scaleMarker && !text.includes(scaleMarker),
       )?.scaleMarker;
       const [unsure] = unsettledScales(page, context);
+      const misread = misreadScaleWord(quoted.units);
       // A Word section under a heading that states its scale, or a page after one that does, may
-      // be in that scale: no Passage holds both, so the number is refused rather than read plain.
-      const pages = new Set(quoted.units.map((each) => each.page));
-      const elsewhere = scaledUnitsOf(quoted.citation).find((each) => !pages.has(each.page));
+      // be in that scale: the model may quote an ancestor section's line or a whole-Document one,
+      // and another section's line is refused rather than read plain (#2365).
+      const elsewhere = elsewhereScales(quoted, figure);
       const unquotableAs = (
         statement: string | null | undefined,
         unquotable: Stated["unquotable"],
@@ -1393,13 +2230,43 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         statement
           ? [{ statement, reading: thousandfold(base), unquotable, ...(where && { where }) }]
           : [];
+      const [quotable] = elsewhere.quotable;
+      const [refusedScale] = elsewhere.refused;
+      // A row head's own scale, a bare "(M)"/"(m)" or a bracket scale ("(K)"), is not a plain
+      // number: it refuses when the result depends on the scale (#2365).
+      const rowScale = ownRow?.ownBracket ?? null;
+      const rowCandidate: Stated | null = ownRow?.ownUnsettled
+        ? { statement: ownRow.ownUnsettled, reading: thousandfold(base), unquotable: "row" }
+        : rowScale
+          ? {
+              statement: rowScale.statement,
+              reading: {
+                ...base,
+                value: base.value * 10 ** rowScale.exponent,
+                scale: base.scale * 10 ** rowScale.exponent,
+              },
+              unquotable: "row",
+            }
+          : null;
       candidate =
         [
           ...found,
+          ...(rowCandidate ? [rowCandidate] : []),
+          ...refusedHere,
           ...unquotableAs(noted, "noted"),
           ...unquotableAs(header, "header"),
           ...unquotableAs(unsure, "unsettled"),
-          ...unquotableAs(elsewhere?.scale, "elsewhere", elsewhere?.where),
+          ...unquotableAs(misread, "unsettled"),
+          ...(quotable
+            ? [
+                {
+                  statement: quotable.line,
+                  reading: thousandfold(base),
+                  where: quotable.where,
+                  quotable: true as const,
+                },
+              ]
+            : unquotableAs(refusedScale?.line, "elsewhere", refusedScale?.where)),
         ][0] ?? null;
     }
 

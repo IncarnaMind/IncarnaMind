@@ -109,3 +109,40 @@ test("a check that differs, could not be made, or is missing leaves the figure a
     analysisFigureShown(unchecked, { checked: false, run: null, result: "total", versions }),
   ).toEqual(unchecked);
 });
+
+test("an Analysis figure whose record the Note no longer keeps never shows checked (#2378)", () => {
+  expect(
+    analysisFigureShown(
+      { state: "supported" },
+      { checked: true, run: null, result: "total", versions },
+    ),
+  ).toEqual(unchecked);
+  expect(
+    analysisFigureShown(
+      { state: "contradicted" },
+      { checked: true, run: null, result: "total", versions },
+    ),
+  ).toEqual(unchecked);
+  const withoutTheValue: RetainedFigureAnalysis = { ...run, values: [] };
+  expect(
+    analysisFigureShown(
+      { state: "supported" },
+      { checked: false, run: withoutTheValue, result: "total", versions },
+    ),
+  ).toEqual(unchecked);
+});
+
+test("the User's own kept view of the sentence still shows when the record is gone", () => {
+  expect(
+    analysisFigureShown({ state: "kept" }, { checked: true, run: null, result: "total", versions }),
+  ).toEqual({ state: "kept" });
+});
+
+test("a figure with no Analysis keeps its sentence's own check: there is no record to miss", () => {
+  expect(
+    analysisFigureShown(
+      { state: "supported" },
+      { checked: true, run: null, result: null, versions },
+    ),
+  ).toEqual({ state: "supported" });
+});
