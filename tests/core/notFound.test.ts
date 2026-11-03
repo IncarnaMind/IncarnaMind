@@ -164,7 +164,7 @@ describe("Not found only when nothing in the scope was about the sentence (#1608
   test("must for may, with no part to show, is Unsupported with the check's words", async () => {
     const checked = await check({
       ...FOUND,
-      says: "Roles: big tides must come twice / spring tides happen, differs\nTides says spring tides happen at new and full moon.",
+      says: "Roles: The biggest tides come twice / spring tides happen, differs\nTides says spring tides happen at new and full moon.",
     });
 
     expect(checked.check?.state).toBe("unsupported");

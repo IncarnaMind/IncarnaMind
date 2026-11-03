@@ -20,6 +20,7 @@ import { repeatChecks } from "./repeat";
 import { watchRequests } from "./requests";
 import { type RepeatRow, report, summarise } from "./score";
 import { VERBATIM_SETS } from "./verbatimCases";
+import { VERDICT_SETS } from "./verdictCases";
 
 const ROOT = resolve(__dirname, "../..");
 
@@ -51,9 +52,21 @@ test("repeated checks of an unchanged Mind", async () => {
   const repeats = Number(process.env.INCARNAMIND_EVAL_REPEATS ?? "10") || 10;
   const only = process.env.INCARNAMIND_EVAL_REPEATS_SETS?.trim();
   const budget = Number(process.env.INCARNAMIND_EVAL_REPEATS_BUDGET ?? "5") || 5;
-  const sets = [...SETS, ...VERBATIM_SETS].filter(
-    (each) => !only || only.split(",").includes(each.id),
-  );
+  const keys = process.env.INCARNAMIND_EVAL_REPEATS_KEYS?.trim().split(",") ?? null;
+  const sets = [...SETS, ...VERBATIM_SETS, ...VERDICT_SETS]
+    .filter((each) => !only || only.split(",").includes(each.id))
+    .map((each) =>
+      keys
+        ? {
+            ...each,
+            sentences: each.sentences.filter(
+              (sentence) =>
+                keys.includes(sentence.key) || keys.includes(`${each.id}:${sentence.key}`),
+            ),
+          }
+        : each,
+    )
+    .filter((each) => each.sentences.length > 0);
   const model = `${chat.kind}/${chat.modelId}`;
   await prepareGpuFile(config, log);
   const reranker = createWorkerCrossEncoder(config.rerankOnCpu);

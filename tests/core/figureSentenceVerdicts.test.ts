@@ -437,7 +437,7 @@ const VERDICT_AGAIN: Record<string, Reply> = {
       "Absence: no",
       "Scope: 乙方, same",
       "Topic: found",
-      "Roles: none, same",
+      "Roles: 乙方月工资 / 乙方月工资, same",
       "劳动合同写明乙方月工资为人民币一万八千元[^1]。",
     ].join("\n"),
     item: {
@@ -452,7 +452,7 @@ const VERDICT_AGAIN: Record<string, Reply> = {
       "Absence: no",
       "Scope: 乙方, same",
       "Topic: found",
-      "Roles: none, same",
+      "Roles: 乙方月工资 / 乙方月工资, same",
       "劳动合同写明乙方月工资为人民币一万八千元[^1]。",
     ].join("\n"),
   },

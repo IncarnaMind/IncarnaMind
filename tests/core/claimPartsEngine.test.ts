@@ -116,7 +116,7 @@ async function check(
       return {
         text:
           outcome.reply ??
-          `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: none, same\nThe Documents establish this.\nEvidence: ${JSON.stringify(outcome.quotes.map((_, index) => index + 1))}\nCalculation: ${outcome.repair?.stated ?? outcome.calculation?.stated ?? "none"}`,
+          `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${sentenceOf(call)} / ${outcome.quotes.join(" ")}, same\nThe Documents establish this.\nEvidence: ${JSON.stringify(outcome.quotes.map((_, index) => index + 1))}\nCalculation: ${outcome.repair?.stated ?? outcome.calculation?.stated ?? "none"}`,
       };
     },
     {
@@ -1002,8 +1002,7 @@ describe.each(["en", "zh-CN"] as const)("%s declared evidence recovery", (langua
     language === "en" ? "Rook operated North and South branches." : "白鸦公司经营北区和南区分店。";
   const north = language === "en" ? "Rook operated the North branch." : "白鸦公司经营北区分店。";
   const south = language === "en" ? "Rook operated the South branch." : "白鸦公司经营南区分店。";
-  const reply =
-    "Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: none, same\nEvidence: [1, 2]\nCalculation: none";
+  const reply = `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${claim} / ${north}, same\nEvidence: [1, 2]\nCalculation: none`;
 
   test("recovers every missing declared record in one request", async () => {
     const { result, recoveries } = await check(
@@ -1173,7 +1172,7 @@ describe.each(["en", "zh-CN"] as const)("%s declared evidence recovery", (langua
         [quantified]: {
           quotes: [],
           sourceQuotes: [north, south, domain],
-          reply: `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: none, same\nEvidence: []\nCoverage: ${JSON.stringify(coverage)}\nCalculation: none`,
+          reply: `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${quantified} / ${domain}, same\nEvidence: []\nCoverage: ${JSON.stringify(coverage)}\nCalculation: none`,
           recovery: [
             { marker: 1, quote: north },
             { marker: 2, quote: south },
