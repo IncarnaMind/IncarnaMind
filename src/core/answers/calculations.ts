@@ -719,12 +719,31 @@ interface UnitScale {
   unit: FigureUnit | null;
   /** An unread currency-and-scale form ("(in £, thousands)"), not a statement. */
   unread?: boolean;
+  /** A statement on a tab-separated sheet row, such as a column's currency head. */
+  columnHead?: boolean;
 }
 
-// An unread form's scale, read from its own words: thousands, '000 and 000s are 10^3; millions
-// 10^6; billions 10^9; "× 1,000" and "units of 1,000" the number's power of ten. A bare amount
-// ("cap of 150,000 pounds") is not a scale (#2365).
+const UNREAD_SCALE_WORDS =
+  /\b(?:thousands?|millions?|billions?|trillions?|lakhs?|crores?|mn|bn|mln|bln|MM)\b|['’]0{3}s?|(?<![\d,'’])000s(?![A-Za-z0-9])/gi;
+// Only separators, "in" and at most one currency code may stand between a currency and the scale
+// word it states. The code slot is case-sensitive, so "per thousand" is not the amounts' scale.
+const AFTER_CURRENCY =
+  /^\s*[,;，；、]?\s*(?:in\s+)?(?:(?:US\$|HK\$|A\$|C\$|S\$|NT\$|[£$€¥₹]|[A-Z]{2,3})\s+)?(.*)$/;
+const SCALE_AT_START =
+  /^(?:'?000(?:'?s)?|000s|thousands?|millions?|billions?|trillions?|lakhs?|crores?|mn|bn|mln|bln|MM)\b/i;
+
+// An unread form settles a scale only when it has exactly one scale word right after its
+// currency, or is a × form with no scale word; any other form stays unsettled and refuses (#2365).
 function unreadScaleExponent(form: string): number {
+  const words = form.match(UNREAD_SCALE_WORDS) ?? [];
+  const timesForm = /[×✕]/.test(form);
+  if (timesForm ? words.length > 0 : words.length !== 1) return 0;
+  if (!timesForm) {
+    const currency = CURRENCY_IN_BRACKET.exec(form);
+    if (!currency) return 0;
+    const after = form.slice(currency.index + currency[0].length);
+    if (!SCALE_AT_START.test(AFTER_CURRENCY.exec(after)?.[1] ?? "")) return 0;
+  }
   const times =
     /[×✕]\s*(?:US\$|HK\$|A\$|C\$|S\$|NT\$|[£$€¥₹]|[A-Z]{3})?\s*(\d[\d,]*(?:\.\d+)?)/.exec(form) ??
     /\bunits?\s+of\s+(\d[\d,]*(?:\.\d+)?)/i.exec(form);
@@ -732,14 +751,9 @@ function unreadScaleExponent(form: string): number {
   if (digits !== undefined) {
     const power = Math.log10(Number(digits.replace(/,/g, "")));
     if (Number.isInteger(power) && power >= 1) return power;
+    return 0;
   }
-  if (/\btrillions?\b/i.test(form)) return 12;
-  if (/\bbillions?\b|\bbn\b|\bbln\b/i.test(form)) return 9;
-  if (/\bmillions?\b|\bmn\b|\bmln\b|\bMM\b/.test(form)) return 6;
-  if (/\bthousands?\b|['’]0{3}s?|(?<![\d,'’])000s(?![A-Za-z0-9])/i.test(form)) return 3;
-  if (/\blakhs?\b/i.test(form)) return 5;
-  if (/\bcrores?\b/i.test(form)) return 7;
-  return 0;
+  return scaleExponent(words[0] ?? "");
 }
 
 const CURRENCY_IN_BRACKET =
@@ -761,15 +775,14 @@ function unreadCurrencyScales(
   const add = (form: string, at: number, end: number, currencyAt: number, scaleAt: number) => {
     if (covered(currencyAt, scaleAt)) return;
     const exponent = unreadScaleExponent(form);
-    if (exponent === 0) return;
     const [first, second] = [...namedCurrencies(form, context, null)];
     const code = first !== undefined && second === undefined ? first : null;
     found.push({
       start: at,
       end,
       text: form,
-      scale: code === null ? 0 : 10 ** exponent,
-      unit: code === null ? null : { kind: "currency", code },
+      scale: code === null || exponent === 0 ? 0 : 10 ** exponent,
+      unit: code === null || exponent === 0 ? null : { kind: "currency", code },
       unread: true,
     });
   };
@@ -1128,6 +1141,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         text: each.chars,
         scale: each.scale,
         unit: each.unit,
+        columnHead: lineOf(unit.text, each.start, each.end).includes("\t"),
       });
     }
     for (const each of unsettledScales(unit.text, context)) {
@@ -1169,11 +1183,12 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     if (scale.unit?.kind === "percent") return false;
     if (scale.scale === 0) return true;
     if (!from) return scale.scale !== 1;
+    // A sheet's currency-only column head ("Amount (US$)") combines with a wider plain scale;
+    // every other nearer currency and wider scale pair conflicts (#2365).
     const plainCurrency = (each: UnitScale) => each.scale === 1 && each.unit?.kind === "currency";
     const plainScale = (each: UnitScale) =>
       each.scale !== 1 && (each.unit === null || each.unit.kind === "plain");
-    if ((plainCurrency(scale) && plainScale(from)) || (plainScale(scale) && plainCurrency(from)))
-      return false;
+    if (scale.columnHead && plainCurrency(scale) && plainScale(from)) return false;
     return scale.scale !== from.scale || currencyOf(scale.unit) !== currencyOf(from.unit);
   }
 
@@ -1270,8 +1285,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         // does any other row that writes an amount: a row's unit states that row, not the next.
         if (inFigure && scale.start >= figureRow) continue;
         if (rowLabel !== null && scale.text !== "" && rowLabel.includes(scale.text)) continue;
-        // An unread form ("(in £, thousands)", "(× €1,000)") refutes whether or not its line writes
-        // a figure; a settled statement on a figure's line is that figure, not a scale line.
+        // An unread form ("(in £, thousands)", "(× €1,000)") is judged whether or not its line
+        // writes a figure; a settled statement on a figure's line is that figure, not a scale line.
         if (
           !scale.unread &&
           readFigures(lineOf(unit.text, scale.start, scale.end), { ...context, header: null })
@@ -2049,6 +2064,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         ownRow?.ownScales.length &&
         statedLine.some((each) => each.scale !== 1 && !ownRow.ownScales.includes(each.scale))
       ) {
+        const lineScales = new Set(
+          statedLine.filter((each) => each.scale !== 1).map((each) => each.scale),
+        );
+        if (lineScales.size > 1)
+          return `the unitQuote "${unit.citation.quote}" states more than one scale; give the one line that applies.`;
         const lineScale = statedLine.find(
           (each) => each.scale !== 1 && !ownRow.ownScales.includes(each.scale),
         );
@@ -2161,7 +2181,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
             const target = refused ? refusedHere : found;
             if (!target.some((other) => same(other.reading, each)))
               target.push({
-                statement: statement.chars,
+                statement:
+                  readStatedUnits(line, context).find((one) => one.scale === each.scale)?.chars ??
+                  statement.chars,
                 reading: each,
                 ...(elsewherePage && { unquotable: "elsewhere" as const }),
                 ...(afterFigure && !elsewherePage && { unquotable: "after" as const }),

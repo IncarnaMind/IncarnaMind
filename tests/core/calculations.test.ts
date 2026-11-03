@@ -4478,6 +4478,221 @@ describe("A nearer line, page, section, row head or column head decides the scal
     expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
   });
 
+  test("a line with two scales refuses before it combines with a row head", async () => {
+    const dollarRows: [string, string] = ["Revenue (US$) 1,234.5", "Costs (US$) 334.5"];
+    const twoScales = "Volumes in millions; amounts in thousands";
+    const { answer, asked } = await figuresUnder(
+      "Two scales",
+      {
+        name: "Two scales.pdf",
+        contents: buildPdf([{ lines: ["Two scales", twoScales, ...dollarRows] }]),
+      },
+      dollarRows,
+      [twoScales],
+      { query: "two scales revenue costs" },
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("states more than one scale");
+  });
+
+  test("a row head with a currency and its own scale still refuses another line's scale", async () => {
+    const amountRows: [string, string] = [
+      "Revenue (US$) (thousands) 1,234.5",
+      "Costs (US$) (thousands) 334.5",
+    ];
+    const { answer, asked } = await figuresUnder(
+      "Own scale rows",
+      {
+        name: "Own scale rows.pdf",
+        contents: buildPdf([{ lines: ["Own scale rows", "(in millions)", ...amountRows] }]),
+      },
+      amountRows,
+      ["(in millions)"],
+      { query: "own scale rows revenue costs" },
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("row whose head states its own scale");
+  });
+
+  test("a sheet's currency-only column head combines with the wider scale", async () => {
+    const model = calculatingModel({
+      queries: ["fees sheet revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, "Fees sheet", "Revenue\t1234.5");
+          const location = passage.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: "Revenue\t1234.5" },
+                  { marker: 2, passage: passage.id, location, quote: "Costs\t334.5" },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Difference",
+                    formula: "rev - cost",
+                    inputs: [
+                      {
+                        name: "rev",
+                        label: "Revenue",
+                        citation: 1,
+                        number: "1234.5",
+                        unitQuote: "(in thousands)",
+                      },
+                      {
+                        name: "cost",
+                        label: "Costs",
+                        citation: 2,
+                        number: "334.5",
+                        unitQuote: "(in thousands)",
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "Fees sheet.xlsx",
+        contents: xlsxOf([
+          {
+            name: "Fees",
+            rows: [
+              ["(in thousands)"],
+              ["Item", "Amount (US$)"],
+              ["Revenue", 1234.5],
+              ["Costs", 334.5],
+            ],
+          },
+        ]),
+      },
+    ]);
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
+  });
+
+  test.each([
+    ["a nearer currency line", "(in thousands)", "Directors' remuneration (in £)"],
+    ["a quoted currency line", "Group summary (in £)", "Segment detail (in thousands)"],
+  ])(
+    "a plain currency and a plain scale on different lines refuse: %s",
+    async (_label, wider, nearer) => {
+      const { answer } = await figuresUnder(
+        "Plain pairs",
+        {
+          name: "Plain pairs.pdf",
+          contents: buildPdf([{ lines: ["Plain pairs", wider, nearer, ...rows] }]),
+        },
+        rows,
+        [wider],
+        { query: "plain pairs revenue costs" },
+      );
+
+      expect(answer.figures).toEqual([]);
+    },
+  );
+
+  test.each([
+    [
+      "a scale word about options",
+      "All amounts in £'000",
+      "Share awards (in £, options in thousands)",
+    ],
+    [
+      "a scale word about headcount",
+      "All amounts in $'000",
+      "Staff costs (in US$, headcount in thousands)",
+    ],
+    ["a lowercase multiplier", "All amounts in millions", "Subsidiary results (in €, x 1,000)"],
+    ["a European multiplier", "All amounts in €m", "German subsidiary (in €, × 1.000)"],
+  ])("an unread form whose scale can't be read refuses: %s", async (_label, wider, nearer) => {
+    const { answer } = await figuresUnder(
+      "Unread forms",
+      {
+        name: "Unread forms.pdf",
+        contents: buildPdf([{ lines: ["Unread forms", wider, nearer, ...rows] }]),
+      },
+      rows,
+      [wider],
+      { query: "unread forms revenue costs" },
+    );
+
+    expect(answer.figures).toEqual([]);
+  });
+
+  test("a two-scale line's hint names each scale it states", async () => {
+    const dollarRows: [string, string] = ["Revenue (US$) 1,234.5", "Costs (US$) 334.5"];
+    const twoScales = "Shares in millions; amounts in thousands";
+    const model = calculatingModel({
+      queries: ["two scale hint revenue costs"],
+      steps: [
+        (passages) => {
+          const passage = passageWriting(passages, "Two scale hint", dollarRows[0]);
+          const location = passage.location ?? "p. 1";
+          return [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: passage.id, location, quote: dollarRows[0] },
+                  { marker: 2, passage: passage.id, location, quote: dollarRows[1] },
+                ],
+              },
+            },
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Difference",
+                    formula: "rev - cost",
+                    inputs: [
+                      { name: "rev", label: "Revenue", citation: 1, number: "1,234.5" },
+                      { name: "cost", label: "Costs", citation: 2, number: "334.5" },
+                    ],
+                  },
+                ],
+              },
+            },
+          ];
+        },
+      ],
+      answer: "[=1][^1]",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "Two scale hint.pdf",
+        contents: buildPdf([{ lines: ["Two scale hint", twoScales, ...dollarRows] }]),
+      },
+    ]);
+    const { answer } = await askAndRead(core, "What is the difference?");
+    core.close();
+
+    const asked = told(model, "calculate")[0] ?? "";
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain('"in millions"');
+    expect(asked).toContain('"in thousands"');
+    expect(asked).not.toContain('"in millions", "in millions"');
+  });
+
   test("a nearer line with another scale is refused (not only its bracket)", async () => {
     const wider = "All amounts in £'000";
     const nearer = "Directors' fees are shown in sterling, in millions";
