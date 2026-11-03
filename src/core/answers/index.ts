@@ -256,6 +256,7 @@ import {
   questionContextOf,
   type RequestMind,
   readMind,
+  withLineBefore,
 } from "./context";
 import {
   type ContextCitations,
@@ -264,6 +265,7 @@ import {
 } from "./contextCitations";
 import {
   coverageInstructions,
+  coverageNudge,
   coverageOf,
   documentsAsked,
   namedCoverage,
@@ -315,6 +317,7 @@ import { paragraphAsked } from "./paragraphAsked";
 import {
   analysisInstructions,
   answerInstructions,
+  CALL_SCOPE_NOTE,
   commandInstructions,
   connectorInstructions,
   documentInstructions,
@@ -1245,16 +1248,15 @@ export function createAnswers(options: AnswersOptions) {
     const library: LibraryDocuments | undefined = outside
       ? undefined
       : { total: options.documents.libraryCount() };
+    const coverageSized =
+      input.outside === true || callDocuments !== null
+        ? []
+        : options.documents.searchableBySize(input.documentIds);
     const asked =
       input.outside === true || callDocuments !== null
         ? { each: false, main: null }
-        : documentsAsked(context.question, () =>
-            options.documents.searchableBySize(input.documentIds).map((each) => each.name),
-          );
-    const coverage =
-      asked.each || asked.main !== null
-        ? coverageOf(asked, options.documents.searchableBySize(input.documentIds))
-        : null;
+        : documentsAsked(context.question, () => coverageSized.map((each) => each.name));
+    const coverage = asked.each || asked.main !== null ? coverageOf(asked, coverageSized) : null;
     const documentIds =
       callDocuments ?? (coverage ? coverage.used.map((each) => each.id) : input.documentIds);
     // Worked out now, shown only once the Answer has written into a Mind from new text.
@@ -2368,6 +2370,10 @@ export function createAnswers(options: AnswersOptions) {
         if (finished) return;
         const kept = newestWithin(heard?.passages ?? [], listenedTokens(prepared.window));
         if (heard) messages = withTranscript(messages, session.show(kept));
+        const hasEarlierTurns = messages.length > 1;
+        if (heard && hasEarlierTurns) {
+          messages = withLineBefore(messages, CALL_SCOPE_NOTE, context.question, context.question);
+        }
         if (help && heard?.behind) {
           textBehind = true;
           const text = options.liveTextBehind(kept.length > 0);
@@ -3159,6 +3165,17 @@ export function createAnswers(options: AnswersOptions) {
           },
         },
         ...(readByUser ? [claimedTools] : []),
+        ...(readByUser && coverage?.kind === "largest"
+          ? [
+              {
+                name: "coverage-left",
+                check: (text: string) => {
+                  const note = coverageNudge(coverage, coverageSized, text);
+                  return note ? { claims: [], writeOnly: true, note } : null;
+                },
+              },
+            ]
+          : []),
       ];
       // The search made first takes the User's words as the query before the model has read them,
       // which is right only for a Question about the Documents. So it is made only on a turn that is
@@ -3209,11 +3226,7 @@ export function createAnswers(options: AnswersOptions) {
                   { writeFirst, minds: withMindTools, library },
                 ),
             stillReadingNote(options.documents.reading(documentIds)),
-            coverageInstructions(
-              coverage,
-              asked.each,
-              options.documents.searchableBySize(input.documentIds),
-            ),
+            coverageInstructions(coverage, asked.each, coverageSized),
             skillInstructions(listed, forced, withSkillTools, scripts),
             connectorTools ? connectorInstructions(fromConnectors, mode === "no-documents") : "",
             sourcesInstructions(sourceTools),

@@ -2483,18 +2483,23 @@ export function createDocuments(options: DocumentsOptions) {
     /** The live Documents with Passages to search (of all of them, or only of these), the most text first: `size` characters. */
     searchableBySize(
       documentIds: readonly string[] | undefined,
-    ): { id: string; name: string; size: number }[] {
+    ): { id: string; name: string; title: string | null; size: number }[] {
       const { where, params } = searchable(documentIds);
       return db
-        .all<{ id: string; name: string; size: bigint | number }>(
-          `SELECT d.id, d.name,
+        .all<{ id: string; name: string; title: string | null; size: bigint | number }>(
+          `SELECT d.id, d.name, d.title,
              (SELECT coalesce(sum(length(p.text)), 0) FROM passages p
                WHERE p.document_id = d.id AND p.deleted_at IS NULL) AS size
            FROM documents d WHERE ${where}
            ORDER BY size DESC, d.created_at DESC, d.rowid DESC`,
           params,
         )
-        .map((row) => ({ id: row.id, name: row.name, size: Number(row.size) }));
+        .map((row) => ({
+          id: row.id,
+          name: row.name,
+          title: row.title,
+          size: Number(row.size),
+        }));
     },
 
     /** Whether any live Document to search (of all of them, or only of these) is a workbook or a CSV file; or a workbook. */
