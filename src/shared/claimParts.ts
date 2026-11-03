@@ -65,6 +65,7 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "workbook-circular": true,
   "workbook-not-read": true,
   "workbook-no-saved-value": true,
+  "other-cell": true,
   "workbook-unsupported": true,
 };
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FAILURES).filter(

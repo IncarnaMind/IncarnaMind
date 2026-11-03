@@ -20,12 +20,15 @@ import type {
 import { isRecord } from "../../errors";
 import { figureAgain, keptReason, whatIfAgain } from "../../workbooks/trace";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
-import { agreesAtShownPrecision } from "./calculated";
+import { agreesAtShownPrecision, comparedFigure } from "./calculated";
+import { type FigureMeasure, measureFinding, readMeasure } from "./figureMeasures";
 import { FIGURES, type ReadVerdict, readVerdict } from "./prompt";
 import type { BoundNumber } from "./units";
 
 export interface FigureReplyItem extends ReadVerdict {
   id: string;
+  /** What the number measures, in the sentence's words and the quote's; null when it gives none that reads. */
+  measure: FigureMeasure | null;
   reading: number | null;
   relation: "equals" | "at most" | "at least";
   source: {
@@ -72,7 +75,7 @@ function judgmentOf(value: unknown): ReadVerdict | null {
     !["supported", "unsupported", "contradicted"].includes(String(value.verdict)) ||
     !["same", "wider"].includes(String(value.scope)) ||
     !["found", "not found"].includes(String(value.topic)) ||
-    !["same", "differs"].includes(String(value.roles)) ||
+    !["same", "differs", "other"].includes(String(value.roles)) ||
     !optionalText(value.says)
   )
     return null;
@@ -166,7 +169,15 @@ export function readFigureReply(
       source = { citation, record, number: written, position, reading: sourceReading, unitQuote };
     }
     if (source && calculation !== null) return null;
-    items.push({ ...judgment, id: raw.id, reading, relation: raw.relation, source, calculation });
+    items.push({
+      ...judgment,
+      id: raw.id,
+      measure: readMeasure(raw.measure),
+      reading,
+      relation: raw.relation,
+      source,
+      calculation,
+    });
   }
   if (ids.size > 0) return null;
   const parsed: FigureReply = { items };
@@ -254,7 +265,8 @@ export function absenceFigureResults(
 
 /**
  * A wider word, another party or another topic takes a Supported verdict's support away; for a
- * contradiction the parties the other way round are what contradicts, and its quote is judged.
+ * contradiction the parties the other way round are what contradicts, and its quote is judged. A
+ * sentence about someone the Passage gives no part in it is neither backed nor contradicted (#1766).
  */
 export function figureJudgment(
   reply: ReadVerdict,
@@ -264,6 +276,7 @@ export function figureJudgment(
 ): ClaimJudgment {
   if (
     reply.verdict === "unsupported" ||
+    reply.roles === "other" ||
     (reply.verdict === "supported" &&
       (reply.scope === "wider" || reply.roles === "differs" || reply.topic === "not found"))
   )
@@ -297,6 +310,8 @@ export function figureJudgment(
 export interface FigureCheckOptions {
   requested: readonly CheckFigure[];
   claim: string;
+  /** The paragraph the sentence is in: its words for what a figure measures may be there. */
+  paragraph?: string;
   reply: string;
   calculations: CalculationSession;
   citation(marker: number): Citation | null;
@@ -315,6 +330,10 @@ export interface FigureCheckOptions {
   ): UnsupportedReason | null;
   /** A cited Document version's Units, for a workbook's figure worked out again (#2347). */
   units(citation: Citation): readonly UnitText[];
+  /** The texts a quote is in, its cited pages first: where its table's rows and headings are. */
+  around(citation: Citation): readonly string[];
+  /** Why a figure isn't backed by a source number (`amount`) that measures something else (#2255). */
+  otherMeasure(amount: string, measured: string, claimed: string): UnsupportedReason;
   signal: AbortSignal;
 }
 
@@ -527,7 +546,6 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     let sourceInput: FigureInput | null = null;
     let pageUnread = false;
     let calculation: CalculatedFigure | null = null;
-    let costs: ReadonlySet<string> = new Set();
     // A saved calculation is checked by working it out again from its own inputs: a source or a
     // calculation the model names beside it would give the verdict one number and the card another.
     const replayed = target.calculated !== null && !target.calculated.figure.analysis;
@@ -556,7 +574,6 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         sourceInput = input.input;
     } else if (item.calculation !== null) {
       calculation = calculations.figure(item.calculation);
-      costs = options.costs(item.calculation);
       if (
         calculation?.analysis ||
         calculation?.inputs.some(
@@ -566,6 +583,8 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         )
       )
         calculation = null;
+      else if (calculation)
+        calculation = comparedFigure(target.reading, calculation, options.costs(item.calculation));
     }
     const framed = inSourceFrame(
       original,
@@ -619,6 +638,30 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       });
       continue;
     }
+    const bound = sourceInput;
+    const measure =
+      bound && !replayed
+        ? measureFinding(
+            item.measure,
+            [options.claim, target.label ?? "", target.context ?? "", options.paragraph ?? ""],
+            bound.citation.quote,
+            { chars: bound.number.chars, at: bound.number.at },
+            () => options.around(bound.citation),
+          )
+        : null;
+    // A number that measures something else neither backs the figure nor contradicts it, and the
+    // card says so whatever verdict the model gave the figure.
+    if (bound && measure?.kind === "differs") {
+      const judged = unbacked(evidence);
+      const { shown } = measure;
+      const why = shown && options.otherMeasure(bound.number.chars, shown.measured, shown.claimed);
+      rows.push({
+        ...base,
+        sourceInput,
+        result: why && judged.verdict === "unsupported" ? { ...judged, unsupported: why } : judged,
+      });
+      continue;
+    }
     if (
       item.verdict === "unsupported" ||
       item.topic !== "found" ||
@@ -641,9 +684,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
           : calculation;
     const relation: LimitRelation | undefined =
       item.relation === "equals" ? undefined : item.relation;
-    const agrees = compared
-      ? agreesAtShownPrecision(target.reading, compared, { relation, costs })
-      : null;
+    const agrees = compared ? agreesAtShownPrecision(target.reading, compared, { relation }) : null;
     if (agrees === null || !compared || typeof compared.value !== "number" || !evidence) {
       rows.push({ ...base, sourceInput, result: unavailable() });
       continue;
@@ -685,6 +726,11 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       rows.push({ ...base, sourceInput, result: unavailable("unread") });
       continue;
     }
+    // An equal number in another row's or column's cell of the quoted table backs nothing.
+    if (agrees && measure?.kind === "other-cell") {
+      rows.push({ ...base, sourceInput, result: unavailable("other-cell") });
+      continue;
+    }
     const difference = target.reading.value - compared.value;
     const rounded =
       agrees &&
@@ -724,6 +770,39 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         ? await options.remainder(parsed.remainder)
         : undefined;
   if (options.signal.aborted) return uncheckedFigureResults(requested, unavailable("stopped"));
+  return { ...aggregateFigureResults(rows, remainder), figures: rows, remainder };
+}
+
+/**
+ * A sentence's figure results when the reply's Roles line gives the sentence to someone its
+ * Passage doesn't name (#1766): a figure that agreed or disagreed with that Passage's number is
+ * Unsupported, since the number is someone else's, and so are the sentence's other words, whatever
+ * the remainder's own roles say.
+ */
+export function aboutSomeoneElse(result: ClaimCheckResult): ClaimCheckResult {
+  const { figures } = result;
+  if (!figures) return result;
+  const unbacked = (judged: ClaimJudgment): ClaimJudgment =>
+    judged.verdict === "supported" || judged.verdict === "contradicted"
+      ? {
+          verdict: "unsupported",
+          evidence: null,
+          says: null,
+          unsupported: { reason: judged.says, covered: null, uncovered: null, found: true },
+          calculation: null,
+          citedCaseUnchecked: judged.citedCaseUnchecked,
+          citedCaseFound: judged.citedCaseFound,
+          versions: judged.versions,
+          excluded: judged.excluded,
+        }
+      : judged;
+  const rows = figures.map(
+    (figure): FigureCheckResult => ({
+      ...figure,
+      result: unbacked(figure.result),
+    }),
+  );
+  const remainder = result.remainder ? unbacked(result.remainder) : result.remainder;
   return { ...aggregateFigureResults(rows, remainder), figures: rows, remainder };
 }
 

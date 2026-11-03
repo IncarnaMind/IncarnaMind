@@ -1,6 +1,6 @@
 import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import type { ChatModelFactory, ChatModelSpec, ClaimedChange } from "../../src/core";
+import type { ChatModelFactory, ChatModelSpec, ClaimedChange, CoreAdapters } from "../../src/core";
 import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
 import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
@@ -580,3 +580,8 @@ export function scriptedModels(model: MockLanguageModelV4) {
   };
   return { createChatModel, specs, model };
 }
+
+/** Offers run_code to whichever model a test uses: the shipped catalog offers it to none yet (#2351). */
+export const codeToolOn = (): Pick<CoreAdapters, "modelFacts"> => ({
+  modelFacts: () => ({ codeTool: true }),
+});

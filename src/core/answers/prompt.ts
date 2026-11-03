@@ -2,7 +2,7 @@
 import { figureContextOf, readFigures } from "../../shared/figures";
 import { PDF_BLANK_FIELD, PDF_UNREAD_FIELD } from "../../shared/pdfFormText";
 import { CJK, nameKey } from "../../shared/text";
-import type { CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
+import type { AskedTable, CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, type Language } from "../language";
 import { asData, tagged } from "../promptData";
@@ -134,13 +134,27 @@ export const unplacedWorkbookFiguresNote = (
 export function analysisInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    "A search shows only some rows of a sheet or CSV file. For any total, count, average, share, change or join over its rows, call run_analysis: it runs your Python with pandas over every row. Never answer such a question from the rows you were shown, or say you saw only part of the sheet.",
+    "A search shows only some rows of a sheet or CSV file. For any total, count, average, share, change or join over its rows, call run_analysis: it runs your Python with pandas over the rows, up to 20,000 of each range. Never answer such a question from the rows you were shown, or say you saw only part of the sheet.",
     '- Read data only from inputs["name"]: a Passage of a sheet reads all of it (one input per sheet; a range only for part), or a number quoted from a Passage. A number a calculation uses must be an input, cited, never written in the code.',
     '- A table in a PDF, Word file or deck is an input too, {"name": "costs", "passage": "P5"}: all its rows, over every page, each cited where the Document has it. Use it to add up, count or compare a table\'s rows; for a figure from two or three numbers a Passage shows, calculate is enough. A table\'s rows can hold its totals, subtotals and the lines it carries over a page: leave those out of a sum of its entries, and compare the sum with the total it prints.',
     '- Call step(label, df) after each change to the rows. Give each sum, mean, min, max or count of an input\'s column with figure(name, df[column], how, label, unit), which IncarnaMind works out again from the cells, and each other figure or table the Answer uses with result(name, value, label, unit): a number or a table, never text. A figure a model or a test works out also names the input\'s rows it used, as of=: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, unit % takes a fraction: 0.081 shows 8.1%. Each run starts clean, with no clock: take a date as an input.',
     "- For statistics, models and forecasts, import scipy, statsmodels or sklearn. Draw a simple series with chart(); plot with matplotlib.pyplot what chart() can't draw, such as points coloured by group, a fitted line or a distribution.",
     "- In the Answer, put each [=table n], [=chart n] and [=picture n] on a line of its own where it goes, and don't write the table yourself.",
     "- When it stops with an error, fix the code and run it again.",
+  ].join("\n");
+}
+
+/**
+ * When to run code in the OS sandbox (`run_code`, ADR-0025) rather than an Analysis in Pyodide:
+ * whole files, more rows than an Analysis reads, logs, a workbook's own file, a shell.
+ */
+export function codeInstructions(offered: boolean, analysisOffered: boolean): string {
+  if (!offered) return "";
+  return [
+    `run_code runs Python or bash on copies of whole files on this computer. Use it for what ${analysisOffered ? "run_analysis can't do" : "a search can't answer"}: a sheet or CSV of more than 20,000 rows, a log or other text file, a workbook's own file (its formulas, with openpyxl), several files at once, or shell tools.${analysisOffered ? " For anything else over a sheet, use run_analysis: it needs nothing downloaded. When run_analysis says a range was cut, run it again with run_code." : ""}`,
+    "- In Python, read a sheet with read_table(file, sheet). Give each sum, mean, min, max or count of a column with figure(name, df[column], how, label, unit), which IncarnaMind works out again from the cells, and every other figure or table with result(name, value, label, unit). Write each figure's marker, never a number the code printed.",
+    "- bash is for looking around (what a file holds, which lines match). No number it prints may be given in the Answer: give each number the Answer uses with Python's result() or figure(), and write its marker.",
+    `- When it says Python didn't run, ${analysisOffered ? "do the analysis with run_analysis" : "say so"}.`,
   ].join("\n");
 }
 
@@ -206,24 +220,51 @@ export const THIS_DOCUMENT_RULE = [
 
 const inAttribute = (text: string) => listedName(text).replace(/"/g, "'");
 
-const selected = (quote: { documentName: string; quote: string }, place: string | null) =>
-  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${quote.quote}\n</selected>`;
+/** A sheet range as the model reads it: its header row, then its rows, tab-separated as the sheet has them. */
+const tableText = (table: AskedTable): string =>
+  [...(table.header ? [table.header] : []), ...table.rows]
+    .map((cells) => cells.join("\t"))
+    .join("\n");
+
+const selected = (
+  quote: { documentName: string; quote: string; table?: AskedTable },
+  place: string | null,
+) =>
+  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${quote.table ? tableText(quote.table) : quote.quote}\n</selected>`;
+
+/** A selected block's entry: the words (or a range's cells), and the picture of an area (#118) when there is one. */
+export interface SelectedBlockQuote {
+  documentName: string;
+  quote: string;
+  place: string | null;
+  shown: string;
+  table?: AskedTable;
+  /** An area of a page's picture: attached to the message, or withheld from a model that can't read it. */
+  pictureState?: "sent" | "withheld";
+}
 
 /**
  * Words the User selected in their Documents to ask about (#101), each followed by the Passages
- * it is in as the model reads them (`shown`), to cite it from.
+ * it is in as the model reads them (`shown`), to cite it from. A sheet range (#118) comes with its
+ * header row; an area of a page (`picture`) has its picture attached to the message.
  */
-export function selectedTextBlock(
-  quotes: readonly { documentName: string; quote: string; place: string | null; shown: string }[],
-): string {
-  const each = quotes.map((quote) => `${selected(quote, quote.place)}\n\n${quote.shown}`);
+export function selectedTextBlock(quotes: readonly SelectedBlockQuote[]): string {
+  const each = quotes.map((quote) => {
+    const picture =
+      quote.pictureState === "sent"
+        ? "\nThe picture at this place is attached to this message."
+        : quote.pictureState === "withheld"
+          ? "\nThe picture at this place is not attached to this message: this model can’t read pictures."
+          : "";
+    return `${selected(quote, quote.place)}${picture}\n\n${quote.shown}`;
+  });
   return `<selected-text>\nThe User selected these words in their Documents to ask about them, in <selected>: "this", "it", "这段", "这句" and the like in the Question mean them. Answer about them, and cite them before anything else, from the Passage that follows them, at the location their <selected> gives.\n\n${each.join("\n\n")}\n</selected-text>`;
 }
 
 /** An earlier Question as its conversation's context reads it: the words it asked about, then its text. */
 export function askedAbout(question: {
   text: string;
-  quotes: readonly { documentName: string; quote: string }[];
+  quotes: readonly { documentName: string; quote: string; table?: AskedTable }[];
 }): string {
   return [...question.quotes.map((quote) => selected(quote, null)), question.text].join("\n\n");
 }

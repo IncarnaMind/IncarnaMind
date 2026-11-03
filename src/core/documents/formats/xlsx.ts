@@ -519,8 +519,12 @@ export interface XlsxResult {
   workbook: Workbook;
 }
 
-export async function extractXlsx(bytes: Uint8Array, readHidden = false): Promise<XlsxResult> {
-  const workbook = await readWorkbook(bytes, undefined, undefined, readHidden);
+export async function extractXlsx(
+  bytes: Uint8Array,
+  readHidden = false,
+  limits?: Limits,
+): Promise<XlsxResult> {
+  const workbook = await readWorkbook(bytes, limits, undefined, readHidden);
   return { units: gridUnits(workbook.sheets, true, 1, workbook.facts), workbook };
 }
 

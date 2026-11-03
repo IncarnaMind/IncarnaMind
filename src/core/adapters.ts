@@ -5,6 +5,7 @@
  * build fakes; a future hosted server would pass its own. The core never
  * imports Electron (ADR-0004, ADR-0006).
  */
+
 import type { ChildProcess } from "node:child_process";
 import type {
   AnalysisEnd,
@@ -22,6 +23,7 @@ import type {
   EngineSwitchReason,
   ExternalService,
   SandboxLevel,
+  SandboxProblem,
   SecretProtection,
   TranscriptionEngine,
   WebPageLookFailure,
@@ -33,6 +35,7 @@ import type { WatchFolder } from "./documents/watcher";
 import type { FetchLimits, PageFetch } from "./documents/web/fetch";
 import type { PictureLimits } from "./documents/web/pictures";
 import type { ModelCopies } from "./embedding/modelSources";
+import type { ModelFactsLayer } from "./providers/capabilities";
 import type { AnswerPathsOverride } from "./providers/catalog/answerPaths";
 import type { ChatGptPlanEndpoints } from "./providers/chatgpt/plan";
 import type { AnthropicOAuthConfig } from "./providers/claudeAccount/config";
@@ -42,6 +45,7 @@ import type { LocalServers } from "./providers/localServers";
 import type { ChatModelFactory } from "./providers/models";
 import type { OllamaModels } from "./providers/ollamaModels";
 import type { RerankingModelFactory } from "./providers/rerank";
+import type { CodeHost } from "./runCode";
 import type { RunEngine } from "./runs/engine";
 import type { TaskKind } from "./runs/tasks";
 import type { PaceTimers } from "./sources/pace";
@@ -308,6 +312,13 @@ export interface ExecRequest {
    */
   env: Readonly<Record<string, string>>;
   /**
+   * "minimal": of the login environment, only `MINIMAL_ENVIRONMENT` is passed on, then `env`: for
+   * code a model wrote, which could print any variable to it (`DATABASE_URL`, `SSH_AUTH_SOCK`)
+   * or be steered by one (`BASH_ENV`, `DYLD_*`, `LD_PRELOAD`). Not given: all of it, less names
+   * that look like secrets.
+   */
+  environment?: "minimal";
+  /**
    * What it may read, write and reach. Enforced from "os" up; at "none" it is
    * only declared, for approvals (see `declaredAccess` in ./execution).
    */
@@ -316,8 +327,28 @@ export interface ExecRequest {
   timeoutMs: number;
   /** How much of each output is kept: the start of its standard output, the end of its error output. */
   maxOutputBytes: number;
+  /** Bounds beyond its time and output, for code a model wrote (`ExecLimits`). */
+  limits?: ExecLimits;
   /** Stops it at once, with every process it started (e.g. the User stops the Answer). */
   signal: AbortSignal;
+}
+
+/**
+ * What a program may use besides time and output. Files and processes are
+ * the kernel's limits, set where the program starts (`ulimit`, macOS and
+ * Linux); memory and the working folder are watched while it runs, since
+ * macOS refuses a memory limit, and it is stopped with every process it
+ * started when it goes over (`ExecResult.limit`).
+ */
+export interface ExecLimits {
+  /** The largest file it may write, in bytes. */
+  fileBytes?: number;
+  /** How many more processes it may run at once than the User's account already runs. */
+  processes?: number;
+  /** Its processes' resident memory together, in bytes. */
+  memoryBytes?: number;
+  /** What its working folder may hold, in bytes. */
+  folderBytes?: number;
 }
 
 /** How a program an `Executor` ran ended, and what it wrote (see `SkillScriptRun`, which adds `error`). */
@@ -334,6 +365,8 @@ export interface ExecResult {
   stdoutTruncated: boolean;
   /** It wrote more to its error output than is kept. */
   stderrTruncated: boolean;
+  /** It went over this limit of its `ExecLimits`, so it was stopped with every process it started. */
+  limit?: "memory" | "folder";
 }
 
 /**
@@ -914,6 +947,23 @@ export interface CoreAdapters {
   executor?: Executor;
   /** What Skill scripts run with (see `ScriptRuntimes`); the defaults suit the desktop app. */
   scriptRuntimes?: ScriptRuntimes;
+  /**
+   * Runs `run_code` (ADR-0025), on an `executor` at level "os" only: the host copies the
+   * Documents, runs the code with IncarnaMind's own Python or bash, and reads back what it left.
+   * Absent: no Answer is offered `run_code`.
+   */
+  codeRuntime?: CodeHost;
+  /**
+   * Facts laid over every source's for a model, `provider` as the catalog names it: a test's, to
+   * turn on a Tool the catalog offers no model yet (`codeTool`, #2351). The app passes none.
+   */
+  modelFacts?(provider: string, modelId: string): ModelFactsLayer | undefined;
+  /**
+   * Why the OS sandbox can't start on this computer, when it can't and the User can fix it:
+   * Linux without bubblewrap, socat or ripgrep, or one that doesn't let apps start a sandbox.
+   * Settings says so, with how to fix it; absent: it starts, or there is none to start (Windows).
+   */
+  sandboxProblem?: SandboxProblem;
   /**
    * Outside agents (#351): how an agent starts the shim that reaches this app
    * (the desktop app's own binary, run as Node, with its shim script), where

@@ -1,3 +1,4 @@
+import { isMacOS } from "@tiptap/core";
 import { createContext, type ReactNode, useContext, useMemo, useRef, useState } from "react";
 import type { Document } from "../../../core/api";
 import { changedSourceLines, citationState } from "../../../shared/citations";
@@ -20,7 +21,8 @@ import { type Said, saidInLine } from "../lineNames";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useRename } from "../useRename";
 import { pageDate } from "../webPages";
-import { OpenExternallyIcon } from "./icons";
+import { AreaModeContext } from "./areaSelection";
+import { AreaIcon, OpenExternallyIcon } from "./icons";
 
 /** What every view's toolbar needs from its tab: the Document shown, and whether it is a preview. */
 export interface ViewerFrame {
@@ -143,6 +145,7 @@ export function ViewerHeader({
   const [problem, setProblem] = useState<Said | null>(null);
   const leftOut = useLeftOutOfEvidence(document);
   const objectMenu = useObjectMenu({ kind: "document", id: document?.id ?? "" });
+  const areaMode = useContext(AreaModeContext);
   const rename = useRename<HTMLButtonElement>(`viewer:${document?.id}`);
   const header = useRef<HTMLElement>(null);
   const renameDocument = useAppStore((state) => state.renameDocument);
@@ -166,7 +169,7 @@ export function ViewerHeader({
         data-testid="viewer-header"
         {...(document ? objectMenu.rowProps : {})}
         ref={header}
-        className="viewer-header"
+        className={areaMode ? "viewer-header viewer-header--area" : "viewer-header"}
       >
         {leading}
         {document && (
@@ -207,6 +210,23 @@ ${sourceOf(document)}`
           {document && <DocumentTagChips document={document} />}
         </div>
         {children}
+        {areaMode && (
+          <button
+            type="button"
+            data-testid="viewer-area-select"
+            aria-pressed={areaMode.active}
+            aria-label={areaMode.active ? t("viewer.area.selected") : t("viewer.area.select")}
+            title={
+              areaMode.active
+                ? t("viewer.area.activeTip")
+                : t("viewer.area.selectTip", { key: isMacOS() ? "⌥" : "Alt" })
+            }
+            onClick={() => areaMode.setActive(!areaMode.active)}
+            className="viewer-icon-button"
+          >
+            <AreaIcon className="size-4" />
+          </button>
+        )}
         {preview && (
           <button
             type="button"

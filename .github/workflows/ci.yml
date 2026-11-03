@@ -39,6 +39,7 @@ jobs:
       packaged: ${{ steps.diff.outputs.packaged }}
       startup: ${{ steps.diff.outputs.startup }}
       agents: ${{ steps.diff.outputs.agents }}
+      runcode: ${{ steps.diff.outputs.runcode }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -54,12 +55,15 @@ jobs:
           packaged=false
           startup=true
           agents=true
+          runcode=true
+          if [ "$EVENT" = pull_request ]; then
+            files="$(git diff --name-only "$BASE...$HEAD")" || files=""
+          fi
           if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ]; then
             heavy=false
             startup=false
             agents=false
           elif [ "$EVENT" = pull_request ]; then
-            files="$(git diff --name-only "$BASE...$HEAD")" || files=""
             echo "$files"
             if [ -n "$files" ] && ! echo "$files" | grep -qE '^(src/main/|src/core/core\.ts$|src/core/storage/|src/shared/i18n/|e2e/|tests/main/|tests/helpers/(home|lifecycleProcesses\.test)\.ts$|tests/fixtures/lifecycle-versions\.json$|scripts/check-(lifecycle-packages|startup-control-package)\.mjs$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
               startup=false
@@ -81,9 +85,14 @@ jobs:
               agents=true
             fi
           fi
+          # A draft runs it too: no other check shows run_code on Linux before the ready push.
+          if [ "$EVENT" = pull_request ] && [ -n "$files" ] && ! echo "$files" | grep -qE '^(src/core/runCode/|src/core/execution\.ts$|src/core/analysis/|src/core/documents/formats/(csv|xlsx)\.ts$|src/shared/analysis\.ts$|src/shared/incarnamind\.py$|src/main/(sandbox\.ts$|sandboxCheck\.ts$|runLeftovers\.ts$|programMeter\.ts$|processes\.ts$|runCode)|scripts/pythonNative|tests/main/(runCode|runLeftovers\.test\.ts$|sandbox\.test\.ts$)|tests/helpers/sweepGuard\.ts$|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
+            runcode=false
+          fi
           echo "packaged=$packaged" | tee -a "$GITHUB_OUTPUT"
           echo "agents=$agents" | tee -a "$GITHUB_OUTPUT"
           echo "startup=$startup" | tee -a "$GITHUB_OUTPUT"
+          echo "runcode=$runcode" | tee -a "$GITHUB_OUTPUT"
 
   startup-windows:
     name: Packaged startup, quit and updates (Windows)
@@ -192,6 +201,22 @@ jobs:
         run: npm run typecheck
       - if: matrix.shard == 1
         run: npm run lint
+      # tests/main/sandbox.test.ts runs the OS sandbox, which needs bubblewrap, socat and ripgrep on
+      # Linux, and unprivileged user namespaces, which Ubuntu 24.04 restricts through AppArmor.
+      - name: Install bubblewrap for the OS sandbox
+        uses: ./.github/actions/apt-install
+        with:
+          package: bubblewrap
+      - name: Install socat for the OS sandbox
+        uses: ./.github/actions/apt-install
+        with:
+          package: socat
+      - name: Install ripgrep for the OS sandbox
+        uses: ./.github/actions/apt-install
+        with:
+          package: ripgrep
+      - name: Let the OS sandbox start
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: npm test -- --shard=${{ matrix.shard }}/3
 
   # The check keeps its name, so whatever reads it keeps working while the shards change.
@@ -210,6 +235,53 @@ jobs:
           else
             test "${{ needs.unit.result }}" = skipped
           fi
+
+  # run_code with the Python it downloads on first use (ADR-0025), built as the release builds it,
+  # in the OS sandbox on Linux. A pull request runs it when it changes run_code, the sandbox or how
+  # the runtime is built, as a draft too; every night runs it. Not a required check.
+  runcode-linux:
+    name: run_code with its real Python (Linux)
+    needs: changes
+    if: needs.changes.outputs.runcode == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install bubblewrap for the OS sandbox
+        uses: ./.github/actions/apt-install
+        with:
+          package: bubblewrap
+      - name: Install socat for the OS sandbox
+        uses: ./.github/actions/apt-install
+        with:
+          package: socat
+      - name: Install ripgrep for the OS sandbox
+        uses: ./.github/actions/apt-install
+        with:
+          package: ripgrep
+      - name: Let the OS sandbox start
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # The uv scripts/pythonNative/pins.ts names: the build stops on any other.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.6"
+          enable-cache: false
+      - name: Restore the downloads run_code's Python is built from
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/python-native-cache
+          key: python-native-${{ runner.os }}-${{ hashFiles('scripts/pythonNative/lock.txt', 'scripts/pythonNative/pins.ts') }}
+      - name: Build run_code's Python
+        run: npm run python:native -- --out "$RUNNER_TEMP/python-native" --url http://127.0.0.1/ --cache "$RUNNER_TEMP/python-native-cache"
+      - name: Run run_code's tests on it
+        run: INCARNAMIND_TEST_PYTHON_RUNTIME="$RUNNER_TEMP/python-native" npx vitest run tests/main/runCode
 
   # The packaged app, as the User installs it, loads every engine module the way it runs them,
   # reads scans with its real OCR (#1819) and transcribes a meeting with its real speech engine and

@@ -171,7 +171,7 @@ describe("the mark's label in a margin around its width (#2459)", () => {
     for (const size of sizes) expect(size).toEqual({ full: FULL, compact: COMPACT });
   });
 
-  test("its copies stay out of the words a quote is found in and a selection reads", async () => {
+  test("the mark and its copies stay out of the words a quote is found in and a selection reads", async () => {
     // As the viewers read a page's words (`textNodes`): none under `data-quote-skip`.
     const read = (node: Node): string =>
       node.nodeType === 3
@@ -181,7 +181,8 @@ describe("the mark's label in a margin around its width (#2459)", () => {
           : [...node.childNodes].map(read).join("");
     for (const room of [90, 40]) {
       await showMark(room);
-      expect(read(container), `room ${room}`).toBe("2p. 1–2");
+      expect(markElement()?.textContent, `room ${room}`).toBe("2p. 1–2");
+      expect(read(container), `room ${room}`).toBe("");
     }
   });
 
