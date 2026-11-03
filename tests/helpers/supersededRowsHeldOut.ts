@@ -514,3 +514,95 @@ export const SUPERSEDED_HELD_OUT_THIRD: readonly HeldOutCase[] = [
     read: "The current price, 690, is cited to row 57, never to hidden row 27; the earlier price, 660, is named as hidden, not current.",
   },
 ];
+
+const invoices = [1200, 800, 450, 2100, 300, 950, 1600, 700, 520, 1380];
+/** The invoices struck through as paid: they have no newer version, and still count. */
+const paid = new Set([0, 2, 4, 6]);
+const costLines = Array.from({ length: 25 }, (_, index) => `费用项目 ${index + 1}`);
+
+/**
+ * A fourth held-out set, for an Analysis (run_analysis) over a whole sheet, written after the
+ * review that found no measured Answer was offered one, and committed before any run with it.
+ * Two long sheets keep an earlier version of every row, struck through or hidden, so a sum or a
+ * mean over the whole sheet counts both; a third does the same in Chinese with a total to give;
+ * the decoy is a tracker whose struck-through rows are paid invoices with no newer version, which
+ * a total of every invoice still counts.
+ */
+export const SUPERSEDED_HELD_OUT_ANALYSIS: readonly HeldOutCase[] = [
+  {
+    name: "Analysis: a long price list's mean, earlier prices struck through below",
+    language: "en",
+    file: "Fastener prices.xlsx",
+    workbook: () =>
+      sheetWithRows("Prices", [
+        { cells: ["Item", "Unit price", "Pack size"] },
+        ...fastenerKits.map((item, index) => ({ cells: [item, money(3 + index * 0.25), 50] })),
+        ...fastenerKits.map((item, index) => ({
+          cells: [item, money(2.8 + index * 0.25), 50],
+          struck: true,
+        })),
+      ]),
+    question: "What is the average unit price across all the fastener kits on the price list now?",
+    cites: [],
+    gives: [["7.88", "7.875"]],
+    never: ["7.78", "7.775"],
+    read: "The mean of the current prices, rows 2–41, is 7.88; the struck rows 42–81 are never counted in it, and an Analysis figure that counts them is never given as current.",
+  },
+  {
+    name: "Analysis: a long reel list's total, earlier rows hidden above",
+    language: "zh-CN",
+    file: "电缆盘价格.xlsx",
+    workbook: () =>
+      sheetWithRows("价格", [
+        { cells: ["品名", "单价（元）", "长度（米）"] },
+        ...cableReels.map((item, index) => ({
+          cells: [item, whole(420 + index * 10), 100],
+          hidden: true,
+        })),
+        ...cableReels.map((item, index) => ({ cells: [item, whole(450 + index * 10), 100] })),
+      ]),
+    question: "价格表上所有电缆盘现在的单价加起来是多少？",
+    cites: [],
+    gives: [["17,850", "17850", "1.785万"]],
+    never: ["34,800", "34800"],
+    read: "The sum of the current prices, rows 32–61, is 17,850; the hidden rows 2–31 are never counted in it, and an Analysis figure that counts them is never given as current.",
+  },
+  {
+    name: "Analysis: a budget's total, the earlier version struck through above",
+    language: "zh-CN",
+    file: "部门预算.xlsx",
+    workbook: () =>
+      sheetWithRows("预算", [
+        { cells: ["费用", "金额（元）"] },
+        ...costLines.map((item, index) => ({
+          cells: [item, whole(900 + index * 100)],
+          struck: true,
+        })),
+        ...costLines.map((item, index) => ({ cells: [item, whole(1000 + index * 100)] })),
+      ]),
+    question: "现在的预算里，各项费用合计是多少？",
+    cites: [],
+    gives: [["55,000", "55000", "5.5万"]],
+    never: ["107,500", "107500"],
+    read: "The current total, rows 27–51, is 55,000; the struck rows 2–26 are never counted in it, and an Analysis figure that counts them is never given as current.",
+  },
+  {
+    name: "Analysis decoy: a tracker's struck-through rows are paid invoices, still counted",
+    language: "en",
+    file: "Invoice tracker.xlsx",
+    workbook: () =>
+      sheetWithRows("Invoices", [
+        { cells: ["Invoice", "Client", "Amount"] },
+        ...invoices.map((amount, index) => ({
+          cells: [`INV-${101 + index}`, `Client ${index + 1}`, money(amount)],
+          struck: paid.has(index),
+        })),
+      ]),
+    question:
+      "What do all the invoices on the sheet come to? The ones struck through are paid: count them too.",
+    cites: [],
+    gives: [["10,000", "10000"]],
+    never: ["6,450", "6450"],
+    read: "The total of every invoice, paid and unpaid, is 10,000; the Answer doesn't leave the struck-through paid ones out.",
+  },
+];
