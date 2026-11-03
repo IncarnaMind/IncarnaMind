@@ -117,6 +117,8 @@ interface Case {
   expected: Verdict;
   /** For a Supported sentence a property decides: which one. */
   property?: FilePropertyName;
+  /** For a Supported sentence: the Document its evidence must be of, or it is a false Supported. */
+  file?: string;
   /** The sentence is about a date of a file that records none: the computer's line is its reason. */
   computerOnly?: true;
 }
@@ -125,6 +127,7 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
   en: [
     {
       sentence: "Lease renewal.docx was last modified on 14 September 2026.",
+      file: "Lease renewal",
       expected: "supported",
       property: "modified",
     },
@@ -134,14 +137,24 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
     },
     {
       sentence: "The file author recorded in Lease renewal.docx is Priya Natarajan.",
+      file: "Lease renewal",
       expected: "supported",
       property: "author",
     },
     // Decoy: the file was created on 1 August, but the text says nothing of a signing.
     { sentence: "The lease renewal was signed on 1 August 2026.", expected: "unsupported" },
     // Decoy: the text says it, and the file's modified date is the same day.
-    { sentence: "The renewal was agreed on 14 September 2026.", expected: "supported" },
-    { sentence: "Board pack Q3.pptx has 4 slides.", expected: "supported", property: "slides" },
+    {
+      sentence: "The renewal was agreed on 14 September 2026.",
+      file: "Lease renewal",
+      expected: "supported",
+    },
+    {
+      sentence: "Board pack Q3.pptx has 4 slides.",
+      file: "Board pack Q3",
+      expected: "supported",
+      property: "slides",
+    },
     // Decoy: the Q2 deck has 6 slides; the Q3 one has 4.
     { sentence: "The Q3 board pack runs to 6 slides.", expected: "contradicted" },
     // Decoy: the cash forecast was last modified on 20 October; the lease renewal on 14 September.
@@ -149,15 +162,27 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
       sentence: "Lease renewal.docx was last modified on 20 October 2026.",
       expected: "contradicted",
     },
-    { sentence: "Audit memo.pdf is 3 pages long.", expected: "supported", property: "pages" },
+    {
+      sentence: "Audit memo.pdf is 3 pages long.",
+      file: "Audit memo",
+      expected: "supported",
+      property: "pages",
+    },
+    // Decoy: the memo's file was created on 10 October; its text says nothing of a review.
+    {
+      sentence: "The audit memo's findings were reviewed on 10 October 2026.",
+      expected: "unsupported",
+    },
     {
       sentence: "The audit memo PDF was last modified on 12 October 2026.",
+      file: "Audit memo",
       expected: "supported",
       property: "modified",
     },
     // Decoy: the memo's text names J. Okafor; the file records Marta Kowalska.
     {
       sentence: "The audit memo's file records Marta Kowalska as its author.",
+      file: "Audit memo",
       expected: "supported",
       property: "author",
     },
@@ -165,7 +190,12 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
       sentence: "The audit memo's file records J. Okafor as its author.",
       expected: "contradicted",
     },
-    { sentence: "Cash forecast.xlsx has 3 sheets.", expected: "supported", property: "sheets" },
+    {
+      sentence: "Cash forecast.xlsx has 3 sheets.",
+      file: "Cash forecast",
+      expected: "supported",
+      property: "sheets",
+    },
     {
       sentence: "Site notes.md was last modified on 28 October 2026.",
       expected: "unsupported",
@@ -175,12 +205,14 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
   "zh-CN": [
     {
       sentence: "Cash forecast.xlsx 的文件作者是陈思远。",
+      file: "Cash forecast",
       expected: "supported",
       property: "author",
     },
     { sentence: "Cash forecast.xlsx 共有 5 个工作表。", expected: "contradicted" },
     {
       sentence: "Lease renewal.docx 文件最后修改于 2026 年 9 月 14 日。",
+      file: "Lease renewal",
       expected: "supported",
       property: "modified",
     },
@@ -188,6 +220,7 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
     { sentence: "审计备忘录的日期是 2026 年 10 月 12 日。", expected: "contradicted" },
     {
       sentence: "Board pack Q3.pptx 一共有 4 张幻灯片。",
+      file: "Board pack Q3",
       expected: "supported",
       property: "slides",
     },
@@ -233,15 +266,18 @@ describe.each(["en", "zh-CN"] as const)(
           const location = evidence?.location;
           const decided = location?.kind === "properties" ? location.property : null;
           const reason = result.verdict === "unsupported" ? result.unsupported?.reason : null;
+          const file = documents.find((document) => document.id === evidence?.documentId)?.name;
+          // Backed by another file's property or text, a Supported is a false one.
+          const otherFile = each.file !== undefined && file !== each.file;
           const holds =
             result.verdict === each.expected &&
             (each.property === undefined || decided === each.property) &&
+            (result.verdict !== "supported" || !otherFile) &&
             (!each.computerOnly || reason === computerLine);
           if (holds) right++;
-          if (result.verdict === "supported" && each.expected !== "supported") {
+          if (result.verdict === "supported" && (each.expected !== "supported" || otherFile)) {
             falseSupported.push(each.sentence);
           }
-          const file = documents.find((document) => document.id === evidence?.documentId)?.name;
           lines.push(
             `- ${holds ? "ok" : "MISS"} [${each.expected}${each.property ? ` · ${each.property}` : ""}] ${each.sentence} → ${result.verdict}${result.verdict === "not-checked" ? ` (${result.reason})` : ""}${decided ? ` · ${decided} of ${file}` : evidence ? ` · text of ${file}` : ""}${reason ? ` · “${reason}”` : ""}`,
           );
