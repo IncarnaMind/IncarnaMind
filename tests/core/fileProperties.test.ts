@@ -54,6 +54,8 @@ interface Plan {
   quote?: string;
   /** For a sentence with figures, the number of `quote` each figure is read from: its first when absent. */
   number?: string;
+  /** For a sentence with figures, how each figure compares with its number: equals when absent. */
+  relation?: "at most" | "at least";
   /** For a sentence with figures, each figure's own quote and number, in order, `quote` backing its words. */
   figures?: { quote: string; number: string }[];
   /** For a sentence with figures, its words besides them, and the quote that backs those, cited last. */
@@ -152,7 +154,7 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
             roles: "same",
             says: null,
             reading,
-            relation: "equals",
+            relation: plan.relation ?? "equals",
             source: source || null,
             calculation: null,
           };
@@ -683,6 +685,83 @@ describe.each(["en", "zh-CN"] as const)(
         figures: [{ state: "supported", evidence: { location: property("pages", "2") } }],
         remainder: { state: "unsupported", evidence: null },
       });
+    });
+  },
+);
+
+const SIZED = {
+  en: {
+    supported: [
+      "Survey log.txt is 1.2 MB.",
+      "Survey log.txt is 1.18 MiB.",
+      "Survey log.txt is 1.18 MB.",
+      "Site notes.txt is 1.2 KB.",
+    ],
+    contradicted: ["Survey log.txt is 2 MB.", "Survey log.txt is 1.17 MiB."],
+    under: "Survey log.txt is under 2 MB.",
+    noUnit: "The size of Survey log.txt is 1.2.",
+  },
+  "zh-CN": {
+    supported: ["Survey log.txt 的大小是 1.2 MB。", "Site notes.txt 的大小是 1.2 KB。"],
+    contradicted: ["Survey log.txt 的大小是 2 MB。"],
+    under: "Survey log.txt 不到 2 MB。",
+    noUnit: "Survey log.txt 的大小是 1.2。",
+  },
+} as const;
+
+describe.each(["en", "zh-CN"] as const)(
+  "a size sentence in a Note, its figure bound to the byte count (%s)",
+  (language) => {
+    // protects=a size figure in KB, MB or GB is compared with the file's byte count in its own unit, either way a unit is counted, never as two plain numbers; fails_when="1.2 MB" bound to "Size: 1,234,567 bytes" comes back Contradicted.
+    test("is decided in its own unit, either way a megabyte is counted", async () => {
+      const sentences = SIZED[language];
+      const sized = (document: string, quote: string, verdict: Plan["verdict"]): Plan => ({
+        document,
+        verdict,
+        quote,
+        property: "size",
+      });
+      const log = (verdict: Plan["verdict"]) => sized("Survey log", "Size: 1,234,567 bytes", verdict);
+      const plans: Record<string, Plan> = {
+        ...Object.fromEntries(
+          sentences.supported.map((sentence) => [
+            sentence,
+            sentence.startsWith("Site")
+              ? sized("Site notes", "Size: 1,200 bytes", "supported")
+              : log("supported"),
+          ]),
+        ),
+        ...Object.fromEntries(sentences.contradicted.map((sentence) => [sentence, log("contradicted")])),
+        [sentences.under]: { ...log("supported"), relation: "at most" },
+        [sentences.noUnit]: log("supported"),
+      };
+      const setup = await setUp(
+        [
+          // 1,234,567 bytes: 1.23 MB counting 1,000,000 bytes to a MB, 1.18 MB counting 1,048,576.
+          { name: "Survey log.txt", contents: `${"Survey log. ".repeat(102_880)}Ended.\n` },
+          { name: "Site notes.txt", contents: "Site notes. ".repeat(100) },
+        ],
+        plans,
+        language,
+      );
+      expect(setup.named("Survey log.txt").size).toBe(1_234_567);
+      for (const sentence of [...sentences.supported, sentences.under]) {
+        const { check } = await checkInNote(setup.core, sentence, null);
+        expect(check, sentence).toMatchObject({
+          state: "supported",
+          figures: [{ state: "supported", evidence: { location: { property: "size" } } }],
+        });
+      }
+      for (const sentence of sentences.contradicted) {
+        const { check } = await checkInNote(setup.core, sentence, null);
+        expect(check, sentence).toMatchObject({
+          state: "contradicted",
+          figures: [{ state: "contradicted", evidence: { location: { property: "size" } } }],
+        });
+      }
+      // No size unit after the number: no byte count settles it.
+      const { check } = await checkInNote(setup.core, sentences.noUnit, null);
+      expect(check?.figures?.map((figure) => figure.state)).toEqual(["unsupported"]);
     });
   },
 );

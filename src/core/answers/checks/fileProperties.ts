@@ -24,6 +24,7 @@ import {
   type ClaimJudgment,
   type ClaimVerdict,
   type Document,
+  type FigureCheckResult,
   type FilePropertyName,
   filePropertyNames,
 } from "../../api";
@@ -38,6 +39,7 @@ import type {
   ClaimCheckDependencies,
   ClaimCheckRequest,
 } from "./claimCheck";
+import { type FigureReplyItem, readFigureReply } from "./figureChecks";
 import { PROPERTY, readVerdict, replyAcrossTurns } from "./prompt";
 
 /**
@@ -262,6 +264,47 @@ function propertyOf(
     : null;
 }
 
+// A kilobyte, megabyte or gigabyte may be counted either way (Windows counts 1,024 bytes to a
+// KB), so a size in one agrees when either count does; "KiB" and its kin count only 1,024.
+const SIZE_UNITS: readonly (readonly [RegExp, readonly number[]])[] = [
+  [/^(?:(?:[Bb]ytes?|B)(?![A-Za-z])|字节)/u, [1]],
+  [/^(?:(?:[Kk]B|[Kk]ilobytes?)(?![A-Za-z])|千字节)/u, [1e3, 2 ** 10]],
+  [/^(?:(?:MB|mb|[Mm]egabytes?)(?![A-Za-z])|兆字节)/u, [1e6, 2 ** 20]],
+  [/^(?:GB|gb|[Gg]igabytes?)(?![A-Za-z])/u, [1e9, 2 ** 30]],
+  [/^KiB(?![A-Za-z])/u, [2 ** 10]],
+  [/^MiB(?![A-Za-z])/u, [2 ** 20]],
+  [/^GiB(?![A-Za-z])/u, [2 ** 30]],
+];
+
+/**
+ * Whether a size figure states `bytes`, in the unit its sentence writes after it: "1.2 MB" at its
+ * shown precision, "under 2 MB" as its relation says. Null when the sentence names no size unit
+ * there, which no byte count can settle.
+ */
+function sizeAgrees(
+  figure: FigureCheckResult,
+  claim: string,
+  bytes: number,
+  relation: FigureReplyItem["relation"],
+): boolean | null {
+  const { reading } = figure;
+  const sentence = figure.context ?? claim;
+  const at =
+    sentence.slice(reading.start, reading.end) === reading.chars
+      ? reading.end
+      : sentence.indexOf(reading.chars) + reading.chars.length;
+  const after = sentence.slice(at).trimStart();
+  const per = SIZE_UNITS.find(([unit]) => unit.test(after))?.[1];
+  if (!per || reading.scale !== 1 || at < reading.chars.length) return null;
+  return per.some((each) => {
+    const counted = bytes / each;
+    if (reading.rangeTo !== null) return counted >= reading.value && counted <= reading.rangeTo;
+    if (relation === "at most") return counted <= reading.value;
+    if (relation === "at least") return counted >= reading.value;
+    return Number(counted.toFixed(reading.decimals)) === reading.value;
+  });
+}
+
 /**
  * The file properties of the Documents a check Run's searches show, kept for the Run: what its
  * Citations of them quote, and how its result is held to the rules above.
@@ -478,11 +521,7 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
       judgment && judgment.verdict !== "not-checked" ? judgment.evidence : null;
     const backed = new Set(
       [
-        ...(result.figures ?? []).flatMap((figure) => [
-          evidenceOf(figure.result),
-          figure.source,
-          figure.sourceInput?.citation,
-        ]),
+        ...(result.figures ?? []).map((figure) => evidenceOf(figure.result)),
         evidenceOf(result.remainder),
       ].map(propertyOf),
     );
@@ -497,15 +536,42 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
         ? (unbacked(judged as Decided) as J)
         : judged;
     };
+    const relations = new Map(
+      (readFigureReply(reply, request.figures ?? [], request.claim)?.items ?? []).map((item) => [
+        item.id,
+        item.relation,
+      ]),
+    );
+    // The size line writes its byte count first: a figure in KB or MB is compared with it here, in
+    // the figure's own unit, never as two plain numbers.
+    const sized = (figure: FigureCheckResult, judged: ClaimJudgment): ClaimJudgment => {
+      if (judged.verdict !== "supported" && judged.verdict !== "contradicted") return judged;
+      const location = judged.evidence?.location;
+      if (location?.kind !== "properties" || location.property !== "size") return judged;
+      const relation = relations.get(figure.id) ?? "equals";
+      const agrees = sizeAgrees(figure, request.claim, Number(location.value), relation);
+      if (agrees === null) return unbacked(judged);
+      return { ...judged, verdict: agrees ? "supported" : "contradicted" };
+    };
     const figures = result.figures?.map((figure) => {
-      const judged = heldPart(figure.result, [figure.source, figure.sourceInput?.citation]);
+      const judged = sized(
+        figure,
+        heldPart(figure.result, [figure.source, figure.sourceInput?.citation]),
+      );
       // A figure's source is a number in a Document's text, which the Note may cite or change the
       // figure to; a property it was compared with is only its result's evidence.
       const fromProperty = [figure.source, figure.sourceInput?.citation].some(
         (citation) => propertyOf(citation) !== undefined,
       );
       return fromProperty
-        ? { ...figure, source: null, sourceInput: null, result: judged }
+        ? {
+            ...figure,
+            source: null,
+            sourceInput: null,
+            difference: null,
+            roundedFrom: null,
+            result: judged,
+          }
         : { ...figure, result: judged };
     });
     const remainder = result.remainder && heldPart(result.remainder, []);
