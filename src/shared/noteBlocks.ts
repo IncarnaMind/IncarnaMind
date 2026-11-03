@@ -126,12 +126,12 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
     });
     // Kept inside a wall the Note is outside, nothing was read: the check made when it was cited stands.
     if ("keptInside" in checked) return node;
-    // A deleted Document's words are gone: the Citation says so, as its badge reads it.
+    // A deleted Document: a Citation with words keeps the check it was given, as it always has; one
+    // with no words (a pasted table's, say) says it can't be checked.
     if (checked.contentHash === null) {
-      return {
-        ...node,
-        attrs: { ...attrs, check: checked.check, checkReason: checked.checkReason },
-      };
+      return quote === ""
+        ? { ...node, attrs: { ...attrs, check: checked.check, checkReason: checked.checkReason } }
+        : node;
     }
     const quoted = checked.inQuotedVersion;
     if (quoted !== undefined) {

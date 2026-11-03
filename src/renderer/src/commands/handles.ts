@@ -39,17 +39,8 @@ export const citedVersionHandles = new Map<string, CitedVersionAction>();
 export function citedVersionInUse(
   layout: Pick<WindowLayout, "groups" | "focusedGroupId"> | null,
 ): CitedVersionAction | null {
-  if (!layout) return null;
-  const shown = (group: { activeTabId: string | null } | undefined) =>
-    group?.activeTabId ? (citedVersionHandles.get(group.activeTabId) ?? null) : null;
-  const focused = shown(layout.groups.find((group) => group.id === layout.focusedGroupId));
-  if (focused) return focused;
-  for (const group of layout.groups) {
-    const active = shown(group);
-    if (active) return active;
-  }
-  // A window of one group shows a Document beside the Mind without making its tab the active one.
-  return [...citedVersionHandles.values()].at(-1) ?? null;
+  // Without a layout there is no tab in use yet.
+  return layout ? handleInUse(citedVersionHandles, layout) : null;
 }
 
 export const homeNextHandle: Handle<{ label: string; busy: boolean; run(): Promise<void> }> = {

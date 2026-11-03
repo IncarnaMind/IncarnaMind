@@ -121,6 +121,7 @@ function RowsChip({ quote, onRemove }: { quote: AskedQuote; onRemove(): void }) 
             {table.header && (
               <thead>
                 <tr>
+                  {table.rowLabels && <th />}
                   {table.header.map((cell, index) => (
                     // biome-ignore lint/suspicious/noArrayIndexKey: a range's cells never reorder
                     <th key={index}>{cell}</th>
@@ -132,6 +133,9 @@ function RowsChip({ quote, onRemove }: { quote: AskedQuote; onRemove(): void }) 
               {table.rows.map((row, rowIndex) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: a range's cells never reorder
                 <tr key={rowIndex}>
+                  {table.rowLabels && (
+                    <td className="row-name">{table.rowLabels[rowIndex] ?? ""}</td>
+                  )}
                   {row.map((cell, index) => (
                     // biome-ignore lint/suspicious/noArrayIndexKey: a range's cells never reorder
                     <td key={index}>{cell}</td>
@@ -146,9 +150,30 @@ function RowsChip({ quote, onRemove }: { quote: AskedQuote; onRemove(): void }) 
   );
 }
 
+/** Whether the model the Note will use can't read a picture, as a Note's picture chip says (#118, #1937). */
+function usePictureUnreadable(doc: Y.Doc | null, picture: AskedQuote["picture"]): boolean {
+  const model = useModelInUse(doc);
+  const groups = useAnswers((state) => state.models);
+  useEffect(() => {
+    if (picture) useAnswers.getState().loadModels();
+  }, [picture]);
+  const group = model ? groups?.find((each) => each.provider.id === model.providerId) : undefined;
+  const reads = model ? group?.about[model.modelId]?.readsImages : undefined;
+  return model !== null && groups !== null && reads !== true;
+}
+
 /** A whole slide's chip: "Board pack, October · slide 5". */
-function SlideChip({ quote, onRemove }: { quote: AskedQuote; onRemove(): void }) {
+function SlideChip({
+  quote,
+  doc,
+  onRemove,
+}: {
+  quote: AskedQuote;
+  doc: Y.Doc | null;
+  onRemove(): void;
+}) {
   const t = useT();
+  const unreadable = usePictureUnreadable(doc, quote.picture);
   const label = pickLabel(quote, t) ?? quote.documentName;
   const state: CitationState = {
     check: quote.check ?? "not-checked",
@@ -158,11 +183,16 @@ function SlideChip({ quote, onRemove }: { quote: AskedQuote; onRemove(): void })
   };
   const message = badgeMessage(state, quote, t);
   const check = quote.check ? t(message.key, message.params) : "";
+  const tip = [
+    label,
+    check,
+    quote.picture && unreadable ? t("composer.picture.unreadableModel") : "",
+  ].filter((part) => part !== "");
   return (
     <span
       data-testid="composer-slide-chip"
       data-check={quote.check}
-      title={[label, check].filter((part) => part !== "").join("\n")}
+      title={tip.join("\n")}
       className="question-skill composer-quote composer-quote--rows"
     >
       {quote.picture && (
@@ -193,16 +223,8 @@ function AreaChip({
   onRemove(): void;
 }) {
   const t = useT();
-  const model = useModelInUse(doc);
-  const groups = useAnswers((state) => state.models);
-  useEffect(() => {
-    if (quote.picture) useAnswers.getState().loadModels();
-  }, [quote.picture]);
   const { where, label } = areaLabel(quote, t);
-  const group = model ? groups?.find((each) => each.provider.id === model.providerId) : undefined;
-  const reads = model ? group?.about[model.modelId]?.readsImages : undefined;
-  // As a picture selected in the Note (#1937): only a model known to read them gets one.
-  const unreadable = model !== null && groups !== null && reads !== true;
+  const unreadable = usePictureUnreadable(doc, quote.picture);
   const tip = [
     label,
     quote.documentName,
@@ -248,7 +270,9 @@ export function AskedQuoteChips({
       return <RowsChip key={quoteKey(quote)} quote={quote} onRemove={() => onRemove(quote)} />;
     }
     if (quote.pick === "slide") {
-      return <SlideChip key={quoteKey(quote)} quote={quote} onRemove={() => onRemove(quote)} />;
+      return (
+        <SlideChip key={quoteKey(quote)} quote={quote} doc={doc} onRemove={() => onRemove(quote)} />
+      );
     }
     if (quote.pick === "area") {
       return (

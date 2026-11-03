@@ -260,6 +260,8 @@ export function AreaOverlay({
             width: rect.width,
             height: rect.height,
           });
+          // After the capture, so the line is never in the picture it tells the User about.
+          setReading(picked);
           const buffer = new ArrayBuffer(bytes.byteLength);
           new Uint8Array(buffer).set(bytes);
           const prepared = await preparePicture(new Blob([buffer], { type: "image/png" }));
@@ -320,7 +322,6 @@ export function AreaOverlay({
       setDrawn(null);
       drag.current = null;
       keyboard.current = null;
-      setReading(picked.rect);
       requestAnimationFrame(() => requestAnimationFrame(() => void take(picked)));
     },
     [take],

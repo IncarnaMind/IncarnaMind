@@ -63,34 +63,38 @@ const columnsOf = (range: SheetRange, row: number, textOf: CellText): string[] =
 };
 
 /**
- * The range's rows as the Document stores them, one part for each Unit: each
- * of the Unit's lines that is a row selected, in the Unit's own order, so the
- * check finds them where the User selected them. A later Unit's text begins
- * with the repeated header line, which `label.header` marks even when the
- * header row isn't selected: the part begins with it too, or the selected rows
- * wouldn't be one unbroken stretch of the Document's text across a block edge.
- * A row with nothing in it isn't a line at all.
+ * The range's rows as the Document stores them, one part for each Unit: the
+ * lines of the rows of its own that the User selected, in the Unit's order, so
+ * the check finds them where they were selected. A later Unit's text begins
+ * with the repeated header line, which `label.header` marks: a part that starts
+ * at the Unit's first own row starts with that line too, or the selected rows
+ * wouldn't be one stretch of the Document's text across a block edge. A Unit
+ * whose own rows aren't selected adds nothing, even when the range takes the
+ * header row that its text repeats. A row with nothing in it isn't a line.
  */
 export function rangeParts(range: SheetRange, units: readonly TextUnit[]): SelectedPart[] {
   const parts: SelectedPart[] = [];
   for (const unit of units) {
     const rows = unit.label?.rows ?? [];
     const lines = unit.text.split("\n");
-    const selected: string[] = [];
     const header = unit.label?.header === true ? rows[0] : undefined;
-    const headerSelected = header !== undefined && header >= range.fromRow && header <= range.toRow;
-    // The header line comes before this block's own rows in the Document: a part that starts
-    // with the block's first row must start with it too, or it isn't one stretch of the text.
     const from = unit.label?.from ?? 0;
-    const beginsBlock = range.fromRow <= from && range.toRow >= from;
-    if (header !== undefined && beginsBlock && !headerSelected && lines[0] !== undefined) {
-      selected.push(lines[0]);
-    }
+    const selected: string[] = [];
+    let own = 0;
     rows.forEach((row, index) => {
+      // The repeated header is context for this Unit's rows, not one of them.
+      if (header !== undefined && row === header) return;
       if (row < range.fromRow || row > range.toRow) return;
       const line = lines[index];
       if (line !== undefined) selected.push(line);
+      own += 1;
     });
+    if (own === 0) continue;
+    // The header line comes before the block's own rows in the text: a part that starts at
+    // the block's first row must start with it, or it isn't one stretch of the Document.
+    if (header !== undefined && range.fromRow <= from && lines[0] !== undefined) {
+      selected.unshift(lines[0]);
+    }
     const text = selected.join("\n");
     if (text.trim() !== "") parts.push({ unit: unit.page, text });
   }

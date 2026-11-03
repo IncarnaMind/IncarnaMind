@@ -624,10 +624,17 @@ function Grid({
       pick ? rangeBetween(pick.anchor, pick.focus, csv ? null : sheet.name, sheetHeaderRow) : null,
     [pick, csv, sheet.name, sheetHeaderRow],
   );
-  const activeTable = useMemo(
-    () => (activeRange ? rangeTable(activeRange, cellValue) : null),
-    [activeRange, cellValue],
-  );
+  const activeTable = useMemo(() => {
+    if (!activeRange) return null;
+    const table = rangeTable(activeRange, cellValue);
+    if (activeRange.fromColumn > 0) {
+      table.rowLabels = [];
+      for (let row = activeRange.fromRow; row <= activeRange.toRow; row++) {
+        table.rowLabels.push(cellValue(row, 0));
+      }
+    }
+    return table;
+  }, [activeRange, cellValue]);
   const activeParts = useMemo(
     () => (activeRange ? rangeParts(activeRange, sheetUnits) : []),
     [activeRange, sheetUnits],

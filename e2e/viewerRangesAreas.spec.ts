@@ -149,12 +149,15 @@ interface Setup {
 async function setUp({
   files,
   model = true,
+  localModel,
   language = "en",
   textOnly = false,
   mind = true,
 }: {
   files: { name: string; bytes: Uint8Array | Buffer }[];
   model?: boolean;
+  /** The local model to set up, when it isn't the fake one: an unknown one, say. */
+  localModel?: string;
   language?: "en" | "zh-CN";
   textOnly?: boolean;
   mind?: boolean;
@@ -180,7 +183,7 @@ async function setUp({
       });
     });
   } else if (model) {
-    await connectLocalChatModel(window);
+    await connectLocalChatModel(window, localModel);
   }
   await setLanguage(window, language);
   await addDocuments(window, paths);
@@ -241,6 +244,9 @@ test("a sheet range makes a table chip with its header row, and the Question kee
   await expect(preview).toContainText("Q1");
   await expect(preview).toContainText("9 months");
   await expect(preview).toContainText("1431");
+  // The rows' names, as the board's table shows them.
+  await expect(preview).toContainText("Stores");
+  await expect(preview).toContainText("Online");
 
   await window.keyboard.type("How did stores do?");
   await window.keyboard.press("Enter");
@@ -328,7 +334,25 @@ test("a slide with no words is asked about as its picture", async () => {
   await expect(chip).toBeVisible();
   await expect(chip).toHaveAttribute("data-check", "cant-check");
   await expect(chip).toHaveAttribute("title", /Picture, not checked/);
-  await expect(window.getByTestId("composer-slide-thumbnail")).toBeVisible();
+  await expect(chip).toHaveAttribute("title", /This model can’t read pictures/);
+  const thumbnail = window.getByTestId("composer-slide-thumbnail");
+  await expect(thumbnail).toBeVisible();
+  // The picture is the slide's drawing, not the frame around it: its height is the sheet's, not
+  // the article's, which also holds the slide's number and notes.
+  const sheet = await slide.locator(".viewer-deck-sheet").boundingBox();
+  const article = await slide.boundingBox();
+  const shot = await thumbnail.evaluate((image) => {
+    const picture = image as HTMLImageElement;
+    return {
+      width: picture.naturalWidth,
+      height: picture.naturalHeight,
+      density: globalThis.devicePixelRatio,
+    };
+  });
+  if (!sheet || !article) throw new Error("The slide isn't in view.");
+  const scale = shot.width / shot.density / sheet.width;
+  expect(shot.height / shot.density).toBeCloseTo(sheet.height * scale, 0);
+  expect(article.height).toBeGreaterThan(sheet.height + 8);
 
   await window.keyboard.type("What is on this slide?");
   await window.keyboard.press("Enter");
@@ -422,15 +446,15 @@ test("with a text-only model, the area chip's tooltip says the model can't read 
 });
 
 test("a model whose ability to read pictures isn't known gets the same warning", async () => {
+  // The local server lists fake-model; this model isn't in its list, so nothing is known of it.
   const { window } = await setUp({
     files: [{ name: "Picture.pdf", bytes: buildPdf([PICTURE]) }],
-    model: false,
+    localModel: "missing-model",
   });
-  // The local server lists fake-model; this model isn't in its list, so nothing is known of it.
-  await connectLocalChatModel(window, "missing-model");
   await openDocument(window, /Picture/);
   await dragArea(window, 1, { x: 0.3, y: 0.3 }, { x: 0.7, y: 0.6 });
 
+  await expect(areaChip(window)).toHaveAttribute("title", /Picture, not checked/);
   await expect(areaChip(window)).toHaveAttribute(
     "title",
     /This model can’t read pictures\. Choose a model that can, to ask about one\.$/,
@@ -701,6 +725,20 @@ test("a sheet range across a block edge is found, not refused", async () => {
   await expect(window.getByTestId("error-notice")).toHaveCount(0);
 });
 
+test("a range that starts at the sheet's header row is found", async () => {
+  const { window } = await setUp({ files: [{ name: "Wide.xlsx", bytes: WIDE }] });
+  await openDocument(window, /Wide/);
+  await dragCells(window, "A1", "B5");
+  await pointAndClick(window, window.getByTestId("viewer-selection-ask"));
+
+  await expect(tableChip(window)).toBeVisible();
+  await expect(tableChip(window)).toHaveAttribute("data-check", "found");
+  await expect(tableChip(window).getByTestId("composer-table-chip-show")).toHaveText(
+    "Wide · rows 1–5",
+  );
+  await expect(window.getByTestId("error-notice")).toHaveCount(0);
+});
+
 test("a sheet's header below its first ten rows still comes with the range", async () => {
   const { window } = await setUp({ files: [{ name: "Late.xlsx", bytes: LATE_HEADER }] });
   await openDocument(window, /Late/);
@@ -723,13 +761,38 @@ test("copying a range escapes its cells and pastes back as a Citation", async ()
   await pointAndClick(window, window.getByTestId("viewer-selection-copy"));
   await expect(window.getByTestId("copied-line")).toContainText("Copied as TSV, with its citation");
 
-  const html = (await copied())["text/html"] ?? "";
+  const stored = await copied();
+  const html = stored["text/html"] ?? "";
   expect(html).toContain("<table");
   expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
   expect(html).not.toContain("<b>x</b>");
-  // The Citation is a node of the schema, as Copy with citation pastes for words, with its footnote.
   expect(html).toContain("Cells");
-  expect(html).toMatch(/footnote|citation/i);
+
+  // Pasted into a Note, it comes back as a table with its Citation: the schema and footnotes, as
+  // Copy with citation does for words.
+  const editor = window.locator('[data-testid="mind-pane"]:visible').getByTestId("mind-editor");
+  await editor.click();
+  await window.evaluate(
+    ({ html, text }) => {
+      const pane = [...document.querySelectorAll<HTMLElement>('[data-testid="mind-pane"]')].find(
+        (each) => each.getBoundingClientRect().width > 0,
+      );
+      const target = pane?.querySelector<HTMLElement>('[data-testid="mind-editor"]');
+      if (!target) throw new Error("The Note isn't open.");
+      const data = new DataTransfer();
+      data.setData("text/html", html);
+      data.setData("text/plain", text);
+      (document.activeElement ?? target).dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+      );
+    },
+    { html, text: stored["text/plain"] ?? "" },
+  );
+
+  const note = window.locator('[data-testid="mind-pane"]:visible');
+  await expect(note.locator(".mind-editor table").first()).toContainText("<b>x</b>");
+  await expect(note.getByTestId("citation-chip").first()).toHaveAttribute("data-check", "found");
+  await expect(note.getByTestId("citation-chip").first()).toHaveAttribute("aria-label", /rows 1–2/);
 });
 
 test("the keyboard picks the page in view as an area", async () => {
@@ -756,8 +819,6 @@ test("the arrows make part of a page, and Enter takes it", async () => {
   await expect(window.getByTestId("viewer-area-drawing")).toBeVisible();
   await window.keyboard.press("Shift+ArrowDown");
   await window.keyboard.press("Enter");
-  // The pick says it is being read before its chip comes (#118).
-  await expect(window.getByTestId("viewer-area-reading")).toBeVisible();
   await expect(areaChip(window)).toBeVisible();
 
   await pointAndClick(window, window.getByTestId("composer-area-chip-show"));

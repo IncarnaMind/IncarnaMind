@@ -97,13 +97,51 @@ describe("A range of cells in a sheet (#118)", () => {
     expect(rangeParts(range({ fromRow: 51, toRow: 52 }), [later])).toEqual([
       { unit: 2, text: "\tQ1\tQ2\nrow 51\nrow 52" },
     ]);
-    expect(rangeParts(range({ fromRow: 4, toRow: 4 }), [later])).toEqual([
-      { unit: 2, text: "\tQ1\tQ2" },
-    ]);
+    // Only the header row is selected, and that row belongs to the first block: this one adds nothing.
+    expect(rangeParts(range({ fromRow: 4, toRow: 4 }), [later])).toEqual([]);
     // A part inside the block doesn't take the far-away header line.
     expect(rangeParts(range({ fromRow: 52, toRow: 53 }), [later])).toEqual([
       { unit: 2, text: "row 52\nrow 53" },
     ]);
+  });
+
+  test("a range that takes the header row selects only the blocks whose own rows it takes", () => {
+    const block = (page: number, from: number, to: number, header: boolean): TextUnit => ({
+      page,
+      kind: "rows",
+      label: {
+        sheet: "Revenue",
+        from,
+        to,
+        rows: header
+          ? [1, ...Array.from({ length: to - from + 1 }, (_, at) => from + at)]
+          : Array.from({ length: to - from + 1 }, (_, at) => from + at),
+        ...(header && { header: true }),
+      },
+      text: [
+        ...(header ? ["\tQ1\tQ2"] : []),
+        ...Array.from({ length: to - from + 1 }, (_, at) => `row ${from + at}`),
+      ].join("\n"),
+      anchors: null,
+    });
+    const three = [block(1, 1, 100, false), block(2, 101, 194, true), block(3, 195, 221, true)];
+    expect(rangeParts(range({ fromRow: 1, toRow: 1 }), three)).toEqual([
+      { unit: 1, text: "row 1" },
+    ]);
+    expect(rangeParts(range({ fromRow: 1, toRow: 5 }), three)).toEqual([
+      { unit: 1, text: "row 1\nrow 2\nrow 3\nrow 4\nrow 5" },
+    ]);
+    expect(rangeParts(range({ fromRow: 1, toRow: 100 }), three)).toEqual([
+      {
+        unit: 1,
+        text: Array.from({ length: 100 }, (_, at) => `row ${at + 1}`).join("\n"),
+      },
+    ]);
+    const overTwo = rangeParts(range({ fromRow: 1, toRow: 150 }), three);
+    expect(overTwo.map((part) => part.unit)).toEqual([1, 2]);
+    expect(overTwo[1]?.text).toBe(
+      "\tQ1\tQ2\n" + Array.from({ length: 50 }, (_, at) => `row ${101 + at}`).join("\n"),
+    );
   });
 
   test("crosses blocks of 100 rows, each part taking its own lines and no row twice", () => {

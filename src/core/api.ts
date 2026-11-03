@@ -2248,6 +2248,8 @@ export const MOST_ASKED_QUOTES = 10;
 export interface AskedTable {
   header: string[] | null;
   rows: string[][];
+  /** The rows' names from the sheet's first column, for the chip's preview; not the cells it adds or copies. */
+  rowLabels?: string[];
 }
 
 /** A picture the User picked on a page (`AskedQuote.picture`), kept as a `data:` URL, and its size in pixels. */

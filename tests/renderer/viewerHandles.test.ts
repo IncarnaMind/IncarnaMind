@@ -15,8 +15,8 @@ describe("the viewer actions a command acts on", () => {
       handleInUse(
         actions,
         layout("one", [
-          { id: "one", activeTabId: "first" },
           { id: "two", activeTabId: "second" },
+          { id: "one", activeTabId: "first" },
         ]),
       ),
     ).toBe("the first viewer");

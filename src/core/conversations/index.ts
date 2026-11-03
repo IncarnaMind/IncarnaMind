@@ -472,9 +472,17 @@ function parseAskedTable(value: unknown): AskedTable | null | undefined {
   ) {
     return null;
   }
+  const rowLabels = value.rowLabels;
+  if (
+    rowLabels !== undefined &&
+    (!Array.isArray(rowLabels) || !rowLabels.every((cell) => typeof cell === "string"))
+  ) {
+    return null;
+  }
   return {
     header: header as string[] | null,
     rows: value.rows as string[][],
+    ...(rowLabels && { rowLabels: rowLabels as string[] }),
   };
 }
 

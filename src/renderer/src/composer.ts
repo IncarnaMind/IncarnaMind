@@ -7,6 +7,7 @@ import {
   type SearchScope,
   type TurnPlace,
 } from "../../core/api";
+import { quoteKey } from "../../shared/askedQuote";
 import { folderScope } from "../../shared/searchScope";
 
 /** What the composer holds for one Mind until it is asked: the text, the Search scope and a Skill. */
@@ -45,8 +46,6 @@ export interface Paste {
 }
 
 /** These words from that place: a draft and a Question hold each once. */
-import { quoteKey } from "../../shared/askedQuote";
-
 export { quoteKey };
 
 export const holdsQuote = (quotes: readonly AskedQuote[], quote: AskedQuote): boolean =>

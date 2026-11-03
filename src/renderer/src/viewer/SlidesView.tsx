@@ -194,17 +194,23 @@ function Slides({
         if (text.trim() === "") {
           const element = slideElements.current.get(number);
           if (!element) throw new Error(translateNow("viewer.area.outOfView"));
-          const box = element.getBoundingClientRect();
-          const visible = visiblePartOf(element);
+          const sheet = element.querySelector<HTMLElement>(".viewer-deck-sheet");
+          if (!sheet) throw new Error(translateNow("viewer.area.outOfView"));
+          const visible = visiblePartOf(sheet);
           if (visible.width < 8 || visible.height < 8) {
             throw new Error(translateNow("viewer.area.outOfView"));
           }
+          const box = element.getBoundingClientRect();
           area = {
             x: (visible.left - box.left) / Math.max(1, box.width),
             y: (visible.top - box.top) / Math.max(1, box.height),
             width: visible.width / Math.max(1, box.width),
             height: visible.height / Math.max(1, box.height),
           };
+          // The slide's drawing, not its frame: the number, its shadow and the hover button stay out.
+          const ask = element.querySelector<HTMLElement>('[data-testid="viewer-slide-ask"]');
+          const was = ask?.style.visibility ?? "";
+          if (ask) ask.style.visibility = "hidden";
           try {
             const bytes = await files.captureArea({
               x: visible.left,
@@ -223,6 +229,8 @@ function Slides({
             };
           } catch (error) {
             throw new Error(translateNow("viewer.area.failed"), { cause: error });
+          } finally {
+            if (ask) ask.style.visibility = was;
           }
         }
         const cited = await core.citeSelection({

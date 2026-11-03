@@ -119,6 +119,25 @@ describe("a range cited from real sheet Units, across a block edge (#118)", () =
     expect(cited.location).toEqual({ kind: "rows", sheet: "Data", from: 150, to: 151 });
   });
 
+  test("a range that takes the header row is found", async () => {
+    for (const [from, to] of [
+      [1, 1],
+      [1, 5],
+      [1, 100],
+      [1, 150],
+    ] as const) {
+      const cited = (await citeRows(2, from, to)) as { check: string; location: unknown };
+      expect(cited.check, `rows ${from}–${to}`).toBe("found");
+      expect(cited.location).toEqual({ kind: "rows", sheet: "Data", from, to });
+    }
+  });
+
+  test("rows 2–221 over three blocks are refused for covering more than two", async () => {
+    const cited = (await citeRows(2, 2, 221)) as { check: string; checkReason: string };
+    expect(cited.check).toBe("not-found");
+    expect(cited.checkReason).toBe("too-many-pages");
+  });
+
   test("150 rows over two blocks are found", async () => {
     const cited = (await citeRows(2, 2, 151)) as { check: string; location: unknown };
     expect(cited.check).toBe("found");
@@ -129,5 +148,11 @@ describe("a range cited from real sheet Units, across a block edge (#118)", () =
     const cited = (await citeRows(9, 2, 20)) as { check: string; location: unknown };
     expect(cited.check).toBe("found");
     expect(cited.location).toEqual({ kind: "rows", sheet: "Data", from: 2, to: 20 });
+  });
+
+  test("rows 19–21 of a wide sheet, another block edge, are found", async () => {
+    const cited = (await citeRows(9, 19, 21)) as { check: string; location: unknown };
+    expect(cited.check).toBe("found");
+    expect(cited.location).toEqual({ kind: "rows", sheet: "Data", from: 19, to: 21 });
   });
 });

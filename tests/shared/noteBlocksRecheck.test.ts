@@ -43,6 +43,29 @@ describe("a Citation checked again where it lands", () => {
     });
   });
 
+  test("a Citation with words keeps its check when its Document is gone", async () => {
+    const recheck = vi.fn(async () => removed);
+    const [landed] = await recheckCitations(
+      [
+        block({
+          documentId: "doc",
+          quote: "Margins recover within two quarters.",
+          pageFrom: 1,
+          pageTo: 1,
+          location: { kind: "page", from: 1, to: 1 },
+          check: "found",
+          checkReason: null,
+        }),
+      ],
+      recheck,
+    );
+    expect(recheck).toHaveBeenCalledTimes(1);
+    expect(citationOf([landed as NodeJSON])).toMatchObject({
+      check: "found",
+      checkReason: null,
+    });
+  });
+
   test("a Citation with no words and no area is checked, and a deleted Document says so", async () => {
     const recheck = vi.fn(async () => removed);
     const [landed] = await recheckCitations(

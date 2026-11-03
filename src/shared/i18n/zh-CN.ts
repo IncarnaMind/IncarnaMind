@@ -1722,7 +1722,7 @@ export const zhCN = {
   "viewer.selection.size.columns": "{count} 列",
   "viewer.area.failed": "无法截取这个区域，请重试。",
   "viewer.area.reading": "正在读取这个区域…",
-  "viewer.area.outOfView": "页面的这一部分不在视野中，请滚动到那里后重试。",
+  "viewer.area.outOfView": "看不到页面的这一部分，请滚动到那里后再试。",
   "viewer.area.select": "选择区域",
   "viewer.area.selected": "取消选择区域",
   "viewer.area.activeTip": "取消选择区域（Enter 选择这一页；方向键选取其中一部分）",
