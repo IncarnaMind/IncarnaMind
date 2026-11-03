@@ -9561,6 +9561,14 @@ export interface FolderDeletion {
   conversationIds: string[];
 }
 
+/** A link automatic tagging changed, before and after, so a command can take it back (#2252). */
+export interface TagLinkChange {
+  documentId: string;
+  tagId: string;
+  before: Pick<DocumentTag, "source" | "confidence" | "needsReview"> | null;
+  after: Pick<DocumentTag, "source" | "confidence" | "needsReview"> | null;
+}
+
 /** How a Document carried a Tag before a change, for `revertDocumentTags`. */
 export interface TagLinkState {
   documentId: string;

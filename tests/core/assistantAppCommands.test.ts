@@ -716,6 +716,112 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(after?.tags.length).toBe(1);
   });
 
+  // protects=Undo of a second Organize leaves the Tag a merge during the run put on a Document it had already read (#2252); fails_when=the merge target is removed with the run's Tags; no_claim=which Folder the classifier picks.
+  test("Undo leaves a Tag merged onto a read Document during the run", async () => {
+    let phase: "add" | "keep" = "add";
+    let classified = 0;
+    let released: () => void = () => undefined;
+    const acted = new Promise<void>((resolve) => {
+      released = resolve;
+    });
+    let coreRef: Core | null = null;
+    let moving: string[] = [];
+    let priorId = "";
+    let leaseTagId = "";
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        if (ran.length > 0) return { text: "Done." };
+        return {
+          calls: [
+            {
+              tool: "run_command",
+              input: {
+                command: "documents.organize",
+                ...(phase === "keep" && { ids: moving }),
+                folder: "Leases",
+                about: "Lease papers",
+              },
+            },
+          ],
+        };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          if (phase === "add")
+            return {
+              text: JSON.stringify({
+                groupId: leases?.id ?? null,
+                tags: [],
+                newTags: [{ name: "Prior", description: "Earlier work" }],
+              }),
+            };
+          classified++;
+          const text = JSON.stringify({
+            groupId: leases?.id ?? null,
+            tags: priorId ? [priorId] : [],
+            newTags: [{ name: "Extra", description: "Extra reading" }],
+          });
+          if (classified === 2 && coreRef && priorId && leaseTagId) {
+            void coreRef.mergeTags(priorId, leaseTagId).then(
+              () => released(),
+              () => released(),
+            );
+            return { text, until: acted };
+          }
+          return { text };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    coreRef = core;
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const prior = (await core.listTags()).find((each) => each.name === "Prior");
+    if (!prior) throw new Error("No Prior Tag.");
+    priorId = prior.id;
+    const leaseTag = await core.createTag({ name: "Lease", description: "Lease papers" });
+    leaseTagId = leaseTag.id;
+    const read = (await core.listDocuments()).slice(0, 2);
+    moving = read.map((each) => each.id);
+    const first = read[0];
+    if (!first) throw new Error("No Document.");
+
+    phase = "keep";
+    const second = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    expect(
+      (await core.listDocuments())
+        .find((each) => each.id === first.id)
+        ?.tags.some((each) => each.tagId === leaseTag.id),
+    ).toBe(true);
+
+    await core.undoCommands(runOf(second));
+    expect(
+      (await core.listDocuments())
+        .find((each) => each.id === first.id)
+        ?.tags.some((each) => each.tagId === leaseTag.id),
+    ).toBe(true);
+  });
+
   // protects=Undo still takes Organize's Tags back when the User deletes an unrelated Tag meanwhile (#2252); fails_when=no Tag link is reverted because some other Tag went; no_claim=which Folder the classifier picks.
   test("Deleting an unrelated Tag during the run does not keep Organize's Tags", async () => {
     let classified = 0;
@@ -765,6 +871,8 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     coreRef = core;
     const unrelated = await core.createTag({ name: "Unrelated" });
     unrelatedId = unrelated.id;
+    const holder = (await core.listDocuments())[0];
+    if (holder) await core.addTagToDocuments([holder.id], unrelated.id);
     const provider = (await core.listChatProviders())[0];
     if (!provider) throw new Error("No provider.");
     const settings = (await core.getLibrary()).settings;
@@ -847,6 +955,8 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     const second = await core.createTag({ name: "Second" });
     firstTagId = first.id;
     secondTagId = second.id;
+    const holder = (await core.listDocuments())[0];
+    if (holder) await core.addTagToDocuments([holder.id], first.id);
     const provider = (await core.listChatProviders())[0];
     if (!provider) throw new Error("No provider.");
     const settings = (await core.getLibrary()).settings;
@@ -984,6 +1094,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
           const text = JSON.stringify({
             groupId: leases?.id ?? null,
             tags: rentalsId ? [rentalsId] : [],
+            newTags: [{ name: "Extra", description: "Extra reading" }],
           });
           if (classified === 2 && coreRef && firstId && rentalsId) {
             void coreRef.removeTagFromDocuments([firstId], rentalsId).then(
@@ -1018,6 +1129,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     const rentals = (await core.listTags()).find((each) => each.name === "Rentals");
     if (!rentals) throw new Error("No Rentals Tag.");
     rentalsId = rentals.id;
+    const extra = await core.createTag({ name: "Extra", description: "Extra reading" });
 
     phase = "keep";
     const second = await askAssistant(core, {
@@ -1031,6 +1143,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     await core.undoCommands(runOf(second));
     const after = (await core.listDocuments()).find((each) => each.id === firstId);
     expect(after?.tags.some((each) => each.tagId === rentals.id)).toBe(false);
+    expect(after?.tags.some((each) => each.tagId === extra.id)).toBe(false);
   });
 
   // protects=Organize the User doesn't allow changes nothing; fails_when=a Document is filed or a Folder made; no_claim=the card's words.

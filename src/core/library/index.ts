@@ -15,6 +15,7 @@ import type {
   FolderDeletion,
   MovedDocument,
   ProviderError,
+  TagLinkChange,
 } from "../api";
 import type { BackgroundQueue } from "../backgroundQueue";
 import {
@@ -930,6 +931,8 @@ export function createLibrary(options: {
       runsLocally(): void;
       /** What stopped it, once the Document's state says why. */
       failed?(error: unknown): void;
+      /** The links automatic tagging changed, before and after (#2252). */
+      applied?(id: string, links: readonly TagLinkChange[]): void;
     },
   ): Promise<void> {
     const initial = assignment(id);
@@ -1010,7 +1013,7 @@ export function createLibrary(options: {
         throw new Error("The classifier returned an unknown group.");
       if (result.fallback) console.info(fallbackLine(id));
       const chosen = initial.source === "user";
-      const { made } = db.transaction(() => {
+      const { made, links } = db.transaction(() => {
         write(
           latest,
           chosen ? initial.group_id : groupId,
@@ -1027,6 +1030,7 @@ export function createLibrary(options: {
         return applied;
       });
       if (made > 0) options.tagsMade?.();
+      if (links.length > 0) call.applied?.(id, links);
       options.tagged([id]);
       announce([id]);
     } catch (error) {
@@ -1735,7 +1739,7 @@ export function createLibrary(options: {
     async organizeAtOnce(
       input: unknown,
       signal: AbortSignal,
-    ): Promise<{ failed: unknown | null; untouched: number }> {
+    ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }> {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
       if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
@@ -1752,6 +1756,7 @@ export function createLibrary(options: {
       queueClassification(ids);
       let failure: unknown | null = null;
       const reached = new Set<string>();
+      const tagChanges: TagLinkChange[] = [];
       for (const id of ids) {
         if (signal.aborted) break;
         let stopped: unknown = null;
@@ -1761,6 +1766,7 @@ export function createLibrary(options: {
           failed: (error) => {
             stopped = error;
           },
+          applied: (_id, links) => tagChanges.push(...links),
         });
         // Stopped during this one: it goes back as it was, like the ones after it.
         if (signal.aborted && !lifetime.signal.aborted) break;
@@ -1784,7 +1790,7 @@ export function createLibrary(options: {
           enqueue(id);
         }
       }
-      return { failed: failure, untouched: untouched.length };
+      return { failed: failure, untouched: untouched.length, tagChanges };
     },
     assign(id: unknown, groupId: unknown): AssignmentChange {
       const doc = document(id);

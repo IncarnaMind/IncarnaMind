@@ -12,6 +12,7 @@ import type {
   DocumentGroupAssignment,
   DocumentTag,
   LibraryGroup,
+  TagLinkChange,
   TagLinkState,
 } from "../../api";
 import { classifyProviderError } from "../../providers/providerErrors";
@@ -49,33 +50,6 @@ const sameLink = (a: TagLink | null, b: TagLink | null) =>
   a === null || b === null
     ? a === b
     : a.source === b.source && a.confidence === b.confidence && a.needsReview === b.needsReview;
-
-/** The Tag links to put back from `target` where the step left `left` and no later work moved them. */
-const tagStates = (
-  target: Map<string, Map<string, TagLink>>,
-  left: Map<string, Map<string, TagLink>>,
-  current: Map<string, Map<string, TagLink>>,
-  decidedBefore: Map<string, Set<string>>,
-  decidedAfter: Map<string, Set<string>>,
-): TagLinkState[] => {
-  const states: TagLinkState[] = [];
-  for (const [documentId, leftLinks] of left) {
-    const currentLinks = current.get(documentId) ?? new Map<string, TagLink>();
-    const targetLinks = target.get(documentId) ?? new Map<string, TagLink>();
-    for (const tagId of new Set([...leftLinks.keys(), ...targetLinks.keys()])) {
-      const leftLink = leftLinks.get(tagId) ?? null;
-      const targetLink = targetLinks.get(tagId) ?? null;
-      // A Tag the User put on or took off is not Organize's to change, before or after.
-      if (leftLink?.source === "user" || targetLink?.source === "user") continue;
-      if (decidedBefore.get(documentId)?.has(tagId) || decidedAfter.get(documentId)?.has(tagId))
-        continue;
-      if (!sameLink(currentLinks.get(tagId) ?? null, leftLink)) continue;
-      if (sameLink(targetLink, leftLink)) continue;
-      states.push({ documentId, tagId, link: targetLink });
-    }
-  }
-  return states;
-};
 
 /** What the Library's Organize hasn't finished with: Undo puts such a Document back with none. */
 const unfinished = (item: DocumentGroupAssignment) =>
@@ -145,13 +119,6 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             said: "No Document is in no Folder, so Organize had nothing to sort.",
           };
         }
-        // Both snapshots are taken after Allow and only for the Documents given: a Tag added while
-        // the card waited stays, and no Document Organize never touched is on them.
-        const beforeTags = tagLinksOf(
-          (await core.listDocuments()).filter((each) => ids.includes(each.id)),
-        );
-        const beforeTagIds = new Set((await core.listTags()).map((each) => each.id));
-        const beforeDecided = decisionsOf(await core.listDocumentTagDecisions(ids));
         const before = await assignmentsOf(core, ids);
         const made: LibraryGroup[] = [];
         let named: LibraryGroup | null = null;
@@ -164,8 +131,9 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
         }
         let failed: unknown | null = null;
         let untouched = 0;
+        let tagChanges: TagLinkChange[] = [];
         try {
-          ({ failed, untouched } = await host.organizeAtOnce(ids, signal));
+          ({ failed, untouched, tagChanges } = await host.organizeAtOnce(ids, signal));
         } catch (error) {
           for (const folder of made) {
             if (!(await holdsAny(core, folder.id))) await unmake(core, "folder", folder.id);
@@ -195,11 +163,6 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
         for (const id of ids) left.set(id, stateOf(after.get(id)));
         for (const change of moved) left.set(change.documentId, change.after);
         const { groups } = await core.getLibrary();
-        const afterTags = tagLinksOf(
-          (await core.listDocuments()).filter((each) => ids.includes(each.id)),
-        );
-        const afterDecided = decisionsOf(await core.listDocumentTagDecisions(ids));
-        const tagUndo = tagStates(beforeTags, afterTags, afterTags, new Map(), new Map());
         const names = new Map(groups.map((group) => [group.id, group.name]));
         const counts = new Map<string, number>();
         for (const change of moved) {
@@ -235,20 +198,6 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             removed.add(folder.id);
           }
         };
-        /** Drops what a Tag gone since the snapshot can't put back, and leaves alone a Document that carried one. */
-        const revertable = async (states: TagLinkState[]) => {
-          const liveTags = new Set((await core.listTags()).map((each) => each.id));
-          const gone = new Set([...beforeTagIds].filter((tagId) => !liveTags.has(tagId)));
-          if (gone.size === 0) return states.filter((state) => liveTags.has(state.tagId));
-          const touchedByGone = (documentId: string) =>
-            [
-              ...(beforeTags.get(documentId)?.keys() ?? []),
-              ...(afterTags.get(documentId)?.keys() ?? []),
-            ].some((tagId) => gone.has(tagId));
-          return states.filter(
-            (state) => liveTags.has(state.tagId) && !touchedByGone(state.documentId),
-          );
-        };
         const madeSaid =
           made.length === 0
             ? ""
@@ -281,7 +230,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             considered: ids.length,
           },
           step:
-            moved.length === 0 && tagUndo.length === 0
+            moved.length === 0 && tagChanges.length === 0
               ? null
               : {
                   undo: async () => {
@@ -297,15 +246,23 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                       );
                     }
                     await removeMade();
-                    const back = await revertable(
-                      tagStates(
-                        beforeTags,
-                        afterTags,
-                        tagLinksOf(currentDocuments.filter((each) => ids.includes(each.id))),
-                        beforeDecided,
-                        afterDecided,
-                      ),
+                    const liveTags = new Set((await core.listTags()).map((each) => each.id));
+                    const decided = decisionsOf(await core.listDocumentTagDecisions(ids));
+                    const linksNow = tagLinksOf(
+                      currentDocuments.filter((each) => ids.includes(each.id)),
                     );
+                    const back: TagLinkState[] = [];
+                    for (const change of tagChanges) {
+                      if (!live.has(change.documentId) || !liveTags.has(change.tagId)) continue;
+                      if (decided.get(change.documentId)?.has(change.tagId)) continue;
+                      const nowLink = linksNow.get(change.documentId)?.get(change.tagId) ?? null;
+                      if (!sameLink(nowLink, change.after)) continue;
+                      back.push({
+                        documentId: change.documentId,
+                        tagId: change.tagId,
+                        link: change.before,
+                      });
+                    }
                     if (back.length > 0) await core.revertDocumentTags(back);
                     return null;
                   },
@@ -329,15 +286,23 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                     }
                     const now = await assignmentsOf(core, ids);
                     for (const id of ids) left.set(id, stateOf(now.get(id)));
-                    const again = await revertable(
-                      tagStates(
-                        afterTags,
-                        beforeTags,
-                        tagLinksOf(currentDocuments.filter((each) => ids.includes(each.id))),
-                        beforeDecided,
-                        afterDecided,
-                      ),
+                    const liveTags = new Set((await core.listTags()).map((each) => each.id));
+                    const decided = decisionsOf(await core.listDocumentTagDecisions(ids));
+                    const linksNow = tagLinksOf(
+                      currentDocuments.filter((each) => ids.includes(each.id)),
                     );
+                    const again: TagLinkState[] = [];
+                    for (const change of tagChanges) {
+                      if (!live.has(change.documentId) || !liveTags.has(change.tagId)) continue;
+                      if (decided.get(change.documentId)?.has(change.tagId)) continue;
+                      const nowLink = linksNow.get(change.documentId)?.get(change.tagId) ?? null;
+                      if (!sameLink(nowLink, change.before)) continue;
+                      again.push({
+                        documentId: change.documentId,
+                        tagId: change.tagId,
+                        link: change.after,
+                      });
+                    }
                     if (again.length > 0) await core.revertDocumentTags(again);
                   },
                 },

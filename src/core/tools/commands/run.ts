@@ -24,6 +24,7 @@ import type {
   MarkAiTextChoice,
   Mind,
   SavedFile,
+  TagLinkChange,
   UserAnswer,
   UserQuestion,
   WindowCommandEnd,
@@ -107,7 +108,7 @@ export interface CommandsHost {
   organizeAtOnce(
     ids: readonly string[],
     signal: AbortSignal,
-  ): Promise<{ failed: unknown | null; untouched: number }>;
+  ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }>;
   /**
    * Refuses a command that would cross the Folder wall the Answer was asked behind (#1934): each
    * id it names, as one of the kinds it `touches`, must be on the turn's side of the wall.

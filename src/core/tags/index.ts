@@ -15,6 +15,7 @@ import type {
   DocumentTag,
   Tag,
   TagAsShown,
+  TagLinkChange,
   TagLinkState,
   TagSource,
   TagSourceRevert,
@@ -665,9 +666,15 @@ export function createTags(db: Database, now: () => string) {
       documentId: string,
       decisions: readonly TagDecision[],
       newTags: readonly NewTag[] = [],
-    ): { changed: boolean; made: number } {
+    ): { changed: boolean; made: number; links: TagLinkChange[] } {
       return db.transaction(() => {
         const at = now();
+        const changes: TagLinkChange[] = [];
+        const linkState = (link: LinkRow) => ({
+          source: "automatic" as const,
+          confidence: link.confidence,
+          needsReview: link.needs_review !== 0,
+        });
         const named = tagsNamed(newTags, at);
         const owned = new Set(
           db
@@ -696,6 +703,12 @@ export function createTags(db: Database, now: () => string) {
           const decision = wanted.get(link.tag_id);
           wanted.delete(link.tag_id);
           if (!decision) {
+            changes.push({
+              documentId,
+              tagId: link.tag_id,
+              before: linkState(link),
+              after: null,
+            });
             db.run("UPDATE document_tags SET deleted_at = ?, updated_at = ? WHERE id = ?", [
               at,
               at,
@@ -707,6 +720,16 @@ export function createTags(db: Database, now: () => string) {
             (link.needs_review !== 0) !== decision.needsReview
           ) {
             // Still applies, decided afresh: e.g. Jev's probability moved on a re-tag.
+            changes.push({
+              documentId,
+              tagId: link.tag_id,
+              before: linkState(link),
+              after: {
+                source: "automatic",
+                confidence: decision.confidence,
+                needsReview: decision.needsReview,
+              },
+            });
             db.run(
               `UPDATE document_tags SET confidence = ?, needs_review = ?, updated_at = ?
                WHERE id = ?`,
@@ -716,10 +739,20 @@ export function createTags(db: Database, now: () => string) {
           }
         }
         for (const [tagId, decision] of wanted) {
+          changes.push({
+            documentId,
+            tagId,
+            before: null,
+            after: {
+              source: "automatic",
+              confidence: decision.confidence,
+              needsReview: decision.needsReview,
+            },
+          });
           insertLink(documentId, tagId, "automatic", at, null, decision);
           changed = true;
         }
-        return { changed, made: named.made };
+        return { changed, made: named.made, links: changes };
       });
     },
   };
