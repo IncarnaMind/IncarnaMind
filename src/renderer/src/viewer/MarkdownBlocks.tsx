@@ -182,7 +182,7 @@ function Code({
         // biome-ignore lint/suspicious/noArrayIndexKey: the pieces never reorder
         return (
           <Slice
-            key={index}
+            key={from}
             source={source}
             start={from}
             end={at}

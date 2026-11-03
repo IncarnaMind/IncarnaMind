@@ -290,11 +290,13 @@ export async function exportAnnotations(document: Document): Promise<void> {
       return;
     }
     if (saved.status === "not-allowed") {
-      useNotices.getState().showError(
-        new Error(
-          translateNow("annotations.export.notAllowed", { folder: saved.linkedFolderPath }),
-        ),
-      );
+      useNotices
+        .getState()
+        .showError(
+          new Error(
+            translateNow("annotations.export.notAllowed", { folder: saved.linkedFolderPath }),
+          ),
+        );
     }
   } catch (error) {
     useAppStore.getState().reportError(error);

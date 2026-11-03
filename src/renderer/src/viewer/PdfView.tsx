@@ -376,8 +376,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
       cancelled = true;
     };
   }, [pdf, pageCount, scanned, storedHighlights]);
-  const pageRuns = (page: number): readonly AnnotationRun[] =>
-    annotationRuns.get(page) ?? NO_RUNS;
+  const pageRuns = (page: number): readonly AnnotationRun[] => annotationRuns.get(page) ?? NO_RUNS;
 
   const scroller = useRef<HTMLDivElement>(null);
   useSelectionReader(

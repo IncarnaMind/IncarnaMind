@@ -47,7 +47,8 @@ const COLOUR_COMMANDS: readonly Command[] = ANNOTATION_COLOURS.map((colour) => (
 /** Collects every highlight of one colour in the Library into a new Mind. */
 const COLLECT_COLOUR: readonly Command[] = ANNOTATION_COLOURS.map((colour) => ({
   id: `annotations.collectColour.${colour}`,
-  label: (_ctx, t) => t("annotations.collect.colour", { colour: t(ANNOTATION_COLOUR_LABELS[colour]) }),
+  label: (_ctx, t) =>
+    t("annotations.collect.colour", { colour: t(ANNOTATION_COLOUR_LABELS[colour]) }),
   group: "main",
   reversible: true,
   run: () => void collectAnnotations({ colour }, null),
