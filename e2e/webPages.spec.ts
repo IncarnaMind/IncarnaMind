@@ -186,7 +186,24 @@ test("a link pasted or dropped on a Folder in the sidebar is saved there; one th
   await dragLink(row, `${site}/tea-dropped`, false);
   await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
   await expect(folder).toHaveAttribute("data-drop-target", "true");
+  await expect(window.getByTestId("drop-label")).toHaveText("Add the web page to Reading");
   await screenshot(window, "web-page-drag");
+
+  // A drag the browser cancels (Esc) sends a dragleave with no target: the Folder goes dark again.
+  await window.evaluate(() => {
+    const transfer = new DataTransfer();
+    transfer.setData("text/uri-list", "http://example.invalid/");
+    document.querySelector('[data-testid="sidebar"]')?.dispatchEvent(
+      new DragEvent("dragleave", {
+        bubbles: true,
+        dataTransfer: transfer,
+        relatedTarget: null,
+      }),
+    );
+  });
+  await expect(folder).not.toHaveAttribute("data-drop-target", "true");
+  await expect(window.getByTestId("drop-label")).toHaveCount(0);
+
   await dragLink(row, `${site}/tea-dropped`);
   await expect(folder).toHaveAttribute("data-count", "2");
 

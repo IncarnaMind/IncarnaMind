@@ -147,7 +147,18 @@ export function folderTarget(
     useAppStore.getState().library?.groups.find((group) => group.id === id)?.name ?? "";
   return {
     accepts(dragged, at) {
-      if (dragged.kind === "links") return { kind: "add" };
+      if (dragged.kind === "links") {
+        // Not in a Folder takes no link: the window saves one dropped elsewhere, unfiled.
+        if (folderId === null) return null;
+        const count = dragged.count ?? 1;
+        return {
+          kind: "add",
+          said: (t) =>
+            count > 1
+              ? t("drop.addWebPage.many", { count, folder: folderNameNow(folderId) })
+              : t("drop.addWebPage", { folder: folderNameNow(folderId) }),
+        };
+      }
       if (dragged.kind === "files") {
         if (folderId === null) return null;
         // Before the drop, a file is known by its type alone; its name comes with the drop.

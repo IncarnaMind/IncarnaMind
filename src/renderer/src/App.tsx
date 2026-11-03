@@ -12,7 +12,7 @@ import { ConsentDialog } from "./components/ConsentDialog";
 import { DropLabel } from "./components/DropLabel";
 import { ErrorNotices } from "./components/ErrorNotices";
 import { FeedbackDialog } from "./components/FeedbackDialog";
-import { DropOverlay, useFileDrop } from "./components/FileDrop";
+import { DropOverlay, useFileDrop, useWindowDrop } from "./components/FileDrop";
 import { FileWriteDialog } from "./components/FileWriteDialog";
 import { HistoryView } from "./components/history/HistoryView";
 import { InfoPanel } from "./components/InfoPanel";
@@ -32,7 +32,7 @@ import { SortMenu } from "./components/SortMenu";
 import { TagsDialog } from "./components/TagsDialog";
 import { WordImportDialog } from "./components/WordImportDialog";
 import { files } from "./core";
-import { type Point, useDragState } from "./dragDrop";
+import { useDragState } from "./dragDrop";
 import { useEscapeToDismiss } from "./escapeDismiss";
 import { useExamplesMenu, useExportMenu } from "./exportMenu";
 import { useLanguage, useT } from "./i18n";
@@ -206,18 +206,12 @@ function Workspace() {
   );
   // A target inside that takes the files (a Word file on a Mind) says what its drop does instead.
   const takenInside = useDragState((state) => state.over !== null);
-  // The card lights only under the pointer, and the composer is never the card, so a target that
-  // isn't the card never lights it; where none takes the drag, the window's add says so.
-  const dropAt = fileDrop.active ? fileDrop.at : null;
-  const under = dropAt === null ? null : document.elementFromPoint(dropAt.x, dropAt.y);
-  const overCard = under?.closest('[data-testid="card"]') != null;
-  const overComposer = under?.closest('[data-testid="composer"]') != null;
-  const windowDrop: { said: Words; at: Point } | null =
-    fileDrop.active && dropAt !== null && !takenInside && (!overCard || overComposer)
-      ? {
-          said: (t) => t(fileDrop.links ? "webPages.drop" : "wordImport.addToLibrary"),
-          at: dropAt,
-        }
+  // Where the drag is: the shell reads the zone alone, so a move redraws the label and not it.
+  const zone = useWindowDrop((state) => state.zone);
+  const overCard = fileDrop.active && zone === "card";
+  const windowWords: Words | null =
+    fileDrop.active && !takenInside && zone === "other"
+      ? (t) => t(fileDrop.links ? "webPages.drop" : "drop.addToLibrary")
       : null;
   const windowWidth = useWindowWidth();
   const assistantBeside = useAppStore((state) => {
@@ -318,12 +312,12 @@ function Workspace() {
           // The overlay is the card's own light: only under the pointer, and never for a target
           // inside, such as a Folder or the composer, so one target lights at a time (#212, #261).
           cardOverlay={
-            fileDrop.active && overCard && !overComposer && !takenInside ? (
+            fileDrop.active && overCard && !takenInside ? (
               <DropOverlay links={fileDrop.links} />
             ) : null
           }
         />
-        <DropLabel instead={windowDrop} />
+        <DropLabel instead={windowWords} />
         <PanelBoundary name="overlays">
           <CommandPalette />
           {/* Where Move to… from ⌘K opens when nothing it moves is in sight: where the palette was. */}

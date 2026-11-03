@@ -27,12 +27,13 @@ export interface Point {
 
 /**
  * Before the drop, files are known only by their types; `names` comes with the
- * drop, or with a drag a test makes.
+ * drop, or with a drag a test makes. A link drag knows how many it carries only
+ * when it says so: one otherwise.
  */
 export type Dragged =
   | { kind: "objects"; refs: readonly ObjectRef[] }
   | { kind: "files"; types: readonly string[]; names: readonly string[] | null }
-  | { kind: "links" };
+  | { kind: "links"; count?: number };
 
 /** `from`: the list whose selection was dragged. */
 export type Dropped =
@@ -120,6 +121,10 @@ function listenForEnd(): void {
   window.addEventListener("dragover", takeAnywhere);
   window.addEventListener("drop", dropAnywhere);
   window.addEventListener("dragend", endDrag);
+  // A drag from another app that is cancelled, or leaves the window, gets no dragend here.
+  window.addEventListener("dragleave", (event) => {
+    if (event.relatedTarget === null) endDrag();
+  });
 }
 
 const afterFrame = (run: () => void) =>
@@ -434,24 +439,21 @@ export function useDropTarget<Place = undefined>(
 export function useDropArea(target: DropTarget) {
   const [depth, setDepth] = useState(0);
   const [entered, setEntered] = useState<{ effect: DropEffect; dragged: Dragged } | null>(null);
-  const [at, setAt] = useState<Point | null>(null);
   const effectOf = (event: DragEvent) => {
+    if (!event.dataTransfer) return null;
     const dragged = draggedIn(event.dataTransfer);
     return dragged ? target.accepts(dragged, pointOf(event)) : null;
   };
   return {
     over: depth > 0 ? (entered?.effect ?? null) : null,
     dragged: entered?.dragged ?? null,
-    /** Where the pointer was on its last move over the area, while the drag is over it. */
-    at,
     props: {
       onDragEnter(event: DragEvent) {
-        const dragged = draggedIn(event.dataTransfer);
+        const dragged = event.dataTransfer ? draggedIn(event.dataTransfer) : null;
         const effect = dragged ? target.accepts(dragged, pointOf(event)) : null;
         if (!dragged || !effect) return;
         event.preventDefault();
         setEntered({ effect, dragged });
-        setAt(pointOf(event));
         setDepth((current) => current + 1);
       },
       onDragLeave(event: DragEvent) {
@@ -461,7 +463,6 @@ export function useDropArea(target: DropTarget) {
       onDragOver(event: DragEvent) {
         const next = effectOf(event);
         if (!next) return;
-        setAt(pointOf(event));
         const taken = event.defaultPrevented;
         // Accepting the drop also stops Electron from opening a file in the window.
         event.preventDefault();
@@ -473,7 +474,6 @@ export function useDropArea(target: DropTarget) {
         const taken = event.defaultPrevented;
         event.preventDefault();
         setDepth(0);
-        setAt(null);
         if (taken) return;
         const dropped = droppedIn(event.dataTransfer);
         if (dropped) void finish(target.drop(dropped, next));

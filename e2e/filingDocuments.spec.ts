@@ -488,6 +488,7 @@ for (const [language, width] of [
               await expect(window.getByTestId("drop-label")).toHaveText(words.addToLibrary);
               await expectLabelByPointer(window, point);
               await expect(finance).not.toHaveAttribute("data-drop-target", "true");
+              await screenshot(window, `card-quiet-${language}-${width}`);
             },
           },
           {
