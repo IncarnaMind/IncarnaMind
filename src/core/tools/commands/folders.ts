@@ -266,7 +266,7 @@ export const FOLDER_CHECKERS = {
         groups.length === 1 ? (only?.into.name ?? null) : null,
         async () => {
           const merges: { merged: TagMerge; into: Tag }[] = [];
-          const mergeAll = async () => {
+          const undoMerges = async () => {
             for (const merge of [...merges].reverse()) {
               await core.restore([merge.merged.merged], {
                 tagSources: [
@@ -296,7 +296,7 @@ export const FOLDER_CHECKERS = {
           try {
             await mergeGroups();
           } catch (error) {
-            await mergeAll();
+            await undoMerges();
             throw error;
           }
           const said = `${
@@ -322,7 +322,7 @@ export const FOLDER_CHECKERS = {
             },
             step: {
               undo: async () => {
-                await mergeAll();
+                await undoMerges();
                 return null;
               },
               redo: async () => {

@@ -7,6 +7,8 @@ import type {
   WindowCommandRequest,
   WindowCommandResult,
 } from "../../src/core";
+import { FOLDER_CHECKERS } from "../../src/core/tools/commands/folders";
+import type { CommandInput, CommandsHost } from "../../src/core/tools/commands/run";
 import { STYLE_EXAMPLES } from "../../src/core/tools/commands/styles";
 import type { OfferedCommand } from "../../src/shared/commands";
 import { translate } from "../../src/shared/i18n";
@@ -393,6 +395,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
 
   // protects="re organise the files" runs Organize in the turn, asks in place, files the Documents, and one Undo puts them back; fails_when=it leaves suggestions, files nothing, asks after the Answer has ended, or Undo leaves a Document or the Folder; no_claim=which Folder the classifier picks.
   test("Organize asks once, files the Documents, and one Undo puts them back", async () => {
+    let classified = 0;
     const answers = scriptedModel(
       (call) => {
         const ran = call.results.filter((each) => each.tool === "run_command");
@@ -418,12 +421,14 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
             document?: { text?: string };
           };
           if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          classified++;
           const leases = data.groups.find((each) => each.name === "Leases");
           const aboutRent = /rent/i.test(JSON.stringify(data.document ?? {}));
           return {
             text: JSON.stringify({
               groupId: aboutRent && leases ? leases.id : "__unsorted__",
               tags: [],
+              newTags: [{ name: "Leased", description: "Lease papers" }],
             }),
           };
         },
@@ -491,13 +496,21 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(answer.text).not.toContain("Sorted 3 Documents");
     expect(answer.text).toContain("1 Document couldn’t be sorted.");
 
+    // The card says the Tags Organize adds stay after Undo.
+    const tagsOf = async (id: string) =>
+      ((await core.listDocuments()).find((each) => each.id === id)?.tags ?? []).length;
+    const tagged = await Promise.all(aboutRent.map(tagsOf));
+    expect(tagged.every((count) => count > 0)).toBe(true);
+    const classifications = classified;
     await core.undoCommands(runOf(answer));
+    expect((await Promise.all(aboutRent.map(tagsOf))).every((count) => count > 0)).toBe(true);
     const after = await core.getLibrary();
     expect(after.groups.map((each) => each.name)).not.toContain("Leases");
     expect(after.assignments.filter((each) => each.groupId !== null)).toEqual([]);
 
-    // Redo does it again: the Folder comes back and the same Documents are filed.
+    // Redo files the Folders it recorded, without asking the model again.
     await core.redoCommands(runOf(answer));
+    expect(classified).toBe(classifications);
     const again = await core.getLibrary();
     const remade = again.groups.find((each) => each.name === "Leases");
     expect(remade).toBeDefined();
@@ -507,6 +520,12 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
         .map((each) => each.documentId)
         .sort(),
     ).toEqual(aboutRent);
+
+    // Undo again puts them back: Redo's filing is what this Undo compares against.
+    await core.undoCommands(runOf(answer));
+    const undoneTwice = await core.getLibrary();
+    expect(undoneTwice.groups.map((each) => each.name)).not.toContain("Leases");
+    expect(undoneTwice.assignments.filter((each) => each.groupId !== null)).toEqual([]);
   });
 
   // protects=Organize the User doesn't allow changes nothing; fails_when=a Document is filed or a Folder made; no_claim=the card's words.
@@ -772,6 +791,59 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(answer.text).toContain("were left as they were");
   });
 
+  // protects=a Folder Organize made but filed nothing in is gone for good, not left in Recently deleted and brought back live and empty by Undo then Redo (#2252); fails_when=it is in Recently deleted after the run or in the Library after Redo; no_claim=which Folder the classifier picks.
+  test("a Folder Organize made but filed nothing in is gone for good", async () => {
+    const answers = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const rent = data.groups.find((each) => each.name === "Rent");
+          return { text: JSON.stringify({ groupId: rent?.id ?? null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(answers, DOCUMENTS);
+    await core.createLibraryGroup({ name: "Rent", description: "" });
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    const library = await core.getLibrary();
+    expect(library.groups.map((each) => each.name)).toEqual(["Rent"]);
+    expect((await core.listDeleted()).map((each) => each.name)).not.toContain("Leases");
+
+    await core.undoCommands(runOf(answer));
+    await core.redoCommands(runOf(answer));
+    const again = await core.getLibrary();
+    expect(again.groups.map((each) => each.name)).toEqual(["Rent"]);
+    expect((await core.listDeleted()).map((each) => each.name)).not.toContain("Leases");
+  });
+
   // protects=a request to cut Tags merges them: one confirmation lists every merge once, Apply does them all, and one Undo brings every Tag and link back; fails_when=it asks once per Tag, merges without asking, names a Tag it left, or Undo leaves a Tag gone; no_claim=which Tags the model picks.
   test("Tags merge behind one confirmation, and one Undo brings them all back", async () => {
     const tagsAndMerge = scriptedModel((call) => {
@@ -931,11 +1003,82 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(answer.text).not.toContain("Organize filed");
   });
 
+  // protects=a Tag merge that fails on the second Tag puts the first merge back, so the User is not left with half of it (#2252); fails_when=the first merge stays or the failure is swallowed; no_claim=how the error reads.
+  test("a Tag merge that fails halfway puts the first one back", async () => {
+    const tag = (id: string, name: string) => ({
+      id,
+      name,
+      description: "",
+      preset: false,
+      madeByUser: false,
+      colour: "red" as const,
+      createdAt: "",
+      updatedAt: "",
+    });
+    const tags = [tag("a", "A"), tag("b", "B"), tag("c", "C"), tag("d", "D")];
+    let calls = 0;
+    const restore = vi.fn(async () => undefined);
+    const core = {
+      listTags: async () => tags,
+      mergeTags: async (id: string, into: string) => {
+        calls++;
+        if (calls === 2) throw new Error("The second merge failed.");
+        return {
+          tag: tags.find((each) => each.id === into),
+          merged: { kind: "tag", id, links: [] },
+          keptMadeByUserBefore: false,
+        };
+      },
+      restore,
+    };
+    const checked = await FOLDER_CHECKERS["tag.merge"](
+      {
+        command: "tag.merge",
+        merges: [
+          { ids: ["a"], tag: "b" },
+          { ids: ["c"], tag: "d" },
+        ],
+      } as unknown as CommandInput,
+      { core } as unknown as CommandsHost,
+    );
+
+    await expect(checked.run({} as never, new AbortController().signal)).rejects.toThrow(
+      "The second merge failed.",
+    );
+    expect(restore).toHaveBeenCalledTimes(1);
+    expect(restore).toHaveBeenCalledWith(
+      [{ kind: "tag", id: "a", links: [] }],
+      expect.objectContaining({ tagSources: [expect.objectContaining({ tagId: "b" })] }),
+    );
+  });
+
   // protects=the app's recap names every merge, in English and Chinese, when the model's own sentence leaves them out (#2252); fails_when=the lines are missing or double 合并; no_claim=which Tags are merged.
   test.each([
-    ["en", "Done.", "Merged “Harbours” into “Harbour”, “Docks” into “Dock”."],
-    ["zh-CN", "完成。", "已合并：“Harbours” → “Harbour”，“Docks” → “Dock”。"],
-  ])("the app's recap names every merge in %s", async (language, reply, expected) => {
+    [
+      "the app's recap names every merge (en)",
+      "en",
+      "Done.",
+      "Merged “Harbours” into “Harbour”, “Docks” into “Dock”.",
+    ],
+    [
+      "the app's recap names every merge (zh-CN)",
+      "zh-CN",
+      "完成。",
+      "已合并：“Harbours” → “Harbour”，“Docks” → “Dock”。",
+    ],
+    [
+      "a Tag named inside a longer one still gets the recap (en)",
+      "en",
+      "I merged Harbours and Docks.",
+      "Merged “Harbours” into “Harbour”, “Docks” into “Dock”.",
+    ],
+    [
+      "a Tag named inside a longer one still gets the recap (zh-CN)",
+      "zh-CN",
+      "我合并了“Harbours”和“Docks”。",
+      "已合并：“Harbours” → “Harbour”，“Docks” → “Dock”。",
+    ],
+  ])("%s", async (_title, language, reply, expected) => {
     const model = scriptedModel((call) => {
       const listed = call.results.filter((each) => each.tool === "list_commands").at(-1)?.text;
       if (listed === undefined)

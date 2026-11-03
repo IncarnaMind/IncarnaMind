@@ -154,6 +154,13 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                 ids.filter((id) => !movedIds.has(id)).flatMap((id) => after.get(id) ?? []),
               )
             : null;
+        // A Folder Organize made but filed nothing in was never seen: it goes for good, not to
+        // Recently deleted, and Redo must not bring it back.
+        for (const folder of [...made]) {
+          if (await holdsAny(core, folder.id)) continue;
+          await unmake(core, "folder", folder.id);
+          made.splice(made.indexOf(folder), 1);
+        }
         /** The Folders Organize made that its Undo removed; Redo brings them back first. */
         const removed = new Set<string>();
         const removeMade = async () => {
@@ -163,22 +170,12 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             removed.add(folder.id);
           }
         };
-        if (moved.length === 0) {
-          // Nothing was filed, so the Folder this run made was never seen: it goes for good.
-          for (const folder of made) {
-            if (!(await holdsAny(core, folder.id))) await unmake(core, "folder", folder.id);
-          }
-        } else {
-          await removeMade();
-        }
-        const kept = made.filter((folder) => !removed.has(folder.id));
         const madeSaid =
-          kept.length === 0
+          made.length === 0
             ? ""
-            : kept.length === 1
-              ? ` It made the Folder “${kept[0]?.name ?? ""}”.`
-              : ` It made ${kept.length} Folders.`;
-        const never = new AbortController().signal;
+            : made.length === 1
+              ? ` It made the Folder “${made[0]?.name ?? ""}”.`
+              : ` It made ${made.length} Folders.`;
         return {
           done: {
             items: moved.map((change) => {
@@ -227,16 +224,16 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                         removed.delete(folder.id);
                       }
                     }
-                    await host.organizeAtOnce(ids, never);
-                    const again = await assignmentsOf(core, ids);
-                    const waiting = [...again.values()].filter((item) => item.suggested);
-                    if (waiting.length > 0) {
-                      await core.acceptAssignments(
-                        waiting.map((item) => item.documentId),
-                        Object.fromEntries(waiting.map((item) => [item.documentId, item.groupId])),
-                        wallId,
-                      );
+                    // File where the first run filed: Redo never asks the model again.
+                    const targets = new Map<string | null, string[]>();
+                    for (const [id, folderId] of Object.entries(checked)) {
+                      targets.set(folderId, [...(targets.get(folderId) ?? []), id]);
                     }
+                    for (const [folderId, moving] of targets) {
+                      await core.moveToFolder({ documentIds: moving, folderId, wall: wallId });
+                    }
+                    const now = await assignmentsOf(core, ids);
+                    for (const id of ids) left.set(id, stateOf(now.get(id)));
                   },
                 },
           said:

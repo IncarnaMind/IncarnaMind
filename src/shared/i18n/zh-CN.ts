@@ -4892,7 +4892,8 @@ export const zhCN = {
     "它们会移到回收站，{days} 天内可以恢复。助手删除任何内容前都会先问你。",
   "commands.ask.why.delete.one":
     "它会移到回收站，{days} 天内可以恢复。助手删除任何内容前都会先问你。",
-  "commands.ask.why.organize": "整理会读取每个文档的内容，放进合适的文件夹。可以用撤销恢复。",
+  "commands.ask.why.organize":
+    "整理会读取每个文档的内容，放进合适的文件夹。撤销会把文档放回原处，整理时添加的标签会保留。",
   "commands.ask.why.merge": "这些文档会打上“{tag}”标签，其他标签会移到回收站。可以用撤销恢复。",
   "commands.ask.why.merge.groups":
     "每个标签下的文档会打上对应的标签，被合并掉的标签会移到回收站。可以用撤销恢复。",

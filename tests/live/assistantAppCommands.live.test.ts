@@ -284,9 +284,17 @@ const merged: Check = (seen) => {
   expect(gone.length).toBeGreaterThan(0);
   expect(gone.some((name) => seen.answer.text.includes(name))).toBe(true);
   expect(seen.answer.steps?.unbackedCommands ?? []).toEqual([]);
-  expect(seen.after.tagLinks).toEqual(
-    seen.after.tagLinks.filter((link) => !gone.includes(link.tag)),
-  );
+  // Every link a merged-away Tag had is on the Tag it went into: a link left behind would be lost.
+  const pairs = seen.answer.toolCalls.flatMap((call) => call.command?.merges ?? []);
+  expect(pairs.length).toBeGreaterThan(0);
+  for (const pair of pairs) {
+    const now = new Set(
+      seen.after.tagLinks.filter((link) => link.tag === pair.into).map((link) => link.document),
+    );
+    for (const link of seen.before.tagLinks) {
+      if (link.tag === pair.from) expect(now.has(link.document)).toBe(true);
+    }
+  }
 };
 
 const mergedUndone = (seen: Seen, undone: Library) => {

@@ -561,7 +561,7 @@ test("put the documents about rent together asks once, files them, and one Undo 
   await expect(card).toHaveAttribute("data-reason", "organize");
   await expect(card).toContainText("Organize 3 Documents into Folders?");
   await expect(card).toContainText(
-    "Organize reads what each Document says and files it in the Folder that fits. Undo puts them back.",
+    "Organize reads what each Document says and files it in the Folder that fits. Undo puts them back; the Tags Organize adds stay.",
   );
   expect((await card.getByTestId("approval-file").allTextContents()).sort()).toEqual([
     "Agreement",
@@ -660,7 +660,9 @@ test("重新整理文件：先确认一次，整理完成后撤销一次就恢�
   const card = await askAndWait(window, "重新整理一下这些文件");
   await expect(card).toHaveAttribute("data-reason", "organize");
   await expect(card).toContainText("整理 4 个文档，放进文件夹？");
-  await expect(card).toContainText("整理会读取每个文档的内容，放进合适的文件夹。可以用撤销恢复。");
+  await expect(card).toContainText(
+    "整理会读取每个文档的内容，放进合适的文件夹。撤销会把文档放回原处，整理时添加的标签会保留。",
+  );
   await expect(card.getByTestId("approval-allow-once")).toContainText("允许");
   await screenshot(window, "commands-organize-asks-zh");
   await setWindowSize(app, window, 900, 900);

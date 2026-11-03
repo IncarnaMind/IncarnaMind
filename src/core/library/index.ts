@@ -326,6 +326,31 @@ const NAMED = 240;
 export const SCAN_IMAGES_FLOW_SENDS = ["page-images"] as const;
 
 /**
+ * Classifies each Document in turn, stopping at the first failure or when the turn is stopped.
+ * `untouched` are the Documents it never reached, which go back as they were (#2252).
+ */
+export async function classifyInTurn(
+  ids: readonly string[],
+  classify: (id: string) => Promise<unknown | null>,
+  stopped: () => boolean,
+): Promise<{ failure: unknown | null; untouched: string[] }> {
+  let failure: unknown | null = null;
+  const reached = new Set<string>();
+  for (const id of ids) {
+    if (stopped()) break;
+    const failed = await classify(id);
+    // Stopped during this one: it goes back as it was, like the ones after it.
+    if (stopped()) break;
+    reached.add(id);
+    if (failed) {
+      failure = failed;
+      break;
+    }
+  }
+  return { failure, untouched: ids.filter((id) => !reached.has(id)) };
+}
+
+/**
  * One flat group per Document; user choices, including Not in a Folder, always win.
  * Organize's choices are Suggested Folders until the User accepts them.
  */
@@ -922,9 +947,8 @@ export function createLibrary(options: {
   }
 
   /**
-   * Organize one Document: the model picks its Folder and Tags and they are written, or it waits
-   * saying why. The background queue runs one and a turn that waits for its answer runs another
-   * (#2252), so both sort as the Library does.
+   * One Document's classification, which the background queue and a turn waiting for its answer
+   * share (#2252): the queue never starts while an Answer is written.
    */
   async function classifyOne(
     id: string,
@@ -1061,7 +1085,6 @@ export function createLibrary(options: {
     }
   }
 
-  /** Sets these Documents to be classified: each waits for the model, as Organize leaves it. */
   const queueClassification = (ids: readonly string[]) => {
     const docs = ids.map(document);
     for (const doc of docs) asked.add(doc.id);
@@ -1756,32 +1779,29 @@ export function createLibrary(options: {
         }),
       );
       queueClassification(ids);
-      let failure: unknown | null = null;
-      const reached = new Set<string>();
-      for (const id of ids) {
-        reached.add(id);
-        let stopped: unknown = null;
-        await classifyOne(id, {
-          signal,
-          runsLocally: () => undefined,
-          failed: (error) => {
-            stopped = error;
-          },
-        });
-        if (stopped) {
-          failure = stopped;
-          break;
-        }
-      }
-      const untouched = ids.filter((id) => !reached.has(id));
+      const { failure, untouched } = await classifyInTurn(
+        ids,
+        async (id) => {
+          let stopped: unknown = null;
+          await classifyOne(id, {
+            signal,
+            runsLocally: () => undefined,
+            failed: (error) => {
+              stopped = error;
+            },
+          });
+          return stopped;
+        },
+        () => signal.aborted && !lifetime.signal.aborted,
+      );
       for (const id of untouched) {
         const prior = before.get(id);
         if (!prior) continue;
         try {
           restoreAssignmentRow(document(id), prior.assignment);
           if (prior.tagging) restoreTaggingRow(id, prior.tagging);
-        } catch {
-          // Gone since: there is nothing to put back.
+        } catch (error) {
+          if (!(error instanceof NotFoundError)) throw error;
         }
         if (prior.assignment?.status === "pending" || prior.assignment?.status === "waiting") {
           enqueue(id);

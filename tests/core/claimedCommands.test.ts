@@ -263,6 +263,9 @@ describe("A reply that says it changed what only the User changes (#2407)", {
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain("says the request is done or complete");
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain("other things stayed as they were");
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain("Undo puts a change back");
+    // The line is shared with #2470's Chinese denials and the app's own marks.
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("没有, 未, 没能, 无法 or 尚未 before a verb");
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("「已在笔记中标出」");
   });
 });
 
