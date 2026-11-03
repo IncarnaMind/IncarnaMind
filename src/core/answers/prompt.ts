@@ -368,6 +368,20 @@ export function meetingInstructions(listening: boolean): string {
 }
 
 /**
+ * What a live call's recap may use, in the Question's message beside the Question so the model
+ * reads it where it answers, not only in the system prompt (#1319): the call is the live transcript,
+ * and an earlier reply is for follow-ups about it, not part of the call.
+ */
+export const CALL_SCOPE_NOTE = [
+  "<call>",
+  "The live transcript above is what was said in this call. An earlier reply is not part of the call: it is there for follow-ups about it.",
+  "When a recap or summary of the call is asked and <live-transcript> is empty, say there is no call content yet rather than summarizing Library Documents or the earlier reply.",
+  "A recap or summary of the call is what was said in it: a short list, each line citing the live-transcript passage it rests on, plus the written notes when the Question asks for them.",
+  "A recap has no heading or closing line, and adds no unrequested suggestion, question to ask, or topic still to cover.",
+  "</call>",
+].join("\n");
+
+/**
  * Connectors that are on but can't be used until the User signs in to them
  * again: their Tools aren't offered, and the Answer says so if it needed them.
  */
