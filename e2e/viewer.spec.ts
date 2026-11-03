@@ -908,6 +908,7 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
     "pdf-fit-width",
     "viewer-keep",
     "viewer-open-externally",
+    "viewer-annotations-toggle",
     "document-file-menu",
   ]);
   await expect(window.getByTestId("viewer-title")).toHaveText("Guide");
@@ -922,7 +923,7 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
   // Every control is reached with Tab, in that order (Previous page is off on page 1).
   await header.getByTestId("pdf-outline-button").focus();
   const reached: (string | null)[] = [];
-  for (let step = 0; step < 8; step++) {
+  for (let step = 0; step < 9; step++) {
     await window.keyboard.press("Tab");
     reached.push(
       await window.evaluate(() => document.activeElement?.getAttribute("data-testid") ?? null),
@@ -937,6 +938,7 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
     "pdf-fit-width",
     "viewer-keep",
     "viewer-open-externally",
+    "viewer-annotations-toggle",
   ]);
 
   // "Open in default app" opens a copy named after the Document, as the sidebar's menu does.

@@ -247,7 +247,7 @@ ${sourceOf(document)}`
             aria-label={t("annotations.open")}
             title={t(panelOpen ? "annotations.close" : "annotations.open")}
             onClick={() => togglePanel(!panelOpen)}
-            className="viewer-icon-button"
+            className="viewer-icon-button viewer-annotations-toggle"
           >
             <NoteLineIcon className="size-4" />
           </button>

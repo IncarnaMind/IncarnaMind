@@ -126,6 +126,10 @@
     .viewer-divider {
       @apply hidden;
     }
+    /* The Annotations list is in the Document's ⋯ menu too, at the widths that can't hold it. */
+    .viewer-annotations-toggle {
+      @apply hidden;
+    }
   }
 
   /* The outline: rows like the sidebar's, the entry for the page in view on a sheet. */
