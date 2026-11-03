@@ -105,6 +105,27 @@ export interface UnitLabel {
   saved?: Record<string, number | string | boolean>;
   /** rows: the first Unit of a workbook's, what the whole workbook's formulas need (#2347). */
   workbook?: WorkbookFacts;
+  /**
+   * page, slide and section: the tables on it with a column of figures, top to bottom, as the
+   * index read their rows and columns (#448). Their text is the Unit's own; an Analysis finds
+   * each cell in it again before it reads it.
+   */
+  tables?: UnitTable[];
+}
+
+/** A table on a Unit, as its rows and columns were read: each cell's text, "" for an empty one. */
+export interface UnitTable {
+  /** Each column's heading, its rows of headings joined; "" for a column with none. */
+  headings: string[];
+  /** The rows under the headings, top to bottom. */
+  rows: string[][];
+  /** It goes on from the last table of the Unit before, as a table running over a page does. */
+  continues?: true;
+  /**
+   * A PDF page's text laid over a picture of the page, as a scanner's recognizer writes one: its
+   * numbers were recognized, as a scanned page's are.
+   */
+  overPicture?: true;
 }
 
 /** What a workbook's formulas need beyond its cells (#2347). */

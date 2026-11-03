@@ -1,6 +1,7 @@
 import * as Y from "yjs";
 import {
   type AnalysisRangeInput,
+  type AnalysisTableRows,
   type AnswerAnalysis,
   type AnswerAnalysisInput,
   CALCULATED_FIGURE_NODE,
@@ -65,6 +66,23 @@ export function figureRunsOfAnswer(
   });
 }
 
+/** A Document table's rows as a Note keeps them (#448); undefined for a sheet's range or one that doesn't read. */
+function readTableRows(value: unknown): AnalysisTableRows | undefined {
+  if (!isRecord(value) || !count(value.number) || !Array.isArray(value.rows)) return undefined;
+  const rows: AnalysisTableRows["rows"] = [];
+  for (const row of value.rows) {
+    if (!isRecord(row) || !count(row.row) || !count(row.unit)) return undefined;
+    if (row.quote !== null && !text(row.quote)) return undefined;
+    rows.push({ row: row.row, unit: row.unit, quote: row.quote });
+  }
+  return {
+    number: value.number,
+    rows,
+    ...(value.scan === true && { scan: true as const }),
+    ...(count(value.marks) && value.marks > 0 && { marks: value.marks }),
+  };
+}
+
 function readInput(value: unknown): AnswerAnalysisInput | null {
   if (!isRecord(value) || !text(value.name) || !value.name || !text(value.sha256)) return null;
   if (value.kind === "figure") {
@@ -73,6 +91,7 @@ function readInput(value: unknown): AnswerAnalysisInput | null {
   }
   if (value.kind !== "range") return null;
   const citation = readFigureCitation(value.citation);
+  const table = readTableRows(value.table);
   if (
     !citation ||
     !text(value.range) ||
@@ -94,6 +113,7 @@ function readInput(value: unknown): AnswerAnalysisInput | null {
     rowCount: value.rowCount,
     cut: value.cut,
     sha256: value.sha256,
+    ...(table && { table }),
   };
 }
 

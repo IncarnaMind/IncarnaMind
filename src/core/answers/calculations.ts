@@ -212,6 +212,8 @@ const beforeOnLine = (text: string, at: number) =>
 const MOST_LINES_UP = 12;
 
 const WORDS = /[\p{L}%]/u;
+/** A note's reference, as a column beside a row's amounts prints it: "12(a)", "Note 12". */
+const NOTE_REF = /^(?:notes?\s*)?\d+(?:\.\d+)*\s*(?:\(?[a-z]\)?)?$/i;
 // A number on its own; "m2" or "CO2" in a row head is part of its words.
 const NUMBER = /(?<![\p{L}\d.,])\d[\d,.]*[)）%]?/u;
 // A label: no figure and no sentence's end. "Earnings per share are shown in note 9." is prose.
@@ -1023,7 +1025,15 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const row = `${before}${text.slice(start, end < 0 ? undefined : end)}`;
     const named = (each: RowLabel) => WORDS.test(each.label);
     if (row.includes("\t")) {
-      const cell = withoutStatement(row.split("\t")[0] ?? "");
+      // A Word row can hold a label merged down its left cells before the row's own: the row's
+      // label is the nearest text cell left of the figure, not the first one (#448).
+      const cells = row.split("\t");
+      const at = cells.findIndex((cell) => cell.includes(figure.chars));
+      const label = cells
+        .slice(0, at < 0 ? cells.length : at)
+        .reverse()
+        .find((cell) => /\p{L}/u.test(cell) && !NOTE_REF.test(cell.trim()));
+      const cell = withoutStatement(label ?? "");
       return named(cell) ? cell : null;
     }
     const own = betweenNumbers(before).map(withoutStatement).findLast(named);

@@ -459,7 +459,7 @@ def figure(name, column, how, label=None, unit=None):
     heading = _heading(column.name)
     if heading not in _read[source]["columns"]:
         raise ValueError(
-            f"figure() works a figure out from a column of {source} as its sheet has it, and "
+            f"figure() works a figure out from a column of {source} as its input has it, and "
             f"{heading!r} isn't one. Give a figure from a column the code made with result()."
         )
     if how != "count" and not pd.api.types.is_numeric_dtype(column):

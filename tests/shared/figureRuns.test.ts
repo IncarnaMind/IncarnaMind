@@ -130,6 +130,44 @@ describe("a Note's bounded Analysis dependencies", () => {
     expect(readFigureRun({ ...kept, output: generation.output })).toEqual(kept);
   });
 
+  test("keeps a Document table's rows with a range input, and a Note reads them back", () => {
+    const rows = [
+      { row: 2, unit: 2, quote: "Revenue 1,200" },
+      { row: 3, unit: 2, quote: null },
+    ];
+    const analysis: AnswerAnalysis = {
+      ...generation,
+      inputs: [
+        {
+          kind: "range",
+          name: "pnl",
+          citation: {
+            passageId: "P1",
+            documentId: "d1",
+            documentName: "Accounts.pdf",
+            contentHash: "hash",
+            pageFrom: 2,
+            pageTo: 2,
+            location: { kind: "page", from: 2, to: 2 },
+            quote: "Revenue 1,200",
+            check: "found",
+            checkReason: null,
+          },
+          range: "A1:B3",
+          rows: 2,
+          columns: 2,
+          rowCount: 2,
+          cut: false,
+          sha256: "c".repeat(64),
+          table: { number: 1, rows, scan: true, marks: 2 },
+        },
+      ],
+    };
+    const kept = retainFigureAnalysis(analysis, runId, [figure("a")]);
+    expect(kept?.inputs[0]).toMatchObject({ table: { number: 1, rows, scan: true, marks: 2 } });
+    expect(readFigureRun(kept)).toEqual(kept);
+  });
+
   test("keeps what the core made of each figure when the Analysis ran, and a Note reads it back", () => {
     const checked: AnswerAnalysis = {
       ...generation,
