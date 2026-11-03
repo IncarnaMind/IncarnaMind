@@ -6,8 +6,8 @@
  * core's, whatever the model says.
  */
 import { randomUUID } from "node:crypto";
-import type { JSONContent } from "@tiptap/core";
 import { utimes } from "node:fs/promises";
+import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import type { ClaimCheckAttributes, Core, Document } from "../../src/core";
 import type {
