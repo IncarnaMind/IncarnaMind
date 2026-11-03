@@ -4622,6 +4622,26 @@ describe("A nearer line, page, section, row head or column head decides the scal
     ],
     ["a lowercase multiplier", "All amounts in millions", "Subsidiary results (in €, x 1,000)"],
     ["a European multiplier", "All amounts in €m", "German subsidiary (in €, × 1.000)"],
+    [
+      "two scale words",
+      "All amounts in £'000",
+      "Fees are shown in sterling, in thousands; totals are in millions",
+    ],
+    [
+      "a × form carrying a scale word",
+      "All amounts in €'000",
+      "Subsidiary (in €, × 1,000, thousands)",
+    ],
+    [
+      "a scale word after another word",
+      "All amounts in £'000",
+      "Tariffs (in £, per thousand units)",
+    ],
+    [
+      "an unreadable multiplier beside a plain currency line",
+      "(in €)",
+      "German subsidiary (in €, × 1.000)",
+    ],
   ])("an unread form whose scale can't be read refuses: %s", async (_label, wider, nearer) => {
     const { answer } = await figuresUnder(
       "Unread forms",
