@@ -484,9 +484,7 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
           figure.sourceInput?.citation,
         ]),
         evidenceOf(result.remainder),
-      ]
-        .filter(mayDecide)
-        .map(propertyOf),
+      ].map(propertyOf),
     );
     const partsUnbacked =
       declared !== null && [...declared].some((property) => !backed.has(property));

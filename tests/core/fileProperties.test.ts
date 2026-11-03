@@ -655,6 +655,7 @@ describe.each(["en", "zh-CN"] as const)(
 // protects=a Note's sentence whose Property line names a count is decided by that count's own Citation, never by a body line that writes one, as a sentence without figures is; fails_when=the deck's slide "This deck has 3 slides" backs the figure of a sentence about the deck's own slide count.
 test("a sentence about a file's count is never decided by a body line that writes one", async () => {
   const SENTENCE = "Plan.pptx has 3 slides.";
+  const WRONG = "Plan.pptx has 5 slides.";
   const slide = (text: string) => ({
     shapes: sp({ body: txBody(para(`<a:r><a:t>${text}</a:t></a:r>`)) }),
   });
@@ -666,18 +667,26 @@ test("a sentence about a file's count is never decided by a body line that write
   ];
   const plan = (property: string): Record<string, Plan> => ({
     [SENTENCE]: { document: "Plan", verdict: "supported", quote: "This deck has 3 slides", property },
+    [WRONG]: { document: "Plan", verdict: "contradicted", quote: "This deck has 3 slides", property },
   });
   const aboutText = await setUp(deck, plan("none"));
-  const { check: text } = await checkInNote(aboutText.core, SENTENCE, null);
-  expect(text).toMatchObject({
-    state: "supported",
-    figures: [{ state: "supported", evidence: { quote: "This deck has 3 slides" } }],
-  });
+  for (const [sentence, state] of [
+    [SENTENCE, "supported"],
+    [WRONG, "contradicted"],
+  ] as const) {
+    const { check } = await checkInNote(aboutText.core, sentence, null);
+    expect(check, sentence).toMatchObject({
+      state,
+      figures: [{ state, evidence: { quote: "This deck has 3 slides" } }],
+    });
+  }
 
   const aboutFile = await setUp(deck, plan("slides"));
-  const { check } = await checkInNote(aboutFile.core, SENTENCE, null);
-  expect(check?.state).toBe("unsupported");
-  expect(check?.figures?.map((figure) => figure.state)).toEqual(["unsupported"]);
+  for (const sentence of [SENTENCE, WRONG]) {
+    const { check } = await checkInNote(aboutFile.core, sentence, null);
+    expect(check?.state, sentence).toBe("unsupported");
+    expect(check?.figures?.map((figure) => figure.state), sentence).toEqual(["unsupported"]);
+  }
 });
 
 // protects=a Note's sentence one of whose figures a property may not decide is never Supported on its other figure's text; fails_when=the deck's text backs "4 owners" and the sentence stays Supported while its "3 slides" rests on a property its reply doesn't name.
