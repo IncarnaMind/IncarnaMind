@@ -305,11 +305,12 @@ test.each([false, true])(
   },
 );
 
-test("deleting the last Analysis figure prunes its receipt and Undo restores both", () => {
+test("deleting the last Analysis figure leaves its record, and Undo restores both", () => {
   const { editor, at, doc } = editorWith(analysis);
   expect(figureRunsFor(doc, [node(analysis)])).toHaveLength(1);
   expect(editCalculatedFigure(editor, "figure", at, false)).toBe(true);
-  expect(figureRunsFor(doc, [node(analysis)])).toHaveLength(0);
+  // No edit removes a record: a change's Undo may bring the figure back, and it reads as it was.
+  expect(figureRunsFor(doc, [node(analysis)])).toHaveLength(1);
   expect(editor.commands.undo()).toBe(true);
   expect(figureRunsFor(doc, [node(analysis)])).toHaveLength(1);
 });

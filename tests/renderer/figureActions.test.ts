@@ -8,6 +8,7 @@ import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
 import { markedSentences, markSentence } from "../../src/core/answers/checks/sentences";
 import {
   CALCULATED_FIGURE_NODE,
+  CHART_NODE,
   type Citation,
   type ClaimCheckAttributes,
   MIND_CONTENT_FIELD,
@@ -557,4 +558,108 @@ test("with the note not open, a change and its Undo take an Analysis figure's ru
   await undoable?.undo();
   expect(runs.toJSON()).toEqual(kept);
   expect(figuresInMind(blocks).some((each) => each.calculated?.figure.analysis)).toBe(true);
+});
+
+test("deleting a table whose cells are figures keeps the record its chart still names", async () => {
+  const run: RetainedFigureAnalysis = {
+    id: "run",
+    title: "Revenue",
+    language: "python",
+    code: "result('revenue', 10)",
+    inputs: [],
+    versions: null,
+    codeSha256: "a".repeat(64),
+    ranAt: "2026-10-27T00:00:00.000Z",
+    values: [{ kind: "figure", name: "revenue", label: "Revenue", unit: null, value: 10 }],
+  };
+  const figure = {
+    label: "Revenue",
+    formula: "",
+    inputs: [],
+    value: 10,
+    unit: { kind: "plain" as const },
+    approximate: false,
+    shown: "10",
+    show: { language: "en" as const, as: "number" as const, decimals: 0, scale: null },
+    literals: [],
+    engine: FORMULA_VERSION,
+    written: null,
+    analysis: { analysis: 1, result: "revenue" },
+  };
+  const figureNode = calculatedFigureNode(figure, "figure", "run");
+  const table: NodeJSON = {
+    type: "table",
+    attrs: { id: "table" },
+    content: [
+      {
+        type: "tableRow",
+        content: [
+          {
+            type: "tableHeader",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "Region" }] }],
+          },
+          {
+            type: "tableHeader",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "Amount" }] }],
+          },
+        ],
+      },
+      {
+        type: "tableRow",
+        content: [
+          {
+            type: "tableCell",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "Central" }] }],
+          },
+          { type: "tableCell", content: [{ type: "paragraph", content: [figureNode] }] },
+        ],
+      },
+    ],
+  };
+  const chart: NodeJSON = {
+    type: CHART_NODE,
+    attrs: {
+      id: "chart",
+      kind: "bar",
+      title: "",
+      drawn: null,
+      source: { kind: "table", blockId: "table" },
+      data: {
+        labelHeading: "Region",
+        series: ["Amount"],
+        rows: [
+          {
+            label: "Central",
+            values: [
+              {
+                shown: "10",
+                value: 10,
+                unit: null,
+                scale: null,
+                citation: null,
+                figure: { id: "figure", figure, analysisId: "run" },
+                from: { kind: "cell", row: 1, column: 1 },
+              },
+            ],
+          },
+        ],
+        cutFrom: null,
+        cutRows: [],
+      },
+    },
+  };
+  const { blocks, doc } = setup([table, chart], false);
+  doc.transact(() => installFigureRuns(doc, [run]));
+  const runs = doc.getMap(MIND_FIGURE_RUNS_FIELD);
+  expect(runs.size).toBe(2);
+  const undoable = editNote("a note no editor shows", doc, ({ state }) => {
+    const first = state.doc.nodeAt(0);
+    if (!first) throw new Error("No table");
+    return { tr: state.tr.delete(0, first.nodeSize), said: () => "" };
+  });
+  // The table is gone; the chart still names the figure, so its record stays.
+  expect(figuresInMind(blocks).some((each) => each.calculated)).toBe(true);
+  expect(runs.size).toBe(2);
+  await undoable?.undo();
+  expect(runs.size).toBe(2);
 });

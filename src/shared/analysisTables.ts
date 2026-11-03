@@ -59,6 +59,20 @@ const numericColumns = (table: AnalysisTable): number[] =>
 const holdsCitation = (node: NodeJSON): boolean =>
   node.type === "citation" || (node.content ?? []).some(holdsCitation);
 
+/** The Documents a table's heading row cites: an Analysis table's own headings name its inputs. */
+function citedDocuments(block: NodeJSON): Set<string> {
+  const documents = new Set<string>();
+  const visit = (node: NodeJSON) => {
+    if (node.type === "citation") {
+      const name = node.attrs?.documentId ?? node.attrs?.documentName;
+      if (typeof name === "string" && name !== "") documents.add(name);
+    }
+    for (const child of node.content ?? []) visit(child);
+  };
+  for (const cell of block.content?.[0]?.content ?? []) visit(cell);
+  return documents;
+}
+
 /** How many Citations `blocks` hold: what a Note written with them cites. */
 export function countCitations(blocks: readonly NodeJSON[]): number {
   return blocks.reduce(
@@ -121,15 +135,25 @@ export function analysisTableFor(
 ): AnalysisTableMatch | null {
   if (block.type !== "table") return null;
   const grid = gridOf(block);
-  const matches = tables.filter(
-    (table) =>
-      table.citations.length > 0 &&
-      table.grids.some(
-        (cells) =>
-          cells.length === grid.length &&
-          grid.every((row, at) => row.join("\u0000") === (cells[at] ?? []).join("\u0000")),
-      ),
-  );
+  const cited = citedDocuments(block);
+  const matches = tables.filter((table) => {
+    if (table.citations.length === 0) return false;
+    // A table whose headings cite other Documents came from another Analysis, though it reads
+    // the same: "Orders November" and "Orders October" give one table (#2378).
+    if (
+      cited.size > 0 &&
+      table.citations.some((citation) => {
+        const name = citation.documentId || citation.documentName || "";
+        return name !== "" && !cited.has(name);
+      })
+    )
+      return false;
+    return table.grids.some(
+      (cells) =>
+        cells.length === grid.length &&
+        grid.every((row, at) => row.join("\u0000") === (cells[at] ?? []).join("\u0000")),
+    );
+  });
   const [first] = matches;
   if (!first) return null;
   // Two Analyses that read the same rows can give the same table: cited to either alone would name

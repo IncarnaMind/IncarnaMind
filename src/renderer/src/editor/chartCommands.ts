@@ -171,7 +171,30 @@ export function tableUpdate(
     switched: chart.source.kind === "table" && chart.source.switched === true,
   });
   if (!fresh) return null;
-  return sameChartData(fresh.data, chart.data) ? null : fresh.data;
+  const data = keepingStoredValues(fresh.data, chart.data);
+  return sameChartData(data, chart.data) ? null : data;
+}
+
+/**
+ * The drawn values a chart's table still shows as they were: the assistant draws a chart from an
+ * Analysis's own values, which the table's text only rounds, so a cell whose words are unchanged
+ * keeps the value and Citations the chart was drawn with (#2378).
+ */
+function keepingStoredValues(fresh: ChartData, stored: ChartData): ChartData {
+  const kept = (rows: ChartData["rows"], before: ChartData["rows"]) =>
+    rows.map((row, at) => ({
+      ...row,
+      values: row.values.map((value, index) => {
+        const was = before[at];
+        const old = was?.label === row.label ? was.values[index] : null;
+        return value && old && value.shown === old.shown ? old : value;
+      }),
+    }));
+  return {
+    ...fresh,
+    rows: kept(fresh.rows, stored.rows),
+    cutRows: kept(fresh.cutRows, stored.cutRows),
+  };
 }
 
 /**

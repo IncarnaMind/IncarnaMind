@@ -5,6 +5,7 @@ import {
   type AnswerAnalysisInput,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigureAttributes,
+  CHART_NODE,
   type Citation,
   type ConversationAnswer,
   type FigureInput,
@@ -27,6 +28,7 @@ import {
   readFigureCitation,
   readFigureInput,
 } from "./calculatedFigures";
+import { readChart } from "./charts";
 import { perBlock } from "./memo";
 
 const text = (value: unknown): value is string => typeof value === "string";
@@ -307,21 +309,22 @@ export function figureRunsFor(doc: Y.Doc, blocks: readonly NodeJSON[]): Retained
   for (const [id, names] of usesIn(blocks)) {
     const metadata = runs.get(runKey(id));
     if (!isRecord(metadata) || metadata.id !== id) continue;
+    // Each value the Note still keeps and shows as it was is read; one the Note lost takes only
+    // its own figure's check, never the Analysis's other values (#2378).
     const values = [...names.keys()].flatMap((name) => {
       const value = runs.get(valueKey(id, name));
-      return value === undefined ? [] : [value];
+      if (value === undefined || !isRecord(value)) return [];
+      const expected = names.get(name);
+      if (
+        expected?.size !== 1 ||
+        (typeof value.value !== "number" && typeof value.value !== "boolean")
+      )
+        return [];
+      return expected.has(value.value) ? [value] : [];
     });
+    if (values.length === 0) continue;
     const run = readFigureRun({ ...metadata, values });
-    if (
-      !run ||
-      run.values.length !== names.size ||
-      run.values.some((value) => {
-        const expected = names.get(value.name);
-        return expected?.size !== 1 || !expected.has(value.value);
-      })
-    )
-      continue;
-    found.push(run);
+    if (run) found.push(run);
   }
   return found;
 }
@@ -337,9 +340,14 @@ export function readFigureRunClosure(
     const runs = figureRunsFor(doc, blocks);
     // A clipboard that names an Analysis must carry the whole record its figures read from: a
     // paste that would leave one unread is refused, unlike a Note an earlier build left behind.
-    const found = new Set(runs.map((run) => run.id));
-    if ([...usesIn(blocks).keys()].some((id) => !found.has(id)))
-      throw new Error("The calculated figure's Analysis record is missing.");
+    const kept = new Map(
+      runs.map((run) => [run.id, new Set(run.values.map((value) => value.name))]),
+    );
+    const missing = [...usesIn(blocks)].some(([id, names]) => {
+      const values = kept.get(id);
+      return !values || [...names.keys()].some((name) => !values.has(name));
+    });
+    if (missing) throw new Error("The calculated figure's Analysis record is missing.");
     return runs;
   } finally {
     doc.destroy();
@@ -389,6 +397,12 @@ export function installFigureRuns(doc: Y.Doc, records: readonly unknown[]): void
 
 const figuresOfBlock = perBlock((block) => {
   const found: Record<string, unknown>[] = [];
+  if (block.nodeName === CHART_NODE) {
+    // A chart of a table whose cells are Analysis figures names them too, in its data.
+    const chart = readChart(block.getAttributes());
+    for (const row of [...chart.data.rows, ...chart.data.cutRows])
+      for (const value of row.values) if (value?.figure) found.push({ ...value.figure });
+  }
   const visit = (element: Y.XmlElement) => {
     if (element.nodeName === CALCULATED_FIGURE_NODE) found.push(element.getAttributes());
     for (const node of element.toArray()) if (node instanceof Y.XmlElement) visit(node);

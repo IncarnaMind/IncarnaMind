@@ -9,7 +9,7 @@ import {
   countCitations,
   withAnalysisTableCitations,
 } from "../../src/shared/analysisTables";
-import type { NodeJSON } from "../../src/shared/blockJson";
+import { citationNode, type NodeJSON } from "../../src/shared/blockJson";
 
 const citation: Citation = {
   passageId: "p1",
@@ -203,6 +203,62 @@ describe("a table two Analyses could have given (#2378)", () => {
       ],
     );
     expect(cited && headingCitations(cited)).toBe(1);
+  });
+
+  test("matches no table whose own headings cite another Document", () => {
+    const rows = [
+      ["North", 270.5],
+      ["South", 80],
+    ];
+    const shown = tableBlock(rows);
+    const cell = shown.content?.[0]?.content?.[0];
+    if (!cell) throw new Error("No heading cell.");
+    cell.content = [
+      ...(cell.content ?? []),
+      citationNode({ ...citation, documentId: "d9", documentName: "Orders October" }),
+    ];
+    expect(
+      analysisTableFor(
+        shown,
+        analysisTablesOf([
+          analysis([
+            {
+              kind: "table",
+              name: "by_region",
+              label: "Revenue by region",
+              unit: null,
+              table: table(rows),
+            },
+          ]),
+        ]),
+      ),
+    ).toBeNull();
+  });
+
+  test("is cited to neither when they agree on the inputs and the display but not the values", () => {
+    const shown = tableBlock([
+      ["North", "8,325.44"],
+      ["South", "80"],
+    ]);
+    const one = analysis([
+      {
+        ...result,
+        table: table([
+          ["North", 8325.444],
+          ["South", 80],
+        ]),
+      },
+    ]);
+    const two = analysis([
+      {
+        ...result,
+        table: table([
+          ["North", 8325.4441],
+          ["South", 80],
+        ]),
+      },
+    ]);
+    expect(analysisTableFor(shown, analysisTablesOf([one, two]))).toBeNull();
   });
 
   test("matches no Analysis that read nothing cited", () => {

@@ -21,7 +21,7 @@ import {
   withKind,
 } from "../../src/renderer/src/editor/chartCommands";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { type ChartAttributes, readChart } from "../../src/shared/charts";
+import { type ChartAttributes, type ChartData, readChart } from "../../src/shared/charts";
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
 const paragraph = (...content: JSONContent[]): JSONContent => ({ type: "paragraph", content });
@@ -376,6 +376,68 @@ describe("changing a chart in place", () => {
     );
     expect(chartAt(editor).chart.data.series).toEqual(["Revenue", "Rent"]);
     expect(tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en")).toBeNull();
+  });
+
+  test("keeps an Analysis's own value and Citations when its table's words are unchanged (#2378)", () => {
+    const editor = editorWith([
+      {
+        type: "table",
+        attrs: { id: "table-1" },
+        content: [
+          wordsRow(true, "Region", "Amount"),
+          wordsRow(false, "Central", "8,325.44"),
+          wordsRow(false, "North", "9,450"),
+        ],
+      },
+      paragraph(),
+    ]);
+    cursorIn(editor, "Central");
+    insertChart(editor, chartOfTable(editor.state, "en") as ChartAttributes);
+    const source = (page: number) => ({
+      passageId: "passage",
+      documentId: "acme",
+      documentName: "Acme",
+      contentHash: "hash",
+      pageFrom: page,
+      pageTo: page,
+      location: { kind: "page" as const, from: page, to: page },
+      quote: `Revenue on page ${page}`,
+      check: "found" as const,
+      checkReason: null,
+    });
+    const citations = [source(1), source(2)];
+    const value = (shown: string, number: number) => ({
+      shown,
+      value: number,
+      unit: null,
+      scale: null,
+      citation: citations[0] ?? null,
+      citations,
+      from: { kind: "cell" as const, row: 1, column: 1 },
+    });
+    const data: ChartData = {
+      labelHeading: "Region",
+      series: ["Amount"],
+      rows: [
+        { label: "Central", values: [value("8,325.44", 8325.444)] },
+        { label: "North", values: [value("9,450", 9450)] },
+      ],
+      cutFrom: null,
+      cutRows: [],
+    };
+    changeChart(editor, chartAt(editor).pos, { data });
+    const node = () => editor.state.doc.nodeAt(chartAt(editor).pos);
+    expect(tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en")).toBeNull();
+
+    let at = -1;
+    editor.state.doc.descendants((child, place) => {
+      if (at < 0 && child.isText && child.text === "8,325.44") at = place;
+      return at < 0;
+    });
+    editor.view.dispatch(editor.state.tr.insertText("8,500", at, at + 8));
+    const update = tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en");
+    expect(update?.rows[0]?.values[0]?.shown).toBe("8,500");
+    expect(update?.rows[0]?.values[0]?.citation).toBeNull();
   });
 
   test("knows when its table changed since, and what it would draw now", () => {

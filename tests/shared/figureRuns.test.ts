@@ -298,6 +298,23 @@ describe("a Note's bounded Analysis dependencies", () => {
     source.destroy();
   });
 
+  test("keeps the values an Analysis still has when one is missing", () => {
+    const source = docWith(["a", "b"]);
+    const runs = source.getMap(MIND_FIGURE_RUNS_FIELD);
+    const missing = JSON.stringify([runId, "b"]);
+    expect(runs.has(missing)).toBe(true);
+    runs.delete(missing);
+    // The value the Note still keeps reads; the one it lost takes only its own figure's check.
+    const kept = figureRunsFor(source, blocks(["a", "b"]));
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.values.map((value) => value.name)).toEqual(["a"]);
+    expect(figureRunsFor(source, blocks(["b"]))).toEqual([]);
+    // A copy must carry every value its figures name.
+    expect(() => readFigureRunClosure(blocks(["a", "b"]), kept)).toThrow();
+    expect(readFigureRunClosure(blocks(["a"]), kept)).toHaveLength(1);
+    source.destroy();
+  });
+
   test("a concurrent last-reference deletion does not delete a newly added result", () => {
     const original = docWith(["a"]);
     const removing = new Y.Doc();

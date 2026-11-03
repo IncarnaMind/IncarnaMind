@@ -8,13 +8,12 @@ import {
   MIND_FIGURE_RUNS_FIELD,
   type RetainedFigureAnalysis,
 } from "../../../core/api";
-import { InvalidInputError, isRecord } from "../../../core/errors";
+import { InvalidInputError } from "../../../core/errors";
 import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
 import {
   calculatedFiguresIn,
   type DroppedFigureUse,
   installFigureRuns,
-  pruneFigureRuns,
   readFigureRunClosure,
   withoutChecks,
 } from "../../../shared/figureRuns";
@@ -105,39 +104,5 @@ export const FigureEvidence = Extension.create<{ doc: Y.Doc | null }>({
         },
       }),
     ];
-  },
-  dispatchTransaction({ transaction, next }) {
-    const { doc } = this.options;
-    const sync: unknown = transaction.getMeta(ySyncPluginKey);
-    // Only an edit that takes away a figure an Analysis run backs has a run to remove with it:
-    // every other edit goes through as it is, so typing and its Undo stay the editor's own.
-    if (
-      !doc ||
-      !this.editor.isEditable ||
-      (isRecord(sync) && sync.isChangeOrigin) ||
-      !transaction.docChanged ||
-      doc.getMap(MIND_FIGURE_RUNS_FIELD).size === 0
-    ) {
-      next(transaction);
-      return;
-    }
-    // Finding the figures an edit takes away walks the whole Note: only a transaction that can
-    // drop a record pays for it.
-    const dropped = droppedAnalysisFigures(transaction);
-    if (dropped.length === 0) {
-      next(transaction);
-      return;
-    }
-    yUndoPluginKey
-      .getState(this.editor.state)
-      ?.undoManager.addToScope(doc.getMap(MIND_FIGURE_RUNS_FIELD));
-    // The run's removal belongs to the edit's existing Undo item, before Yjs emits it (#1932).
-    doc.transact(() => {
-      try {
-        next(transaction);
-      } finally {
-        pruneFigureRuns(doc, dropped);
-      }
-    }, ySyncPluginKey);
   },
 });

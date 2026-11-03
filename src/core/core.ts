@@ -855,6 +855,13 @@ export function createCore(adapters: CoreAdapters): Core {
   );
   const platform = process.platform;
   const retention = createVersionRetention(db, now);
+  const missingFigureRecords = new Set<string>();
+  /** Once a Mind, however often its changes are stored: the log isn't the place the User sees it. */
+  const missingFigureRecord = (mindId: string, keeping: string) => {
+    if (missingFigureRecords.has(mindId)) return;
+    missingFigureRecords.add(mindId);
+    console.error(`Mind ${mindId}: a calculated figure's Analysis record is missing; ${keeping}`);
+  };
   const rebuildFigureRetention = (mindId: string) => {
     if (
       content.isLoaded(mindId) &&
@@ -872,9 +879,7 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       // A figure whose Analysis record is gone doesn't say what it rests on: keep what is retained.
       if (citations === null) {
-        console.error(
-          `Mind ${mindId}: a calculated figure's Analysis record is missing; keeping its retained sources`,
-        );
+        missingFigureRecord(mindId, "keeping its retained sources");
         return;
       }
       const documents = new Set(
@@ -1018,9 +1023,7 @@ export function createCore(adapters: CoreAdapters): Core {
           try {
             if (!addCitedVersions(fragment, cited)) {
               complete = false;
-              console.error(
-                `Mind ${mindId}: a calculated figure's Analysis record is missing; keeping old versions`,
-              );
+              missingFigureRecord(mindId, "keeping old versions");
             }
           } catch (error) {
             complete = false;
