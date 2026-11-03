@@ -5,6 +5,7 @@ import {
   chartCells,
   chartPoints,
   drawnSeries,
+  givesValue,
   gridOfTable,
   readChart,
   type SourceGrid,
@@ -42,6 +43,8 @@ export interface FigureOccurrence extends CheckFigure {
     rowLabel: string;
     columnLabel: string;
     header: boolean;
+    /** It gives its row's value under its column (`givesValue`), not the row's own label. */
+    value: boolean;
   };
 }
 
@@ -103,6 +106,7 @@ function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid
       rowLabel,
       columnLabel,
       header: cell.nodeName === "tableHeader",
+      value: givesValue(grid, rowIndex, cellIndex),
     },
     header: [columnLabel, section, rowText, caption].filter(Boolean).join("\n"),
   };
@@ -218,6 +222,25 @@ function inSentence(
 export function figuresInSentence(sentence: SelectedSentence): FigureOccurrence[] {
   return inSentence(sentence, new Map(), documentFigureContext([{ text: sentence.context }]));
 }
+
+/**
+ * The label of the row and the heading of the column that name a table's value cell, as they name
+ * a figure in it. None for a row's own label or a Block outside a table.
+ */
+export function cellHeadings(
+  element: Y.XmlElement,
+  grids: Map<Y.XmlElement, SourceGrid>,
+): { row?: string; column?: string } {
+  const table = tableContext(element, grids);
+  if (!table?.place.value) return {};
+  const row = table.place.column > 0 ? table.place.rowLabel : "";
+  const column = table.place.columnLabel.split("\n").join(" · ");
+  return { ...(row && { row }), ...(column && { column }) };
+}
+
+/** Whether these figures are a table's value cell's (`givesValue`). */
+export const inValueCell = (figures: readonly FigureOccurrence[] | undefined): boolean =>
+  figures?.some((figure) => figure.table?.value === true) ?? false;
 
 function inChart(element: Y.XmlElement): FigureOccurrence[] {
   const blockId = element.getAttribute("id");
