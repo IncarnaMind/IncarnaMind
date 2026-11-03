@@ -881,8 +881,14 @@ describe("Which Documents' properties a check shows", () => {
     await vi.waitFor(async () => expect((await now())?.transcript?.lines ?? 0).toBeGreaterThan(0));
     await core.stopMeeting(meeting.id);
     await vi.waitFor(async () => expect((await now())?.transcript?.state).toBe("saved"));
-    const transcript = (await core.listDocuments()).find((each) => each.kind === "transcript");
-    expect(transcript).toMatchObject({ keptByApp: true, status: "ready" });
+    // Saved, its Document is read next: the check waits until there is text to search.
+    await vi.waitFor(
+      async () =>
+        expect(
+          (await core.listDocuments()).find((each) => each.kind === "transcript"),
+        ).toMatchObject({ keptByApp: true, status: "ready" }),
+      { timeout: 20_000 },
+    );
 
     await core.checkClaim({ claim: SENTENCE });
     const sent = calls.flatMap((call) => call.results.map((result) => result.text)).join("\n");
