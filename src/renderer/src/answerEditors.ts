@@ -13,6 +13,7 @@ import { unbackedCommandNotes, unrunToolNotes } from "../../shared/unrunTools";
 import { questionOf } from "./conversations";
 import { tablesOf } from "./editor/answerTables";
 import { withoutCitationGlue } from "./editor/citationGlue";
+import { reportCopyNotice } from "./editor/copyCitations";
 import { translateNow } from "./i18n";
 import { useAppStore } from "./store";
 
@@ -113,6 +114,7 @@ export async function copyAnswer(answerId: string): Promise<boolean> {
         "text/plain": new Blob([text.trim()], { type: "text/plain" }),
       }),
     ]);
+    reportCopyNotice(dom);
     return true;
   } catch (error) {
     useAppStore.getState().reportError(error);

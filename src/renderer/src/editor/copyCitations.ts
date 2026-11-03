@@ -3,10 +3,14 @@
  * footnotes, and text with markers and Sources. Added to every editor that shows Notes.
  */
 import { Extension } from "@tiptap/core";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { Node as ProseMirrorNode, Schema } from "@tiptap/pm/model";
 import { DOMSerializer, Fragment } from "@tiptap/pm/model";
 import { Plugin } from "@tiptap/pm/state";
-import { CALCULATED_FIGURE_NODE, type RetainedFigureAnalysis } from "../../../core/api";
+import {
+  CALCULATED_FIGURE_NODE,
+  type CalculatedFigureAttributes,
+  type RetainedFigureAnalysis,
+} from "../../../core/api";
 import { InvalidInputError } from "../../../core/errors";
 import type { NodeJSON } from "../../../shared/blockJson";
 import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
@@ -27,18 +31,70 @@ export const FIGURE_RUNS_ATTRIBUTE = "data-incarnamind-figure-runs";
 export const clipboardBlocks = (fragment: Fragment): NodeJSON[] =>
   fragment.content.map((node) => node.toJSON() as NodeJSON);
 
+const COPY_NOTICE = Symbol("copyIncomplete");
+type NoticedDOM = Node & { [COPY_NOTICE]?: unknown };
+let pendingNotice: unknown = null;
+
+function takeNotice(node: Node): unknown {
+  const noticed = node as NoticedDOM;
+  if (noticed[COPY_NOTICE] !== undefined) {
+    const error = noticed[COPY_NOTICE];
+    delete noticed[COPY_NOTICE];
+    return error;
+  }
+  for (const child of node.childNodes) {
+    const found = takeNotice(child);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/** Reports the notice a copy left on its serialized DOM, once; true when it did. */
+export function reportCopyNotice(dom: Node): boolean {
+  const error = takeNotice(dom);
+  if (error === undefined) return false;
+  reportIncompleteCopy(error);
+  return true;
+}
+
+function reportIncompleteCopy(error: unknown): void {
+  useAppStore
+    .getState()
+    .reportError(new InvalidInputError({ key: "error.figure.copyIncomplete" }, { cause: error }));
+}
+
+function markCopyNotice(dom: Node, error: unknown): void {
+  // ProseMirror moves the serialized children into its own wrapper: mark one that travels.
+  const target = (dom.firstChild ?? dom) as NoticedDOM;
+  target[COPY_NOTICE] = error;
+  pendingNotice = error;
+  // The copy or cut listener runs in this event; anything else, like a drag, leaves it unread.
+  queueMicrotask(() => {
+    pendingNotice = null;
+  });
+}
+
 const analysisFigure = (node: ProseMirrorNode) =>
   node.type.name === CALCULATED_FIGURE_NODE ? readCalculatedFigureAttributes(node.attrs) : null;
 
-/** The Analysis figures a node is or holds, by the id a copy names them with. */
-function analysisFigureIds(node: ProseMirrorNode): string[] {
-  const ids: string[] = [];
+/** Every Analysis figure a node is or holds, with its node. */
+function eachAnalysisFigure(
+  node: ProseMirrorNode,
+  visit: (node: ProseMirrorNode, figure: CalculatedFigureAttributes) => void,
+): void {
   const own = analysisFigure(node);
-  if (own?.figure.analysis) ids.push(own.id);
-  node.descendants((child) => {
-    const read = analysisFigure(child);
-    if (read?.figure.analysis) ids.push(read.id);
-    return true;
+  if (own?.figure.analysis) visit(node, own);
+  node.forEach((child) => {
+    eachAnalysisFigure(child, visit);
+  });
+}
+
+function analysisFigureIds(fragment: Fragment): string[] {
+  const ids: string[] = [];
+  fragment.forEach((node) => {
+    eachAnalysisFigure(node, (_node, figure) => {
+      ids.push(figure.id);
+    });
   });
   return ids;
 }
@@ -47,11 +103,10 @@ function analysisFigureIds(node: ProseMirrorNode): string[] {
 function asPlainText(
   node: ProseMirrorNode,
   plain: ReadonlySet<string>,
-  schema: { text(text: string): ProseMirrorNode },
+  schema: Schema,
 ): ProseMirrorNode[] {
   const read = analysisFigure(node);
-  if (read && plain.has(read.id))
-    return read.figure.shown === "" ? [] : [schema.text(read.figure.shown)];
+  if (read && plain.has(read.id)) return [schema.text(read.figure.shown, node.marks)];
   if (node.isLeaf) return [node];
   return [
     node.copy(
@@ -61,6 +116,9 @@ function asPlainText(
     ),
   ];
 }
+
+const plainFragment = (fragment: Fragment, plain: ReadonlySet<string>, schema: Schema) =>
+  Fragment.fromArray(fragment.content.flatMap((node) => asPlainText(node, plain, schema)));
 
 interface CopyCitationsOptions {
   figureRuns(blocks: readonly NodeJSON[]): readonly RetainedFigureAnalysis[];
@@ -87,6 +145,10 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
             if (data && html)
               data.setData("text/html", withoutInertBrackets(wordFootnoteHtml(html)));
             if (data && text) data.setData("text/plain", withoutInertBrackets(text));
+            if (pendingNotice !== null) {
+              reportIncompleteCopy(pendingNotice);
+              pendingNotice = null;
+            }
           };
           view.dom.addEventListener("copy", rewrite);
           view.dom.addEventListener("cut", rewrite);
@@ -112,43 +174,41 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
                 out.appendChild(span);
               };
               if (calculatedFiguresIn(blocks).some(({ figure }) => figure.analysis)) {
-                try {
-                  carrier(readFigureRunClosure(blocks, this.options.figureRuns(blocks)));
-                } catch (error) {
-                  // A figure whose saved inputs are incomplete is copied as the value it shows,
-                  // and the rest keep their records: pasting gives plain text, never a claim (#2378).
-                  const plain = new Set<string>();
-                  const runs: RetainedFigureAnalysis[] = [];
-                  for (let index = 0; index < fragment.childCount; index += 1) {
-                    const block = blocks[index];
-                    const node = fragment.child(index);
+                // Each Analysis figure is tried on its own: one whose saved inputs are complete
+                // keeps its node and record, whatever shares its Block (#2378).
+                const plain = new Set<string>();
+                let failure: unknown = null;
+                fragment.forEach((top) => {
+                  eachAnalysisFigure(top, (node, figure) => {
+                    const one = clipboardBlocks(Fragment.from(node));
                     try {
-                      if (!block) throw new Error("The copied Blocks didn't line up.");
-                      runs.push(...readFigureRunClosure([block], this.options.figureRuns([block])));
-                    } catch {
-                      for (const id of analysisFigureIds(node)) plain.add(id);
+                      readFigureRunClosure(one, this.options.figureRuns(one));
+                    } catch (error) {
+                      plain.add(figure.id);
+                      failure ??= error;
                     }
-                  }
-                  if (plain.size > 0)
-                    out = base.serializeFragment(
-                      Fragment.fromArray(
-                        fragment.content.flatMap((node) =>
-                          asPlainText(node, plain, this.editor.schema),
-                        ),
-                      ),
-                      options,
-                      target,
-                    );
-                  carrier(runs);
-                  useAppStore
-                    .getState()
-                    .reportError(
-                      new InvalidInputError(
-                        { key: "error.figure.copyIncomplete" },
-                        { cause: error },
-                      ),
-                    );
+                  });
+                });
+                let left =
+                  plain.size > 0 ? plainFragment(fragment, plain, this.editor.schema) : fragment;
+                let runs: RetainedFigureAnalysis[] = [];
+                try {
+                  const leftBlocks = clipboardBlocks(left);
+                  runs = readFigureRunClosure(leftBlocks, this.options.figureRuns(leftBlocks));
+                } catch (error) {
+                  // What is left can't be read together: every Analysis figure is its value.
+                  failure ??= error;
+                  left = plainFragment(
+                    fragment,
+                    new Set(analysisFigureIds(fragment)),
+                    this.editor.schema,
+                  );
+                  runs = [];
+                  console.error("Copying a figure: its saved inputs couldn't be read.", error);
                 }
+                if (left !== fragment) out = base.serializeFragment(left, options, target);
+                carrier(runs);
+                if (failure !== null) markCopyNotice(out, failure);
               }
               addFootnotes(out, citationsIn(fragment), sourceContext());
               return out;

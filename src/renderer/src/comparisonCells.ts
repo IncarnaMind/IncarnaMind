@@ -33,7 +33,7 @@ import { type ComparisonRefillStart, refillComparison } from "./comparisonRefill
 import { comparisonCellSelection } from "./comparisonSelection";
 import { core } from "./core";
 import { comparisonCellInRow, comparisonTableIn } from "./editor/comparisonCommands";
-import { sourceContext } from "./editor/copyCitations";
+import { reportCopyNotice, sourceContext } from "./editor/copyCitations";
 import { citationsIn, wordFootnoteHtml } from "./editor/copyNotes";
 import { asOneStep, offerEditorUndo, undoStackOf } from "./editor/editorUndo";
 import {
@@ -418,12 +418,15 @@ export async function copyComparisonCells(
           "text/plain": new Blob([plain], { type: "text/plain" }),
         }),
       ]);
+      reportCopyNotice(dom);
     } else {
       await navigator.clipboard.writeText(plain);
+      reportCopyNotice(dom);
     }
   } catch (error) {
     try {
       await navigator.clipboard.writeText(plain);
+      reportCopyNotice(dom);
     } catch (fallback) {
       console.warn("Comparison cell copy failed.", error, fallback);
       useAppStore.getState().reportError(fallback);
