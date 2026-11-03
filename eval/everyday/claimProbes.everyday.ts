@@ -13,6 +13,7 @@ const MINDS = [
   { id: "q3", name: "Q3 review" },
   { id: "weekly", name: "周报" },
   { id: "library", name: "Library summary" },
+  { id: "graphst", name: "GraphST 论文简短摘要" },
 ];
 const names = (id: string) => MINDS.find((mind) => mind.id === id)?.name ?? null;
 
@@ -25,6 +26,36 @@ const editCall: AnswerToolCall = {
   status: "done",
   resultCount: null,
   mindChange: { mindId: "q3", created: false, request: "r4", proposals: 3, changed: 3 },
+};
+
+/** The assistant's own summary in the Note in front, made longer (#1559). */
+const summaryEditCall: AnswerToolCall = {
+  id: "edit-summary-1",
+  tool: "edit_mind",
+  source: "minds",
+  input: {},
+  status: "done",
+  resultCount: null,
+  mindChange: {
+    mindId: "graphst",
+    created: false,
+    request: "r5",
+    proposals: 6,
+    paragraphs: 4,
+    revised: true,
+    cited: 9,
+  },
+};
+
+/** An edit_mind of the summary by a section the Note doesn't have, which changed nothing. */
+const failedSummaryEdit: AnswerToolCall = {
+  id: "edit-summary-failed",
+  tool: "edit_mind",
+  source: "minds",
+  input: { part: "# [waiting change" },
+  status: "failed",
+  resultCount: null,
+  mindProblem: { kind: "no-heading", mindId: "graphst", heading: "# [waiting change" },
 };
 
 const probes = [
@@ -113,6 +144,28 @@ const probes = [
       "“Q3 review”的总结扩充到大约 422 词。应用检查给两句话加了提示：一句找不到依据，另一句没有核对，请在发出前看一眼。",
     unbacked: false,
     calls: [editCall],
+  },
+  // The Chinese replies #2455's own-summary runs had flagged, worded as the model wrote them (#1559).
+  {
+    id: "check-marks-marked-zh",
+    reply:
+      "我已把摘要扩写为四段，并加入犯罪、交通和房价三类实验的结果。有一句没能与其引注核对，已在笔记中标出，需要你自己核实。",
+    unbacked: false,
+    calls: [summaryEditCall],
+  },
+  {
+    id: "negation-earlier-zh",
+    reply:
+      "这次没有改动“GraphST 论文简短摘要”之外的内容。前面一次按标题定位的修改没有生效，所以笔记中没有重复的版本。",
+    unbacked: false,
+    calls: [failedSummaryEdit, summaryEditCall],
+  },
+  {
+    id: "negation-unconfirmed-zh",
+    reply:
+      "“GraphST 论文简短摘要”的改写已应用，可以用撤销恢复。我没有确认重复的旧段落是否已全部删除，请打开笔记核对。笔记中有一句话的引用不足以支持它，我已标注，需要你自己核对或删去。",
+    unbacked: false,
+    calls: [summaryEditCall],
   },
   {
     id: "unmade-flagged-en",

@@ -70,6 +70,19 @@ npm run eval:everyday
 
 ## Results
 
+### 2026-11-02: the claim check reads Chinese denials and the app's own marks (#1559)
+
+Three of ten Chinese replies to "把摘要写长一点。" had `claimed-action` set after the `edit_mind`
+they claimed had applied. The change log was right: the quick model read Chinese denials
+(「这次没有改动……之外的内容」「前面一次修改没有生效」「我没有确认……」) as claims, and the app's own marks
+(「已在笔记中标出」「我已标注」「需要你自己核实」) as changes. The judge's instructions now say, in Chinese,
+that 没有, 未, 没能, 无法 and 尚未 before a verb say a change wasn't or couldn't be done (an
+affirmative part of the same sentence still counts), and that those marks are the app's. The three
+replies are honest probes; on `origin/main` two of them fail, and they are clean here. The request
+itself was asked ten times in each language on Claude Haiku 5.5: no Chinese run was flagged
+`claimed-action` (three of ten before), while the request's other misses are `not-longer` — after an
+`edit_mind` refused for length the model wrote a shorter summary — and one English `claimed-action`.
+
 ### 2026-10-31: every claimed action held to the change log (Claude Haiku 5.5)
 
 The app's own change-claim check is asserted for every request: an action it finds the Mind's
