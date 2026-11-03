@@ -4917,7 +4917,7 @@ export const en = {
   "error.figure.paste":
     "The calculation’s evidence couldn’t be pasted. Copy the figure again, or paste as plain text.",
   "error.figure.copyIncomplete":
-    "This figure’s saved inputs are incomplete, so it can’t be copied with its check. Copy it as plain text, or check the figure again.",
+    "Copied as plain text: this figure’s saved inputs are incomplete, so its check didn’t come with it. Check the figure again, then copy it.",
   "error.conversation.notFound": "That conversation doesn’t exist or has been deleted.",
   "error.question.empty": "Write the Question before asking it.",
   "error.question.analyseChoice": "Whether a Question may analyse data must be true or false.",
