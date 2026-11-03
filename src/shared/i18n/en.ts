@@ -1358,6 +1358,7 @@ export const en = {
   "mindCheck.command": "Check",
   "mindCheck.alreadyChecking": "Already checking this note",
   "mindCheck.nothingToCheck": "Nothing to check",
+  "mindCheck.waitingForOk": "The check is waiting for your OK on the Note.",
   "mindCheck.every": "Check every sentence again",
   "mindCheck.changed.none": "Nothing changed",
   "mindCheck.unchanged": "Nothing changed since {when}",

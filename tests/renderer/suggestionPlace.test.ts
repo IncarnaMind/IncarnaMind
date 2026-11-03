@@ -98,7 +98,7 @@ describe("where a suggestion goes", () => {
     ).toBe(2);
   });
 
-  test("a suggested Citation skips no calculated figure's marker (#2313)", () => {
+  test("a suggested Citation takes the number after the calculated figures' markers (#2313)", () => {
     const figure = {
       label: "Growth",
       formula: "",
@@ -127,7 +127,9 @@ describe("where a suggestion goes", () => {
       ],
       endOfFirst,
     );
-    expect(citationNumberAt(state, endOfFirst(state.doc))).toBe(2);
+    // Two figures and the Block's own Citation take 1, 2 and 3 in the shared series, so the
+    // suggestion is 4.
+    expect(citationNumberAt(state, endOfFirst(state.doc))).toBe(4);
   });
 
   test("a suggested Citation after two marks of one footnote takes the number after it", () => {

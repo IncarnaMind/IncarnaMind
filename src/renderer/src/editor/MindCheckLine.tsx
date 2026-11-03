@@ -12,7 +12,7 @@ import { useLanguage, useT } from "../i18n";
 import {
   confirmCheck,
   dismissMindCheck,
-  startCheck,
+  startCheckAsking,
   startMindCheck,
   useMindCheck,
 } from "../mindCheck";
@@ -202,7 +202,8 @@ export function CheckedWhen({
                 action={{
                   label: t("mindCheck.check"),
                   testId: "health-unexamined-check",
-                  onClick: () => void startCheck(mindId).catch(useAppStore.getState().reportError),
+                  onClick: () =>
+                    void startCheckAsking(mindId).catch(useAppStore.getState().reportError),
                 }}
               />,
             ]

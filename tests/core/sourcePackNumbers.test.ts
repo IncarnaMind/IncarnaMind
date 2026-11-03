@@ -33,47 +33,36 @@ const attributesOf = new Map<Footnote, Partial<CitationAttributes>>([
   [two, { documentId: "two", location: { kind: "page", from: 2, to: 2 } }],
 ]);
 
+const blocks = [
+  paragraph(
+    text("Revenue was "),
+    citation(one),
+    text(" and the total "),
+    figureNode,
+    text(" as well "),
+    citation(two),
+  ),
+];
+
 describe("the source pack's Citation numbers", () => {
-  // protects=a Note's Citation numbers match in the pack and in the Note; fails_when=a figure's note takes a footnote number, so a later Citation skips one (#2313).
-  test("a calculated figure takes no footnote number, so a Citation after it does not skip one", () => {
-    const blocks = [
-      paragraph(
-        text("Revenue was "),
-        citation(one),
-        text(" and the total "),
-        figureNode,
-        text(" as well "),
-        citation(two),
-      ),
-    ];
+  // protects=the pack numbers a figure in the same series as the Note and its exports; fails_when=a figure takes no number, so the Citations read 1, 2 (#2313).
+  test("a calculated figure takes the next number, so the Citations after it read 1 and 3", () => {
     expect(numberCitations(blocks, "numbered", attributesOf).map((each) => each.number)).toEqual([
-      1, 2,
+      1, 3,
     ]);
   });
 
-  // protects=Citations number among themselves in a style that cites in the text; fails_when=a figure takes a cited ordinal, so the Citation after it is 3 (#2313).
-  test("in a style that cites in the text, a figure takes no cited ordinal", () => {
-    const blocks = [
-      paragraph(citation(one), text(" and "), figureNode, text(" as well "), citation(two)),
-    ];
+  // protects=a style that cites in the text numbers a figure in the shared cited ordinal; fails_when=the figure takes no place, so the Citations read 1, 2 (#2313).
+  test("in a style that cites in the text, a figure takes a cited ordinal", () => {
     expect(numberCitations(blocks, "in-text", attributesOf).map((each) => each.number)).toEqual([
-      1, 2,
+      1, 3,
     ]);
   });
 
-  // protects=a note style numbers each Citation in order, with no number for a figure; fails_when=a figure takes a footnote number, so the Citation after it is 3 (#2313).
-  test("in a note style, a figure takes no footnote number", () => {
-    const blocks = [
-      paragraph(
-        citation(one),
-        text(" and the total "),
-        figureNode,
-        text(" as well "),
-        citation(two),
-      ),
-    ];
+  // protects=a note style gives a figure a footnote number in the shared series; fails_when=the figure takes no number, so the Citations read 1, 2 (#2313).
+  test("in a note style, a figure takes a footnote number", () => {
     expect(numberCitations(blocks, "note", attributesOf).map((each) => each.number)).toEqual([
-      1, 2,
+      1, 3,
     ]);
   });
 });

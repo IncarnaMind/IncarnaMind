@@ -304,7 +304,8 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
   await expect(marks(window)).toHaveCount(15);
   await expect(again).toHaveAttribute("title", "Nothing changed");
 
-  // ⌘K's "Check" is that same action; "Check every sentence again" is every claim.
+  // ⌘K's "Check" goes through the same estimate: a spending cap is set, so it opens the card's
+  // question and waits for the User's OK there; "Check every sentence again" is every claim.
   await slideSelect(window, first, "Puffins");
   await window.keyboard.type("Gulls");
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(1);
@@ -315,8 +316,11 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
     window,
     window.getByTestId("palette-item").filter({ hasText: "Checks this note" }).first(),
   );
+  const ask = window.getByTestId("check-card").getByTestId("mind-check-ask");
+  await expect(ask).toContainText("Check this note’s claim against your Documents?");
+  await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(1);
+  await pointAndClick(window, ask.getByTestId("mind-check-check"));
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(0);
-  await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
   // Every sentence again is offered once that check is done.
   await expect(marks(window).and(window.locator('[data-check="checking"]'))).toHaveCount(0);
   await window.keyboard.press("ControlOrMeta+k");
