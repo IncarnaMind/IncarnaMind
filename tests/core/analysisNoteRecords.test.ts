@@ -383,7 +383,7 @@ describe("an Analysis's figures in a Note (#2378)", () => {
   test.each(["en", "zh-CN"] as const)(
     "%s: the chart asked for is drawn in the Note from the Analysis's values, cited to the rows it read",
     async (language) => {
-      const { core, orders, answer, client } = await askedFor(language);
+      const { core, orders, answer, madeId, client } = await askedFor(language);
 
       const created = answer.toolCalls.find((call) => call.tool === "create_mind");
       expect(created?.mindChange?.chartNotDrawn).toBeUndefined();
@@ -405,6 +405,11 @@ describe("an Analysis's figures in a Note (#2378)", () => {
           check: "found",
         });
       }
+      // Each point of the chart is cited: the schedule never offers Add as Citation on one.
+      const schedule = await core.getFigureSchedule(madeId);
+      const points = schedule.rows.filter((row) => row.locator.kind === "chart");
+      expect(points.length).toBeGreaterThan(0);
+      expect(points.every((row) => row.cited)).toBe(true);
       core.close();
     },
   );

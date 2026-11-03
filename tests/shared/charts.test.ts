@@ -1251,7 +1251,7 @@ describe("an Analysis's own values in a chart (#2378)", () => {
     expect(chart.data.rows.map((row) => row.values[0]?.shown)).toEqual(["8,325", "9,450"]);
   });
 
-  test("cites every input the Analysis read, never the cell's own text Citation", () => {
+  test("cites every input the Analysis read first, then the cell's own text Citation", () => {
     const quoted = table([
       ["Region", "Amount"],
       ["Central", "8,325"],

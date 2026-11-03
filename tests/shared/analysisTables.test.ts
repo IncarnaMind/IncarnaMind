@@ -205,6 +205,33 @@ describe("a table two Analyses could have given (#2378)", () => {
     expect(cited && headingCitations(cited)).toBe(1);
   });
 
+  test("matches no table whose own headings cite another version of the same place", () => {
+    const rows = [
+      ["North", 270.5],
+      ["South", 80],
+    ];
+    const shown = tableBlock(rows);
+    const cell = shown.content?.[0]?.content?.[0];
+    if (!cell) throw new Error("No heading cell.");
+    cell.content = [...(cell.content ?? []), citationNode({ ...citation, contentHash: "h2" })];
+    expect(
+      analysisTableFor(
+        shown,
+        analysisTablesOf([
+          analysis([
+            {
+              kind: "table",
+              name: "by_region",
+              label: "Revenue by region",
+              unit: null,
+              table: table(rows),
+            },
+          ]),
+        ]),
+      ),
+    ).toBeNull();
+  });
+
   test("matches no table whose own headings cite another place of the same Document", () => {
     const rows = [
       ["North", 270.5],

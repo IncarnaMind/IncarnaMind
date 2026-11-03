@@ -184,27 +184,35 @@ export function tableUpdate(
  * is, so a deleted or repeated row moves no value to its neighbour.
  */
 function keepingStoredValues(fresh: ChartData, stored: ChartData): ChartData {
-  const key = (label: string, series: string, seriesIndex: number) =>
-    JSON.stringify([label, series, seriesIndex]);
+  const key = (label: string, series: string) => JSON.stringify([label, series]);
   const before = new Map<string, ChartValue[]>();
   for (const row of [...stored.rows, ...stored.cutRows]) {
     row.values.forEach((value, series) => {
       if (!value?.fromAnalysis) return;
-      const name = key(row.label, stored.series[series] ?? "", series);
+      const name = key(row.label, stored.series[series] ?? "");
       before.set(name, [...(before.get(name) ?? []), value]);
     });
   }
-  const seen = new Map<string, number>();
+  const used = new Map<string, Set<number>>();
   const kept = (rows: ChartData["rows"]) =>
     rows.map((row) => ({
       ...row,
       values: row.values.map((value, series) => {
         if (!value) return value;
-        const name = key(row.label, fresh.series[series] ?? "", series);
-        const occurrence = seen.get(name) ?? 0;
-        seen.set(name, occurrence + 1);
-        const old = before.get(name)?.[occurrence];
-        if (!old || value.shown !== old.shown) return value;
+        const name = key(row.label, fresh.series[series] ?? "");
+        const taken = used.get(name) ?? new Set<number>();
+        used.set(name, taken);
+        const candidates = before.get(name) ?? [];
+        // The words pick the row's own value among repeated labels; a changed row keeps its display.
+        let old: ChartValue | undefined;
+        for (let at = 0; at < candidates.length; at += 1) {
+          const candidate = candidates[at];
+          if (!candidate || taken.has(at) || candidate.shown !== value.shown) continue;
+          taken.add(at);
+          old = candidate;
+          break;
+        }
+        if (!old) return value;
         return {
           ...value,
           value: old.value,
