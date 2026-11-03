@@ -1004,6 +1004,16 @@ export interface CalculationSessionOptions {
   partOfFormulas?(citation: Citation, sheet: string, ref: string): boolean;
 }
 
+/** What the model is told a recorded figure came to: "[=1] = 20.4% (Revenue growth: $1,482.6 million ÷ $1,231.0 million − 1)". */
+export function toldFigure(marker: number, figure: CalculatedFigure): string {
+  const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
+  const worked = formulaText(
+    figure.formula,
+    (name) => byName.get(name.toLowerCase())?.number.chars ?? null,
+  );
+  return `Recorded [=${marker}] = ${figure.shown} (${figure.label ? `${figure.label}: ` : ""}${worked}).`;
+}
+
 /** One Answer's calculated figures: what `calculate` takes, and the figures by marker. */
 export function createCalculationSession(options: CalculationSessionOptions) {
   const { documents, quotes, language } = options;
@@ -2521,16 +2531,6 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return `${lead}: ${numbers} ${one ? "is" : "are"} written into its formula beside ${beside} of ${first.book}, cells that workbook's own formulas work out or read. If ${one ? "it" : "one of them"} is a value the Question supposes for one of the workbook's inputs, this figure is a what-if, and calculate would leave out every formula between that input and the figure: call ${WORKBOOK_TOOLS.whatIf} with the figure's cell, that input and its new value instead. Only if ${one ? "it" : "each"} is a constant of the arithmetic itself (12 months in a year, say), give ${one ? "it" : "them"} as "constants" on this figure and call calculate again.`;
   }
 
-  /** What the model is told a recorded figure came to: "[=1] = 20.4% (Revenue growth: $1,482.6 million ÷ $1,231.0 million − 1)". */
-  function told(marker: number, figure: CalculatedFigure): string {
-    const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
-    const worked = formulaText(
-      figure.formula,
-      (name) => byName.get(name.toLowerCase())?.number.chars ?? null,
-    );
-    return `Recorded [=${marker}] = ${figure.shown} (${figure.label ? `${figure.label}: ` : ""}${worked}).`;
-  }
-
   /** Takes figures; returns what to tell the model about them. */
   function calculate(list: readonly unknown[], { structured = false }: CiteOptions = {}): string {
     if (!structured && ++calls > MAX_CALLS_PER_ANSWER)
@@ -2583,7 +2583,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       failed.delete(marker);
       options.onRecord?.(marker, outcome.recorded.figure);
       lines.push(
-        told(marker, outcome.recorded.figure) +
+        toldFigure(marker, outcome.recorded.figure) +
           outcome.recorded.note +
           (earlier &&
           !earlier.signAsked &&

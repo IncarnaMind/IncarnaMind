@@ -152,14 +152,17 @@ const UNREAD_VERDICTS = [
   "结论：不成立",
 ];
 
-/** The verdict lines Claude Haiku 5.5 wrote beside its `cite` call, with no marker. */
-const verdictLines = (says: string) =>
+/**
+ * The verdict lines Claude Haiku 5.5 wrote beside its `cite` call, with no marker, and a Roles line
+ * that copies the sentence's words, as the reply form asks.
+ */
+const verdictLines = (says: string, sentence: string) =>
   [
     "Verdict: supported",
     "Absence: no",
     "Scope: none, same",
     "Topic: found",
-    "Roles: none, same",
+    `Roles: ${sentence} / ${sentence}, same`,
     "Time: none / none, same",
     "",
     says,
@@ -205,7 +208,7 @@ function splitting(language: Language, split: Split, calls: ModelCall[]) {
       const search = { tool: "search_documents", input: { query: sentence } };
       if (searches.length === 0)
         return split.verdict === "search"
-          ? { text: verdictLines(says), calls: [search] }
+          ? { text: verdictLines(says, sentence), calls: [search] }
           : { calls: [search] };
       const figuresLine = `Figures: ${JSON.stringify({
         items: requestedFigures(call).map(({ id }) => ({
@@ -231,7 +234,7 @@ function splitting(language: Language, split: Split, calls: ModelCall[]) {
       })}`;
       if (call.prompt.includes(REMAINDER_ASK))
         return {
-          text: `${verdictLines(says)}\n\nFigures: ${JSON.stringify({
+          text: `${verdictLines(says, sentence)}\n\nFigures: ${JSON.stringify({
             ...JSON.parse(figuresLine.slice("Figures: ".length)),
             remainder: null,
           })}`,
@@ -252,7 +255,7 @@ function splitting(language: Language, split: Split, calls: ModelCall[]) {
                 },
               ],
             }
-          : { text: `${verdictLines(says)}\n\n${figuresLine}` };
+          : { text: `${verdictLines(says, sentence)}\n\n${figuresLine}` };
       if (cites === 0) {
         const cite = {
           tool: "cite",
@@ -265,7 +268,7 @@ function splitting(language: Language, split: Split, calls: ModelCall[]) {
           },
         };
         return split.verdict === "cite"
-          ? { text: verdictLines(says), calls: [cite] }
+          ? { text: verdictLines(says, sentence), calls: [cite] }
           : { calls: [cite] };
       }
       if (split.between && cites === 1)
@@ -357,7 +360,7 @@ function plainSplitting(quote: string, last: string, refusesBetween = false) {
         const cites = call.results.filter((result) => result.tool === "cite").length;
         if (cites === 0)
           return {
-            text: verdictLines(`The Documents say: ${quote}`).replace(
+            text: verdictLines(`The Documents say: ${quote}`, sentenceOf(call)).replace(
               "Evidence: [1, 2]",
               "Evidence: [1]",
             ),
@@ -402,7 +405,7 @@ function writingItsRecord(sentence: string, given: string, second?: "alone" | "l
         const marker = second ? 2 : 1;
         return {
           text: [
-            verdictLines(`The Documents say: ${sentence} [^1]`).replace(
+            verdictLines(`The Documents say: ${sentence} [^1]`, sentence).replace(
               "Evidence: [1, 2]",
               second ? "Evidence: [1, 2]" : "Evidence: [1]",
             ),

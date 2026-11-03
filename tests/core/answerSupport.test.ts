@@ -547,13 +547,13 @@ describe("a check names whether a thing has happened or is still to happen", () 
       const passage = shown.find((each) => each.text.includes(quote))?.id;
       return { calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote }] } }] };
     };
-  const verdict = (time: string, says: string) =>
+  const verdict = (roles: string, time: string, says: string) =>
     [
       "Verdict: supported",
       "Absence: no",
       "Scope: none, same",
       "Topic: found",
-      "Roles: none, same",
+      `Roles: ${roles}`,
       `Time: ${time}`,
       `${says} [^1]`,
       "Covered: the price of two K9 kilns",
@@ -567,6 +567,7 @@ describe("a check names whether a thing has happened or is still to happen", () 
           reply: citeThen(
             COST,
             verdict(
+              "两台 K9 窑炉 / two K9 kilns, same",
               "已安装好 / installation in February 2027, differs",
               "The slide prices two K9 kilns, installed.",
             ),
@@ -576,6 +577,7 @@ describe("a check names whether a thing has happened or is still to happen", () 
           reply: citeThen(
             INSTALLATION,
             verdict(
+              "两台 K9 窑炉计划于 2027 年 2 月安装 / Installation in February 2027, same",
               "计划于 2027 年 2 月 / in February 2027, same",
               "The slide plans installation in February 2027.",
             ),

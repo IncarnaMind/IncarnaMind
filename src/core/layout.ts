@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { parseLocation } from "../shared/locations";
+import { parseCitedArea, parseLocation } from "../shared/locations";
 import {
   type AssistantCorner,
   type AssistantDock,
@@ -95,6 +95,7 @@ const REASONS = [
   "too-many-pages",
   "in-several-places",
   "no-text",
+  "picture",
   "kept-inside",
   "document-removed",
   "answer-limit",
@@ -173,6 +174,11 @@ function parsePlace(value: unknown): DocumentPlace {
       throw new InvalidInputError("A quote is text.");
     }
     place.quote = value.quote;
+  }
+  if (value.area !== undefined) {
+    const area = parseCitedArea(value.area);
+    if (!area) throw new InvalidInputError({ key: "error.layout.area" });
+    place.area = area;
   }
   if (value.citation !== undefined) place.citation = parseCitation(value.citation);
   if (value.currentVersion !== undefined) {
