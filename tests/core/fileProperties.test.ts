@@ -695,14 +695,23 @@ const SIZED = {
       "Survey log.txt is 1.2 MB.",
       "Survey log.txt is 1.18 MiB.",
       "Survey log.txt is 1.18 MB.",
+      "Survey log.txt is 1-2 MB.",
       "Site notes.txt is 1.2 KB.",
     ],
-    contradicted: ["Survey log.txt is 2 MB.", "Survey log.txt is 1.17 MiB."],
+    contradicted: [
+      "Survey log.txt is 2 MB.",
+      "Survey log.txt is 1.17 MiB.",
+      "Survey log.txt is 2-3 MB.",
+    ],
     under: "Survey log.txt is under 2 MB.",
     noUnit: "The size of Survey log.txt is 1.2.",
   },
   "zh-CN": {
-    supported: ["Survey log.txt 的大小是 1.2 MB。", "Site notes.txt 的大小是 1.2 KB。"],
+    supported: [
+      "Survey log.txt 的大小是 1.2 MB。",
+      "Survey log.txt 的大小是 1–2 MB。",
+      "Site notes.txt 的大小是 1.2 KB。",
+    ],
     contradicted: ["Survey log.txt 的大小是 2 MB。"],
     under: "Survey log.txt 不到 2 MB。",
     noUnit: "Survey log.txt 的大小是 1.2。",
@@ -721,7 +730,8 @@ describe.each(["en", "zh-CN"] as const)(
         quote,
         property: "size",
       });
-      const log = (verdict: Plan["verdict"]) => sized("Survey log", "Size: 1,234,567 bytes", verdict);
+      const log = (verdict: Plan["verdict"]) =>
+        sized("Survey log", "Size: 1,234,567 bytes", verdict);
       const plans: Record<string, Plan> = {
         ...Object.fromEntries(
           sentences.supported.map((sentence) => [
@@ -731,7 +741,9 @@ describe.each(["en", "zh-CN"] as const)(
               : log("supported"),
           ]),
         ),
-        ...Object.fromEntries(sentences.contradicted.map((sentence) => [sentence, log("contradicted")])),
+        ...Object.fromEntries(
+          sentences.contradicted.map((sentence) => [sentence, log("contradicted")]),
+        ),
         [sentences.under]: { ...log("supported"), relation: "at most" },
         [sentences.noUnit]: log("supported"),
       };
