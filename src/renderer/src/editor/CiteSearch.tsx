@@ -126,6 +126,8 @@ export function CiteSearch({
   useEffect(() => {
     let current = true;
     setFailed(false);
+    // A Passage gone, or a search that failed, is about the words that asked for it.
+    setProblem(null);
     const timer = setTimeout(() => {
       core.findPassages({ text: query, mindId, scope }).then(
         (passages) => {
