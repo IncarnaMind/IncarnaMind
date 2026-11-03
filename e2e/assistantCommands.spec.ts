@@ -656,6 +656,50 @@ test("the first cloud read for Organize asks on its card, and Allow is that cons
   await app.close();
 });
 
+test("中文：第一次用云端整理时，卡片写明会发送什么，允许后记住同意", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window, "zh-CN");
+  await organizeWithTheFake(window);
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const provider = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "fake-model",
+    });
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
+      automatic: settings.automatic,
+    });
+    const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
+    if (!flow) throw new Error("No classification flow.");
+    await core.revokeConsent("classification", flow.flow.service.id);
+  });
+
+  const card = await askAndWait(window, "重新整理一下这些文件");
+  await expect(card).toHaveAttribute("data-reason", "organize");
+  await expect(card).toContainText("整理 4 个文档，放进文件夹？");
+  await expect(card).toContainText("会把文档名称和摘录发送给 OpenAI。");
+  await screenshot(window, "commands-organize-cloud-asks-zh");
+  await setWindowSize(app, window, 900, 900);
+  await screenshot(window, "commands-organize-cloud-asks-zh-narrow");
+  await setWindowSize(app, window, 1440, 900);
+  await pointAndClick(window, card.getByTestId("approval-allow-once"));
+
+  const answer = assistantAnswers(window).last();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  await expect(answer.getByTestId("command-changes-title")).toHaveText("整理了 4 个文档");
+  const consent = await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await core.listDataFlows()).find((each) => each.flow.id === "classification")?.consent;
+  });
+  expect(consent).toBe("accepted");
+  await app.close();
+});
+
 test("Re organise the files files every Document, and one Undo puts them back", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
