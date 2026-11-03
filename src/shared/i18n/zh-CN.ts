@@ -1148,7 +1148,7 @@ export const zhCN = {
   "claim.properties.modified": "修改时间 {date}（文件本身的日期）",
   "claim.properties.author": "作者 {author}",
   "claim.properties.size": "大小 {size}",
-  "claim.properties.name": "文件名 {name}",
+  "claim.properties.name": "文件名“{name}”",
   "claim.properties.computerOnly": "只有这台电脑记录的日期：{date}。复制或下载文件会改变这个日期。",
   "claim.more": "这条核对的更多操作",
   "claim.searchWeb": "联网搜索",

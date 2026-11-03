@@ -11,6 +11,7 @@ import { appendFile, utimes } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import { createAiSdkChatModel, type Document, type FilePropertyName } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
+import { formatDate } from "../../src/shared/dates";
 import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -221,7 +222,7 @@ describe.each(["en", "zh-CN"] as const)(
         }
         const documents: Document[] = await addAndProcess(core, paths);
         const computerLine = translate(language, "claim.properties.computerOnly", {
-          date: language === "en" ? "28 Oct 2026" : "2026年10月28日",
+          date: formatDate("2026-10-28T12:00:00Z", language),
         });
         const lines = [`## ${MODEL} · ${language}`];
         const falseSupported: string[] = [];

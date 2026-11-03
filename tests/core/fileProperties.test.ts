@@ -13,6 +13,7 @@ import { declaredProperties } from "../../src/core/answers/checks/fileProperties
 import { readVerdict } from "../../src/core/answers/checks/prompt";
 import type { Language } from "../../src/core/language";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { formatDate } from "../../src/shared/dates";
 import { checkGenerate, isCheckRun, sentenceOf } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
@@ -377,10 +378,13 @@ describe("A PDF, a deck and a workbook", () => {
   });
 });
 
-const COMPUTER_LINE = {
-  en: "Only this computer’s date is known: 2 Nov 2026. Copying or downloading a file changes it.",
-  "zh-CN": "只有这台电脑记录的日期：2026年11月2日。复制或下载文件会改变这个日期。",
-} as const;
+/** The ruled line, with this computer's date as the day it was here, in its own time zone. */
+const computerLine = (language: Language, at: string) => {
+  const date = formatDate(at, language);
+  return language === "en"
+    ? `Only this computer’s date is known: ${date}. Copying or downloading a file changes it.`
+    : `只有这台电脑记录的日期：${date}。复制或下载文件会改变这个日期。`;
+};
 
 describe.each(["en", "zh-CN"] as const)(
   "A file that records no date of its own (%s)",
@@ -411,7 +415,7 @@ describe.each(["en", "zh-CN"] as const)(
         expect(result, claim).toMatchObject({
           verdict: "unsupported",
           evidence: null,
-          unsupported: { reason: COMPUTER_LINE[language], found: true },
+          unsupported: { reason: computerLine(language, "2026-11-02T12:00:00Z"), found: true },
         });
       }
       expect(setup.sent()).toContain(onComputer);
@@ -737,7 +741,7 @@ describe("Which Documents' properties a check shows", () => {
       await setup.core.checkClaim({ claim: "Site notes.md was last modified on 2 November 2026." }),
     ).toMatchObject({
       verdict: "unsupported",
-      unsupported: { reason: COMPUTER_LINE.en.replace("2 Nov 2026", "28 Oct 2026") },
+      unsupported: { reason: computerLine("en", "2026-10-28T12:00:00Z") },
     });
   });
 

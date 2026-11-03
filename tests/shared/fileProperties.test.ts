@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import type { FileProperties } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
+import { formatDate } from "../../src/shared/dates";
 import { fileDates, propertyRow, shownFileDate } from "../../src/shared/fileProperties";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
@@ -46,7 +47,10 @@ test("a file's own dates are shown when it records any, this computer's only whe
 test("a file's own date is the day it names where it was saved; this computer's, the day here", () => {
   expect(shownFileDate("2026-11-02T23:30:00-08:00", "file", "en")).toBe("2 Nov 2026");
   expect(shownFileDate("2026-11-02T23:30:00-08:00", "file", "zh-CN")).toBe("2026年11月2日");
-  expect(shownFileDate("2026-11-02T12:00:00.000Z", "computer", "en")).toBe("2 Nov 2026");
+  // This computer's is the day it was here, in its own time zone.
+  expect(shownFileDate("2026-11-02T12:00:00.000Z", "computer", "en")).toBe(
+    formatDate("2026-11-02T12:00:00.000Z", "en"),
+  );
 });
 
 test("a check's row names the property and whose date it is, in both languages", () => {

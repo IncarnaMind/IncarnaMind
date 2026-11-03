@@ -1184,7 +1184,7 @@ export const en = {
   "claim.properties.modified": "Modified {date} (the file’s own date)",
   "claim.properties.author": "Author {author}",
   "claim.properties.size": "Size {size}",
-  "claim.properties.name": "File name {name}",
+  "claim.properties.name": "File name “{name}”",
   "claim.properties.computerOnly":
     "Only this computer’s date is known: {date}. Copying or downloading a file changes it.",
   "claim.more": "More for this check",

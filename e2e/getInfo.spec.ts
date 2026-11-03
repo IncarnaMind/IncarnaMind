@@ -2,6 +2,7 @@ import { copyFile, mkdir, realpath, rename, rm, stat, utimes, writeFile } from "
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge, Document } from "../src/core/api";
+import { formatDate } from "../src/shared/dates";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -141,7 +142,9 @@ test("Get info shows what is known of a PDF, a Word file, a spreadsheet, a deck 
     if (name === "Site notes") {
       // Its created time is there only where the file system keeps one.
       await expect(panel.getByText("(the file’s own date)")).toHaveCount(0);
-      await expect(modified).toHaveText("28 Oct 2026 (on this computer)");
+      // The day it was on this computer, in its own time zone.
+      const here = formatDate("2026-10-28T12:00:00Z", "en");
+      await expect(modified).toHaveText(`${here} (on this computer)`);
       await expect(modified.getByTestId("info-on-computer")).toHaveAttribute(
         "title",
         "Copying or downloading a file changes this date",
