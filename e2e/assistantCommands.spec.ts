@@ -4,6 +4,7 @@ import { type ElectronApplication, expect, type Locator, type Page, test } from 
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
+  acceptPlainTextKeys,
   addDocuments,
   askInAssistant,
   assistantAnswers,
@@ -618,6 +619,7 @@ test("the first cloud read for Organize asks on its card, and Allow is that cons
   await useLocalChatModel(window);
   await setUp(app, window);
   await organizeWithTheFake(window);
+  await acceptPlainTextKeys(window);
   await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     const provider = await core.saveChatProvider({
@@ -662,6 +664,7 @@ test("中文：第一次用云端整理时，卡片写明会发送什么，允�
   await useLocalChatModel(window);
   await setUp(app, window, "zh-CN");
   await organizeWithTheFake(window);
+  await acceptPlainTextKeys(window);
   await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     const provider = await core.saveChatProvider({
