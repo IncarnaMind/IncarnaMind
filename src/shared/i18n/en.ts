@@ -1847,8 +1847,8 @@ export const en = {
   "command.annotations.note": "Add a note to the selected text",
   "command.annotations.list": "Show this Document’s highlights and notes",
   "command.annotations.export": "Export this Document’s highlights",
-  "command.annotations.collect": "Collect this Document’s highlights into a Mind",
-  "command.annotations.collectFolder": "Collect this Folder’s highlights into a Mind",
+  "command.annotations.collect": "Collect this Document’s highlights into a note",
+  "command.annotations.collectFolder": "Collect this Folder’s highlights into a note",
   "annotations.more": "More actions for “{quote}”",
   "annotations.cantShow": "Couldn’t scroll to it in this view.",
   "annotations.export.notAllowed":
