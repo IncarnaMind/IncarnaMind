@@ -24,7 +24,7 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { formatDate } from "../../src/shared/dates";
 import { readFigures } from "../../src/shared/figures";
 import { onThisClock } from "../../src/shared/fileProperties";
-import { checkGenerate, isCheckRun, sentenceOf } from "../helpers/checks";
+import { checkGenerate, isCheckRun, requestedFigures, sentenceOf } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -52,6 +52,8 @@ interface Plan {
   verdict: "supported" | "unsupported" | "contradicted";
   /** The words it cites, from whichever Passage shown holds them. */
   quote?: string;
+  /** For a sentence with figures, the number of `quote` each figure is read from: its first when absent. */
+  number?: string;
   /** What its Property line names; no line when null; "none" when absent. */
   property?: string | null;
   /** Its Property line once asked for it, none before. */
@@ -117,6 +119,24 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
         ...(plan.covered ? [`Covered: ${plan.covered[0]}`, `Not covered: ${plan.covered[1]}`] : []),
         ...(plan.coverage ? [`Coverage: ${JSON.stringify(plan.coverage)}`] : []),
       ];
+      // A check in a Note binds each figure of its sentence to the number its quote gives.
+      const figures = requestedFigures(call);
+      if (figures.length > 0) {
+        const number = quote ? (plan.number ?? readFigures(quote)[0]?.chars) : undefined;
+        const items = figures.map(({ id, reading }) => ({
+          id,
+          verdict: number ? plan.verdict : "unsupported",
+          scope: "same",
+          topic: number ? "found" : "not found",
+          roles: "same",
+          says: null,
+          reading,
+          relation: "equals",
+          source: number ? { citation: 1, number } : null,
+          calculation: null,
+        }));
+        lines.push(`Figures: ${JSON.stringify({ items, remainder: null })}`);
+      }
       return { text: lines.join("\n") };
     },
     { generate: checkGenerate({}) },
@@ -396,6 +416,140 @@ describe("A PDF, a deck and a workbook", () => {
     });
   });
 });
+
+const COUNTED = {
+  en: {
+    slides: "Plan.pptx has 3 slides.",
+    pages: "Report.pdf is 2 pages long.",
+    sheets: "Cash forecast.xlsx has 3 sheets.",
+    size: "Site notes.txt is 1,200 bytes.",
+    wrong: "Plan.pptx has 5 slides.",
+  },
+  "zh-CN": {
+    slides: "Plan.pptx 一共有 3 张幻灯片。",
+    pages: "Report.pdf 共有 2 页。",
+    sheets: "Cash forecast.xlsx 共有 3 个工作表。",
+    size: "Site notes.txt 的大小是 1,200 字节。",
+    wrong: "Plan.pptx 一共有 5 张幻灯片。",
+  },
+} as const;
+
+/** A deck of 3 slides, a PDF of 2 pages, a workbook of 3 sheets and a text file of 1,200 bytes. */
+const countedFiles = (): SourceFile[] => {
+  const slide = { shapes: sp({ body: txBody(para("<a:r><a:t>Plan</a:t></a:r>")) }) };
+  return [
+    { name: "Plan.pptx", contents: pptxOf({ slides: [slide, slide, slide] }) },
+    { name: "Report.pdf", contents: buildPdf([{ lines: ["Report"] }, { lines: ["Findings"] }]) },
+    {
+      name: "Cash forecast.xlsx",
+      contents: xlsxOf([
+        { name: "Forecast", rows: [["Month", "Cash"]] },
+        { name: "Assumptions", rows: [] },
+        { name: "Old model", rows: [["Draft", 1]], state: "hidden" },
+      ]),
+    },
+    { name: "Site notes.txt", contents: "Site notes. ".repeat(100) },
+  ];
+};
+
+describe.each(["en", "zh-CN"] as const)(
+  "a count or size sentence in a Note, checked figure by figure (%s)",
+  (language) => {
+    const sentences = COUNTED[language];
+    // protects=a Note's sentence about a file's slides, pages, sheets or size, whose number is read as a figure, is decided by that property; fails_when=a sentence with figures is never shown the file's properties, and a count in a Note is Not checked.
+    test("is Supported by the file's own count or size, and Contradicted by another", async () => {
+      const counted = (document: string, quote: string, name: string): Plan => ({
+        document,
+        verdict: "supported",
+        quote,
+        property: name,
+      });
+      const setup = await setUp(
+        countedFiles(),
+        {
+          [sentences.slides]: counted("Plan", "Slides: 3", "slides"),
+          [sentences.pages]: counted("Report", "Pages: 2", "pages"),
+          [sentences.sheets]: counted("Cash forecast", "Sheets: 3", "sheets"),
+          [sentences.size]: counted("Site notes", "Size: 1,200 bytes", "size"),
+          [sentences.wrong]: {
+            ...counted("Plan", "Slides: 3", "slides"),
+            verdict: "contradicted",
+            change: ["5", "3"],
+          },
+        },
+        language,
+      );
+      const expected = [
+        [sentences.slides, "Plan.pptx", property("slides", "3")],
+        [sentences.pages, "Report.pdf", property("pages", "2")],
+        [sentences.sheets, "Cash forecast.xlsx", property("sheets", "3")],
+        [sentences.size, "Site notes.txt", property("size", "1200")],
+      ] as const;
+      for (const [sentence, file, location] of expected) {
+        const { check } = await checkInNote(setup.core, sentence, null);
+        const documentId = setup.named(file).id;
+        expect(check, sentence).toMatchObject({
+          state: "supported",
+          evidence: { documentId, location },
+          figures: [{ state: "supported", evidence: { documentId, location } }],
+        });
+      }
+
+      const { check: wrong } = await checkInNote(setup.core, sentences.wrong, null);
+      expect(wrong).toMatchObject({
+        state: "contradicted",
+        evidence: { location: property("slides", "3") },
+        figures: [{ state: "contradicted", evidence: { location: property("slides", "3") } }],
+      });
+      // The file's count is never written into the Note as a Document's words.
+      expect(wrong).not.toHaveProperty("correction");
+      expect(wrong?.figures?.[0]).not.toHaveProperty("correction");
+    });
+
+    // protects=a figure a property backs decides a Note's sentence only when its Property line names that property, and its own row says so too; fails_when=a figure bound to the file's slide count is Supported, row or sentence, while the reply says the sentence is about what the Document says or about another property.
+    test("is decided by a property only when its Property line names it, figure and sentence alike", async () => {
+      const setup = await setUp(
+        countedFiles(),
+        {
+          [sentences.slides]: {
+            document: "Plan",
+            verdict: "supported",
+            quote: "Slides: 3",
+            property: "none",
+          },
+          [sentences.pages]: {
+            document: "Report",
+            verdict: "supported",
+            quote: "Pages: 2",
+            property: "slides",
+          },
+        },
+        language,
+      );
+      for (const sentence of [sentences.slides, sentences.pages]) {
+        const { check } = await checkInNote(setup.core, sentence, null);
+        expect(check?.state, sentence).toBe("unsupported");
+        expect(check?.figures?.map((figure) => figure.state), sentence).toEqual(["unsupported"]);
+        expect(JSON.stringify(check), sentence).not.toContain('"kind":"properties"');
+      }
+      // The same deck's count does decide the sentence whose line names it.
+      const named = await setUp(
+        countedFiles(),
+        {
+          [sentences.slides]: {
+            document: "Plan",
+            verdict: "supported",
+            quote: "Slides: 3",
+            property: "slides",
+          },
+        },
+        language,
+      );
+      const { check } = await checkInNote(named.core, sentences.slides, null);
+      expect(check?.state).toBe("supported");
+    });
+  },
+);
 
 /** The ruled line, with this computer's date as the day it was here, in its own time zone. */
 const computerLine = (language: Language, at: string) => {
@@ -700,8 +854,8 @@ describe("What decides a sentence", () => {
     expect(signed.verdict === "unsupported" && signed.unsupported).not.toHaveProperty("found");
   });
 
-  // protects=a sentence with figures, checked figure by figure, is never offered the file's properties: no property backs a figure; fails_when=a figure sentence's check Run is given the property search.
-  test("a sentence with figures is checked as before, with no file properties offered", async () => {
+  // protects=a whole read's Run, whose every search is its window, is never offered the file's properties, while a sentence with figures is; fails_when=a whole read is shown properties outside its window, or a figure sentence's Run is not.
+  test("a whole read is checked as before, with no file properties offered; a sentence with figures is offered them", async () => {
     const offered: boolean[] = [];
     const deps = {
       documents: { getMany: () => [], citationSource: () => null },
@@ -727,14 +881,15 @@ describe("What decides a sentence", () => {
     } as const;
 
     await check({
-      claim: "The fee is $5 million.",
+      claim: "The file was last modified on 2 November 2026.",
       scope,
-      figures: [figure],
+      window: [],
     } as unknown as ClaimCheckRequest);
     expect(offered).toEqual([false]);
     await check({
-      claim: "The file was last modified on 2 November 2026.",
+      claim: "The fee is $5 million.",
       scope,
+      figures: [figure],
     } as unknown as ClaimCheckRequest);
     expect(offered).toEqual([false, true]);
   });
