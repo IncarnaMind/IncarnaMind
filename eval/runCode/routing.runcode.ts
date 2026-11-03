@@ -28,6 +28,7 @@ import type { PythonRuntimeManifest } from "../../src/core/runCode";
 import { createProcessLauncher } from "../../src/main/processes";
 import { createCodeHost } from "../../src/main/runCode/host";
 import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
+import { FIGURE_MARKER } from "../../src/shared/figureMarkers";
 import { printedValues } from "../../src/shared/printedFigures";
 import { queryDatabase } from "../../tests/helpers/core";
 import { codeToolOn } from "../../tests/helpers/models";
@@ -82,6 +83,9 @@ interface Observed {
   printedUnmarked: string[];
   /** A cross-check by digits alone: typed numbers whose digits stand as a number in what code printed. */
   typedAsPrinted: string[];
+  /** The reply as the conversation keeps it, and what each of its Analyses printed. */
+  reply: string;
+  printed: string[];
   codeCalls: number;
   /** `run_code` calls that didn't end done. */
   failedCalls: number;
@@ -248,40 +252,51 @@ const printedText = (analysis: AnswerAnalysis): string =>
 
 /** What a reply shows of the numbers its code printed: marked as figures, or typed. */
 function printedIn(answer: ConversationAnswer | null, language: RoutingCase["language"]) {
-  if (!answer) return { printedMarked: [], printedUnmarked: [], typedAsPrinted: [] };
+  if (!answer)
+    return { printedMarked: [], printedUnmarked: [], typedAsPrinted: [], reply: "", printed: [] };
   const printed = new Map(
     answer.analyses.map((analysis) => [
       analysis.number,
       new Set(printedValues(analysis).map((each) => each.value.name)),
     ]),
   );
-  const printedMarked = answer.figures.flatMap((figure) =>
-    figure.analysis && printed.get(figure.analysis.analysis)?.has(figure.analysis.result)
-      ? [figure.shown]
-      : [],
-  );
   const figures = new Map(answer.figures.map((figure) => [figure.marker, figure]));
+  const printedMarked = [...answer.text.matchAll(FIGURE_MARKER)].flatMap((found) => {
+    const figure = figures.get(Number(found[1]));
+    return figure?.analysis && printed.get(figure.analysis.analysis)?.has(figure.analysis.result)
+      ? [figure.shown]
+      : [];
+  });
   const quotes = new Map(answer.citations.map((citation) => [citation.marker, citation.quote]));
-  const printedUnmarked: string[] = [];
+  // Each number the marking would still mark, however often the same one is written.
+  const shown = new Map<number, string>();
   const marked = createPrintedNumbers({
     language,
     record: (figure) => {
-      printedUnmarked.push(figure.shown);
-      return 9000 + printedUnmarked.length;
+      shown.set(9000 + shown.size, figure.shown);
+      return 9000 + shown.size - 1;
     },
-  });
-  marked(answer.text, {
+  })(answer.text, {
     analyses: answer.analyses,
     quoteOf: (marker) => quotes.get(marker) ?? null,
     figureOf: (marker) => figures.get(marker) ?? null,
   });
+  const printedUnmarked = [...marked.matchAll(/\[=(9\d{3})\]/g)].flatMap(
+    (found) => shown.get(Number(found[1])) ?? [],
+  );
   const tokens = new Set(
     answer.analyses.flatMap((analysis) => printedText(analysis).match(/\d[\d.]*/g) ?? []),
   );
   const typedAsPrinted = typedNumbersIn(answer.text).filter((typed) =>
     tokens.has(typed.replaceAll(",", "").replace(/\.$/, "")),
   );
-  return { printedMarked, printedUnmarked, typedAsPrinted };
+  return {
+    printedMarked,
+    printedUnmarked,
+    typedAsPrinted,
+    reply: answer.text,
+    printed: answer.analyses.map(printedText),
+  };
 }
 
 const isAnalysis = (call: AnswerToolCall) =>
