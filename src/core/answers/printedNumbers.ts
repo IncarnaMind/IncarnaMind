@@ -88,8 +88,18 @@ function claimAround(text: string, sentences: readonly Span[], at: number): Span
 
 /** The one value of what `stated` matches, among `candidates`; null when they disagree or none does. */
 function matched(stated: Figure, candidates: readonly Candidate[]): Candidate | null {
+  // The check works each out with a formula, too slow for every number a run printed: only one
+  // within the stated number's last place can round to it, or within half of it when it is
+  // written as approximate or as a range.
+  const exactly =
+    !stated.approximate && stated.rangeTo === null && typeof stated.precision === "number";
+  const near = exactly
+    ? (stated.precision ?? 0)
+    : Math.abs(stated.value) / 2 + Math.abs((stated.rangeTo ?? stated.value) - stated.value);
   const agreeing = candidates.filter(
-    (candidate) => agreesAtShownPrecision(stated, asCalculated(candidate.reading)) === true,
+    (candidate) =>
+      Math.abs(candidate.value.value - stated.value) <= near &&
+      agreesAtShownPrecision(stated, asCalculated(candidate.reading)) === true,
   );
   const exact = agreeing.filter((candidate) => sameNumber(candidate.value.value, stated.value));
   const chosen = exact.length > 0 ? exact : agreeing;
@@ -165,10 +175,15 @@ export function createPrintedNumbers(options: PrintedNumbersOptions) {
       };
       const at = (marker: number) =>
         `${marked.slice(0, stated.start)}[=${marker}]${marked.slice(stated.end)}`;
-      const tried = withFigureText(at(TRIED), (marker) =>
+      // A figure's place reads only its own line.
+      const from = marked.lastIndexOf("\n", stated.start - 1) + 1;
+      const to = marked.indexOf("\n", stated.end);
+      const line = (text: string, end: number) => text.slice(from, end < 0 ? undefined : end);
+      const shift = `[=${TRIED}]`.length - (stated.end - stated.start);
+      const tried = withFigureText(line(at(TRIED), to < 0 ? to : to + shift), (marker) =>
         marker === TRIED ? figure : figureOf(marker),
       );
-      if (tried !== withFigureText(marked, figureOf)) continue;
+      if (tried !== withFigureText(line(marked, to), figureOf)) continue;
       const key = JSON.stringify([source.analysis, source.value.name, stated.chars]);
       const marker = recorded.get(key) ?? options.record(figure);
       recorded.set(key, marker);
