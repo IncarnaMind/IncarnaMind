@@ -72,7 +72,12 @@ const focusFieldIn = (popover: HTMLElement | null) =>
  * click outside closes it. Given `cover`, it opens over that element (a
  * row's Tags cell) instead of under the button.
  */
-export function useTagPopover({ cover }: { cover?: () => HTMLElement | null } = {}) {
+export function useTagPopover({
+  cover,
+}: {
+  /** What the picker opens over: a row's cell, or the header's ⋯ when the Tags button has no box. */
+  cover?: (button: HTMLButtonElement | null) => HTMLElement | null;
+} = {}) {
   const id = useId();
   const button = useRef<HTMLButtonElement>(null);
   const popover = useRef<HTMLDivElement>(null);
@@ -89,7 +94,7 @@ export function useTagPopover({ cover }: { cover?: () => HTMLElement | null } = 
   // (here or on `toggle`).
   useLayoutEffect(() => {
     if (!open) return;
-    const over = covered.current?.() ?? null;
+    const over = covered.current?.(button.current) ?? null;
     const box = place(button.current, popover.current, over);
     if (popover.current && box) enterFrom(popover.current, over ?? button.current, box);
     if (popover.current?.matches(":popover-open")) focusFieldIn(popover.current);
@@ -103,7 +108,7 @@ export function useTagPopover({ cover }: { cover?: () => HTMLElement | null } = 
     },
     /** Places it again, e.g. after its height changed. */
     reposition: () => {
-      place(button.current, popover.current, covered.current?.() ?? null);
+      place(button.current, popover.current, covered.current?.(button.current) ?? null);
     },
     buttonProps: {
       ref: button,

@@ -13,6 +13,7 @@
  */
 import { createHash } from "node:crypto";
 import * as Y from "yjs";
+import { PICTURE_DATA_URL } from "../../shared/askedQuote";
 import { type LiveDocument, liveDocumentOf } from "../../shared/citations";
 import { pendingProposals, proposalRequestOf, readProposalAttribute } from "../../shared/proposals";
 import { parseThirdPartySource } from "../../shared/textOrigins";
@@ -450,8 +451,6 @@ export function readMind(
   };
 }
 
-const PICTURE_DATA_URL = /^data:(image\/(?:png|jpeg|gif|webp));base64,([\s\S]+)$/;
-
 /** A picture Block as a model takes it, or null when it holds no picture a model reads. */
 function askedPictureOf(block: Y.XmlElement): AskedPicture | null {
   const match = PICTURE_DATA_URL.exec(block.getAttribute("src") ?? "");
@@ -677,6 +676,8 @@ interface ConversationContextOptions {
   /** The names of the Documents open on screen, the focused group's first. */
   onScreen?: readonly string[];
   ids?: ContextCitations;
+  /** The pictures the User picked on pages to ask about (#118), sent with the Question. */
+  pictures?: readonly AskedPicture[];
 }
 
 /**
@@ -697,6 +698,7 @@ export function conversationContextOf(
     changeStates,
     onScreen = [],
     ids,
+    pictures = [],
   }: ConversationContextOptions = {},
 ): QuestionContextWithOrigins {
   const pieces: Piece[] = earlier.flatMap((message): Piece[] => {
@@ -734,8 +736,17 @@ export function conversationContextOf(
   });
   const asked = askedText(onScreen, mind?.selection ?? "", question);
   const kept = keptWithinBudget(pieces.reverse(), budget - estimateTokens(asked));
+  const withPictures = [...(mind?.pictures ?? []), ...pictures];
   return {
-    context: { messages: withMind(mind?.text ?? "", kept, asked, mind?.pictures), question },
+    context: {
+      messages: withMind(
+        mind?.text ?? "",
+        kept,
+        asked,
+        withPictures.length > 0 ? withPictures : undefined,
+      ),
+      question,
+    },
     origins: originsOf(kept),
   };
 }
@@ -907,6 +918,8 @@ export function fitQuestionContext(
   onCut?: (kept: MindCut) => void,
 ): AnswerMessage[] | null {
   const above = piecesOf(messages);
+  // The Question's own pictures, and the Mind's, are kept with the Question as it is cut.
+  const pictures = messages.at(-1)?.pictures;
   const first = above[0];
   const withText = !!mind?.text && first?.role === "user" && first.text.startsWith(mind.text);
   if (withText && first && mind) {
@@ -948,7 +961,7 @@ export function fitQuestionContext(
     if (kept.selection) asked = `${kept.selection}\n\n${asked}`;
     remaining -= estimateTokens(kept.text) + estimateTokens(kept.selection) + 2;
   }
-  return withMind(mindText, keptWithinBudget(above.reverse(), remaining), asked, mind?.pictures);
+  return withMind(mindText, keptWithinBudget(above.reverse(), remaining), asked, pictures);
 }
 
 /** Messages as pieces, the records of earlier Answers' Tool calls and a Document's whole text apart from the messages that hold them. */

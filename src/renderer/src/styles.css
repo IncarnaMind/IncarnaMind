@@ -41,6 +41,9 @@
   --color-accent: #2a5bd7;
   --color-accent-strong: #1e46b0;
   --color-accent-wash: #e7edfb;
+  /* The cells a User selected in a sheet, drawn as the system's selection is (#118). */
+  --selection-wash: color-mix(in srgb, AccentColor, transparent 88%);
+  --selection-overlay: color-mix(in srgb, AccentColor, transparent 88%);
   /* A selection in a field that has lost the focus, as macOS draws one in a window not in front. */
   --color-selection-inactive: #dde1e7;
   /* Citation checks, the same green on a found quote in the viewer, and a note's Checked state (D266). */
@@ -4806,6 +4809,73 @@
   .composer-row > .quote-chip--where-first {
     max-width: 100%;
   }
+  /* A sheet range's chip: its preview, on hover, shows the cells with their header row (#118). */
+  .composer-quote--rows {
+    position: relative;
+    max-width: 100%;
+    padding-left: 4px;
+  }
+  .composer-table-preview {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    z-index: 30;
+    max-width: 340px;
+    max-height: 240px;
+    overflow: auto;
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
+    color: var(--color-ink);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+
+    table {
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th,
+    td {
+      padding: 2px 6px;
+      border-bottom: 1px solid var(--color-rule);
+      text-align: left;
+      white-space: nowrap;
+    }
+    th {
+      background: var(--color-frame);
+      font-weight: 600;
+    }
+  }
+  .composer-quote--rows:hover .composer-table-preview,
+  .composer-quote--rows:focus-within .composer-table-preview {
+    display: block;
+  }
+  .composer-table-preview-title {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--color-ink-meta);
+    font-size: 12px;
+  }
+  /* An area of a page: its thumbnail, then "Figure · p. 7" (#118). */
+  .composer-quote--area {
+    height: 26px;
+    max-width: 100%;
+    padding-left: 3px;
+  }
+  .composer-quote-thumb {
+    display: block;
+    width: 32px;
+    height: 20px;
+    flex-shrink: 0;
+    border-radius: 3px;
+    object-fit: cover;
+  }
+  .composer-quote-thumb--none {
+    background: var(--color-frame);
+    box-shadow: inset 0 0 0 1px var(--color-rule);
+  }
 
   /*
    * A suggestion as the User writes (#282): grey text after the caret, then
@@ -6759,6 +6829,13 @@
       color: var(--color-ink-placeholder);
       cursor: default;
     }
+  }
+  /* A menu's own line above its items: a range's size (DESIGN.md › Viewer). */
+  .editor-menu-note {
+    padding: 4px 8px 2px;
+    color: var(--color-ink-meta);
+    font-size: 12px;
+    white-space: nowrap;
   }
   /* Numbering ›: each scheme as its first levels draw it, its name after (#1419). */
   .numbering-menu {

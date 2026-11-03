@@ -2,7 +2,7 @@
 import { figureContextOf, readFigures } from "../../shared/figures";
 import { PDF_BLANK_FIELD, PDF_UNREAD_FIELD } from "../../shared/pdfFormText";
 import { CJK, nameKey } from "../../shared/text";
-import type { CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
+import type { AskedTable, CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, type Language } from "../language";
 import { asData, tagged } from "../promptData";
@@ -220,24 +220,51 @@ export const THIS_DOCUMENT_RULE = [
 
 const inAttribute = (text: string) => listedName(text).replace(/"/g, "'");
 
-const selected = (quote: { documentName: string; quote: string }, place: string | null) =>
-  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${quote.quote}\n</selected>`;
+/** A sheet range as the model reads it: its header row, then its rows, tab-separated as the sheet has them. */
+const tableText = (table: AskedTable): string =>
+  [...(table.header ? [table.header] : []), ...table.rows]
+    .map((cells) => cells.join("\t"))
+    .join("\n");
+
+const selected = (
+  quote: { documentName: string; quote: string; table?: AskedTable },
+  place: string | null,
+) =>
+  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${quote.table ? tableText(quote.table) : quote.quote}\n</selected>`;
+
+/** A selected block's entry: the words (or a range's cells), and the picture of an area (#118) when there is one. */
+export interface SelectedBlockQuote {
+  documentName: string;
+  quote: string;
+  place: string | null;
+  shown: string;
+  table?: AskedTable;
+  /** An area of a page's picture: attached to the message, or withheld from a model that can't read it. */
+  pictureState?: "sent" | "withheld";
+}
 
 /**
  * Words the User selected in their Documents to ask about (#101), each followed by the Passages
- * it is in as the model reads them (`shown`), to cite it from.
+ * it is in as the model reads them (`shown`), to cite it from. A sheet range (#118) comes with its
+ * header row; an area of a page (`picture`) has its picture attached to the message.
  */
-export function selectedTextBlock(
-  quotes: readonly { documentName: string; quote: string; place: string | null; shown: string }[],
-): string {
-  const each = quotes.map((quote) => `${selected(quote, quote.place)}\n\n${quote.shown}`);
+export function selectedTextBlock(quotes: readonly SelectedBlockQuote[]): string {
+  const each = quotes.map((quote) => {
+    const picture =
+      quote.pictureState === "sent"
+        ? "\nThe picture at this place is attached to this message."
+        : quote.pictureState === "withheld"
+          ? "\nThe picture at this place is not attached to this message: this model can’t read pictures."
+          : "";
+    return `${selected(quote, quote.place)}${picture}\n\n${quote.shown}`;
+  });
   return `<selected-text>\nThe User selected these words in their Documents to ask about them, in <selected>: "this", "it", "这段", "这句" and the like in the Question mean them. Answer about them, and cite them before anything else, from the Passage that follows them, at the location their <selected> gives.\n\n${each.join("\n\n")}\n</selected-text>`;
 }
 
 /** An earlier Question as its conversation's context reads it: the words it asked about, then its text. */
 export function askedAbout(question: {
   text: string;
-  quotes: readonly { documentName: string; quote: string }[];
+  quotes: readonly { documentName: string; quote: string; table?: AskedTable }[];
 }): string {
   return [...question.quotes.map((quote) => selected(quote, null)), question.text].join("\n\n");
 }
