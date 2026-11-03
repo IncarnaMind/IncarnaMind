@@ -168,7 +168,7 @@ export function ViewerHeader({
         data-testid="viewer-header"
         {...(document ? objectMenu.rowProps : {})}
         ref={header}
-        className="viewer-header"
+        className={areaMode ? "viewer-header viewer-header--area" : "viewer-header"}
       >
         {leading}
         {document && (

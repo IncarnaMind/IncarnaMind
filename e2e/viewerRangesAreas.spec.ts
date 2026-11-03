@@ -6,6 +6,7 @@ import { docxOf, xlsxOf } from "../tests/helpers/office";
 import { buildPdf, type PdfPage } from "../tests/helpers/pdf";
 import { para, pptxOf, sp, xfrm } from "../tests/helpers/pptx";
 import {
+  acceptPlainTextKeys,
   addDocuments,
   assistantAnswers,
   useLocalChatModel as connectLocalChatModel,
@@ -123,6 +124,7 @@ async function setUp({
   await dismissChatSetup(window);
   if (textOnly) {
     // A catalog model that reads text alone: the area chip says it can't be used.
+    await acceptPlainTextKeys(window);
     await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreApi }).incarnamind;
       await bridge.saveChatProvider({

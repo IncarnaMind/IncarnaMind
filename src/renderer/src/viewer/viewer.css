@@ -133,6 +133,12 @@
   .viewer-zoom-level {
     @apply min-w-9 shrink-0 text-center whitespace-nowrap tabular-nums;
   }
+  /* The Select area control takes room a header without it has to spare: the zoom label gives way first (#118). */
+  @container viewer (width < 660px) {
+    .viewer-header--area .viewer-zoom-level {
+      @apply sr-only;
+    }
+  }
   /* In a narrow viewer the labels give way first (still read out), then the dividers. */
   @container viewer (width < 520px) {
     .viewer-zoom-level {

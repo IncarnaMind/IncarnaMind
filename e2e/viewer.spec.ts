@@ -889,8 +889,8 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
   expect(headerBox.height).toBe(36);
   expect(headerBox.y).toBe(strip.y + strip.height);
 
-  // In order: the outline toggle, the name, its Tags, page navigation, zoom, Keep open (it is
-  // a preview), its own app, and its ⋯ menu.
+  // In order: the outline toggle, the name, its Tags, page navigation, zoom, Select area, Keep
+  // open (it is a preview), its own app, and its ⋯ menu.
   const controls = header.locator("button, input, [data-testid='viewer-title']");
   expect(
     await controls.evaluateAll((elements) =>
@@ -906,6 +906,7 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
     "pdf-zoom-out",
     "pdf-zoom-in",
     "pdf-fit-width",
+    "viewer-area-select",
     "viewer-keep",
     "viewer-open-externally",
     "document-file-menu",
@@ -922,7 +923,7 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
   // Every control is reached with Tab, in that order (Previous page is off on page 1).
   await header.getByTestId("pdf-outline-button").focus();
   const reached: (string | null)[] = [];
-  for (let step = 0; step < 8; step++) {
+  for (let step = 0; step < 9; step++) {
     await window.keyboard.press("Tab");
     reached.push(
       await window.evaluate(() => document.activeElement?.getAttribute("data-testid") ?? null),
@@ -935,6 +936,7 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
     "pdf-zoom-out",
     "pdf-zoom-in",
     "pdf-fit-width",
+    "viewer-area-select",
     "viewer-keep",
     "viewer-open-externally",
   ]);
