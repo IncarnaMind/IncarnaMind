@@ -10,7 +10,7 @@ import * as Y from "yjs";
 import type { Document } from "../../src/core";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import { createElement, nodeOf, topLevelBlocks } from "../../src/core/answers/blocks";
-import { CHART_NODE, type ConversationAnswer } from "../../src/core/api";
+import { CHART_NODE, type ConversationAnswer, MIND_FIGURE_RUNS_FIELD } from "../../src/core/api";
 import { noAnalysisOutput } from "../../src/shared/analysis";
 import { answerBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
@@ -18,11 +18,12 @@ import { readChart } from "../../src/shared/charts";
 import { calculatedFiguresIn } from "../../src/shared/figureRuns";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { askAssistant } from "../helpers/assistant";
-import { shownPassages } from "../helpers/citations";
+import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { footnotesOf, part, unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
+import { resolveChanges } from "../helpers/minds";
 import { scriptedModel, scriptedModels } from "../helpers/models";
 import { fakePrinter } from "../helpers/printer";
 
@@ -135,8 +136,19 @@ const QUESTION: Record<Language, string> = {
 /** Searches, runs the Analysis, then makes the Note with its own table and the two figures. */
 function writingModel(
   language: Language,
-  { chart = true, twoInputs = false }: { chart?: boolean; twoInputs?: boolean } = {},
+  {
+    chart = true,
+    twoInputs = false,
+    settled = false,
+    chartAfterFirstWrite = false,
+  }: {
+    chart?: boolean;
+    twoInputs?: boolean;
+    settled?: boolean;
+    chartAfterFirstWrite?: boolean;
+  } = {},
 ): MockLanguageModelV4 {
+  let writes = 0;
   return scriptedModel((call) => {
     if (call.prompt.includes(FOLLOW_UP[language])) {
       if (!call.results.some((result) => result.tool === "add_to_mind")) {
@@ -183,6 +195,15 @@ function writingModel(
       };
     }
     if (!call.results.some((result) => result.tool === "create_mind")) {
+      const asked = chart || (chartAfterFirstWrite && writes > 0);
+      writes++;
+      const content = settled
+        ? `${CONTENT[language]}\n\n${
+            language === "en"
+              ? "Central's orders came from the sheet [^1]."
+              : "Central 的订单来自该表 [^1]。"
+          }`
+        : CONTENT[language];
       return {
         calls: [
           {
@@ -190,8 +211,8 @@ function writingModel(
             streamInput: true,
             input: {
               title: NOTE[language],
-              content: CONTENT[language],
-              ...(chart && {
+              content,
+              ...(asked && {
                 chart: {
                   kind: "bar",
                   title: language === "en" ? "Total order amount by region" : "各地区订单金额合计",
@@ -199,6 +220,20 @@ function writingModel(
               }),
             },
           },
+          ...(settled
+            ? [
+                {
+                  tool: "cite",
+                  input: {
+                    citations: shownPassages(search.text).map((passage, index) => ({
+                      marker: index + 1,
+                      passage: passage.id,
+                      quote: passage.text,
+                    })),
+                  },
+                },
+              ]
+            : []),
         ],
       };
     }
@@ -206,8 +241,17 @@ function writingModel(
   });
 }
 
-async function setUp(language: Language, options: { chart?: boolean; twoInputs?: boolean } = {}) {
-  const runtime = createFakeAnalysisRuntime({ answer: () => ANALYSIS });
+async function setUp(
+  language: Language,
+  options: {
+    chart?: boolean;
+    twoInputs?: boolean;
+    settled?: boolean;
+    chartAfterFirstWrite?: boolean;
+    answer?: FakeAnswer;
+  } = {},
+) {
+  const runtime = createFakeAnalysisRuntime({ answer: () => options.answer ?? ANALYSIS });
   const printer = fakePrinter();
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir, {
@@ -239,7 +283,13 @@ async function setUp(language: Language, options: { chart?: boolean; twoInputs?:
 /** Asks for the table and the chart in a Note, and gives back the Note it made. */
 async function askedFor(
   language: Language,
-  options: { chart?: boolean; twoInputs?: boolean } = {},
+  options: {
+    chart?: boolean;
+    twoInputs?: boolean;
+    settled?: boolean;
+    chartAfterFirstWrite?: boolean;
+    answer?: FakeAnswer;
+  } = {},
 ) {
   const { core, printer, mind, orders, regions } = await setUp(language, options);
   const answer = await askAssistant(core, {
@@ -410,12 +460,14 @@ describe("an Analysis's figures in a Note (#2378)", () => {
         .map(nodeOf)
         .find((node) => node.type === CHART_NODE);
       if (chart?.attrs) {
-        for (const row of readChart(chart.attrs).data.rows) {
-          for (const value of row.values) {
-            if (!value) continue;
-            expect(value.citation).toBeNull();
-            expect(value.citations).toBeUndefined();
-          }
+        const values = readChart(chart.attrs)
+          .data.rows.flatMap((row) => row.values)
+          .filter((value) => value !== null);
+        // A chart with no value would make the Citation check below assert nothing.
+        expect(values.length).toBeGreaterThan(0);
+        for (const value of values) {
+          expect(value.citation).toBeNull();
+          expect(value.citations).toBeUndefined();
         }
       } else {
         // Ambiguous display values aren't charted at all, rather than guessed from a rounded form.
@@ -522,6 +574,179 @@ describe("an Analysis's figures in a Note (#2378)", () => {
       // Note's own checks may check, never as a figure an Analysis checked.
       expect(calculatedFiguresIn(blocks)).toEqual([]);
       expect(blocks.map(textOf).join("")).toContain("35,550");
+    },
+  );
+});
+
+describe("a Note from an earlier build, its figure's Analysis record gone (#2378)", () => {
+  /** What an earlier build left: figures naming an Analysis whose record is no longer kept. */
+  async function noteWithoutItsRecord(language: Language) {
+    const made = await askedFor(language, { chart: false });
+    const figures = calculatedFiguresIn(topLevelBlocks(made.client.blocks).map(nodeOf));
+    const analysisId = figures.find((figure) => figure.figure.analysis)?.analysisId;
+    if (!analysisId) throw new Error("The Note names no Analysis.");
+    const runs = made.client.doc.getMap(MIND_FIGURE_RUNS_FIELD);
+    const key = JSON.stringify([analysisId]);
+    const prefix = `${key.slice(0, -1)},`;
+    made.client.doc.transact(() => {
+      for (const each of [...runs.keys()])
+        if (each === key || each.startsWith(prefix)) runs.delete(each);
+    });
+    await made.client.settled();
+    await resolveChanges(made.client, "accept");
+    const schedule = await made.core.getFigureSchedule(made.madeId);
+    expect(schedule.analyses).toEqual([]);
+    return {
+      ...made,
+      schedule,
+      shown: schedule.rows.filter((row) => row.calculated).map((row) => row.shown.state),
+    };
+  }
+
+  test.each(["en", "zh-CN"] as const)(
+    "%s: reads as its value and Not checked through a Checkpoint, retention, the schedule and the card's sources",
+    async (language) => {
+      const {
+        core: running,
+        madeId,
+        client,
+        schedule,
+        shown,
+      } = await noteWithoutItsRecord(language);
+      // The card reads the same schedule row, and its evidence is the figure's own text.
+      expect(shown.length).toBeGreaterThan(0);
+      expect(new Set(shown)).toEqual(new Set(["not-checked"]));
+      expect(
+        schedule.rows
+          .filter((row) => row.calculated)
+          .map((row) => Number(row.calculated?.figure.value ?? 0))
+          .sort((a, b) => a - b),
+      ).toEqual([6.550218340611353, 35550]);
+
+      const saved = await running.saveCheckpoint(madeId, "idle");
+      expect((await running.listCheckpoints(madeId)).checkpoints.map((each) => each.id)).toContain(
+        saved.id,
+      );
+      await running.restoreCheckpoint(madeId, saved.id);
+      await client.settled();
+      const restored = await running.getFigureSchedule(madeId);
+      expect(restored.analyses).toEqual([]);
+      expect(restored.rows.filter((row) => row.calculated).map((row) => row.shown.state)).toEqual(
+        shown,
+      );
+
+      // A reload keeps the Note read the same: retention has nothing to retain, and reads on.
+      await running.closeMind(madeId);
+      const reloaded = await running.getFigureSchedule(madeId);
+      expect(reloaded.rows.filter((row) => row.calculated).map((row) => row.shown.state)).toEqual(
+        shown,
+      );
+      running.close();
+    },
+  );
+
+  test.each(["en", "zh-CN"] as const)(
+    "%s: exports write its value with the saved-inputs note, never as calculated by the Analysis",
+    async (language) => {
+      const { core: running, printer, madeId } = await noteWithoutItsRecord(language);
+      const unavailable =
+        language === "en"
+          ? "aren’t available, so IncarnaMind writes it as its value"
+          : "保存的输入暂不可用";
+      const calculated =
+        language === "en"
+          ? `Calculated by the Analysis “${TITLE[language]}”`
+          : `由数据分析“${TITLE[language]}”计算得出`;
+
+      const files = unzip((await running.exportMind(madeId, { format: "docx" })).data);
+      const footnotes = Object.values(footnotesOf(part(files, "word/footnotes.xml"))).join("\n");
+      expect(footnotes).toContain(unavailable);
+      expect(footnotes).not.toContain(calculated);
+
+      await running.exportMind(madeId, { format: "pdf" });
+      const printed = printer.printed.at(-1);
+      if (!printed) throw new Error("The PDF wasn't printed.");
+      const notes = printed.notes.join("\n");
+      expect(notes).toContain(unavailable);
+      expect(notes).not.toContain(calculated);
+
+      const pack = await running.exportMind(madeId, { format: "source-pack" });
+      expect(pack.citations).toBeGreaterThan(0);
+      expect(printer.printed.at(-1)?.body ?? "").not.toContain(calculated);
+      running.close();
+    },
+  );
+});
+
+/** The same Analysis, its four totals with a third decimal no display keeps. */
+const ROUNDED_TOTAL = 8325.444;
+const ROUNDED: FakeAnswer = {
+  output: {
+    ...(ANALYSIS.output ?? noAnalysisOutput()),
+    results: (ANALYSIS.output?.results ?? []).map((result) =>
+      result.kind === "table"
+        ? {
+            ...result,
+            table: {
+              ...result.table,
+              rows: [
+                ["Central", ROUNDED_TOTAL],
+                ["North", 9450],
+                ["South", 8700],
+                ["West", 9075],
+              ],
+            },
+          }
+        : result,
+    ),
+  },
+};
+
+describe("a chart of the Analysis's table, drawn after the Answer is read again (#2378)", () => {
+  test.each(["en", "zh-CN"] as const)(
+    "%s: a write that waited for cite draws the Analysis's own values, not its rounded display",
+    async (language) => {
+      const { core, client } = await askedFor(language, { settled: true, answer: ROUNDED });
+      await client.settled();
+      const chart = topLevelBlocks(client.blocks)
+        .map(nodeOf)
+        .find((node) => node.type === CHART_NODE);
+      if (!chart?.attrs) throw new Error("The Note has no chart.");
+      expect(readChart(chart.attrs).data.rows[0]?.values[0]?.value).toBe(ROUNDED_TOTAL);
+      core.close();
+    },
+  );
+
+  test.each(["en", "zh-CN"] as const)(
+    "%s: a regenerated Answer's chart draws the Analysis's own values",
+    async (language) => {
+      const { core, answer, client } = await askedFor(language, {
+        chart: false,
+        chartAfterFirstWrite: true,
+        answer: ROUNDED,
+      });
+      expect(
+        topLevelBlocks(client.blocks)
+          .map(nodeOf)
+          .some((node) => node.type === CHART_NODE),
+      ).toBe(false);
+
+      await resolveChanges(client, "accept");
+      const result = await core.regenerateConversationAnswer({
+        conversationId: answer.conversationId,
+        answerId: answer.id,
+        clearScope: true,
+      });
+      if (!result.asked) throw new Error("The Answer wasn't asked again.");
+      await answerEnded(core, result.answerId);
+      await client.settled();
+
+      const chart = topLevelBlocks(client.blocks)
+        .map(nodeOf)
+        .find((node) => node.type === CHART_NODE);
+      if (!chart?.attrs) throw new Error("The regenerated Note has no chart.");
+      expect(readChart(chart.attrs).data.rows[0]?.values[0]?.value).toBe(ROUNDED_TOTAL);
+      core.close();
     },
   );
 });

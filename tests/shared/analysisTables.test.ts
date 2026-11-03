@@ -3,7 +3,12 @@ import { withAnalysisResults } from "../../src/core/analysis/markers";
 import { markdownToBlocks } from "../../src/core/answers/markdown";
 import type { AnswerAnalysis, Citation } from "../../src/core/api";
 import { type AnalysisTable, noAnalysisOutput } from "../../src/shared/analysis";
-import { countCitations, withAnalysisTableCitations } from "../../src/shared/analysisTables";
+import {
+  analysisTableFor,
+  analysisTablesOf,
+  countCitations,
+  withAnalysisTableCitations,
+} from "../../src/shared/analysisTables";
 import type { NodeJSON } from "../../src/shared/blockJson";
 
 const citation: Citation = {
@@ -148,5 +153,63 @@ describe("an Analysis's table with its Citations (#2378)", () => {
     const tableBlock = cited.find((block) => block.type === "table");
     if (!tableBlock) throw new Error("No table.");
     expect(headingCitations(tableBlock)).toBe(1);
+  });
+});
+
+describe("a table two Analyses could have given (#2378)", () => {
+  const rows = [
+    ["North", 270.5],
+    ["South", 80],
+  ];
+  const result = {
+    kind: "table" as const,
+    name: "by_region",
+    label: "Revenue by region",
+    unit: null,
+    table: table(rows),
+  };
+  const secondInput: AnswerAnalysis["inputs"][number] = {
+    kind: "range",
+    name: "other sales",
+    citation: { ...citation, documentId: "d2", documentName: "Sales 2027" },
+    range: "A1:B25",
+    rows: 24,
+    columns: 2,
+    rowCount: 24,
+    cut: false,
+    sha256: "d".repeat(64),
+  };
+
+  test("is cited to neither when the Analyses read different Documents", () => {
+    const first = analysis([result]);
+    const second: AnswerAnalysis = {
+      ...analysis([result]),
+      number: 2,
+      inputs: [secondInput],
+    };
+    expect(withAnalysisTableCitations([tableBlock(rows)], [first, second])[0]).toEqual(
+      tableBlock(rows),
+    );
+  });
+
+  test("is cited when one Analysis gives it twice with the same values and inputs", () => {
+    const [cited] = withAnalysisTableCitations(
+      [tableBlock(rows)],
+      [
+        analysis(
+          [result],
+          [{ kind: "bar", title: "Revenue", x: "Region", y: ["Revenue"], table: table(rows) }],
+        ),
+      ],
+    );
+    expect(cited && headingCitations(cited)).toBe(1);
+  });
+
+  test("matches no Analysis that read nothing cited", () => {
+    const readNothing: AnswerAnalysis = { ...analysis([result]), inputs: [] };
+    expect(analysisTableFor(tableBlock(rows), analysisTablesOf([readNothing]))).toBeNull();
+    expect(withAnalysisTableCitations([tableBlock(rows)], [readNothing])[0]).toEqual(
+      tableBlock(rows),
+    );
   });
 });

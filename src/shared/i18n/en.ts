@@ -848,6 +848,8 @@ export const en = {
     "Each input is quoted from its Document, and IncarnaMind did the arithmetic. This doesn’t show that these were the right figures to use.",
   "figures.inline.analysisNote":
     "These are the inputs and steps saved with this figure. Keeping the record doesn’t run the Analysis again.",
+  "figures.inline.analysisUnavailable":
+    "The inputs and steps saved with this figure aren’t available. IncarnaMind writes it as its value.",
   "figures.inline.analysis": "Saved Analysis: {title}",
   "figures.analysisRows.worked.one": "{how} of {label} in {count} row of {input}: {rows}",
   "figures.analysisRows.worked.other": "{how} of {label} in {count} rows of {input}: {rows}",

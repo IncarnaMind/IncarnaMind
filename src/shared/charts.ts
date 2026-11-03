@@ -496,11 +496,19 @@ const isFound = (check: CitationCheck | undefined) => check === "found";
 
 /** The Citations a value rests on: its own, or each of its Inputs' when it is calculated (#2307). */
 export function valueCitations(value: ChartValue): CitationAttributes[] {
-  if (!value.figure) return value.citation ? [value.citation] : [];
-  return value.figure.figure.inputs.flatMap((input) => [
-    input.citation,
-    ...(input.unitStatement ? [input.unitStatement.citation] : []),
-  ]);
+  if (value.figure)
+    return value.figure.figure.inputs.flatMap((input) => [
+      input.citation,
+      ...(input.unitStatement ? [input.unitStatement.citation] : []),
+    ]);
+  const seen = new Set<string>();
+  const citations = [...(value.citation ? [value.citation] : []), ...(value.citations ?? [])];
+  return citations.filter((citation) => {
+    const key = JSON.stringify(citation);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 class Places {
@@ -916,9 +924,12 @@ export function chartFromTable(
     const calculated = figureAt(cell, read?.figure);
     // A calculated figure's value, not the rounded number its shown text reads as (#2378).
     const worked = calculated.figure?.figure.value;
+    // A bare year is a label in a year column, even when the Analysis gives it as a number (#1131).
+    const bareYear = !read && BARE_YEAR.test(cell.text.trim());
+    const readValue = bareYear ? null : (cell.number ?? read?.value ?? null);
     return {
       shown: cell.text.trim(),
-      value: typeof worked === "number" ? worked : (cell.number ?? read?.value ?? null),
+      value: typeof worked === "number" ? worked : readValue,
       unit: read ? read.figure.unit : null,
       scale: read ? read.figure.scale : null,
       citation: calculated.figure ? null : cell.citation,
@@ -1142,14 +1153,20 @@ export function withAnalysisValues(grid: SourceGrid, match: AnalysisTableMatch):
     row.map((cell, column) => {
       if (!cell || at === 0) return cell;
       const value = match.value(at - 1, column);
-      return value === null
-        ? cell
-        : {
-            ...cell,
-            number: value,
-            citation: cell.citation ?? citations[0] ?? null,
-            ...(citations.length > 1 && { citations }),
-          };
+      if (value === null) return cell;
+      // The number is the Analysis's, so its inputs are the value's Citations; the cell's own,
+      // for the text it held, come after them (#2378).
+      const all = [...citations, ...(cell.citation ? [cell.citation] : [])];
+      const unique = all.filter(
+        (citation, index) =>
+          all.findIndex((each) => JSON.stringify(each) === JSON.stringify(citation)) === index,
+      );
+      return {
+        ...cell,
+        number: value,
+        citation: unique[0] ?? null,
+        ...(unique.length > 1 && { citations: unique }),
+      };
     }),
   );
 }

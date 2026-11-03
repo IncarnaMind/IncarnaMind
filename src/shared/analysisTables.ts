@@ -121,17 +121,27 @@ export function analysisTableFor(
 ): AnalysisTableMatch | null {
   if (block.type !== "table") return null;
   const grid = gridOf(block);
-  return (
-    tables.find(
-      (table) =>
-        table.citations.length > 0 &&
-        table.grids.some(
-          (cells) =>
-            cells.length === grid.length &&
-            grid.every((row, at) => row.join("\u0000") === (cells[at] ?? []).join("\u0000")),
-        ),
-    ) ?? null
+  const matches = tables.filter(
+    (table) =>
+      table.citations.length > 0 &&
+      table.grids.some(
+        (cells) =>
+          cells.length === grid.length &&
+          grid.every((row, at) => row.join("\u0000") === (cells[at] ?? []).join("\u0000")),
+      ),
   );
+  const [first] = matches;
+  if (!first) return null;
+  // Two Analyses that read the same rows can give the same table: cited to either alone would name
+  // the wrong one, so it counts only while they agree on every value and where it came from (#2378).
+  const agrees = matches.every(
+    (table) =>
+      JSON.stringify(table.citations) === JSON.stringify(first.citations) &&
+      grid.every((row, at) =>
+        row.every((_, column) => table.value(at - 1, column) === first.value(at - 1, column)),
+      ),
+  );
+  return agrees ? first : null;
 }
 
 /**

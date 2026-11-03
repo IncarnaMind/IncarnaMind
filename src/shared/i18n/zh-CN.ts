@@ -827,6 +827,7 @@ export const zhCN = {
   "figures.inline.note":
     "各项输入均引用自其文档，运算由 IncarnaMind 完成。这并不说明所用数字就是适合此次计算的数字。",
   "figures.inline.analysisNote": "这里显示的是随此数字保留的输入和步骤。保留记录不会重新运行分析。",
+  "figures.inline.analysisUnavailable": "此数字保存的输入和步骤已不可用，IncarnaMind 按数值写出。",
   "figures.inline.analysis": "保留的分析记录：{title}",
   "figures.analysisRows.worked.one": "“{input}”{rows}中{label}的{how}（共 {count} 行）",
   "figures.analysisRows.worked.other": "“{input}”{rows}中{label}的{how}（共 {count} 行）",

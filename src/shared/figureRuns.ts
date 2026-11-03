@@ -13,7 +13,7 @@ import {
   type RetainedFigureAnalysis,
   type RetainedFigureValue,
 } from "../core/api";
-import { InvalidInputError, isRecord } from "../core/errors";
+import { isRecord } from "../core/errors";
 import {
   ANALYSIS_LIMITS,
   type AnalysisRecalculation,
@@ -296,12 +296,17 @@ function usesIn(blocks: readonly NodeJSON[]): FigureUses {
 const runKey = (id: string) => JSON.stringify([id]);
 const valueKey = (id: string, name: string) => JSON.stringify([id, name]);
 
+/**
+ * The records `blocks`' figures name, as many as the Note still keeps: a figure whose record is
+ * missing or isn't the one it shows reads as its value and Not checked, never as an error. An
+ * earlier build could leave one behind, and a Note must open and export whatever it holds (#2378).
+ */
 export function figureRunsFor(doc: Y.Doc, blocks: readonly NodeJSON[]): RetainedFigureAnalysis[] {
   const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);
-  return [...usesIn(blocks)].map(([id, names]) => {
+  const found: RetainedFigureAnalysis[] = [];
+  for (const [id, names] of usesIn(blocks)) {
     const metadata = runs.get(runKey(id));
-    if (!isRecord(metadata) || metadata.id !== id)
-      throw new Error("The calculated figure's Analysis record is missing.");
+    if (!isRecord(metadata) || metadata.id !== id) continue;
     const values = [...names.keys()].flatMap((name) => {
       const value = runs.get(valueKey(id, name));
       return value === undefined ? [] : [value];
@@ -315,9 +320,10 @@ export function figureRunsFor(doc: Y.Doc, blocks: readonly NodeJSON[]): Retained
         return expected?.size !== 1 || !expected.has(value.value);
       })
     )
-      throw new Error("The calculated figure's value is not in its Analysis record.");
-    return run;
-  });
+      continue;
+    found.push(run);
+  }
+  return found;
 }
 
 export function readFigureRunClosure(
@@ -328,7 +334,13 @@ export function readFigureRunClosure(
   const doc = new Y.Doc();
   try {
     installFigureRuns(doc, records);
-    return figureRunsFor(doc, blocks);
+    const runs = figureRunsFor(doc, blocks);
+    // A clipboard that names an Analysis must carry the whole record its figures read from: a
+    // paste that would leave one unread is refused, unlike a Note an earlier build left behind.
+    const found = new Set(runs.map((run) => run.id));
+    if ([...usesIn(blocks).keys()].some((id) => !found.has(id)))
+      throw new Error("The calculated figure's Analysis record is missing.");
+    return runs;
   } finally {
     doc.destroy();
   }
@@ -434,13 +446,15 @@ export function calculatedSources(
   const ranges: AnalysisRangeInput[] = [];
   let analysis: RetainedFigureAnalysis | null = null;
   if (attributes.figure.analysis) {
-    if (!doc) throw new InvalidInputError({ key: "error.figure.evidenceMissing" });
     analysis =
-      figureRunsFor(doc, [
-        calculatedFigureNode(attributes.figure, attributes.id, attributes.analysisId),
-      ])[0] ?? null;
-    if (!analysis) throw new InvalidInputError({ key: "error.figure.evidenceMissing" });
-    for (const input of analysis.inputs) {
+      (doc
+        ? figureRunsFor(doc, [
+            calculatedFigureNode(attributes.figure, attributes.id, attributes.analysisId),
+          ])[0]
+        : null) ?? null;
+    // A record the Note no longer keeps leaves the figure reading as its value, with only the
+    // inputs its own text names (#2378).
+    for (const input of analysis?.inputs ?? []) {
       if (input.kind === "figure") inputs.push(input.input);
       else ranges.push(input);
     }

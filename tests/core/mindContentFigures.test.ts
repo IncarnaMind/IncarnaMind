@@ -363,7 +363,7 @@ describe("core ownership of calculated figures", () => {
     expect(client.doc.getMap(MIND_SETTINGS_FIELD).get("model")).toBe("new-model");
   });
 
-  test("History validates a missing saved run before changing content or saving another checkpoint", async () => {
+  test("History restores a checkpoint whose saved run is missing as its value, and keeps working", async () => {
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir);
     const mind = await core.createMind();
@@ -393,11 +393,18 @@ describe("core ownership of calculated figures", () => {
       installFigureRuns(client.doc, [run(["b"], "another-run")]);
     });
     await client.settled();
-    const before = (await core.openMind(mind.id)).state;
-    const checkpoints = (await core.listCheckpoints(mind.id)).checkpoints;
-    await expect(core.restoreCheckpoint(mind.id, incomplete.id)).rejects.toThrow();
-    expect((await core.openMind(mind.id)).state).toEqual(before);
-    expect((await core.listCheckpoints(mind.id)).checkpoints).toEqual(checkpoints);
+    const restored = await core.restoreCheckpoint(mind.id, incomplete.id);
+    await client.settled();
+    // The figure names a record the checkpoint no longer keeps: it reads as its value (#2378).
+    const schedule = await core.getFigureSchedule(mind.id);
+    expect(schedule.rows.filter((row) => row.calculated).map((row) => row.shown.state)).toEqual([
+      "not-checked",
+    ]);
+    await expect(core.openMind(mind.id)).resolves.toHaveProperty("access", "edit");
+    expect((await core.listCheckpoints(mind.id)).checkpoints.map((each) => each.id)).toContain(
+      restored.before.id,
+    );
+    expect(await core.saveCheckpoint(mind.id, "idle")).toMatchObject({ mindId: mind.id });
   });
 
   test("a Note retains its figures' input, unit and Analysis range versions and heals its projection", async () => {
@@ -463,11 +470,9 @@ describe("core ownership of calculated figures", () => {
     await client.settled();
     const before = core.retention.retainedBy("note-figure", mind.id);
     expect(before).toHaveLength(2);
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     client.doc.getMap(MIND_FIGURE_RUNS_FIELD).clear();
     await client.settled();
     expect(core.retention.retainedBy("note-figure", mind.id)).toEqual(before);
-    expect(logged).toHaveBeenCalled();
     await expect(core.openMind(mind.id)).resolves.toHaveProperty("access", "edit");
     client.doc.getMap(MIND_SETTINGS_FIELD).set("schemaVersion", CONTENT_SCHEMA_VERSION + 1);
     await client.settled();

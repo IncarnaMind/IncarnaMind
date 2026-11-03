@@ -870,6 +870,13 @@ export function createCore(adapters: CoreAdapters): Core {
         console.error(`Mind ${mindId}: retaining calculated figure sources failed`, error);
         return;
       }
+      // A figure whose Analysis record is gone doesn't say what it rests on: keep what is retained.
+      if (citations === null) {
+        console.error(
+          `Mind ${mindId}: a calculated figure's Analysis record is missing; keeping its retained sources`,
+        );
+        return;
+      }
       const documents = new Set(
         citations.flatMap(({ documentId }) => (typeof documentId === "string" ? [documentId] : [])),
       );
@@ -1009,7 +1016,12 @@ export function createCore(adapters: CoreAdapters): Core {
       eachCitingMind((fragment, mindId) => {
         if (collectVersions) {
           try {
-            addCitedVersions(fragment, cited);
+            if (!addCitedVersions(fragment, cited)) {
+              complete = false;
+              console.error(
+                `Mind ${mindId}: a calculated figure's Analysis record is missing; keeping old versions`,
+              );
+            }
           } catch (error) {
             complete = false;
             console.error(`Mind ${mindId}: reading retained source dependencies failed`, error);

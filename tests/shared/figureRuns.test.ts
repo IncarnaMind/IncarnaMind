@@ -16,6 +16,7 @@ import {
   installFigureRuns,
   pruneFigureRuns,
   readFigureRun,
+  readFigureRunClosure,
   retainFigureAnalysis,
 } from "../../src/shared/figureRuns";
 import { FORMULA_VERSION } from "../../src/shared/formula";
@@ -255,24 +256,45 @@ describe("a Note's bounded Analysis dependencies", () => {
     doc.destroy();
   });
 
-  test("a copy refuses a missing, invalid or different Analysis result", () => {
+  test("a Note whose record is missing, invalid or different reads no run, and a copy refuses it", () => {
     const source = docWith(["a"]);
     const runs = source.getMap(MIND_FIGURE_RUNS_FIELD);
     const entries = [...runs];
     for (const [key, value] of entries) {
       runs.delete(key);
-      expect(() => figureRunsFor(source, blocks(["a"]))).toThrow();
+      expect(figureRunsFor(source, blocks(["a"]))).toEqual([]);
       runs.set(key, value);
       runs.set(key, { invalid: true });
-      expect(() => figureRunsFor(source, blocks(["a"]))).toThrow();
+      expect(figureRunsFor(source, blocks(["a"]))).toEqual([]);
       runs.set(key, value);
     }
     const changed = blocks(["a"]);
     const attrs = changed[0]?.attrs;
     if (!attrs) throw new Error("The figure fixture has no attributes.");
     attrs.figure = { ...figure("a").figure, value: 11 };
-    expect(() => figureRunsFor(source, changed)).toThrow();
-    expect(() => figureRunsFor(source, [...blocks(["a"]), ...changed])).toThrow();
+    expect(figureRunsFor(source, changed)).toEqual([]);
+    expect(figureRunsFor(source, [...blocks(["a"]), ...changed])).toEqual([]);
+
+    const copied = figureRunsFor(source, blocks(["a"]));
+    const [carried] = copied;
+    if (!carried) throw new Error("The figure fixture kept no record.");
+    expect(readFigureRunClosure(blocks(["a"]), copied)).toHaveLength(1);
+    expect(() =>
+      readFigureRunClosure(
+        blocks(["a"]),
+        copied.map((run) => ({ ...run, values: [] })),
+      ),
+    ).toThrow();
+    expect(() =>
+      readFigureRunClosure(
+        blocks(["a"]),
+        copied.map((run) => ({
+          ...run,
+          values: run.values.map((value) => ({ ...value, value: 11 })),
+        })),
+      ),
+    ).toThrow();
+    expect(() => readFigureRunClosure(blocks(["a"]), [{ ...carried, code: 4 }])).toThrow();
     source.destroy();
   });
 

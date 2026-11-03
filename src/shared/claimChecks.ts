@@ -626,8 +626,13 @@ export function analysisFigureShown(
     versions: ReadonlyMap<string, string> | null;
   },
 ): ClaimCheckShown {
-  if (figure.checked) return shown;
   const value = figure.run?.values.find((each) => each.name === figure.result);
+  // A figure that names an Analysis whose record the Note no longer keeps reads as its value and
+  // Not checked: neither a sentence's check nor a recalculation can stand for a record that is
+  // gone, and an earlier build could take one away (#2378).
+  if (figure.result !== null && !value)
+    return shown.state === "kept" ? shown : { state: "not-checked", reason: "unread" };
+  if (figure.checked) return shown;
   if (value?.check?.kind !== "same") return shown;
   for (const input of figure.run?.inputs ?? []) {
     const citation = input.kind === "figure" ? input.input.citation : input.citation;

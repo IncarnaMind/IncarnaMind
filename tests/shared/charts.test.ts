@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
-import type { CitationAttributes } from "../../src/core";
+import type { Citation, CitationAttributes } from "../../src/core";
+import type { AnalysisTableMatch } from "../../src/shared/analysisTables";
+import type { NodeJSON } from "../../src/shared/blockJson";
 import {
   CATEGORY_COUNT,
   type ChartAttributes,
@@ -11,6 +13,7 @@ import {
   chartSources,
   chosenSeries,
   drawnSeries,
+  gridOfTable,
   isNumericSeries,
   listedRows,
   MAX_CHART_VALUES,
@@ -19,11 +22,14 @@ import {
   type SourceCell,
   type SourceGrid,
   seriesName,
+  sourceLineOf,
   switchedChart,
   switchedData,
   switchMixesUnits,
   unitGroups,
   unitlessRows,
+  valueCitations,
+  withAnalysisValues,
 } from "../../src/shared/charts";
 
 const cited = (page: number, quote = `Revenue on page ${page}`): CitationAttributes => ({
@@ -1184,5 +1190,175 @@ describe("switching a chart's rows and columns", () => {
     expect(seriesName(down, 0, say)).toBe("2023");
     const stored = readChart(JSON.parse(JSON.stringify(across)) as Record<string, unknown>);
     expect(stored.source).toEqual({ kind: "table", blockId: "table-1", switched: true });
+  });
+});
+
+describe("an Analysis's own values in a chart (#2378)", () => {
+  const byDocument = (documentId: string, documentName: string, page: number): Citation => ({
+    passageId: "passage",
+    documentId,
+    documentName,
+    contentHash: "hash",
+    pageFrom: page,
+    pageTo: page,
+    location: { kind: "page", from: page, to: page },
+    quote: `Revenue on page ${page}`,
+    check: "found",
+    checkReason: null,
+  });
+  const orders = byDocument("orders", "Orders", 1);
+  const regions = byDocument("regions", "Regions", 2);
+  const own = byDocument("notebook", "Note book", 3);
+
+  const match = (
+    citations: Citation[],
+    value: (row: number, column: number) => number | null,
+    grid: string[][] = [],
+  ): AnalysisTableMatch => ({ grids: [grid], numeric: [], citations, value });
+
+  const table = (rows: string[][]): NodeJSON => ({
+    type: "table",
+    content: rows.map((line, at) => ({
+      type: "tableRow",
+      content: line.map((text) => ({
+        type: at === 0 ? "tableHeader" : "tableCell",
+        content: [{ type: "paragraph", content: text === "" ? [] : [{ type: "text", text }] }],
+      })),
+    })),
+  });
+
+  const chartOf = (grid: SourceGrid) =>
+    chartFromTable(grid, {
+      blockId: "table-1",
+      title: "Amounts",
+      language: "en",
+    }) as ChartAttributes | null;
+
+  test("draws the Analysis's own value, never the number its rounded display reads as", () => {
+    const grid = withAnalysisValues(
+      gridOfTable(
+        table([
+          ["Region", "Amount"],
+          ["Central", "8,325"],
+          ["North", "9,450"],
+        ]),
+      ),
+      match([orders], (row, column) => (column === 1 ? ([8325.4, 9450][row] ?? null) : null)),
+    );
+    const chart = chartOf(grid);
+    if (!chart) throw new Error("The table drew no chart.");
+    expect(chart.data.rows.map((row) => row.values[0]?.value)).toEqual([8325.4, 9450]);
+    expect(chart.data.rows.map((row) => row.values[0]?.shown)).toEqual(["8,325", "9,450"]);
+  });
+
+  test("cites the Analysis's inputs first, all of them, then the cell's own Citation", () => {
+    const quoted = table([
+      ["Region", "Amount"],
+      ["Central", "8,325"],
+      ["North", "9,450"],
+    ]);
+    const withOwn = gridOfTable(quoted).map((row) =>
+      row.map((cell) => (cell && !cell.header ? { ...cell, citation: own } : cell)),
+    );
+    const grid = withAnalysisValues(
+      withOwn,
+      match([orders, regions], (row, column) =>
+        column === 1 ? ([8325, 9450][row] ?? null) : null,
+      ),
+    );
+    const chart = chartOf(grid);
+    if (!chart) throw new Error("The table drew no chart.");
+    const value = chart.data.rows[0]?.values[0];
+    expect(value?.citation).toEqual(orders);
+    expect(value?.citations).toEqual([orders, regions, own]);
+    expect(chartSources(chart)).toMatchObject({ uncited: 0, documents: 3 });
+  });
+
+  test("counts every Citation a value carries, so an export names each Document", () => {
+    const grid = withAnalysisValues(
+      gridOfTable(
+        table([
+          ["Region", "Amount"],
+          ["Central", "8,325"],
+          ["North", "9,450"],
+        ]),
+      ),
+      match([orders, regions], (row, column) =>
+        column === 1 ? ([8325, 9450][row] ?? null) : null,
+      ),
+    );
+    const chart = chartOf(grid);
+    if (!chart) throw new Error("The table drew no chart.");
+    const value = chart.data.rows[0]?.values[0];
+    if (!value) throw new Error("The chart has no value.");
+    expect(valueCitations(value)).toEqual([orders, regions]);
+    expect(chartSources(chart)).toMatchObject({ uncited: 0, documents: 2 });
+  });
+
+  test("reads every Citation a cell holds, not only its first, from its own text", () => {
+    const cell: NodeJSON = {
+      type: "tableCell",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "289.4" },
+            { type: "citation", attrs: { ...orders, id: "c1" } },
+            { type: "citation", attrs: { ...regions, id: "c2" } },
+          ],
+        },
+      ],
+    };
+    const line = sourceLineOf(cell);
+    expect(line.citation).toEqual(orders);
+    expect(line.citations).toEqual([orders, regions]);
+    const chart = chartOf(
+      gridOfTable({
+        type: "table",
+        content: [
+          {
+            type: "tableRow",
+            content: [
+              { type: "tableHeader", content: [{ type: "paragraph" }] },
+              {
+                type: "tableHeader",
+                content: [{ type: "paragraph", content: [{ type: "text", text: "Amount" }] }],
+              },
+            ],
+          },
+          {
+            type: "tableRow",
+            content: [
+              {
+                type: "tableCell",
+                content: [{ type: "paragraph", content: [{ type: "text", text: "A" }] }],
+              },
+              cell,
+            ],
+          },
+        ],
+      }),
+    );
+    if (!chart) throw new Error("The table drew no chart.");
+    expect(chart.data.rows[0]?.values[0]?.citations).toEqual([orders, regions]);
+    expect(chartSources(chart).documents).toBe(2);
+  });
+
+  test("keeps a bare year in a year column out, even when the Analysis gives it as a number", () => {
+    const quoted = table([
+      ["Company", "Listed", "Employees"],
+      ["A", "1999", "150"],
+      ["B", "2005", "40"],
+    ]);
+    const grid = withAnalysisValues(
+      gridOfTable(quoted),
+      match([orders], (row, column) =>
+        column === 1 ? ([1999, 2005][row] ?? null) : column === 2 ? ([150, 40][row] ?? null) : null,
+      ),
+    );
+    const chart = chartOf(grid);
+    if (!chart) throw new Error("The table drew no chart.");
+    expect(chart.data.series).toEqual(["Employees"]);
+    expect(chart.data.rows.map((row) => row.values[0]?.value)).toEqual([150, 40]);
   });
 });

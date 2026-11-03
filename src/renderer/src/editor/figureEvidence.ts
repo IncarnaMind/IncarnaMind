@@ -109,7 +109,6 @@ export const FigureEvidence = Extension.create<{ doc: Y.Doc | null }>({
   dispatchTransaction({ transaction, next }) {
     const { doc } = this.options;
     const sync: unknown = transaction.getMeta(ySyncPluginKey);
-    const dropped = droppedAnalysisFigures(transaction);
     // Only an edit that takes away a figure an Analysis run backs has a run to remove with it:
     // every other edit goes through as it is, so typing and its Undo stay the editor's own.
     if (
@@ -117,9 +116,15 @@ export const FigureEvidence = Extension.create<{ doc: Y.Doc | null }>({
       !this.editor.isEditable ||
       (isRecord(sync) && sync.isChangeOrigin) ||
       !transaction.docChanged ||
-      doc.getMap(MIND_FIGURE_RUNS_FIELD).size === 0 ||
-      dropped.length === 0
+      doc.getMap(MIND_FIGURE_RUNS_FIELD).size === 0
     ) {
+      next(transaction);
+      return;
+    }
+    // Finding the figures an edit takes away walks the whole Note: only a transaction that can
+    // drop a record pays for it.
+    const dropped = droppedAnalysisFigures(transaction);
+    if (dropped.length === 0) {
       next(transaction);
       return;
     }
