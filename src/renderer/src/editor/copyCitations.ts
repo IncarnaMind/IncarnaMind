@@ -3,11 +3,13 @@
  * footnotes, and text with markers and Sources. Added to every editor that shows Notes.
  */
 import { Extension } from "@tiptap/core";
-import { DOMSerializer, type Fragment } from "@tiptap/pm/model";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { DOMSerializer, Fragment } from "@tiptap/pm/model";
 import { Plugin } from "@tiptap/pm/state";
-import type { RetainedFigureAnalysis } from "../../../core/api";
+import { CALCULATED_FIGURE_NODE, type RetainedFigureAnalysis } from "../../../core/api";
 import { InvalidInputError } from "../../../core/errors";
 import type { NodeJSON } from "../../../shared/blockJson";
+import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
 import { calculatedFiguresIn, readFigureRunClosure } from "../../../shared/figureRuns";
 import { withoutInertBrackets } from "../../../shared/inertBrackets";
 import type { SourceContext } from "../../../shared/sources";
@@ -24,6 +26,41 @@ export const FIGURE_RUNS_ATTRIBUTE = "data-incarnamind-figure-runs";
 
 export const clipboardBlocks = (fragment: Fragment): NodeJSON[] =>
   fragment.content.map((node) => node.toJSON() as NodeJSON);
+
+const analysisFigure = (node: ProseMirrorNode) =>
+  node.type.name === CALCULATED_FIGURE_NODE ? readCalculatedFigureAttributes(node.attrs) : null;
+
+/** The Analysis figures a node is or holds, by the id a copy names them with. */
+function analysisFigureIds(node: ProseMirrorNode): string[] {
+  const ids: string[] = [];
+  const own = analysisFigure(node);
+  if (own?.figure.analysis) ids.push(own.id);
+  node.descendants((child) => {
+    const read = analysisFigure(child);
+    if (read?.figure.analysis) ids.push(read.id);
+    return true;
+  });
+  return ids;
+}
+
+/** The node, with the figures `plain` names written as the value each shows. */
+function asPlainText(
+  node: ProseMirrorNode,
+  plain: ReadonlySet<string>,
+  schema: { text(text: string): ProseMirrorNode },
+): ProseMirrorNode[] {
+  const read = analysisFigure(node);
+  if (read && plain.has(read.id))
+    return read.figure.shown === "" ? [] : [schema.text(read.figure.shown)];
+  if (node.isLeaf) return [node];
+  return [
+    node.copy(
+      Fragment.fromArray(
+        node.content.content.flatMap((child) => asPlainText(child, plain, schema)),
+      ),
+    ),
+  ];
+}
 
 interface CopyCitationsOptions {
   figureRuns(blocks: readonly NodeJSON[]): readonly RetainedFigureAnalysis[];
@@ -65,22 +102,52 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
             const base = DOMSerializer.fromSchema(this.editor.schema);
             const serializer = new DOMSerializer(base.nodes, base.marks);
             serializer.serializeFragment = (fragment, options, target) => {
-              const out = base.serializeFragment(fragment, options, target);
+              let out = base.serializeFragment(fragment, options, target);
               const blocks = clipboardBlocks(fragment);
+              const carrier = (runs: readonly RetainedFigureAnalysis[]) => {
+                if (runs.length === 0) return;
+                const span = (options?.document ?? document).createElement("span");
+                span.setAttribute(FIGURE_RUNS_ATTRIBUTE, JSON.stringify(runs));
+                span.hidden = true;
+                out.appendChild(span);
+              };
               if (calculatedFiguresIn(blocks).some(({ figure }) => figure.analysis)) {
                 try {
-                  const runs = readFigureRunClosure(blocks, this.options.figureRuns(blocks));
-                  const carrier = (options?.document ?? document).createElement("span");
-                  carrier.setAttribute(FIGURE_RUNS_ATTRIBUTE, JSON.stringify(runs));
-                  carrier.hidden = true;
-                  out.appendChild(carrier);
+                  carrier(readFigureRunClosure(blocks, this.options.figureRuns(blocks)));
                 } catch (error) {
-                  const problem = new InvalidInputError(
-                    { key: "error.figure.copyIncomplete" },
-                    { cause: error },
-                  );
-                  useAppStore.getState().reportError(problem);
-                  throw problem;
+                  // A figure whose saved inputs are incomplete is copied as the value it shows,
+                  // and the rest keep their records: pasting gives plain text, never a claim (#2378).
+                  const plain = new Set<string>();
+                  const runs: RetainedFigureAnalysis[] = [];
+                  for (let index = 0; index < fragment.childCount; index += 1) {
+                    const block = blocks[index];
+                    const node = fragment.child(index);
+                    try {
+                      if (!block) throw new Error("The copied Blocks didn't line up.");
+                      runs.push(...readFigureRunClosure([block], this.options.figureRuns([block])));
+                    } catch {
+                      for (const id of analysisFigureIds(node)) plain.add(id);
+                    }
+                  }
+                  if (plain.size > 0)
+                    out = base.serializeFragment(
+                      Fragment.fromArray(
+                        fragment.content.flatMap((node) =>
+                          asPlainText(node, plain, this.editor.schema),
+                        ),
+                      ),
+                      options,
+                      target,
+                    );
+                  carrier(runs);
+                  useAppStore
+                    .getState()
+                    .reportError(
+                      new InvalidInputError(
+                        { key: "error.figure.copyIncomplete" },
+                        { cause: error },
+                      ),
+                    );
                 }
               }
               addFootnotes(out, citationsIn(fragment), sourceContext());

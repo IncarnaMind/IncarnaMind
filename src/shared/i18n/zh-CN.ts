@@ -4636,7 +4636,7 @@ export const zhCN = {
   "error.figure.evidenceMissing": "此数字保留的输入暂不可用。请重新核对数字或选择其来源。",
   "error.figure.paste": "未能粘贴计算依据。请重新复制这个数字，或粘贴为纯文本。",
   "error.figure.copyIncomplete":
-    "此数字保存的输入不完整，无法连同检查结果一起复制。请改为复制纯文本，或重新核对该数字。",
+    "已按纯文本复制：这个数字保存的输入不完整，核对结果没有一起复制。请重新核对这个数字后再复制。",
   "error.conversation.notFound": "这个对话不存在或已删除。",
   "error.question.empty": "先输入问题，再提问。",
   "error.question.analyseChoice": "问题是否可以分析数据只能是 true 或 false。",

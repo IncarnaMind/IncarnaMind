@@ -11,7 +11,7 @@ import {
   MIND_FIGURE_RUNS_FIELD,
   type RetainedFigureAnalysis,
 } from "../../src/core/api";
-import { CopyCitations } from "../../src/renderer/src/editor/copyCitations";
+import { CopyCitations, FIGURE_RUNS_ATTRIBUTE } from "../../src/renderer/src/editor/copyCitations";
 import { wordFootnoteHtml } from "../../src/renderer/src/editor/copyNotes";
 import { FigureEvidence } from "../../src/renderer/src/editor/figureEvidence";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -30,6 +30,7 @@ import {
   readFigureRunClosure,
 } from "../../src/shared/figureRuns";
 import { FORMULA_VERSION } from "../../src/shared/formula";
+import { translate } from "../../src/shared/i18n";
 
 const reported = vi.hoisted(() => vi.fn());
 vi.mock("../../src/renderer/src/store", () => ({
@@ -509,15 +510,102 @@ test.each([
   expect(reported.mock.calls[0]?.[0]).toMatchObject({ wording: { key: "error.figure.paste" } });
 });
 
-test("copying a figure whose record is gone says why in plain words", () => {
-  const { doc, editor } = setup();
-  doc.transact(() => doc.getMap(MIND_FIGURE_RUNS_FIELD).clear());
-  editor.commands.setNodeSelection(firstFigure(editor).at);
-  expect(() => selectedHtml(editor)).toThrow();
-  expect(reported).toHaveBeenCalledTimes(1);
-  expect(reported.mock.calls[0]?.[0]).toMatchObject({
-    wording: { key: "error.figure.copyIncomplete" },
+test.each([
+  [
+    "en",
+    "Copied as plain text: this figure’s saved inputs are incomplete, so its check didn’t come with it. Check the figure again, then copy it.",
+  ],
+  [
+    "zh-CN",
+    "已按纯文本复制：这个数字保存的输入不完整，核对结果没有一起复制。请重新核对这个数字后再复制。",
+  ],
+] as const)(
+  "%s: copying a figure whose record is gone copies its value as plain text and says so",
+  (language, wording) => {
+    const { doc, editor } = setup();
+    doc.transact(() => doc.getMap(MIND_FIGURE_RUNS_FIELD).clear());
+    editor.commands.setNodeSelection(firstFigure(editor).at);
+    const html = selectedHtml(editor);
+    // Its value, as text: no figure and no evidence to paste.
+    expect(html).toContain("10");
+    expect(html).not.toContain(FIGURE_RUNS_ATTRIBUTE);
+    expect(html).not.toContain("data-figure");
+    expect(reported).toHaveBeenCalledTimes(1);
+    expect(reported.mock.calls[0]?.[0]).toMatchObject({
+      wording: { key: "error.figure.copyIncomplete" },
+    });
+    expect(translate(language, "error.figure.copyIncomplete")).toBe(wording);
+
+    // Pasting it into a Note gives the value as words, with no figure and no record.
+    const target = setup({ empty: true });
+    pasteHtml(target.editor, html);
+    expect(target.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(0);
+    expect(target.editor.state.doc.textContent).toContain("10");
+    let figures = 0;
+    target.editor.state.doc.descendants((node) => {
+      if (node.type.name === "calculatedFigure") figures++;
+      return true;
+    });
+    expect(figures).toBe(0);
+  },
+);
+
+test("a copy keeps the records of the figures whose saved inputs are complete", () => {
+  const source = setup();
+  const other = {
+    label: "Other",
+    formula: "",
+    inputs: [],
+    value: 20,
+    unit: { kind: "plain" as const },
+    approximate: false,
+    shown: "20",
+    show: { language: "en" as const, as: null, decimals: 0, scale: null },
+    literals: [],
+    engine: FORMULA_VERSION,
+    written: null,
+    analysis: { analysis: 1, result: "other" },
+  };
+  const runB = {
+    ...source.record,
+    id: "run-b",
+    values: [{ kind: "figure" as const, name: "other", label: "Other", value: 20, unit: null }],
+  };
+  source.doc.transact(() => {
+    installFigureRuns(source.doc, [runB]);
+    source.editor.commands.insertContentAt(source.editor.state.doc.content.size, {
+      type: "paragraph",
+      attrs: { id: "second" },
+      content: [{ type: "text", text: "Other " }, calculatedFigureNode(other, "figure-b", "run-b")],
+    });
   });
+  // The first figure's record goes; the second keeps its own.
+  source.doc.transact(() => {
+    const runs = source.doc.getMap(MIND_FIGURE_RUNS_FIELD);
+    for (const key of [...runs.keys()]) if (key.includes('"run"')) runs.delete(key);
+  });
+  source.editor.commands.selectAll();
+  const html = selectedHtml(source.editor);
+  expect(html).toContain(FIGURE_RUNS_ATTRIBUTE);
+  expect(html).toContain("run-b");
+  expect(html).toContain("10");
+  expect(reported).toHaveBeenCalledTimes(1);
+
+  const target = setup({ empty: true });
+  pasteHtml(target.editor, html);
+  expect(target.editor.state.doc.textContent).toContain("10");
+  let figures = 0;
+  target.editor.state.doc.descendants((node) => {
+    if (node.type.name === "calculatedFigure") {
+      figures++;
+      expect(node.attrs.analysisId).toBe("run-b");
+      expect(node.attrs.figure.shown).toBe("20");
+    }
+    return true;
+  });
+  expect(figures).toBe(1);
+  expect(target.doc.getMap(MIND_FIGURE_RUNS_FIELD).has(JSON.stringify(["run-b"]))).toBe(true);
+  expect(target.doc.getMap(MIND_FIGURE_RUNS_FIELD).has(JSON.stringify(["run"]))).toBe(false);
 });
 
 test.each(["Revenue 10", "收入10"])("plain text %s keeps the existing title paste", (text) => {
