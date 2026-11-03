@@ -1185,8 +1185,6 @@ export function givesValue(grid: SourceGrid, row: number, cell: number): boolean
     slots.every((slot, at) => at === 0 || !slot || slot.continued || slot.text.trim() === "")
   );
 }
-  );
-}
 
 /** What separates a label from the figure after it: "Q1: 289.4", "Revenue – $1.2bn". */
 const LABEL_END = /[\s:：,，;；=\-–—]+$/u;
