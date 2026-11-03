@@ -304,6 +304,40 @@ describe("the command gate denies by default what is behind another wall", () =>
     expect(await heldIn(s.core, s.folderA.id)).toEqual(["Client A lease: filed"]);
   });
 
+  test("from inside a wall only that Folder and its sub-Folders are offered as destinations", async () => {
+    const offered: string[][] = [];
+    const s = await setUp({}, ({ prompt }) => {
+      const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+      if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+      offered.push(data.groups.map((each) => each.name));
+      const into = data.groups.find((each) => each.name === "Client A");
+      return { text: JSON.stringify({ groupId: into?.id ?? null, tags: [] }) };
+    });
+    const provider = (await s.core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await s.core.getLibrary()).settings;
+    await s.core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    const office = await s.core.createLibraryGroup({ name: "Office", description: "" });
+    await s.core.createLibraryGroup({
+      name: "Client A sub-Folder",
+      description: "",
+      parentId: s.folderA.id,
+    });
+
+    await s.ask(s.noteA.id, [
+      { tool: "run_command", input: { command: "documents.organize", ids: [s.lease.id] } },
+    ]);
+
+    expect(offered.length).toBeGreaterThan(0);
+    for (const names of offered)
+      expect([...names].sort()).toEqual(["Client A", "Client A sub-Folder"]);
+    expect(await heldIn(s.core, office.id)).toEqual([]);
+    expect(await heldIn(s.core, s.folderA.id)).toEqual(["Client A lease: filed"]);
+  });
+
   test("Organize takes no Document behind a wall from outside, and nothing outside from inside", async () => {
     const s = await setUp();
     const said = await s.ask(s.outside.id, [

@@ -9,7 +9,7 @@ import {
 import type { CommandId } from "../../../shared/commands";
 import type { MessageKey } from "../../../shared/i18n";
 import { useApprovals } from "../approvals";
-import { readTextLine } from "../commandFacts";
+import { organizeAskWhy, readTextLine } from "../commandFacts";
 import { commands, labelOf } from "../commands/registry";
 import { FORMAT_LABELS } from "../exports";
 import { useGap, useT } from "../i18n";
@@ -48,16 +48,13 @@ function labelIn(t: Translate, id: CommandId): string {
   return command ? labelOf(command, { selection: [], focus: null, surface: "palette" }, t) : id;
 }
 
-function whyOf(t: Translate, ask: Change): string {
+function whyOf(t: Translate, ask: Change, gap: (before: string, after: string) => string): string {
   if (ask.reason === "delete") {
     return t(ask.count === 1 ? "commands.ask.why.delete.one" : "commands.ask.why.delete", {
       days: RECENTLY_DELETED_DAYS,
     });
   }
-  if (ask.reason === "organize") {
-    const why = t("commands.ask.why.organize");
-    return ask.service ? `${why} ${t("library.organize.sends", { company: ask.service })}` : why;
-  }
+  if (ask.reason === "organize") return organizeAskWhy(t, gap, ask);
   if (ask.reason === "merge") {
     return ask.merges && ask.merges.length > 1
       ? t("commands.ask.why.merge.groups")
@@ -79,6 +76,7 @@ const itemLine = (t: Translate, item: CommandItem) =>
 function wordsOf(
   t: Translate,
   ask: CommandAsk,
+  gap: (before: string, after: string) => string,
 ): { title: string; why: string; path: string | null; names: string[] } {
   switch (ask.kind) {
     case "export":
@@ -146,7 +144,7 @@ function wordsOf(
               tag: into,
               command: labelIn(t, ask.command),
             }),
-        why: whyOf(t, ask),
+        why: whyOf(t, ask, gap),
         path: null,
         // One thing is named in the title, unless the Conversation renamed it.
         names: merges
@@ -182,7 +180,7 @@ export function CommandApprovalCard({
   const respond = useApprovals((state) => state.respond);
   const titleId = useId();
   const { ask } = request;
-  const { title, why, path, names } = wordsOf(t, ask);
+  const { title, why, path, names } = wordsOf(t, ask, gap);
   const deletes = ask.kind === "change" && ask.reason === "delete";
   const merges = ask.kind === "change" && ask.reason === "merge";
   const allow = t(

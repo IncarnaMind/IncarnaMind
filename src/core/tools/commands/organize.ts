@@ -114,6 +114,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
         )
       : null;
   const cloud = route.where === "cloud" && flow?.consent !== "accepted" ? route.service : null;
+  const cloudDeclined = route.where === "cloud" && flow?.consent === "declined";
   return {
     ...inApp(
       "documents.organize",
@@ -327,5 +328,6 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
     ),
     changes: true,
     ...(cloud && { cloud }),
+    ...(cloudDeclined && { cloudDeclined: true }),
   };
 };

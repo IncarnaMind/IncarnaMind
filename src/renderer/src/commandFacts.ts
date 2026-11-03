@@ -22,6 +22,23 @@ import { commands, labelOf } from "./commands/registry";
 import { folderName } from "./linkedFolders";
 import type { Translate } from "./objects";
 
+/** What an Organize asks, and what its Allow sends: the same lines the Library's Organize gives. */
+export function organizeAskWhy(
+  t: Translate,
+  gap: (before: string, after: string) => string,
+  ask: { service?: string | undefined; declined?: boolean | undefined },
+): string {
+  const why = t("commands.ask.why.organize");
+  if (!ask.service) return why;
+  const lines = [
+    why,
+    t("library.organize.sends", { company: ask.service }),
+    t("library.organize.sends.details", { company: ask.service }),
+    ...(ask.declined ? [t("commands.ask.organize.declined")] : []),
+  ];
+  return lines.reduce((line, part) => `${line}${gap(line, part)}${part}`);
+}
+
 /** The core's commands' words once done: for one thing, then for several. */
 const DONE: Readonly<Partial<Record<CommandId, [MessageKey, MessageKey]>>> = {
   "document.rename": ["commands.done.rename.document.one", "commands.done.rename.document"],

@@ -362,7 +362,8 @@ export function commandTools(options: CommandToolsOptions): {
       const ask = options.ask;
       let ran: Awaited<ReturnType<CheckedCommand["run"]>>;
       // The card named the cloud service and what goes to it: the User's Allow is that consent.
-      if (command.cloud) options.host.allowCloudRead(command.cloud);
+      // A standing no is theirs to change in Settings: this Allow sends this request only.
+      if (command.cloud && !command.cloudDeclined) options.host.allowCloudRead(command.cloud);
       try {
         ran = await inTurn(() =>
           command.run(

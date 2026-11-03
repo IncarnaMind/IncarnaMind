@@ -211,6 +211,8 @@ export interface CheckedCommand {
   merges?: readonly { from: string; into: string }[];
   /** The cloud service that would read these Documents for the first time, before the User allows it (#2252). */
   cloud?: ExternalService;
+  /** The User said no to sending Documents for sorting before: this Allow is for this request only (#2252). */
+  cloudDeclined?: boolean;
   run(asking: CommandAsking, signal: AbortSignal): Promise<Ran>;
 }
 

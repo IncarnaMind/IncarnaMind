@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type {
   ApprovalRequest,
@@ -7,6 +9,8 @@ import type {
   WindowCommandRequest,
   WindowCommandResult,
 } from "../../src/core";
+import { DATABASE_FILE } from "../../src/core";
+import { openDatabase } from "../../src/core/storage";
 import { STYLE_EXAMPLES } from "../../src/core/tools/commands/styles";
 import type { OfferedCommand } from "../../src/shared/commands";
 import { translate } from "../../src/shared/i18n";
@@ -1376,6 +1380,115 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(
       (await core.getLibrary()).assignments.filter((each) => each.groupId === leases?.id),
     ).toHaveLength(4);
+  });
+
+  // protects=a declined classification makes the Organize card send this time only: the no and the automatic switch stay, background work still sends nothing, and the next request asks again (#2252, ADR-0022); fails_when=Allow stores accepted, turns the switch on, or lets background sorting send; no_claim=which Folder the classifier picks.
+  test("a standing no makes the card send this time only, and asks again next time", async () => {
+    let classified = 0;
+    const answers = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          let data: { groups?: { id: string; name: string }[] };
+          try {
+            data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          } catch {
+            return { text: JSON.stringify({ tags: [] }) };
+          }
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          classified += 1;
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return { text: JSON.stringify({ groupId: leases?.id ?? null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind, dataDir } = await setUpWithDocuments(answers, DOCUMENTS);
+    const provider = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "test-key",
+      modelId: "small",
+    });
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "small" } },
+      automatic: true,
+      turnOn: true,
+    });
+    const classification = (await core.listDataFlows()).find(
+      (each) => each.flow.id === "classification",
+    );
+    if (!classification) throw new Error("No classification flow.");
+    await core.revokeConsent("classification", classification.flow.service.id);
+    // Declined in a dialog before background flows stopped asking.
+    const at = new Date().toISOString();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(
+        `INSERT INTO data_flow_consents
+           (id, flow, service_id, service_name, decision, data_kinds, created_at, updated_at)
+         VALUES (?, 'classification', ?, ?, 'declined', '[]', ?, ?)`,
+        [randomUUID(), classification.flow.service.id, classification.flow.service.name, at, at],
+      );
+    } finally {
+      db.close();
+    }
+    const automatic = (await core.getLibrary()).settings.automatic;
+    const requests = approvals(core, "allow-once");
+
+    await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0] && "ask" in requests[0] ? requests[0].ask : null).toMatchObject({
+      kind: "change",
+      reason: "organize",
+      service: classification.flow.service.name,
+      declined: true,
+    });
+    const consent = async () =>
+      (await core.listDataFlows()).find((each) => each.flow.id === "classification")?.consent;
+    expect(await consent()).toBe("declined");
+    expect((await core.getLibrary()).settings.automatic).toBe(automatic);
+
+    const beforeSorts = classified;
+    const sources = await createTempDataFolder();
+    const path = await writeSourceFile(sources, "New rent note.md", "Rent is due monthly.");
+    const [added] = await addAndProcess(core, [path]);
+    if (!added) throw new Error("The new Document wasn't added.");
+    await vi.waitFor(async () => {
+      const row = (await core.listDocuments()).find((each) => each.id === added.id);
+      expect(["pending", "tagging"]).not.toContain(row?.tagging);
+    });
+    expect(classified).toBe(beforeSorts);
+    const filed = (await core.getLibrary()).assignments.find(
+      (each) => each.documentId === added.id,
+    );
+    expect(filed?.groupId ?? null).toBeNull();
+
+    await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests[1] && "ask" in requests[1] ? requests[1].ask : null).toMatchObject({
+      reason: "organize",
+      declined: true,
+    });
   });
 
   // protects=Organize above 20 Documents asks on its card, and files them when allowed (#2252, ADR-0013); fails_when=it runs without asking or files before the allow; no_claim=which Folder the classifier picks.

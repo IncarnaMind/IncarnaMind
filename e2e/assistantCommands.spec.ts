@@ -641,8 +641,12 @@ test("the first cloud read for Organize asks on its card, and Allow is that cons
   await expect(card).toHaveAttribute("data-reason", "organize");
   await expect(card).toContainText("Organize 4 Documents into Folders?");
   await expect(card).toContainText("Sends document names and excerpts to OpenAI.");
+  await expect(card).toContainText(
+    "Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to OpenAI.",
+  );
   await screenshot(window, "commands-organize-cloud-asks-en");
   await setWindowSize(app, window, 900, 900);
+  await card.evaluate((each) => each.scrollIntoView({ block: "start" }));
   await screenshot(window, "commands-organize-cloud-asks-en-narrow");
   await setWindowSize(app, window, 1440, 900);
   await pointAndClick(window, card.getByTestId("approval-allow-once"));
@@ -685,9 +689,14 @@ test("中文：第一次用云端整理时，卡片写明会发送什么，允�
   const card = await askAndWait(window, "重新整理一下这些文件");
   await expect(card).toHaveAttribute("data-reason", "organize");
   await expect(card).toContainText("整理 4 个文档，放进文件夹？");
-  await expect(card).toContainText("会把文档名称和摘录发送给 OpenAI。");
+  await expect(card).toContainText(
+    "每个文档的名称和开头的文字（扫描件则是前几页的图片），以及文件夹和标签的名称与描述，会发送给 OpenAI。",
+  );
+  // The card's Chinese sentences meet with full-width punctuation, never an ASCII space.
+  await expect(card).toContainText("可以用撤销恢复。会把文档名称和摘录发送给 OpenAI。");
   await screenshot(window, "commands-organize-cloud-asks-zh");
   await setWindowSize(app, window, 900, 900);
+  await card.evaluate((each) => each.scrollIntoView({ block: "start" }));
   await screenshot(window, "commands-organize-cloud-asks-zh-narrow");
   await setWindowSize(app, window, 1440, 900);
   await pointAndClick(window, card.getByTestId("approval-allow-once"));

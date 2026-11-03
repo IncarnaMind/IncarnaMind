@@ -5152,6 +5152,7 @@ export const en = {
     "It goes to Recently deleted, where you can restore it for {days} days. The assistant always asks before it deletes.",
   "commands.ask.why.organize":
     "Organize reads what each Document says and files it in the Folder that fits. Undo puts them back.",
+  "commands.ask.organize.declined": "You said no to this before. Allow sends them this time only.",
   "commands.ask.why.merge":
     "Their Documents get “{tag}”, and the other Tags go to Recently deleted. Undo brings them back.",
   "commands.ask.why.merge.groups":

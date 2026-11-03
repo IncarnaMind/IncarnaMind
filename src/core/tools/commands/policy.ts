@@ -93,6 +93,7 @@ export function askOf(checked: CheckedCommand, context: CommandContext): Command
       into: checked.into,
       changed: context.changed,
       ...(checked.cloud && { service: checked.cloud.name }),
+      ...(checked.cloudDeclined && { declined: true }),
     };
   }
   const reason = checked.deletes

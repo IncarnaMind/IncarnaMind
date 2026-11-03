@@ -9451,6 +9451,8 @@ export type CommandAsk =
       merges?: readonly { from: string; into: string }[];
       /** The cloud service that would read the Documents for the first time, by name (#2252). */
       service?: string;
+      /** The User said no before, so this Allow sends them this time only (#2252). */
+      declined?: boolean;
       /** How many things the Answer changed without asking before this call. */
       changed: number;
     }
