@@ -171,7 +171,12 @@ test("formula and retained Analysis use the same strict, bounded source closure"
   const sources = calculatedSources(attrs(analysis), doc);
   expect(sources.analysis?.values.map((value) => value.name)).toEqual(["total"]);
   expect(sources.inputs).toEqual([input]);
-  expect(() => calculatedSources(attrs(analysis), new Y.Doc())).toThrow();
+  // A Note whose record an earlier build took away reads as its value, never as an error (#2378).
+  expect(calculatedSources(attrs(analysis), new Y.Doc())).toEqual({
+    inputs: [],
+    ranges: [],
+    analysis: null,
+  });
 });
 
 test("actual common numbering feeds input clusters in Note order without moving ordinary Citation indices", () => {
@@ -300,11 +305,12 @@ test.each([false, true])(
   },
 );
 
-test("deleting the last Analysis figure prunes its receipt and Undo restores both", () => {
+test("deleting the last Analysis figure leaves its record, and Undo restores both", () => {
   const { editor, at, doc } = editorWith(analysis);
   expect(figureRunsFor(doc, [node(analysis)])).toHaveLength(1);
   expect(editCalculatedFigure(editor, "figure", at, false)).toBe(true);
-  expect(() => figureRunsFor(doc, [node(analysis)])).toThrow();
+  // No edit removes a record: a change's Undo may bring the figure back, and it reads as it was.
+  expect(figureRunsFor(doc, [node(analysis)])).toHaveLength(1);
   expect(editor.commands.undo()).toBe(true);
   expect(figureRunsFor(doc, [node(analysis)])).toHaveLength(1);
 });
@@ -420,6 +426,33 @@ test("a retained Analysis card never becomes a fresh execution claim", async () 
   expect(container.textContent).toContain(record.code);
   expect(container.textContent).not.toContain("Inputs found · recalculated");
 });
+
+test.each(["en", "zh-CN"] as const)(
+  "%s card reads a figure whose Analysis record the Note never kept as its value, Not checked",
+  async (language) => {
+    state.language = language;
+    await card({
+      figure: analysis,
+      shown: analysisFigureShown(
+        { state: "supported" },
+        { checked: true, run: null, result: "total", versions: null },
+      ),
+      replayed: false,
+      // The Note from an earlier build: it names an Analysis the record was already lost for.
+      sources: calculatedSources(attrs(analysis), new Y.Doc()),
+      problem: false,
+      onCopyFormula: () => {},
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain("300");
+    expect(text).toContain(translate(language, "claim.state.not-checked"));
+    expect(text).not.toContain(translate(language, "claim.state.supported"));
+    expect(text).not.toContain(translate(language, "figures.inline.retained"));
+    expect(text).not.toContain(translate(language, "figures.analysisRows.recalculated"));
+    expect(text).toContain(translate(language, "figures.inline.analysisUnavailable"));
+    expect(text).not.toContain(record.code);
+  },
+);
 
 function checkBasis(text: string): ClaimCheckAttributes {
   return {

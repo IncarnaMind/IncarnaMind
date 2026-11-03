@@ -6,6 +6,7 @@ import { Extension } from "@tiptap/core";
 import { DOMSerializer, type Fragment } from "@tiptap/pm/model";
 import { Plugin } from "@tiptap/pm/state";
 import type { RetainedFigureAnalysis } from "../../../core/api";
+import { InvalidInputError } from "../../../core/errors";
 import type { NodeJSON } from "../../../shared/blockJson";
 import { calculatedFiguresIn, readFigureRunClosure } from "../../../shared/figureRuns";
 import { withoutInertBrackets } from "../../../shared/inertBrackets";
@@ -74,8 +75,12 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
                   carrier.hidden = true;
                   out.appendChild(carrier);
                 } catch (error) {
-                  useAppStore.getState().reportError(error);
-                  throw error;
+                  const problem = new InvalidInputError(
+                    { key: "error.figure.copyIncomplete" },
+                    { cause: error },
+                  );
+                  useAppStore.getState().reportError(problem);
+                  throw problem;
                 }
               }
               addFootnotes(out, citationsIn(fragment), sourceContext());

@@ -100,6 +100,7 @@ import {
   type KeywordsJob,
   METADATA_VERSION,
   NAME_INDEX_CURRENT_SINCE,
+  PDF_PASSAGES_CURRENT_SINCE,
   PICTURES_CURRENT_SINCE,
   PROCESSING_VERSION,
   type ProcessedPassage,
@@ -1202,12 +1203,10 @@ export function createDocuments(options: DocumentsOptions) {
         joinStoredPassages(row.id, at);
       }
       // A Document kept that way has Passages whose windows an older build chose; a later
-      // pipeline (a version past its kind's) starts the Passages afresh.
+      // pipeline (a version past the one whose PDF windows changed) starts the Passages
+      // afresh. Version 23 changed only a PDF's labels, not the text they are built from.
       const keptWindows =
-        coversText &&
-        pageChange === "same" &&
-        row.processing_version >=
-          ((CURRENT_SINCE as Readonly<Record<string, number>>)[row.kind] ?? PROCESSING_VERSION);
+        coversText && pageChange === "same" && row.processing_version >= PDF_PASSAGES_CURRENT_SINCE;
       const passagesSame = reread && samePassages(row.id, result.passages);
       const unchanged =
         reread &&
@@ -2512,6 +2511,24 @@ export function createDocuments(options: DocumentsOptions) {
       return (
         db.get<{ found: number }>(
           `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ${kinds} LIMIT 1`,
+          params,
+        ) !== undefined
+      );
+    },
+
+    /**
+     * Whether any live Document to search (of all of them, or only of these) has a table of
+     * figures its version's Units keep (#448): what an Analysis reads besides sheets.
+     */
+    searchableHasTables(documentIds: readonly string[] | undefined): boolean {
+      const { where, params } = searchable(documentIds);
+      return (
+        db.get<{ found: number }>(
+          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ('pdf', 'docx', 'pptx')
+             AND EXISTS (SELECT 1 FROM document_pages p WHERE p.document_id = d.id
+               AND p.content_hash = d.content_hash AND p.deleted_at IS NULL
+               AND p.label LIKE '%"tables":[%')
+           LIMIT 1`,
           params,
         ) !== undefined
       );

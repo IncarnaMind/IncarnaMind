@@ -218,6 +218,13 @@ test("the any-analysis set", async () => {
   const listener = await listen();
   const sources = join(tmpdir(), `incarnamind-any-analysis-${randomUUID()}`);
   const dataDir = await createDataFolder();
+  // The stand-in recognizer reads what the real one read of the scan D03 draws, so D03 measures
+  // what the app makes of a recognized table rather than finding no text at all.
+  const scans = join(tmpdir(), `incarnamind-any-analysis-scans-${randomUUID()}.json`);
+  const read = JSON.parse(await readFile(join(ROOT, "tests/fixtures/scans/read.json"), "utf8")) as {
+    pages: Record<string, unknown>;
+  };
+  await writeFile(scans, JSON.stringify({ pages: { 1: read.pages.table } }));
   let app: ElectronApplication | null = null;
   const record: RunRecord = {
     run: {
@@ -235,6 +242,7 @@ test("the any-analysis set", async () => {
   try {
     const launched = await launchApp(dataDir, {
       sandboxed: true,
+      scans,
       // Chromium's requests, the Analysis window's among them, reach only the listener.
       // Loopback too: Chromium sends it past a proxy unless told not to.
       switches: [
@@ -365,6 +373,7 @@ test("the any-analysis set", async () => {
     await app?.close().catch(() => undefined);
     await removeDataFolder(dataDir);
     await rm(sources, { recursive: true, force: true });
+    await rm(scans, { force: true });
     listener.server.close();
     console.log(`Saved ${record.answers.length} Answers to ${out}`);
   }

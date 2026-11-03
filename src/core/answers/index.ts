@@ -44,7 +44,11 @@ import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { withAnalysisPictures } from "../../shared/analysisPictures";
-import { countCitations, withAnalysisTableCitations } from "../../shared/analysisTables";
+import {
+  analysisTablesOf,
+  countCitations,
+  withAnalysisTableCitations,
+} from "../../shared/analysisTables";
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
 import { runsByDefault } from "../../shared/approvalRules";
@@ -846,6 +850,8 @@ export interface DocumentsForAnswers
    * with `workbooksOnly`, a workbook, whose formulas its Tools read (#2347).
    */
   searchableHasSheets(documentIds: readonly string[] | null, workbooksOnly?: boolean): boolean;
+  /** Whether a Document to search has a table of figures in a PDF, Word file or deck (#448). */
+  searchableHasTables(documentIds: readonly string[] | null): boolean;
   passage(passageId: string): WindowedPassage | null;
   /** The live Passages of a live Document at positions `from` to `to`, in reading order. */
   passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];
@@ -2734,12 +2740,11 @@ export function createAnswers(options: AnswersOptions) {
                     })
                   : cited;
                 // An Analysis's table cites the rows it read, so content that gives one isn't uncited.
-                const analysisTables = withAnalysisTableCitations(uncited, markerAnalyses);
-                const blocks = asGenerated(analysisTables);
+                const citedTables = withAnalysisTableCitations(uncited, markerAnalyses);
+                const blocks = asGenerated(citedTables);
                 return {
                   blocks,
-                  cited:
-                    found + notFound + countCitations(analysisTables) - countCitations(uncited),
+                  cited: found + notFound + countCitations(citedTables) - countCitations(uncited),
                   notFound,
                   unrecorded,
                   firstUnrecorded,
@@ -2748,6 +2753,7 @@ export function createAnswers(options: AnswersOptions) {
                   unlinkedSources: tables.unlinked,
                   extraCells: tables.extraCells,
                   searchTalk: written.left,
+                  analysisTables: analysisTablesOf(markerAnalyses),
                 };
               },
               changed: (toolCallId, change) => {
@@ -2874,7 +2880,9 @@ export function createAnswers(options: AnswersOptions) {
         offersAnalysis(prepared.capabilities) &&
         input.toolSet === undefined &&
         !help &&
-        (input.analyse === true || options.documents.searchableHasSheets(documentIds))
+        (input.analyse === true ||
+          options.documents.searchableHasSheets(documentIds) ||
+          options.documents.searchableHasTables(documentIds))
           ? [
               analysisTool({
                 runtime,

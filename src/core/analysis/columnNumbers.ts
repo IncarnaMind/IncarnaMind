@@ -6,13 +6,14 @@
  *
  * - Decimals: "1,234.5" writes them with a point, "1.234,5" and "12,5" with a comma. A column
  *   that writes both reads neither, and "1,234" or "1.234" only as the column's other cells
- *   say; with nothing to say otherwise, the point, as before.
+ *   say; a column written only as "1.234" reads as neither, so its cells stay text.
  * - Negatives: "-5", "−5" and "负5"; "(5)" only where two cells or more of the column write
  *   one so and none writes a minus.
  * - Currency: one symbol for the column ("$1,200"); two different ones read neither.
  * - Percent: "8%" is 0.08 only where every number in the column is written with "%".
  * - Full-width characters ("１，２００", "（５）") read as their plain forms. A unit or a word
- *   ("1.2万", "5k", "n/a", "-"), a sign after the number ("5-"), a date or TRUE is no number.
+ *   ("1.2万", "5k", "n/a", "-"), a sign after the number ("5-"), a raised mark ("1,234²"), a
+ *   date or TRUE is no number.
  */
 import type { AnalysisCell } from "../../shared/analysis";
 
@@ -21,6 +22,8 @@ interface Written {
   point: number | null;
   /** Its value with "," for decimals and "." between thousands, or null when it can't be. */
   comma: number | null;
+  /** "d.ddd" is a German thousand or an English decimal: only the column can settle it. */
+  ambiguous: boolean;
   negative: "minus" | "parentheses" | null;
   currency: string | null;
   percent: boolean;
@@ -30,8 +33,14 @@ const PARTS =
   /^(\()?([-+])?(\p{Sc})?([-+])?(\d[\d.,]*|\.\d+)([eE][-+]?\d+)?(%)?\s?(\p{Sc})?(\))?$/u;
 const POINT = /^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d*)?$|^\.\d+$/;
 const COMMA = /^(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d+)?$/;
+/** The shape of a German thousand and an English decimal at once; a leading zero is only the decimal. */
+const GERMAN = /^[1-9]\d{0,2}(?:\.\d{3})+$/;
+
+/** Superscript and subscript characters, which NFKC folds into plain digits: "1,234²" isn't 1,2342. */
+const RAISED = /[\u00b2\u00b3\u00b9\u2070-\u209f]/u;
 
 function written(text: string): Written | null {
+  if (RAISED.test(text)) return null;
   const plain = text
     .normalize("NFKC")
     .trim()
@@ -53,6 +62,7 @@ function written(text: string): Written | null {
   return {
     point,
     comma,
+    ambiguous: point !== null && comma !== null && GERMAN.test(body),
     negative: open ? "parentheses" : minus ? "minus" : null,
     currency: before ?? after ?? null,
     percent: percent !== undefined,
@@ -63,8 +73,12 @@ function readColumn(cells: readonly AnalysisCell[]): AnalysisCell[] {
   const read = cells.map((cell) => (typeof cell === "string" ? written(cell) : null));
   const numbers = read.filter((each): each is Written => each !== null);
   if (numbers.length === 0) return [...cells];
+  // A column of "1.234" alone writes each cell as both a German thousand and an English decimal:
+  // nothing in it settles which, so its cells stay text rather than a wrong number (#448).
+  if (numbers.every((each) => each.ambiguous)) return [...cells];
   const pointOnly = numbers.some((each) => each.comma === null);
   const commaOnly = numbers.some((each) => each.point === null);
+  const settled = pointOnly !== commaOnly;
   const numberOf = (each: Written): number | null => {
     if (pointOnly && commaOnly) return each.point === each.comma ? each.point : null;
     return commaOnly ? each.comma : each.point;
@@ -78,6 +92,7 @@ function readColumn(cells: readonly AnalysisCell[]): AnalysisCell[] {
   return cells.map((cell, index) => {
     const each = read[index];
     if (!each) return cell;
+    if (each.ambiguous && !settled) return cell;
     const value = numberOf(each);
     if (value === null || !Number.isFinite(value) || (each.percent && !percent)) return cell;
     if (each.negative === "parentheses" && !parentheses) return cell;
