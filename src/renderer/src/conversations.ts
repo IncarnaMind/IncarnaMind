@@ -184,8 +184,9 @@ export async function showKeptConversation(conversationId: string): Promise<void
     }
     useConversations.setState({ openId: conversationId, messages });
   } catch {
-    // Gone since: a New chat, as the assistant starts one when the conversation it shows is deleted.
-    keepShown(null);
+    // Gone since: a New chat, unless the User opened another conversation while this was read.
+    const { openId } = useConversations.getState();
+    keepShown(stayed() && openId === null ? null : openId);
   }
 }
 

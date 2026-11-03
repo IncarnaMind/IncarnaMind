@@ -439,3 +439,21 @@ test("a conversation gone since the window kept it leaves a New chat, the app's 
 
   expect(shown()).toBeNull();
 });
+
+test("a gone conversation read does not clear one the User opened meanwhile (#258)", async () => {
+  let rejectGone: (reason: unknown) => void = () => undefined;
+  reads.set(
+    "gone",
+    new Promise((_, reject) => {
+      rejectGone = reject;
+    }),
+  );
+  await reloadedShowing("gone");
+  await conversations.openConversation("other");
+  expect(shown()).toBe("other");
+
+  rejectGone(new Error("There is no such conversation."));
+  // The read that found it gone says nothing about the conversation opened since.
+  await vi.waitFor(() => expect(layoutWrites).toEqual(["other", "other"]));
+  expect(shown()).toBe("other");
+});
