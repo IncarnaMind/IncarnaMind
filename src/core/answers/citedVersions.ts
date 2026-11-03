@@ -111,9 +111,11 @@ const figureBlock = perBlock((block) => {
 /**
  * The Citations a Note's figures rest on: those of its calculated figures' inputs, of the
  * Analyses they came from, and of its figure Checks. A Note's Blocks are read once while they
- * stay the same, since this is worked out again with every change stored.
+ * stay the same, since this is worked out again with every change stored. Null when a figure
+ * names an Analysis whose record the Note no longer keeps: its inputs are unknown, so what it
+ * rests on must not replace what was retained before (#2378).
  */
-export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): CitationFields[] {
+export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): CitationFields[] | null {
   if (
     fragment.doc &&
     readContentVersion(fragment.doc.getMap(MIND_SETTINGS_FIELD).get(CONTENT_SCHEMA_VERSION_KEY)) >
@@ -138,7 +140,15 @@ export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): Citatio
   const cited: CitationFields[] = [];
   if (fragment.doc) {
     const blocks = parts.flatMap(({ node }) => (node ? [node] : []));
-    for (const run of figureRunsFor(fragment.doc, blocks)) {
+    const runs = figureRunsFor(fragment.doc, blocks);
+    const kept = new Set(runs.map((run) => run.id));
+    if (
+      parts
+        .flatMap(({ figures }) => figures)
+        .some(({ figure, analysisId }) => figure.analysis && analysisId && !kept.has(analysisId))
+    )
+      return null;
+    for (const run of runs) {
       for (const input of run.inputs) {
         if (input.kind === "figure") inputs.push(input.input);
         else cited.push({ ...input.citation });
@@ -164,7 +174,8 @@ export function addCitedUnits(
   eachCitation(fragment, (citation) => addCitedUnit(citation, documentIds, cited), {
     charts: true,
   });
-  for (const citation of figureCitations(fragment)) addCitedUnit(citation, documentIds, cited);
+  for (const citation of figureCitations(fragment) ?? [])
+    addCitedUnit(citation, documentIds, cited);
 }
 
 /** The versions Citations quote: each Document's cited content hashes, or "any" for every version. */
@@ -181,10 +192,19 @@ export function addCitedVersion(citation: CitationFields, cited: CitedVersions):
   else if (versions !== "any") versions.add(contentHash);
 }
 
-/** Adds the versions the Citations under `fragment` quote to `cited`. */
-export function addCitedVersions(fragment: Y.XmlFragment | Y.XmlElement, cited: CitedVersions) {
+/**
+ * Adds the versions the Citations under `fragment` quote to `cited`; false when a figure names an
+ * Analysis whose record the Note no longer keeps, so its versions aren't all known (#2378).
+ */
+export function addCitedVersions(
+  fragment: Y.XmlFragment | Y.XmlElement,
+  cited: CitedVersions,
+): boolean {
   eachCitation(fragment, (citation) => addCitedVersion(citation, cited), { charts: true });
-  for (const citation of figureCitations(fragment)) addCitedVersion(citation, cited);
+  const figures = figureCitations(fragment);
+  if (figures === null) return false;
+  for (const citation of figures) addCitedVersion(citation, cited);
+  return true;
 }
 
 /** Calls `visit` with each Citation's attributes under `fragment`, at any depth, in order; `charts`: a chart's values' too. */

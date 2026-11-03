@@ -9,12 +9,11 @@ import {
   type Citation,
   type ConversationAnswer,
   type FigureInput,
-  MIND_CONTENT_FIELD,
   MIND_FIGURE_RUNS_FIELD,
   type RetainedFigureAnalysis,
   type RetainedFigureValue,
 } from "../core/api";
-import { InvalidInputError, isRecord } from "../core/errors";
+import { isRecord } from "../core/errors";
 import {
   ANALYSIS_LIMITS,
   type AnalysisRecalculation,
@@ -28,7 +27,6 @@ import {
   readFigureCitation,
   readFigureInput,
 } from "./calculatedFigures";
-import { perBlock } from "./memo";
 
 const text = (value: unknown): value is string => typeof value === "string";
 const count = (value: unknown): value is number =>
@@ -316,28 +314,35 @@ function usesIn(blocks: readonly NodeJSON[]): FigureUses {
 const runKey = (id: string) => JSON.stringify([id]);
 const valueKey = (id: string, name: string) => JSON.stringify([id, name]);
 
+/**
+ * The records `blocks`' figures name, as many as the Note still keeps: a figure whose record is
+ * missing or isn't the one it shows reads as its value and Not checked, never as an error. An
+ * earlier build could leave one behind, and a Note must open and export whatever it holds (#2378).
+ */
 export function figureRunsFor(doc: Y.Doc, blocks: readonly NodeJSON[]): RetainedFigureAnalysis[] {
   const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);
-  return [...usesIn(blocks)].map(([id, names]) => {
+  const found: RetainedFigureAnalysis[] = [];
+  for (const [id, names] of usesIn(blocks)) {
     const metadata = runs.get(runKey(id));
-    if (!isRecord(metadata) || metadata.id !== id)
-      throw new Error("The calculated figure's Analysis record is missing.");
+    if (!isRecord(metadata) || metadata.id !== id) continue;
+    // Each value the Note still keeps and shows as it was is read; one the Note lost takes only
+    // its own figure's check, never the Analysis's other values (#2378).
     const values = [...names.keys()].flatMap((name) => {
       const value = runs.get(valueKey(id, name));
-      return value === undefined ? [] : [value];
+      if (value === undefined || !isRecord(value)) return [];
+      const expected = names.get(name);
+      if (
+        expected?.size !== 1 ||
+        (typeof value.value !== "number" && typeof value.value !== "boolean")
+      )
+        return [];
+      return expected.has(value.value) ? [value] : [];
     });
+    if (values.length === 0) continue;
     const run = readFigureRun({ ...metadata, values });
-    if (
-      !run ||
-      run.values.length !== names.size ||
-      run.values.some((value) => {
-        const expected = names.get(value.name);
-        return expected?.size !== 1 || !expected.has(value.value);
-      })
-    )
-      throw new Error("The calculated figure's value is not in its Analysis record.");
-    return run;
-  });
+    if (run) found.push(run);
+  }
+  return found;
 }
 
 export function readFigureRunClosure(
@@ -348,7 +353,18 @@ export function readFigureRunClosure(
   const doc = new Y.Doc();
   try {
     installFigureRuns(doc, records);
-    return figureRunsFor(doc, blocks);
+    const runs = figureRunsFor(doc, blocks);
+    // A clipboard that names an Analysis must carry the whole record its figures read from: a
+    // paste that would leave one unread is refused, unlike a Note an earlier build left behind.
+    const kept = new Map(
+      runs.map((run) => [run.id, new Set(run.values.map((value) => value.name))]),
+    );
+    const missing = [...usesIn(blocks)].some(([id, names]) => {
+      const values = kept.get(id);
+      return !values || [...names.keys()].some((name) => !values.has(name));
+    });
+    if (missing) throw new Error("The calculated figure's Analysis record is missing.");
+    return runs;
   } finally {
     doc.destroy();
   }
@@ -395,36 +411,6 @@ export function installFigureRuns(doc: Y.Doc, records: readonly unknown[]): void
   for (const [key, value] of planned) runs.set(key, value);
 }
 
-const figuresOfBlock = perBlock((block) => {
-  const found: Record<string, unknown>[] = [];
-  const visit = (element: Y.XmlElement) => {
-    if (element.nodeName === CALCULATED_FIGURE_NODE) found.push(element.getAttributes());
-    for (const node of element.toArray()) if (node instanceof Y.XmlElement) visit(node);
-  };
-  visit(block);
-  return found;
-});
-
-/** Prune inside the same transaction as the content change, before its Undo item is captured. */
-export function pruneFigureRuns(doc: Y.Doc): void {
-  if (doc.store.pendingStructs !== null || doc.store.pendingDs !== null) return;
-  const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);
-  if (runs.size === 0) return;
-  const needed: FigureUses = new Map();
-  for (const node of doc.getXmlFragment(MIND_CONTENT_FIELD).toArray()) {
-    if (!(node instanceof Y.XmlElement)) continue;
-    for (const attributes of figuresOfBlock(node)) if (!collectUse(attributes, needed)) return;
-  }
-  const keys = new Set<string>();
-  for (const [id, names] of needed) {
-    keys.add(runKey(id));
-    for (const name of names.keys()) keys.add(valueKey(id, name));
-  }
-  for (const key of runs.keys()) {
-    if (!keys.has(key)) runs.delete(key);
-  }
-}
-
 export interface CalculatedSources {
   inputs: FigureInput[];
   ranges: AnalysisRangeInput[];
@@ -439,13 +425,15 @@ export function calculatedSources(
   const ranges: AnalysisRangeInput[] = [];
   let analysis: RetainedFigureAnalysis | null = null;
   if (attributes.figure.analysis) {
-    if (!doc) throw new InvalidInputError({ key: "error.figure.evidenceMissing" });
     analysis =
-      figureRunsFor(doc, [
-        calculatedFigureNode(attributes.figure, attributes.id, attributes.analysisId),
-      ])[0] ?? null;
-    if (!analysis) throw new InvalidInputError({ key: "error.figure.evidenceMissing" });
-    for (const input of analysis.inputs) {
+      (doc
+        ? figureRunsFor(doc, [
+            calculatedFigureNode(attributes.figure, attributes.id, attributes.analysisId),
+          ])[0]
+        : null) ?? null;
+    // A record the Note no longer keeps leaves the figure reading as its value, with only the
+    // inputs its own text names (#2378).
+    for (const input of analysis?.inputs ?? []) {
       if (input.kind === "figure") inputs.push(input.input);
       else ranges.push(input);
     }

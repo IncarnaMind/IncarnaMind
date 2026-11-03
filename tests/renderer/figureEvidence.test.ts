@@ -1,6 +1,6 @@
 import { Editor } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
-import { yUndoPluginKey } from "@tiptap/y-tiptap";
+import { ySyncPluginKey, yUndoPluginKey } from "@tiptap/y-tiptap";
 import { DOMParser } from "linkedom";
 import { expect, onTestFinished, test, vi } from "vitest";
 import * as Y from "yjs";
@@ -509,6 +509,17 @@ test.each([
   expect(reported.mock.calls[0]?.[0]).toMatchObject({ wording: { key: "error.figure.paste" } });
 });
 
+test("copying a figure whose record is gone says why in plain words", () => {
+  const { doc, editor } = setup();
+  doc.transact(() => doc.getMap(MIND_FIGURE_RUNS_FIELD).clear());
+  editor.commands.setNodeSelection(firstFigure(editor).at);
+  expect(() => selectedHtml(editor)).toThrow();
+  expect(reported).toHaveBeenCalledTimes(1);
+  expect(reported.mock.calls[0]?.[0]).toMatchObject({
+    wording: { key: "error.figure.copyIncomplete" },
+  });
+});
+
 test.each(["Revenue 10", "收入10"])("plain text %s keeps the existing title paste", (text) => {
   const target = setup({ empty: true, title: true });
   pasteHtml(target.editor, "", text);
@@ -534,7 +545,7 @@ test("a formula-only copy keeps default insertion with no run carrier or pasted 
   expect(reported).not.toHaveBeenCalled();
 });
 
-test("deleting the last Analysis figure and its run emits one update and one Undo item", () => {
+test("deleting the last Analysis figure emits one update and one Undo item, and keeps its record", () => {
   const { doc, editor, records } = setup();
   expect(records()[0]?.values[0]?.value).toBe(10);
   let at = -1;
@@ -548,14 +559,16 @@ test("deleting the last Analysis figure and its run emits one update and one Und
   let updates = 0;
   doc.on("update", () => updates++);
   editor.view.dispatch(editor.state.tr.delete(at, at + 1));
-  expect(doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(0);
+  // No edit removes a record: an earlier change's Undo may bring the figure back (#2378).
+  expect(doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(2);
+  expect(records()).toEqual([]);
   expect(updates).toBe(1);
   expect(manager.undoStack).toHaveLength(1);
   manager.undo();
   expect(records()[0]?.values[0]?.value).toBe(10);
   expect(editor.state.doc.nodeAt(at)?.type.name).toBe("calculatedFigure");
   manager.redo();
-  expect(doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(0);
+  expect(doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(2);
   expect(editor.state.doc.nodeAt(at)).toBeNull();
 });
 
@@ -564,4 +577,157 @@ test("an unrelated edit leaves the retained generation unchanged", () => {
   const before = records();
   editor.view.dispatch(editor.state.tr.insertText("My ", 1));
   expect(records()).toEqual(before);
+});
+
+function figurePositions(editor: Editor): number[] {
+  const found: number[] = [];
+  editor.state.doc.descendants((node, at) => {
+    if (node.type.name === "calculatedFigure") found.push(at);
+    return true;
+  });
+  return found;
+}
+
+test("deleting one of a run's figures prunes only its value, and Undo brings both back", () => {
+  const { doc, editor, records } = setup({ multiple: true });
+  const manager = yUndoPluginKey.getState(editor.state)?.undoManager;
+  if (!manager) throw new Error("No collaborative Undo manager.");
+  const runs = doc.getMap(MIND_FIGURE_RUNS_FIELD);
+  expect(runs.size).toBe(3);
+  expect(
+    records()[0]
+      ?.values.map((value) => value.name)
+      .sort(),
+  ).toEqual(["other", "total"]);
+  const [first] = figurePositions(editor);
+  if (first === undefined) throw new Error("Missing figure");
+  editor.view.dispatch(editor.state.tr.delete(first, first + 1));
+  // The record the figure that is still there names stays, and so does the deleted figure's.
+  expect(runs.size).toBe(3);
+  expect(records()[0]?.values.map((value) => value.name)).toEqual(["other"]);
+  manager.undo();
+  expect(runs.size).toBe(3);
+  expect(
+    records()[0]
+      ?.values.map((value) => value.name)
+      .sort(),
+  ).toEqual(["other", "total"]);
+});
+
+test("a write that takes one of two same figures, then an edit deleting the other, keeps the record for Undo", () => {
+  const { doc, editor, records } = setup();
+  const manager = yUndoPluginKey.getState(editor.state)?.undoManager;
+  if (!manager) throw new Error("No collaborative Undo manager.");
+  let figure: { type: string; attrs: Record<string, unknown> } | null = null;
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === "calculatedFigure" && figure === null)
+      figure = node.toJSON() as { type: string; attrs: Record<string, unknown> };
+    return true;
+  });
+  if (!figure) throw new Error("Missing figure");
+  const copy = figure as { type: string; attrs: Record<string, unknown> };
+  editor.commands.insertContentAt(editor.state.doc.content.size - 1, {
+    ...copy,
+    attrs: { ...copy.attrs, id: "second" },
+  });
+  expect(figurePositions(editor)).toHaveLength(2);
+  manager.clear();
+
+  // The write takes the first away: a change from the document prunes nothing.
+  const paragraph = doc.getXmlFragment(MIND_CONTENT_FIELD).get(0);
+  if (!(paragraph instanceof Y.XmlElement)) throw new Error("Missing paragraph");
+  const elements = paragraph.toArray();
+  const at = elements.findIndex(
+    (child) => child instanceof Y.XmlElement && child.nodeName === "calculatedFigure",
+  );
+  if (at < 0) throw new Error("Missing figure element");
+  doc.transact(() => paragraph.delete(at, 1), ySyncPluginKey);
+  expect(figurePositions(editor)).toHaveLength(1);
+  expect(records()[0]?.values.map((value) => value.name)).toEqual(["total"]);
+  // The write and the edit are two moments: Undo brings each back on its own.
+  manager.stopCapturing();
+
+  // The editor deletes the other: no edit removes a record, so a change's Undo finds it (#2378).
+  const [remaining] = figurePositions(editor);
+  if (remaining === undefined) throw new Error("Missing figure");
+  editor.view.dispatch(editor.state.tr.delete(remaining, remaining + 1));
+  expect(figurePositions(editor)).toHaveLength(0);
+  expect(doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(2);
+  manager.undo();
+  expect(figurePositions(editor)).toHaveLength(1);
+  expect(records()[0]?.values.map((value) => value.name)).toEqual(["total"]);
+  manager.undo();
+  expect(figurePositions(editor)).toHaveLength(2);
+  expect(records()[0]?.values.map((value) => value.name)).toEqual(["total"]);
+});
+
+test("a write's figure keeps its record though the editor deletes another Analysis's figure", () => {
+  const { doc, editor, record, records } = setup();
+  const manager = yUndoPluginKey.getState(editor.state)?.undoManager;
+  if (!manager) throw new Error("No collaborative Undo manager.");
+  let first: { type: string; attrs: Record<string, unknown> } | null = null;
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === "calculatedFigure" && first === null)
+      first = node.toJSON() as { type: string; attrs: Record<string, unknown> };
+    return true;
+  });
+  if (!first) throw new Error("Missing figure");
+  const other = {
+    label: "Other",
+    formula: "",
+    inputs: [],
+    value: 20,
+    unit: { kind: "plain" as const },
+    approximate: false,
+    shown: "20",
+    show: { language: "en" as const, as: null, decimals: 0, scale: null },
+    literals: [],
+    engine: FORMULA_VERSION,
+    written: null,
+    analysis: { analysis: 2, result: "other" },
+  };
+  const runB = {
+    ...record,
+    id: "run-b",
+    values: [{ kind: "figure" as const, name: "other", label: "Other", value: 20, unit: null }],
+  };
+  doc.transact(() => {
+    installFigureRuns(doc, [runB]);
+    doc.getXmlFragment(MIND_CONTENT_FIELD).push([
+      createElement({
+        type: "paragraph",
+        attrs: { id: "p2" },
+        content: [
+          { type: "text", text: "Other " },
+          calculatedFigureNode(other, "figure-b", "run-b"),
+        ],
+      }),
+    ]);
+  });
+  expect(figurePositions(editor)).toHaveLength(2);
+  manager.clear();
+
+  // A write takes the first Analysis's figure away.
+  const paragraph = doc.getXmlFragment(MIND_CONTENT_FIELD).get(0);
+  if (!(paragraph instanceof Y.XmlElement)) throw new Error("Missing paragraph");
+  const at = paragraph
+    .toArray()
+    .findIndex((child) => child instanceof Y.XmlElement && child.nodeName === "calculatedFigure");
+  if (at < 0) throw new Error("Missing figure element");
+  doc.transact(() => paragraph.delete(at, 1), ySyncPluginKey);
+  expect(figurePositions(editor)).toHaveLength(1);
+  manager.stopCapturing();
+
+  // The editor deletes the other Analysis's figure: its record, and the write's, both stay.
+  const [remaining] = figurePositions(editor);
+  if (remaining === undefined) throw new Error("Missing figure");
+  editor.view.dispatch(editor.state.tr.delete(remaining, remaining + 1));
+  expect(figurePositions(editor)).toHaveLength(0);
+  expect(doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(4);
+
+  manager.undo();
+  manager.undo();
+  expect(figurePositions(editor)).toHaveLength(2);
+  const firstRun = records().find((run) => run.id === "run");
+  expect(firstRun?.values.map((value) => value.name)).toEqual(["total"]);
 });

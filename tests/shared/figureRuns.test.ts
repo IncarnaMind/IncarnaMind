@@ -14,8 +14,8 @@ import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import {
   figureRunsFor,
   installFigureRuns,
-  pruneFigureRuns,
   readFigureRun,
+  readFigureRunClosure,
   retainFigureAnalysis,
 } from "../../src/shared/figureRuns";
 import { FORMULA_VERSION } from "../../src/shared/formula";
@@ -213,43 +213,6 @@ describe("a Note's bounded Analysis dependencies", () => {
     expect(retainFigureAnalysis(generation, runId, [changed])).toBeNull();
   });
 
-  test("deleting one figure prunes its value; deleting the last run and Undo are one change", () => {
-    const doc = docWith(["a", "b"]);
-    const content = doc.getXmlFragment(MIND_CONTENT_FIELD);
-    const runs = doc.getMap(MIND_FIGURE_RUNS_FIELD);
-    const undo = new Y.UndoManager([content, runs], { trackedOrigins: new Set(["edit"]) });
-    let updates = 0;
-    doc.on("update", () => updates++);
-    doc.transact(() => {
-      content.delete(0, 1);
-      pruneFigureRuns(doc);
-    }, "edit");
-    expect(updates).toBe(1);
-    expect(figureRunsFor(doc, blocks(["b"]))[0]?.values.map((value) => value.name)).toEqual(["b"]);
-    undo.stopCapturing();
-    doc.transact(() => {
-      content.delete(0, 1);
-      pruneFigureRuns(doc);
-    }, "edit");
-    expect(runs.size).toBe(0);
-    undo.undo();
-    expect(content.length).toBe(1);
-    expect(figureRunsFor(doc, blocks(["b"]))[0]?.values.map((value) => value.name)).toEqual(["b"]);
-    undo.undo();
-    expect(content.length).toBe(2);
-    expect(
-      figureRunsFor(doc, blocks(["a", "b"]))[0]
-        ?.values.map((value) => value.name)
-        .sort(),
-    ).toEqual(["a", "b"]);
-    undo.redo();
-    undo.redo();
-    expect(content.length).toBe(0);
-    expect(runs.size).toBe(0);
-    undo.destroy();
-    doc.destroy();
-  });
-
   test("a single-figure copy owns only its required values after the source closes", () => {
     const source = docWith(["a", "b"]);
     const carried = figureRunsFor(source, blocks(["b"]));
@@ -274,61 +237,63 @@ describe("a Note's bounded Analysis dependencies", () => {
     doc.destroy();
   });
 
-  test("a copy refuses a missing, invalid or different Analysis result", () => {
+  test("a Note whose record is missing, invalid or different reads no run, and a copy refuses it", () => {
     const source = docWith(["a"]);
     const runs = source.getMap(MIND_FIGURE_RUNS_FIELD);
     const entries = [...runs];
     for (const [key, value] of entries) {
       runs.delete(key);
-      expect(() => figureRunsFor(source, blocks(["a"]))).toThrow();
+      expect(figureRunsFor(source, blocks(["a"]))).toEqual([]);
       runs.set(key, value);
       runs.set(key, { invalid: true });
-      expect(() => figureRunsFor(source, blocks(["a"]))).toThrow();
+      expect(figureRunsFor(source, blocks(["a"]))).toEqual([]);
       runs.set(key, value);
     }
     const changed = blocks(["a"]);
     const attrs = changed[0]?.attrs;
     if (!attrs) throw new Error("The figure fixture has no attributes.");
     attrs.figure = { ...figure("a").figure, value: 11 };
-    expect(() => figureRunsFor(source, changed)).toThrow();
-    expect(() => figureRunsFor(source, [...blocks(["a"]), ...changed])).toThrow();
+    expect(figureRunsFor(source, changed)).toEqual([]);
+    expect(figureRunsFor(source, [...blocks(["a"]), ...changed])).toEqual([]);
+
+    const copied = figureRunsFor(source, blocks(["a"]));
+    const [carried] = copied;
+    if (!carried) throw new Error("The figure fixture kept no record.");
+    expect(readFigureRunClosure(blocks(["a"]), copied)).toHaveLength(1);
+    expect(() =>
+      readFigureRunClosure(
+        blocks(["a"]),
+        copied.map((run) => ({ ...run, values: [] })),
+      ),
+    ).toThrow();
+    expect(() =>
+      readFigureRunClosure(
+        blocks(["a"]),
+        copied.map((run) => ({
+          ...run,
+          values: run.values.map((value) => ({ ...value, value: 11 })),
+        })),
+      ),
+    ).toThrow();
+    expect(() => readFigureRunClosure(blocks(["a"]), [{ ...carried, code: 4 }])).toThrow();
     source.destroy();
   });
 
-  test("a concurrent last-reference deletion does not delete a newly added result", () => {
-    const original = docWith(["a"]);
-    const removing = new Y.Doc();
-    const adding = new Y.Doc();
-    Y.applyUpdate(removing, Y.encodeStateAsUpdate(original));
-    Y.applyUpdate(adding, Y.encodeStateAsUpdate(original));
-    removing.transact(() => {
-      removing.getXmlFragment(MIND_CONTENT_FIELD).delete(0, 1);
-      pruneFigureRuns(removing);
-    });
-    adding.transact(() => {
-      append(adding, "b");
-      installFigureRuns(adding, [record(["b"])]);
-      pruneFigureRuns(adding);
-    });
-    for (const changes of [
-      [removing, adding],
-      [adding, removing],
-    ]) {
-      const merged = new Y.Doc();
-      merged.transact(() => {
-        for (const change of changes) Y.applyUpdate(merged, Y.encodeStateAsUpdate(change));
-        pruneFigureRuns(merged);
-      });
-      expect(merged.getXmlFragment(MIND_CONTENT_FIELD).length).toBe(1);
-      expect(figureRunsFor(merged, blocks(["b"]))[0]?.values.map((value) => value.name)).toEqual([
-        "b",
-      ]);
-      expect(merged.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(2);
-      merged.destroy();
-    }
-    removing.destroy();
-    adding.destroy();
-    original.destroy();
+  test("keeps the values an Analysis still has when one is missing", () => {
+    const source = docWith(["a", "b"]);
+    const runs = source.getMap(MIND_FIGURE_RUNS_FIELD);
+    const missing = JSON.stringify([runId, "b"]);
+    expect(runs.has(missing)).toBe(true);
+    runs.delete(missing);
+    // The value the Note still keeps reads; the one it lost takes only its own figure's check.
+    const kept = figureRunsFor(source, blocks(["a", "b"]));
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.values.map((value) => value.name)).toEqual(["a"]);
+    expect(figureRunsFor(source, blocks(["b"]))).toEqual([]);
+    // A copy must carry every value its figures name.
+    expect(() => readFigureRunClosure(blocks(["a", "b"]), kept)).toThrow();
+    expect(readFigureRunClosure(blocks(["a"]), kept)).toHaveLength(1);
+    source.destroy();
   });
 
   test("concurrent additions keep each used value from the same generation", () => {
@@ -340,17 +305,14 @@ describe("a Note's bounded Analysis dependencies", () => {
     first.transact(() => {
       append(first, "b");
       installFigureRuns(first, [record(["b"])]);
-      pruneFigureRuns(first);
     });
     second.transact(() => {
       append(second, "c");
       installFigureRuns(second, [record(["c"])]);
-      pruneFigureRuns(second);
     });
     original.transact(() => {
       Y.applyUpdate(original, Y.encodeStateAsUpdate(first));
       Y.applyUpdate(original, Y.encodeStateAsUpdate(second));
-      pruneFigureRuns(original);
     });
     expect(
       figureRunsFor(original, blocks(["a", "b", "c"]))[0]
