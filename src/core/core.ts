@@ -5247,7 +5247,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     findPassages: async (input) => {
       if (!isRecord(input) || typeof input.text !== "string") {
-        throw new InvalidInputError("findPassages needs the words to look for.");
+        throw new InvalidInputError({ key: "error.cite.words" });
       }
       const scope = parseSearchScope(input.scope);
       const mindId = typeof input.mindId === "string" && input.mindId !== "" ? input.mindId : null;
@@ -5255,7 +5255,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     citePassage: async (input) => {
       if (!isRecord(input) || typeof input.passageId !== "string" || input.passageId === "") {
-        throw new InvalidInputError("citePassage needs a Passage id.");
+        throw new InvalidInputError({ key: "error.cite.passage" });
       }
       const text = typeof input.text === "string" ? input.text : "";
       const quote = citing.quoteFor(input.passageId, text);

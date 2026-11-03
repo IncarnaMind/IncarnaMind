@@ -4605,6 +4605,8 @@ export const zhCN = {
   "error.search.limit": "数量必须是 1 到 {max} 之间的整数。",
   "error.search.options": "搜索的选项格式不对。",
   "error.search.place": "搜索的位置无效。",
+  "error.cite.words": "缺少要查找段落的文字。",
+  "error.cite.passage": "找不到这个段落。",
   "error.tag.notFound": "这个标签不存在或已删除。",
   "error.tag.nameEmpty": "标签名称不能为空。",
   "error.tag.nameTooLong": "标签名称不能超过 {max} 个字符。",

@@ -4831,6 +4831,8 @@ export const en = {
   "error.search.limit": "The limit must be a whole number from 1 to {max}.",
   "error.search.options": "The search’s options must be given as a list of settings.",
   "error.search.place": "The search’s place isn’t valid.",
+  "error.cite.words": "The words to find passages for are missing.",
+  "error.cite.passage": "That passage isn’t known.",
   "error.tag.notFound": "That Tag doesn’t exist or has been deleted.",
   "error.tag.nameEmpty": "A Tag’s name can’t be empty.",
   "error.tag.nameTooLong": "A Tag’s name can’t be longer than {max} characters.",
