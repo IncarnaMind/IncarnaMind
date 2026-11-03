@@ -7,10 +7,13 @@
  *
  * A number matches a printed one as the figure check matches a sentence's number to a
  * calculated figure (./checks/calculated): the same unit, scale, percent and sign, at the
- * Answer's own rounding, so "12.3" is the 12.345 code printed. Where the printed numbers it
- * matches differ, one printed exactly as written decides; else it matches none. A number its
- * sentence's Citation quotes is the Citation's, and one that matches nothing stays as typed,
- * for the checks every typed number goes through.
+ * Answer's own rounding, so "12.3" is the 12.345 code printed. A whole number written plainly
+ * matches only the same number printed: rounded to a whole, every count and id in a reply would
+ * match a printed decimal. Where the printed numbers it matches differ, one printed exactly as
+ * written decides; else it matches none. A number its sentence's Citation quotes is the
+ * Citation's, one a `figure()` figure whose cells came to another number also matches is never
+ * made a figure, and one that matches nothing stays as typed, for the checks every typed number
+ * goes through.
  */
 import { FENCE, paragraphsOf } from "../../shared/answerSentences";
 import { type PlacedFigure, withFigureText } from "../../shared/figureMarkers";
@@ -27,11 +30,17 @@ const SKIPPED_LINE = /^\s*(?:#{1,6}\s|\[\^\d{1,4}\]:|(?:-{3,}|\*{3,}|_{3,})\s*$)
 const MATH_FENCE = /^\s*\$\$\s*$/;
 /** What a number inside is no figure the Answer gives: code, markers, links and addresses. */
 const NOT_PROSE =
-  /`[^`\n]*`|\[\^\d{1,4}\]|\[=[^\]\n]*\]|\[[^\]\n]*\]\([^)\n]*\)|<[^>\n]*>|\bhttps?:\/\/\S+/g;
+  /`[^`\n]*`|\[\^\d{1,4}\]|\[=[^\]\n]*\]|\[[^\]\n]*\](?:\([^)\n]*\)|\[[^\]\n]*\])|<[^>\n]*>|\bhttps?:\/\/\S+/g;
 const CITATION = /\[\^(\d{1,4})\]/g;
+const FIGURE_MARKER = /\[=(\d{1,4})\]/g;
+/** Emphasis around a number, which a footnote mark's reading would take in: "**12.3**". */
+const EMPHASIS_AFTER = /[*_~]+$/u;
+const WORD = /[\p{L}\p{N}_/.-]+/gu;
 const FIGURE_AFTER = /^\s*\[=\d{1,4}\]/;
 /** Stands for the figure being tried while its text is compared: no figure has it. */
 const TRIED = 0;
+const PLAIN = { kind: "plain" } as const;
+const PERCENT = { kind: "percent" } as const;
 
 interface Candidate extends PrintedValue {
   analysis: number;
@@ -104,32 +113,92 @@ function claimAround(text: string, sentences: readonly Span[], at: number): Span
     : { start: from, end: from + line.length };
 }
 
-/** The one value of what `stated` matches, among `candidates`; null when they disagree or none does. */
-function matched(stated: Figure, candidates: readonly Candidate[]): Candidate | null {
-  // The check works each out with a formula, too slow for every number a run printed: only one
-  // within the stated number's last place can round to it, or within half of it when it is
-  // written as approximate or as a range.
-  const exactly =
-    !stated.approximate && stated.rangeTo === null && typeof stated.precision === "number";
-  const near = exactly
-    ? (stated.precision ?? 0)
-    : Math.abs(stated.value) / 2 + Math.abs((stated.rangeTo ?? stated.value) - stated.value);
-  const agreeing = candidates.filter(
-    (candidate) =>
-      Math.abs(candidate.value.value - stated.value) <= near &&
-      agreesAtShownPrecision(stated, asCalculated(candidate.reading)) === true,
+const wholeAsWritten = (stated: Figure) =>
+  stated.decimals === 0 && !stated.approximate && stated.rangeTo === null && !stated.scaleWord;
+
+/** Whether `stated` is `reading` as the reply writes it. */
+function agrees(stated: Figure, reading: Pick<Figure, "value" | "unit">): boolean {
+  if (wholeAsWritten(stated) && !sameNumber(reading.value, stated.value)) return false;
+  return agreesAtShownPrecision(stated, asCalculated(reading)) === true;
+}
+
+/** Only a number this near can round to `stated`; the check itself works each out with a formula. */
+function nearness(stated: Figure): number {
+  if (wholeAsWritten(stated)) return 0;
+  if (!stated.approximate && stated.rangeTo === null && typeof stated.precision === "number")
+    return stated.precision;
+  return Math.abs(stated.value) / 2 + Math.abs((stated.rangeTo ?? stated.value) - stated.value);
+}
+
+/** Printed values by value and unit, in order of value: each is tried once, however often printed. */
+interface PrintedGroup {
+  value: number;
+  reading: Figure;
+  candidates: Candidate[];
+}
+
+function groupsOf(candidates: readonly Candidate[]): PrintedGroup[] {
+  const groups = new Map<string, PrintedGroup>();
+  for (const candidate of candidates) {
+    const key = JSON.stringify([candidate.value.value, candidate.reading.unit]);
+    const group = groups.get(key);
+    if (group) group.candidates.push(candidate);
+    else
+      groups.set(key, {
+        value: candidate.value.value,
+        reading: candidate.reading,
+        candidates: [candidate],
+      });
+  }
+  return [...groups.values()].sort((a, b) => a.value - b.value);
+}
+
+/** The groups whose value is within `near` of `value`. */
+function within(groups: readonly PrintedGroup[], value: number, near: number): PrintedGroup[] {
+  let low = 0;
+  let high = groups.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if ((groups[middle]?.value ?? 0) < value - near - 1e-9 * Math.abs(value)) low = middle + 1;
+    else high = middle;
+  }
+  const found: PrintedGroup[] = [];
+  for (let at = low; at < groups.length; at++) {
+    const group = groups[at];
+    if (!group || group.value > value + near + 1e-9 * Math.abs(value)) break;
+    found.push(group);
+  }
+  return found;
+}
+
+/** The one printed value `stated` matches; null when the values it matches differ or none does. */
+function matched(stated: Figure, groups: readonly PrintedGroup[]): PrintedGroup | null {
+  const agreeing = within(groups, stated.value, nearness(stated)).filter((group) =>
+    agrees(stated, group.reading),
   );
-  const exact = agreeing.filter((candidate) => sameNumber(candidate.value.value, stated.value));
+  const exact = agreeing.filter((group) => sameNumber(group.value, stated.value));
   const chosen = exact.length > 0 ? exact : agreeing;
   const [first] = chosen;
   if (!first) return null;
-  return chosen.every((each) => sameNumber(each.value.value, first.value.value)) ? first : null;
+  return chosen.every((each) => sameNumber(each.value, first.value)) ? first : null;
+}
+
+/** Of the lines that printed the same value, the one sharing most words with the reply's line. */
+function closest(candidates: readonly Candidate[], line: string): Candidate | undefined {
+  const words = new Set(line.toLowerCase().match(WORD) ?? []);
+  const shared = (candidate: Candidate) =>
+    (candidate.value.label.toLowerCase().match(WORD) ?? []).filter((word) => words.has(word))
+      .length;
+  return candidates.reduce<Candidate | undefined>(
+    (best, each) => (!best || shared(each) > shared(best) ? each : best),
+    undefined,
+  );
 }
 
 export interface PrintedNumbersOptions {
   language: Language;
-  /** Records a figure as one of the Answer's: its marker. */
-  record(figure: CalculatedFigure): number;
+  /** Records a figure as one of the Answer's: its marker, above `above`. */
+  record(figure: CalculatedFigure, above: number): number;
 }
 
 export interface PrintedNumbersText {
@@ -148,10 +217,24 @@ export interface PrintedNumbersText {
 export function createPrintedNumbers(options: PrintedNumbersOptions) {
   const recorded = new Map<string, number>();
   return (text: string, given: PrintedNumbersText): string => {
-    const candidates: Candidate[] = given.analyses.flatMap((analysis) =>
-      printedValues(analysis).map((printed) => ({ ...printed, analysis: analysis.number })),
+    const groups = groupsOf(
+      given.analyses.flatMap((analysis) =>
+        printedValues(analysis).map((printed) => ({ ...printed, analysis: analysis.number })),
+      ),
     );
-    if (candidates.length === 0) return text;
+    if (groups.length === 0) return text;
+    const refused = given.analyses.flatMap((analysis) =>
+      (analysis.recalculations ?? []).flatMap(({ result, check }) => {
+        const figure = analysis.output.results.find((each) => each.name === result);
+        if (check.kind !== "differs" || figure?.kind !== "figure") return [];
+        return [{ value: figure.value, unit: figure.unit === "%" ? PERCENT : PLAIN }];
+      }),
+    );
+    // A marker the model wrote with no figure stays one: a printed figure never takes its number.
+    const above = Math.max(
+      0,
+      ...[...text.matchAll(FIGURE_MARKER)].map((found) => Number(found[1])),
+    );
     const sentences = paragraphsOf(text).flatMap((paragraph) => paragraph.sentences);
     const placed = new Map<number, PlacedFigure>();
     const figureOf = (marker: number) => placed.get(marker) ?? given.figureOf(marker);
@@ -160,17 +243,23 @@ export function createPrintedNumbers(options: PrintedNumbersOptions) {
         const quote = given.quoteOf(Number(found[1]));
         if (!quote) return false;
         return readFigures(quote, figureContextOf(quote)).some((figure) =>
-          readingsOf(figure).some((reading) =>
-            agreesAtShownPrecision(stated, asCalculated(reading)),
-          ),
+          readingsOf(figure).some((reading) => agrees(stated, reading)),
         );
       });
     let marked = text;
     // From the end, so each number's offsets hold while the ones after it become markers.
-    for (const stated of proseFigures(text, options.language).reverse()) {
+    for (const read of proseFigures(text, options.language).reverse()) {
+      const chars = read.chars.replace(EMPHASIS_AFTER, "");
+      const stated = { ...read, chars, end: read.start + chars.length };
       if (stated.ambiguous.length > 0 || FIGURE_AFTER.test(text.slice(stated.end))) continue;
       if (cited(stated, claimAround(text, sentences, stated.start))) continue;
-      const source = matched(stated, candidates);
+      // At the reply's own rounding even for a whole number: a mismatch is never shown as a figure.
+      if (refused.some((value) => agreesAtShownPrecision(stated, asCalculated(value)))) continue;
+      const group = matched(stated, groups);
+      const from = marked.lastIndexOf("\n", stated.start - 1) + 1;
+      const to = marked.indexOf("\n", stated.end);
+      const source =
+        group && closest(group.candidates, marked.slice(from, to < 0 ? undefined : to));
       if (!source) continue;
       const figure: CalculatedFigure = {
         label: source.value.label,
@@ -194,8 +283,6 @@ export function createPrintedNumbers(options: PrintedNumbersOptions) {
       const at = (marker: number) =>
         `${marked.slice(0, stated.start)}[=${marker}]${marked.slice(stated.end)}`;
       // A figure's place reads only its own line.
-      const from = marked.lastIndexOf("\n", stated.start - 1) + 1;
-      const to = marked.indexOf("\n", stated.end);
       const line = (text: string, end: number) => text.slice(from, end < 0 ? undefined : end);
       const shift = `[=${TRIED}]`.length - (stated.end - stated.start);
       const tried = withFigureText(line(at(TRIED), to < 0 ? to : to + shift), (marker) =>
@@ -203,7 +290,7 @@ export function createPrintedNumbers(options: PrintedNumbersOptions) {
       );
       if (tried !== withFigureText(line(marked, to), figureOf)) continue;
       const key = JSON.stringify([source.analysis, source.value.name, stated.chars]);
-      const marker = recorded.get(key) ?? options.record(figure);
+      const marker = recorded.get(key) ?? options.record(figure, above);
       recorded.set(key, marker);
       placed.set(marker, figure);
       marked = at(marker);

@@ -1540,7 +1540,7 @@ export function createAnswers(options: AnswersOptions) {
     });
     const markPrinted = createPrintedNumbers({
       language: answerLanguage(context.question),
-      record: (figure) => figures.record(figure),
+      record: (figure, above) => figures.record(figure, [], above),
     });
     const withPrintedFigures = (text: string): string =>
       markPrinted(text, {

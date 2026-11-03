@@ -28,7 +28,7 @@ import {
   readFigureCitation,
   readFigureInput,
 } from "./calculatedFigures";
-import { printedValues } from "./printedFigures";
+import { printedValue } from "./printedFigures";
 
 const text = (value: unknown): value is string => typeof value === "string";
 const count = (value: unknown): value is number =>
@@ -265,9 +265,10 @@ export function retainFigureAnalysis(
   if (uses.length === 0) return null;
   const checks = new Map((analysis.recalculations ?? []).map((each) => [each.result, each.check]));
   // A run that didn't finish gives no results, but what it printed before it ended was printed.
+  const names = new Set(uses.flatMap((node) => node.figure.analysis?.result ?? []));
   const given = [
     ...(analysis.end.kind === "done" ? analysis.output.results : []),
-    ...printedValues(analysis).map((printed) => printed.value),
+    ...[...names].flatMap((name) => printedValue(analysis, name) ?? []),
   ];
   const results: RetainedFigureValue[] = given.flatMap((result) => {
     if (result.kind !== "figure") return [];

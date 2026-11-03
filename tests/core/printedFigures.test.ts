@@ -169,38 +169,51 @@ describe.skipIf(process.platform === "win32")("numbers code printed, in the Answ
   );
 
   test.each<[Language, string]>([
-    ["en", "| Month | Revenue |\n| --- | --- |\n| 1 | 1,234.5 |\n| 2 | 567.25 |"],
-    ["zh-CN", "| 月份 | 收入 |\n| --- | --- |\n| 1 | 1,234.5 |\n| 2 | 567.25 |"],
+    [
+      "en",
+      "| Month | Revenue |\n| --- | --- |\n| 1 | **1,234.5** |\n| 2 | 567.25 |\n| 3 | 567.25 |",
+    ],
+    [
+      "zh-CN",
+      "| 月份 | 收入 |\n| --- | --- |\n| 1 | **1,234.5** |\n| 2 | 567.25 |\n| 3 | 567.25 |",
+    ],
   ])(
     "%s: a printed table's cells typed into the reply's table are figures, its row labels not",
     async (language, reply) => {
       const { answer } = await answered(
         language,
-        [bash("printf 'Month Revenue\\n1 1234.5\\n2 567.25\\n'")],
+        [bash("printf 'Month Revenue\\n1 1234.5\\n2 567.25\\n3 567.25\\n'")],
         () => reply,
       );
-      expect(shownFigures(answer)).toEqual(
+      // Each row's figure is the printed line of its own month; its bold stays the Answer's.
+      expect(
+        answer.figures.map((figure) => [figure.shown, figure.analysis?.result, figure.label]),
+      ).toEqual(
         expect.arrayContaining([
-          ["1,234.5", 1234.5, "printed@16"],
-          ["567.25", 567.25, "printed@25"],
+          ["1,234.5", "printed@16", "1 1234.5"],
+          ["567.25", "printed@25", "2 567.25"],
+          ["567.25", "printed@34", "3 567.25"],
         ]),
       );
       // The months name the rows, as the checks read a table: the code printed them too.
-      expect(answer.figures).toHaveLength(2);
-      expect(answer.text).toContain("| 1 | [=");
+      expect(answer.figures).toHaveLength(3);
+      expect(answer.text).toMatch(/\| 1 \| \*\*\[=\d+\]\*\* \|/);
       expect(readText(answerBlocks(answer))).toContain("1,234.5");
     },
   );
 
   test.each<[Language, string]>([
-    ["en", "The mean is 12.3 per hour; 12.4 would be wrong, and 777 is another number."],
-    ["zh-CN", "平均每小时 12.3 次；12.4 不对，777 是另一个数。"],
+    [
+      "en",
+      "The mean is 12.3 per hour over 3 hours; 12.4 would be wrong, and 777 is another number.",
+    ],
+    ["zh-CN", "3 小时内平均每小时 12.3 次；12.4 不对，777 是另一个数。"],
   ])(
     "%s: a print rounded as the reply writes it is the figure; one that matches nothing stays typed",
     async (language, reply) => {
       const { answer } = await answered(
         language,
-        [bash("printf 'mean %s\\n' 12.345")],
+        [bash("printf 'mean %s\\nsd %s\\n' 12.345 3.4")],
         () => reply,
       );
       // The figure check reads 12.3 as 12.345 rounded to one decimal, and 12.4 as another number.
@@ -272,6 +285,19 @@ describe.skipIf(process.platform === "win32")("numbers code printed, in the Answ
     },
   );
 
+  test.each<[Language, string, string]>([
+    ["en", "Revenue is 1,234 [=2].\n\nWe read 3 rows.", "Revenue is 1,234.\nWe read 3 rows."],
+    ["zh-CN", "收入为 1,234 [=2]。\n\n共读了 3 行。", "收入为 1,234。\n共读了 3 行。"],
+  ])(
+    "%s: a figure marker the reply wrote with no figure never takes a printed one",
+    async (language, reply, read) => {
+      const { answer } = await answered(language, [bash("printf 'rows %s\\n' 3")], () => reply);
+      expect(answer.figures.map((figure) => figure.value)).toEqual([3]);
+      expect(answer.figures[0]?.marker).toBeGreaterThan(2);
+      expect(readText(answerBlocks(answer))).toBe(read);
+    },
+  );
+
   test.each<[Language, string]>([
     ["en", "Both runs printed 12.3 12.3."],
     ["zh-CN", "两次都打印了 12.3 12.3。"],
@@ -292,14 +318,14 @@ describe.skipIf(process.platform === "win32")("numbers code printed, in the Answ
       const analysis: FakeAnswer = {
         output: {
           ...noAnalysisOutput(),
-          printed: "total 999\nrows 2\n",
+          printed: "total 999.12\nrows 2\n",
           results: [
             {
               kind: "figure",
               name: "total",
               label: "Revenue",
               unit: null,
-              value: 999,
+              value: 999.123,
               of: { input: "sales", columns: ["Revenue"], rows: [[2, 3]], count: 2, how: "sum" },
             },
           ],
@@ -317,16 +343,16 @@ describe.skipIf(process.platform === "win32")("numbers code printed, in the Answ
             },
           }),
         ],
-        () => (language === "en" ? "Revenue is 999 over 2 rows." : "收入为 999，共 2 行。"),
+        () => (language === "en" ? "Revenue is 999.12 over 2 rows." : "收入为 999.12，共 2 行。"),
         { analysis },
       );
       expect(answer.analyses[0]?.recalculations).toEqual([
         { result: "total", check: { kind: "differs", value: 3 } },
       ]);
       expect(answer.figures.map((figure) => [figure.value, figure.analysis?.result])).toEqual([
-        [2, "printed@15"],
+        [2, "printed@18"],
       ]);
-      expect(answer.text).toContain("999");
+      expect(answer.text).toContain("999.12");
     },
   );
 
