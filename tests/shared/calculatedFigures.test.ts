@@ -360,14 +360,3 @@ test("an Answer of only a calculated figure has something to read, and an empty 
   expect(hasText([paragraph([{ type: "text", text: "  " }])])).toBe(false);
   expect(hasText([paragraph([{ type: CALCULATED_FIGURE_NODE, attrs: {} }])])).toBe(false);
 });
-
-test("a figure's input is read from a Document's text, never from its file's properties (#2458)", () => {
-  const unpaged = { ...citation(), pageFrom: null, pageTo: null };
-  expect(readFigureCitation({ ...unpaged, location: null })).not.toBeNull();
-  expect(
-    readFigureCitation({
-      ...unpaged,
-      location: { kind: "properties", property: "modified", value: "2026-11-02T09:00:00Z" },
-    }),
-  ).toBeNull();
-});

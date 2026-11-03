@@ -149,8 +149,7 @@ function countLine(
 /** A name on one line: a file's name may hold a line break that would read as another property. */
 const oneLine = (name: string) => name.replace(/[\s\p{Cc}]+/gu, " ").trim();
 
-/** A file's own date as its line gives it: one written in UTC on this computer's clock too. */
-function ownDate(value: string): string {
+function dateLine(value: string): string {
   const clock = onThisClock(value);
   return clock
     ? `${value} (the file’s own date, written in UTC: ${clock} on this computer's clock)`
@@ -174,8 +173,8 @@ function sourceOf(document: Document, slides: number | null): Source | null {
   const own = document.properties;
   if (own === null) add("Dates and author: they couldn't be read from the file.");
   else {
-    if (own.created) line("created", "Created", ownDate(own.created), own.created);
-    if (own.modified) line("modified", "Modified", ownDate(own.modified), own.modified);
+    if (own.created) line("created", "Created", dateLine(own.created), own.created);
+    if (own.modified) line("modified", "Modified", dateLine(own.modified), own.modified);
     if (own.author) line("author", "Author", own.author);
     if (!own.created && !own.modified) {
       add("Dates: the file records none of its own.");

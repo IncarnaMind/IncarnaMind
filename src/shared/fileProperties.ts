@@ -36,6 +36,11 @@ export function fileDate(value: string, language: Language, zone: Zone = {}): st
   return format(date, language, { timeZone: "UTC" });
 }
 
+/** The year of a file's own date, as `fileDate` shows it: "2027" for 2026-12-31T20:00:00Z at UTC+8. */
+export function fileYear(value: string, zone: Zone = {}): string {
+  return IN_UTC.test(value) ? formatYear(value, "en", zone) : value.slice(0, 4);
+}
+
 /**
  * The dates a Document's info panel shows and a check may name: the file's own, when it records
  * any; else this computer's, which copying or downloading a file changes. Never both.

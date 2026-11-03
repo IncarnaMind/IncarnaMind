@@ -54,6 +54,8 @@ interface Plan {
   quote?: string;
   /** For a sentence with figures, the number of `quote` each figure is read from: its first when absent. */
   number?: string;
+  /** For a sentence with figures, a second quote its figures are read from, `quote` backing its words. */
+  figureQuote?: string;
   /** What its Property line names; no line when null; "none" when absent. */
   property?: string | null;
   /** Its Property line once asked for it, none before. */
@@ -95,10 +97,14 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
         return { text: `Parts: ${JSON.stringify(parts)}`, calls: [search] };
       }
       const shown = searches.flatMap((search) => shownPassages(search.text));
-      const { quote } = plan;
+      const { quote, figureQuote } = plan;
       if (quote && !call.results.some((result) => result.tool === "cite")) {
-        const passage = shown.find((each) => each.text.includes(quote)) ?? shown[0];
-        const citations = [{ marker: 1, passage: passage?.id, quote }];
+        const passageOf = (words: string) =>
+          (shown.find((each) => each.text.includes(words)) ?? shown[0])?.id;
+        const citations = [
+          { marker: 1, passage: passageOf(quote), quote },
+          ...(figureQuote ? [{ marker: 2, passage: passageOf(figureQuote), quote: figureQuote }] : []),
+        ];
         return { calls: [{ tool: "cite", input: { citations } }] };
       }
       const property =
@@ -122,7 +128,8 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
       // A check in a Note binds each figure of its sentence to the number its quote gives.
       const figures = requestedFigures(call);
       if (figures.length > 0) {
-        const number = quote ? (plan.number ?? readFigures(quote)[0]?.chars) : undefined;
+        const from = figureQuote ?? quote;
+        const number = from ? (plan.number ?? readFigures(from)[0]?.chars) : undefined;
         const items = figures.map(({ id, reading }) => ({
           id,
           verdict: number ? plan.verdict : "unsupported",
@@ -132,7 +139,7 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
           says: null,
           reading,
           relation: "equals",
-          source: number ? { citation: 1, number } : null,
+          source: number ? { citation: figureQuote ? 2 : 1, number } : null,
           calculation: null,
         }));
         lines.push(`Figures: ${JSON.stringify({ items, remainder: null })}`);
@@ -556,6 +563,33 @@ describe.each(["en", "zh-CN"] as const)(
       );
       const { check } = await checkInNote(named.core, sentences.slides, null);
       expect(check?.state).toBe("supported");
+    });
+
+    // protects=a sentence whose own words cite the Document's text is no longer Supported once its figure, bound to a property that may not decide it, is held back; fails_when=the deck's slide count backs the figure of a sentence the reply says is about what the Document says, and the sentence stays Supported on its text.
+    test("whose figure a property may not decide is no longer Supported on its text either", async () => {
+      const slide = { shapes: sp({ body: txBody(para("<a:r><a:t>Quarterly board plan</a:t></a:r>")) }) };
+      const plan = (property: string): Record<string, Plan> => ({
+        [sentences.slides]: {
+          document: "Plan",
+          verdict: "supported",
+          quote: "Quarterly board plan",
+          figureQuote: "Slides: 3",
+          property,
+          says: "The deck is the board plan.",
+        },
+      });
+      const deck = [{ name: "Plan.pptx", contents: pptxOf({ slides: [slide, slide, slide] }) }];
+      const named = await setUp(deck, plan("slides"), language);
+      const { check: about } = await checkInNote(named.core, sentences.slides, null);
+      expect(about).toMatchObject({
+        state: "supported",
+        figures: [{ state: "supported", evidence: { location: property("slides", "3") } }],
+      });
+
+      const notAbout = await setUp(deck, plan("none"), language);
+      const { check } = await checkInNote(notAbout.core, sentences.slides, null);
+      expect(check?.state).toBe("unsupported");
+      expect(check?.figures?.map((figure) => figure.state)).toEqual(["unsupported"]);
     });
   },
 );
@@ -985,10 +1019,12 @@ describe("Which Documents' properties a check shows", () => {
           document: "Report",
           quote: "Report",
         },
+        // It reads the notes' properties, and quotes their computer date, as if they were the report's.
         "The report this cites was last modified on 2 November 2026.": {
           verdict: "unsupported",
           document: "Site notes",
           property: "modified",
+          quote: "Modified on this computer",
         },
       },
     );
@@ -1510,13 +1546,14 @@ describe.each([
       [
         {
           name: "Services agreement.docx",
-          contents: agreement({ modified: "2026-10-30T12:00:00Z" }),
+          // Saved with its zone, the day it names is the same on every computer.
+          contents: agreement({ modified: "2026-10-30T12:00:00+01:00" }),
         },
       ],
       {
         [SENTENCE]: {
           verdict: "contradicted",
-          quote: "Modified: 2026-10-30T12:00:00Z",
+          quote: "Modified: 2026-10-30T12:00:00+01:00",
           property: "modified",
           says: "The file records 30 October 2026.",
         },
@@ -1526,7 +1563,7 @@ describe.each([
     const { check, noteId } = await checkInNote(setup.core, SENTENCE, null);
     expect(check).toMatchObject({
       state: "contradicted",
-      evidence: { location: property("modified", "2026-10-30T12:00:00Z") },
+      evidence: { location: property("modified", "2026-10-30T12:00:00+01:00") },
     });
 
     const exported = await setup.core.exportMind(noteId, {
@@ -1535,7 +1572,7 @@ describe.each([
     });
     const comments = textOf(unzip(exported.data).get("word/comments.xml")?.toString("utf8") ?? "");
     expect(comments).toContain(note);
-    expect(comments).not.toContain("2026-10-30T12:00:00Z");
+    expect(comments).not.toContain("2026-10-30T12:00:00+01:00");
   });
 });
 
