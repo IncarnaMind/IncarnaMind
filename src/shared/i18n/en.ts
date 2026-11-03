@@ -2993,6 +2993,8 @@ export const en = {
   "copilot.plan.enterprise": "Copilot Enterprise",
   "copilot.plan.unknown": "GitHub Copilot",
   "copilot.signedIn.usage": "Answers count toward your plan’s usage limits.",
+  "copilot.signedIn.own": "Signed in to GitHub as {account}",
+  "copilot.signedIn.ownNoName": "Signed in to GitHub",
   "copilot.use": "Use for Questions",
   "copilot.signOut": "Sign out",
   "plans.copilot.title": "GitHub Copilot Pro, Pro+, Business or Enterprise",
