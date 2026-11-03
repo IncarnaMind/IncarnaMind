@@ -15,8 +15,11 @@
  * where its last saved part ends, and it waits, paused, for the User to resume.
  *
  * Its audio is kept for at most a day after the last stretch, then deleted;
- * the User can delete it sooner. While audio is being captured, background
- * work holds back (`onCapturingChange`): live capture comes first.
+ * the User can delete it sooner. Deleting its Mind never deletes it (#1253):
+ * the Meeting goes to Recently deleted with the Mind, stopped if it recorded,
+ * and comes back with it, until Recently deleted drops it or its day ends.
+ * While audio is being captured, background work holds back
+ * (`onCapturingChange`): live capture comes first.
  *
  * Where this copy can transcribe, the audio also goes to the Meeting's
  * Transcript as it comes (./transcript, #136). What goes wrong with the
@@ -27,6 +30,9 @@
  * its source, and nothing from it is kept, sent or transcribed until it is
  * resumed, while the computer's sound goes on. That is the Meeting's, not the
  * device's: every Meeting starts with its microphone on.
+ *
+ * A voice memo (#1568) is a Meeting of the User alone: it records the microphone only, from the
+ * moment it is made, in a Mind with no title, so the title line of its note names the Mind.
  */
 import { randomUUID } from "node:crypto";
 import { formatDay } from "../../shared/dates";
@@ -47,6 +53,7 @@ import {
   type MeetingGap,
   type MeetingHelp,
   type MeetingHelpTemplate,
+  type MeetingKind,
   type MeetingLevel,
   type MeetingSourceState,
   type Mind,
@@ -99,6 +106,7 @@ interface Period {
 interface MeetingRow {
   id: string;
   mind_id: string;
+  kind: MeetingKind;
   status: Meeting["status"];
   paused_by: Meeting["pausedBy"];
   system_audio: number;
@@ -108,12 +116,14 @@ interface MeetingRow {
   audio_expires_at: string | null;
   audio_deleted_at: string | null;
   fill: string | null;
+  transcript_document_id: string | null;
+  purged_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
 const COLUMNS =
-  "id, mind_id, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_deleted_at, fill, created_at, updated_at";
+  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_deleted_at, fill, transcript_document_id, purged_at, created_at, updated_at";
 
 /** A Meeting's fill as stored: as the API has it, and the ids of the Blocks it added, for Undo. */
 export interface StoredFill extends MeetingFill {
@@ -171,6 +181,8 @@ export interface MeetingsOptions {
   language(): Language;
   createMind(title: string, folderId: string | null): Mind;
   mindExists(mindId: string): boolean;
+  /** Removes a Mind a memo made, when recording can't start: nothing is left behind (#1568). */
+  removeMind(mindId: string): void;
   changed(meetings: Meeting[]): void;
   /** Whether audio is being captured, each time that changes. */
   onCapturingChange(capturing: boolean): void;
@@ -184,12 +196,58 @@ export interface MeetingsOptions {
 
 export type Meetings = ReturnType<typeof createMeetings>;
 
+/** A Meeting brought back with its Mind, and when the two were deleted. */
+export interface RestoredMeeting {
+  meetingId: string;
+  deletedAt: string;
+}
+
 /** Why a part couldn't be saved, from the error's code. */
 function lossCauseOf(code: string): AudioLossCause {
   if (code === "ENOSPC" || code === "EDQUOT") return "full";
   if (code === "EACCES" || code === "EPERM" || code === "EROFS") return "denied";
   return "error";
 }
+
+export const isMemo = (db: Database, meetingId: string): boolean =>
+  db.get<Pick<MeetingRow, "kind">>("SELECT kind FROM meetings WHERE id = ?", [meetingId])?.kind ===
+  "memo";
+
+/** A Meeting's note, kind and times, in Recently deleted too: what its Transcript is named from. */
+export function meetingRecord(
+  db: Database,
+  meetingId: string,
+): {
+  mindId: string;
+  kind: MeetingKind;
+  startedAt: string | null;
+  createdAt: string;
+  deletedAt: string | null;
+} | null {
+  const row = db.get<
+    Pick<MeetingRow, "mind_id" | "kind" | "started_at" | "created_at"> & {
+      deleted_at: string | null;
+    }
+  >("SELECT mind_id, kind, started_at, created_at, deleted_at FROM meetings WHERE id = ?", [
+    meetingId,
+  ]);
+  return row
+    ? {
+        mindId: row.mind_id,
+        kind: row.kind,
+        startedAt: row.started_at,
+        createdAt: row.created_at,
+        deletedAt: row.deleted_at,
+      }
+    : null;
+}
+
+/** Records which Document is the Meeting's Transcript, in the transaction that makes it. */
+export function linkTranscript(db: Database, meetingId: string, documentId: string): void {
+  db.run("UPDATE meetings SET transcript_document_id = ? WHERE id = ?", [documentId, meetingId]);
+}
+
+const codeOf = (error: unknown) => (error as NodeJS.ErrnoException).code ?? "unknown";
 
 export function createMeetings(options: MeetingsOptions) {
   const { db, now, capture, transcripts, health, log } = options;
@@ -258,6 +316,7 @@ export function createMeetings(options: MeetingsOptions) {
     return {
       id: row.id,
       mindId: row.mind_id,
+      kind: row.kind,
       status: row.status,
       pausedBy: row.paused_by,
       systemAudio: row.system_audio === 1,
@@ -423,6 +482,11 @@ export function createMeetings(options: MeetingsOptions) {
         });
       }
     }
+    if (source === "system") {
+      const quiet = samples.every((sample) => sample === 0);
+      current.silent = quiet ? current.silent + samples.length : 0;
+      if (!quiet) current.systemSignal = true;
+    }
     transcripts?.hear(current.meetingId, source, samples, run.startMs + msOf(run.samples));
     tellLevel(current, source, samples);
     run.waiting.push(samples);
@@ -430,11 +494,6 @@ export function createMeetings(options: MeetingsOptions) {
     run.samples += samples.length;
     while (run.waitingSamples >= PART_SAMPLES) {
       savePart(current, source, run, take(run, PART_SAMPLES));
-    }
-    if (source === "system") {
-      const quiet = samples.every((sample) => sample === 0);
-      current.silent = quiet ? current.silent + samples.length : 0;
-      if (!quiet) current.systemSignal = true;
     }
     setSource(
       current,
@@ -572,15 +631,27 @@ export function createMeetings(options: MeetingsOptions) {
     transcripts?.markMicrophonePause(meetingId, from, atMs);
   }
 
-  function assertNoneCapturing(meetingId: string): void {
+  function assertNoneCapturing(meetingId: string | null): void {
     if (live && live.meetingId !== meetingId) {
       throw new InvalidInputError({ key: "error.meeting.otherRecording" });
     }
   }
 
+  /** What recording needs: a copy that records, the notice read, and nothing else capturing. */
+  function assertCanStart(meetingId: string | null): void {
+    if (!capture) throw new InvalidInputError("This copy of IncarnaMind can't record audio.");
+    if (!options.noticeAccepted()) {
+      throw new InvalidInputError({ key: "error.meeting.noticeUnread" });
+    }
+    assertNoneCapturing(meetingId);
+  }
+
   // ---- Retention ----
 
-  function deleteAudio(meetingId: string, reason: "user" | "expired" | "discarded"): void {
+  function deleteAudio(
+    meetingId: string,
+    reason: "user" | "expired" | "discarded" | "purged",
+  ): void {
     if (live?.meetingId === meetingId) {
       live.runs.clear();
     }
@@ -589,22 +660,75 @@ export function createMeetings(options: MeetingsOptions) {
     log.info("meeting.audioDeleted", { meetingId, reason });
   }
 
-  /** Deletes audio a day past its Meeting's last stretch. */
+  /** A recording that couldn't start: what it captured goes, and its Transcript and health, before its row. */
+  function discardStart(row: MeetingRow): void {
+    if (live?.meetingId === row.id) end(live);
+    microphonePausedAt.delete(row.id);
+    microphoneResumedAt.delete(row.id);
+    transcripts?.forget(row.id);
+    health.forget(row.id);
+    deleteAudio(row.id, "discarded");
+  }
+
+  /** Deletes audio a day past its Meeting's last stretch, in Recently deleted too. */
   function sweep(): void {
     const at = now();
     const due = db.all<{ id: string }>(
       `SELECT id FROM meetings
-       WHERE deleted_at IS NULL AND audio_expires_at IS NOT NULL AND audio_expires_at <= ?
+       WHERE audio_expires_at IS NOT NULL AND audio_expires_at <= ?
          AND status IN ('paused', 'stopped')`,
       [at],
     );
     if (due.length === 0) return;
     for (const { id } of due) {
-      deleteAudio(id, "expired");
+      try {
+        deleteAudio(id, "expired");
+      } catch (error) {
+        // Tried again at the next sweep: a file that can't be removed now never stops the rest.
+        log.error("meeting.expireFailed", { meetingId: id, code: codeOf(error) });
+        continue;
+      }
       save(id, { audio_deleted_at: at, audio_expires_at: null });
     }
     changed();
   }
+
+  /**
+   * Deletes the audio, the Transcript's working state and the health record of Meetings whose
+   * Mind was deleted permanently, each once (`purged_at`). One whose files can't be removed now
+   * stays for the next start, which tries again; never throws. Returns those Meetings' Minds.
+   */
+  function dropPurged(): string[] {
+    const purged = db.all<Pick<MeetingRow, "id" | "mind_id" | "audio_deleted_at">>(
+      `SELECT id, mind_id, audio_deleted_at FROM meetings WHERE purged_at IS NULL
+         AND mind_id IN (SELECT id FROM minds WHERE purged_at IS NOT NULL)`,
+    );
+    const failed: string[] = [];
+    for (const { id, mind_id, audio_deleted_at } of purged) {
+      try {
+        transcripts?.forget(id);
+        health.forget(id);
+        if (audio_deleted_at === null) deleteAudio(id, "purged");
+      } catch (error) {
+        log.error("meeting.purgeFailed", { meetingId: id, code: codeOf(error) });
+        failed.push(mind_id);
+        continue;
+      }
+      const at = now();
+      save(id, {
+        purged_at: at,
+        ...(audio_deleted_at === null && { audio_deleted_at: at, audio_expires_at: null }),
+      });
+    }
+    return failed;
+  }
+
+  /**
+   * The Transcript Documents of these Meetings, those that have one: as recorded, else as its
+   * working file says, for one made before the record was kept.
+   */
+  const transcriptsOf = (rows: readonly Pick<MeetingRow, "id" | "transcript_document_id">[]) =>
+    rows.flatMap((row) => row.transcript_document_id ?? transcripts?.documentOf(row.id) ?? []);
 
   // ---- After a crash or a quit ----
 
@@ -667,12 +791,15 @@ export function createMeetings(options: MeetingsOptions) {
   }
 
   recover();
-  // A Transcript a quit cut off while it was being finished is finished now.
+  // A Transcript a quit cut off while it was being finished is finished now, in Recently deleted
+  // too, so it is whole if it comes back.
   for (const { id } of db.all<{ id: string }>(
-    "SELECT id FROM meetings WHERE deleted_at IS NULL AND status = 'stopped'",
+    `SELECT id FROM meetings WHERE status = 'stopped'
+       AND mind_id NOT IN (SELECT id FROM minds WHERE purged_at IS NOT NULL)`,
   )) {
     transcripts?.resume(id);
   }
+  dropPurged();
   sweep();
   const sweeping = setInterval(() => {
     try {
@@ -696,36 +823,112 @@ export function createMeetings(options: MeetingsOptions) {
     return input;
   };
 
+  /** A Meeting ready to record, in the empty Mind given or a new one; a memo's has no title. */
+  function insert(
+    input: unknown,
+    kind: MeetingKind,
+  ): { row: MeetingRow; createdMindId: string | null } {
+    if (!capture) throw new InvalidInputError("This copy of IncarnaMind can't record audio.");
+    const { mindId, folderId } = parseInput(input);
+    if (mindId !== undefined && (typeof mindId !== "string" || !options.mindExists(mindId))) {
+      throw new NotFoundError({ key: "error.mind.notFound" });
+    }
+    if (
+      typeof mindId === "string" &&
+      db.get("SELECT 1 FROM meetings WHERE mind_id = ? AND deleted_at IS NULL", [mindId])
+    ) {
+      throw new InvalidInputError("That Note has a Meeting already.");
+    }
+    const id = randomUUID();
+    const at = now();
+    const systemAudio = kind === "meeting" && options.systemAudioByDefault();
+    let createdMindId: string | null = null;
+    db.transaction(() => {
+      let mind: string;
+      if (typeof mindId === "string") {
+        mind = mindId;
+      } else {
+        const created = options.createMind(
+          kind === "memo" ? "" : meetingTitle(),
+          parseFolderChoice(folderId),
+        );
+        mind = created.id;
+        createdMindId = created.id;
+      }
+      db.run(
+        `INSERT INTO meetings (id, mind_id, kind, status, system_audio, created_at, updated_at)
+         VALUES (?, ?, ?, 'ready', ?, ?, ?)`,
+        [id, mind, kind, systemAudio ? 1 : 0, at, at],
+      );
+    });
+    return { row: rowOf(id), createdMindId };
+  }
+
+  function record(row: MeetingRow, system: boolean): Meeting {
+    const at = now();
+    const period: Period = { start: at, offsetMs: 0, durationMs: null, endedBy: null };
+    save(row.id, {
+      status: "recording",
+      system_audio: system ? 1 : 0,
+      periods: JSON.stringify([period]),
+      started_at: at,
+    });
+    begin(rowOf(row.id), period);
+    log.info("meeting.started", { meetingId: row.id, kind: row.kind, systemAudio: system });
+    changed();
+    return toMeeting(rowOf(row.id));
+  }
+
   return {
     list,
 
     create(input: unknown): Meeting {
-      if (!capture) throw new InvalidInputError("This copy of IncarnaMind can't record audio.");
-      const { mindId, folderId } = parseInput(input);
-      if (mindId !== undefined && (typeof mindId !== "string" || !options.mindExists(mindId))) {
-        throw new NotFoundError({ key: "error.mind.notFound" });
-      }
-      if (
-        typeof mindId === "string" &&
-        db.get("SELECT 1 FROM meetings WHERE mind_id = ? AND deleted_at IS NULL", [mindId])
-      ) {
-        throw new InvalidInputError("That Mind has a Meeting already.");
-      }
-      const id = randomUUID();
-      const at = now();
-      db.transaction(() => {
-        const mind =
-          typeof mindId === "string"
-            ? mindId
-            : options.createMind(meetingTitle(), parseFolderChoice(folderId)).id;
-        db.run(
-          `INSERT INTO meetings (id, mind_id, status, system_audio, created_at, updated_at)
-           VALUES (?, ?, 'ready', ?, ?, ?)`,
-          [id, mind, options.systemAudioByDefault() ? 1 : 0, at, at],
-        );
-      });
+      const { row } = insert(input, "meeting");
       changed();
-      return toMeeting(rowOf(id));
+      return toMeeting(row);
+    },
+
+    recordMemo(input: unknown): Meeting {
+      assertCanStart(null);
+      const { row, createdMindId } = insert(input, "memo");
+      try {
+        return record(row, false);
+      } catch (error) {
+        try {
+          discardStart(row);
+        } catch (cleanup) {
+          log.warn("meeting.memoStartCleanupFailed", {
+            meetingId: row.id,
+            message: cleanup instanceof Error ? cleanup.message : String(cleanup),
+          });
+        }
+        try {
+          const at = now();
+          db.run("UPDATE meetings SET deleted_at = ?, updated_at = ? WHERE id = ?", [
+            at,
+            at,
+            row.id,
+          ]);
+          changed();
+        } catch (cleanup) {
+          log.warn("meeting.memoStartTombstoneFailed", {
+            meetingId: row.id,
+            message: cleanup instanceof Error ? cleanup.message : String(cleanup),
+          });
+        }
+        if (createdMindId !== null) {
+          try {
+            options.removeMind(createdMindId);
+          } catch (cleanup) {
+            log.warn("meeting.memoCleanupFailed", {
+              meetingId: row.id,
+              mindId: createdMindId,
+              message: cleanup instanceof Error ? cleanup.message : String(cleanup),
+            });
+          }
+        }
+        throw error;
+      }
     },
 
     discard(meetingId: unknown): void {
@@ -746,24 +949,8 @@ export function createMeetings(options: MeetingsOptions) {
       if (systemAudio !== undefined && typeof systemAudio !== "boolean") {
         throw new InvalidInputError("systemAudio must be true or false.");
       }
-      if (!capture) throw new InvalidInputError("This copy of IncarnaMind can't record audio.");
-      if (!options.noticeAccepted()) {
-        throw new InvalidInputError({ key: "error.meeting.noticeUnread" });
-      }
-      assertNoneCapturing(row.id);
-      const at = now();
-      const period: Period = { start: at, offsetMs: 0, durationMs: null, endedBy: null };
-      const system = systemAudio ?? row.system_audio === 1;
-      save(row.id, {
-        status: "recording",
-        system_audio: system ? 1 : 0,
-        periods: JSON.stringify([period]),
-        started_at: at,
-      });
-      begin(rowOf(row.id), period);
-      log.info("meeting.started", { meetingId: row.id, systemAudio: system });
-      changed();
-      return toMeeting(rowOf(row.id));
+      assertCanStart(row.id);
+      return record(row, row.kind === "meeting" && (systemAudio ?? row.system_audio === 1));
     },
 
     pause(meetingId: unknown): Meeting {
@@ -876,25 +1063,124 @@ export function createMeetings(options: MeetingsOptions) {
       await capture.openSettings(source);
     },
 
-    /** The Mind was deleted: its Meeting stops, and its audio goes with it. */
-    mindDeleted(mindId: string): void {
+    /**
+     * The Mind went to Recently deleted at `at`, in this transaction: its Meetings go with it, at
+     * its time, as they are, their audio kept until Recently deleted drops it or its day ends
+     * (#1253). One recording is stopped first (`stop`). Returns their ids, and their Transcript
+     * Documents, which go with them.
+     */
+    deletedWith(mindId: string, at: string): { meetingIds: string[]; transcripts: string[] } {
       const rows = db.all<MeetingRow>(
         `SELECT ${COLUMNS} FROM meetings WHERE mind_id = ? AND deleted_at IS NULL`,
         [mindId],
       );
-      if (rows.length === 0) return;
+      if (rows.length === 0) return { meetingIds: [], transcripts: [] };
+      if (rows.some(isLiveRow)) {
+        throw new Error("A Meeting being recorded is stopped before its Mind is deleted.");
+      }
+      const ids = rows.map((row) => row.id);
+      db.run(
+        "UPDATE meetings SET deleted_at = ?, updated_at = ? WHERE mind_id = ? AND deleted_at IS NULL",
+        [at, at, mindId],
+      );
+      for (const meetingId of ids) log.info("meeting.deleted", { meetingId });
+      changed();
+      return { meetingIds: ids, transcripts: transcriptsOf(rows) };
+    },
+
+    /** The Transcript Documents of the Mind's Meetings deleted with it at `deletedAt`. */
+    transcriptsDeletedWith(mindId: string, deletedAt: string): string[] {
+      return transcriptsOf(
+        db.all<Pick<MeetingRow, "id" | "transcript_document_id">>(
+          "SELECT id, transcript_document_id FROM meetings WHERE mind_id = ? AND deleted_at = ?",
+          [mindId, deletedAt],
+        ),
+      );
+    },
+
+    /** Whether a Meeting deleted with the Mind at `deletedAt` still keeps its audio. */
+    recordingDeletedWith(mindId: string, deletedAt: string): boolean {
+      return db
+        .all<{ id: string }>(
+          `SELECT id FROM meetings
+           WHERE mind_id = ? AND deleted_at = ? AND audio_deleted_at IS NULL`,
+          [mindId, deletedAt],
+        )
+        .some((row) => hasAudio(row.id));
+    },
+
+    /**
+     * Brings back the Mind's Meetings deleted with it at `deletedAt`, in the restore's
+     * transaction, then `restored`. One an earlier version left recording when it deleted the
+     * Mind stays deleted: its audio and its Transcript's state went then.
+     */
+    restoreWith(mindId: string, deletedAt: string): RestoredMeeting[] {
+      const where = "mind_id = ? AND deleted_at = ? AND status IN ('ready', 'stopped')";
+      const ids = db
+        .all<{ id: string }>(`SELECT id FROM meetings WHERE ${where}`, [mindId, deletedAt])
+        .map((row) => row.id);
+      if (ids.length > 0) {
+        db.run(`UPDATE meetings SET deleted_at = NULL, updated_at = ? WHERE ${where}`, [
+          now(),
+          mindId,
+          deletedAt,
+        ]);
+      }
+      return ids.map((meetingId) => ({ meetingId, deletedAt }));
+    },
+
+    /**
+     * Meetings `restoreWith` brought back: audio whose day ended meanwhile goes now, and their
+     * Transcripts are read again. Says which Minds' Meetings came back without their audio: lost,
+     * no longer on this computer though its day hadn't ended, or expired, its day having ended
+     * while the Mind waited in Recently deleted.
+     */
+    restored(meetings: readonly RestoredMeeting[]): {
+      lost: string[];
+      expired: { mindId: string; meetingId: string; memo: boolean }[];
+    } {
+      if (meetings.length === 0) return { lost: [], expired: [] };
+      for (const { meetingId } of meetings) kept.delete(meetingId);
+      sweep();
       const at = now();
-      for (const row of rows) {
-        if (live?.meetingId === row.id) end(live);
-        microphonePausedAt.delete(row.id);
-        microphoneResumedAt.delete(row.id);
-        transcripts?.forget(row.id);
-        health.forget(row.id);
-        deleteAudio(row.id, "discarded");
-        db.run("UPDATE meetings SET deleted_at = ?, updated_at = ? WHERE id = ?", [at, at, row.id]);
+      const lost: string[] = [];
+      const expired: { mindId: string; meetingId: string; memo: boolean }[] = [];
+      for (const { meetingId, deletedAt } of meetings) {
+        const row = rowOf(meetingId);
+        log.info("meeting.restored", { meetingId });
+        transcripts?.restored(meetingId);
+        if (row.audio_deleted_at !== null) {
+          if (row.audio_deleted_at > deletedAt) {
+            expired.push({ mindId: row.mind_id, meetingId, memo: row.kind === "memo" });
+          }
+          continue;
+        }
+        if (row.audio_expires_at === null || hasAudio(meetingId)) continue;
+        // An earlier version deleted it with the Mind, or something outside IncarnaMind did.
+        log.warn("meeting.audioNotRestored", { meetingId });
+        save(meetingId, { audio_deleted_at: at, audio_expires_at: null });
+        lost.push(row.mind_id);
       }
       changed();
+      return { lost, expired };
     },
+
+    /** Deletes what Meetings of Minds deleted permanently kept; see `dropPurged`. */
+    dropPurged,
+
+    /** The Meeting's Transcript Document, if it has one, in Recently deleted too. */
+    transcriptOf(meetingId: string): string | null {
+      const row = db.get<Pick<MeetingRow, "id" | "transcript_document_id">>(
+        "SELECT id, transcript_document_id FROM meetings WHERE id = ?",
+        [meetingId],
+      );
+      return (row && transcriptsOf([row])[0]) ?? null;
+    },
+
+    /** Whether the Meeting waits in Recently deleted with its Mind. */
+    isDeleted: (meetingId: string): boolean =>
+      db.get("SELECT 1 FROM meetings WHERE id = ? AND deleted_at IS NOT NULL", [meetingId]) !==
+      undefined,
 
     /** The computer is going to sleep: what is waiting is saved, and capture stops until it wakes. */
     sleeping(): void {

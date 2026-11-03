@@ -2,11 +2,16 @@ import { Fragment, type ReactNode } from "react";
 import type { ExampleGroup } from "../../../core/api";
 import { shortcutLabel } from "../commands/keymap";
 import { CheckMarkIcon } from "../editor/icons";
+import { useOwnMinds } from "../home";
 import { useGap, useT } from "../i18n";
+import { useLaterPromptsAllowed } from "../laterPrompts";
+import { useMindInFront } from "../mindInFront";
 import { allExamples, useAppStore } from "../store";
+import { closeTip, useFeatureTip } from "../tips";
 import { useAddYourDocuments } from "./AddYourDocuments";
 import { AskIcon, PlugIcon } from "./icons";
 import { SLOT, Slotted } from "./Slotted";
+import { Tip } from "./Tip";
 import { buttonStyle } from "./ui";
 
 /** Whether a Mind is the example one. */
@@ -160,8 +165,14 @@ function GuideStep({
  * steps, add Documents or connect apps, ask, and check where each claim comes
  * from, and the example Mind to see it first. Typing in the Mind puts it away.
  */
-export function StartGuide() {
+export function StartGuide({ mindId }: { mindId: string }) {
   const t = useT();
+  const later = useLaterPromptsAllowed();
+  const inFront = useMindInFront(mindId);
+  // The guide of an older note is still mounted when a new one opens: only the newest offers,
+  // or a tip the User never saw would use up one of its two shows.
+  const latest = useOwnMinds()[0]?.id === mindId;
+  const connect = useFeatureTip("connect-app", "guide", later && inFront && latest);
   const gap = useGap();
   const progress = useAppStore((state) => state.settings?.device.gettingStarted);
   const examplesAvailable = useAppStore((state) => state.examples?.available === true);
@@ -206,17 +217,24 @@ export function StartGuide() {
             >
               {t("startGuide.documents.addFiles")}
             </button>
-            <button
-              type="button"
-              data-testid="start-connect-app"
-              onClick={() => openSettings("connectors")}
-              className={buttonStyle("secondary")}
-            >
-              <PlugIcon className="size-3.5" />
-              {t("startGuide.documents.connectApp")}
-            </button>
           </div>
-          <p className="text-[13px] leading-5 text-ink-meta">{t("startGuide.documents.apps")}</p>
+          {connect && (
+            <Tip id="connect-app" onClose={() => closeTip("connect-app")}>
+              {t("startGuide.documents.apps")}{" "}
+              <button
+                type="button"
+                data-testid="start-connect-app"
+                onClick={() => {
+                  closeTip("connect-app");
+                  openSettings("connectors");
+                }}
+                className="inline-flex items-center gap-1 rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+              >
+                <PlugIcon className="size-3.5" />
+                {t("startGuide.documents.connectApp")}
+              </button>
+            </Tip>
+          )}
         </GuideStep>
 
         <GuideStep number={2} state={stateOf(1)} title={t("startGuide.ask.title")}>

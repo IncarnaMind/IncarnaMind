@@ -1,15 +1,19 @@
-import type { ChatModelChoice, ProviderError } from "../api";
+import type { ChatModelChoice, ExternalService, ProviderError, TaggingState } from "../api";
 
 /** An in-app folder. The legacy Group API name keeps saved assignments compatible. */
 export interface LibraryGroup {
   id: string;
   name: string;
   description: string;
+  /** The Folder this one is in, or null at the top level. A Folder holds Folders, Minds and Documents. */
+  parentId: string | null;
   /**
    * Checks count the files IncarnaMind wrote in this Folder as evidence (#80):
    * the User switched their exclusion off here. False by default.
    */
   countsOwnFiles: boolean;
+  /** Only this Folder's Documents and Notes may be read or cited from it. False by default. */
+  keepInside: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -78,6 +82,16 @@ export type AutomaticTaggingReason =
   | "decision-models"
   | "local-chat";
 
+/**
+ * Where a choice sends its requests, as the core works it out for the data flows it registers: to
+ * a service, nowhere (it runs on this computer), or unknown, because what it names isn't there
+ * (its provider was removed, or Jev's key).
+ */
+export type TaggingDestination =
+  | { kind: "here" }
+  | { kind: "service"; service: ExternalService }
+  | { kind: "unknown" };
+
 /** What the Tagging section shows (see `CoreApi.getTaggingModels`). */
 export interface TaggingModels {
   /** What Automatic tags with now, and why; null when there is nothing it can use, so tagging waits. */
@@ -88,7 +102,21 @@ export interface TaggingModels {
   localMode: boolean;
   /** Tagging on a plan (ChatGPT's or Claude's) waits for its limit to reset, until this time (ISO 8601, UTC); null when it doesn't. */
   planPausedUntil: string | null;
+  /** The choice the User saved, with where it sends its requests; null while Automatic is the setting. */
+  saved: { classifier: TaggingClassifier; destination: TaggingDestination } | null;
 }
+
+export type TaggingFlow = "tagging" | "classification" | "scan-images";
+
+/**
+ * Where the flow's model sends now: a service, a model
+ * on this computer, or none it can tag with. The flows say whether the User
+ * allowed it.
+ */
+export type TaggingRoute =
+  | { where: "none" }
+  | { where: "local" }
+  | { where: "cloud"; service: ExternalService };
 
 export interface ClassificationModel {
   id: string;
@@ -109,9 +137,12 @@ export interface LibrarySettings {
    * Tag and sort new and changed Documents by itself, once a model is chosen
    * (#1617). Until the User sets it, it is on for a model on this computer
    * and off for a cloud model, since each Document's name and an excerpt go
-   * to it. Off, nothing is sent by itself: what the User starts by hand
-   * (Organize, a re-tag) still goes. A Document added while it is off isn't
-   * tagged or sorted when it is turned on.
+   * to it. Turned on for where it sends (`turnOn` in `saveLibrarySettings`),
+   * it reads off once that changes, to another service or from this computer
+   * to one, until it is turned on there (#2308). On, only a Document new
+   * since it was turned on goes by itself (`mayBackgroundSend` in
+   * ../tags/held); the others are "off". Off, nothing is sent by itself: what
+   * the User starts by hand (Organize, a re-tag) still goes.
    */
   automatic: boolean;
   /**
@@ -138,13 +169,34 @@ export interface DocumentGroupAssignment {
   status: ClassificationStatus;
   error: ProviderError | null;
   model: ClassificationModel | null;
+  /** The Document's own tagging row as it was, on the assignments a snapshot or event lists and on a move's change. */
+  tagging?: DocumentTagging;
 }
 
-/** One Document's assignment as `acceptAssignments` or `rejectAssignments` changed it. */
+/** A Document's own tagging row as it was, for an Undo to put back. */
+export interface DocumentTagging {
+  /** As stored; "skipped" is worked out from the Document's status, never stored. */
+  status: Exclude<TaggingState, "skipped">;
+  error: ProviderError | null;
+  /** When the row last changed: the same state written again is still a newer one. */
+  updatedAt: string;
+}
+
+/**
+ * A Document's place as a change found or left it: its assignment, or none, and the Document's
+ * own tagging row when the change moved it. Undo compares the current rows with `after`.
+ */
+export interface AssignmentState {
+  assignment: Omit<DocumentGroupAssignment, "documentId"> | null;
+  /** Null when the change left the Document's tagging alone. */
+  tagging: DocumentTagging | null;
+}
+
+/** One Document's assignment as a change left it, for Undo: the real rows before and after. */
 export interface AssignmentChange {
-  /** As it was: what undo puts back. */
-  before: DocumentGroupAssignment;
-  after: DocumentGroupAssignment;
+  documentId: string;
+  before: AssignmentState;
+  after: AssignmentState;
 }
 
 /** Documents added together, by one `addDocuments` or `addLinkedFolder`. */
@@ -192,6 +244,10 @@ export interface LibrarySnapshot {
 export interface LibraryGroupInput {
   name: string;
   description: string;
+  /** The Folder it is inside, or null at the top level. Left out, it stays as it was (null for a new Folder). */
+  parentId?: string | null;
   /** See `LibraryGroup.countsOwnFiles`. Left out, it stays as it was (false for a new Folder). */
   countsOwnFiles?: boolean;
+  /** See `LibraryGroup.keepInside`. Left out, it stays as it was (false for a new Folder). */
+  keepInside?: boolean;
 }

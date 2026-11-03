@@ -65,18 +65,20 @@ async function namesHaveRoom(library: Locator) {
   return hide === NARROWEST && (await namesCut(library, A_FEW_LETTERS)).length === 0;
 }
 
-/** The rows on screen that have Tags but show none of them: a narrow page keeps at least a chip. */
-function rowsWithoutTheirChips(library: Locator) {
+/** The rows on screen that have Tags but no way to reach them: no chip shown and no Tags button. */
+function rowsWithNoWayToTheirTags(library: Locator) {
   return library.evaluate((root) =>
     [...root.querySelectorAll('[data-testid="library-document"]')]
       .filter((row) => row.getBoundingClientRect().height > 0)
-      .filter((row) => row.querySelector('[data-testid="tag-chip"]'))
-      .filter(
-        (row) =>
-          ![...row.querySelectorAll('[data-testid="tag-chip"]')].some(
-            (chip) => chip.getBoundingClientRect().width > 0,
-          ),
-      )
+      .filter((row) => row.querySelector("[data-tag-id]"))
+      .filter((row) => {
+        const chip = [...row.querySelectorAll('[data-testid="tag-chip"]')].some(
+          (each) => each.getBoundingClientRect().width > 0,
+        );
+        const button = row.querySelector<HTMLElement>('[data-testid="document-tags-menu"]');
+        const box = button?.getBoundingClientRect();
+        return !chip && (!button || !box || box.width === 0);
+      })
       .map((row) => row.querySelector('[data-testid="library-document-name"]')?.textContent),
   );
 }
@@ -126,14 +128,14 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(first.getByTestId("library-document-format")).toBeVisible();
     await expect(first.getByTestId("library-document-added")).toBeVisible();
 
-    // Narrow again, with the assistant beside the page: Added and Format have gone first, and the
-    // Tags keep a chip on every row that has one.
+    // Narrow again, with the assistant beside the page: Added and Format have gone first, and
+    // every row with Tags keeps a way to them, a chip or the Tags button.
     await setWindowSize(app, window, 1100, 900);
     await placeAssistant(window, { folded: false });
     await expect(first).toBeVisible();
     await expect(first.getByTestId("library-document-added")).toBeHidden();
     await expect(first.getByTestId("library-document-format")).toBeHidden();
-    await expect.poll(() => rowsWithoutTheirChips(library)).toEqual([]);
+    await expect.poll(() => rowsWithNoWayToTheirTags(library)).toEqual([]);
 
     // With a Document open beside the page there is no room for chips and names both: the chips go.
     await placeAssistant(window, { folded: true });

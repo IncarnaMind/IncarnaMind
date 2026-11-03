@@ -8,6 +8,7 @@ import {
   coreOf,
   createDataFolder,
   dismissChatSetup,
+  expectReadyDocuments,
   type LaunchOptions,
   launchApp,
   linkFolderFromSidebar,
@@ -207,14 +208,7 @@ async function addAndShow(
   language: "en" | "zh-CN" = "en",
 ): Promise<void> {
   await window.getByTestId("add-documents-input").setInputFiles(paths);
-  await expect
-    .poll(async () =>
-      (await coreOf(window)).evaluate(
-        async (core) =>
-          (await core.listDocuments()).filter((each) => each.status === "ready").length,
-      ),
-    )
-    .toBe(paths.length);
+  await expectReadyDocuments(window, paths.length);
   await setLanguage(window, language);
   await place.show(window);
 }
@@ -662,6 +656,7 @@ test("a Document whose file is gone says Missing in its peek, and a press elsewh
     await openShortlist(window);
     await linkFolderFromSidebar(app, window, folder);
     await showSourceLocations(window);
+    await expectReadyDocuments(window, 2);
     const doomed = window
       .getByTestId("not-in-a-folder")
       .getByTestId("document-list-item")

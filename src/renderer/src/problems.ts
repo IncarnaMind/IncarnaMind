@@ -83,6 +83,7 @@ export const ANSWER_PROBLEMS: Record<ProviderErrorKind, AnswerProblem> = {
   // A local model's context window: trying again can't help, shortening the Question does.
   "too-long": { line: "answer.error.too-long", fix: { kind: "none" } },
   "no-answer": { line: "answer.error.no-answer", fix: retry },
+  "cut-short": { line: "answer.error.cut-short", fix: retry },
   unknown: { line: "answer.error.unknown", fix: retry },
   // The ChatGPT plan provider.
   "not-signed-in": {
@@ -185,15 +186,4 @@ export function failedAnswerLine(
     kind: "plain",
     problem: answerProblem(kind, provider, route !== null || !!signInRoute, where),
   };
-}
-
-/**
- * Why a file couldn't be written, in a few words, for "Couldn't save: …".
- * Null when the system's own words are all there is.
- */
-export function saveFailureReason(message: string): MessageKey | null {
-  if (/\b(EACCES|EPERM|EROFS)\b/.test(message)) return "export.failed.readOnly";
-  if (/\b(ENOSPC|EDQUOT)\b/.test(message)) return "export.failed.full";
-  if (/\bENOENT\b/.test(message)) return "export.failed.gone";
-  return null;
 }

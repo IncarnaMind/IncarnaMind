@@ -74,11 +74,18 @@ for (const width of [1440, 960]) {
     await expect(tabsOf(window, "Tides")).toHaveAttribute("data-preview", "true");
 
     // The User reads the Document: its group has the keyboard's focus, and the page is
-    // somewhere else when the Citation is opened again.
+    // somewhere else when the Citation is opened again. ⌘2 gives the group's tab the focus
+    // once the core has answered, and a page number typed before that move lands is cleared
+    // when the tab takes it (#1741): the tab having the focus is that move's end.
     await window.keyboard.press("ControlOrMeta+2");
+    await expect(tabsOf(window, "Tides")).toBeFocused();
     const page = window.getByTestId("pdf-page-number");
     await page.fill("3");
     await page.press("Enter");
+    // The field shows the number just typed until the viewer's page follows it, so the page
+    // the User sees is what says the Enter went there (#1741).
+    const thirdPage = window.getByTestId("viewer").locator('[data-page-number="3"]');
+    await expect(thirdPage).toBeInViewport();
     await expect(page).toHaveValue("3");
     await expect(tabsOf(window, "Tides")).toHaveAttribute("data-preview", "true");
 

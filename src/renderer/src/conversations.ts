@@ -2,22 +2,30 @@ import { create } from "zustand";
 import type {
   AskedQuote,
   AskInConversationInput,
+  ChatModelChoice,
   Conversation,
   ConversationAnswer,
   ConversationAskResult,
   ConversationMessage,
   ConversationQuestion,
+  Money,
+  ReadyQuestion,
+  RunEstimate,
+  SearchScope,
 } from "../../core/api";
 import { conversationName } from "../../shared/naming";
 import { settleAsk, useAnswers } from "./answers";
-import { applyWhatWasAsked } from "./askedChanges";
+import { applyNotAsked, applyWhatIsAsked, applyWhatWasAsked } from "./askedChanges";
 import { watchCommands } from "./assistantCommands";
 import { watchMindsMadeBy } from "./assistantMinds";
+import { offeredCommands } from "./assistantWindow";
+import { clientId } from "./clientId";
 import { composerKey, useComposer } from "./composer";
 import { core } from "./core";
+import { cancelExplain } from "./explainQueue";
 import { translateNow } from "./i18n";
 import { documentsOnScreenOf, groupsMerged } from "./layoutSlice";
-import { useModelSetup, waitForModel } from "./modelSetup";
+import { returnQuestion, useModelSetup, waitForModel } from "./modelSetup";
 import { useNotices } from "./notices";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
@@ -37,6 +45,11 @@ interface ConversationsState {
   messages: readonly ConversationMessage[];
   /** A Question on its way to the core, shown at once until the core has it. */
   asking: string | null;
+  /**
+   * What that Question reads: the Note it is asked in, if any, and what it searches. The line
+   * while it waits names these, never the Note in focus (#2245).
+   */
+  askingReads: { mindId: string | null; scope: SearchScope | null } | null;
   /** What that Question is about in its Mind (#565); "" when it is about nothing. */
   askingQuote: string;
   /** The words selected in Documents that Question is about. */
@@ -52,6 +65,7 @@ export const useConversations = create<ConversationsState>()(() => ({
   openId: null,
   messages: [],
   asking: null,
+  askingReads: null,
   askingQuote: "",
   askingQuotes: [],
   stopWanted: false,
@@ -85,7 +99,7 @@ core.on("conversation.message", (message) => {
     messages:
       at === -1 ? [...messages, message] : messages.map((each, i) => (i === at ? message : each)),
     // The Question is shown as the core has it now.
-    ...(message.kind === "question" && { asking: null }),
+    ...(message.kind === "question" && { asking: null, askingReads: null }),
   });
 });
 
@@ -124,42 +138,126 @@ function unfold(): void {
   }
 }
 
-/** A new chat: the assistant shows an empty conversation, which its first Question makes. */
-export function startNewChat(): void {
-  useConversations.setState({ openId: null, messages: [], asking: null, sought: null });
+/**
+ * Counts each time the User moves the assistant to a conversation or a new chat: a reply, or a
+ * read, that comes after a later move no longer decides what the assistant shows (#2302, #2310).
+ */
+let moves = 0;
+
+/**
+ * For a reply that would change what the assistant shows: whether the User hasn't moved it since
+ * this was called.
+ */
+export function noMoveSince(): () => boolean {
+  const move = moves;
+  return () => move === moves;
 }
 
-/** Shows a conversation in the assistant, at one of its Answers (flashed) if given. */
-export async function openConversation(conversationId: string, answerId?: string): Promise<void> {
+/**
+ * For an ask from the assistant (a Question, help during a call): in a new chat it makes the
+ * conversation the assistant shows, so it counts as a move, and a reply still on its way from
+ * before doesn't take the User from it. Whether the User hasn't moved the assistant since.
+ */
+export function noMoveSinceAsked(): () => boolean {
+  if (useConversations.getState().openId === null) moves += 1;
+  return noMoveSince();
+}
+
+/** A new chat: the assistant shows an empty conversation, which its first Question makes. */
+export function startNewChat(): void {
+  moves += 1;
+  useConversations.setState({
+    openId: null,
+    messages: [],
+    asking: null,
+    askingReads: null,
+    sought: null,
+  });
+}
+
+/**
+ * Shows a conversation in the assistant, at one of its Answers (flashed) if given. Resolves to
+ * whether it is the one showing: one whose read lands after another open, or New chat, is dropped.
+ */
+export async function openConversation(
+  conversationId: string,
+  answerId?: string,
+): Promise<boolean> {
+  const move = ++moves;
   try {
     const { messages } = await core.getConversation(conversationId);
+    if (move !== moves) return false;
     useConversations.setState({
       openId: conversationId,
       messages,
       asking: null,
+      askingReads: null,
       sought: answerId ?? null,
     });
     unfold();
+    return true;
   } catch (error) {
     report(error);
+    return false;
   }
 }
 
 let readyAsking = false;
 
-export async function askReadyQuestion(): Promise<void> {
+/**
+ * The card's ready Question being asked, whose Answer waits for its Documents to be read (#2218):
+ * its row says what it is reading, and offers Stop, until the Answer is there.
+ */
+export const useReadyAsk = create<{ asking: boolean; waitingFor: string | null }>()(() => ({
+  asking: false,
+  waitingFor: null,
+}));
+
+/**
+ * Asks the ready Question the card showed (`ready`), so the click asks exactly what the button
+ * names: no second read that a Document or language change could have moved on. About the User's
+ * own Document it starts a fresh conversation first, so the example's earlier turns are not in the
+ * model's context; no Mind is read either, or the example would colour the first Answer about
+ * their file. The example's Answer is written in advance, and the core writes it once its
+ * Documents are read: while it waits, the card says so and Stop stops it. Resolves to whether it
+ * was asked (or waits for a model).
+ */
+export async function askReadyQuestion(ready: ReadyQuestion): Promise<boolean> {
   // A double-click asks it once.
-  if (readyAsking) return;
+  if (readyAsking) return false;
   readyAsking = true;
   try {
-    const { conversationId } = await core.askReadyQuestion();
-    useAppStore.getState().updateGettingStarted({ askedReady: true });
-    await openConversation(conversationId);
-  } catch (error) {
-    report(error);
+    if (ready.scope) {
+      startNewChat();
+      // Asked like any Question: its step ticks when its Answer arrives, not when it is asked.
+      return await askInAssistant({ text: ready.question, mindId: null, scope: ready.scope });
+    }
+    // The last ask's problem is not this ask's: the row says what this one is reading.
+    settleAsk(composerKey(null), null);
+    useReadyAsk.setState({ asking: true, waitingFor: ready.waitingFor });
+    const stayed = noMoveSince();
+    try {
+      const { conversationId, stopped } = await core.askExampleReadyQuestion();
+      // Stopped: its Question and a stopped Answer are kept, and step 2 stays open to ask again.
+      if (!stopped) useAppStore.getState().updateGettingStarted({ askedReady: true });
+      // Moved elsewhere while the Documents were read: the Answer waits in History (#2302).
+      if (stayed()) await openConversation(conversationId);
+      return !stopped;
+    } catch (error) {
+      // Why not, and what to do, where the card's button is, rather than a notice that passes.
+      settleAsk(composerKey(null), null, error);
+      return false;
+    } finally {
+      useReadyAsk.setState({ asking: false, waitingFor: null });
+    }
   } finally {
     readyAsking = false;
   }
+}
+
+/** Stop while the ready Question waits for its Documents: its Answer says Stopped. */
+export function stopReadyAsk(): void {
+  core.stopExampleReadyQuestion().catch(report);
 }
 
 function sayLeftOut(result: ConversationAskResult): void {
@@ -186,8 +284,10 @@ export async function askInAssistant(
   input: Omit<AskInConversationInput, "conversationId"> & { mindId: string | null },
 ): Promise<boolean> {
   const key = composerKey(input.mindId);
+  const stayed = noMoveSinceAsked();
   useConversations.setState({
     asking: input.text,
+    askingReads: { mindId: input.mindId, scope: input.scope ?? null },
     askingQuote: input.mindId ? (input.focus?.selection ?? "") : "",
     askingQuotes: input.quotes ?? [],
     stopWanted: false,
@@ -198,6 +298,8 @@ export async function askInAssistant(
       ...input,
       conversationId: useConversations.getState().openId,
       onScreen: documentsOnScreen(),
+      commands: offeredCommands(input.mindId),
+      clientId,
     });
     if (
       !result.asked &&
@@ -213,24 +315,27 @@ export async function askInAssistant(
     sayLeftOut(result);
     if (!result.asked) return false;
     watchMindsMadeBy(result.answerId);
-    applyWhatWasAsked(result.answerId);
+    // A new Answer has nothing to make way for, and it may end before an Undo running now does.
+    applyWhatIsAsked(result.answerId);
     watchCommands(result.answerId);
     const id = result.conversation.id;
+    if (stayed() && useConversations.getState().openId !== id) {
+      // A new conversation shows only with its messages read: an Answer write arriving before
+      // them would be drawn above the Question still on its way (#1741). Each write after the
+      // read comes as an event.
+      const { messages } = await core.getConversation(id);
+      if (stayed()) useConversations.setState({ openId: id, messages });
+    }
+    // After the read, so a Stop pressed while it was on its way is not lost.
     if (useConversations.getState().stopWanted) {
       core.stopConversationAnswer({ conversationId: id, answerId: result.answerId }).catch(report);
-    }
-    if (useConversations.getState().openId !== id) {
-      // A new conversation: its messages as they are now; each write after this comes as an event.
-      useConversations.setState({ openId: id, messages: [] });
-      const { messages } = await core.getConversation(id);
-      if (useConversations.getState().openId === id) useConversations.setState({ messages });
     }
     return true;
   } catch (error) {
     settleAsk(key, null, error);
     return false;
   } finally {
-    useConversations.setState({ asking: null, stopWanted: false });
+    useConversations.setState({ asking: null, askingReads: null, stopWanted: false });
   }
 }
 
@@ -243,64 +348,131 @@ function askWaitingQuestion(): void {
   (async () => {
     // The conversation it was typed in, whichever is open now.
     if (useConversations.getState().openId !== conversationId) {
-      if (conversationId) await openConversation(conversationId);
-      else startNewChat();
+      if (conversationId) {
+        // The User moved on (New chat, another row) while the read was on its way: the words go
+        // back to the composer rather than being asked in a chat they didn't mean (#2310).
+        if (!(await openConversation(conversationId))) {
+          returnQuestion(waiting);
+          return;
+        }
+      } else startNewChat();
     }
     await askInAssistant(question);
   })().catch((error: unknown) => useAppStore.getState().reportError(error));
 }
 
+/**
+ * The cursor goes where the User asks next, unless they are typing outside the setup card (in the
+ * Note or another field): a model that starts working never pulls their next keys into the
+ * composer draft (#2310).
+ */
+function focusComposerUnlessTyping(): void {
+  const active = document.activeElement;
+  const inSetup =
+    active instanceof Element && active.closest('[data-testid="model-setup"]') !== null;
+  const typing =
+    active instanceof HTMLElement &&
+    (active.isContentEditable || active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+  if (!typing || inSetup) useComposer.getState().requestFocus();
+}
+
 core.on("chatReadiness.changed", (readiness) => {
   if (!readiness.ready) {
-    // The model that worked is gone: the card asks for one again.
+    // The model that worked is gone: the card asks for one again. A step the User had open stays
+    // open across a check that comes back ready (#2310).
     useModelSetup.setState({ ready: false });
     return;
   }
-  const { wanted, waiting } = useModelSetup.getState();
-  // The setup card stays, saying what each job uses, until the User continues.
-  if (wanted || waiting) useModelSetup.setState({ ready: true });
-});
-
-/** Continue on the setup card: the Question that waited is asked, and the composer takes the card's place. */
-export function continueSetup(): void {
-  useModelSetup.setState({ wanted: false, ready: false });
-  // The setup card goes with the focus in it: the composer, where the User asks next, takes it.
-  useComposer.getState().requestFocus();
+  const { wanted, waiting, ready } = useModelSetup.getState();
+  if (!wanted && !waiting) return;
+  // Only the readiness that brings the first working model in moves the cursor and gives the
+  // composer the panel: a later one (the key checked again, another model saved) leaves it, and
+  // the steps, where the User has them (#2310).
+  if (ready) return;
+  useModelSetup.setState({ ready: true, wanted: true });
+  focusComposerUnlessTyping();
   askWaitingQuestion();
-}
+});
 
 /**
  * Writes an Answer of the open conversation again; why it couldn't be is kept under its id.
- * `clearScope`: from every Document, its Question's Search scope taken off (#748).
+ * `clearScope`: from every Document, its Question's Search scope taken off (#748). `model`:
+ * with this model, which the Question then keeps (#1848).
  */
 export async function regenerateAnswer(
   answerId: string,
-  { clearScope = false }: { clearScope?: boolean } = {},
+  { clearScope = false, model }: { clearScope?: boolean; model?: ChatModelChoice } = {},
 ): Promise<void> {
   const conversationId = useConversations.getState().openId;
   if (!conversationId) return;
   settleAsk(answerId, null);
   try {
     watchMindsMadeBy(answerId);
-    applyWhatWasAsked(answerId, { keepWritten: clearScope });
+    await applyWhatWasAsked(answerId, { keepWritten: clearScope });
     watchCommands(answerId);
     const result = await core.regenerateConversationAnswer({
       conversationId,
       answerId,
       ...(clearScope && { clearScope }),
+      ...(model && { model }),
       onScreen: documentsOnScreen(),
+      commands: offeredCommands(askedFrom(answerId)),
+      clientId,
     });
+    // A core that refuses to start (no model, or a forced Skill off) writes nothing, so nothing
+    // of the Answer is on its way; its asked changes wait, and the Note's count must say so (#1325).
+    if (!result.asked) applyNotAsked(answerId);
     settleAsk(answerId, result);
     sayLeftOut(result);
   } catch (error) {
+    applyNotAsked(answerId);
     settleAsk(answerId, null, error);
   }
+}
+
+/** The Note the Question of an Answer of the open conversation was asked from, while it is there. */
+function askedFrom(answerId: string): string | null {
+  const { messages } = useConversations.getState();
+  const answer = messages.find((message) => message.id === answerId);
+  const question =
+    answer?.kind === "answer"
+      ? messages.find((message) => message.id === answer.questionId)
+      : undefined;
+  const from = question?.kind === "question" ? question.askedFrom : null;
+  return from && !from.deleted ? from.mindId : null;
 }
 
 /** Stops an Answer of the open conversation being written, keeping what it has. */
 export function stopAnswer(answerId: string): void {
   const conversationId = useConversations.getState().openId;
   if (conversationId) core.stopConversationAnswer({ conversationId, answerId }).catch(report);
+}
+
+/** What judging the rest of an Answer's sentences costs, past its checking limit (#2311). */
+export function estimateCheckTheRest(answer: {
+  id: string;
+  conversationId: string;
+}): Promise<RunEstimate | null> {
+  return core
+    .estimateAnswerCheck({ conversationId: answer.conversationId, answerId: answer.id })
+    .catch((error: unknown) => {
+      report(error);
+      return null;
+    });
+}
+
+/** Judges the rest of an Answer's sentences, spending at most `most` (#2311). */
+export function checkTheRest(
+  answer: { id: string; conversationId: string },
+  most: Money | null,
+): void {
+  core
+    .checkAnswerAgain({
+      conversationId: answer.conversationId,
+      answerId: answer.id,
+      ...(most && { limit: most }),
+    })
+    .catch(report);
 }
 
 /**
@@ -344,6 +516,29 @@ export function useAnswerBeingWritten(): string | null {
 }
 
 /**
+ * Resolves once no Answer is being written in the assistant, as `answerBeingWritten` says: a
+ * Question asked from outside the composer (#2348) waits its turn rather than starting a second
+ * stream under the one Stop.
+ */
+export function whenNoAnswerWritten(): Promise<void> {
+  if (answerBeingWritten() === null) return Promise.resolve();
+  return new Promise((resolve) => {
+    let offConversations: () => void = () => undefined;
+    let offAnswers: () => void = () => undefined;
+    const done = () => {
+      if (answerBeingWritten() !== null) return;
+      offConversations();
+      offAnswers();
+      resolve();
+    };
+    offConversations = useConversations.subscribe(done);
+    offAnswers = useAnswers.subscribe(done);
+    // It may have ended between the check above and these.
+    done();
+  });
+}
+
+/**
  * Stop, in the composer and on the Answer on its way: stops the open
  * conversation's Answer being written, keeping what it has; one whose
  * Question is still on its way stops as soon as it starts.
@@ -352,6 +547,8 @@ export function stopWriting(): void {
   const answerId = answerBeingWritten();
   if (answerId) stopAnswer(answerId);
   else if (answerId === "") useConversations.setState({ stopWanted: true });
+  // A Question that waited for this Answer isn't asked by stopping it (#2348).
+  cancelExplain();
 }
 
 /**
@@ -363,8 +560,9 @@ export async function clearConversation(): Promise<void> {
   if (!openId) return;
   const conversation = conversationById(openId);
   const name = (conversation && conversationName(conversation)) || "";
+  const stayed = noMoveSince();
   await core.deleteConversation(openId);
-  startNewChat();
+  if (stayed()) startNewChat();
   useUndo.getState().push({
     said: (t) => t("assistant.cleared", { title: name || t("conversation.untitled") }),
     undo: async () => {

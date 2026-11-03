@@ -21,6 +21,11 @@ const CONTENT_TYPES: Readonly<Record<DocumentKind, string>> = {
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   csv: "text/csv",
+  // The viewer reads a picture, and the text read from it, with its own code (#762).
+  image: "application/octet-stream",
+  // Read with the code that indexed it: RTF and HTML as the text they hold (#762).
+  rtf: "application/rtf",
+  html: "text/html",
   // Our own snapshot of a page; the viewer reads it with the code that indexed it.
   web: "application/xhtml+xml",
   transcript: "text/vtt",
@@ -43,8 +48,9 @@ export const DOCUMENT_SCHEME_PRIVILEGES: CustomScheme = {
  * CORS. In development the page comes from the dev server, so its origin
  * (`devServerOrigin`) is the one cross-origin reader allowed.
  */
-export function serveDocumentFiles(core: Core, devServerOrigin: string | null): void {
+export function serveDocumentFiles(started: Promise<Core>, devServerOrigin: string | null): void {
   protocol.handle(DOCUMENT_SCHEME, async (request) => {
+    const core = await started;
     const headers: Record<string, string> = {
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",

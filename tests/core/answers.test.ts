@@ -52,6 +52,7 @@ const NO_CITATIONS = {
   figures: [],
   uncalculated: 0,
   figureRetry: null,
+  analyses: [],
   usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0 },
 };
 
@@ -218,7 +219,7 @@ describe("Asking a Question", () => {
       /Write the Question/,
     );
     await expect(core.askQuestion({ mindId: mind.id, questionId: "nope" })).rejects.toThrow(
-      /isn’t in this Mind/,
+      /isn’t in this note/,
     );
   });
 });

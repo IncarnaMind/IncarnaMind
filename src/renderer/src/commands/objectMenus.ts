@@ -1,6 +1,6 @@
 import { registerMenu, registerMixedMenu } from "./menus";
 
-// Later features add their items with registerMenu: Move to… (#229, #212), Add to note (#201), History (#300), Tag colour and merge (#205).
+// A feature adds its items with registerMenu, where they belong in the shared order.
 
 /**
  * Export… (the Export button's short menu: the formats, its options), then the AI use statement
@@ -13,9 +13,12 @@ registerMenu("mind", [
   "mind.openTab",
   "mind.openChat",
   "mind.outline",
+  "mind.duplicate",
+  "mind.tidy",
   ...EXPORTS,
   "mind.history",
   "mind.check",
+  "mind.tieOut",
   "mind.checkContradictions",
   "mind.citationStyle",
   "mind.style",
@@ -39,6 +42,7 @@ registerMenu("document", [
   "folder.newWith",
   "document.tags",
   "document.retry",
+  "document.readHiddenSheets",
   "document.unlock",
   "document.fetchAgain",
   "document.countAsEvidence",
@@ -59,18 +63,27 @@ registerMenu("document", [
 registerMenu("folder", [
   "folder.open",
   "folder.newMind",
-  "folder.new",
+  "folder.newInside",
   "folder.ask",
   "folder.organize",
   "folder.tagWithAi",
   "folder.editDescription",
+  "folder.keepInside",
   "folder.sort",
+  "folder.moveTo",
   "folder.rename",
   "file.info",
   "folder.delete",
 ]);
 
-registerMenu("tag", ["tag.open", "tag.manage", "tag.rename", "tag.delete"]);
+registerMenu("tag", [
+  "tag.open",
+  "tag.colour",
+  "tag.editDescription",
+  "tag.merge",
+  "tag.rename",
+  "tag.delete",
+]);
 
 registerMixedMenu(["selection.moveTo", "selection.delete"]);
 
@@ -93,12 +106,14 @@ registerMenu(
   [
     "mind.openChat",
     "mind.outline",
+    "mind.duplicate",
     "mind.look.word",
     "mind.look.plain",
     "mind.openOriginal",
     ...EXPORTS,
     "mind.history",
     "mind.check",
+    "mind.tieOut",
     "mind.checkContradictions",
     "mind.style",
     "mind.moveTo",
@@ -111,6 +126,8 @@ registerMenu(
     "tab.split",
     "tab.keep",
     "tab.pin",
+    "tab.moveEarlier",
+    "tab.moveLater",
     "tab.moveLeft",
     "tab.moveRight",
     "tab.rename",
@@ -125,11 +142,51 @@ registerMenu("tab", ["mind.delete"], 2);
 
 registerMenu("answer", ["answer.copy", "answer.regenerate", "block.delete"]);
 
+registerMenu("check", ["check.anyway", "check.useDocumentWording", "check.findSources"]);
+
 registerMenu("citation", [
   "citation.open",
   "citation.update",
   "citation.keepOld",
+  "citation.pageChecked",
+  "citation.signOff",
+  "citation.signOffRemove",
   "citation.remove",
+]);
+
+registerMenu("comparisonColumn", [
+  "comparison.column.edit",
+  "comparison.column.insertLeft",
+  "comparison.column.insertRight",
+  "comparison.column.duplicate",
+  "comparison.column.reviewed",
+  "comparison.column.moveLeft",
+  "comparison.column.moveRight",
+  "comparison.column.hide",
+  "comparison.column.remove",
+]);
+
+registerMenu("comparisonTable", [
+  "comparison.table.addDocuments",
+  "comparison.table.rename",
+  "comparison.table.refillAll",
+  "comparison.table.refillProblems",
+]);
+
+registerMenu("comparisonCell", [
+  "comparison.cell.open",
+  "comparison.cell.refill",
+  "comparison.cell.edit",
+  "comparison.cell.reviewed",
+  "comparison.cell.copy",
+]);
+
+registerMenu("comparisonRow", [
+  "comparisonRow.open",
+  "comparisonRow.moveUp",
+  "comparisonRow.moveDown",
+  "comparison.row.refill",
+  "comparisonRow.remove",
 ]);
 
 registerMenu("chart", [

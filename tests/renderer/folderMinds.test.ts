@@ -45,7 +45,9 @@ const group = (id: string, name: string): LibraryGroup => ({
   id,
   name,
   description: "",
+  parentId: null,
   countsOwnFiles: false,
+  keepInside: false,
   createdAt: "",
   updatedAt: "",
 });
@@ -141,12 +143,20 @@ describe("a Search scope's chips", () => {
         kind: "folder",
         id: "live",
         name: "Vendor selection",
+        path: ["Vendor selection"],
         deleted: false,
         documentKind: null,
         count: 0,
       },
-      { kind: "folder", id: "gone", name: "Finance", deleted: true, documentKind: null },
-      { kind: "folder", id: "unknown", name: null, deleted: true, documentKind: null },
+      {
+        kind: "folder",
+        id: "gone",
+        name: "Finance",
+        path: [],
+        deleted: true,
+        documentKind: null,
+      },
+      { kind: "folder", id: "unknown", name: null, path: [], deleted: true, documentKind: null },
     ]);
   });
 });
@@ -194,7 +204,17 @@ describe("moving Minds and Documents", () => {
           { id: "already", from: "finance" },
         ],
         // Documents go back with `restoreAssignment`, each with who chose its Folder.
-        documents: [{ id: "moon", from: "research", previous: null }],
+        documents: [
+          {
+            id: "moon",
+            from: "research",
+            change: {
+              documentId: "moon",
+              before: { assignment: null, tagging: null },
+              after: { assignment: null, tagging: null },
+            },
+          },
+        ],
         conversations: [
           { id: "asked", from: null },
           { id: "here", from: "finance" },
@@ -215,7 +235,7 @@ describe("moving Minds and Documents", () => {
       "Moved 3 Documents to Finance",
     );
     expect(moveMessage(t, { mindIds: ["shortlist", "notes"] }, "Not in a Folder", names)).toBe(
-      "Moved 2 Minds to Not in a Folder",
+      "Moved 2 notes to Not in a Folder",
     );
     expect(moveMessage(t, { mindIds: ["shortlist"], documentIds: ["a"] }, "Finance", names)).toBe(
       "Moved 2 items to Finance",
@@ -233,7 +253,7 @@ describe("moving Minds and Documents", () => {
         { mindIds: ["shortlist", "notes"] },
         names,
       ),
-    ).toBe("移动 2 个 Mind");
+    ).toBe("移动 2 篇笔记");
   });
 
   test("what a line is made from is cut to the one item it names, and to the fields its name is made from", () => {

@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   addDocuments,
@@ -9,6 +9,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   documentIdOf,
+  editItem,
   enterContent,
   launchApp,
   leaveFirstOpen,
@@ -417,13 +418,6 @@ test("Remove the examples: made again by ⌘Z, removed again by ⇧⌘Z", async 
   await expect.poll(exampleMind).toBeNull();
   await expect(window.getByTestId("mind-list-item")).toHaveCount(0);
 });
-
-/** The Edit menu's Undo or Redo, as the application menu has it now. */
-const editItem = (app: ElectronApplication, id: "edit.undo" | "edit.redo") =>
-  app.evaluate(({ Menu }, itemId) => {
-    const item = Menu.getApplicationMenu()?.getMenuItemById(itemId);
-    return item ? { label: item.label, enabled: item.enabled } : null;
-  }, id);
 
 test("⌘Z goes to the note's own undo in the note, to a field's in a field, and to the last change elsewhere; the Edit menu too, naming it", async () => {
   const { app, window } = await launchApp(dataDir);

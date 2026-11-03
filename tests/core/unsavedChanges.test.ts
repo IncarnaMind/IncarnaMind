@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import { type Core, MIND_CONTENT_FIELD, type UnsavedChanges } from "../../src/core";
-import { saveFailureReason } from "../../src/core/unsavedChanges";
+import { unsavedReason } from "../../src/core/unsavedChanges";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { failMindDeleteCommits, refuseWrites } from "../helpers/failingStorage";
 import { appendParagraph, connectToMind } from "../helpers/mindClient";
@@ -145,7 +145,7 @@ describe("Changes storage refuses (#1119)", () => {
     [{ errcode: 19, message: "database or disk is full" }, "full"],
     [{ errcode: 19, message: "constraint failed" }, "other"],
   ] as const)("%o reads as %s", (failure, reason) => {
-    expect(saveFailureReason(Object.assign(new Error(failure.message), failure))).toBe(reason);
+    expect(unsavedReason(Object.assign(new Error(failure.message), failure))).toBe(reason);
   });
 
   // protects=changes that wait are stored as one merged row, not once per try, and on their own once storage is back, on a backoff, with nothing typed; fails_when=each try stores the queue again, or nothing is stored until the next change; no_claim=the exact delays.

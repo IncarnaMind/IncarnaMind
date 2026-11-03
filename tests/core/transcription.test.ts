@@ -114,6 +114,86 @@ describe("Live text from VAD segments, decoded again as speech goes on", () => {
     await vi.waitFor(() => expect(segments.map((each) => each.stream)).toEqual(["b", "b"]));
   });
 
+  test("a stream's final readings are told the words told for that stream; partial ones and other streams' are not (#1031)", async () => {
+    const decoded: { stream: string; words: readonly string[] }[] = [];
+    const segments: SpeechSegment[] = [];
+    const host = createSpeechHost(
+      {
+        detector: () => scriptedDetector([[0, 4]]),
+        recognizer: {
+          decode: async (_samples, stream, words) => {
+            decoded.push({ stream, words });
+            return "Priya Raman";
+          },
+        },
+        close() {},
+      },
+      { segment: (segment) => segments.push(segment), progress: () => {}, failed: () => {} },
+    );
+    host.words("a:microphone", ["Priya Raman", "星河科技"]);
+    for (let at = 0; at < 50; at++) {
+      host.push("a:microphone", new Float32Array(RATE / 10));
+      host.push("a:system", new Float32Array(RATE / 10));
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    await Promise.all([host.finish("a:microphone"), host.finish("a:system")]);
+    const mine = decoded.filter((each) => each.stream === "a:microphone");
+    const partials = segments.filter((each) => each.stream === "a:microphone" && !each.final);
+    expect(partials.length).toBeGreaterThanOrEqual(1);
+    expect(mine.length).toBe(partials.length + 1);
+    expect(mine.at(-1)?.words).toEqual(["Priya Raman", "星河科技"]);
+    expect(mine.slice(0, -1).every((each) => each.words.length === 0)).toBe(true);
+    const theirs = decoded.filter((each) => each.stream === "a:system");
+    expect(theirs.length).toBeGreaterThanOrEqual(1);
+    expect(theirs.every((each) => each.words.length === 0)).toBe(true);
+  });
+
+  test("final readings are told their words only while decoding, every stream counted, takes at most half the audio's time (#1031)", async () => {
+    // 1.8 s of speech every 2 s; each second of speech takes `perSecond` seconds to read.
+    const speech: [number, number][] = Array.from({ length: 20 }, (_, at) => [
+      at * 2,
+      at * 2 + 1.8,
+    ]);
+    const run = async (perSecond: number, sources: readonly string[]) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const told: Record<string, boolean[]> = {};
+      const host = createSpeechHost(
+        {
+          detector: () => scriptedDetector(speech),
+          recognizer: {
+            decode: async (samples, stream, words) => {
+              vi.setSystemTime(Date.now() + (samples.length / RATE) * perSecond * 1000);
+              told[stream] = [...(told[stream] ?? []), words.length > 0];
+              return "Priya Raman";
+            },
+          },
+          close() {},
+        },
+        { segment: () => {}, progress: () => {}, failed: () => {} },
+      );
+      for (const source of sources) host.words(source, ["Priya Raman"]);
+      for (let at = 0; at < 400; at++) {
+        for (const source of sources) host.push(source, new Float32Array(RATE / 10));
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      await Promise.all(sources.map((source) => host.finish(source)));
+      vi.useRealTimers();
+      return told;
+    };
+
+    // One stream read in 0.35 of its speech's time: about 0.32 of the audio's, told throughout.
+    const alone = await run(0.35, ["call:microphone"]);
+    expect(alone["call:microphone"]?.length).toBe(20);
+    expect(alone["call:microphone"]?.every(Boolean)).toBe(true);
+
+    // The microphone and the call's sound together: about 0.63, so after the first ten seconds
+    // of each, no longer told.
+    const both = await run(0.35, ["call:microphone", "call:system"]);
+    expect(both["call:microphone"]?.slice(0, 4).every(Boolean)).toBe(true);
+    expect(both["call:microphone"]?.slice(-5).some(Boolean)).toBe(false);
+    expect(both["call:system"]?.slice(-5).some(Boolean)).toBe(false);
+  });
+
   test("a stretch the engine can't read loses its text, and the stream goes on", async () => {
     const failures: string[] = [];
     const segments: SpeechSegment[] = [];

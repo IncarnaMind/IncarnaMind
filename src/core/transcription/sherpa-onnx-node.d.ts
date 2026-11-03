@@ -28,6 +28,8 @@ declare module "sherpa-onnx-node" {
 
   export interface OfflineStream {
     acceptWaveform(waveform: Waveform): void;
+    /** A decoding option for this stream alone: Qwen3-ASR reads "hotwords", comma-separated. */
+    setOption(key: string, value: string): void;
     /** The native stream, which keeps its result once decoded. */
     handle: unknown;
   }
@@ -103,6 +105,9 @@ declare module "sherpa-onnx-node" {
 
 /** The package's native addon, for what its JavaScript doesn't give: a result as the JSON the engine wrote. */
 declare module "sherpa-onnx-node/addon.js" {
-  const addon: { getOfflineStreamResultAsJson(handle: unknown): string };
+  const addon: {
+    getOfflineStreamResultAsJson(handle: unknown): string;
+    offlineStreamSetOption(handle: unknown, key: string, value: string): void;
+  };
   export default addon;
 }

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { generateText, streamText } from "ai";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
@@ -115,6 +115,39 @@ const stored = (keychain: MemoryKeychain) => [...keychain.secrets.values()].join
 const fiveMinutes = 5 * 60_000;
 
 describe("Sign in with Claude", () => {
+  test("a record that can't be read leaves the status signed out, and signing in replaces it", async () => {
+    const dataDir = await createTempDataFolder();
+    const file = join(dataDir, SECRETS_FILE);
+    const unreadable = Buffer.from("not a sign-in record").toString("base64");
+    await writeFile(file, JSON.stringify({ "claude:account": unreadable }), { mode: 0o600 });
+    const before = await readFile(file);
+    const fake = await startFakeAnthropic();
+    const browser = createFakeClaudeBrowser(fake);
+    const core = startCore(dataDir, {
+      keychain: createFileKeychain(file, createFakeCipher()),
+      browser,
+      claudeAccount: fake.profile("page"),
+    });
+
+    expect(await core.getClaudeAccount()).toMatchObject({ account: { state: "signed-out" } });
+    expect((await readFile(file)).equals(before)).toBe(true);
+
+    browser.behaviour = "wait";
+    const abandoned = core.signInToClaude();
+    await browserOpened(browser);
+    await core.cancelClaudeSignIn();
+    expect(await abandoned).toMatchObject({ ok: false });
+    expect((await readFile(file)).equals(before)).toBe(true);
+
+    browser.behaviour = "approve";
+    const result = core.signInToClaude();
+    await browserOpened(browser, 2);
+    expect(await core.pasteClaudeSignInAddress(browser.shown?.code ?? "")).toEqual({ ok: true });
+    expect(await result).toMatchObject({ ok: true, status: { account: { state: "signed-in" } } });
+    expect((await readFile(file)).equals(before)).toBe(false);
+    expect(await core.getClaudeAccount()).toMatchObject({ account: { state: "signed-in" } });
+  });
+
   test("Anthropic's page is opened with PKCE (S256) and a state, and the code pasted from it signs in", async () => {
     const { core, fake, browser, keychain } = await setUp();
     const result = core.signInToClaude();

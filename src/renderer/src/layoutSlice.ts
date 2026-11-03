@@ -46,8 +46,11 @@ export interface LayoutSlice {
   renamingTabId: string | null;
   /** Reads the window's layout from the core, as it was left. */
   loadLayout(): Promise<void>;
-  /** Changes the layout through the core; resolves with it once the store has it (null if refused). */
-  changeLayout(change: LayoutChange): Promise<WindowLayout | null>;
+  /**
+   * Changes the layout through the core; resolves with it once the store has it (null if refused).
+   * `quiet` where the caller says the failure where it happened, as Undo does in its own line.
+   */
+  changeLayout(change: LayoutChange, options?: { quiet?: boolean }): Promise<WindowLayout | null>;
   /**
    * Moves, resizes, folds or unfolds the assistant: shown at once, then kept
    * through the core (and put back as the core has it if it refuses).
@@ -68,23 +71,32 @@ export function createLayoutSlice(
   get: Get,
   report: (error: unknown) => void,
 ): LayoutSlice {
+  /**
+   * For the core's answer to what is asked now: its assistant is older than a placing made since,
+   * which is shown already and kept.
+   */
+  const keepPlacingsSince = (): ((answered: WindowLayout) => WindowLayout) => {
+    const asked = placings;
+    return (answered) => {
+      const shown = get().layout?.assistant;
+      return placings === asked || !shown ? answered : { ...answered, assistant: shown };
+    };
+  };
   return {
     layout: null,
     renamingTabId: null,
     async loadLayout() {
-      set({ layout: await core.getLayout(WINDOW_ID) });
+      const keep = keepPlacingsSince();
+      set({ layout: keep(await core.getLayout(WINDOW_ID)) });
     },
-    async changeLayout(change) {
-      const asked = placings;
+    async changeLayout(change, options) {
+      const keep = keepPlacingsSince();
       try {
-        const answered = await core.changeLayout(WINDOW_ID, change);
-        // The answer's assistant is older than a placing made since, which is shown already.
-        const shown = get().layout?.assistant;
-        const layout = placings === asked || !shown ? answered : { ...answered, assistant: shown };
+        const layout = keep(await core.changeLayout(WINDOW_ID, change));
         set({ layout });
         return layout;
       } catch (error) {
-        report(error);
+        if (!options?.quiet) report(error);
         return null;
       }
     },

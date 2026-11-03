@@ -9,6 +9,7 @@ import StarterKit from "@tiptap/starter-kit";
 import {
   ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
   COMPARISON_TABLE_NODE,
   FOOTNOTE_NODE,
   GENERATED_MARK,
@@ -17,12 +18,14 @@ import {
 } from "../../../core/api";
 import { translate } from "../../../shared/i18n";
 import { Generated } from "./aiText";
+import { CalculatedFigure, FigureTableRoles } from "./calculatedFigureSchema";
 import { Chart } from "./chartSchema";
 import { checklistItem } from "./checklistItem";
 import { Citation } from "./citationSchema";
 import { ClaimCheck } from "./claimChecks";
 import { lowlight } from "./codeLanguages";
 import { ComparisonCell, ComparisonRow, ComparisonTable } from "./comparisonSchema";
+import { ComparisonStructureLock } from "./comparisonStructureLock";
 import { DocumentChip } from "./documentChipSchema";
 import { Footnote } from "./footnoteSchema";
 import {
@@ -34,8 +37,11 @@ import {
   TextSize,
 } from "./formatSchema";
 import { Numbering } from "./numbering";
+import { PageBreak } from "./pageBreakSchema";
+import { Picture } from "./pictureSchema";
 import { ProposalAttributes, ProposalDelete, ProposalInsert } from "./proposalSchema";
 import { Answer, MindDocument, Question, QuestionContextFlag } from "./questionSchema";
+import { TableOfContents } from "./tableOfContents";
 import {
   InlineImage,
   WordAtom,
@@ -54,8 +60,8 @@ export { BLOCK_ID_ATTRIBUTE };
  * UniqueID gives every node of these types a UUID as it is created, and keeps
  * it when the Block is edited, turned into another type or dragged. It can't
  * tell top-level nodes from nested ones, so paragraphs inside lists, quotes
- * and Answers get an ID too; only top-level IDs name Blocks. Footnotes get
- * one too, which names them across edits and sync; a pasted copy gets a new one.
+ * and Answers get an ID too; only top-level IDs name Blocks. Footnotes and
+ * calculated figures get one too, across edits and sync; a pasted copy gets a new one.
  */
 const BLOCK_TYPES: readonly string[] = [
   ...NOTE_BLOCK_TYPES,
@@ -79,6 +85,8 @@ export interface NoteSchemaOptions {
   answerView?: NodeViewRenderer;
   /** Draws Citations, e.g. as badges that open the cited page. */
   citationView?: NodeViewRenderer;
+  /** Draws calculated figures and their numbered markers. */
+  calculatedFigureView?: NodeViewRenderer;
   /** Draws the markers of the User's footnotes, e.g. as numbers that open their text. */
   footnoteView?: NodeViewRenderer;
   /** Draws Document chips, e.g. as names that open the Document. */
@@ -94,6 +102,12 @@ export interface NoteSchemaOptions {
   /** Draws what a Word import kept as it is (#104): in the text, and as Blocks. */
   wordAtomView?: NodeViewRenderer;
   wordBlockView?: NodeViewRenderer;
+  /** Draws page breaks as a line across the text (#746). */
+  pageBreakView?: NodeViewRenderer;
+  /** Draws a table of contents (#1935). */
+  tableOfContentsView?: NodeViewRenderer;
+  /** Draws a picture pasted into the Note, with the alt text the User writes (#1937). */
+  pictureView?: NodeViewRenderer;
 }
 
 /**
@@ -102,16 +116,18 @@ export interface NoteSchemaOptions {
  * by lowlight, inline and block math rendered by KaTeX, and tables, each with
  * an "include in Question context" flag. Questions and Answers, top-level
  * only. Document chips the User writes with "@". Citations, inline in Answers and in whatever they are copied into,
- * table cells included. Footnotes the User writes, inline, each holding its
+ * table cells included. Calculated figures, inline, each keeping its inputs and result.
+ * Footnotes the User writes, inline, each holding its
  * text. Charts, drawn from a table or from cited figures, each value with its
- * Citation (#436). Comparison tables, top-level only (#98). What a Word
+ * Citation (#436). Pictures the User pasted or dropped, as Blocks of their own, with their alt
+ * text (#1937). Comparison tables, top-level only (#98). What a Word
  * import kept as it is, and its inline pictures (#104), and the file's look
- * (see `wordSchema`). Paragraph formatting, and text colour, font, size and raise (see
+ * (see `wordSchema`). Page breaks (#746). Paragraph formatting, and text colour, font, size and raise (see
  * `formatSchema`).
  * Proposals the AI made, waiting for the User (see `proposalSchema`).
  * AI text, the words the AI wrote that the User hasn't made their own (see `aiText`).
  * The checks of the User's own sentences, on their text (see `claimChecks`).
- * Every Block and every footnote has a UUID. The editor adds its interface on
+ * Every Block, footnote and calculated figure has a UUID. The editor adds its interface on
  * top (collaboration, menus, the drag handle, smart typography); tests use
  * this alone.
  */
@@ -122,12 +138,16 @@ export function noteExtensions({
   questionView,
   answerView,
   citationView,
+  calculatedFigureView,
   footnoteView,
   documentChipView,
   chartView,
   comparisonViews,
   wordAtomView,
   wordBlockView,
+  pageBreakView,
+  tableOfContentsView,
+  pictureView,
 }: NoteSchemaOptions = {}): Extensions {
   const onClick = onEditMath && ((_node: unknown, pos: number) => onEditMath(pos));
   const CodeBlock = CodeBlockLowlight.extend({
@@ -151,6 +171,7 @@ export function noteExtensions({
       dropcursor: { color: "rgb(14 165 233)", width: 2 },
     }),
     MindDocument,
+    ComparisonStructureLock,
     Numbering,
     // One colour: a `highlight` mark with no attributes. Mod-Shift-H, or `==text==` typed or pasted.
     Highlight,
@@ -169,15 +190,20 @@ export function noteExtensions({
     Question.configure({ view: questionView ?? null }),
     Answer.configure({ view: answerView ?? null }),
     Citation.configure({ view: citationView ?? null }),
+    CalculatedFigure.configure({ view: calculatedFigureView ?? null }),
+    FigureTableRoles,
     Footnote.configure({ view: footnoteView ?? null }),
     DocumentChip.configure({ view: documentChipView ?? null }),
     Chart.configure({ view: chartView ?? null }),
+    TableOfContents.configure({ view: tableOfContentsView ?? null }),
+    Picture.configure({ view: pictureView ?? null }),
     ComparisonTable.configure({ view: comparisonViews?.table ?? null }),
     ComparisonRow.configure({ view: comparisonViews?.row ?? null }),
     ComparisonCell.configure({ view: comparisonViews?.cell ?? null }),
     WordAtom.configure({ view: wordAtomView ?? null }),
     WordBlock.configure({ view: wordBlockView ?? null }),
     InlineImage,
+    PageBreak.configure({ view: pageBreakView ?? null }),
     WordLookAttribute,
     WordRun,
     WordTab,
@@ -196,7 +222,7 @@ export function noteExtensions({
     ClaimCheck,
     UniqueID.configure({
       attributeName: BLOCK_ID_ATTRIBUTE,
-      types: [...BLOCK_TYPES, FOOTNOTE_NODE],
+      types: [...BLOCK_TYPES, FOOTNOTE_NODE, CALCULATED_FIGURE_NODE],
     }),
   ];
 }

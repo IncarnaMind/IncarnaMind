@@ -1,21 +1,11 @@
-import {
-  type ReactNode,
-  type RefObject,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useReducer,
-  useRef,
-  useState,
-} from "react";
-import { NAME_IN_LINE_COLUMNS } from "../../../shared/naming";
+import { type ReactNode, type RefObject, useContext, useEffect, useRef } from "react";
 import { shortcutLabel } from "../commands/keymap";
 import { useDismissOnEscape } from "../escapeDismiss";
-import { useLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
 import { type Said, saidInLine } from "../lineNames";
-import { useFade } from "../motion";
+import { useBreathing, useFade } from "../motion";
 import { useAppStore } from "../store";
-import { type LineAction, UNDO_SHOWN_MS, type UndoLineState, useUndo } from "../undo";
+import { type LineAction, lineShownAt, UNDO_SHOWN_MS, type UndoLineState, useUndo } from "../undo";
 import { showsUndoPill } from "../undoPill";
 import { SidebarControlContext } from "./SidebarToggle";
 
@@ -30,28 +20,36 @@ const actionClass =
  * The undo line (CONTEXT.md) at the foot of the sidebar, above Settings: what
  * the User just changed, then Undo, which does what ⌘Z does. One at a time; it
  * goes after a few seconds, with Esc or with the next change, while ⌘Z still
- * reaches the change. An undo the core refuses shows here as one problem line
- * with one action, which stays until dismissed. Read out politely. With the
- * sidebar out of sight the line is the pill instead (`UndoPill`).
+ * reaches the change. An undo the core refuses shows as one problem line with
+ * one action, which stays until dismissed: here, or where its change showed
+ * its line. Read out politely. With the sidebar out of sight the line is the
+ * pill instead (`UndoPill`).
  */
 export function UndoLine() {
-  const line = useUndo((state) => state.line);
+  const line = useUndo((state) => (lineShownAt(state) === null ? state.line : null));
   const sidebar = useContext(SidebarControlContext);
   return (
     <div role="status" aria-live="polite" data-testid="undo-line" className="flex flex-col">
-      {/* A change shown where the User made it, under an Answer in the assistant, isn't shown twice. */}
-      {!showsUndoPill(sidebar) && line && !line.change?.shownAt && (
-        <UndoLineBody key={line.id} line={line} />
-      )}
+      {!showsUndoPill(sidebar) && line && <UndoLineBody key={line.id} line={line} />}
     </div>
   );
 }
 
-/** The line of a change made in a place of its own, shown there instead of the sidebar's foot (`Undoable.shownAt`). */
-export function UndoLineAt({ place }: { place: string }) {
-  const line = useUndo((state) => (state.line?.change?.shownAt === place ? state.line : null));
+/**
+ * The line of a change made in a place of its own, shown there instead of the sidebar's foot
+ * (`Undoable.shownAt`): also a problem in taking it back or doing it again, and the note the undo
+ * leaves. Once the place has closed, a problem and a note show at the foot (`lineShownAt`).
+ */
+export function UndoLineAt({ place, className }: { place: string; className?: string }) {
+  const line = useUndo((state) => (lineShownAt(state) === place ? state.line : null));
+  useEffect(() => useUndo.getState().showPlace(place), [place]);
   return (
-    <div aria-live="polite" data-testid="undo-line-here" data-undo-place={place}>
+    <div
+      aria-live="polite"
+      data-testid="undo-line-here"
+      data-undo-place={place}
+      className={className}
+    >
       {line && <UndoLineBody key={line.id} line={line} />}
     </div>
   );
@@ -72,7 +70,9 @@ export function UndoLineBody({
 }) {
   const t = useT();
   const shown = useRef<HTMLDivElement>(null);
+  const working = useRef<HTMLSpanElement>(null);
   useFade(shown, fade);
+  useBreathing(working, Boolean(line.note && line.busy));
 
   useGoesBy(line.change || line.told || (line.note && !line.busy) ? line.id : null, held);
   useDismissOnEscape(true, () => useUndo.getState().dismiss());
@@ -101,7 +101,19 @@ export function UndoLineBody({
 
   if (line.note) {
     return (
-      <div ref={shown} data-testid="undo-note" className={lineClass(inPill)}>
+      <div
+        ref={shown}
+        data-testid="undo-note"
+        aria-busy={line.busy || undefined}
+        className={`${lineClass(inPill)} items-center`}
+      >
+        {line.busy && (
+          <span
+            ref={working}
+            aria-hidden="true"
+            className="size-1.5 shrink-0 rounded-full bg-ink-secondary"
+          />
+        )}
         <span className="min-w-0 break-words">{line.note(t)}</span>
       </div>
     );
@@ -154,17 +166,14 @@ export function UndoLineBody({
     // A longer line, said for the User rather than by them: all of it, its actions under it.
     return (
       <div ref={shown} className={`${lineClass(inPill)} flex-col`}>
-        <span data-testid="undo-message" className="min-w-0 break-words">
+        <span data-testid="undo-message" className="min-w-0 break-words text-balance">
           {message}
         </span>
         <span className="-ml-1 flex items-center gap-1">
           <button
             type="button"
             data-testid={also.testId}
-            onClick={() => {
-              useUndo.getState().dismiss();
-              also.run();
-            }}
+            onClick={() => also.run()}
             className={actionClass}
           >
             {also.label(t)}
@@ -178,13 +187,10 @@ export function UndoLineBody({
   return <ChangeLine said={said} undo={undo} line={shown} inPill={inPill} />;
 }
 
-const MAX_LINES = 2;
-const LEAST_NAME_COLUMNS = 8;
-
 /**
- * The message takes two lines at most (DESIGN.md, Sidebar): a name in it is cut shorter, two
- * columns at a time, until it does, and again when the sidebar changes width or the language
- * changes, its words being of another length. Its words never are cut.
+ * The message wraps rather than cutting a name within the line's limit, so a narrow pane or a
+ * wide system font may take it to a third line (DESIGN.md, Sidebar; #400). Only a name past the
+ * limit is cut, in the middle, and the whole message is its tooltip.
  */
 function ChangeLine({
   said,
@@ -197,57 +203,20 @@ function ChangeLine({
   line: RefObject<HTMLDivElement | null>;
   inPill: boolean;
 }) {
-  const { within } = said;
-  const [columns, setColumns] = useState(NAME_IN_LINE_COLUMNS);
-  const [, measureAgain] = useReducer((times: number) => times + 1, 0);
-  const language = useLanguage();
-  const [measuredIn, setMeasuredIn] = useState(language);
-  if (measuredIn !== language) {
-    setMeasuredIn(language);
-    setColumns(NAME_IN_LINE_COLUMNS);
-  }
-
-  // After every render, as the room can change without the columns. The whole line is measured:
-  // "· Undo" goes with the message's last word, so it can push that word to a line of its own.
-  useLayoutEffect(() => {
-    const element = line.current;
-    if (!element || columns <= LEAST_NAME_COLUMNS) return;
-    const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
-    const padding =
-      Number.parseFloat(getComputedStyle(element).paddingTop) +
-      Number.parseFloat(getComputedStyle(element).paddingBottom);
-    if (element.getBoundingClientRect().height - padding > lineHeight * MAX_LINES + 1) {
-      setColumns(columns - 2);
-    }
-  });
-
-  useEffect(() => {
-    const element = line.current;
-    if (!element) return;
-    let width: number | null = null;
-    const watch = new ResizeObserver(([entry]) => {
-      const next = entry?.contentRect.width ?? 0;
-      if (width !== null && next !== width) {
-        setColumns(NAME_IN_LINE_COLUMNS);
-        measureAgain();
-      }
-      width = next;
-    });
-    watch.observe(element);
-    return () => watch.disconnect();
-  }, [line]);
-
-  const shown = within(columns);
   const whole = said.fullMessage ?? said.message;
-  // No-break spaces join the message's last word, the dot and Undo, so a wrapped line never leaves
-  // "· Undo" alone at the end of its second line.
+  // No-break spaces join the message's last word, the dot and Undo, and they don't break inside
+  // their span, so a wrapped line never leaves "· Undo" alone: Chinese can break after any
+  // character, and an inline-block may start a line of its own.
   return (
-    <div ref={line} className={`${changeLineClass(inPill)} break-words`}>
-      <span data-testid="undo-message" title={shown === whole ? undefined : whole}>
-        {shown}
+    // Chinese wraps between words, at the quotes around a name, not inside a word (`break-keep`).
+    <div ref={line} className={`${changeLineClass(inPill)} break-words break-keep`}>
+      <span data-testid="undo-message" title={said.message === whole ? undefined : whole}>
+        {said.message}
       </span>
-      <span aria-hidden="true">{"\u00A0·\u00A0"}</span>
-      <span className="-my-1 inline-block align-middle">{undo}</span>
+      <span className="whitespace-nowrap">
+        <span aria-hidden="true">{"\u00A0·\u00A0"}</span>
+        <span className="-my-1 inline-block align-middle">{undo}</span>
+      </span>
     </div>
   );
 }

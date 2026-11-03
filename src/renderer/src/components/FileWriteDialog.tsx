@@ -23,7 +23,7 @@ import { useModal } from "./useModal";
 /**
  * Asks once before a save that needs the User's answer (the core raises the
  * question and waits): where new files go, when none is chosen and the
- * default, Documents › IncarnaMind (D209), can't take them, saying why; or
+ * default, Documents › IncarnaMind, can't take them, saying why; or
  * whether it may add files to a Linked folder, the first time a file would go
  * inside one. Esc cancels the first, which saves nothing; the second is
  * remembered, so it must be answered.

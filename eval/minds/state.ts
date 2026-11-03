@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
 import * as Y from "yjs";
 import {
+  type AnswerToolCall,
   BLOCK_ID_ATTRIBUTE,
   type Core,
   GENERATED_MARK,
@@ -19,7 +20,7 @@ import type { ChangeStates } from "../../src/core/answers/toolRecord";
 import { plainText } from "../../src/core/mindText";
 import { messageReference } from "../../src/core/references";
 import type { ChangedMind } from "../../src/renderer/src/changedMinds";
-import { askedFor, waitsForUser } from "../../src/shared/askedChanges";
+import { appliedAsAsked } from "../../src/shared/askedChanges";
 import { originMaps, setOrigins } from "../../src/shared/blockOrigins";
 import { holdsOnlyItsTitle } from "../../src/shared/madeMind";
 import { decideProposals, pendingProposals } from "../../src/shared/proposals";
@@ -202,15 +203,17 @@ export async function decideAll(
 export async function changeStatesOf(
   core: Core,
   rows: readonly ChangedMind[],
+  calls: readonly AnswerToolCall[],
 ): Promise<ChangeStates> {
   const applied = new Set<string>();
   for (const row of rows) {
     const { state } = await core.openMind(row.mindId);
     const doc = new Y.Doc();
     Y.applyUpdate(doc, state);
-    const held = waitsForUser(doc, new Set(row.requests));
     for (const request of row.requests) {
-      if (!held && askedFor(doc, request)) applied.add(`${row.mindId} ${request}`);
+      if (appliedAsAsked(doc, { mindId: row.mindId, request }, calls)) {
+        applied.add(`${row.mindId} ${request}`);
+      }
     }
   }
   return (change) =>

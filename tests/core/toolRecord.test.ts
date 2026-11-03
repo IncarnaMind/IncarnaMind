@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import type { AnswerToolCall, ConversationAnswer, ConversationMessage } from "../../src/core";
+import type {
+  AnswerToolCall,
+  CommandDone,
+  ConversationAnswer,
+  ConversationMessage,
+} from "../../src/core";
 import { conversationContext, estimateTokens } from "../../src/core/answers/context";
 import { type ChangeState, toolRecord, toolRecordLines } from "../../src/core/answers/toolRecord";
 
@@ -33,6 +38,12 @@ describe("The record of an Answer's Tool calls", () => {
             source: "documents",
             input: { query: "tides" },
             resultCount: 8,
+          }),
+          call({
+            tool: "read_document",
+            source: "documents",
+            input: { document: "Filing", pages: "12–13" },
+            resultCount: 2,
           }),
           call({
             tool: "search_documents",
@@ -93,23 +104,24 @@ describe("The record of an Answer's Tool calls", () => {
       ),
     ).toEqual([
       "- search_documents “tides”: 8 Passages",
+      "- read_document “Filing” pages 12–13: 2 Passages",
       "- search_documents “moon”: failed",
-      "- create_mind: made the Mind “Tide notes” and proposed 7 changes, waiting for the User",
-      "- create_mind: made the Mind “Empty”, empty",
+      "- create_mind: made the Note “Tide notes” and proposed 7 changes, waiting for the User",
+      "- create_mind: made the Note “Empty”, empty",
       "- add_to_mind “Tide notes”: proposed 1 new Block, waiting for the User",
       "- edit_mind “Tide notes” (section “Summary”): proposed 2 changes, waiting for the User",
       "- edit_mind “Tide notes”: revised your own waiting text in place, and proposed 7 changes, waiting for the User",
       "- edit_mind “Q3 review”: no change was needed",
       "- edit_mind “Tide notes”: nothing changed: 12 changes the assistant can't revise waited there for the User",
-      "- read_mind “Chapter 9”: couldn't read it: no Mind is called “Chapter 9”",
+      "- read_mind “Chapter 9”: couldn't read it: no Note is called “Chapter 9”",
       "- read_web_page https://example.com: saved as the Document “Example”",
       "- book_boat (the Connector “Boats”): the User denied it, so it wasn't made",
     ]);
   });
 
-  // protects=a Word export's line in the record says where the file went (the Output location), how the text IncarnaMind wrote was marked and why, and that the User was asked in the tray and what they answered; fails_when=the line is a bare folder, or loses the marking or the question and answer, so a later reply "corrects" a true one; no_claim=how a model reads it.
-  test("a Word export says its place, its marking and the question the User answered (#1535)", () => {
-    const exported = (marking: object, asked?: AnswerToolCall["asked"]) =>
+  // protects=a Word export's line in the record says where the file went (the Output location), how the text IncarnaMind wrote was marked, and where that choice came from now that nothing is asked; fails_when=the line is a bare folder, or loses the marking or its source, so a later reply "corrects" a true one; no_claim=how a model reads it.
+  test("a Word export says its marking, and where the choice came from (#1535, #1945)", () => {
+    const exported = (marking: object) =>
       call({
         tool: "run_command",
         source: "commands",
@@ -126,26 +138,50 @@ describe("The record of an Answer's Tool calls", () => {
           inOutputLocation: true,
           marking,
         } as never,
-        ...(asked && { asked }),
       });
-    const answered = {
-      question: "Mark the text IncarnaMind wrote?",
-      detail: null,
-      options: [],
-      multiple: false,
-      other: false,
-      answer: { skipped: false, chosen: ["Leave it out"], wrote: null },
-    } as const;
     const lines = (each: AnswerToolCall) => toolRecordLines([each], names, () => null).at(0);
-    expect(lines(exported({ choice: "leave", how: "kept" }, answered as never))).toBe(
-      "- run_command mind.export: 1 item (“Tides”), saved as “Tides.docx” in the Output location, /out; the text IncarnaMind wrote is left unmarked: the User was asked in the tray and answered “Leave it out”, a choice now saved for every Word export",
+    expect(lines(exported({ choice: "leave", how: "default" }))).toBe(
+      "- run_command mind.export: 1 item (“Tides”), saved as “Tides.docx” in the Output location, /out; the text IncarnaMind wrote is left unmarked, using the default for Word exports; that choice is now saved",
     );
     expect(lines(exported({ choice: "mark", how: "earlier" }))).toBe(
-      "- run_command mind.export: 1 item (“Tides”), saved as “Tides.docx” in the Output location, /out; the text IncarnaMind wrote is marked with comments, following the choice the User saved earlier for Word exports",
+      "- run_command mind.export: 1 item (“Tides”), saved as “Tides.docx” in the Output location, /out; the text IncarnaMind wrote is marked with comments, following the choice saved for Word exports",
     );
     expect(lines(exported({ choice: "mark", how: "this-file" }))).toContain(
       "as the User's request named it for this file, their saved choice unchanged",
     );
+  });
+
+  // protects=a command refused as the User's alone reads as having changed nothing, though its call is done; a setting says what it changed from and to; a window's command says it ran there, or is still going on (#2407); fails_when=a refusal reads as "0 items", which a model asked again takes as done; no_claim=how a model reads it.
+  test("a refusal, a setting and a window's command each say what they did (#2407)", () => {
+    const ran = (command: CommandDone) =>
+      toolRecordLines([call({ tool: "run_command", source: "commands", command })], names).at(0);
+    expect(ran({ command: "settings.change", run: "r", items: [], yours: "privacy" })).toBe(
+      "- run_command settings.change: refused, since only the User changes it, so nothing changed",
+    );
+    expect(
+      ran({
+        command: "settings.change",
+        run: "r",
+        items: [],
+        setting: { name: "motion", from: "on", to: "off" },
+      }),
+    ).toBe("- run_command settings.change: motion changed from “on” to “off”");
+    expect(
+      ran({
+        command: "document.openBeside",
+        run: "r",
+        items: [{ kind: "document", id: "d1", name: "Mill Lane" }],
+        window: { changed: false },
+      }),
+    ).toBe("- run_command document.openBeside: 1 item (“Mill Lane”), run in the window");
+    expect(
+      ran({
+        command: "mind.check",
+        run: "r",
+        items: [],
+        window: { changed: false, running: true },
+      }),
+    ).toBe("- run_command mind.check: 0 items, started in the window and still going on");
   });
 
   // protects=the record says how many Citations a change wrote and how many markers it left out, and how many the reply holds; fails_when=a page whose Citations were lost reads as cited, or the reply's are left out; no_claim=none beyond protects.
@@ -161,7 +197,7 @@ describe("The record of an Answer's Tool calls", () => {
       mindChange: { mindId: "m1", created: false, request: "r", proposals: 2, unrecorded: 3 },
     });
     expect(toolRecord([made, lost], names, 9).split("\n").slice(2, -1)).toEqual([
-      "- create_mind: made the Mind “Tide notes” and proposed 7 changes, waiting for the User, with 6 Citations",
+      "- create_mind: made the Note “Tide notes” and proposed 7 changes, waiting for the User, with 6 Citations",
       "- add_to_mind “Tide notes”: proposed 2 new Blocks, waiting for the User; 3 markers had no Citation recorded with cite, so they were left out",
       "- cite: 9 Citations in your reply; each reads as its source in brackets, like [Tides, p. 3]",
     ]);
@@ -204,6 +240,7 @@ describe("A record within the context's budget", () => {
     text,
     citations: [],
     figures: [],
+    analyses: [],
     model: null,
     status: "done",
     errorKind: null,
@@ -228,6 +265,7 @@ describe("A record within the context's budget", () => {
       scope: null,
       model: null,
       forcedSkill: null,
+      analyse: false,
       quotes: [],
       createdAt: "2026-10-16T00:00:00.000Z",
     },
@@ -293,7 +331,7 @@ describe("A record within the context's budget", () => {
     expect(text).not.toContain("The page sums up");
     expect(text).toContain("What the Tools of an earlier Answer of yours really did");
     expect(text).not.toContain("your Answer above");
-    expect(text).toContain("- create_mind: made the Mind “Tide notes” and proposed 2 changes");
+    expect(text).toContain("- create_mind: made the Note “Tide notes” and proposed 2 changes");
     expect(text.endsWith(QUESTION)).toBe(true);
     expect(sent(earlier(reply), 100_000)).toContain(
       `The page sums up both papers.\n\n${record}\n\n${QUESTION}`,
@@ -327,7 +365,7 @@ describe("A record within the context's budget", () => {
       .messages.map((message) => message.content)
       .join("\n\n");
 
-    expect(text).toContain("made the Mind “Tide notes”");
+    expect(text).toContain("made the Note “Tide notes”");
     expect(text).not.toContain("winter storms");
   });
 
@@ -356,7 +394,7 @@ describe("A record within the context's budget", () => {
 
     // The blank lines between pieces aren't counted in the budget, as before.
     expect(estimateTokens(text)).toBeLessThanOrEqual(budget + 20);
-    expect(text).toContain("- create_mind: made the Mind “Tide notes” and proposed 2 changes");
+    expect(text).toContain("- create_mind: made the Note “Tide notes” and proposed 2 changes");
     expect(text).not.toContain("Answer 1. ");
     expect(text).toContain("Answer 30. ");
   });
@@ -381,11 +419,11 @@ describe("What became of a change, in its record", () => {
     [3, { waiting: 1, accepted: 2, rejected: 0 }, "then the User accepted 2 of 3, 1 still waiting"],
     [3, { waiting: 0, accepted: 2, rejected: 1 }, "then the User accepted 2 and rejected 1"],
     [3, { waiting: 3, accepted: 0, rejected: 0 }, "waiting for the User"],
-    [3, { waiting: 0, accepted: 0, rejected: 0, gone: true }, "but the Mind is no longer there"],
+    [3, { waiting: 0, accepted: 0, rejected: 0, gone: true }, "but the Note is no longer there"],
     [
       2,
       { waiting: 0, accepted: 0, rejected: 0, applied: true },
-      "applied in the Mind at once, with Undo",
+      "applied in the Note at once, with Undo",
     ],
   ])("%i changes, %j", (proposals, state, said) => {
     expect(line(proposals, state)).toBe(

@@ -2,9 +2,10 @@
  * Where the built-in models download from (#1578), so they reach the User wherever they are,
  * mainland China included, with no setting. Each file is tried at Hugging Face, IncarnaMind's own
  * copy on ModelScope, hf-mirror.com and IncarnaMind's own copy on Cloudflare R2, in turn. A probe
- * of Hugging Face and ModelScope decides which leads. Whatever a source sends is checked against
- * the size and SHA-256 the app pins (./download), never against the source's own word, so a
- * source that serves other bytes falls through to the next.
+ * of Hugging Face and the other source decides which leads: ModelScope once IncarnaMind's copy
+ * there exists, hf-mirror.com until then. Whatever a source sends is checked against the size and
+ * SHA-256 the app pins (./download), never against the source's own word, so a source that serves
+ * other bytes falls through to the next.
  *
  * Network traffic that carries no User content: the probe is a HEAD request to each host's
  * front page.
@@ -19,6 +20,7 @@ import type { Language } from "../language";
  * `hosts` are the other hosts it may send a download on to, such as its CDN.
  */
 export interface ModelCopy {
+  /** Empty until the copy exists, since the order skips a source with no URL. */
   url: string;
   hosts?: readonly string[];
 }
@@ -29,7 +31,20 @@ export interface ModelCopies {
   r2?: ModelCopy;
 }
 
-export const MODEL_COPIES: ModelCopies = {};
+/**
+ * IncarnaMind's own copies, waiting on accounts: a copy exists once its `url` is filled in, and
+ * one that doesn't is skipped. The files at any copy are the ones pinned for Hugging Face, byte
+ * for byte, and every download is checked against their recorded SHA-256, so a copy that differs
+ * falls through to the next source.
+ */
+export const MODEL_COPIES: ModelCopies = {
+  modelscope: { url: "" },
+  r2: { url: "" },
+};
+
+/** A copy's base URL, or null while the copy doesn't exist. */
+export const modelCopyUrl = (copy: ModelCopy | null | undefined): string | null =>
+  copy !== undefined && copy !== null && copy.url !== "" ? copy.url : null;
 
 /** The probe gives each host this long to answer. */
 export const PROBE_MS = 3000;
@@ -50,12 +65,14 @@ const OWN_HOSTS: Partial<Record<ModelSourceId, readonly string[]>> = {
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const within = (host: string, hosts: readonly string[]) =>
   hosts.some((each) => host === each || host.endsWith(`.${each}`));
-const PROBED = {
+const PROBE_URLS = {
   huggingface: "https://huggingface.co/",
   modelscope: "https://www.modelscope.cn/",
+  "hf-mirror": "https://hf-mirror.com/",
 } as const;
 
 const ORDER: readonly ModelSourceId[] = ["huggingface", "modelscope", "hf-mirror", "r2"];
+// Where Hugging Face can't be reached: the other source leads, and the mirror comes before it.
 const CHINA_ORDER: readonly ModelSourceId[] = ["modelscope", "hf-mirror", "huggingface", "r2"];
 
 /** The redirect rule for a download made with no sources (`ModelSources.redirectAllowed`): Hugging Face's. */
@@ -85,13 +102,16 @@ export interface SourcedUrl {
 
 export function createModelSources(options: ModelSourcesOptions) {
   const copies = options.copies ?? MODEL_COPIES;
-  let probed: { at: number; proxy: string; china: Promise<boolean> } | null = null;
+  let probed: { at: number; proxy: string; rivalFirst: Promise<boolean> } | null = null;
   const failedUntil = new Map<ModelSourceId, number>();
 
-  // Hugging Face can't be reached from mainland China, where ModelScope answers first.
+  // Hugging Face can't be reached from mainland China, where the other source answers first.
   async function probe(): Promise<boolean> {
-    const ask = async (source: keyof typeof PROBED) => {
-      const response = await options.fetch(PROBED[source], {
+    const rival: keyof typeof PROBE_URLS = modelCopyUrl(copies.modelscope)
+      ? "modelscope"
+      : "hf-mirror";
+    const ask = async (source: keyof typeof PROBE_URLS) => {
+      const response = await options.fetch(PROBE_URLS[source], {
         method: "HEAD",
         credentials: "omit",
         signal: AbortSignal.timeout(PROBE_MS),
@@ -100,10 +120,10 @@ export function createModelSources(options: ModelSourcesOptions) {
       return source;
     };
     try {
-      return (await Promise.any([ask("huggingface"), ask("modelscope")])) === "modelscope";
+      return (await Promise.any([ask("huggingface"), ask(rival)])) === rival;
     } catch (error) {
       options.log?.warn("modelSources.probeFailed", {
-        hosts: Object.values(PROBED)
+        hosts: [PROBE_URLS.huggingface, PROBE_URLS[rival]]
           .map((url) => new URL(url).host)
           .join(", "),
         reasons: (error instanceof AggregateError ? error.errors : [error])
@@ -127,23 +147,28 @@ export function createModelSources(options: ModelSourcesOptions) {
     }
   }
 
-  async function inChina(): Promise<boolean> {
+  async function rivalFirst(): Promise<boolean> {
     const proxy = await proxyNow();
     const now = options.now();
     if (!probed || now - probed.at >= PROBE_KEPT_MS || probed.proxy !== proxy) {
-      probed = { at: now, proxy, china: probe() };
+      probed = { at: now, proxy, rivalFirst: probe() };
       failedUntil.clear();
     }
-    return probed.china;
+    return probed.rivalFirst;
   }
 
-  const copyOf = (copy: ModelCopy | undefined, folder: string, file: ModelFile) =>
-    copy ? new URL(file.path, copy.url.replaceAll("{folder}", encodeURIComponent(folder))) : null;
+  const copyOf = (copy: ModelCopy | undefined, folder: string, file: ModelFile) => {
+    const base = modelCopyUrl(copy);
+    return base === null
+      ? null
+      : new URL(file.path, base.replaceAll("{folder}", encodeURIComponent(folder)));
+  };
 
   function hostsOf(source: ModelSourceId): readonly string[] {
     const copy = source === "modelscope" ? copies.modelscope : source === "r2" ? copies.r2 : null;
-    if (!copy) return OWN_HOSTS[source] ?? [];
-    return [new URL(copy.url.replaceAll("{folder}", "folder")).host, ...(copy.hosts ?? [])];
+    const base = modelCopyUrl(copy);
+    if (copy === null || copy === undefined || base === null) return OWN_HOSTS[source] ?? [];
+    return [new URL(base.replaceAll("{folder}", "folder")).host, ...(copy.hosts ?? [])];
   }
 
   function urlOf(source: ModelSourceId, folder: string, file: ModelFile, baseUrl: string) {
@@ -171,7 +196,7 @@ export function createModelSources(options: ModelSourcesOptions) {
      * the pinned Hugging Face location; `folder` is the model's folder under models/.
      */
     async urlsFor(folder: string, file: ModelFile, baseUrl: string): Promise<SourcedUrl[]> {
-      const order = (await inChina()) ? CHINA_ORDER : ORDER;
+      const order = (await rivalFirst()) ? CHINA_ORDER : ORDER;
       const picked = options.choice();
       const now = options.now();
       const late = (source: ModelSourceId) => (failedUntil.get(source) ?? 0) > now;

@@ -14,6 +14,8 @@ import { create } from "zustand";
 import {
   type CitationFormatRequest,
   type FormattedCitations,
+  type FormattedCluster,
+  MIND_FIGURE_RUNS_FIELD,
   MIND_SETTINGS_FIELD,
   type StyledRun,
 } from "../../core/api";
@@ -33,7 +35,7 @@ import {
 } from "../../shared/mindCitationStyle";
 import { isPaperOrBook } from "../../shared/references";
 import { core } from "./core";
-import { citationClusters, citedWorkOf } from "./editor/citationClusters";
+import { citationClusters, formattingClusters } from "./editor/citationClusters";
 import { errorMessage } from "./errors";
 import { translateNow, useLanguage } from "./i18n";
 import { useAppStore } from "./store";
@@ -48,6 +50,7 @@ export interface MindFormatting {
   pending: boolean;
   /** Why the last request failed, in English, or null. */
   problem: string | null;
+  figures?: Readonly<Record<string, { signature: string; cluster: FormattedCluster }>>;
 }
 
 interface FormattingState {
@@ -202,6 +205,7 @@ export function useCitationFormattingFor(
   style: CitationStyleId,
   mindId: string,
   textLanguage: Language,
+  doc: Y.Doc | null = null,
 ): void {
   const documents = useAppStore((state) => state.documents);
   /** What was asked last, kept across the effect's runs (Documents change often). */
@@ -219,15 +223,34 @@ export function useCitationFormattingFor(
       if (style === "numbered") {
         progress.asked = "";
         progress.latest++;
-        update(mindId, { style, formatted: null, signatures: [], pending: false, problem: null });
+        update(mindId, {
+          style,
+          formatted: null,
+          signatures: [],
+          figures: {},
+          pending: false,
+          problem: null,
+        });
         return;
       }
       const clusters = citationClusters(editor.state);
+      let gathered: ReturnType<typeof formattingClusters>;
+      try {
+        gathered = formattingClusters(editor.state, doc);
+      } catch (error) {
+        progress.asked = "";
+        progress.latest++;
+        update(mindId, {
+          style,
+          figures: {},
+          pending: false,
+          problem: errorMessage(error, translateNow),
+        });
+        return;
+      }
       const request: CitationFormatRequest = {
         style,
-        clusters: clusters.map((cluster) => ({
-          works: cluster.members.map((member) => citedWorkOf(member.attributes)),
-        })),
+        clusters: gathered.map(({ works }) => ({ works })),
         language: textLanguage,
       };
       // A record edited or a Document renamed since is a new request, though the Citations are as they were.
@@ -249,7 +272,22 @@ export function useCitationFormattingFor(
       core.formatCitations(request).then(
         (formatted) => {
           if (id !== progress.latest) return;
-          update(mindId, { style, formatted, signatures, pending: false, problem: null });
+          const figures: Record<string, { signature: string; cluster: FormattedCluster }> = {};
+          const ordinary: FormattedCluster[] = [];
+          gathered.forEach((item, index) => {
+            const cluster = formatted.clusters[index];
+            if (!cluster) return;
+            if (item.figure !== null) figures[item.figure] = { signature: item.signature, cluster };
+            if (item.citation !== null) ordinary[item.citation] = cluster;
+          });
+          update(mindId, {
+            style,
+            formatted: { ...formatted, clusters: ordinary },
+            figures,
+            signatures,
+            pending: false,
+            problem: null,
+          });
         },
         (error: unknown) => {
           if (id !== progress.latest) return;
@@ -266,6 +304,9 @@ export function useCitationFormattingFor(
       timer = setTimeout(ask, SETTLE_MS);
     };
     editor.on("transaction", onTransaction);
+    const onEvidence = () => onTransaction({ transaction: { docChanged: true } });
+    const evidence = doc?.getMap(MIND_FIGURE_RUNS_FIELD);
+    evidence?.observe(onEvidence);
     const again = () => {
       progress.asked = "";
       ask();
@@ -274,9 +315,10 @@ export function useCitationFormattingFor(
     return () => {
       clearTimeout(timer);
       editor.off("transaction", onTransaction);
+      evidence?.unobserve(onEvidence);
       if (retries.get(mindId) === again) retries.delete(mindId);
     };
-  }, [editor, mindId, style, textLanguage, documents]);
+  }, [editor, mindId, style, textLanguage, documents, doc]);
 
   // Closed: an answer still on its way is dropped, and the Mind's formatting forgotten.
   useEffect(() => {

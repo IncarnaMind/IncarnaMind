@@ -110,6 +110,10 @@ export interface WordFileInput {
   comments?: string;
   /** The inside of w:footnotes, after the two separators. */
   footnotes?: string;
+  /** The inside of w:endnotes, after the two separators. */
+  endnotes?: string;
+  /** The inside of w:settings. */
+  settings?: string;
   /** Header and footer parts, by their relationship id ("rIdH1"): the inside of w:hdr or w:ftr. */
   headers?: Record<string, string>;
   footers?: Record<string, string>;
@@ -155,6 +159,20 @@ export function wordFile(input: WordFileInput): Buffer {
     add(
       "word/footnotes.xml",
       `${DECLARATION}<w:footnotes ${NAMESPACES}><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>${input.footnotes}</w:footnotes>`,
+    );
+  }
+  if (input.endnotes !== undefined) {
+    rels.push(`<Relationship Id="rIdEndnotes" Type="${REL}/endnotes" Target="endnotes.xml"/>`);
+    add(
+      "word/endnotes.xml",
+      `${DECLARATION}<w:endnotes ${NAMESPACES}><w:endnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:endnote><w:endnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:endnote>${input.endnotes}</w:endnotes>`,
+    );
+  }
+  if (input.settings !== undefined) {
+    rels.push(`<Relationship Id="rIdSettings" Type="${REL}/settings" Target="settings.xml"/>`);
+    add(
+      "word/settings.xml",
+      `${DECLARATION}<w:settings ${NAMESPACES}>${input.settings}</w:settings>`,
     );
   }
   for (const [kind, parts] of [
@@ -218,6 +236,32 @@ export function textBox(lines: readonly string[]): string {
 /** A complex field: its instruction, and the result Word last showed. */
 export function field(instruction: string, result: string): string {
   return `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> ${escapeXml(instruction)} </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>${run(result)}<w:r><w:fldChar w:fldCharType="end"/></w:r>`;
+}
+
+/** A note's mark in the text, as Word writes it: its own run, in the reference style. */
+export function noteMark(kind: "footnote" | "endnote", id: number): string {
+  const style = kind === "footnote" ? "FootnoteReference" : "EndnoteReference";
+  return `<w:r><w:rPr><w:rStyle w:val="${style}"/></w:rPr><w:${kind}Reference w:id="${id}"/></w:r>`;
+}
+
+/** A note, as Word writes one: each paragraph in the note text style, the first with the note's own number and a space. */
+export function note(
+  kind: "footnote" | "endnote",
+  id: number,
+  paragraphs: readonly string[],
+): string {
+  const style = kind === "footnote" ? "Footnote" : "Endnote";
+  const body = paragraphs
+    .map(
+      (content, index) =>
+        `<w:p><w:pPr><w:pStyle w:val="${style}Text"/></w:pPr>${
+          index === 0
+            ? `<w:r><w:rPr><w:rStyle w:val="${style}Reference"/></w:rPr><w:${kind}Ref/></w:r><w:r><w:t xml:space="preserve"> </w:t></w:r>`
+            : ""
+        }${content.startsWith("<") ? content : run(content)}</w:p>`,
+    )
+    .join("");
+  return `<w:${kind} w:id="${id}">${body}</w:${kind}>`;
 }
 
 /** A tracked insertion or deletion by `author`. */

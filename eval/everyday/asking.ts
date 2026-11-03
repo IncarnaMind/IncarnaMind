@@ -23,10 +23,11 @@ import {
   messageReference,
 } from "../../src/core";
 import { forPage } from "../../src/core/answers/pointersBack";
-import { toolRecordLines } from "../../src/core/answers/toolRecord";
+import { type ChangeStates, toolRecordLines } from "../../src/core/answers/toolRecord";
 import { plainText } from "../../src/core/mindText";
 import type { createAiSdkChatModel } from "../../src/core/providers/models";
 import { pageBlocks } from "../../src/shared/answerBlocks";
+import { appliedAsAsked } from "../../src/shared/askedChanges";
 import { namesOneOf, sourcesAsText } from "../../src/shared/namedSources";
 import { resolveProposals } from "../../src/shared/proposals";
 import { connectToMind } from "../../tests/helpers/mindClient";
@@ -39,6 +40,7 @@ import type { Library } from "../lib/library";
 import type { Log } from "../lib/log";
 import type { EverydayCase } from "./cases";
 import {
+  documentsCovered,
   givenToMindsOf,
   pointersIn,
   type RequestFailure,
@@ -50,7 +52,7 @@ import {
 import { DATED_TEXTS } from "./dated";
 import { citedClaims } from "./dates";
 import { type Decision, decisionInput, type Forcing, type Route } from "./decisions";
-import { judgeClaims } from "./judge";
+import { judgeClaims, judgeDocumentAbsence, judgeToolClaims } from "./judge";
 import type { Asks, ReaskWatch } from "./reasks";
 import { checkCitedSentences, type SentenceSupport } from "./support";
 
@@ -136,9 +138,12 @@ export const fetchReserves = (cacheDir: string, log: Log) =>
 
 export async function reports(): Promise<EvalDocument[]> {
   const folder = join(ROOT, "data");
-  return (await readdir(folder))
-    .filter((name) => name.endsWith(".pdf"))
-    .map((name) => ({ key: name, path: join(folder, name) }));
+  const realFolder = join(folder, "real");
+  const pdfsIn = async (directory: string) =>
+    (await readdir(directory))
+      .filter((name) => name.endsWith(".pdf"))
+      .map((name) => ({ key: name, path: join(directory, name) }));
+  return [...(await pdfsIn(folder)), ...(await pdfsIn(realFolder))];
 }
 
 export interface CaseResult {
@@ -147,12 +152,16 @@ export interface CaseResult {
   request: string;
   model: string;
   failures: RequestFailure[];
+  /** The sentences the judge found claiming the Documents lack the requested figure. */
+  absenceSentences?: readonly string[];
+  /** Sentences the judge read as a passive check or calculation that no call ran (#1796): counted, not failed. */
+  toolPassive?: string[];
   reply: string;
   page: string;
   /** What the guard took out: sentences of the reply, by Add to note, and Blocks of what the calls gave to write into Minds. */
   removed: string[];
-  /** Sentences of what the calls gave that the model's edit_mind or the app's own check rewrote after the guard, and what the Mind holds now. */
-  rewritten: { given: string; now: string | null }[];
+  /** Sentences of what the calls gave that the model's edit_mind or the app's own check changed after the guard, what the Mind holds now, and whether it only took words out. */
+  rewritten: ReturnType<typeof rewrittenLater>;
   /** Calls that copied the last Answer into a Mind (`answer: true`). */
   copies: number;
   pointersLeft: number;
@@ -173,6 +182,8 @@ export interface CaseResult {
   support: SentenceSupport[] | null;
   /** A summary: its sentences outside headings that make a claim, and how many carry a Citation; null for the others. */
   claims: { claims: number; cited: number } | null;
+  /** Asked about every Document in scope: what it did with each (`documentsCovered`). */
+  covered?: ReturnType<typeof documentsCovered>;
   /** Arm C (./decisions): what the decision model chose for the request, and how many of its model requests were forced; absent in arms A and B. */
   decision?: { choice: Route; confidence: number; forced: number };
 }
@@ -257,7 +268,7 @@ async function answerOf(
 async function askExample(core: Core, language: "en" | "zh-CN") {
   await core.updateSettings({ user: { language } });
   const { mindId } = await core.createExamples();
-  const asked = await vi.waitFor(() => core.askReadyQuestion(), {
+  const asked = await vi.waitFor(() => core.askExampleReadyQuestion(), {
     timeout: 2 * 60_000,
     interval: 500,
   });
@@ -275,6 +286,20 @@ async function importWord(library: Library, word: NonNullable<EverydayCase["word
       body: [paragraph(title, { style: "Title" }), ...body.map((each) => paragraph(each))].join(""),
     }),
     { name: word.name, origin: "own", addOriginal: true },
+  );
+}
+
+/** The top-level Blocks that are headings: they name the text, which is what a follow-up changes. */
+function headingIdsOf(doc: Y.Doc): Set<string> {
+  return new Set(
+    doc
+      .getXmlFragment(MIND_CONTENT_FIELD)
+      .toArray()
+      .flatMap((block) =>
+        block instanceof Y.XmlElement && block.nodeName === "heading"
+          ? [String(block.getAttribute(BLOCK_ID_ATTRIBUTE))]
+          : [],
+      ),
   );
 }
 
@@ -338,13 +363,19 @@ export async function runCase(
     watch,
     checkModel = null,
     deciding,
+    asking,
+    calculates = false,
   }: {
     /** Watches the app's own asks inside the Answer; none watched without it. */
     watch?: ReaskWatch;
+    /** Called just before the request itself is asked, after the turns it follows. */
+    asking?: () => void;
     /** The model the cited sentences are checked on; null: the default chat model. */
     checkModel?: ChatModelChoice | null;
     /** Arm C: decides each request first, and forces the chat model's requests as the decision says. */
     deciding?: { decide(text: string): Promise<Decision>; forcing: Forcing };
+    /** The model is offered `calculate` (`ModelFacts.calculates`). */
+    calculates?: boolean;
   } = {},
 ): Promise<CaseResult> {
   const { core } = library;
@@ -453,6 +484,21 @@ export async function runCase(
     earlierCalls.push(...answer.toolCalls);
     last = answer;
   }
+  // The window applies an Answer's asked changes at once with Undo; without it a follow-up reads
+  // them waiting. Apply the before step's write first, so the follow-up sees the User's state.
+  if (client && last && each.before?.length && each.expected.inPlace) {
+    const asked = last.toolCalls.flatMap((call) =>
+      call.mindChange ? [{ mindId: call.mindChange.mindId, request: call.mindChange.request }] : [],
+    );
+    const byMind = new Map<string, string[]>();
+    for (const { mindId, request } of asked) {
+      byMind.set(mindId, [...(byMind.get(mindId) ?? []), request]);
+    }
+    for (const [mindId, requests] of byMind) {
+      await core.applyAskedChanges({ answerId: last.id, mindId, requests });
+    }
+    if (byMind.size > 0) await client.settled();
+  }
   let addedBlocks: number[] | undefined;
   if (each.addToNote && last && mind && client) {
     const earlier = new Set(ids);
@@ -467,13 +513,28 @@ export async function runCase(
     });
     await client.settled();
     ids = idsNow();
-    addedBlocks = ids.flatMap((id, block) => (earlier.has(id) ? [] : [block]));
+    const headings = headingIdsOf(client.doc);
+    addedBlocks = ids.flatMap((id, block) => (earlier.has(id) || headings.has(id) ? [] : [block]));
     before = acceptedTexts(client.doc, new Set());
+  }
+  // An in-place follow-up after the assistant wrote in `before` must change that text: the
+  // baseline is taken after the before step, and the Blocks it leaves are what `inPlace` looks at.
+  // No Block holding text means the before step wrote nothing, and the follow-up can't be tested.
+  if (each.before?.length && each.expected.inPlace && !addedBlocks && client) {
+    await client.settled();
+    ids = idsNow();
+    before = acceptedTexts(client.doc, new Set());
+    const headings = headingIdsOf(client.doc);
+    const body = ids.flatMap((id, block) => (headings.has(id) ? [] : [block]));
+    addedBlocks = body.some((block) => (before.get(ids[block] ?? "") ?? "").trim() !== "")
+      ? body
+      : [];
   }
   const quoted = each.quote ? await quoteOf(core, scoped, each.quote) : null;
   watch?.begin(each.firstReply ?? null);
   await decideFirst(each.request);
   const stoppedAtAsk = { last: false };
+  asking?.();
   const answer = await ask(
     core,
     {
@@ -487,20 +548,13 @@ export async function runCase(
     { choose: each.answerAsk, stopped: () => (stoppedAtAsk.last = true) },
   );
   const answeredSeconds = (Date.now() - started) / 1000;
-  const asks = watch ? { ...watch.end() } : { again: 0, citations: 0 };
+  const asks = watch ? { ...watch.end() } : { again: 0, coverage: 0, citations: 0 };
   const forced = deciding ? deciding.forcing.end() : 0;
   const decision = decided.last;
   counting();
   const minds = await core.listMinds();
   const names = (id: string) => minds.find((each) => each.id === id)?.title ?? null;
-  const record = toolRecordLines(answer.toolCalls, names);
   const support = each.research ? await checkCitedSentences(core, answer, checkModel) : null;
-  const verdict = await judgeClaims(
-    judge,
-    answer.text,
-    record,
-    toolRecordLines(earlierCalls, names),
-  );
   const changed = new Set(
     answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.mindId] : [])),
   );
@@ -510,10 +564,12 @@ export async function runCase(
   const citedInMinds: string[] = [];
   const sourcesAsTextIn: string[] = [];
   const writtenInMinds: string[] = [];
+  const mindDocs = new Map<string, Y.Doc>();
   const documentNames = scoped.map((document) => document.name);
   for (const mindId of changed) {
     const written = await connectToMind(core, mindId);
     await written.settled();
+    mindDocs.set(mindId, written.doc);
     citedInMinds.push(...citedDocuments(written.doc));
     const was = mindId === mind?.id ? before : new Map<string, string>();
     for (const [id, text] of acceptedTexts(written.doc, requests)) {
@@ -523,7 +579,27 @@ export async function runCase(
       if (was.get(id) !== text) writtenInMinds.push(text);
     }
   }
+  // The judge reads the record as the app's own claim check does: what the window applies at once.
+  const states: ChangeStates = (change) => {
+    const doc = mindDocs.get(change.mindId);
+    return doc && appliedAsAsked(doc, change, answer.toolCalls)
+      ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
+      : null;
+  };
+  const record = toolRecordLines(answer.toolCalls, names, states);
+  const verdict = await judgeClaims(
+    judge,
+    answer.text,
+    record,
+    toolRecordLines(earlierCalls, names),
+  );
+  // Judged where it is the request's point, and under every reply the app's own line flags (#1796).
+  const toolVerdict =
+    each.expected.honestTools || (answer.steps?.unrunTools ?? []).length > 0
+      ? await judgeToolClaims(judge, answer.text, record)
+      : null;
   let changes: CaseResult["changes"] = [];
+  let longer = false;
   if (client) {
     await client.settled();
     const after = acceptedTexts(client.doc, requests);
@@ -532,6 +608,17 @@ export async function runCase(
         ? []
         : [{ block, before: before.get(id) ?? "", after: after.get(id) ?? "(removed)" }],
     );
+    const headings = headingIdsOf(client.doc);
+    const summaryIds = new Set(
+      (addedBlocks ?? []).flatMap((block) => (ids[block] ? [ids[block]] : [])),
+    );
+    const length = (texts: Map<string, string>) =>
+      [...texts.entries()].reduce(
+        (total, [id, text]) =>
+          total + (summaryIds.has(id) && !headings.has(id) ? text.trim().length : 0),
+        0,
+      );
+    longer = length(after) > length(before);
   }
   const changedBlocks = changes.map((change) => change.block);
   const page = forPage(answer.text, each.request);
@@ -539,19 +626,35 @@ export async function runCase(
     answer.toolCalls,
     last ? { text: last.text, question: each.before?.at(-1) ?? "" } : null,
   );
+  if (each.expected.noDocumentAbsence && !each.expected.documentAbsenceMetric) {
+    throw new Error(`${each.id} needs a plain Document-absence metric for its judge.`);
+  }
+  const absenceSentences = each.expected.documentAbsenceMetric
+    ? await judgeDocumentAbsence(
+        judge,
+        answer.text,
+        each.expected.documentAbsenceMetric,
+        each.request,
+      )
+    : undefined;
   const outcome: RequestOutcome = {
     expected: each.expected,
+    absenceSentences,
     answer,
     verdict,
+    toolVerdict,
+    calculates,
     askedFrom: mind?.id ?? null,
     citedInMinds,
     changedBlocks,
     addedBlocks,
+    longer,
     sourcesAsText: sourcesAsTextIn,
     writtenInMinds,
     addedToPage: page,
     givenToMinds,
-    askedAgain: asks.again > 0,
+    askedAgain: asks.again > 0 || asks.coverage > 0,
+    coverageAsks: asks.coverage,
     scoped,
     texts: each.expected.textDates ? DATED_TEXTS : undefined,
     stoppedAtAsk: stoppedAtAsk.last,
@@ -564,6 +667,9 @@ export async function runCase(
     request: each.request,
     model,
     failures,
+    ...(absenceSentences && { absenceSentences }),
+    ...(toolVerdict?.passive &&
+      toolVerdict.passive.length > 0 && { toolPassive: toolVerdict.passive }),
     reply: answer.text,
     page,
     removed: takenOut(outcome).removed,
@@ -580,6 +686,7 @@ export async function runCase(
     asks,
     support,
     claims: each.summary ? citedClaims(answer.text) : null,
+    ...(each.expected.coverAll && { covered: documentsCovered(outcome) }),
     ...(decision && {
       decision: { choice: decision.choice, confidence: decision.confidence, forced },
     }),

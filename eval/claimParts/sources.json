@@ -1,0 +1,2523 @@
+{
+  "schema_version": 1,
+  "issue": 2002,
+  "all_cases_scored": true,
+  "forecast_gold_rule": "An unqualified future outcome is Unsupported against a forecast-only Source; an explicit attribution of that forecast is Supported, using the same exact Source.",
+  "passage_separation": "Each logical source is a separate short Markdown Document, so complete-summary cases span two to four distinct Documents/Passages rather than relying on a parser to split adjacent short paragraphs.",
+  "scope_rule": "Each case profile materializes its listed Documents only. Importing the whole bank would invalidate missing-evidence gold.",
+  "sources": [
+    {
+      "source_id": "rook-north-en",
+      "language": "en",
+      "document_id": "rook-north-en",
+      "document_title": "Record rook-north",
+      "collection": "branch-records",
+      "section": "rook-north",
+      "text": "Rook's North branch opened in March 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "rook-north-zh-CN",
+      "language": "zh-CN",
+      "document_id": "rook-north-zh-CN",
+      "document_title": "记录：rook-north",
+      "collection": "branch-records",
+      "section": "rook-north",
+      "text": "白鸦公司的北区分店于2025年3月开业。",
+      "synthetic": true
+    },
+    {
+      "source_id": "rook-south-en",
+      "language": "en",
+      "document_id": "rook-south-en",
+      "document_title": "Record rook-south",
+      "collection": "branch-records",
+      "section": "rook-south",
+      "text": "Rook's South branch opened in July 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "rook-south-zh-CN",
+      "language": "zh-CN",
+      "document_id": "rook-south-zh-CN",
+      "document_title": "记录：rook-south",
+      "collection": "branch-records",
+      "section": "rook-south",
+      "text": "白鸦公司的南区分店于2025年7月开业。",
+      "synthetic": true
+    },
+    {
+      "source_id": "alder-north-en",
+      "language": "en",
+      "document_id": "alder-north-en",
+      "document_title": "Record alder-north",
+      "collection": "store-records",
+      "section": "alder-north",
+      "text": "Alder's North store opened in March 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "alder-north-zh-CN",
+      "language": "zh-CN",
+      "document_id": "alder-north-zh-CN",
+      "document_title": "记录：alder-north",
+      "collection": "store-records",
+      "section": "alder-north",
+      "text": "桤木公司的北店于2025年3月开业。",
+      "synthetic": true
+    },
+    {
+      "source_id": "alder-south-en",
+      "language": "en",
+      "document_id": "alder-south-en",
+      "document_title": "Record alder-south",
+      "collection": "store-records",
+      "section": "alder-south",
+      "text": "Alder's South store opened in April 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "alder-south-zh-CN",
+      "language": "zh-CN",
+      "document_id": "alder-south-zh-CN",
+      "document_title": "记录：alder-south",
+      "collection": "store-records",
+      "section": "alder-south",
+      "text": "桤木公司的南店于2025年4月开业。",
+      "synthetic": true
+    },
+    {
+      "source_id": "alder-east-en",
+      "language": "en",
+      "document_id": "alder-east-en",
+      "document_title": "Record alder-east",
+      "collection": "store-records",
+      "section": "alder-east",
+      "text": "Alder's East store opened in May 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "alder-east-zh-CN",
+      "language": "zh-CN",
+      "document_id": "alder-east-zh-CN",
+      "document_title": "记录：alder-east",
+      "collection": "store-records",
+      "section": "alder-east",
+      "text": "桤木公司的东店于2025年5月开业。",
+      "synthetic": true
+    },
+    {
+      "source_id": "alder-west-en",
+      "language": "en",
+      "document_id": "alder-west-en",
+      "document_title": "Record alder-west",
+      "collection": "store-records",
+      "section": "alder-west",
+      "text": "Alder's West store opened in June 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "alder-west-zh-CN",
+      "language": "zh-CN",
+      "document_id": "alder-west-zh-CN",
+      "document_title": "记录：alder-west",
+      "collection": "store-records",
+      "section": "alder-west",
+      "text": "桤木公司的西店于2025年6月开业。",
+      "synthetic": true
+    },
+    {
+      "source_id": "birch-revenue-en",
+      "language": "en",
+      "document_id": "birch-revenue-en",
+      "document_title": "Record birch-revenue",
+      "collection": "monthly-records",
+      "section": "birch-revenue",
+      "text": "Birch's revenue rose in April 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "birch-revenue-zh-CN",
+      "language": "zh-CN",
+      "document_id": "birch-revenue-zh-CN",
+      "document_title": "记录：birch-revenue",
+      "collection": "monthly-records",
+      "section": "birch-revenue",
+      "text": "白桦公司的收入于2025年4月上升。",
+      "synthetic": true
+    },
+    {
+      "source_id": "birch-costs-en",
+      "language": "en",
+      "document_id": "birch-costs-en",
+      "document_title": "Record birch-costs",
+      "collection": "monthly-records",
+      "section": "birch-costs",
+      "text": "Birch's operating costs fell in May 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "birch-costs-zh-CN",
+      "language": "zh-CN",
+      "document_id": "birch-costs-zh-CN",
+      "document_title": "记录：birch-costs",
+      "collection": "monthly-records",
+      "section": "birch-costs",
+      "text": "白桦公司的经营成本于2025年5月下降。",
+      "synthetic": true
+    },
+    {
+      "source_id": "sold-north-en",
+      "language": "en",
+      "document_id": "sold-north-en",
+      "document_title": "Record sold-north",
+      "collection": "sales-records",
+      "section": "sold-north",
+      "text": "The North store sold 120 units in June 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "sold-north-zh-CN",
+      "language": "zh-CN",
+      "document_id": "sold-north-zh-CN",
+      "document_title": "记录：sold-north",
+      "collection": "sales-records",
+      "section": "sold-north",
+      "text": "北店在2025年6月售出120件商品。",
+      "synthetic": true
+    },
+    {
+      "source_id": "sold-south-en",
+      "language": "en",
+      "document_id": "sold-south-en",
+      "document_title": "Record sold-south",
+      "collection": "sales-records",
+      "section": "sold-south",
+      "text": "The South store sold 80 units in June 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "sold-south-zh-CN",
+      "language": "zh-CN",
+      "document_id": "sold-south-zh-CN",
+      "document_title": "记录：sold-south",
+      "collection": "sales-records",
+      "section": "sold-south",
+      "text": "南店在2025年6月售出80件商品。",
+      "synthetic": true
+    },
+    {
+      "source_id": "elm-2022-en",
+      "language": "en",
+      "document_id": "elm-2022-en",
+      "document_title": "Record elm-2022",
+      "collection": "annual-records",
+      "section": "elm-2022",
+      "text": "Elm's revenue for calendar year 2022 was 10 units.",
+      "synthetic": true
+    },
+    {
+      "source_id": "elm-2022-zh-CN",
+      "language": "zh-CN",
+      "document_id": "elm-2022-zh-CN",
+      "document_title": "记录：elm-2022",
+      "collection": "annual-records",
+      "section": "elm-2022",
+      "text": "榆木公司2022自然年的收入为10个单位。",
+      "synthetic": true
+    },
+    {
+      "source_id": "elm-2023-en",
+      "language": "en",
+      "document_id": "elm-2023-en",
+      "document_title": "Record elm-2023",
+      "collection": "annual-records",
+      "section": "elm-2023",
+      "text": "Elm's revenue for calendar year 2023 was 12 units.",
+      "synthetic": true
+    },
+    {
+      "source_id": "elm-2023-zh-CN",
+      "language": "zh-CN",
+      "document_id": "elm-2023-zh-CN",
+      "document_title": "记录：elm-2023",
+      "collection": "annual-records",
+      "section": "elm-2023",
+      "text": "榆木公司2023自然年的收入为12个单位。",
+      "synthetic": true
+    },
+    {
+      "source_id": "elm-2024-en",
+      "language": "en",
+      "document_id": "elm-2024-en",
+      "document_title": "Record elm-2024",
+      "collection": "annual-records",
+      "section": "elm-2024",
+      "text": "Elm's revenue for calendar year 2024 was 14 units.",
+      "synthetic": true
+    },
+    {
+      "source_id": "elm-2024-zh-CN",
+      "language": "zh-CN",
+      "document_id": "elm-2024-zh-CN",
+      "document_title": "记录：elm-2024",
+      "collection": "annual-records",
+      "section": "elm-2024",
+      "text": "榆木公司2024自然年的收入为14个单位。",
+      "synthetic": true
+    },
+    {
+      "source_id": "elm-2025-en",
+      "language": "en",
+      "document_id": "elm-2025-en",
+      "document_title": "Record elm-2025",
+      "collection": "annual-records",
+      "section": "elm-2025",
+      "text": "Elm's revenue for calendar year 2025 was 16 units.",
+      "synthetic": true
+    },
+    {
+      "source_id": "elm-2025-zh-CN",
+      "language": "zh-CN",
+      "document_id": "elm-2025-zh-CN",
+      "document_title": "记录：elm-2025",
+      "collection": "annual-records",
+      "section": "elm-2025",
+      "text": "榆木公司2025自然年的收入为16个单位。",
+      "synthetic": true
+    },
+    {
+      "source_id": "cove-bought-en",
+      "language": "en",
+      "document_id": "cove-bought-en",
+      "document_title": "Record cove-bought",
+      "collection": "company-records",
+      "section": "cove-bought",
+      "text": "Cove acquired Fern in January 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "cove-bought-zh-CN",
+      "language": "zh-CN",
+      "document_id": "cove-bought-zh-CN",
+      "document_title": "记录：cove-bought",
+      "collection": "company-records",
+      "section": "cove-bought",
+      "text": "海湾公司于2025年1月收购了蕨叶公司。",
+      "synthetic": true
+    },
+    {
+      "source_id": "cove-staff-en",
+      "language": "en",
+      "document_id": "cove-staff-en",
+      "document_title": "Record cove-staff",
+      "collection": "company-records",
+      "section": "cove-staff",
+      "text": "Cove hired a research team in March 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "cove-staff-zh-CN",
+      "language": "zh-CN",
+      "document_id": "cove-staff-zh-CN",
+      "document_title": "记录：cove-staff",
+      "collection": "company-records",
+      "section": "cove-staff",
+      "text": "海湾公司于2025年3月聘用了一个研发团队。",
+      "synthetic": true
+    },
+    {
+      "source_id": "cove-lab-en",
+      "language": "en",
+      "document_id": "cove-lab-en",
+      "document_title": "Record cove-lab",
+      "collection": "company-records",
+      "section": "cove-lab",
+      "text": "Cove opened a laboratory in June 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "cove-lab-zh-CN",
+      "language": "zh-CN",
+      "document_id": "cove-lab-zh-CN",
+      "document_title": "记录：cove-lab",
+      "collection": "company-records",
+      "section": "cove-lab",
+      "text": "海湾公司于2025年6月启用了一个实验室。",
+      "synthetic": true
+    },
+    {
+      "source_id": "inspection-domain-en",
+      "language": "en",
+      "document_id": "inspection-domain-en",
+      "document_title": "Record inspection-domain",
+      "collection": "inspection-records",
+      "section": "inspection-domain",
+      "text": "The 2025 inspection programme covers exactly four stores: North, South, East and West.",
+      "synthetic": true
+    },
+    {
+      "source_id": "inspection-domain-zh-CN",
+      "language": "zh-CN",
+      "document_id": "inspection-domain-zh-CN",
+      "document_title": "记录：inspection-domain",
+      "collection": "inspection-records",
+      "section": "inspection-domain",
+      "text": "2025年巡检范围明确为北店、南店、东店和西店，共四家门店。",
+      "synthetic": true
+    },
+    {
+      "source_id": "inspection-north-en",
+      "language": "en",
+      "document_id": "inspection-north-en",
+      "document_title": "Record inspection-north",
+      "collection": "inspection-records",
+      "section": "inspection-north",
+      "text": "The North store passed its 2025 inspection.",
+      "synthetic": true
+    },
+    {
+      "source_id": "inspection-north-zh-CN",
+      "language": "zh-CN",
+      "document_id": "inspection-north-zh-CN",
+      "document_title": "记录：inspection-north",
+      "collection": "inspection-records",
+      "section": "inspection-north",
+      "text": "北店通过了2025年巡检。",
+      "synthetic": true
+    },
+    {
+      "source_id": "inspection-south-en",
+      "language": "en",
+      "document_id": "inspection-south-en",
+      "document_title": "Record inspection-south",
+      "collection": "inspection-records",
+      "section": "inspection-south",
+      "text": "The South store passed its 2025 inspection.",
+      "synthetic": true
+    },
+    {
+      "source_id": "inspection-south-zh-CN",
+      "language": "zh-CN",
+      "document_id": "inspection-south-zh-CN",
+      "document_title": "记录：inspection-south",
+      "collection": "inspection-records",
+      "section": "inspection-south",
+      "text": "南店通过了2025年巡检。",
+      "synthetic": true
+    },
+    {
+      "source_id": "inspection-east-en",
+      "language": "en",
+      "document_id": "inspection-east-en",
+      "document_title": "Record inspection-east",
+      "collection": "inspection-records",
+      "section": "inspection-east",
+      "text": "The East store passed its 2025 inspection.",
+      "synthetic": true
+    },
+    {
+      "source_id": "inspection-east-zh-CN",
+      "language": "zh-CN",
+      "document_id": "inspection-east-zh-CN",
+      "document_title": "记录：inspection-east",
+      "collection": "inspection-records",
+      "section": "inspection-east",
+      "text": "东店通过了2025年巡检。",
+      "synthetic": true
+    },
+    {
+      "source_id": "quarter-domain-en",
+      "language": "en",
+      "document_id": "quarter-domain-en",
+      "document_title": "Record quarter-domain",
+      "collection": "quarter-records",
+      "section": "quarter-domain",
+      "text": "Holly's 2025 reporting year has four quarters: Q1, Q2, Q3 and Q4.",
+      "synthetic": true
+    },
+    {
+      "source_id": "quarter-domain-zh-CN",
+      "language": "zh-CN",
+      "document_id": "quarter-domain-zh-CN",
+      "document_title": "记录：quarter-domain",
+      "collection": "quarter-records",
+      "section": "quarter-domain",
+      "text": "冬青公司的2025报告年度分为第一、第二、第三和第四季度，共四个季度。",
+      "synthetic": true
+    },
+    {
+      "source_id": "quarter-1-en",
+      "language": "en",
+      "document_id": "quarter-1-en",
+      "document_title": "Record quarter-1",
+      "collection": "quarter-records",
+      "section": "quarter-1",
+      "text": "Holly reported a profit in Q1 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "quarter-1-zh-CN",
+      "language": "zh-CN",
+      "document_id": "quarter-1-zh-CN",
+      "document_title": "记录：quarter-1",
+      "collection": "quarter-records",
+      "section": "quarter-1",
+      "text": "冬青公司在2025年第一季度实现盈利。",
+      "synthetic": true
+    },
+    {
+      "source_id": "quarter-2-en",
+      "language": "en",
+      "document_id": "quarter-2-en",
+      "document_title": "Record quarter-2",
+      "collection": "quarter-records",
+      "section": "quarter-2",
+      "text": "Holly reported a profit in Q2 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "quarter-2-zh-CN",
+      "language": "zh-CN",
+      "document_id": "quarter-2-zh-CN",
+      "document_title": "记录：quarter-2",
+      "collection": "quarter-records",
+      "section": "quarter-2",
+      "text": "冬青公司在2025年第二季度实现盈利。",
+      "synthetic": true
+    },
+    {
+      "source_id": "quarter-3-en",
+      "language": "en",
+      "document_id": "quarter-3-en",
+      "document_title": "Record quarter-3",
+      "collection": "quarter-records",
+      "section": "quarter-3",
+      "text": "Holly reported a profit in Q3 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "quarter-3-zh-CN",
+      "language": "zh-CN",
+      "document_id": "quarter-3-zh-CN",
+      "document_title": "记录：quarter-3",
+      "collection": "quarter-records",
+      "section": "quarter-3",
+      "text": "冬青公司在2025年第三季度实现盈利。",
+      "synthetic": true
+    },
+    {
+      "source_id": "response-domain-en",
+      "language": "en",
+      "document_id": "response-domain-en",
+      "document_title": "Record response-domain",
+      "collection": "response-records",
+      "section": "response-domain",
+      "text": "Iris scheduled one response-time check in each of May, June, July and August 2025, and no other check in that period.",
+      "synthetic": true
+    },
+    {
+      "source_id": "response-domain-zh-CN",
+      "language": "zh-CN",
+      "document_id": "response-domain-zh-CN",
+      "document_title": "记录：response-domain",
+      "collection": "response-records",
+      "section": "response-domain",
+      "text": "鸢尾公司计划在2025年5月、6月、7月和8月各进行一次响应时间检查，该期间没有其他检查。",
+      "synthetic": true
+    },
+    {
+      "source_id": "response-may-en",
+      "language": "en",
+      "document_id": "response-may-en",
+      "document_title": "Record response-may",
+      "collection": "response-records",
+      "section": "response-may",
+      "text": "Iris's May 2025 check found its response time below 10 seconds.",
+      "synthetic": true
+    },
+    {
+      "source_id": "response-may-zh-CN",
+      "language": "zh-CN",
+      "document_id": "response-may-zh-CN",
+      "document_title": "记录：response-may",
+      "collection": "response-records",
+      "section": "response-may",
+      "text": "鸢尾公司2025年5月的检查结果显示，响应时间低于10秒。",
+      "synthetic": true
+    },
+    {
+      "source_id": "response-june-en",
+      "language": "en",
+      "document_id": "response-june-en",
+      "document_title": "Record response-june",
+      "collection": "response-records",
+      "section": "response-june",
+      "text": "Iris's June 2025 check found its response time below 10 seconds.",
+      "synthetic": true
+    },
+    {
+      "source_id": "response-june-zh-CN",
+      "language": "zh-CN",
+      "document_id": "response-june-zh-CN",
+      "document_title": "记录：response-june",
+      "collection": "response-records",
+      "section": "response-june",
+      "text": "鸢尾公司2025年6月的检查结果显示，响应时间低于10秒。",
+      "synthetic": true
+    },
+    {
+      "source_id": "response-july-en",
+      "language": "en",
+      "document_id": "response-july-en",
+      "document_title": "Record response-july",
+      "collection": "response-records",
+      "section": "response-july",
+      "text": "Iris's July 2025 check found its response time below 10 seconds.",
+      "synthetic": true
+    },
+    {
+      "source_id": "response-july-zh-CN",
+      "language": "zh-CN",
+      "document_id": "response-july-zh-CN",
+      "document_title": "记录：response-july",
+      "collection": "response-records",
+      "section": "response-july",
+      "text": "鸢尾公司2025年7月的检查结果显示，响应时间低于10秒。",
+      "synthetic": true
+    },
+    {
+      "source_id": "region-domain-en",
+      "language": "en",
+      "document_id": "region-domain-en",
+      "document_title": "Record region-domain",
+      "collection": "region-records",
+      "section": "region-domain",
+      "text": "Juniper's reporting regions are exactly North, South, East, West and Central.",
+      "synthetic": true
+    },
+    {
+      "source_id": "region-domain-zh-CN",
+      "language": "zh-CN",
+      "document_id": "region-domain-zh-CN",
+      "document_title": "记录：region-domain",
+      "collection": "region-records",
+      "section": "region-domain",
+      "text": "杜松公司的报告范围明确为北区、南区、东区、西区和中区，共五个区域。",
+      "synthetic": true
+    },
+    {
+      "source_id": "region-north-en",
+      "language": "en",
+      "document_id": "region-north-en",
+      "document_title": "Record region-north",
+      "collection": "region-records",
+      "section": "region-north",
+      "text": "Juniper's North region had a higher margin in 2025 than in 2024.",
+      "synthetic": true
+    },
+    {
+      "source_id": "region-north-zh-CN",
+      "language": "zh-CN",
+      "document_id": "region-north-zh-CN",
+      "document_title": "记录：region-north",
+      "collection": "region-records",
+      "section": "region-north",
+      "text": "杜松公司北区2025年的利润率高于2024年。",
+      "synthetic": true
+    },
+    {
+      "source_id": "region-south-en",
+      "language": "en",
+      "document_id": "region-south-en",
+      "document_title": "Record region-south",
+      "collection": "region-records",
+      "section": "region-south",
+      "text": "Juniper's South region had a higher margin in 2025 than in 2024.",
+      "synthetic": true
+    },
+    {
+      "source_id": "region-south-zh-CN",
+      "language": "zh-CN",
+      "document_id": "region-south-zh-CN",
+      "document_title": "记录：region-south",
+      "collection": "region-records",
+      "section": "region-south",
+      "text": "杜松公司南区2025年的利润率高于2024年。",
+      "synthetic": true
+    },
+    {
+      "source_id": "cost-rise-40-en",
+      "language": "en",
+      "document_id": "cost-rise-40-en",
+      "document_title": "Record cost-rise-40",
+      "collection": "deal-records",
+      "section": "cost-rise-40",
+      "text": "Costs rose 40% in the reporting period.",
+      "synthetic": true
+    },
+    {
+      "source_id": "cost-rise-40-zh-CN",
+      "language": "zh-CN",
+      "document_id": "cost-rise-40-zh-CN",
+      "document_title": "记录：cost-rise-40",
+      "collection": "deal-records",
+      "section": "cost-rise-40",
+      "text": "报告期内，成本上涨了40%。",
+      "synthetic": true
+    },
+    {
+      "source_id": "birch-input-en",
+      "language": "en",
+      "document_id": "birch-input-en",
+      "document_title": "Record birch-input",
+      "collection": "operating-records",
+      "section": "birch-input",
+      "text": "Birch's input costs rose in 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "birch-input-zh-CN",
+      "language": "zh-CN",
+      "document_id": "birch-input-zh-CN",
+      "document_title": "记录：birch-input",
+      "collection": "operating-records",
+      "section": "birch-input",
+      "text": "白桦公司的投入成本在2025年上涨。",
+      "synthetic": true
+    },
+    {
+      "source_id": "birch-loss-en",
+      "language": "en",
+      "document_id": "birch-loss-en",
+      "document_title": "Record birch-loss",
+      "collection": "operating-records",
+      "section": "birch-loss",
+      "text": "Birch made a loss in 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "birch-loss-zh-CN",
+      "language": "zh-CN",
+      "document_id": "birch-loss-zh-CN",
+      "document_title": "记录：birch-loss",
+      "collection": "operating-records",
+      "section": "birch-loss",
+      "text": "白桦公司在2025年发生亏损。",
+      "synthetic": true
+    },
+    {
+      "source_id": "cove-price-en",
+      "language": "en",
+      "document_id": "cove-price-en",
+      "document_title": "Record cove-price",
+      "collection": "operating-records",
+      "section": "cove-price",
+      "text": "Cove cut its prices in 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "cove-price-zh-CN",
+      "language": "zh-CN",
+      "document_id": "cove-price-zh-CN",
+      "document_title": "记录：cove-price",
+      "collection": "operating-records",
+      "section": "cove-price",
+      "text": "海湾公司在2025年下调了价格。",
+      "synthetic": true
+    },
+    {
+      "source_id": "cove-sales-en",
+      "language": "en",
+      "document_id": "cove-sales-en",
+      "document_title": "Record cove-sales",
+      "collection": "operating-records",
+      "section": "cove-sales",
+      "text": "Cove's sales volume rose in 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "cove-sales-zh-CN",
+      "language": "zh-CN",
+      "document_id": "cove-sales-zh-CN",
+      "document_title": "记录：cove-sales",
+      "collection": "operating-records",
+      "section": "cove-sales",
+      "text": "海湾公司的销量在2025年上升。",
+      "synthetic": true
+    },
+    {
+      "source_id": "dune-close-en",
+      "language": "en",
+      "document_id": "dune-close-en",
+      "document_title": "Record dune-close",
+      "collection": "operating-records",
+      "section": "dune-close",
+      "text": "Dune closed its factory in 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "dune-close-zh-CN",
+      "language": "zh-CN",
+      "document_id": "dune-close-zh-CN",
+      "document_title": "记录：dune-close",
+      "collection": "operating-records",
+      "section": "dune-close",
+      "text": "沙丘公司在2025年关闭了工厂。",
+      "synthetic": true
+    },
+    {
+      "source_id": "dune-jobs-en",
+      "language": "en",
+      "document_id": "dune-jobs-en",
+      "document_title": "Record dune-jobs",
+      "collection": "operating-records",
+      "section": "dune-jobs",
+      "text": "Unemployment in Dune's town rose in 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "dune-jobs-zh-CN",
+      "language": "zh-CN",
+      "document_id": "dune-jobs-zh-CN",
+      "document_title": "记录：dune-jobs",
+      "collection": "operating-records",
+      "section": "dune-jobs",
+      "text": "沙丘公司所在城镇的失业人数在2025年增加。",
+      "synthetic": true
+    },
+    {
+      "source_id": "maple-software-en",
+      "language": "en",
+      "document_id": "maple-software-en",
+      "document_title": "Record maple-software",
+      "collection": "operating-records",
+      "section": "maple-software",
+      "text": "Maple introduced new software in 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "maple-software-zh-CN",
+      "language": "zh-CN",
+      "document_id": "maple-software-zh-CN",
+      "document_title": "记录：maple-software",
+      "collection": "operating-records",
+      "section": "maple-software",
+      "text": "枫木公司在2025年上线了新软件。",
+      "synthetic": true
+    },
+    {
+      "source_id": "maple-errors-en",
+      "language": "en",
+      "document_id": "maple-errors-en",
+      "document_title": "Record maple-errors",
+      "collection": "operating-records",
+      "section": "maple-errors",
+      "text": "Maple's error rate fell in 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "maple-errors-zh-CN",
+      "language": "zh-CN",
+      "document_id": "maple-errors-zh-CN",
+      "document_title": "记录：maple-errors",
+      "collection": "operating-records",
+      "section": "maple-errors",
+      "text": "枫木公司的错误率在2025年下降。",
+      "synthetic": true
+    },
+    {
+      "source_id": "neutral-context-en",
+      "language": "en",
+      "document_id": "neutral-context-en",
+      "document_title": "Record neutral-context",
+      "collection": "context-records",
+      "section": "neutral-context",
+      "text": "The evaluation meeting took place on 12 May 2026.",
+      "synthetic": true
+    },
+    {
+      "source_id": "neutral-context-zh-CN",
+      "language": "zh-CN",
+      "document_id": "neutral-context-zh-CN",
+      "document_title": "记录：neutral-context",
+      "collection": "context-records",
+      "section": "neutral-context",
+      "text": "评估会议于2026年5月12日举行。",
+      "synthetic": true
+    },
+    {
+      "source_id": "larch-forecast-en",
+      "language": "en",
+      "document_id": "larch-forecast-en",
+      "document_title": "Record larch-forecast",
+      "collection": "forecast-records",
+      "section": "larch-forecast",
+      "text": "Larch forecasts 2027 revenue of GBP 10 million.",
+      "synthetic": true
+    },
+    {
+      "source_id": "larch-forecast-zh-CN",
+      "language": "zh-CN",
+      "document_id": "larch-forecast-zh-CN",
+      "document_title": "记录：larch-forecast",
+      "collection": "forecast-records",
+      "section": "larch-forecast",
+      "text": "Larch预测2027年的收入为1000万英镑。",
+      "synthetic": true
+    },
+    {
+      "source_id": "minister-wu-en",
+      "language": "en",
+      "document_id": "minister-wu-en",
+      "document_title": "Record minister-wu",
+      "collection": "hearing-records",
+      "section": "minister-wu",
+      "text": "The hearing transcript records Minister Leon Wu's only statement as \"The policy succeeded\"; he did not say \"The policy failed\" at that hearing.",
+      "synthetic": true
+    },
+    {
+      "source_id": "minister-wu-zh-CN",
+      "language": "zh-CN",
+      "document_id": "minister-wu-zh-CN",
+      "document_title": "记录：minister-wu",
+      "collection": "hearing-records",
+      "section": "minister-wu",
+      "text": "听证会记录显示，吴立昂部长在该次听证会上的唯一发言是“政策成功了”；他没有在该次听证会上说过“政策失败了”。",
+      "synthetic": true
+    },
+    {
+      "source_id": "oak-costs-en",
+      "language": "en",
+      "document_id": "oak-costs-en",
+      "document_title": "Record oak-costs",
+      "collection": "causal-records",
+      "section": "oak-costs",
+      "text": "Oak's material costs rose in 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "oak-costs-zh-CN",
+      "language": "zh-CN",
+      "document_id": "oak-costs-zh-CN",
+      "document_title": "记录：oak-costs",
+      "collection": "causal-records",
+      "section": "oak-costs",
+      "text": "橡木公司的材料成本在2025年上涨。",
+      "synthetic": true
+    },
+    {
+      "source_id": "oak-loss-en",
+      "language": "en",
+      "document_id": "oak-loss-en",
+      "document_title": "Record oak-loss",
+      "collection": "causal-records",
+      "section": "oak-loss",
+      "text": "Oak made a loss in 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "oak-loss-zh-CN",
+      "language": "zh-CN",
+      "document_id": "oak-loss-zh-CN",
+      "document_title": "记录：oak-loss",
+      "collection": "causal-records",
+      "section": "oak-loss",
+      "text": "橡木公司在2025年发生亏损。",
+      "synthetic": true
+    },
+    {
+      "source_id": "pine-costs-en",
+      "language": "en",
+      "document_id": "pine-costs-en",
+      "document_title": "Record pine-costs",
+      "collection": "causal-records",
+      "section": "pine-costs",
+      "text": "Pine's material costs rose in 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "pine-costs-zh-CN",
+      "language": "zh-CN",
+      "document_id": "pine-costs-zh-CN",
+      "document_title": "记录：pine-costs",
+      "collection": "causal-records",
+      "section": "pine-costs",
+      "text": "松木公司的材料成本在2025年上涨。",
+      "synthetic": true
+    },
+    {
+      "source_id": "pine-loss-en",
+      "language": "en",
+      "document_id": "pine-loss-en",
+      "document_title": "Record pine-loss",
+      "collection": "causal-records",
+      "section": "pine-loss",
+      "text": "Pine made a loss in 2025.",
+      "synthetic": true
+    },
+    {
+      "source_id": "pine-loss-zh-CN",
+      "language": "zh-CN",
+      "document_id": "pine-loss-zh-CN",
+      "document_title": "记录：pine-loss",
+      "collection": "causal-records",
+      "section": "pine-loss",
+      "text": "松木公司在2025年发生亏损。",
+      "synthetic": true
+    },
+    {
+      "source_id": "pine-link-en",
+      "language": "en",
+      "document_id": "pine-link-en",
+      "document_title": "Record pine-link",
+      "collection": "causal-records",
+      "section": "pine-link",
+      "text": "The 2025 management review attributes Pine's loss to its rise in material costs.",
+      "synthetic": true
+    },
+    {
+      "source_id": "pine-link-zh-CN",
+      "language": "zh-CN",
+      "document_id": "pine-link-zh-CN",
+      "document_title": "记录：pine-link",
+      "collection": "causal-records",
+      "section": "pine-link",
+      "text": "2025年管理层复盘明确指出，松木公司的亏损是由材料成本上涨造成的。",
+      "synthetic": true
+    },
+    {
+      "source_id": "jade-2021-en",
+      "language": "en",
+      "document_id": "jade-2021-en",
+      "document_title": "Record jade-2021",
+      "collection": "output-records",
+      "section": "jade-2021",
+      "text": "Jade's output in 2021 was 30 units.",
+      "synthetic": true
+    },
+    {
+      "source_id": "jade-2021-zh-CN",
+      "language": "zh-CN",
+      "document_id": "jade-2021-zh-CN",
+      "document_title": "记录：jade-2021",
+      "collection": "output-records",
+      "section": "jade-2021",
+      "text": "翡翠公司2021年的产量为30件。",
+      "synthetic": true
+    },
+    {
+      "source_id": "jade-2022-en",
+      "language": "en",
+      "document_id": "jade-2022-en",
+      "document_title": "Record jade-2022",
+      "collection": "output-records",
+      "section": "jade-2022",
+      "text": "Jade's output in 2022 was 40 units.",
+      "synthetic": true
+    },
+    {
+      "source_id": "jade-2022-zh-CN",
+      "language": "zh-CN",
+      "document_id": "jade-2022-zh-CN",
+      "document_title": "记录：jade-2022",
+      "collection": "output-records",
+      "section": "jade-2022",
+      "text": "翡翠公司2022年的产量为40件。",
+      "synthetic": true
+    },
+    {
+      "source_id": "jade-2023-en",
+      "language": "en",
+      "document_id": "jade-2023-en",
+      "document_title": "Record jade-2023",
+      "collection": "output-records",
+      "section": "jade-2023",
+      "text": "Jade's output in 2023 was 50 units.",
+      "synthetic": true
+    },
+    {
+      "source_id": "jade-2023-zh-CN",
+      "language": "zh-CN",
+      "document_id": "jade-2023-zh-CN",
+      "document_title": "记录：jade-2023",
+      "collection": "output-records",
+      "section": "jade-2023",
+      "text": "翡翠公司2023年的产量为50件。",
+      "synthetic": true
+    },
+    {
+      "source_id": "jade-2024-en",
+      "language": "en",
+      "document_id": "jade-2024-en",
+      "document_title": "Record jade-2024",
+      "collection": "output-records",
+      "section": "jade-2024",
+      "text": "Jade's output in 2024 was 60 units.",
+      "synthetic": true
+    },
+    {
+      "source_id": "jade-2024-zh-CN",
+      "language": "zh-CN",
+      "document_id": "jade-2024-zh-CN",
+      "document_title": "记录：jade-2024",
+      "collection": "output-records",
+      "section": "jade-2024",
+      "text": "翡翠公司2024年的产量为60件。",
+      "synthetic": true
+    },
+    {
+      "source_id": "jade-2025-en",
+      "language": "en",
+      "document_id": "jade-2025-en",
+      "document_title": "Record jade-2025",
+      "collection": "output-records",
+      "section": "jade-2025",
+      "text": "Jade's output in 2025 was 70 units.",
+      "synthetic": true
+    },
+    {
+      "source_id": "jade-2025-zh-CN",
+      "language": "zh-CN",
+      "document_id": "jade-2025-zh-CN",
+      "document_title": "记录：jade-2025",
+      "collection": "output-records",
+      "section": "jade-2025",
+      "text": "翡翠公司2025年的产量为70件。",
+      "synthetic": true
+    },
+    {
+      "source_id": "loan-condition-en",
+      "language": "en",
+      "document_id": "loan-condition-en",
+      "document_title": "Record loan-condition",
+      "collection": "facility-records",
+      "section": "loan-condition",
+      "text": "If the reference rate rises above 6%, the facility enters default.",
+      "synthetic": true
+    },
+    {
+      "source_id": "loan-condition-zh-CN",
+      "language": "zh-CN",
+      "document_id": "loan-condition-zh-CN",
+      "document_title": "记录：loan-condition",
+      "collection": "facility-records",
+      "section": "loan-condition",
+      "text": "如果参考利率升至6%以上，这笔贷款即构成违约。",
+      "synthetic": true
+    },
+    {
+      "source_id": "loan-outcome-en",
+      "language": "en",
+      "document_id": "loan-outcome-en",
+      "document_title": "Record loan-outcome",
+      "collection": "facility-records",
+      "section": "loan-outcome",
+      "text": "The facility entered default on 1 June 2026.",
+      "synthetic": true
+    },
+    {
+      "source_id": "loan-outcome-zh-CN",
+      "language": "zh-CN",
+      "document_id": "loan-outcome-zh-CN",
+      "document_title": "记录：loan-outcome",
+      "collection": "facility-records",
+      "section": "loan-outcome",
+      "text": "这笔贷款于2026年6月1日发生违约。",
+      "synthetic": true
+    }
+  ],
+  "profiles": [
+    {
+      "profile_id": "profile-S01-en",
+      "allowed_source_ids": ["rook-north-en", "rook-south-en"],
+      "documents": [
+        {
+          "document_id": "rook-north-en",
+          "title": "Record rook-north",
+          "source_ids": ["rook-north-en"],
+          "body": "# Record rook-north\n\n## rook-north\n\nRook's North branch opened in March 2025.\n"
+        },
+        {
+          "document_id": "rook-south-en",
+          "title": "Record rook-south",
+          "source_ids": ["rook-south-en"],
+          "body": "# Record rook-south\n\n## rook-south\n\nRook's South branch opened in July 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-S01-zh-CN",
+      "allowed_source_ids": ["rook-north-zh-CN", "rook-south-zh-CN"],
+      "documents": [
+        {
+          "document_id": "rook-north-zh-CN",
+          "title": "记录：rook-north",
+          "source_ids": ["rook-north-zh-CN"],
+          "body": "# 记录：rook-north\n\n## rook-north\n\n白鸦公司的北区分店于2025年3月开业。\n"
+        },
+        {
+          "document_id": "rook-south-zh-CN",
+          "title": "记录：rook-south",
+          "source_ids": ["rook-south-zh-CN"],
+          "body": "# 记录：rook-south\n\n## rook-south\n\n白鸦公司的南区分店于2025年7月开业。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-S02-en",
+      "allowed_source_ids": ["alder-north-en", "alder-south-en", "alder-east-en", "alder-west-en"],
+      "documents": [
+        {
+          "document_id": "alder-north-en",
+          "title": "Record alder-north",
+          "source_ids": ["alder-north-en"],
+          "body": "# Record alder-north\n\n## alder-north\n\nAlder's North store opened in March 2025.\n"
+        },
+        {
+          "document_id": "alder-south-en",
+          "title": "Record alder-south",
+          "source_ids": ["alder-south-en"],
+          "body": "# Record alder-south\n\n## alder-south\n\nAlder's South store opened in April 2025.\n"
+        },
+        {
+          "document_id": "alder-east-en",
+          "title": "Record alder-east",
+          "source_ids": ["alder-east-en"],
+          "body": "# Record alder-east\n\n## alder-east\n\nAlder's East store opened in May 2025.\n"
+        },
+        {
+          "document_id": "alder-west-en",
+          "title": "Record alder-west",
+          "source_ids": ["alder-west-en"],
+          "body": "# Record alder-west\n\n## alder-west\n\nAlder's West store opened in June 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-S02-zh-CN",
+      "allowed_source_ids": [
+        "alder-north-zh-CN",
+        "alder-south-zh-CN",
+        "alder-east-zh-CN",
+        "alder-west-zh-CN"
+      ],
+      "documents": [
+        {
+          "document_id": "alder-north-zh-CN",
+          "title": "记录：alder-north",
+          "source_ids": ["alder-north-zh-CN"],
+          "body": "# 记录：alder-north\n\n## alder-north\n\n桤木公司的北店于2025年3月开业。\n"
+        },
+        {
+          "document_id": "alder-south-zh-CN",
+          "title": "记录：alder-south",
+          "source_ids": ["alder-south-zh-CN"],
+          "body": "# 记录：alder-south\n\n## alder-south\n\n桤木公司的南店于2025年4月开业。\n"
+        },
+        {
+          "document_id": "alder-east-zh-CN",
+          "title": "记录：alder-east",
+          "source_ids": ["alder-east-zh-CN"],
+          "body": "# 记录：alder-east\n\n## alder-east\n\n桤木公司的东店于2025年5月开业。\n"
+        },
+        {
+          "document_id": "alder-west-zh-CN",
+          "title": "记录：alder-west",
+          "source_ids": ["alder-west-zh-CN"],
+          "body": "# 记录：alder-west\n\n## alder-west\n\n桤木公司的西店于2025年6月开业。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-S03-en",
+      "allowed_source_ids": ["birch-revenue-en", "birch-costs-en"],
+      "documents": [
+        {
+          "document_id": "birch-revenue-en",
+          "title": "Record birch-revenue",
+          "source_ids": ["birch-revenue-en"],
+          "body": "# Record birch-revenue\n\n## birch-revenue\n\nBirch's revenue rose in April 2025.\n"
+        },
+        {
+          "document_id": "birch-costs-en",
+          "title": "Record birch-costs",
+          "source_ids": ["birch-costs-en"],
+          "body": "# Record birch-costs\n\n## birch-costs\n\nBirch's operating costs fell in May 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-S03-zh-CN",
+      "allowed_source_ids": ["birch-revenue-en", "birch-costs-en"],
+      "documents": [
+        {
+          "document_id": "birch-revenue-en",
+          "title": "Record birch-revenue",
+          "source_ids": ["birch-revenue-en"],
+          "body": "# Record birch-revenue\n\n## birch-revenue\n\nBirch's revenue rose in April 2025.\n"
+        },
+        {
+          "document_id": "birch-costs-en",
+          "title": "Record birch-costs",
+          "source_ids": ["birch-costs-en"],
+          "body": "# Record birch-costs\n\n## birch-costs\n\nBirch's operating costs fell in May 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-S04-en",
+      "allowed_source_ids": ["sold-north-en", "sold-south-en"],
+      "documents": [
+        {
+          "document_id": "sold-north-en",
+          "title": "Record sold-north",
+          "source_ids": ["sold-north-en"],
+          "body": "# Record sold-north\n\n## sold-north\n\nThe North store sold 120 units in June 2025.\n"
+        },
+        {
+          "document_id": "sold-south-en",
+          "title": "Record sold-south",
+          "source_ids": ["sold-south-en"],
+          "body": "# Record sold-south\n\n## sold-south\n\nThe South store sold 80 units in June 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-S04-zh-CN",
+      "allowed_source_ids": ["sold-north-zh-CN", "sold-south-zh-CN"],
+      "documents": [
+        {
+          "document_id": "sold-north-zh-CN",
+          "title": "记录：sold-north",
+          "source_ids": ["sold-north-zh-CN"],
+          "body": "# 记录：sold-north\n\n## sold-north\n\n北店在2025年6月售出120件商品。\n"
+        },
+        {
+          "document_id": "sold-south-zh-CN",
+          "title": "记录：sold-south",
+          "source_ids": ["sold-south-zh-CN"],
+          "body": "# 记录：sold-south\n\n## sold-south\n\n南店在2025年6月售出80件商品。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-S05-en",
+      "allowed_source_ids": ["elm-2022-en", "elm-2023-en", "elm-2024-en", "elm-2025-en"],
+      "documents": [
+        {
+          "document_id": "elm-2022-en",
+          "title": "Record elm-2022",
+          "source_ids": ["elm-2022-en"],
+          "body": "# Record elm-2022\n\n## elm-2022\n\nElm's revenue for calendar year 2022 was 10 units.\n"
+        },
+        {
+          "document_id": "elm-2023-en",
+          "title": "Record elm-2023",
+          "source_ids": ["elm-2023-en"],
+          "body": "# Record elm-2023\n\n## elm-2023\n\nElm's revenue for calendar year 2023 was 12 units.\n"
+        },
+        {
+          "document_id": "elm-2024-en",
+          "title": "Record elm-2024",
+          "source_ids": ["elm-2024-en"],
+          "body": "# Record elm-2024\n\n## elm-2024\n\nElm's revenue for calendar year 2024 was 14 units.\n"
+        },
+        {
+          "document_id": "elm-2025-en",
+          "title": "Record elm-2025",
+          "source_ids": ["elm-2025-en"],
+          "body": "# Record elm-2025\n\n## elm-2025\n\nElm's revenue for calendar year 2025 was 16 units.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-S05-zh-CN",
+      "allowed_source_ids": [
+        "elm-2022-zh-CN",
+        "elm-2023-zh-CN",
+        "elm-2024-zh-CN",
+        "elm-2025-zh-CN"
+      ],
+      "documents": [
+        {
+          "document_id": "elm-2022-zh-CN",
+          "title": "记录：elm-2022",
+          "source_ids": ["elm-2022-zh-CN"],
+          "body": "# 记录：elm-2022\n\n## elm-2022\n\n榆木公司2022自然年的收入为10个单位。\n"
+        },
+        {
+          "document_id": "elm-2023-zh-CN",
+          "title": "记录：elm-2023",
+          "source_ids": ["elm-2023-zh-CN"],
+          "body": "# 记录：elm-2023\n\n## elm-2023\n\n榆木公司2023自然年的收入为12个单位。\n"
+        },
+        {
+          "document_id": "elm-2024-zh-CN",
+          "title": "记录：elm-2024",
+          "source_ids": ["elm-2024-zh-CN"],
+          "body": "# 记录：elm-2024\n\n## elm-2024\n\n榆木公司2024自然年的收入为14个单位。\n"
+        },
+        {
+          "document_id": "elm-2025-zh-CN",
+          "title": "记录：elm-2025",
+          "source_ids": ["elm-2025-zh-CN"],
+          "body": "# 记录：elm-2025\n\n## elm-2025\n\n榆木公司2025自然年的收入为16个单位。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-N01-en",
+      "allowed_source_ids": ["rook-north-en"],
+      "documents": [
+        {
+          "document_id": "rook-north-en",
+          "title": "Record rook-north",
+          "source_ids": ["rook-north-en"],
+          "body": "# Record rook-north\n\n## rook-north\n\nRook's North branch opened in March 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-N01-zh-CN",
+      "allowed_source_ids": ["rook-north-zh-CN"],
+      "documents": [
+        {
+          "document_id": "rook-north-zh-CN",
+          "title": "记录：rook-north",
+          "source_ids": ["rook-north-zh-CN"],
+          "body": "# 记录：rook-north\n\n## rook-north\n\n白鸦公司的北区分店于2025年3月开业。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-N02-en",
+      "allowed_source_ids": ["cove-bought-en", "cove-staff-en"],
+      "documents": [
+        {
+          "document_id": "cove-bought-en",
+          "title": "Record cove-bought",
+          "source_ids": ["cove-bought-en"],
+          "body": "# Record cove-bought\n\n## cove-bought\n\nCove acquired Fern in January 2025.\n"
+        },
+        {
+          "document_id": "cove-staff-en",
+          "title": "Record cove-staff",
+          "source_ids": ["cove-staff-en"],
+          "body": "# Record cove-staff\n\n## cove-staff\n\nCove hired a research team in March 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-N02-zh-CN",
+      "allowed_source_ids": ["cove-bought-zh-CN", "cove-staff-zh-CN"],
+      "documents": [
+        {
+          "document_id": "cove-bought-zh-CN",
+          "title": "记录：cove-bought",
+          "source_ids": ["cove-bought-zh-CN"],
+          "body": "# 记录：cove-bought\n\n## cove-bought\n\n海湾公司于2025年1月收购了蕨叶公司。\n"
+        },
+        {
+          "document_id": "cove-staff-zh-CN",
+          "title": "记录：cove-staff",
+          "source_ids": ["cove-staff-zh-CN"],
+          "body": "# 记录：cove-staff\n\n## cove-staff\n\n海湾公司于2025年3月聘用了一个研发团队。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-N03-en",
+      "allowed_source_ids": ["alder-north-en", "alder-south-en", "alder-east-en"],
+      "documents": [
+        {
+          "document_id": "alder-north-en",
+          "title": "Record alder-north",
+          "source_ids": ["alder-north-en"],
+          "body": "# Record alder-north\n\n## alder-north\n\nAlder's North store opened in March 2025.\n"
+        },
+        {
+          "document_id": "alder-south-en",
+          "title": "Record alder-south",
+          "source_ids": ["alder-south-en"],
+          "body": "# Record alder-south\n\n## alder-south\n\nAlder's South store opened in April 2025.\n"
+        },
+        {
+          "document_id": "alder-east-en",
+          "title": "Record alder-east",
+          "source_ids": ["alder-east-en"],
+          "body": "# Record alder-east\n\n## alder-east\n\nAlder's East store opened in May 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-N03-zh-CN",
+      "allowed_source_ids": ["alder-north-zh-CN", "alder-south-zh-CN", "alder-east-zh-CN"],
+      "documents": [
+        {
+          "document_id": "alder-north-zh-CN",
+          "title": "记录：alder-north",
+          "source_ids": ["alder-north-zh-CN"],
+          "body": "# 记录：alder-north\n\n## alder-north\n\n桤木公司的北店于2025年3月开业。\n"
+        },
+        {
+          "document_id": "alder-south-zh-CN",
+          "title": "记录：alder-south",
+          "source_ids": ["alder-south-zh-CN"],
+          "body": "# 记录：alder-south\n\n## alder-south\n\n桤木公司的南店于2025年4月开业。\n"
+        },
+        {
+          "document_id": "alder-east-zh-CN",
+          "title": "记录：alder-east",
+          "source_ids": ["alder-east-zh-CN"],
+          "body": "# 记录：alder-east\n\n## alder-east\n\n桤木公司的东店于2025年5月开业。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-Q01-en",
+      "allowed_source_ids": [
+        "inspection-domain-en",
+        "inspection-north-en",
+        "inspection-south-en",
+        "inspection-east-en"
+      ],
+      "documents": [
+        {
+          "document_id": "inspection-domain-en",
+          "title": "Record inspection-domain",
+          "source_ids": ["inspection-domain-en"],
+          "body": "# Record inspection-domain\n\n## inspection-domain\n\nThe 2025 inspection programme covers exactly four stores: North, South, East and West.\n"
+        },
+        {
+          "document_id": "inspection-north-en",
+          "title": "Record inspection-north",
+          "source_ids": ["inspection-north-en"],
+          "body": "# Record inspection-north\n\n## inspection-north\n\nThe North store passed its 2025 inspection.\n"
+        },
+        {
+          "document_id": "inspection-south-en",
+          "title": "Record inspection-south",
+          "source_ids": ["inspection-south-en"],
+          "body": "# Record inspection-south\n\n## inspection-south\n\nThe South store passed its 2025 inspection.\n"
+        },
+        {
+          "document_id": "inspection-east-en",
+          "title": "Record inspection-east",
+          "source_ids": ["inspection-east-en"],
+          "body": "# Record inspection-east\n\n## inspection-east\n\nThe East store passed its 2025 inspection.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-Q01-zh-CN",
+      "allowed_source_ids": [
+        "inspection-domain-zh-CN",
+        "inspection-north-zh-CN",
+        "inspection-south-zh-CN",
+        "inspection-east-zh-CN"
+      ],
+      "documents": [
+        {
+          "document_id": "inspection-domain-zh-CN",
+          "title": "记录：inspection-domain",
+          "source_ids": ["inspection-domain-zh-CN"],
+          "body": "# 记录：inspection-domain\n\n## inspection-domain\n\n2025年巡检范围明确为北店、南店、东店和西店，共四家门店。\n"
+        },
+        {
+          "document_id": "inspection-north-zh-CN",
+          "title": "记录：inspection-north",
+          "source_ids": ["inspection-north-zh-CN"],
+          "body": "# 记录：inspection-north\n\n## inspection-north\n\n北店通过了2025年巡检。\n"
+        },
+        {
+          "document_id": "inspection-south-zh-CN",
+          "title": "记录：inspection-south",
+          "source_ids": ["inspection-south-zh-CN"],
+          "body": "# 记录：inspection-south\n\n## inspection-south\n\n南店通过了2025年巡检。\n"
+        },
+        {
+          "document_id": "inspection-east-zh-CN",
+          "title": "记录：inspection-east",
+          "source_ids": ["inspection-east-zh-CN"],
+          "body": "# 记录：inspection-east\n\n## inspection-east\n\n东店通过了2025年巡检。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-Q02-en",
+      "allowed_source_ids": ["quarter-domain-en", "quarter-1-en", "quarter-2-en", "quarter-3-en"],
+      "documents": [
+        {
+          "document_id": "quarter-domain-en",
+          "title": "Record quarter-domain",
+          "source_ids": ["quarter-domain-en"],
+          "body": "# Record quarter-domain\n\n## quarter-domain\n\nHolly's 2025 reporting year has four quarters: Q1, Q2, Q3 and Q4.\n"
+        },
+        {
+          "document_id": "quarter-1-en",
+          "title": "Record quarter-1",
+          "source_ids": ["quarter-1-en"],
+          "body": "# Record quarter-1\n\n## quarter-1\n\nHolly reported a profit in Q1 2025.\n"
+        },
+        {
+          "document_id": "quarter-2-en",
+          "title": "Record quarter-2",
+          "source_ids": ["quarter-2-en"],
+          "body": "# Record quarter-2\n\n## quarter-2\n\nHolly reported a profit in Q2 2025.\n"
+        },
+        {
+          "document_id": "quarter-3-en",
+          "title": "Record quarter-3",
+          "source_ids": ["quarter-3-en"],
+          "body": "# Record quarter-3\n\n## quarter-3\n\nHolly reported a profit in Q3 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-Q02-zh-CN",
+      "allowed_source_ids": [
+        "quarter-domain-zh-CN",
+        "quarter-1-zh-CN",
+        "quarter-2-zh-CN",
+        "quarter-3-zh-CN"
+      ],
+      "documents": [
+        {
+          "document_id": "quarter-domain-zh-CN",
+          "title": "记录：quarter-domain",
+          "source_ids": ["quarter-domain-zh-CN"],
+          "body": "# 记录：quarter-domain\n\n## quarter-domain\n\n冬青公司的2025报告年度分为第一、第二、第三和第四季度，共四个季度。\n"
+        },
+        {
+          "document_id": "quarter-1-zh-CN",
+          "title": "记录：quarter-1",
+          "source_ids": ["quarter-1-zh-CN"],
+          "body": "# 记录：quarter-1\n\n## quarter-1\n\n冬青公司在2025年第一季度实现盈利。\n"
+        },
+        {
+          "document_id": "quarter-2-zh-CN",
+          "title": "记录：quarter-2",
+          "source_ids": ["quarter-2-zh-CN"],
+          "body": "# 记录：quarter-2\n\n## quarter-2\n\n冬青公司在2025年第二季度实现盈利。\n"
+        },
+        {
+          "document_id": "quarter-3-zh-CN",
+          "title": "记录：quarter-3",
+          "source_ids": ["quarter-3-zh-CN"],
+          "body": "# 记录：quarter-3\n\n## quarter-3\n\n冬青公司在2025年第三季度实现盈利。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-Q03-en",
+      "allowed_source_ids": [
+        "response-domain-en",
+        "response-may-en",
+        "response-june-en",
+        "response-july-en"
+      ],
+      "documents": [
+        {
+          "document_id": "response-domain-en",
+          "title": "Record response-domain",
+          "source_ids": ["response-domain-en"],
+          "body": "# Record response-domain\n\n## response-domain\n\nIris scheduled one response-time check in each of May, June, July and August 2025, and no other check in that period.\n"
+        },
+        {
+          "document_id": "response-may-en",
+          "title": "Record response-may",
+          "source_ids": ["response-may-en"],
+          "body": "# Record response-may\n\n## response-may\n\nIris's May 2025 check found its response time below 10 seconds.\n"
+        },
+        {
+          "document_id": "response-june-en",
+          "title": "Record response-june",
+          "source_ids": ["response-june-en"],
+          "body": "# Record response-june\n\n## response-june\n\nIris's June 2025 check found its response time below 10 seconds.\n"
+        },
+        {
+          "document_id": "response-july-en",
+          "title": "Record response-july",
+          "source_ids": ["response-july-en"],
+          "body": "# Record response-july\n\n## response-july\n\nIris's July 2025 check found its response time below 10 seconds.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-Q03-zh-CN",
+      "allowed_source_ids": [
+        "response-domain-zh-CN",
+        "response-may-zh-CN",
+        "response-june-zh-CN",
+        "response-july-zh-CN"
+      ],
+      "documents": [
+        {
+          "document_id": "response-domain-zh-CN",
+          "title": "记录：response-domain",
+          "source_ids": ["response-domain-zh-CN"],
+          "body": "# 记录：response-domain\n\n## response-domain\n\n鸢尾公司计划在2025年5月、6月、7月和8月各进行一次响应时间检查，该期间没有其他检查。\n"
+        },
+        {
+          "document_id": "response-may-zh-CN",
+          "title": "记录：response-may",
+          "source_ids": ["response-may-zh-CN"],
+          "body": "# 记录：response-may\n\n## response-may\n\n鸢尾公司2025年5月的检查结果显示，响应时间低于10秒。\n"
+        },
+        {
+          "document_id": "response-june-zh-CN",
+          "title": "记录：response-june",
+          "source_ids": ["response-june-zh-CN"],
+          "body": "# 记录：response-june\n\n## response-june\n\n鸢尾公司2025年6月的检查结果显示，响应时间低于10秒。\n"
+        },
+        {
+          "document_id": "response-july-zh-CN",
+          "title": "记录：response-july",
+          "source_ids": ["response-july-zh-CN"],
+          "body": "# 记录：response-july\n\n## response-july\n\n鸢尾公司2025年7月的检查结果显示，响应时间低于10秒。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-Q04-en",
+      "allowed_source_ids": ["region-domain-en", "region-north-en", "region-south-en"],
+      "documents": [
+        {
+          "document_id": "region-domain-en",
+          "title": "Record region-domain",
+          "source_ids": ["region-domain-en"],
+          "body": "# Record region-domain\n\n## region-domain\n\nJuniper's reporting regions are exactly North, South, East, West and Central.\n"
+        },
+        {
+          "document_id": "region-north-en",
+          "title": "Record region-north",
+          "source_ids": ["region-north-en"],
+          "body": "# Record region-north\n\n## region-north\n\nJuniper's North region had a higher margin in 2025 than in 2024.\n"
+        },
+        {
+          "document_id": "region-south-en",
+          "title": "Record region-south",
+          "source_ids": ["region-south-en"],
+          "body": "# Record region-south\n\n## region-south\n\nJuniper's South region had a higher margin in 2025 than in 2024.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-Q04-zh-CN",
+      "allowed_source_ids": ["region-domain-zh-CN", "region-north-zh-CN", "region-south-zh-CN"],
+      "documents": [
+        {
+          "document_id": "region-domain-zh-CN",
+          "title": "记录：region-domain",
+          "source_ids": ["region-domain-zh-CN"],
+          "body": "# 记录：region-domain\n\n## region-domain\n\n杜松公司的报告范围明确为北区、南区、东区、西区和中区，共五个区域。\n"
+        },
+        {
+          "document_id": "region-north-zh-CN",
+          "title": "记录：region-north",
+          "source_ids": ["region-north-zh-CN"],
+          "body": "# 记录：region-north\n\n## region-north\n\n杜松公司北区2025年的利润率高于2024年。\n"
+        },
+        {
+          "document_id": "region-south-zh-CN",
+          "title": "记录：region-south",
+          "source_ids": ["region-south-zh-CN"],
+          "body": "# 记录：region-south\n\n## region-south\n\n杜松公司南区2025年的利润率高于2024年。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-M01-en",
+      "allowed_source_ids": ["cost-rise-40-en"],
+      "documents": [
+        {
+          "document_id": "cost-rise-40-en",
+          "title": "Record cost-rise-40",
+          "source_ids": ["cost-rise-40-en"],
+          "body": "# Record cost-rise-40\n\n## cost-rise-40\n\nCosts rose 40% in the reporting period.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-M01-zh-CN",
+      "allowed_source_ids": ["cost-rise-40-zh-CN"],
+      "documents": [
+        {
+          "document_id": "cost-rise-40-zh-CN",
+          "title": "记录：cost-rise-40",
+          "source_ids": ["cost-rise-40-zh-CN"],
+          "body": "# 记录：cost-rise-40\n\n## cost-rise-40\n\n报告期内，成本上涨了40%。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-M02-en",
+      "allowed_source_ids": ["birch-input-en", "birch-loss-en"],
+      "documents": [
+        {
+          "document_id": "birch-input-en",
+          "title": "Record birch-input",
+          "source_ids": ["birch-input-en"],
+          "body": "# Record birch-input\n\n## birch-input\n\nBirch's input costs rose in 2025.\n"
+        },
+        {
+          "document_id": "birch-loss-en",
+          "title": "Record birch-loss",
+          "source_ids": ["birch-loss-en"],
+          "body": "# Record birch-loss\n\n## birch-loss\n\nBirch made a loss in 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-M02-zh-CN",
+      "allowed_source_ids": ["birch-input-zh-CN", "birch-loss-zh-CN"],
+      "documents": [
+        {
+          "document_id": "birch-input-zh-CN",
+          "title": "记录：birch-input",
+          "source_ids": ["birch-input-zh-CN"],
+          "body": "# 记录：birch-input\n\n## birch-input\n\n白桦公司的投入成本在2025年上涨。\n"
+        },
+        {
+          "document_id": "birch-loss-zh-CN",
+          "title": "记录：birch-loss",
+          "source_ids": ["birch-loss-zh-CN"],
+          "body": "# 记录：birch-loss\n\n## birch-loss\n\n白桦公司在2025年发生亏损。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-M03-en",
+      "allowed_source_ids": ["cove-price-en", "cove-sales-en"],
+      "documents": [
+        {
+          "document_id": "cove-price-en",
+          "title": "Record cove-price",
+          "source_ids": ["cove-price-en"],
+          "body": "# Record cove-price\n\n## cove-price\n\nCove cut its prices in 2025.\n"
+        },
+        {
+          "document_id": "cove-sales-en",
+          "title": "Record cove-sales",
+          "source_ids": ["cove-sales-en"],
+          "body": "# Record cove-sales\n\n## cove-sales\n\nCove's sales volume rose in 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-M03-zh-CN",
+      "allowed_source_ids": ["cove-price-zh-CN", "cove-sales-zh-CN"],
+      "documents": [
+        {
+          "document_id": "cove-price-zh-CN",
+          "title": "记录：cove-price",
+          "source_ids": ["cove-price-zh-CN"],
+          "body": "# 记录：cove-price\n\n## cove-price\n\n海湾公司在2025年下调了价格。\n"
+        },
+        {
+          "document_id": "cove-sales-zh-CN",
+          "title": "记录：cove-sales",
+          "source_ids": ["cove-sales-zh-CN"],
+          "body": "# 记录：cove-sales\n\n## cove-sales\n\n海湾公司的销量在2025年上升。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-M04-en",
+      "allowed_source_ids": ["dune-close-en", "dune-jobs-en"],
+      "documents": [
+        {
+          "document_id": "dune-close-en",
+          "title": "Record dune-close",
+          "source_ids": ["dune-close-en"],
+          "body": "# Record dune-close\n\n## dune-close\n\nDune closed its factory in 2025.\n"
+        },
+        {
+          "document_id": "dune-jobs-en",
+          "title": "Record dune-jobs",
+          "source_ids": ["dune-jobs-en"],
+          "body": "# Record dune-jobs\n\n## dune-jobs\n\nUnemployment in Dune's town rose in 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-M04-zh-CN",
+      "allowed_source_ids": ["dune-close-zh-CN", "dune-jobs-zh-CN"],
+      "documents": [
+        {
+          "document_id": "dune-close-zh-CN",
+          "title": "记录：dune-close",
+          "source_ids": ["dune-close-zh-CN"],
+          "body": "# 记录：dune-close\n\n## dune-close\n\n沙丘公司在2025年关闭了工厂。\n"
+        },
+        {
+          "document_id": "dune-jobs-zh-CN",
+          "title": "记录：dune-jobs",
+          "source_ids": ["dune-jobs-zh-CN"],
+          "body": "# 记录：dune-jobs\n\n## dune-jobs\n\n沙丘公司所在城镇的失业人数在2025年增加。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-M05-en",
+      "allowed_source_ids": ["maple-software-en", "maple-errors-en"],
+      "documents": [
+        {
+          "document_id": "maple-software-en",
+          "title": "Record maple-software",
+          "source_ids": ["maple-software-en"],
+          "body": "# Record maple-software\n\n## maple-software\n\nMaple introduced new software in 2025.\n"
+        },
+        {
+          "document_id": "maple-errors-en",
+          "title": "Record maple-errors",
+          "source_ids": ["maple-errors-en"],
+          "body": "# Record maple-errors\n\n## maple-errors\n\nMaple's error rate fell in 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-M05-zh-CN",
+      "allowed_source_ids": ["maple-software-zh-CN", "maple-errors-zh-CN"],
+      "documents": [
+        {
+          "document_id": "maple-software-zh-CN",
+          "title": "记录：maple-software",
+          "source_ids": ["maple-software-zh-CN"],
+          "body": "# 记录：maple-software\n\n## maple-software\n\n枫木公司在2025年上线了新软件。\n"
+        },
+        {
+          "document_id": "maple-errors-zh-CN",
+          "title": "记录：maple-errors",
+          "source_ids": ["maple-errors-zh-CN"],
+          "body": "# 记录：maple-errors\n\n## maple-errors\n\n枫木公司的错误率在2025年下降。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O01-en",
+      "allowed_source_ids": ["neutral-context-en"],
+      "documents": [
+        {
+          "document_id": "neutral-context-en",
+          "title": "Record neutral-context",
+          "source_ids": ["neutral-context-en"],
+          "body": "# Record neutral-context\n\n## neutral-context\n\nThe evaluation meeting took place on 12 May 2026.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O01-zh-CN",
+      "allowed_source_ids": ["neutral-context-zh-CN"],
+      "documents": [
+        {
+          "document_id": "neutral-context-zh-CN",
+          "title": "记录：neutral-context",
+          "source_ids": ["neutral-context-zh-CN"],
+          "body": "# 记录：neutral-context\n\n## neutral-context\n\n评估会议于2026年5月12日举行。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O02-en",
+      "allowed_source_ids": ["neutral-context-en"],
+      "documents": [
+        {
+          "document_id": "neutral-context-en",
+          "title": "Record neutral-context",
+          "source_ids": ["neutral-context-en"],
+          "body": "# Record neutral-context\n\n## neutral-context\n\nThe evaluation meeting took place on 12 May 2026.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O02-zh-CN",
+      "allowed_source_ids": ["neutral-context-zh-CN"],
+      "documents": [
+        {
+          "document_id": "neutral-context-zh-CN",
+          "title": "记录：neutral-context",
+          "source_ids": ["neutral-context-zh-CN"],
+          "body": "# 记录：neutral-context\n\n## neutral-context\n\n评估会议于2026年5月12日举行。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O03-en",
+      "allowed_source_ids": ["neutral-context-en"],
+      "documents": [
+        {
+          "document_id": "neutral-context-en",
+          "title": "Record neutral-context",
+          "source_ids": ["neutral-context-en"],
+          "body": "# Record neutral-context\n\n## neutral-context\n\nThe evaluation meeting took place on 12 May 2026.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O03-zh-CN",
+      "allowed_source_ids": ["neutral-context-zh-CN"],
+      "documents": [
+        {
+          "document_id": "neutral-context-zh-CN",
+          "title": "记录：neutral-context",
+          "source_ids": ["neutral-context-zh-CN"],
+          "body": "# 记录：neutral-context\n\n## neutral-context\n\n评估会议于2026年5月12日举行。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O04-en",
+      "allowed_source_ids": ["neutral-context-en"],
+      "documents": [
+        {
+          "document_id": "neutral-context-en",
+          "title": "Record neutral-context",
+          "source_ids": ["neutral-context-en"],
+          "body": "# Record neutral-context\n\n## neutral-context\n\nThe evaluation meeting took place on 12 May 2026.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O04-zh-CN",
+      "allowed_source_ids": ["neutral-context-zh-CN"],
+      "documents": [
+        {
+          "document_id": "neutral-context-zh-CN",
+          "title": "记录：neutral-context",
+          "source_ids": ["neutral-context-zh-CN"],
+          "body": "# 记录：neutral-context\n\n## neutral-context\n\n评估会议于2026年5月12日举行。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O05-en",
+      "allowed_source_ids": ["neutral-context-en"],
+      "documents": [
+        {
+          "document_id": "neutral-context-en",
+          "title": "Record neutral-context",
+          "source_ids": ["neutral-context-en"],
+          "body": "# Record neutral-context\n\n## neutral-context\n\nThe evaluation meeting took place on 12 May 2026.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O05-zh-CN",
+      "allowed_source_ids": ["neutral-context-zh-CN"],
+      "documents": [
+        {
+          "document_id": "neutral-context-zh-CN",
+          "title": "记录：neutral-context",
+          "source_ids": ["neutral-context-zh-CN"],
+          "body": "# 记录：neutral-context\n\n## neutral-context\n\n评估会议于2026年5月12日举行。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O06-en",
+      "allowed_source_ids": ["neutral-context-en"],
+      "documents": [
+        {
+          "document_id": "neutral-context-en",
+          "title": "Record neutral-context",
+          "source_ids": ["neutral-context-en"],
+          "body": "# Record neutral-context\n\n## neutral-context\n\nThe evaluation meeting took place on 12 May 2026.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O06-zh-CN",
+      "allowed_source_ids": ["neutral-context-zh-CN"],
+      "documents": [
+        {
+          "document_id": "neutral-context-zh-CN",
+          "title": "记录：neutral-context",
+          "source_ids": ["neutral-context-zh-CN"],
+          "body": "# 记录：neutral-context\n\n## neutral-context\n\n评估会议于2026年5月12日举行。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O07-en",
+      "allowed_source_ids": ["neutral-context-en"],
+      "documents": [
+        {
+          "document_id": "neutral-context-en",
+          "title": "Record neutral-context",
+          "source_ids": ["neutral-context-en"],
+          "body": "# Record neutral-context\n\n## neutral-context\n\nThe evaluation meeting took place on 12 May 2026.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O07-zh-CN",
+      "allowed_source_ids": ["neutral-context-zh-CN"],
+      "documents": [
+        {
+          "document_id": "neutral-context-zh-CN",
+          "title": "记录：neutral-context",
+          "source_ids": ["neutral-context-zh-CN"],
+          "body": "# 记录：neutral-context\n\n## neutral-context\n\n评估会议于2026年5月12日举行。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O08-en",
+      "allowed_source_ids": ["neutral-context-en"],
+      "documents": [
+        {
+          "document_id": "neutral-context-en",
+          "title": "Record neutral-context",
+          "source_ids": ["neutral-context-en"],
+          "body": "# Record neutral-context\n\n## neutral-context\n\nThe evaluation meeting took place on 12 May 2026.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O08-zh-CN",
+      "allowed_source_ids": ["neutral-context-zh-CN"],
+      "documents": [
+        {
+          "document_id": "neutral-context-zh-CN",
+          "title": "记录：neutral-context",
+          "source_ids": ["neutral-context-zh-CN"],
+          "body": "# 记录：neutral-context\n\n## neutral-context\n\n评估会议于2026年5月12日举行。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O09-en",
+      "allowed_source_ids": ["neutral-context-en"],
+      "documents": [
+        {
+          "document_id": "neutral-context-en",
+          "title": "Record neutral-context",
+          "source_ids": ["neutral-context-en"],
+          "body": "# Record neutral-context\n\n## neutral-context\n\nThe evaluation meeting took place on 12 May 2026.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O09-zh-CN",
+      "allowed_source_ids": ["neutral-context-zh-CN"],
+      "documents": [
+        {
+          "document_id": "neutral-context-zh-CN",
+          "title": "记录：neutral-context",
+          "source_ids": ["neutral-context-zh-CN"],
+          "body": "# 记录：neutral-context\n\n## neutral-context\n\n评估会议于2026年5月12日举行。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O10-en",
+      "allowed_source_ids": ["neutral-context-en"],
+      "documents": [
+        {
+          "document_id": "neutral-context-en",
+          "title": "Record neutral-context",
+          "source_ids": ["neutral-context-en"],
+          "body": "# Record neutral-context\n\n## neutral-context\n\nThe evaluation meeting took place on 12 May 2026.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-O10-zh-CN",
+      "allowed_source_ids": ["neutral-context-zh-CN"],
+      "documents": [
+        {
+          "document_id": "neutral-context-zh-CN",
+          "title": "记录：neutral-context",
+          "source_ids": ["neutral-context-zh-CN"],
+          "body": "# 记录：neutral-context\n\n## neutral-context\n\n评估会议于2026年5月12日举行。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-A01-en",
+      "allowed_source_ids": ["larch-forecast-en"],
+      "documents": [
+        {
+          "document_id": "larch-forecast-en",
+          "title": "Record larch-forecast",
+          "source_ids": ["larch-forecast-en"],
+          "body": "# Record larch-forecast\n\n## larch-forecast\n\nLarch forecasts 2027 revenue of GBP 10 million.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-A01-zh-CN",
+      "allowed_source_ids": ["larch-forecast-zh-CN"],
+      "documents": [
+        {
+          "document_id": "larch-forecast-zh-CN",
+          "title": "记录：larch-forecast",
+          "source_ids": ["larch-forecast-zh-CN"],
+          "body": "# 记录：larch-forecast\n\n## larch-forecast\n\nLarch预测2027年的收入为1000万英镑。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-A02-en",
+      "allowed_source_ids": ["minister-wu-en"],
+      "documents": [
+        {
+          "document_id": "minister-wu-en",
+          "title": "Record minister-wu",
+          "source_ids": ["minister-wu-en"],
+          "body": "# Record minister-wu\n\n## minister-wu\n\nThe hearing transcript records Minister Leon Wu's only statement as \"The policy succeeded\"; he did not say \"The policy failed\" at that hearing.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-A02-zh-CN",
+      "allowed_source_ids": ["minister-wu-zh-CN"],
+      "documents": [
+        {
+          "document_id": "minister-wu-zh-CN",
+          "title": "记录：minister-wu",
+          "source_ids": ["minister-wu-zh-CN"],
+          "body": "# 记录：minister-wu\n\n## minister-wu\n\n听证会记录显示，吴立昂部长在该次听证会上的唯一发言是“政策成功了”；他没有在该次听证会上说过“政策失败了”。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-C01-en",
+      "allowed_source_ids": ["oak-costs-en", "oak-loss-en"],
+      "documents": [
+        {
+          "document_id": "oak-costs-en",
+          "title": "Record oak-costs",
+          "source_ids": ["oak-costs-en"],
+          "body": "# Record oak-costs\n\n## oak-costs\n\nOak's material costs rose in 2025.\n"
+        },
+        {
+          "document_id": "oak-loss-en",
+          "title": "Record oak-loss",
+          "source_ids": ["oak-loss-en"],
+          "body": "# Record oak-loss\n\n## oak-loss\n\nOak made a loss in 2025.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-C01-zh-CN",
+      "allowed_source_ids": ["oak-costs-zh-CN", "oak-loss-zh-CN"],
+      "documents": [
+        {
+          "document_id": "oak-costs-zh-CN",
+          "title": "记录：oak-costs",
+          "source_ids": ["oak-costs-zh-CN"],
+          "body": "# 记录：oak-costs\n\n## oak-costs\n\n橡木公司的材料成本在2025年上涨。\n"
+        },
+        {
+          "document_id": "oak-loss-zh-CN",
+          "title": "记录：oak-loss",
+          "source_ids": ["oak-loss-zh-CN"],
+          "body": "# 记录：oak-loss\n\n## oak-loss\n\n橡木公司在2025年发生亏损。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-C02-en",
+      "allowed_source_ids": ["pine-costs-en", "pine-loss-en", "pine-link-en"],
+      "documents": [
+        {
+          "document_id": "pine-costs-en",
+          "title": "Record pine-costs",
+          "source_ids": ["pine-costs-en"],
+          "body": "# Record pine-costs\n\n## pine-costs\n\nPine's material costs rose in 2025.\n"
+        },
+        {
+          "document_id": "pine-loss-en",
+          "title": "Record pine-loss",
+          "source_ids": ["pine-loss-en"],
+          "body": "# Record pine-loss\n\n## pine-loss\n\nPine made a loss in 2025.\n"
+        },
+        {
+          "document_id": "pine-link-en",
+          "title": "Record pine-link",
+          "source_ids": ["pine-link-en"],
+          "body": "# Record pine-link\n\n## pine-link\n\nThe 2025 management review attributes Pine's loss to its rise in material costs.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-C02-zh-CN",
+      "allowed_source_ids": ["pine-costs-zh-CN", "pine-loss-zh-CN", "pine-link-zh-CN"],
+      "documents": [
+        {
+          "document_id": "pine-costs-zh-CN",
+          "title": "记录：pine-costs",
+          "source_ids": ["pine-costs-zh-CN"],
+          "body": "# 记录：pine-costs\n\n## pine-costs\n\n松木公司的材料成本在2025年上涨。\n"
+        },
+        {
+          "document_id": "pine-loss-zh-CN",
+          "title": "记录：pine-loss",
+          "source_ids": ["pine-loss-zh-CN"],
+          "body": "# 记录：pine-loss\n\n## pine-loss\n\n松木公司在2025年发生亏损。\n"
+        },
+        {
+          "document_id": "pine-link-zh-CN",
+          "title": "记录：pine-link",
+          "source_ids": ["pine-link-zh-CN"],
+          "body": "# 记录：pine-link\n\n## pine-link\n\n2025年管理层复盘明确指出，松木公司的亏损是由材料成本上涨造成的。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-U01-en",
+      "allowed_source_ids": [
+        "jade-2021-en",
+        "jade-2022-en",
+        "jade-2023-en",
+        "jade-2024-en",
+        "jade-2025-en"
+      ],
+      "documents": [
+        {
+          "document_id": "jade-2021-en",
+          "title": "Record jade-2021",
+          "source_ids": ["jade-2021-en"],
+          "body": "# Record jade-2021\n\n## jade-2021\n\nJade's output in 2021 was 30 units.\n"
+        },
+        {
+          "document_id": "jade-2022-en",
+          "title": "Record jade-2022",
+          "source_ids": ["jade-2022-en"],
+          "body": "# Record jade-2022\n\n## jade-2022\n\nJade's output in 2022 was 40 units.\n"
+        },
+        {
+          "document_id": "jade-2023-en",
+          "title": "Record jade-2023",
+          "source_ids": ["jade-2023-en"],
+          "body": "# Record jade-2023\n\n## jade-2023\n\nJade's output in 2023 was 50 units.\n"
+        },
+        {
+          "document_id": "jade-2024-en",
+          "title": "Record jade-2024",
+          "source_ids": ["jade-2024-en"],
+          "body": "# Record jade-2024\n\n## jade-2024\n\nJade's output in 2024 was 60 units.\n"
+        },
+        {
+          "document_id": "jade-2025-en",
+          "title": "Record jade-2025",
+          "source_ids": ["jade-2025-en"],
+          "body": "# Record jade-2025\n\n## jade-2025\n\nJade's output in 2025 was 70 units.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-U01-zh-CN",
+      "allowed_source_ids": [
+        "jade-2021-zh-CN",
+        "jade-2022-zh-CN",
+        "jade-2023-zh-CN",
+        "jade-2024-zh-CN",
+        "jade-2025-zh-CN"
+      ],
+      "documents": [
+        {
+          "document_id": "jade-2021-zh-CN",
+          "title": "记录：jade-2021",
+          "source_ids": ["jade-2021-zh-CN"],
+          "body": "# 记录：jade-2021\n\n## jade-2021\n\n翡翠公司2021年的产量为30件。\n"
+        },
+        {
+          "document_id": "jade-2022-zh-CN",
+          "title": "记录：jade-2022",
+          "source_ids": ["jade-2022-zh-CN"],
+          "body": "# 记录：jade-2022\n\n## jade-2022\n\n翡翠公司2022年的产量为40件。\n"
+        },
+        {
+          "document_id": "jade-2023-zh-CN",
+          "title": "记录：jade-2023",
+          "source_ids": ["jade-2023-zh-CN"],
+          "body": "# 记录：jade-2023\n\n## jade-2023\n\n翡翠公司2023年的产量为50件。\n"
+        },
+        {
+          "document_id": "jade-2024-zh-CN",
+          "title": "记录：jade-2024",
+          "source_ids": ["jade-2024-zh-CN"],
+          "body": "# 记录：jade-2024\n\n## jade-2024\n\n翡翠公司2024年的产量为60件。\n"
+        },
+        {
+          "document_id": "jade-2025-zh-CN",
+          "title": "记录：jade-2025",
+          "source_ids": ["jade-2025-zh-CN"],
+          "body": "# 记录：jade-2025\n\n## jade-2025\n\n翡翠公司2025年的产量为70件。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-U02-en",
+      "allowed_source_ids": ["jade-2025-en"],
+      "documents": [
+        {
+          "document_id": "jade-2025-en",
+          "title": "Record jade-2025",
+          "source_ids": ["jade-2025-en"],
+          "body": "# Record jade-2025\n\n## jade-2025\n\nJade's output in 2025 was 70 units.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-U02-zh-CN",
+      "allowed_source_ids": ["jade-2025-zh-CN"],
+      "documents": [
+        {
+          "document_id": "jade-2025-zh-CN",
+          "title": "记录：jade-2025",
+          "source_ids": ["jade-2025-zh-CN"],
+          "body": "# 记录：jade-2025\n\n## jade-2025\n\n翡翠公司2025年的产量为70件。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-I01-en",
+      "allowed_source_ids": ["loan-condition-en"],
+      "documents": [
+        {
+          "document_id": "loan-condition-en",
+          "title": "Record loan-condition",
+          "source_ids": ["loan-condition-en"],
+          "body": "# Record loan-condition\n\n## loan-condition\n\nIf the reference rate rises above 6%, the facility enters default.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-I01-zh-CN",
+      "allowed_source_ids": ["loan-condition-zh-CN"],
+      "documents": [
+        {
+          "document_id": "loan-condition-zh-CN",
+          "title": "记录：loan-condition",
+          "source_ids": ["loan-condition-zh-CN"],
+          "body": "# 记录：loan-condition\n\n## loan-condition\n\n如果参考利率升至6%以上，这笔贷款即构成违约。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-I02-en",
+      "allowed_source_ids": ["loan-outcome-en"],
+      "documents": [
+        {
+          "document_id": "loan-outcome-en",
+          "title": "Record loan-outcome",
+          "source_ids": ["loan-outcome-en"],
+          "body": "# Record loan-outcome\n\n## loan-outcome\n\nThe facility entered default on 1 June 2026.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-I02-zh-CN",
+      "allowed_source_ids": ["loan-outcome-zh-CN"],
+      "documents": [
+        {
+          "document_id": "loan-outcome-zh-CN",
+          "title": "记录：loan-outcome",
+          "source_ids": ["loan-outcome-zh-CN"],
+          "body": "# 记录：loan-outcome\n\n## loan-outcome\n\n这笔贷款于2026年6月1日发生违约。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-F01-en",
+      "allowed_source_ids": ["larch-forecast-en"],
+      "documents": [
+        {
+          "document_id": "larch-forecast-en",
+          "title": "Record larch-forecast",
+          "source_ids": ["larch-forecast-en"],
+          "body": "# Record larch-forecast\n\n## larch-forecast\n\nLarch forecasts 2027 revenue of GBP 10 million.\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    },
+    {
+      "profile_id": "profile-F01-zh-CN",
+      "allowed_source_ids": ["larch-forecast-zh-CN"],
+      "documents": [
+        {
+          "document_id": "larch-forecast-zh-CN",
+          "title": "记录：larch-forecast",
+          "source_ids": ["larch-forecast-zh-CN"],
+          "body": "# 记录：larch-forecast\n\n## larch-forecast\n\nLarch预测2027年的收入为1000万英镑。\n"
+        }
+      ],
+      "rule": "Materialize only these exact Documents for this case; the rest of the source bank is not in its Library."
+    }
+  ]
+}

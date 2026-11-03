@@ -147,7 +147,7 @@ describe("US regulations at the eCFR", () => {
     ]);
   });
 
-  test("a quote from paragraph (b) is found there, and not found in paragraph (c)", async () => {
+  test("a quote from paragraph (b) is found there, and placed there whatever paragraph a record names", async () => {
     const quote =
       "To make any untrue statement of a material fact or to omit to state a material fact";
     const model = scriptedModel((call) => {
@@ -185,12 +185,11 @@ describe("US regulations at the eCFR", () => {
 
     expect(finished.citations.map((each) => [each.quote === quote, each.check])).toEqual([
       [true, "found"],
-      [true, "not-found"],
+      [true, "found"],
     ]);
-    expect(finished.citations[0]?.location).toMatchObject({
-      kind: "section",
-      heading: "240.10b-5(b)",
-    });
+    for (const citation of finished.citations) {
+      expect(citation.location).toMatchObject({ kind: "section", heading: "240.10b-5(b)" });
+    }
   });
 
   test("a whole part is added, each section and each of its numbered paragraphs cited as it is", async () => {

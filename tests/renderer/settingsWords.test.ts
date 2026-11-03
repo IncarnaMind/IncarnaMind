@@ -28,6 +28,7 @@ const FILES = [
   "SpendingCapSettings.tsx",
   "SuggestionSettings.tsx",
   "TaggingSettings.tsx",
+  "TaskNotificationSettings.tsx",
   "WebSearchSettings.tsx",
 ];
 const FOLDERS = ["agents", "connectors", "providers"];
@@ -91,7 +92,14 @@ const CONSENT_FACTS = [
   "providers.secrets.unavailable",
   "providers.sends.onRequest",
   "rerank.settings.sends",
-  "tagging.automatic.sends",
+  // What first run's key field and sorting choice send, and where (ADR-0022).
+  "needsModel.organize",
+  "needsModel.compare",
+  "needsModel.help",
+  "setup.sorting.here",
+  "setup.sorting.chatHere",
+  "setup.sorting.sends",
+  "setup.sorting.sendsWhenOn",
 ];
 
 describe("The Settings pages", () => {

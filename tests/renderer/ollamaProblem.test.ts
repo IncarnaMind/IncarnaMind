@@ -9,11 +9,17 @@ const running: OllamaStatus = {
   cloudModels: [],
   recommendedModel: "qwen3.5:4b",
 };
-const notRunning = (installed: boolean): OllamaStatus => ({
+type NotRunning = Extract<OllamaStatus, { running: false }>;
+const notRunning = (installed: boolean): NotRunning => ({
   running: false,
   baseUrl: "http://127.0.0.1:11434",
   installed,
   recommendedModel: "qwen3.5:4b",
+});
+/** A look that ran out of time: it says nothing either way. */
+const silent = (installed: boolean): NotRunning => ({
+  ...notRunning(installed),
+  unknown: true,
 });
 
 describe("The action under 'Ollama isn't running on this computer'", () => {
@@ -24,6 +30,11 @@ describe("The action under 'Ollama isn't running on this computer'", () => {
 
   test("is Try again when Ollama runs by now, and the Question is kept to ask again", () => {
     expect(ollamaLineAction(running, false)).toBe("try-again");
+  });
+
+  test("is Try again when a look ran out of time: getting or opening would claim it is missing", () => {
+    expect(ollamaLineAction(silent(true), false)).toBe("try-again");
+    expect(ollamaLineAction(silent(false), false)).toBe("try-again");
   });
 
   test("waits while Ollama is being looked for or opened", () => {

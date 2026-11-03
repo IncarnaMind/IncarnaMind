@@ -1,6 +1,7 @@
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
 import type { TestHooks } from "../src/shared/testHooks";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -101,8 +102,7 @@ test("dropping folders offers each for linking in turn; what's there already is 
   // The linked folder picked again: the dialog says it's linked already, and only closes.
   await interceptOpenDialog(app, papers);
   await window.getByTestId("plus-menu").click();
-  await window.getByTestId("plus-more").click();
-  await window.getByTestId("plus-link-folder").click();
+  await window.getByTestId("plus-add-documents").click();
   await expect(dialog.getByRole("heading")).toHaveText("Already in IncarnaMind");
   await expect(dialog.getByTestId("link-folder-inside")).toHaveText(
     "“Papers” is already linked, so its files are in IncarnaMind.",
@@ -136,9 +136,9 @@ test("a Document that failed offers Retry, which processes it again", async () =
   await app.close();
 });
 
-test("the footer shows the most pressing status, keeps the others a click away, and stays 28px", async () => {
+test("the footer shows the most pressing status, keeps the others a click away, and gives a problem its second line", async () => {
   await writeFile(join(sources, "Paper.txt"), "Test loss falls as a power law in model size.\n");
-  await writeFile(join(sources, "Picture.png"), "not a document");
+  await writeFile(join(sources, "Archive.zip"), "not a document");
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   const status = window.getByTestId("sidebar-status");
@@ -146,14 +146,25 @@ test("the footer shows the most pressing status, keeps the others a click away, 
 
   await window
     .getByTestId("add-documents-input")
-    .setInputFiles([join(sources, "Paper.txt"), join(sources, "Picture.png")]);
+    .setInputFiles([join(sources, "Paper.txt"), join(sources, "Archive.zip")]);
   // Once the paper is read, two things to say, whatever the machine's speed: the skipped
   // file first, and tagging, which waits for a model, behind "+1".
   await expect(window.getByTestId("document-list-item")).toHaveAttribute("data-status", "ready");
+  // A Tag of its own: the model it waits for is named only once a Tag exists (#1942).
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [document] = await core.listDocuments();
+    const tag = await core.createTag({ name: "Papers", description: "" });
+    if (document) await core.addTagToDocuments([document.id], tag.id);
+  });
   await expect(status.getByTestId("skipped-files")).toBeVisible();
   const more = status.getByTestId("status-more");
   await expect(more).toHaveText("+1");
-  expect(await status.boundingBox()).toEqual(before);
+  // A file it can't take, with Show beside it, takes a second line: 20px of text either side of
+  // the row's 4px. The footer keeps its width, and no more.
+  const after = await status.boundingBox();
+  expect(after?.width).toBe(before?.width);
+  expect(after?.height).toBe(48);
   await more.click();
   const others = status.getByTestId("status-others");
   await expect(others).toBeVisible();
@@ -260,7 +271,12 @@ test("Add Documents opens a sheet on the window in a folder on this computer, th
   const [first] = await asked();
   expect(first?.sheet).toBe(true);
   expect(first?.options.defaultPath).toBe(downloads);
-  expect(first?.options.properties).toEqual(["openFile", "multiSelections"]);
+  // macOS can offer files and a folder in one sheet; Windows and Linux only files there (#1942).
+  expect(first?.options.properties).toEqual(
+    process.platform === "darwin"
+      ? ["openFile", "openDirectory", "multiSelections"]
+      : ["openFile", "multiSelections"],
+  );
 
   // Next time it starts where those came from.
   await window.getByTestId("plus-menu").click();

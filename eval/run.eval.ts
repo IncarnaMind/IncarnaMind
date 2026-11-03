@@ -275,12 +275,12 @@ async function runFormats(config: EvalConfig, log: Log): Promise<FormatsReport> 
         : { skipped: skipped ?? "" };
     return {
       source: set.source,
-      documents: set.documents.map(({ key, path }) => {
+      documents: set.documents.map(({ key, path, kind }) => {
         const document = library.documents.get(key);
         return {
           key,
           name: document?.name ?? key,
-          format: formatOf(path),
+          format: formatOf(path, document?.kind ?? kind),
           status: document?.status ?? "failed",
         };
       }),

@@ -15,15 +15,8 @@ import {
   toggleSpaceBefore,
 } from "../editor/formatCommands";
 import { requestNumbering } from "../editor/numbering";
-import { noteHandle } from "./handles";
-import type { Command, CommandContext } from "./registry";
-
-/** From ⌘K, the Mind last written in; from the keys, only while its text has the focus. */
-function noteOf(ctx: CommandContext): Editor | null {
-  const editor = noteHandle.current?.editor;
-  if (!editor || editor.isDestroyed || !editor.isEditable) return null;
-  return ctx.surface === "palette" || editor.view.hasFocus() ? editor : null;
-}
+import { noteToWrite as noteOf } from "./handles";
+import type { Command } from "./registry";
 
 const KEYWORDS: readonly MessageKey[] = ["format.keywords"];
 

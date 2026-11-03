@@ -10,6 +10,7 @@ import type { Core } from "../../src/core";
 import { createCatalogue } from "../../src/core/citationStyles/catalogue";
 import { readPackIndex } from "../../src/core/citationStyles/pack";
 import { createPackStyles } from "../../src/core/citationStyles/packStyles";
+import { CITATION_STYLES as COMMON_STYLES } from "../../src/shared/citationStyles";
 import { fixtureCitations, fixtureReferences, formatHere } from "../helpers/citationStyles";
 import { CITATION_STYLES, createTempDataFolder, startCore } from "../helpers/core";
 
@@ -52,6 +53,20 @@ const formatNamed = (core: Core, style: string, language?: "en" | "zh-CN") =>
   });
 
 describe("the style pack", () => {
+  // protects=a common style's edition, which "Chicago 18" or "APA 7th edition" is found by, is the edition its pack file's title gives, so a new pack can't leave a name on the wrong edition (#2252); fails_when=a pack title's edition differs from the style's, or one is missing; no_claim=styles outside the common list.
+  test("each common style's edition is its pack title's", () => {
+    const titles = new Map(readPackIndex(PACK).styles.map((style) => [style.id, style.title]));
+    for (const style of COMMON_STYLES.filter((each) => each.packId !== null)) {
+      const title = titles.get(style.packId ?? "") ?? "";
+      const edition = /(\d+)(?:st|nd|rd|th) edition/.exec(title)?.[1];
+      expect([style.id, style.edition]).toEqual([
+        style.id,
+        edition === undefined ? undefined : Number(edition),
+      ]);
+    }
+    expect(COMMON_STYLES.find((each) => each.id === "chicago-notes")?.edition).toBe(18);
+  });
+
   test("switching between two styles a second time decompresses nothing again", () => {
     const pack = createPackStyles(CITATION_STYLES);
     const index = readPackIndex(PACK);

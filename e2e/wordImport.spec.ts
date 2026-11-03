@@ -510,7 +510,7 @@ test("Export writes back into the Word file: the User's edits tracked under thei
   // Export: the deleted paragraph stays as Priya's deletion, the comment with it; nothing to say first.
   const result = window.getByTestId("export-result");
   await exportFromMenu(window);
-  await expect(result.getByTestId("export-done")).toHaveText(savedLine("Memo.docx", output));
+  await expect(result.getByTestId("export-done")).toContainText(savedLine("Memo.docx", output));
   const tracked =
     unzip(await readFile(join(output, "Memo.docx")))
       .get("word/document.xml")
@@ -555,7 +555,7 @@ test("Export writes back into the Word file: the User's edits tracked under thei
 
   // Export anyway: saved, the paragraph kept byte for byte, the comment's marks gone with its text.
   await result.getByTestId("export-anyway").click();
-  await expect(result.getByTestId("export-done")).toHaveText(savedLine("Memo 2.docx", output));
+  await expect(result.getByTestId("export-done")).toContainText(savedLine("Memo 2.docx", output));
   await motionSettled(window);
   await screenshot(window, "word-export-saved");
   const document =
@@ -643,7 +643,7 @@ test("the original is also a Document: an Answer beside the Mind cites its claus
   await row.getByTestId("open-document").focus();
   await window.keyboard.press("ControlOrMeta+i");
   const panel = window.getByTestId("info-panel");
-  await expect(panel.getByTestId("info-imported-as")).toContainText("Imported as a Mind");
+  await expect(panel.getByTestId("info-imported-as")).toContainText("Imported as a note");
   await expect(panel.getByTestId("info-open-mind")).toHaveText("Supply agreement");
   await screenshot(panel, "word-original-info");
   await window.keyboard.press("Escape");
@@ -654,7 +654,7 @@ test("the original is also a Document: an Answer beside the Mind cites its claus
   await expect(window.getByTestId("mind-pane")).toHaveCount(0);
   await openDocumentMenu(row);
   const menu = row.getByTestId("document-file-actions");
-  await expect(menu.getByTestId("document.openMind")).toHaveText("Open its Mind");
+  await expect(menu.getByTestId("document.openMind")).toHaveText("Open its note");
   await pointAndClick(window, menu.getByTestId("document.openMind"));
   await expect(frontMindName(window)).toHaveText("Supply agreement");
 

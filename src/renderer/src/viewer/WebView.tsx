@@ -196,12 +196,12 @@ function draw(
 }
 
 /**
- * Opened at a Citation, the quote is highlighted in the cited section, else
- * anywhere on the page. A page kept as it looks can be shown as it looked,
+ * Opened at a Citation, the quote is highlighted only in the cited section.
+ * A target without a place searches the page. A page kept as it looks can be shown as it looked,
  * in the PDF view, until the User goes back to its text or opens a Citation.
  */
 export function WebView({ document, target }: { document: Document; target: ViewerTarget }) {
-  const loaded = useDocumentFile(document.id, read);
+  const { loaded, reload } = useDocumentFile(document.id, document.contentHash, read);
   const [lookShownFor, setLookShownFor] = useState<number | null>(null);
   const look = document.web?.look;
   if (look?.status === "saved" && lookShownFor === target.request) {
@@ -216,8 +216,10 @@ export function WebView({ document, target }: { document: Document; target: View
   }
   return (
     <FileStates
+      document={document}
       loaded={loaded}
       quote={target.quote}
+      reload={reload}
       ready={(page) => (
         <WebPageContent
           page={page}
@@ -331,7 +333,9 @@ function WebPageContent({
     if (picture) picture.dataset.cited = "";
     const marks =
       quote && !picture
-        ? ((range && markQuote(textNodes(body, range), quote)) ?? markQuote(textNodes(body), quote))
+        ? target.pageFrom === undefined
+          ? markQuote(textNodes(body), quote)
+          : range && markQuote(textNodes(body, range), quote)
         : null;
     setHighlighted((count) => (marks ? count + 1 : 0));
     const anchor = marks?.[0] ?? picture ?? first ?? null;

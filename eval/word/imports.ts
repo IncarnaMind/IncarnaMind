@@ -9,6 +9,7 @@
  */
 import { getSchema } from "@tiptap/core";
 import {
+  FOOTNOTE_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   WORD_ATOM_NODE,
@@ -61,6 +62,7 @@ const normal = (text: string) => text.replace(/[\s­]/g, "").replace(/‑/g, "-"
  */
 function mindText(nodes: readonly NodeJSON[], into = { shown: "", struck: "" }, struck = false) {
   for (const node of nodes) {
+    if (node.type === FOOTNOTE_NODE) continue;
     const removed =
       struck ||
       readProposalAttribute(node.attrs?.[PROPOSAL_ATTRIBUTE])?.kind === "delete" ||

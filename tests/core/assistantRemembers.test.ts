@@ -1,6 +1,6 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
-import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
+import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant, changesIn } from "../helpers/assistant";
@@ -33,7 +33,7 @@ const asked = ({ options }: ModelCall): string => {
 };
 
 const editPassage = (call: ModelCall): string | null =>
-  call.system === EDIT_INSTRUCTIONS
+  [EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED].includes(call.system)
     ? (/<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? null)
     : null;
 
@@ -81,7 +81,7 @@ describe("The assistant remembers in a long conversation", { timeout: 120_000 },
       if (question.endsWith("make the summary longer")) {
         seen = call.prompt;
         if (called(call, "edit_mind")) return { text: "Lengthened the summary." };
-        const knows = call.prompt.includes("create_mind: made the Mind “Tide notes”");
+        const knows = call.prompt.includes("create_mind: made the Note “Tide notes”");
         return knows
           ? {
               calls: [
@@ -116,7 +116,7 @@ describe("The assistant remembers in a long conversation", { timeout: 120_000 },
     expect(seen).not.toContain("Answer to question 2.");
     expect(seen).toContain("Answer to question 29.");
     expect(seen).toContain(
-      "- create_mind: made the Mind “Tide notes” and proposed 2 changes, waiting for the User",
+      "- create_mind: made the Note “Tide notes” and proposed 2 changes, waiting for the User",
     );
     await page.settled();
     expect(shownWithChanges(page)).toEqual([
@@ -272,7 +272,7 @@ describe("The assistant knows what the User did with its changes", { timeout: 60
     });
 
     expect(sent[0]).toContain(
-      "- create_mind: made the Mind “Notes” and proposed 1 change, but the Mind is no longer there",
+      "- create_mind: made the Note “Notes” and proposed 1 change, but the Note is no longer there",
     );
   });
 });

@@ -4,6 +4,7 @@ import { CHATGPT_SERVICE } from "../../core/providers/chatgpt/service";
 import { CLAUDE_ACCOUNT_SERVICE } from "../../core/providers/claudeAccount/service";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { formatResetTime } from "./cost";
+import type { FlowRoute } from "./taggingDestination";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -13,6 +14,13 @@ type Translate = (key: MessageKey, params?: MessageParams) => string;
  */
 export const taggingProblem = (error: ProviderError, t: Translate): string =>
   error.wording ? t(error.wording.key, error.wording.values) : t(`tagging.problem.${error.kind}`);
+
+export function taggingProblemService(text: FlowRoute, reader: FlowRoute): ExternalService | null {
+  if (text.where === "unknown" || reader.where === "unknown") return null;
+  const left = text.where === "cloud" ? text.service : null;
+  const right = reader.where === "cloud" ? reader.service : null;
+  return left && right && left.id !== right.id ? null : (left ?? right);
+}
 
 /** The plans whose limit Tagging and Organize wait out (src/core/library/planPace), by their service. */
 const WAITING_PLANS: ReadonlySet<string> = new Set([CHATGPT_SERVICE.id, CLAUDE_ACCOUNT_SERVICE.id]);

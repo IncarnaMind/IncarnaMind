@@ -36,14 +36,96 @@ function firstTextPos(node: ProseMirrorNode, pos: number): number | null {
   return found;
 }
 
+/** A list's marker hangs this far inside its own list's indent (DESIGN.md, Lists). */
+const MARKER_HANG = 24;
+
 /**
- * Where the handle goes: in the left margin, a fixed gap left of the Mind's
- * text edge (the CSS sets `--handle-gap`), level with the Block's first line
- * of text.
+ * What starts the Block's first line: a Question's fold chevron, a list item's
+ * checkbox or marker, or its first letter at the text edge (DESIGN.md, Mind column).
+ * `touching` is the Question's, whose handle and chevron meet.
+ */
+function firstOfLine(
+  editor: Editor,
+  block: { node: ProseMirrorNode; pos: number },
+  textPos: number,
+): { left: number; touching: boolean } | null {
+  const at = editor.view.nodeDOM(block.pos);
+  const dom = at instanceof Element ? at : (at?.parentElement ?? null);
+  // A Question's node sits in a wrapper of its own, and marks itself while the handle points at it.
+  const question =
+    dom?.closest(".question-block") ??
+    dom?.querySelector(".question-block") ??
+    editor.view.dom.querySelector("[data-handle-on]")?.closest(".question-block") ??
+    null;
+  if (question) {
+    const fold = question.querySelector(".question-fold");
+    if (fold instanceof HTMLElement)
+      return { left: fold.getBoundingClientRect().left, touching: true };
+  }
+  if (!dom) return null;
+  // A hovered list is the first item's line; a paragraph in one is its own item's.
+  const item = dom.closest("li") ?? (dom.matches("ul, ol") ? dom.querySelector("li") : null);
+  if (!item) return null;
+  const checkbox = item.querySelector(":scope > label > input");
+  if (checkbox instanceof HTMLElement)
+    return { left: checkbox.getBoundingClientRect().left, touching: false };
+  // A wide marker widens the list's room, and the marker stays at the room's left edge.
+  const room = Number.parseFloat(getComputedStyle(item).getPropertyValue("--marker-room")) || 0;
+  return { left: editor.view.coordsAtPos(textPos, 1).left - MARKER_HANG - room, touching: false };
+}
+
+/**
+ * The list item the pointer is over, when the Block Tiptap names is the whole list: the handle
+ * then stands by that item's marker, not the list's first.
+ */
+function itemUnderPointer(
+  editor: Editor,
+  block: { node: ProseMirrorNode; pos: number },
+  pointer: { x: number; y: number },
+): { node: ProseMirrorNode; pos: number; textPos: number | null } | null {
+  const dom = editor.view.nodeDOM(block.pos);
+  if (!(dom instanceof Element) || !dom.matches("ul, ol")) return null;
+  const at = editor.view.posAtCoords({ left: pointer.x, top: pointer.y });
+  if (!at) return null;
+  const $pos = editor.view.state.doc.resolve(at.pos);
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    const node = $pos.node(depth);
+    if (node.type.name !== "listItem" && node.type.name !== "taskItem") continue;
+    const pos = $pos.before(depth);
+    return { node, pos, textPos: firstTextPos(node, pos) };
+  }
+  return null;
+}
+
+/** The list item the caret is in, when the menu is opened from the keyboard and names that Block. */
+function itemAtCaret(
+  editor: Editor,
+  block: { node: ProseMirrorNode; pos: number },
+): { node: ProseMirrorNode; pos: number; textPos: number | null } | null {
+  const dom = editor.view.nodeDOM(block.pos);
+  if (!(dom instanceof Element) || !dom.matches("ul, ol")) return null;
+  const $from = editor.view.state.selection.$from;
+  for (let depth = $from.depth; depth > 0; depth--) {
+    const node = $from.node(depth);
+    if (node.type.name !== "listItem" && node.type.name !== "taskItem") continue;
+    const pos = $from.before(depth);
+    // A command can name another Block: the caret's item anchors the menu only inside this one.
+    if (pos < block.pos || pos >= block.pos + block.node.nodeSize) return null;
+    return { node, pos, textPos: firstTextPos(node, pos) };
+  }
+  return null;
+}
+
+/**
+ * Where the handle goes: in the left margin, its right edge a fixed gap before
+ * the first thing on the Block's first line (the CSS sets `--handle-gap`), level
+ * with that line. A Question's handle meets its fold chevron instead.
  */
 function handleAnchor(
   editor: Editor,
   block: { node: ProseMirrorNode; pos: number } | null,
+  pointer: { x: number; y: number },
+  usePointer = true,
 ): VirtualElement | null {
   if (!block || editor.isDestroyed) return null;
   const { view } = editor;
@@ -54,9 +136,13 @@ function handleAnchor(
       const gap = Number.parseFloat(style.getPropertyValue("--handle-gap")) || 0;
       // The text edge: the editor's box reaches over the margin (styles.css, `--editor-gutter`).
       const edge = view.dom.getBoundingClientRect().left + Number.parseFloat(style.paddingLeft);
-      const x = edge - gap;
+      const item = usePointer
+        ? itemUnderPointer(editor, block, pointer)
+        : itemAtCaret(editor, block);
+      const textPos = item?.textPos ?? firstTextPos(block.node, block.pos);
+      const first = textPos === null ? null : firstOfLine(editor, item ?? block, textPos);
+      const x = first === null ? edge - gap : first.left - (first.touching ? 0 : gap);
       let y: number;
-      const textPos = firstTextPos(block.node, block.pos);
       if (textPos !== null) {
         const line = view.coordsAtPos(textPos);
         y = (line.top + line.bottom) / 2;
@@ -90,6 +176,8 @@ interface MenuTarget {
 export function BlockHandle({ editor }: { editor: Editor }) {
   const t = useT();
   const hovered = useRef<{ node: ProseMirrorNode; pos: number } | null>(null);
+  /** Where the pointer is, so a list's handle stands by the item under it, not the list's first. */
+  const pointer = useRef({ x: 0, y: 0 });
   const grip = useRef<HTMLButtonElement>(null);
   const [menuFor, setMenuFor] = useState<MenuTarget | null>(null);
 
@@ -163,9 +251,17 @@ export function BlockHandle({ editor }: { editor: Editor }) {
   const open = useRef(openMenuFor);
   open.current = openMenuFor;
   useEffect(() => {
+    const track = (event: PointerEvent) => {
+      pointer.current = { x: event.clientX, y: event.clientY };
+    };
+    window.addEventListener("pointermove", track, true);
+    return () => window.removeEventListener("pointermove", track, true);
+  }, []);
+  useEffect(() => {
     blockMenuOpeners.set(editor, (id) => {
       const found = findBlock(editor.state.doc, id);
-      if (found) open.current(found, handleAnchor(editor, found) ?? editor.view.dom);
+      if (found)
+        open.current(found, handleAnchor(editor, found, pointer.current, false) ?? editor.view.dom);
     });
     return () => {
       blockMenuOpeners.delete(editor);
@@ -211,7 +307,7 @@ export function BlockHandle({ editor }: { editor: Editor }) {
         editor={editor}
         className="block-handle"
         computePositionConfig={HANDLE_POSITION}
-        getReferencedVirtualElement={() => handleAnchor(editor, hovered.current)}
+        getReferencedVirtualElement={() => handleAnchor(editor, hovered.current, pointer.current)}
         onNodeChange={({ node, pos }) => {
           hovered.current = node ? { node, pos } : null;
           for (const shown of editor.view.dom.querySelectorAll("[data-handle-on]"))
@@ -229,6 +325,10 @@ export function BlockHandle({ editor }: { editor: Editor }) {
           title={t("editor.block.handle")}
           aria-haspopup="menu"
           aria-expanded={menuFor !== null}
+          onMouseDown={(event) => {
+            // A right-click is not an activation: taking focus would leave the Note unable to type.
+            if (event.button !== 0) event.preventDefault();
+          }}
           onClick={openMenu}
         >
           <GripIcon className="size-4" />

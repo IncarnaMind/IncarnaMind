@@ -9,6 +9,7 @@
  * service, as --fake-options=<JSON> asks (slow, failing to read stretches,
  * failing over, the cloud dropping).
  */
+import { answerEngineCheck, ENGINE_CHECK_ARGUMENT } from "../core/engineModules";
 import {
   type CloudServing,
   serveTranscriber,
@@ -22,7 +23,12 @@ import {
   failingOver,
 } from "../core/transcription/fake";
 import { createFakeCloud } from "../core/transcription/fakeCloud";
-import { createSherpaEngine, createSileroDetectors } from "../core/transcription/sherpa";
+import {
+  createSherpaEngine,
+  createSileroDetectors,
+  SHERPA,
+  SHERPA_ADDON,
+} from "../core/transcription/sherpa";
 
 const fake = process.argv.includes("--fake");
 const FAKE_OPTIONS = "--fake-options=";
@@ -44,8 +50,12 @@ const cloud: CloudServing = fake
     }
   : { connect: connectWebSocket, detectors: createSileroDetectors };
 
-serveTranscriber(
-  fake ? async () => createFakeSpeechEngine(fakeOptions) : createSherpaEngine,
-  fake && fakeOptions.failover ? failingOver(port, fakeOptions.failover) : port,
-  cloud,
-);
+if (process.argv.includes(ENGINE_CHECK_ARGUMENT)) {
+  answerEngineCheck(parent, [SHERPA, SHERPA_ADDON]);
+} else {
+  serveTranscriber(
+    fake ? async () => createFakeSpeechEngine(fakeOptions) : createSherpaEngine,
+    fake && fakeOptions.failover ? failingOver(port, fakeOptions.failover) : port,
+    cloud,
+  );
+}

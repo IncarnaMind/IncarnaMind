@@ -6,9 +6,10 @@
  * the HTML made here, as a Mind's is (./printHtml, src/renderer/print).
  */
 import type { CitationForm } from "../../shared/citationStyles";
-import type { DrawnPage, PageBox } from "../../shared/citedPage";
+import { type DrawnPage, type PageBox, quoteBoxes } from "../../shared/citedPage";
+import { FootnoteNumbering } from "../../shared/footnoteNumbers";
 import { translate } from "../../shared/i18n";
-import { findQuoteInPieces, type MatchOptions, type PieceRange } from "../../shared/quoteMatch";
+import { citationLocation } from "../../shared/locations";
 import type { CitationAttributes } from "../api";
 import { citedPageKey } from "../citedPages";
 import type { Language } from "../language";
@@ -24,10 +25,12 @@ export interface PackCitation {
 }
 
 /**
- * The Mind's Citations, in order, numbered as the editor numbers them (`numberFootnotes` in
- * the renderer's editor): with the User's footnotes in Numbered, side by side as one in a note
- * style, among themselves in a style that cites in the text. A Chart's sources have no number
- * in the Mind, so they aren't here.
+ * The Mind's Citations, in order, numbered as every surface numbers them (`FootnoteNumbering`):
+ * in Numbered, one footnote for each source and place, a later Citation of it repeating its
+ * number; among the User's footnotes in every style; side by side as one in a note style; among
+ * themselves in a style that cites in the text. A calculated figure takes a number as a footnote
+ * does, or a place among the Citations in a style that cites in the text. A Chart's sources have
+ * no number in the Mind, so they aren't here.
  */
 export function numberCitations(
   blocks: readonly Block[],
@@ -35,47 +38,69 @@ export function numberCitations(
   attributesOf: ReadonlyMap<Footnote, Partial<CitationAttributes>>,
 ): PackCitation[] {
   const found: PackCitation[] = [];
-  let number = 0;
+  const numbering = new FootnoteNumbering();
   let cited = 0;
-  const inline = (content: readonly Inline[]) => {
+  const inline = (content: readonly Inline[], insideBlock: boolean) => {
     let together = false;
     for (const item of content) {
       if (item.kind === "citation") {
-        if (form === "numbered" || (form === "note" && !together)) number++;
-        cited++;
-        found.push({
-          number: form === "in-text" ? cited : number,
-          footnote: item.footnote,
-          attributes: attributesOf.get(item.footnote) ?? {},
-        });
+        const attributes = attributesOf.get(item.footnote) ?? {};
+        // A Citation a change still waiting adds or removes is a note of its own (#107, #2292).
+        const own = insideBlock || item.inserted !== undefined || item.deleted !== undefined;
+        let number: number;
+        if (own && form !== "in-text") {
+          number = numbering.footnote();
+        } else if (form === "numbered") {
+          number = numbering.citation({
+            documentId: attributes.documentId ?? null,
+            contentHash: attributes.contentHash ?? null,
+            location: citationLocation(attributes),
+            unverified: item.footnote.unverified,
+            link: item.footnote.link ?? null,
+          }).number;
+        } else if (form === "in-text") {
+          cited += 1;
+          number = cited;
+        } else if (together) {
+          number = found.at(-1)?.number ?? numbering.footnote();
+        } else {
+          number = numbering.footnote();
+        }
+        found.push({ number, footnote: item.footnote, attributes });
         together = true;
       } else if (item.kind === "footnote") {
-        number++;
+        numbering.footnote();
+        together = false;
+      } else if (item.kind === "figure") {
+        if (form === "in-text") cited += 1;
+        else numbering.footnote();
         together = false;
       } else if (!isBlank(item)) {
         together = false;
       }
     }
   };
-  const visit = (block: Block) => {
+  const visit = (block: Block, inside: boolean) => {
+    const pending = inside || block.inserted !== undefined || block.deleted !== undefined;
     switch (block.kind) {
       case "paragraph":
       case "heading":
       case "question":
-        inline(block.content);
+        inline(block.content, pending);
         break;
       case "list":
-        for (const item of block.items) item.forEach(visit);
+        for (const item of block.items) for (const child of item) visit(child, pending);
         break;
       case "quote":
-        block.content.forEach(visit);
+        for (const child of block.content) visit(child, pending);
         break;
       case "table":
-        for (const row of block.rows) for (const cell of row) cell.content.forEach(visit);
+        for (const row of block.rows)
+          for (const cell of row) for (const child of cell.content) visit(child, pending);
         break;
     }
   };
-  blocks.forEach(visit);
+  for (const block of blocks) visit(block, false);
   return found;
 }
 
@@ -98,60 +123,6 @@ export interface PackPage {
  */
 export const isUnverified = ({ citation, boxes }: PackEntry) =>
   citation.footnote.unverified && boxes === null;
-
-/** How a Location's text is matched: number formatting is normalised in sheets and, if needed, slides. */
-function matchOptions(attributes: Partial<CitationAttributes>): MatchOptions {
-  const kind = attributes.location?.kind;
-  return { numbers: kind === "rows" ? true : kind === "slide" ? "if-needed" : false };
-}
-
-const sameLine = (a: PageBox, b: PageBox) =>
-  Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > Math.min(a.height, b.height) / 2;
-
-/** The boxes of the parts of the text's runs a quote covers, one for each line. */
-function boxesOf(text: DrawnPage["text"], ranges: readonly PieceRange[]): PageBox[] {
-  const lines: PageBox[] = [];
-  for (const { piece, start, end } of ranges) {
-    const run = text[piece];
-    if (!run || run.text.length === 0) continue;
-    const { box } = run;
-    const part = {
-      x: box.x + (box.width * start) / run.text.length,
-      y: box.y,
-      width: (box.width * (end - start)) / run.text.length,
-      height: box.height,
-    };
-    const last = lines.at(-1);
-    if (last && sameLine(last, part)) {
-      const x = Math.min(last.x, part.x);
-      const y = Math.min(last.y, part.y);
-      lines[lines.length - 1] = {
-        x,
-        y,
-        width: Math.max(last.x + last.width, part.x + part.width) - x,
-        height: Math.max(last.y + last.height, part.y + part.height) - y,
-      };
-    } else {
-      lines.push(part);
-    }
-  }
-  return lines;
-}
-
-/** Where a Citation's quote is on its page, from the text saved with it; null if it isn't found there. */
-export function quoteBoxes(
-  page: DrawnPage,
-  attributes: Partial<CitationAttributes>,
-): PageBox[] | null {
-  const { quote } = attributes;
-  if (!quote) return null;
-  const options = matchOptions(attributes);
-  const ranges =
-    findQuoteInPieces(page.text, quote, options) ??
-    findQuoteInPieces(page.text, quote, { ...options, lostLigatures: true });
-  const boxes = ranges ? boxesOf(page.text, ranges) : [];
-  return boxes.length > 0 ? boxes : null;
-}
 
 /**
  * The Locations the Citations cite, in the order they are first cited, each with its saved
@@ -177,7 +148,9 @@ export async function packPages(
       image: picture,
       entries: group.map((citation) => ({
         citation,
-        boxes: picture ? quoteBoxes(picture, citation.attributes) : null,
+        boxes: picture
+          ? quoteBoxes(picture, citation.attributes.quote, citation.attributes.location)
+          : null,
       })),
     });
   }
@@ -201,10 +174,20 @@ function pictureHtml(page: PackPage, picture: DrawnPage, language: Language): st
   const marks: string[] = [];
   const badges: string[] = [];
   const notes: string[] = [];
+  const noted = new Set<string>();
   for (const { citation, boxes } of page.entries) {
     const [top] = boxes ?? [];
     if (!boxes || !top) {
-      const note = translate(language, "export.pack.notFound", { number: citation.number });
+      // One note says a quote isn't on the page: two Citations of a note with the same quote
+      // say it once (`#2292`).
+      const quote = citation.attributes.quote ?? "";
+      const key = `${citation.number}\u0000${quote}`;
+      if (noted.has(key)) continue;
+      noted.add(key);
+      const note = translate(language, "export.pack.notFound", {
+        number: citation.number,
+        quote,
+      });
       notes.push(`<p class="pack-note pack-problem">${escapeHtml(note)}</p>`);
       continue;
     }
@@ -225,15 +208,22 @@ function pictureHtml(page: PackPage, picture: DrawnPage, language: Language): st
   );
 }
 
+type QuoteReader = (attributes: Partial<CitationAttributes>) => string | null;
+
 /** A page that wasn't saved: its quotes, as words. */
-function quotesHtml(page: PackPage, language: Language): string {
-  const quotes = page.entries.flatMap(({ citation }) =>
-    citation.attributes.quote
-      ? [
-          `<p class="pack-quote"><span class="pack-badge">${citation.number}</span> “${escapeHtml(citation.attributes.quote)}”</p>`,
-        ]
-      : [],
-  );
+function quotesHtml(page: PackPage, language: Language, readQuote: QuoteReader): string {
+  // Two Citations of one note with the same quote say it once, under its one number (#2292).
+  const shown = new Set<string>();
+  const quotes = page.entries.flatMap(({ citation }) => {
+    const quote = readQuote(citation.attributes);
+    if (!quote) return [];
+    const key = `${citation.number}\u0000${quote}`;
+    if (shown.has(key)) return [];
+    shown.add(key);
+    return [
+      `<p class="pack-quote"><span class="pack-badge">${citation.number}</span> “${escapeHtml(quote)}”</p>`,
+    ];
+  });
   const note = escapeHtml(translate(language, "export.pack.noPage"));
   return `<p class="pack-note">${note}</p>${quotes.join("")}`;
 }
@@ -247,11 +237,19 @@ export function renderSourcePack(
   title: string,
   pages: readonly PackPage[],
   language: Language,
+  readQuote: QuoteReader,
 ): string {
   const t = (key: Parameters<typeof translate>[1]) => escapeHtml(translate(language, key));
   const unverified = ` <span class="unverified">${t("export.unverified")}</span>`;
-  const rows = pages
-    .flatMap((page, index) => page.entries.map((entry) => ({ entry, index })))
+  // A note stands for every Citation of its source and place: the list names it once.
+  const byNumber = new Map<number, { entry: PackEntry; index: number }>();
+  pages.forEach((page, index) => {
+    for (const entry of page.entries) {
+      if (!byNumber.has(entry.citation.number))
+        byNumber.set(entry.citation.number, { entry, index });
+    }
+  });
+  const rows = [...byNumber.values()]
     .sort((a, b) => a.entry.citation.number - b.entry.citation.number)
     .map(
       ({ entry, index }) =>
@@ -270,7 +268,9 @@ export function renderSourcePack(
     return (
       `<section class="pack-page" data-pack="${index}">` +
       `<h2 class="pack-title"><span class="pack-numbers">${numbers}</span> ${escapeHtml(source)}</h2>` +
-      (page.image ? pictureHtml(page, page.image, language) : quotesHtml(page, language)) +
+      (page.image
+        ? pictureHtml(page, page.image, language)
+        : quotesHtml(page, language, readQuote)) +
       "</section>"
     );
   });

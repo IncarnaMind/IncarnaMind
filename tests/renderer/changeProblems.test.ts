@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
-import type { AnswerToolCall, MindProblem } from "../../src/core/api";
+import type { AnswerToolCall, MarkedCitation, MindChange, MindProblem } from "../../src/core/api";
 import {
   problemText,
   unbackedClaimLine,
+  uncitedReply,
+  uncitedWritesOf,
   waitingProblemOf,
 } from "../../src/renderer/src/changeProblems";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
@@ -82,6 +84,72 @@ describe("The line under a reply that still claims a change (#1559)", () => {
   });
 });
 
+describe("The line under an Answer that wrote uncited text into a Mind (#1415)", () => {
+  const wrote = (change: Partial<MindChange> & { mindId: string }): AnswerToolCall => ({
+    ...call(null),
+    tool: "create_mind",
+    mindChange: { created: true, request: "r", proposals: 1, ...change },
+  });
+
+  // protects=a Mind given new text with no Citation after the Answer searched gets one line, in English and Chinese, until a later call revises that text with Citations; fails_when=the line is missing, shows twice for one Mind, goes when only a cited paragraph is added beside it, or stays after the text was revised with Citations; no_claim=when the core marks a write uncited (tests/core/summaryAfterSkip.test.ts).
+  test("each Mind written with no Citation, until that text is revised with Citations", () => {
+    expect(uncitedWritesOf({ toolCalls: [wrote({ mindId: "a", uncited: true })] })).toEqual(["a"]);
+    expect(
+      uncitedWritesOf({
+        toolCalls: [wrote({ mindId: "a", uncited: true }), wrote({ mindId: "a", uncited: true })],
+      }),
+    ).toEqual(["a"]);
+    expect(
+      uncitedWritesOf({
+        toolCalls: [wrote({ mindId: "a", uncited: true }), wrote({ mindId: "a", cited: 3 })],
+      }),
+    ).toEqual(["a"]);
+    expect(
+      uncitedWritesOf({
+        toolCalls: [
+          wrote({ mindId: "a", uncited: true }),
+          wrote({ mindId: "a", cited: 3, revised: true }),
+        ],
+      }),
+    ).toEqual([]);
+    expect(uncitedWritesOf({ toolCalls: [wrote({ mindId: "b", cited: 2 })] })).toEqual([]);
+    expect(en("answer.uncitedWrite", { mind: "Summary" })).toBe(
+      "What was written in “Summary” has no Citations, so none of it was checked against your Documents",
+    );
+    expect(zh("answer.uncitedWrite", { mind: "主要文档总结" })).toBe(
+      "“主要文档总结”中写入的内容没有引用，未与文档核对",
+    );
+  });
+});
+
+describe("The line under a reply with no Citation though it was asked for them (#1415)", () => {
+  // protects=the line shows only for a reply with no Citation whose steps say the model was asked and none came, in English and Chinese; fails_when=it shows for a reply that was never asked, or one that has Citations; no_claim=when the core asks (tests/core/summaryAfterSkip.test.ts).
+  test("asked and given none, with no Citation", () => {
+    const steps = { notCitedAfterAsking: true as const };
+    const citation: MarkedCitation = {
+      marker: 1,
+      passageId: "P1",
+      documentId: "d1",
+      documentName: "Tea history",
+      contentHash: "h",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "A quote.",
+      check: "found",
+      checkReason: null,
+    };
+    expect(uncitedReply({ steps, citations: [] })).toBe(true);
+    expect(uncitedReply({ steps, citations: [citation] })).toBe(false);
+    expect(uncitedReply({ steps: {}, citations: [] })).toBe(false);
+    expect(uncitedReply({ steps: null, citations: [] })).toBe(false);
+    expect(en("answer.uncitedReply")).toBe(
+      "This reply has no Citations, so none of it was checked against your Documents",
+    );
+    expect(zh("answer.uncitedReply")).toBe("这条回答没有引用，未与文档核对");
+  });
+});
+
 describe("Why a call changed nothing, on its row", () => {
   const every: MindProblem[] = [
     waiting,
@@ -102,7 +170,11 @@ describe("Why a call changed nothing, on its row", () => {
     { kind: "content-not-own", mindId: "a" },
     { kind: "stopped", mindId: "a" },
     { kind: "no-table", mindId: "a" },
+    { kind: "unplaced", mindId: "a" },
+    { kind: "misnamed", mindId: "a" },
+    { kind: "typed-tag", mindId: "a" },
     { kind: "uncited", mindId: "a" },
+    { kind: "length", mindId: "a" },
     { kind: "new-mind", mindId: "a" },
     { kind: "local-mode" },
     { kind: "not-ready" },
@@ -120,7 +192,7 @@ describe("Why a call changed nothing, on its row", () => {
     }
   });
 
-  // protects=after the User skips the question which Mind (#1865), the row says no note was picked, never that several Minds share the name; fails_when=it reads as "Several Minds are called"; no_claim=none beyond protects.
+  // protects=after the User skips the question which Mind (#1865), the row says no note was picked, never that several Minds share the name; fails_when=it reads as "Several notes are called"; no_claim=none beyond protects.
   test("a Mind not picked says so", () => {
     const problem: MindProblem = { kind: "not-picked", name: "Q3 plan" };
     expect(problemText(en, problem, "Q3 plan")).toBe("Didn’t change “Q3 plan”: no note was picked");
@@ -167,6 +239,39 @@ describe("Why a call changed nothing, on its row", () => {
     );
     expect(problemText(zh, problem, "Q3 review")).toBe(
       "未能生成表格，因此没有向“Q3 review”添加内容",
+    );
+  });
+
+  // protects=text marked to remove that the Note doesn't have word for word says so, and that nothing changed (#2180); fails_when=the line blames the model vaguely or loses the Mind's name; no_claim=none beyond protects.
+  test("text marked to remove that isn't there says nothing changed", () => {
+    const problem: MindProblem = { kind: "unplaced", mindId: "a" };
+    expect(problemText(en, problem, "Q3 review")).toBe(
+      "The text marked to remove doesn’t match “Q3 review” word for word in one place, so nothing changed",
+    );
+    expect(problemText(zh, problem, "Q3 review")).toBe(
+      "标出要删除的文字在“Q3 review”里找不到唯一一处原文，因此没有改动",
+    );
+  });
+
+  // protects=a rewrite that names a paragraph wrongly says so, and that nothing changed (#2356); fails_when=the line blames the model vaguely or loses the Mind's name; no_claim=none beyond protects.
+  test("a rewrite that names a paragraph wrongly says nothing changed", () => {
+    const problem: MindProblem = { kind: "misnamed", mindId: "a" };
+    expect(problemText(en, problem, "Q3 review")).toBe(
+      "The rewrite didn’t say clearly which paragraph of “Q3 review” each change replaces, so nothing changed",
+    );
+    expect(problemText(zh, problem, "Q3 review")).toBe(
+      "改写没有说清每处修改替换“Q3 review”里的哪一段，因此没有改动",
+    );
+  });
+
+  // protects=a rewrite that left out a <removed> the User typed says so, and that nothing changed (#2356); fails_when=the line blames the model vaguely or loses the Mind's name; no_claim=none beyond protects.
+  test("a rewrite that drops a tag the User typed says nothing changed", () => {
+    const problem: MindProblem = { kind: "typed-tag", mindId: "a" };
+    expect(problemText(en, problem, "Q3 review")).toBe(
+      "The rewrite left out a <removed> tag you typed in “Q3 review”, so nothing changed",
+    );
+    expect(problemText(zh, problem, "Q3 review")).toBe(
+      "改写漏掉了你在“Q3 review”里输入的 <removed> 标记，因此没有改动",
     );
   });
 });

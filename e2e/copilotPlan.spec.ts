@@ -110,7 +110,7 @@ test("first run: Use my Copilot plan says what it costs and sends before anythin
 
   await notice.getByTestId("copilot-notice-sends-details").click();
   await expect(notice.getByTestId("copilot-notice-sends-list")).toHaveText(
-    "Your Questions, the Mind you’re in, Passages from your Documents, and Document text for Tags go to GitHub under your account.",
+    "Your Questions, the note you’re in, passages from your Documents, and Document text for Tags go to GitHub under your account.",
   );
 
   await notice.getByTestId("copilot-sign-in").focus();
@@ -179,7 +179,7 @@ test("first run: declining GitHub approval offers retry and an API key, in Engli
   github.deny();
   await expect(failure).toBeVisible();
   await pointAndClick(window, failure.getByTestId("copilot-way-back-paste-api-key"));
-  await expect(card.getByTestId("provider-form")).toBeVisible();
+  await expect(card.getByTestId("setup-key")).toBeFocused();
   await app.close();
 });
 

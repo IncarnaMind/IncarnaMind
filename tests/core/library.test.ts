@@ -1,10 +1,16 @@
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import type { Core } from "../../src/core";
-import type { DocumentGroupAssignment } from "../../src/core/api";
+import type { AssignmentState, DocumentGroupAssignment } from "../../src/core/api";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { startFakeJev } from "../helpers/jev";
 import { classifierModel } from "../helpers/library";
+
+/** An assignment as a change carries it: its fields and the Document's tagging row. */
+const stateOf = (item: DocumentGroupAssignment): AssignmentState => {
+  const { documentId: _id, tagging, ...assignment } = item;
+  return { assignment, tagging: tagging ?? null };
+};
 
 async function add(
   core: Core,
@@ -173,8 +179,8 @@ describe("Library groups", () => {
     expect(specs).toHaveLength(0);
   });
 
-  // protects=Undo of an Organize that began with Documents waiting for a model puts them back waiting and sends nothing; fails_when=putting them back organizes them again, one request each; no_claim=the Organize step's wording.
-  test("a Document put back as waiting waits: restoring it doesn't organize it again", async () => {
+  // protects=Undo of an Organize that began with Documents waiting for a model puts them back waiting, their own tagging too, and sends nothing; fails_when=putting them back organizes them again, one request each, or leaves them tagged; no_claim=the Organize step's wording.
+  test("a Document put back as waiting waits, its tagging too: restoring it doesn't organize it again", async () => {
     const fake = classifierModel();
     const core = startCore(await createTempDataFolder(), {
       createChatModel: () => fake.model,
@@ -184,6 +190,9 @@ describe("Library groups", () => {
     const second = await add(core, "two.txt", "A research paper about water filtration.");
     await core.retagDocuments([first.id, second.id]);
     const waiting = await settled(core, first.id, "waiting");
+    const waitingDocument = (await core.listDocuments()).find((each) => each.id === first.id);
+    if (!waitingDocument) throw new Error("No Document.");
+    expect(waitingDocument.tagging).toBe("waiting-for-provider");
     expect(fake.calls).toHaveLength(0);
 
     const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
@@ -199,14 +208,20 @@ describe("Library groups", () => {
     expect(fake.calls).toHaveLength(2);
 
     if (!waiting) throw new Error("No assignment.");
-    const { documentId: _id, ...before } = waiting;
-    await core.restoreAssignment(first.id, before);
+    const settledNow = (await core.getLibrary()).assignments.find(
+      (each) => each.documentId === first.id,
+    );
+    if (!settledNow) throw new Error("No assignment.");
+    await core.restoreAssignment(first.id, stateOf(waiting), stateOf(settledNow));
     // Nothing is due, so no request comes: a short window for the one a restore would start.
     await new Promise((resolve) => setTimeout(resolve, 300));
 
     expect(fake.calls).toHaveLength(2);
     expect(await settled(core, first.id, "waiting")).toMatchObject({ groupId: null });
     expect(await settled(core, second.id)).toMatchObject({ status: "classified" });
+    const undone = (await core.listDocuments()).find((each) => each.id === first.id);
+    expect(undone?.tagging).toBe("waiting-for-provider");
+    expect(undone?.taggingError).toBeNull();
   });
 
   // protects=Documents Undo puts back with no assignment (Organize hadn't finished with them) show nothing waiting or failed, and the next start doesn't organize them again; fails_when=a Document is left waiting or is organized again at start; no_claim=the Undo step's wording.
@@ -217,8 +232,8 @@ describe("Library groups", () => {
     await core.createLibraryGroup({ name: "Research", description: "Scientific research papers." });
     const first = await add(core, "one.txt", "A research paper about membranes.");
     const second = await add(core, "two.txt", "A research paper about water filtration.");
-    await settled(core, first.id, "waiting");
-    await settled(core, second.id, "waiting");
+    const firstWaiting = await settled(core, first.id, "waiting");
+    const secondWaiting = await settled(core, second.id, "waiting");
     const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
     await core.saveLibrarySettings({
       classifier: {
@@ -231,8 +246,19 @@ describe("Library groups", () => {
     await settled(core, second.id);
     expect(fake.calls).toHaveLength(2);
 
-    await core.restoreAssignment(first.id, null);
-    await core.restoreAssignment(second.id, null);
+    const live = (await core.getLibrary()).assignments;
+    for (const [id, was] of [
+      [first.id, firstWaiting],
+      [second.id, secondWaiting],
+    ] as const) {
+      const now = live.find((each) => each.documentId === id);
+      if (!now) throw new Error("No assignment.");
+      await core.restoreAssignment(
+        id,
+        { assignment: null, tagging: was?.tagging ?? null },
+        stateOf(now),
+      );
+    }
 
     expect((await core.getLibrary()).assignments).toEqual([]);
     core.close();

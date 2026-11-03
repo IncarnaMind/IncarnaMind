@@ -9,6 +9,7 @@ const offersAsk = () => viewerSelectionHandle.current?.ask !== undefined;
 export const viewerSelectionCommands: readonly Command[] = [
   {
     id: "viewer.selection.ask",
+    assistant: false,
     label: "command.viewer.selection.ask",
     group: "main",
     // × on its chip takes it out of the composer.

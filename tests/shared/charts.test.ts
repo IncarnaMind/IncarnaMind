@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
-import type { CitationAttributes } from "../../src/core";
+import type { Citation, CitationAttributes } from "../../src/core";
+import type { AnalysisTableMatch } from "../../src/shared/analysisTables";
+import type { NodeJSON } from "../../src/shared/blockJson";
 import {
   CATEGORY_COUNT,
   type ChartAttributes,
@@ -11,6 +13,7 @@ import {
   chartSources,
   chosenSeries,
   drawnSeries,
+  gridOfTable,
   isNumericSeries,
   listedRows,
   MAX_CHART_VALUES,
@@ -19,9 +22,14 @@ import {
   type SourceCell,
   type SourceGrid,
   seriesName,
+  sourceLineOf,
   switchedChart,
   switchedData,
+  switchMixesUnits,
+  unitGroups,
   unitlessRows,
+  valueCitations,
+  withAnalysisValues,
 } from "../../src/shared/charts";
 
 const cited = (page: number, quote = `Revenue on page ${page}`): CitationAttributes => ({
@@ -420,6 +428,247 @@ describe("a number with no unit (#579)", () => {
     expect([...unitlessRows(older.data, 1)]).toEqual([4]);
   });
 });
+
+describe("series of different units (#1392)", () => {
+  const MIXED: SourceGrid = [
+    [head("Quarter"), head("Gross margin"), head("Net debt / EBITDA")],
+    [cell("Q1"), cell("41.2%"), cell("2.8x")],
+    [cell("Q2"), cell("42.0%"), cell("2.5x")],
+  ];
+
+  test("series that share a unit still share one chart", () => {
+    expect(unitGroups(fromTable(QUARTERS) as ChartAttributes)).toEqual([
+      { series: [0, 1], unit: null },
+    ]);
+    const dollars = fromTable([
+      [head("Quarter"), head("2024"), head("2025")],
+      [cell("Q1"), cell("$289.4 million"), cell("$341.5 million")],
+      [cell("Q2"), cell("$301.2 million"), cell("$362.0 million")],
+    ]) as ChartAttributes;
+    expect(unitGroups(dollars)).toEqual([
+      { series: [0, 1], unit: { kind: "currency", code: "USD" } },
+    ]);
+  });
+
+  test("two units make two charts, each naming its unit", () => {
+    expect(unitGroups(fromTable(MIXED) as ChartAttributes)).toEqual([
+      { series: [0], unit: { kind: "percent" } },
+      { series: [1], unit: { kind: "times" } },
+    ]);
+  });
+
+  test("three units make a chart each", () => {
+    const chart = fromTable([
+      [head("Quarter"), head("Gross margin"), head("Leverage"), head("Revenue")],
+      [cell("Q1"), cell("41.2%"), cell("2.8x"), cell("$1.2 million")],
+      [cell("Q2"), cell("42.0%"), cell("2.5x"), cell("$1.4 million")],
+    ]) as ChartAttributes;
+    expect(unitGroups(chart)).toEqual([
+      { series: [0], unit: { kind: "percent" } },
+      { series: [1], unit: { kind: "times" } },
+      { series: [2], unit: { kind: "currency", code: "USD" } },
+    ]);
+  });
+
+  test("a pie or a scatter chart is one chart, its series read together", () => {
+    const pie = { ...(fromTable(MIXED) as ChartAttributes), kind: "pie" as const };
+    expect(unitGroups(pie)).toEqual([{ series: [1], unit: null }]);
+    const scatter = { ...(fromTable(MIXED) as ChartAttributes), kind: "scatter" as const };
+    expect(unitGroups(scatter)).toEqual([{ series: [0, 1], unit: null }]);
+  });
+
+  test("a switch that would draw a row's two units as one series can't be made", () => {
+    const chart = fromTable(MIXED) as ChartAttributes;
+    expect(canSwitch(chart)).toBe(false);
+    expect(switchedChart(chart)).toBeNull();
+
+    const sameUnit = fromTable(QUARTERS) as ChartAttributes;
+    expect(canSwitch(sameUnit)).toBe(true);
+  });
+
+  test("says why a mixed-unit chart can't switch, and only that case", () => {
+    expect(switchMixesUnits(fromTable(MIXED) as ChartAttributes)).toBe(true);
+    expect(switchMixesUnits(fromTable(QUARTERS) as ChartAttributes)).toBe(false);
+  });
+
+  test("a chart already drawn as mixed series may still switch to one that keeps them apart", () => {
+    const mixed = fromTable(MIXED) as ChartAttributes;
+    const old = {
+      ...mixed,
+      data: switchedData(mixed.data) as ChartAttributes["data"],
+      source: { kind: "table" as const, blockId: "table-1", switched: true },
+    };
+    expect(unitGroups(old)).toEqual([{ series: [0, 1], unit: null }]);
+    expect(canSwitch(old)).toBe(true);
+    const fixed = switchedChart(old);
+    expect(fixed?.data.series).toEqual(["Gross margin", "Net debt / EBITDA"]);
+    expect(unitGroups({ ...old, ...fixed } as ChartAttributes)).toEqual([
+      { series: [0], unit: { kind: "percent" } },
+      { series: [1], unit: { kind: "times" } },
+    ]);
+  });
+});
+
+interface Words {
+  head: readonly string[];
+  rows: readonly (readonly string[])[];
+}
+
+const tableChart = (table: Words, language: string): ChartAttributes =>
+  fromTable(
+    [table.head.map(head), ...table.rows.map((row) => row.map((text) => cell(text)))],
+    language,
+  ) as ChartAttributes;
+
+const drawnOf = (chart: ChartAttributes) => chartPoints(chart).map((point) => point.value.value);
+
+const panelUnits = (chart: ChartAttributes) =>
+  unitGroups(chart).map((group) => group.unit?.kind ?? null);
+
+interface SwitchCase {
+  name: string;
+  en: Words;
+  zh: Words;
+  /** What the chart draws as it stands, and each panel's unit. */
+  before: { drawn: number[]; panels: (string | null)[] };
+  /** What the Switch would draw; null when it is refused and nothing changes. */
+  after: { drawn: number[]; panels: (string | null)[] } | null;
+}
+
+const PERCENT_AND_BARE: SwitchCase = {
+  name: "a percent beside a bare number",
+  en: { head: ["Metric", "Margin", "Leverage"], rows: [["Q1", "41.2%", "2.8"]] },
+  zh: { head: ["指标", "毛利率", "杠杆"], rows: [["一季度", "41.2%", "2.8"]] },
+  before: { drawn: [0.412, 2.8], panels: ["percent", null] },
+  after: null,
+};
+
+/**
+ * A Switch is decided on every value a row would draw (#1392): a row whose
+ * numbers don't share one unit refuses it, a bare number counting as its own.
+ * Each case runs in English and Simplified Chinese, the same table and answer.
+ */
+const SWITCH_CASES: readonly SwitchCase[] = [
+  PERCENT_AND_BARE,
+  {
+    name: "bare numbers outnumbering their column's unit",
+    en: {
+      head: ["Metric", "Margin", "Leverage"],
+      rows: [
+        ["Q1", "41.2%", "2.8"],
+        ["Q2", "39.0", "3.1"],
+        ["Q3", "38.1", "3.4"],
+      ],
+    },
+    zh: {
+      head: ["指标", "毛利率", "杠杆"],
+      rows: [
+        ["一季度", "41.2%", "2.8"],
+        ["二季度", "39.0", "3.1"],
+        ["三季度", "38.1", "3.4"],
+      ],
+    },
+    before: { drawn: [0.412, 39, 38.1, 2.8, 3.1, 3.4], panels: ["percent", null] },
+    after: null,
+  },
+  {
+    name: "a percent beside times",
+    en: { head: ["Metric", "Margin", "Leverage"], rows: [["Q1", "41.2%", "2.8 times"]] },
+    zh: { head: ["指标", "毛利率", "杠杆"], rows: [["一季度", "41.2%", "2.8倍"]] },
+    before: { drawn: [0.412, 2.8], panels: ["percent", "times"] },
+    after: null,
+  },
+  {
+    name: "a percent beside percentage points",
+    en: {
+      head: ["Metric", "Margin", "Change"],
+      rows: [["Q1", "41.2%", "2.8 percentage points"]],
+    },
+    zh: {
+      head: ["指标", "毛利率", "变动"],
+      rows: [["一季度", "41.2%", "2.8个百分点"]],
+    },
+    before: { drawn: [0.412, 0.028], panels: ["percent", "points"] },
+    after: null,
+  },
+  {
+    name: "a percent beside a percent",
+    en: {
+      head: ["Metric", "Margin", "Forward margin"],
+      rows: [["Q1", "41.2%", "42.0%"]],
+    },
+    zh: { head: ["指标", "毛利率", "预测毛利率"], rows: [["一季度", "41.2%", "42.0%"]] },
+    before: { drawn: [0.412, 0.42], panels: ["percent"] },
+    after: { drawn: [0.412, 0.42], panels: ["percent"] },
+  },
+  {
+    name: "bare numbers only",
+    en: { head: ["Metric", "Margin", "Leverage"], rows: [["Q1", "2.8", "3.1"]] },
+    zh: { head: ["指标", "毛利率", "杠杆"], rows: [["一季度", "2.8", "3.1"]] },
+    before: { drawn: [2.8, 3.1], panels: [null] },
+    after: { drawn: [2.8, 3.1], panels: [null] },
+  },
+  {
+    name: "one currency in two scales",
+    en: {
+      head: ["Metric", "Revenue", "Cost"],
+      rows: [["Q1", "$289.4 million", "$341.5"]],
+    },
+    zh: { head: ["指标", "营业收入", "成本"], rows: [["一季度", "$289.4 million", "$341.5"]] },
+    before: { drawn: [289_400_000, 341.5], panels: ["currency"] },
+    after: { drawn: [289_400_000, 341.5], panels: ["currency"] },
+  },
+];
+
+for (const { name, en, zh, before, after } of SWITCH_CASES) {
+  for (const [language, table] of [
+    ["en", en],
+    ["zh-CN", zh],
+  ] as const) {
+    test(`${language}: ${name} decides the Switch on every value the row would draw`, () => {
+      const chart = tableChart(table, language);
+      expect(drawnOf(chart)).toEqual(before.drawn);
+      expect(panelUnits(chart)).toEqual(before.panels);
+
+      expect(switchMixesUnits(chart)).toBe(after === null);
+      expect(canSwitch(chart)).toBe(after !== null);
+      expect(switchedChart(chart) === null).toBe(after === null);
+      if (after === null) return;
+
+      const switched = switchedChart(chart);
+      expect(switched).not.toBeNull();
+      if (!switched) return;
+      const afterChart: ChartAttributes = { ...chart, ...switched };
+      expect(drawnOf(afterChart)).toEqual(after.drawn);
+      expect(panelUnits(afterChart)).toEqual(after.panels);
+      // An allowed Switch draws every value the rows hold: none is left out for want of a unit.
+      const hidden = afterChart.data.series.flatMap((_, series) => [
+        ...unitlessRows(afterChart.data, series),
+      ]);
+      expect(hidden).toEqual([]);
+    });
+  }
+}
+
+for (const [language, table] of [
+  ["en", PERCENT_AND_BARE.en],
+  ["zh-CN", PERCENT_AND_BARE.zh],
+] as const) {
+  test(`${language}: a chart already stored as the mixed series still switches back to one chart per unit`, () => {
+    const chart = tableChart(table, language);
+    const stored: ChartAttributes = {
+      ...chart,
+      data: switchedData(chart.data) as ChartAttributes["data"],
+      source: { kind: "table", blockId: "table-1", switched: true },
+    };
+    expect(canSwitch(stored)).toBe(true);
+    const back = switchedChart(stored);
+    expect(back).not.toBeNull();
+    if (!back) return;
+    expect(drawnOf({ ...stored, ...back })).toEqual([0.412, 2.8]);
+    expect(panelUnits({ ...stored, ...back })).toEqual(["percent", null]);
+  });
+}
 
 const YEARS_BY_METRICS: SourceGrid = [
   [head("Metric"), head("2023"), head("2024"), head("2025")],
@@ -941,5 +1190,178 @@ describe("switching a chart's rows and columns", () => {
     expect(seriesName(down, 0, say)).toBe("2023");
     const stored = readChart(JSON.parse(JSON.stringify(across)) as Record<string, unknown>);
     expect(stored.source).toEqual({ kind: "table", blockId: "table-1", switched: true });
+  });
+});
+
+describe("an Analysis's own values in a chart (#2378)", () => {
+  const byDocument = (documentId: string, documentName: string, page: number): Citation => ({
+    passageId: "passage",
+    documentId,
+    documentName,
+    contentHash: "hash",
+    pageFrom: page,
+    pageTo: page,
+    location: { kind: "page", from: page, to: page },
+    quote: `Revenue on page ${page}`,
+    check: "found",
+    checkReason: null,
+  });
+  const orders = byDocument("orders", "Orders", 1);
+  const regions = byDocument("regions", "Regions", 2);
+  const own = byDocument("notebook", "Note book", 3);
+
+  const match = (
+    citations: Citation[],
+    value: (row: number, column: number) => number | null,
+    grid: string[][] = [],
+  ): AnalysisTableMatch => ({ grids: [grid], numeric: [], citations, value });
+
+  const table = (rows: string[][]): NodeJSON => ({
+    type: "table",
+    content: rows.map((line, at) => ({
+      type: "tableRow",
+      content: line.map((text) => ({
+        type: at === 0 ? "tableHeader" : "tableCell",
+        content: [{ type: "paragraph", content: text === "" ? [] : [{ type: "text", text }] }],
+      })),
+    })),
+  });
+
+  const chartOf = (grid: SourceGrid) =>
+    chartFromTable(grid, {
+      blockId: "table-1",
+      title: "Amounts",
+      language: "en",
+    }) as ChartAttributes | null;
+
+  test("draws the Analysis's own value, never the number its rounded display reads as", () => {
+    const grid = withAnalysisValues(
+      gridOfTable(
+        table([
+          ["Region", "Amount"],
+          ["Central", "8,325"],
+          ["North", "9,450"],
+        ]),
+      ),
+      match([orders], (row, column) => (column === 1 ? ([8325.4, 9450][row] ?? null) : null)),
+    );
+    const chart = chartOf(grid);
+    if (!chart) throw new Error("The table drew no chart.");
+    expect(chart.data.rows.map((row) => row.values[0]?.value)).toEqual([8325.4, 9450]);
+    expect(chart.data.rows.map((row) => row.values[0]?.shown)).toEqual(["8,325", "9,450"]);
+  });
+
+  test("cites every input the Analysis read first, then the cell's own text Citation", () => {
+    const quoted = table([
+      ["Region", "Amount"],
+      ["Central", "8,325"],
+      ["North", "9,450"],
+    ]);
+    const withOwn = gridOfTable(quoted).map((row) =>
+      row.map((cell) => (cell && !cell.header ? { ...cell, citation: own } : cell)),
+    );
+    // The cell's own Citation is for its words, not for the Analysis's number: an Update reads it fresh.
+    const grid = withAnalysisValues(
+      withOwn,
+      match([orders, regions], (row, column) =>
+        column === 1 ? ([8325, 9450][row] ?? null) : null,
+      ),
+    );
+    const chart = chartOf(grid);
+    if (!chart) throw new Error("The table drew no chart.");
+    const value = chart.data.rows[0]?.values[0];
+    // The Analysis's inputs are kept apart; the cell's own Citation stays the value's own text's.
+    expect(value?.citation).toEqual(own);
+    expect(value?.inputs).toEqual([orders, regions]);
+    expect(value && valueCitations(value)).toEqual([orders, regions, own]);
+    expect(chartSources(chart)).toMatchObject({ uncited: 0, documents: 3 });
+  });
+
+  test("counts every Citation a value carries, so an export names each Document", () => {
+    const grid = withAnalysisValues(
+      gridOfTable(
+        table([
+          ["Region", "Amount"],
+          ["Central", "8,325"],
+          ["North", "9,450"],
+        ]),
+      ),
+      match([orders, regions], (row, column) =>
+        column === 1 ? ([8325, 9450][row] ?? null) : null,
+      ),
+    );
+    const chart = chartOf(grid);
+    if (!chart) throw new Error("The table drew no chart.");
+    const value = chart.data.rows[0]?.values[0];
+    if (!value) throw new Error("The chart has no value.");
+    expect(valueCitations(value)).toEqual([orders, regions]);
+    expect(chartSources(chart)).toMatchObject({ uncited: 0, documents: 2 });
+  });
+
+  test("reads every Citation a cell holds, not only its first, from its own text", () => {
+    const cell: NodeJSON = {
+      type: "tableCell",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "289.4" },
+            { type: "citation", attrs: { ...orders, id: "c1" } },
+            { type: "citation", attrs: { ...regions, id: "c2" } },
+          ],
+        },
+      ],
+    };
+    const line = sourceLineOf(cell);
+    expect(line.citation).toEqual(orders);
+    expect(line.citations).toEqual([orders, regions]);
+    const chart = chartOf(
+      gridOfTable({
+        type: "table",
+        content: [
+          {
+            type: "tableRow",
+            content: [
+              { type: "tableHeader", content: [{ type: "paragraph" }] },
+              {
+                type: "tableHeader",
+                content: [{ type: "paragraph", content: [{ type: "text", text: "Amount" }] }],
+              },
+            ],
+          },
+          {
+            type: "tableRow",
+            content: [
+              {
+                type: "tableCell",
+                content: [{ type: "paragraph", content: [{ type: "text", text: "A" }] }],
+              },
+              cell,
+            ],
+          },
+        ],
+      }),
+    );
+    if (!chart) throw new Error("The table drew no chart.");
+    expect(chart.data.rows[0]?.values[0]?.citations).toEqual([orders, regions]);
+    expect(chartSources(chart).documents).toBe(2);
+  });
+
+  test("keeps a bare year in a year column out, even when the Analysis gives it as a number", () => {
+    const quoted = table([
+      ["Company", "Listed", "Employees"],
+      ["A", "1999", "150"],
+      ["B", "2005", "40"],
+    ]);
+    const grid = withAnalysisValues(
+      gridOfTable(quoted),
+      match([orders], (row, column) =>
+        column === 1 ? ([1999, 2005][row] ?? null) : column === 2 ? ([150, 40][row] ?? null) : null,
+      ),
+    );
+    const chart = chartOf(grid);
+    if (!chart) throw new Error("The table drew no chart.");
+    expect(chart.data.series).toEqual(["Employees"]);
+    expect(chart.data.rows.map((row) => row.values[0]?.value)).toEqual([150, 40]);
   });
 });

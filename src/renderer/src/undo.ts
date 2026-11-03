@@ -26,6 +26,12 @@ export interface Undoable {
    */
   undoneNote?(): Words | null;
   /**
+   * What the line says, with Redo, once it is taken back, when that took away something the User
+   * may not be looking at: "Removed 7 Documents". A ⌘Z can reach it long after it was made, from
+   * a note. Null: it took nothing away, so there is nothing to do again either.
+   */
+  takenBack?(): WordsInLine | null;
+  /**
    * Where its line shows, when that is where the User acted rather than the
    * sidebar's foot: under an Answer in the assistant (`answerUndoPlace`).
    */
@@ -88,17 +94,41 @@ export interface UndoProblem {
 }
 
 export type UndoLineState =
-  | { id: number; change: Undoable; problem?: undefined; note?: undefined; told?: undefined }
-  | { id: number; problem: UndoProblem; change?: undefined; note?: undefined; told?: undefined }
+  | {
+      id: number;
+      change: Undoable;
+      problem?: undefined;
+      note?: undefined;
+      shownAt?: undefined;
+      told?: undefined;
+    }
+  | {
+      id: number;
+      problem: UndoProblem;
+      shownAt?: string;
+      change?: undefined;
+      note?: undefined;
+      told?: undefined;
+    }
   | {
       id: number;
       note: Words;
       busy?: boolean;
+      shownAt?: string;
       change?: undefined;
       problem?: undefined;
       told?: undefined;
     }
-  | { id: number; told: ToldLine; change?: undefined; problem?: undefined; note?: undefined };
+  | {
+      id: number;
+      told: ToldLine;
+      /** The change its Redo does again, when it says what an Undo took away. */
+      redoes?: Undoable;
+      shownAt?: undefined;
+      change?: undefined;
+      problem?: undefined;
+      note?: undefined;
+    };
 
 interface UndoState {
   /** The changes ⌘Z takes back, the last one last. */
@@ -109,12 +139,28 @@ interface UndoState {
   line: UndoLineState | null;
   /** The step being taken now, off both stacks until it ends: a key pressed meanwhile waits its turn. */
   running: { step: "undo" | "redo"; change: Undoable } | null;
+  /**
+   * How many changes are being made in turn now, each of which goes on the stack once it lands: a
+   * ⌘Z pressed meanwhile is offered, and waits for them (`makeInTurn`).
+   */
+  making: number;
+  /** The places showing their own undo line now (`UndoLineAt`), each once for every time it shows. */
+  places: readonly string[];
+  /** Says a place shows its own undo line, until the function it returns is called. */
+  showPlace(place: string): () => void;
   /** Puts a change just made on the stack and shows its line; nothing more can be redone. */
   push(change: Undoable): void;
+  /** Tracks an existing change without showing a new line or clearing Redo. */
+  offer(change: Undoable): void;
   /** Shows a line that isn't a change, in place of what shows, as after a tab closes. */
   tell(line: ToldLine): void;
-  undo(): Promise<void>;
-  redo(): Promise<void>;
+  undo(change?: Undoable): Promise<void>;
+  redo(change?: Undoable): Promise<void>;
+  /**
+   * A change was taken back, or done again, where it was made rather than here, as a note's own
+   * ⌘Z takes back its step: it moves to the other stack, so ⌘Z and ⇧⌘Z here go on from there.
+   */
+  follow(change: Undoable, step: "undo" | "redo"): void;
   /** Takes a change off the stack, once it can't be taken back here any more. */
   withdraw(change: Undoable): void;
   /** Hides the line; the stack stays. */
@@ -130,9 +176,31 @@ interface UndoState {
 export const nextToUndo = ({ done, running }: Pick<UndoState, "done" | "running">) =>
   running?.step === "redo" ? running.change : done.at(-1);
 
+/**
+ * Whether ⌘Z has something to take back now: a change done, one being done again, or one still
+ * being made.
+ */
+export const undoReady = ({
+  done,
+  making,
+  running,
+}: Pick<UndoState, "done" | "making" | "running">) =>
+  making > 0 || nextToUndo({ done, running }) !== undefined;
+
 /** What ⇧⌘Z does again next, once the step being taken now has ended: a change being taken back is. */
 export const nextToRedo = ({ undone, running }: Pick<UndoState, "undone" | "running">) =>
   running?.step === "undo" && running.change.redo ? running.change : undone.at(-1);
+
+/**
+ * Where the line shows: the place its change showed its line (`Undoable.shownAt`), or null for the
+ * sidebar's foot. A problem or a note whose place no `UndoLineAt` shows goes to the sidebar's foot,
+ * so what happened is never out of sight: an Answer has no place for them, and a setup card or a
+ * Settings page may have closed.
+ */
+export function lineShownAt({ line, places }: Pick<UndoState, "line" | "places">): string | null {
+  const place = line?.change?.shownAt ?? line?.shownAt ?? null;
+  return (line?.problem || line?.note) && place !== null && !places.includes(place) ? null : place;
+}
 
 /** How long the line shows before it goes by itself. */
 export const UNDO_SHOWN_MS = 10_000;
@@ -142,6 +210,24 @@ export const SLOW_CHANGE_MS = 1_000;
 
 let lines = 0;
 const lineOf = (change: Undoable): UndoLineState => ({ id: ++lines, change });
+
+const takenBackLine = (change: Undoable, says: WordsInLine): UndoLineState => ({
+  id: ++lines,
+  redoes: change,
+  told: {
+    says,
+    action: {
+      label: (t) => t("menu.redo"),
+      shortcut: "edit.redo",
+      testId: "redo-action",
+      run: () => {
+        // An edit since may have ended what can be redone, under the line still showing.
+        if (useUndo.getState().undone.includes(change)) void useUndo.getState().redo(change);
+        else useUndo.getState().dismiss();
+      },
+    },
+  },
+});
 
 /** Undo and redo run one at a time, in the order asked, so a held ⌘Z steps back change by change. */
 let queue: Promise<void> = Promise.resolve();
@@ -154,11 +240,20 @@ const inTurn = <T>(step: () => Promise<T>): Promise<T> => {
   return turn;
 };
 
+/** Waits for the app's already-queued Undo and Redo transitions, before an Answer is regenerated. */
+export const undoSettled = (): Promise<void> => queue;
+
 /**
  * Makes a change that goes on the stack once it is done, in turn with Undo and Redo: a ⌘Z
  * pressed while it runs waits for it, then takes it back, never an earlier change.
  */
-export const makeInTurn = <T>(make: () => Promise<T>): Promise<T> => inTurn(make);
+export const makeInTurn = <T>(make: () => Promise<T>): Promise<T> => {
+  useUndo.setState((state) => ({ making: state.making + 1 }));
+  const made = inTurn(make);
+  const landed = () => useUndo.setState((state) => ({ making: state.making - 1 }));
+  made.then(landed, landed);
+  return made;
+};
 
 export const useUndo = create<UndoState>()((set, get) => {
   /**
@@ -191,6 +286,7 @@ export const useUndo = create<UndoState>()((set, get) => {
             },
           },
         },
+        ...(change.shownAt && { shownAt: change.shownAt }),
       },
     }));
   };
@@ -200,59 +296,99 @@ export const useUndo = create<UndoState>()((set, get) => {
     undone: [],
     line: null,
     running: null,
+    making: 0,
+    places: [],
+    showPlace(place) {
+      set((state) => ({ places: [...state.places, place] }));
+      return () =>
+        set((state) => {
+          const at = state.places.indexOf(place);
+          return { places: state.places.filter((_, index) => index !== at) };
+        });
+    },
     push(change) {
       // A command offers the change its action already offered.
       if (get().done.at(-1) === change) return;
       set((state) => ({ done: [...state.done, change], undone: [], line: lineOf(change) }));
     },
+    offer(change) {
+      if (get().done.includes(change) || get().undone.includes(change)) return;
+      set((state) => ({ done: [...state.done, change] }));
+    },
     tell(line) {
       set({ line: { id: ++lines, told: line } });
     },
-    undo: () =>
+    undo: (wanted) =>
       inTurn(async () => {
-        const change = get().done.at(-1);
-        if (!change) return;
+        const change = wanted ?? get().done.at(-1);
+        if (!change || !get().done.includes(change)) return;
         set((state) => ({
-          done: state.done.slice(0, -1),
+          done: state.done.filter((each) => each !== change),
           line: null,
           running: { step: "undo", change },
         }));
         try {
           await change.undo();
         } catch (error) {
+          if (get().running?.change !== change) return;
           set({ running: null });
           refused("undo", change, error);
           return;
         }
+        if (get().running?.change !== change) return;
         const note = change.undoneNote?.() ?? null;
+        const takenBack = change.takenBack?.() ?? null;
+        const tookNothing = change.takenBack !== undefined && takenBack === null;
         set((state) => ({
-          undone: change.redo ? [...state.undone, change] : [],
+          undone: tookNothing ? state.undone : change.redo ? [...state.undone, change] : [],
           running: null,
-          ...(note && { line: { id: ++lines, note } }),
+          ...(note
+            ? { line: { id: ++lines, note, ...(change.shownAt && { shownAt: change.shownAt }) } }
+            : change.redo && takenBack && { line: takenBackLine(change, takenBack) }),
         }));
       }),
-    redo: () =>
+    redo: (wanted) =>
       inTurn(async () => {
-        const change = get().undone.at(-1);
-        if (!change?.redo) return;
+        const change = wanted ?? get().undone.at(-1);
+        if (!change?.redo || !get().undone.includes(change)) return;
         set((state) => ({
-          undone: state.undone.slice(0, -1),
+          undone: state.undone.filter((each) => each !== change),
           line: null,
           running: { step: "redo", change },
         }));
         try {
           await change.redo();
         } catch (error) {
+          if (get().running?.change !== change) return;
           set({ running: null });
           refused("redo", change, error);
           return;
         }
+        if (get().running?.change !== change) return;
         set((state) => ({ done: [...state.done, change], running: null, line: lineOf(change) }));
       }),
+    follow(change, step) {
+      if (step === "undo" && get().done.includes(change)) {
+        set((state) => ({
+          done: state.done.filter((each) => each !== change),
+          undone: [...state.undone, change],
+          // ⇧⌘Z reaches this change now, not the one a line's Redo names.
+          ...((state.line?.change === change || (state.line?.told && state.line.redoes)) && {
+            line: null,
+          }),
+        }));
+      } else if (step === "redo" && get().undone.includes(change)) {
+        set((state) => ({
+          undone: state.undone.filter((each) => each !== change),
+          done: [...state.done, change],
+        }));
+      }
+    },
     withdraw(change) {
       set((state) => ({
         done: state.done.filter((each) => each !== change),
         undone: state.undone.filter((each) => each !== change),
+        ...(state.running?.change === change && { running: null }),
         ...(state.line?.change === change && { line: null }),
       }));
     },
@@ -286,6 +422,13 @@ export async function asOneStep(
     ...words,
     undo: async () => {
       for (const step of [...steps].reverse()) await step.undo();
+    },
+    // What any step couldn't take back as it was, such as a Meeting's audio (#1253), is said too.
+    undoneNote: () => {
+      const notes = steps.flatMap((step) => step.undoneNote?.() ?? []);
+      if (notes.length === 0) return null;
+      return (t) =>
+        notes.map((note) => note(t)).reduce((first, then) => t("undo.notes", { first, then }));
     },
     redo: async () => {
       for (const step of steps) await step.redo?.();
@@ -321,6 +464,18 @@ const NOT_TEXT = new Set([
   "reset",
   "submit",
 ]);
+
+/**
+ * Says a change is being made now, before it starts, so a long one shows at once; the line goes
+ * when `done` is called, unless something else has said since.
+ */
+export function showWorking(said: Words): () => void {
+  const shown = ++lines;
+  useUndo.setState({ line: { id: shown, note: said, busy: true } });
+  return () => {
+    if (useUndo.getState().line?.id === shown) useUndo.setState({ line: null });
+  };
+}
 
 /**
  * Makes a change; one that takes longer than a second says what it is doing on the undo line,

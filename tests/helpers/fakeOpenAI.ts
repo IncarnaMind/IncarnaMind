@@ -162,6 +162,8 @@ export interface FakeOpenAI {
   revokeStatus: number;
   /** How the model list answers: its models, or an HTTP status. */
   modelList: typeof ACCOUNT_MODELS | number;
+  /** When set, the model list is answered only once this settles. */
+  holdModelList: Promise<unknown> | null;
   /** How the Responses API answers a request with a valid token. */
   reply: ApiReply;
   /** How it answers a request for one model, by its id, in place of `reply`. */
@@ -175,6 +177,18 @@ export interface FakeOpenAI {
   /** The responses requests only (not the model list). */
   responses(): ApiRequest[];
 }
+
+/** Responses requests apart from the reply's change-claim judge. */
+export const answerResponses = (fake: FakeOpenAI): ApiRequest[] =>
+  fake
+    .responses()
+    .filter(
+      (request) =>
+        typeof request.body.instructions !== "string" ||
+        !request.body.instructions.startsWith(
+          "You check an AI assistant's reply against IncarnaMind's record",
+        ),
+    );
 
 /** What the User does on OpenAI's page, as the redirect back to the app says it. */
 export type Decision = { approve: Approval } | "decline";
@@ -338,6 +352,7 @@ export async function createFakeOpenAI(
       sendJson(response, 401, { error: { message: "Invalid token." } });
       return;
     }
+    await fake.holdModelList;
     if (typeof fake.modelList === "number") {
       sendJson(response, fake.modelList, { error: { message: "Unavailable." } });
       return;
@@ -458,6 +473,7 @@ export async function createFakeOpenAI(
     refreshRefusal: null,
     revokeStatus: 200,
     modelList: ACCOUNT_MODELS,
+    holdModelList: null,
     reply: { kind: "answer", text: ANSWER },
     replyFor: {},
     tamperIdToken: null,

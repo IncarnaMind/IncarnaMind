@@ -19,7 +19,7 @@
  * table changes: the renderer marks them "Example", and `remove` deletes both.
  */
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, rm } from "node:fs/promises";
+import { access, cp, mkdir, realpath, rm } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import * as Y from "yjs";
 import { withCitations } from "../shared/blockJson";
@@ -33,7 +33,7 @@ import {
   toMarkdown,
   topLevelBlocks,
 } from "./answers/blocks";
-import { markSentence } from "./answers/checks/sentences";
+import { markedSentences, markSentence } from "./answers/checks/sentences";
 import { markdownToBlocks } from "./answers/markdown";
 import {
   ANSWER_BLOCK,
@@ -41,6 +41,7 @@ import {
   CITATION_NODE,
   type CitationAttributes,
   type CitationRecheck,
+  type CitationToRecheck,
   type ClaimCheckAttributes,
   type Document,
   type ExampleGroup,
@@ -49,7 +50,6 @@ import {
   type MarkedCitation,
   type Mind,
   QUESTION_BLOCK,
-  type RecheckCitationInput,
 } from "./api";
 import { EXAMPLE_SETS, type ExampleCheck, type ExampleQuote, type ExampleSet } from "./exampleSets";
 import type { Language } from "./language";
@@ -117,7 +117,7 @@ export interface ExamplesOptions {
    * Conversation, quotes one of these Documents.
    */
   citationsRelyOn(documentIds: readonly string[], exceptMindId: string): boolean;
-  recheck(input: RecheckCitationInput): CitationRecheck;
+  cite(input: Pick<CitationToRecheck, "documentId" | "quote">): CitationRecheck;
   /** Pushes "examples.changed". */
   changed(examples: Examples): void;
   random?(): number;
@@ -125,6 +125,25 @@ export interface ExamplesOptions {
 
 /** An example's draft, as the Blocks it is written into its Mind as. */
 const draftBlocks = (set: ExampleSet): NodeJSON[] => (set.draft ? markdownToBlocks(set.draft) : []);
+
+/**
+ * What the default example's ready Answer can do now: be written with its checked Citations
+ * (`ready`); wait, because a Document it cites is still being read (`reading`); never be written,
+ * because a Document it cites couldn't be read (`unreadable`) or was deleted (`gone`); or there is
+ * no example to answer from (`absent`).
+ */
+export type ExampleReadyState =
+  | {
+      kind: "ready";
+      mindId: string;
+      question: string;
+      answer: string;
+      citations: MarkedCitation[];
+    }
+  | { kind: "reading"; document: string }
+  | { kind: "unreadable"; document: string }
+  | { kind: "gone"; document: string }
+  | { kind: "absent" };
 
 /** Each of the draft's Blocks as Markdown, as the Mind holds it: to tell whether the User changed it. */
 function draftMarkdown(set: ExampleSet): string[] {
@@ -201,6 +220,36 @@ export function createExamples(options: ExamplesOptions) {
   };
 
   /**
+   * The example's own ready Question (#123), while the credit paper is the one shown; null
+   * otherwise, as for the earlier version's tea example. The one the first open offers is
+   * `readyQuestion`, which names the User's own Document instead as soon as theirs is ready.
+   * `waitingFor` names the Document whose reading its Answer waits for, or null once it can be
+   * written; a Document that can't be read at all takes the Question away, so no press is needed
+   * to learn it (#2218).
+   */
+  const readyQuestion = (): { question: string; waitingFor: string | null } | null => {
+    const examples = stored(DEFAULT_GROUP);
+    const ready = examples && EXAMPLE_SETS[DEFAULT_GROUP][examples.language].ready;
+    if (!examples || !ready || !options.mindExists(examples.mindId)) return null;
+    if (!options.linkedFolderExists(examples.linkedFolderId)) return null;
+    const documents = options.documentsIn(examples.linkedFolderId);
+    let waitingFor: string | null = null;
+    for (const quote of ready.quotes) {
+      const document = documents.find((each) => each.name === quote.document);
+      // Deleted, or never listed: nothing will answer from it, so the Question goes with it. Never
+      // waited for, as a folder that never stops being scanned would leave it waiting for ever.
+      if (!document) return null;
+      // Its text is still being read: the Answer waits for it.
+      if (document.status === "queued" || document.status === "extracting") {
+        waitingFor ??= quote.document;
+        continue;
+      }
+      if (!hasText(document) || document.status === "no-text") return null;
+    }
+    return { question: ready.question, waitingFor };
+  };
+
+  /**
    * Each part while it exists: the Mind can be deleted, or the folder unlinked,
    * on its own. The default is the earlier version's tea example while there is
    * one and no credit paper.
@@ -221,32 +270,35 @@ export function createExamples(options: ExamplesOptions) {
         ...(group === DEFAULT_GROUP ? [] : [DEFAULT_GROUP]),
         ...order().filter((each) => each !== group),
       ],
-      ready: (!old && mind && EXAMPLE_SETS[group][mind.language].ready?.question) || null,
     };
   };
 
   /**
-   * The ready Question with its Answer and Citations (`askReadyQuestion`),
-   * checked against the Documents now; null while the credit paper isn't
-   * made or its Documents aren't all read.
+   * The ready Question with its Answer and Citations (`askExampleReadyQuestion`), checked
+   * against the Documents now, once every Document it cites has been read; otherwise why not
+   * (`readyQuestion` waits on this while the Documents are read).
    */
-  const readyAnswer = () => {
+  const readyState = (): ExampleReadyState => {
     const examples = stored(DEFAULT_GROUP);
     const ready = examples && EXAMPLE_SETS[DEFAULT_GROUP][examples.language].ready;
-    if (!examples || !ready || !options.mindExists(examples.mindId)) return null;
-    if (!options.linkedFolderExists(examples.linkedFolderId)) return null;
+    if (!examples || !ready || !options.mindExists(examples.mindId)) return { kind: "absent" };
+    if (!options.linkedFolderExists(examples.linkedFolderId)) return { kind: "absent" };
     const documents = options.documentsIn(examples.linkedFolderId);
     const citations: MarkedCitation[] = [];
     for (const [index, quote] of ready.quotes.entries()) {
       const document = documents.find((each) => each.name === quote.document);
-      if (!document || !hasText(document)) return null;
-      const result = options.recheck({
+      if (!document) return { kind: "gone", document: quote.document };
+      if (document.status === "queued" || document.status === "extracting") {
+        return { kind: "reading", document: quote.document };
+      }
+      if (!hasText(document)) return { kind: "unreadable", document: quote.document };
+      const result = options.cite({
         documentId: document.id,
-        pageFrom: null,
-        pageTo: null,
         quote: quote.quote,
       });
-      if (!result.passageId || !result.contentHash) return null;
+      if (!result.passageId || !result.contentHash) {
+        return { kind: "unreadable", document: quote.document };
+      }
       citations.push({
         marker: index + 1,
         passageId: result.passageId,
@@ -261,7 +313,13 @@ export function createExamples(options: ExamplesOptions) {
         checkReason: result.checkReason,
       });
     }
-    return { mindId: examples.mindId, question: ready.question, answer: ready.answer, citations };
+    return {
+      kind: "ready",
+      mindId: examples.mindId,
+      question: ready.question,
+      answer: ready.answer,
+      citations,
+    };
   };
 
   /** A Citation's attributes: what is known before it is checked, then the check's result. */
@@ -307,6 +365,7 @@ export function createExamples(options: ExamplesOptions) {
     documents: readonly Document[],
     folderId: string | null,
   ): void => {
+    const marked = markedSentences(blocks);
     for (const block of topLevelBlocks(blocks)) {
       if (block.nodeName !== "paragraph") continue;
       // A paragraph of the draft is one text, written without inline nodes.
@@ -324,8 +383,16 @@ export function createExamples(options: ExamplesOptions) {
         (each) => text.slice(each.from, each.to) === check.sentence,
       );
       if (!span) continue;
+      const earlier = marked.find(
+        (mark) => mark.element === block && mark.from === span.from,
+      )?.check;
       const attributes: ClaimCheckAttributes = {
-        id: randomUUID(),
+        // Written again once its Documents are read, the check keeps the identity it had, so a
+        // card the reader already opened stays open and shows what was found.
+        id:
+          earlier?.text === check.sentence && earlier.action === "check-against-documents"
+            ? earlier.id
+            : randomUUID(),
         request: randomUUID(),
         action: "check-against-documents",
         state: check.verdict,
@@ -373,10 +440,8 @@ export function createExamples(options: ExamplesOptions) {
       const document = named(quote) as Document;
       return {
         document,
-        result: options.recheck({
+        result: options.cite({
           documentId: document.id,
-          pageFrom: null,
-          pageTo: null,
           quote: quote.quote,
         }),
       };
@@ -412,16 +477,20 @@ export function createExamples(options: ExamplesOptions) {
     options.writeValue(valueKey(group), { ...examples, checked: true });
   };
 
+  /** Deletes the copies of an example's files, only those in the data folder. */
+  const removeCopies = async (folder: string): Promise<void> => {
+    const inside = relative(resolve(options.dataDir), resolve(folder));
+    if (inside !== "" && !inside.startsWith("..") && !inside.includes(":")) {
+      await rm(folder, { recursive: true, force: true });
+    }
+  };
+
   /** Unlinks an example's Documents and deletes the copies of their files. */
   const discardFiles = async (examples: StoredExamples): Promise<void> => {
     if (options.linkedFolderExists(examples.linkedFolderId)) {
       options.unlinkFolder(examples.linkedFolderId);
     }
-    // Only the copies the examples made, in the data folder: never anything else.
-    const inside = relative(resolve(options.dataDir), resolve(examples.folder));
-    if (inside !== "" && !inside.startsWith("..") && !inside.includes(":")) {
-      await rm(examples.folder, { recursive: true, force: true });
-    }
+    await removeCopies(examples.folder);
   };
 
   /**
@@ -516,6 +585,7 @@ export function createExamples(options: ExamplesOptions) {
     mindId: string,
     set: ExampleSet,
     folderId: string,
+    linkedFolderId: string,
     questionId: string,
     answerId: string,
   ) =>
@@ -548,6 +618,22 @@ export function createExamples(options: ExamplesOptions) {
       ]);
       // Unedited: regenerating it with a model of one's own replaces it in place.
       answer.setAttribute("generatedHash", contentHash(answer));
+      // The draft's verdict is written in advance, so its mark is on the page from the first
+      // frame: the Passage that decides it is added once the Documents are read (#2196). Its
+      // scope is the Mind's own Folder, as the check made later has, so the mark reads as the
+      // verdict it is rather than as one whose search scope changed.
+      const documents = options.documentsIn(linkedFolderId);
+      const scope = options.mindFolder(mindId);
+      for (const check of set.checks ?? []) {
+        const document = documents.find((each) => each.name === check.evidence.document);
+        markCheck(
+          blocks,
+          check,
+          citationAttributes(check.evidence, document, null),
+          documents,
+          scope,
+        );
+      }
     });
 
   const create = async (group: ExampleGroup = DEFAULT_GROUP): Promise<Examples> => {
@@ -566,7 +652,7 @@ export function createExamples(options: ExamplesOptions) {
     const mind = options.createMind(set.title);
     const questionId = randomUUID();
     const answerId = randomUUID();
-    populate(mind.id, set, linked.folderId, questionId, answerId);
+    populate(mind.id, set, linked.folderId, linked.id, questionId, answerId);
     options.writeValue(valueKey(group), {
       mindId: mind.id,
       linkedFolderId: linked.id,
@@ -623,10 +709,28 @@ export function createExamples(options: ExamplesOptions) {
     const sameFolder = resolve(examples.folder) === resolve(join(options.dataDir, set.folder));
     // A folder of the same name would mix the two languages' files: the old ones go first.
     if (sameFolder) await discardFiles(examples);
+    const madeHere = await access(join(options.dataDir, set.folder)).then(
+      () => false,
+      () => true,
+    );
     const { folder, linked } = await copyAndLink(source, set);
+    // Written in or deleted while the files were copied: it stays as the User left it (#2302).
+    if (
+      !options.mindExists(examples.mindId) ||
+      !untouched(examples, EXAMPLE_SETS[group][examples.language])
+    ) {
+      // Only what the switch made goes: a Linked folder of the User's that holds the copy is
+      // theirs, and so are files in a folder that was there before.
+      if (linked.path === (await realpath(folder))) options.unlinkFolder(linked.id);
+      if (madeHere) await removeCopies(folder);
+      return;
+    }
     const questionId = randomUUID();
     const answerId = randomUUID();
-    populate(examples.mindId, set, linked.folderId, questionId, answerId);
+    // The old Documents go before the example names the new folder, so nothing reads them as the
+    // User's own in between (#2084); nothing waits between the link and "changed" (#914).
+    if (!sameFolder) options.unlinkFolder(examples.linkedFolderId);
+    populate(examples.mindId, set, linked.folderId, linked.id, questionId, answerId);
     options.renameMind(examples.mindId, set.title);
     options.writeValue(valueKey(group), {
       mindId: examples.mindId,
@@ -637,11 +741,24 @@ export function createExamples(options: ExamplesOptions) {
       checked: false,
     } satisfies StoredExamples);
     options.changed(status(group));
-    // After "changed", not before: nothing may wait between linking the new folder and saying it
-    // is the example's, or its Documents are reported as the User's own (#914).
+    // Only the copies it made are left to remove: the folder is unlinked already.
     if (!sameFolder) await discardFiles(examples);
     checkWhenRead(group);
   };
+
+  // Made, removed, brought back and switched to another language one at a time: each copies
+  // files, and one run in that wait would act on an example the other is halfway through (#2302).
+  let queue: Promise<unknown> = Promise.resolve();
+  const inTurn =
+    <A extends unknown[], T>(work: (...args: A) => Promise<T>) =>
+    (...args: A): Promise<T> => {
+      const run = queue.then(
+        () => work(...args),
+        () => work(...args),
+      );
+      queue = run.catch(() => undefined);
+      return run;
+    };
 
   return {
     status,
@@ -664,9 +781,11 @@ export function createExamples(options: ExamplesOptions) {
       return example ? documentIdsOf(example) : null;
     },
 
-    create,
+    create: inTurn(create),
 
-    readyAnswer,
+    readyQuestion,
+
+    readyState,
 
     /**
      * The interface language changed (#709): each example the User hasn't
@@ -674,7 +793,7 @@ export function createExamples(options: ExamplesOptions) {
      * its Documents swapped. One they changed stays as it is, and so does one
      * whose Documents a check result (#819) or a Citation elsewhere relies on.
      */
-    async followLanguage(): Promise<void> {
+    followLanguage: inTurn(async (): Promise<void> => {
       const source = options.source;
       if (source === undefined) return;
       const language = options.language();
@@ -696,22 +815,22 @@ export function createExamples(options: ExamplesOptions) {
         }
         await switchLanguage(group, examples, source, language);
       }
-    },
+    }),
 
     /**
      * On a first run (no Mind yet, examples never offered): makes the credit
      * paper, once. Returns it, or null when nothing was made.
      */
-    async offer(hasMinds: boolean): Promise<Examples | null> {
+    offer: inTurn(async (hasMinds: boolean): Promise<Examples | null> => {
       if (options.source === undefined || options.readValue(OFFERED_VALUE) === true) return null;
       options.writeValue(OFFERED_VALUE, true);
       if (hasMinds) return null;
       return create(DEFAULT_GROUP);
-    },
+    }),
 
-    remove,
+    remove: inTurn(remove),
 
-    restore,
+    restore: inTurn(restore),
 
     /** A Document's status changed: the examples' Citations may now be checkable. */
     documentChanged() {

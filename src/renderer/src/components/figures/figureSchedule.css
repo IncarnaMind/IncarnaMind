@@ -1,0 +1,490 @@
+.figure-schedule {
+  container: figure-schedule / inline-size;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  color: var(--color-ink);
+  background: var(--color-sheet);
+  font-size: 13px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.figure-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.figure-table,
+.figure-table thead,
+.figure-table tbody {
+  display: block;
+  width: 100%;
+  border-collapse: collapse;
+}
+.figure-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.figure-grid > :is(td, th) {
+  padding: 0;
+  text-align: left;
+  font-weight: inherit;
+}
+.figure-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 16px 10px;
+}
+.figure-heading-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px;
+  align-items: center;
+}
+.figure-name {
+  grid-column: 1;
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+.figure-when {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 6px;
+  color: var(--color-ink-meta);
+}
+.figure-export {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.figure-sep {
+  color: var(--color-ink-placeholder);
+}
+.figure-live {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+.figure-text-button {
+  color: var(--color-accent-strong);
+}
+.figure-text-button:hover {
+  text-decoration: underline;
+}
+.figure-counts {
+  color: var(--color-ink-secondary);
+}
+.figure-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.figure-chip {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  color: var(--color-ink-secondary);
+  background: var(--color-sheet);
+  box-shadow: inset 0 0 0 1px var(--color-rule-strong);
+}
+.figure-chip:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+.figure-chip[aria-pressed="true"] {
+  background: var(--color-ink);
+  color: var(--color-sheet);
+  box-shadow: none;
+  font-weight: 600;
+}
+.figure-grid {
+  display: grid;
+  grid-template-columns:
+    20px minmax(96px, 1.1fr) minmax(70px, 0.8fr) minmax(120px, 1.4fr) minmax(84px, 0.9fr)
+    minmax(100px, 1fr) minmax(88px, 0.9fr) 24px;
+  grid-template-areas: "n fg val src df st by act" ". why why why why why why .";
+  column-gap: 10px;
+  padding: 0 12px 0 16px;
+  align-items: start;
+}
+.figure-columns {
+  height: 32px;
+  align-items: center;
+  border-top: 1px solid var(--color-rule);
+  border-bottom: 1px solid var(--color-rule);
+  background: var(--color-frame);
+  color: var(--color-ink-meta);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+}
+.figure-columns > * {
+  min-width: 0;
+}
+.figure-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.figure-sort:hover,
+.figure-sort[aria-pressed="true"] {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+.figure-row {
+  position: relative;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-rule);
+  cursor: default;
+}
+.figure-row:hover,
+.figure-row.has-menu {
+  background: var(--color-hover);
+}
+.figure-row.is-selected,
+.figure-row.is-selected:hover {
+  background: var(--color-accent-wash);
+}
+.figure-row[data-kid] {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  background: var(--color-frame);
+}
+.figure-row[data-kid]:hover {
+  background: var(--color-hover);
+}
+.figure-row[data-kid].is-selected {
+  background: var(--color-accent-wash);
+}
+.figure-number {
+  grid-area: n;
+  color: var(--color-ink-meta);
+  font-size: 12px;
+}
+.figure-main {
+  grid-area: fg;
+  min-width: 0;
+}
+.figure-row[data-kid] .figure-main {
+  padding-left: 22px;
+}
+.figure-main-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  min-width: 0;
+}
+.figure-main-button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.figure-row[data-kid] .figure-main-button {
+  font-weight: 400;
+  color: var(--color-ink-secondary);
+}
+.figure-place {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-ink-meta);
+}
+.figure-expand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: -6px;
+  border-radius: 4px;
+  color: var(--color-ink-meta);
+}
+.figure-expand:hover {
+  background: var(--color-tab-hover);
+  color: var(--color-ink);
+}
+.figure-expand svg {
+  width: 12px;
+  height: 12px;
+}
+.figure-expand[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+.figure-equals {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: var(--color-chip);
+  color: var(--color-ink-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+.figure-value {
+  grid-area: val;
+  white-space: nowrap;
+  color: var(--color-ink);
+}
+.figure-source {
+  grid-area: src;
+  min-width: 0;
+  color: var(--color-ink-secondary);
+}
+.figure-link {
+  display: flex;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--color-accent-strong);
+  text-align: left;
+}
+.figure-link-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.figure-link-place {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink-meta);
+}
+.figure-formula {
+  display: block;
+  font-size: 12px;
+  color: var(--color-ink-meta);
+}
+.figure-difference {
+  grid-area: df;
+  color: var(--color-ink-secondary);
+}
+.figure-delta {
+  color: var(--color-warning);
+  font-weight: 600;
+}
+.figure-dash {
+  color: var(--color-ink-placeholder);
+}
+.figure-status {
+  grid-area: st;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.figure-columns .figure-status {
+  display: block;
+}
+.figure-glyph {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 12px;
+  height: 20px;
+  font-weight: 700;
+}
+.figure-glyph[data-glyph="supported"] {
+  color: var(--color-success);
+}
+.figure-glyph[data-glyph="look"] {
+  color: var(--color-warning);
+}
+.figure-glyph[data-glyph="recheck"],
+.figure-glyph[data-glyph="kept"] {
+  color: var(--color-ink-meta);
+}
+.figure-glyph[data-glyph="not-checked"]::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--color-ink-meta);
+}
+.figure-status-words {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.figure-status-word {
+  color: var(--color-ink-secondary);
+}
+.figure-row:is([data-state="look"], [data-state="recheck"]) .figure-status-word {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.figure-why-word {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-warning);
+}
+/* The User's own check (#1933): a person's, in ink, never a check's colours. */
+.figure-checked-by {
+  grid-area: by;
+  min-width: 0;
+  color: var(--color-ink-secondary);
+}
+.figure-checked-by[data-state="changed"] {
+  color: var(--color-ink-meta);
+}
+.figure-actions {
+  grid-area: act;
+  display: flex;
+  justify-content: flex-end;
+}
+.figure-more {
+  width: 24px;
+  height: 24px;
+  margin-top: -2px;
+  opacity: 0;
+}
+.figure-row:is(:hover, :focus-within, .is-selected, .has-menu) .figure-more {
+  opacity: 1;
+}
+.figure-why {
+  grid-area: why;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--color-warning-wash);
+  color: var(--color-ink);
+}
+.figure-why-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.figure-why-more {
+  padding-left: 20px;
+  color: var(--color-ink-secondary);
+}
+.figure-empty {
+  margin: 0;
+  padding: 24px 16px;
+  color: var(--color-ink-meta);
+}
+.figure-row.is-omitted .figure-main-button,
+.figure-row.is-omitted .figure-value {
+  color: var(--color-warning);
+}
+.figure-link:hover .figure-link-name {
+  text-decoration: underline;
+}
+/* Without room for its own column, who checked a figure is a line of its row, as on a phone. */
+@container figure-schedule (max-width: 759px) {
+  .figure-grid {
+    grid-template-columns:
+      20px minmax(96px, 1.1fr) minmax(70px, 0.8fr) minmax(120px, 1.4fr) minmax(84px, 0.9fr)
+      minmax(100px, 1fr) 24px;
+    grid-template-areas: "n fg val src df st act" ". by by by by by ." ". why why why why why .";
+  }
+  .figure-columns {
+    grid-template-areas: "n fg val src df st act";
+  }
+  .figure-columns .figure-checked-by,
+  .figure-row .figure-checked-by.is-empty {
+    display: none;
+  }
+  .figure-row .figure-checked-by::before {
+    content: attr(data-label) " ";
+    margin-right: 4px;
+    color: var(--color-ink-meta);
+    font-size: 12px;
+  }
+}
+@container figure-schedule (max-width: 619px) {
+  .figure-grid {
+    grid-template-columns: 20px minmax(0, 1fr) auto 24px;
+    grid-template-areas: "n fg st act" ". val df df" ". src src src" ". by by by" ". why why why";
+    column-gap: 8px;
+    row-gap: 2px;
+    padding-left: 12px;
+    padding-right: 8px;
+  }
+  .figure-columns {
+    grid-template-areas: "n fg st act";
+  }
+  .figure-columns :is(.figure-value, .figure-source, .figure-difference) {
+    display: none;
+  }
+  .figure-status {
+    justify-self: end;
+    text-align: right;
+  }
+  .figure-status-words {
+    align-items: flex-end;
+  }
+  .figure-row .figure-value::before,
+  .figure-row:not([data-kid]) .figure-difference::before,
+  .figure-row:not([data-kid]) .figure-source.is-empty::before {
+    content: attr(data-label) " ";
+    margin-right: 4px;
+    color: var(--color-ink-meta);
+    font-size: 12px;
+  }
+  .figure-row[data-kid] :is(.figure-difference, .figure-source.is-empty) {
+    display: none;
+  }
+  .figure-heading {
+    padding: 12px 12px 8px;
+  }
+}
+@container figure-schedule (max-width: 420px) {
+  .figure-row {
+    grid-template-areas:
+      "n fg st act" ". val val val" ". df df df" ". src src src" ". by by by"
+      ". why why why";
+  }
+  .figure-heading-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .figure-export {
+    grid-column: 1;
+    grid-row: 3;
+    justify-self: start;
+    margin-top: 6px;
+  }
+}

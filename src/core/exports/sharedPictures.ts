@@ -5,12 +5,11 @@
  * twice a card's width, so the crop stays sharp on a high-density screen.
  */
 import type * as Y from "yjs";
-import type { DrawnPage, PageBox, PageText } from "../../shared/citedPage";
+import { type DrawnPage, type PageBox, type PageText, quoteBoxes } from "../../shared/citedPage";
 import { anchorsOf, type UnitText } from "../../shared/units";
 import type { CitationAttributes, CitationCheck } from "../api";
 import { citedPageKey } from "../citedPages";
 import startPictureWorker from "./pictureWorker?nodeWorker";
-import { quoteBoxes } from "./sourcePack";
 
 const MAX_WIDTH = 1600;
 const WORKER_TIMEOUT_MS = 120_000;
@@ -70,7 +69,7 @@ export function planPicture(
   const kind = picturedKind(attributes);
   if (!kind || check === "not-found") return null;
   const read = page.text.length > 0 ? page : { ...page, text: scannedText(page, units) };
-  const marks = quoteBoxes(read, attributes) ?? [];
+  const marks = quoteBoxes(read, attributes.quote, attributes.location) ?? [];
   if (kind === "page" && marks.length === 0) return null;
   const area = kind === "slide" ? wholeOf(page) : cropAround(read, marks, pagesOf(attributes));
   const scale = Math.min(1, MAX_WIDTH / area.width);

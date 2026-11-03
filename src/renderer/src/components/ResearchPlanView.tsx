@@ -8,7 +8,7 @@ import { useAppStore } from "../store";
 import { CheckLineIcon, SearchLineIcon } from "./lineIcons";
 import { buttonStyle } from "./ui";
 
-/** The plan as it runs, asked again as the Task moves on. */
+/** The plan, asked again as the Task moves on; done, it stays as it ran. */
 function usePlan(task: Task): Plan | null {
   const [plan, setPlan] = useState<Plan | null>(null);
   const report = useAppStore((state) => state.reportError);

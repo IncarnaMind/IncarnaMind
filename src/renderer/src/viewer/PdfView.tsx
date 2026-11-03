@@ -13,7 +13,9 @@ import {
   useState,
 } from "react";
 import type { Document } from "../../../core/api";
+import { readPdfPageText } from "../../../shared/pdfFormText";
 import { findQuoteInPages, lostLigatures, type TextPiece } from "../../../shared/quoteMatch";
+import { DocumentFix } from "../components/DocumentFix";
 import { core } from "../core";
 import { useT } from "../i18n";
 import { useAppStore, type ViewerTarget } from "../store";
@@ -212,12 +214,24 @@ export function PdfView({
         <>
           <ViewerHeader onRetry={retry} />
           {banner}
-          <ViewerMessage
-            tone="error"
-            action={{ label: t("documents.retryAction"), testId: "viewer-retry", onClick: retry }}
-          >
-            <span title={loaded.message}>{t("viewer.pdf.failed")}</span>
-          </ViewerMessage>
+          <DocumentFix
+            document={document}
+            view
+            message={loaded.message}
+            reload={reopen}
+            fallback={
+              <ViewerMessage
+                tone="error"
+                action={{
+                  label: t("documents.retryAction"),
+                  testId: "viewer-retry",
+                  onClick: retry,
+                }}
+              >
+                <span title={loaded.message}>{t("viewer.pdf.failed")}</span>
+              </ViewerMessage>
+            }
+          />
         </>
       );
     case "ready":
@@ -301,10 +315,17 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
   /** The open request whose highlight the view should move to once it is drawn. */
   const pendingHighlight = useRef<number | null>(null);
   /**
-   * The open request the view last moved to the quote for: finding the quote
-   * again (a scanned page's text arriving) washes it, but leaves the view where it is.
+   * The open request whose quote the view no longer moves to: it moved there already, or the
+   * User moved the view first. Finding the quote again (a scanned page's text arriving) washes
+   * it, but leaves the view where it is.
    */
   const shownHighlight = useRef<number | null>(null);
+  const appliedRequest = useRef<number | null>(null);
+  /** The quote is found and drawn after the page opens: a place the User went to before it stays. */
+  const keepUsersPlace = useCallback(() => {
+    pendingHighlight.current = null;
+    shownHighlight.current = appliedRequest.current;
+  }, []);
   const frame = useRef(0);
   /** The zoom shown, or about to be: a zoom by wheel or pinch goes on from it. */
   const shownZoom = useRef(1);
@@ -352,6 +373,13 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
     },
     [pageCount],
   );
+  const goToPageAsked = useCallback(
+    (page: number) => {
+      keepUsersPlace();
+      goToPage(page);
+    },
+    [keepUsersPlace, goToPage],
+  );
 
   /** Works out the current page (the one taking most of the view) and the anchor. */
   const measure = useCallback(() => {
@@ -371,7 +399,10 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
       setCurrentPage(placed.current.page);
       return;
     }
-    placed.current = null;
+    if (placed.current) {
+      placed.current = null;
+      keepUsersPlace();
+    }
     let best = low + 1;
     let bestVisible = -1;
     for (let index = low; index < elements.length; index++) {
@@ -386,7 +417,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
       }
     }
     setCurrentPage(best);
-  }, []);
+  }, [keepUsersPlace]);
 
   const onScroll = () => {
     if (frame.current) return;
@@ -487,7 +518,6 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
 
   // Each open request goes to the first page of its range (a plain reopen keeps the place).
   // Read again, the file opens where the view was, or else at the range.
-  const appliedRequest = useRef<number | null>(null);
   useLayoutEffect(() => {
     if (appliedRequest.current === target.request) return;
     const first = appliedRequest.current === null;
@@ -513,13 +543,14 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
     void (async () => {
       // Each page's text runs, counted as its text layer counts them.
       const pages: TextPiece[][] = [];
+      const signatures = await pdf.getSignatures();
       for (let page = from; page <= to; page++) {
         const read = scanned.get(page);
         if (read) {
           pages.push(read.pieces);
           continue;
         }
-        const content = await (await pdf.getPage(page)).getTextContent();
+        const { content } = await readPdfPageText(await pdf.getPage(page), signatures);
         const pieces: TextPiece[] = [];
         for (const entry of content.items) {
           if (!("str" in entry)) continue;
@@ -650,7 +681,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
           )
         }
       >
-        <PageNavigation current={currentPage} count={pageCount} onGo={goToPage} />
+        <PageNavigation current={currentPage} count={pageCount} onGo={goToPageAsked} />
         <HeaderDivider />
         <ZoomControls
           percent={zoomPercent}
@@ -667,7 +698,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
       <UnreadPagesLine document={document} />
       <div className="flex min-h-0 flex-1">
         {hasOutline && outlineOpen && (
-          <OutlinePanel items={outline} currentPage={currentPage} onGoToPage={goToPage} />
+          <OutlinePanel items={outline} currentPage={currentPage} onGoToPage={goToPageAsked} />
         )}
         <div
           ref={scroller}
@@ -1156,7 +1187,7 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
         textDiv.replaceChildren(read.container);
         textRuns.current = read;
       } else {
-        const content = await proxy.getTextContent();
+        const { content } = await readPdfPageText(proxy, await pdf.getSignatures());
         if (cancelled) return;
         const container = document.createElement("div");
         container.className = "textLayer";

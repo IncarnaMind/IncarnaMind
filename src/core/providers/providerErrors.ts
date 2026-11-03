@@ -9,7 +9,7 @@ import {
   TypeValidationError,
   UnsupportedFunctionalityError,
 } from "ai";
-import type { ProviderError, ProviderErrorKind, SignInRouteProblem } from "../api";
+import type { Money, ProviderError, ProviderErrorKind, SignInRouteProblem } from "../api";
 import {
   ConsentDeclinedError,
   ConsentRevokedError,
@@ -18,9 +18,11 @@ import {
   TranslatableError,
 } from "../errors";
 import { OAuthTokenError } from "../oauth";
+import { isSignInUnreadable } from "../oauthAccount";
 import { KeyCharacterError } from "./apiKey";
 import { ChatGptPlanError, ChatGptSignInRequiredError } from "./chatgpt/errors";
 import { JevRequestError } from "./jev";
+import { CutShortError } from "./outputLimits";
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -55,6 +57,22 @@ export class CostCapError extends Error {
   override name = "CostCapError";
   constructor() {
     super("The monthly cap would be passed, so nothing was sent.");
+  }
+}
+
+/**
+ * A request would take its Run past the most the User agreed it may spend (`budget`): nothing was
+ * sent. `spent`: what the Run's requests had settled at.
+ */
+export class RunBudgetError extends Error {
+  override name = "RunBudgetError";
+  constructor(
+    readonly budget: Money,
+    readonly spent: Money,
+  ) {
+    super(
+      `The Run's budget of ${budget.amount} ${budget.currency} would be passed, so nothing was sent.`,
+    );
   }
 }
 
@@ -246,6 +264,7 @@ function sortedError(cause: unknown): ProviderError {
       ...(badKey.wording && { wording: badKey.wording }),
     };
   }
+  if (cause instanceof CutShortError) return { kind: "cut-short", message };
   if (cause instanceof ConsentDeclinedError) return { kind: "consent-declined", message };
   if (cause instanceof ConsentRevokedError || cause instanceof LocalModeError) {
     return {
@@ -264,6 +283,13 @@ function sortedError(cause: unknown): ProviderError {
   }
   if (contextOverflow(cause)) return { kind: "too-long", message };
   if (cause instanceof JevRequestError) return { kind: cause.kind, message };
+  if (isSignInUnreadable(cause)) {
+    return {
+      kind: "provider",
+      message,
+      ...(cause.wording && { wording: cause.wording }),
+    };
+  }
   if (cause instanceof ChatGptSignInRequiredError) return { kind: "not-signed-in", message };
   if (cause instanceof ChatGptPlanError) return { kind: cause.kind, message, ...resetsAtOf(cause) };
   if (cause instanceof PlanLimitError) return { kind: "plan-limit", message, ...resetsAtOf(cause) };
@@ -276,6 +302,9 @@ function sortedError(cause: unknown): ProviderError {
     };
   }
   if (cause instanceof CostCapError) return { kind: "cost-cap", message };
+  if (cause instanceof RunBudgetError) {
+    return { kind: "cost-cap", message, budget: { most: cause.budget, spent: cause.spent } };
+  }
   // A plan's sign-in couldn't be refreshed for a passing reason (e.g. the provider's server failed).
   if (cause instanceof OAuthTokenError) return { kind: "provider", message };
 

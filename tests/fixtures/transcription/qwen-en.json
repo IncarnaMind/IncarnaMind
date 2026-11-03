@@ -1,0 +1,473 @@
+{
+  "service": "qwen",
+  "model": "fun-asr-realtime",
+  "messages": [
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "task-started",
+        "attributes": {}
+      },
+      "payload": {}
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2640,
+            "end_time": null,
+            "text": "",
+            "sentence_begin": true,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2640,
+            "end_time": 3932,
+            "text": "When you call",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2640,
+            "end_time": 5224,
+            "text": "When you call someone who is",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2640,
+            "end_time": 6516,
+            "text": "When you call someone who is thousands of miles",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2640,
+            "end_time": 7808,
+            "text": "When you call someone who is thousands of miles away, you are",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2640,
+            "end_time": 9100,
+            "text": "When you call someone who is thousands of miles away, you are using a satellite.",
+            "heartbeat": false,
+            "sentence_end": true,
+            "sentence_id": 1,
+            "words": [
+              {
+                "begin_time": 2640,
+                "end_time": 3071,
+                "text": "When",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 3071,
+                "end_time": 3501,
+                "text": "you",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 3501,
+                "end_time": 3932,
+                "text": "call",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 3932,
+                "end_time": 4363,
+                "text": "someone",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 4363,
+                "end_time": 4793,
+                "text": "who",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 4793,
+                "end_time": 5224,
+                "text": "is",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 5224,
+                "end_time": 5655,
+                "text": "thousands",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 5655,
+                "end_time": 6085,
+                "text": "of",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 6085,
+                "end_time": 6516,
+                "text": "miles",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 6516,
+                "end_time": 6947,
+                "text": "away,",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 6947,
+                "end_time": 7377,
+                "text": "you",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 7377,
+                "end_time": 7808,
+                "text": "are",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 7808,
+                "end_time": 8239,
+                "text": "using",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 8239,
+                "end_time": 8669,
+                "text": "a",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 8669,
+                "end_time": 9100,
+                "text": "satellite.",
+                "punctuation": ""
+              }
+            ]
+          }
+        },
+        "usage": {
+          "duration": 10
+        }
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": null,
+            "end_time": null,
+            "text": "",
+            "heartbeat": true,
+            "sentence_id": 0,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 14200,
+            "end_time": null,
+            "text": "",
+            "sentence_begin": true,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 14200,
+            "end_time": 16025,
+            "text": "Now widely available",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 14200,
+            "end_time": 17242,
+            "text": "Now widely available throughout the",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 14200,
+            "end_time": 19067,
+            "text": "Now widely available throughout the region, the programme",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 14200,
+            "end_time": 20283,
+            "text": "Now widely available throughout the region, the programme is free",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 14200,
+            "end_time": 21500,
+            "text": "Now widely available throughout the region, the programme is free of charge.",
+            "heartbeat": false,
+            "sentence_end": true,
+            "sentence_id": 2,
+            "words": [
+              {
+                "begin_time": 14200,
+                "end_time": 14808,
+                "text": "Now",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 14808,
+                "end_time": 15417,
+                "text": "widely",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 15417,
+                "end_time": 16025,
+                "text": "available",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 16025,
+                "end_time": 16633,
+                "text": "throughout",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 16633,
+                "end_time": 17242,
+                "text": "the",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 17242,
+                "end_time": 17850,
+                "text": "region,",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 17850,
+                "end_time": 18458,
+                "text": "the",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 18458,
+                "end_time": 19067,
+                "text": "programme",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 19067,
+                "end_time": 19675,
+                "text": "is",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 19675,
+                "end_time": 20283,
+                "text": "free",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 20283,
+                "end_time": 20892,
+                "text": "of",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 20892,
+                "end_time": 21500,
+                "text": "charge.",
+                "punctuation": ""
+              }
+            ]
+          }
+        },
+        "usage": {
+          "duration": 22
+        }
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "task-finished",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {},
+        "usage": null
+      }
+    }
+  ]
+}

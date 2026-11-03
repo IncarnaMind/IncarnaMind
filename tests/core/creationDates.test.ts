@@ -455,7 +455,12 @@ describe("Existing Documents get their creation date once, in the background", {
         dataDir,
         `SELECT id, document_id, content_hash, text, embedding, deleted_at FROM passages ORDER BY id`,
       ),
-      units: queryDatabase(dataDir, "SELECT * FROM document_pages ORDER BY id"),
+      // The Units as stored; `version_at` is their version's own moment, which this job leaves alone.
+      units: queryDatabase(
+        dataDir,
+        `SELECT id, document_id, content_hash, page, kind, label, anchors, text, created_at,
+           updated_at, deleted_at FROM document_pages ORDER BY id`,
+      ),
       versions: queryDatabase(
         dataDir,
         `SELECT id, content_hash, status, processing_version, embedding_model, embedding_dimensions

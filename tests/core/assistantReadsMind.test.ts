@@ -111,7 +111,7 @@ describe("A Question asked beside a Mind reads it", { timeout: 30_000 }, () => {
         "Neap tides come at the quarter moons.",
         "</mind>",
         "",
-        'The User\'s Minds: "Lit review: tides"',
+        'The User\'s Notes: "Lit review: tides"',
         "",
         "Summarise my notes",
       ].join("\n"),
@@ -162,7 +162,7 @@ describe("A Question asked beside a Mind reads it", { timeout: 30_000 }, () => {
     const answer = await ask(core, { text: "What are spring tides?" });
 
     expect(promptOf(model).slice(1)).toEqual([
-      { role: "user", text: 'The User\'s Minds: "Lit review: tides"\n\nWhat are spring tides?' },
+      { role: "user", text: 'The User\'s Notes: "Lit review: tides"\n\nWhat are spring tides?' },
     ]);
     expect(answer.read).toBeNull();
   });
@@ -183,7 +183,7 @@ describe("A Question asked beside a Mind reads it", { timeout: 30_000 }, () => {
     expect(sent).toContain("Spring tides come at new and full moon.");
     expect(
       sent.endsWith(
-        '</mind>\n\nThe User\'s Minds: "Lit review: tides"\n\n<selection>\nthe quarter moons\n</selection>\n\nWhy then?',
+        '</mind>\n\nThe User\'s Notes: "Lit review: tides"\n\n<selection>\nthe quarter moons\n</selection>\n\nWhy then?',
       ),
     ).toBe(true);
     const { messages } = await core.getConversation(result.conversation.id);
@@ -376,7 +376,7 @@ describe("The whole Mind while it fits, the parts that match the Question when i
     expect(kept).not.toContain(40);
     expect(
       sent.endsWith(
-        '</mind>\n\nThe User\'s Minds: "Lit review: tides"\n\n<selection>\nNote 151: lorem\n</selection>\n\nWhat did I write about barnacles?',
+        '</mind>\n\nThe User\'s Notes: "Lit review: tides"\n\n<selection>\nNote 151: lorem\n</selection>\n\nWhat did I write about barnacles?',
       ),
     ).toBe(true);
     expect(answer.read).toMatchObject({ mindId: mind.id, partial: true });
@@ -438,7 +438,7 @@ describe("The whole Mind while it fits, the parts that match the Question when i
     const firstMind = /^<mind [\s\S]*?<\/mind>/.exec(firstSent(model, 0))?.[0] ?? "";
     expect(firstMind).toContain("Note 20:");
     expect(firstSent(model, 1).startsWith(`${firstMind}\n\nSummarise my notes`)).toBe(true);
-    expect(lastSent(model)).toBe('The User\'s Minds: "Lit review: tides"\n\nAnd the last one?');
+    expect(lastSent(model)).toBe('The User\'s Notes: "Lit review: tides"\n\nAnd the last one?');
     for (const call of [0, 1]) {
       const user = model.doStreamCalls[call]?.prompt.find((message) => message.role === "user");
       expect(user?.providerOptions).toMatchObject({

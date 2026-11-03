@@ -1,5 +1,6 @@
 import { DataFromNewerVersionError } from "../core/errors";
 import type { Language } from "../core/language";
+import { heldByAnotherProcess } from "../core/storage";
 import { translate } from "../shared/i18n";
 
 export const RELEASES_PAGE = "https://github.com/IncarnaMind/IncarnaMind/releases";
@@ -14,6 +15,35 @@ export interface StartupDialog {
   buttons: string[];
   defaultId: number;
   cancelId: number;
+}
+
+export function updateStartupDialog(
+  language: Language,
+  currentVersion?: string,
+  targetVersion?: string,
+): StartupDialog {
+  const title = translate(language, "error.startup.update.title");
+  const detail = currentVersion
+    ? targetVersion
+      ? translate(language, "error.startup.update.body", {
+          old: currentVersion,
+          new: targetVersion,
+        })
+      : translate(language, "error.startup.update.withCurrent", { old: currentVersion })
+    : targetVersion
+      ? translate(language, "error.startup.update.withTarget", { new: targetVersion })
+      : translate(language, "error.startup.update.unknown");
+  return {
+    title,
+    message: title,
+    detail,
+    buttons: [
+      translate(language, "error.startup.newer.download"),
+      translate(language, "error.startup.newer.quit"),
+    ],
+    defaultId: DOWNLOAD_BUTTON,
+    cancelId: 1,
+  };
 }
 
 /** What the User sees when start-up fails. Only a data folder from a newer version gets buttons. */
@@ -32,10 +62,17 @@ export function startupDialog(error: unknown, language: Language): StartupDialog
     };
   }
   const message = error instanceof Error ? error.message : String(error);
+  // SQLite's own words for a held file, "disk I/O error" or "database is locked", read as a broken
+  // disk; the hold ends by itself, and the next start opens the same data (#2067). A hold the
+  // migration worker met arrives as the cause of a `DatabaseHeldError`.
+  const held =
+    heldByAnotherProcess(error) || (error instanceof Error && heldByAnotherProcess(error.cause));
   return {
     title: translate(language, "error.startup.title"),
     message: translate(language, "error.startup.title"),
-    detail: translate(language, "error.startup.body", { message }),
+    detail: held
+      ? translate(language, "error.startup.held")
+      : translate(language, "error.startup.body", { message }),
     buttons: [],
     defaultId: 0,
     cancelId: 0,
@@ -49,7 +86,7 @@ export function startupDialog(error: unknown, language: Language): StartupDialog
  */
 export function startupProblem(
   language: Language,
-  reason: "busy" | "stalled",
+  reason: "busy" | "starting" | "quitting" | "installing" | "stalled",
 ): { title: string; detail: string } {
   return {
     title: translate(language, "error.startup.title"),

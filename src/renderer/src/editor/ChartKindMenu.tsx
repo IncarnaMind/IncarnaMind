@@ -23,6 +23,7 @@ export function ChartKindMenu({
   fits,
   onKind,
   onSwitch,
+  switchWhy,
   onSeries,
 }: {
   chart: ChartAttributes;
@@ -30,6 +31,7 @@ export function ChartKindMenu({
   fits(kind: ChartKind): boolean;
   onKind(kind: ChartKind): void;
   onSwitch: (() => void) | null;
+  switchWhy: string | null;
   onSeries(series: number): void;
 }) {
   const t = useT();
@@ -134,15 +136,19 @@ export function ChartKindMenu({
                 })}
               </>
             )}
-            {onSwitch && (
+            {(onSwitch || switchWhy) && (
               <>
                 <div className={menuRuleClass} />
                 <button
                   type="button"
                   role="menuitem"
                   data-testid="chart-switch"
-                  onClick={() => choose(onSwitch)}
-                  className={`${menuItemClass} pl-2`}
+                  aria-disabled={switchWhy !== null || undefined}
+                  title={switchWhy ?? undefined}
+                  onClick={() => {
+                    if (onSwitch) choose(onSwitch);
+                  }}
+                  className={`${menuItemClass} ${switchWhy ? menuItemUnavailableClass : ""} pl-2`}
                 >
                   <CheckLineIcon className="invisible size-3.5 shrink-0" />
                   <span className="flex-1">{t("chart.switch")}</span>

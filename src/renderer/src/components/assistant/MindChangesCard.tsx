@@ -1,16 +1,24 @@
 import { useMemo } from "react";
 import type { ConversationAnswer, ConversationQuestion } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
-import { useAskedChanges } from "../../askedChanges";
+import { type ArrivingInMind, arrivingInMind } from "../../arrivingChanges";
+import { useArrivingAnswers, useAskedChanges } from "../../askedChanges";
 import { type ChangedMind, changedMinds } from "../../changedMinds";
-import { changeFact, keptText, leftText } from "../../changeFacts";
-import { askInAssistant } from "../../conversations";
+import { changeFact, inNoteText, keptText, leftText, ownWaiting } from "../../changeFacts";
+import { askInAssistant, useConversations } from "../../conversations";
 import { useT } from "../../i18n";
-import { resolveAllChanges, showChanges, useWaitingChanges, type Waiting } from "../../mindChanges";
+import {
+  resolveAllChanges,
+  showChanges,
+  showNoteWaiting,
+  useWaitingBesidesApplied,
+  useWaitingChanges,
+  type Waiting,
+} from "../../mindChanges";
 import type { Translate } from "../../objects";
 import { useAppStore } from "../../store";
 import { MindLineIcon, PencilLineIcon } from "../lineIcons";
-import { AskedChangesCard } from "./AskedChangesCard";
+import { AppliedLine, AskedChangesCard } from "./AskedChangesCard";
 
 /** The names of Minds seen in a card, for a row whose Mind has since been removed. */
 const seenNames = new Map<string, string>();
@@ -22,7 +30,7 @@ function factText(t: Translate, row: ChangedMind, name: string, waiting: Waiting
 }
 
 /**
- * The card under the reply of an Answer that changed Minds (#202, D148):
+ * The card under the reply of an Answer that changed Minds (#202):
  * what its calls did, from their record rather than the reply's words.
  * "2 Minds changed · Review", a row for each Mind ("Edited: Q3 review · 4
  * waiting") with Open, then Accept all · Reject all while changes wait. For
@@ -41,7 +49,31 @@ export function MindChangesCard({
 }) {
   const t = useT();
   const rows = useMemo(() => changedMinds(answer), [answer]);
-  const waiting = useWaitingChanges(rows);
+  const messages = useConversations((state) => state.messages);
+  const arrivingAnswers = useArrivingAnswers();
+  const arrivingByMind = useMemo(() => {
+    const arriving = new Map<string, ArrivingInMind>();
+    for (const row of rows) {
+      arriving.set(row.mindId, arrivingInMind(messages, row.mindId, arrivingAnswers));
+    }
+    return arriving;
+  }, [messages, rows, arrivingAnswers]);
+  const waiting = useWaitingChanges(
+    useMemo(
+      () =>
+        rows.map((row) => ({
+          mindId: row.mindId,
+          requests: row.requests,
+          arriving: arrivingByMind.get(row.mindId),
+        })),
+      [rows, arrivingByMind],
+    ),
+  );
+  const noteMindId = rows.length === 1 ? (rows[0]?.mindId ?? null) : null;
+  const noteTotal = useWaitingBesidesApplied(
+    noteMindId,
+    noteMindId === null ? undefined : arrivingByMind.get(noteMindId),
+  );
   const minds = useAppStore((state) => state.minds);
   const asked = useAskedChanges((state) => state.outcomes[answer.id]);
   if (rows.length === 0) return null;
@@ -64,7 +96,7 @@ export function MindChangesCard({
     );
   }
   const counted = (index: number) => {
-    const count = waiting[index];
+    const count = waiting[index]?.count;
     return typeof count === "number" ? count : 0;
   };
   const total = rows.reduce((sum, _, index) => sum + counted(index), 0);
@@ -72,62 +104,92 @@ export function MindChangesCard({
   const [only] = rows;
   const head =
     rows.length === 1 && only
-      ? factText(t, only, nameOf(only), waiting[0] ?? null)
+      ? factText(t, only, nameOf(only), waiting[0]?.count ?? null)
       : t("mindChanges.minds", { count: rows.length });
-  const headLeft = rows.length === 1 && only ? leftText(t, only, waiting[0] ?? null) : null;
+  const headLeft = rows.length === 1 && only ? leftText(t, only, waiting[0]?.count ?? null) : null;
   const headKept = rows.length === 1 && only ? keptText(t, only) : null;
+  const headInNote = rows.length === 1 ? inNoteText(t, noteTotal, ownWaiting(waiting[0])) : null;
 
   return (
     <section
-      aria-label={[head, headLeft, headKept].filter(Boolean).join(" ")}
+      aria-label={[head, headLeft, headInNote, headKept].filter(Boolean).join(" ")}
       data-testid="mind-changes"
       className="mind-changes"
     >
       <div className="mind-changes-head">
         <PencilLineIcon aria-hidden="true" className="mind-changes-icon" />
-        <p className="mind-changes-line">
-          <span data-testid="mind-changes-title" className="mind-changes-title">
-            {head}
-          </span>
-          {headLeft && (
-            <>
-              {" "}
-              <span
-                data-testid="mind-changes-left"
-                className="mind-changes-count whitespace-nowrap"
-              >
-                {headLeft}
-              </span>
-            </>
+        {/*
+         * One Note's head keeps the room of the applied row it becomes, so the card is as tall as
+         * the taller of its waiting and applied rows at this width, whatever the name, the font or
+         * the language (#400, DESIGN.md's feel rules).
+         */}
+        <div className="mind-changes-rows">
+          <p className="mind-changes-line">
+            <span data-testid="mind-changes-title" className="mind-changes-title">
+              {head}
+            </span>
+            {headLeft && (
+              <>
+                {" "}
+                <span
+                  data-testid="mind-changes-left"
+                  className="mind-changes-count whitespace-nowrap"
+                >
+                  {headLeft}
+                </span>
+              </>
+            )}
+            {headInNote && (
+              <>
+                {" "}
+                <span
+                  data-testid="mind-changes-in-note"
+                  className="mind-changes-count whitespace-nowrap"
+                >
+                  {headInNote}
+                </span>
+              </>
+            )}
+            {headKept && (
+              <>
+                {" "}
+                <span data-testid="mind-changes-kept" className="mind-changes-count">
+                  {headKept}
+                </span>
+              </>
+            )}
+            {(first || (headInNote && only)) && (
+              <>
+                <span aria-hidden="true" className="mind-changes-dot">
+                  {" · "}
+                </span>
+                <button
+                  type="button"
+                  data-testid="mind-changes-review"
+                  onClick={() => (first ? showChanges(first) : only && showNoteWaiting(only))}
+                  className="mind-changes-review"
+                >
+                  {t("mindChanges.review")}
+                </button>
+              </>
+            )}
+          </p>
+          {rows.length === 1 && only && (
+            <AppliedLine
+              answerId={answer.id}
+              row={only}
+              name={nameOf(only)}
+              outcome={undefined}
+              waiting={waiting[0]}
+              arriving={arrivingByMind.get(only.mindId)}
+              shown={false}
+            />
           )}
-          {headKept && (
-            <>
-              {" "}
-              <span data-testid="mind-changes-kept" className="mind-changes-count">
-                {headKept}
-              </span>
-            </>
-          )}
-          {first && (
-            <>
-              <span aria-hidden="true" className="mind-changes-dot">
-                {" · "}
-              </span>
-              <button
-                type="button"
-                data-testid="mind-changes-review"
-                onClick={() => showChanges(first)}
-                className="mind-changes-review"
-              >
-                {t("mindChanges.review")}
-              </button>
-            </>
-          )}
-        </p>
+        </div>
       </div>
       {rows.length > 1 &&
         rows.map((row, index) => {
-          const count = waiting[index] ?? null;
+          const count = waiting[index]?.count ?? null;
           const name = nameOf(row);
           // Its name first, so a narrow panel cuts the verb rather than the name; the fact is on hover.
           const label =

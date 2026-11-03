@@ -6,10 +6,15 @@
  * dies, pending requests fail and search keeps its own order; the next `load`
  * starts a new one (see `createChannelCrossEncoder`).
  */
-import { utilityProcess } from "electron";
 import type { CrossEncoder } from "../core";
 import { type CrossEncoderResponse, createChannelCrossEncoder } from "../core/reranking/channel";
+import { type EngineProcess, startEngineProcess } from "./engineProcess";
 import rerankerProcessPath from "./rerankerProcess?modulePath";
+
+export const RERANKING_PROCESS: EngineProcess = {
+  modulePath: rerankerProcessPath,
+  serviceName: "IncarnaMind reranking",
+};
 
 export interface UtilityProcessCrossEncoderOptions {
   /** Runs the deterministic fake model instead of the real one (smoke tests). */
@@ -20,10 +25,7 @@ export function createUtilityProcessCrossEncoder(
   options: UtilityProcessCrossEncoderOptions = {},
 ): CrossEncoder {
   return createChannelCrossEncoder(() => {
-    const child = utilityProcess.fork(rerankerProcessPath, options.fake ? ["--fake"] : [], {
-      serviceName: "IncarnaMind reranking",
-      stdio: "inherit",
-    });
+    const child = startEngineProcess(RERANKING_PROCESS, options.fake ? ["--fake"] : []);
     return {
       send: (request) => child.postMessage(request),
       onResponse: (listener) =>

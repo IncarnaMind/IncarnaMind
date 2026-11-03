@@ -27,7 +27,6 @@ import {
 } from "electron";
 import type { AnalysisRuntime, Logger } from "../core";
 import { isRecord } from "../core/errors";
-import helper from "../renderer/analysis/incarnamind.py?raw";
 import {
   ANALYSIS_LIMITS,
   ANALYSIS_TIME_LIMIT_MS,
@@ -50,6 +49,7 @@ import {
   MAX_REPLY_CHARACTERS,
   PYTHON_PATH,
 } from "../shared/analysisWindow";
+import helper from "../shared/incarnamind.py?raw";
 import { devServerUrl, pageFile, sandboxOff } from "./analysisPaths";
 
 /** Registered with the app's other privileged schemes, before it is ready (index.ts). */
@@ -78,9 +78,13 @@ const TYPES: Readonly<Record<string, string>> = {
   ".json": "application/json",
   ".zip": "application/zip",
   ".whl": "application/zip",
+  ".otf": "font/otf",
 };
 
-/** Starting Pyodide with numpy and pandas took 3–6 s on the spike's runners; a slow computer gets far longer. */
+/**
+ * Starting Pyodide with numpy and pandas took 3–6 s on the spike's runners, and a job's other
+ * packages up to 8 s more on a fast Mac (ADR-0025); a slow computer gets far longer.
+ */
 const START_LIMIT_MS = 120_000;
 /** The window and its spare interpreter wait this long for the next job before they close, freeing their memory. */
 const IDLE_MS = 5 * 60_000;
@@ -225,6 +229,24 @@ function resultOf(text: string, ms: number): AnalysisResult {
 export function createElectronAnalysisRuntime(options: ElectronAnalysisOptions): AnalysisRuntime {
   const { log } = options;
   const versions = versionsIn(options.folder, log);
+  const unavailable = (): Extract<AnalysisEnd, { kind: "unavailable" }> | undefined => {
+    if (!versions) {
+      return {
+        kind: "unavailable",
+        reason: "missing",
+        detail: `No Python files in ${options.folder}.`,
+      };
+    }
+    // With Chromium's sandbox off for every renderer, nothing would keep the code from this computer.
+    if (sandboxOff((name) => app.commandLine.hasSwitch(name), process.env)) {
+      return {
+        kind: "unavailable",
+        reason: "no-sandbox",
+        detail: "Electron runs with its sandbox off (--no-sandbox or ELECTRON_DISABLE_SANDBOX).",
+      };
+    }
+    return undefined;
+  };
   let analysisSession: Session | null = null;
   let current: Sandbox | null = null;
   let idle: ReturnType<typeof setTimeout> | undefined;
@@ -389,6 +411,8 @@ export function createElectronAnalysisRuntime(options: ElectronAnalysisOptions):
       const stop = () => done({ kind: "stopped" });
       let timer = setTimeout(() => done({ kind: "no-start" }), START_LIMIT_MS);
       sandbox.starts.set(request.id, () => {
+        // Once only, whatever the page sends after.
+        sandbox.starts.delete(request.id);
         started = performance.now();
         clearTimeout(timer);
         timer = setTimeout(() => done({ kind: "timed-out" }), limitMs);
@@ -403,21 +427,8 @@ export function createElectronAnalysisRuntime(options: ElectronAnalysisOptions):
     });
 
   const runOne = async (job: AnalysisJob, signal: AbortSignal): Promise<AnalysisResult> => {
-    if (!versions) {
-      return endedBefore({
-        kind: "unavailable",
-        reason: "missing",
-        detail: `No Python files in ${options.folder}.`,
-      });
-    }
-    // With Chromium's sandbox off for every renderer, nothing would keep the code from this computer.
-    if (sandboxOff((name) => app.commandLine.hasSwitch(name), process.env)) {
-      return endedBefore({
-        kind: "unavailable",
-        reason: "no-sandbox",
-        detail: "Electron runs with its sandbox off (--no-sandbox or ELECTRON_DISABLE_SANDBOX).",
-      });
-    }
+    const problem = unavailable();
+    if (problem) return endedBefore(problem);
     if (signal.aborted) return endedBefore({ kind: "stopped" });
     clearTimeout(idle);
     current ??= open();
@@ -485,7 +496,12 @@ export function createElectronAnalysisRuntime(options: ElectronAnalysisOptions):
   };
 
   return {
-    languages: versions ? [versions] : [],
+    get languages() {
+      return versions && !unavailable() ? [versions] : [];
+    },
+    get unavailable() {
+      return unavailable();
+    },
     run(job, signal) {
       const result = queue.then(() => runOne(job, signal));
       queue = result.catch(() => undefined);

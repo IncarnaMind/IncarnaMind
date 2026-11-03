@@ -72,11 +72,13 @@ const MARK_GAP = 8;
  * the outline it was before: title, text, tables, chart figures, images.
  */
 export function SlidesView({ document, target }: { document: Document; target: ViewerTarget }) {
-  const loaded = useDocumentFile(document.id, read);
+  const { loaded, reload } = useDocumentFile(document.id, document.contentHash, read);
   return (
     <FileStates
+      document={document}
       loaded={loaded}
       quote={target.quote}
+      reload={reload}
       ready={(value) => <Slides loaded={value} target={target} />}
     />
   );
@@ -153,15 +155,15 @@ function Slides({ loaded, target }: { loaded: Loaded; target: ViewerTarget }) {
     [drawing],
   );
 
-  // The quote: in the cited slide (or the next, for two), else in any slide; in its text, then its notes.
   const highlight = useMemo((): Found | null => {
     const quote = target.quote;
     if (!quote) return null;
     const from = target.pageFrom ?? 1;
     const to = target.pageTo ?? from;
-    const cited = slides.filter((slide) => slide.number >= from && slide.number <= to);
-    const ordered = [...cited, ...slides.filter((slide) => !cited.includes(slide))];
-    for (const slide of ordered) {
+    const cited = slides.filter(
+      (slide) => target.pageFrom === undefined || (slide.number >= from && slide.number <= to),
+    );
+    for (const slide of cited) {
       const drawnSlide = drawn.get(slide.number);
       if (drawnSlide && !isFailed(drawnSlide)) {
         const ranges = findInDrawing(drawnSlide, quote);

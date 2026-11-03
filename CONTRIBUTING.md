@@ -32,9 +32,9 @@ You need Node.js 24 or newer. Clone the repository, then run `npm install` and `
 - Use the words defined in [`CONTEXT.md`](CONTEXT.md) (a Passage, not a chunk; a Connector, not a plugin), and say so when a change goes against an ADR in [`docs/adr/`](docs/adr/).
 - Test through the core's public interface, as the UI uses it, and assert what a User would see. The core tests need no API keys and no network.
 - Keep `src/core` free of Electron imports; Biome enforces it.
-- Run `npm run typecheck`, `npm run lint`, `npm test` and the smoke tests your change touches before opening a pull request. CI runs all of them on every pull request as feedback, and the whole suite runs on `main` every night. A pull request merges once its sign-off check passes; merge `main` into your branch to resolve a conflict or to pick up something you need. The [tests and CI rules](docs/agents/testing.md) say how to write tests that pass on any machine.
+- Run `npm run typecheck`, `npm run lint` and the unit tests of the files you changed before opening a pull request. CI runs the whole unit suite and every smoke spec on the pull request as feedback, and the whole suite runs on `main` every night. A pull request merges once its sign-off check passes; merge `main` into your branch to resolve a conflict or to pick up something you need. The [tests and CI rules](docs/agents/testing.md) say how to write tests that pass on any machine.
 - The interface is in English and Simplified Chinese: a new string goes into both dictionaries in `src/shared/i18n/`.
-- Keep each pull request to one theme, under about 600 changed lines, and say what it changes and why.
+- Keep each pull request to one feature or theme, built whole rather than split into small pull requests, and say what it changes and why.
 
 ## Licence and sign-off
 

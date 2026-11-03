@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { NodeJSON } from "../../src/core/answers/blocks";
-import { markdownToBlocks } from "../../src/core/answers/markdown";
+import { emphasisOf, markdownToBlocks } from "../../src/core/answers/markdown";
 
 interface Run {
   text: string;
@@ -128,5 +128,97 @@ describe("emphasis in English", () => {
 
   test("inline code is left as it is", () => {
     expect(runs("`**x:**`text")).toEqual([code("**x:**"), plain("text")]);
+  });
+});
+
+describe("the strings of #1774", () => {
+  test.each([
+    ["**上限：**每月五千元", [bold("上限："), plain("每月五千元")]],
+    ["**上限**：每月五千元", [bold("上限"), plain("：每月五千元")]],
+    ["每月五千元**（含税）**", [plain("每月五千元"), bold("（含税）")]],
+    ["**上限，**五千元", [bold("上限，"), plain("五千元")]],
+    ["**上限。**五千元", [bold("上限。"), plain("五千元")]],
+    ["**上限**，五千元", [bold("上限"), plain("，五千元")]],
+    ["**上限**。五千元", [bold("上限"), plain("。五千元")]],
+  ])("%s", (markdown, expected) => {
+    expect(runs(markdown)).toEqual(expected);
+  });
+});
+
+describe("emphasis beside full-width punctuation with a number or a Latin word beyond it", () => {
+  test.each([
+    ["**上限：**5000 元", [bold("上限："), plain("5000 元")]],
+    ["**金额（万元）：**1,200", [bold("金额（万元）："), plain("1,200")]],
+    ["每月5000**（含税）**", [plain("每月5000"), bold("（含税）")]],
+    ["**期限：**2026 年 3 月", [bold("期限："), plain("2026 年 3 月")]],
+    ["**上限：**USD 5,000", [bold("上限："), plain("USD 5,000")]],
+    ["**风险：**Brexit 影响", [bold("风险："), plain("Brexit 影响")]],
+    ["每月5000**（含税）**。", [plain("每月5000"), bold("（含税）"), plain("。")]],
+    ["见**《合同法》**5条", [plain("见"), bold("《合同法》"), plain("5条")]],
+    ["**Total：**5,000 元", [bold("Total："), plain("5,000 元")]],
+  ])("%s", (markdown, expected) => {
+    expect(runs(markdown)).toEqual(expected);
+  });
+
+  test("the rewrite reader reads the same words with the same looks", () => {
+    const read = emphasisOf("**上限：**5000 元");
+    expect(read?.plain).toBe("上限：5000 元");
+    expect(read?.looks.slice(0, 3)).toEqual([{ bold: true }, { bold: true }, { bold: true }]);
+    expect(read?.looks[3]).toEqual({});
+  });
+
+  test("stars that are not emphasis stay as written", () => {
+    expect(runs("2**10")).toEqual([plain("2**10")]);
+    expect(runs("5 * 3 * 2")).toEqual([plain("5 * 3 * 2")]);
+    expect(runs("*.txt")).toEqual([plain("*.txt")]);
+    expect(runs("* item")).toEqual([plain("item")]);
+    expect(runs("3*（2+1）*4")).toEqual([plain("3*（2+1）*4")]);
+    expect(runs("a*（b）*c")).toEqual([plain("a*（b）*c")]);
+    expect(runs("x*「y」*z")).toEqual([plain("x*「y」*z")]);
+    expect(runs("`**上限：**5000 元`")).toEqual([code("**上限：**5000 元")]);
+  });
+});
+
+describe("underscore emphasis beside full-width punctuation", () => {
+  test.each([
+    ["（_强调_）", [plain("（"), italic("强调"), plain("）")]],
+    ["「_x_」", [plain("「"), italic("x"), plain("」")]],
+    ["注意：__重要__。", [plain("注意："), bold("重要"), plain("。")]],
+    ["（__重要__）", [plain("（"), bold("重要"), plain("）")]],
+  ])("%s", (markdown, expected) => {
+    expect(runs(markdown)).toEqual(expected);
+  });
+
+  test("underscores inside words stay as written", () => {
+    expect(runs("snake_case_name")).toEqual([plain("snake_case_name")]);
+    expect(runs("a_b_c")).toEqual([plain("a_b_c")]);
+  });
+});
+
+describe("emphasisOf", () => {
+  test("gives the plain words and the look of each character", () => {
+    const read = emphasisOf("**Role.** The *post* is senior");
+    expect(read?.plain).toBe("Role. The post is senior");
+    expect(read?.looks[0]).toEqual({ bold: true });
+    expect(read?.looks[6]).toEqual({});
+    expect(read?.looks[11]).toEqual({ italic: true });
+  });
+
+  test("keeps stars that pair with nothing and formulas as written", () => {
+    expect(emphasisOf("2 * 3 and $x^2$")?.plain).toBe("2 * 3 and $x^2$");
+  });
+
+  test("reads an escaped star, underscore, tilde or backslash as itself, beside real emphasis", () => {
+    expect(emphasisOf("price\\*volume\\*margin")).toEqual({
+      plain: "price*volume*margin",
+      looks: Array.from({ length: 19 }, () => ({})),
+    });
+    expect(emphasisOf("a\\_b\\_c \\~\\~ \\\\ **d**")?.plain).toBe("a_b_c ~~ \\ d");
+    expect(emphasisOf("第3\\*4项 **总额**")?.plain).toBe("第3*4项 总额");
+  });
+
+  test("leaves a line with code or a link as it was written", () => {
+    expect(emphasisOf("`**x**` here")).toBeNull();
+    expect(emphasisOf("[a](https://example.com) **b**")).toBeNull();
   });
 });

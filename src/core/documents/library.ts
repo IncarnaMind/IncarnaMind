@@ -51,6 +51,7 @@ import type {
 import { InvalidInputError, NotFoundError } from "../errors";
 import { type Folders, folderIdFor } from "../folders";
 import type { Database } from "../storage";
+import { markArrived } from "../tags/held";
 import {
   createIgnore,
   type FileIdentity,
@@ -371,6 +372,11 @@ export function createLibrary(options: LibraryOptions) {
 
   // --- Linked folder rows -------------------------------------------------
 
+  const baselineScanned = (id: string) =>
+    db.get<{ id: string }>(
+      "SELECT id FROM linked_folder_baselines WHERE linked_folder_id = ? AND deleted_at IS NULL",
+      [id],
+    ) !== undefined;
   const liveFolders = () =>
     db.all<LinkedFolderRow>(
       `SELECT ${FOLDER_COLUMNS} FROM linked_folders WHERE deleted_at IS NULL ORDER BY path`,
@@ -519,8 +525,11 @@ export function createLibrary(options: LibraryOptions) {
 
   // --- Watching -------------------------------------------------------------
 
-  function startWatcher(row: LinkedFolderRow): void {
-    if (closed || row.paused || watchers.has(row.id)) return;
+  function startWatcher(id: string): void {
+    // The folder as it is now: a pass reads every row first, and one can be paused or unlinked
+    // while an earlier folder is scanned (#2302).
+    const row = folderRow(id);
+    if (closed || !row || row.paused || watchers.has(row.id)) return;
     const ignore = ignoreOf(row);
     const watcher = options.watch(row.path, {
       onChange(paths) {
@@ -796,11 +805,16 @@ export function createLibrary(options: LibraryOptions) {
     if (place.linkedFolderId) changes.folders.add(place.linkedFolderId);
   }
 
+  function consumeMatchedSource(row: FileRow, removed: FileRow[]): void {
+    const at = removed.findIndex((each) => each.id === row.id);
+    if (at !== -1) removed.splice(at, 1);
+  }
+
   /**
    * The Document a new file is, moved: one with the same content whose file
    * went, in this pass (`removed`) or before (missing), or whose copy in the
-   * data folder the old layout made. Taken out of `removed` if found there.
-   * With `single`, only a file added on its own, and not such a copy.
+   * data folder the old layout made. With `single`, only a file added on its
+   * own, and not such a copy.
    */
   async function movedDocument(
     contentHash: string,
@@ -812,10 +826,7 @@ export function createLibrary(options: LibraryOptions) {
     const inPass = removed
       .filter((row) => row.content_hash === contentHash && (!single || !row.linked_folder_id))
       .sort((a, b) => Number(basename(b.path) === name) - Number(basename(a.path) === name))[0];
-    if (inPass) {
-      removed.splice(removed.indexOf(inPass), 1);
-      return inPass;
-    }
+    if (inPass) return inPass;
     const candidates = db.all<FileRow>(
       `SELECT ${FILE_COLUMNS} FROM documents
        WHERE content_hash = ? AND path <> ? AND deleted_at IS NULL
@@ -843,8 +854,8 @@ export function createLibrary(options: LibraryOptions) {
    * else one with an older modified time; from another disk, which gives the
    * file a new number, one with an older modified time and a size close to
    * its. Those without the creation time only if no other new file in the
-   * pass has that name (`twins`). Never one of two that fit. Taken out of
-   * `removed` if found there. With `single`, only a file added on its own.
+   * pass has that name (`twins`). Never one of two that fit. With `single`,
+   * only a file added on its own.
    */
   async function editedDocument(
     file: Found,
@@ -863,8 +874,6 @@ export function createLibrary(options: LibraryOptions) {
     if (named.length > 0) candidates = savedAgain(file, identity, named, twins);
     const [match] = candidates;
     if (!match || candidates.length > 1) return undefined;
-    const at = removed.findIndex((row) => row.id === match.id);
-    if (at !== -1) removed.splice(at, 1);
     return match;
   }
 
@@ -1010,6 +1019,8 @@ export function createLibrary(options: LibraryOptions) {
     changes: Changes,
     explicit: boolean,
     twins: ReadonlySet<string>,
+    /** When IncarnaMind saw it arrive new (see `arrivalOf`); null when a later scan found it. */
+    arrival: string | null,
   ): Promise<string | undefined> {
     if (!explicit && file.owner && removedByUser(file.path, file.owner)) return undefined;
     let hashed: Awaited<ReturnType<typeof hashFile>>;
@@ -1026,16 +1037,20 @@ export function createLibrary(options: LibraryOptions) {
     const moved =
       (await movedDocument(hashed.contentHash, file.path, removed)) ??
       (await editedDocument(file, identity, removed, twins));
-    if (closed) return undefined;
+    if (closed || (!explicit && !ownerStillActive(file.owner))) return undefined;
     const seen = {
       size: hashed.size,
       identity,
       newVersion: moved?.content_hash !== hashed.contentHash,
     };
-    if (moved && (await relocate(moved, file, seen, changes))) return moved.id;
+    if (moved && (await relocate(moved, file, seen, changes))) {
+      consumeMatchedSource(moved, removed);
+      return moved.id;
+    }
     // Checked just before writing, with nothing awaited in between: another task may have added it.
     const there = documentAt(file.path);
     if (there) return there.id;
+    if (closed || (!explicit && !ownerStillActive(file.owner))) return undefined;
     const place = placeOf(file.path, file.owner);
     const id = randomUUID();
     const at = now();
@@ -1058,6 +1073,7 @@ export function createLibrary(options: LibraryOptions) {
         at,
       ],
     );
+    if (arrival !== null) markArrived(db, id, arrival);
     hooks.announce(id);
     (changes.added ?? hooks.added)(id);
     hooks.process(id);
@@ -1107,7 +1123,7 @@ export function createLibrary(options: LibraryOptions) {
       identity,
       newVersion: moved.content_hash !== hashed?.contentHash,
     };
-    await relocate(moved, file, seen, changes);
+    if (await relocate(moved, file, seen, changes)) consumeMatchedSource(moved, removed);
   }
 
   /**
@@ -1161,6 +1177,14 @@ export function createLibrary(options: LibraryOptions) {
     for (const id of scanned) {
       const row = folderRow(id);
       if (!row) continue;
+      if (!baselineScanned(id)) {
+        const at = now();
+        db.run(
+          `INSERT INTO linked_folder_baselines (id, linked_folder_id, scanned_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [randomUUID(), id, at, at, at],
+        );
+      }
       if (row.layout === null) {
         const relatives = db
           .all<{ path: string }>(
@@ -1177,7 +1201,7 @@ export function createLibrary(options: LibraryOptions) {
       downloading.delete(id);
       if (!row.paused) {
         statuses.set(id, "watching");
-        startWatcher(row);
+        startWatcher(id);
       }
     }
     watchSingles();
@@ -1198,6 +1222,8 @@ export function createLibrary(options: LibraryOptions) {
     const found = new Map<string, Found>();
     /** Linked folders scanned whole and reachable. */
     const scanned = new Set<string>();
+    /** Online-only files seen before this pass: downloaded now, they were there before. */
+    const wasPlaceholder = new Set<string>();
 
     for (const row of linked) {
       if (row.paused) continue;
@@ -1223,7 +1249,7 @@ export function createLibrary(options: LibraryOptions) {
         parts.splice(0, parts.length, row.path);
         statuses.set(row.id, "scanning");
       }
-      startWatcher(row); // before reading, so nothing that changes meanwhile is missed
+      startWatcher(row.id); // before reading, so nothing that changes meanwhile is missed
       changes.folders.add(row.id);
       if (parts[0] === row.path) scanned.add(row.id);
       const ignore = ignoreOf(row);
@@ -1244,7 +1270,11 @@ export function createLibrary(options: LibraryOptions) {
         } catch {
           // Gone: whatever was indexed there is gone too.
         }
-        for (const path of placeholders.keys()) if (isInside(part, path)) placeholders.delete(path);
+        for (const path of placeholders.keys()) {
+          if (!isInside(part, path)) continue;
+          wasPlaceholder.add(path);
+          placeholders.delete(path);
+        }
         for (const path of notRead) if (isInside(part, path)) notRead.delete(path);
         for (const path of unread) notRead.add(path);
         for (const file of files) {
@@ -1330,11 +1360,23 @@ export function createLibrary(options: LibraryOptions) {
       if (file.owner) pendingNew.set(file.owner.id, (pendingNew.get(file.owner.id) ?? 0) + 1);
     }
     const twins = repeatedNames([...fresh, ...arrivals].map((file) => file.path));
+    /**
+     * When IncarnaMind saw a file arrive new (#2308): a Linked folder's first scan finds what the
+     * User linked, as they linked it; after that, its watcher reports a file the moment it arrives.
+     * A later scan, on a resume or a restart, finds files that were there before, and so is an
+     * online-only file seen before that has downloaded: null.
+     */
+    const arrivalOf = (file: Found): string | null => {
+      const { owner } = file;
+      if (!owner) return null;
+      if (!baselineScanned(owner.id)) return owner.created_at;
+      return scanned.has(owner.id) || wasPlaceholder.has(file.path) ? null : now();
+    };
     announceFolders();
     try {
       for (const file of fresh) {
         if (closed) return;
-        await addFound(file, removed, changes, false, twins);
+        await addFound(file, removed, changes, false, twins, arrivalOf(file));
         if (file.owner) {
           pendingNew.set(file.owner.id, (pendingNew.get(file.owner.id) ?? 1) - 1);
           announceProgress();
@@ -1456,11 +1498,14 @@ export function createLibrary(options: LibraryOptions) {
     /**
      * Reconciles these paths (e.g. a file about to be opened) now, and
      * resolves when done. While a pass is under way, which may take long, they
-     * are queued for the next one instead, and it resolves at once.
+     * are queued for the next one instead, and it resolves at once, unless
+     * `wait`: then it resolves after the pass that reads them, for a caller
+     * that reads what it just wrote (a Meeting's finished Transcript, #763).
      */
-    async check(paths: readonly string[]): Promise<void> {
+    async check(paths: readonly string[], wait = false): Promise<void> {
       if (passRunning) {
         request({ paths });
+        if (wait) await idle();
         return;
       }
       begin();
@@ -1833,7 +1878,7 @@ export function createLibrary(options: LibraryOptions) {
             }
             continue;
           }
-          results.push((await addFound(file, [], changes, true, twins)) ?? "unreadable");
+          results.push((await addFound(file, [], changes, true, twins, now())) ?? "unreadable");
         }
         finish(changes, new Set());
         return results;

@@ -10,9 +10,11 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { registerNativePopover, unregisterNativePopover } from "../editor/Popover";
 import { enterFrom, exitToward } from "../motion";
 import { CheckLineIcon } from "./lineIcons";
-import { menuClass, menuFrameClass, menuTitleClass } from "./ui";
+import { menuClass, menuFrameClass, menuItemUnavailableClass, menuTitleClass } from "./ui";
+import { useFocusReturn } from "./useFocusReturn";
 
 const GAP_PX = 4;
 const EDGE_PX = 8;
@@ -30,10 +32,14 @@ export interface PickerOption<Id> {
   /** What else typing finds it by: other names, the other language's label. */
   keywords?: readonly string[];
   icon?: ReactNode;
+  /** How deep it is shown in a tree: each level indents it 16px, for a list of Folders. */
+  indent?: number;
   /** More attributes on its row, e.g. `data-folder-id`. */
   data?: Record<string, string>;
   /** How its label is drawn: a font's name in its own face. */
   labelStyle?: CSSProperties;
+  /** Why it can't be chosen now. Given, it stays visible and reachable by the arrows, greyed. */
+  disabledReason?: string;
 }
 
 export interface PickerSection<Id> {
@@ -113,7 +119,7 @@ export function SearchPicker<Id>({
 }) {
   const id = useId();
   const panel = useRef<HTMLDivElement>(null);
-  const opener = useRef<HTMLElement | null>(null);
+  const focus = useFocusReturn();
   const field = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
@@ -160,8 +166,9 @@ export function SearchPicker<Id>({
     setQuery("");
     setActive(0);
     setScrollTop(0);
+    if (!element.matches(":popover-open")) focus.remember();
     element.showPopover();
-    opener.current = anchor;
+    registerNativePopover(element);
     const box = anchor.getBoundingClientRect();
     const width = element.offsetWidth;
     const elementHeight = element.offsetHeight;
@@ -173,7 +180,8 @@ export function SearchPicker<Id>({
         : `${below}px`;
     enterFrom(element, anchor);
     field.current?.focus();
-  }, [open, anchor]);
+    return () => unregisterNativePopover(element);
+  }, [open, anchor, focus]);
 
   // Closed from outside (its anchor went): hidden.
   useEffect(() => {
@@ -198,6 +206,7 @@ export function SearchPicker<Id>({
   };
 
   const choose = (option: PickerOption<Id>) => {
+    if (option.disabledReason) return;
     close();
     onChoose(option.id);
   };
@@ -247,6 +256,10 @@ export function SearchPicker<Id>({
     }
     const { option, index } = row;
     const here = option.id === current;
+    const description = [option.disabledReason, here ? currentLabel : undefined]
+      .filter(Boolean)
+      .join(" ");
+    const detail = option.disabledReason ?? option.detail;
     return (
       // biome-ignore lint/a11y/useKeyWithClickEvents: the field owns the keys (aria-activedescendant).
       <div
@@ -257,8 +270,10 @@ export function SearchPicker<Id>({
         data-testid={`${testId}-option`}
         {...option.data}
         aria-selected={index === shown}
-        aria-description={here ? currentLabel : undefined}
+        aria-disabled={option.disabledReason ? true : undefined}
+        aria-description={description || undefined}
         data-current={here ? "true" : undefined}
+        title={option.disabledReason}
         style={place}
         // Choosing with the pointer keeps the focus in the field until it closes.
         onMouseDown={(event) => event.preventDefault()}
@@ -266,7 +281,7 @@ export function SearchPicker<Id>({
         // take the highlight from the first and Enter with it (#1497).
         onMouseMove={() => setActive(index)}
         onClick={() => choose(option)}
-        className={`flex h-7 cursor-default items-center gap-2 rounded-md pr-2 pl-2 ${
+        className={`flex h-7 cursor-default items-center gap-2 rounded-md pr-2 pl-2 ${menuItemUnavailableClass} ${
           index === shown ? "bg-hover" : ""
         }`}
       >
@@ -275,16 +290,17 @@ export function SearchPicker<Id>({
           data-testid={`${testId}-option-label`}
           className="min-w-0 flex-1 truncate"
           title={option.label}
-          style={option.labelStyle}
+          style={{ ...option.labelStyle, paddingLeft: (option.indent ?? 0) * 16 }}
         >
           {option.label}
         </span>
-        {option.detail && (
+        {detail && (
           <span
+            data-testid={`${testId}-option-detail`}
             className="min-w-0 max-w-[55%] shrink-0 truncate text-[12px] text-ink-meta"
-            title={option.detail}
+            title={detail}
           >
-            {option.detail}
+            {detail}
           </span>
         )}
         {here && (
@@ -312,12 +328,13 @@ export function SearchPicker<Id>({
       }}
       onToggle={(event) => {
         if (event.newState === "closed") {
+          unregisterNativePopover(event.currentTarget);
           // Opened again, it is measured with the list it opens with, not the last search's.
           setQuery("");
           setActive(0);
           setScrollTop(0);
           onClose();
-          opener.current?.focus();
+          focus.giveBack(panel.current, anchor);
         }
       }}
       onKeyDown={onKeyDown}

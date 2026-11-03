@@ -172,7 +172,10 @@ export function decisionModelTagger(connection: { baseUrl: string; model: string
         retries: 0,
         timeoutMs: TAGGING_TIMEOUT_MS,
       });
-      return decisionsFromProbabilities(tags, probabilities, reviewBandFor(connection.model));
+      return {
+        decisions: decisionsFromProbabilities(tags, probabilities, reviewBandFor(connection.model)),
+        newTags: [],
+      };
     },
   };
 }
@@ -308,7 +311,10 @@ export function createJevTagging(options: {
             retries: TAGGING_RETRIES,
             timeoutMs: TAGGING_TIMEOUT_MS,
           });
-          return decisionsFromProbabilities(tags, probabilities, jev.reviewBand);
+          return {
+            decisions: decisionsFromProbabilities(tags, probabilities, jev.reviewBand),
+            newTags: [],
+          };
         },
       };
     },

@@ -136,6 +136,60 @@ describe("functions", () => {
     expect(worked("SQRT(v4)", values).value).toBe(4);
   });
 
+  test.each([
+    [12, 1],
+    [0, 0],
+    [-0, 0],
+    [-12, -1],
+  ])("SIGN(%s) is a dimensionless %s", (value, expected) => {
+    const result = worked("SIGN(x)", [{ ...a, name: "x", value }]);
+    expect(result).toMatchObject({ version: 1, value: expected, unit: { kind: "plain" } });
+    expect(Object.is(result.value, -0)).toBe(false);
+  });
+
+  test.each(["$25", "-£25", "0 users", "-12%", "2.5倍"])(
+    "SIGN accepts numeric units: %s",
+    (quote) => {
+      const x = input("x", quote);
+      expect(worked("SIGN(x)", [x])).toMatchObject({
+        value: Math.sign(x.value) || 0,
+        unit: { kind: "plain" },
+      });
+    },
+  );
+
+  test("SIGN preserves input, Boolean and arithmetic errors", () => {
+    expect(problem("SIGN(missing)", []).kind).toBe("name");
+    expect(problem("SIGN()", [a]).kind).toBe("function");
+    expect(problem("SIGN(a,b)", [a, b]).kind).toBe("function");
+    expect(problem("SIGN(a>b)", [a, b]).message).toBe("SIGN can't take yes or no (a>b).");
+    expect(problem('SIGN("text")', [a]).kind).toBe("syntax");
+    expect(problem("SIGN(a/0)", [a]).kind).toBe("zero");
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(problem("SIGN(a)", [{ ...a, value }]).kind).toBe("input");
+    }
+    expect(problem("SIGN(usd-gbp)", [input("usd", "$12"), input("gbp", "£3")]).kind).toBe("units");
+  });
+
+  test.each([
+    [100, 110, 120, 130, 3],
+    [100, 110, 110, 130, 2],
+    [100, 110, 105, 130, 2],
+    [100, 100, 100, 100, 0],
+  ])(
+    "SIGN counts positive annual changes with checked currency inputs: %j",
+    (a, b, c, d, count) => {
+      const annual = [a, b, c, d].map((value, index) => input(`r${2022 + index}`, `£${value}`));
+      const formula =
+        "SUM(MAX(SIGN(r2023-r2022),0),MAX(SIGN(r2024-r2023),0),MAX(SIGN(r2025-r2024),0))";
+      expect(worked(formula, annual)).toMatchObject({
+        version: 1,
+        value: count,
+        unit: { kind: "plain" },
+      });
+    },
+  );
+
   test("ROUND rounds half away from zero on Excel's digits, not the double's", () => {
     const round = (quote: string, decimals: string) =>
       worked("ROUND(x, d)", [input("x", quote), input("d", decimals)]).value;
@@ -581,7 +635,7 @@ describe("problems", () => {
       ok: false,
       kind: "function",
       message:
-        "VLOOKUP isn't available; use + - * / ^, SUM, AVERAGE, MIN, MAX, ABS, ROUND, RRI, SQRT.",
+        "VLOOKUP isn't available; use + - * / ^, SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT.",
     });
   });
 
@@ -1062,6 +1116,17 @@ describe("a power of ten that changes an amount's scale (#577)", () => {
       "(usd - usd)",
     ]);
     expect(worked("rev / 10000", [rev]).value).toBeCloseTo(120_345.67, 6);
+  });
+
+  // protects=a Chinese statement's 百万元 converted to 亿元 by "/ 100", and 千元 to 万元 by "/ 10", are found as scale changes; fails_when=the formula records a figure a hundred times too small; no_claim=English scales, whose steps are a thousand.
+  test("one written Chinese scale moved onto another, 百万 onto 亿, is one", () => {
+    const millions = underHeader("nd", "5,704", "单位：人民币百万元");
+    expect(changes("nd / 100", [millions])).toEqual([
+      { text: "nd / 100", amount: "nd", exponent: -2, from: "百万" },
+    ]);
+    const thousands = underHeader("c", "31,000", "单位：千元");
+    expect(changes("c / 10", [thousands]).map((each) => each.exponent)).toEqual([-1]);
+    expect(changes("nd / 10", [millions])).toEqual([]);
   });
 
   // protects=a power of ten that makes a rate per so many of something, a percent's 100 and other numbers stay allowed; fails_when=a per-10,000 or per-1,000 rate, a share times 10000, or a division by 4 is taken for a change of scale; no_claim=every way a rate could be written.

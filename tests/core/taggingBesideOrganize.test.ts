@@ -123,7 +123,16 @@ describe("with tagging and sorting by themselves off", () => {
     await filed(core, [document.id], reports.id);
     expect(await tagNamesOf(core, document.id)).toEqual(["Contract"]);
 
-    await core.restoreAssignment(document.id, null);
+    const held = (await core.getLibrary()).assignments.find(
+      (each) => each.documentId === document.id,
+    );
+    if (!held) throw new Error("No assignment.");
+    const { documentId: _id, tagging, ...assignment } = held;
+    await core.restoreAssignment(
+      document.id,
+      { assignment: null, tagging: null },
+      { assignment, tagging: tagging ?? null },
+    );
 
     expect(await assignmentsOf(core)).toEqual([]);
     expect(await tagNamesOf(core, document.id)).toEqual(["Contract"]);

@@ -23,7 +23,9 @@ import {
   pointAndClick,
   removeDataFolder,
   setGroupBeside,
+  setLanguage,
   setWindowSize,
+  sizeMind,
   slideSelect,
   slideToHandle,
   tokenColor,
@@ -219,9 +221,10 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
   await expect(handle).toBeVisible();
   await inLeftMargin(handle, "the block handle");
 
-  // The Citations are numbered through the Mind; the not-found one is amber in the text.
+  // The Citations are numbered through the Mind, a page cited again keeping its footnote's
+  // number; the not-found one is a footnote of its own, amber in the text.
   const markers = editor.getByTestId("citation-chip");
-  await expect(markers).toHaveText(["1", "2", "3"]);
+  await expect(markers).toHaveText(["1", "1", "2"]);
   await expect(markers.nth(0)).toHaveAttribute("aria-label", /Tides, p\. 2\. Quote found on p\. 2/);
   await expect(markers.nth(2)).toHaveAttribute("data-check", "not-found");
 
@@ -409,12 +412,43 @@ test("an approval card is a ruled block whose sections share one text edge, for 
   await expect(card.locator(".approval-title")).toHaveText("Tides wants to run book_boat");
   await expect(card.locator(".approval-title code")).toHaveText("book_boat");
   await expectOneTextEdge(card);
-  // Deny is pushed to the right, to the card's edge.
-  const deny = await box(card.getByTestId("approval-deny"));
-  const always = await box(card.getByTestId("approval-always-allow"));
+  // #400: the choices may wrap under the text; each is inside the card and reachable, in the
+  // card's order, with Deny last and pushed to the card's right edge on its row.
+  const choices = ["approval-allow-once", "approval-always-allow", "approval-deny"] as const;
   const cardBox = await box(card);
-  expect(Math.abs(deny.y - always.y), "on one row").toBeLessThan(2);
-  expect(deny.x - (always.x + always.width)).toBeGreaterThan(8);
+  const order = await card.evaluate((element) =>
+    [...element.querySelectorAll<HTMLElement>(".approval-actions .approval-button")].map(
+      (button) => button.dataset.testid ?? "",
+    ),
+  );
+  expect(order).toEqual([...choices]);
+  const boxes = await Promise.all(
+    choices.map(async (each) => {
+      const button = card.getByTestId(each);
+      await expect(button).toBeVisible();
+      await expect(button).toBeEnabled();
+      return box(button);
+    }),
+  );
+  for (const choice of boxes) {
+    expect(choice.x).toBeGreaterThanOrEqual(cardBox.x - 0.5);
+    expect(choice.x + choice.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 0.5);
+    expect(choice.y).toBeGreaterThanOrEqual(cardBox.y - 0.5);
+    expect(choice.y + choice.height).toBeLessThanOrEqual(cardBox.y + cardBox.height + 0.5);
+  }
+  const [allowOnce, always, deny] = boxes as [
+    (typeof boxes)[number],
+    (typeof boxes)[number],
+    (typeof boxes)[number],
+  ];
+  expect(
+    deny.y > always.y + 1 || deny.x >= always.x + always.width - 1,
+    "Deny after Always allow, on its row or the next",
+  ).toBe(true);
+  expect(
+    allowOnce.y < always.y || (Math.abs(allowOnce.y - always.y) <= 1 && allowOnce.x < always.x),
+    "the choices in the card's order",
+  ).toBe(true);
   expect(cardBox.x + cardBox.width - (deny.x + deny.width)).toBeLessThan(24);
   await screenshot(window, "approval.png");
   await screenshot(answer, "approval-card.png");
@@ -441,18 +475,55 @@ test("an approval card is a ruled block whose sections share one text edge, for 
   await app.close();
 });
 
-/** Sizes the window until the Mind's column is `width` wide: the sidebar and the assistant take the rest. */
-async function sizeMind(app: ElectronApplication, window: Page, width: number) {
-  const column = window.locator(".mind-column");
-  let windowWidth = width + 400;
-  for (let tries = 0; tries < 3; tries++) {
-    await setWindowSize(app, window, windowWidth, 900);
-    const have = (await box(column)).width;
-    if (Math.abs(have - width) <= 1) return;
-    windowWidth += Math.round(width - have);
+test("an approval card at 900 px in Chinese keeps one text edge and its choices in the card, Deny last", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await addTideConnector(window);
+  await setWindowSize(app, window, 900, 900);
+  await setLanguage(window, "zh-CN");
+  await newMind(window);
+  await nameMind(window, "Boat trips");
+  await enterContent(window);
+  await window.keyboard.type("请从 Dover 订早班船。");
+  await window.keyboard.press("Enter");
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type("Please book_boat from Dover");
+  await window.keyboard.press("Enter");
+
+  const answer = assistantAnswers(window).first();
+  const card = answer.getByTestId("approval-card");
+  await expect(card).toBeVisible({ timeout: 15_000 });
+  await expect(card.locator(".approval-title code")).toHaveText("book_boat");
+  await expectOneTextEdge(card);
+  const cardBox = await box(card);
+  const choices = ["approval-allow-once", "approval-always-allow", "approval-deny"] as const;
+  const order = await card.evaluate((element) =>
+    [...element.querySelectorAll<HTMLElement>(".approval-actions .approval-button")].map(
+      (button) => button.dataset.testid ?? "",
+    ),
+  );
+  expect(order).toEqual([...choices]);
+  const boxes = await Promise.all(choices.map(async (each) => box(card.getByTestId(each))));
+  for (const choice of boxes) {
+    expect(choice.x).toBeGreaterThanOrEqual(cardBox.x - 0.5);
+    expect(choice.x + choice.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 0.5);
+    expect(choice.y).toBeGreaterThanOrEqual(cardBox.y - 0.5);
+    expect(choice.y + choice.height).toBeLessThanOrEqual(cardBox.y + cardBox.height + 0.5);
   }
-  await expect.poll(async () => Math.abs((await box(column)).width - width)).toBeLessThanOrEqual(1);
-}
+  const [, always, deny] = boxes as [
+    (typeof boxes)[number],
+    (typeof boxes)[number],
+    (typeof boxes)[number],
+  ];
+  expect(
+    deny.y > always.y + 1 || deny.x >= always.x + always.width - 1,
+    "Deny after Always allow, on its row or the next",
+  ).toBe(true);
+  await screenshot(answer, "approval-card-zh-900.png");
+  await card.getByTestId("approval-deny").click();
+  await app.close();
+});
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const mindWidth of [650, 800, 1440]) {
@@ -530,7 +601,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`the margins narrow to 40px before they fold at 760px, where a sentence's mark keeps to the gutter and both gutters stay 40px, with the composer under the text (${language})`, async () => {
+  test(`the margins narrow to 40px before they fold at 760px, where a sentence's mark moves into the text and both gutters stay 40px, with the composer under the text (${language})`, async () => {
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
@@ -585,18 +656,24 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(marks.first()).toBeVisible();
     const mark = await box(marks.first());
     const text = await textColumn(editor);
-    expect.soft(mark.x).toBeGreaterThanOrEqual(text.x + text.width);
+    expect
+      .soft(mark.x, "the mark's left edge is 8px after the measure")
+      .toBeGreaterThanOrEqual(text.x + text.width + 8 - 2);
     expect.soft(mark.x + mark.width).toBeLessThanOrEqual(text.x + text.width + 40);
 
-    // Folded under 760px: the mark keeps to the gutter, both gutters stay 40px, and the text edge doesn't move.
+    // Folded under 760px: the mark moves into the text, at the sentence's end; both gutters stay 40px.
     await sizeMind(app, window, 650);
     await expect(marks.first()).toBeVisible();
     const foldedMark = await box(marks.first());
     const foldedText = await textColumn(editor);
-    expect.soft(foldedMark.x).toBeGreaterThanOrEqual(foldedText.x + foldedText.width);
+    expect.soft(foldedMark.x, "the mark sits in the text").toBeGreaterThanOrEqual(foldedText.x);
     expect
-      .soft(foldedMark.x + foldedMark.width)
-      .toBeLessThanOrEqual(foldedText.x + foldedText.width + 40);
+      .soft(foldedMark.x + foldedMark.width, "the mark ends in the text")
+      .toBeLessThanOrEqual(foldedText.x + foldedText.width);
+    expect(
+      await window.getByTestId("margin-checks").getByTestId("claim-mark").count(),
+      "the mark is drawn, in the text",
+    ).toBe(1);
     const folded = await gutters();
     expectNear(folded.left, 40, 1, "the left gutter when folded");
     expectNear(folded.right, 40, 1, "the right gutter when folded");

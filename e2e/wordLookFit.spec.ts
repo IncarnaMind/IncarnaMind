@@ -85,7 +85,7 @@ const layoutOf = (frame: Locator) =>
   });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a résumé laid out in tables fits its column, docked and floating, at 1,440 and 900 px (${language})`, async () => {
+  test(`a résumé laid out in tables fits its column, docked and floating, at 1,440, 1,100 and 900 px (${language})`, async () => {
     test.setTimeout(120_000);
     const { app, window } = await launchApp(dataDir, { home });
     await dismissChatSetup(window);
@@ -97,6 +97,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     for (const [width, height] of [
       [1440, 900],
+      [1100, 720],
       [900, 760],
     ] as const) {
       for (const dock of ["right", "float"] as const) {

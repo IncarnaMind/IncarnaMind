@@ -7,7 +7,7 @@
  */
 import { spawn } from "node:child_process";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { chromium, type Locator, type Page } from "@playwright/test";
 
 /** The width the captions and the pointer are sized for: the README shows its GIF this wide. */
@@ -59,22 +59,16 @@ const clamp = (value: number, low: number, high: number) => Math.min(Math.max(va
 /** The caption pills as pictures with a clear background, by their text, in the app's own fonts. */
 export async function renderPills(texts: readonly string[], folder: string) {
   await mkdir(folder, { recursive: true });
-  const fonts = resolve(__dirname, "../../node_modules/@fontsource-variable/source-sans-3/files");
   // Sizes are given as they read at the GIF's width: 15px at 880 wide.
   const unit = (FILMED.width * PIXEL_RATIO) / DESIGN_WIDTH;
   const page = `<!doctype html><meta charset="utf-8"><style>
-    @font-face { font-family: "Source Sans 3"; font-weight: 200 900;
-      src: url("file://${fonts}/source-sans-3-latin-wght-normal.woff2") format("woff2");
-      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
-    @font-face { font-family: "Source Sans 3"; font-weight: 200 900;
-      src: url("file://${fonts}/source-sans-3-latin-ext-wght-normal.woff2") format("woff2");
-      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF; }
     body { margin: 0; background: transparent; }
     #frame { display: inline-block; padding: ${14 * unit}px; }
     #pill { display: inline-block; white-space: nowrap; background: #fff; color: #17191c;
       border-radius: 999px; padding: ${6 * unit}px ${16 * unit}px;
-      font: 500 ${15 * unit}px/${22 * unit}px "Source Sans 3", "PingFang SC", "Hiragino Sans GB",
-        "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      font: 500 ${15 * unit}px/${22 * unit}px -apple-system, BlinkMacSystemFont, "SF Pro Text",
+        "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
+        system-ui, sans-serif;
       box-shadow: 0 ${2 * unit}px ${10 * unit}px rgba(23,25,28,.18), 0 0 0 ${unit}px rgba(23,25,28,.08); }
   </style><div id="frame"><div id="pill"></div></div>`;
   const file = join(folder, "pill.html");
@@ -113,6 +107,7 @@ export class Film {
   private pending: Promise<void>[] = [];
   private latest: { data: string; at: number } | null = null;
   private keeping = false;
+  private stills = false;
   private since = 0;
   private rate = 1;
   private count = 0;
@@ -185,6 +180,19 @@ export class Film {
     }
   }
 
+  /**
+   * The take is at a scene it keeps only a picture of: no frame from it enters the film, and its
+   * cuts leave the recording as it was, so the next scene starts its own.
+   */
+  picturesOnly(on: boolean): void {
+    this.stills = on;
+    if (on) this.keep(false);
+  }
+
+  get stillsOnly(): boolean {
+    return this.stills;
+  }
+
   /** Plays what is kept from now on this many times faster (at most 2). */
   speed(rate: number): void {
     this.rate = Math.min(Math.max(rate, 1), 2);
@@ -211,6 +219,11 @@ export class Film {
   /** Every mark and the second of the recording it names. */
   markTimes(): Record<string, number> {
     return Object.fromEntries(this.marks);
+  }
+
+  /** Every caption change, and the second it happens at; null marks a scene with no caption. */
+  captionTimes(): { at: number; text: string | null }[] {
+    return this.captions.map(({ at, text }) => ({ at, text }));
   }
 
   /**
@@ -308,7 +321,24 @@ export class Film {
    */
   async master(output: string): Promise<number> {
     const list = await this.list();
+    if (process.env.DEMO_DEBUG) {
+      const { copyFile } = await import("node:fs/promises");
+      await copyFile(list, `${process.env.DEMO_DEBUG}/frames.txt`).catch(() => undefined);
+    }
     const total = this.kept + 1;
+    // The frames at their own durations first: one giant filter graph over a few thousand
+    // images lost most of the film's time in encoding (13 s of a 60 s take), so the concat is
+    // settled into a 30 fps video on its own, and the zoom and captions are laid over that.
+    const plain = join(this.folder, "master-plain.mkv");
+    await ffmpeg([
+      ...["-f", "concat", "-safe", "0", "-i", list],
+      ...["-vf", `fps=${FRAME_RATE}`],
+      // The concat list repeats its last file, which plays that frame once more; the film ends
+      // at its own length, not at the last frame's second play.
+      ...["-t", this.kept.toFixed(3)],
+      ...["-c:v", "libx264rgb", "-preset", "veryfast", "-crf", "6", "-an"],
+      plain,
+    ]);
     const shown = [...this.intervals()].flatMap(([text, spans]) => {
       const path = this.pills.get(text);
       return path ? [{ path, spans }] : [];
@@ -325,12 +355,12 @@ export class Film {
     });
     const zoom = this.zoomFilter();
     const graph = [
-      `[0:v]fps=${FRAME_RATE}${zoom ? `,${zoom}` : ""},pad=${width}:${height + band}:0:0:color=0x${BAND}[v0]`,
+      `[0:v]${zoom ? `${zoom},` : ""}pad=${width}:${height + band}:0:0:color=0x${BAND}[v0]`,
       ...stages,
       `[v${shown.length}]format=gbrp[out]`,
     ].join(";");
     await ffmpeg([
-      ...["-f", "concat", "-safe", "0", "-i", list],
+      ...["-i", plain],
       ...shown.flatMap(({ path }) => [
         ...["-loop", "1", "-framerate", String(FRAME_RATE), "-t", total.toFixed(2), "-i", path],
       ]),
@@ -338,6 +368,18 @@ export class Film {
       ...["-c:v", "libx264rgb", "-preset", "veryfast", "-crf", "6", "-an"],
       output,
     ]);
+    const [frames, finished] = await Promise.all([probeDuration(plain), probeDuration(output)]);
+    console.log(
+      "master",
+      this.frames.length,
+      "frames,",
+      this.kept.toFixed(2),
+      "s kept,",
+      frames.toFixed(2),
+      "s plain,",
+      finished.toFixed(2),
+      "s finished",
+    );
     return (await stat(output)).size;
   }
 }
@@ -394,6 +436,27 @@ export async function encodeMp4(master: string, output: string, crf = 22): Promi
     output,
   ]);
   return (await stat(output)).size;
+}
+
+/** How long a video or GIF file really is, in seconds: what a reader will see. */
+export function probeDuration(file: string): Promise<number> {
+  return new Promise((done, fail) => {
+    const child = spawn("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=nw=1:nk=1",
+      file,
+    ]);
+    let text = "";
+    child.stdout.on("data", (chunk: Buffer) => (text += chunk.toString()));
+    child.on("error", fail);
+    child.on("close", (code) =>
+      code === 0 ? done(Number(text.trim())) : fail(new Error(`ffprobe stopped with ${code}`)),
+    );
+  });
 }
 
 function ffmpeg(args: string[]): Promise<void> {
@@ -695,7 +758,7 @@ export class Hand {
     } finally {
       if (parkAt) await this.place(parkAt.x, parkAt.y);
       else await this.window.mouse.move(this.x, this.y);
-      await this.begin();
+      if (!this.film.stillsOnly) await this.begin();
     }
   }
 

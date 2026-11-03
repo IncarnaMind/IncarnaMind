@@ -8,7 +8,12 @@ import {
   type StepsInput,
   stepRows,
 } from "../../src/renderer/src/answerSteps";
-import { checkedWords, checkingWords, foldedWords } from "../../src/renderer/src/answerStepWords";
+import {
+  checkedWords,
+  checkingWords,
+  documentReadText,
+  foldedWords,
+} from "../../src/renderer/src/answerStepWords";
 import { translate } from "../../src/shared/i18n";
 
 /*
@@ -127,6 +132,52 @@ describe("an Answer's steps", () => {
     ]);
     expect(row?.kind === "search" && row.sources.map((source) => source.marker)).toEqual([1, 2, 4]);
     expect(foldedLine(steps)).toEqual({ kind: "searched", sources: 3, extraScopes: 0 });
+  });
+
+  test("a Document read keeps its Passages with the search steps and has English and Chinese lines", () => {
+    const read: AnswerToolCall = {
+      id: "r1",
+      tool: "read_document",
+      source: "documents",
+      input: { document: "Filing", pages: "12–13" },
+      status: "done",
+      resultCount: 2,
+      passages: ["a", "b"],
+    };
+    const steps = input({
+      toolCalls: [read],
+      citations: [citation(1, "a", "d1", 12)],
+    });
+
+    const [, row] = stepRows(steps);
+    expect(row).toMatchObject({ kind: "search", found: 2, used: 1 });
+    expect(row?.kind === "search" && row.calls.map((call) => call.id)).toEqual(["r1"]);
+    expect(row?.kind === "search" && row.sources.map((source) => source.marker)).toEqual([1]);
+    expect(foldedLine(steps)).toEqual({ kind: "searched", sources: 1, extraScopes: 0 });
+    expect(documentReadText(en, read)).toBe("Read pages 12–13 of “Filing”");
+    expect(documentReadText(zh, read)).toBe("读取了“Filing”第 12–13 页");
+    expect(documentReadText(en, read, true)).toBe("Reading pages 12–13 of “Filing”…");
+    expect(documentReadText(en, { ...read, resultCount: 0 })).toBe(
+      "No passages read from “Filing”",
+    );
+    expect(documentReadText(zh, { ...read, resultCount: 0 })).toBe("未读取到“Filing”的内容");
+  });
+
+  test("a failed Document read is its own row, not a failed search", () => {
+    const failed: AnswerToolCall = {
+      id: "r1",
+      tool: "read_document",
+      source: "documents",
+      input: { document: "Filing", pages: "2" },
+      status: "failed",
+      resultCount: null,
+      error: { kind: "provider", message: "The read failed." },
+    };
+
+    expect(stepRows(input({ toolCalls: [failed] }))).toContainEqual({
+      kind: "failed-read",
+      call: failed,
+    });
   });
 
   // protects=an Answer that searched only the web folds to that, its calls each a row in order, and a web search beside a Document search counts as one more scope; fails_when=it folds to the Mind it was asked from, groups the web calls with searches, or drops one; no_claim=how the rows are worded.
@@ -468,8 +519,124 @@ describe("an Answer's steps", () => {
       citations: [{ ...quoted(1, "Spring tides"), check: "not-found" }, quoted(2, "Full moon")],
     });
     expect(stepRows(lost).at(-1)).toEqual({ kind: "check", count: 3, notFound: 2 });
+    // A sentence its found quote doesn't support needs a look, as its badge says (#2311).
+    const unbacked = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [{ ...quoted(1, "Spring tides"), check: "unsupported" }, quoted(2, "Full moon")],
+    });
+    expect(stepRows(unbacked).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      needALook: 1,
+    });
+    const contradicted = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [
+        { ...quoted(1, "Spring tides"), check: "contradicted" },
+        { ...quoted(2, "Full moon"), check: "unsupported" },
+      ],
+    });
+    const waiting = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [{ ...quoted(1, "Spring tides"), check: "checking" }, quoted(2, "Full moon")],
+    });
+    expect(stepRows(waiting).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      running: true,
+    });
+    const unjudged = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [{ ...quoted(1, "Spring tides"), check: "not-checked" }, quoted(2, "Full moon")],
+    });
+    expect(stepRows(unjudged).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      notChecked: 1,
+    });
+    expect(stepRows(contradicted).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      needALook: 2,
+      contradicted: 1,
+    });
     expect(checkedWords(en, 1)).toBe("Checked 1 Citation against its source");
     expect(checkedWords(zh, 1)).toBe("把 1 处引用和原文核对");
+  });
+
+  // protects=#535: a Citation that can't be checked, a scan's unsure word among them, is counted in the check line and the line never says all found; fails_when=the row leaves it out; no_claim=how its card asks for the page (e2e).
+  test("a Citation that can't be checked is counted in the check line (#535)", () => {
+    const unsure = input({
+      text: "Spring tides follow the new moon [^1].",
+      citations: [
+        {
+          ...citation(1, "a", "d1", 4),
+          check: "cant-check",
+          checkReason: "unsure-word",
+          unsure: ["convenience"],
+        },
+      ],
+    });
+    expect(stepRows(unsure).at(-1)).toEqual({
+      kind: "check",
+      count: 1,
+      notFound: 0,
+      cantCheck: 1,
+    });
+  });
+
+  test("a limit that stopped judging its sentences: how many of them were checked, and which limit, in English and Chinese (#2311)", () => {
+    const quoted = (marker: number, quote: string): MarkedCitation => ({
+      ...citation(marker, "a", "d1", 4),
+      quote,
+    });
+    const text =
+      "Spring tides follow the new moon [^1]. They are the highest [^2]. Neap tides are the lowest [^3].";
+    const stoppedBy = (reason: "answer-limit" | "monthly-limit") =>
+      stepRows(
+        input({
+          text,
+          citations: [
+            quoted(1, "Spring tides"),
+            { ...quoted(2, "Full moon"), check: "not-checked", checkReason: reason },
+            { ...quoted(3, "Neap tides"), check: "not-checked", checkReason: reason },
+          ],
+        }),
+      ).at(-1);
+    const unjudged = input({
+      text,
+      citations: [
+        quoted(1, "Spring tides"),
+        { ...quoted(2, "Full moon"), check: "not-checked" },
+        quoted(3, "Neap tides"),
+      ],
+    });
+
+    expect(stoppedBy("answer-limit")).toMatchObject({
+      notChecked: 2,
+      stopped: { by: "answer-limit", checked: 1, total: 3 },
+    });
+    expect(stoppedBy("monthly-limit")).toMatchObject({
+      stopped: { by: "monthly-limit", checked: 1, total: 3 },
+    });
+    // Not checked for another reason, a failure: no limit to name.
+    expect(stepRows(unjudged).at(-1)).not.toHaveProperty("stopped");
+    expect(en("steps.check.answerLimit", { checked: 12, total: 40, limit: "$0.25" })).toBe(
+      "12 of 40 sentences checked · This Answer’s $0.25 checking limit reached",
+    );
+    expect(zh("steps.check.answerLimit", { checked: 12, total: 40, limit: "$0.25" })).toBe(
+      "已核对 40 句中的 12 句 · 已达本回答 $0.25 的核对上限",
+    );
+    expect(en("steps.check.monthlyLimit", { checked: 12, total: 40, cap: "$20.00" })).toBe(
+      "12 of 40 sentences checked · Your monthly limit of $20.00 reached",
+    );
+    expect(zh("steps.check.monthlyLimit", { checked: 12, total: 40, cap: "$20.00" })).toBe(
+      "已核对 40 句中的 12 句 · 已达每月上限 $20.00",
+    );
   });
 
   test("the figures it calculated, after the searches and before the check, with no call row", () => {
@@ -532,6 +699,37 @@ describe("an Answer's steps", () => {
         (row) => row.kind,
       ),
     ).toEqual(["answered"]);
+  });
+});
+
+describe("an Answer asked again about a Tool its reply said ran (#1796)", () => {
+  // protects=the ask is its own row, after the calls and before the figures it then calculated; fails_when=it has no row, or sits elsewhere; no_claim=none beyond protects.
+  test("is a row of its own, before the figures", () => {
+    const calculated: AnswerToolCall = {
+      id: "calculated-figures",
+      tool: "calculate",
+      source: "documents",
+      input: {},
+      status: "done",
+      resultCount: 1,
+    };
+    const rows = stepRows(
+      input({
+        toolCalls: [search("s1", "leverage", { passages: ["a"] }), calculated],
+        steps: { ...STEPS, askedAgainFor: ["calculate"] },
+      }),
+    );
+    expect(rows.map((row) => row.kind)).toEqual([
+      "answered",
+      "search",
+      "asked-again",
+      "calculated",
+    ]);
+    expect(rows.find((row) => row.kind === "asked-again")).toEqual({
+      kind: "asked-again",
+      tools: ["calculate"],
+    });
+    expect(stepRows(input()).some((row) => row.kind === "asked-again")).toBe(false);
   });
 });
 
@@ -643,7 +841,7 @@ describe("where an Answer found what it says", () => {
     const gone = foldedLine(
       input({ read: { ...READ, deleted: true }, steps: sentWhole("lease") }, { askedFrom: MIND }),
     );
-    expect(words(gone, library)).toBe("Read a deleted Mind and “租赁合同-2026”");
+    expect(words(gone, library)).toBe("Read a deleted note and “租赁合同-2026”");
   });
 
   // protects=a long scope sends nothing whole, so an Answer that searches says it searched and counts its sources, with no Document read with the Question; fails_when=a Document is called read that was only searched; no_claim=none beyond protects.

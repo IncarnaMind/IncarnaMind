@@ -158,6 +158,8 @@ function cellBreaksAsSpaces(text: string): string {
 
 /** How matching treats numbers (see the module comment). */
 export interface MatchOptions {
+  /** Refuse a quote with more than one matching place, including overlapping matches. */
+  unique?: boolean;
   /**
    * Normalise number formatting in the quote and the text: always for
    * spreadsheets (true); for slides, only when the quote isn't found as it
@@ -377,7 +379,8 @@ function findNeedle(
   units: readonly NormalisedUnit[],
   needle: string,
   accept?: Accept,
-): TextRange[] | null {
+  unique = false,
+): TextRange[] | "ambiguous" | null {
   if (!needle) return null;
   // With numbers, a match takes in the formatting around its figures: "£", ")" and ".00".
   const widen = accept !== undefined;
@@ -393,19 +396,35 @@ function findNeedle(
   };
 
   const whole = findFrom(units, needle, 0, accept);
-  if (whole) return [range(whole)];
+  if (whole)
+    return unique && findFrom(units, needle, whole.first + 1, accept)
+      ? "ambiguous"
+      : [range(whole)];
   if (!ELLIPSIS.test(needle)) return null;
 
   const parts = needle.split(ELLIPSIS).filter((part) => part !== "");
   if (parts.length === 0) return null;
   if (parts.length > 1 && !parts.every(longEnough)) return null;
   const found: TextRange[] = [];
+  const starts: number[] = [];
   let from = 0;
   for (const part of parts) {
     const match = findFrom(units, part, from, accept);
     if (!match) return null;
     found.push(range(match));
+    starts.push(match.first);
     from = match.last + 1;
+  }
+  if (unique) {
+    for (const [index, part] of parts.entries()) {
+      let alternative = findFrom(units, part, (starts[index] ?? 0) + 1, accept);
+      if (!alternative) continue;
+      for (const next of parts.slice(index + 1)) {
+        alternative = findFrom(units, next, alternative.last + 1, accept);
+        if (!alternative) break;
+      }
+      if (alternative) return "ambiguous";
+    }
   }
   return found;
 }
@@ -424,8 +443,9 @@ export function findQuote(
   const readings = options.numbers === "if-needed" ? [false, true] : [options.numbers === true];
   for (const numbers of readings) {
     const found =
-      findRead(text, quote, numbers, false) ??
-      (options.lostLigatures ? findRead(text, quote, numbers, true) : null);
+      findRead(text, quote, numbers, false, options.unique) ??
+      (options.lostLigatures ? findRead(text, quote, numbers, true, options.unique) : null);
+    if (found === "ambiguous") return null;
     if (found) return found;
   }
   return null;
@@ -440,17 +460,19 @@ function findRead(
   quote: string,
   numbers: boolean,
   withoutLigatureLetters: boolean,
-): TextRange[] | null {
+  unique = false,
+): TextRange[] | "ambiguous" | null {
   const shape = withoutLigatureLetters ? withoutLigatures : (needle: string) => needle;
   const read = withoutLigatureLetters ? unitsWithoutLigatures : (units: NormalisedUnit[]) => units;
-  if (!numbers) return findNeedle(read(matchUnits(text)), shape(needleOf(quote)));
+  if (!numbers)
+    return findNeedle(read(matchUnits(text)), shape(needleOf(quote)), undefined, unique);
   const units = read(matchUnits(text, "text"));
   const accept = wholeNumbers(units);
   const grouped = shape(needleOf(quote, "all"));
-  const found = findNeedle(units, grouped, accept);
+  const found = findNeedle(units, grouped, accept, unique);
   if (found) return found;
   const spaced = shape(needleOf(quote, "none"));
-  return spaced === grouped ? null : findNeedle(units, spaced, accept);
+  return spaced === grouped ? null : findNeedle(units, spaced, accept, unique);
 }
 
 /**

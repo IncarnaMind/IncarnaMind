@@ -15,10 +15,14 @@ import {
   CITATION_NODE,
   type CitationAttributes,
   FOOTNOTE_NODE,
+  PROPOSAL_ATTRIBUTE,
 } from "../../../core/api";
 import { readChart } from "../../../shared/charts";
+import { citationSubject } from "../../../shared/citations";
+import { FootnoteNumbering } from "../../../shared/footnoteNumbers";
 import { translate } from "../../../shared/i18n";
-import { type SourceContext, sourceKeyOf, sourceText } from "../../../shared/sources";
+import { readProposalAttribute } from "../../../shared/proposals";
+import { type SourceContext, sourceText } from "../../../shared/sources";
 import { tableText } from "./tableText";
 
 type Cited = Partial<CitationAttributes>;
@@ -37,16 +41,19 @@ export function citationsIn(fragment: Fragment): Cited[] {
   return found;
 }
 
-/** The number of each Citation's note: a source and place cited again has the first one's. */
+/**
+ * The number of each Citation's note: a source and place cited again has the first one's, and a
+ * Citation a change still waiting adds or removes is a note of its own (#107), as every surface
+ * numbers it (#2292).
+ */
 export function noteNumbers(citations: readonly Cited[], context: SourceContext): number[] {
-  const numbered = new Map<string, number>();
+  const numbering = new FootnoteNumbering();
   return citations.map((citation) => {
-    const { text, link } = sourceText(citation, context);
-    const key = `${sourceKeyOf(citation, context)}\n${citation.documentId ?? ""}\n${citation.contentHash ?? ""}\n${text}\n${link ?? ""}`;
-    const known = numbered.get(key);
-    if (known !== undefined) return known;
-    numbered.set(key, numbered.size + 1);
-    return numbered.size;
+    const pending =
+      readProposalAttribute((citation as Record<string, unknown>)[PROPOSAL_ATTRIBUTE]) !== null;
+    return pending
+      ? numbering.footnote()
+      : numbering.citation(citationSubject(citation, context)).number;
   });
 }
 

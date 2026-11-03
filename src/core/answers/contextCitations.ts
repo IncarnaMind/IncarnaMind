@@ -33,13 +33,15 @@ const textOf = (value: unknown) => (typeof value === "string" && value !== "" ? 
 const unitOf = (value: unknown) =>
   typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
 
-export function createContextCitations(): ContextCitations {
+export function createContextCitations(
+  allowDocument: (documentId: string) => boolean = () => true,
+): ContextCitations {
   const ids = new Map<string, string>();
   const byId = new Map<string, ContextCitation>();
   return {
     idOf(attributes) {
       const documentId = textOf(attributes.documentId);
-      if (!documentId) return null;
+      if (!documentId || !allowDocument(documentId)) return null;
       const pageFrom = unitOf(attributes.pageFrom);
       const citation: ContextCitation = {
         passageId: textOf(attributes.passageId),

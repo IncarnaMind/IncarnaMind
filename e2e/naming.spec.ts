@@ -137,7 +137,7 @@ const FROM_QUESTION = [
 ] as const;
 
 for (const { language, width, question, name } of FROM_QUESTION) {
-  test(`Add to note into an empty Mind names it by the Note's first line, never the Question; the tab shows it on one line with the whole name in its tooltip, and the exported file takes it (${language}, ${width}px)`, async () => {
+  test(`Add to note into an empty Mind names it by the Note's first line, never the Question; the tab shows it on one line with the whole name in its tooltip, and the exported file takes the Question (${language}, ${width}px)`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -189,11 +189,11 @@ for (const { language, width, question, name } of FROM_QUESTION) {
     });
     expect(oneLine).toBe(true);
 
-    // The exported file is named by it, and ends at the same clean cut.
+    // The file takes the Question that made the note, whole (#1945).
     await exportFromMenu(window);
     const done = window.getByTestId("export-result").getByTestId("export-done");
     await expect(done).toContainText(".docx", { timeout: 30_000 });
-    expect(await done.getAttribute("title")).toContain(`${name.replace(":", "")}.docx`);
+    expect(await done.getAttribute("title")).toContain(`${question.replace(/[?？.]$/, "")}.docx`);
     await app.close();
   });
 }

@@ -11,6 +11,7 @@
 import type { Core, PassageSearchResult, SearchMode } from "../../src/core";
 import { keywordQuery } from "../../src/core/documents/keywords";
 import {
+  DOCUMENT_NAME_WEIGHT,
   passagesInWindow,
   RRF_K,
   type WindowedPassage,
@@ -86,11 +87,23 @@ export async function keywordCandidates(
   const scores = new Map<number, number>();
   const match = keywordQuery(query);
   if (match && seqs.length > 0) {
-    // bm25() is lower for a better match; the dump keeps it higher-is-better, like the other scores.
+    // bm25() is lower for a better match; the dump keeps it higher-is-better, like the other
+    // scores. A Document's name match is added as keyword search adds it (#2042); a Passage
+    // only its Document's name matched keeps the name's score alone.
     for (const row of db.all<{ seq: number; score: number }>(
-      `SELECT rowid AS seq, bm25(passages_fts) AS score FROM passages_fts
-       WHERE passages_fts MATCH ? AND rowid IN (SELECT value FROM json_each(?))`,
-      [match, JSON.stringify(seqs)],
+      `WITH names AS MATERIALIZED (
+         SELECT document_id, bm25(document_names_fts) AS name_score
+         FROM document_names_fts WHERE document_names_fts MATCH ?),
+       matches AS MATERIALIZED (
+         SELECT rowid AS seq, bm25(passages_fts) AS passage_score
+         FROM passages_fts
+         WHERE passages_fts MATCH ? AND rowid IN (SELECT value FROM json_each(?)))
+       SELECT p.seq, coalesce(m.passage_score, 0) + ? * coalesce(n.name_score, 0) AS score
+       FROM passages p
+       LEFT JOIN matches m ON m.seq = p.seq
+       LEFT JOIN names n ON n.document_id = p.document_id
+       WHERE p.seq IN (SELECT value FROM json_each(?))`,
+      [match, match, JSON.stringify(seqs), DOCUMENT_NAME_WEIGHT, JSON.stringify(seqs)],
     )) {
       scores.set(row.seq, -row.score);
     }

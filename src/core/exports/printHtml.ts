@@ -1,28 +1,42 @@
 /**
  * A Mind as HTML to print as a PDF (#100): the body, and its footnotes apart, which the print
  * page puts at the foot of the page each marker lands on. Citations and the User's own
- * footnotes are numbered together in the order they appear, as in the other exports; a
- * citation style's notes take their numbers too, and its in-text Citations and Bibliography
- * are in the body. Maths is typeset (MathML); what KaTeX can't read stays LaTeX. Everything
+ * footnotes are numbered together as in the other exports: one note for each source and place,
+ * a later Citation of it repeating its number (#2292); a citation style's notes take their
+ * numbers too, and its in-text Citations and Bibliography are in the body. Maths is typeset
+ * (MathML); what KaTeX can't read stays LaTeX. Everything
  * from the Mind is escaped: the page shows text, never markup it was given. The HTML export
  * (./html) is the same document, its markers are links to the notes (`linkNotes`).
  * Someone's changes from a Word file still waiting are marked as Word prints
  * them, inserted words underlined and deleted ones struck, each with a note of
  * who made it and when (#734).
  */
+import { footnoteSubjectKey } from "../../shared/citations";
+import { FootnoteNumbering } from "../../shared/footnoteNumbers";
 import { cssString } from "../../shared/mindStyle";
 import { paragraphFormatDeclarations } from "../../shared/paragraphFormat";
 import type { ParagraphFormat, StyledRun } from "../api";
-import { type Block, type Footnote, type Inline, type Marks, tableLayout } from "../mindText";
+import {
+  type Block,
+  type Footnote,
+  type HeadingEntry,
+  headingEntries,
+  type Inline,
+  type Marks,
+  tableLayout,
+} from "../mindText";
 import { changedContent, changeEnding, changeSpans } from "../shownChanges";
 import type { ExportLabels } from "./labels";
 import { latexToMathMl } from "./math";
+import { noteChecks } from "./noteChecks";
 
 export type PrintLabels = ExportLabels;
 
 export interface PrintHtml {
   body: string;
   notes: string[];
+  /** The notes printed with the page, the User's own and changes' included: what the Saved line says (#2193). */
+  footnotes: number;
 }
 
 export interface CitationWriter {
@@ -50,6 +64,9 @@ export const safeLink: LinkTest = (href): href is string =>
 export const webLink: LinkTest = (href): href is string =>
   typeof href === "string" && /^https?:/i.test(href);
 
+/** Where a page break was: the print page starts a new page there, and so does a browser printing it. */
+const PAGE_BREAK = '<div class="page-break"></div>';
+
 export function renderPrintHtml(
   blocks: readonly Block[],
   labels: PrintLabels,
@@ -62,15 +79,28 @@ export function renderPrintHtml(
   const notes: string[] = [];
   const writer = new PrintWriter(
     labels,
-    (note) => {
-      notes.push(note);
-      return notes.length;
-    },
+    notes,
     linkNotes,
     citations,
     isLink,
+    headingEntries(blocks),
+    noteChecks(blocks),
   );
-  return { body: writer.blocks(blocks), notes };
+  const body = writer.finish(writer.blocks(blocks));
+  return { body, notes, footnotes: notes.length };
+}
+
+/** A table of contents as the page draws it: its heading, then the Note's headings indented. */
+function tocHtml(entries: readonly HeadingEntry[], labels: PrintLabels): string {
+  if (entries.length === 0) return "";
+  const lowest = Math.min(...entries.map((entry) => entry.level));
+  const items = entries
+    .map(
+      (entry) =>
+        `<li class="toc-entry toc-level-${entry.level}" style="padding-left:${(entry.level - lowest) * 16}px">${escapeHtml(entry.text)}</li>`,
+    )
+    .join("");
+  return `<nav class="toc"><p class="toc-title">${escapeHtml(labels.contents)}</p><ul>${items}</ul></nav>`;
 }
 
 /** A style's formatted runs: italics, bold, small capitals, underlining, raised text and links. */
@@ -93,6 +123,9 @@ function runsHtml(runs: readonly StyledRun[], isLink: LinkTest): string {
 /** The words of an unverified Citation's marker, after its source. */
 const unverifiedHtml = (labels: PrintLabels) =>
   ` <span class="unverified">${escapeHtml(labels.unverified)}</span>`;
+
+export const checkedHtml = (lines: readonly string[] | undefined): string =>
+  (lines ?? []).map((line) => `<br><span class="checked-by">${escapeHtml(line)}</span>`).join("");
 
 /** A Citation's source, as its footnote says it; a web page's address is a link. */
 export function sourceHtml(
@@ -158,36 +191,131 @@ function wrap(text: string, marks: Marks, isLink: LinkTest): string {
 }
 
 class PrintWriter {
+  /** The Mind's footnotes as every surface numbers them (#2292): one for each source and place. */
+  private readonly numbering = new FootnoteNumbering();
+  /** The notes whose first marker carries the id the note links back to. */
+  private readonly linked = new Set<number>();
+  /**
+   * The notes that say who made a change: the page's own, numbered after the Citations' notes
+   * so a change never moves a Citation's number away from the Note's (#2292).
+   */
+  private readonly changeNotes: string[] = [];
+
   constructor(
     private readonly labels: PrintLabels,
-    /** Numbers a footnote, given as HTML: 1, 2, 3… in the order they are written. */
-    private readonly number: (note: string) => number,
+    /** The notes the page prints, in order: a note's number is its place here, from 1. */
+    private readonly notes: string[],
     /** Markers link to their notes, and carry the id the note links back to. */
     private readonly linkNotes: boolean,
     private readonly citations: CitationWriter | null,
     private readonly isLink: LinkTest,
+    private readonly headings: readonly HeadingEntry[] = [],
+    /** The "Checked by" lines each note carries, by its key (see `noteChecks`). */
+    private readonly checks: ReadonlyMap<string, readonly string[]> = new Map(),
   ) {}
 
   blocks(blocks: readonly Block[]): string {
     return blocks.map((block) => this.block(block)).join("");
   }
 
-  private marker(note: string, adjacent = false): string {
-    const number = this.number(note);
-    const separator = adjacent ? "," : "";
-    if (this.linkNotes) {
-      return `<sup class="note-ref" id="ref-${number}">${separator}<a href="#note-${number}">${number}</a></sup>`;
+  /**
+   * A paragraph's text, split where it has a page break (#746): the parts
+   * apart, each in `wrap`, with a break between them that starts a new page.
+   */
+  private pages(content: readonly Inline[], wrap: (html: string) => string): string {
+    if (!content.some((item) => item.kind === "pageBreak")) return wrap(this.inline(content));
+    const parts: Inline[][] = [[]];
+    for (const item of content) {
+      if (item.kind === "pageBreak") parts.push([]);
+      else parts.at(-1)?.push(item);
     }
-    return `<sup class="note-ref" data-note="${number}">${separator}${number}</sup>`;
+    return parts.map((part) => (part.length > 0 ? wrap(this.inline(part)) : "")).join(PAGE_BREAK);
+  }
+
+  /** A footnote the page prints now: the User's own, a figure's note, or a citation style's. */
+  private marker(note: string, adjacent = false): string {
+    const number = this.numbering.footnote();
+    this.notes.push(note);
+    return this.markerAt(number, adjacent);
+  }
+
+  /**
+   * A Citation's marker: its source and place's footnote number. The first Citation of a source
+   * and place writes the note, and a later one points at it and shows its number (#1381); a
+   * Citation a change still waiting adds or removes stands for itself, as its own note (#107).
+   */
+  private citationMarker(item: Extract<Inline, { kind: "citation" }>, adjacent: boolean): string {
+    const subject = {
+      documentId: item.work.documentId,
+      contentHash: item.work.contentHash ?? null,
+      location: item.work.location,
+      unverified: item.footnote.unverified,
+      link: item.footnote.link ?? null,
+    };
+    const shared = item.inserted === undefined && item.deleted === undefined;
+    const key = shared ? footnoteSubjectKey(subject) : null;
+    const numbered =
+      key === null
+        ? { number: this.numbering.footnote(), first: true }
+        : this.numbering.citation(subject);
+    if (numbered.first) {
+      // A note stands for every Citation of its source and place, so it says a person's check
+      // only where all of them carry it (`noteChecks`).
+      const lines = key === null ? (item.footnote.checked ?? []) : (this.checks.get(key) ?? []);
+      this.notes.push(sourceHtml(item.footnote, this.labels, this.isLink) + checkedHtml(lines));
+    }
+    return this.markerAt(numbered.number, adjacent);
+  }
+  /**
+   * A marker: its note's number, and with links, the note's way back to the first marker that
+   * shows it. A later Citation of the same note shows the same number, without a second id.
+   */
+  private markerAt(number: number, adjacent = false, classes = ""): string {
+    const separator = adjacent ? "," : "";
+    const style = `note-ref${classes}`;
+    if (this.linkNotes) {
+      const first = !this.linked.has(number);
+      this.linked.add(number);
+      return `<sup class="${style}"${first ? ` id="ref-${number}"` : ""}>${separator}<a href="#note-${number}">${number}</a></sup>`;
+    }
+    return `<sup class="${style}" data-note="${number}">${separator}${number}</sup>`;
+  }
+
+  /**
+   * Where a change's note goes in the text, filled in by `finish` once the Citations' are
+   * numbered; `adjacent` is the comma a marker right after another note shows.
+   */
+  private changeMarker(note: string, adjacent: boolean): string {
+    const id = this.changeNotes.length;
+    this.changeNotes.push(note);
+    const after = adjacent ? ' data-adjacent="1"' : "";
+    return `<sup class="note-ref change-note" data-change="${id}"${after}></sup>`;
+  }
+
+  /** The body with each change's marker numbered, and their notes after the Citations' notes. */
+  finish(body: string): string {
+    const base = this.notes.length;
+    for (const note of this.changeNotes) this.notes.push(note);
+    return body.replace(
+      /<sup class="note-ref change-note" data-change="(\d+)"(?: data-adjacent="1")?><\/sup>/g,
+      (found, id: string) =>
+        this.markerAt(base + Number(id) + 1, found.includes("data-adjacent"), " change-note"),
+    );
   }
 
   private block(block: Block): string {
     switch (block.kind) {
       case "paragraph":
-        return `<p${formatStyle(block.format)}>${this.inline(changedContent(block))}</p>`;
+        return this.pages(
+          changedContent(block),
+          (html) => `<p${formatStyle(block.format)}>${html}</p>`,
+        );
       case "heading": {
         const level = Math.min(block.level + 1, 6);
-        return `<h${level}${formatStyle(block.format)}>${this.inline(changedContent(block))}</h${level}>`;
+        return this.pages(
+          changedContent(block),
+          (html) => `<h${level}${formatStyle(block.format)}>${html}</h${level}>`,
+        );
       }
       case "question":
         return `<p class="question"><span class="question-label">${escapeHtml(this.labels.question)}</span> ${this.inline(changedContent(block))}</p>`;
@@ -213,13 +341,15 @@ class PrintWriter {
       }
       case "chart":
         return this.chart(block);
+      case "toc":
+        return tocHtml(this.headings, this.labels);
       case "bibliography": {
         const entries = block.items
           .map((item) => {
             const label = item.label
               ? `<span class="label">${runsHtml(item.label, this.isLink)}</span> `
               : "";
-            return `<p class="entry">${label}${runsHtml(item.runs, this.isLink)}</p>`;
+            return `<p class="entry">${label}${runsHtml(item.runs, this.isLink)}${checkedHtml(item.checked)}</p>`;
           })
           .join("");
         const hanging = block.hangingIndent ? " hanging" : "";
@@ -242,6 +372,7 @@ class PrintWriter {
     const sources: string[] = [];
     const cited = this.inline(block.sources);
     if (cited) sources.push(escapeHtml(labels.chartSources) + cited);
+    if (block.calculated > 0) sources.push(escapeHtml(labels.chartCalculated(block.calculated)));
     if (block.uncited > 0) sources.push(escapeHtml(labels.chartUncited(block.uncited)));
     const { rows, cutFrom } = block.chart.data;
     if (cutFrom !== null) sources.push(escapeHtml(labels.chartCut(rows.length, cutFrom)));
@@ -292,7 +423,7 @@ class PrintWriter {
           state.lastWasNote = false;
           return `${marked} (${note})`;
         }
-        const marker = this.marker(note, state.lastWasNote);
+        const marker = this.changeMarker(note, state.lastWasNote);
         state.lastWasNote = true;
         return marked + marker;
       })
@@ -319,6 +450,9 @@ class PrintWriter {
         case "math":
           html += mathHtml(item.latex, false);
           break;
+        case "figure":
+          html += escapeHtml(item.figure.shown);
+          break;
         case "image":
           html += imageHtml(item.image.src, item.image.alt);
           break;
@@ -328,13 +462,11 @@ class PrintWriter {
             if (/\S$/.test(html)) html += " ";
             html += sourceHtml(item.footnote, this.labels, this.isLink);
           } else if (this.citations) {
-            const number = this.number(this.citations.note(item.footnote));
+            const number = this.numbering.footnote();
+            this.notes.push(this.citations.note(item.footnote));
             html += this.citations.marker(item.footnote, number);
           } else {
-            html += this.marker(
-              sourceHtml(item.footnote, this.labels, this.isLink),
-              state.lastWasNote,
-            );
+            html += this.citationMarker(item, state.lastWasNote);
             lastWasNote = true;
           }
           break;
@@ -345,7 +477,10 @@ class PrintWriter {
         case "cite": {
           const marker = item.unverified ? unverifiedHtml(this.labels) : "";
           if (item.note && !inNote) {
-            html += this.marker(runsHtml(item.runs, this.isLink) + marker, state.lastWasNote);
+            html += this.marker(
+              runsHtml(item.runs, this.isLink) + marker + checkedHtml(item.checked),
+              state.lastWasNote,
+            );
             lastWasNote = true;
           } else html += runsHtml(item.runs, this.isLink) + marker;
           break;

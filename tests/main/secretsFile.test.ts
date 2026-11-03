@@ -1,6 +1,7 @@
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import { SecretsFileDamagedError } from "../../src/core";
 import { createFileKeychain, SECRETS_FILE } from "../../src/main/secretsFile";
 import { createFakeCipher } from "../helpers/cipher";
 import { createTempDataFolder } from "../helpers/core";
@@ -80,5 +81,28 @@ describe("The secrets file behind the Keychain adapter", () => {
     const keychain = createFileKeychain(file, createFakeCipher("unavailable"));
 
     await expect(keychain.set("token", SECRET)).rejects.toThrow(/can't encrypt/);
+  });
+
+  test.each([
+    { name: "empty", contents: "" },
+    { name: "truncated JSON", contents: '{"token":"abc' },
+    { name: "not a record of secrets", contents: "[1, 2, 3]" },
+  ])("a file that is $name is damaged, and nothing is written over it", async ({ contents }) => {
+    const file = join(await createTempDataFolder(), SECRETS_FILE);
+    await writeFile(file, contents);
+    const keychain = createFileKeychain(file, createFakeCipher());
+
+    await expect(keychain.get("token")).rejects.toBeInstanceOf(SecretsFileDamagedError);
+    await expect(keychain.set("token", SECRET)).rejects.toBeInstanceOf(SecretsFileDamagedError);
+    expect(await readFile(file, "utf8")).toBe(contents);
+  });
+
+  test("a folder where the secrets file belongs is damaged too", async () => {
+    const file = join(await createTempDataFolder(), SECRETS_FILE);
+    await mkdir(file);
+    const keychain = createFileKeychain(file, createFakeCipher());
+
+    await expect(keychain.get("token")).rejects.toBeInstanceOf(SecretsFileDamagedError);
+    await expect(keychain.set("token", SECRET)).rejects.toBeInstanceOf(SecretsFileDamagedError);
   });
 });

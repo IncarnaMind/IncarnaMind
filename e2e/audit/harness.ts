@@ -18,6 +18,7 @@ import {
 // Vite's own source-map reader (the audit adds no dependency of its own).
 import { SourceMapConsumer } from "source-map-js";
 import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../../tests/helpers/home";
+import { launchEnvironment } from "../launchEnvironment";
 
 const appDir = resolve(__dirname, "..", "..");
 
@@ -87,21 +88,15 @@ export async function launch(
   }: LaunchOptions = {},
 ): Promise<Launched> {
   const home = tempDir("home");
-  const env: Record<string, string> = {};
-  for (const [name, value] of Object.entries(process.env)) {
-    if (value !== undefined) env[name] = value;
-  }
-  delete env.ELECTRON_RUN_AS_NODE;
-  delete env.INCARNAMIND_TEST_SENTRY_DSN;
-  delete env.INCARNAMIND_TEST_EXAMPLES;
-  delete env.INCARNAMIND_FAKE_CHAT;
-  if (examples) env.INCARNAMIND_TEST_EXAMPLES = "1";
-  if (fakeChat) env.INCARNAMIND_FAKE_CHAT = "1";
-  env.INCARNAMIND_DATA_DIR = dataDir;
-  env.INCARNAMIND_TEST_HOOKS = "1";
-  env.INCARNAMIND_TEST_EMBEDDER = "fake";
-  Object.assign(env, homeEnv(home));
-  Object.assign(env, extraEnv);
+  const env = launchEnvironment({
+    INCARNAMIND_TEST_EXAMPLES: examples ? "1" : undefined,
+    INCARNAMIND_FAKE_CHAT: fakeChat ? "1" : undefined,
+    INCARNAMIND_DATA_DIR: dataDir,
+    INCARNAMIND_TEST_HOOKS: "1",
+    INCARNAMIND_TEST_EMBEDDER: "fake",
+    ...homeEnv(home),
+    ...extraEnv,
+  });
 
   const launchMs = Date.now();
   const app = await electron.launch({
@@ -529,82 +524,7 @@ export interface FrameStats {
   longTaskMax: number;
 }
 
-/** Records keydown → next paint for each key typed, and Event Timing entries. */
-export async function installKeyLatency(window: Page): Promise<void> {
-  await window.evaluate(() => {
-    const w = window as unknown as {
-      __keys?: number[];
-      __events?: { name: string; duration: number }[];
-    };
-    if (w.__keys) return;
-    w.__keys = [];
-    w.__events = [];
-    document.addEventListener(
-      "keydown",
-      (event) => {
-        const t0 = event.timeStamp;
-        requestAnimationFrame(() => {
-          const channel = new MessageChannel();
-          channel.port1.onmessage = () => w.__keys?.push(performance.now() - t0);
-          channel.port2.postMessage(0);
-        });
-      },
-      true,
-    );
-    try {
-      new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) {
-          w.__events?.push({ name: entry.name, duration: entry.duration });
-        }
-      }).observe({
-        type: "event",
-        durationThreshold: 16,
-        buffered: false,
-      } as PerformanceObserverInit);
-    } catch {
-      // Event Timing isn't supported
-    }
-  });
-}
-
-export async function takeKeyLatency(window: Page) {
-  return window.evaluate(() => {
-    const w = window as unknown as {
-      __keys: number[];
-      __events: { name: string; duration: number }[];
-    };
-    const keys = [...w.__keys].sort((a, b) => a - b);
-    const events = w.__events.filter((e) => /key|input/.test(e.name));
-    w.__keys = [];
-    w.__events = [];
-    const q = (p: number) => keys[Math.min(keys.length - 1, Math.floor(p * keys.length))] ?? 0;
-    const round = (v: number) => Math.round(v * 10) / 10;
-    return {
-      keys: keys.length,
-      median: round(q(0.5)),
-      p95: round(q(0.95)),
-      max: round(keys.at(-1) ?? 0),
-      over50: keys.filter((k) => k > 50).length,
-      eventTimingOver16: events.length,
-      eventTimingMax: round(Math.max(0, ...events.map((e) => e.duration))),
-      // Event Timing (to the presented frame) for keydown only; keys it didn't report took < 16ms.
-      presented: (() => {
-        const downs = events.filter((e) => e.name === "keydown").map((e) => e.duration);
-        const all = [
-          ...downs,
-          ...Array.from({ length: Math.max(0, keys.length - downs.length) }, () => 8),
-        ].sort((a, b) => a - b);
-        const at = (p: number) => all[Math.min(all.length - 1, Math.floor(p * all.length))] ?? 0;
-        return {
-          keydownsOver16: downs.length,
-          median: at(0.5),
-          p95: at(0.95),
-          max: Math.max(0, ...downs),
-        };
-      })(),
-    };
-  });
-}
+export { installKeyLatency, takeKeyLatency } from "../app";
 
 /** The source maps next to the build's files, read once each (null: the build has none). */
 const sourceMaps = new Map<string, SourceMapConsumer | null>();

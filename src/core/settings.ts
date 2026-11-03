@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { isRecentStyles } from "../shared/citationStyles";
 import { isHelpKeys } from "../shared/meetingHelp";
+import {
+  type ChineseScript,
+  isChineseScript,
+  isMeetingWords,
+  transcriptScript,
+} from "../shared/meetingWords";
 import { DEFAULT_MIND_STYLE, isMindStyle } from "../shared/mindStyle";
 import {
   type ChatModelChoice,
@@ -18,6 +24,7 @@ import {
   type MonthlyCap,
   type MotionPreference,
   type SandboxLevel,
+  type SandboxProblem,
   type Settings,
   type SharePagePreferences,
   SKILL_SCRIPT_LIMITS,
@@ -166,11 +173,15 @@ const userScope: Scope<UserSettings> = {
       "share-page": SHARE_PAGE_DEFAULTS,
     },
     authorName: null,
+    personId: null,
     monthlyCap: null,
     webSearch: false,
     keepWebPageLook: false,
+    taskNotifications: true,
     recentCitationStyles: [],
     newMindStyle: DEFAULT_MIND_STYLE,
+    meetingWords: [],
+    transcriptScript: null,
   },
   validators: {
     language: isLanguagePreference,
@@ -181,11 +192,16 @@ const userScope: Scope<UserSettings> = {
     leaveOutOwnFiles: isBoolean,
     exportOptions: isExportPreferences,
     authorName: (value): value is string | null => value === null || isNonBlankText(value),
+    personId: (value): value is string | null => value === null || isNonBlankText(value),
     monthlyCap: (value): value is MonthlyCap | null => value === null || isMonthlyCap(value),
     webSearch: isBoolean,
     keepWebPageLook: isBoolean,
+    taskNotifications: isBoolean,
     recentCitationStyles: isRecentStyles,
     newMindStyle: isMindStyle,
+    meetingWords: isMeetingWords,
+    transcriptScript: (value): value is ChineseScript | null =>
+      value === null || isChineseScript(value),
   },
 };
 
@@ -196,14 +212,16 @@ const GETTING_STARTED_STEPS = [
   "indexed",
   "askedOwn",
   "askedReady",
+  "exported",
   "hidden",
   "seen",
 ];
 
 // Progress kept before the ready Question (#123) has no `askedReady`; `get` reads it as not asked.
 // Progress kept before the mistake had its own step has no `mistakeSeen`; `get` takes it from
-// `citationChecked`, so a first open already finished stays finished.
-const ADDED_LATER = ["askedReady", "mistakeSeen", "seen"];
+// `citationChecked`, so a first open already finished stays finished. A device that exported no
+// note, or showed no first-run card, has no `exported` or `seen`: both read as false.
+const ADDED_LATER = ["askedReady", "mistakeSeen", "exported", "seen"];
 const isGettingStarted = (value: unknown): value is GettingStarted =>
   isRecord(value) &&
   Object.keys(value).every((key) => GETTING_STARTED_STEPS.includes(key)) &&
@@ -224,7 +242,6 @@ const deviceScope: Scope<DeviceSettings> = {
     // DESIGN.md: the sidebar is 248px by default.
     sidebarWidth: 248,
     sidebarHidden: false,
-    chatSetupDismissed: false,
     sandboxNoticeDismissed: false,
     openedBefore: false,
     gettingStarted: {
@@ -234,6 +251,7 @@ const deviceScope: Scope<DeviceSettings> = {
       indexed: false,
       askedOwn: false,
       askedReady: false,
+      exported: false,
       hidden: false,
       seen: false,
     },
@@ -254,7 +272,6 @@ const deviceScope: Scope<DeviceSettings> = {
   validators: {
     sidebarWidth: isPaneWidth,
     sidebarHidden: isBoolean,
-    chatSetupDismissed: isBoolean,
     sandboxNoticeDismissed: isBoolean,
     openedBefore: isBoolean,
     gettingStarted: isGettingStarted,
@@ -344,7 +361,8 @@ export type SettingsStore = ReturnType<typeof createSettings>;
 
 /**
  * `scriptSandbox`: the level of the Executor Skill scripts run on
- * (`Settings.scriptSandbox`); `meetingAudio`: what a Meeting can record here.
+ * (`Settings.scriptSandbox`); `meetingAudio`: what a Meeting can record here;
+ * `sandboxProblem`: why the OS sandbox can't start here (`Settings.sandboxProblem`).
  */
 export function createSettings(
   db: Database,
@@ -353,6 +371,7 @@ export function createSettings(
   scriptSandbox: SandboxLevel,
   meetingAudio: Settings["meetingAudio"] = "none",
   systemUserName: () => string = () => "",
+  sandboxProblem: SandboxProblem | null = null,
 ) {
   const get = (): Settings => {
     const user = read(db, userScope);
@@ -376,7 +395,17 @@ export function createSettings(
     };
     const language = resolveLanguage(user.language, systemLanguages());
     const author = user.authorName ?? systemUserName().trim();
-    return { user, device, language, scriptSandbox, meetingAudio, author };
+    const chineseScript = transcriptScript(user.transcriptScript, user.language, systemLanguages());
+    return {
+      user,
+      device,
+      language,
+      scriptSandbox,
+      sandboxProblem,
+      meetingAudio,
+      author,
+      chineseScript,
+    };
   };
 
   return {

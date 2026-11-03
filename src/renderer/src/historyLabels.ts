@@ -9,9 +9,12 @@ type Say = (key: MessageKey, params?: MessageParams) => string;
 
 /** A Checkpoint saved just before the AI changed the Mind, marked with the spark: not a person's changes. */
 export const beforeAiChange = (checkpoint: Pick<Checkpoint, "reason">): boolean =>
-  checkpoint.reason !== "idle" && checkpoint.reason !== "restore" && checkpoint.reason !== "others";
+  checkpoint.reason !== "idle" &&
+  checkpoint.reason !== "restore" &&
+  checkpoint.reason !== "others" &&
+  checkpoint.reason !== "export";
 
-const REASONS: Readonly<Record<Exclude<CheckpointReason, "idle">, MessageKey>> = {
+const REASONS: Readonly<Record<Exclude<CheckpointReason, "idle" | "export">, MessageKey>> = {
   accept: "history.reason.accept",
   regenerate: "history.reason.regenerate",
   enhance: "history.reason.enhance",
@@ -20,9 +23,25 @@ const REASONS: Readonly<Record<Exclude<CheckpointReason, "idle">, MessageKey>> =
   restore: "history.reason.restore",
 };
 
-/** Why it was saved, "before AI edits"; null for an idle one, which shows only its time. */
-export const reasonLabel = (checkpoint: Pick<Checkpoint, "reason">, say: Say): string | null =>
-  checkpoint.reason === "idle" ? null : say(REASONS[checkpoint.reason]);
+function why(checkpoint: Pick<Checkpoint, "reason" | "file">, say: Say): string | null {
+  if (checkpoint.reason === "idle") return null;
+  if (checkpoint.reason !== "export") return say(REASONS[checkpoint.reason]);
+  const file = checkpoint.file ?? "";
+  return say(/\.pdf$/i.test(file) ? "history.reason.export.pdf" : "history.reason.export.docx", {
+    file,
+  });
+}
+
+/**
+ * What it is, after its time: the name the User gave it, then why it was saved, "before AI
+ * edits" or "sent as Word · Credit paper.docx"; null for an unnamed idle one, which shows only
+ * its time.
+ */
+export const reasonLabel = (
+  checkpoint: Pick<Checkpoint, "reason" | "name" | "file">,
+  say: Say,
+): string | null =>
+  [checkpoint.name, why(checkpoint, say)].filter((part) => part !== null).join(" · ") || null;
 
 /** The day it was saved, as its group in the picker is headed: "Friday 9 Oct", with the year when it isn't this one. */
 export const dayLabel = (iso: string, now: Date, language: Language): string =>

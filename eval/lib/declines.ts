@@ -49,6 +49,8 @@ const OPENING = "(?:^|[。！？!?\\n])\\s*(?:我们|我)?";
 const CHINESE = [
   // 文档中没有提到, 文档未说明, 资料里并未披露
   new RegExp(`${DOCUMENT_ZH}[^。！？!?\\n]{0,10}${NEGATION}(?:${STRONG_ZH}|${WEAK_ZH})`),
+  // 未在“Doc”中找到 X
+  /未在[^。！？!?\n]{0,60}中找到/,
   // 没有找到相关内容, 未说明
   new RegExp(`${OPENING}${NEGATION}${STRONG_ZH}`),
   // 找不到 has its negation inside: a Document word or 您/你 before it, or the Answer's opening

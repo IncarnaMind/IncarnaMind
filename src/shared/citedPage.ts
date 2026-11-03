@@ -3,8 +3,13 @@
  * the hidden window that draws one say to each other: the channels, and the
  * bridge the window's preload gives its page.
  */
-import type { Document } from "../core/api";
-import type { TextPiece } from "./quoteMatch";
+import type { CitationLocation, Document } from "../core/api";
+import {
+  findQuoteInPieces,
+  type MatchOptions,
+  type PieceRange,
+  type TextPiece,
+} from "./quoteMatch";
 
 /** A box on a cited page's picture, from its top left corner. */
 export interface PageBox {
@@ -29,6 +34,65 @@ export interface DrawnPage {
   height: number;
   /** The text drawn on it, in reading order, boxed in its pixels: where a quote is found, to highlight it. */
   text: PageText[];
+}
+
+/** How a Location's text is matched: number formatting is normalised in sheets and, if needed, slides. */
+function matchOptions(location: CitationLocation | null): MatchOptions {
+  return {
+    numbers: location?.kind === "rows" ? true : location?.kind === "slide" ? "if-needed" : false,
+  };
+}
+
+const sameLine = (a: PageBox, b: PageBox) =>
+  Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > Math.min(a.height, b.height) / 2;
+
+/** The boxes of the parts of the text's runs a quote covers, one for each line. */
+function boxesOf(text: DrawnPage["text"], ranges: readonly PieceRange[]): PageBox[] {
+  const lines: PageBox[] = [];
+  for (const { piece, start, end } of ranges) {
+    const run = text[piece];
+    if (!run || run.text.length === 0) continue;
+    const { box } = run;
+    const part = {
+      x: box.x + (box.width * start) / run.text.length,
+      y: box.y,
+      width: (box.width * (end - start)) / run.text.length,
+      height: box.height,
+    };
+    const last = lines.at(-1);
+    if (last && sameLine(last, part)) {
+      const x = Math.min(last.x, part.x);
+      const y = Math.min(last.y, part.y);
+      lines[lines.length - 1] = {
+        x,
+        y,
+        width: Math.max(last.x + last.width, part.x + part.width) - x,
+        height: Math.max(last.y + last.height, part.y + part.height) - y,
+      };
+    } else {
+      lines.push(part);
+    }
+  }
+  return lines;
+}
+
+/**
+ * Where a Citation's quote is on its saved page, from the text drawn on it, in
+ * the page's pixels: one box for each line. Null where the quote isn't found
+ * there (a scan, or a page drawn without its text).
+ */
+export function quoteBoxes(
+  page: DrawnPage,
+  quote: string | null | undefined,
+  location: CitationLocation | null | undefined,
+): PageBox[] | null {
+  if (!quote) return null;
+  const options = matchOptions(location ?? null);
+  const ranges =
+    findQuoteInPieces(page.text, quote, options) ??
+    findQuoteInPieces(page.text, quote, { ...options, lostLigatures: true });
+  const boxes = ranges ? boxesOf(page.text, ranges) : [];
+  return boxes.length > 0 ? boxes : null;
 }
 
 /**

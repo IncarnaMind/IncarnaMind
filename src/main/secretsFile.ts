@@ -6,7 +6,7 @@
  * This module doesn't import Electron, so tests can run it with a fake cipher.
  */
 import { readFile, rename, writeFile } from "node:fs/promises";
-import type { Keychain, SecretProtection } from "../core";
+import { type Keychain, type SecretProtection, SecretsFileDamagedError } from "../core";
 
 /** The secrets file's name in the data folder. */
 export const SECRETS_FILE = "secrets.json";
@@ -43,10 +43,15 @@ export function createFileKeychain(file: string, cipher: SecretCipher): Keychain
       text = await readFile(file, "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-      throw error;
+      throw new SecretsFileDamagedError(file, { cause: error });
     }
-    const entries: unknown = JSON.parse(text);
-    if (!isStringRecord(entries)) throw new Error(`The secrets file ${file} is damaged.`);
+    let entries: unknown;
+    try {
+      entries = JSON.parse(text);
+    } catch (error) {
+      throw new SecretsFileDamagedError(file, { cause: error });
+    }
+    if (!isStringRecord(entries)) throw new SecretsFileDamagedError(file);
     return entries;
   };
 

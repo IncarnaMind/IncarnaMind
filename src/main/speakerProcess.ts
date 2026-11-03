@@ -5,7 +5,9 @@
  */
 import { constants, setPriority } from "node:os";
 import type { VoiceTurn } from "../core";
+import { answerEngineCheck, ENGINE_CHECK_ARGUMENT } from "../core/engineModules";
 import { createSherpaSeparator, type SeparationRequest } from "../core/transcription/diarization";
+import { SHERPA } from "../core/transcription/sherpa";
 
 export type SeparationReply = { turns: VoiceTurn[] } | { message: string };
 
@@ -17,12 +19,16 @@ try {
   console.error("The speaker process couldn't lower its priority:", error);
 }
 
-parent.once("message", ({ data }: { data: SeparationRequest }) => {
-  void createSherpaSeparator()
-    .then((separate) => parent.postMessage({ turns: separate(data) } satisfies SeparationReply))
-    .catch((error: unknown) =>
-      parent.postMessage({
-        message: error instanceof Error ? error.message : String(error),
-      } satisfies SeparationReply),
-    );
-});
+if (process.argv.includes(ENGINE_CHECK_ARGUMENT)) {
+  answerEngineCheck(parent, [SHERPA]);
+} else {
+  parent.once("message", ({ data }: { data: SeparationRequest }) => {
+    void createSherpaSeparator()
+      .then((separate) => parent.postMessage({ turns: separate(data) } satisfies SeparationReply))
+      .catch((error: unknown) =>
+        parent.postMessage({
+          message: error instanceof Error ? error.message : String(error),
+        } satisfies SeparationReply),
+      );
+  });
+}

@@ -6,6 +6,7 @@ import {
 } from "@tiptap/react";
 import { BLOCK_ID_ATTRIBUTE, type SkillAvailability } from "../../../core/api";
 import {
+  folderScope,
   hasSearchScope,
   SCOPE_ATTRIBUTES,
   type ScopeKind,
@@ -17,6 +18,7 @@ import { SkillIcon } from "../components/icons";
 import { SparkLineIcon } from "../components/lineIcons";
 import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessLine } from "../components/providers/ChatReadinessNotice";
+import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
 import { useModelNames } from "../modelNames";
 import { skillTitle } from "../skills";
@@ -60,7 +62,15 @@ export function QuestionView({ node, editor, updateAttributes }: ReactNodeViewPr
     updateAttributes({ forcedSkill: null });
     if (questionId) useAnswers.getState().dismiss(questionId);
   };
-  const scope = searchScopeOf(node.attrs);
+  const folderId = useAppStore(
+    (state) => state.minds.find((mind) => mind.id === mindId)?.folderId ?? null,
+  );
+  // A Note inside a wall, not only in the wall's own Folder, searches that whole wall.
+  const walled = useAppStore((state) => {
+    const groups = state.library?.groups ?? [];
+    return folderId !== null ? folderWallOf(groups, folderId) : null;
+  });
+  const scope = walled !== null ? folderScope(walled) : searchScopeOf(node.attrs);
   const removeFromScope = (kind: ScopeKind, id: string) => {
     const left = scopeIds(scope, kind).filter((each) => each !== id);
     updateAttributes({ [SCOPE_ATTRIBUTES[kind]]: left.length > 0 ? left : null });
@@ -114,6 +124,7 @@ export function QuestionView({ node, editor, updateAttributes }: ReactNodeViewPr
           {hasSearchScope(scope) && (
             <ScopeChips
               scope={scope}
+              ownFolderId={folderId}
               onRemove={removeFromScope}
               shown={CHIPS_SHOWN}
               className="question-scope"

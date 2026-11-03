@@ -1,7 +1,10 @@
 import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import type { ChatModelFactory, ChatModelSpec } from "../../src/core";
+import type { ChatModelFactory, ChatModelSpec, ClaimedChange, CoreAdapters } from "../../src/core";
+import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
+import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
+import { listedSentences } from "./claimSentences";
 
 /** A chat model that answers "OK" to every request. */
 export function replyingModel(text = "OK"): MockLanguageModelV4 {
@@ -59,16 +62,23 @@ const STREAM_USAGE = {
   outputTokens: { total: 1, text: 1, reasoning: undefined },
 };
 
-const finishParts = (): StreamPart[] => [
+const finishParts = (finished: "stop" | "length" = "stop"): StreamPart[] => [
   { type: "text-end", id: "answer" },
-  { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: STREAM_USAGE },
+  { type: "finish", finishReason: { unified: finished, raw: undefined }, usage: STREAM_USAGE },
 ];
 
-/** A reply as a provider streams it: chunks of `chunkSize` characters, sent `delayMs` apart. */
+/**
+ * A reply as a provider streams it: chunks of `chunkSize` characters, sent `delayMs` apart.
+ * `finished: "length"`: it ends at its output limit, cut off.
+ */
 export function streamedReply(
   reply: string,
   abortSignal: AbortSignal | undefined,
-  { chunkSize = 4, delayMs = 0 }: { chunkSize?: number; delayMs?: number } = {},
+  {
+    chunkSize = 4,
+    delayMs = 0,
+    finished = "stop",
+  }: { chunkSize?: number; delayMs?: number; finished?: "stop" | "length" } = {},
 ): ReadableStream<StreamPart> {
   const parts: StreamPart[] = [
     { type: "stream-start", warnings: [] },
@@ -77,7 +87,7 @@ export function streamedReply(
   for (let at = 0; at < reply.length; at += chunkSize) {
     parts.push({ type: "text-delta", id: "answer", delta: reply.slice(at, at + chunkSize) });
   }
-  parts.push(...finishParts());
+  parts.push(...finishParts(finished));
   return new ReadableStream<StreamPart>({
     async pull(controller) {
       const part = parts.shift();
@@ -196,10 +206,33 @@ export function failingStreamModel(statusCode: number | undefined, message: stri
 }
 
 /** What a model was asked, simplified: the instructions, then each message's role and text. */
-/** The index of the model's last request in an Answer itself, not the one request for its Citations (#760). */
+type StreamCall = MockLanguageModelV4["doStreamCalls"][number];
+
+/** A request that checks one of an Answer's sentences against what it cites, before it ends (#2311). */
+const checksASentence = (call: StreamCall) =>
+  call.prompt.some(
+    (message) => message.role === "system" && message.content.startsWith("You check one sentence"),
+  );
+
+/** The requests an Answer itself sent, without the checks of its sentences (#2311). */
+export const answerRequests = (model: MockLanguageModelV4): StreamCall[] =>
+  model.doStreamCalls.filter((call) => !checksASentence(call));
+
+/** Where an Answer's own request `nth` (from the end when negative) is among all the model's requests. */
+export function answerRequestIndex(model: MockLanguageModelV4, nth: number): number {
+  const call = answerRequests(model).at(nth);
+  if (!call) throw new Error(`No Answer sent request ${nth}.`);
+  return model.doStreamCalls.indexOf(call);
+}
+
+/**
+ * The index of the model's last request in an Answer itself: not the one request for its
+ * Citations (#760), nor a check of its sentences (#2311).
+ */
 export function lastAnswerCall(model: MockLanguageModelV4): number {
   return model.doStreamCalls.findLastIndex(
     (call) =>
+      !checksASentence(call) &&
       !call.prompt.some(
         (message) => message.role === "system" && message.content === CITE_RETRY_INSTRUCTIONS,
       ),
@@ -252,8 +285,31 @@ export type GeneratedReply =
    * `cutOff`: the reply ran out of output tokens, as one does when the model's thinking takes them all.
    * `usage`: the tokens this reply reports instead of the model's.
    */
-  | { text: string; cutOff?: boolean; usage?: ReportedUsage }
+  | {
+      text: string;
+      cutOff?: boolean;
+      usage?: ReportedUsage;
+      /** It replies once this resolves, or fails once its request is aborted. */
+      until?: Promise<void>;
+    }
   | { error: { status: number; message: string } };
+
+export function claimCheckReply(
+  call: GenerateCall,
+  unbacked:
+    | readonly { sentence: string; kind: ClaimedChange }[]
+    | ((prompt: string) => readonly { sentence: string; kind: ClaimedChange }[]),
+): GeneratedReply {
+  const candidates = typeof unbacked === "function" ? unbacked(call.prompt) : unbacked;
+  const reply = /<reply>\n([\s\S]*)\n<\/reply>/.exec(call.prompt)?.[1] ?? "";
+  return {
+    text: JSON.stringify({
+      claims: candidates
+        .filter((claim) => reply.includes(claim.sentence))
+        .map((claim) => ({ about: "mind", ...claim, backed: false })),
+    }),
+  };
+}
 
 /** What a scripted model replies to one request. */
 export type ScriptedReply =
@@ -261,13 +317,21 @@ export type ScriptedReply =
       /** What the model reasons before it replies, as its provider streams it. */
       reasoning?: string;
       text?: string;
-      /** With `streamInput`, the call's input streams in chunks first, as a provider that streams Tool inputs sends it. */
-      calls?: { tool: string; input: unknown; streamInput?: boolean }[];
+      /**
+       * With `streamInput`, the call's input streams in chunks first, as a provider that streams
+       * Tool inputs sends it. `raw` is the input's JSON text as the model writes it, which may not
+       * be valid JSON: in place of `input`'s.
+       */
+      calls?: { tool: string; input: unknown; streamInput?: boolean; raw?: string }[];
       /**
        * Stops streaming once `after` characters of the text, or of a streamed
        * input, are out, until `until` resolves.
        */
       pause?: { after: number; until: Promise<void> };
+      /** The reply reached the request's output limit: it ends there, cut off. */
+      cutOff?: boolean;
+      /** The tokens this reply reports instead of the model's. */
+      usage?: ReportedUsage;
     }
   /** The provider refuses the request with an HTTP error. */
   | { error: { status: number; message: string } };
@@ -336,17 +400,52 @@ export function scriptedModel(
     modelId,
     generate,
     usage = STREAM_USAGE,
+    judgesItsAnswers = false,
   }: {
     chunkSize?: number;
     modelId?: string;
     generate?: (call: GenerateCall) => GeneratedReply;
     usage?: ReportedUsage;
+    /**
+     * Whether a batch of an Answer's sentences, judged once the Answer ends (#2311), is answered
+     * each supported by what it cites, as an Answer that keeps to its quotes is, instead of as
+     * `generate` says: for a test of something other than that judgement.
+     */
+    judgesItsAnswers?: boolean;
   } = {},
 ): MockLanguageModelV4 {
   let index = 0;
   return new MockLanguageModelV4({
     modelId,
     doGenerate: async (options) => {
+      if (judgesItsAnswers && systemOf(options.prompt) === SENTENCE_BATCH_INSTRUCTIONS) {
+        return {
+          content: [{ type: "text", text: allSupported(promptText(options.prompt)) }],
+          finishReason: { unified: "stop", raw: undefined },
+          usage,
+          warnings: [],
+        };
+      }
+      if (!generate && systemOf(options.prompt).startsWith("You sort the sentences")) {
+        const sentences = listedSentences(promptText(options.prompt)).map(({ number, text }) => ({
+          number,
+          parts: [{ kind: "fact", text }],
+        }));
+        return {
+          content: [{ type: "text", text: JSON.stringify({ sentences }) }],
+          finishReason: { unified: "stop", raw: undefined },
+          usage,
+          warnings: [],
+        };
+      }
+      if (!generate && systemOf(options.prompt).includes(CLAIM_CHECK_INSTRUCTIONS)) {
+        return {
+          content: [{ type: "text", text: '{"claims":[]}' }],
+          finishReason: { unified: "stop", raw: undefined },
+          usage,
+          warnings: [],
+        };
+      }
       if (!generate) throw new Error("This scripted model only streams.");
       const reply = generate({
         system: systemOf(options.prompt),
@@ -354,6 +453,7 @@ export function scriptedModel(
         options,
       });
       if ("error" in reply) throw providerError(reply.error);
+      if (reply.until) await heldUntil(reply.until, options.abortSignal);
       return {
         content: [{ type: "text", text: reply.text }],
         finishReason: { unified: reply.cutOff ? "length" : "stop", raw: undefined },
@@ -395,7 +495,7 @@ export function scriptedModel(
       }
       (reply.calls ?? []).forEach((each, number) => {
         const toolCallId = `call-${call.index}-${number}`;
-        const input = JSON.stringify(each.input);
+        const input = each.raw ?? JSON.stringify(each.input);
         if (each.streamInput) {
           parts.push({ type: "tool-input-start", id: toolCallId, toolName: each.tool });
           for (let at = 0; at < input.length; at += chunkSize) {
@@ -412,10 +512,10 @@ export function scriptedModel(
       parts.push({
         type: "finish",
         finishReason: {
-          unified: reply.calls?.length ? "tool-calls" : "stop",
+          unified: reply.cutOff ? "length" : reply.calls?.length ? "tool-calls" : "stop",
           raw: undefined,
         },
-        usage,
+        usage: reply.usage ?? usage,
       });
       const { pause } = reply;
       let streamed = 0;
@@ -444,6 +544,33 @@ export function scriptedModel(
   });
 }
 
+/** Waits for `until`, or fails as an aborted request does once `signal` aborts. */
+function heldUntil(until: Promise<void>, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    if (signal?.aborted) return abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    until.then(resolve, reject);
+  });
+}
+
+/** A batch of an Answer's sentences judged, each supported by what it cites (#2311). */
+function allSupported(prompt: string): string {
+  const numbers = [...prompt.matchAll(/<sentence number="(\d+)">/g)].map((match) =>
+    Number(match[1]),
+  );
+  return JSON.stringify({
+    sentences: numbers.map((number) => ({
+      number,
+      kind: "fact",
+      verdict: "supported",
+      roles: "same",
+      time: "same",
+      says: "The Document says so.",
+    })),
+  });
+}
+
 /** A model factory that always returns `model` and records what it was asked to build. */
 export function scriptedModels(model: MockLanguageModelV4) {
   const specs: ChatModelSpec[] = [];
@@ -453,3 +580,8 @@ export function scriptedModels(model: MockLanguageModelV4) {
   };
   return { createChatModel, specs, model };
 }
+
+/** Offers run_code to whichever model a test uses: the shipped catalog offers it to none yet (#2351). */
+export const codeToolOn = (): Pick<CoreAdapters, "modelFacts"> => ({
+  modelFacts: () => ({ codeTool: true }),
+});

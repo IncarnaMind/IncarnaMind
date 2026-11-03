@@ -133,7 +133,7 @@ test("a check looks in the Mind's chosen scope, its card says where, and a chang
   await expect(marks.first()).toHaveAttribute("data-check", "needs-recheck");
   await expect(marks.nth(1)).toHaveAttribute("data-check", "supported");
   await pointAndClick(window, marks.first());
-  await expect(card.getByTestId("claim-reason")).toHaveText("这个 Mind 的搜索范围已更改。");
+  await expect(card.getByTestId("claim-reason")).toHaveText("这篇笔记的搜索范围已更改。");
   await screenshot(window, "recheck-zh");
   await app.close();
 });
@@ -253,7 +253,7 @@ test("when the Mind's own scope holds nothing, the check says so and offers all 
   await findSupport();
   const problem = (await checkCard(window)).getByTestId("checks-problem");
   await expect(problem).toContainText(
-    "Nothing to check against: the Document this Mind’s Search scope names was deleted.",
+    "Nothing to check against: the Document this note’s Search scope names was deleted.",
   );
   await expect(problem.getByTestId("checks-change-scope")).toHaveText("Change the Search scope…");
   await expect(marks).toHaveCount(0);
@@ -268,7 +268,7 @@ test("when the Mind's own scope holds nothing, the check says so and offers all 
   await setLanguage(window, "zh-CN");
   await findSupport();
   await expect((await checkCard(window)).getByTestId("checks-problem")).toContainText(
-    "没有可核对的文档：这个 Mind 的搜索范围中的文档已删除。",
+    "没有可核对的文档：这篇笔记的搜索范围中的文档已删除。",
   );
   await screenshot(window, "empty-scope-zh");
   await pointAndClick(window, problem.getByTestId("checks-change-scope"));
@@ -276,7 +276,7 @@ test("when the Mind's own scope holds nothing, the check says so and offers all 
   await expect(composer.getByTestId("composer-input")).toBeFocused();
   await window.keyboard.press("Escape");
 
-  // With no Document left at all, the selection offers to add some, and so does Check this Mind.
+  // With no Document left at all, the selection offers to add some, and so does Check.
   await remove("Seabirds");
   await slideSelect(window, line, "Harbours publish", { line, words: "spring." });
   await expect(

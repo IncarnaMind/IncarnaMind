@@ -235,14 +235,13 @@ test("a Mind with English and Chinese Citations, a table and maths prints as a P
     "The pull that raises them falls off as 1/𝑟3, faster than gravity:",
     "𝐹 = 𝐺𝑚1𝑚2𝑟2",
     "Tide 潮 Range 潮差",
-    "Spring 大潮 4 m3",
-    "Neap 小潮 2 m4",
-    "Tea reached Europe through Portuguese merchants5.",
+    "Spring 大潮 4 m1",
+    "Neap 小潮 2 m3",
+    "Tea reached Europe through Portuguese merchants4.",
     "1 Tides, p. 1",
     "2 潮汐, p. 1",
-    "3 Tides, p. 1",
-    "4 潮汐, p. 1 [unverified]",
-    `5 Tea, The Open Encyclopedia, § History, ¶ 3, ${ADDRESS}, accessed ${accessed}`,
+    "3 潮汐, p. 1 [unverified]",
+    `4 Tea, The Open Encyclopedia, § History, ¶ 3, ${ADDRESS}, accessed ${accessed}`,
     "1",
   ].join("\n");
   expect((await pdfText(pdf)).map(unspaced)).toEqual([unspaced(golden)]);
@@ -334,7 +333,7 @@ test("a Mind with one chart prints its picture, drawn at twice its size, its cap
   // In Chinese, the words are Chinese.
   await bridge(window).language("zh-CN");
   await exportFromMenu(window);
-  await expect(window.getByTestId("export-done")).toHaveText(
+  await expect(window.getByTestId("export-done")).toContainText(
     savedLine("Tides 潮汐 2.pdf", out, "zh-CN"),
     {
       timeout: 30_000,
@@ -440,6 +439,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
   await pointAndClick(window, exportButton);
   await expect(exportMenu.getByRole("menuitem")).toHaveText([
     /^Word \(\.docx\)(⇧⌘E|Ctrl\+Shift\+E)$/,
+    "1 claim not checked yet · Check first",
     "PDF",
     "More formats",
     /^Citation style/,
@@ -523,6 +523,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
   await expect(exportMenu.getByRole("menuitem")).toHaveText([
     /^PDF(⇧⌘E|Ctrl\+Shift\+E)$/,
     "Word（.docx）",
+    "1 条说法待核对 · 先核对",
     "更多格式",
     /^引用格式/,
     "导出选项…",
@@ -550,7 +551,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
   await screenshot(window, "export-options-zh-narrow");
   await window.keyboard.press("Escape");
   await exportFromMenu(window);
-  await expect(result.getByTestId("export-done")).toHaveText(
+  await expect(result.getByTestId("export-done")).toContainText(
     savedLine("Tides 4.pdf", out, "zh-CN"),
     {
       timeout: 30_000,
@@ -603,7 +604,7 @@ test("Export as HTML saves one .html file whose footnotes link both ways, and th
     for (const width of [1280, 390]) {
       await setWindowSize(app, reader, width, 844);
       await expect(reader.locator("main > p").filter({ has: reader.locator("#ref-1") })).toHaveText(
-        "Spring tides happen at new moon1. 大潮出现在新月前后2,3。",
+        "Spring tides happen at new moon1. 大潮出现在新月前后2,1。",
       );
       expect(
         await reader

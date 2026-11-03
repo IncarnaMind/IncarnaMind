@@ -1,7 +1,6 @@
 /**
- * Remote Connectors: MCP servers reached by URL over Streamable HTTP, with
- * the official SDK's client transport, signing in with OAuth when the server
- * requires it (see ./auth for where the sign-in is kept).
+ * Remote Connectors use the official SDK's HTTP or SSE client transport,
+ * with header secrets or OAuth (./auth keeps the browser sign-in).
  *
  * Signing in follows the MCP authorization spec: the SDK discovers the
  * server's authorization server (protected-resource metadata, then
@@ -10,7 +9,9 @@
  * The User signs in in their browser, which comes back to a one-off loopback
  * redirect on 127.0.0.1 (../oauth), and the SDK exchanges the code.
  */
+import type { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import type { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Browser } from "../adapters";
 import type { ConnectorError, ConnectorSignInError, ExternalService } from "../api";
 import { SecretStorageError } from "../errors";
@@ -25,6 +26,7 @@ import {
   type ConnectorAuth,
   causedBy,
   HeldBackError,
+  IssuerMismatchError,
   RefreshFailedError,
   SignInRequiredError,
 } from "./auth";
@@ -46,16 +48,108 @@ async function loadSdk(): Promise<typeof import("./sdk")> {
   return sdk;
 }
 
+export function remoteStreamEnded(error: unknown): boolean {
+  return (
+    (sdk !== null && error instanceof sdk.SseError) ||
+    // The pinned SDK reports exhausted stream retries as a plain Error (#1995).
+    (error instanceof Error &&
+      error.constructor === Error &&
+      /^Maximum reconnection attempts \(\d+\) exceeded\.$/.test(error.message))
+  );
+}
+
 /** A transport to the server that signs its requests with the stored tokens, renewing them as needed. */
 export async function remoteTransport(
   url: string,
   auth: ConnectorAuth,
-): Promise<StreamableHTTPClientTransport> {
-  const { StreamableHTTPClientTransport } = await loadSdk();
-  return new StreamableHTTPClientTransport(new URL(url), {
-    authProvider: auth.provider(null),
-    fetch: auth.fetch,
-  });
+  options: {
+    connection: "http" | "sse";
+    headers: Record<string, string>;
+    fetch: FetchLike;
+  },
+): Promise<StreamableHTTPClientTransport | SSEClientTransport> {
+  const { StreamableHTTPClientTransport, SSEClientTransport } = await loadSdk();
+  const settings = {
+    ...(Object.keys(options.headers).length === 0 ? { authProvider: auth.provider(null) } : {}),
+    fetch: options.fetch,
+  };
+  return options.connection === "sse"
+    ? new SSEClientTransport(new URL(url), settings)
+    : new StreamableHTTPClientTransport(new URL(url), {
+        ...settings,
+        // Connector lifecycle owns bounded retries and their visible state (#1995).
+        reconnectionOptions: {
+          maxRetries: 0,
+          initialReconnectionDelay: 1_000,
+          maxReconnectionDelay: 16_000,
+          reconnectionDelayGrowFactor: 2,
+        },
+      });
+}
+
+export class OpeningRejectedError extends Error {
+  override name = "OpeningRejectedError";
+}
+
+export class KeyRefusedError extends Error {
+  override name = "KeyRefusedError";
+}
+
+export function connectionFetch(options: {
+  url: string;
+  headers: Record<string, string>;
+  signal: AbortSignal;
+  fetch: FetchLike;
+  check(): void;
+  opening: boolean;
+  onKeyRefused?(): void;
+  onUnreachable?(): void;
+}): FetchLike {
+  const origin = new URL(options.url).origin;
+  const headerSignIn = Object.keys(options.headers).length > 0;
+  let opening = options.opening;
+  let refused = false;
+  return async (input, init) => {
+    if (refused) throw new KeyRefusedError("The server refused this key.");
+    options.check();
+    options.signal.throwIfAborted();
+    const url = new URL(String(input));
+    if (headerSignIn && url.origin !== origin)
+      throw new Error("The Connector tried to use another server.");
+    const headers = new Headers();
+    new Headers(init?.headers).forEach((value, name) => {
+      headers.set(name, value);
+    });
+    for (const [name, value] of Object.entries(options.headers)) headers.set(name, value);
+    const isOpening = opening && init?.method === "POST";
+    if (isOpening) opening = false;
+    let response: Response;
+    try {
+      response = await options.fetch(input, {
+        ...init,
+        headers,
+        ...(headerSignIn ? { redirect: "manual" as const } : {}),
+        signal: init?.signal ? AbortSignal.any([options.signal, init.signal]) : options.signal,
+      });
+    } catch (error) {
+      if (!options.signal.aborted && !init?.signal?.aborted) options.onUnreachable?.();
+      throw error;
+    }
+    if (
+      Object.keys(options.headers).length > 0 &&
+      (response.status === 401 || response.status === 403)
+    ) {
+      refused = true;
+      options.onKeyRefused?.();
+      await response.body?.cancel();
+      throw new KeyRefusedError("The server refused this key.");
+    }
+    if (isOpening && (response.status === 404 || response.status === 405)) {
+      await response.body?.cancel();
+      throw new OpeningRejectedError("The server needs the older connection.");
+    }
+    return response;
+  };
 }
 
 /** The connection needs the User to sign in: the server wants one, and there is none to use. */
@@ -88,22 +182,30 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 /** Why connecting to a remote server failed, in terms the User can act on. */
 export function remoteError(error: unknown): ConnectorError {
   const base = { command: null, install: null, retrying: false };
+  if (causedBy(error, KeyRefusedError)) {
+    return { ...base, kind: "key-refused", message: "The server refused this key." };
+  }
+  const issuer = causedBy(error, IssuerMismatchError);
+  if (issuer) return { ...base, kind: "failed", message: issuer.message };
   const refresh = causedBy(error, RefreshFailedError);
-  if (refresh) return { ...base, kind: "failed", message: refresh.message };
+  if (refresh) return { ...base, kind: "failed", message: "The sign-in could not be renewed." };
   if (unreachable(error)) {
-    const cause = (error as { cause?: unknown }).cause;
     return {
       ...base,
       kind: "unreachable",
-      message: [messageOf(error), cause ? messageOf(cause) : ""].filter(Boolean).join(": "),
+      message: "The server could not be reached.",
     };
   }
   const message = messageOf(error);
   // The SDK's errors come from a connection, which loaded it.
   if (sdk && error instanceof sdk.StreamableHTTPError) {
-    return { ...base, kind: "failed", message: `The server answered ${error.code}: ${message}` };
+    return { ...base, kind: "failed", message: `The server answered ${error.code}.` };
   }
-  return { ...base, kind: /timed out|timeout/i.test(message) ? "timed-out" : "failed", message };
+  return {
+    ...base,
+    kind: /timed out|timeout/i.test(message) ? "timed-out" : "failed",
+    message: "The connection failed.",
+  };
 }
 
 /** Why a sign-in didn't work, for the User. */
@@ -123,6 +225,7 @@ export function signInError(error: unknown): ConnectorSignInError {
 
 export interface RemoteSignInOptions {
   url: string;
+  connection?: "http" | "sse";
   auth: ConnectorAuth;
   browser: Browser;
   pages: { success: OAuthPage; failure: OAuthPage };
@@ -171,8 +274,10 @@ export async function signInRemote(options: RemoteSignInOptions): Promise<void> 
       state: redirect.state,
       openBrowser: (url) => options.browser.open(url),
     });
-    const { StreamableHTTPClientTransport, Client } = await loadSdk();
-    const transport = new StreamableHTTPClientTransport(new URL(options.url), {
+    const { StreamableHTTPClientTransport, SSEClientTransport, Client } = await loadSdk();
+    const RemoteTransport =
+      options.connection === "sse" ? SSEClientTransport : StreamableHTTPClientTransport;
+    const transport = new RemoteTransport(new URL(options.url), {
       authProvider: provider,
       fetch: options.auth.fetch,
     });

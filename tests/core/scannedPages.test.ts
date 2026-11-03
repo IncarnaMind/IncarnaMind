@@ -12,11 +12,20 @@ import {
   type RecognizedLine,
   type TextRecognizer,
 } from "../../src/core";
+import { createCitationSession, recheckWhereSelected } from "../../src/core/answers/citations";
+import type { PageText } from "../../src/core/documents/passages";
 import { SCAN_CURRENT_SINCE } from "../../src/core/documents/processing";
 import { createFakeTextRecognizer, type FakeScanScript } from "../../src/core/documents/scan/fake";
 import { BUILT_IN_TEXT_RECOGNITION_MODEL } from "../../src/core/documents/scan/model";
 import { openDatabase } from "../../src/core/storage";
-import { askAndFinish, citingModel, onlyCitation, setUpWithDocuments } from "../helpers/citations";
+import {
+  askAndFinish,
+  checkedResult,
+  citingModel,
+  onlyCitation,
+  setUpWithDocuments,
+  shownPassages,
+} from "../helpers/citations";
 import { createTempDataFolder, NO_MODEL_FILES, queryDatabase, startCore } from "../helpers/core";
 import {
   addAndProcess,
@@ -26,7 +35,9 @@ import {
   waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
-import { buildPdf } from "../helpers/pdf";
+import { connectToMind } from "../helpers/mindClient";
+import { promptOf, scriptedModel } from "../helpers/models";
+import { buildPdf, pdfAppearance } from "../helpers/pdf";
 
 const SCANS = join(import.meta.dirname, "../fixtures/scans");
 const picture = (id: string) => readFileSync(join(SCANS, `${id}.jpg`));
@@ -123,6 +134,78 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
       "MASTER SERVICES AGREEMENT",
     );
     expect(firstLine?.quad).toHaveLength(8);
+  });
+
+  test("a turned scanned page is laid out upright and anchored to its displayed page", async () => {
+    const dataDir = await createTempDataFolder();
+    const fake = createFakeTextRecognizer({
+      script: {
+        pages: {
+          1: { lines: linesOf("en-clean") },
+          2: {
+            lines: [
+              { text: "Glass beads", quad: [0.1, 0.1, 0.4, 0.1, 0.4, 0.12, 0.1, 0.12] },
+              {
+                text: "0.075 kg × 2 = 0.150 kg",
+                quad: [0.5, 0.1, 0.9, 0.1, 0.9, 0.12, 0.5, 0.12],
+              },
+            ],
+          },
+        },
+      },
+    });
+    const recognizer: TextRecognizer = {
+      load: (files) => fake.load(files),
+      async read(picture, page) {
+        if (page === 2 && picture.width > picture.height) {
+          return [
+            {
+              text: "N",
+              quad: [
+                [0, 0],
+                [10, 0],
+                [10, 100],
+                [0, 100],
+              ],
+              confidence: 0.98,
+              characters: [{ text: "N", confidence: 0.98, at: 0.5 }],
+            },
+          ];
+        }
+        return fake.read(picture, page);
+      },
+      readFile: (file, page) => fake.readFile(file, page),
+      close: () => fake.close(),
+    };
+    const core = startCore(dataDir, scanning(recognizer));
+    const document = await addPdf(
+      core,
+      "Turned worksheet.pdf",
+      buildPdf([{ scan: picture("en-clean") }, { scan: picture("table"), rotation: 90 }]),
+    );
+
+    expect(document.status).toBe("ready");
+    const scanned = await core.readScannedText(document.id);
+    const turned = scanned.pages.find((page) => page.page === 2);
+    expect(turned?.text).toBe("Glass beads\t0.075 kg × 2 = 0.150 kg");
+    expect(turned?.label?.scan?.turn).toBe(270);
+    expect(scanned.pages.find((page) => page.page === 1)?.label?.scan?.turn).toBeUndefined();
+    const quantity = turned?.anchors.find((anchor) =>
+      turned.text.slice(anchor.start, anchor.end).includes("0.075"),
+    );
+    const expected = [0.9, 0.5, 0.9, 0.9, 0.88, 0.9, 0.88, 0.5];
+    for (const [index, value] of (quantity?.quad ?? []).entries()) {
+      expect(value).toBeCloseTo(expected[index] ?? 0, 12);
+    }
+    expect(
+      await core.readScannedQuote({
+        documentId: document.id,
+        contentHash: null,
+        pageFrom: 2,
+        pageTo: 2,
+        quote: "0.075 kg × 2 = 0.150 kg",
+      }),
+    ).toEqual({ from: "scan", unsure: [] });
   });
 
   test("a mixed PDF keeps its text pages as they were, and reads only its scanned one", async () => {
@@ -244,7 +327,33 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     expect(found).toMatchObject({ documentId: document.id, pageFrom: 1 });
   });
 
-  test("an Answer cites a scanned page, and the Citation check finds its quote", async () => {
+  test("a scanned page keeps its rows on the first read and on a re-read", async () => {
+    const dataDir = await createTempDataFolder();
+    const lines = ["华东 1,286 1,452", "月起配送费率调整", "华南 974 1,031"];
+    const { recognizer } = countingRecognizer({ pages: { 1: { lines } } });
+    const core = startCore(dataDir, scanning(recognizer));
+    const document = await addPdf(core, "Rows.pdf", buildPdf([{ scan: picture("zh-clean") }]));
+    const pageText = () => unitsOf(dataDir, document)[0]?.text ?? "";
+    // A row ends in a digit and the next starts with a Han character: joining them would merge
+    // the table's rows, so a scanned page keeps the line break.
+    expect(pageText()).toContain("华东 1,286 1,452\n月起配送费率调整");
+    core.close();
+
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run("UPDATE documents SET processing_version = 15 WHERE id = ?", [document.id]);
+    } finally {
+      db.close();
+    }
+    const again = startCore(dataDir, scanning(recognizer));
+    await waitForProcessing(again, [document.id]);
+    expect(unitsOf(dataDir, document)[0]?.text ?? "").toContain(
+      "华东 1,286 1,452\n月起配送费率调整",
+    );
+    again.close();
+  });
+
+  test("an Answer cites a scanned page, and a quote of a word it may have misread asks for a look at the page (#535)", async () => {
     const quote = "Either party may terminate this Agreement for convenience";
     const model = citingModel({
       query: "terminate for convenience",
@@ -269,11 +378,15 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     );
     const { answerId } = await askAndFinish(core, client, mind.id, "How can it be ended?");
     const citation = onlyCitation(client, answerId);
+    // The quote is in the text the scan gave, but a word of it may be misread: it can't be checked
+    // as found until the User has looked at the page.
     expect(citation).toMatchObject({
       documentId: documents[0]?.id,
       pageFrom: 1,
       quote,
-      check: "found",
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["convenience"],
     });
     // The card says it was read from a scan, and which of its words the reading wasn't sure of.
     expect(
@@ -304,6 +417,581 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
         quote: "The tenant may keep a dog",
       }),
     ).toBeNull();
+  });
+
+  test("a re-check asks for a look at the page for a scan's unsure word, and only for one (#535)", async () => {
+    const { recognizer } = countingRecognizer({
+      pages: { 1: { lines: linesOf("en-clean"), unsure: ["convenience"] } },
+    });
+    const { core, documents } = await setUpWithDocuments(
+      citingModel({ query: "terminate", records: () => [], answer: "Nothing [^1]." }),
+      [{ name: "Agreement.pdf", contents: buildPdf([{ scan: picture("en-clean") }]) }],
+      scanning(recognizer),
+    );
+    const document = documents[0] as Document;
+    const recheck = async (quote: string) =>
+      checkedResult(
+        await core.recheckCitation({
+          mindId: null,
+          documentId: document.id,
+          quote,
+          pageFrom: 1,
+          pageTo: 1,
+        }),
+      );
+    expect(
+      await recheck("Either party may terminate this Agreement for convenience"),
+    ).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["convenience"],
+    });
+    expect(await recheck("Business Days and certify the deletion")).toMatchObject({
+      check: "found",
+      checkReason: null,
+    });
+  });
+
+  test("the model is told which words of a scan may be misread, and a quote copied with their marks is the page's text (#535)", async () => {
+    const model = citingModel({
+      query: "terminate for convenience",
+      records: (passages) => [
+        {
+          marker: 1,
+          passage: passages[0]?.id ?? "",
+          pageFrom: 1,
+          pageTo: 1,
+          quote: "Either party may terminate this Agreement for ⟦convenience⟧",
+        },
+      ],
+      answer: "Either party can end it on 90 days' notice [^1].",
+    });
+    const { recognizer } = countingRecognizer({
+      pages: { 1: { lines: linesOf("en-clean"), unsure: ["convenience"] } },
+    });
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Agreement.pdf", contents: buildPdf([{ scan: picture("en-clean") }]) }],
+      scanning(recognizer),
+    );
+    const { answerId } = await askAndFinish(core, client, mind.id, "How can it be ended?");
+    // The Passage the model read marks the word the reading wasn't sure of, and the prompt says
+    // not to state a figure read from one.
+    const searched = model.doStreamCalls[1];
+    const shown: string[] = [];
+    for (const message of searched?.prompt ?? []) {
+      if (typeof message.content === "string") continue;
+      for (const part of message.content) {
+        if (part.type === "tool-result" && part.output.type === "text") {
+          shown.push(part.output.value);
+        }
+      }
+    }
+    expect(shown.join("\n")).toContain("⟦convenience⟧");
+    expect(promptOf(model, 0)[0]?.text).toContain("marked ⟦like this⟧");
+    // A quote copied with the marks is the page's text, without them.
+    expect(onlyCitation(client, answerId)).toMatchObject({
+      quote: "Either party may terminate this Agreement for convenience",
+      checkReason: "unsure-word",
+    });
+  });
+
+  test("calculate refuses an input read from a scan's unsure word, with one line (#438, #535)", async () => {
+    const line =
+      "Ferry passengers rose to 74,450 between June and August, against 61,200 a year earlier.";
+    const quote = line;
+    let told = "";
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "ferry passengers" } }] };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: shownPassages(searches.at(-1)?.text ?? "")[0]?.id ?? "",
+                    pageFrom: 1,
+                    pageTo: 1,
+                    quote,
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      const calculated = call.results.filter((result) => result.tool === "calculate");
+      if (calculated.length === 0) {
+        return {
+          calls: [
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Growth",
+                    inputs: [
+                      { name: "a", label: "This summer", citation: 1, number: "74,450" },
+                      { name: "b", label: "A year earlier", citation: 1, number: "61,200" },
+                    ],
+                    formula: "a / b - 1",
+                    as: "percent",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      told = calculated.at(-1)?.text ?? "";
+      return { text: "The scan is unclear, so I can't work that figure out [^1]." };
+    });
+    const { recognizer } = countingRecognizer({
+      pages: {
+        1: {
+          lines: linesOf("en-noisy").map((each, index) => (index === 2 ? line : each)),
+          unsure: ["74,450"],
+        },
+      },
+    });
+    const core = startCore(await createTempDataFolder(), {
+      ...scanning(recognizer),
+      createChatModel: () => model,
+      answerPaths: { retrievesFirst: () => false },
+    });
+    // A provider that offers calculate as a Tool, with its use of it allowed.
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Harbour report.pdf",
+        buildPdf([{ scan: picture("en-noisy") }]),
+      ),
+    ]);
+    const mind = await core.createMind({ title: "Harbour" });
+    const client = await connectToMind(core, mind.id);
+    const { answerId } = await askAndFinish(
+      core,
+      client,
+      mind.id,
+      "How much did ferry passengers grow?",
+    );
+    expect(told).toContain(
+      "That number was read from a scan and may be misread; it can't be an input until the User confirms it.",
+    );
+    // The quote of the unsure word still asks the User to look at the page.
+    expect(onlyCitation(client, answerId)).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["74,450"],
+    });
+  });
+
+  test("a number's shape is applied when checking, so a page read before the rule asks for a look (#535)", async () => {
+    const line = "The gauge read 2o25 at the harbour.";
+    const chinese = "租金为2o25元。";
+    const model = citingModel({
+      query: "gauge",
+      records: (passages) => [
+        {
+          marker: 1,
+          passage: passages[0]?.id ?? "",
+          pageFrom: 1,
+          pageTo: 1,
+          quote: line,
+        },
+      ],
+      answer: "The gauge read 2025 [^1].",
+    });
+    const { recognizer } = countingRecognizer({ pages: { 1: { lines: [line, chinese] } } });
+    const { core, client, mind, documents, dataDir } = await setUpWithDocuments(
+      model,
+      [{ name: "Gauge.pdf", contents: buildPdf([{ scan: picture("en-clean") }]) }],
+      scanning(recognizer),
+    );
+    const document = documents[0] as Document;
+    // As an older reader left it: the word stored with nothing saying it was unsure.
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(
+        "UPDATE document_pages SET label = json_remove(label, '$.scan.unsure') WHERE document_id = ?",
+        [document.id],
+      );
+    } finally {
+      db.close();
+    }
+    const [stored] = unitsOf(dataDir, document);
+    expect(JSON.parse(stored?.label ?? "null")).toEqual({ scan: { reader: READER } });
+    const { answerId } = await askAndFinish(core, client, mind.id, "What did the gauge read?");
+    const citation = onlyCitation(client, answerId);
+    expect(citation).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["2o25"],
+    });
+    // The card's page picture outlines the word it may have misread too.
+    expect(
+      await core.readScannedQuote({
+        documentId: citation.documentId as string,
+        contentHash: citation.contentHash ?? null,
+        pageFrom: 1,
+        pageTo: 1,
+        quote: line,
+      }),
+    ).toEqual({ unsure: ["2o25"], from: "scan" });
+    // The page picture outlines the same spans.
+    const [firstPage] = (await core.readScannedText(document.id)).pages;
+    expect(firstPage?.unsure.map(([from, to]) => firstPage.text.slice(from, to))).toEqual([
+      "2o25",
+      "2o25",
+    ]);
+    // A Chinese line's number is judged on its own too: the characters around it aren't one word with it.
+    expect(
+      checkedResult(
+        await core.recheckCitation({
+          mindId: null,
+          documentId: document.id,
+          quote: chinese,
+          pageFrom: 1,
+          pageTo: 1,
+        }),
+      ),
+    ).toMatchObject({ check: "cant-check", checkReason: "unsure-word", unsure: ["2o25"] });
+    // The model saw which word not to trust, though the page was read before the rule.
+    const shown: string[] = [];
+    for (const message of model.doStreamCalls[1]?.prompt ?? []) {
+      if (typeof message.content === "string") continue;
+      for (const part of message.content) {
+        if (part.type === "tool-result" && part.output.type === "text")
+          shown.push(part.output.value);
+      }
+    }
+    expect(shown.join("\n")).toContain("⟦2o25⟧");
+  });
+
+  test("a selection that covers a scan's unsure word is cited as Check the page, not refused (#535)", async () => {
+    const line = "Ferry passengers rose to 74,450 against 61,200 a year earlier.";
+    const { recognizer } = countingRecognizer({
+      pages: { 1: { lines: [line], unsure: ["61,200"] } },
+    });
+    const { core, documents } = await setUpWithDocuments(
+      citingModel({ query: "ferry", records: () => [], answer: "Nothing [^1]." }),
+      [{ name: "Harbour.pdf", contents: buildPdf([{ scan: picture("en-noisy") }]) }],
+      scanning(recognizer),
+    );
+    const document = documents[0] as Document;
+    const cited = await core.citeSelection({
+      documentId: document.id,
+      parts: [
+        {
+          unit: 1,
+          text: "Ferry passengers rose to 74,450 against 61,200",
+          linesBefore: 0,
+          linesAfter: 0,
+        },
+      ],
+    });
+    expect(cited).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["61,200"],
+      pageFrom: 1,
+      pageTo: 1,
+      location: { kind: "page", from: 1, to: 1 },
+    });
+  });
+
+  test("a Question's quote is re-checked as Check the page where its unsure word was selected (#535)", () => {
+    const text = "Ferry passengers rose to 74,450 against 61,200 a year earlier.";
+    const from = text.indexOf("61,200");
+    const unit: PageText = {
+      page: 1,
+      kind: "page",
+      text,
+      label: { scan: { reader: READER, unsure: [[from, from + "61,200".length]] } },
+    };
+    const documents = {
+      currentVersion: () => "hash",
+      pageTexts: () => [unit],
+      passagesCovering: () => [{ id: "passage-1", text }],
+    };
+    const cited = recheckWhereSelected(documents, {
+      documentId: "document",
+      quote: "against 61,200 a year earlier",
+      pageFrom: 1,
+      pageTo: 1,
+      location: { kind: "page", from: 1, to: 1 },
+    });
+    expect(cited).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["61,200"],
+    });
+    expect(cited.quote).toBe("against 61,200 a year earlier");
+  });
+
+  test("a corrected quote that lands on a scan's unsure word is Check the page, not rejected (#535)", async () => {
+    const text = "The gauge read 7a;45o at the harbour.";
+    const unit: PageText = { page: 1, kind: "page", text, label: { scan: { reader: READER } } };
+    const passage = {
+      passageId: "p1",
+      documentId: "d1",
+      documentName: "Gauge.pdf",
+      documentKind: "pdf" as const,
+      contentHash: "h1",
+      pageFrom: 1,
+      pageTo: 1,
+      position: 0,
+      seq: 0,
+      windowFrom: 0,
+      windowTo: 0,
+      text,
+    };
+    const session = createCitationSession(
+      {
+        searchableCount: () => 1,
+        search: async () => [passage],
+        citationSource: () => ({
+          passageId: "p1",
+          text,
+          pageFrom: 1,
+          pageTo: 1,
+          documentId: "d1",
+          documentName: "Gauge.pdf",
+          documentKind: "pdf",
+          contentHash: "h1",
+          documentDeleted: false,
+          notCited: false,
+        }),
+        pageTexts: () => [unit],
+        documentDate: () => null,
+      },
+      { onRecord: () => undefined },
+    );
+    await session.tools.searchDocuments("gauge");
+    // The model's first quote isn't on the page; the correction is, but on a word the scan may misread.
+    await session.tools.cite([
+      {
+        marker: 1,
+        passage: "P1",
+        pageFrom: 1,
+        pageTo: 1,
+        quote: "The gauge read 74,450 at the harbour.",
+      },
+    ]);
+    expect(session.tools.quoteFound?.("P1", text)).toBe(true);
+    expect(session.tools.correctQuote?.(1, text)).toBe(true);
+    // The Answer finishes: every record is checked.
+    session.check();
+    expect(session.finalCitation(1)).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["7a;45o"],
+    });
+  });
+
+  test("calculate reads a figure in a quote's second part, so an ellipsis can't hide a misread number (#535)", async () => {
+    const line =
+      "Ferry passengers rose to 74,450 between June and August, against 61,200 a year earlier.";
+    const quote = "Ferry passengers rose … against 61,200 a year earlier";
+    let told = "";
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "ferry passengers" } }] };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: shownPassages(searches.at(-1)?.text ?? "")[0]?.id ?? "",
+                    pageFrom: 1,
+                    pageTo: 1,
+                    quote,
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      const calculated = call.results.filter((result) => result.tool === "calculate");
+      if (calculated.length === 0) {
+        return {
+          calls: [
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Passengers",
+                    inputs: [{ name: "a", label: "A year earlier", citation: 1, number: "61,200" }],
+                    formula: "a",
+                    as: "number",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      told = calculated.at(-1)?.text ?? "";
+      return { text: "The scan is unclear, so I can't work that figure out [^1]." };
+    });
+    const { recognizer } = countingRecognizer({
+      pages: {
+        1: {
+          lines: linesOf("en-noisy").map((each, index) => (index === 2 ? line : each)),
+          unsure: ["61,200"],
+        },
+      },
+    });
+    const core = startCore(await createTempDataFolder(), {
+      ...scanning(recognizer),
+      createChatModel: () => model,
+      answerPaths: { retrievesFirst: () => false },
+    });
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Harbour report.pdf",
+        buildPdf([{ scan: picture("en-noisy") }]),
+      ),
+    ]);
+    const mind = await core.createMind({ title: "Harbour" });
+    const client = await connectToMind(core, mind.id);
+    const { answerId } = await askAndFinish(
+      core,
+      client,
+      mind.id,
+      "How many ferry passengers were there a year earlier?",
+    );
+    expect(told).toContain(
+      "That number was read from a scan and may be misread; it can't be an input until the User confirms it.",
+    );
+    expect(onlyCitation(client, answerId)).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["61,200"],
+    });
+  });
+
+  test("calculate refuses the issue's own misread word with its one line, though it reads no number (#438, #535)", async () => {
+    const line = "The gauge read 7a;45o at the harbour.";
+    const quote = line;
+    let told = "";
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "gauge" } }] };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: shownPassages(searches.at(-1)?.text ?? "")[0]?.id ?? "",
+                    pageFrom: 1,
+                    pageTo: 1,
+                    quote,
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      const calculated = call.results.filter((result) => result.tool === "calculate");
+      if (calculated.length < 2) {
+        // The number as the model means it, then as the page writes it.
+        const number = calculated.length === 0 ? "7,450" : "7a;45o";
+        return {
+          calls: [
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Reading",
+                    inputs: [{ name: "a", label: "The gauge", citation: 1, number }],
+                    formula: "a",
+                    as: "number",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      told = calculated.map((result) => result.text ?? "").join("\n");
+      return { text: "The scan is unclear, so I can't work that figure out [^1]." };
+    });
+    const { recognizer } = countingRecognizer({
+      pages: {
+        1: {
+          lines: linesOf("en-noisy").map((each, index) => (index === 2 ? line : each)),
+          unsure: ["7a;45o"],
+        },
+      },
+    });
+    const core = startCore(await createTempDataFolder(), {
+      ...scanning(recognizer),
+      createChatModel: () => model,
+      answerPaths: { retrievesFirst: () => false },
+    });
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(sources, "Gauge report.pdf", buildPdf([{ scan: picture("en-noisy") }])),
+    ]);
+    const mind = await core.createMind({ title: "Gauge" });
+    const client = await connectToMind(core, mind.id);
+    const { answerId } = await askAndFinish(core, client, mind.id, "What did the gauge read?");
+    const oneLine =
+      "That number was read from a scan and may be misread; it can't be an input until the User confirms it.";
+    // Both the number as meant and the word as written are refused with the one line.
+    expect(told.split(oneLine)).toHaveLength(3);
+    expect(onlyCitation(client, answerId)).toMatchObject({
+      check: "cant-check",
+      checkReason: "unsure-word",
+      unsure: ["7a;45o"],
+    });
   });
 
   test("pages that couldn't be read are named, and Retry reads only them", async () => {
@@ -362,47 +1050,75 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     expect((await core.getTextRecognitionModel()).error?.kind).toBe("network");
   });
 
-  test("once the model downloads after a failure, the pages that waited for it are read by themselves", async () => {
-    const dataDir = await createTempDataFolder();
-    const { recognizer, read } = countingRecognizer({
-      pages: { 1: { lines: linesOf("en-clean") } },
-    });
-    // A file the model's source serves once it is back: its bytes, size and hash pinned.
-    const bytes = Buffer.from("not really a model");
-    let online = false;
-    const server = createServer((_request, response) => {
-      if (!online) {
-        response.writeHead(503).end();
-        return;
+  test.each([false, true])(
+    "once the model downloads, unread pages recover automatically (unread forms: %s)",
+    async (forms) => {
+      const dataDir = await createTempDataFolder();
+      const { recognizer, read } = countingRecognizer({
+        pages: { 1: { lines: linesOf("en-clean") } },
+      });
+      // A file the model's source serves once it is back: its bytes, size and hash pinned.
+      const bytes = Buffer.from("not really a model");
+      let online = false;
+      const server = createServer((_request, response) => {
+        if (!online) {
+          response.writeHead(503).end();
+          return;
+        }
+        response.writeHead(200, { "content-length": bytes.length }).end(bytes);
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())));
+      const { port } = server.address() as AddressInfo;
+      const core = startCore(dataDir, {
+        textRecognizer: recognizer,
+        textRecognitionModelSource: {
+          baseUrl: `http://127.0.0.1:${port}/`,
+          files: [{ path: "model.onnx", size: bytes.length, sha256: sha256(bytes) }],
+        },
+      });
+      const document = await addPdf(
+        core,
+        "Waiting scan.pdf",
+        buildPdf([
+          {
+            scan: picture("en-clean"),
+            fields: forms
+              ? [
+                  {
+                    dictionary:
+                      "/FT /Foo /T (brokenChoice) /TU (Broken choice) /V (Fallback) /Rect [210 80 570 104] /F 4",
+                    appearance: pdfAppearance("Fallback"),
+                  },
+                ]
+              : undefined,
+          },
+        ]),
+      );
+      expect(document.failure?.reason).toBe(forms ? "forms-unread" : "pages-unread");
+      if (forms) {
+        expect(document.failure?.message).toContain("Some PDF form fields");
+        expect(document.failure?.message).toContain("Scanned page 1 couldn't be read");
       }
-      response.writeHead(200, { "content-length": bytes.length }).end(bytes);
-    });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())));
-    const { port } = server.address() as AddressInfo;
-    const core = startCore(dataDir, {
-      textRecognizer: recognizer,
-      textRecognitionModelSource: {
-        baseUrl: `http://127.0.0.1:${port}/`,
-        files: [{ path: "model.onnx", size: bytes.length, sha256: sha256(bytes) }],
-      },
-    });
-    const document = await addPdf(
-      core,
-      "Waiting scan.pdf",
-      buildPdf([{ scan: picture("en-clean") }]),
-    );
-    expect(document.failure?.reason).toBe("pages-unread");
-    expect(read).toEqual([]);
+      expect(read).toEqual([]);
 
-    online = true;
-    await core.downloadTextRecognitionModel();
-    const [ready] = await waitForDocuments(core, (documents) =>
-      expect(documents[0]).toMatchObject({ status: "ready", failure: null }),
-    );
-    expect(ready?.id).toBe(document.id);
-    expect(read).toEqual([1]);
-  });
+      online = true;
+      await core.downloadTextRecognitionModel();
+      const [ready] = await waitForDocuments(core, (documents) => {
+        expect(read).toEqual([1]);
+        expect(documents[0]).toMatchObject(
+          forms
+            ? { status: "failed", failure: { reason: "forms-unread" } }
+            : { status: "ready", failure: null },
+        );
+      });
+      expect(ready?.id).toBe(document.id);
+      expect(read).toEqual([1]);
+      expect((await core.readScannedText(document.id)).pages[0]?.text).toContain(
+        "MASTER SERVICES AGREEMENT",
+      );
+    },
+  );
 
   test("re-reading after a reader's upgrade keeps the pages a Citation quotes as they were read", async () => {
     const quote = "Either party may terminate this Agreement for convenience";
@@ -465,12 +1181,15 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     expect(JSON.parse(units[0]?.label ?? "{}").scan.reader).toBe("PP-OCRv4 mobile/1");
     expect(units[1]?.text).toContain("northern estuarine");
     expect(JSON.parse(units[1]?.label ?? "{}").scan.reader).toBe(READER);
-    const recheck = await restarted.recheckCitation({
-      documentId: document.id,
-      quote,
-      pageFrom: 1,
-      pageTo: 1,
-    });
+    const recheck = checkedResult(
+      await restarted.recheckCitation({
+        mindId: null,
+        documentId: document.id,
+        quote,
+        pageFrom: 1,
+        pageTo: 1,
+      }),
+    );
     expect(recheck.check).toBe("found");
   });
 

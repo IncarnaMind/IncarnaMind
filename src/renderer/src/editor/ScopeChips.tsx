@@ -2,8 +2,15 @@ import { useState } from "react";
 import type { SearchScope } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import type { ScopeKind } from "../../../shared/searchScope";
-import { DocumentLineIcon, FolderLineIcon, TagLineIcon } from "../components/lineIcons";
+import {
+  DocumentLineIcon,
+  FolderLineIcon,
+  LockLineIcon,
+  TagLineIcon,
+} from "../components/lineIcons";
+import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
+import { treeCounts } from "../libraryPage";
 import { DELETED_NAMES, type ScopeChip, scopeChips } from "../scope";
 import { useAppStore } from "../store";
 import { RemoveIcon } from "./icons";
@@ -62,12 +69,17 @@ export function ScopeChips({
   const deletedGroups = useAppStore((state) => state.library?.deletedGroups);
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
-  // How many Documents the Mind's own Folder holds now, for its chip's tooltip.
-  const ownCount = useAppStore((state) =>
-    ownFolderId === null
-      ? 0
-      : (state.library?.assignments.filter((each) => each.groupId === ownFolderId).length ?? 0),
-  );
+  // How many Documents the Mind's own Folder holds now, those in its sub-Folders too, for its chip's tooltip.
+  const ownCount = useAppStore((state) => {
+    if (ownFolderId === null) return 0;
+    const counted = treeCounts(
+      state.library?.groups ?? [],
+      (state.library?.assignments ?? []).flatMap((each) =>
+        each.groupId === null ? [] : [{ folderId: each.groupId }],
+      ),
+    );
+    return counted.get(ownFolderId) ?? 0;
+  });
   const assignments = useAppStore((state) => state.library?.assignments);
   const chips = scopeChips({ folders, groups, deletedGroups, tags, documents, assignments }, scope);
   const [expanded, setExpanded] = useState(false);
@@ -86,12 +98,26 @@ export function ScopeChips({
         const name = chip.name ?? t(DELETED_NAMES[chip.kind]);
         const goesBack = back !== undefined && chips.length === 1;
         const remove = goesBack ? back.label : t("scope.chip.remove", { name });
+        const path = chip.path.length > 1 ? chip.path.join(" › ") : name;
         const own = !deleted && chip.kind === "folder" && chip.id === ownFolderId;
+        const walled =
+          !deleted && chip.kind === "folder" && folderWallOf(groups ?? [], chip.id) !== null;
         const title = deleted
           ? t("scope.chip.deleted")
-          : own
-            ? t(ownCount === 1 ? "scope.chip.own.one" : "scope.chip.own", { count: ownCount })
-            : t(CHIP_TITLES[chip.kind], { name });
+          : walled
+            ? t("scope.chip.wall", { name: path })
+            : own
+              ? t(
+                  chip.path.length > 1
+                    ? ownCount === 1
+                      ? "scope.chip.own.named.one"
+                      : "scope.chip.own.named"
+                    : ownCount === 1
+                      ? "scope.chip.own.one"
+                      : "scope.chip.own",
+                  chip.path.length > 1 ? { path, count: ownCount } : { count: ownCount },
+                )
+              : t(CHIP_TITLES[chip.kind], { name: path });
         const label = deleted ? (
           <>
             <s className="truncate">{name}</s>
@@ -114,10 +140,11 @@ export function ScopeChips({
             data-id={chip.id}
             data-deleted={deleted ? "true" : undefined}
             data-own={own ? "true" : undefined}
+            data-walled={walled ? "true" : undefined}
             title={title}
             className={`scope-chip ${deleted ? "scope-chip--deleted" : ""}`}
           >
-            {onChange ? (
+            {onChange && !walled ? (
               <button
                 type="button"
                 data-testid="scope-chip-change"
@@ -131,22 +158,26 @@ export function ScopeChips({
               </button>
             ) : (
               <>
+                {walled && <LockLineIcon className="scope-chip-icon" />}
                 {label}
+                {walled && <span className="sr-only">{title}</span>}
                 {emptyHint}
               </>
             )}
-            <button
-              type="button"
-              data-testid="scope-chip-remove"
-              aria-label={remove}
-              title={remove}
-              // Keep the cursor where it is.
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => (goesBack ? back.onBack() : onRemove(chip.kind, chip.id))}
-              className="scope-chip-remove"
-            >
-              <RemoveIcon className="size-2.5" />
-            </button>
+            {!walled && (
+              <button
+                type="button"
+                data-testid="scope-chip-remove"
+                aria-label={remove}
+                title={remove}
+                // Keep the cursor where it is.
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => (goesBack ? back.onBack() : onRemove(chip.kind, chip.id))}
+                className="scope-chip-remove"
+              >
+                <RemoveIcon className="size-2.5" />
+              </button>
+            )}
           </li>
         );
       })}

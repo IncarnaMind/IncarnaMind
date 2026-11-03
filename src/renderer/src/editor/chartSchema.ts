@@ -1,6 +1,6 @@
 import { mergeAttributes, Node, type NodeViewRenderer } from "@tiptap/core";
 import { CHART_NODE } from "../../../core/api";
-import { CHART_KINDS, chosenSeries, readChart } from "../../../shared/charts";
+import { CHART_KINDS, chosenSeries, readChart, valueCitations } from "../../../shared/charts";
 import { citationReference } from "../../../shared/citations";
 
 export interface ChartOptions {
@@ -39,8 +39,10 @@ function chartText(attributes: Record<string, unknown>): string {
         ...drawn.map((series) => {
           const value = row.values[series];
           if (!value) return "";
-          const source = value.citation ? citationReference(value.citation) : "";
-          return source ? `${value.shown} ${source}` : value.shown;
+          const sources = [...new Set(valueCitations(value).map(citationReference))].filter(
+            (source) => source !== "",
+          );
+          return sources.length > 0 ? `${value.shown} ${sources.join("; ")}` : value.shown;
         }),
       ].join("\t"),
     ),
@@ -79,6 +81,7 @@ export const Chart = Node.create<ChartOptions>({
       drawn: jsonAttribute("drawn"),
       data: jsonAttribute("data"),
       source: jsonAttribute("source"),
+      claimCheck: { default: null, rendered: false, parseHTML: () => null },
     };
   },
 

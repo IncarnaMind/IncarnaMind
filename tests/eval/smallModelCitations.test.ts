@@ -7,7 +7,7 @@
  * gives them and, where it differs, as structured output does (which places
  * a record where its quote is in its Passage, `CiteOptions`). qwen3.5:4b in
  * structured output found 78% of its English quotes and 64% of its Chinese
- * ones on the gating set before them. A quote of JP Morgan's report, whose
+ * ones on the gating set before them. A quote of Vantrell's report, whose
  * stored text lost its f-ligatures ("fnance"), is in ./scoring.test.ts
  * ("What became of a Citation").
  */
@@ -118,25 +118,25 @@ function sessionOver({ name, pages, passages }: Excerpt) {
   };
 }
 
-/** Attention Is All You Need, pp. 7–8, as stored: en-02's answer is on p. 8. */
+/** Weighted Keys, Shorter Paths, pp. 7–8, as stored: en-02's answer is on p. 8. */
 const ATTENTION: Excerpt = {
-  name: "Attention Is All You Need",
+  name: "Weighted Keys Shorter Paths",
   pages: {
-    7: "5.2 Hardware and Schedule\nWe trained our models on one machine with 8 NVIDIA P100 GPUs. For our base models using",
-    8: "Label Smoothing During training, we employed label smoothing of value ϵls = 0.1 [36]. This\nhurts perplexity, as the model learns to be more unsure, but improves accuracy and BLEU score.\n6 Results",
+    7: "3.1 Data, batching and hardware\nAll runs used a single machine holding twelve accelerator cards. The optimiser was Adam,",
+    8: "Label smoothing of ε = 0.04 [27] was applied throughout. It costs perplexity,\nsince the model is less sure of itself, but it gains accuracy and BLEU.\n4 Results",
   },
   passages: [[7, 8]],
 };
 
 const PERPLEXITY =
-  "This hurts perplexity, as the model learns to be more unsure, but improves accuracy and BLEU score.";
+  "It costs perplexity, since the model is less sure of itself, but it gains accuracy and BLEU.";
 
-/** ABPI Code of Practice for the Pharmaceutical Industry 2021, pp. 33–34, as stored: en-17's answer runs across the break. */
-const ABPI: Excerpt = {
-  name: "ABPI Code of Practice for the Pharmaceutical Industry 2021",
+/** MPMA Code of Practice 2021, pp. 33–34, as stored: en-17's answer runs across the break. */
+const MPMA: Excerpt = {
+  name: "MPMA Code of Practice for the Pharmaceutical Industry 2021",
   pages: {
-    33: "Clause 17.3 (15.3) Items Delivered by Representatives\nReply paid cards which refer to representatives delivering\nitems to health professionals or other relevant decision\nmakers should explain that there is no obligation to grant the\nrepresentative an interview when the items are delivered.",
-    34: "This is to avoid the impression that there is such an obligation,\nwhich would be contrary to Clause 17.3, which prohibits the\nuse of any inducement or subterfuge to gain an interview.",
+    33: "Clause 26: Delivery of items\nA representative who delivers items to a health professional and is not given an interview must leave the items with a reply card.\nWhen a representative offers to drop items off, the reply card must say that there is no obligation to grant an interview when items are",
+    34: "delivered. It must also make clear that a refusal will not be held against the health professional, and that the items can be returned without explanation.",
   },
   // The search gives a window of overlapping Passages: one on p. 33 only, one across the break.
   passages: [
@@ -146,7 +146,7 @@ const ABPI: Excerpt = {
 };
 
 const OBLIGATION =
-  "should explain that there is no obligation to grant the representative an interview when the items are delivered. This is to avoid the impression that there is such an obligation";
+  "there is no obligation to grant an interview when items are delivered. It must also make clear that a refusal will not be held against the health professional";
 
 /** 维基百科-可持续发展目标, pp. 3–4, as stored, radical look-alikes and all: zh-02's answer is on p. 4. */
 const GOALS: Excerpt = {
@@ -227,11 +227,11 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
     ]);
   });
 
-  test("the Passage's first page, for a quote on its second, is a wrong page that cite's feedback lets the Tool loop fix; structured output's is placed (en-02)", async () => {
+  test("the Passage's first page, for a quote on its second, is placed in the Tool loop and structured output (en-02)", async () => {
     const attention = sessionOver(ATTENTION);
     // The Passage covers pp. 7–8, and marks where p. 8 starts.
     expect(await attention.shown()).toContain('pages="7-8">');
-    expect(await attention.shown()).toContain("\n\n[p. 8] Label Smoothing");
+    expect(await attention.shown()).toContain("\n\n[p. 8] Label smoothing");
 
     const { feedback, outcomes } = attention.cite([
       { marker: 1, passage: "P1", location: "p. 7", quote: PERPLEXITY },
@@ -240,12 +240,11 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
     ]);
 
     expect(outcomes).toMatchObject([
-      { check: "not-found", outcome: "wrong-page", pages: [7, 7], quoteOn: [8, 8] },
+      { check: "found", pages: [8, 8] },
       { check: "found", pages: [8, 8] },
       { check: "found", pages: [8, 8] },
     ]);
-    // In the Tool loop, `cite` tells the model, which may fix the record with another call.
-    expect(feedback).toMatch(/\[\^1\]: the quote isn't word for word on p\. 7 in P1/);
+    expect(feedback).not.toContain("the quote isn't word for word");
     // Structured output sends one request, so nothing can tell the model: its record is placed.
     const placed = sessionOver(ATTENTION);
     await placed.shown();
@@ -259,7 +258,7 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
   test("the structured-output example names no page; its placeholder, copied, cites the page the quote is on (en-02)", async () => {
     const instructions = documentInstructions("structured-output", {
       total: 1,
-      names: ["Attention Is All You Need"],
+      names: ["Weighted Keys Shorter Paths"],
     });
     // It named "p. 3", which a record that copied it put outside its Passage.
     expect(instructions).toContain('"location": "…"');
@@ -274,9 +273,9 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
 
     expect(outcomes).toMatchObject([
       { check: "found", pages: [8, 8] },
-      { check: "not-found", checkReason: "pages-outside-passage", outcome: "page-range" },
+      { check: "found", pages: [8, 8] },
     ]);
-    // In structured output, a page outside the Passage is placed inside it, where the quote is.
+    // Structured output follows the same placement rule.
     const placed = sessionOver(ATTENTION);
     await placed.shown();
     expect(
@@ -287,14 +286,14 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
   });
 
   test("a quote across a page break needs both pages, in a Passage that has both (en-17)", async () => {
-    const abpi = sessionOver(ABPI);
-    const shown = await abpi.shown();
+    const audience = sessionOver(MPMA);
+    const shown = await audience.shown();
     expect(shown).toContain(
-      '<passage id="P1" document="ABPI Code of Practice for the Pharmaceutical Industry 2021" pages="33">',
+      '<passage id="P1" document="MPMA Code of Practice for the Pharmaceutical Industry 2021" pages="33">',
     );
-    expect(shown).toContain("\n\n[p. 34] This is to avoid");
+    expect(shown).toContain("\n\n[p. 34] delivered. It must also make clear");
 
-    const { outcomes } = abpi.cite([
+    const { outcomes } = audience.cite([
       // The page where the quote starts.
       { marker: 1, passage: "P2", location: "p. 33", quote: OBLIGATION },
       // Both pages, of the Passage that holds them.
@@ -304,13 +303,13 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
     ]);
 
     expect(outcomes).toMatchObject([
-      { check: "not-found", outcome: "wrong-page", quoteOn: [33, 34] },
+      { check: "found", pages: [33, 34] },
       { check: "found", pages: [33, 34] },
       { check: "not-found", checkReason: "pages-outside-passage", outcome: "page-range" },
     ]);
     // Structured output places the first across both pages of its Passage, but never moves
     // the third out of P1, which holds only the first page.
-    const placed = sessionOver(ABPI);
+    const placed = sessionOver(MPMA);
     await placed.shown();
     expect(
       placed.cite(
@@ -340,7 +339,7 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
     expect(outcomes).toMatchObject([
       { check: "found", pages: [2, 2] },
       { check: "found", pages: [3, 3] },
-      { check: "not-found", checkReason: "too-many-pages", outcome: "page-range" },
+      { check: "found", pages: [3, 3] },
     ]);
   });
 
@@ -350,7 +349,12 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
 
     const { feedback, outcomes } = attention.cite([
       { marker: 1, passage: "1", location: "p. 8", quote: PERPLEXITY },
-      { marker: 2, passage: "Attention Is All You Need", location: "p. 8", quote: PERPLEXITY },
+      {
+        marker: 2,
+        passage: "Weighted Keys Shorter Paths",
+        location: "p. 8",
+        quote: PERPLEXITY,
+      },
       { marker: 3, passage: "[P1]", location: "p. 8", quote: PERPLEXITY },
     ]);
 
@@ -365,9 +369,18 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
       [
         { marker: 1, passage: "1", location: "p. 8", quote: PERPLEXITY },
         { marker: 2, passage: "P1 (p. 8)", location: "p. 8", quote: PERPLEXITY },
-        { marker: 3, passage: "Attention Is All You Need", location: "p. 8", quote: PERPLEXITY },
+        {
+          marker: 3,
+          passage: "Weighted Keys Shorter Paths",
+          location: "p. 8",
+          quote: PERPLEXITY,
+        },
         { marker: 4, passage: "7", location: "p. 8", quote: PERPLEXITY },
-        { marker: 5, passage: "Attention Is All You Need", quote: "Label smoothing helps a lot." },
+        {
+          marker: 5,
+          passage: "Weighted Keys Shorter Paths",
+          quote: "Label smoothing helps a lot.",
+        },
       ],
       { structured: true },
     );

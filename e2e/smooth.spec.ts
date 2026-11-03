@@ -1,12 +1,15 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
+import { buildPdf } from "../tests/helpers/pdf";
 import {
   assistantAnswers,
   createDataFolder,
   dismissChatSetup,
   expectReadyDocuments,
   launchApp,
+  leaveFirstOpen,
   newMind,
   removeDataFolder,
   setLanguage,
@@ -36,7 +39,6 @@ test.afterEach(async () => {
 
 /** What the page keeps while a test watches: shifts, and the sidebar's rows frame by frame. */
 interface Watch {
-  firstRowAt: number | null;
   shifts: { at: number; moved: string[] }[];
   frames: {
     at: number;
@@ -48,7 +50,7 @@ interface Watch {
 /** Starts the watch: from now on the page records its layout shifts and, each frame, its rows. */
 const watchSidebar = (window: Page) =>
   window.evaluate(() => {
-    const watch: Watch = { firstRowAt: null, shifts: [], frames: [] };
+    const watch: Watch = { shifts: [], frames: [] };
     (globalThis as unknown as { watch: Watch }).watch = watch;
     const sidebar = () => document.querySelector('[data-testid="sidebar"]');
     const tree = () => sidebar()?.querySelector('[role="tree"]') ?? null;
@@ -81,9 +83,6 @@ const watchSidebar = (window: Page) =>
             marked: row.querySelector('[data-testid="tag-marks"]') !== null,
           };
         }
-      }
-      if (watch.firstRowAt === null && Object.keys(names).length > 0) {
-        watch.firstRowAt = performance.now();
       }
       watch.frames.push({
         at: performance.now(),
@@ -132,6 +131,27 @@ function shownTooShort(frames: Watch["frames"], leastMs: number): string[] {
   return short;
 }
 
+/**
+ * When the sidebar stopped making room for the Documents just added: the last frame whose rows,
+ * or a name's width, differed from the frame before. A loaded runner lays six out over a few
+ * hundred milliseconds rather than in one frame, and those moves are the User's own add (#1741);
+ * only what moves a row after it stopped counts.
+ */
+function rowsSettledAt(frames: Watch["frames"]): number | null {
+  let settled: number | null = null;
+  let previous = "";
+  for (const frame of frames) {
+    const rows = Object.keys(frame.names)
+      .toSorted()
+      .map((id) => `${id} ${frame.names[id]?.width ?? 0}`)
+      .join("|");
+    if (rows === previous) continue;
+    previous = rows;
+    settled = frame.at;
+  }
+  return settled;
+}
+
 /** Documents with names long enough to be cut in the sidebar, one a Chinese name; six unless fewer are asked for. */
 async function someDocuments(count = 6): Promise<string[]> {
   const names = [
@@ -176,8 +196,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await untilSettled(window);
       const seen = await watched(window);
 
-      // The User's own action: their files arriving, and the sidebar making room for them, at once.
-      const arrived = seen.firstRowAt ?? 0;
+      // The User's own action: their files arriving, and the sidebar making room for them,
+      // once the rows have stopped arriving and being cut to fit.
+      const arrived = rowsSettledAt(seen.frames) ?? 0;
       const unasked = seen.shifts.filter((shift) => shift.at > arrived + 100);
       expect(unasked, "layout shifts in the sidebar's rows").toEqual([]);
 
@@ -231,6 +252,61 @@ for (const count of [3, 4, 5]) {
     await app.close();
   });
 }
+
+// protects=a status the quiet first open held back starts its 300 ms and its 500 ms when its row is drawn, not while it was hidden; fails_when=its time was counted while its row was not drawn, so it shows at once and goes with its work; no_claim=how long a scan takes to read.
+test("a status the first open held back shows after 300 ms and stays 500 ms from when it shows", async () => {
+  test.setTimeout(120_000);
+  const pages = 6;
+  const script = join(sources, "scans.json");
+  await writeFile(
+    script,
+    JSON.stringify({
+      pages: Object.fromEntries(
+        Array.from({ length: pages }, (_, index) => [
+          index + 1,
+          { lines: ["The deposit is returned within 30 days."] },
+        ]),
+      ),
+    }),
+  );
+  const scan = join(sources, "Lease scan.pdf");
+  const picture = await readFile(join(__dirname, "../tests/fixtures/scans/en-clean.jpg"));
+  await writeFile(scan, buildPdf(Array.from({ length: pages }, () => ({ scan: picture }))));
+  const { app, window } = await launchApp(dataDir, {
+    examples: true,
+    fakeChat: true,
+    scans: script,
+    scansAtOnce: 1,
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await watchSidebar(window);
+  await window.evaluate(async (path) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.addDocuments([path]);
+  }, scan);
+  const lease = () =>
+    window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const own = (await bridge.listDocuments()).find((each) => each.name === "Lease scan");
+      return { read: own?.scan?.read ?? 0, status: own?.status };
+    });
+  // Its last page still to read, with the first open still hiding the footer's progress.
+  await expect
+    .poll(async () => (await lease()).read, { timeout: 30_000, intervals: [50] })
+    .toBeGreaterThanOrEqual(pages - 1);
+  await expect(window.getByTestId("processing-status")).toHaveCount(0);
+  await leaveFirstOpen(window);
+  // Still reading, and the status only now has a row to be drawn in: it shows after its 300 ms.
+  expect((await lease()).status).toBe("extracting");
+  expect(await window.getByTestId("processing-status").count()).toBe(0);
+  await expect.poll(async () => (await lease()).status, { timeout: 30_000 }).toBe("ready");
+  await untilSettled(window);
+  const seen = await watched(window);
+  expect(shownTooShort(seen.frames, 480), "a status shown for under 500 ms").toEqual([]);
+  await app.close();
+});
 
 test("the Question doesn't jump when its Answer starts", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });

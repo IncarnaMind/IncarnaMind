@@ -1,0 +1,28 @@
+{
+  "task": "D05",
+  "inputs": {
+    "en": "900a5dc3801e79b5bf5b5a12b02fb51d81c502521f335cb38e09177be3c0089a"
+  },
+  "values": {
+    "stale": [
+      {
+        "key": "Hillcrest",
+        "column": "revenue",
+        "deck": 4120.5,
+        "workbook": 4210.5
+      },
+      {
+        "key": "Lakeshore",
+        "column": "orders",
+        "deck": 1904,
+        "workbook": 1940
+      },
+      {
+        "key": "Oakridge",
+        "column": "headcount",
+        "deck": 52,
+        "workbook": 57
+      }
+    ]
+  }
+}

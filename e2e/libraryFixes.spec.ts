@@ -120,6 +120,33 @@ for (const language of ["en", "zh-CN"] as const) {
     // A file that read has none.
     await expect(rows.filter({ hasText: "Tides" }).getByTestId("library-fix")).toHaveCount(0);
 
+    // Opened, a damaged file says the same plain words, with the same two ways on; the reader's
+    // own message is only on hover (#763).
+    const broken = rows.filter({ hasText: "Broken" });
+    await pointAndClick(window, broken.getByTestId("library-document-name"));
+    const viewer = window.getByTestId("viewer");
+    await expect(viewer).toBeVisible();
+    // Kept open, so it stays through the widths below.
+    await pointAndClick(window, viewer.getByTestId("viewer-keep"));
+    const problem = viewer.getByTestId("viewer-problem");
+    await expect(problem).toContainText(WORDS[language].fixes[0][1]);
+    await expect(viewer.getByTestId("viewer-fix-open")).toHaveText(WORDS[language].fixes[0][2][0]);
+    await expect(viewer.getByTestId("viewer-retry")).toHaveText(WORDS[language].fixes[0][2][1]);
+    await expect(problem).not.toContainText("Invalid PDF structure");
+    await expect(problem.locator("[title]")).toHaveAttribute("title", /Invalid PDF structure/);
+    // At both widths the line and its buttons hold, in this language.
+    for (const width of [900, 1600]) {
+      await setWindowSize(app, window, width, 900);
+      await expect(viewer.getByTestId("viewer-fix-open")).toBeVisible();
+      expect(
+        await problem.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+      ).toBe(true);
+    }
+    await setWindowSize(app, window, 1440, 900);
+    // The Library is back in view for the rest.
+    await pointAndClick(window, window.getByTestId("open-library"));
+    await expect(window.getByTestId("library")).toBeVisible();
+
     // Read again: the scan is read once more, and says the same until text is found in it.
     const scan = rows.filter({ hasText: "Scan" });
     await pointAndClick(window, scan.getByTestId("library-fix-retry"));
@@ -156,13 +183,17 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, lib.getByTestId("library-organize"));
     const needs = lib.getByTestId("library-organize-needs-model");
     await expect(needs).toContainText(
-      language === "en" ? "Organize needs an AI model" : "“整理”需要 AI 模型",
+      language === "en" ? "Organize needs an AI model" : "整理需要一个 AI 模型",
     );
-    // No AI model is connected yet: only the way to set one up on this computer.
+    // No AI model is connected yet: first run's key field, in place, and no step through Settings.
     await expect(needs.getByTestId("library-organize-use")).toHaveCount(0);
-    await pointAndClick(window, needs.getByTestId("library-organize-set-up"));
-    await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "models");
-    await window.keyboard.press("Escape");
+    await expect(needs.getByTestId("library-organize-set-up")).toHaveCount(0);
+    await expect(needs.getByTestId("library-organize-key")).toBeVisible();
+    await expect(needs).toContainText(
+      language === "en"
+        ? "It sends Documents’ names and excerpts, and Folder and Tag names and descriptions, to the model you set up."
+        : "它会把文档名称和摘录，以及文件夹和标签的名称与描述，发送给你设置的模型。",
+    );
 
     // With an AI model connected, Organize can use its company.
     await connectLocalChatModel(window);

@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import {
   clickEndOf,
   createDataFolder,
@@ -8,6 +9,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openBlockMenuFor,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -74,13 +76,21 @@ const drawn = (item: Locator) =>
     const text = li.querySelector(":scope > p") as HTMLElement;
     const before = getComputedStyle(text, "::before");
     const box = li.getBoundingClientRect();
-    const markerRight = box.left + box.width - Number.parseFloat(before.right);
+    // The number sits where its own `left` puts it, measured in its containing block (the item).
+    const markerLeft = box.left + Number.parseFloat(before.left);
     return {
       marker: before.content === "none" ? "" : (JSON.parse(before.content) as string),
-      markerLeft: markerRight - Number.parseFloat(before.width),
-      markerRight,
+      markerLeft,
+      markerRight: markerLeft + Number.parseFloat(before.width),
       textLeft: text.getBoundingClientRect().left,
     };
+  });
+
+/** The room a list keeps for its markers, from its widest one, shared by every item of the list. */
+const roomOf = (item: Locator) =>
+  item.evaluate((li) => {
+    const value = Number.parseFloat(getComputedStyle(li).getPropertyValue("--marker-room"));
+    return Number.isFinite(value) ? value : 0;
   });
 
 const markers = async (editor: Locator) =>
@@ -91,6 +101,12 @@ const edge = (editor: Locator) =>
     .locator(":scope > p")
     .first()
     .evaluate((p) => p.getBoundingClientRect().left);
+
+async function box(locator: Locator) {
+  const found = await locator.boundingBox();
+  if (!found) throw new Error("The element isn't visible.");
+  return found;
+}
 
 const near = (value: number, expected: number, what: string) =>
   expect(Math.abs(value - expected), `${what}: ${value} is not ${expected}`).toBeLessThanOrEqual(1);
@@ -130,7 +146,7 @@ async function fourLevels(window: Page, words: readonly string[]): Promise<void>
 }
 
 for (const { language, width, items: words } of SETTINGS) {
-  test(`Aa › Numbering draws each scheme at every level, right-aligned 8px before the text at Word's indents, one ⌘Z each (${language}, ${width} px)`, async () => {
+  test(`Aa › Numbering draws each scheme at every level, each marker at the marker room's left edge at Word's indents, one ⌘Z each (${language}, ${width} px)`, async () => {
     test.setTimeout(120_000);
     const { app, window, editor } = await openMind(language, width);
     await fourLevels(window, words);
@@ -151,8 +167,12 @@ for (const { language, width, items: words } of SETTINGS) {
       await expect.poll(() => markers(editor), { message: scheme }).toEqual([...expected]);
       for (const [level, item] of (await items(editor).all()).entries()) {
         const at = await drawn(item);
-        near(at.textLeft - left, 48 * (level + 1), `${scheme} level ${level + 1}'s text`);
-        near(at.textLeft - at.markerRight, 8, `${scheme} level ${level + 1}'s marker`);
+        near(
+          at.textLeft - left,
+          48 * (level + 1) + (await roomOf(item)),
+          `${scheme} level ${level + 1}'s text`,
+        );
+        near(at.markerLeft - left, 24 + 48 * level, `${scheme} level ${level + 1}'s marker`);
         expect(at.markerLeft, `${scheme}'s marker stays in the Mind`).toBeGreaterThanOrEqual(
           left - 1,
         );
@@ -177,7 +197,11 @@ for (const { language, width, items: words } of SETTINGS) {
     await window.keyboard.type("(i) ");
     await expect(items(editor)).toHaveCount(1);
     expect(await markers(editor)).toEqual(["(i)"]);
-    near((await drawn(items(editor).first())).textLeft - left, 96, "a second-level list's text");
+    near(
+      (await drawn(items(editor).first())).textLeft - left,
+      96 + (await roomOf(items(editor).first())),
+      "a second-level list's text",
+    );
     await window.keyboard.press(UNDO);
     await expect(items(editor)).toHaveCount(0);
     await expect(editor.locator(":scope > p").last()).toHaveText("(i) ");
@@ -195,7 +219,11 @@ for (const { language, width, items: words } of SETTINGS) {
     await window.keyboard.press("Tab");
     const nested = language === "en" ? "(i)" : "（一）";
     await expect.poll(() => markers(editor)).toEqual([language === "en" ? "(a)" : "一、", nested]);
-    near((await drawn(items(editor).nth(1))).textLeft - left, 96, "the nested item's text");
+    near(
+      (await drawn(items(editor).nth(1))).textLeft - left,
+      96 + (await roomOf(items(editor).nth(1))),
+      "the nested item's text",
+    );
     await window.keyboard.press(UNDO);
     await expect.poll(() => markers(editor)).toEqual([language === "en" ? "(a)" : "一、", second]);
     await window.keyboard.press("Tab");
@@ -214,8 +242,16 @@ for (const { language, width, items: words } of SETTINGS) {
     await expect
       .poll(() => markers(editor))
       .toEqual(language === "en" ? ["(i)", "(a)"] : ["（一）", "一、"]);
-    near((await drawn(items(editor).first())).textLeft - left, 96, "the deeper item's text");
-    near((await drawn(items(editor).nth(1))).textLeft - left, 48, "the next item's text");
+    near(
+      (await drawn(items(editor).first())).textLeft - left,
+      96 + (await roomOf(items(editor).first())),
+      "the deeper item's text",
+    );
+    near(
+      (await drawn(items(editor).nth(1))).textLeft - left,
+      48 + (await roomOf(items(editor).nth(1))),
+      "the next item's text",
+    );
     await expect(editor).toBeFocused();
     await window.keyboard.press("Shift+Tab");
     await expect.poll(() => markers(editor)).toEqual([language === "en" ? "(a)" : "一、", second]);
@@ -364,7 +400,7 @@ for (const { language, width, items: words } of SETTINGS) {
     await app.close();
   });
 
-  test(`a wide marker grows to the left and moves its text right by 12px only when it needs to (${language}, ${width} px)`, async () => {
+  test(`one room for the whole list: a wide 十一、 widens it in 12px steps, and the short 一、 gets more space after it (${language}, ${width} px)`, async () => {
     const { app, window, editor } = await openMind(language, width);
     const left = await edge(editor);
     await window.keyboard.type("一、");
@@ -376,12 +412,28 @@ for (const { language, width, items: words } of SETTINGS) {
     const first = await drawn(items(editor).first());
     const eleventh = await drawn(items(editor).nth(10));
     expect(eleventh.marker).toBe("十一、");
-    near(first.textLeft - left, 48, "一、's text");
-    near(first.textLeft - first.markerRight, 8, "一、");
-    near(eleventh.textLeft - eleventh.markerRight, 8, "十一、");
-    expect(eleventh.markerLeft).toBeGreaterThanOrEqual(left - 1);
+    const room = await roomOf(items(editor).first());
+    expect(room, "the widest marker widens the list's room").toBeGreaterThan(0);
     expect((eleventh.textLeft - left - 48) % 12).toBeLessThan(1);
-    expect(eleventh.textLeft - left).toBeGreaterThan(48);
+    for (const [at, item] of (await items(editor).all()).entries()) {
+      const one = await drawn(item);
+      near(one.textLeft - left, 48 + room, `item ${at + 1}'s text`);
+      near(one.markerLeft - left, 24, `item ${at + 1}'s marker`);
+      near(await roomOf(item), room, `item ${at + 1}'s room`);
+    }
+    // The number starts at the room's left edge: a short marker leaves more space after it.
+    expect(first.textLeft - first.markerRight).toBeGreaterThan(
+      eleventh.textLeft - eleventh.markerRight,
+    );
+    expect(eleventh.markerRight).toBeLessThanOrEqual(eleventh.textLeft - 8 + 0.5);
+    // The handle stays 4px before the room's left edge, where the number starts.
+    await itemText(items(editor).nth(10)).hover();
+    const handle = window.getByTestId("block-handle");
+    await expect(handle).toBeVisible();
+    const handleBox = await handle.boundingBox();
+    expect(
+      Math.abs(eleventh.markerLeft - 4 - ((handleBox?.x ?? 0) + (handleBox?.width ?? 0))),
+    ).toBeLessThanOrEqual(1.5);
     await screenshot(window, `numbering-wide-${language}-${width}`);
     await app.close();
   });
@@ -407,3 +459,170 @@ test("a Chinese marker written through an input method begins its list when the 
   await expect(editor.locator(":scope > p").last()).toHaveText("一、");
   await app.close();
 });
+
+for (const { language, width } of SETTINGS) {
+  test(`one marker room for the whole list: 1 to 12 aligns every item and a Roman (iv) widens its list's room (${language}, ${width} px)`, async () => {
+    test.setTimeout(120_000);
+    const { app, window, editor } = await openMind(language, width);
+    const entry = (text: string) => ({
+      type: "listItem",
+      content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+    });
+    await editor.evaluate(
+      (dom, content) => {
+        (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(
+          (dom as unknown as { editor: Editor }).editor.state.doc.content.size,
+          content,
+        );
+      },
+      [
+        {
+          type: "orderedList",
+          attrs: { start: 1 },
+          content: Array.from({ length: 12 }, (_, at) => entry(`Item ${at + 1}`)),
+        },
+        {
+          type: "orderedList",
+          attrs: { numbering: "clauses" },
+          content: [
+            {
+              type: "listItem",
+              content: [
+                { type: "paragraph", content: [{ type: "text", text: "Clauses" }] },
+                {
+                  type: "orderedList",
+                  content: Array.from({ length: 4 }, (_, at) => entry(`Roman ${at + 1}`)),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    );
+    const left = await edge(editor);
+    const list = editor.locator(":scope > ol").first();
+    const listed = list.locator(":scope > li");
+    await expect(listed).toHaveCount(12);
+    const texts = await Promise.all(
+      (await listed.all()).map(async (li) => (await drawn(li)).textLeft),
+    );
+    const room = await listed.first().evaluate((li) => {
+      const value = Number.parseFloat(getComputedStyle(li).getPropertyValue("--marker-room"));
+      return Number.isFinite(value) ? value : 0;
+    });
+    for (const [at, textLeft] of texts.entries()) {
+      near(textLeft - left, 48 + room, `item ${at + 1}'s text`);
+      near((await drawn(listed.nth(at))).markerLeft - left, 24, `item ${at + 1}'s marker`);
+    }
+    // The room is one for the whole list, from its widest marker: a short "1." has more space after it.
+    const first = await drawn(listed.first());
+    const widest = await drawn(listed.nth(11));
+    const widestWidth = widest.markerRight - widest.markerLeft;
+    // The room is 24px or the widest marker plus the 8px gap, rounded up to a 12px step and no further.
+    expect(24 + room).toBeGreaterThanOrEqual(widestWidth + 8 - 0.5);
+    expect(24 + room - (widestWidth + 8)).toBeLessThan(12 + 0.5);
+    expect(first.markerRight - first.markerLeft).toBeLessThan(
+      widest.markerRight - widest.markerLeft,
+    );
+    expect(first.textLeft - first.markerRight).toBeGreaterThan(
+      widest.textLeft - widest.markerRight,
+    );
+
+    // The handle stays 4px before the room's left edge, where the number starts.
+    const handle = window.getByTestId("block-handle");
+    await itemText(listed.nth(11)).hover();
+    await expect(handle).toBeVisible();
+    const at = await drawn(listed.nth(11));
+    const handleBox = (await await handle.boundingBox()) ?? { x: 0, width: 0 };
+    expect(Math.abs(at.markerLeft - 4 - (handleBox.x + handleBox.width))).toBeLessThanOrEqual(1.5);
+
+    // The menu opened from the keyboard lands on the same item the pointer's handle stands by.
+    await editor.evaluate((dom) => {
+      const note = (dom as unknown as { editor: Editor }).editor;
+      const items: number[] = [];
+      note.state.doc.descendants((node, pos) => {
+        if (node.type.name === "listItem") items.push(pos);
+        return true;
+      });
+      const tenth = items[9];
+      if (tenth === undefined) throw new Error("No tenth item.");
+      note.commands.focus();
+      note.commands.setTextSelection(tenth + 2);
+    });
+    await window.keyboard.press("Shift+F10");
+    const menu = window.getByTestId("block-menu");
+    await expect(menu).toBeVisible();
+    const [menuBox, item10, item1] = [
+      await box(menu),
+      await box(listed.nth(9)),
+      await box(listed.first()),
+    ];
+    expect(
+      Math.abs(menuBox.y - item10.y),
+      "the keyboard menu opens by item 10, not the list's first item",
+    ).toBeLessThan(Math.abs(menuBox.y - item1.y));
+    await window.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+
+    // A clauses list's second level numbers in Roman: "(iv)" widens its own list's room, alone.
+    const clauses = editor.locator(":scope > ol").nth(1);
+    const roman = clauses.locator("ol > li");
+    await expect(roman).toHaveCount(4);
+    const romanRoom = await roman.first().evaluate((li) => {
+      const value = Number.parseFloat(getComputedStyle(li).getPropertyValue("--marker-room"));
+      return Number.isFinite(value) ? value : 0;
+    });
+    expect(romanRoom, "the Roman markers widen their list's room").toBeGreaterThan(0);
+    const romanTexts = await Promise.all(
+      (await roman.all()).map(async (li) => (await drawn(li)).textLeft),
+    );
+    for (const [index, textLeft] of romanTexts.entries()) {
+      near(textLeft - left, 96 + romanRoom, `Roman item ${index + 1}'s text`);
+      near(
+        (await drawn(roman.nth(index))).markerLeft - left,
+        72,
+        `Roman item ${index + 1}'s marker`,
+      );
+    }
+
+    // A command can name another Block while the caret is in a different list: the menu goes
+    // by the named Block's first line, never by the caret's item.
+    const named = await editor.evaluate((dom) => {
+      const note = (dom as unknown as { editor: Editor }).editor;
+      let id: string | null = null;
+      note.state.doc.forEach((node) => {
+        const found: unknown = node.attrs.id;
+        if (id === null && node.type.name === "orderedList" && typeof found === "string") {
+          id = found;
+        }
+      });
+      return id;
+    });
+    if (named === null) throw new Error("The list has no Block ID.");
+    await editor.evaluate((dom) => {
+      const note = (dom as unknown as { editor: Editor }).editor;
+      const items: { pos: number; text: string }[] = [];
+      note.state.doc.descendants((node, pos) => {
+        if (node.type.name === "listItem") items.push({ pos, text: node.textContent });
+        return true;
+      });
+      const fourth = items.find((item) => item.text === "Roman 4");
+      if (!fourth) throw new Error("No fourth Roman item.");
+      note.commands.setTextSelection(fourth.pos + 2);
+    });
+    await openBlockMenuFor(window, named);
+    await expect(menu).toBeVisible();
+    const [namedMenu, namedFirst, caretItem] = [
+      await box(menu),
+      await box(listed.first()),
+      await box(roman.nth(3)),
+    ];
+    expect(
+      Math.abs(namedMenu.y - namedFirst.y),
+      "a command naming another Block anchors at that Block, not at the caret's item in another list",
+    ).toBeLessThan(Math.abs(namedMenu.y - caretItem.y));
+    await window.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await app.close();
+  });
+}

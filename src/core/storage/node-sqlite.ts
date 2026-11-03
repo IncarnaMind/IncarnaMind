@@ -1,17 +1,48 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
+import type { Logger } from "../adapters";
+import { isRecord } from "../errors";
 import type { Database, SqlValue } from "./database";
+
+/** How long a start keeps trying WAL shared memory another process maps, on Windows (#2067). */
+export const MAPPED_WAL_RETRY_MS = 5_000;
+const MAPPED_WAL_PAUSE_MS = 250;
+const WAL = "PRAGMA journal_mode = WAL";
+
+const SQLITE_BUSY = 5;
+/** SQLITE_IOERR_TRUNCATE: on Windows, another process still maps the `-shm` file. */
+const SQLITE_IOERR_TRUNCATE = 1546;
+
+const errcodeOf = (error: unknown) =>
+  isRecord(error) && typeof error.errcode === "number" ? error.errcode : undefined;
+
+const isMappedShm = (error: unknown) =>
+  isRecord(error) && error.code === "ERR_SQLITE_ERROR" && error.errcode === SQLITE_IOERR_TRUNCATE;
+
+/**
+ * Whether SQLite failed because another process holds the database: a lock (any SQLITE_BUSY), or
+ * on Windows a `-shm` it still maps (#2067). Elsewhere a failed truncate is a real I/O error.
+ */
+export function heldByAnotherProcess(error: unknown): boolean {
+  const errcode = errcodeOf(error);
+  if (errcode === undefined) return false;
+  if ((errcode & 0xff) === SQLITE_BUSY) return true;
+  return process.platform === "win32" && errcode === SQLITE_IOERR_TRUNCATE;
+}
 
 /**
  * The `node:sqlite` adapter for the storage port. `node:sqlite` ships with
- * Electron's Node (24), so it needs no native module build.
+ * Electron's Node (24), so it needs no native module build. `log` gets each
+ * failed attempt to open the WAL with its SQLite extended code.
  */
-export function openNodeSqlite(file: string): Database {
+export function openNodeSqlite(file: string, log?: Logger): Database {
   const db = new DatabaseSync(file);
-  db.exec("PRAGMA journal_mode = WAL");
-  // Each commit is on disk before it returns: a Task's journal must survive a force-quit (#126).
-  db.exec("PRAGMA synchronous = FULL");
-  db.exec("PRAGMA foreign_keys = ON");
-  db.exec("PRAGMA busy_timeout = 5000");
+  try {
+    setUp(db, log);
+  } catch (error) {
+    // A handle left open keeps the file, and on Windows its mapped `-shm`, from the next open (#2067).
+    db.close();
+    throw error;
+  }
 
   const reads = new Map<string, StatementSync>();
   const writes = new Map<string, StatementSync>();
@@ -64,4 +95,55 @@ export function openNodeSqlite(file: string): Database {
       db.close();
     },
   };
+}
+
+function setUp(db: DatabaseSync, log: Logger | undefined): void {
+  try {
+    db.exec(WAL);
+  } catch (error) {
+    log?.warn("storage.walOpen.failed", { attempt: 1, elapsedMs: 0, errcode: errcodeOf(error) });
+    if (process.platform !== "win32" || !isMappedShm(error)) throw error;
+    retryMappedWal(db, error, log);
+  }
+  // Each commit is on disk before it returns: a Task's journal must survive a force-quit (#126).
+  db.exec("PRAGMA synchronous = FULL");
+  db.exec("PRAGMA foreign_keys = ON");
+  db.exec("PRAGMA busy_timeout = 5000");
+}
+
+// SQLite cannot truncate mapped SHM on Windows (#2067, upstream 7c103a0b7d).
+// Remove this bounded workaround when the released runtime contains that fix.
+function retryMappedWal(db: DatabaseSync, first: unknown, log: Logger | undefined): void {
+  const started = performance.now();
+  const deadline = started + MAPPED_WAL_RETRY_MS;
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  const elapsedMs = () => Math.round(performance.now() - started);
+  let failure = first;
+  let attempt = 1;
+  const giveUp = () => {
+    log?.warn("storage.walOpen.gaveUp", { attempts: attempt, elapsedMs: elapsedMs() });
+    return failure;
+  };
+  for (;;) {
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) throw giveUp();
+    Atomics.wait(pause, 0, 0, Math.min(MAPPED_WAL_PAUSE_MS, remaining));
+    if (performance.now() >= deadline) throw giveUp();
+    attempt += 1;
+    try {
+      db.exec(WAL);
+    } catch (next) {
+      log?.warn("storage.walOpen.failed", {
+        attempt,
+        elapsedMs: elapsedMs(),
+        errcode: errcodeOf(next),
+      });
+      if (!isMappedShm(next)) throw next;
+      failure = next;
+      continue;
+    }
+    if (performance.now() >= deadline) throw giveUp();
+    log?.info("storage.walOpen.recovered", { attempts: attempt, elapsedMs: elapsedMs() });
+    return;
+  }
 }

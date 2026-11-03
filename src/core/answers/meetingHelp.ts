@@ -36,6 +36,24 @@ const TASKS: Readonly<Record<MeetingHelpKind, string>> = {
   disagree: "Where people in the call disagree: each line is one point, and who holds which view.",
 };
 
+export const HELP_DOCUMENTS: Readonly<Record<MeetingHelpKind, string | null>> = {
+  say: "ground a useful reply in relevant facts or terms",
+  answer: "answer the newest question with the User's facts",
+  want: null,
+  sum: null,
+  no: "ground a refusal in relevant policies or terms",
+  ask: "identify a relevant gap worth asking about, with a reason",
+  check: "compare the newest spoken claims with the Documents",
+  objection: "ground an answer to the newest objection in relevant facts",
+  nextStep: "suggest a feasible next step from relevant plans or terms",
+  facts: "find Document facts relevant to the discussion",
+  followUp: null,
+  leading: null,
+  notCovered: "compare the interview guide with what the call has covered",
+  decisions: null,
+  disagree: null,
+};
+
 const SHAPES: Readonly<Record<HelpShape, readonly string[]>> = {
   options: [
     '- One or two options, never more. The one you recommend comes first, its line starting with "★ ".',
@@ -165,6 +183,7 @@ export function meetingHelpInstructions(
 ): string {
   const shape = HELP_SHAPE[kind];
   const task = TASKS[kind];
+  const documents = HELP_DOCUMENTS[kind];
   return [
     "The User is in a call and pressed a button for help: the Question is the button's name. They will read your reply in a second or two while the call goes on.",
     `What they need: ${task}`,
@@ -175,8 +194,14 @@ export function meetingHelpInstructions(
     "- Base it on the newest lines of <live-transcript>: what was said last matters most.",
     "- Never say what you can't read or which button this is.",
     "- When the other side names a price or a figure, it is what they ask for, never the User's: don't repeat it as the User's price or offer.",
-    "- A fact (a price, a date, a figure, a term) comes from the User's Documents or the transcript, with its Citation marker; never invent one. When they don't have it, say what the User doesn't know yet instead.",
-    ...(found
+    ...(documents === null
+      ? [
+          "- Use only <live-transcript> for facts, with its Citation markers. Do not use Library Documents or written notes. If there is no call text yet, say there is not enough call content to answer; never substitute other facts.",
+        ]
+      : [
+          `- Use the User's Documents only to ${documents}. A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one. When giving a suggestion, explain its relevance in the → line.`,
+        ]),
+    ...(documents !== null && found
       ? [
           "- <found-in-documents> holds Passages of the User's Documents already found for the newest lines: cite them by id, and search only if they don't answer.",
         ]

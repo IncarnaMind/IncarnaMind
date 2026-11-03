@@ -1,16 +1,28 @@
-import { flip, type Middleware, offset, shift } from "@floating-ui/dom";
+import { flip, type Middleware, offset, shift, size, type VirtualElement } from "@floating-ui/dom";
 
 /** The room a card keeps from the window's edge and from the check badge. */
 const GAP = 8;
 
 /**
  * Where a sentence's check card goes: under its mark, flipped above when the
- * window leaves no room below, and moved clear of the page's check badge
- * (#1686), which sits at the page's bottom right, where a card opened near
- * the foot would cover it.
+ * window leaves no room below, no taller than the room on that side (a card of
+ * many rows scrolls within it, so its actions stay in the window), and moved
+ * clear of the page's check badge (#1686), which sits at the page's bottom
+ * right, where a card opened near the foot would cover it.
  */
-export function claimCardPlace(anchor: Element): Middleware[] {
-  return [offset(4), flip(), shift({ padding: GAP }), clearOfBadge(anchor)];
+export function claimCardPlace(anchor: Element | VirtualElement): Middleware[] {
+  return [
+    offset(4),
+    flip(),
+    size({
+      padding: GAP,
+      apply({ availableHeight, elements }) {
+        elements.floating.style.setProperty("--card-room", `${Math.max(0, availableHeight)}px`);
+      },
+    }),
+    shift({ padding: GAP }),
+    clearOfBadge(anchor),
+  ];
 }
 
 /**
@@ -36,14 +48,17 @@ export function movedClearOfBadge(
   return lower >= GAP ? { y: lower } : null;
 }
 
-function clearOfBadge(anchor: Element): Middleware {
+/** The corner of the page that holds its check badge, which a card keeps clear of. */
+export function badgeCorner(anchor: Element | VirtualElement): Element | null | undefined {
+  const context = anchor instanceof Element ? anchor : anchor.contextElement;
+  return context?.closest(".mind-tab-page")?.querySelector(".mind-foot-badge");
+}
+
+function clearOfBadge(anchor: Element | VirtualElement): Middleware {
   return {
     name: "clearOfBadge",
     fn({ x, y, rects }) {
-      const badge = anchor
-        .closest(".mind-tab-page")
-        ?.querySelector(".mind-foot-badge .check-badge")
-        ?.getBoundingClientRect();
+      const badge = badgeCorner(anchor)?.querySelector(".check-badge")?.getBoundingClientRect();
       if (!badge) return {};
       const { width, height } = rects.floating;
       return movedClearOfBadge({ x, y, width, height }, rects.reference.y, badge) ?? {};

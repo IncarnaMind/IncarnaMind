@@ -16,6 +16,7 @@ import {
   closeSettings,
   createDataFolder,
   launchApp,
+  makeTagOnDocument,
   removeDataFolder,
   runFromPalette,
   setLanguage,
@@ -54,11 +55,16 @@ test("Documents that couldn't reach the model: one line with Retry, Retry in ⌘
   await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
-    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
   });
   const footer = window.getByTestId("sidebar-status");
 
   await addDocuments(window, [await unreachable("Invoice 51")]);
+  await makeTagOnDocument(window, "Invoice 51");
   await expect(item(window, "Invoice 51")).toHaveAttribute("data-tagging", "failed");
   const failed = footer.getByTestId("tagging-failed");
   await expect(failed.getByTestId("status-label")).toHaveText("1 Document couldn’t be tagged");
@@ -93,7 +99,11 @@ test("A rate limit pauses Tagging: one line says when it resumes, and Retry goes
   await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
-    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
   });
   const footer = window.getByTestId("sidebar-status");
   const limited = join(sources, "Invoice 61.txt");
@@ -102,6 +112,7 @@ test("A rate limit pauses Tagging: one line says when it resumes, and Retry goes
   await writeFile(plain, "Invoice 62. Nothing in the way.\n");
 
   await addDocuments(window, [limited, plain]);
+  await makeTagOnDocument(window, "Invoice 61");
   const paused = footer.getByTestId("tagging-rate-limited");
   await expect(item(window, "Invoice 61")).toHaveAttribute("data-tagging", "waiting-for-provider");
   await expect(item(window, "Invoice 62")).toHaveAttribute("data-tagging", "waiting-for-provider");
@@ -137,7 +148,11 @@ test("A refused key stops Tagging after one request: one line says so, Check the
     window.evaluate(async (apiKey) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await core.saveChatProvider({ kind: "openai", apiKey, modelId: "gpt-6-luna" });
-      await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+      await core.saveLibrarySettings({
+        ...(await core.getLibrary()).settings,
+        automatic: true,
+        turnOn: true,
+      });
     }, apiKey);
   await useKey("sk-refused");
   const footer = window.getByTestId("sidebar-status");
@@ -149,6 +164,7 @@ test("A refused key stops Tagging after one request: one line says so, Check the
   }
 
   await addDocuments(window, paths);
+  await makeTagOnDocument(window, "Invoice 81");
   const refused = footer.getByTestId("tagging-key-refused");
   for (const name of ["Invoice 81", "Invoice 82", "Invoice 83", "Invoice 84"]) {
     await expect(item(window, name)).toHaveAttribute("data-tagging", "waiting-for-provider");
@@ -212,7 +228,11 @@ test("With Organize filing new Documents, a failure for a Document the tagger ho
       apiKey: "sk-test",
       modelId: "gpt-6-luna",
     });
-    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
     return provider.id;
   });
   const footer = window.getByTestId("sidebar-status");
@@ -221,6 +241,7 @@ test("With Organize filing new Documents, a failure for a Document the tagger ho
   // Added before there were Folders: the tagger has it, and the model can't be reached.
   const held = await unreachable("Invoice 71", "stays unreachable");
   await addDocuments(window, [held]);
+  await makeTagOnDocument(window, "Invoice 71");
   await expect(item(window, "Invoice 71")).toHaveAttribute("data-tagging", "failed");
 
   // Organize now files new Documents by itself, with the same model.
@@ -230,6 +251,7 @@ test("With Organize filing new Documents, a failure for a Document the tagger ho
     await core.saveLibrarySettings({
       classifier: { kind: "chat", choice: { providerId, modelId: "gpt-6-luna" } },
       automatic: true,
+      turnOn: true,
     });
   }, providerId);
   await expect(failed.getByTestId("status-label")).toHaveText("1 Document couldn’t be tagged");

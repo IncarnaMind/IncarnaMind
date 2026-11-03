@@ -20,7 +20,7 @@ import {
 /*
  * A cited Mind turned into a report keeps its Citations (#1800): the scripted model reads the
  * Mind, keeps each of its Citations by the id it reads it with, and the report's Answer shows
- * them checked; New Mind under it carries them, and its Markdown export has their footnotes,
+ * them checked; New note under it carries them, and its Markdown export has their footnotes,
  * with no id or bracketed source anywhere.
  */
 

@@ -22,7 +22,7 @@ const TARGET = ["output-location"] as const;
 
 /**
  * Settings → General → Output location: where new files go, the default
- * Documents › IncarnaMind until the User picks another (D209), changed with
+ * Documents › IncarnaMind until the User picks another, changed with
  * the system's folder dialog; and, once IncarnaMind has asked about any, the
  * Linked folders it may or may not add files to, each with its switch.
  */

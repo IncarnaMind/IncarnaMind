@@ -25,9 +25,11 @@ export function ClaimOutline({
   editor,
   id,
   layer,
+  rangeOf,
 }: {
   editor: Editor;
-  id: string;
+  id?: string;
+  rangeOf?(): { from: number; to: number; node?: true } | null;
   /** The margin layer, whose top left corner the boxes are measured from. */
   layer: HTMLElement;
 }) {
@@ -38,9 +40,30 @@ export function ClaimOutline({
     const measure = () => {
       frame = 0;
       if (editor.isDestroyed) return;
-      const sentence = shownClaims(editor.state).find((claim) => claim.check.id === id)?.sentence;
+      const sentence = rangeOf
+        ? rangeOf()
+        : shownClaims(editor.state).find((claim) => claim.check.id === id)?.sentence;
       if (!sentence) {
         setBoxes([]);
+        return;
+      }
+      if ("node" in sentence && sentence.node) {
+        const element = editor.view.nodeDOM(sentence.from);
+        if (!(element instanceof HTMLElement)) {
+          setBoxes([]);
+          return;
+        }
+        const rect = element.getBoundingClientRect();
+        const origin = layer.getBoundingClientRect();
+        const next = lineBoxes([
+          {
+            left: rect.left - origin.left,
+            top: rect.top - origin.top,
+            width: rect.width,
+            height: rect.height,
+          },
+        ]);
+        setBoxes((shown) => (sameBoxes(shown, next) ? shown : next));
         return;
       }
       const start = editor.view.domAtPos(sentence.from);
@@ -73,7 +96,7 @@ export function ClaimOutline({
       resizes.disconnect();
       document.fonts.removeEventListener("loadingdone", schedule);
     };
-  }, [editor, id, layer]);
+  }, [editor, id, layer, rangeOf]);
 
   return boxes.map((box) => (
     <div

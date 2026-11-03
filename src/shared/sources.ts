@@ -4,7 +4,7 @@
  * the Locations cited. A web page's source carries its title, its site's name, its address and
  * the day the quoted version was fetched, as "accessed". Pure, shared by the editor and the core.
  */
-import type { CitationAttributes, Document } from "../core/api";
+import type { CitationAttributes, Document, KeptCitationText } from "../core/api";
 import type { Language } from "../core/language";
 import { citationState, citedLocation, shownDocumentName } from "./citations";
 import { titleWithoutSite } from "./documentNames";
@@ -19,6 +19,8 @@ export interface SourceContext {
   language: Language;
   /** The live Documents, or null while they load. */
   documents: readonly SourceDocument[] | null;
+  /** The text kept of Documents unlinked with their folder: their Citations' checks still stand. */
+  kept?: readonly KeptCitationText[];
 }
 
 /** A web page as it is cited. */
@@ -81,6 +83,15 @@ function webParts(name: string, web: { site: string }): string[] {
   return parts;
 }
 
+/** A Citation's Document as it is named now, and where in it, apart, for a link beside its place. */
+export function sourceParts(
+  attributes: Cited,
+  context: SourceContext,
+): { name: string; location: string | null } {
+  const t = translator(context.language);
+  return { name: nameOf(attributes, context, t), location: citedLocation(attributes, t) };
+}
+
 /**
  * A Citation's source as its footnote reads it: "Aldermoor MSA, p. 14", or a web page's
  * "Tea, The Open Encyclopedia, § History, ¶ 3, https://tea.example/history, accessed 3 October 2026".
@@ -91,8 +102,7 @@ export function sourceText(
   context: SourceContext,
 ): { text: string; link: string | null } {
   const t = translator(context.language);
-  const name = nameOf(attributes, context, t);
-  const location = citedLocation(attributes, t);
+  const { name, location } = sourceParts(attributes, context);
   const found = webOf(attributes, context);
   if (!found) {
     return {

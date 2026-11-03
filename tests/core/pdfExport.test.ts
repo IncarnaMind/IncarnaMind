@@ -15,7 +15,7 @@ import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { footnotesOf, part, unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { heading, question, writeMind } from "../helpers/minds";
+import { editMind, heading, question, writeMind } from "../helpers/minds";
 import { fakePrinter } from "../helpers/printer";
 import { zipFingerprint } from "../helpers/zip";
 
@@ -137,10 +137,10 @@ describe("exporting a Mind to PDF", () => {
     await client.settled();
     await core.exportMind(mind.id, { format: "pdf" });
     const { document } = parseHTML(`<html><body>${printed[0]?.body ?? ""}</body></html>`);
-    expect(document.body.textContent).toBe("Spring tides1. 大潮2,3");
+    expect(document.body.textContent).toBe("Spring tides1. 大潮2,1");
     expect(
       [...document.querySelectorAll("sup.note-ref")].map((node) => node.getAttribute("data-note")),
-    ).toEqual(["1", "2", "3"]);
+    ).toEqual(["1", "2", "1"]);
   });
 
   test("Word and Markdown are as they were: a fingerprint of the bilingual fixture's", async () => {
@@ -154,7 +154,7 @@ describe("exporting a Mind to PDF", () => {
     );
     const docx = (await core.exportMind(mind.id, { format: "docx" })).data;
     expect(zipFingerprint(docx)).toBe(
-      "9f081a86e0c52e4e709d2607c95f38838fe76c5392f8097516db18c466efa9a2",
+      "e481b985579eaaf4891d97534bf8d35c9c5c638b4ae196591bacd74169e65246",
     );
   });
 
@@ -169,6 +169,7 @@ describe("exporting a Mind to PDF", () => {
     expect(exported).toMatchObject({
       fileName: "Tides 潮汐.pdf",
       citations: 5,
+      footnotes: 4,
       unverifiedCitations: 2,
       questions: 0,
     });
@@ -180,7 +181,6 @@ describe("exporting a Mind to PDF", () => {
     expect(document.notes).toEqual([
       "Tides, p. 1",
       "潮汐, p. 1",
-      "Tides, p. 1",
       `潮汐, p. 1${unverified}`,
       `Tides, p. 2${unverified}`,
     ]);
@@ -199,10 +199,10 @@ describe("exporting a Mind to PDF", () => {
     expect(body).toContain('<annotation encoding="application/x-tex">F = G\\frac{m_1 m_2}{r^2}');
     expect(body).toContain(
       "<table><tr><th><p>Tide 潮</p></th><th><p>Range 潮差</p></th></tr>" +
-        `<tr><td><p>Spring 大潮</p></td><td><p>4 m${marker(3)}</p></td></tr>` +
-        `<tr><td><p>Neap 小潮</p></td><td><p>2 m${marker(4)}</p></td></tr></table>`,
+        `<tr><td><p>Spring 大潮</p></td><td><p>4 m${marker(1)}</p></td></tr>` +
+        `<tr><td><p>Neap 小潮</p></td><td><p>2 m${marker(3)}</p></td></tr></table>`,
     );
-    expect(body.endsWith(`<p>Neap tides come at the quarter moons${marker(5)}</p>`)).toBe(true);
+    expect(body.endsWith(`<p>Neap tides come at the quarter moons${marker(4)}</p>`)).toBe(true);
   });
 
   test("the deliverable leaves Questions out unless asked; in Chinese, on a computer in China, the paper is A4 and the footnotes speak Chinese", async () => {
@@ -254,13 +254,37 @@ describe("exporting a Mind to PDF", () => {
     expect(printed[1]).toMatchObject({ body: "", notes: [], title: "Untitled" });
   });
 
+  test("printMind hands the printer exactly the PDF export's pages, a table of contents and all, and saves nothing (#1935)", async () => {
+    const { printed, printedOnPrinter, printer } = fakePrinter();
+    const { core, mind, client, tides, chinese } = await setUp({ printer });
+    writeBilingual(client, tides, chinese);
+    editMind(client, (blocks) => [{ type: "tableOfContents" }, ...blocks]);
+    await client.settled();
+    await core.exportMind(mind.id, { format: "pdf" });
+
+    await core.printMind(mind.id);
+
+    expect(printedOnPrinter).toHaveLength(1);
+    expect(printedOnPrinter[0]).toEqual(printed[0]);
+    expect(printedOnPrinter[0]?.body).toContain('class="toc"');
+    expect(printedOnPrinter[0]?.body).toContain("Spring tides");
+  });
+
+  test("printing is refused where the copy can only make PDFs", async () => {
+    const { core, mind } = await setUp();
+
+    await expect(core.printMind(mind.id)).rejects.toMatchObject({
+      wording: { key: "error.print.noPrinter" },
+    });
+  });
+
   test("a PDF is refused where nothing can print one, and a failed print saves nothing", async () => {
     const { core, mind, client, tides, chinese, sources } = await setUp();
     writeBilingual(client, tides, chinese);
     await client.settled();
-    await expect(core.exportMind(mind.id, { format: "pdf" })).rejects.toThrow(
-      "This copy of IncarnaMind can't make PDFs.",
-    );
+    await expect(core.exportMind(mind.id, { format: "pdf" })).rejects.toMatchObject({
+      wording: { key: "error.checkRecord.noPdf" },
+    });
 
     const failing = startCore(await createTempDataFolder(), {
       printer: {
@@ -271,9 +295,12 @@ describe("exporting a Mind to PDF", () => {
     });
     const other = await failing.createMind({ title: "Tides" });
     await failing.setOutputLocation(sources);
-    await expect(failing.saveMindExport(other.id, { format: "pdf" })).rejects.toThrow(
-      "The PDF took too long to lay out.",
-    );
+    await expect(failing.saveMindExport(other.id, { format: "pdf" })).rejects.toMatchObject({
+      name: "PdfLayoutError",
+      message: "Couldn’t lay out the PDF.",
+      wording: { key: "error.pdf.notLaidOut" },
+      cause: new Error("The PDF took too long to lay out."),
+    });
     expect(readdirSync(sources)).not.toContain("Tides.pdf");
   });
 

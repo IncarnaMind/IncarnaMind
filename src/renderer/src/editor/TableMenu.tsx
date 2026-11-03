@@ -32,7 +32,7 @@ const actionOf = (id: TableActionId) =>
 
 const GROUPS: readonly (readonly (TableActionId | "chart")[])[] = [
   ["rowAbove", "rowBelow", "columnLeft", "columnRight"],
-  ["headerRow"],
+  ["headerRow", "totalRow", "totalColumn"],
   ["chart"],
   ["deleteRow", "deleteColumn", "deleteTable"],
 ];
@@ -177,20 +177,26 @@ export function TableMenu({ editor }: { editor: Editor }) {
                 }
                 const action = actionOf(id);
                 const why = whyNot(id);
-                if (id === "headerRow") {
+                if (id === "headerRow" || id === "totalRow" || id === "totalColumn") {
+                  const checked =
+                    id === "headerRow"
+                      ? spot.headerRow
+                      : id === "totalRow"
+                        ? spot.totalRow
+                        : spot.totalColumn;
                   return (
                     <button
                       key={id}
                       type="button"
                       role="menuitemcheckbox"
-                      aria-checked={spot.headerRow}
+                      aria-checked={checked}
                       data-testid={`table-${id}`}
                       onClick={() => choose(action)}
                       className={`${menuItemClass} pl-2`}
                     >
                       <span className="flex-1">{labelOf(id)}</span>
                       <CheckLineIcon
-                        className={`size-3.5 shrink-0 ${spot.headerRow ? "text-ink" : "invisible"}`}
+                        className={`size-3.5 shrink-0 ${checked ? "text-ink" : "invisible"}`}
                       />
                     </button>
                   );

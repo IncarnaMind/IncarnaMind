@@ -70,16 +70,19 @@ describe("Settings", () => {
         leaveOutOwnFiles: true,
         exportOptions: DEFAULT_EXPORT,
         authorName: null,
+        personId: null,
         monthlyCap: null,
         webSearch: false,
         keepWebPageLook: false,
+        taskNotifications: true,
         recentCitationStyles: [],
         newMindStyle: { font: "default", size: "default" },
+        meetingWords: [],
+        transcriptScript: null,
       },
       device: {
         sidebarWidth: 248,
         sidebarHidden: false,
-        chatSetupDismissed: false,
         sandboxNoticeDismissed: false,
         openedBefore: false,
         gettingStarted: {
@@ -89,6 +92,7 @@ describe("Settings", () => {
           indexed: false,
           askedOwn: false,
           askedReady: false,
+          exported: false,
           hidden: false,
           seen: false,
         },
@@ -108,9 +112,11 @@ describe("Settings", () => {
       },
       language: "en",
       scriptSandbox: "none",
+      sandboxProblem: null,
       // No capture in these tests: Meetings can't record.
       meetingAudio: "none",
       author: "Priya Raman",
+      chineseScript: "simplified",
     });
   });
 
@@ -124,10 +130,20 @@ describe("Settings", () => {
     const core = startCore(await createTempDataFolder(), { executor });
 
     expect((await core.getSettings()).scriptSandbox).toBe("os");
+    expect((await core.getSettings()).sandboxProblem).toBe(null);
     // Not a setting: it can't be changed.
     await expect(
       core.updateSettings({ device: { scriptSandbox: "none" } } as never),
     ).rejects.toThrow(InvalidInputError);
+  });
+
+  test("say why the OS sandbox can't start here, as the app found it", async () => {
+    const core = startCore(await createTempDataFolder(), {
+      sandboxProblem: { kind: "missing", packages: ["bubblewrap", "socat"] },
+    });
+    const settings = await core.getSettings();
+    expect(settings.scriptSandbox).toBe("none");
+    expect(settings.sandboxProblem).toEqual({ kind: "missing", packages: ["bubblewrap", "socat"] });
   });
 
   test.each([
@@ -180,16 +196,19 @@ describe("Settings", () => {
       leaveOutOwnFiles: true,
       exportOptions: DEFAULT_EXPORT,
       authorName: null,
+      personId: null,
       monthlyCap: null,
       webSearch: false,
       keepWebPageLook: false,
+      taskNotifications: true,
       recentCitationStyles: [],
       newMindStyle: { font: "default", size: "default" },
+      meetingWords: [],
+      transcriptScript: null,
     });
     expect(settings.device).toEqual({
       sidebarWidth: 320,
       sidebarHidden: false,
-      chatSetupDismissed: false,
       sandboxNoticeDismissed: false,
       openedBefore: false,
       gettingStarted: {
@@ -199,6 +218,7 @@ describe("Settings", () => {
         indexed: false,
         askedOwn: false,
         askedReady: false,
+        exported: false,
         hidden: false,
         seen: false,
       },
@@ -216,6 +236,20 @@ describe("Settings", () => {
       motion: "system",
       lastChatModel: null,
     });
+  });
+
+  test("Task notifications are on until the User turns them off, and each answer is kept", async () => {
+    const dataDir = await createTempDataFolder();
+    const before = startCore(dataDir);
+    expect((await before.getSettings()).user.taskNotifications).toBe(true);
+    expect(
+      (await before.updateSettings({ user: { taskNotifications: false } })).user.taskNotifications,
+    ).toBe(false);
+    before.close();
+
+    const after = startCore(dataDir);
+    expect((await after.getSettings()).user.taskNotifications).toBe(false);
+    after.close();
   });
 
   test("export options saved before the web page to share (#72) read its defaults", async () => {
@@ -354,6 +388,7 @@ describe("Settings", () => {
     expect((await after.getSettings()).device.gettingStarted).toEqual({
       ...kept,
       askedReady: false,
+      exported: false,
       seen: false,
     });
   });
@@ -380,6 +415,7 @@ describe("Settings", () => {
       const after = startCore(dataDir);
       expect((await after.getSettings()).device.gettingStarted).toEqual({
         ...older,
+        exported: false,
         citationChecked,
         mistakeSeen,
         seen: false,
@@ -402,6 +438,28 @@ describe("Settings", () => {
     core.close();
   });
 
+  test("old device progress defaults to not exported; a successful export milestone survives restart", async () => {
+    const dataDir = await createTempDataFolder();
+    const before = startCore(dataDir);
+    const { exported: _exported, ...oldProgress } = (await before.getSettings()).device
+      .gettingStarted;
+    await before.updateSettings({ device: { gettingStarted: oldProgress as GettingStarted } });
+    before.close();
+    const after = startCore(dataDir);
+    const progress = (await after.getSettings()).device.gettingStarted;
+    expect(progress.exported).toBe(false);
+    await expect(
+      after.updateSettings({
+        device: { gettingStarted: { ...progress, exported: "yes" } },
+      } as unknown as Parameters<typeof after.updateSettings>[0]),
+    ).rejects.toThrow(InvalidInputError);
+    await after.updateSettings({ device: { gettingStarted: { ...progress, exported: true } } });
+    after.close();
+    const reopened = startCore(dataDir);
+    expect((await reopened.getSettings()).device.gettingStarted.exported).toBe(true);
+    reopened.close();
+  });
+
   test("a width must be a number", async () => {
     const core = startCore(await createTempDataFolder());
 
@@ -416,7 +474,6 @@ describe("Settings", () => {
     const device = {
       sidebarWidth: 300,
       sidebarHidden: true,
-      chatSetupDismissed: true,
       sandboxNoticeDismissed: true,
       openedBefore: true,
       gettingStarted: {
@@ -426,6 +483,7 @@ describe("Settings", () => {
         indexed: false,
         askedOwn: false,
         askedReady: true,
+        exported: true,
         hidden: true,
         seen: false,
       },
@@ -450,10 +508,13 @@ describe("Settings", () => {
         leaveOutOwnFiles: false,
         exportOptions: PDF_EXPORT,
         authorName: "P. Raman",
+        personId: "person-1",
         monthlyCap: { amount: 20, currency: "USD" },
         webSearch: true,
         keepWebPageLook: true,
         newMindStyle: { font: { family: "Georgia" }, size: "large" },
+        meetingWords: ["Priya Raman", "星河科技"],
+        transcriptScript: "traditional",
       },
       device,
     });
@@ -471,17 +532,23 @@ describe("Settings", () => {
         leaveOutOwnFiles: false,
         exportOptions: PDF_EXPORT,
         authorName: "P. Raman",
+        personId: "person-1",
         monthlyCap: { amount: 20, currency: "USD" },
         webSearch: true,
         keepWebPageLook: true,
+        taskNotifications: true,
         recentCitationStyles: [],
         newMindStyle: { font: { family: "Georgia" }, size: "large" },
+        meetingWords: ["Priya Raman", "星河科技"],
+        transcriptScript: "traditional",
       },
       device,
       language: "zh-CN",
       scriptSandbox: "none",
+      sandboxProblem: null,
       meetingAudio: "none",
       author: "P. Raman",
+      chineseScript: "traditional",
     });
   });
 
@@ -519,6 +586,18 @@ describe("Settings", () => {
       patch: { device: { skillScriptTimeoutSeconds: 1.5 } },
     },
     { name: "an unknown motion choice", patch: { device: { motion: "slow" } } },
+    { name: "Words to know that aren't a list", patch: { user: { meetingWords: "Priya" } } },
+    { name: "a blank word to know", patch: { user: { meetingWords: ["Priya", " "] } } },
+    { name: "a word to know twice", patch: { user: { meetingWords: ["Lumen", "lumen"] } } },
+    {
+      name: "a word to know longer than a name",
+      patch: { user: { meetingWords: ["x".repeat(61)] } },
+    },
+    { name: "a script that isn't one", patch: { user: { transcriptScript: "pinyin" } } },
+    {
+      name: "Task notifications that aren't on or off",
+      patch: { user: { taskNotifications: "sometimes" } },
+    },
     { name: "a tip shown a negative number of times", patch: { device: { tips: { a: -1 } } } },
     { name: "a tip count that isn't a number", patch: { device: { tips: { a: "twice" } } } },
     {

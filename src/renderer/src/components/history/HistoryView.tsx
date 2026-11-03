@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CheckpointList, MindComparison } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
 import { core } from "../../core";
@@ -10,10 +10,13 @@ import { useAppStore } from "../../store";
 import { useUndo } from "../../undo";
 import { CloseLineIcon, HistoryLineIcon, RestoreLineIcon } from "../lineIcons";
 import { ProblemLine } from "../ProblemLine";
+import { UndoLineAt } from "../UndoLine";
 import { buttonStyle, iconButtonClass } from "../ui";
 import { useModal } from "../useModal";
 import { ComparedRows } from "./ComparedRows";
+import { VersionName } from "./VersionName";
 import { VersionPicker } from "./VersionPicker";
+import { HISTORY_UNDO_PLACE } from "./versionNames";
 
 /** How long the Mind stays unchanged before a comparison with now is made again. */
 const REFRESH_MS = 300;
@@ -45,6 +48,25 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
   const [comparison, setComparison] = useState<MindComparison | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
+  const [naming, setNaming] = useState(false);
+  /** What had the focus when naming began, and the name's own button: where Enter and Esc go back to. */
+  const namingFrom = useRef<HTMLElement | null>(null);
+  const nameButton = useRef<HTMLButtonElement>(null);
+  const startNaming = () => {
+    const active = document.activeElement;
+    namingFrom.current = active instanceof HTMLElement ? active : null;
+    setNaming(true);
+  };
+  const wasNaming = useRef(false);
+  useLayoutEffect(() => {
+    // The field went with the focus in it (Enter or Esc), not by a click elsewhere, which keeps it.
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    if (wasNaming.current && !naming && lost) {
+      const from = namingFrom.current;
+      (from?.isConnected ? from : nameButton.current)?.focus();
+    }
+    wasNaming.current = naming;
+  }, [naming]);
   /** Set when a new pair of versions is chosen, so their first change is scrolled to once. */
   const scrollPending = useRef(true);
 
@@ -137,14 +159,18 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
     if (!leftCheckpoint || restoring) return;
     setRestoring(true);
     try {
-      const { before } = await core.restoreCheckpoint(mindId, leftCheckpoint.id);
+      const { before, checkedLeftOut } = await core.restoreCheckpoint(mindId, leftCheckpoint.id);
       const restoredAt = new Date();
       const restoredId = leftCheckpoint.id;
       useUndo.getState().push({
-        said: (t) =>
-          t("history.restored", {
-            version: versionLabel(leftCheckpoint, restoredAt, languageNow(), t),
-          }),
+        said: (t) => {
+          const version = versionLabel(leftCheckpoint, restoredAt, languageNow(), t);
+          if (checkedLeftOut === 0) return t("history.restored", { version });
+          const params = { version, count: checkedLeftOut };
+          return checkedLeftOut === 1
+            ? t("history.restored.leftOut.one", params)
+            : t("history.restored.leftOut", params);
+        },
         name: (t) => t("history.restored.name"),
         undo: async () => {
           await core.restoreCheckpoint(mindId, before.id);
@@ -172,12 +198,16 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
               {title}
             </span>
           </h1>
-          {/* Enabled while the list loads, so it takes the focus as History opens. */}
+          {/* Enabled while the list loads, so it takes the focus as History opens. F2 names it. */}
           <VersionPicker
             side="left"
             checkpoints={checkpoints}
             chosen={left}
-            onChoose={setLeft}
+            onChoose={(id) => {
+              setNaming(false);
+              setLeft(id);
+            }}
+            onRename={leftCheckpoint ? startNaming : undefined}
             disabled={list !== null && checkpoints.length === 0}
           />
         </div>
@@ -222,6 +252,30 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
         })}
         className="history-card"
       >
+        {/* The left version's name, typed where it shows, and the line that takes it back. */}
+        {leftCheckpoint && (
+          <div className="history-version-line">
+            <VersionName
+              mindId={mindId}
+              checkpoint={leftCheckpoint}
+              naming={naming}
+              button={nameButton}
+              onNaming={(next) => (next ? startNaming() : setNaming(false))}
+              onNamed={(named) =>
+                setList(
+                  (shown) =>
+                    shown && {
+                      ...shown,
+                      checkpoints: shown.checkpoints.map((each) =>
+                        each.id === named.id ? named : each,
+                      ),
+                    },
+                )
+              }
+            />
+            <UndoLineAt place={HISTORY_UNDO_PLACE} className="history-undo" />
+          </div>
+        )}
         {problem && (
           <ProblemLine testId="history-problem" className="history-note">
             {problem}

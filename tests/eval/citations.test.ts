@@ -84,7 +84,7 @@ describe("The evaluation's Citation part", { timeout: 60_000 }, () => {
           pageTo: 2,
           quote: "spring tides happen at new moon, and at full moon",
         },
-        // On another page than the one cited.
+        // On another page than the one cited: placed where it uniquely occurs.
         { marker: 3, passage: first(passages), pageFrom: 1, pageTo: 1, quote: SPRING },
       ],
       answer:
@@ -143,7 +143,7 @@ describe("The evaluation's Citation part", { timeout: 60_000 }, () => {
     expect(answer?.citations.map(({ sentence, outcome }) => [sentence, outcome])).toEqual([
       ["Spring tides come at new moon .", "found"],
       ["And at full moon .", "false-not-found"],
-      ["They are the largest.", "wrong-page"],
+      ["They are the largest.", "found"],
     ]);
     // Where each quote is, and the pages of the Passage cited: one Passage covers both short pages.
     expect(answer?.citations.map(({ passagePages, quoteOn }) => [passagePages, quoteOn])).toEqual([
@@ -160,8 +160,8 @@ describe("The evaluation's Citation part", { timeout: 60_000 }, () => {
         [2, 2],
       ],
     ]);
-    // The log says why, as each Answer ends.
-    expect(logged).toContain(
+    // The uniquely placed quote no longer has a wrong-page line.
+    expect(logged).not.toContain(
       `  wrong page (quote-not-on-pages): Tides, cites p. 1 of a Passage on pp. 1–2; the quote is on p. 2: "${SPRING}"`,
     );
     expect(run.summary.en).toMatchObject({
@@ -169,12 +169,12 @@ describe("The evaluation's Citation part", { timeout: 60_000 }, () => {
       citedAnswers: 2,
       citedAnswerShare: 1,
       citations: 6,
-      foundShare: 2 / 6,
+      foundShare: 4 / 6,
       falseNotFoundShare: 2 / 6,
       coverage: 6 / 8,
     });
     expect(run.summary.zh).toMatchObject({ answers: 0, citations: 0, foundShare: null });
-    expect(run.summary.paraphrase).toMatchObject({ answers: 1, citations: 3, foundShare: 1 / 3 });
+    expect(run.summary.paraphrase).toMatchObject({ answers: 1, citations: 3, foundShare: 2 / 3 });
     expect(run.answers[1]).toMatchObject({ paraphrase: true });
   });
 

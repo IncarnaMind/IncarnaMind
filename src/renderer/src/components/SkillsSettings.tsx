@@ -7,11 +7,14 @@ import {
   type SkillImportError,
   type SkillImportPreview,
 } from "../../../core/api";
+import { newestReads } from "../../../core/newest";
 import type { SkillPickKind } from "../../../shared/bridge";
 import { core, files } from "../core";
 import { errorMessage } from "../errors";
 import { showFileLabelKey } from "../fileInfo";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
+import { savedFolderLabel } from "../outputFiles";
+import { openCodeSandboxHelp } from "../sandbox";
 import { formatSize, pickSkill, skillDescription, skillShortLine, skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { DetailsLine } from "./DetailsLine";
@@ -46,7 +49,7 @@ type Editing = { kind: "new" } | { kind: "edit"; skill: Skill; draft: SkillDraft
 
 /** How the last Export as zip went. */
 type Exported =
-  | { kind: "saved"; name: string; path: string }
+  | { kind: "saved"; name: string; path: string; folder: string; inDefaultFolder: boolean }
   | { kind: "not-allowed"; skill: Skill; linkedFolderId: string; folder: string }
   | { kind: "failed"; message: string };
 
@@ -68,6 +71,11 @@ export function SkillsSettings() {
   const [preview, setPreview] = useState<SkillImportPreview | null>(null);
   const [error, setError] = useState<SkillImportError | string | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
+  // Each editor asked for (Edit, New Skill): a Skill's draft read before a later one is asked for
+  // doesn't open over it (#2302).
+  const [editorAsked] = useState(() => newestReads());
+  // A save that lands once another editor is open leaves that one open.
+  const close = (editor: Editing) => setEditing((now) => (now === editor ? null : now));
   const [exported, setExported] = useState<Exported | null>(null);
   // A preview left open when Settings closes is forgotten.
   const pending = useRef<string | null>(null);
@@ -122,9 +130,11 @@ export function SkillsSettings() {
   };
 
   const edit = async (skill: Skill) => {
+    const newest = editorAsked();
     setError(null);
     try {
-      setEditing({ kind: "edit", skill, draft: await core.getSkillDraft(skill.id) });
+      const draft = await core.getSkillDraft(skill.id);
+      if (newest()) setEditing({ kind: "edit", skill, draft });
     } catch (failure) {
       setError(errorMessage(failure, t));
     }
@@ -135,7 +145,8 @@ export function SkillsSettings() {
     try {
       const result = await core.saveSkillExport(skill.id);
       if (result.status === "saved") {
-        setExported({ kind: "saved", name: result.file.name, path: result.file.path });
+        const { name, path, folder, inDefaultFolder } = result.file;
+        setExported({ kind: "saved", name, path, folder, inDefaultFolder });
       } else if (result.status === "not-allowed") {
         setExported({
           kind: "not-allowed",
@@ -160,8 +171,8 @@ export function SkillsSettings() {
           initial={editing.draft}
           title={t("skills.edit.edit", { name: skillTitle(skill.name, t) })}
           save={(draft) => core.updateSkill(skill.id, draft)}
-          onSaved={() => setEditing(null)}
-          onCancel={() => setEditing(null)}
+          onSaved={() => close(editing)}
+          onCancel={() => close(editing)}
         />
       </li>
     ) : (
@@ -182,7 +193,10 @@ export function SkillsSettings() {
           type="button"
           data-testid="skill-new"
           disabled={editing?.kind === "new"}
-          onClick={() => setEditing({ kind: "new" })}
+          onClick={() => {
+            editorAsked();
+            setEditing({ kind: "new" });
+          }}
           className={buttonClass}
         >
           <PlusLineIcon className="size-4" />
@@ -254,8 +268,8 @@ export function SkillsSettings() {
           initial={NEW_SKILL}
           title={t("skills.edit.new")}
           save={(draft) => core.createSkill(draft)}
-          onSaved={() => setEditing(null)}
-          onCancel={() => setEditing(null)}
+          onSaved={() => close(editing)}
+          onCancel={() => close(editing)}
         />
       )}
 
@@ -317,7 +331,10 @@ function ExportStatus({
             void files.showSavedFile(exported.path).catch(useAppStore.getState().reportError),
         }}
       >
-        {t("skills.settings.exported", { name: exported.name })}
+        {t("skills.settings.exported", {
+          name: exported.name,
+          folder: savedFolderLabel(exported, t),
+        })}
       </ProblemLine>
     );
   }
@@ -345,6 +362,13 @@ function ExportStatus({
   );
 }
 
+/** "bubblewrap and socat", "bubblewrap、socat 和 ripgrep": the packages the OS sandbox lacks. */
+function packageList(t: ReturnType<typeof useT>, language: string, packages: readonly string[]) {
+  if (packages.length < 2) return packages.join("");
+  const first = packages.slice(0, -1).join(language === "zh-CN" ? "、" : ", ");
+  return t("scripts.settings.sandboxPackages.and", { first, last: packages.at(-1) ?? "" });
+}
+
 /**
  * Settings → Skills → Skill scripts: the switch that lets Skills run their scripts at
  * all (each run still asks, unless the Skill's scripts always run), with
@@ -355,6 +379,8 @@ export function SkillScriptsSettings() {
   const t = useT();
   const enabled = useAppStore((state) => state.settings?.device.skillScriptsEnabled);
   const sandboxed = useAppStore((state) => state.settings?.scriptSandbox === "os");
+  const sandboxProblem = useAppStore((state) => state.settings?.sandboxProblem ?? null);
+  const language = useLanguage();
   const timeout = useAppStore((state) => state.settings?.device.skillScriptTimeoutSeconds);
   const updateSettings = useAppStore((state) => state.updateSettings);
   const [draft, setDraft] = useState<string | null>(null);
@@ -396,6 +422,21 @@ export function SkillScriptsSettings() {
                 </DetailsLine>
               ) : (
                 <p>{t("scripts.settings.body")}</p>
+              )}
+              {sandboxProblem && (
+                <ProblemLine
+                  testId="code-sandbox-problem"
+                  action={{
+                    label: t("analysis.unavailable.noSandbox.fix"),
+                    onClick: openCodeSandboxHelp,
+                  }}
+                >
+                  {sandboxProblem.kind === "missing"
+                    ? t("scripts.settings.problem.sandboxMissing", {
+                        packages: packageList(t, language, sandboxProblem.packages),
+                      })
+                    : t("scripts.settings.problem.sandboxStart")}
+                </ProblemLine>
               )}
             </div>
           </div>

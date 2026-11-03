@@ -16,6 +16,8 @@ import {
   type CitationAttributes,
   type KeptCitationText,
   MIND_PROPOSAL_REQUESTS_FIELD,
+  MIND_REVISIONS_FIELD,
+  MIND_TEXT_ORIGINS_FIELD,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -35,6 +37,7 @@ import {
   readProposalRef,
   targetHash,
 } from "../../../shared/proposals";
+import { nameOlderCitations } from "../../../shared/signOffs";
 
 /** A Proposal waiting in the Mind, as the editor shows it. */
 export interface PendingProposal {
@@ -377,9 +380,15 @@ export interface BlockPlace {
   offset: number;
 }
 
-const goesOnAccept = (node: ProseMirrorNode) =>
-  readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE])?.kind === "delete" ||
-  node.marks.some((mark) => mark.type.name === PROPOSAL_DELETE_MARK);
+const goesOnAccept = (node: ProseMirrorNode, accepted?: ReadonlySet<string>) => {
+  const attribute = readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE]);
+  if (attribute?.kind === "delete" && (!accepted || accepted.has(attribute.id))) return true;
+  return node.marks.some((mark) => {
+    if (mark.type.name !== PROPOSAL_DELETE_MARK) return false;
+    const ref = readProposalRef(mark.attrs);
+    return !!ref && (!accepted || accepted.has(ref.id));
+  });
+};
 
 /**
  * Where a place in a paragraph or heading will be once the changes there are
@@ -387,7 +396,11 @@ const goesOnAccept = (node: ProseMirrorNode) =>
  * Block. Unlike a position in the editor, it holds through the accept, which
  * comes back from Yjs as a new document.
  */
-export function placeOnAccept(doc: ProseMirrorNode, place: TextPlace): BlockPlace | null {
+export function placeOnAccept(
+  doc: ProseMirrorNode,
+  place: TextPlace,
+  accepted?: ReadonlySet<string>,
+): BlockPlace | null {
   let found: BlockPlace | null = null;
   doc.descendants((node, pos) => {
     if (found) return false;
@@ -395,15 +408,14 @@ export function placeOnAccept(doc: ProseMirrorNode, place: TextPlace): BlockPlac
     if (node.attrs.id !== place.blockId) return false;
     const $pos = doc.resolve(pos + 1);
     for (let depth = $pos.depth; depth > 0; depth--) {
-      if (readProposalAttribute($pos.node(depth).attrs[PROPOSAL_ATTRIBUTE])?.kind === "delete") {
-        return false;
-      }
+      const attribute = readProposalAttribute($pos.node(depth).attrs[PROPOSAL_ATTRIBUTE]);
+      if (attribute?.kind === "delete" && (!accepted || accepted.has(attribute.id))) return false;
     }
     let left = place.offset;
     let offset = 0;
     node.forEach((child) => {
       const part = Math.min(child.isText ? child.nodeSize : 1, Math.max(left, 0));
-      if (!goesOnAccept(child)) offset += part;
+      if (!goesOnAccept(child, accepted)) offset += part;
       left -= part;
     });
     found = { blockId: place.blockId, offset };
@@ -514,11 +526,18 @@ export function watchMovedOn(editor: Editor): { movedOn(): boolean; stop(): void
 
 /**
  * The line under a change out of date (DESIGN.md, AI edits): "Out of date ·
- * Regenerate · Reject", its only bar. Its buttons are handled where the Mind
- * is known (`ProposalBars`), by `data-proposal-regenerate` and
+ * Regenerate · Reject", its only bar, without Regenerate for a change that
+ * can't be made again (`made`). Its buttons are handled where the Mind is
+ * known (`ProposalBars`), by `data-proposal-regenerate` and
  * `data-proposal-reject`.
  */
-function outOfDateLine(proposal: PendingProposal, index: number, count: number, t: Translate) {
+function outOfDateLine(
+  proposal: PendingProposal,
+  index: number,
+  count: number,
+  t: Translate,
+  made: boolean,
+) {
   return () => {
     const line = document.createElement("div");
     line.className = "proposal-stale-line";
@@ -529,7 +548,7 @@ function outOfDateLine(proposal: PendingProposal, index: number, count: number, 
     line.setAttribute("aria-label", t("proposal.outOfDate.label", { index, count }));
     const label = document.createElement("span");
     label.textContent = t("proposal.outOfDate");
-    label.title = t(proposal.theirs ? "proposal.outOfDate.why.theirs" : "proposal.outOfDate.why");
+    label.title = t(made ? "proposal.outOfDate.why" : "proposal.outOfDate.why.theirs");
     const dot = () => {
       const each = document.createElement("span");
       each.className = "proposal-dot";
@@ -551,8 +570,8 @@ function outOfDateLine(proposal: PendingProposal, index: number, count: number, 
     reject.dataset.proposalReject = proposal.id;
     reject.textContent = t("proposal.reject");
     reject.setAttribute("aria-label", t("proposal.reject.label", { index }));
-    // Someone's change can't be made again: only rejected, or its text edited by hand.
-    if (proposal.theirs) line.append(label, dot(), reject);
+    // Someone's change, or an outside agent's, can't be made again: only rejected, or edited by hand.
+    if (!made) line.append(label, dot(), reject);
     else line.append(label, dot(), regenerate, dot(), reject);
     return line;
   };
@@ -561,14 +580,27 @@ function outOfDateLine(proposal: PendingProposal, index: number, count: number, 
 /** Interface strings, in the window's language (`ProposalReview`'s option). */
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
+/**
+ * Whether a change can be made again (Regenerate): not someone's from a Word file, nor an
+ * outside agent's (#352), which IncarnaMind can't ask again.
+ */
+export function madeAgain(state: EditorState): (proposal: PendingProposal) => boolean {
+  const doc: Y.Doc | undefined = ySyncPluginKey.getState(state)?.binding?.doc;
+  return (proposal) =>
+    !proposal.theirs &&
+    (!doc || proposalRequestOf(doc, proposal.request)?.source !== "outside-agent");
+}
+
 function decorationsFor(
-  doc: ProseMirrorNode,
+  state: EditorState,
   proposals: readonly PendingProposal[],
   applied: readonly PendingProposal[],
   current: string | null,
   target: { from: number; to: number } | null,
   t: Translate,
 ): DecorationSet {
+  const { doc } = state;
+  const made = madeAgain(state);
   const decorations: Decoration[] = [];
   for (const range of applied.flatMap((proposal) => proposal.ranges)) {
     decorations.push(
@@ -603,7 +635,7 @@ function decorationsFor(
       decorations.push(
         Decoration.widget(
           proposal.blockEnd,
-          outOfDateLine(proposal, index + 1, proposals.length, t),
+          outOfDateLine(proposal, index + 1, proposals.length, t, made(proposal)),
           {
             key: `stale-${proposal.id}-${index}-${proposals.length}`,
             side: 1,
@@ -663,7 +695,7 @@ export const ProposalReview = Extension.create<{
               hovered: null,
               target: null,
               decorations: decorationsFor(
-                state.doc,
+                state,
                 proposals,
                 [],
                 proposalsAt(proposals, state.selection)[0]?.id ?? null,
@@ -720,7 +752,7 @@ export const ProposalReview = Extension.create<{
               target,
               decorations: unchanged
                 ? value.decorations.map(tr.mapping, tr.doc)
-                : decorationsFor(state.doc, proposals, applied, current, target, t),
+                : decorationsFor(state, proposals, applied, current, target, t),
             };
           },
         },
@@ -840,6 +872,16 @@ export function theirChange(
   return made?.source === "word-change" ? { author: made.author, date: made.date } : null;
 }
 
+/** The outside agent that proposed a change (#352), by its pairing's name; null for any other change. */
+export function outsideAgentOf(
+  editor: Editor,
+  proposal: Pick<PendingProposal, "request">,
+): string | null {
+  const doc = editorDoc(editor);
+  const made = doc ? proposalRequestOf(doc, proposal.request) : null;
+  return made?.source === "outside-agent" ? made.agent : null;
+}
+
 /** Why the assistant made a change, in the model's few words (#202); null when it didn't say. */
 export function changeReason(
   editor: Editor,
@@ -870,11 +912,18 @@ export function resolveInEditor(
   if (!binding || (ids !== "all" && ids.size === 0)) return [];
   const undo: Y.UndoManager | undefined = yUndoPluginKey.getState(editor.state)?.undoManager;
   // The counts of what was decided (`decideProposals`) go back with the Blocks, and so do the
-  // origins a reject gives back (`restoreOrigins`).
-  undo?.addToScope([binding.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD), ...originMaps(binding.doc)]);
+  // origins a reject gives back (`restoreOrigins`), the revisions it forgets (#1903) and the
+  // third-party mark an outside agent's accepted text gets (#352).
+  undo?.addToScope([
+    binding.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD),
+    binding.doc.getMap(MIND_REVISIONS_FIELD),
+    binding.doc.getMap(MIND_TEXT_ORIGINS_FIELD),
+    ...originMaps(binding.doc),
+  ]);
   undo?.stopCapturing();
   let resolved: ResolvedProposal[] = [];
   const applying = applyingIn(editor.state);
+  nameOlderCitations(binding.type);
   // As the editor's own change, so its Undo takes it back.
   binding.doc.transact(() => {
     resolved = decideProposals(

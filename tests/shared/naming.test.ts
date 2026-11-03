@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  cleanShortTitle,
   cutAtWord,
   cutTitle,
   fitName,
@@ -124,12 +123,6 @@ describe("cutting a title", () => {
   test("a word longer than the limit is cut inside it", () => {
     expect(cutTitle("x".repeat(100))).toBe("x".repeat(NAME_LENGTH));
   });
-
-  test("a model's short title loses its quotes and full stop", () => {
-    expect(cleanShortTitle('"Park cooling at night."\n')).toBe("Park cooling at night");
-    expect(cleanShortTitle("「公园夜间降温」")).toBe("公园夜间降温");
-    expect(cleanShortTitle("  ")).toBe("");
-  });
 });
 
 describe("cutting a name for a file", () => {
@@ -158,6 +151,12 @@ describe("fitting a name on one line", () => {
   test("a Chinese name is cut at a word", () => {
     const name = "员工每年享有多少天带薪年假，试用期结束后需要提前多久通知公司";
     expect(fitName(name, room(12))).toBe("员工每年享有多少天带薪…");
+  });
+
+  test("a Chinese line may cut at a character, as its readers accept", () => {
+    const name = "港口每月发布一次潮汐表冬季疏浚之后更新";
+    expect(fitName(name, room(10), false)).toBe("港口每月发布一次潮…");
+    expect(fitName(name, room(10))).toBe("港口每月发布一次…");
   });
 
   test("a word too long for the line is cut inside it", () => {

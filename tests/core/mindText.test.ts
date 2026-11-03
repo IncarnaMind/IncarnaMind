@@ -8,7 +8,7 @@ import {
   toMarkdown,
 } from "../../src/core/answers/blocks";
 import { buildQuestionContext } from "../../src/core/answers/context";
-import { type ReadOptions, readBlock, readBlocks } from "../../src/core/mindText";
+import { headingEntries, type ReadOptions, readBlock, readBlocks } from "../../src/core/mindText";
 import { tableCellRanges } from "../../src/shared/markdownTables";
 
 const text = (value: string, ...marks: string[]): NodeJSON => ({
@@ -36,6 +36,37 @@ function fragmentOf(...blocks: NodeJSON[]): Y.XmlFragment {
 /** The element is read once it is in a document, as the core reads Blocks. */
 const elementOf = (block: NodeJSON) => fragmentOf(block).get(0) as Y.XmlElement;
 const markdownOf = (block: NodeJSON) => toMarkdown(elementOf(block));
+
+describe("a table of contents", () => {
+  const reading = (): ReadOptions => ({
+    includeQuestions: true,
+    footnote: (attributes) => ({ source: String(attributes.documentName), unverified: false }),
+    trimBeforeCitation: false,
+  });
+
+  test("reads as one Block, and its entries are the Note's headings in their order, a quote's too", () => {
+    const blocks = fragmentOf(
+      { type: "tableOfContents" },
+      { type: "heading", attrs: { level: 1 }, content: [text("Spring tides")] },
+      paragraph(text("Spring tides happen at new moon.")),
+      {
+        type: "blockquote",
+        content: [
+          paragraph(text("Said of tides")),
+          { type: "heading", attrs: { level: 3 }, content: [text("Inside a quote")] },
+        ],
+      },
+    );
+
+    const read = readBlocks(blocks, reading());
+
+    expect(read.map((block) => block.kind)).toEqual(["toc", "heading", "paragraph", "quote"]);
+    expect(headingEntries(read).map((entry) => [entry.level, entry.text])).toEqual([
+      [1, "Spring tides"],
+      [3, "Inside a quote"],
+    ]);
+  });
+});
 
 describe("a Block as the text Question context shows the model", () => {
   test("paragraphs carry bold, italic, strike, code and links; other marks add nothing", () => {

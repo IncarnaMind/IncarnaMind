@@ -11,7 +11,7 @@ import { menuKeysLabel } from "../commands/keymap";
 import { commands } from "../commands/registry";
 import { useDocumentFolder, useUnitCount } from "../documentFacts";
 import { documentStatusText } from "../documentStatus";
-import { addedDate, documentSummary } from "../fileInfo";
+import { addedDate, documentSummary, userFile } from "../fileInfo";
 import { moveIntoFolder } from "../folderDrag";
 import { useLanguage, useT } from "../i18n";
 import { type Box, enterFrom } from "../motion";
@@ -299,10 +299,14 @@ function PeekCard({ target }: { target: PeekTarget }) {
         <Fact label={t("info.added")} testId="peek-added">
           <span className="flex min-w-0 items-baseline gap-1">
             <span className="shrink-0">{addedDate(document.createdAt, language)}</span>
-            <span aria-hidden="true" className="shrink-0 text-ink-meta">
-              ·
-            </span>
-            <PathText path={document.web?.address ?? document.path} className="flex-1" />
+            {(document.web || userFile(document)) && (
+              <>
+                <span aria-hidden="true" className="shrink-0 text-ink-meta">
+                  ·
+                </span>
+                <PathText path={document.web?.address ?? document.path} className="flex-1" />
+              </>
+            )}
           </span>
         </Fact>
         {progress && (

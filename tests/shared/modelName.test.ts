@@ -25,6 +25,12 @@ describe("modelName", () => {
     expect(modelName("gpt-6-luna", { kind: "chatgpt", names })).toBe("GPT-6 Luna");
   });
 
+  test("uses a known local model's display name, leaving its tag for hover", () => {
+    expect(modelName("qwen3.5:4b", { kind: "ollama" })).toBe("Qwen 3.5 4B");
+    expect(modelName("qwen3.5:4b")).toBe("Qwen 3.5 4B");
+    expect(modelName("glm-4.7-flash", { kind: "ollama" })).toBe("GLM 4.7 Flash");
+  });
+
   test("falls back to the id for an id nothing names, an Ollama tag included", () => {
     expect(modelName("gpt-oss:20b-cloud", { kind: "ollama" })).toBe("gpt-oss:20b-cloud");
     expect(modelName("gpt-oss:20b-cloud")).toBe("gpt-oss:20b-cloud");

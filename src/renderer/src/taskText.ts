@@ -1,8 +1,12 @@
 import type { Task } from "../../core/api";
 import type { Language } from "../../core/language";
-import { RESEARCH_TASK } from "../../shared/research";
+import { KEPT_INSIDE, RESEARCH_TASK } from "../../shared/research";
 import { runStopText } from "./cost";
 import type { Translate } from "./objects";
+
+/** How a Task that couldn't finish says so: why, when the User can act on it. */
+export const failedLine = (task: Task, t: Translate) =>
+  t(task.problem === KEPT_INSIDE ? "task.problem.keptInside" : "task.status.failed");
 
 /** A Task's name, from its kind. */
 export const taskName = (task: Task, t: Translate) =>
@@ -51,7 +55,7 @@ export function stepLine(task: Task, t: Translate, language: Language): string {
 
 /** How a finished Task ended, in a few words: "9 cells", "Stopped", "Couldn't finish". */
 export function resultLine(task: Task, t: Translate): string {
-  if (task.status === "failed") return t("task.status.failed");
+  if (task.status === "failed") return failedLine(task, t);
   if (task.status === "stopped") return t("task.status.stopped");
   const total = task.progress?.total ?? 0;
   if (task.kind !== "comparison") return t("task.status.done");

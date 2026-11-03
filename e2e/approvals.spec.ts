@@ -165,7 +165,7 @@ test("in a Mind holding imported text, a write the User always allows asks, says
   await expect(card).toBeVisible({ timeout: 15_000 });
   await expect(card).toHaveAttribute("data-tool", "book_boat");
   const why = card.getByTestId("approval-third-party");
-  await expect(why).toHaveText("Asks first: this Mind has imported text.");
+  await expect(why).toHaveText("Asks first: this note has imported text.");
   await expect(why).toHaveAttribute("data-source", "imported");
   // "Always allow" wouldn't cover this call, so it isn't offered: Allow once, then Deny.
   await expect(card.getByTestId("approval-always-allow")).toHaveCount(0);
@@ -203,7 +203,7 @@ test("in a Mind holding imported text, a write the User always allows asks, says
   const askedCard = asked.getByTestId("approval-card");
   await expect(askedCard).toBeVisible({ timeout: 15_000 });
   await expect(askedCard.getByTestId("approval-third-party")).toHaveText(
-    "Asks first: this Mind has imported text.",
+    "Asks first: this note has imported text.",
   );
   await pointAndClick(window, askedCard.getByTestId("approval-deny"));
   await expect(asked).toHaveAttribute("data-status", "done", { timeout: 15_000 });

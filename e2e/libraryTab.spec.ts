@@ -86,7 +86,7 @@ test("the Library is a tab beside the Mind, which stays in its own tab, and it c
     await expect(window.getByTestId("library-tab")).toHaveAttribute("aria-selected", "true");
     await expect(window.getByTestId("mind-tab")).toHaveCount(1);
     await expect(window.getByTestId("mind-tab")).toHaveAttribute("aria-selected", "false");
-    await expect(window.getByRole("button", { name: "Back to Mind" })).toHaveCount(0);
+    await expect(window.getByRole("button", { name: "Back to note" })).toHaveCount(0);
     // It starts with its title, then the search.
     await expect(library.locator("input, h1").first()).toContainText("Library");
     await expect(library.locator("input").first()).toHaveAttribute("type", "search");

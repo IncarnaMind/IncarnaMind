@@ -48,11 +48,19 @@ const DETECT_TIMEOUT_MS = 2_000;
 /** How long Open Ollama waits for Ollama to answer: its app takes a few seconds to start. */
 export const OLLAMA_START_TIMEOUT_MS = 20_000;
 
-async function ask(url: string, headers: Record<string, string> = {}): Promise<Response | null> {
+/** The answer to `ask`: the response, or nothing and whether the wait ran out rather than the address refusing. */
+type Asked = { response: Response } | { response: null; timedOut: boolean };
+
+const isTimeout = (error: unknown) =>
+  error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+
+async function ask(url: string, headers: Record<string, string> = {}): Promise<Asked> {
   try {
-    return await fetch(url, { headers, signal: AbortSignal.timeout(DETECT_TIMEOUT_MS) });
-  } catch {
-    return null;
+    return {
+      response: await fetch(url, { headers, signal: AbortSignal.timeout(DETECT_TIMEOUT_MS) }),
+    };
+  } catch (error) {
+    return { response: null, timedOut: isTimeout(error) };
   }
 }
 
@@ -63,7 +71,7 @@ export async function anythingAnswers(
   url: string,
   headers: Record<string, string> = {},
 ): Promise<boolean> {
-  const response = await ask(url, headers);
+  const { response } = await ask(url, headers);
   await response?.body?.cancel().catch(() => undefined);
   return response !== null;
 }
@@ -75,14 +83,18 @@ export async function detectOllama(
   baseUrl: string,
   installed: () => Promise<boolean> = async () => false,
 ): Promise<OllamaStatus> {
-  const notRunning = async (): Promise<OllamaStatus> => ({
+  const notRunning = async (unknown = false): Promise<OllamaStatus> => ({
     running: false,
+    ...(unknown && { unknown: true as const }),
     baseUrl,
     installed: await installed().catch(() => false),
     recommendedModel: RECOMMENDED_OLLAMA_MODEL,
   });
-  const response = await askOllama(baseUrl);
-  if (!response?.ok) return notRunning();
+  const asked = await askOllama(baseUrl);
+  // A wait that ran out says nothing about whether it runs: only a refused address does.
+  if (asked.response === null) return notRunning(asked.timedOut);
+  if (!asked.response.ok) return notRunning();
+  const response = asked.response;
   try {
     const body: unknown = await response.json();
     const listed = isRecord(body) && Array.isArray(body.models) ? body.models : [];

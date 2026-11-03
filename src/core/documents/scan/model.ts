@@ -32,7 +32,7 @@ export interface TextRecognitionModelDefinition {
 
 export const BUILT_IN_TEXT_RECOGNITION_MODEL: TextRecognitionModelDefinition = {
   name: "PP-OCRv5 mobile",
-  reader: "PP-OCRv5 mobile/1",
+  reader: "PP-OCRv5 mobile/2",
   folder: "pp-ocrv5-mobile",
   licence: "Apache-2.0",
   files: { detector: "PP-OCRv5_mobile_det.onnx", recognizer: "PP-OCRv5_mobile_rec.onnx" },

@@ -6,22 +6,28 @@ import {
   changedOnMessage,
   changedSourceNote,
   citationAttributesOf,
+  citationCheckRan,
   citationReference,
   citationSource,
   citationState,
+  citationSubject,
   citedLocation,
   citedTextKept,
   closestWordsMessage,
+  fetchedAgainOn,
+  footnoteSubjectKey,
+  newVersionCitation,
   parseQuotedWords,
   quotedWordsFoundIn,
   quoteStanding,
+  quoteWashedOnOpen,
   shownDocumentName,
   versionMoment,
   withShownName,
 } from "../../src/shared/citations";
 import { formatDate } from "../../src/shared/dates";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
-import { parseLocation } from "../../src/shared/locations";
+import { englishPrintedLocation, parseLocation } from "../../src/shared/locations";
 import { findQuoteInPages } from "../../src/shared/quoteMatch";
 
 /** A Citation from before Locations: its pages say where it points. */
@@ -149,10 +155,22 @@ describe("A Citation's badge", () => {
         location: { kind: "section", heading: "Tides" },
       }).zh,
     ).toBe("未在“§ Tides”中找到引文");
-    expect(words({ ...found, check: "checking" }).en).toBe("checking…");
+    expect(words({ ...found, check: "checking" }).en).toBe("Checking…");
+    expect(words({ ...found, check: "checking" }).zh).toBe("正在核对…");
+    expect(words({ ...found, check: "not-checked" }).en).toBe("Not checked");
+    expect(words({ ...found, check: "not-checked" }).zh).toBe("未核对");
     expect(words({ ...found, check: "cant-check", checkReason: "no-text" }).en).toBe("Can’t check");
-    for (const check of ["found", "not-found", "cant-check", "checking"] as const) {
+    for (const check of ["found", "not-found", "cant-check", "checking", "not-checked"] as const) {
       expect(words({ ...found, check }).en).not.toMatch(/verif/i);
+    }
+  });
+
+  test("a check ran only where it gave a result, never while checking or when it couldn't", () => {
+    for (const check of ["found", "not-found", "unsupported", "contradicted"] as const) {
+      expect(citationCheckRan(check), check).toBe(true);
+    }
+    for (const check of ["checking", "cant-check", "not-checked"] as const) {
+      expect(citationCheckRan(check), check).toBe(false);
     }
   });
 
@@ -238,6 +256,27 @@ describe("A Citation's badge", () => {
     expect(
       citationState({ ...found, contentHash: null }, [{ id: "tides", contentHash: "def" }]),
     ).toMatchObject({ changedAfterCited: false });
+  });
+
+  test("keeps an old Citation's result and Document outside a wall, without re-checking it", () => {
+    const state = citationState(
+      { ...found, contentHash: "old" },
+      [{ id: "tides", contentHash: "new" }],
+      [],
+      "Client A",
+    );
+    expect(state).toMatchObject({
+      check: "found",
+      reason: null,
+      documentId: "tides",
+      changedAfterCited: false,
+      keptInside: "Client A",
+    });
+    // The heading stays the result it was made with; "Kept inside" is said once, under the name.
+    expect(badgeMessage(state, found, in_("en")).key).toBe(
+      badgeMessage(citationState(found, [{ id: "tides", contentHash: "abc" }]), found, in_("en"))
+        .key,
+    );
   });
 
   test("finds its Document by ID first, else the first in the list with the same content", () => {
@@ -752,6 +791,43 @@ describe("A Citation whose Document changed after it was cited", () => {
     });
   });
 
+  test("a saved web page says on what day it was fetched again, and that the copy cited is kept", () => {
+    expect(changedSourceNote(true, found, "failed", in_("en"), "21 October 2026")).toEqual({
+      notice:
+        "This page was fetched again on 21 October 2026, after you cited it. What’s shown is the new copy; the one you cited is kept.",
+      quote: null,
+    });
+    expect(changedSourceNote(true, found, "failed", in_("zh-CN"), "2026年10月21日")).toEqual({
+      notice:
+        "此网页在你引用后于 2026年10月21日 重新抓取。这里显示的是新版本，你引用的版本仍保留。",
+      quote: null,
+    });
+    // The words about how the quote stands in the new version are the same as for a file.
+    expect(changedSourceNote(true, found, rechecked({}), in_("en"), "21 October 2026")?.quote).toBe(
+      "The quote is still here.",
+    );
+  });
+
+  test("only a saved web page has a day it was fetched again, and it is the day of the version it now holds", () => {
+    const file = {
+      contentHash: "b",
+      modifiedAt: "2026-10-21T12:00:00Z",
+      updatedAt: "2026-10-24T09:00:00Z",
+      web: null,
+    };
+    expect(fetchedAgainOn(file, "en")).toBeNull();
+    expect(fetchedAgainOn(undefined, "en")).toBeNull();
+    const page = {
+      ...file,
+      web: {
+        fetchedAt: "2026-10-25T08:00:00Z",
+        versions: [{ contentHash: "b", fetchedAt: "2026-10-23T08:00:00Z" }],
+      },
+    };
+    expect(fetchedAgainOn(page, "en")).toBe(formatDate("2026-10-23T08:00:00Z", "en"));
+    expect(fetchedAgainOn(page, "zh-CN")).toBe(formatDate("2026-10-23T08:00:00Z", "zh-CN"));
+  });
+
   test("names the day the version it now opens was made", () => {
     const document = {
       contentHash: "b",
@@ -818,5 +894,116 @@ describe("a Citation's attributes as a node holds them", () => {
       location: null,
       quote: null,
     });
+  });
+});
+
+describe("What makes two Citations one footnote (#2292)", () => {
+  const citation = (over: Partial<CitationAttributes> = {}): Partial<CitationAttributes> => ({
+    documentId: "doc-1",
+    contentHash: "v1",
+    pageFrom: 2,
+    pageTo: 2,
+    check: "found",
+    ...over,
+  });
+
+  const keyOf = (over: Partial<CitationAttributes> = {}) =>
+    footnoteSubjectKey(citationSubject(citation(over), { documents: null }));
+
+  test("the Document and version, the place and the check make the key", () => {
+    expect(keyOf()).toBe(keyOf());
+    expect(keyOf()).toBe(
+      footnoteSubjectKey({
+        documentId: "doc-1",
+        contentHash: "v1",
+        location: { kind: "page", from: 2, to: 2 },
+        unverified: false,
+      }),
+    );
+    for (const other of [
+      { documentId: "doc-2" },
+      { contentHash: "v2" },
+      { pageFrom: 3, pageTo: 3 },
+      { check: "not-found" as const },
+    ]) {
+      expect(keyOf(other)).not.toBe(keyOf());
+    }
+  });
+
+  test("a Document removed since makes a found and a not-found Citation one unverified footnote", () => {
+    const documents = [{ id: "doc-1", contentHash: "v1" }];
+    const found = citation({ check: "found" });
+    const missing = citation({ check: "not-found" });
+    expect(footnoteSubjectKey(citationSubject(found, { documents }))).not.toBe(
+      footnoteSubjectKey(citationSubject(missing, { documents })),
+    );
+    expect(footnoteSubjectKey(citationSubject(found, { documents: [] }))).toBe(
+      footnoteSubjectKey(citationSubject(missing, { documents: [] })),
+    );
+  });
+
+  test("two places that read alike are still two places", () => {
+    const printed = { from: "12", to: "12" };
+    const firstLocation = { kind: "page" as const, from: 3, to: 3, printed };
+    const secondLocation = { kind: "page" as const, from: 4, to: 4, printed };
+    expect(englishPrintedLocation(firstLocation)).toBe(englishPrintedLocation(secondLocation));
+    const first = { ...citation(), location: firstLocation };
+    const second = { ...citation(), location: secondLocation };
+    expect(keyOf(first)).not.toBe(keyOf(second));
+  });
+});
+
+describe("A scan's page confirmation (#535)", () => {
+  const scanned: CitationAttributes = {
+    ...found,
+    quote: "The lease began in 2o25.",
+    check: "cant-check",
+    checkReason: "unsure-word",
+    unsure: ["2o25"],
+  };
+  const recheck: CitationRecheck = {
+    check: "found",
+    checkReason: null,
+    contentHash: "v2",
+    passageId: "passage",
+    pageFrom: 20,
+    pageTo: 20,
+    location: { kind: "page", from: 20, to: 20 },
+  };
+
+  test("makes the unsure-word check found, and only that check", () => {
+    expect(citationState({ ...scanned, pageChecked: true }, null)).toMatchObject({
+      check: "found",
+      reason: null,
+      pageChecked: true,
+    });
+    // A later check that isn't that one isn't found by a confirmation given for it.
+    expect(
+      citationState(
+        { ...scanned, check: "not-found", checkReason: "quote-not-on-pages", pageChecked: true },
+        null,
+      ),
+    ).toMatchObject({ check: "not-found", reason: "quote-not-on-pages" });
+  });
+
+  test("opening its page washes the quote, while another can't-check Citation opens without one", () => {
+    expect(quoteWashedOnOpen({ check: "found", reason: null })).toBe(true);
+    expect(quoteWashedOnOpen({ check: "cant-check", reason: "unsure-word" })).toBe(true);
+    expect(quoteWashedOnOpen({ check: "cant-check", reason: "no-text" })).toBe(false);
+    expect(quoteWashedOnOpen({ check: "not-found", reason: "quote-not-on-pages" })).toBe(false);
+  });
+
+  test("is cleared when the Citation moves to another version, with that version's unsure words", () => {
+    expect(
+      newVersionCitation(
+        {
+          pageFrom: scanned.pageFrom,
+          pageTo: scanned.pageTo,
+          location: scanned.location,
+          quote: scanned.quote,
+        },
+        recheck,
+      ),
+    ).toMatchObject({ check: "found", pageChecked: null, unsure: null, contentHash: "v2" });
   });
 });

@@ -122,5 +122,3 @@ export function createRealFft(size: number) {
     },
   };
 }
-
-export type RealFft = ReturnType<typeof createRealFft>;

@@ -1,8 +1,17 @@
 import { type Editor, Extension, type JSONContent } from "@tiptap/core";
 import { type EditorState, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
-import { CellSelection, cellAround, isInTable, rowIsHeader, selectedRect } from "@tiptap/pm/tables";
+import {
+  CellSelection,
+  cellAround,
+  isInTable,
+  rowIsHeader,
+  selectedRect,
+  TableMap,
+} from "@tiptap/pm/tables";
 import type { CommandId, Keys } from "../../../shared/commands";
+import { labelRole } from "../../../shared/figureFooting";
 import type { MessageKey } from "../../../shared/i18n";
+import { setTableRoles } from "./figureTableRoles";
 import { asOwnUndoStep } from "./selectionCommands";
 
 export type TableActionId =
@@ -11,6 +20,8 @@ export type TableActionId =
   | "columnLeft"
   | "columnRight"
   | "headerRow"
+  | "totalRow"
+  | "totalColumn"
   | "deleteRow"
   | "deleteColumn"
   | "deleteTable";
@@ -61,6 +72,18 @@ export const TABLE_ACTIONS: readonly TableAction[] = [
     run: (editor) => editor.commands.toggleHeaderRow(),
   },
   {
+    id: "totalRow",
+    command: "table.totalRow",
+    label: "figures.totalRow",
+    run: (editor) => toggleTotal(editor, "row"),
+  },
+  {
+    id: "totalColumn",
+    command: "table.totalColumn",
+    label: "figures.totalColumn",
+    run: (editor) => toggleTotal(editor, "column"),
+  },
+  {
     id: "deleteRow",
     command: "table.deleteRow",
     label: "editor.table.deleteRow",
@@ -91,6 +114,48 @@ export function runTableAction(editor: Editor, action: TableAction): boolean {
   return done;
 }
 
+/**
+ * Whether the row or column of the cell at `cell` (a position in the
+ * document) is footed as a total: the User's Treat as a total, or else its
+ * label ("Total", "合计") says so (#1932).
+ */
+function isTotal(state: EditorState, cell: number, axis: "row" | "column"): boolean {
+  const $cell = state.doc.resolve(cell);
+  const table = $cell.node(-1);
+  const start = $cell.start(-1);
+  const map = TableMap.get(table);
+  const rect = map.findCell(cell - start);
+  const textAt = (row: number, column: number) => {
+    const offset = map.map[row * map.width + column];
+    return offset === undefined ? "" : (table.nodeAt(offset)?.textContent ?? "");
+  };
+  if (axis === "row") {
+    const role = table.child(rect.top).attrs.figureRowRole;
+    if (role === "total" || role === "detail") return role === "total";
+    return labelRole(textAt(rect.top, 0)) !== "detail";
+  }
+  const role = table.nodeAt(cell - start)?.attrs.figureColumnRole;
+  if (role === "total" || role === "detail") return role === "total";
+  return labelRole(textAt(0, rect.left)) !== "detail";
+}
+
+function toggleTotal(editor: Editor, axis: "row" | "column"): boolean {
+  const spot = tableSpot(editor.state);
+  if (!spot) return false;
+  const total = axis === "row" ? spot.totalRow : spot.totalColumn;
+  return editor.commands.command(({ tr, state }) => {
+    const $cell = state.doc.resolve(spot.cell);
+    setTableRoles(
+      tr,
+      { table: $cell.node(-1), start: $cell.start(-1) },
+      spot.cell - $cell.start(-1),
+      [axis],
+      !total,
+    );
+    return tr.docChanged;
+  });
+}
+
 export interface TableSpot {
   /** Before the cell the menu sits on: the cursor's, or a cell selection's head. */
   cell: number;
@@ -98,6 +163,9 @@ export interface TableSpot {
   rows: number;
   columns: number;
   headerRow: boolean;
+  /** Its row, or its column, is footed as a total. */
+  totalRow: boolean;
+  totalColumn: boolean;
   /** A table keeps at least one row and one column. */
   canDeleteRows: boolean;
   canDeleteColumns: boolean;
@@ -115,6 +183,8 @@ export function tableSpot(state: EditorState): TableSpot | null {
     rows: rect.bottom - rect.top,
     columns: rect.right - rect.left,
     headerRow: rowIsHeader(rect.map, rect.table, 0),
+    totalRow: isTotal(state, $cell.pos, "row"),
+    totalColumn: isTotal(state, $cell.pos, "column"),
     canDeleteRows: rect.bottom - rect.top < rect.map.height,
     canDeleteColumns: rect.right - rect.left < rect.map.width,
   };
@@ -128,6 +198,8 @@ export const sameSpot = (a: TableSpot | null, b: TableSpot | null) =>
     a.rows === b.rows &&
     a.columns === b.columns &&
     a.headerRow === b.headerRow &&
+    a.totalRow === b.totalRow &&
+    a.totalColumn === b.totalColumn &&
     a.canDeleteRows === b.canDeleteRows &&
     a.canDeleteColumns === b.canDeleteColumns);
 

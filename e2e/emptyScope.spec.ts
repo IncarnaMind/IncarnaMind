@@ -30,7 +30,7 @@ test.afterEach(async () => {
 const WORDS = {
   en: {
     folder: "Contracts",
-    line: "Contracts has no Documents",
+    line: "“Contracts” has no Documents",
     all: "Search all Documents",
   },
   "zh-CN": {

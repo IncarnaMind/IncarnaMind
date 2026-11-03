@@ -1,6 +1,6 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { EmbeddingModelStatus } from "../src/core/api";
 import {
   addDocuments,
@@ -10,6 +10,7 @@ import {
   emit,
   lastLineBoxOf,
   launchApp,
+  makeTagOnDocument,
   newMind,
   pointAt,
   removeDataFolder,
@@ -40,8 +41,20 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
+/** Keeps a screenshot of the window, once it has settled, when INCARNAMIND_SCREENSHOTS names a folder. */
+async function screenshot(window: Page, name: string) {
+  const folder = process.env.INCARNAMIND_SCREENSHOTS;
+  if (!folder) return;
+  await window.waitForFunction(() =>
+    document.getAnimations().every((animation) => animation.playState !== "running"),
+  );
+  await mkdir(folder, { recursive: true });
+  await window.screenshot({ path: join(folder, `${name}.png`) });
+}
+
 const NARROWEST = 165;
 const DEFAULT = 248;
+const WIDE = 300;
 
 const NAMES = {
   en: {
@@ -212,6 +225,71 @@ for (const language of ["en", "zh-CN"] as const) {
       await app.close();
     }
   });
+
+  test(`${language}: names within the line's limit show whole in the undo line at the narrowest sidebar, and all of it stays inside`, async () => {
+    test.setTimeout(90_000);
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await dismissChatSetup(window);
+      await setWindowSize(app, window, 1100, 700);
+      await setLanguage(window, language);
+      await newMind(window);
+      await setSidebarWidth(window, NARROWEST);
+      const message = window.getByTestId("undo-message");
+      const undo = window.getByTestId("undo-action");
+      const sidebar = await boxOf(window.getByTestId("sidebar"));
+      const thirty = "Harbour dues review, volume 22";
+      expect([...thirty]).toHaveLength(30);
+      for (const name of ["Boardpack", thirty]) {
+        await renameInTab(window, name);
+        await expect(undo).toBeVisible();
+        // #400: a name within the limit is never cut for a narrow pane or a wide system font;
+        // the line wraps instead, so the whole message is its text and it needs no tooltip.
+        await expect(message).toContainText(name);
+        expect((await message.textContent()) ?? "").not.toContain("…");
+        expect(await message.getAttribute("title")).toBeNull();
+        for (const each of [message, undo]) {
+          const box = await boxOf(each);
+          expect(box.x).toBeGreaterThanOrEqual(sidebar.x - 0.5);
+          expect(box.x + box.width).toBeLessThanOrEqual(sidebar.x + sidebar.width + 0.5);
+          expect(box.y).toBeGreaterThanOrEqual(sidebar.y - 0.5);
+          expect(box.y + box.height).toBeLessThanOrEqual(sidebar.y + sidebar.height + 0.5);
+        }
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`${language}: a 60-column name is cut in the middle in the undo line, keeping its extension and the whole in the tooltip`, async () => {
+    test.setTimeout(90_000);
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await dismissChatSetup(window);
+      await setWindowSize(app, window, 1100, 700);
+      await setLanguage(window, language);
+      await newMind(window);
+      await setSidebarWidth(window, NARROWEST);
+      const name = "Quarterly review of harbour dues and the wider coastal levy.docx";
+      expect([...name].length).toBeGreaterThan(40);
+      await renameInTab(window, name);
+      const message = window.getByTestId("undo-message");
+      await expect(message).toContainText("…");
+      const said = (await message.textContent()) ?? "";
+      expect(said).toContain([...name].slice(0, 4).join(""));
+      expect(said).toMatch(/…[^…]*\.docx”/);
+      expect(said).not.toContain(name);
+      expect(await message.getAttribute("title")).toContain(name);
+      const sidebar = await boxOf(window.getByTestId("sidebar"));
+      const box = await boxOf(message);
+      expect(box.x).toBeGreaterThanOrEqual(sidebar.x - 0.5);
+      expect(box.x + box.width).toBeLessThanOrEqual(sidebar.x + sidebar.width + 0.5);
+      expect(box.y).toBeGreaterThanOrEqual(sidebar.y - 0.5);
+      expect(box.y + box.height).toBeLessThanOrEqual(sidebar.y + sidebar.height + 0.5);
+    } finally {
+      await app.close();
+    }
+  });
 }
 
 test("the rule above Settings is inset like the header's rule, at every sidebar width", async () => {
@@ -312,10 +390,11 @@ test("at the narrowest sidebar a downloading model's figure is whole beside +1, 
         const row = window.getByTestId(download.testId);
         await expect(row).toBeVisible();
 
-        // The default width reads whole: the label, then the figure.
+        // The default width keeps the figure whole; a little wider reads the whole label too.
         await setSidebarWidth(window, DEFAULT);
         const label = row.getByTestId("status-label");
         await expect(row.getByTestId("status-figure")).toHaveText(download.figure);
+        await setSidebarWidth(window, WIDE);
         expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
           false,
         );
@@ -338,6 +417,7 @@ test("at the narrowest sidebar a downloading model's figure is whole beside +1, 
         expect(
           Math.abs(figureBox.y + figureBox.height / 2 - (moreBox.y + moreBox.height / 2)),
         ).toBeLessThanOrEqual(2);
+        // One 28px line, whatever the label's length: the footer's height never moves (#763).
         expect(rowBox.height).toBeCloseTo(28, 0);
         // Whole: nothing of it is clipped.
         expect(await figure.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
@@ -368,6 +448,50 @@ test("at the narrowest sidebar a downloading model's figure is whole beside +1, 
       await window.keyboard.press("Escape");
       await expect(others).toBeHidden();
       await downloads[0]?.stop();
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("Tags need an AI model keeps one 28px line at the narrowest sidebar, in English and Chinese, its whole sentence on hover", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1100, 700);
+    const note = join(sources, "Reading notes.txt");
+    await writeFile(note, "Membrane separation figures for the Leeds office.");
+    await addDocuments(window, [note]);
+    // A Tag of the User's own is what names Tags in the footer (#1942).
+    await makeTagOnDocument(window, "Reading notes");
+    const row = window.getByTestId("tagging-waiting");
+    await expect(row).toBeVisible();
+
+    const label = row.getByTestId("status-label");
+    const clipped = () => label.evaluate((element) => element.scrollWidth > element.clientWidth);
+    for (const language of ["en", "zh-CN"] as const) {
+      await setLanguage(window, language);
+      for (const width of [WIDE, DEFAULT, NARROWEST]) {
+        await setSidebarWidth(window, width);
+        const [rowBox, sidebarBox] = await Promise.all([
+          boxOf(row),
+          boxOf(window.getByTestId("sidebar")),
+        ]);
+        // One line: the row keeps its 28px, and nothing of it runs past the sidebar.
+        expect(rowBox.height).toBeCloseTo(28, 0);
+        expect(rowBox.x + rowBox.width).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width);
+        // Whole at a little wider; at the narrowest it gives way to an ellipsis, never a wrap.
+        if (width === WIDE) expect(await clipped()).toBe(false);
+        if (width === NARROWEST) expect(await clipped()).toBe(true);
+        if (width !== WIDE) await screenshot(window, `status-tagging-waits-${language}-${width}`);
+      }
+      // Hover gives the whole sentence, since the line can be cut.
+      await expect(row).toHaveAttribute(
+        "title",
+        language === "en"
+          ? "Tags come once you choose an AI model."
+          : "选择 AI 模型后会自动打标签。",
+      );
     }
   } finally {
     await app.close();

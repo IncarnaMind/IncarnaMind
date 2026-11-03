@@ -31,6 +31,8 @@ const CODES: Readonly<Record<string, string>> = {
   Right: "ArrowRight",
   Home: "Home",
   End: "End",
+  PageUp: "PageUp",
+  PageDown: "PageDown",
 };
 
 const parsed = new Map<string, Chord>();

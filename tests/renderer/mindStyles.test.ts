@@ -123,7 +123,7 @@ describe("making a style the default for new Minds", () => {
     const style: MindStyle = { font: "serif", size: "large" };
     await styles.makeDefaultForNewMinds(style);
     expect(updates).toEqual([style]);
-    expect(said(undo.useUndo.getState().line?.change)).toBe("New Minds will start in this style");
+    expect(said(undo.useUndo.getState().line?.change)).toBe("New notes will start in this style");
     await undo.useUndo.getState().undo();
     expect(updates.at(-1)).toEqual(DEFAULT_MIND_STYLE);
     app.useAppStore.setState({ settings: null });

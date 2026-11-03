@@ -16,6 +16,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
   useLocalChatModel,
@@ -104,7 +105,11 @@ for (const { language, width } of [
     // A footnote of the User's own, written in its popover; then a table under the first line.
     const first = editor.locator(":scope > p").first();
     await clickEndOf(window, first);
-    await window.keyboard.press("ControlOrMeta+Alt+F");
+    await runCommand(
+      window,
+      "footnote.insert",
+      language === "zh-CN" ? "插入脚注" : "Insert Footnote",
+    );
     const popover = window.getByTestId("footnote-popover");
     await expect(popover.getByTestId("footnote-text")).toBeFocused();
     await window.keyboard.type(words.note);

@@ -4,12 +4,13 @@
  *
  * TAB_CLAUSES sets how many clauses the tabbed contract has, a tab in each of its paragraphs: 550 make about 6,000 tabs.
  */
-import { readdirSync, statSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../../src/core/api";
 import { LONG_CONTRACT_CLAUSES, longContract } from "../../tests/helpers/longContract";
 import { resumeFile } from "../../tests/helpers/wordLookFiles";
+import { largestCorpusFile, msToOpen } from "../app";
 import {
   busy,
   cdp,
@@ -32,43 +33,6 @@ async function importWord(window: Page, path: string): Promise<string> {
     if (!result.ok) throw new Error(`Refused: ${result.refusal}`);
     return result.mind.id;
   }, path);
-}
-
-async function msToOpen(window: Page, mindId: string, done: string, count: number) {
-  return window.evaluate(
-    async ({ id, selector, wanted }) => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const start = performance.now();
-      await core.changeLayout("main", {
-        type: "open",
-        item: { kind: "mind", mindId: id },
-        where: { in: "place" },
-      });
-      for (;;) {
-        if (document.querySelectorAll(selector).length >= wanted) break;
-        await new Promise((resolve) => requestAnimationFrame(resolve));
-      }
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      return Math.round(performance.now() - start);
-    },
-    { id: mindId, selector: done, wanted: count },
-  );
-}
-
-function largestCorpusFile(): string {
-  const root = join(__dirname, "../../eval/word");
-  let largest = { path: "", size: 0 };
-  const visit = (folder: string) => {
-    for (const name of readdirSync(folder)) {
-      const path = join(folder, name);
-      const stat = statSync(path);
-      if (stat.isDirectory()) visit(path);
-      else if (name.endsWith(".docx") && stat.size > largest.size)
-        largest = { path, size: stat.size };
-    }
-  };
-  visit(root);
-  return largest.path;
 }
 
 test("typing in the 304-page contract, and opening it and the corpus's largest file", async () => {
@@ -115,7 +79,7 @@ test("typing in the 304-page contract, and opening it and the corpus's largest f
     };
   };
   const plainAgain = async (mindId: string, selector: string, blocks: number) => {
-    await click(window, window.getByTestId("group-menu"));
+    await click(window, window.locator('[data-testid="page-menu"]:visible'));
     await click(window, window.getByTestId("look-plain"));
     await expect(window.locator(".mind-editor-frame > style")).toHaveCount(0);
     return timedOpens(mindId, selector, async () => blocks);

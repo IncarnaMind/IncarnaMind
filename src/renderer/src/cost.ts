@@ -1,7 +1,8 @@
-import type { Money, RunEstimate, RunStop } from "../../core/api";
+import type { ClaimCheckFailure, Money, RunEstimate, RunStop } from "../../core/api";
 import type { Language } from "../../core/language";
 import { formatDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
+import { budgetStopOf } from "../../shared/readBudget";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -19,6 +20,29 @@ export function formatMoney({ amount, currency }: Money, language: Language): st
     minimumFractionDigits: amount === 0 ? 0 : 2,
     maximumFractionDigits: small ? 4 : 2,
   }).format(amount);
+}
+
+/**
+ * What a check's reason says (`claim.reason.*`): a whole read stopped at its budget says what it
+ * spent and the most it may spend, kept in `detail`, or that it stopped there when the detail
+ * can't be read; any other reason says its `detail` as it is.
+ */
+export function reasonText(
+  t: Translate,
+  language: Language,
+  reason: ClaimCheckFailure,
+  detail: string | null,
+  params: MessageParams = {},
+): string {
+  if (reason !== "read-budget")
+    return t(`claim.reason.${reason}`, { detail: detail ?? "", ...params });
+  const stop = budgetStopOf(detail);
+  return stop
+    ? t("claim.reason.read-budget", {
+        spent: formatMoney(stop.spent, language),
+        most: formatMoney(stop.most, language),
+      })
+    : t("claim.reason.read-budget.unknown");
 }
 
 /** Amounts in one or two currencies: "$3.20", "$3.20 and ¥1.40"; null for none. */
@@ -78,6 +102,15 @@ export const notCheckedKey = (stop: RunStop): MessageKey =>
 /** Parts of a meta line on one line, joined by middle dots; `MetaLine` is for lines that can wrap. */
 export const joinMeta = (parts: readonly string[]): string => parts.filter(Boolean).join(" · ");
 
+/**
+ * A token count, short and to the same three figures in every language: 708K is 70.8万, where
+ * each language's own rounding would make it 71万.
+ */
+export const formatTokens = (tokens: number, language: Language): string =>
+  new Intl.NumberFormat(language, { notation: "compact", maximumSignificantDigits: 3 }).format(
+    tokens,
+  );
+
 export interface EstimateLine {
   parts: string[];
   title: string;
@@ -85,21 +118,24 @@ export interface EstimateLine {
 
 /**
  * The line before a large run on a model billed per token, shown and never
- * asked: "About $0.40 · 24 model calls · $12.40 of $20.00 used this month",
- * with the tokens in its tooltip (price first, as DESIGN.md's plan card writes
- * it). With no known price: "About 24 model calls · 310K tokens". Null for a
- * plan or a model on this computer, which show nothing.
+ * asked: "About $1.40 · 310K tokens · $12.40 of $20.00 used this month"
+ * (price first, as DESIGN.md's plan card writes it), or "About $0.40, up
+ * to $0.55" when what it reads may ask for more requests. A run that would cost a
+ * dollar or less shows none unless a monthly cap is set, whose month so far
+ * is worth seeing (#1941); so does one no price is known for. Null for a
+ * plan or a model on this computer, which show nothing. `always` is for a
+ * confirmation that has already been chosen, where every known estimate shows.
  */
 export function estimateLine(
   estimate: RunEstimate,
   t: Translate,
   language: Language,
+  options: { always?: boolean } = {},
 ): EstimateLine | null {
   if (estimate.billing !== "per-token") return null;
-  const tokens = t("cost.estimate.tokens", {
-    tokens: new Intl.NumberFormat(language, { notation: "compact" }).format(estimate.tokens),
-  });
-  const { calls } = estimate;
+  const most = estimate.upTo?.cost ?? estimate.cost;
+  if (!options.always && !estimate.cap && !(most !== null && most.amount > 1)) return null;
+  const tokens = t("cost.estimate.tokens", { tokens: formatTokens(estimate.tokens, language) });
   const aside = estimate.setAsideTowardCap
     ? setAsideText([estimate.setAsideTowardCap], t, language)
     : null;
@@ -113,15 +149,12 @@ export function estimateLine(
           ...(aside ? [aside] : []),
         ]
       : [];
-  const run = estimate.cost
-    ? [
-        t("cost.estimate.price", { cost: formatMoney(estimate.cost, language) }),
-        t(calls === 1 ? "cost.estimate.calls.one" : "cost.estimate.calls", { calls }),
-      ]
-    : [
-        t(calls === 1 ? "cost.estimate.callsAbout.one" : "cost.estimate.callsAbout", { calls }),
-        tokens,
-      ];
+  const cost = estimate.cost && formatMoney(estimate.cost, language);
+  const price =
+    cost && most && estimate.cost && most.amount > estimate.cost.amount
+      ? t("cost.estimate.priceUpTo", { cost, most: formatMoney(most, language) })
+      : cost && t("cost.estimate.price", { cost });
+  const run = price ? [price, tokens] : [tokens];
   const parts = [...run, ...month];
-  return { parts, title: joinMeta(estimate.cost ? [...run, tokens, ...month] : parts) };
+  return { parts, title: joinMeta(parts) };
 }

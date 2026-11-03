@@ -1,6 +1,6 @@
 import type { Editor } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { COMPARISON_CELL_NODE, COMPARISON_TABLE_NODE } from "../../../core/api";
-import { comparisonQuestionsOf, MAX_COMPARISON_QUESTIONS } from "../../../shared/comparisons";
 
 /** Where a comparison table is in the editor, by its id; null when it isn't there. */
 export function comparisonTableAt(editor: Editor, tableId: string): number | null {
@@ -11,29 +11,41 @@ export function comparisonTableAt(editor: Editor, tableId: string): number | nul
   return found;
 }
 
-/**
- * "+ Question" (#98): a column for `question` at the table's end, and in each
- * row a cell waiting to be filled, as one change ⌘Z takes back. False when
- * the table is gone or has as many columns as a table holds.
- */
-export function addComparisonColumn(editor: Editor, tableId: string, question: string): boolean {
+export interface ComparisonTableLocation {
+  pos: number;
+  table: ProseMirrorNode;
+  /** Where each row starts, in the document. */
+  rows: number[];
+}
+
+export function comparisonTableIn(editor: Editor, tableId: string): ComparisonTableLocation | null {
   const pos = comparisonTableAt(editor, tableId);
   const table = pos === null ? null : editor.state.doc.nodeAt(pos);
-  const text = question.replace(/\s+/g, " ").trim();
-  if (pos === null || !table || !text) return false;
-  const questions = comparisonQuestionsOf(table.attrs);
-  if (questions.length >= MAX_COMPARISON_QUESTIONS) return false;
-  const { schema } = editor.state;
-  const id = crypto.randomUUID();
-  const tr = editor.state.tr.setNodeAttribute(pos, "questions", [...questions, { id, text }]);
-  table.forEach((row, offset) => {
-    const end = pos + 1 + offset + row.nodeSize - 1;
-    const cell = schema.nodes[COMPARISON_CELL_NODE]?.create(
-      { questionId: id, status: "waiting" },
-      schema.nodes.paragraph?.create(),
-    );
-    if (cell) tr.insert(tr.mapping.map(end), cell);
+  if (pos === null || !table) return null;
+  const rows: number[] = [];
+  table.forEach((_row, offset) => {
+    rows.push(pos + 1 + offset);
   });
-  editor.view.dispatch(tr);
-  return true;
+  return { pos, table, rows };
+}
+
+export function comparisonCellInRow(
+  row: ProseMirrorNode,
+  questionId: string,
+): { index: number; offset: number } | null {
+  let offset = 0;
+  for (let index = 0; index < row.childCount; index++) {
+    const child = row.child(index);
+    if (child.attrs.questionId === questionId) return { index, offset };
+    offset += child.nodeSize;
+  }
+  return null;
+}
+
+export function comparisonCellNode(editor: Editor, questionId: string, fillId?: string) {
+  const { schema } = editor.state;
+  return schema.nodes[COMPARISON_CELL_NODE]?.create(
+    { questionId, status: "waiting", ...(fillId && { fillId }) },
+    schema.nodes.paragraph?.create(),
+  );
 }

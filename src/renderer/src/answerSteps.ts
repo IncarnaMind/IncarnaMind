@@ -2,11 +2,13 @@ import type {
   AnswerPhase,
   AnswerToolCall,
   AskedFrom,
+  ClaimedTool,
   ConversationAnswer,
   MarkedCitation,
   MindRead,
 } from "../../core/api";
 import { markersIn } from "../../shared/answerBlocks";
+import { citedSentences } from "../../shared/citedSentences";
 
 /**
  * An Answer's steps in the assistant (#391), from what its row keeps: its
@@ -27,7 +29,7 @@ export interface StepsInput {
     ConversationAnswer,
     "text" | "citations" | "toolCalls" | "model" | "steps" | "read"
   > &
-    Partial<Pick<ConversationAnswer, "status">>;
+    Partial<Pick<ConversationAnswer, "status" | "figures">>;
   /**
    * The Mind in focus when the Question was asked; null when none was. Its
    * Answer read it (`answer.read`), unless it couldn't: say, an Answer written
@@ -82,16 +84,38 @@ export type StepRow =
   | { kind: "read-documents"; documents: ReadDocument[]; sources: StepSource[] }
   /** A search that failed, where it happened. */
   | { kind: "failed-search"; call: AnswerToolCall }
+  /** A Document read that failed, where it happened. */
+  | { kind: "failed-read"; call: AnswerToolCall }
   /** A search the User stopped the Answer in: it didn't fail. */
   | { kind: "stopped-search"; call: AnswerToolCall }
   /** A Connector's Tool, Find sources or a Skill script. */
   | { kind: "call"; call: AnswerToolCall }
   /** A Skill, loaded by the model or chosen for the Question, with the files it read. */
   | { kind: "skill"; name: string; use: AnswerToolCall | null; reads: AnswerToolCall[] }
+  /** Its first reply said these Tools ran, and none had: the model was asked once more (#1796). */
+  | { kind: "asked-again"; tools: readonly ClaimedTool[] }
   /** The figures the Answer shows, each calculated from its cited inputs. */
   | { kind: "calculated"; count: number }
   /** The Citations checked against their sources, and how many weren't found; `running`: being checked now. */
-  | { kind: "check"; count: number; notFound: number; running?: true };
+  | {
+      kind: "check";
+      count: number;
+      notFound: number;
+      /** Citations that can't be checked, a scan's unsure word or a Document with no text. */
+      cantCheck?: number;
+      /** Citations whose quote is found and whose sentence it doesn't support (#2311). */
+      needALook?: number;
+      /** Of those, the ones whose sentence the Documents contradict. */
+      contradicted?: number;
+      /** Citations whose sentence's judgement couldn't run. */
+      notChecked?: number;
+      /**
+       * A limit stopped judging its sentences (#2311): which, and how many of the sentences it
+       * judges were checked before it.
+       */
+      stopped?: { by: "answer-limit" | "monthly-limit"; checked: number; total: number };
+      running?: true;
+    };
 
 export type FoldedLine =
   | { kind: "searched"; sources: number; extraScopes: number }
@@ -119,9 +143,11 @@ export type LiveStep =
   | { kind: "thinking"; summary: string }
   | { kind: "writing" }
   | { kind: "checking"; count: number }
-  | { kind: "checking-figures" };
+  | { kind: "checking-figures" }
+  | { kind: "checking-claims" };
 
-const isSearch = (call: AnswerToolCall) => call.source === "documents" && call.tool === SEARCH;
+const isSearch = (call: AnswerToolCall) =>
+  call.source === "documents" && (call.tool === SEARCH || call.tool === "read_document");
 export const isCalculated = (call: AnswerToolCall) =>
   call.source === "documents" && call.tool === CALCULATE;
 
@@ -161,6 +187,33 @@ export function latestReasoning(summary: string | null | undefined): string {
 function shownCitations({ text, citations }: Pick<StepsInput["answer"], "text" | "citations">) {
   const cited = new Map(citations.map((citation) => [citation.marker, citation]));
   return markersIn(text).flatMap((marker) => cited.get(marker) ?? []);
+}
+
+const JUDGED = new Set(["found", "unsupported", "contradicted", "not-checked"]);
+
+/**
+ * The limit that stopped judging an Answer's sentences, if one did (#2311), and how many of the
+ * sentences it judges were checked: those none of whose Citations is left not checked.
+ */
+function stoppedJudgement(
+  answer: StepsInput["answer"],
+): Extract<StepRow, { kind: "check" }>["stopped"] | null {
+  const limits = answer.citations.map((citation) => citation.checkReason);
+  const by = limits.includes("answer-limit")
+    ? "answer-limit"
+    : limits.includes("monthly-limit")
+      ? "monthly-limit"
+      : null;
+  if (!by) return null;
+  const cited = new Map(answer.citations.map((citation) => [citation.marker, citation]));
+  const judged = citedSentences(answer.text, answer.figures ?? [])
+    .filter((sentence) => !sentence.calculated)
+    .map((sentence) => sentence.markers.flatMap((marker) => cited.get(marker) ?? []))
+    .filter((citations) => citations.some((citation) => JUDGED.has(citation.check)));
+  const checked = judged.filter((citations) =>
+    citations.every((citation) => citation.check !== "not-checked"),
+  ).length;
+  return { by, checked, total: judged.length };
 }
 
 /** The first row: the model's reasoning, or the model that answered and how long it took. */
@@ -276,8 +329,9 @@ const unansweredQuestion = (call: AnswerToolCall) =>
  * there is no share of it to say (#564), the Documents whose whole text went
  * with the Question, the
  * searches and other calls in the order they started (searches in a row as
- * one, a failed one where it happened), the figures calculated, and the check
- * of the Citations last. A call still waiting for the User has no row: its
+ * one, a failed one where it happened), the model asked again about Tools its
+ * first reply said ran, the figures calculated, and the check of the Citations
+ * last. A call still waiting for the User has no row: its
  * approval card shows instead.
  *
  * While the Answer is written (`live`: its step now), the rows are the same in
@@ -324,7 +378,12 @@ export function stepRows(
       if (call.status === "failed") {
         // Stopping an Answer ends a search that was running; only a search that gave an error failed.
         const stopped = answer.status === "stopped" && call.error === undefined;
-        rows.push({ kind: stopped ? "stopped-search" : "failed-search", call });
+        const failure = stopped
+          ? "stopped-search"
+          : call.tool === "read_document"
+            ? "failed-read"
+            : "failed-search";
+        rows.push({ kind: failure, call });
         joining = null;
         continue;
       }
@@ -369,16 +428,33 @@ export function stepRows(
   }
   for (const [search, passages] of used) search.used = passages.size;
 
+  const askedAgainFor = answer.steps?.askedAgainFor ?? [];
+  if (askedAgainFor.length > 0) rows.push({ kind: "asked-again", tools: askedAgainFor });
   if (calculated > 0) rows.push({ kind: "calculated", count: calculated });
   const shown = shownCitations(answer);
   if (live) {
     const count = live.kind === "checking" ? live.count : checking;
     if (count !== null) rows.push({ kind: "check", count, notFound: 0, running: true });
+  } else if (shown.some((citation) => citation.check === "checking")) {
+    // Its sentences are judged after it ends (#2311): the step says so until each has a result.
+    rows.push({ kind: "check", count: shown.length, notFound: 0, running: true });
   } else if (shown.length > 0) {
+    const needALook = shown.filter(
+      (citation) => citation.check === "unsupported" || citation.check === "contradicted",
+    ).length;
+    const contradicted = shown.filter((citation) => citation.check === "contradicted").length;
+    const notChecked = shown.filter((citation) => citation.check === "not-checked").length;
+    const cantCheck = shown.filter((citation) => citation.check === "cant-check").length;
+    const stopped = stoppedJudgement(answer);
     rows.push({
       kind: "check",
       count: shown.length,
       notFound: shown.filter((citation) => citation.check === "not-found").length,
+      ...(cantCheck > 0 && { cantCheck }),
+      ...(needALook > 0 && { needALook }),
+      ...(contradicted > 0 && { contradicted }),
+      ...(notChecked > 0 && { notChecked }),
+      ...(stopped && { stopped }),
     });
   }
   return rows;
@@ -470,6 +546,7 @@ export function liveStep({
     return { kind: "checking", count: shownCitations(answer).length };
   }
   if (phase === "checking-figures") return { kind: "checking-figures" };
+  if (phase === "checking-claims") return { kind: "checking-claims" };
   const running = answer.toolCalls.filter(
     (call) => call.status === "running" && !isCalculated(call),
   );

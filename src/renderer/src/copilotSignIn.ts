@@ -36,14 +36,20 @@ export const useCopilot = create<CopilotState>()(() => ({
   providerSaved: null,
 }));
 
-const readProviders = () =>
-  core.listChatProviders().then(
-    (providers) =>
+let providerReads = 0;
+const readProviders = () => {
+  const read = ++providerReads;
+  return core.listChatProviders().then(
+    (providers) => {
+      // A list read since is newer.
+      if (read !== providerReads) return;
       useCopilot.setState({
         providerSaved: providers.some((provider) => provider.kind === "copilot"),
-      }),
+      });
+    },
     (error: unknown) => console.error("The saved chat providers couldn't be listed.", error),
   );
+};
 
 let loaded = false;
 core.on("copilot.changed", (status) => useCopilot.setState({ status }));
@@ -124,14 +130,14 @@ async function choosePlan(status: CopilotStatus, keepDefault: boolean): Promise<
       });
       return false;
     }
-    const chatModel = useAppStore.getState().settings?.user.chatModel ?? null;
-    provider = await core.saveChatProvider({ kind: "copilot", modelId });
-    // Saving makes the plan the default for new Minds; from Settings, a default the User had stays.
-    if (keepDefault && chatModel)
-      await useAppStore.getState().updateSettings({ user: { chatModel } });
+    // Saving makes the plan the default for new Minds; from Settings, a default the User had
+    // stays, kept by the core as it saves, so one chosen meanwhile stays too (#2302).
+    provider = await core.saveChatProvider({ kind: "copilot", modelId, keepDefault });
   }
   clearModelFailure(provider.id);
-  useCopilot.setState({ providerSaved: true, failure: null });
+  useCopilot.setState({ failure: null });
+  // Read rather than assumed: the provider may have been removed since (#2302).
+  await readProviders();
   settleAgain(true);
   return true;
 }

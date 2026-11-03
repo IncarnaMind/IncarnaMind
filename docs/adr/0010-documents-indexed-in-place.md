@@ -2,6 +2,8 @@
 
 **Amended 2026-10-08:** At the User’s request, the Library again offers in-app Folders (previously called Groups) and Tags. These only update index metadata: originals remain at their source paths. The sidebar separates Folders from Source locations, avoiding two kinds of folder in one tree. This supersedes the removal of in-app organisation described below; indexing, watching, citations and read-only source handling are unchanged.
 
+**Amended 2026-10-26 (#2004): the first save doesn't ask. It goes to the Output location, Documents › IncarnaMind until the User picks another, and says where; it asks only when the default can't be made or written to (CONTEXT.md, Output location; `src/core/outputFiles.ts`).**
+
 Documents stay where the User keeps them. IncarnaMind indexes each file at its own path and never copies it into the data folder. The User adds Linked folders (a papers folder, Zotero's storage folder) and IncarnaMind keeps them in sync: new files become Documents, changed files are indexed again, and removed files are marked missing. A single file added on its own is indexed at its path too. Each folder inside a Linked folder is a Folder in the sidebar; in-app Folders that the User filed Documents into by hand are gone, and Tags remain for grouping across folders.
 
 What the index keeps is enough for Citations without the file:
@@ -77,3 +79,11 @@ A file that disappears no longer takes the cited page with it:
 - **What is saved.** When a Citation is made (in an Answer, or with a suggestion the User accepts), how its Location looked in the version it quotes becomes a picture in the data folder's "Cited pages": a PDF's pages, drawn by the page-image worker; a slide, the rows a sheet's Citation covers, a section or lines of text, drawn by their viewer off screen. The text drawn on it, each run with its box, is kept beside it (migration 73), so a quote can be found and highlighted on it. One picture per Location and version.
 - **When.** In the background queue, never while an Answer is being written. A picture a quit cut short is drawn at the next start, if the file still has that version; none is drawn of a version the file no longer has.
 - **How long.** While a Citation or a Checkpoint points at it, and it retains its version meanwhile (as a saved page, above). At the first start after the last one goes, it goes. The pictures are never searched, and are this computer's.
+
+## Amendment: a cited page whose drawing fails waits to be drawn again (2026-10-29, #2161)
+
+A drawing that failed once took its page away for good: the next Citation of the Location was its only chance. On GitHub's macOS runner a Word section taller than the screen made the hidden window grow, and the picture asked for before the first frame of the new size was dropped by the compositor ("UnknownVizError").
+
+- **The picture.** After the hidden window grows, the picture waits for a frame painted at the new size; one the compositor still drops is asked for again once a frame of the surface that replaced it is painted, three pictures at most.
+- **The page.** A page not saved keeps waiting (migration 113). It is drawn again at the next start, when its Location is cited again, or when its page is asked for (an export); after three failed drawings, only another Citation tries again. A page whose file doesn't have the version cited, or isn't there, waits for that version without counting a failure; none is drawn of another version. A Citation of its Location made while it is drawn gives it its count back, even if that drawing fails.
+- **What is logged.** Each failed picture and each page not saved, with how many drawings have failed, and one line for each drawing with its frames and pictures. A page that can't be saved is no problem the User can act on: where its file is missing, the Document says so already, and the source pack shows the quotes of a page not saved.

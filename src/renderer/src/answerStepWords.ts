@@ -1,4 +1,4 @@
-import type { AskedFrom } from "../../core/api";
+import type { AnswerToolCall, AskedFrom } from "../../core/api";
 import type { FoldedLine, ReadDocument } from "./answerSteps";
 import type { Translate } from "./objects";
 
@@ -9,6 +9,26 @@ export const checkedWords = (t: Translate, count: number): string =>
 /** The live line while this many Citations are checked. */
 export const checkingWords = (t: Translate, count: number): string =>
   t(count === 1 ? "steps.live.checking.one" : "steps.live.checking", { count });
+
+export function documentReadText(t: Translate, call: AnswerToolCall, live = false): string {
+  const field = (name: string) => {
+    const value: unknown = call.input?.[name];
+    return typeof value === "string" ? value : "";
+  };
+  const params = { document: field("document"), pages: field("pages"), passage: field("passage") };
+  if (call.status === "done" && call.resultCount === 0) {
+    return t("steps.readDocument.none", params);
+  }
+  const shape = params.pages ? "pages" : params.passage ? "around" : "opening";
+  if (live) {
+    if (shape === "pages") return t("steps.live.readDocument.pages", params);
+    if (shape === "around") return t("steps.live.readDocument.around", params);
+    return t("steps.live.readDocument.opening", params);
+  }
+  if (shape === "pages") return t("steps.readDocument.pages", params);
+  if (shape === "around") return t("steps.readDocument.around", params);
+  return t("steps.readDocument.opening", params);
+}
 
 export const mindLabel = (t: Translate, mind: AskedFrom) => mind.name || t("mind.untitled");
 

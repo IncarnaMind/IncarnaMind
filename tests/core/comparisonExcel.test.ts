@@ -4,10 +4,16 @@
  * app's own workbook reader, which shows each cell as Excel would.
  */
 import { readFile } from "node:fs/promises";
-import { describe, expect, test } from "vitest";
+import { describe, expect, onTestFinished, test } from "vitest";
+import * as Y from "yjs";
+import { MIND_CONTENT_FIELD } from "../../src/core";
+import { createElement, type NodeJSON } from "../../src/core/answers/blocks";
+import type { CitedWork } from "../../src/core/api";
 import { cellIndex } from "../../src/core/documents/formats/sheetLayout";
 import { readWorkbook } from "../../src/core/documents/formats/xlsx";
-import { translate } from "../../src/shared/i18n";
+import { comparisonBook } from "../../src/core/exports/comparisonSheet";
+import { type ComparisonReading, type Footnote, NO_MARKS } from "../../src/core/mindText";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 import {
   compareCedar,
   compareReports,
@@ -15,8 +21,10 @@ import {
   REPORT_QUESTIONS as QUESTIONS,
   rescalingModel,
 } from "../helpers/comparisons";
+import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess } from "../helpers/documents";
 import { part, unzip } from "../helpers/docx";
+import { connectToMind } from "../helpers/mindClient";
 
 /** The workbook as Excel shows it: each sheet's cells by reference, with their notes. */
 async function shownWorkbook(path: string) {
@@ -36,7 +44,9 @@ async function shownWorkbook(path: string) {
           note: sheet.layout?.notes.get(cellIndex(row, column)),
         };
       };
-      return { name: sheet.name, rowCount: sheet.rowCount, at };
+      const width = (column: number) =>
+        sheet.layout?.columns.get(column)?.width ?? sheet.layout?.defaultColumnWidth ?? 0;
+      return { name: sheet.name, rowCount: sheet.rowCount, at, width };
     }),
   };
 }
@@ -48,7 +58,7 @@ describe("A comparison table exported to Excel", () => {
     const saved = await core.saveComparisonExport({ mindId: mind.id, tableId });
     if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
     expect(saved).toMatchObject({ unverifiedCitations: 0 });
-    expect(saved.file.name).toBe("Tides.xlsx");
+    expect(saved.file.name).toBe("Comparison table.xlsx");
 
     const { sheets } = await shownWorkbook(saved.file.path);
     expect(sheets.map((sheet) => sheet.name)).toEqual(["Comparison table", "Sources"]);
@@ -77,6 +87,27 @@ describe("A comparison table exported to Excel", () => {
     expect(table.at("B2").note).toContain("“Revenue: $1.2m.”");
     expect(table.at("F2").note).not.toContain("As written");
     expect(table.at("F2").note).toContain("“Auditor: Smith & Partners, appointed in 2019.”");
+  });
+
+  // protects=a named table names the workbook and its table sheet; fails_when=the file or sheet keeps the Mind's name or the default "Comparison table"; no_claim=Excel's own rendering of sheet names.
+  test("names the file and the sheet after the table's own name", async () => {
+    const { core, client, mind, tableId } = await compareReports();
+    client.doc.transact(() => {
+      const table = client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .toArray()
+        .find(
+          (block): block is Y.XmlElement =>
+            block instanceof Y.XmlElement && block.getAttribute("id") === tableId,
+        );
+      table?.setAttribute("title", "Refinancing offers");
+    });
+    await client.settled();
+    const saved = await core.saveComparisonExport({ mindId: mind.id, tableId });
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    expect(saved.file.name).toBe("Refinancing offers.xlsx");
+    const { sheets } = await shownWorkbook(saved.file.path);
+    expect(sheets.map((sheet) => sheet.name)).toEqual(["Refinancing offers", "Sources"]);
   });
 
   // protects=the Sources sheet lists each Citation, a row each, with its Document, Location, quote and check, and opens the cell that cites it; fails_when=a Citation is missing, or its row links elsewhere; no_claim=none beyond protects.
@@ -164,5 +195,122 @@ describe("A comparison table exported to Excel", () => {
     await expect(
       core.saveComparisonExport({ mindId: mind.id, tableId: "no-such-table" }),
     ).rejects.toThrow(translate("en", "error.comparison.notFound"));
+  });
+
+  // protects=a column's label is its heading and names its Citations, and a column without one keeps its whole Question, as an older table did, however long; fails_when=a heading shows the Question instead of the label, a Question is cut to a heading's length, or a label is needed for an older table; no_claim=Excel's own rendering.
+  test("a column's label is its heading in the table and in Sources", () => {
+    const t = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
+    const caption: Footnote = { source: "Corvane, p. 1", unverified: false };
+    const work: CitedWork = { documentId: "doc", documentName: "Corvane", location: null };
+    const question = "What notice, in days, must either party give to end the agreement, and when?";
+    const reading = (label?: string): ComparisonReading => ({
+      questions: [{ id: "q1", text: question, ...(label && { label }) }],
+      rows: [
+        {
+          documentId: "doc",
+          name: "Corvane",
+          cells: [
+            {
+              kind: "answer",
+              content: [
+                {
+                  kind: "paragraph",
+                  content: [
+                    { kind: "text", text: "90 days", marks: NO_MARKS },
+                    { kind: "citation", footnote: caption, work },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const bookOf = (label?: string) =>
+      comparisonBook({
+        reading: reading(label),
+        title: "Comparison table",
+        language: "en",
+        textLanguage: "en",
+        t,
+        facts: () => ({
+          document: "Corvane",
+          location: "p. 1",
+          quote: "90 days",
+          check: "found",
+        }),
+      }).book;
+    const headings = (book: ReturnType<typeof bookOf>) =>
+      book.sheets[0]?.rows[0]?.cells.map((cell) =>
+        cell.value.kind === "text" ? cell.value.text : "",
+      );
+
+    expect(headings(bookOf("Notice"))).toEqual(["Document", "Notice"]);
+    expect(headings(bookOf())).toEqual(["Document", question]);
+    expect(question.length).toBeGreaterThan(40);
+    const source = bookOf("Notice").sheets[1]?.rows[1]?.cells[0]?.value;
+    expect(source?.kind === "text" ? source.text : "").toBe("Corvane · Notice");
+    const unnamed = bookOf().sheets[1]?.rows[1]?.cells[0]?.value;
+    expect(unnamed?.kind === "text" ? unnamed.text : "").toBe(`Corvane · ${question}`);
+  });
+
+  // protects=a hidden column is left out of the workbook with no line, the app is told the count, and a column the User sized is wider in the file; fails_when=the hidden column's heading or Answers appear, the file mentions a hidden column, or the set width does not reach Excel; no_claim=Excel's own rendering.
+  test("leaves a hidden column out with no line, and keeps the User's column widths", async () => {
+    const core = startCore(await createTempDataFolder());
+    onTestFinished(() => core.close());
+    const mind = await core.createMind({ title: "Suppliers" });
+    const client = await connectToMind(core, mind.id);
+    const paragraph = (text: string): NodeJSON => ({
+      type: "paragraph",
+      content: [{ type: "text", text }],
+    });
+    const sheet: NodeJSON = {
+      type: "comparisonTable",
+      attrs: {
+        id: "table-1",
+        questions: [
+          { id: "q1", text: "Termination notice", label: "Notice", width: 420 },
+          { id: "q2", text: "Operating result", label: "Result", hidden: true },
+        ],
+      },
+      content: [
+        {
+          type: "comparisonRow",
+          attrs: { documentId: "acme", documentName: "Acme" },
+          content: [
+            {
+              type: "comparisonCell",
+              attrs: { questionId: "q1", status: "done" },
+              content: [paragraph("90 days")],
+            },
+            {
+              type: "comparisonCell",
+              attrs: { questionId: "q2", status: "done" },
+              content: [paragraph("12 months")],
+            },
+          ],
+        },
+      ],
+    };
+    client.doc.transact(() =>
+      client.doc.getXmlFragment(MIND_CONTENT_FIELD).push([createElement(sheet)]),
+    );
+    await client.settled();
+
+    const saved = await core.saveComparisonExport({ mindId: mind.id, tableId: "table-1" });
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    const { sheets } = await shownWorkbook(saved.file.path);
+    const [table] = sheets;
+    if (!table) throw new Error("No table sheet.");
+    expect(["A1", "B1", "C1"].map((ref) => table.at(ref).text)).toEqual([
+      "Document",
+      "Notice",
+      undefined,
+    ]);
+    expect(table.at("B2").text).toBe("90 days");
+    // The file leaves the column out and says nothing about it; the app is told the count.
+    expect(table.at("C2").text).toBeUndefined();
+    expect(saved.hiddenColumns).toBe(1);
+    expect(table.width(1)).toBeGreaterThan(table.width(0));
   });
 });

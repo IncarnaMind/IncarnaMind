@@ -84,7 +84,7 @@ test("Add Documents ▾ → Find sources… asks each provider once, then adds a
       window.getByTestId("library-add-documents-items").getByRole("menuitem"),
     ).toHaveText([
       /Files…/,
-      /A folder that stays in sync…/,
+      /A folder on this computer…/,
       /A web page…/,
       /Find sources…/,
       /Connect an app…/,

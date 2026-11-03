@@ -1,9 +1,12 @@
-import type { LinkedFolder } from "../../../core/api";
+import type { LinkedFolder, TabItem } from "../../../core/api";
+import { WALL_SWITCH } from "../../../shared/commands";
 import { displayName } from "../../../shared/documentNames";
 import { core, files } from "../core";
 import { useDocumentPasswords } from "../documentPasswords";
-import { showFileLabelKey } from "../fileInfo";
+import { showFileLabelKey, userFile } from "../fileInfo";
+import { isInsideFolder } from "../folders";
 import { countNow, translateNow } from "../i18n";
+import { currentTabOf } from "../layoutSlice";
 import { bridgeFrom, type LibraryBridge } from "../libraryBridges";
 import { fileStatusLabel, folderName } from "../linkedFolders";
 import { useRequests } from "../requests";
@@ -17,6 +20,19 @@ import { documentsOf, everyDocument, idsOf, onlyOne } from "./targets";
 const store = () => useAppStore.getState();
 const reportError = (error: unknown) => store().reportError(error);
 const RENAME_KEYS = "F2";
+
+/** In the group right of the one in front, made if there is room: VS Code's Open to the Side. */
+const openBeside = (item: TabItem) =>
+  void store().changeLayout({ type: "open", item, preview: false, where: { in: "side" } });
+
+/** For one thing that isn't the one in front: that one is split with Split to the right. */
+const besideFront = (ctx: CommandContext, kind: "mind" | "document"): boolean => {
+  const [id] = idsOf(ctx, kind);
+  const front = currentTabOf(store().layout)?.item;
+  const shown =
+    front?.kind === "mind" ? front.mindId : front?.kind === "document" ? front.documentId : null;
+  return onlyOne(ctx) && id !== undefined && id !== shown;
+};
 
 /** The Mind a Mind's row, or the tab showing it, stands for. */
 const mindOf = (ctx: CommandContext) => {
@@ -66,7 +82,7 @@ const fileReason = (ctx: CommandContext) => {
   return true as const;
 };
 
-const onFiles = (ctx: CommandContext) => everyDocument(ctx, (document) => !document.web);
+const onFiles = (ctx: CommandContext) => everyDocument(ctx, userFile);
 
 /** A PDF that couldn't be read for want of its password (#763). */
 const isLockedPdf = (document: { kind: string; failure: { reason: string } | null }) =>
@@ -97,6 +113,15 @@ export const mindCommands: readonly Command[] = [
     reversible: true,
     run: (ctx) => store().openMind(idsOf(ctx, "mind")[0] ?? "", { newTab: true }),
   },
+  {
+    id: "mind.openBeside",
+    label: "command.openBeside",
+    group: "open",
+    appliesTo: ["mind"],
+    when: (ctx) => besideFront(ctx, "mind"),
+    reversible: true,
+    run: (ctx) => openBeside({ kind: "mind", mindId: idsOf(ctx, "mind")[0] ?? "" }),
+  },
   // Exporting (Export as…, Export options…) is in ./exports.
   {
     id: "mind.moveTo",
@@ -120,6 +145,19 @@ export const mindCommands: readonly Command[] = [
     reversible: true,
     ...needsHere("mind.rename"),
     when: (ctx) => onlyOne(ctx) && ctx.here?.["mind.rename"] !== undefined,
+  },
+  {
+    id: "mind.duplicate",
+    label: "mind.duplicate",
+    group: "main",
+    appliesTo: ["mind", "tab"],
+    when: (ctx) => onlyOne(ctx) && ofMind(ctx),
+    // Undo sends the copy to Recently deleted.
+    reversible: true,
+    async run(ctx) {
+      const mind = mindOf(ctx);
+      if (mind) await store().duplicateMind(mind.id);
+    },
   },
   {
     id: "mind.delete",
@@ -157,6 +195,15 @@ export const documentCommands: readonly Command[] = [
       store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" }, { as: "here" }),
   },
   {
+    id: "document.openBeside",
+    label: "command.openBeside",
+    group: "open",
+    appliesTo: ["document"],
+    when: (ctx) => besideFront(ctx, "document"),
+    reversible: true,
+    run: (ctx) => openBeside({ kind: "document", documentId: idsOf(ctx, "document")[0] ?? "" }),
+  },
+  {
     id: "document.openMind",
     label: "document.openMind",
     group: "open",
@@ -170,6 +217,7 @@ export const documentCommands: readonly Command[] = [
   },
   {
     id: "document.ask",
+    assistant: false,
     label: (ctx, t) =>
       many(ctx) ? t("library.ask.documents", { count: countNow(many(ctx)) }) : t("documents.ask"),
     group: "main",
@@ -191,9 +239,9 @@ export const documentCommands: readonly Command[] = [
     appliesTo: ["document"],
     when: (ctx) => documentsOf(ctx).length >= 1,
     reversible: true,
-    run(ctx) {
+    run: async (ctx) => {
       const bridge = bridgeOf(ctx);
-      if (bridge) return store().startMindFrom(bridge);
+      if (bridge) await store().startMindFrom(bridge);
     },
   },
   {
@@ -228,6 +276,29 @@ export const documentCommands: readonly Command[] = [
     run: async (ctx) => {
       if (onlyOne(ctx) && ctx.here?.["document.retry"]) return ctx.here["document.retry"]();
       await Promise.all(idsOf(ctx, "document").map((id) => store().retryDocument(id)));
+    },
+  },
+  {
+    id: "document.readHiddenSheets",
+    label: "documents.readHiddenSheets",
+    group: "main",
+    appliesTo: ["document"],
+    assistant: { never: "privacy" },
+    when: (ctx) =>
+      onlyOne(ctx) &&
+      everyDocument(
+        ctx,
+        (document) =>
+          document.kind === "xlsx" &&
+          document.fileStatus === "available" &&
+          document.status !== "queued" &&
+          document.status !== "extracting" &&
+          (document.unreadParts?.hiddenSheets.length ?? 0) > 0,
+      ),
+    reversible: true,
+    run: async (ctx) => {
+      const id = idsOf(ctx, "document")[0];
+      if (id) await store().readHiddenSheets(id);
     },
   },
   {
@@ -341,10 +412,36 @@ export const folderCommands: readonly Command[] = [
     top: 22,
     appliesTo: ["folder"],
     reversible: true,
-    run: (ctx) => store().createMind({ titled: true, folderId: idsOf(ctx, "folder")[0] ?? null }),
+    run: async (ctx) => {
+      await store().createMind({ titled: true, folderId: idsOf(ctx, "folder")[0] ?? null });
+    },
+  },
+  {
+    id: "folder.newInside",
+    label: "folder.newInside",
+    group: "main",
+    appliesTo: ["folder"],
+    when: onlyOne,
+    reversible: true,
+    async run(ctx) {
+      const id = idsOf(ctx, "folder")[0];
+      if (id) await store().createFolder(undefined, undefined, id);
+    },
+  },
+  {
+    id: "folder.moveTo",
+    label: "folder.moveTo",
+    rowKeys: "CmdOrCtrl+Shift+M",
+    group: "move",
+    top: 30,
+    appliesTo: ["folder"],
+    when: (ctx) => onlyOne(ctx) && ctx.here?.["folder.moveTo"] !== undefined,
+    reversible: true,
+    run: (ctx) => ctx.here?.["folder.moveTo"]?.(),
   },
   {
     id: "folder.ask",
+    assistant: false,
     label: "library.ask.folder",
     group: "main",
     appliesTo: ["folder"],
@@ -400,6 +497,27 @@ export const folderCommands: readonly Command[] = [
     },
   },
   {
+    id: WALL_SWITCH,
+    assistant: { never: "wall" },
+    label: "folder.keepInside",
+    hint: "folder.keepInside.hint",
+    purpose: "folder.keepInside.hint",
+    group: "main",
+    appliesTo: ["folder"],
+    checked: (ctx) => folderOf(ctx)?.keepInside === true,
+    reversible: true,
+    async run(ctx) {
+      const folder = folderOf(ctx);
+      if (!folder) return;
+      await store().editFolder(folder.id, {
+        name: folder.name,
+        description: folder.description,
+        countsOwnFiles: folder.countsOwnFiles,
+        keepInside: folder.keepInside !== true,
+      });
+    },
+  },
+  {
     id: "folder.rename",
     label: "folder.rename",
     keywords: ["command.rename.keywords"],
@@ -424,6 +542,14 @@ export const folderCommands: readonly Command[] = [
   },
 ];
 
+/** Opens Manage Tags on one Tag, to edit it or to merge it into another. */
+const manageTag = (ctx: CommandContext, mode: "edit" | "merge") => {
+  useRequests.getState().ask({ manageTag: { id: idsOf(ctx, "tag")[0] ?? "", mode } });
+  store().openTagsDialog();
+};
+
+const liveTags = () => store().tags.length;
+
 export const tagCommands: readonly Command[] = [
   {
     id: "tag.open",
@@ -436,6 +562,38 @@ export const tagCommands: readonly Command[] = [
       store().setTagFilter(idsOf(ctx, "tag").slice(0, 1));
       store().openLibrary();
     },
+  },
+  {
+    id: "tag.colour",
+    label: "tag.changeColor",
+    menuLabel: "tag.color",
+    keywords: ["tags.colour.label"],
+    group: "main",
+    appliesTo: ["tag"],
+    reversible: true,
+    run(ctx) {
+      // In its row, its dot opens the eight colours; elsewhere, in the Tags dialog.
+      if (ctx.here?.["tag.colour"]) return ctx.here["tag.colour"]();
+      manageTag(ctx, "edit");
+    },
+  },
+  {
+    id: "tag.editDescription",
+    label: "tag.editDescription",
+    group: "main",
+    appliesTo: ["tag"],
+    reversible: true,
+    run: (ctx) => manageTag(ctx, "edit"),
+  },
+  {
+    id: "tag.merge",
+    label: "tag.merge",
+    group: "main",
+    appliesTo: ["tag"],
+    // Another Tag is what a merge needs.
+    when: () => liveTags() > 1,
+    reversible: true,
+    run: (ctx) => manageTag(ctx, "merge"),
   },
   {
     id: "tag.rename",
@@ -470,7 +628,7 @@ export const tagCommands: readonly Command[] = [
     run: () => store().openTagsDialog(),
   },
   {
-    // From anywhere, as ⌘K offers it: the sidebar lists only the Tags in use.
+    // From anywhere: ⌘K offers it with no Tag row focused.
     id: "tags.manage",
     label: "tags.menu.manage",
     group: "main",
@@ -487,10 +645,11 @@ const rowMoveTo = (ctx: CommandContext) =>
 export const mixedSelectionCommands: readonly Command[] = [
   {
     id: "selection.moveTo",
+    assistant: false,
     label: (ctx, t) => t("selection.moveTo", { count: countNow(ctx.selection.length) }),
     rowKeys: "CmdOrCtrl+Shift+M",
     group: "move",
-    // Folders don't go inside Folders until #246.
+    // A Folder moves on its own (`folder.moveTo`): one Folder at a time, and no Documents with it.
     appliesTo: ["mind", "document"],
     when: (ctx) => kindsIn(ctx) > 1 && rowMoveTo(ctx) !== undefined,
     reversible: true,
@@ -498,6 +657,7 @@ export const mixedSelectionCommands: readonly Command[] = [
   },
   {
     id: "selection.delete",
+    assistant: false,
     label: (ctx, t) => t("selection.delete", { count: countNow(ctx.selection.length) }),
     rowKeys: "CmdOrCtrl+Backspace",
     group: "danger",
@@ -509,10 +669,17 @@ export const mixedSelectionCommands: readonly Command[] = [
   },
 ];
 
+/** The Documents a Folder holds, those in the Folders inside it too. */
 const folderDocumentIds = (ctx: CommandContext): string[] => {
   const id = idsOf(ctx, "folder")[0];
+  if (!id) return [];
+  const groups = store().library?.groups ?? [];
+  const inside = new Set(
+    groups.filter((group) => isInsideFolder(groups, group.id, id)).map((group) => group.id),
+  );
+  inside.add(id);
   return (store().library?.assignments ?? []).flatMap((item) =>
-    item.groupId === id ? [item.documentId] : [],
+    item.groupId !== null && inside.has(item.groupId) ? [item.documentId] : [],
   );
 };
 
@@ -591,6 +758,7 @@ export const linkedFolderCommands: readonly Command[] = [
   },
   {
     id: "linkedFolder.unlink",
+    assistant: { never: "permanent" },
     label: "linkedFolders.unlinkAction",
     group: "danger",
     destructive: true,
@@ -623,6 +791,20 @@ export const answerCommands: readonly Command[] = [
 ];
 
 export const citationCommands: readonly Command[] = [
+  // "Checked by me" (#1933), as a toggle: the first while it is off, the second while it is on;
+  // from the Citation's menu, or from ⌘K while its card shows.
+  ...(["signOff", "signOffRemove"] as const).map(
+    (action): Command => ({
+      id: `citation.${action}`,
+      label: "signOff.action",
+      assistant: { never: "signOff" },
+      keywords: ["signOff.keywords"],
+      group: "edit",
+      reversible: true,
+      checked: () => action === "signOffRemove",
+      ...needsHere(`citation.${action}`),
+    }),
+  ),
   {
     id: "citation.remove",
     label: "citation.remove",

@@ -192,6 +192,7 @@ test('"/" finds the new items by their Chinese names, their pinyin and their ini
     ["待办", ["checklist"]],
     ["引述", ["quote"]],
     ["分割", ["divider"]],
+    ["目录", ["contents"]],
   ] as const;
   for (const [typed, ids] of names) {
     await window.keyboard.type(`/${typed}`);

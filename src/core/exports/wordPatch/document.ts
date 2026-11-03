@@ -21,7 +21,7 @@ import { readWordAtom, wordAtomText } from "../../../shared/wordFiles";
 import {
   PARAGRAPH_FORMAT_ATTRIBUTE,
   type ParagraphFormat,
-  type WordAtomKind,
+  WORD_ATOM_NODE,
   type WordExportLoss,
 } from "../../api";
 import type { WordDocument } from "../../documents/formats/docxImport";
@@ -48,13 +48,16 @@ import {
   type Tracking,
   trackBlocks,
 } from "../wordReview";
-import type { AtomPlan } from "./atoms";
-import { type Counterpart, counterpartsOf, type ListPlace, NO_MARKS } from "./mind";
+import { type AtomPlan, copiedText } from "./atoms";
+import { type Counterpart, counterpartsOf, type ListPlace } from "./mind";
 import {
   alignTokens,
+  asCharacters,
   baseTokens,
+  keptKindOf,
   type ParagraphContext,
   sourceOf,
+  special,
   type Token,
   withWordChanges,
   writeParagraph,
@@ -89,6 +92,10 @@ export interface DocumentPatchInput {
   tokensOf(node: NodeJSON): Token[];
   /** What the native writer writes for a Block the document didn't have. */
   blocksOf(node: NodeJSON): Block[];
+  /** The number a numbered list's first item is drawn with, `nested` in a numbered list's item or not. */
+  firstNumberOf(list: NodeJSON, nested: boolean): number;
+  /** The bookmark a table of contents links to, for a heading: none for other Blocks. */
+  bookmarkOf(node: NodeJSON): { id: number; name: string } | null;
   writer: DocxWriter;
   target: PatchTarget;
   styles: DocumentStyles;
@@ -163,6 +170,75 @@ const CELL_ORDER = [
 ];
 
 const isTable = (element: XmlElement | null | undefined) => element?.name === "w:tbl";
+
+/** The next `<w:pPr>` opening tag, not a `<w:pPrChange>` inside one. */
+function nextParagraphProperties(xml: string, from: number): number {
+  let at = from;
+  while (at < xml.length) {
+    const found = xml.indexOf("<w:pPr", at);
+    if (found === -1) return -1;
+    const next = xml[found + 6];
+    if (
+      next === ">" ||
+      next === "/" ||
+      next === " " ||
+      next === "\n" ||
+      next === "\t" ||
+      next === "\r"
+    )
+      return found;
+    at = found + 6;
+  }
+  return -1;
+}
+
+/** Whether the tag starting at `at` closes itself, as an empty element can. */
+function closesItself(xml: string, at: number): boolean {
+  const end = xml.indexOf(">", at);
+  return end !== -1 && xml[end - 1] === "/";
+}
+
+/**
+ * Writes a bookmark into a paragraph after its properties, so Word's schema
+ * order holds even when a tracked formatting change nests another `pPr`
+ * inside them. A bookmark taken for the paragraph's only content, before
+ * its properties, is invalid and breaks the file.
+ */
+export function bookmarkParagraph(xml: string, bookmark: { id: number; name: string }): string {
+  const open = xml.indexOf(">") + 1;
+  const close = xml.lastIndexOf("</w:p>");
+  if (open <= 0 || close === -1) return xml;
+  let insertAt = open;
+  const exact = xml.startsWith("<w:pPr", open) && /[\s>/]/.test(xml[open + 6] ?? "");
+  if (exact && closesItself(xml, open)) {
+    insertAt = xml.indexOf(">", open) + 1;
+  } else if (exact) {
+    const tagEnd = xml.indexOf(">", open) + 1;
+    let depth = 1;
+    let at = tagEnd;
+    while (at < xml.length) {
+      const nextOpen = nextParagraphProperties(xml, at);
+      const nextClose = xml.indexOf("</w:pPr>", at);
+      if (nextClose === -1) break;
+      if (nextOpen !== -1 && nextOpen < nextClose) {
+        if (closesItself(xml, nextOpen)) {
+          at = xml.indexOf(">", nextOpen) + 1;
+          continue;
+        }
+        depth++;
+        at = nextOpen + 6;
+      } else {
+        at = nextClose + 8;
+        depth--;
+        if (depth === 0) {
+          insertAt = at;
+          break;
+        }
+      }
+    }
+  }
+  return `${xml.slice(0, insertAt)}<w:bookmarkStart w:id="${bookmark.id}" w:name="${bookmark.name}"/>${xml.slice(insertAt, close)}<w:bookmarkEnd w:id="${bookmark.id}"/>${xml.slice(close)}`;
+}
 
 export class DocumentPatch {
   private readonly text: string;
@@ -662,16 +738,13 @@ export class DocumentPatch {
       const from = scopeOf(this.parents.get(based.element) ?? based.element, this.parents);
       return rescoped(splice?.text ?? "", from, scope);
     }
-    if (counterpart.kind === "kept" && based) {
+    if (counterpart.kind === "kept") {
       const atom = readWordAtom(counterpart.node.attrs ?? {});
-      if (atom.source && this.input.plan.writes(atom.source, counterpart.node, atom.kind)) {
+      if (based && atom.source && this.input.plan.writes(atom.source, counterpart.node, atom.kind))
         return moved(based.element);
-      }
-      this.input.plan.copied(counterpart.node);
+      if (atom.source) this.input.plan.copied(counterpart.node);
       return this.newXml(this.input.writer.render(textBlocks(counterpart.node)), scope);
     }
-    if (counterpart.kind === "kept")
-      return this.newXml(this.input.writer.render(textBlocks(counterpart.node)), scope);
     // What changes still waiting do to it as a whole is the counterpart's, tracked once.
     const blocks = this.input
       .blocksOf(counterpart.node)
@@ -685,6 +758,7 @@ export class DocumentPatch {
    * or out of a list, or holding what goes.
    */
   private needsWriting(counterpart: Counterpart, based: Based): boolean {
+    if (this.input.bookmarkOf(counterpart.node)) return true;
     return (
       !samePendings(counterpart.pending, based.counterpart.pending) ||
       this.input.edited(counterpart.node) ||
@@ -721,7 +795,7 @@ export class DocumentPatch {
       if (
         source &&
         element?.name === "w:sectPr" &&
-        this.input.plan.writes(source, counterpart.node, "sectionBreak")
+        this.input.plan.writes(source, node, "sectionBreak")
       ) {
         sources.push(source);
       }
@@ -737,22 +811,17 @@ export class DocumentPatch {
   ): string {
     const { plan } = this.input;
     const tokens = this.input.tokensOf(counterpart.node).flatMap((token): Token[] => {
-      if (token.kind !== "atom" || !token.source) return [token];
-      const node = (counterpart.node.content ?? []).find((each) => sourceOf(each) === token.source);
-      const kind = node ? readWordAtom(node.attrs ?? {}).kind : ("other" as WordAtomKind);
-      if (plan.writes(token.source, counterpart.node, node?.type === "image" ? "picture" : kind))
-        return [token];
-      if (!node || !plan.written(token.source)) return [];
+      const { node } = token;
+      if (token.kind !== "atom" || !token.source || !node) return [token];
+      if (plan.writes(token.source, node, keptKindOf(node))) return [token];
+      if (token.inline) {
+        // A note kept as is is a new footnote with only its text, so it is said, as a copy is.
+        if (node.type === WORD_ATOM_NODE) plan.copied(node);
+        return [special(token.inline)];
+      }
+      if (!plan.isForeign(node) && !plan.written(token.source)) return [];
       plan.copied(node);
-      const text = node.type === "image" ? "" : wordAtomText(readWordAtom(node.attrs ?? {}));
-      return Array.from(text, (each) => ({
-        ...token,
-        kind: "char" as const,
-        key: each,
-        char: each,
-        marks: NO_MARKS,
-        source: null,
-      }));
+      return asCharacters(token, copiedText(node));
     });
     const filePPr = based ? this.pPrOf(based.element) : "";
     const basePPr = based
@@ -790,7 +859,8 @@ export class DocumentPatch {
         text: text.slice(0, 120),
       });
     }
-    return xml;
+    const bookmark = this.input.bookmarkOf(counterpart.node);
+    return bookmark ? bookmarkParagraph(xml, bookmark) : xml;
   }
 
   /** A paragraph's text as imported, with someone's changes to it in the file. */
@@ -916,29 +986,75 @@ export class DocumentPatch {
       return;
     }
     const numId = this.numIdOf(list);
+    const level = (based && this.importedLevel(based, list)) ?? this.levelOf(list);
     properties.set(
       "w:numPr",
-      `<w:numPr><w:ilvl w:val="${Math.min(list.depth, 8)}"/><w:numId w:val="${numId}"/></w:numPr>`,
+      `<w:numPr><w:ilvl w:val="${level}"/><w:numId w:val="${numId}"/></w:numPr>`,
     );
   }
 
-  /** The numbering a list of the Mind is written with: that of its imported items, else a new one. */
+  /**
+   * The numbering a list of the Mind is written with: that of its imported items, else a new one.
+   * A numbered list nested in another is an instance of the outer one's, which starts again at its
+   * own start; each starts where the editor draws it, a continued list going on from the one before.
+   */
   private numIdOf(list: ListPlace): number {
     const known = this.lists.get(list.list);
     if (known !== undefined) return known;
-    for (const item of this.listItems.get(list.list) ?? []) {
-      const based = item.key ? this.based.get(item.key) : undefined;
-      if (!based?.counterpart.list || based.counterpart.list.ordered !== list.ordered) continue;
-      const numId = numIdIn(this.pPrOf(based.element));
-      if (numId !== null && numId !== "0") {
-        this.lists.set(list.list, Number(numId));
-        return Number(numId);
-      }
+    const own = this.imported(list);
+    if (own) {
+      this.lists.set(list.list, own.numId);
+      return own.numId;
     }
-    const start = Math.max(Math.trunc(Number(list.list.attrs?.start)) || 1, 0);
-    const numId = this.input.target.list(list.ordered, Math.min(list.depth, 8), start);
+    const outerNode = list.numbered?.outer;
+    const nested = outerNode !== undefined && outerNode !== list.list;
+    const start = list.ordered ? this.input.firstNumberOf(list.list, nested) : 1;
+    const outer = outerNode
+      ? (this.lists.get(outerNode) ??
+        this.imported({ ...list, list: outerNode, ordered: true })?.numId)
+      : undefined;
+    if (outer !== undefined && list.numbered) {
+      if (outerNode) this.lists.set(outerNode, outer);
+      const numId = this.input.target.restart(outer, list.numbered.scheme, list.depth, start);
+      this.lists.set(list.list, numId);
+      return numId;
+    }
+    const numId = this.input.target.list(
+      list.numbered?.scheme ?? "bullet",
+      list.depth,
+      start,
+      list.level,
+    );
     this.lists.set(list.list, numId);
+    if (outerNode) this.lists.set(outerNode, numId);
     return numId;
+  }
+
+  private levelOf(list: ListPlace): number {
+    return this.imported(list)?.level ?? list.depth;
+  }
+
+  /**
+   * The Word level an imported item goes at in `place`: its level in the file, moved by as many
+   * levels as the item was, so a list that starts deeper in the file than in the Note keeps it.
+   */
+  private importedLevel(based: Based, place: ListPlace): number | null {
+    const was = based.counterpart.list;
+    const level = levelIn(this.pPrOf(based.element));
+    if (!was || level === null) return null;
+    const started = place.startLevel === null ? 0 : place.startLevel - (was.startLevel ?? 0);
+    return Math.min(Math.max(level + place.nesting - was.nesting + started, 0), 8);
+  }
+
+  private imported(place: ListPlace): { numId: number; level: number } | null {
+    for (const item of this.listItems.get(place.list) ?? []) {
+      const based = item.key ? this.based.get(item.key) : undefined;
+      if (!based?.counterpart.list || based.counterpart.list.ordered !== place.ordered) continue;
+      const numId = numIdIn(this.pPrOf(based.element));
+      if (numId !== null && numId !== "0")
+        return { numId: Number(numId), level: this.importedLevel(based, place) ?? place.depth };
+    }
+    return null;
   }
 
   /** An imported item of the same list, the nearest before this one, else after: a new item takes its look. */
@@ -1419,9 +1535,18 @@ function resolvedMark(pPr: string, was: Pendings, now: Pendings): string {
   return properties.toXml();
 }
 
-const sameList = (a: ListPlace | null, b: ListPlace | null): boolean =>
-  (a === null && b === null) ||
-  (a !== null && b !== null && a.ordered === b.ordered && a.depth === b.depth);
+/**
+ * Whether an item is where it was in the file: as deep in lists, its list starting at the same
+ * level. A list that names no start level, as in a Note imported before lists kept theirs, starts
+ * where the file's does.
+ */
+const sameList = (now: ListPlace | null, was: ListPlace | null): boolean =>
+  (now === null && was === null) ||
+  (now !== null &&
+    was !== null &&
+    now.ordered === was.ordered &&
+    now.nesting === was.nesting &&
+    (now.startLevel === null || now.startLevel === (was.startLevel ?? 0)));
 
 const isHeaderRow = (row: NodeJSON) =>
   (row.content ?? []).length > 0 &&
@@ -1430,6 +1555,11 @@ const isHeaderRow = (row: NodeJSON) =>
 /** The numId a paragraph's own numbering names, if it has any. */
 function numIdIn(pPr: string): string | null {
   return /<w:numId\b[^>]*\bw:val="([^"]*)"/.exec(pPr)?.[1] ?? null;
+}
+
+function levelIn(pPr: string): number | null {
+  const value = /<w:ilvl\b[^>]*\bw:val="(\d+)"/.exec(pPr)?.[1];
+  return value === undefined ? null : Math.min(Number(value), 8);
 }
 
 /**

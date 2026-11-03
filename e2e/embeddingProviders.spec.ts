@@ -11,6 +11,8 @@ import {
   launchApp,
   openSettings,
   removeDataFolder,
+  setLanguage,
+  setWindowSize,
   showSettingsPage,
 } from "./app";
 
@@ -213,7 +215,7 @@ test("reranking is on by default with the built-in model, can be turned off, and
   await app.close();
 });
 
-test("once the built-in model has reranked, Settings → Search says where it runs", async () => {
+test("once the built-in model has reranked, Advanced says where it runs", async () => {
   const tides = join(sources, "Tides.txt");
   const moon = join(sources, "Moon.txt");
   await writeFile(tides, "The tides rise and fall twice a day.\n");
@@ -223,6 +225,7 @@ test("once the built-in model has reranked, Settings → Search says where it ru
   await addDocuments(window, [tides, moon]);
   await openSettings(window, "search");
   const rerank = window.getByTestId("rerank-settings");
+  await rerank.getByTestId("rerank-advanced-toggle").click();
   await expect(rerank.getByTestId("rerank-current")).toBeVisible();
   await expect(rerank.getByTestId("rerank-runs-on")).toHaveCount(0);
 
@@ -232,3 +235,73 @@ test("once the built-in model has reranked, Settings → Search says where it ru
   await expect(rerank.getByTestId("rerank-runs-on")).toHaveText("On this computer · CPU");
   await app.close();
 });
+
+for (const [language, width] of [
+  ["en", 900],
+  ["en", 1600],
+  ["zh-CN", 900],
+  ["zh-CN", 1600],
+] as const) {
+  test(`Settings > Search says what its sections do in plain words, with the model names under Advanced (${language}, ${width}px)`, async () => {
+    const { app, window } = await launchApp(dataDir);
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, width, 900);
+    await openSettings(window, "search");
+    await setLanguage(window, language);
+    const words =
+      language === "en"
+        ? {
+            plain: "Find Documents by meaning, not only words",
+            download: "Off · 135 MB download",
+            turnOn: "Turn on…",
+            advanced: "Advanced",
+            model: "Search model: Off",
+            rerank: "Puts the most relevant passages first.",
+            rerankOn: "On this computer",
+          }
+        : {
+            plain: "按含义查找文档，而不只是按字词",
+            download: "关闭 · 需下载 135 MB",
+            turnOn: "开启…",
+            advanced: "高级",
+            model: "搜索模型：关闭",
+            rerank: "把最相关的段落排在前面。",
+            rerankOn: "在这台电脑上",
+          };
+
+    // The section's one plain line and its action; no model name until Advanced opens.
+    const section = window.getByTestId("embedding-settings");
+    await expect(section.getByTestId("embedding-plain")).toHaveText(words.plain);
+    await expect(section.getByTestId("embedding-state")).toHaveText(words.download);
+    await expect(section.getByTestId("embedding-change")).toHaveText(words.turnOn);
+    for (const text of [words.plain, words.download]) {
+      expect(text).not.toMatch(/embedding|rerank|index|passage/i);
+    }
+    const advanced = section.getByTestId("embedding-advanced");
+    const toggle = advanced.getByTestId("embedding-advanced-toggle");
+    await expect(toggle).toHaveText(words.advanced);
+    await expect(section.getByTestId("embedding-current")).toBeHidden();
+    await toggle.focus();
+    await window.keyboard.press("Enter");
+    await expect(section.getByTestId("embedding-current")).toBeVisible();
+    await expect(section.getByTestId("embedding-current")).toContainText(words.model);
+
+    // Best results first: its plain sentence says what it does; the model and where it runs
+    // wait under Advanced.
+    const rerank = window.getByTestId("rerank-settings");
+    await expect(rerank.getByTestId("rerank-settings-body")).toContainText(words.rerank);
+    await expect(rerank.getByTestId("rerank-state")).toHaveText(words.rerankOn);
+    await expect(rerank.getByTestId("rerank-current")).toBeHidden();
+    await rerank.getByTestId("rerank-advanced-toggle").click();
+    await expect(rerank.getByTestId("rerank-current")).toBeVisible();
+
+    // Everything holds, with its buttons whole, at this width.
+    for (const part of [section, rerank]) {
+      await expect(part.getByRole("button").first()).toBeVisible();
+      expect(await part.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+        true,
+      );
+    }
+    await app.close();
+  });
+}

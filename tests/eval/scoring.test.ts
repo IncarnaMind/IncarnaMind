@@ -171,15 +171,16 @@ describe("What became of a Citation", () => {
   });
 
   test("a quote of a page whose stored text lost its f-ligatures is found, told so; not told, it is the check's miss", () => {
-    // JP Morgan 2022 Environmental Social Governance Report, p. 8, as stored: pdf.js reads its
+    // Vantrell Financial Group 2022 ESG Report, p. 8, as stored: pdf.js reads its
     // "fi" ligature as "f", so the page shows "finance" where its text reads "fnance".
     const stored = [
       {
         page: 8,
-        text: "set our Sustainable Development Target (the “Target”) with the goal to fnance and\nfacilitate more than $2.5 trillion over 10 years—from 2021 through the end of 2030—",
+        text: "set our Sustainable Development Target (the “Target”) with the goal to fnance and\nfacilitate more than $1.4 trillion over eight years—from 2022 through the end of 2029—",
       },
     ];
-    const asShown = "with the goal to finance and facilitate more than $2.5 trillion over 10 years";
+    const asShown =
+      "with the goal to finance and facilitate more than $1.4 trillion over eight years";
     const range = { pageFrom: 8, pageTo: 8 };
     const check = (quote: string, lostLigatures = false) =>
       checkCitation({

@@ -82,10 +82,17 @@ import {
   type OllamaModelProfile,
   type OllamaModels,
 } from "./ollamaModels";
+import { CutShortError, endsAtLimit, outputTokens } from "./outputLimits";
 import { classifyProviderError, LocalModelError, OllamaNotRunningError } from "./providerErrors";
 
 /** How long a provider's model list is kept before it is asked again. */
 const MODEL_LIST_TTL_MS = 5 * 60_000;
+
+/** When a model list was asked for: `order` among every ask, `at` in milliseconds. */
+interface ListAsked {
+  order: number;
+  at: number;
+}
 
 /**
  * The chat flow: what a Question sends to a cloud chat provider. While a
@@ -100,12 +107,12 @@ export const CHAT_FLOW_SENDS = [
   "document-names",
   "other-minds",
   "live-transcript",
+  // A picture the User selects in a Note to ask about (#1937): it goes only when they ask, never
+  // as part of the note's text.
+  "pictures",
 ] as const;
 
 const TEST_TIMEOUT_MS = 30_000;
-
-/** Room for a test's one word, and for a model that thinks a little first. */
-const TEST_OUTPUT_TOKENS = 64;
 
 function notReadyError(error: ChatNotReadyError): ProviderError {
   const { reason } = error.readiness;
@@ -341,6 +348,8 @@ export function createChat(options: {
   localOnly(): boolean;
   /** Counts every cloud request of the models handed out, and holds the monthly cap (see ../cost/meter). */
   meter: Pick<Meter, "wrap">;
+  /** Facts the host lays over every source's for a model (`CoreAdapters.modelFacts`). */
+  modelFacts?: (provider: string, modelId: string) => ModelFactsLayer | undefined;
 }) {
   const {
     db,
@@ -445,9 +454,18 @@ export function createChat(options: {
       ? OLLAMA_CLOUD
       : null);
 
-  /** Model lists by provider and server, with when they were fetched. */
-  const modelLists = new Map<string, { at: number; models: ListedModel[] }>();
+  /** Model lists by provider and server, with when they were asked for, in order and in time. */
+  const modelLists = new Map<string, ListAsked & { models: ListedModel[] }>();
   const listKey = (row: ProviderRow) => `${row.id}\n${row.base_url ?? ""}\n${row.endpoint ?? ""}`;
+  let listsAsked = 0;
+  const askList = (): ListAsked => ({ order: ++listsAsked, at: Date.now() });
+  /** Keeps a list, unless one asked for after it came back first: that one is newer (#2302). */
+  const keepList = (key: string, asked: ListAsked, models: ListedModel[]) => {
+    const kept = modelLists.get(key);
+    if (models.length > 0 && (!kept || kept.order < asked.order)) {
+      modelLists.set(key, { ...asked, models });
+    }
+  };
 
   /** The models a saved provider lists, kept for a few minutes; none for a cloud service the User hasn't allowed yet. */
   const listedModels = async (row: ProviderRow, provider: ChatProvider): Promise<ListedModel[]> => {
@@ -465,6 +483,7 @@ export function createChat(options: {
     }
     if (!listed && !mayAsk) listed = [];
     if (!listed) {
+      const asked = askList();
       const apiKey = provider.hasApiKey ? await secrets.tryGet(keyName(row.id)) : null;
       listed = await listProviderModels({
         kind: provider.kind,
@@ -473,7 +492,7 @@ export function createChat(options: {
         endpoint: row.endpoint,
         catalogId: row.catalog_id,
       });
-      if (listed.length > 0) modelLists.set(cacheKey, { at: Date.now(), models: listed });
+      keepList(cacheKey, asked, listed);
     }
     return listed;
   };
@@ -516,22 +535,26 @@ export function createChat(options: {
     serviceFor(row.kind as ChatProviderKind, row.base_url, row.endpoint, row.catalog_id);
 
   /**
-   * What is known of a model on a provider, by precedence (see ./capabilities):
-   * the server's word (`server`, else what its model list said), then the
+   * What is known of a model on a provider, by precedence (see ./capabilities): the host's
+   * facts (a test's), the server's word (`server`, else what its model list said), then the
    * catalog's. Nothing the User sets on a model is stored yet.
    */
   const capabilitiesOf = (
     row: ProviderRow,
     modelId: string,
     server?: ModelFactsLayer,
-  ): ModelCapabilities =>
-    resolveCapabilities({
+  ): ModelCapabilities => {
+    const provider = modelsProviderOfKind(
+      row.kind as ChatProviderKind,
+      row.endpoint,
+      row.catalog_id,
+    );
+    return resolveCapabilities({
+      user: options.modelFacts?.(provider, modelId),
       server: server ?? modelLists.get(listKey(row))?.models.find((m) => m.id === modelId)?.facts,
-      catalog: catalogFacts(
-        modelsProviderOfKind(row.kind as ChatProviderKind, row.endpoint, row.catalog_id),
-        modelId,
-      ),
+      catalog: catalogFacts(provider, modelId),
     });
+  };
 
   /**
    * What the model factory needs: a hosted provider's endpoint from the
@@ -851,7 +874,16 @@ export function createChat(options: {
             [id, server.kind, server.baseUrl, server.catalogId, server.endpoint, at, at],
           );
         }
-        if (makeDefault) settings.update({ user: { chatModel: { providerId: id, modelId } } });
+        // Quick tasks and reading images go back to Automatic with the Answers model, with no row of their own (#1922).
+        if (makeDefault) {
+          settings.update({
+            user: {
+              chatModel: { providerId: id, modelId },
+              quickTasksModel: null,
+              imageModel: null,
+            },
+          });
+        }
       });
       if (apiKey === null) await secrets.delete(keyName(id));
 
@@ -914,12 +946,14 @@ export function createChat(options: {
       );
     },
 
-    /** The key of the saved provider of a hosted catalog entry, for another service of its (#141). */
-    async apiKeyOf(catalogId: string): Promise<{ providerId: string; apiKey: string } | null> {
+    /** The key of the saved provider of a hosted catalog entry, with its region, for another service of its (#141). */
+    async apiKeyOf(
+      catalogId: string,
+    ): Promise<{ providerId: string; apiKey: string; endpoint: string | null } | null> {
       for (const row of knownRows()) {
         if ((row.catalog_id ?? row.kind) !== catalogId || row.base_url !== null) continue;
         const apiKey = await secrets.tryGet(keyName(row.id));
-        if (apiKey) return { providerId: row.id, apiKey };
+        if (apiKey) return { providerId: row.id, apiKey, endpoint: row.endpoint };
       }
       return null;
     },
@@ -939,6 +973,38 @@ export function createChat(options: {
         "chat",
         capabilitiesOf(row, chosen.modelId),
         null,
+      );
+    },
+
+    /**
+     * What execution will know of a model before its first request, without sending a Document or
+     * asking for consent: what it can do, how it gives Citations, and the window its requests fit.
+     */
+    async modelShape(
+      choice?: ChatModelChoice,
+    ): Promise<Pick<PreparedChatModel, "capabilities" | "support" | "window"> | null> {
+      const chosen = choice ?? settings.get().user.chatModel;
+      const row = chosen && rowById(chosen.providerId);
+      if (!chosen || !row || !isKnownRow(row)) return null;
+      const shaped = (capabilities: ModelCapabilities, window: ContextWindow | undefined) => {
+        const support = startingSupport(capabilities);
+        return { capabilities, ...(support && { support }), ...(window && { window }) };
+      };
+      if (row.kind !== "ollama") {
+        // As `prepareModel` does: a local preset's list says how large its models' windows are.
+        const provider = await toProvider(row, chosen.modelId);
+        if (!provider.service && isPreset(catalogProvider(provider.catalogId))) {
+          await listedModels(row, provider);
+        }
+        const capabilities = capabilitiesOf(row, chosen.modelId);
+        return shaped(capabilities, cloudWindow(capabilities));
+      }
+      const profile = await profileFor(row.kind, row.base_url, chosen.modelId);
+      return shaped(
+        capabilitiesOf(row, chosen.modelId, profile ? ollamaFacts(profile) : undefined),
+        profile
+          ? { tokens: profile.settings.numCtx, outputTokens: profile.settings.outputTokens }
+          : undefined,
       );
     },
 
@@ -1220,7 +1286,7 @@ export function createChat(options: {
         await generateText({
           model,
           prompt: "Reply with the word OK.",
-          maxOutputTokens: TEST_OUTPUT_TOKENS,
+          maxOutputTokens: outputTokens("connection-test"),
           maxRetries: 0,
           abortSignal: AbortSignal.timeout(TEST_TIMEOUT_MS),
         });
@@ -1248,6 +1314,7 @@ export function createChat(options: {
           error instanceof ChatNotReadyError ? notReadyError(error) : classifyProviderError(error),
       });
       let listed: ListedModel[];
+      const asked = askList();
       try {
         if (provider.service) {
           // Local mode first: a prompt for what couldn't be sent anyway would only be in the way.
@@ -1275,23 +1342,26 @@ export function createChat(options: {
       } catch (error) {
         return failed("list", null, error);
       }
-      if (listed.length > 0) modelLists.set(listKey(row), { at: Date.now(), models: listed });
+      keepList(listKey(row), asked, listed);
       const modelId = testModelOf(row, listed);
       if (!modelId) {
         return failed("answer", null, new LocalModelError("model", "It lists no models to try."));
       }
+      let started = Date.now();
       try {
         const prepared = await chat.prepareModel({ providerId: row.id, modelId }, "chat", "off");
-        const started = Date.now();
+        started = Date.now();
         await generateText({
           model: prepared.model,
           prompt: "Reply with the word OK.",
-          maxOutputTokens: TEST_OUTPUT_TOKENS,
+          maxOutputTokens: outputTokens("connection-test"),
           maxRetries: 0,
           abortSignal: AbortSignal.timeout(TEST_TIMEOUT_MS),
         });
         return { ok: true, modelId, ms: Date.now() - started };
       } catch (error) {
+        // A reply cut at the test's few tokens still shows the model answers.
+        if (error instanceof CutShortError) return { ok: true, modelId, ms: Date.now() - started };
         return failed("answer", modelId, error);
       }
     },
@@ -1360,11 +1430,6 @@ export function createChat(options: {
       // The calls that don't write the Answer (tagging, classifying, an Answer's search query)
       // skip thinking where they can.
       const reasoning = thinking ?? (flow === "chat" ? "summary" : "off");
-      const model = watchedPlan(
-        provider.kind,
-        createModel(await specFor(provider, apiKey, modelId, profile, reasoning)),
-        modelId,
-      );
       const row: ProviderRow = {
         id: provider.id,
         kind: provider.kind,
@@ -1377,12 +1442,25 @@ export function createChat(options: {
         await listedModels(row, provider);
       }
       const capabilities = capabilitiesOf(row, modelId, profile ? ollamaFacts(profile) : undefined);
+      const model = watchedPlan(
+        provider.kind,
+        createModel({
+          ...(await specFor(provider, apiKey, modelId, profile, reasoning)),
+          ...(provider.kind === "openrouter" &&
+            capabilities.facts.thinkingOff && {
+              thinkingOff: capabilities.facts.thinkingOff,
+            }),
+        }),
+        modelId,
+      );
       // The gate goes outside the meter, so a request it stops reserves nothing.
       const gated = gate.model(
-        meter.wrap(model, {
-          ...meteredModel(provider, provider.id, modelId, flow, capabilities, profile),
-          reasoning,
-        }),
+        endsAtLimit(
+          meter.wrap(model, {
+            ...meteredModel(provider, provider.id, modelId, flow, capabilities, profile),
+            reasoning,
+          }),
+        ),
         flow,
         provider.service,
       );

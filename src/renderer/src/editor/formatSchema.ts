@@ -7,7 +7,7 @@ import {
   TEXT_FONT_MARK,
   TEXT_SIZE_MARK,
 } from "../../../core/api";
-import { fontFamilyList } from "../../../shared/mindStyle";
+import { fontFamilyList, SINGLE_LINE } from "../../../shared/mindStyle";
 import {
   paragraphFormatDeclarations,
   readParagraphFormat,
@@ -21,6 +21,9 @@ import { pt } from "./wordCss";
 export const FORMATTED_TYPES = ["paragraph", "heading"];
 
 const FORMAT_DOM_ATTRIBUTE = "data-paragraph-format";
+
+/** A paragraph in a Word look gives its font's single line (`--word-single`); elsewhere it is the Mind's. */
+const WORD_SINGLE_LINE = `var(--word-single, ${SINGLE_LINE})`;
 
 function formatFromHtml(element: HTMLElement) {
   try {
@@ -53,7 +56,7 @@ export const ParagraphFormatAttribute = Extension.create({
               return {
                 [FORMAT_DOM_ATTRIBUTE]: JSON.stringify(format),
                 ...(format.after !== undefined && { "data-space-after": "" }),
-                style: paragraphFormatDeclarations(format, pt).join("; "),
+                style: paragraphFormatDeclarations(format, pt, WORD_SINGLE_LINE).join("; "),
               };
             },
           },

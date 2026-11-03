@@ -109,7 +109,8 @@ export function drawnParagraphs(blocks: readonly NodeJSON[], look: WordLook): st
     if (node.type === "paragraph" || node.type === "heading") {
       const key = node.attrs?.[WORD_LOOK_ATTRIBUTE];
       const entry = typeof key === "string" ? look.paragraphs[key] : undefined;
-      const { run, next: _next, characterSize, ...own } = entry ?? {};
+      // Version 4 had no document grid to snap to.
+      const { run, next: _next, characterSize, snapToGrid: _grid, ...own } = entry ?? {};
       const format = node.attrs?.[PARAGRAPH_FORMAT_ATTRIBUTE];
       const runs = (node.content ?? [])
         .filter((child) => child.type === "text")

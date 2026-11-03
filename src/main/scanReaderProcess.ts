@@ -13,6 +13,12 @@ import type { TextRecognizer } from "../core";
 import { serveTextRecognizer, type TextRecognizerRequest } from "../core/documents/scan/channel";
 import { createFakeTextRecognizer, type FakeScanScript } from "../core/documents/scan/fake";
 import { createOnnxTextRecognizer } from "../core/documents/scan/onnx";
+import {
+  answerEngineCheck,
+  CANVAS,
+  ENGINE_CHECK_ARGUMENT,
+  ONNX_RUNTIME,
+} from "../core/engineModules";
 
 const fake = process.argv.indexOf("--fake");
 const scriptFile = fake === -1 ? undefined : process.argv[fake + 1];
@@ -28,8 +34,12 @@ const recognizer: TextRecognizer =
 
 const port = process.parentPort;
 
-serveTextRecognizer(recognizer, {
-  onRequest: (listener) =>
-    port.on("message", ({ data }: { data: TextRecognizerRequest }) => listener(data)),
-  respond: (response) => port.postMessage(response),
-});
+if (process.argv.includes(ENGINE_CHECK_ARGUMENT)) {
+  answerEngineCheck(port, [ONNX_RUNTIME, CANVAS]);
+} else {
+  serveTextRecognizer(recognizer, {
+    onRequest: (listener) =>
+      port.on("message", ({ data }: { data: TextRecognizerRequest }) => listener(data)),
+    respond: (response) => port.postMessage(response),
+  });
+}

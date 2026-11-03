@@ -8,6 +8,7 @@
  */
 import * as Y from "yjs";
 import {
+  FOOTNOTE_NODE,
   MIND_WORD_FIELD,
   MIND_WORD_SOURCES_FIELD,
   PROPOSAL_ATTRIBUTE,
@@ -19,6 +20,7 @@ import {
   type WordFileInfo,
   type WordImportProgress,
   type WordImportReport,
+  type WordNoteNumbering,
   type WordOrigin,
   type WordSource,
 } from "../core/api";
@@ -28,7 +30,17 @@ import { targetHash } from "./proposals";
 export const INVISIBLE_WORD_ATOMS: ReadonlySet<WordAtomKind> = new Set([
   "bookmark",
   "range",
-  "sectionBreak",
+  "columnBreak",
+]);
+
+/** Atoms drawn as a line across the text, as Word draws them with its marks shown (#746). */
+export const BREAK_WORD_ATOMS: ReadonlySet<WordAtomKind> = new Set(["sectionBreak", "pageBreak"]);
+
+/** Atoms a file can hold twice, having no id that would clash: a copy is written from the XML again. */
+export const COPYABLE_WORD_ATOMS: ReadonlySet<WordAtomKind> = new Set([
+  "field",
+  "equation",
+  "symbol",
   "pageBreak",
 ]);
 
@@ -52,11 +64,14 @@ const KINDS: ReadonlySet<string> = new Set<WordAtomKind>([
   "range",
   "sectionBreak",
   "pageBreak",
+  "columnBreak",
   "table",
   "header",
   "footer",
   "other",
 ]);
+
+const PARAGRAPH_KEY = /^p[0-9a-z]{1,16}$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -67,24 +82,30 @@ const text = (value: unknown) => (typeof value === "string" ? value : "");
 export function readWordAtom(attributes: Record<string, unknown>): WordAtomAttributes {
   const kind = typeof attributes.kind === "string" && KINDS.has(attributes.kind);
   const info = isRecord(attributes.info) ? attributes.info : null;
+  const looks = Array.isArray(info?.looks)
+    ? info.looks.filter((key): key is string => typeof key === "string" && PARAGRAPH_KEY.test(key))
+    : [];
   return {
     kind: kind ? (attributes.kind as WordAtomKind) : "other",
     label: text(attributes.label),
     text: text(attributes.text),
     source: typeof attributes.source === "string" ? attributes.source : null,
+    hash: typeof attributes.hash === "string" ? attributes.hash : null,
     info: info && {
       ...(typeof info.author === "string" && { author: info.author }),
       ...(typeof info.date === "string" && { date: info.date }),
       ...(typeof info.field === "string" && { field: info.field }),
       ...(info.display === true && { display: true }),
       ...(typeof info.name === "string" && { name: info.name }),
+      ...(looks.length > 0 && { looks }),
     },
   };
 }
 
 /** What an atom reads as, for Questions, search and copying: the text it holds, or what it shows. */
 export function wordAtomText(atom: Pick<WordAtomAttributes, "kind" | "label" | "text">): string {
-  if (INVISIBLE_WORD_ATOMS.has(atom.kind) || atom.kind === "deletion") return "";
+  if (INVISIBLE_WORD_ATOMS.has(atom.kind) || BREAK_WORD_ATOMS.has(atom.kind)) return "";
+  if (atom.kind === "deletion") return "";
   // A comment and a footnote are notes beside the text, not part of it.
   if (atom.kind === "comment" || atom.kind === "footnote" || atom.kind === "endnote") return "";
   return atom.text || atom.label;
@@ -122,6 +143,45 @@ export function wordImportProgressOf(doc: Y.Doc): WordImportProgress | null {
 export function wordReportOf(doc: Y.Doc): WordImportReport | null {
   const report = wordMap(doc).get("report");
   return isRecord(report) ? (report as unknown as WordImportReport) : null;
+}
+
+export function setWordReport(doc: Y.Doc, report: WordImportReport): void {
+  wordMap(doc).set("report", report);
+}
+
+/** The highest first number a file's notes are read with: past it, a damaged file's, which starts at 1. */
+export const MAX_NOTE_START = 9999;
+
+const noteNumbering = (value: unknown) => {
+  if (!isRecord(value)) return null;
+  const { format, start } = value;
+  return {
+    format: typeof format === "string" && /^[A-Za-z]{1,40}$/.test(format) ? format : "decimal",
+    start:
+      typeof start === "number" && Number.isInteger(start) && start >= 0 && start <= MAX_NOTE_START
+        ? start
+        : 1,
+  };
+};
+
+/**
+ * How the Word file numbers its notes (#746); null for a Mind imported before
+ * its notes were its own, which `convertWordParts` hasn't converted yet.
+ */
+export function wordNoteNumberingOf(doc: Y.Doc): WordNoteNumbering | null {
+  const notes = wordMap(doc).get("notes");
+  if (!isRecord(notes)) return null;
+  return {
+    footnote: noteNumbering(notes.footnote) ?? { format: "decimal", start: 1 },
+    endnote: noteNumbering(notes.endnote) ?? { format: "lowerRoman", start: 1 },
+  };
+}
+
+export function setWordNoteNumbering(doc: Y.Doc, numbering: WordNoteNumbering): void {
+  wordMap(doc).set("notes", {
+    footnote: { ...numbering.footnote },
+    endnote: { ...numbering.endnote },
+  });
 }
 
 export function wordOriginOf(doc: Y.Doc): WordOrigin | null {
@@ -204,7 +264,11 @@ export function sorted(value: unknown, skip: ReadonlySet<string> = new Set()): u
   );
 }
 
-function canonical(node: Y.XmlElement | Y.XmlText, rejoin = true): unknown {
+/**
+ * A footnote's text is left out of what holds it: the note has a source and a
+ * fingerprint of its own (#746), so editing it doesn't make its paragraph edited.
+ */
+function canonical(node: Y.XmlElement | Y.XmlText, rejoin = true, root = true): unknown {
   if (node instanceof Y.XmlText) {
     const runs: [string, Record<string, unknown>][] = [];
     for (const run of node.toDelta() as {
@@ -233,14 +297,14 @@ function canonical(node: Y.XmlElement | Y.XmlText, rejoin = true): unknown {
     }
     return runs;
   }
-  return [
-    node.nodeName,
-    sorted(node.getAttributes(), NOT_CONTENT),
-    node
-      .toArray()
-      .filter((child) => child instanceof Y.XmlElement || child instanceof Y.XmlText)
-      .map((child) => canonical(child as Y.XmlElement | Y.XmlText, rejoin)),
-  ];
+  const children =
+    !root && node.nodeName === FOOTNOTE_NODE
+      ? []
+      : node
+          .toArray()
+          .filter((child) => child instanceof Y.XmlElement || child instanceof Y.XmlText)
+          .map((child) => canonical(child as Y.XmlElement | Y.XmlText, rejoin, false));
+  return [node.nodeName, sorted(node.getAttributes(), NOT_CONTENT), children];
 }
 
 /**

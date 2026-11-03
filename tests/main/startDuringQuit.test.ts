@@ -1,6 +1,35 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { reopenAfterQuit, startAgainIfStalled } from "../../src/main/startDuringQuit";
+import {
+  reopenAfterQuit,
+  restartAfterFailedUpdate,
+  startAgainIfStalled,
+} from "../../src/main/startDuringQuit";
+
+describe("a failed update after the quit guard committed", () => {
+  test.each(["problem", "relaunch", "closeCore"])(
+    "%s failing still makes the fresh-start attempt and exits the old core",
+    (fails) => {
+      const calls: string[] = [];
+      const run = (name: string) => {
+        calls.push(name);
+        if (name === fails) throw new Error(name);
+      };
+      const app = {
+        relaunch: () => run("relaunch"),
+        exit: () => run("exit"),
+      };
+      expect(() =>
+        restartAfterFailedUpdate(
+          app,
+          () => run("problem"),
+          () => run("closeCore"),
+        ),
+      ).toThrow(fails);
+      expect(calls).toEqual(["problem", "relaunch", "closeCore", "exit"]);
+    },
+  );
+});
 
 const quitEvent = () => ({
   defaultPrevented: false,
@@ -87,7 +116,7 @@ describe("a start that reaches a copy while it quits", () => {
   });
 });
 
-describe("a copy that took the data folder from one that was quitting", () => {
+describe("a copy that took Electron’s single-instance lock", () => {
   const argv = process.argv;
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -97,7 +126,7 @@ describe("a copy that took the data folder from one that was quitting", () => {
     vi.useRealTimers();
   });
 
-  const startingApp = (ready: boolean) => {
+  const startingApp = (ready: boolean, previousOwner = true) => {
     const calls: unknown[][] = [];
     const app = {
       whenReady: () => (ready ? Promise.resolve() : new Promise<void>(() => undefined)),
@@ -108,9 +137,9 @@ describe("a copy that took the data folder from one that was quitting", () => {
     const logged: unknown[] = [];
     startAgainIfStalled(
       app as unknown as Parameters<typeof startAgainIfStalled>[0],
-      () => calls.push(["letGoOfFolder"]),
       () => calls.push(["showProblem"]),
       { error: (...entry: unknown[]) => logged.push(entry) },
+      previousOwner,
     );
     return { calls, logged };
   };
@@ -123,12 +152,18 @@ describe("a copy that took the data folder from one that was quitting", () => {
     expect(logged).toEqual([]);
   });
 
-  test("with no `ready`, lets go of Electron's lock and then the folder, and starts again", () => {
+  test("an ordinary start with no previous owner does not arm recovery", () => {
+    const { calls, logged } = startingApp(false, false);
+    vi.runAllTimers();
+    expect(calls).toEqual([]);
+    expect(logged).toEqual([]);
+  });
+
+  test("with no `ready`, releases the native channel and retries, retaining data ownership until exit", () => {
     const { calls, logged } = startingApp(false);
     vi.runAllTimers();
     expect(calls).toEqual([
       ["releaseSingleInstanceLock"],
-      ["letGoOfFolder"],
       ["relaunch", { args: [...argv.slice(1), "--started-again-after-stall"] }],
       ["exit", 0],
     ]);
@@ -137,14 +172,9 @@ describe("a copy that took the data folder from one that was quitting", () => {
 
   test("started again and stalled again, it shows the problem and quits", () => {
     process.argv = [...argv, "--started-again-after-stall"];
-    const { calls, logged } = startingApp(false);
+    const { calls, logged } = startingApp(false, false);
     vi.runAllTimers();
-    expect(calls).toEqual([
-      ["releaseSingleInstanceLock"],
-      ["letGoOfFolder"],
-      ["showProblem"],
-      ["exit", 0],
-    ]);
+    expect(calls).toEqual([["releaseSingleInstanceLock"], ["showProblem"], ["exit", 0]]);
     expect(logged).toEqual([["app.startStalled", { again: true }]]);
   });
 

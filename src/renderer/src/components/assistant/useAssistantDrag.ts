@@ -192,5 +192,3 @@ export function useAssistantDrag({
     justDragged: () => ended.current,
   };
 }
-
-export type AssistantDragState = ReturnType<typeof useAssistantDrag>;

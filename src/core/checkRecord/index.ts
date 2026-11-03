@@ -10,24 +10,27 @@ import { mindName } from "../../shared/naming";
 import type { PrintPaper } from "../../shared/printDocument";
 import { readableQuoteText } from "../../shared/readableQuote";
 import { SCOPE_KINDS, type ScopeKind, scopeIds } from "../../shared/searchScope";
+import { checkUnreadOf } from "../../shared/unreadFiles";
 import type { Printer } from "../adapters";
 import type {
   ChatProvider,
   CheckRecordFormat,
   CitationAttributes,
   Document,
+  FigureScheduleRow,
   KeptCitationText,
   Mind,
+  UnreadFile,
 } from "../api";
 import { describeModel } from "../chatModelNames";
 import { TranslatableError } from "../errors";
-import { unifyIdeographs } from "../exports/pdfUnicode";
+import { printedPdf } from "../exports/printedPdf";
 import { safeFileName } from "../fileNames";
 import type { Language } from "../language";
 import { renderCsv } from "./csv";
 import { renderRecordHtml } from "./html";
 import { modelLabel, translatorFor } from "./labels";
-import { type CitationItem, readRecord, type SentenceItem } from "./read";
+import { type CitationItem, type RecordCiteItem, readRecord, type SentenceItem } from "./read";
 
 export interface CheckRecordDependencies {
   /** Throws `NotFoundError` unless the Mind exists. */
@@ -46,6 +49,10 @@ export interface CheckRecordDependencies {
   printer: Printer | null;
   paper(): PrintPaper;
   now(): string;
+  /** The note's Figure schedule: the figures of its one Check (#1932). */
+  figures(mindId: string): readonly FigureScheduleRow[];
+  /** The User, whose own check marks are theirs (#1933); null before they make one. */
+  personId(): string | null;
 }
 
 const GONE: Record<ScopeKind, MessageKey> = {
@@ -62,8 +69,12 @@ export interface CheckRecord {
   searched: string[];
   localMode: boolean;
   models: string[];
+  /** What the checks couldn't read when they started (#740); empty when they read everything. */
+  unread: UnreadFile[];
   sentences: SentenceItem[];
   citations: CitationItem[];
+  recordCites: RecordCiteItem[];
+  figures: readonly FigureScheduleRow[];
   language: Language;
 }
 
@@ -83,8 +94,8 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
     const language = deps.language();
     const providers = await deps.providers();
     const t = translatorFor(language);
-    const { sentences, citations } = deps.read(mind.id, (fragment) =>
-      readRecord({
+    const { sentences, citations, recordCites, unread } = deps.read(mind.id, (fragment) => {
+      const record = readRecord({
         fragment,
         documents: deps.documents(),
         kept: deps.keptCitationTexts(),
@@ -95,8 +106,13 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
           attributes.quote
             ? (deps.readableQuote(attributes) ?? readableQuoteText(attributes.quote))
             : null,
-      }),
-    );
+        personId: deps.personId(),
+      });
+      return {
+        ...record,
+        unread: fragment.doc ? checkUnreadOf(fragment.doc, record.requests) : [],
+      };
+    });
 
     const searched = new Set<string>();
     const models = new Map<string, number>();
@@ -125,8 +141,11 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
             ? t("checkRecord.models.one", { model })
             : t("checkRecord.models.other", { model, count }),
         ),
+      unread,
       sentences,
       citations,
+      recordCites,
+      figures: deps.figures(mind.id),
       language,
     };
   }
@@ -139,13 +158,13 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
       const record = await build(mindId);
       const { language } = record;
       const t = translatorFor(language);
-      const base = t("checkRecord.fileName", { name: safeFileName(record.mind, "Mind") });
+      const base = t("checkRecord.fileName", { name: safeFileName(record.mind, "Note") });
       return [
         {
           format: "pdf",
           async make() {
             if (!deps.printer) throw new TranslatableError({ key: "error.checkRecord.noPdf" });
-            const printed = await deps.printer.print({
+            const data = await printedPdf(deps.printer, {
               language,
               paper: deps.paper(),
               title: base,
@@ -153,7 +172,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
               notes: [],
               footer: t("checkRecord.note"),
             });
-            return { fileName: `${base}.pdf`, data: unifyIdeographs(printed) };
+            return { fileName: `${base}.pdf`, data };
           },
         },
         {

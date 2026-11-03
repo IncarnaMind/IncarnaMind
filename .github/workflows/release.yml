@@ -83,6 +83,19 @@ jobs:
           # -alpha and -beta included, asks first.
           MAIN_VITE_TESTER_BUILD: ${{ contains(github.ref_name, '-tester') && '1' || '' }}
 
+      # run_code's Python (ADR-0025), built on this runner for its platform and uploaded beside the
+      # installers. The app downloads it on first use and takes only the file whose size and SHA-256
+      # this writes into resources/python-native, which the packaging below ships. Windows has none yet.
+      # The uv scripts/pythonNative/pins.ts names: the build stops on any other.
+      - if: runner.os != 'Windows'
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.6"
+          enable-cache: false
+      - name: Build run_code's Python
+        if: runner.os != 'Windows'
+        run: npm run python:native -- --out dist --url "https://github.com/IncarnaMind/IncarnaMind/releases/download/$GITHUB_REF_NAME/" --cache "$RUNNER_TEMP/python-native-cache"
+
       # The three packaging steps build into dist/ and upload nothing: the upload is the last
       # step, once the package check has passed.
       # Signs with the Developer ID certificate and notarizes when the secrets exist.
@@ -122,14 +135,9 @@ jobs:
               echo "::warning title=macOS build not notarized::The app is signed, but there are no notarization secrets, so Gatekeeper will still block it."
             fi
           fi
-          # npm installed only this runner's speech package (sherpa-onnx-node's, #136): the x64
-          # app needs the x64 one beside it; each app keeps its own (electron-builder.yml).
-          version="$(node -p 'require("sherpa-onnx-node/package.json").version')"
-          npm pack "sherpa-onnx-darwin-x64@$version" --pack-destination "$RUNNER_TEMP"
-          mkdir -p node_modules/sherpa-onnx-darwin-x64
-          tar -xzf "$RUNNER_TEMP/sherpa-onnx-darwin-x64-$version.tgz" -C node_modules/sherpa-onnx-darwin-x64 --strip-components 1
+          # Apple silicon only: Macs with an Intel processor aren't supported (#2199).
           # $signing is unquoted on purpose: it holds zero or two arguments.
-          npx electron-builder --mac --arm64 --x64 --publish never $signing
+          npx electron-builder --mac --arm64 --publish never $signing
 
       # With the SIGNPATH_API_TOKEN secret, SignPath signs IncarnaMind.exe, then the installer
       # built from it (docs/releasing.md, Windows signing). Without it, the installer is unsigned
@@ -301,20 +309,28 @@ jobs:
       - name: Check the package contents and sizes
         run: npm run check:package
 
-      # The packaged arm64 app transcribes a meeting with its real speech engine and model, before
-      # anything is uploaded (#1239): #1233 broke transcription only in the built app.
+      # The packaged app for this runner loads each engine module in the process that runs it and
+      # starts Python, before anything is uploaded (#1239): a module can fail to load only in the
+      # built app. The step fails naming the module. On macOS the check runs with the other packaged
+      # specs in the step after this one.
+      - if: runner.os != 'macOS'
+        uses: ./.github/actions/packaged-engines
+
+      # The packaged arm64 app loads every engine module, reads scans with real OCR (#1819) and
+      # transcribes a meeting with its real speech engine and model (#1239).
       - if: runner.os == 'macOS'
         uses: ./.github/actions/packaged-transcription
 
       # What electron-builder would have published: the installers, their blockmaps and the
-      # latest*.yml files auto-update reads (not builder-debug.yml), to the draft made above.
+      # latest*.yml files auto-update reads (not builder-debug.yml), and run_code's Python, to the
+      # draft made above.
       - name: Upload to the draft release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           shopt -s nullglob
-          files=(dist/*.dmg dist/*.zip dist/*.exe dist/*.AppImage dist/*.deb dist/*.blockmap dist/latest*.yml)
+          files=(dist/*.dmg dist/*.zip dist/*.exe dist/*.AppImage dist/*.deb dist/*.blockmap dist/latest*.yml dist/python-runtime-*.tar.zst)
           if [ ${#files[@]} -eq 0 ]; then
             echo "::error::Nothing to upload in dist/."
             exit 1

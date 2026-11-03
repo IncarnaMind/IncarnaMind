@@ -19,6 +19,7 @@
  * route, and Tev1 4B filed 71 of 75 text Documents to qwen3.5:4b's 59.
  */
 import type { ChatModelChoice, ChatProvider, ExternalService } from "../api";
+import { priceFor } from "../cost/price";
 import { catalogProvider, catalogRoleModel } from "../providers/catalog";
 import type { DescribedModel } from "../providers/chat";
 import { serviceForUrl } from "../providers/kinds";
@@ -28,6 +29,7 @@ import type {
   LibraryClassifier,
   TaggingClassifier,
   TaggingCost,
+  TaggingDestination,
   TaggingModelGroup,
   TaggingModelOption,
   TaggingModels,
@@ -120,8 +122,9 @@ export function automaticTagging(input: {
 /** About what 100 Documents cost at a price per million tokens. */
 export function costPer100(price: DescribedModel["price"]): TaggingCost {
   if (!price) return { kind: "unknown" };
+  const paid = priceFor(price, TYPICAL_REQUEST.input);
   const amount =
-    ((TYPICAL_REQUEST.input * price.input + TYPICAL_REQUEST.output * price.output) * 100) / 1e6;
+    ((TYPICAL_REQUEST.input * paid.input + TYPICAL_REQUEST.output * paid.output) * 100) / 1e6;
   return { kind: "estimate", currency: price.currency, amount };
 }
 
@@ -158,9 +161,17 @@ export type Tagging = ReturnType<typeof createTagging>;
 
 export function createTagging(options: TaggingOptions) {
   const { chat, jev } = options;
-  const lists = new Map<string, { at: number; models: readonly string[] }>();
+  /** What Ollama said it has installed, by address: when it was asked, in order and in time. */
+  const lists = new Map<string, { order: number; at: number; models: readonly string[] }>();
+  let listsAsked = 0;
   /** What the last resolution gave, for the checks that can't wait (see `lastResolved`). */
   let last: TaggingClassifier | null = null;
+  /**
+   * The order of the list of installed models Automatic's last pick was made from: a pick from an
+   * older list doesn't replace it, however late it ends, as a lookup that asked Ollama afresh can
+   * end after one that read what it said before (#2302).
+   */
+  let lastList = 0;
 
   /**
    * Ollama on this computer: a saved Ollama provider's address there, else the
@@ -171,12 +182,19 @@ export function createTagging(options: TaggingOptions) {
     providers.find((each) => each.kind === "ollama" && each.baseUrl && each.service === null)
       ?.baseUrl ?? (serviceForUrl(options.ollamaUrl) ? null : options.ollamaUrl);
 
-  async function installedModels(baseUrl: string, fresh = false): Promise<readonly string[]> {
+  /** What Ollama has installed, with the order the list was asked for in. */
+  async function installedModels(
+    baseUrl: string,
+    fresh = false,
+  ): Promise<{ order: number; models: readonly string[] }> {
     const cached = lists.get(baseUrl);
-    if (!fresh && cached && options.now() - cached.at < INSTALLED_TTL_MS) return cached.models;
+    const asked = { order: ++listsAsked, at: options.now() };
+    if (!fresh && cached && asked.at - cached.at < INSTALLED_TTL_MS) return cached;
     const models = await options.localModels(baseUrl);
-    lists.set(baseUrl, { at: options.now(), models });
-    return models;
+    // A list asked for after this one and answered first is newer (#2302).
+    const kept = lists.get(baseUrl);
+    if (!kept || kept.order < asked.order) lists.set(baseUrl, { ...asked, models });
+    return { order: asked.order, models };
   }
 
   /**
@@ -202,10 +220,15 @@ export function createTagging(options: TaggingOptions) {
     } as const;
   }
 
-  async function automatic(fresh = false): Promise<AutomaticTagging | null> {
+  /** Automatic's pick, and the order of the list of installed models it was made from. */
+  async function automatic(
+    fresh = false,
+  ): Promise<{ picked: AutomaticTagging | null; list: number }> {
     const providers = await chat.list();
     const baseUrl = ollamaUrl(providers);
-    const models = baseUrl ? await installedModels(baseUrl, fresh) : [];
+    const { order: list, models } = baseUrl
+      ? await installedModels(baseUrl, fresh)
+      : { order: ++listsAsked, models: [] };
     const defaultModel = chat.defaultModel();
     const described = defaultModel ? chat.describeModel(defaultModel) : undefined;
     // On this computer: the default chat model, else Ollama's own small model when it is installed.
@@ -217,14 +240,22 @@ export function createTagging(options: TaggingOptions) {
         : ollama && ollamaModel && hasOllamaModel(models, ollamaModel)
           ? { providerId: ollama.id, modelId: ollamaModel }
           : null;
-    return automaticTagging({
+    const picked = automaticTagging({
       localOnly: options.localOnly(),
       jev: { enabled: jev.enabled(), local: jev.service() === null },
       chat: described ? providerTagging(described) : null,
       decision: baseUrl ? { baseUrl, models } : null,
       localChat,
     });
+    return { picked, list };
   }
+
+  /** Keeps Automatic's pick for `lastResolved`, unless the last one came from a newer list. */
+  const keepPick = (classifier: TaggingClassifier | null, list: number) => {
+    if (list < lastList) return;
+    lastList = list;
+    last = classifier;
+  };
 
   /**
    * The model a setting tags with: itself, or Automatic's pick (null when there is none).
@@ -234,9 +265,13 @@ export function createTagging(options: TaggingOptions) {
     setting: LibraryClassifier = options.setting(),
     fresh = false,
   ): Promise<TaggingClassifier | null> {
-    const resolved =
-      setting.kind === "automatic" ? ((await automatic(fresh))?.classifier ?? null) : setting;
-    last = resolved;
+    if (setting.kind !== "automatic") {
+      last = setting;
+      return setting;
+    }
+    const { picked, list } = await automatic(fresh);
+    const resolved = picked?.classifier ?? null;
+    keepPick(resolved, list);
     return resolved;
   }
 
@@ -313,6 +348,22 @@ export function createTagging(options: TaggingOptions) {
     }
   }
 
+  const serviceOf = (classifier: TaggingClassifier): ExternalService | null => {
+    if (classifier.kind === "jev") return jev.service();
+    if (classifier.kind === "chat") return chat.describeModel(classifier.choice)?.service ?? null;
+    return serviceForUrl(classifier.baseUrl);
+  };
+
+  /** Where a saved choice sends its requests; unknown when what it names isn't there. */
+  function destinationOf(classifier: TaggingClassifier): TaggingDestination {
+    if (classifier.kind === "chat" && !chat.describeModel(classifier.choice)) {
+      return { kind: "unknown" };
+    }
+    if (classifier.kind === "jev" && !jev.enabled()) return { kind: "unknown" };
+    const service = serviceOf(classifier);
+    return service ? { kind: "service", service } : { kind: "here" };
+  }
+
   return {
     resolve,
 
@@ -328,23 +379,19 @@ export function createTagging(options: TaggingOptions) {
      * Clef-Flash. Null when none is installed.
      */
     async textDecisionModel(baseUrl: string): Promise<string | null> {
-      const models = await installedModels(baseUrl);
+      const { models } = await installedModels(baseUrl);
       return DECISION_MODELS.find((model) => hasOllamaModel(models, model)) ?? null;
     },
 
     /** Where a model that tags sends its requests; null for one on this computer. */
-    service(classifier: TaggingClassifier): ExternalService | null {
-      if (classifier.kind === "jev") return jev.service();
-      if (classifier.kind === "chat") return chat.describeModel(classifier.choice)?.service ?? null;
-      return serviceForUrl(classifier.baseUrl);
-    },
+    service: serviceOf,
 
     /** What the Tagging section shows (see `CoreApi.getTaggingModels`). */
     async models(): Promise<TaggingModels> {
-      const picked = await automatic(true);
+      const { picked, list: pickedFrom } = await automatic(true);
       const providers = await chat.list();
       const baseUrl = ollamaUrl(providers);
-      const models = baseUrl ? await installedModels(baseUrl) : [];
+      const models = baseUrl ? (await installedModels(baseUrl)).models : [];
       const defaultModel = chat.defaultModel();
       const list: TaggingModelOption[] = [];
       const add = (option: TaggingModelOption | null) => {
@@ -398,13 +445,18 @@ export function createTagging(options: TaggingOptions) {
         (a, b) =>
           order[a.group] - order[b.group] || Number(b.goodForTagging) - Number(a.goodForTagging),
       );
-      if (options.setting().kind === "automatic") last = picked?.classifier ?? null;
+      const saved = options.setting();
+      if (saved.kind === "automatic") keepPick(picked?.classifier ?? null, pickedFrom);
       const option = picked && optionOf(picked.classifier, PICKED_FOR_TAGGING.has(picked.reason));
       return {
         automatic: option && picked ? { ...option, reason: picked.reason } : null,
         options: list,
         localMode: options.localOnly(),
         planPausedUntil: options.planPausedUntil(),
+        saved:
+          saved.kind === "automatic"
+            ? null
+            : { classifier: saved, destination: destinationOf(saved) },
       };
     },
   };

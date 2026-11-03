@@ -1,13 +1,14 @@
 import type { Document } from "../../core/api";
 import type { MessageKey } from "../../shared/i18n";
+import { userFile } from "./fileInfo";
 
 /** What a Document that needs attention says, in plain words, and what can be done about it. */
 export interface DocumentFix {
   reason: MessageKey;
   /** Open its file in the system's app for it: it can be repaired, or unlocked, there. */
   open: boolean;
-  /** Read it again from its file, in the words of the button. */
-  retry: "retry" | "readAgain" | null;
+  /** Read it again, or open it in the app that can print a flattened copy. */
+  retry: "retry" | "readAgain" | "print" | null;
 }
 
 /**
@@ -21,7 +22,14 @@ export function documentFix(doc: Document): DocumentFix | null {
     return { reason: "library.fix.empty", open: false, retry: here ? "retry" : null };
   }
   if (doc.status === "no-text") {
-    return { reason: "library.fix.scan", open: here, retry: here ? "readAgain" : null };
+    // Only a scan and a picture are said so; another file with no text is empty.
+    const reason =
+      doc.kind === "pdf"
+        ? "library.fix.scan"
+        : doc.kind === "image"
+          ? "library.fix.pictureNoText"
+          : "library.fix.empty";
+    return { reason, open: here, retry: here ? "readAgain" : null };
   }
   if (doc.status !== "failed" || !doc.failure) return null;
   switch (doc.failure.reason) {
@@ -35,8 +43,16 @@ export function documentFix(doc: Document): DocumentFix | null {
       return { reason: "library.fix.password", open: here, retry: here ? "retry" : null };
     case "too-large":
       return { reason: "library.fix.tooLarge", open: here, retry: null };
+    case "picture-unreadable":
+      return { reason: "library.fix.pictureUnreadable", open: here, retry: null };
     case "pages-unread":
-      return { reason: "library.fix.pages", open: here, retry: here ? "readAgain" : null };
+      return {
+        reason: doc.kind === "image" ? "library.fix.picture" : "library.fix.pages",
+        open: here,
+        retry: here ? "readAgain" : null,
+      };
+    case "forms-unread":
+      return { reason: "library.fix.forms", open: here, retry: here ? "print" : null };
     case "processing-error":
       return { reason: "library.fix.processing", open: false, retry: here ? "retry" : null };
     case "app-stopped":
@@ -45,3 +61,10 @@ export function documentFix(doc: Document): DocumentFix | null {
       return null;
   }
 }
+
+/**
+ * Whether the fix's Open in default app applies: the file is the User's to
+ * open. A web page's snapshot and a Transcript have no such file (#763).
+ */
+export const canOpenFix = (doc: Document): boolean =>
+  documentFix(doc)?.open === true && userFile(doc);

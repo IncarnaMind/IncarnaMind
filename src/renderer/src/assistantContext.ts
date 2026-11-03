@@ -40,8 +40,9 @@ export function readsLine(
  * its Folder's or Tag's name, a Document's, "3 files" for Documents alone,
  * or All Documents; then "+N" for the rest of its scope and `extra` scopes
  * besides (a Connector's). A Folder deleted since is still named, it was
- * searched then; one gone without its name is a "Deleted Folder", never left
- * out: an Answer that searched nothing doesn't read as having searched everything.
+ * searched then; one gone without its name says "Deleted Folder", never left
+ * out: an Answer that searched nothing doesn't read as having searched
+ * everything. That is a placeholder, not a name, so it is not quoted.
  */
 export function stepsScope(t: Translate, scope: readonly ScopeChip[], extra = 0): string {
   const first = scope.find((chip) => chip.kind !== "document") ?? scope[0];
@@ -50,7 +51,9 @@ export function stepsScope(t: Translate, scope: readonly ScopeChip[], extra = 0)
     ? t("steps.scope.all")
     : files
       ? t("steps.scope.files", { count: scope.length })
-      : t("steps.scope.named", { name: first.name ?? t(DELETED_NAMES[first.kind]) });
+      : first.name
+        ? t("steps.scope.named", { name: first.name })
+        : t(DELETED_NAMES[first.kind]);
   const more = (first && !files ? scope.length - 1 : 0) + extra;
   return more > 0 ? t("steps.scope.more", { scope: label, count: more, total: more + 1 }) : label;
 }

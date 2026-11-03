@@ -4,26 +4,42 @@
 //      means the `files` patterns in electron-builder.yml let the whole folder in.
 //   2. Each app.asar and each installer is within its size budget.
 //   3. Each app has the speech-to-text addon (#136) of its own platform and architecture, and no
-//      other, unpacked beside app.asar.
+//      other, unpacked beside app.asar. On Windows its ONNX Runtime library is the app's own, byte
+//      for byte (#2152).
 //   4. Each app has what Analyses run with (ADR-0023) in python/ beside app.asar, as
-//      packages.json lists it.
+//      packages.json lists it, each wheel and font audited for what it bundles, and the notices
+//      beside it credit each of those with its licence text (scripts/pythonNotices.mjs).
+//   5. macOS is Apple silicon only (#2199): no app that runs on Intel Macs (lipo reads each one's
+//      architectures on macOS), no Intel or universal installer, and latest-mac.yml, which the
+//      auto-updater reads, offers arm64 files and nothing else.
+//   6. Each macOS and Linux x64 app has python-native/runtime.json beside app.asar, with the size
+//      and SHA-256 of the Python run_code downloads on first use (ADR-0025), for its own platform;
+//      and no app holds that archive, which is never shipped (npm run python:native).
 // Usage: node scripts/check-package.mjs [dist-folder]   (default: dist)
 // Exit code 1 when a check fails.
+import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { listPackage } from "@electron/asar";
+import { speechRuntimes } from "./afterPack.mjs";
+import { noticeProblems } from "./pythonNotices.mjs";
 
 const ALLOWED_TOP_LEVEL = new Set(["out", "node_modules", "package.json"]);
 
 // Set from the fixed macOS arm64 build (app.asar 130.8 MB) plus about 20%. The asar holds
 // JavaScript and pure-JS dependencies; the native libraries are unpacked beside it.
 const MAX_ASAR_BYTES = 157_000_000;
-// The largest installer, the Linux AppImage with what Analyses run with (231.3 MB, ADR-0023),
-// plus about 14 MB: the next real growth trips it, to be argued for. The macOS and Windows
-// installers are checked against the same limit.
-const MAX_INSTALLER_BYTES = 245_000_000;
-// The .deb of the Linux x64 build (170 MB before Analyses, which add about 14 MB) plus about 15 MB.
-const MAX_DEB_BYTES = 199_000_000;
+// Each installer's limit: its size in 0.1.0-alpha.5, the 37.5 MB that ADR-0025's packages and
+// plot font added to the macOS dmg (229.9 to 267.4 MB, built locally from main and from #2346),
+// and about 5 MB, so a mistake of that size trips it. A PR's CI builds no installers; the release
+// build is the first to measure the others.
+const MAX_INSTALLER_BYTES = {
+	".AppImage": 275_000_000,
+	".dmg": 270_000_000,
+	".zip": 263_000_000,
+	".exe": 242_000_000,
+	".deb": 226_000_000,
+};
 
 const distDir = resolve(process.argv[2] ?? "dist");
 const INSTALLER_EXT = /\.(dmg|zip|exe|AppImage|deb)$/;
@@ -85,7 +101,6 @@ for (const asar of asars) {
 /** The speech package each app should have, from the folder electron-builder put it in. */
 function speechPackageFor(asar) {
 	if (asar.includes(`${sep}mac-arm64${sep}`)) return "sherpa-onnx-darwin-arm64";
-	if (asar.includes(`${sep}mac${sep}`) || asar.includes(`${sep}mac-x64${sep}`)) return "sherpa-onnx-darwin-x64";
 	if (asar.includes(`${sep}win-unpacked${sep}`)) return "sherpa-onnx-win-x64";
 	if (asar.includes(`${sep}linux-unpacked${sep}`)) return "sherpa-onnx-linux-x64";
 	if (asar.includes(`${sep}linux-arm64-unpacked${sep}`)) return "sherpa-onnx-linux-arm64";
@@ -108,15 +123,28 @@ for (const asar of asars) {
 	if (others.length > 0) {
 		failures.push(`${asar} carries another platform's speech package: ${others.join(", ")}`);
 	}
+	if (expected === "sherpa-onnx-win-x64") {
+		for (const { speech, sharedProviders, app } of await speechRuntimes(modules)) {
+			if (!existsSync(speech) || !existsSync(app) || !readFileSync(speech).equals(readFileSync(app))) {
+				failures.push(`${speech} isn't the app's own ONNX Runtime library (#2152)`);
+			}
+			if (existsSync(sharedProviders)) {
+				failures.push(`${sharedProviders} is the speech package's, beside the app's runtime (#2152)`);
+			}
+		}
+	}
 }
 
 for (const asar of asars) {
 	const python = join(dirname(asar), "python");
 	let listed = [];
+	let packages = [];
+	let fonts = [];
 	try {
-		listed = JSON.parse(readFileSync(join(python, "packages.json"), "utf8")).packages.map(
-			(each) => each.file,
-		);
+		const listing = JSON.parse(readFileSync(join(python, "packages.json"), "utf8"));
+		packages = listing.packages;
+		fonts = listing.fonts ?? [];
+		listed = [...packages.map((each) => each.file), ...fonts];
 	} catch {
 		failures.push(`${asar} has no python/packages.json beside it`);
 		continue;
@@ -127,15 +155,89 @@ for (const asar of asars) {
 	);
 	if (missing.length > 0) {
 		failures.push(`${asar} is missing Python files beside it: ${missing.join(", ")}`);
+		continue;
+	}
+	const notice = readFileSync(join(dirname(asar), "notices", "python.txt"), "utf8");
+	for (const problem of noticeProblems(notice, packages, fonts)) failures.push(`${asar}: ${problem}`);
+}
+
+/** The platform of the Python run_code downloads for the app of `asar`; null where there is none. */
+function nativePythonPlatform(asar) {
+	if (asar.includes(`${sep}mac-arm64${sep}`)) return "darwin-arm64";
+	if (asar.includes(`${sep}linux-unpacked${sep}`)) return "linux-x64";
+	return null;
+}
+
+for (const asar of asars) {
+	const app = join(distDir, relative(distDir, asar).split(sep)[0] ?? "");
+	for (const archive of files.filter((file) => file.startsWith(`${app}${sep}`))) {
+		if (/^python-runtime-.*\.tar\.zst$/.test(basename(archive))) {
+			failures.push(`${archive} is run_code's Python, which the app downloads and never ships`);
+		}
+	}
+	const platform = nativePythonPlatform(asar);
+	if (!platform) continue;
+	let runtime;
+	try {
+		runtime = JSON.parse(readFileSync(join(dirname(asar), "python-native", "runtime.json"), "utf8"));
+	} catch {
+		failures.push(`${asar} has no python-native/runtime.json beside it (npm run python:native)`);
+		continue;
+	}
+	if (!/^[0-9a-f]{64}$/.test(runtime?.sha256) || !Number.isSafeInteger(runtime?.size) || runtime.size <= 0) {
+		failures.push(`${asar}: python-native/runtime.json gives no SHA-256 and size for run_code's Python`);
+	}
+	if (runtime?.platform !== platform) {
+		failures.push(`${asar}: python-native/runtime.json is for ${runtime?.platform}, not ${platform}`);
+	}
+	if (!String(runtime?.url).startsWith("https://")) {
+		failures.push(`${asar}: python-native/runtime.json downloads run_code's Python from ${runtime?.url}, not over https`);
 	}
 }
 
 for (const file of files.filter(isInstaller)) {
 	const size = statSync(file).size;
-	const budget = file.endsWith(".deb") ? MAX_DEB_BYTES : MAX_INSTALLER_BYTES;
+	const budget = MAX_INSTALLER_BYTES[extname(file)];
 	console.log(`${file}: ${mb(size)}`);
 	if (size > budget) {
 		failures.push(`${file} is ${mb(size)}, over the ${mb(budget)} installer budget`);
+	}
+}
+
+/**
+ * The architectures a macOS app in dist/ runs on: what lipo reads in its executable where lipo
+ * runs (macOS), otherwise what its folder's name says. Null for another system's app.
+ */
+function macArchitectures(asar) {
+	const folder = relative(distDir, asar).split(sep)[0] ?? "";
+	if (!/^mac(-|$)/.test(folder)) return null;
+	const programs = join(dirname(asar), "..", "MacOS");
+	const [executable] = existsSync(programs) ? readdirSync(programs) : [];
+	if (executable) {
+		const lipo = spawnSync("lipo", ["-archs", join(programs, executable)], { encoding: "utf8" });
+		if (lipo.status === 0) return lipo.stdout.trim().split(/\s+/);
+	}
+	return { "mac-arm64": ["arm64"], "mac-universal": ["x86_64", "arm64"] }[folder] ?? ["x86_64"];
+}
+
+const intelApps = asars.filter((asar) =>
+	(macArchitectures(asar) ?? []).some((architecture) => architecture !== "arm64"),
+);
+const intelInstallers = files
+	.filter(isInstaller)
+	.filter((file) => /-mac-(?!arm64\.)/.test(basename(file)));
+for (const intel of [...intelApps, ...intelInstallers]) {
+	failures.push(`${intel} is for Intel Macs, which aren't supported (#2199)`);
+}
+const macUpdates = join(distDir, "latest-mac.yml");
+if (existsSync(macUpdates)) {
+	const offered = [
+		...readFileSync(macUpdates, "utf8").matchAll(/^\s*(?:-\s*)?(?:url|path):\s*(\S+)/gm),
+	].map(([, file]) => file);
+	const notArm = offered.filter((file) => !file.includes("-arm64."));
+	if (offered.length === 0) failures.push("latest-mac.yml offers no file to update to");
+	if (notArm.length > 0) {
+		failures.push(`latest-mac.yml offers files that aren't for Apple silicon: ${notArm.join(", ")}`);
 	}
 }
 

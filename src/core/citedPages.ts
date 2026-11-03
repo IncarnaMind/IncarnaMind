@@ -11,6 +11,9 @@
  *   being written, and a drawing under way gives way when one starts. What
  *   waits is kept in the database, so a drawing a quit cut short is made at
  *   the next start, if the file still has that version.
+ * - A page whose drawing failed waits too, and is tried again at a later
+ *   chance: the next start, another Citation of its Location, or its page
+ *   asked for. After `MAX_TRIES` failures only another Citation tries again.
  * - A PDF's pages are drawn by the page-image worker; every other kind by its
  *   viewer, off screen (`CoreAdapters.capturePage`).
  * - A picture is kept while a Citation or a Checkpoint points at it, and
@@ -34,7 +37,7 @@ import {
 import type { BackgroundCall, BackgroundJob, BackgroundQueue } from "./backgroundQueue";
 import { hashFile, isGone } from "./documents/files";
 import type { createVersionRetention } from "./documents/retention";
-import { InvalidInputError, isRecord } from "./errors";
+import { InvalidInputError, isRecord, NotFoundError } from "./errors";
 import type { Database } from "./storage";
 
 /** The data folder's folder of cited pages' pictures, each `<id>.png` or `<id>.jpg`. */
@@ -42,6 +45,9 @@ export const CITED_PAGES_FOLDER = "Cited pages";
 
 /** The largest picture kept, in bytes. */
 const MAX_BYTES = 32 * 1024 * 1024;
+
+/** How many drawings of a page may fail before only another Citation tries again (#2161). */
+const MAX_TRIES = 3;
 
 const EXTENSIONS: Readonly<Record<DrawnPage["type"], string>> = {
   "image/jpeg": "jpg",
@@ -167,10 +173,11 @@ interface Row {
   width: number | null;
   height: number | null;
   text: string | null;
+  tries: number;
 }
 
 const COLUMNS =
-  "id, document_id, content_hash, page_from, page_to, area, image_type, width, height, text";
+  "id, document_id, content_hash, page_from, page_to, area, image_type, width, height, text, tries";
 
 const imageType = (stored: string | null): DrawnPage["type"] | null =>
   stored === "image/jpeg" || stored === "image/png" ? stored : null;
@@ -184,6 +191,20 @@ const fileName = (id: string, type: DrawnPage["type"]) => `${id}.${EXTENSIONS[ty
 function reasonOf(error: unknown): string {
   if (isRecord(error) && typeof error.code === "string") return error.code;
   return error instanceof Error ? error.message : "unknown";
+}
+
+/**
+ * The file doesn't have the version cited, isn't there, or didn't keep the version while its
+ * page was drawn: the page waits for that version, and no drawing failed.
+ */
+class NotTheVersionCited extends Error {}
+
+/** A file found not there is one without the version cited (#2161): the Library may not know yet. */
+function fileGone(error: unknown): never {
+  if (error instanceof NotFoundError || isGone(error)) {
+    throw new NotTheVersionCited("The Document's file isn't there.", { cause: error });
+  }
+  throw error;
 }
 
 export interface CitedPagesOptions {
@@ -214,23 +235,34 @@ export function createCitedPages(options: CitedPagesOptions) {
   const lifetime = new AbortController();
   /** The turn in the background queue, while one is queued or running. */
   let turn: BackgroundJob | null = null;
+  /** The page being drawn, and whether a Citation of its Location was made meanwhile. */
+  let drawing: { id: string; citedAgain: boolean } | null = null;
+  /**
+   * Pages not drawn again in this run, as their file lacks the version cited or their drawing
+   * failed: each waits for a later chance.
+   */
+  const resting = new Set<string>();
 
   const drawable = (document: Document) =>
     document.kind === "pdf" || options.capturePage !== undefined;
 
   const waiting = () =>
-    db.get<Row>(
-      `SELECT ${COLUMNS} FROM cited_pages WHERE deleted_at IS NULL AND image_type IS NULL
-       ORDER BY created_at, rowid LIMIT 1`,
-    );
+    db
+      .all<Row>(
+        `SELECT ${COLUMNS} FROM cited_pages
+         WHERE deleted_at IS NULL AND image_type IS NULL AND tries < ?
+         ORDER BY created_at, rowid`,
+        [MAX_TRIES],
+      )
+      .find((row) => !resting.has(row.id));
 
   async function draw(row: Row, signal: AbortSignal): Promise<DrawnPage> {
     const document = options.document(row.document_id);
-    if (!document) throw new Error("The Document was deleted.");
+    if (!document) throw new NotTheVersionCited("The Document was deleted.");
     if (document.contentHash !== row.content_hash) {
-      throw new Error("The Document changed since it was cited.");
+      throw new NotTheVersionCited("The Document changed since it was cited.");
     }
-    const path = await options.filePath(row.document_id);
+    const path = await options.filePath(row.document_id).catch(fileGone);
     if (document.kind === "pdf") {
       const pages = Array.from(
         { length: row.page_to - row.page_from + 1 },
@@ -241,18 +273,18 @@ export function createCitedPages(options: CitedPagesOptions) {
     const capture = options.capturePage;
     if (!capture) throw new Error("This copy of IncarnaMind can't draw cited pages.");
     // The viewer reads the file as it is on disk, so it must be the version cited throughout.
-    const before = await stat(path);
-    if ((await hashFile(path)).contentHash !== row.content_hash) {
-      throw new Error("The Document changed since it was cited.");
+    const before = await stat(path).catch(fileGone);
+    if ((await hashFile(path).catch(fileGone)).contentHash !== row.content_hash) {
+      throw new NotTheVersionCited("The Document changed since it was cited.");
     }
     const area = parseArea(row.area);
     const page = await capture(
       { document, pageFrom: row.page_from, pageTo: row.page_to, area },
       signal,
     );
-    const after = await stat(path);
+    const after = await stat(path).catch(fileGone);
     if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
-      throw new Error("The Document changed while its page was drawn.");
+      throw new NotTheVersionCited("The Document changed while its page was drawn.");
     }
     return page;
   }
@@ -293,29 +325,59 @@ export function createCitedPages(options: CitedPagesOptions) {
     });
   }
 
-  /** A page that can't be drawn isn't: a later Citation of its Location tries again. */
+  /**
+   * A page not saved still waits, for a later chance; the log says why, and how many drawings
+   * have failed. One whose file didn't have the version cited isn't counted.
+   */
   function notSaved(row: Row, error: unknown): void {
-    log.warn("citedPage.notSaved", { documentId: row.document_id, reason: reasonOf(error) });
-    const at = now();
-    db.run(
-      "UPDATE cited_pages SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
-      [at, at, row.id],
-    );
+    const counted = !(error instanceof NotTheVersionCited);
+    // Counted where it is stored: a Citation made during the drawing set the count back.
+    const stored = counted
+      ? db.get<{ tries: number }>(
+          `UPDATE cited_pages SET tries = tries + 1, updated_at = ?
+           WHERE id = ? AND deleted_at IS NULL RETURNING tries`,
+          [now(), row.id],
+        )
+      : db.get<{ tries: number }>("SELECT tries FROM cited_pages WHERE id = ?", [row.id]);
+    const tries = stored?.tries ?? row.tries;
+    log.warn("citedPage.notSaved", {
+      documentId: row.document_id,
+      reason: reasonOf(error),
+      tries,
+      lasting: tries >= MAX_TRIES,
+    });
+    if (!drawing?.citedAgain) resting.add(row.id);
   }
 
   /** Draws and saves the page that has waited longest: one turn in the background queue. */
   async function saveNext(call: BackgroundCall): Promise<void> {
     const row = waiting();
     if (!row) return;
+    const document = options.document(row.document_id);
+    if (
+      !document ||
+      document.contentHash !== row.content_hash ||
+      document.fileStatus !== "available" ||
+      !drawable(document)
+    ) {
+      resting.add(row.id);
+      return;
+    }
     // It is drawn on this computer: an Answer that starts comes first, and this goes again after.
     call.runsLocally();
+    drawing = { id: row.id, citedAgain: false };
     try {
       const page = checked(await draw(row, call.signal));
       if (lifetime.signal.aborted) return;
       await save(row, page);
+      if (row.tries > 0) {
+        log.info("citedPage.saved", { documentId: row.document_id, tries: row.tries + 1 });
+      }
     } catch (error) {
       if (lifetime.signal.aborted || call.gaveWay) return;
       notSaved(row, error);
+    } finally {
+      drawing = null;
     }
   }
 
@@ -344,8 +406,9 @@ export function createCitedPages(options: CitedPagesOptions) {
   return {
     /**
      * Citations were made: each one's page waits to be drawn, unless its
-     * Location of that version is saved or waiting already. Only the version
-     * a Document's file has now can be drawn.
+     * Location of that version is saved already; one waiting is tried again,
+     * its failed drawings forgotten. Only the version a Document's file has
+     * now can be drawn.
      */
     citationsMade(citations: readonly CitedPlace[]): void {
       if (lifetime.signal.aborted) return;
@@ -371,13 +434,24 @@ export function createCitedPages(options: CitedPagesOptions) {
             place.pageTo,
             place.area,
           ];
-          const known = db.get(
-            `SELECT 1 FROM cited_pages
+          const known = db.get<Pick<Row, "id" | "image_type">>(
+            `SELECT id, image_type FROM cited_pages
              WHERE document_id = ? AND content_hash = ? AND page_from = ? AND page_to = ?
                AND area = ? AND deleted_at IS NULL`,
             params,
           );
-          if (known) continue;
+          if (known) {
+            if (known.image_type === null) {
+              db.run(
+                "UPDATE cited_pages SET tries = 0, updated_at = ? WHERE id = ? AND tries > 0",
+                [at, known.id],
+              );
+              resting.delete(known.id);
+              if (drawing?.id === known.id) drawing.citedAgain = true;
+              added = true;
+            }
+            continue;
+          }
           db.run(
             `INSERT INTO cited_pages (id, document_id, content_hash, page_from, page_to, area,
                created_at, updated_at)
@@ -395,7 +469,10 @@ export function createCitedPages(options: CitedPagesOptions) {
       schedule();
     },
 
-    /** A Citation's saved page, read from its file; null if none is saved. */
+    /**
+     * A Citation's saved page, read from its file; null if none is saved. One that waits for a
+     * later chance is tried again.
+     */
     async image(citation: unknown): Promise<DrawnPage | null> {
       if (!isRecord(citation)) throw new InvalidInputError("A Citation must be an object.");
       const place = placeOf(citation);
@@ -403,9 +480,10 @@ export function createCitedPages(options: CitedPagesOptions) {
       const row = db.get<Row>(
         `SELECT ${COLUMNS} FROM cited_pages
          WHERE document_id = ? AND content_hash = ? AND page_from = ? AND page_to = ?
-           AND area = ? AND deleted_at IS NULL AND image_type IS NOT NULL`,
+           AND area = ? AND deleted_at IS NULL`,
         [place.documentId, place.contentHash, place.pageFrom, place.pageTo, place.area],
       );
+      if (row?.image_type === null && resting.delete(row.id)) schedule();
       const type = imageType(row?.image_type ?? null);
       if (!row || !type || !row.width || !row.height) return null;
       let data: Buffer;
@@ -457,7 +535,10 @@ export function createCitedPages(options: CitedPagesOptions) {
         },
         collect() {
           const units: CitedUnits[] = [];
-          retention.addRetainedUnits(new Set(byDocument.keys()), units, ["checkpoint"]);
+          retention.addRetainedUnits(new Set(byDocument.keys()), units, [
+            "checkpoint",
+            "note-figure",
+          ]);
           for (const unit of units) {
             const pageFrom = unit.pageFrom ?? 1;
             const pageTo = unit.pageTo ?? Number.MAX_SAFE_INTEGER;

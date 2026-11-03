@@ -213,10 +213,10 @@ for (const { width, label } of [
         await core.createTag({ name: "Moons" });
       }, long);
       await tagDocument(window, "Tides", "Moons");
-      const moons = window.getByTestId("sidebar-tag").filter({ hasText: "Moons" });
-      await moons.getByRole("treeitem").first().focus();
-      await window.keyboard.press("F2");
-      await window.getByTestId("sidebar-tags").getByRole("textbox").fill(long);
+      // A new Tag named what another is: the core refuses it, and its message names the Tag in the way.
+      await window.getByTestId("tags-toggle").hover();
+      await window.getByTestId("tags-add").click();
+      await window.getByTestId("sidebar-tag-new-name").fill(long);
       await window.keyboard.press("Enter");
 
       const notice = window.getByTestId("error-notice");
@@ -276,3 +276,24 @@ for (const width of [900, 1600]) {
     }
   });
 }
+
+test("Esc closes an error notice while the focus is in the empty Library search field", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1100, 700);
+    await dismissChatSetup(window);
+    const row = await libraryWithADocument(window);
+    await renameTooLong(window, row);
+    const notice = window.getByTestId("error-notice");
+    await expect(notice).toHaveCount(1);
+
+    // The search is empty, so the field leaves Esc to the notice behind it.
+    const search = window.getByTestId("library-search");
+    await search.focus();
+    await expect(search).toHaveValue("");
+    await window.keyboard.press("Escape");
+    await expect(notice).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});

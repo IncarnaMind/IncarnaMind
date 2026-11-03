@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test, vi } from "vitest";
 import type { Core } from "../../src/core";
+import { queryDatabase } from "../../tests/helpers/core";
 import { commitOf } from "../lib/commit";
 import { chatProviderOf, readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
@@ -16,9 +17,22 @@ import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder, prepareGpuFile } from "../lib/rerank";
 import { documentsOf, type RepeatSet, SETS, writeDocuments } from "./cases";
 import { repeatChecks } from "./repeat";
+import { watchRequests } from "./requests";
 import { type RepeatRow, report, summarise } from "./score";
+import { VERBATIM_SETS } from "./verbatimCases";
 
 const ROOT = resolve(__dirname, "../..");
+
+/** Each Library's settled model requests, by model: input counts cache reads and writes too. */
+interface Usage {
+  model: string;
+  requests: number;
+  input: number;
+  cacheReads: number;
+  cacheWrites: number;
+  output: number;
+  cost: number;
+}
 const FINISHED = new Set(["ready", "failed", "no-text"]);
 
 const spentOf = async (core: Core) =>
@@ -37,11 +51,14 @@ test("repeated checks of an unchanged Mind", async () => {
   const repeats = Number(process.env.INCARNAMIND_EVAL_REPEATS ?? "10") || 10;
   const only = process.env.INCARNAMIND_EVAL_REPEATS_SETS?.trim();
   const budget = Number(process.env.INCARNAMIND_EVAL_REPEATS_BUDGET ?? "5") || 5;
-  const sets = SETS.filter((each) => !only || only.split(",").includes(each.id));
+  const sets = [...SETS, ...VERBATIM_SETS].filter(
+    (each) => !only || only.split(",").includes(each.id),
+  );
   const model = `${chat.kind}/${chat.modelId}`;
   await prepareGpuFile(config, log);
   const reranker = createWorkerCrossEncoder(config.rerankOnCpu);
   const rows: RepeatRow[] = [];
+  const usage: (Usage & { sets: string[] })[] = [];
   let spentBefore = 0;
   let stopped = false;
   const libraries = new Map<string, RepeatSet[]>();
@@ -54,6 +71,7 @@ test("repeated checks of an unchanged Mind", async () => {
     if (!first || stopped) continue;
     const { language } = first;
     const folder = await mkdtemp(join(tmpdir(), "incarnamind-repeats-"));
+    const watch = watchRequests(ofLibrary.flatMap((set) => set.sentences.map((each) => each.text)));
     // The Library of a first run: the example's Documents beside the User's own, so the search
     // weighs the agreement against others as it does for a newcomer.
     const library = await openLibrary({
@@ -65,6 +83,7 @@ test("repeated checks of an unchanged Mind", async () => {
       examples: join(ROOT, "resources", "examples"),
       keep: config.keepData,
       embeddings: false,
+      chatModels: watch.chatModels,
       log,
     });
     try {
@@ -93,12 +112,16 @@ test("repeated checks of an unchanged Mind", async () => {
       for (const set of ofLibrary) {
         if (stopped) break;
         log(`${model} · ${set.id}: ${set.sentences.length} sentences, ${repeats} checks`);
+        watch.take();
+        const requests = new Map<string, ReturnType<typeof watch.take>>();
         const results = await repeatChecks(core, {
           mind: set.mind,
           sentences: set.sentences.map((each) => each.text),
+          ...(set.inOneParagraph !== undefined && { inOneParagraph: set.inOneParagraph }),
           repeats,
           model: choice,
           async onRepeat(done) {
+            requests.set(String(done[0]?.repeat), watch.take());
             const spent = spentBefore + (await spentOf(core));
             log(
               `  check ${done[0]?.repeat}: ${done.map((each) => each.outcome).join(" ")} · $${spent.toFixed(3)}`,
@@ -118,11 +141,24 @@ test("repeated checks of an unchanged Mind", async () => {
             key: sentence.key,
             kind: sentence.kind,
             expected: sentence.expected,
+            requests: requests.get(String(result.repeat))?.get(result.sentence) ?? [],
             ...(sentence.knownMiss !== undefined && { knownMiss: sentence.knownMiss }),
           });
         }
       }
       spentBefore += await spentOf(core);
+      usage.push(
+        ...queryDatabase<Usage>(
+          library.dataDir,
+          `SELECT model_id AS model, count(*) AS requests,
+             coalesce(sum(input_tokens), 0) AS input,
+             coalesce(sum(cached_input_tokens), 0) AS cacheReads,
+             coalesce(sum(cache_write_tokens), 0) AS cacheWrites,
+             coalesce(sum(output_tokens), 0) AS output, coalesce(sum(cost), 0) AS cost
+           FROM model_requests WHERE deleted_at IS NULL AND status = 'settled'
+           GROUP BY model_id`,
+        ).map((each) => ({ ...each, sets: ofLibrary.map((set) => set.id) })),
+      );
     } finally {
       await library.close();
       await rm(folder, { recursive: true, force: true });
@@ -135,6 +171,6 @@ test("repeated checks of an unchanged Mind", async () => {
     join(out, "report.md"),
     report(summaries, { commit: commitOf(ROOT), spent: spentBefore, repeats }),
   );
-  await writeFile(join(out, "report.json"), JSON.stringify({ model, rows }, null, 2));
+  await writeFile(join(out, "report.json"), JSON.stringify({ model, usage, rows }, null, 2));
   log(`$${spentBefore.toFixed(2)} spent; report in ${out}`);
 });

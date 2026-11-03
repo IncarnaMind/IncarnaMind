@@ -46,6 +46,8 @@ vi.mock("../../src/renderer/src/core", () => ({
         throw new Error("The reply was lost.");
       }
     },
+    watchComparisonMind: async () => undefined,
+    unwatchComparisonMind: async () => undefined,
   },
 }));
 

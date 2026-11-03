@@ -20,6 +20,7 @@
 import type { CitationSupport } from "../api";
 import type { ModelFacts } from "./catalog";
 import type { ContextWindow } from "./models";
+import { LONGEST_OUTPUT } from "./outputLimits";
 
 /** What one source says about a model: a field it leaves out, it doesn't say. */
 export type ModelFactsLayer = Partial<ModelFacts>;
@@ -74,6 +75,22 @@ export function startingSupport({ facts }: ModelCapabilities): CitationSupport |
 /** Whether an Answer offers the model the `calculate` Tool and its steer: only when a source says so. */
 export const calculates = ({ facts }: ModelCapabilities): boolean => facts.calculates === true;
 
+/** Whether an Answer that offers `calculate` also offers the workbook Tools: only when a source says so. */
+export const offersWorkbookTools = (capabilities: ModelCapabilities): boolean =>
+  calculates(capabilities) && capabilities.facts.workbookTools === true;
+
+/** Whether an Answer that offers `calculate` also offers the Analysis Tool: only when a source says so. */
+export const offersAnalysis = (capabilities: ModelCapabilities): boolean =>
+  calculates(capabilities) && capabilities.facts.analysisTool === true;
+
+/** Whether an Answer that offers the Analysis Tool also offers `run_code`: only when a source says so. */
+export const offersCode = (capabilities: ModelCapabilities): boolean =>
+  offersAnalysis(capabilities) && capabilities.facts.codeTool === true;
+
+/** Whether a claim check offers the model `calculate`: only when a source says so. */
+export const checkCalculates = (capabilities: ModelCapabilities): boolean =>
+  calculates(capabilities) && capabilities.facts.checkCalculates === true;
+
 /** False when the model is known to give no structured output: an Answer then doesn't try it. */
 export const givesStructuredOutput = ({ facts }: ModelCapabilities): boolean | undefined =>
   facts.structuredOutput === undefined ? undefined : facts.structuredOutput !== "none";
@@ -83,15 +100,20 @@ const DEFAULT_OUTPUT_TOKENS = 4_096;
 
 /**
  * The window a cloud model's requests are kept within, from its context
- * window: what a request may send is its input limit where the provider has
- * one, else the window less the room for its longest reply (at most half of
- * the window). None when the context window isn't known: requests are then
- * sent as they are, and nothing is cut to fit a guess.
+ * window: room for the longest reply any call asks of it (its own most, at
+ * most half of the window and at most `LONGEST_OUTPUT`), and the rest for
+ * what a request sends, never more than its input limit where the provider
+ * has one. None when the context window isn't known: requests are then sent
+ * as they are, and nothing is cut to fit a guess.
  */
 export function cloudWindow({ facts }: ModelCapabilities): ContextWindow | undefined {
   const { context, maxInput, maxOutput } = facts;
   if (!context || context <= 0) return undefined;
-  const output = Math.min(maxOutput ?? DEFAULT_OUTPUT_TOKENS, Math.floor(context / 2));
-  const input = maxInput && maxInput < context ? maxInput : context - output;
+  const output = Math.min(
+    maxOutput ?? DEFAULT_OUTPUT_TOKENS,
+    Math.floor(context / 2),
+    LONGEST_OUTPUT,
+  );
+  const input = Math.min(maxInput && maxInput > 0 ? maxInput : context, context - output);
   return { tokens: context, outputTokens: context - input };
 }

@@ -281,7 +281,7 @@ test("A sentence only the marked file states is Unsupported, and its card says s
   await expect(mark).toHaveAttribute("data-check", "unsupported");
   await pointAndClick(window, mark);
   const card = window.getByTestId("claim-card");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Needs a look · Unsupported");
   await expect(card.getByTestId("claim-own-workings")).toHaveText(
     "Only your own working file says this.",
   );

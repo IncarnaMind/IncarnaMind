@@ -157,13 +157,80 @@ describe("a chart's layout", () => {
     }
   });
 
-  test("numbers on the axis: round steps, percents as percents, large numbers short, in the language", () => {
+  test("numbers on the axis: round steps, percents as percents, points as points, large numbers short, in the language", () => {
     expect(niceStep(73)).toBe(100);
     expect(niceStep(0.23)).toBe(0.25);
-    expect(tickFormat("en", 0.05, 0.3, true)(0.25)).toBe("25%");
-    expect(tickFormat("en", 50_000_000, 200_000_000, false)(150_000_000)).toBe("150M");
-    expect(tickFormat("zh-CN", 50_000_000, 200_000_000, false)(150_000_000)).toBe("1.5亿");
-    expect(tickFormat("en", 0.5, 4, false)(2.5)).toBe("2.5");
+    expect(tickFormat("en", 0.05, 0.3, "percent")(0.25)).toBe("25%");
+    expect(tickFormat("en", 0.005, 0.025, "points")(0.023)).toBe("2.3");
+    expect(tickFormat("zh-CN", 0.005, 0.025, "points")(0.023)).toBe("2.3");
+    expect(tickFormat("en", 50_000_000, 200_000_000, null)(150_000_000)).toBe("150M");
+    expect(tickFormat("zh-CN", 50_000_000, 200_000_000, null)(150_000_000)).toBe("1.5亿");
+    expect(tickFormat("en", 0.5, 4, null)(2.5)).toBe("2.5");
+  });
+
+  test("percentage points on the axis are points, not their share, in English and Chinese (#1392)", () => {
+    const charts = {
+      en: grid([
+        ["Quarter", "Change"],
+        ["Q1", "2.3 percentage points"],
+        ["Q2", "2.5 percentage points"],
+        ["Q3", "2.4 percentage points"],
+      ]),
+      "zh-CN": grid([
+        ["季度", "变化"],
+        ["一季度", "2.3个百分点"],
+        ["二季度", "2.5个百分点"],
+        ["三季度", "2.4个百分点"],
+      ]),
+    };
+    for (const language of ["en", "zh-CN"] as const) {
+      const chart = chartFromTable(charts[language], {
+        blockId: null,
+        title: "",
+        language,
+      }) as ChartAttributes;
+      const layout = layoutChart(chart, {
+        width: 640,
+        language,
+        seriesName: (index) => chart.data.series[index] ?? "",
+      });
+      const axis = layout.texts
+        .filter((text) => text.role === "axis" && text.anchor === "end")
+        .map((text) => text.text);
+      expect(axis).toContain("2.5");
+      expect(axis.some((label) => label.includes("0.025"))).toBe(false);
+    }
+  });
+
+  test("one unit's series alone, on its own scale (#1392)", () => {
+    const chart = chartFromTable(
+      grid([
+        ["Quarter", "Gross margin", "Leverage"],
+        ["Q1", "41.2%", "2.8x"],
+        ["Q2", "42.0%", "2.5x"],
+      ]),
+      { blockId: null, title: "", language: "en" },
+    ) as ChartAttributes;
+    const names = (index: number) => chart.data.series[index] ?? "";
+    const percent = layoutChart(chart, {
+      width: 640,
+      language: "en",
+      seriesName: names,
+      series: [0],
+    });
+    const times = layoutChart(chart, {
+      width: 640,
+      language: "en",
+      seriesName: names,
+      series: [1],
+    });
+    expect(percent.points.map((point) => point.series)).toEqual([0, 0]);
+    expect(times.points.map((point) => point.series)).toEqual([1, 1]);
+    const axis = (layout: ChartLayout) =>
+      layout.texts.filter((text) => text.role === "axis").map((text) => text.text);
+    expect(axis(percent)).toContain("40%");
+    expect(axis(times)).not.toContain("40%");
+    expect(axis(times)).toContain("2");
   });
 
   test("with nothing to draw, it has no marks", () => {

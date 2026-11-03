@@ -472,6 +472,9 @@ function counts(): UsageEventFields<"documents_added"> {
     csv: 0,
     markdown: 0,
     text: 0,
+    image: 0,
+    rtf: 0,
+    html: 0,
     web: 0,
     transcript: 0,
   };
@@ -553,6 +556,7 @@ describe("Usage data: what the core derives from its events", () => {
       citationSupport: null,
       quoteRetry: null,
       figures: [],
+      analyses: [],
       uncalculated: 0,
       figureRetry: null,
       usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0 },

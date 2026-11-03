@@ -89,13 +89,13 @@ for (const [language, request, line, useAll] of [
   [
     "en",
     "Write a summary of my leases",
-    "From 2 of your 7 Documents (this Mind’s scope) · Use all",
+    "From 2 of your 7 Documents (this note’s scope) · Use all",
     "keyboard",
   ],
   [
     "zh-CN",
     "根据我的租约写一份总结",
-    "来自 2 个文档（此 Mind 的范围，共 7 个）· 改用全部",
+    "来自 2 个文档（此笔记的范围，共 7 个）· 改用全部",
     "palette",
   ],
 ] as const) {

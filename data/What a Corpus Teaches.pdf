@@ -1,0 +1,606 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R 8 0 R 10 0 R 12 0 R 14 0 R 16 0 R 18 0 R 20 0 R 22 0 R 24 0 R 26 0 R 28 0 R 30 0 R 32 0 R 34 0 R 36 0 R 38 0 R 40 0 R 42 0 R 44 0 R 46 0 R 48 0 R 50 0 R 52 0 R] /Count 24 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica/Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /FontDescriptor 5 0 R >>] >>
+endobj
+5 0 obj
+<< /Type /FontDescriptor /FontName /STSong-Light /Flags 6 /FontBBox [-25 -254 1000 880] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 880 /StemV 93 >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 1141 >>
+stream
+BT /F1 26 Tf 72 760 Td (What a Corpus Teaches) Tj ET
+BT /F1 12 Tf 72 718 Td (Tasks a language model learns without labels) Tj ET
+BT /F1 12 Tf 72 699 Td (A report from Wrennick Research) Tj ET
+BT /F1 14 Tf 72 680 Td (Summary) Tj ET
+BT /F1 11 Tf 72 658 Td (Question answering, translation, reading comprehension and summarisation are normally) Tj ET
+BT /F1 11 Tf 72 644 Td (taught with labelled data for each task.) Tj ET
+BT /F1 11 Tf 72 630 Td (This report shows that a language model picks up a good deal of each from unlabelled text) Tj ET
+BT /F1 11 Tf 72 616 Td (alone, once it is trained on a new corpus of several million web pages called Longfield.) Tj ET
+BT /F1 11 Tf 72 602 Td (Given a passage and a question, the answers it writes reach 41.8 F1 on one reading set, ahead) Tj ET
+BT /F1 11 Tf 72 588 Td (of two of the three systems built for that set, while using none of its 96,000 labelled examples.) Tj ET
+BT /F1 11 Tf 72 574 Td (Capacity matters: every task improves in a log-linear way as the model grows.) Tj ET
+BT /F1 10 Tf 72 513 Td (Prepared for software testing. The text is fictional.) Tj ET
+BT /F1 10 Tf 297 36 Td (1) Tj ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 9 0 R >>
+endobj
+9 0 obj
+<< /Length 1006 >>
+stream
+BT /F1 14 Tf 72 760 Td (1 Introduction) Tj ET
+BT /F1 11 Tf 72 738 Td (A language model is trained on one job: given the tokens so far, say what comes next. That job) Tj ET
+BT /F1 11 Tf 72 724 Td (needs no labels beyond plain text.) Tj ET
+BT /F1 11 Tf 72 710 Td (The question this report asks is whether such a model, given enough text and enough capacity,) Tj ET
+BT /F1 11 Tf 72 696 Td (starts doing tasks nobody trained it for, once the task is described in the prompt.) Tj ET
+BT /F1 11 Tf 72 682 Td (A language model can carry out tasks it was never trained on, in a zero-shot setting ñ with no) Tj ET
+BT /F1 11 Tf 72 668 Td (change to its parameters or architecture.) Tj ET
+BT /F1 11 Tf 72 654 Td (The model and the training loop are kept as plain as possible; the effort goes into the corpus,) Tj ET
+BT /F1 11 Tf 72 640 Td (which is assembled with a simple rule for finding pages a person would actually read.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (2) Tj ET
+endstream
+endobj
+10 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 11 0 R >>
+endobj
+11 0 obj
+<< /Length 1681 >>
+stream
+0.3 G 1 w 72 565 m 540 565 l S
+0.92 g 68 491 476 12 re f
+0.3 G 1 w 72 487 m 540 487 l S
+0.3 G 1 w 72 580 m 540 580 l S
+BT /F1 14 Tf 72 760 Td (2 Building the corpus) Tj ET
+BT /F1 11 Tf 72 738 Td (The corpus is built from the open web, and the model is trained on it with a single objective:) Tj ET
+BT /F1 11 Tf 72 724 Td (guess the next token.) Tj ET
+BT /F1 11 Tf 72 710 Td (To gather it, we followed outbound links from a discussion board and kept the pages that had) Tj ET
+BT /F1 11 Tf 72 696 Td (drawn at least 5 recommendations,) Tj ET
+BT /F1 11 Tf 72 682 Td (as a rough sign that people found them worth reading. The corpus holds just over 5 million) Tj ET
+BT /F1 11 Tf 72 668 Td (documents, some 23 GB of text,) Tj ET
+BT /F1 11 Tf 72 654 Td (once repeats and pages whose text could not be extracted were removed.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 72 591 Td (Table 1: The corpus by the year its pages were linked.) Tj ET
+BT /F1 10 Tf 72 575 Td (Period) Tj ET
+BT /F1 10 Tf 228 575 Td (Documents) Tj ET
+BT /F1 10 Tf 384 575 Td (Text) Tj ET
+BT /F1 10 Tf 72 560 Td (2015) Tj ET
+BT /F1 10 Tf 228 560 Td (1.2 M) Tj ET
+BT /F1 10 Tf 384 560 Td (5.2 GB) Tj ET
+BT /F1 10 Tf 72 545 Td (2016) Tj ET
+BT /F1 10 Tf 228 545 Td (1.3 M) Tj ET
+BT /F1 10 Tf 384 545 Td (6.0 GB) Tj ET
+BT /F1 10 Tf 72 530 Td (2017) Tj ET
+BT /F1 10 Tf 228 530 Td (1.4 M) Tj ET
+BT /F1 10 Tf 384 530 Td (6.4 GB) Tj ET
+BT /F1 10 Tf 72 515 Td (2018) Tj ET
+BT /F1 10 Tf 228 515 Td (1.1 M) Tj ET
+BT /F1 10 Tf 384 515 Td (5.4 GB) Tj ET
+BT /F1 10 Tf 72 500 Td (Total) Tj ET
+BT /F1 10 Tf 228 500 Td (5.0 M) Tj ET
+BT /F1 10 Tf 384 500 Td (23.0 GB) Tj ET
+BT /F1 10 Tf 297 36 Td (3) Tj ET
+endstream
+endobj
+12 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 13 0 R >>
+endobj
+13 0 obj
+<< /Length 793 >>
+stream
+BT /F1 14 Tf 72 760 Td (2.2 Reading bytes) Tj ET
+BT /F1 11 Tf 72 738 Td (A byte-level alphabet keeps the vocabulary small and means no text ever meets an unknown) Tj ET
+BT /F1 11 Tf 72 724 Td (token.) Tj ET
+BT /F1 11 Tf 72 710 Td (The vocabulary is 41,209 tokens, and the context window grows from 640 to 1152 tokens,) Tj ET
+BT /F1 11 Tf 72 696 Td (so that longer passages, which the comprehension and summarisation sets need, fit inside one) Tj ET
+BT /F1 11 Tf 72 682 Td (window.) Tj ET
+BT /F1 11 Tf 72 668 Td (A byte-level alphabet lets the model read any language without an unknown-token entry, keeps) Tj ET
+BT /F1 11 Tf 72 654 Td (the vocabulary small, and means new text needs no preprocessing.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (4) Tj ET
+endstream
+endobj
+14 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 15 0 R >>
+endobj
+15 0 obj
+<< /Length 1657 >>
+stream
+0.3 G 1 w 72 585 m 540 585 l S
+0.3 G 1 w 72 522 m 540 522 l S
+0.3 G 1 w 72 600 m 540 600 l S
+BT /F1 14 Tf 72 760 Td (3 What was measured) Tj ET
+BT /F1 11 Tf 72 738 Td (Each evaluation writes its input as a prompt in ordinary language, and the answer is whatever) Tj ET
+BT /F1 11 Tf 72 724 Td (the model continues with. Nothing is trained on the task itself.) Tj ET
+BT /F1 11 Tf 72 710 Td (Results are reported on the usual benchmarks for each task, beside systems that were trained) Tj ET
+BT /F1 11 Tf 72 696 Td (on that task's labels where such numbers exist.) Tj ET
+BT /F1 11 Tf 72 682 Td (Gains track model size, roughly linearly in the logarithm of the parameter count over the range) Tj ET
+BT /F1 11 Tf 72 668 Td (trained here.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 72 611 Td (Table 2: The four sizes trained for these measurements.) Tj ET
+BT /F1 10 Tf 72 595 Td (Model) Tj ET
+BT /F1 10 Tf 198 595 Td (Parameters) Tj ET
+BT /F1 10 Tf 324 595 Td (Blocks) Tj ET
+BT /F1 10 Tf 432 595 Td (Width) Tj ET
+BT /F1 10 Tf 72 580 Td (Small) Tj ET
+BT /F1 10 Tf 198 580 Td (95 M) Tj ET
+BT /F1 10 Tf 324 580 Td (12) Tj ET
+BT /F1 10 Tf 432 580 Td (704) Tj ET
+BT /F1 10 Tf 72 565 Td (Medium) Tj ET
+BT /F1 10 Tf 198 565 Td (280 M) Tj ET
+BT /F1 10 Tf 324 565 Td (22) Tj ET
+BT /F1 10 Tf 432 565 Td (960) Tj ET
+BT /F1 10 Tf 72 550 Td (Large) Tj ET
+BT /F1 10 Tf 198 550 Td (610 M) Tj ET
+BT /F1 10 Tf 324 550 Td (34) Tj ET
+BT /F1 10 Tf 432 550 Td (1216) Tj ET
+BT /F1 10 Tf 72 535 Td (Largest) Tj ET
+BT /F1 10 Tf 198 535 Td (1.1 B) Tj ET
+BT /F1 10 Tf 324 535 Td (44) Tj ET
+BT /F1 10 Tf 432 535 Td (1536) Tj ET
+BT /F1 10 Tf 297 36 Td (5) Tj ET
+endstream
+endobj
+16 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 17 0 R >>
+endobj
+17 0 obj
+<< /Length 803 >>
+stream
+BT /F1 14 Tf 72 760 Td (3.6 Summarisation) Tj ET
+BT /F1 11 Tf 72 738 Td (Summaries are produced by asking for a shorter version of a news story; nothing in the model) Tj ET
+BT /F1 11 Tf 72 724 Td (was trained on summaries.) Tj ET
+BT /F1 11 Tf 72 710 Td (To make the job clear, we place the cue TL;DR: after the article) Tj ET
+BT /F1 11 Tf 72 696 Td (and read what follows as the summary. That one cue is usually enough to get a short) Tj ET
+BT /F1 11 Tf 72 682 Td (abstractive summary.) Tj ET
+BT /F1 11 Tf 72 668 Td (Summarisation is harder, because something has to be left out. A cue at the end of the prompt) Tj ET
+BT /F1 11 Tf 72 654 Td (helps, and the summaries read well though they often miss the point.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (6) Tj ET
+endstream
+endobj
+18 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 19 0 R >>
+endobj
+19 0 obj
+<< /Length 1287 >>
+stream
+0.3 G 1 w 72 481 m 432 481 l S
+0.55 g 90 482 54 58 re f
+0.55 g 180 482 54 79 re f
+0.55 g 270 482 54 95 re f
+0.55 g 360 482 54 110 re f
+BT /F1 14 Tf 72 760 Td (3.7 Translation) Tj ET
+BT /F1 11 Tf 72 738 Td (Translation is weakest, and it works best between languages that commonly appear together in) Tj ET
+BT /F1 11 Tf 72 724 Td (the corpus, which suggests the model is drawing on parallel text it has seen.) Tj ET
+BT /F1 11 Tf 72 710 Td (The corpus was tested by training the same model on a smaller curated set; the broader corpus) Tj ET
+BT /F1 11 Tf 72 696 Td (gave lower loss on held-out text from many sources.) Tj ET
+BT /F1 11 Tf 72 682 Td (On a small sample the model's answers were compared with a person's: the topic is usually) Tj ET
+BT /F1 11 Tf 72 668 Td (right and the detail is sometimes wrong.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 88 469 Td (Small) Tj ET
+BT /F1 10 Tf 90 543 Td (9.8) Tj ET
+BT /F1 10 Tf 178 469 Td (Medium) Tj ET
+BT /F1 10 Tf 180 564 Td (13.4) Tj ET
+BT /F1 10 Tf 268 469 Td (Large) Tj ET
+BT /F1 10 Tf 270 580 Td (16.1) Tj ET
+BT /F1 10 Tf 358 469 Td (Largest) Tj ET
+BT /F1 10 Tf 360 595 Td (18.7) Tj ET
+BT /F1 10 Tf 72 455 Td (Zero-shot translation score by model size, out of 100.) Tj ET
+BT /F1 10 Tf 297 36 Td (7) Tj ET
+endstream
+endobj
+20 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 21 0 R >>
+endobj
+21 0 obj
+<< /Length 1440 >>
+stream
+0.3 G 1 w 72 620 m 540 620 l S
+0.3 G 1 w 72 557 m 540 557 l S
+0.3 G 1 w 72 635 m 540 635 l S
+BT /F1 14 Tf 72 760 Td (3.1 Language modelling) Tj ET
+BT /F1 11 Tf 72 738 Td (Failures are reported too: long documents, arithmetic, and anything needing knowledge from) Tj ET
+BT /F1 11 Tf 72 724 Td (outside the training text.) Tj ET
+BT /F1 11 Tf 72 710 Td (A self-attention block costs the square of the context length, which caps how much text the) Tj ET
+BT /F1 11 Tf 72 696 Td (model can read at once in our setup.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 72 646 Td (Table 3: Held-out loss on four collections, by model size.) Tj ET
+BT /F1 10 Tf 72 630 Td (Collection) Tj ET
+BT /F1 10 Tf 216 630 Td (Small) Tj ET
+BT /F1 10 Tf 324 630 Td (Medium) Tj ET
+BT /F1 10 Tf 432 630 Td (Largest) Tj ET
+BT /F1 10 Tf 72 615 Td (News) Tj ET
+BT /F1 10 Tf 216 615 Td (3.58) Tj ET
+BT /F1 10 Tf 324 615 Td (3.19) Tj ET
+BT /F1 10 Tf 432 615 Td (2.90) Tj ET
+BT /F1 10 Tf 72 600 Td (Books) Tj ET
+BT /F1 10 Tf 216 600 Td (3.26) Tj ET
+BT /F1 10 Tf 324 600 Td (2.98) Tj ET
+BT /F1 10 Tf 432 600 Td (2.72) Tj ET
+BT /F1 10 Tf 72 585 Td (Web) Tj ET
+BT /F1 10 Tf 216 585 Td (3.81) Tj ET
+BT /F1 10 Tf 324 585 Td (3.40) Tj ET
+BT /F1 10 Tf 432 585 Td (3.11) Tj ET
+BT /F1 10 Tf 72 570 Td (Code) Tj ET
+BT /F1 10 Tf 216 570 Td (3.02) Tj ET
+BT /F1 10 Tf 324 570 Td (2.70) Tj ET
+BT /F1 10 Tf 432 570 Td (2.46) Tj ET
+BT /F1 10 Tf 297 36 Td (8) Tj ET
+endstream
+endobj
+22 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 23 0 R >>
+endobj
+23 0 obj
+<< /Length 1008 >>
+stream
+0.3 G 1 w 72 516 m 432 516 l S
+0.55 g 96 517 72 62 re f
+0.55 g 216 517 72 71 re f
+0.55 g 336 517 72 77 re f
+BT /F1 14 Tf 72 760 Td (3.5 Reading comprehension) Tj ET
+BT /F1 11 Tf 72 738 Td (No fine-tuning is done for any evaluation. Every number below comes from a hand-written) Tj ET
+BT /F1 11 Tf 72 724 Td (prompt and a continuation read off the model.) Tj ET
+BT /F1 11 Tf 72 710 Td (Reading comprehension is the strongest of the three: the model answers with the span that) Tj ET
+BT /F1 11 Tf 72 696 Td (follows the question, and its score is set beside systems trained on the set.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 94 504 Td (Small) Tj ET
+BT /F1 10 Tf 96 582 Td (33.6) Tj ET
+BT /F1 10 Tf 214 504 Td (Medium) Tj ET
+BT /F1 10 Tf 216 591 Td (38.9) Tj ET
+BT /F1 10 Tf 334 504 Td (Largest) Tj ET
+BT /F1 10 Tf 336 597 Td (41.8) Tj ET
+BT /F1 10 Tf 72 490 Td (F1 on a reading comprehension set in the zero-shot setting, by model size.) Tj ET
+BT /F1 10 Tf 297 36 Td (9) Tj ET
+endstream
+endobj
+24 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 25 0 R >>
+endobj
+25 0 obj
+<< /Length 794 >>
+stream
+BT /F1 14 Tf 72 760 Td (3.2 Children's book test) Tj ET
+BT /F1 11 Tf 72 738 Td (A language model is trained on one job: given the tokens so far, say what comes next. That job) Tj ET
+BT /F1 11 Tf 72 724 Td (needs no labels beyond plain text.) Tj ET
+BT /F1 11 Tf 72 710 Td (The question this report asks is whether such a model, given enough text and enough capacity,) Tj ET
+BT /F1 11 Tf 72 696 Td (starts doing tasks nobody trained it for, once the task is described in the prompt.) Tj ET
+BT /F1 11 Tf 72 682 Td (To a degree it does. Reading comprehension, summarisation and translation all improve without) Tj ET
+BT /F1 11 Tf 72 668 Td (any change to the parameters or the architecture for each task.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (10) Tj ET
+endstream
+endobj
+26 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 27 0 R >>
+endobj
+27 0 obj
+<< /Length 797 >>
+stream
+BT /F1 14 Tf 72 760 Td (3.3 LAMBADA) Tj ET
+BT /F1 11 Tf 72 738 Td (The model and the training loop are kept as plain as possible; the effort goes into the corpus,) Tj ET
+BT /F1 11 Tf 72 724 Td (which is assembled with a simple rule for finding pages a person would actually read.) Tj ET
+BT /F1 11 Tf 72 710 Td (Each evaluation writes its input as a prompt in ordinary language, and the answer is whatever) Tj ET
+BT /F1 11 Tf 72 696 Td (the model continues with. Nothing is trained on the task itself.) Tj ET
+BT /F1 11 Tf 72 682 Td (Results are reported on the usual benchmarks for each task, beside systems that were trained) Tj ET
+BT /F1 11 Tf 72 668 Td (on that task's labels where such numbers exist.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (11) Tj ET
+endstream
+endobj
+28 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 29 0 R >>
+endobj
+29 0 obj
+<< /Length 718 >>
+stream
+BT /F1 14 Tf 72 760 Td (3.4 Winograd) Tj ET
+BT /F1 11 Tf 72 738 Td (Gains track model size, roughly linearly in the logarithm of the parameter count over the range) Tj ET
+BT /F1 11 Tf 72 724 Td (trained here.) Tj ET
+BT /F1 11 Tf 72 710 Td (Failures are reported too: long documents, arithmetic, and anything needing knowledge from) Tj ET
+BT /F1 11 Tf 72 696 Td (outside the training text.) Tj ET
+BT /F1 11 Tf 72 682 Td (The corpus was gathered by taking outbound links from a discussion board and keeping pages) Tj ET
+BT /F1 11 Tf 72 668 Td (that its readers had recommended, a cheap stand-in for what people choose to read.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (12) Tj ET
+endstream
+endobj
+30 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 31 0 R >>
+endobj
+31 0 obj
+<< /Length 795 >>
+stream
+BT /F1 14 Tf 72 760 Td (3.8 Question answering) Tj ET
+BT /F1 11 Tf 72 738 Td (Repeated pages, pages that were mostly markup, and pages with too little text were dropped;) Tj ET
+BT /F1 11 Tf 72 724 Td (the rest became one large unlabelled corpus.) Tj ET
+BT /F1 11 Tf 72 710 Td (A byte-level alphabet lets the model read any language without an unknown-token entry, keeps) Tj ET
+BT /F1 11 Tf 72 696 Td (the vocabulary small, and means new text needs no preprocessing.) Tj ET
+BT /F1 11 Tf 72 682 Td (The model is a stack of self-attention blocks in the established style, with normalisation moved) Tj ET
+BT /F1 11 Tf 72 668 Td (to the input of each block, and it is trained with one objective throughout.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (13) Tj ET
+endstream
+endobj
+32 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 33 0 R >>
+endobj
+33 0 obj
+<< /Length 787 >>
+stream
+BT /F1 14 Tf 72 760 Td (4.1 Model capacity) Tj ET
+BT /F1 11 Tf 72 738 Td (No fine-tuning is done for any evaluation. Every number below comes from a hand-written) Tj ET
+BT /F1 11 Tf 72 724 Td (prompt and a continuation read off the model.) Tj ET
+BT /F1 11 Tf 72 710 Td (Reading comprehension is the strongest of the three: the model answers with the span that) Tj ET
+BT /F1 11 Tf 72 696 Td (follows the question, and its score is set beside systems trained on the set.) Tj ET
+BT /F1 11 Tf 72 682 Td (Summarisation is harder, because something has to be left out. A cue at the end of the prompt) Tj ET
+BT /F1 11 Tf 72 668 Td (helps, and the summaries read well though they often miss the point.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (14) Tj ET
+endstream
+endobj
+34 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 35 0 R >>
+endobj
+35 0 obj
+<< /Length 747 >>
+stream
+BT /F1 14 Tf 72 760 Td (4.2 Data overlap) Tj ET
+BT /F1 11 Tf 72 738 Td (Translation is weakest, and it works best between languages that commonly appear together in) Tj ET
+BT /F1 11 Tf 72 724 Td (the corpus, which suggests the model is drawing on parallel text it has seen.) Tj ET
+BT /F1 11 Tf 72 710 Td (The corpus was tested by training the same model on a smaller curated set; the broader corpus) Tj ET
+BT /F1 11 Tf 72 696 Td (gave lower loss on held-out text from many sources.) Tj ET
+BT /F1 11 Tf 72 682 Td (A model can be fluent and wrong. That is discussed below, and fluency is never taken as) Tj ET
+BT /F1 11 Tf 72 668 Td (evidence of accuracy.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (15) Tj ET
+endstream
+endobj
+36 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 37 0 R >>
+endobj
+37 0 obj
+<< /Length 726 >>
+stream
+BT /F1 14 Tf 72 760 Td (4.3 Robustness) Tj ET
+BT /F1 11 Tf 72 738 Td (A smaller version of the model and a description of the data pipeline are released so that others) Tj ET
+BT /F1 11 Tf 72 724 Td (can repeat the training and study the behaviour.) Tj ET
+BT /F1 11 Tf 72 710 Td (A self-attention block costs the square of the context length, which caps how much text the) Tj ET
+BT /F1 11 Tf 72 696 Td (model can read at once in our setup.) Tj ET
+BT /F1 11 Tf 72 682 Td (Performance is reported against parameter count, and the trend is smooth on every task, with) Tj ET
+BT /F1 11 Tf 72 668 Td (no sudden jump at any particular size.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (16) Tj ET
+endstream
+endobj
+38 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 39 0 R >>
+endobj
+39 0 obj
+<< /Length 811 >>
+stream
+BT /F1 14 Tf 72 760 Td (4.4 Bias) Tj ET
+BT /F1 11 Tf 72 738 Td (On a small sample the model's answers were compared with a person's: the topic is usually) Tj ET
+BT /F1 11 Tf 72 724 Td (right and the detail is sometimes wrong.) Tj ET
+BT /F1 11 Tf 72 710 Td (The results suggest that the size of the data and of the model matters more than task-specific) Tj ET
+BT /F1 11 Tf 72 696 Td (design, at least for the tasks measured, and that the trend deserves more testing.) Tj ET
+BT /F1 11 Tf 72 682 Td (The report closes with the failure modes we could see and with a note on how to measure them) Tj ET
+BT /F1 11 Tf 72 668 Td (properly, including held-out sets that were not on the public web when the corpus was collected.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (17) Tj ET
+endstream
+endobj
+40 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 41 0 R >>
+endobj
+41 0 obj
+<< /Length 782 >>
+stream
+BT /F1 14 Tf 72 760 Td (5 Discussion) Tj ET
+BT /F1 11 Tf 72 738 Td (A language model is trained on one job: given the tokens so far, say what comes next. That job) Tj ET
+BT /F1 11 Tf 72 724 Td (needs no labels beyond plain text.) Tj ET
+BT /F1 11 Tf 72 710 Td (The question this report asks is whether such a model, given enough text and enough capacity,) Tj ET
+BT /F1 11 Tf 72 696 Td (starts doing tasks nobody trained it for, once the task is described in the prompt.) Tj ET
+BT /F1 11 Tf 72 682 Td (To a degree it does. Reading comprehension, summarisation and translation all improve without) Tj ET
+BT /F1 11 Tf 72 668 Td (any change to the parameters or the architecture for each task.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (18) Tj ET
+endstream
+endobj
+42 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 43 0 R >>
+endobj
+43 0 obj
+<< /Length 801 >>
+stream
+BT /F1 14 Tf 72 760 Td (5.1 Limitations) Tj ET
+BT /F1 11 Tf 72 738 Td (The model and the training loop are kept as plain as possible; the effort goes into the corpus,) Tj ET
+BT /F1 11 Tf 72 724 Td (which is assembled with a simple rule for finding pages a person would actually read.) Tj ET
+BT /F1 11 Tf 72 710 Td (Each evaluation writes its input as a prompt in ordinary language, and the answer is whatever) Tj ET
+BT /F1 11 Tf 72 696 Td (the model continues with. Nothing is trained on the task itself.) Tj ET
+BT /F1 11 Tf 72 682 Td (Results are reported on the usual benchmarks for each task, beside systems that were trained) Tj ET
+BT /F1 11 Tf 72 668 Td (on that task's labels where such numbers exist.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (19) Tj ET
+endstream
+endobj
+44 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 45 0 R >>
+endobj
+45 0 obj
+<< /Length 721 >>
+stream
+BT /F1 14 Tf 72 760 Td (5.2 Future work) Tj ET
+BT /F1 11 Tf 72 738 Td (Gains track model size, roughly linearly in the logarithm of the parameter count over the range) Tj ET
+BT /F1 11 Tf 72 724 Td (trained here.) Tj ET
+BT /F1 11 Tf 72 710 Td (Failures are reported too: long documents, arithmetic, and anything needing knowledge from) Tj ET
+BT /F1 11 Tf 72 696 Td (outside the training text.) Tj ET
+BT /F1 11 Tf 72 682 Td (The corpus was gathered by taking outbound links from a discussion board and keeping pages) Tj ET
+BT /F1 11 Tf 72 668 Td (that its readers had recommended, a cheap stand-in for what people choose to read.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (20) Tj ET
+endstream
+endobj
+46 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 47 0 R >>
+endobj
+47 0 obj
+<< /Length 807 >>
+stream
+BT /F1 14 Tf 72 760 Td (6 Evaluations of the largest model) Tj ET
+BT /F1 11 Tf 72 738 Td (Repeated pages, pages that were mostly markup, and pages with too little text were dropped;) Tj ET
+BT /F1 11 Tf 72 724 Td (the rest became one large unlabelled corpus.) Tj ET
+BT /F1 11 Tf 72 710 Td (A byte-level alphabet lets the model read any language without an unknown-token entry, keeps) Tj ET
+BT /F1 11 Tf 72 696 Td (the vocabulary small, and means new text needs no preprocessing.) Tj ET
+BT /F1 11 Tf 72 682 Td (The model is a stack of self-attention blocks in the established style, with normalisation moved) Tj ET
+BT /F1 11 Tf 72 668 Td (to the input of each block, and it is trained with one objective throughout.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (21) Tj ET
+endstream
+endobj
+48 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 49 0 R >>
+endobj
+49 0 obj
+<< /Length 528 >>
+stream
+BT /F1 14 Tf 72 760 Td (6 Closing remarks) Tj ET
+BT /F1 11 Tf 72 738 Td (A large model trained on a broad corpus can do several tasks without task-specific training, and) Tj ET
+BT /F1 11 Tf 72 724 Td (its quality rises smoothly as it grows.) Tj ET
+BT /F1 11 Tf 72 710 Td (The failures are reported as well as the successes; measuring them properly comes next, since) Tj ET
+BT /F1 11 Tf 72 696 Td (fluency makes a mistake easy to miss.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (22) Tj ET
+endstream
+endobj
+50 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 51 0 R >>
+endobj
+51 0 obj
+<< /Length 707 >>
+stream
+BT /F1 14 Tf 72 760 Td (References) Tj ET
+BT /F1 11 Tf 72 738 Td ([1] A. Author, B. Author and C. Author. Weighting keys for sequence models. A technical report,) Tj ET
+BT /F1 11 Tf 72 724 Td (2017.) Tj ET
+BT /F1 11 Tf 72 710 Td ([2] A. Author and B. Author. Byte-level alphabets for large corpora. A technical report, 2018.) Tj ET
+BT /F1 11 Tf 72 696 Td ([3] A. Author, B. Author, C. Author and D. Author. Reading comprehension with pretrained) Tj ET
+BT /F1 11 Tf 72 682 Td (models. A technical report, 2018.) Tj ET
+BT /F1 11 Tf 72 668 Td ([4] A. Author. A survey of zero-shot transfer. A technical report, 2019.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 297 36 Td (23) Tj ET
+endstream
+endobj
+52 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 53 0 R >>
+endobj
+53 0 obj
+<< /Length 1597 >>
+stream
+0.3 G 1 w 72 620 m 540 620 l S
+0.3 G 1 w 72 557 m 540 557 l S
+0.3 G 1 w 72 635 m 540 635 l S
+BT /F1 14 Tf 72 760 Td (Appendix A: Prompts) Tj ET
+BT /F1 11 Tf 72 738 Td (The prompts used for each evaluation are listed here exactly as they were given, with one) Tj ET
+BT /F1 11 Tf 72 724 Td (sample continuation beside each.) Tj ET
+BT /F1 11 Tf 72 710 Td (Every prompt closes with a short cue naming the task in everyday words, such as a question) Tj ET
+BT /F1 11 Tf 72 696 Td (mark for questions and a separator for summaries.) Tj ET
+BT /F1 10 Tf 72 780 Td (What a Corpus Teaches) Tj ET
+BT /F1 10 Tf 72 646 Td (Table 4: The prompts used, by evaluation.) Tj ET
+BT /F1 10 Tf 72 630 Td (Evaluation) Tj ET
+BT /F1 10 Tf 209.6470588235294 630 Td (Cue) Tj ET
+BT /F1 10 Tf 374.82352941176464 630 Td (Answer read) Tj ET
+BT /F1 10 Tf 72 615 Td (Reading comprehension) Tj ET
+BT /F1 10 Tf 209.6470588235294 615 Td (Question about the passage) Tj ET
+BT /F1 10 Tf 374.82352941176464 615 Td (The text after the question) Tj ET
+BT /F1 10 Tf 72 600 Td (Summarisation) Tj ET
+BT /F1 10 Tf 209.6470588235294 600 Td (TL;DR: after the article) Tj ET
+BT /F1 10 Tf 374.82352941176464 600 Td (The next two sentences) Tj ET
+BT /F1 10 Tf 72 585 Td (Translation) Tj ET
+BT /F1 10 Tf 209.6470588235294 585 Td (A source sentence, then =) Tj ET
+BT /F1 10 Tf 374.82352941176464 585 Td (The sentence after the equals sign) Tj ET
+BT /F1 10 Tf 72 570 Td (Question answering) Tj ET
+BT /F1 10 Tf 209.6470588235294 570 Td (Q: ... A:) Tj ET
+BT /F1 10 Tf 374.82352941176464 570 Td (The text after A:) Tj ET
+BT /F1 10 Tf 297 36 Td (24) Tj ET
+endstream
+endobj
+54 0 obj
+<< /Title (What a Corpus Teaches) /Author (Wrennick Research) /Subject (Tasks a language model learns without labels) /Keywords (language models, zero-shot transfer, corpus, text generation) /Creator (IncarnaMind samples generator) /Producer (IncarnaMind) >>
+endobj
+xref
+0 55
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000282 00000 n 
+0000000378 00000 n 
+0000000650 00000 n 
+0000000822 00000 n 
+0000000958 00000 n 
+0000002151 00000 n 
+0000002287 00000 n 
+0000003345 00000 n 
+0000003483 00000 n 
+0000005217 00000 n 
+0000005355 00000 n 
+0000006200 00000 n 
+0000006338 00000 n 
+0000008048 00000 n 
+0000008186 00000 n 
+0000009041 00000 n 
+0000009179 00000 n 
+0000010519 00000 n 
+0000010657 00000 n 
+0000012150 00000 n 
+0000012288 00000 n 
+0000013349 00000 n 
+0000013487 00000 n 
+0000014333 00000 n 
+0000014471 00000 n 
+0000015320 00000 n 
+0000015458 00000 n 
+0000016228 00000 n 
+0000016366 00000 n 
+0000017213 00000 n 
+0000017351 00000 n 
+0000018190 00000 n 
+0000018328 00000 n 
+0000019127 00000 n 
+0000019265 00000 n 
+0000020043 00000 n 
+0000020181 00000 n 
+0000021044 00000 n 
+0000021182 00000 n 
+0000022016 00000 n 
+0000022154 00000 n 
+0000023007 00000 n 
+0000023145 00000 n 
+0000023918 00000 n 
+0000024056 00000 n 
+0000024915 00000 n 
+0000025053 00000 n 
+0000025633 00000 n 
+0000025771 00000 n 
+0000026530 00000 n 
+0000026668 00000 n 
+0000028318 00000 n 
+trailer
+<< /Size 55 /Root 1 0 R /Info 54 0 R >>
+startxref
+28593
+%%EOF

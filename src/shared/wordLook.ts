@@ -34,6 +34,10 @@ export function setWordLook(doc: Y.Doc, look: WordLook): void {
   map.set("defaultTab", look.defaultTab);
   if (look.tablesHang) map.set("tablesHang", true);
   else map.delete("tablesHang");
+  if (look.linePitch) map.set("linePitch", look.linePitch);
+  else map.delete("linePitch");
+  if (look.eastAsian) map.set("eastAsian", true);
+  else map.delete("eastAsian");
   map.set("version", look.version);
 }
 
@@ -58,6 +62,7 @@ const within = (low: number, high: number) => (value: unknown) => {
 // Word's own ranges, in points: font sizes, and the spacing of default tab stops (up to 22 in).
 const size = within(1, 1638);
 const tabSpacing = within(1, 1584);
+const pitch = within(1, 1584);
 const hex = (value: unknown) =>
   typeof value === "string" && HEX.test(value) ? value.toUpperCase() : undefined;
 const font = (value: unknown) =>
@@ -172,6 +177,7 @@ function paragraphLook(value: Record<string, unknown>): WordParagraphLook {
     keepLines: yes(value.keepLines),
     pageBreakBefore: yes(value.pageBreakBefore),
     widowControl: value.widowControl === false ? false : undefined,
+    snapToGrid: value.snapToGrid === false ? (false as const) : undefined,
   });
 }
 
@@ -214,17 +220,30 @@ export function wordLookOf(doc: Y.Doc): WordLook | null {
   const map = lookMap(doc);
   const version = num(map.get("version"));
   if (version === undefined) return null;
+  const linePitch = pitch(map.get("linePitch"));
   return {
     version,
     body: size(map.get("body")) ?? null,
     width: num(map.get("width")) ?? null,
     defaultTab: tabSpacing(map.get("defaultTab")) ?? null,
     ...(map.get("tablesHang") === true && { tablesHang: true as const }),
+    ...(linePitch !== undefined && { linePitch }),
+    ...(map.get("eastAsian") === true && { eastAsian: true as const }),
     paragraphs: styles(map.get("paragraphs"), paragraphLook),
     runs: styles(map.get("runs"), runLook),
     tables: styles(map.get("tables"), tableLook),
     cells: styles(map.get("cells"), cellLook),
   };
+}
+
+/** The fonts the look draws text in: each run's own, and its East Asian one when the file has East Asian text. */
+export function wordFontsOf(look: WordLook): string[] {
+  const fonts = new Set<string>();
+  for (const run of Object.values(look.runs)) {
+    if (run.font) fonts.add(run.font);
+    if (look.eastAsian && run.eastAsia) fonts.add(run.eastAsia);
+  }
+  return [...fonts];
 }
 
 export type MindLook = "word" | "plain";

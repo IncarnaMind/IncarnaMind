@@ -17,6 +17,7 @@ import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder, prepareGpuFile } from "../lib/rerank";
 import { watchPassages } from "./passagesHanded";
 import { repeatChecks } from "./repeat";
+import { watchRequests } from "./requests";
 import { SCOPE_CASES, SCOPE_SETS, type ScopeSet, writeScopeDocuments } from "./scopeCases";
 import { report, type ScopeRow, summarise } from "./scopeScore";
 
@@ -61,6 +62,7 @@ test("the scope of a check from a Mind", async () => {
       if (stopped) break;
       const set = SCOPE_SETS[scopeCase.language];
       const watch = watchPassages(set.sentences.map((each) => each.text));
+      const requests = watchRequests(set.sentences.map((each) => each.text));
       const folder = await mkdtemp(join(tmpdir(), "incarnamind-scope-"));
       const library = await openLibrary({
         name: `scope-${scopeCase.id}`,
@@ -70,7 +72,7 @@ test("the scope of a check from a Mind", async () => {
         documents: await writeScopeDocuments(folder, scopeCase),
         keep: config.keepData,
         embeddings: false,
-        chatModels: watch.chatModels,
+        chatModels: (inner) => requests.chatModels(watch.chatModels(inner)),
         log,
       });
       try {
@@ -105,6 +107,7 @@ test("the scope of a check from a Mind", async () => {
           model: choice,
           async onRepeat(done) {
             const handed = watch.take();
+            const asked = requests.take();
             for (const result of done) {
               const sentence = set.sentences.find((each) => each.text === result.sentence);
               if (!sentence) continue;
@@ -119,6 +122,7 @@ test("the scope of a check from a Mind", async () => {
                 expected: sentence.expected,
                 clause: sentence.clause,
                 handed: handed.get(result.sentence) ?? [],
+                requests: asked.get(result.sentence) ?? [],
               });
             }
             const spent = spentBefore + (await spentOf(core));

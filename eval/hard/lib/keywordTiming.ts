@@ -2,13 +2,15 @@
  * How long keyword search takes at the hard tier's size: FTS5 has no top-k
  * pruning, so every Passage that matches a query's words is scored before
  * the best are kept. Measurement only: each query (the Questions and their
- * translations) is run on the run's own data folder with the app's SQL,
- * ordered by `bm25(passages_fts)` as `keywordSearch` (src/core/documents/
- * search.ts) orders it, and again ordered by FTS5's `rank` column, which is
- * bm25() with the same (default) weights. Both keep the app's tie-breaks, so
- * they should return the same Passages; how many queries did is reported.
+ * translations) is run on the run's own data folder twice, in the app's own
+ * search (`keywordSearch` in src/core/documents/search.ts): once as the app
+ * runs it, its Document's name match looked up from an index of the names,
+ * one row a Document (#2042), and once over the Passages alone, without the
+ * name, so the extra lookup's cost is the difference. Both keep the app's
+ * tie-breaks.
  */
 import { keywordQuery } from "../../../src/core/documents/keywords";
+import { keywordSearch } from "../../../src/core/documents/search";
 import type { Database } from "../../../src/core/storage";
 
 /** Times per query, in milliseconds. */
@@ -25,27 +27,22 @@ export interface KeywordTiming {
   passages: number;
   /** How many Passages each query keeps: keyword + rerank's candidates. */
   limit: number;
-  /** Ordered by `bm25(passages_fts)`, as the app orders keyword search. */
-  bm25: QueryTiming;
-  /** Ordered by FTS5's `rank` column (bm25() with the same weights). */
-  rank: QueryTiming;
-  /** Queries for which both orders returned the same Passages in the same order. */
-  sameResults: number;
+  /** As the app runs keyword search: with its Document's name match added. */
+  app: QueryTiming;
+  /** The same over the Passages alone, without the name index: what the extra lookup costs. */
+  alone: QueryTiming;
+  /** Queries for which the name match changed which Passages were kept, or their order. */
+  reordered: number;
 }
 
-const select = (order: string) => `SELECT p.seq
+/** The same, over the Passages alone: the app's keyword search before the name's own index. */
+export const PASSAGES_SQL = `SELECT p.seq
        FROM passages_fts
        JOIN passages p ON p.seq = passages_fts.rowid
        JOIN documents d ON d.id = p.document_id
        WHERE passages_fts MATCH ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL
-       ORDER BY ${order}, p.position, p.seq
+       ORDER BY bm25(passages_fts), p.position, p.seq
        LIMIT ?`;
-
-/** The app's keyword search (`keywordSearch`), over the whole library. */
-export const BM25_SQL = select("bm25(passages_fts)");
-
-/** The same, ordered by FTS5's `rank` column. */
-export const RANK_SQL = select("rank");
 
 const quantile = (sorted: readonly number[], share: number) =>
   sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(share * sorted.length) - 1))] ?? 0;
@@ -71,34 +68,45 @@ export function timeKeywordSearch(
   queries: readonly string[],
   limit: number,
 ): KeywordTiming {
-  const matches = queries
-    .map((query) => keywordQuery(query))
-    .filter((match): match is string => match !== null);
-  const run = (sql: string, match: string) => {
+  const searched = queries.flatMap((query) => {
+    const match = keywordQuery(query);
+    return match === null ? [] : [{ query, match }];
+  });
+  const app = (query: string) => {
     const started = performance.now();
-    const seqs = db.all<{ seq: number }>(sql, [match, BigInt(limit)]).map((row) => row.seq);
+    const seqs = keywordSearch(db, query, limit);
     return { ms: performance.now() - started, seqs };
   };
-  for (const match of matches) run(BM25_SQL, match);
-  const bm25: number[] = [];
-  const rank: number[] = [];
-  let sameResults = 0;
-  matches.forEach((match, index) => {
-    const [first, second] = index % 2 === 0 ? [BM25_SQL, RANK_SQL] : [RANK_SQL, BM25_SQL];
-    const a = run(first, match);
-    const b = run(second, match);
-    const [byBm25, byRank] = first === BM25_SQL ? [a, b] : [b, a];
-    bm25.push(byBm25.ms);
-    rank.push(byRank.ms);
-    if (byBm25.seqs.join() === byRank.seqs.join()) sameResults++;
+  const alone = (match: string) => {
+    const started = performance.now();
+    const seqs = db
+      .all<{ seq: number }>(PASSAGES_SQL, [match, BigInt(limit)])
+      .map((row) => row.seq);
+    return { ms: performance.now() - started, seqs };
+  };
+  for (const { query } of searched) app(query);
+  const appTimes: number[] = [];
+  const aloneTimes: number[] = [];
+  let reordered = 0;
+  searched.forEach(({ query, match }, index) => {
+    const [first, second] =
+      index % 2 === 0
+        ? [() => app(query), () => alone(match)]
+        : [() => alone(match), () => app(query)];
+    const a = first();
+    const b = second();
+    const [byApp, byPassages] = index % 2 === 0 ? [a, b] : [b, a];
+    appTimes.push(byApp.ms);
+    aloneTimes.push(byPassages.ms);
+    if (byApp.seqs.join() !== byPassages.seqs.join()) reordered++;
   });
   return {
     passages:
       db.get<{ count: number }>("SELECT COUNT(*) AS count FROM passages WHERE deleted_at IS NULL")
         ?.count ?? 0,
     limit,
-    bm25: timingOf(bm25),
-    rank: timingOf(rank),
-    sameResults,
+    app: timingOf(appTimes),
+    alone: timingOf(aloneTimes),
+    reordered,
   };
 }

@@ -20,6 +20,7 @@ import {
   primaryButtonClass,
 } from "../ui";
 import { splitCommandLine } from "./commandLine";
+import { ConnectorKeyFields, HeaderNameField, keyHeader } from "./RemoteKey";
 
 /** Non-empty lines, trimmed. */
 const lines = (text: string) =>
@@ -71,6 +72,8 @@ export function ConnectorForm({
   const [url, setUrl] = useState("");
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  const [key, setKey] = useState("");
+  const [headerName, setHeaderName] = useState("Authorization");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [secretStorage, setSecretStorage] = useState<SecretStorageStatus | null>(null);
@@ -83,7 +86,7 @@ export function ConnectorForm({
   const remote = kind === "remote";
   const variables = parseEnvLines(env);
   const hasSecrets = remote
-    ? clientSecret.trim() !== ""
+    ? clientSecret.trim() !== "" || key.trim() !== ""
     : variables !== null && Object.keys(variables).length > 0;
   const blocked = hasSecrets && secretStorage !== null && !secretStorage.canSave;
   const invalid = !remote && variables === null;
@@ -91,6 +94,10 @@ export function ConnectorForm({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (invalid) return;
+    if (remote && key.trim() && clientId.trim()) {
+      setError(t("error.connector.authChoice"));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -99,7 +106,11 @@ export function ConnectorForm({
         const client = clientId.trim()
           ? { clientId, ...(clientSecret.trim() ? { clientSecret } : {}) }
           : undefined;
-        connector = await core.addConnector({ name, url, ...(client ? { client } : {}) });
+        connector = await core.addConnector({
+          name,
+          url,
+          ...(key.trim() ? { headers: keyHeader(headerName, key) } : client ? { client } : {}),
+        });
       } else if (editing) {
         connector = await core.editConnector(editing.id, {
           name,
@@ -195,6 +206,15 @@ export function ConnectorForm({
               </FieldProblem>
             )}
           </label>
+          <ConnectorKeyFields value={key} onChange={setKey} />
+          <details className="text-[13px] leading-5 text-ink-secondary">
+            <summary className="cursor-pointer select-none hover:text-ink">
+              {t("remoteConnectors.key.options")}
+            </summary>
+            <div className="mt-2">
+              <HeaderNameField value={headerName} onChange={setHeaderName} />
+            </div>
+          </details>
           <details className="text-[13px] leading-5 text-ink-secondary">
             <summary className="cursor-pointer select-none hover:text-ink">
               {t("remoteConnectors.form.client")}

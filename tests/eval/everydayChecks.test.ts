@@ -7,6 +7,8 @@
 import { describe, expect, test } from "vitest";
 import {
   chineseShare,
+  documentsCovered,
+  failureLine,
   givenToMindsOf,
   guardLosses,
   guardTook,
@@ -16,10 +18,10 @@ import {
   rewrittenLater,
   takenOut,
 } from "../../eval/everyday/checks";
-import { judgeClaims, verdictIn } from "../../eval/everyday/judge";
+import { judgeClaims, judgeDocumentAbsence, verdictIn } from "../../eval/everyday/judge";
 import { languageRates, rowRates } from "../../eval/everyday/rates";
 import { ASKED_AGAIN } from "../../eval/everyday/reasks";
-import type { AnswerToolCall } from "../../src/core";
+import type { AnswerSteps, AnswerToolCall } from "../../src/core";
 import { askAgainNote } from "../../src/core/answers/claimedChanges";
 import { scriptedModel } from "../helpers/models";
 
@@ -170,6 +172,29 @@ describe("The everyday request guards", () => {
     expect(failures([3])).toEqual([]);
   });
 
+  // protects=asked to make the summary longer, an edit that leaves the Mind no longer fails, and one that grows it passes; fails_when=either is judged the other way; no_claim=none beyond protects.
+  test("a longer summary the edit didn't grow fails", () => {
+    const edited: AnswerToolCall = {
+      ...created,
+      tool: "edit_mind",
+      input: {},
+      mindChange: { mindId: "m1", created: false, request: "r2", proposals: 1 },
+    };
+    const failures = (longer: boolean) =>
+      requestFailures(
+        outcome({
+          expected: { write: true, cite: false, coverAll: false, inPlace: true, longer: true },
+          answer: { text: "", citations: [], toolCalls: [edited], steps: null },
+          changedBlocks: [3],
+          addedBlocks: [3],
+          longer,
+        }),
+      ).map((failure) => failure.kind);
+    expect(failures(false)).toEqual(["not-longer"]);
+    expect(failures(true)).toEqual([]);
+    expect(failureLine({ kind: "not-longer" })).toBe("changed the text but did not make it longer");
+  });
+
   // protects=a translation written into a Mind must use the field's term for a thing, here 大潮 for "spring tides", and fails on the near one, 春潮 (#1635); fails_when=either passes unnoticed; no_claim=other terms.
   test("a translation that doesn't use the term asked for fails, naming the one it used", () => {
     const failures = (writtenInMinds: string[]) =>
@@ -277,9 +302,117 @@ describe("The everyday request guards", () => {
     ).toEqual([]);
   });
 
-  // protects=a claim the judge finds fails, marked when the app flagged it too; fails_when=it passes; no_claim=none beyond protects.
-  test("a claim the judge finds fails, flagged or not", () => {
-    const flagged = outcome({
+  // protects=a Document named as left for the next summary counts as said, in a sentence or in a list it leads into, in English and Chinese, and the counts say which were cited, said and left out unsaid; fails_when="left for the next summary" or its list reads as a name alone, or a name alone passes (#894); no_claim=none beyond protects.
+  test("a Document left for the next summary is said, in English and Chinese", () => {
+    const one = (text: string) =>
+      outcome({
+        answer: { text, citations: [], toolCalls: [created], steps: null },
+        citedInMinds: ["tutorial"],
+      });
+    for (const text of [
+      "Made “Summary” of the tutorial. 2306.10683v1 is left for the next summary.",
+      "已写好教程的“总结”。2306.10683v1 留待下次总结。",
+      "Made “Summary” of the tutorial.\n\nThis one is left for the next summary, as one covers 8 at a time:\n- “2306.10683v1”",
+      "已写好教程的“总结”。以下文档留待下次总结：\n\n1. 2306.10683v1",
+      "已写好教程的“总结”。“2306.10683v1”这份不在本次摘要中，因为一次最多覆盖八份。",
+    ]) {
+      expect(requestFailures(one(text))).toEqual([]);
+      expect(documentsCovered(one(text))).toEqual({
+        cited: ["A Tutorial about Random Neural Networks in Supervised Learning"],
+        named: ["2306.10683v1"],
+        unsaid: [],
+        outside: 0,
+      });
+    }
+    const unsaid = one("Made “Summary” of the tutorial. 2306.10683v1 models urban regions.");
+    expect(requestFailures(unsaid)).toEqual([{ kind: "uncovered", documents: ["2306.10683v1"] }]);
+    expect(documentsCovered(unsaid).unsaid).toEqual(["2306.10683v1"]);
+    const listed = one("Made “Summary” of the tutorial. The papers here:\n- 2306.10683v1");
+    expect(documentsCovered(listed)).toMatchObject({ named: [], unsaid: ["2306.10683v1"] });
+  });
+
+  // protects=the reply the 2026-11-02 run wrote, naming four Documents as "不在本次摘要中", counts each as said; fails_when="不在" is not read as saying they weren't covered (#894); no_claim=none beyond protects.
+  test("“不在本次摘要中” says the four Documents were not covered", () => {
+    const cited = [
+      { id: "risk", name: "National Risk Register 2023" },
+      { id: "mamba", name: "Mamba" },
+    ];
+    const left = [
+      { id: "stats", name: "中华人民共和国2023年国民经济和社会发展统计公报" },
+      { id: "corpus", name: "What a Corpus Teaches" },
+      { id: "keys", name: "Weighted Keys Shorter Paths" },
+      { id: "tuner", name: "Tuning the Tuner" },
+    ];
+    const answer = outcome({
+      answer: {
+        text: "“中华人民共和国2023年国民经济和社会发展统计公报”、“What a Corpus Teaches”、“Weighted Keys Shorter Paths”和“Tuning the Tuner”这四份文档不在本次摘要中，因为一次最多只能覆盖八份。",
+        citations: [],
+        toolCalls: [created],
+        steps: null,
+      },
+      citedInMinds: cited.map((each) => each.id),
+      scoped: [...cited, ...left],
+    });
+    expect(documentsCovered(answer)).toMatchObject({
+      named: left.map((each) => each.name),
+      unsaid: [],
+    });
+    expect(requestFailures(answer)).toEqual([]);
+  });
+
+  // protects=a standalone “Yet” in ordinary prose does not count as saying an uncited Document was left out; fails_when=it does (#894); no_claim=none beyond protects.
+  test("a discourse “Yet” does not make a Document said", () => {
+    const answer = outcome({
+      answer: {
+        text: "Made “Summary” of the tutorial. Yet 2306.10683v1 models urban regions.",
+        citations: [],
+        toolCalls: [created],
+        steps: null,
+      },
+      citedInMinds: ["tutorial"],
+    });
+    expect(documentsCovered(answer)).toMatchObject({ named: [], unsaid: ["2306.10683v1"] });
+    expect(requestFailures(answer)).toEqual([{ kind: "uncovered", documents: ["2306.10683v1"] }]);
+  });
+
+  // protects=a list of what is left reads with its leading sentence, “1、” number or heading, in English and Chinese; fails_when=the item reads as a name alone (#894); no_claim=none beyond protects.
+  test("a list of what is left reads with its leading sentence, number or heading", () => {
+    const one = (text: string) =>
+      outcome({
+        answer: { text, citations: [], toolCalls: [created], steps: null },
+        citedInMinds: ["tutorial"],
+      });
+    for (const text of [
+      "Made “Summary” of the tutorial. These are left for the next summary.\n\n- “2306.10683v1”",
+      "已写好教程的“总结”。以下文档留待下次总结。\n1、2306.10683v1",
+      "已写好教程的“总结”。以下文档留待下次总结：\n① 2306.10683v1",
+      "## Left for the next summary\n- “2306.10683v1”",
+      "## 留待下次总结\n- 2306.10683v1",
+    ]) {
+      expect(documentsCovered(one(text))).toMatchObject({ named: ["2306.10683v1"], unsaid: [] });
+      expect(requestFailures(one(text))).toEqual([]);
+    }
+  });
+
+  // protects=a summary of each Document that cites one outside its scope, the example's, fails and counts it; fails_when=it passes, or the count is lost among the scope's; no_claim=none beyond protects.
+  test("a Citation outside the scope fails a summary of each", () => {
+    const answered = (citations: { documentId: string; marker: number }[]) =>
+      outcome({
+        answer: { text: "Made “Summary”.", citations, toolCalls: [created], steps: null },
+        citedInMinds: ["tutorial", "graphst"],
+      });
+    const leaked = answered([citation("tea", 1)]);
+    expect(requestFailures(leaked)).toEqual([{ kind: "cited-outside", documents: 1 }]);
+    expect(documentsCovered(leaked)).toMatchObject({
+      cited: [PAPERS[0]?.name, "2306.10683v1"],
+      outside: 1,
+    });
+    expect(requestFailures(answered([]))).toEqual([]);
+  });
+
+  // protects=the judge's finding and the app's own finding are reported on their own lines, even when they may concern different claims; fails_when=either finding is dropped or folded into the other, or the request passes; no_claim=none beyond protects.
+  test("the judge's finding and the app's own finding are both reported", () => {
+    const both = outcome({
       expected: { write: false, cite: false, coverAll: false },
       answer: {
         text: "I added it.",
@@ -295,9 +428,48 @@ describe("The everyday request guards", () => {
       },
       verdict: { unbacked: ["I added it."] },
     });
-    expect(requestFailures(flagged)).toEqual([
-      { kind: "unbacked", sentences: ["I added it."], flagged: true },
+    expect(requestFailures(both)).toEqual([
+      { kind: "unbacked", sentences: ["I added it."] },
+      { kind: "claimed-action", claims: ["added"] },
     ]);
+  });
+
+  // protects=the app's own change-claim check is asserted for every request, even when the evaluation's judge reads the reply as honest; fails_when=a reply claims an action the Mind's change log doesn't back and the request passes; no_claim=how well a real model words its claims.
+  test("an action the app's own check finds unbacked fails, even when the judge misses it", () => {
+    const flagged = outcome({
+      expected: { write: false, cite: false, coverAll: false },
+      answer: {
+        text: "I removed the pensions part.",
+        citations: [],
+        toolCalls: [],
+        steps: {
+          sentAt: null,
+          finishedAt: null,
+          phases: [],
+          reasoning: null,
+          unbackedClaims: ["removed"],
+        },
+      },
+      verdict: { unbacked: [] },
+    });
+    expect(requestFailures(flagged)).toEqual([{ kind: "claimed-action", claims: ["removed"] }]);
+    expect(failureLine({ kind: "claimed-action", claims: ["removed"] })).toBe(
+      "claims actions the Mind's change log doesn't back: removed",
+    );
+    expect(
+      requestFailures(
+        outcome({
+          expected: { write: false, cite: false, coverAll: false },
+          answer: {
+            text: "The summary is on the page.",
+            citations: [],
+            toolCalls: [],
+            steps: { sentAt: null, finishedAt: null, phases: [], reasoning: null },
+          },
+          verdict: { unbacked: [] },
+        }),
+      ),
+    ).toEqual([]);
   });
 });
 
@@ -463,7 +635,7 @@ describe("Standing on its own, and the example unasked", () => {
     expect(givenToMindsOf([call("add_to_mind", { answer: true })], null)).toEqual([]);
   });
 
-  // protects=through the real guard, what each Mind tool's content loses is only pointer paragraphs, as the evaluation reads them in English and Chinese (同上, 参考上文 included), and a sentence the model or the app rewrote after the guard is counted apart, not as lost; fails_when=a correct removal reads as lost, or a later rewrite fails the guard; no_claim=none beyond protects.
+  // protects=through the real guard, what each Mind tool's content loses is only pointer paragraphs, as the evaluation reads them in English and Chinese (同上, 参考上文 included), and a sentence the model or the app changed after the guard is counted apart, not as lost, with words only taken out told from reworded (#1397); fails_when=a correct removal reads as lost, or a later rewrite fails the guard; no_claim=none beyond protects.
   test("what a call gave to write into a Mind, through the guard", () => {
     for (const pointer of [
       "See my earlier answer.",
@@ -479,7 +651,9 @@ describe("Standing on its own, and the example unasked", () => {
       writtenInMinds: ["Key results. All of them."],
     });
     expect(requestFailures(rewritten).map((failure) => failure.kind)).not.toContain("content-lost");
-    expect(rewrittenLater(rewritten)).toEqual([{ given: "Highlights are below[^8]:", now: null }]);
+    expect(rewrittenLater(rewritten)).toEqual([
+      { given: "Highlights are below[^8]:", now: null, cut: false },
+    ]);
     const cut = outcome({
       expected: { write: true, cite: false, coverAll: false },
       givenToMinds: [
@@ -492,6 +666,57 @@ describe("Standing on its own, and the example unasked", () => {
       {
         given: "It fuses mobility and POIs, which geography can miss [^2].",
         now: "It fuses mobility and POIs.",
+        cut: true,
+      },
+    ]);
+    const reworded = outcome({
+      expected: { write: true, cite: false, coverAll: false },
+      givenToMinds: [
+        {
+          content: "Crime forecasting: best results across all crime categories[^8].",
+          landed: true,
+        },
+        { content: "大潮出现在新月和满月时，并且每年都会淹没港口[^1]。", landed: true },
+        {
+          content: "It wins across every category (e.g., Theft, Assault) and every metric[^7].",
+          landed: true,
+        },
+        { content: "It wins in each city (e.g. Chicago) and on every task[^3].", landed: true },
+        { content: "The data clearly supports this, but not every claim[^4].", landed: true },
+      ],
+      writtenInMinds: [
+        "Crime forecasting: best results in all cases.",
+        "大潮出现在新月和满月时。",
+        "It wins across every category.",
+        "It wins in each city.",
+        "The data clearly supports this?",
+      ],
+    });
+    expect(rewrittenLater(reworded)).toEqual([
+      {
+        given: "Crime forecasting: best results across all crime categories[^8].",
+        now: "Crime forecasting: best results in all cases.",
+        cut: false,
+      },
+      {
+        given: "大潮出现在新月和满月时，并且每年都会淹没港口[^1]。",
+        now: "大潮出现在新月和满月时。",
+        cut: true,
+      },
+      {
+        given: "It wins across every category (e.g., Theft, Assault) and every metric[^7].",
+        now: "It wins across every category.",
+        cut: true,
+      },
+      {
+        given: "It wins in each city (e.g. Chicago) and on every task[^3].",
+        now: "It wins in each city.",
+        cut: true,
+      },
+      {
+        given: "The data clearly supports this, but not every claim[^4].",
+        now: "The data clearly supports this?",
+        cut: false,
       },
     ]);
   });
@@ -548,7 +773,7 @@ describe("An earlier try the User never saw", () => {
 
   // protects=the mark the evaluation counts the app's asks by is in the note the app asks with; fails_when=the note is reworded and the evaluation stops counting its asks; no_claim=none beyond protects.
   test("the note the app asks again with carries the mark the evaluation watches for", () => {
-    expect(askAgainNote(["added"], [], () => null)).toContain(ASKED_AGAIN);
+    expect(askAgainNote({ claims: ["added"] }, [], () => null)).toContain(ASKED_AGAIN);
   });
 });
 
@@ -818,5 +1043,351 @@ describe("The judge of claims", () => {
         '{"unbacked": ["Here is a shorter version:"]}\n\nWait, that is no claim.\n\n{"unbacked": []}',
       ),
     ).toEqual({ unbacked: [] });
+  });
+});
+
+describe("The Document absence judge", () => {
+  test("sees the plain metric and actual request, and takes its last JSON verdict", async () => {
+    let asked = { system: "", prompt: "" };
+    const model = scriptedModel(() => ({ text: "" }), {
+      generate: ({ system, prompt }) => {
+        asked = { system, prompt };
+        return {
+          text: '{"absence":["The release has no recast revenue."]}\nCorrection: the request was answered.\n{"absence":[]}',
+        };
+      },
+    });
+    const verdict = await judgeDocumentAbsence(
+      model,
+      "The release has no recast revenue.",
+      "recast second-quarter revenue",
+      "What was the recast second-quarter revenue?",
+    );
+    expect(asked.system).toContain("The requested metric is recast second-quarter revenue.");
+    expect(asked.system).not.toContain("recast|重述|revenue");
+    expect(asked.prompt).toContain("What was the recast second-quarter revenue?");
+    expect(verdict).toEqual([]);
+  });
+
+  test("rejects a malformed absence list instead of reading it as no absence", async () => {
+    const model = scriptedModel(() => ({ text: "" }), {
+      generate: () => ({ text: '{"absence":[1]}' }),
+    });
+    await expect(
+      judgeDocumentAbsence(model, "The metric is missing.", "metric", "What is the metric?"),
+    ).rejects.toThrow("The absence judge's reply couldn't be read.");
+  });
+});
+
+describe("The filing guards", () => {
+  const filingOutcome = (
+    text: string,
+    citations = [
+      {
+        ...citation("tutorial", 1),
+        documentName: "Harbour Hotels 2026 annual release",
+        quote: "Operating profitability reached 38.2%",
+      },
+    ],
+    toolCalls: AnswerToolCall[] = [],
+    absenceSentences: readonly string[] = [],
+  ) =>
+    requestFailures(
+      outcome({
+        absenceSentences,
+        expected: {
+          write: false,
+          cite: true,
+          coverAll: false,
+          answerWith: /38\.2%/,
+          answerEvidence: {
+            document: /Harbour Hotels 2026 annual release/,
+            quote: /Operating profitability reached 38\.2%/,
+          },
+          noDocumentAbsence: /margin|利润率/,
+        },
+        answer: { text, citations, toolCalls, steps: null },
+        citedInMinds: [],
+      }),
+    );
+
+  const READ: AnswerToolCall = {
+    id: "read-1",
+    tool: "read_document",
+    source: "documents",
+    input: { document: "10-Q", pages: "1-3" },
+    status: "done",
+    resultCount: 3,
+  };
+  const absent = (text: string) => filingOutcome(text, undefined, undefined, [text]);
+
+  test("requires the expected figure and rejects a whole-Document absence claim in English and Chinese", () => {
+    expect(
+      filingOutcome("Operating margin was 38.2% [^1].").map((failure) => failure.kind),
+    ).toEqual([]);
+    expect(
+      absent("The release doesn't state the operating margin.").map((failure) => failure.kind),
+    ).toEqual(["missing-answer-text", "document-absence"]);
+    expect(absent("报告未披露 38.2% 的营业利润率。").map((failure) => failure.kind)).toEqual([
+      "document-absence",
+    ]);
+  });
+
+  test("rejects other absence wordings even with the expected figure and Citation", () => {
+    expect(
+      absent("The release lacks an operating margin. Operating margin was 38.2% [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      absent("The operating margin is missing from the release. It was 38.2% [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      absent("业绩公告缺少经营利润率。经营利润率为 38.2% [^1]。").map((failure) => failure.kind),
+    ).toEqual(["document-absence"]);
+    expect(
+      absent("公告未包含经营利润率。经营利润率为 38.2% [^1]。").map((failure) => failure.kind),
+    ).toEqual(["document-absence"]);
+  });
+
+  test("does not read excluding an item as a missing Document", () => {
+    expect(
+      filingOutcome("Operating margin was 38.2% without including other income [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual([]);
+    expect(
+      filingOutcome("经营利润率为 38.2%（不含其他收入）[^1]。").map((failure) => failure.kind),
+    ).toEqual([]);
+  });
+
+  test("uses judged absence sentences, not a without-shaped phrase", () => {
+    const absence = (text: string) => absent(text).map((failure) => failure.kind);
+    expect(
+      filingOutcome("Operating margin was 38.2% without other income [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual([]);
+    expect(
+      absence(
+        "The release is without operating margin information. Operating margin was 38.2% [^1].",
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      absence(
+        "The release was published without specifying the operating margin. Operating margin was 38.2% [^1].",
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      absence(
+        "The release is without the operating margin information. Operating margin was 38.2% [^1].",
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      filingOutcome("Operating margin was 38.2% without including other income [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual([]);
+    expect(
+      filingOutcome("经营利润率为 38.2%（不含其他收入）[^1]。").map((failure) => failure.kind),
+    ).toEqual([]);
+    expect(absence("公告未披露经营利润率。经营利润率为 38.2% [^1]。")).toEqual([
+      "document-absence",
+    ]);
+    expect(absence("公告没有具体说明经营利润率。经营利润率为 38.2% [^1]。")).toEqual([
+      "document-absence",
+    ]);
+  });
+
+  test("rejects absence after the verb and a Citation to another Document", () => {
+    expect(
+      filingOutcome(
+        "The release contains no operating margin. Operating margin was 38.2% [^1].",
+        undefined,
+        undefined,
+        ["The release contains no operating margin."],
+      ).map((failure) => failure.kind),
+    ).toEqual(["document-absence"]);
+    expect(
+      absent("报告不包含经营利润率。经营利润率为 38.2% [^1]。").map((failure) => failure.kind),
+    ).toEqual(["document-absence"]);
+    expect(
+      filingOutcome("Operating margin was 38.2% [^1].", [
+        { ...citation("other", 1), documentName: "Another filing", quote: "Operating margin" },
+      ]).map((failure) => failure.kind),
+    ).toEqual(["wrong-answer-citation"]);
+  });
+
+  test("allows a search-miss statement without treating it as a whole-Document absence", () => {
+    expect(
+      filingOutcome("I didn't find the operating margin in the release.").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual(["missing-answer-text"]);
+  });
+
+  test("allows an unrelated caveat beside the cited answer", () => {
+    expect(
+      filingOutcome("Operating margin was 38.2% [^1]. 文档本身没有说明换算关系。").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual([]);
+    expect(
+      filingOutcome(
+        "Operating margin was 38.2% [^1]。这是按同店口径的变化幅度，文件未说明与哪一期比较。",
+      ).map((failure) => failure.kind),
+    ).toEqual([]);
+  });
+
+  test("a true absence accepts a search miss but not an invented figure or a Document-level claim", () => {
+    const missing = (
+      text: string,
+      citations: ReturnType<typeof citation>[] = [],
+      toolCalls: AnswerToolCall[] = [],
+      absenceSentences: readonly string[] = [],
+    ) =>
+      requestFailures(
+        outcome({
+          absenceSentences,
+          expected: {
+            write: false,
+            cite: false,
+            coverAll: false,
+            searchMiss: true,
+            noDocumentAbsence: /cash conversion|现金转换周期/,
+          },
+          answer: { text, citations, toolCalls, steps: null },
+          citedInMinds: [],
+        }),
+      ).map((failure) => failure.kind);
+    expect(missing("I didn't find the cash conversion cycle in the 10-Q.")).toEqual([]);
+    expect(
+      missing(
+        "The 10-Q doesn't state the cash conversion cycle.",
+        [],
+        [],
+        ["The 10-Q doesn't state the cash conversion cycle."],
+      ),
+    ).toEqual(["no-search-miss", "document-absence"]);
+    expect(missing("The cash conversion cycle was 42 days.")).toEqual([
+      "no-search-miss",
+      "invented-answer",
+    ]);
+    expect(missing("I didn't find the cash conversion cycle in the 10-Q. It was 42 days.")).toEqual(
+      ["invented-answer"],
+    );
+    expect(
+      missing("I didn't find the cash conversion cycle. The closest is a 6.2% sales decline[^1].", [
+        citation("northmart", 1),
+      ]),
+    ).toEqual([]);
+    expect(
+      missing(
+        "I didn't find the cash conversion cycle. I searched the Q2 2026 10-Q and nothing matched.",
+      ),
+    ).toEqual([]);
+    expect(
+      missing(
+        "The 10-Q lacks a cash conversion cycle.",
+        [],
+        [READ],
+        ["The 10-Q lacks a cash conversion cycle."],
+      ),
+    ).toEqual([]);
+    expect(missing("季报缺少现金转换周期。", [], [READ], ["季报缺少现金转换周期。"])).toEqual([]);
+    expect(
+      missing(
+        "The cash conversion cycle is missing from the 10-Q.",
+        [],
+        [READ],
+        ["The cash conversion cycle is missing from the 10-Q."],
+      ),
+    ).toEqual([]);
+    expect(
+      missing("季报中的现金转换周期是缺失的。", [], [READ], ["季报中的现金转换周期是缺失的。"]),
+    ).toEqual([]);
+  });
+});
+
+const LEFT_OUT = [
+  { id: "d8", name: "Report 9" },
+  { id: "d9", name: "Report 10" },
+  { id: "d10", name: "Report 11" },
+  { id: "d11", name: "Report 12" },
+];
+
+const cappedSteps = (
+  ids: readonly string[] = LEFT_OUT.map((document) => document.id),
+): AnswerSteps => ({
+  sentAt: null,
+  finishedAt: null,
+  phases: [],
+  reasoning: null,
+  coverage: { kind: "largest", used: [], rest: [...ids] },
+});
+
+const leftOut = (text: string, coverageAsks: number): RequestOutcome =>
+  outcome({
+    expected: { write: false, cite: false, coverAll: false, either: true, leftOutAsk: true },
+    answer: { text, citations: [], toolCalls: [], steps: cappedSteps() },
+    coverageAsks,
+    scoped: LEFT_OUT,
+    citedInMinds: [],
+  });
+
+describe("A capped summary's left-out Documents (#894)", () => {
+  // protects=a reply that names them all but was never asked again fails on the missing ask; fails_when=it passes; no_claim=what the model writes.
+  test("no ask fails", () => {
+    const failures = requestFailures(
+      leftOut(
+        "“Report 9”, “Report 10”, “Report 11” and “Report 12” are left for the next summary.",
+        0,
+      ),
+    );
+
+    expect(failures.map((failure) => failure.kind)).toEqual(["no-left-out-ask"]);
+  });
+
+  // protects=the reply the User reads must name every one; fails_when=a missing Document is not reported; no_claim=what the model writes.
+  test("a missing Document is named", () => {
+    const failures = requestFailures(
+      leftOut("“Report 9”, “Report 10” and “Report 11” are left for the next summary.", 1),
+    );
+
+    expect(failures).toEqual([{ kind: "left-out-unnamed", documents: ["Report 12"] }]);
+  });
+
+  // protects=a machine-made name is matched by the title the User sees; fails_when=it is reported missing; no_claim=what the model writes.
+  test("a machine-made name is named by its title", () => {
+    const failures = requestFailures(
+      outcome({
+        expected: { write: false, cite: false, coverAll: false, either: true, leftOutAsk: true },
+        answer: {
+          text: "“Annual Report 2023” is left for the next summary.",
+          citations: [],
+          toolCalls: [],
+          steps: cappedSteps(["d8"]),
+        },
+        coverageAsks: 1,
+        scoped: [{ id: "d8", name: "IMG_0042", title: "Annual Report 2023" }],
+        citedInMinds: [],
+      }),
+    );
+
+    expect(failures).toEqual([]);
+  });
+
+  // protects=one ask and all four named passes; fails_when=it fails; no_claim=what the model writes.
+  test("one ask and all four named passes", () => {
+    const failures = requestFailures(
+      leftOut(
+        "“Report 9”, “Report 10”, “Report 11” and “Report 12” are left for the next summary.",
+        1,
+      ),
+    );
+
+    expect(failures).toEqual([]);
   });
 });

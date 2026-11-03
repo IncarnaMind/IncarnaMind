@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "description": "Every format (issue #70): Questions whose answers sit in the hard places of Word, PowerPoint, Excel, CSV, Markdown, plain-text, PDF and Transcript Documents, in English and Chinese, run by `npm run eval` next to the gating set and reported per format, never gating (eval/README.md, \"Every format\").",
+  "description": "Every format (issue #70): Questions whose answers sit in the hard places of Word, PowerPoint, Excel, CSV, Markdown, plain-text, PDF, Transcript and Web page Documents (#155), in English and Chinese, run by `npm run eval` next to the gating set and reported per format, never gating (eval/README.md, \"Every format\"). A Web page names its HTML's path with `kind: \"web\"`: it is saved by its address, which the run serves from this computer, so it has no file kind.",
   "hitRule": "As the gating set's: a question is a hit if one of the top 5 retrieved Passages (a) belongs to expected.document, (b) covers expected.pages, and (c) contains expected.quote after both are normalised (src/shared/quoteMatch.ts findQuote).",
-  "pageNumbers": "expected.pages are Unit numbers (src/shared/units.ts, ADR-0011), as Passages and Citations count them: a PDF's page, a deck's slide (its speaker notes included), a Word or Markdown file's sections in reading order (a Word file's footnotes are its last Unit), a spreadsheet's blocks of rows (the sheets after the first continue the count), a plain-text file's blocks of lines, a Transcript's blocks of cues.",
-  "places": "Each question names the hard place its answer sits in: Word body, table-cell, footnote, section (only the heading says which), comment; PowerPoint slide-text, slide-table, chart (from its cached values), speaker-notes; Excel and CSV cell (a value in a sheet's first block, or a labelled value), row-with-header (a row in a later block, which repeats the header row), second-sheet; Markdown and plain text table, list, code-block; PDF table, two-columns, footnote, figure-caption, scanned; Transcript cue, across-cues (a sentence the speaker split over two cues), later-block (a cue in the second block of cues).",
+  "pageNumbers": "expected.pages are Unit numbers (src/shared/units.ts, ADR-0011), as Passages and Citations count them: a PDF's page, a deck's slide (its speaker notes included), a Word or Markdown file's sections in reading order (a Word file's footnotes are its last Unit), a spreadsheet's blocks of rows (the sheets after the first continue the count), a plain-text file's blocks of lines, a Transcript's blocks of cues, a Web page's sections in reading order.",
+  "places": "Each question names the hard place its answer sits in: Word body, table-cell, footnote, section (only the heading says which), comment; PowerPoint slide-text, slide-table, chart (from its cached values), speaker-notes; Excel and CSV cell (a value in a sheet's first block, or a labelled value), row-with-header (a row in a later block, which repeats the header row), second-sheet; Markdown and plain text table, list, code-block; PDF table, two-columns, footnote, figure-caption, scanned; Transcript cue, across-cues (a sentence the speaker split over two cues), later-block (a cue in the second block of cues); Web page section (a paragraph under its heading), table-cell, list.",
   "knownGap": "A question with knownGap asks about text the readers don't index today (scanned pages with no text layer; Word comments were one until #76). It is asked and reported like any other, so the report shows the gap, and left out of the proposed bars. Its expected Location is where the text sits.",
   "documents": {
     "riverside-library": "eval/retrieval/formats/files/Riverside Library Renovation Report.docx",
@@ -29,7 +29,13 @@
     "scan-invoice": "tests/fixtures/organize/files/IMG_3307.pdf",
     "scan-whiteboard": "tests/fixtures/organize/files/IMG_4410.pdf",
     "riverside-steering": "eval/retrieval/formats/files/Riverside Library Steering Meeting.vtt",
-    "食堂例会": "eval/retrieval/formats/files/社区食堂周例会.vtt"
+    "食堂例会": "eval/retrieval/formats/files/社区食堂周例会.vtt",
+    "riverbank-allotment": { "path": "eval/retrieval/formats/files/web/Riverbank Allotment Water Plan.html", "kind": "web" },
+    "harbour-museum": { "path": "eval/retrieval/formats/files/web/Harbour Museum Volunteer Handbook.html", "kind": "web" },
+    "社区花园": { "path": "eval/retrieval/formats/files/web/社区花园浇水指南.html", "kind": "web" },
+    "图书馆值班": { "path": "eval/retrieval/formats/files/web/图书馆志愿值班手册.html", "kind": "web" },
+    "harbourline-ferry": { "path": "eval/retrieval/formats/files/web/Harbourline Ferry Terminal Winter Sailing Notes.html", "kind": "web" },
+    "青禾图书馆": { "path": "eval/retrieval/formats/files/web/青禾社区图书馆冬季开放须知.html", "kind": "web" }
   },
   "questions": [
     { "id": "word-en-01", "language": "en", "place": "body", "question": "When did the Riverside Library open?", "expected": { "document": "riverside-library", "pages": [2, 2], "quote": "The Riverside Library opened in 1968 and last had a major refurbishment in 1994." } },
@@ -196,6 +202,23 @@
     { "id": "transcript-zh-06", "language": "zh", "place": "across-cues", "question": "街道消防检查定在什么时候？", "expected": { "document": "食堂例会", "pages": [1, 1], "quote": "街道消防检查定在十月十七日上午，需要提前清理厨房后门的通道。" } },
     { "id": "transcript-zh-07", "language": "zh", "place": "later-block", "question": "重阳节的长寿面活动预计有多少位老人参加？", "expected": { "document": "食堂例会", "pages": [2, 2], "quote": "预计会有两百位老人参加。" } },
     { "id": "transcript-zh-08", "language": "zh", "place": "later-block", "question": "重阳节活动需要提前借用什么？", "expected": { "document": "食堂例会", "pages": [2, 2], "quote": "需要提前借用社区活动室的桌椅。" } },
-    { "id": "transcript-zh-09", "language": "zh", "place": "later-block", "question": "重阳节那天食堂想办什么活动？", "expected": { "document": "食堂例会", "pages": [2, 2], "quote": "重阳节那天我们想办一次长寿面活动" } }
+    { "id": "transcript-zh-09", "language": "zh", "place": "later-block", "question": "重阳节那天食堂想办什么活动？", "expected": { "document": "食堂例会", "pages": [2, 2], "quote": "重阳节那天我们想办一次长寿面活动" } },
+
+    { "id": "web-en-01", "language": "en", "place": "section", "question": "When are the plots on the east bank of the allotment watered?", "expected": { "document": "riverbank-allotment", "pages": [2, 2], "quote": "Plots on the east bank are watered on Tuesday and Friday evenings, between six and eight." } },
+    { "id": "web-en-02", "language": "en", "place": "table-cell", "question": "Which allotment tank holds 1,200 litres?", "expected": { "document": "riverbank-allotment", "pages": [3, 3], "quote": "North tank 1,200 litres 12 March 2027" } },
+    { "id": "web-en-03", "language": "en", "place": "list", "question": "What should be done with the allotment's hoses before the frost?", "expected": { "document": "riverbank-allotment", "pages": [4, 4], "quote": "Drain the hoses and store them in the tool shed." } },
+    { "id": "web-en-04", "language": "en", "place": "section", "question": "When does the museum's east gallery open on weekdays?", "expected": { "document": "harbour-museum", "pages": [2, 2], "quote": "The east gallery opens at nine thirty on weekdays, half an hour before the main doors." } },
+    { "id": "web-en-05", "language": "en", "place": "table-cell", "question": "When is the museum's reading room checked during closing?", "expected": { "document": "harbour-museum", "pages": [3, 3], "quote": "Reading room Windows closed 17:45" } },
+    { "id": "web-en-06", "language": "en", "place": "list", "question": "What should museum volunteers bring for counting visitors?", "expected": { "document": "harbour-museum", "pages": [4, 4], "quote": "Bring the blue clipboard with the visitor tally sheet." } },
+
+    { "id": "web-zh-01", "language": "zh", "place": "section", "question": "东侧菜地每周什么时候浇水？", "expected": { "document": "社区花园", "pages": [2, 2], "quote": "东侧菜地每周二和周五傍晚浇水，每次浇水不超过一小时。" } },
+    { "id": "web-zh-02", "language": "zh", "place": "table-cell", "question": "北侧水箱的容量是多少？", "expected": { "document": "社区花园", "pages": [3, 3], "quote": "北侧水箱 1200升 2027年3月12日" } },
+    { "id": "web-zh-03", "language": "zh", "place": "list", "question": "入冬前水管要怎么处理？", "expected": { "document": "社区花园", "pages": [4, 4], "quote": "把水管收进工具房并排空积水。" } },
+    { "id": "web-zh-04", "language": "zh", "place": "section", "question": "图书馆少儿阅览区的灯几点打开？", "expected": { "document": "图书馆值班", "pages": [2, 2], "quote": "上午九点整打开少儿阅览区的灯，比大门开启时间早半小时。" } },
+    { "id": "web-zh-05", "language": "zh", "place": "table-cell", "question": "闭馆时二层阅览室要检查什么？", "expected": { "document": "图书馆值班", "pages": [3, 3], "quote": "二层阅览室 窗户关闭 17:45" } },
+    { "id": "web-zh-06", "language": "zh", "place": "list", "question": "值班志愿者要带上什么统计表？", "expected": { "document": "图书馆值班", "pages": [4, 4], "quote": "带上蓝色夹板和读者统计表。" } },
+
+    { "id": "web-en-07", "language": "en", "place": "section", "question": "Under the winter timetable, what time does the first sailing leave the north pier?", "expected": { "document": "harbourline-ferry", "pages": [6, 6], "quote": "The first sailing leaves the north pier at 07:10, and the last sailing returns to the terminal at 18:40." } },
+    { "id": "web-zh-07", "language": "zh", "place": "section", "question": "冬季开放时间表里，第一班社区班车几点从北门开出？", "expected": { "document": "青禾图书馆", "pages": [6, 6], "quote": "每天早上七点十分从北门开出的第一班社区班车直达图书馆，晚上六点四十分从图书馆返回的末班车停靠北门。" } }
   ]
 }

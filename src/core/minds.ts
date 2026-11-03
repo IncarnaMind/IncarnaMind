@@ -34,7 +34,7 @@ const toMind = (row: MindRow): Mind => ({
 });
 
 function parseTitle(title: unknown): string {
-  if (typeof title !== "string") throw new InvalidInputError("A Mind's title must be text.");
+  if (typeof title !== "string") throw new InvalidInputError("A Note's title must be text.");
   return title.trim();
 }
 
@@ -55,7 +55,7 @@ export function parseCreateMindInput(input: unknown): NewMind {
   if (!isRecord(input)) throw new InvalidInputError("createMind expects an object.");
   const { title = "", kind, folderId } = input;
   const parsedKind = parseKind(kind);
-  if (parsedKind === null) throw new InvalidInputError("That kind of Mind isn't known.");
+  if (parsedKind === null) throw new InvalidInputError("That kind of Note isn't known.");
   return { title: parseTitle(title), kind: parsedKind, folderId: parseFolderChoice(folderId) };
 }
 
@@ -70,7 +70,7 @@ export function parseIds(ids: unknown, what: string): string[] {
 
 export function parseMindId(mindId: unknown): string {
   if (typeof mindId !== "string" || mindId === "") {
-    throw new InvalidInputError("A Mind id must be a non-empty string.");
+    throw new InvalidInputError("A Note id must be a non-empty string.");
   }
   return mindId;
 }

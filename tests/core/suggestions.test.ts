@@ -19,7 +19,13 @@ import {
   unfinishedSentence,
 } from "../../src/core/suggestions/prompt";
 import { setUpWithDocuments } from "../helpers/citations";
-import { createTempDataFolder, nextEvent, saveProviderUnasked, startCore } from "../helpers/core";
+import {
+  createTempDataFolder,
+  nextEvent,
+  queryDatabase,
+  saveProviderUnasked,
+  startCore,
+} from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { scriptedModels } from "../helpers/models";
 
@@ -323,6 +329,54 @@ describe("suggestions as the User writes", () => {
     expect(suggestion.citation).toMatchObject({ documentName: "Tides", check: "found" });
   });
 
+  // protects=a suggestion's quote copied from a Passage shown with one of the prompt's tags defused (#2423) is cited as the Document has it, and a Document's own "&lt;" is cited as written, in English and Chinese; fails_when=either quote isn't found; no_claim=how a real model quotes.
+  test.each([
+    {
+      line: "Spring tides, the <passage> rows of old tables, happen at new moon and at full moon.",
+      quote: "Spring tides, the <passage> rows of old tables, happen at new moon",
+      shown: "Spring tides, the &lt;passage> rows of old tables, happen at new moon",
+    },
+    {
+      line: "Spring tides, written &lt;passage> in old HTML, happen at new moon and at full moon.",
+      quote: "Spring tides, written &lt;passage> in old HTML, happen at new moon",
+      shown: "Spring tides, written &lt;passage> in old HTML, happen at new moon",
+    },
+    {
+      line: "大潮（旧表记作 <passage>）出现在新月和满月前后，这时太阳和月亮的引力叠加在一起。",
+      quote: "大潮（旧表记作 <passage>）出现在新月和满月前后",
+      shown: "大潮（旧表记作 &lt;passage>）出现在新月和满月前后",
+    },
+    {
+      line: "大潮（网页写作 &lt;passage>）出现在新月和满月前后，这时太阳和月亮的引力叠加在一起。",
+      quote: "大潮（网页写作 &lt;passage>）出现在新月和满月前后",
+      shown: "大潮（网页写作 &lt;passage>）出现在新月和满月前后",
+    },
+  ])("a quote of “$line” is cited as the Document has it", async ({ line, quote, shown }) => {
+    const chinese = /\p{Script=Han}/u.test(line);
+    let prompted = "";
+    const model = suggestingModel((prompt) => {
+      prompted = prompt;
+      return chinese
+        ? { text: "港口据此安排每月的测量。", passage: "P1", quote: shown }
+        : { text: "The harbour plans its survey around them.", passage: "P1", quote: shown };
+    });
+    const file = chinese
+      ? { name: "潮汐.md", contents: `# 潮汐\n\n${line}\n\n港口每年公布高潮时刻表。` }
+      : {
+          name: "Tides.md",
+          contents: `# Tides\n\n${line}\n\nHarbours publish the times of high water every year.`,
+        };
+    const { core, mind } = await setUp(model, [file]);
+    const paragraph = chinese
+      ? "港口测量要看潮汐的规律，工作人员记录每天的水位变化。每个月有两次大潮出现在新月和满月前后，"
+      : ABOUT_TIDES;
+
+    const suggestion = suggestionOf(await core.suggestNext(requestFor(mind.id, paragraph)));
+
+    expect(prompted).toContain(shown);
+    expect(suggestion.citation).toMatchObject({ quote, check: "found" });
+  });
+
   test("a cancelled request, or one a newer request replaced, never gives a suggestion", async () => {
     let started = () => {};
     const model = hangingModel(() => started());
@@ -387,6 +441,44 @@ describe("suggestions as the User writes", () => {
 
     await vi.waitFor(async () => expect(await core.citedPageImage(shown.citation)).not.toBeNull());
     expect(asked).toMatchObject([{ document: { name: "Tides" }, area: { kind: "section" } }]);
+  });
+
+  test("a suggestion accepted while its cited page's drawing fails gives the page its tries back, and it is drawn again (#2161)", async () => {
+    let calls = 0;
+    let started = () => {};
+    const drawingStarted = new Promise<void>((resolve) => (started = resolve));
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const capturePage: CapturePage = async () => {
+      calls++;
+      if (calls === 2) {
+        started();
+        await held;
+      }
+      if (calls <= 2) throw new Error("UnknownVizError");
+      return { data: new Uint8Array([1]), type: "image/png", width: 1, height: 1, text: [] };
+    };
+    const { core, mind, dataDir } = await setUp(suggestingModel(SPRING), [TIDES, BREAD], {
+      capturePage,
+    });
+    const pages = () =>
+      queryDatabase<{ tries: number; image_type: string | null }>(
+        dataDir,
+        "SELECT tries, image_type FROM cited_pages WHERE deleted_at IS NULL",
+      );
+    const first = suggestionOf(await core.suggestNext(requestFor(mind.id, ABOUT_TIDES)));
+    await core.acceptSuggestion({ suggestionId: first.suggestionId, characters: 42 });
+    await vi.waitFor(() => expect(pages()).toEqual([{ tries: 1, image_type: null }]));
+
+    // Asked for, it is drawn again; the same Citation is accepted again while that drawing fails.
+    expect(await core.citedPageImage(first.citation)).toBeNull();
+    await drawingStarted;
+    const second = suggestionOf(await core.suggestNext(requestFor(mind.id, ABOUT_TIDES)));
+    await core.acceptSuggestion({ suggestionId: second.suggestionId, characters: 42 });
+    release();
+
+    await vi.waitFor(() => expect(pages()).toEqual([{ tries: 1, image_type: "image/png" }]));
+    expect(calls).toBe(3);
   });
 
   test("turning them off stops the request in flight and sends no more", async () => {

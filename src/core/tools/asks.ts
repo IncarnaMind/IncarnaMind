@@ -13,6 +13,11 @@ export const ASKS_PER_ANSWER = 2;
 export interface AskToolOptions {
   /** Asks the User in the tray and waits; rejects if the Answer stops first. */
   ask(toolCallId: string, question: UserQuestion, signal: AbortSignal): Promise<UserAnswer>;
+  /**
+   * Its card, when the Run hasn't announced the call yet: the question can reach
+   * the User first, and the Answer stops at it before the card would come.
+   */
+  started?(toolCallId: string): void;
   /** The question as its card keeps it: asked, then answered. */
   recorded(toolCallId: string, question: UserQuestion): void;
 }
@@ -130,6 +135,7 @@ export function askTool(options: AskToolOptions): Tool {
       }
       const question = questionOf(input);
       asked++;
+      options.started?.(toolCallId);
       options.recorded(toolCallId, question);
       const asking = turn.then(() => options.ask(toolCallId, question, signal));
       turn = asking.catch(() => undefined);

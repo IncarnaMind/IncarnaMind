@@ -9,6 +9,8 @@ import { numberedFootnotes } from "./citationNumbers";
 import { Citation } from "./citationSchema";
 import { FOOTNOTE_CONTENT } from "./footnoteSchema";
 import { InFootnoteContext } from "./mindContext";
+import { wordAtomView } from "./WordAtomView";
+import { WordAtom } from "./wordSchema";
 
 /** Marks a change to the footnote's text that came from the Mind, so it isn't sent back. */
 const FROM_MIND = "fromMind";
@@ -80,8 +82,9 @@ const FootnoteTextKeys = Extension.create<KeyOptions>({
 
 /**
  * What a footnote's text can hold, for its own editor: the marks of a Note,
- * line breaks and Citations, the same node and mark types as in the Mind, so
- * its content moves between the two as it is.
+ * line breaks, Citations, and what a Word file's note keeps as is (#746), the
+ * same node and mark types as in the Mind, so its content moves between the
+ * two as it is.
  */
 function footnoteTextExtensions(citationView: NodeViewRenderer | null, keys: KeyOptions) {
   return [
@@ -104,6 +107,7 @@ function footnoteTextExtensions(citationView: NodeViewRenderer | null, keys: Key
     FootnoteDocument,
     Highlight,
     Citation.configure({ view: citationView }),
+    WordAtom.configure({ view: wordAtomView }),
     FootnoteTextKeys.configure(keys),
   ];
 }

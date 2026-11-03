@@ -23,7 +23,7 @@ if (mode === "try" || mode === "leaving") {
   const leaving = mode === "leaving" && heldByAnotherCopy(folder ?? "", report);
   if (leaving) console.log(JSON.stringify({ sawItHeld: true }));
   const lock = lockInstance(folder ?? "", report, { holderMayBeLeaving: leaving });
-  console.log(JSON.stringify({ held: lock.held }));
+  console.log(JSON.stringify({ held: lock.held, timedOut: lock.timedOut }));
   lock.release();
 } else if (mode === "hold") {
   const lock = lockInstance(folder ?? "", report);

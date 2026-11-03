@@ -8,7 +8,7 @@
 const { appendFileSync } = require("node:fs");
 const { app, dialog } = require("electron");
 
-app.getPreferredSystemLanguages = () => ["en-US"];
+app.getPreferredSystemLanguages = () => [process.env.INCARNAMIND_TEST_ERROR_LANGUAGE ?? "en-US"];
 
 dialog.showErrorBox = (title, content) => {
   appendFileSync(

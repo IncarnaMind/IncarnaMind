@@ -22,7 +22,6 @@ import { type RerankingModel as AiSdkRerankingModel, rerank } from "ai";
 import {
   type ConnectionTestResult,
   DEFAULT_RERANK_MODELS,
-  type ExternalService,
   type RerankProviderKind,
   type RerankServiceKind,
   type RerankSettings,
@@ -37,6 +36,7 @@ import { createSendGate, gateStop } from "../sendGate";
 import type { SettingsStore } from "../settings";
 import { parseApiKey, readApiKey, storedApiKey } from "./apiKey";
 import { classifyProviderError } from "./providerErrors";
+import { RERANK_SERVICES } from "./rerankServices";
 
 /** A model object, never a model id string (which the AI SDK would send to its gateway). */
 export type ApiRerankingModel = Exclude<AiSdkRerankingModel, string>;
@@ -54,12 +54,6 @@ export const createAiSdkRerankingModel: RerankingModelFactory = ({ kind, apiKey,
   kind === "cohere"
     ? createCohere({ apiKey }).reranking(modelId)
     : createVoyage({ apiKey }).reranking(modelId);
-
-/** Where each service's requests go. */
-const RERANK_SERVICES: Readonly<Record<RerankServiceKind, ExternalService>> = {
-  cohere: { id: "https://api.cohere.com", name: "Cohere" },
-  voyage: { id: "https://api.voyageai.com", name: "Voyage AI" },
-};
 
 /** The data the "rerank" flow sends. */
 const RERANK_FLOW_SENDS = ["queries", "passages"] as const;

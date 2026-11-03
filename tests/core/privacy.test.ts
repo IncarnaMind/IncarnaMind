@@ -147,7 +147,7 @@ describe("Privacy settings", () => {
 });
 
 describe("Network traffic without User content", () => {
-  test("lists the search model download, the other sources it may come from, and Ollama's model downloads", async () => {
+  test("lists the search model download, the mirror it may come from, and Ollama's model downloads", async () => {
     const core = startCore(await createTempDataFolder(), {
       embeddingModelSource: HUGGING_FACE_SOURCE,
     });
@@ -156,11 +156,6 @@ describe("Network traffic without User content", () => {
       {
         id: "embedding-model",
         service: { id: "https://huggingface.co", name: "Hugging Face" },
-        enabled: true,
-      },
-      {
-        id: "model-source-modelscope",
-        service: { id: "https://www.modelscope.cn", name: "ModelScope" },
         enabled: true,
       },
       {
@@ -173,6 +168,28 @@ describe("Network traffic without User content", () => {
         service: { id: "https://registry.ollama.ai", name: "Ollama" },
         enabled: true,
       },
+    ]);
+  });
+
+  test("lists ModelScope and IncarnaMind's R2 copy once those exist", async () => {
+    const core = startCore(await createTempDataFolder(), {
+      embeddingModelSource: HUGGING_FACE_SOURCE,
+      modelDownloads: {
+        copies: {
+          modelscope: {
+            url: "https://www.modelscope.cn/models/IncarnaMind/{folder}/resolve/master/",
+          },
+          r2: { url: "https://models.example.com/{folder}/" },
+        },
+      },
+    });
+
+    expect((await core.listNetworkTraffic()).map(({ id, service }) => [id, service.id])).toEqual([
+      ["embedding-model", "https://huggingface.co"],
+      ["model-source-modelscope", "https://www.modelscope.cn"],
+      ["model-source-hf-mirror", "https://hf-mirror.com"],
+      ["model-source-copy", "https://models.example.com"],
+      ["ollama-pull", "https://registry.ollama.ai"],
     ]);
   });
 

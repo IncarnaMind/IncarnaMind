@@ -1,18 +1,29 @@
 /**
  * An Answer of the assistant's conversations as Blocks (ADR-0017): the Markdown
  * the model wrote made into the node types of Notes, each Citation marker made
- * into its Citation and each figure marker into its calculated figure's shown
- * text (ADR-0021), its words AI text, exactly as an Answer written into a Mind
+ * into its Citation and each figure marker into its calculated figure
+ * (ADR-0021), its words AI text, exactly as an Answer written into a Mind
  * is made. The assistant shows them, Copy copies them and Add to note puts
  * them into a note.
  */
 
 import { markdownToBlocks } from "../core/answers/markdown";
 import { forPage } from "../core/answers/pointersBack";
-import { CITATION_NODE, type ConversationAnswer, type MarkedCitation } from "../core/api";
+import {
+  type AnswerAnalysis,
+  CALCULATED_FIGURE_NODE,
+  type CalculatedFigure,
+  CITATION_NODE,
+  type ConversationAnswer,
+  type MarkedCitation,
+} from "../core/api";
 import { asGenerated } from "./aiText";
+import { withAnalysisPictures } from "./analysisPictures";
+import { withAnalysisTableCitations } from "./analysisTables";
 import { citationNode, type NodeJSON, withCitations } from "./blockJson";
+import { calculatedFigureNode, figureShownText } from "./calculatedFigures";
 import { withFigures } from "./figureMarkers";
+import { figureRunId } from "./figureRuns";
 import { withoutFraming } from "./noteBlocks";
 
 /**
@@ -22,7 +33,8 @@ import { withoutFraming } from "./noteBlocks";
  * figure is left out.
  */
 export function answerBlocks(
-  answer: Pick<ConversationAnswer, "text" | "citations" | "figures" | "status">,
+  answer: Pick<ConversationAnswer, "text" | "citations" | "figures" | "status"> &
+    Partial<Pick<ConversationAnswer, "id" | "analyses">>,
 ): NodeJSON[] {
   const streaming = answer.status === "streaming";
   const cited = new Map(answer.citations.map(({ marker, ...citation }) => [marker, citation]));
@@ -34,12 +46,46 @@ export function answerBlocks(
   });
   return asGenerated(
     closeUpCitations(
-      withFigures(
-        blocks,
+      withCalculatedFigures(
+        withAnalysisTableCitations(withAnalysisPictures(blocks, answer.analyses), answer.analyses),
         (marker) => figures.get(marker) ?? null,
-        (figure) => figure.shown,
+        answer,
       ),
     ),
+  );
+}
+
+export function withCalculatedFigures(
+  blocks: readonly NodeJSON[],
+  figureOf: (marker: number) => CalculatedFigure | null,
+  answer: { id?: string; analyses?: readonly AnswerAnalysis[] },
+): NodeJSON[] {
+  let occurrence = 0;
+  return withFigures(blocks, figureOf, (figure, marker, written) => {
+    const analysis = figure.analysis
+      ? answer.analyses?.find((run) => run.number === figure.analysis?.analysis)
+      : undefined;
+    const backed = analysis && holdsFigure(analysis, figure) ? analysis : null;
+    // A figure this answer can't back reads as its value, never as a figure an Analysis checks
+    // when there is no record for it (#2378).
+    if (figure.analysis && !backed) return figure.shown;
+    return calculatedFigureNode(
+      { ...figure, written },
+      `${answer.id ?? "preview"}:figure:${marker}:${occurrence++}`,
+      backed ? figureRunId(answer.id ?? "preview", backed) : null,
+    );
+  });
+}
+
+function holdsFigure(analysis: AnswerAnalysis, figure: CalculatedFigure): boolean {
+  return (
+    analysis.end.kind === "done" &&
+    analysis.output.results.some(
+      (result) =>
+        result.kind === "figure" &&
+        result.name === figure.analysis?.result &&
+        result.value === figure.value,
+    )
   );
 }
 
@@ -50,10 +96,39 @@ export function answerBlocks(
  * keeps both.
  */
 export const pageBlocks = (
-  answer: Pick<ConversationAnswer, "text" | "citations" | "figures">,
+  answer: Pick<ConversationAnswer, "text" | "citations" | "figures"> &
+    Partial<Pick<ConversationAnswer, "id" | "analyses" | "status">>,
   question: string,
 ): NodeJSON[] =>
-  withoutFraming(answerBlocks({ ...answer, text: forPage(answer.text, question), status: "done" }));
+  asQuoteChecked(
+    withoutFraming(
+      answerBlocks({ ...answer, text: forPage(answer.text, question), status: "done" }),
+    ),
+    answer.status ?? "done",
+  );
+
+/**
+ * An ended Answer's blocks as a Note takes them (#2311). A Citation whose sentence the
+ * conversation still judges, or couldn't judge, had its quote found: in a Note it is that, and the
+ * Note's own checks judge the sentence. A stopped Answer's Citation still checking may never have
+ * had its quote checked.
+ */
+export function asQuoteChecked(
+  blocks: readonly NodeJSON[],
+  status: ConversationAnswer["status"],
+): NodeJSON[] {
+  const settled = (node: NodeJSON): NodeJSON => {
+    const check = node.type === CITATION_NODE ? node.attrs?.check : undefined;
+    const found = check === "not-checked" || (check === "checking" && status === "done");
+    const kept = Object.entries(node.attrs ?? {}).filter(([name]) => name !== "checkReason");
+    return {
+      ...node,
+      ...(found && { attrs: { ...Object.fromEntries(kept), check: "found" } }),
+      ...(node.content && { content: node.content.map(settled) }),
+    };
+  };
+  return blocks.map(settled);
+}
 
 /** The Citation markers an Answer's text shows, in order, one for each place: a marker used twice is two. */
 export function markersIn(text: string): number[] {
@@ -126,9 +201,14 @@ function closeUpCitations(blocks: readonly NodeJSON[]): NodeJSON[] {
   });
 }
 
-/** Whether Blocks hold any words: an Answer that failed before writing any has nothing to keep. */
+/**
+ * Whether Blocks hold anything to read, words or a calculated figure: an Answer that failed
+ * before writing any has nothing to keep.
+ */
 export const hasText = (blocks: readonly NodeJSON[]): boolean =>
   blocks.some(
     (block) =>
-      (block.type === "text" && (block.text ?? "").trim() !== "") || hasText(block.content ?? []),
+      (block.type === "text" && (block.text ?? "").trim() !== "") ||
+      (block.type === CALCULATED_FIGURE_NODE && figureShownText(block.attrs).trim() !== "") ||
+      hasText(block.content ?? []),
   );

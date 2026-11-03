@@ -56,7 +56,9 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
   };
 
   const adding = preview?.filter((entry) => entry.action === "add") ?? [];
-  const needsKeychain = adding.some((entry) => entry.env.length > 0);
+  const needsKeychain = adding.some(
+    (entry) => entry.env.length > 0 || (entry.headers?.length ?? 0) > 0,
+  );
   const blocked = needsKeychain && secretStorage !== null && !secretStorage.canSave;
 
   const confirm = async () => {
@@ -83,22 +85,24 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
   return (
     <div data-testid="connector-import-form" className="flex flex-col gap-3">
       <p className="text-[13px] leading-5 text-ink-secondary">{t("connectors.import.body")}</p>
-      <label className={fieldLabelClass}>
-        {t("connectors.import.json")}
-        <TypingTextarea
-          value={json}
-          onChange={(event) => {
-            setJson(event.target.value);
-            setPreview(null);
-          }}
-          rows={6}
-          spellCheck={false}
-          placeholder={
-            '{\n  "mcpServers": {\n    "github": { "command": "npx", "args": ["-y", "…"] }\n  }\n}'
-          }
-          className={`${inputClass} font-mono`}
-        />
-      </label>
+      {!preview && (
+        <label className={fieldLabelClass}>
+          {t("connectors.import.json")}
+          <TypingTextarea
+            value={json}
+            onChange={(event) => {
+              setJson(event.target.value);
+              setPreview(null);
+            }}
+            rows={6}
+            spellCheck={false}
+            placeholder={
+              '{\n  "mcpServers": {\n    "github": { "command": "npx", "args": ["-y", "…"] }\n  }\n}'
+            }
+            className={`${inputClass} font-mono`}
+          />
+        </label>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <label className={`${buttonClass} cursor-pointer`}>
           {t("connectors.import.file")}
@@ -125,6 +129,13 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
 
       {preview && (
         <>
+          <button
+            type="button"
+            onClick={() => setPreview(null)}
+            className={`${ghostButtonClass} self-start`}
+          >
+            {t("connectors.import.change")}
+          </button>
           <ul data-testid="connector-import-preview" className={ruledListClass}>
             {preview.map((entry) => (
               <li
@@ -155,6 +166,18 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
                 {entry.env.length > 0 && (
                   <p className="text-[12px] leading-[18px] text-ink-meta">
                     {t("connectors.import.env", { names: entry.env.join(", ") })}
+                  </p>
+                )}
+                {entry.connection === "sse" && (
+                  <p className="text-[12px] leading-[18px] text-ink-meta">
+                    {t("remoteConnectors.connection.sse")}
+                  </p>
+                )}
+                {(entry.headers?.length ?? 0) > 0 && (
+                  <p className="text-[12px] leading-[18px] text-ink-meta">
+                    {t("remoteConnectors.import.headers", {
+                      names: entry.headers?.join(", ") ?? "",
+                    })}
                   </p>
                 )}
               </li>

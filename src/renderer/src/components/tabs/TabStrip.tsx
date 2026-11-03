@@ -21,6 +21,7 @@ import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { SidebarToggle } from "../SidebarToggle";
 import { TasksChip } from "../TasksChip";
 import { ExportMenu } from "./ExportMenu";
+import { ShowAllTabs } from "./ShowAllTabs";
 import { GroupMenu, StripButton } from "./TabMenus";
 import { splitToTheRight } from "./tabActions";
 import { MeetingTabTime, TabIcon, useTabTitle } from "./tabItems";
@@ -50,15 +51,17 @@ export function TabStrip({
   const t = useT();
   const layout = useAppStore((state) => state.layout);
   const createMind = useAppStore((state) => state.createMind);
+  const strip = useRef<HTMLElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const tabs = merged && layout ? layout.groups.flatMap((each) => each.tabs) : group.tabs;
   const shownId = group.activeTabId;
-  const overflow = useOverflow(list, shownId);
+  const tabIds = tabs.map((tab) => tab.id).join();
+  const overflow = useOverflow(list, tabIds);
   const shown = group.tabs.find((tab) => tab.id === shownId);
   const last = merged || index === (layout?.groups.length ?? 1) - 1;
 
   const spacer = useRef<HTMLSpanElement>(null);
-  useTabStripFit(list, spacer, shownId ?? null, tabs.map((tab) => tab.id).join());
+  const hidden = useTabStripFit(strip, list, spacer, shownId ?? null, tabIds);
 
   /** Arrow keys, Home and End move to another tab of the strip and show it, as in any tab list. */
   const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -91,12 +94,16 @@ export function TabStrip({
         className="tab-strip title-bar"
       >
         {index === 0 && <SidebarToggle place="band" />}
+        <span className="tab-strip-spacer" />
+        {/* Its slot in the band: "Show Tasks" is in ⌘K here too, and it needs somewhere to open from. */}
+        {last && <TasksChip />}
       </header>
     );
   }
 
   return (
     <header
+      ref={strip}
       data-testid="tab-strip"
       data-group-id={group.id}
       data-first-group={index === 0 || undefined}
@@ -140,6 +147,8 @@ export function TabStrip({
       >
         <PlusLineIcon />
       </button>
+      {/* Shown only while a tab is hidden (styles.css), so the fit counts its room when it is (#2244). */}
+      <ShowAllTabs tabs={tabs} shownId={shownId} hidden={hidden} />
       <span ref={spacer} className="tab-strip-spacer" />
       {last && <TasksChip />}
       {shown?.item.kind === "mind" && <ExportMenu mindId={shown.item.mindId} />}
@@ -334,31 +343,27 @@ function RenameTab({ mindId, title, onDone }: { mindId: string; title: string; o
   );
 }
 
-// The width of the fade at each end of `.tab-list` in styles.css.
-const FADE_PX = 32;
-
 /**
- * Whether tabs are scrolled out of sight before or after the strip's visible
- * part: the strip fades out on that side (see `.tab-list`), unless the shown
- * tab is in the way, which the fade never covers.
+ * Whether a tab reaches past the strip's visible part on either side: the strip fades out there
+ * (see `.tab-list`), which says there is more. The tabs' own edges decide it, not the strip's
+ * `scrollWidth`, which the shown tab's feet and the end padding would read as overflow too.
+ * `useTabStripFit` keeps the shown tab clear of the fade.
  */
-function useOverflow(list: RefObject<HTMLDivElement | null>, shownId: string | null | undefined) {
+function useOverflow(list: RefObject<HTMLDivElement | null>, tabIds: string) {
   const [overflow, setOverflow] = useState({ before: false, after: false });
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `shownId` is when the tab that stays clear of the fade changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tabIds stands for the tabs in the strip, which mounts with the second.
   useEffect(() => {
     const element = list.current;
     if (!element) return;
     const measure = () => {
       const view = element.getBoundingClientRect();
-      const shown = element
-        .querySelector('[role="tab"][aria-selected="true"]')
-        ?.getBoundingClientRect();
-      const under = (from: number, to: number) =>
-        shown !== undefined && shown.right > from && shown.left < to;
-      const before = element.scrollLeft > 1 && !under(view.left, view.left + FADE_PX);
-      const after =
-        element.scrollLeft + element.clientWidth < element.scrollWidth - 1 &&
-        !under(view.right - FADE_PX, view.right);
+      let before = false;
+      let after = false;
+      for (const tab of element.querySelectorAll<HTMLElement>(':scope > [role="tab"]')) {
+        const box = tab.getBoundingClientRect();
+        if (box.left < view.left - 1) before = true;
+        if (box.right > view.right + 1) after = true;
+      }
       setOverflow((current) =>
         current.before === before && current.after === after ? current : { before, after },
       );
@@ -375,6 +380,6 @@ function useOverflow(list: RefObject<HTMLDivElement | null>, shownId: string | n
       resized.disconnect();
       changed.disconnect();
     };
-  }, [list, shownId]);
+  }, [list, tabIds]);
   return overflow;
 }

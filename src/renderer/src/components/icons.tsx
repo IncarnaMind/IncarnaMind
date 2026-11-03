@@ -118,16 +118,6 @@ export function PlugIcon(props: IconProps) {
   );
 }
 
-/** A circle with a cross: the quote wasn't found on the page. */
-export function QuoteNotFoundIcon(props: IconProps) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true" {...props}>
-      <circle cx="8" cy="8" r="6.25" strokeWidth="1.5" />
-      <path d="M5.9 5.9l4.2 4.2M10.1 5.9l-4.2 4.2" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 /** A Skill: a four-pointed spark, for packaged know-how. */
 export function SkillIcon(props: IconProps) {
   return (

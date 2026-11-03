@@ -11,9 +11,11 @@
  * recognition model's character list (Simplified and Traditional Chinese,
  * Latin letters, digits and symbols: 18,383 entries) is in its own file.
  */
+
 import { readFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import type { PagePicture, RecognizedLine, TextRecognizer } from "../../adapters";
+import { ONNX_RUNTIME } from "../../engineModules";
 import { textBoxes } from "./detect";
 import { onnxMetadata } from "./onnxMetadata";
 import { readDrawn } from "./picture";
@@ -103,8 +105,7 @@ export function createOnnxTextRecognizer(): TextRecognizer {
   let loading: Promise<Loaded> | undefined;
 
   async function load(detectorFile: string, recognizerFile: string): Promise<Loaded> {
-    // Loaded only when needed: the native runtime is large.
-    const ort = await import("onnxruntime-node");
+    const ort = await ONNX_RUNTIME.load();
     const options = {
       executionProviders: ["cpu"],
       graphOptimizationLevel: "all",

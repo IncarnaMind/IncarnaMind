@@ -6,6 +6,7 @@
 import type { CSSProperties } from "react";
 import type { BorderEdge, CellStyle, FontStyle } from "../../../core/documents/formats/xlsxStyles";
 import { fontKind } from "../../../shared/fontKinds";
+import { officeFontName } from "./officeFontNames";
 
 /**
  * Rows or columns: each the default size unless set (0 hides it). Offsets
@@ -105,7 +106,7 @@ const FALLBACKS = {
 /** A font's name as a CSS family, falling back to the app's own font of the same kind. */
 export function fontFamily(name: string | undefined): string {
   if (!name) return FALLBACKS.sans;
-  return `"${name.replace(/["\\]/g, "")}", ${FALLBACKS[fontKind(name)]}`;
+  return `"${officeFontName(name).replace(/["\\]/g, "")}", ${FALLBACKS[fontKind(name)]}`;
 }
 
 /** Points as CSS pixels, to two places. */

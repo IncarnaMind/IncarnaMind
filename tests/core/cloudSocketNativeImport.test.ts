@@ -51,6 +51,55 @@ const RUN = `
   process.exit(0);
 `;
 
+// A service that turns the key away at the handshake (Qwen's does, with HTTP 401) says nothing a
+// WebSocket can read: the module asks it once more, over HTTP, before it calls the key refused.
+const REFUSED = `
+  import { createServer } from "node:http";
+  const { connectWebSocket, HANDSHAKE_REFUSED } = await import("./src/core/transcription/cloud/socket.ts");
+  const closedWith = (status) =>
+    new Promise((resolve) => {
+      const server = createServer((request, response) => {
+        response.writeHead(request.headers.authorization === "Bearer good" ? 400 : status);
+        response.end();
+      });
+      server.on("upgrade", (request, socket) => {
+        socket.write("HTTP/1.1 " + (request.headers.authorization === "Bearer good" ? 400 : status) + " X\\r\\n\\r\\n");
+        socket.destroy();
+      });
+      server.listen(0, "127.0.0.1", () => {
+        const url = "ws://127.0.0.1:" + server.address().port + "/api-ws/v1/inference";
+        connectWebSocket(url, status === 401 ? "wrong" : "good", {
+          open: () => resolve("opened"),
+          message: () => {},
+          closed: (code) => resolve(code === HANDSHAKE_REFUSED ? "refused" : "closed " + code),
+        });
+      });
+    });
+  console.log(JSON.stringify({ wrong: await closedWith(401), other: await closedWith(503) }));
+  process.exit(0);
+`;
+
+test("a key turned away at the handshake is told from a connection that failed", {
+  timeout: 60_000,
+}, () => {
+  const output = execFileSync(
+    process.execPath,
+    [
+      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+      "--import",
+      "./scripts/tsResolve.mjs",
+      "--input-type=module",
+      "-e",
+      REFUSED,
+    ],
+    { cwd: ROOT, encoding: "utf8", timeout: 30_000 },
+  );
+  expect(JSON.parse(output.trim().split("\n").at(-1) ?? "{}")).toEqual({
+    wrong: "refused",
+    other: "closed 1006",
+  });
+});
+
 test("the cloud socket module connects with the key in its header and talks both ways when Node imports it", {
   timeout: 60_000,
 }, () => {

@@ -1,0 +1,11 @@
+{
+  "task": "E07",
+  "inputs": {
+    "en": "f9be72d18363287fe8feca6771a02cc54a05a28a7c3c09ebd12ce5ed74459d7a"
+  },
+  "values": {
+    "payments": 360,
+    "payment": 1572.2862172349273,
+    "total_interest": 286023.0382045738
+  }
+}

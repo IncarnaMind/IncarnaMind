@@ -388,6 +388,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
           name: nameFor(client, input.name),
           folderIds: input.folderIds,
           client: client.id,
+          ...(input.propose !== undefined && { propose: input.propose }),
         })
         .catch(async (error: unknown) => {
           if (addedSkill) await removeSkill(client.id, "").catch(options.reportError);
@@ -468,8 +469,6 @@ export function createAgentSetup(options: AgentSetupOptions) {
     },
   };
 }
-
-export type AgentSetup = ReturnType<typeof createAgentSetup>;
 
 /** Whether the agent's Agent Skill is in its skills folder as IncarnaMind wrote it. */
 export function skillInstalled(home: string, client: string | null): boolean {

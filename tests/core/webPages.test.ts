@@ -297,6 +297,7 @@ describe("Fetching a web page again", { timeout: 30_000 }, () => {
     ).toBeGreaterThan(0);
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: document.id,
         quote: PORTUGUESE,
         pageFrom: citation.pageFrom,

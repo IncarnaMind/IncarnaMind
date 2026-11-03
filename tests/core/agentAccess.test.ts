@@ -11,8 +11,10 @@ import { translate } from "../../src/shared/i18n";
 
 function accessAnswering(outcome: OutsideAnswer) {
   const deps: AgentAccessDeps = {
-    admit: (pairingId) => ({ id: pairingId, name: "Codex", folderIds: ["coast"] }),
-    folders: () => [{ id: "coast", name: "Coast" }],
+    admit: (pairingId) => ({ id: pairingId, name: "Codex", folderIds: ["coast"], propose: false }),
+    folders: () => [{ id: "coast", name: "Coast", keepInside: false }],
+    wallOf: () => null,
+    foldersInScope: (folderIds) => [...folderIds],
     documentsIn: () => ["tides"],
     search: async () => [],
     passage: () => null,
@@ -24,6 +26,12 @@ function accessAnswering(outcome: OutsideAnswer) {
     },
     minds: () => [],
     liveDocuments: () => [],
+    mindBlocks: () => {
+      throw new Error("Not called.");
+    },
+    editMind: () => {
+      throw new Error("Not called.");
+    },
     show: () => undefined,
     mindMarkdown: () => "",
     answer: async () => outcome,
@@ -36,6 +44,8 @@ function accessAnswering(outcome: OutsideAnswer) {
     record: () => undefined,
     say: (key, params) => translate("en", key, params),
     clock: () => 0,
+    now: () => "2026-11-01T09:00:00.000Z",
+    newId: () => "id",
     reportError: () => undefined,
   };
   return createAgentAccess(deps, "pairing");

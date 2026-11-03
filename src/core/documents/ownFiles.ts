@@ -22,21 +22,35 @@ export interface OwnFiles {
    * whose change the caller announces. Nothing is recorded for an empty
    * file: every empty file has its fingerprint.
    */
-  record(data: Uint8Array, kind: OwnFileKind): string[];
+  record(data: Uint8Array, kind: OwnFileKind, folderId: string | null): string[];
+  /**
+   * The live Documents IncarnaMind wrote from a Note in one of these Folders: what a Folder
+   * wall keeps behind it wherever the file was indexed (#1934).
+   */
+  writtenFrom(folderIds: readonly string[]): string[];
 }
 
 export function createOwnFiles(db: Database, now: () => string): OwnFiles {
   return {
-    record(data, kind) {
+    record(data, kind, folderId) {
       if (data.byteLength === 0) return [];
       const contentHash = hashBytes(data);
       return db.transaction(() => {
-        // The same bytes written again are the same file: one row is enough.
-        const known = db.get(
-          "SELECT 1 FROM own_files WHERE content_hash = ? AND kind = ? AND deleted_at IS NULL",
+        // The same bytes written again are the same file: one row is enough, from its latest Note.
+        const known = db.get<{ id: string; folder_id: string | null }>(
+          "SELECT id, folder_id FROM own_files WHERE content_hash = ? AND kind = ? AND deleted_at IS NULL",
           [contentHash, kind],
         );
-        if (known) return [];
+        if (known) {
+          if (folderId !== null && known.folder_id !== folderId) {
+            db.run("UPDATE own_files SET folder_id = ?, updated_at = ? WHERE id = ?", [
+              folderId,
+              now(),
+              known.id,
+            ]);
+          }
+          return [];
+        }
         const marked = db
           .all<{ id: string }>(
             `SELECT id FROM documents
@@ -46,12 +60,22 @@ export function createOwnFiles(db: Database, now: () => string): OwnFiles {
           .map((row) => row.id);
         const at = now();
         db.run(
-          `INSERT INTO own_files (id, content_hash, kind, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?)`,
-          [randomUUID(), contentHash, kind, at, at],
+          `INSERT INTO own_files (id, content_hash, kind, folder_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [randomUUID(), contentHash, kind, folderId, at, at],
         );
         return marked;
       });
+    },
+    writtenFrom(folderIds) {
+      if (folderIds.length === 0) return [];
+      return db
+        .all<{ id: string }>(
+          `SELECT id FROM documents WHERE deleted_at IS NULL
+           AND own_file_folder_id IN (${folderIds.map(() => "?").join(",")})`,
+          [...folderIds],
+        )
+        .map((row) => row.id);
     },
   };
 }

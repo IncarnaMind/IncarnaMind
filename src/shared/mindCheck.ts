@@ -38,17 +38,27 @@ export function readMindCheck(settings: Y.Map<unknown>): MindCheckRun | null {
         ? Math.max(0, value.sentences)
         : 0,
     stop: stopOf(value.stop),
-    skipped: Array.isArray(value.skipped)
-      ? value.skipped.filter((each): each is string => typeof each === "string")
-      : [],
+    // A run before #1682 took every sentence the model's reply didn't list for one that makes no
+    // claim, so its "makes no claim" may be a sentence nobody decided: each is sorted once more.
+    ...("unexamined" in value
+      ? { skipped: keysOf(value.skipped), unexamined: keysOf(value.unexamined) }
+      : { skipped: [], unexamined: keysOf(value.skipped) }),
   };
 }
+
+const keysOf = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((each): each is string => typeof each === "string") : [];
 
 export const mindCheckOf = (doc: Y.Doc): MindCheckRun | null =>
   readMindCheck(doc.getMap(MIND_SETTINGS_FIELD));
 
 export function writeMindCheck(settings: Y.Map<unknown>, run: MindCheckRun): void {
-  settings.set(KEY, { ...run, stop: run.stop && { ...run.stop }, skipped: [...run.skipped] });
+  settings.set(KEY, {
+    ...run,
+    stop: run.stop && { ...run.stop },
+    skipped: [...run.skipped],
+    unexamined: [...run.unexamined],
+  });
 }
 
 /** Calls `listener` whenever the Mind's last check may have changed. Returns how to stop. */

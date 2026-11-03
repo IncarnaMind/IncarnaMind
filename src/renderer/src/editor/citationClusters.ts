@@ -2,11 +2,14 @@ import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import type * as Y from "yjs";
 import { CITATION_NODE, type CitationAttributes, type CitedWork } from "../../../core/api";
+import { calculatedCitations, calculatedSources } from "../../../shared/figureRuns";
 import { citationLocation } from "../../../shared/locations";
 import {
   type NumberedCitation,
   numberCitations,
+  numberedFigures,
   sideBySide,
   textBlockEdited,
 } from "./citationNumbers";
@@ -41,7 +44,7 @@ export function citedWorkOf(attributes: CitationAttributes): CitedWork {
   };
 }
 
-const workSignature = (attributes: CitationAttributes) =>
+export const citationWorkSignature = (attributes: CitationAttributes) =>
   JSON.stringify([
     attributes.documentId,
     attributes.documentName,
@@ -64,7 +67,7 @@ export function clusterCitations(doc: ProseMirrorNode): CitationCluster[] {
   }
   return clusters.map(({ members }) => ({
     members,
-    signature: members.map((member) => workSignature(member.attributes)).join("|"),
+    signature: members.map((member) => citationWorkSignature(member.attributes)).join("|"),
   }));
 }
 
@@ -163,6 +166,40 @@ export function citationClusters(state: EditorState): readonly CitationCluster[]
   return clustersKey.getState(state)?.clusters ?? [];
 }
 
+export interface FormattingCluster {
+  pos: number;
+  works: CitedWork[];
+  signature: string;
+  citation: number | null;
+  figure: string | null;
+}
+
+/** Includes figure inputs in the style's order without changing Citation decoration indices. */
+export function formattingClusters(state: EditorState, doc: Y.Doc | null): FormattingCluster[] {
+  const ordinary = citationClusters(state).map((cluster, index) => ({
+    pos: cluster.members[0]?.pos ?? 0,
+    works: cluster.members.map((member) => citedWorkOf(member.attributes)),
+    signature: cluster.signature,
+    citation: index,
+    figure: null,
+  }));
+  const figures = numberedFigures(state).flatMap(({ pos, attributes }) => {
+    const citations = calculatedCitations(calculatedSources(attributes, doc));
+    return citations.length
+      ? [
+          {
+            pos,
+            works: citations.map(citedWorkOf),
+            signature: citations.map(citationWorkSignature).join("|"),
+            citation: null,
+            figure: attributes.id,
+          },
+        ]
+      : [];
+  });
+  return [...ordinary, ...figures].sort((a, b) => a.pos - b.pos);
+}
+
 /** The plugin behind `CitationClusters`, which keeps the clusters in the editor's state. */
 export function citationClustersPlugin(): Plugin<Clusters> {
   return new Plugin<Clusters>({
@@ -171,20 +208,28 @@ export function citationClustersPlugin(): Plugin<Clusters> {
       init: (_config, state) => clustersOf(state.doc),
       apply: (tr, previous) => {
         if (!tr.docChanged) return previous;
+        // A node decoration goes with its node: a Citation drawn again in place (a synced edit
+        // that replaces it with its like) would keep its shape but lose its place.
+        const members = previous.clusters.reduce((sum, each) => sum + each.members.length, 0);
+        const mapped = previous.decorations.map(tr.mapping, tr.doc);
+        const kept = mapped.find().length === members;
         // Typing in a text block with fewer than two Citations can't join or part any:
-        // they only move along. (Their positions in `clusters` aren't kept up to date.)
+        // they only move along, and their places move with them for the style's order.
         const typedIn = textBlockEdited(tr);
-        if (typedIn !== null && citationsIn(tr.doc.nodeAt(typedIn)) < 2) {
-          return { ...previous, decorations: previous.decorations.map(tr.mapping, tr.doc) };
+        if (kept && typedIn !== null && citationsIn(tr.doc.nodeAt(typedIn)) < 2) {
+          const clusters = previous.clusters.map((cluster) => ({
+            ...cluster,
+            members: cluster.members.map((member) => ({
+              ...member,
+              pos: tr.mapping.map(member.pos),
+            })),
+          }));
+          return { ...previous, clusters, decorations: mapped };
         }
         const next = clusterCitations(tr.doc);
         const shape = shapeOf(next);
-        if (shape !== previous.shape) return clustersOf(tr.doc);
-        return {
-          clusters: next,
-          shape,
-          decorations: previous.decorations.map(tr.mapping, tr.doc),
-        };
+        if (!kept || shape !== previous.shape) return clustersOf(tr.doc);
+        return { clusters: next, shape, decorations: mapped };
       },
     },
     props: {

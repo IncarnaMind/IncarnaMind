@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import type { DeletedItem } from "../../../core/api";
 import { lostSentences } from "../deletedItems";
-import { useLanguage, useT } from "../i18n";
+import { useGap, useLanguage, useT } from "../i18n";
 import { formatCount } from "../linkedFolders";
 import { deletedName, deleteItemsPermanently } from "../recentlyDeleted";
 import { useAppStore } from "../store";
@@ -29,6 +29,7 @@ export function DeletePermanentlyDialog({
   onClose(): void;
 }) {
   const t = useT();
+  const gap = useGap();
   const language = useLanguage();
   const dialog = useModal(request !== null);
   // Kept while the dialog closes, so its text doesn't empty out first.
@@ -67,7 +68,9 @@ export function DeletePermanentlyDialog({
           {title}
         </h2>
         <p id="delete-permanently-body" className={`${dialogTextClass} break-words`}>
-          {[...lost, t("deleted.confirm.foot")].join(" ")}
+          {[...lost, t("deleted.confirm.foot")].reduce(
+            (said, next) => `${said}${gap(said, next)}${next}`,
+          )}
         </p>
         <div className={dialogActionsClass}>
           <button type="button" onClick={onClose} className={buttonClass}>

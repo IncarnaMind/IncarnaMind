@@ -1,15 +1,21 @@
-import { useEffect, useLayoutEffect } from "react";
+import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Task } from "../../../core/api";
 import { mindName } from "../../../shared/naming";
+import { focusComposer } from "../commands/assistant";
+import { shortcutLabel } from "../commands/keymap";
 import { dayOf } from "../dates";
+import { withShortcut } from "../editor/withShortcut";
 import { useLanguage, useT } from "../i18n";
 import type { Translate } from "../objects";
 import { useAppStore } from "../store";
+import { taskRowActions } from "../taskActions";
 import { chipOf, needsYou, taskGroups } from "../taskGroups";
+import { useTaskMenu } from "../taskMenu";
 import { loadTasks, showTask, useTasks } from "../tasks";
 import { resultLine, stepLine, taskName } from "../taskText";
 import { CheckLineIcon } from "./lineIcons";
+import { buttonStyle } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 
 /** Room kept between the popover and the assistant below it. */
@@ -37,7 +43,9 @@ function keepAboveAssistant(menu: HTMLElement | null): void {
  * The Tasks chip (#126; DESIGN.md, Finding Tasks; the board Tasks-Chip-Popover):
  * in the band, only while a Task runs or needs the User. Its popover lists
  * Needs you · Running · Recent (7 days); a row opens its Mind at the Task's
- * place, with its row in the tray. Esc or a click outside closes it.
+ * place, with its row in the tray, and offers Stop while its Task is still
+ * going. Esc or a click outside closes it. "Show Tasks" opens it too when no
+ * chip shows, from the band's corner, so Recent is always in reach.
  */
 export function TasksChip() {
   const t = useT();
@@ -47,50 +55,134 @@ export function TasksChip() {
   const menu = usePopoverMenu({
     focus: "first",
     around: (button) => button.closest<HTMLElement>('[data-testid="tab-strip"]'),
+    // The chip goes once the last Task stops, and the anchor can't take the focus: the User's
+    // place is the composer they were in.
+    whenFocusGone: focusComposer,
   });
   const { open } = menu;
   const menuRef = menu.menuProps.ref;
+  const asked = useTaskMenu((state) => state.open);
+  /** It was asked for from ⌘K: it shows and opens even with no chip in the band. */
+  const [forced, setForced] = useState(false);
+  /** It is closing: its own event has not run yet, so it stays drawn until then. */
+  const [closing, setClosing] = useState(false);
+  /**
+   * The Task a row action just acted on, and when it was last updated: its row takes the focus
+   * back once that Task has changed, not when another Task's progress draws the list again.
+   */
+  const acted = useRef<{ id: string; updatedAt: string } | null>(null);
 
   useEffect(loadTasks, []);
   useLayoutEffect(() => {
+    if (!asked) return;
+    useTaskMenu.getState().taken();
+    setForced(true);
+  }, [asked]);
+  useLayoutEffect(() => {
+    if (!forced) return;
+    const element = menuRef.current;
+    if (element && !element.matches(":popover-open")) element.showPopover();
+  }, [forced, menuRef]);
+  useLayoutEffect(() => {
     if (open) keepAboveAssistant(menuRef.current);
   }, [open, menuRef]);
+  // A row's action may take its button away, and the row may move to another group, which draws a
+  // new row: the focus comes back to the row the Task is in now, once that Task has changed and
+  // not when another one's progress draws the list again. A field an action opened keeps it.
+  useLayoutEffect(() => {
+    const pending = acted.current;
+    if (pending === null) return;
+    const task = tasks.find((each) => each.id === pending.id);
+    if (task && task.updatedAt === pending.updatedAt) return;
+    acted.current = null;
+    const item = menuRef.current?.querySelector<HTMLElement>(
+      `[data-task="${CSS.escape(pending.id)}"]`,
+    );
+    const focused = document.activeElement;
+    const kept = item != null && focused instanceof HTMLElement && item.contains(focused);
+    if (!kept) item?.querySelector<HTMLElement>('[data-testid="tasks-popover-row"]')?.focus();
+  }, [tasks, menuRef]);
 
-  if (!chip) return null;
-  const summary =
-    chip.running > 0
+  // Kept drawn while it is open or still closing: the last Task stopping takes the chip away, and
+  // its row, now in Recent, must keep the focus the User's action gave it until Esc closes it.
+  if (!chip && !forced && !open && !closing) return null;
+  const summary = chip
+    ? chip.running > 0
       ? t("tasks.chip.running", { count: chip.running })
-      : t("tasks.chip.needsYou", { count: chip.needsYou });
+      : t("tasks.chip.needsYou", { count: chip.needsYou })
+    : "";
   return (
     <>
-      <button
-        type="button"
-        {...menu.buttonProps}
-        data-testid="tasks-chip"
-        data-needs-you={chip.needsYou > 0 || undefined}
-        aria-label={t("tasks.chip.label", { summary })}
-        className="tasks-chip"
-      >
-        <span
+      {chip ? (
+        <button
+          type="button"
+          {...menu.buttonProps}
+          data-testid="tasks-chip"
+          data-needs-you={chip.needsYou > 0 || undefined}
+          aria-label={t("tasks.chip.label", { summary })}
+          className="tasks-chip"
+        >
+          <span
+            aria-hidden="true"
+            className={chip.needsYou > 0 ? "task-dot task-dot--attention" : "task-dot"}
+          />
+          {summary}
+        </button>
+      ) : (
+        <button
+          type="button"
+          {...menu.buttonProps}
+          tabIndex={-1}
           aria-hidden="true"
-          className={chip.needsYou > 0 ? "task-dot task-dot--attention" : "task-dot"}
+          data-testid="tasks-anchor"
+          className="tasks-anchor"
         />
-        {summary}
-      </button>
+      )}
       <div
         {...menu.menuProps}
         role="menu"
         aria-label={t("tasks.popover.label")}
         data-testid="tasks-popover"
         className="model-menu tasks-popover"
+        onBeforeToggle={(event) => {
+          menu.menuProps.onBeforeToggle(event);
+          // A closed popover that goes off the page here never sends its own event, and with it
+          // the focus's way back: it stays drawn until that has run.
+          setClosing(event.newState === "closed");
+        }}
+        onToggle={(event) => {
+          menu.menuProps.onToggle(event);
+          // A close's event comes a task later, after Show Tasks may have opened it again: only
+          // a close that is still one takes it off the screen.
+          if (event.newState === "closed" && !menuRef.current?.matches(":popover-open")) {
+            setForced(false);
+            setClosing(false);
+          }
+        }}
       >
-        {open && <TaskLists tasks={tasks} close={menu.close} />}
+        {open && (
+          <TaskLists
+            tasks={tasks}
+            close={menu.close}
+            onAct={(task) => {
+              acted.current = { id: task.id, updatedAt: task.updatedAt };
+            }}
+          />
+        )}
       </div>
     </>
   );
 }
 
-function TaskLists({ tasks, close }: { tasks: readonly Task[]; close(): void }) {
+function TaskLists({
+  tasks,
+  close,
+  onAct,
+}: {
+  tasks: readonly Task[];
+  close(): void;
+  onAct(task: Task): void;
+}) {
   const t = useT();
   const groups = taskGroups(tasks);
   const open = (task: Task) => {
@@ -105,20 +197,34 @@ function TaskLists({ tasks, close }: { tasks: readonly Task[]; close(): void }) 
       <section className="model-menu-list" aria-label={t(heading)}>
         <p className="model-menu-heading">{t(heading)}</p>
         {list.map((task) => (
-          <TaskItem key={task.id} task={task} onOpen={() => open(task)} />
+          <TaskItem key={task.id} task={task} onOpen={() => open(task)} onAct={() => onAct(task)} />
         ))}
       </section>
     );
+  const empty = tasks.length === 0;
   return (
     <>
-      {section("tasks.group.needsYou", groups.needsYou)}
-      {section("tasks.group.running", groups.running)}
-      {section("tasks.group.recent", groups.recent)}
+      {empty ? (
+        <p data-testid="tasks-popover-empty" className="tasks-popover-empty">
+          {t("tasks.popover.empty")}
+        </p>
+      ) : (
+        <>
+          {section("tasks.group.needsYou", groups.needsYou)}
+          {section("tasks.group.running", groups.running)}
+          {section("tasks.group.recent", groups.recent)}
+        </>
+      )}
     </>
   );
 }
 
-function TaskItem({ task, onOpen }: { task: Task; onOpen(): void }) {
+/**
+ * One Task in the popover: the row opens it, and the actions beside it (from
+ * `taskRowActions`) act on it as data. After one, the focus stays on its row,
+ * which moves as the list regroups, unless the action moved it into a field.
+ */
+function TaskItem({ task, onOpen, onAct }: { task: Task; onOpen(): void; onAct(): void }) {
   const t = useT();
   const language = useLanguage();
   const mind = useAppStore((state) => {
@@ -129,40 +235,68 @@ function TaskItem({ task, onOpen }: { task: Task; onOpen(): void }) {
   const { title, line } = finished
     ? recentText(task, mind, t, language)
     : { title: taskName(task, t), line: [mind, stepLine(task, t, language)] };
+  const actions = taskRowActions(task, t);
+  const act = (run: () => void) => (event: MouseEvent<HTMLButtonElement>) => {
+    event.currentTarget.blur();
+    onAct();
+    run();
+  };
   return (
-    <button
-      type="button"
-      role="menuitem"
-      data-testid="tasks-popover-row"
-      data-task={task.id}
-      onClick={onOpen}
-      className="model-menu-item tasks-popover-row"
-    >
-      {finished ? (
-        task.status === "done" ? (
-          <CheckLineIcon aria-hidden="true" className="tasks-popover-done" />
+    <div role="none" data-task={task.id} className="tasks-popover-item">
+      <button
+        type="button"
+        role="menuitem"
+        data-testid="tasks-popover-row"
+        onClick={onOpen}
+        className="model-menu-item tasks-popover-row"
+      >
+        {finished ? (
+          task.status === "done" ? (
+            <CheckLineIcon aria-hidden="true" className="tasks-popover-done" />
+          ) : (
+            <span aria-hidden="true" className="task-dot task-dot--idle" />
+          )
         ) : (
-          <span aria-hidden="true" className="task-dot task-dot--idle" />
-        )
-      ) : (
-        <span
-          aria-hidden="true"
-          className={
-            needsYou(task)
-              ? "task-dot task-dot--attention"
-              : task.status === "running"
-                ? "task-dot"
-                : "task-dot task-dot--idle"
-          }
-        />
-      )}
-      <span className="model-menu-name">
-        <span className="tasks-popover-title">{title}</span>
-        <span className="model-menu-hint tasks-popover-line">
-          {line.filter(Boolean).join(" · ")}
+          <span
+            aria-hidden="true"
+            className={
+              needsYou(task)
+                ? "task-dot task-dot--attention"
+                : task.status === "running"
+                  ? "task-dot"
+                  : "task-dot task-dot--idle"
+            }
+          />
+        )}
+        <span className="model-menu-name">
+          <span className="tasks-popover-title">{title}</span>
+          <span className="model-menu-hint tasks-popover-line">
+            {line.filter(Boolean).join(" · ")}
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+      {actions.length > 0 && (
+        // One place for the actions, however many a Task offers, so a second fits beside the first.
+        <div className="tasks-popover-actions">
+          {actions.map((action) => (
+            <button
+              key={action.key}
+              type="button"
+              role="menuitem"
+              data-testid={`tasks-popover-${action.key}`}
+              onClick={act(action.run)}
+              className={buttonStyle("ghost", "sm")}
+              {...withShortcut(
+                action.label,
+                action.shortcut ? shortcutLabel(action.shortcut) : undefined,
+              )}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

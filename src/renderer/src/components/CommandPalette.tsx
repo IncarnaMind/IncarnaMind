@@ -21,7 +21,7 @@ import { findable } from "../finding";
 import "../findingKinds";
 import { useLanguage, useT } from "../i18n";
 import { prepareName } from "../matcher";
-import { enter, exit } from "../motion";
+import { exit } from "../motion";
 import {
   actionGroup,
   activeOf,
@@ -41,6 +41,7 @@ import {
 } from "../palette";
 import { useAppStore } from "../store";
 import {
+  CheckLineIcon,
   ConversationLineIcon,
   DocumentLineIcon,
   MindLineIcon,
@@ -50,6 +51,7 @@ import {
 import { Marked } from "./Marked";
 import { ProblemMark } from "./ProblemLine";
 import { errorTextClass } from "./ui";
+import { useFocusReturn } from "./useFocusReturn";
 import { useBackdropClose } from "./useModal";
 
 /** How long typing pauses before the words inside are searched for. */
@@ -131,6 +133,7 @@ function Palette() {
   const dialog = useRef<HTMLDialogElement>(null);
   const field = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  const focus = useFocusReturn();
   const [query, setQuery] = useState("");
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const context = usePalette((state) => state.context);
@@ -151,10 +154,10 @@ function Palette() {
   useLayoutEffect(() => {
     const element = dialog.current;
     if (!element) return;
+    focus.remember();
     element.showModal();
     field.current?.focus();
-    enter(element, {});
-  }, []);
+  }, [focus]);
 
   const { text, words, actionsOnly } = useMemo(() => readQuery(query), [query]);
   const searching = !actionsOnly && searchesWords(text);
@@ -203,6 +206,7 @@ function Palette() {
     if (!element?.open) return;
     exit(element, {});
     element.close();
+    focus.giveBack(element);
     // Now, not on the dialog's close event a task later: ⌘K pressed meanwhile opens it again.
     usePalette.getState().hide();
   };
@@ -255,7 +259,7 @@ function Palette() {
       aria-label={t("palette.label")}
       onKeyDown={onKeyDown}
       onClose={() => usePalette.getState().hide()}
-      className="mx-auto mt-16 mb-auto flex max-h-[calc(100vh-96px)] w-[640px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-xl bg-sheet p-0 text-ink shadow-dialog backdrop:bg-scrim"
+      className="mx-auto mt-16 mb-auto open:flex max-h-[calc(100vh-96px)] w-[640px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-xl bg-sheet p-0 text-ink shadow-popover backdrop:bg-transparent"
     >
       <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-rule px-4">
         <SearchLineIcon className="size-4 shrink-0 text-ink-meta" />
@@ -461,6 +465,9 @@ function Option({
           </span>
         )}
       </span>
+      {item.kind === "command" && item.checked && (
+        <CheckLineIcon data-testid="palette-checked" className="size-4 shrink-0 text-ink-meta" />
+      )}
       {item.kind === "command" && item.shortcut && (
         <span className="shrink-0 text-[12px] text-ink-meta">{item.shortcut}</span>
       )}

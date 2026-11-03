@@ -1,9 +1,11 @@
 import { useEffect, useMemo } from "react";
 import type { LinkedFolder } from "../../../core/api";
+import { sidebarHandle } from "../commands/handles";
 import { buildFolderTree } from "../folders";
 import { useLanguage, useT } from "../i18n";
 import { sourceRequest } from "../libraryPage";
 import { indexingShare, linkedFolderRowState, rowStateLabel } from "../linkedFolders";
+import { showOutputLocationSetting, useLinkedFolderWriting } from "../outputFiles";
 import { useRequests } from "../requests";
 import { sorted } from "../sort";
 import { useSort } from "../sortChoices";
@@ -34,6 +36,7 @@ const LINKED_WASH_MS = 1600;
 export function LinkedFolderRows({ hideExamples = false }: { hideExamples?: boolean }) {
   const folders = useAppStore((state) => state.folders);
   const linkedFolders = useAppStore((state) => state.linkedFolders);
+  const writing = useLinkedFolderWriting();
   const documents = useAppStore((state) => state.documents);
   const exampleIds = useAppStore((state) =>
     allExamples(state)
@@ -68,6 +71,9 @@ export function LinkedFolderRows({ hideExamples = false }: { hideExamples?: bool
         return linked ? (
           <LinkedFolderRow
             key={folder.id}
+            // No answer yet for this folder is read-only; an unread or failed read says so, not read-only.
+            readOnly={!writing.reading && !writing.problem && writing.allowed[linked.id] !== true}
+            unchecked={writing.problem}
             linked={linked}
             folderId={folder.id}
             name={folder.name}
@@ -84,11 +90,17 @@ function LinkedFolderRow({
   folderId,
   name,
   hasContents,
+  readOnly,
+  unchecked,
 }: {
   linked: LinkedFolder;
   folderId: string;
   name: string;
   hasContents: boolean;
+  /** The User hasn't allowed IncarnaMind to add files here, so its row says read-only (#1942). */
+  readOnly: boolean;
+  /** That answer couldn't be read: the row says so, and opens where it is given. */
+  unchecked: boolean;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -105,6 +117,7 @@ function LinkedFolderRow({
   // Its row, once it shows: in sight, washed for a moment, then as any other (#763).
   useEffect(() => {
     if (!justLinked) return;
+    if (sidebarHandle.current?.hidden) sidebarHandle.current.toggle();
     document
       .querySelector(`[data-linked-folder-id="${linked.id}"][data-root]`)
       ?.scrollIntoView({ block: "nearest" });
@@ -113,7 +126,7 @@ function LinkedFolderRow({
   }, [justLinked, linked.id]);
 
   return (
-    <li role="none">
+    <li role="none" data-testid="linked-folder-row">
       <div
         data-testid="folder-item"
         data-depth={0}
@@ -144,6 +157,15 @@ function LinkedFolderRow({
             {name}
           </span>
           {!status && isExample && <ExampleChip />}
+          {!status && !isExample && readOnly && (
+            <span
+              data-testid="linked-folder-read-only"
+              title={t("linkedFolders.readOnly.full")}
+              className="shrink-0 text-label font-semibold text-ink-meta"
+            >
+              {t("linkedFolders.readOnly")}
+            </span>
+          )}
           {status && (
             <span
               data-testid="folder-status"
@@ -161,6 +183,21 @@ function LinkedFolderRow({
             </span>
           )}
         </button>
+        {!status && !isExample && unchecked && (
+          // Not read-only, only unknown: saying where the answer lives is the honest line (#1942).
+          // Beside the row's button, never in it: one control inside another runs both on one click.
+          // Its 33px keep it clear of the row's actions, which take that room when the row is pointed at.
+          <button
+            type="button"
+            data-testid="linked-folder-writing-unchecked"
+            title={t("linkedFolders.readOnly.unchecked.title")}
+            onClick={showOutputLocationSetting}
+            tabIndex={-1}
+            className="mr-[33px] shrink-0 rounded-sm text-label font-semibold text-ink-meta hover:text-ink hover:underline"
+          >
+            {t("linkedFolders.readOnly.unchecked")}
+          </button>
+        )}
         {progress !== null && (
           <span
             aria-hidden="true"
@@ -179,6 +216,16 @@ function LinkedFolderRow({
           <ObjectMenu target={object} label={t("linkedFolders.more", { name })} tabIndex={-1} />
         </div>
       </div>
+      {state.kind === "empty" && (
+        // Under its row, never in its place: the row says its state, and this says why (#763).
+        <p
+          role="status"
+          data-testid="linked-folder-nothing-to-read"
+          className="pr-2 pb-1 pl-8 text-[12px] leading-[18px] text-ink-meta"
+        >
+          {t("linkedFolders.nothingToRead.notice", { folder: name })}
+        </p>
+      )}
     </li>
   );
 }

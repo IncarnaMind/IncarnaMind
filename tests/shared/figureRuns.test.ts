@@ -1,0 +1,326 @@
+import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
+import { createElement } from "../../src/core/answers/blocks";
+import {
+  type AnswerAnalysis,
+  type CalculatedFigureAttributes,
+  MIND_CONTENT_FIELD,
+  MIND_FIGURE_RUNS_FIELD,
+  type RetainedFigureAnalysis,
+} from "../../src/core/api";
+import { noAnalysisOutput } from "../../src/shared/analysis";
+import type { NodeJSON } from "../../src/shared/blockJson";
+import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
+import {
+  figureRunsFor,
+  installFigureRuns,
+  readFigureRun,
+  readFigureRunClosure,
+  retainFigureAnalysis,
+} from "../../src/shared/figureRuns";
+import { FORMULA_VERSION } from "../../src/shared/formula";
+
+const runId = "answer-1:analysis-1";
+const generation: AnswerAnalysis = {
+  number: 1,
+  title: "Three results",
+  language: "python",
+  code: "result('a', 10)\nresult('b', 20)\nresult('c', 30)",
+  inputs: [],
+  versions: null,
+  codeSha256: "a".repeat(64),
+  outputSha256: "b".repeat(64),
+  end: { kind: "done" },
+  output: {
+    ...noAnalysisOutput(),
+    results: [10, 20, 30].map((value, index) => ({
+      kind: "figure",
+      name: ["a", "b", "c"][index] ?? "",
+      label: `Result ${index + 1}`,
+      value,
+      unit: null,
+    })),
+  },
+  ms: 5,
+  ranAt: "2026-10-27T00:00:00.000Z",
+  markers: {
+    figures: ["a", "b", "c"].map((result, index) => ({ result, marker: index + 1 })),
+    tables: [],
+    charts: [],
+  },
+};
+
+function figure(name: "a" | "b" | "c"): CalculatedFigureAttributes {
+  const value = { a: 10, b: 20, c: 30 }[name];
+  return {
+    id: `figure-${name}`,
+    analysisId: runId,
+    figure: {
+      label: name,
+      formula: "",
+      inputs: [],
+      value,
+      unit: { kind: "plain" },
+      approximate: false,
+      shown: String(value),
+      show: { language: "en", as: "number", decimals: 0, scale: null },
+      literals: [],
+      engine: FORMULA_VERSION,
+      written: null,
+      analysis: { analysis: 1, result: name },
+    },
+  };
+}
+
+function record(names: ("a" | "b" | "c")[]): RetainedFigureAnalysis {
+  const kept = retainFigureAnalysis(generation, runId, names.map(figure));
+  if (!kept) throw new Error("The successful generation fixture was not retained.");
+  return kept;
+}
+
+function blocks(names: ("a" | "b" | "c")[]): NodeJSON[] {
+  return names.map((name) => {
+    const value = figure(name);
+    return calculatedFigureNode(value.figure, value.id, value.analysisId);
+  });
+}
+
+function append(doc: Y.Doc, name: "a" | "b" | "c") {
+  const value = figure(name);
+  const node = createElement(calculatedFigureNode(value.figure, value.id, runId));
+  doc.getXmlFragment(MIND_CONTENT_FIELD).push([node]);
+}
+
+function docWith(names: ("a" | "b" | "c")[]): Y.Doc {
+  const doc = new Y.Doc();
+  doc.transact(() => {
+    for (const name of names) append(doc, name);
+    installFigureRuns(doc, [record(names)]);
+  });
+  return doc;
+}
+
+describe("a Note's bounded Analysis dependencies", () => {
+  test("keeps one successful run with only named values, not its tables or printed output", () => {
+    const kept = retainFigureAnalysis(
+      {
+        ...generation,
+        output: {
+          ...generation.output,
+          printed: "unrelated output",
+          results: [
+            ...generation.output.results,
+            {
+              kind: "table",
+              name: "unused",
+              label: "Unused",
+              unit: null,
+              table: { columns: ["x"], rows: [[99]], rowCount: 1, columnCount: 1 },
+            },
+          ],
+        },
+      },
+      runId,
+      [figure("a")],
+    );
+    expect(kept?.values.map((value) => value.name)).toEqual(["a"]);
+    expect(kept).not.toHaveProperty("output");
+    expect(kept).not.toHaveProperty("outputSha256");
+    expect(kept?.code).toBe(generation.code);
+    expect(readFigureRun({ ...kept, output: generation.output })).toEqual(kept);
+  });
+
+  test("keeps a Document table's rows with a range input, and a Note reads them back", () => {
+    const rows = [
+      { row: 2, unit: 2, quote: "Revenue 1,200" },
+      { row: 3, unit: 2, quote: null },
+    ];
+    const analysis: AnswerAnalysis = {
+      ...generation,
+      inputs: [
+        {
+          kind: "range",
+          name: "pnl",
+          citation: {
+            passageId: "P1",
+            documentId: "d1",
+            documentName: "Accounts.pdf",
+            contentHash: "hash",
+            pageFrom: 2,
+            pageTo: 2,
+            location: { kind: "page", from: 2, to: 2 },
+            quote: "Revenue 1,200",
+            check: "found",
+            checkReason: null,
+          },
+          range: "A1:B3",
+          rows: 2,
+          columns: 2,
+          rowCount: 2,
+          cut: false,
+          sha256: "c".repeat(64),
+          table: { number: 1, rows, scan: true, marks: 2 },
+        },
+      ],
+    };
+    const kept = retainFigureAnalysis(analysis, runId, [figure("a")]);
+    expect(kept?.inputs[0]).toMatchObject({ table: { number: 1, rows, scan: true, marks: 2 } });
+    expect(readFigureRun(kept)).toEqual(kept);
+  });
+
+  test("keeps what the core made of each figure when the Analysis ran, and a Note reads it back", () => {
+    const checked: AnswerAnalysis = {
+      ...generation,
+      recalculations: [
+        { result: "a", check: { kind: "same", value: 10 } },
+        { result: "b", check: { kind: "differs", value: 21 } },
+      ],
+    };
+    const kept = retainFigureAnalysis(checked, runId, [figure("a"), figure("b"), figure("c")]);
+    if (!kept) throw new Error("The figures were not retained.");
+    expect(kept.values.map((value) => value.check)).toEqual([
+      { kind: "same", value: 10 },
+      { kind: "differs", value: 21 },
+      undefined,
+    ]);
+    const [first] = kept.values;
+    if (!first) throw new Error("The kept value is missing.");
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      for (const name of ["a", "b", "c"] as const) append(doc, name);
+      installFigureRuns(doc, [kept]);
+    });
+    expect(
+      figureRunsFor(doc, blocks(["a", "b", "c"]))[0]?.values.map((value) => value.check),
+    ).toEqual([{ kind: "same", value: 10 }, { kind: "differs", value: 21 }, undefined]);
+    const unchecked: AnswerAnalysis = {
+      ...generation,
+      recalculations: [{ result: "c", check: { kind: "unchecked", reason: "sales has no row 7" } }],
+    };
+    expect(retainFigureAnalysis(unchecked, runId, [figure("c")])?.values[0]?.check).toEqual({
+      kind: "unchecked",
+      reason: "sales has no row 7",
+    });
+    expect(readFigureRun({ ...kept, values: [{ ...first, check: { kind: "same" } }] })).toBeNull();
+  });
+
+  test("a failed run or a figure not matching the recorded result is not execution evidence", () => {
+    expect(
+      retainFigureAnalysis({ ...generation, end: { kind: "stopped" } }, runId, [figure("a")]),
+    ).toBeNull();
+    const changed = figure("a");
+    changed.figure.value = 999;
+    expect(retainFigureAnalysis(generation, runId, [changed])).toBeNull();
+  });
+
+  test("a single-figure copy owns only its required values after the source closes", () => {
+    const source = docWith(["a", "b"]);
+    const carried = figureRunsFor(source, blocks(["b"]));
+    const target = new Y.Doc();
+    target.transact(() => {
+      append(target, "b");
+      installFigureRuns(target, carried);
+    });
+    source.destroy();
+    expect(figureRunsFor(target, blocks(["b"]))[0]?.values.map((value) => value.name)).toEqual([
+      "b",
+    ]);
+    expect(figureRunsFor(target, blocks(["b"]))[0]?.code).toBe(generation.code);
+    target.destroy();
+  });
+
+  test("invalid later records cannot partially install dependencies", () => {
+    const doc = new Y.Doc();
+    const invalid = { ...record(["b"]), id: "another", code: 4 };
+    expect(() => doc.transact(() => installFigureRuns(doc, [record(["a"]), invalid]))).toThrow();
+    expect(doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(0);
+    doc.destroy();
+  });
+
+  test("a Note whose record is missing, invalid or different reads no run, and a copy refuses it", () => {
+    const source = docWith(["a"]);
+    const runs = source.getMap(MIND_FIGURE_RUNS_FIELD);
+    const entries = [...runs];
+    for (const [key, value] of entries) {
+      runs.delete(key);
+      expect(figureRunsFor(source, blocks(["a"]))).toEqual([]);
+      runs.set(key, value);
+      runs.set(key, { invalid: true });
+      expect(figureRunsFor(source, blocks(["a"]))).toEqual([]);
+      runs.set(key, value);
+    }
+    const changed = blocks(["a"]);
+    const attrs = changed[0]?.attrs;
+    if (!attrs) throw new Error("The figure fixture has no attributes.");
+    attrs.figure = { ...figure("a").figure, value: 11 };
+    expect(figureRunsFor(source, changed)).toEqual([]);
+    expect(figureRunsFor(source, [...blocks(["a"]), ...changed])).toEqual([]);
+
+    const copied = figureRunsFor(source, blocks(["a"]));
+    const [carried] = copied;
+    if (!carried) throw new Error("The figure fixture kept no record.");
+    expect(readFigureRunClosure(blocks(["a"]), copied)).toHaveLength(1);
+    expect(() =>
+      readFigureRunClosure(
+        blocks(["a"]),
+        copied.map((run) => ({ ...run, values: [] })),
+      ),
+    ).toThrow();
+    expect(() =>
+      readFigureRunClosure(
+        blocks(["a"]),
+        copied.map((run) => ({
+          ...run,
+          values: run.values.map((value) => ({ ...value, value: 11 })),
+        })),
+      ),
+    ).toThrow();
+    expect(() => readFigureRunClosure(blocks(["a"]), [{ ...carried, code: 4 }])).toThrow();
+    source.destroy();
+  });
+
+  test("keeps the values an Analysis still has when one is missing", () => {
+    const source = docWith(["a", "b"]);
+    const runs = source.getMap(MIND_FIGURE_RUNS_FIELD);
+    const missing = JSON.stringify([runId, "b"]);
+    expect(runs.has(missing)).toBe(true);
+    runs.delete(missing);
+    // The value the Note still keeps reads; the one it lost takes only its own figure's check.
+    const kept = figureRunsFor(source, blocks(["a", "b"]));
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.values.map((value) => value.name)).toEqual(["a"]);
+    expect(figureRunsFor(source, blocks(["b"]))).toEqual([]);
+    // A copy must carry every value its figures name.
+    expect(() => readFigureRunClosure(blocks(["a", "b"]), kept)).toThrow();
+    expect(readFigureRunClosure(blocks(["a"]), kept)).toHaveLength(1);
+    source.destroy();
+  });
+
+  test("concurrent additions keep each used value from the same generation", () => {
+    const original = docWith(["a"]);
+    const first = new Y.Doc();
+    const second = new Y.Doc();
+    Y.applyUpdate(first, Y.encodeStateAsUpdate(original));
+    Y.applyUpdate(second, Y.encodeStateAsUpdate(original));
+    first.transact(() => {
+      append(first, "b");
+      installFigureRuns(first, [record(["b"])]);
+    });
+    second.transact(() => {
+      append(second, "c");
+      installFigureRuns(second, [record(["c"])]);
+    });
+    original.transact(() => {
+      Y.applyUpdate(original, Y.encodeStateAsUpdate(first));
+      Y.applyUpdate(original, Y.encodeStateAsUpdate(second));
+    });
+    expect(
+      figureRunsFor(original, blocks(["a", "b", "c"]))[0]
+        ?.values.map((value) => value.name)
+        .sort(),
+    ).toEqual(["a", "b", "c"]);
+    first.destroy();
+    second.destroy();
+    original.destroy();
+  });
+});

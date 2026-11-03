@@ -149,6 +149,7 @@ export async function transcribingCore(
     loads,
     log,
     capture: captureOptions,
+    audioCapture,
     keychain,
     speakerSeparator,
     speakerModelSource = NO_SPEAKER_FILES,
@@ -156,6 +157,8 @@ export async function transcribingCore(
     engine?: FakeTranscriberOptions;
     /** What the fake capture does, e.g. the computer's sound denied. */
     capture?: FakeCaptureOptions;
+    /** A capture instead of the fake one, for a start that fails after it heard audio. */
+    audioCapture?: CoreAdapters["audioCapture"];
     model?: Parameters<typeof scriptedModels>[0];
     /** Real chat models instead of a scripted one, for a live test. */
     createChatModel?: ChatModelFactory;
@@ -177,7 +180,7 @@ export async function transcribingCore(
   });
   const models = model ? scriptedModels(model) : undefined;
   const core = startCore(dataDir, {
-    audioCapture: capture,
+    audioCapture: audioCapture ?? capture,
     transcriber: engineHost.transcriber,
     transcriptionModelSource: NO_TRANSCRIPTION_FILES,
     transcriptionKeyFetch: async () => new Response(null, { status: 200 }),

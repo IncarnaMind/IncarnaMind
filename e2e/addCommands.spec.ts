@@ -137,8 +137,8 @@ test("in Chinese ⌘K finds them by pinyin and by its initials, and each opens w
     await expect(documentItems(window, "Tides")).toHaveCount(1);
 
     await interceptOpenDialog(app, await writeFolder("Carriers"));
-    await openPalette(window, "tjtbwjj");
-    await expect(commandItem(window, "linkedFolder.add")).toContainText("添加同步文件夹…");
+    await openPalette(window, "tjglwjj");
+    await expect(commandItem(window, "linkedFolder.add")).toContainText("添加关联文件夹…");
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("link-folder-dialog")).toBeVisible();
   } finally {

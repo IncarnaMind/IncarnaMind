@@ -229,7 +229,7 @@ test("sidebar rows share one text edge, in Not in a Folder and in the Linked fol
     expect(text).toBeCloseTo(40, 0);
   }
 
-  // "Library", Settings and Not in a Folder's label share the columns.
+  // "Library", Settings and the Documents label share the columns (no Folder here).
   const sidebarLeft = (await boxOf(sidebar)).x;
   const allDocuments = window.getByTestId("open-library");
   expect((await boxOf(allDocuments.locator("svg"))).x - sidebarLeft).toBeCloseTo(16, 0);
@@ -405,7 +405,7 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
   const status = window.getByTestId("sidebar-status");
   const watched = [
     window.getByTestId("open-library"),
-    window.getByTestId("not-in-a-folder-title"),
+    window.getByTestId("notes-title"),
     window.getByTestId("mind-list-item"),
   ];
   const layout = async () => ({
@@ -422,8 +422,17 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
   await (await coreOf(window)).evaluate(async (core, file) => core.addDocuments([file]), paper);
   const item = window.getByTestId("document-list-item");
   await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
+  // Tags are named only once a Tag exists (#1942), so the User gives this one one first.
+  await (await coreOf(window)).evaluate(async (core) => {
+    const [document] = (await core.listDocuments()).filter((each) =>
+      each.name.startsWith("Report"),
+    );
+    const tag = await core.createTag({ name: "Reports", description: "" });
+    if (document) await core.addTagToDocuments([document.id], tag.id);
+  });
   await expect(status.getByTestId("tagging-waiting")).toBeVisible();
   await screenshot(window, "sidebar-tagging-waits", window.getByTestId("sidebar"));
+  // The plain words keep the row one 28px line (#763), so the footer keeps its height.
   expect(await layout()).toEqual(before);
 
   // A chat model: tagging starts, then stops. Nothing above the footer moves.

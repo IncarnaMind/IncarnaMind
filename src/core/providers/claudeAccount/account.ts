@@ -78,6 +78,7 @@ export function createClaudeAccount(options: {
 
   const account = createOAuthAccount<StoredAccount>({
     secretName: ACCOUNT_SECRET,
+    provider: "Claude",
     secrets: options.secrets,
     parse: parseStored,
     browser: options.browser,
@@ -128,12 +129,12 @@ export function createClaudeAccount(options: {
     ...fetcher,
   });
 
-  const hasSignIn = async () => config !== null && (await account.load())?.tokens != null;
+  const hasSignIn = async () => config !== null && (await account.loadOrNull())?.tokens != null;
 
   const status = async (): Promise<ClaudeAccountStatus> => {
     // Read before awaiting the keychain, so the status describes the moment it was asked for.
     const signingIn = account.signingIn();
-    const stored = config ? await account.load() : null;
+    const stored = config ? await account.loadOrNull() : null;
     return {
       available: config !== null,
       experimental: config?.experimental === true,

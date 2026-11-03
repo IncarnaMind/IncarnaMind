@@ -24,10 +24,12 @@ import {
 } from "../../../core/api";
 import { copyOrigins } from "../../../shared/blockOrigins";
 import {
+  pendingProposals,
   type ResolvedProposal,
   readProposalAttribute,
   resolveProposals,
 } from "../../../shared/proposals";
+import { nameOlderCitations } from "../../../shared/signOffs";
 import type { ChangePlace } from "./appliedEditLine";
 import {
   type BlockPlace,
@@ -133,12 +135,17 @@ function besideStaying(
   doc: ProseMirrorNode,
   pos: number,
   picked: ReadonlySet<string>,
+  accepted?: ReadonlySet<string>,
 ): Beside | null | undefined {
   const $pos = doc.resolve(pos);
   const parent = $pos.parent;
   const stays = (node: ProseMirrorNode) => {
     const proposal = readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE]);
-    return !(proposal?.kind === "delete" && picked.has(proposal.request));
+    return !(
+      proposal?.kind === "delete" &&
+      picked.has(proposal.request) &&
+      (!accepted || accepted.has(proposal.id))
+    );
   };
   const beside = (at: number, side: Beside["side"]) => {
     const block = anchorOf(parent.child(at));
@@ -155,10 +162,16 @@ function besideStaying(
 }
 
 /** The requests' changes, read before they are applied, as `anchorChanges` places them after. */
-export function planChanges(state: EditorState, requests: ReadonlySet<string>): Planned[] {
-  const { doc } = state;
+export function planChanges(
+  state: EditorState | ProseMirrorNode,
+  requests: ReadonlySet<string>,
+  accepted?: ReadonlySet<string>,
+): Planned[] {
+  const doc = "doc" in state ? state.doc : state;
   return proposalsIn(doc)
-    .filter((proposal) => requests.has(proposal.request))
+    .filter(
+      (proposal) => requests.has(proposal.request) && (!accepted || accepted.has(proposal.id)),
+    )
     .flatMap((proposal: PendingProposal): Planned[] => {
       if (proposal.block === "insert") {
         const block = anchorOf(doc.nodeAt(proposal.from));
@@ -166,7 +179,7 @@ export function planChanges(state: EditorState, requests: ReadonlySet<string>): 
       }
       if (proposal.block === "delete") {
         const node = doc.nodeAt(proposal.from);
-        const beside = besideStaying(doc, proposal.from, requests);
+        const beside = besideStaying(doc, proposal.from, requests, accepted);
         if (beside === undefined) {
           console.warn(
             `Review changes can't place Block ${proposal.id} of request ${proposal.request}, taken out with everything beside it: it won't show there.`,
@@ -203,8 +216,8 @@ export function planChanges(state: EditorState, requests: ReadonlySet<string>): 
       const words = added.from < 0 ? { from: end, to: end } : added;
       const from = textPlaceAt(doc, words.from);
       const to = textPlaceAt(doc, words.to);
-      const fromPlace = from && placeOnAccept(doc, from);
-      const toPlace = to && placeOnAccept(doc, to);
+      const fromPlace = from && placeOnAccept(doc, from, accepted);
+      const toPlace = to && placeOnAccept(doc, to, accepted);
       return fromPlace && toPlace
         ? [
             {
@@ -317,6 +330,7 @@ export function writeAccepted(
   schema: Schema,
 ): ResolvedProposal[] {
   const picked = (ref: ProposalRef) => requests.has(ref.request);
+  nameOlderCitations(doc.getXmlFragment(MIND_CONTENT_FIELD));
   const scratch = new Y.Doc();
   try {
     Y.applyUpdate(scratch, Y.encodeStateAsUpdate(doc));
@@ -327,7 +341,11 @@ export function writeAccepted(
     });
     const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
     doc.transact(() => {
-      resolveProposals(blocks, picked, "reject");
+      for (let depth = 0; depth < 100; depth++) {
+        resolveProposals(blocks, picked, "reject");
+        if (!pendingProposals(blocks).some(picked)) break;
+      }
+      if (pendingProposals(blocks).some(picked)) throw new Error("Too many revisions to set aside");
     }, aside);
     // Setting the changes aside gave the Blocks they were written over their earlier origins back;
     // accepted, those Blocks keep the change's.

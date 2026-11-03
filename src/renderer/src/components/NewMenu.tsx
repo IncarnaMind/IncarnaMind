@@ -12,7 +12,7 @@ import {
   DocumentLineIcon,
   FindSourcesLineIcon,
   FolderLineIcon,
-  FolderPlusLineIcon,
+  MicLineIcon,
   MindLineIcon,
   MoreLineIcon,
   PlusLineIcon,
@@ -38,7 +38,7 @@ const WebPageIcon = ({ className }: { className?: string }) => (
 );
 
 const ADD_DOCUMENTS: NewItem = {
-  id: "documents.add",
+  id: "documents.addFilesOrFolder",
   testId: "plus-add-documents",
   icon: PlusLineIcon,
 };
@@ -47,11 +47,12 @@ const NEW_ITEMS: readonly NewItem[] = [
   { id: "mind.new", testId: "plus-new-mind", icon: MindLineIcon },
   ADD_DOCUMENTS,
   { id: "folder.new", testId: "plus-new-folder", icon: FolderLineIcon },
+  { id: "meeting.record", testId: "plus-record-meeting", icon: RecordingLineIcon },
 ];
 
 const MORE_ITEMS: readonly NewItem[] = [
   { id: "word.import", testId: "plus-import-word", icon: WordIcon },
-  { id: "meeting.record", testId: "plus-record-meeting", icon: RecordingLineIcon },
+  { id: "memo.record", testId: "plus-record-memo", icon: MicLineIcon, label: "memos.record.menu" },
   { id: "comparison.start", testId: "plus-compare-documents", icon: TableIcon },
   { id: "verify.document", testId: "plus-verify-document", icon: VerifyLineIcon },
   {
@@ -67,7 +68,6 @@ const MORE_ITEMS: readonly NewItem[] = [
     icon: FindSourcesLineIcon,
     label: "sidebar.plus.findSources",
   },
-  { id: "linkedFolder.add", testId: "plus-link-folder", icon: FolderPlusLineIcon },
 ];
 
 const WINDOW: CommandContext = { selection: [], focus: null, surface: "sidebar" };

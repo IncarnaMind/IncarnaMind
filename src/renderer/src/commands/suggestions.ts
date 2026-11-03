@@ -1,3 +1,4 @@
+import { ACCEPT_SUGGESTIONS } from "../../../shared/commands";
 import { countNow } from "../i18n";
 import { useLibraryFolds } from "../libraryFolds";
 import { acceptSuggestions, rejectSuggestions, waitingIds } from "../suggestionReview";
@@ -7,6 +8,15 @@ import { idsOf } from "./targets";
 const waitingIn = (ctx: CommandContext): string[] => {
   const waiting = new Set(waitingIds());
   return idsOf(ctx, "document").filter((id) => waiting.has(id));
+};
+
+/** What an accept the assistant runs accepts, for the Folders and wall the core checked; null for the User's. */
+const checkedIn = (
+  ctx: CommandContext,
+): [string[], Record<string, string | null>, string | null] | null => {
+  if (!ctx.checked) return null;
+  const into = Object.fromEntries(ctx.checked.map((each) => [each.id, each.into ?? null]));
+  return [Object.keys(into), into, ctx.checkedWall ?? null];
 };
 
 export const suggestionCommands: readonly Command[] = [
@@ -23,7 +33,9 @@ export const suggestionCommands: readonly Command[] = [
     when: (ctx) => waitingIn(ctx).length > 0,
     reversible: true,
     async run(ctx) {
-      return (await acceptSuggestions(waitingIn(ctx))) ?? undefined;
+      const checked = checkedIn(ctx);
+      if (!checked) return (await acceptSuggestions(waitingIn(ctx))) ?? undefined;
+      return (await acceptSuggestions(...checked)) ?? undefined;
     },
   },
   {
@@ -43,7 +55,7 @@ export const suggestionCommands: readonly Command[] = [
     },
   },
   {
-    id: "library.acceptSuggestions",
+    id: ACCEPT_SUGGESTIONS,
     label: "library.acceptSuggestions",
     // In the Library's lists only: ⌘↵ sends a Question or accepts a change where those are.
     shortcut: { keys: "CmdOrCtrl+Enter", list: true },
@@ -54,8 +66,10 @@ export const suggestionCommands: readonly Command[] = [
       useLibraryFolds.getState().reviewShown &&
       waitingIds().length > 0,
     reversible: true,
-    async run() {
-      return (await acceptSuggestions(waitingIds())) ?? undefined;
+    async run(ctx) {
+      const checked = checkedIn(ctx);
+      if (!checked) return (await acceptSuggestions(waitingIds())) ?? undefined;
+      return (await acceptSuggestions(...checked)) ?? undefined;
     },
   },
 ];

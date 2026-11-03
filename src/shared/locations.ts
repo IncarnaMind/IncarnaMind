@@ -45,6 +45,14 @@ function parsePrinted(value: unknown): { from: string; to: string } | null {
   return isPrintedName(from) && isPrintedName(to) ? { from, to } : null;
 }
 
+function parsePrintedLines(value: unknown): { from: number; to: number } | null {
+  if (typeof value !== "object" || value === null || !("from" in value) || !("to" in value)) {
+    return null;
+  }
+  const { from, to } = value;
+  return isCount(from) && isCount(to) ? { from, to } : null;
+}
+
 /** A stored Location, checked; null if it isn't one. */
 export function parseLocation(value: unknown): CitationLocation | null {
   if (typeof value === "string") {
@@ -61,7 +69,14 @@ export function parseLocation(value: unknown): CitationLocation | null {
     case "page": {
       if (!isCount(from) || !isCount(to) || to < from) return null;
       const printed = parsePrinted(location.printed);
-      return printed ? { kind, from, to, printed } : { kind, from, to };
+      const lines = parsePrintedLines(location.lines);
+      return {
+        kind,
+        from,
+        to,
+        ...(printed ? { printed } : {}),
+        ...(lines ? { lines } : {}),
+      };
     }
     case "slide":
     case "lines":
@@ -160,7 +175,18 @@ export function formatLocation(location: CitationLocation, t: Translate, speaker
   switch (location.kind) {
     case "page": {
       const { from, to } = location.printed ?? location;
-      return t("location.page", { range: span(from, to) });
+      if (location.lines && from !== to) {
+        return t("location.pageLines.across", {
+          fromPage: from,
+          fromLine: location.lines.from,
+          toPage: to,
+          toLine: location.lines.to,
+        });
+      }
+      const page = t("location.page", { range: span(from, to) });
+      return location.lines
+        ? `${page} · ${t(location.lines.to !== location.lines.from ? "location.lines.other" : "location.lines.one", { range: span(location.lines.from, location.lines.to) })}`
+        : page;
     }
     case "slide":
       return t(location.to !== location.from ? "location.slide.other" : "location.slide.one", {
@@ -235,7 +261,15 @@ const english: Translate = (key, params) => translate("en", key, params);
 /** A PDF page by its number in the PDF, which is how a model cites it. */
 export const englishLocation = (location: CitationLocation, speaker = true): string =>
   formatLocation(
-    location.kind === "page" ? { kind: "page", from: location.from, to: location.to } : location,
+    location.kind === "page"
+      ? {
+          kind: "page",
+          from: location.from,
+          to: location.to,
+          ...(location.lines ? { lines: location.lines } : {}),
+          ...(location.lines && location.printed ? { printed: location.printed } : {}),
+        }
+      : location,
     english,
     speaker,
   );
@@ -304,7 +338,7 @@ export function unitLocation(unit: UnitText): CitationLocation | null {
 export function quoteInUnits(
   units: readonly UnitText[],
   quote: string,
-  options: Pick<MatchOptions, "lostLigatures"> = {},
+  options: Pick<MatchOptions, "lostLigatures" | "unique"> = {},
 ): TextRange[] | null {
   const { text } = joinUnits(units);
   if (!quote || text.trim() === "") return null;

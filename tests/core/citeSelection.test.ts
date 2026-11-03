@@ -6,6 +6,7 @@
  */
 import { describe, expect, test } from "vitest";
 import type { Core, Document } from "../../src/core";
+import { checkedResult } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { docxOf } from "../helpers/office";
@@ -47,14 +48,21 @@ describe("citeSelection", () => {
 
     expect(cited).toMatchObject({ check: "found", pageFrom: 2, pageTo: 2, quote: REPEATED });
     expect(cited.location).toEqual({ kind: "page", from: 2, to: 2 });
-    // Asked to find the same words, the general check takes the first page that has them.
-    const anywhere = await core.recheckCitation({
-      documentId: document.id,
-      quote: REPEATED,
+    const anywhere = checkedResult(
+      await core.recheckCitation({
+        mindId: null,
+        documentId: document.id,
+        quote: REPEATED,
+        pageFrom: null,
+        pageTo: null,
+      }),
+    );
+    expect(anywhere).toMatchObject({
+      check: "found",
       pageFrom: null,
       pageTo: null,
+      location: null,
     });
-    expect(anywhere.pageFrom).toBe(1);
   });
 
   // The page number "3" is in the page's text too, but not at its edge: it isn't taken for the words.
@@ -154,12 +162,15 @@ describe("citeSelection", () => {
       documentId: document.id,
       parts: [{ unit: 1, text: line, linesBefore: 0, linesAfter: 0 }],
     });
-    const again = await core.recheckCitation({
-      documentId: document.id,
-      quote: cited.quote,
-      pageFrom: 1,
-      pageTo: 1,
-    });
+    const again = checkedResult(
+      await core.recheckCitation({
+        mindId: null,
+        documentId: document.id,
+        quote: cited.quote,
+        pageFrom: 1,
+        pageTo: 1,
+      }),
+    );
 
     expect(again.check).toBe("not-found");
     expect(cited).toMatchObject({ check: "not-found", pageFrom: 1 });

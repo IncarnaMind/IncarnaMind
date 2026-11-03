@@ -7,6 +7,8 @@
  */
 import type { TranscriptionModelFiles } from "../adapters";
 import { MEETING_SAMPLE_RATE } from "../adapters";
+import { engineModule, exportsOf } from "../engineModules";
+import { contextWords, echoes, hotwordsOf, mayMend, withToldWords } from "./context";
 import type { SpeechEngine, VoiceDetector } from "./speech";
 import { textOfResult, wordsOnly } from "./speechText";
 import { writtenNumbers } from "./spokenNumbers";
@@ -14,32 +16,50 @@ import { writtenNumbers } from "./spokenNumbers";
 /** Silero's window at 16 kHz: it reads audio 512 samples at a time. */
 const WINDOW = 512;
 
+/**
+ * How long speech must go on unbroken, in seconds, before the detector counts it. sherpa-onnx
+ * starts a stretch only then, a little before that point, and forgets a shorter run. At a quarter
+ * second, a short first word before a pause or a stop ("对。", "可以。", "Good.") was left out of
+ * its line, so this computer's stretches count from Silero's first windows of speech (#2305).
+ * OpenAI's turns keep the quarter second: they start 1.2 s ahead of the detector anyway.
+ */
+const STRETCH_MIN_SPEECH = WINDOW / MEETING_SAMPLE_RATE;
+const TURN_MIN_SPEECH = 0.25;
+
 /** The engine id the model definitions use (./model). */
 export const QWEN3_ASR = "qwen3-asr";
 
-function hasDefault<T extends object>(loaded: T | { default: T }): loaded is { default: T } {
-  return "default" in loaded;
-}
+/** The speech engine, its voice detector and the speaker pass (./diarization). */
+export const SHERPA = engineModule(
+  "sherpa-onnx-node",
+  async () => exportsOf(await import("sherpa-onnx-node")),
+  [
+    "OfflineRecognizer.createAsync",
+    "Vad",
+    "OfflineSpeakerDiarization",
+    "SpeakerEmbeddingExtractor",
+  ],
+);
 
-// A native `import()` of a CommonJS package, as the built process makes, has all its exports on
-// `default`: Node finds named ones only where it can read them off the file. A bundler's interop has both.
-const exportsOf = <T extends object>(loaded: T | { default: T }): T =>
-  hasDefault(loaded) ? loaded.default : loaded;
+/**
+ * Reads a decoded stretch's result itself when sherpa's own reader refuses it (#981). A stream's
+ * options, which tell the model the words a stretch may hold (#1031), are set through it too.
+ */
+export const SHERPA_ADDON = engineModule(
+  "sherpa-onnx-node/addon.js",
+  async () => exportsOf(await import("sherpa-onnx-node/addon.js")),
+  ["getOfflineStreamResultAsJson", "offlineStreamSetOption"],
+);
 
-// Loaded only when needed: the native runtime is large.
-export async function loadSherpa() {
-  return exportsOf(await import("sherpa-onnx-node"));
-}
+type Sherpa = Awaited<ReturnType<typeof SHERPA.load>>;
 
-type Sherpa = Awaited<ReturnType<typeof loadSherpa>>;
-
-function sileroDetector(sherpa: Sherpa, vadFile: string): VoiceDetector {
+function sileroDetector(sherpa: Sherpa, vadFile: string, minSpeech: number): VoiceDetector {
   const vad = new sherpa.Vad(
     {
       sileroVad: {
         model: vadFile,
         threshold: 0.5,
-        minSpeechDuration: 0.25,
+        minSpeechDuration: minSpeech,
         minSilenceDuration: 0.5,
         // Long speech is cut, so its final text never waits long.
         maxSpeechDuration: 20,
@@ -83,14 +103,14 @@ function sileroDetector(sherpa: Sherpa, vadFile: string): VoiceDetector {
 
 /** Silero VAD alone, for a cloud service that needs our own turns (OpenAI's live model, #141). */
 export async function createSileroDetectors(vadFile: string): Promise<() => VoiceDetector> {
-  const sherpa = await loadSherpa();
-  return () => sileroDetector(sherpa, vadFile);
+  const sherpa = await SHERPA.load();
+  return () => sileroDetector(sherpa, vadFile, TURN_MIN_SPEECH);
 }
 
 export async function createSherpaEngine(model: TranscriptionModelFiles): Promise<SpeechEngine> {
   if (model.engine !== QWEN3_ASR)
     throw new Error(`Unknown speech-to-text engine "${model.engine}".`);
-  const sherpa = await loadSherpa();
+  const sherpa = await SHERPA.load();
   const { files } = model;
   const required = (name: string) => {
     const path = files[name];
@@ -114,24 +134,49 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
     },
   });
 
-  const detector = () => sileroDetector(sherpa, model.vad);
+  const detector = () => sileroDetector(sherpa, model.vad, STRETCH_MIN_SPEECH);
+
+  async function read(samples: Float32Array, words: readonly string[]): Promise<string> {
+    const stream = recognizer.createStream();
+    if (words.length > 0) stream.setOption("hotwords", hotwordsOf(words));
+    stream.acceptWaveform({ samples, sampleRate: MEETING_SAMPLE_RATE });
+    try {
+      return writtenNumbers(wordsOnly((await recognizer.decodeAsync(stream)).text));
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      // The stretch was decoded; sherpa's reader refused its JSON (#981): read it here.
+      const addon = await SHERPA_ADDON.load();
+      return writtenNumbers(
+        wordsOnly(textOfResult(addon.getOfflineStreamResultAsJson(stream.handle))),
+      );
+    }
+  }
 
   return {
     detector,
     recognizer: {
-      async decode(samples) {
-        const stream = recognizer.createStream();
-        stream.acceptWaveform({ samples, sampleRate: MEETING_SAMPLE_RATE });
+      async decode(samples, _stream, given) {
+        const words = contextWords(given);
+        const plain = await read(samples, []);
+        if (!mayMend(plain, words)) return plain;
+        let told: string;
         try {
-          return writtenNumbers(wordsOnly((await recognizer.decodeAsync(stream)).text));
+          told = await read(samples, words);
         } catch (error) {
-          if (!(error instanceof SyntaxError)) throw error;
-          // The stretch was decoded; sherpa's reader refused its JSON (#981): read it here.
-          const addon = exportsOf(await import("sherpa-onnx-node/addon.js"));
-          return writtenNumbers(
-            wordsOnly(textOfResult(addon.getOfflineStreamResultAsJson(stream.handle))),
+          // The second reading only mends names: the stretch keeps the reading it has.
+          console.warn(
+            "The speech model couldn't read a stretch again with its words; it keeps its plain reading.",
+            error instanceof Error ? error.name : typeof error,
+          );
+          return plain;
+        }
+        if (echoes(told, words)) {
+          // The process has no logger of its own: its output goes to the app's log. No words in it.
+          console.warn(
+            "The speech model wrote the words it was told; the stretch keeps its plain reading.",
           );
         }
+        return withToldWords(plain, told, words);
       },
     },
     // The recognizer and detectors are freed with the process; nothing holds them here.

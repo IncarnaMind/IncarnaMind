@@ -47,7 +47,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Restore the models and the fetched Documents
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ~/.cache/incarnamind-eval
           key: incarnamind-everyday-${{ hashFiles('src/core/embedding/model.ts', 'src/core/reranking/model.ts') }}
@@ -60,7 +60,7 @@ jobs:
           NIGHTLY_STEPS: ${{ inputs.steps }}
           INCARNAMIND_EVAL_EVERYDAY: ${{ inputs.requests }}
       - name: Keep the models and the fetched Documents
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ~/.cache/incarnamind-eval
           key: incarnamind-everyday-${{ hashFiles('src/core/embedding/model.ts', 'src/core/reranking/model.ts') }}

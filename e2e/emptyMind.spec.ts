@@ -23,7 +23,7 @@ const CASES = [
     name: "English",
     language: "en",
     request: "Write a brief summary of this agreement.",
-    refusal: "No Mind is open",
+    refusal: "No Note is open",
   },
   {
     name: "Chinese",

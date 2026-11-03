@@ -6,8 +6,13 @@
  */
 import { describe, expect, test } from "vitest";
 import { estimateTokens, fitQuestionContext } from "../../src/core/answers/context";
-import type { AnswerMessage } from "../../src/core/answers/engine";
-import { createWindowBudget, NO_ROOM_FOR_PASSAGES } from "../../src/core/answers/window";
+import { type AnswerMessage, createAiSdkAnswerEngine } from "../../src/core/answers/engine";
+import {
+  createWindowBudget,
+  ESTIMATE_FACTOR,
+  NO_ROOM_FOR_PASSAGES,
+} from "../../src/core/answers/window";
+import { scriptedModel } from "../helpers/models";
 
 /** About `tokens` tokens of text, labelled. */
 const block = (label: string, tokens: number) => `${label}: ${"word ".repeat(tokens * 0.8)}`;
@@ -149,6 +154,23 @@ describe("A window's budget", () => {
     expect(ids(budget.fitPassages(passages, "Answer well.", "Why?"))).toEqual(["P1", "P2"]);
   });
 
+  test("a search the first request carries counts once, in that request (#1633)", () => {
+    const budget = createWindowBudget(window);
+    const loop = budget.loop(1_000);
+    const carried = loop.carried(passage("P1", 3_000), 1, undefined, (text) => [
+      '{"query":"tides"}',
+      `${text}\n\nSearch again with other words if these don't answer.`,
+    ]);
+    expect(carried.passageCount).toBe(1);
+    const first = loop.firstRequest();
+    expect(first).toBeGreaterThan(4_000);
+
+    // Counted as Ollama counts it: the factor barely moves, and the room left is the real one.
+    loop.stepFinished({ inputTokens: first, outputTokens: 100 });
+    expect(budget.factor).toBeLessThan(ESTIMATE_FACTOR * 1.1);
+    expect(loop.canCallTools()).toBe(true);
+  });
+
   test("Ollama's own count of the first request replaces the estimate", () => {
     const budget = createWindowBudget(window);
     const loop = budget.loop(1_000);
@@ -158,5 +180,52 @@ describe("A window's budget", () => {
     // And the room left is counted from the real size.
     const result = loop.passages(passage("P1", 1_000), 1);
     expect(result.passageCount).toBe(1);
+  });
+});
+
+describe("The Passages a request said it read", () => {
+  // A whole read counts the pages it read from these (#1554): a refused request read none.
+  test("a request refused as too long counts only the smaller one sent again", async () => {
+    const ids = ["a", "b", "c", "d", "e", "f"];
+    const found = {
+      text: ids.map((id) => passage(`P-${id}`, 500)).join("\n\n"),
+      passageCount: ids.length,
+      passageIds: ids,
+    };
+    let sent = 0;
+    const model = scriptedModel(() =>
+      ++sent === 1
+        ? {
+            error: {
+              status: 400,
+              message: "request (12000 tokens) exceeds the available context size (8192 tokens)",
+            },
+          }
+        : { text: "The tides turn twice a day." },
+    );
+    const reported: string[][] = [];
+    for await (const _event of createAiSdkAnswerEngine().generate({
+      instructions: (_mode, options) => `Answer from these.\n\n${options?.passages ?? ""}`,
+      messages: [{ role: "user", content: "When do the tides turn?" }],
+      question: "When do the tides turn?",
+      model,
+      documents: {
+        documentCount: 1,
+        searchDocuments: async () => found,
+        cite: () => "Recorded.",
+      },
+      tools: [],
+      support: "none",
+      window: { tokens: 8192, outputTokens: 1024 },
+      fitted: (passageIds) => reported.push([...passageIds]),
+      signal: new AbortController().signal,
+    })) {
+      // Only what was reported read matters here.
+    }
+
+    expect(sent).toBe(2);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.length).toBeGreaterThan(0);
+    expect(reported[0]?.length).toBeLessThan(ids.length);
   });
 });

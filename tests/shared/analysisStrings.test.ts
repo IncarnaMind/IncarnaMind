@@ -41,3 +41,38 @@ describe("why an Analysis can't run", () => {
     expect(translate("zh-CN", CRASHED_LINE)).toBe("数据分析意外停止。请重新运行。");
   });
 });
+
+describe("the rows an Analysis figure was worked out from (#2346)", () => {
+  const rows = translate("zh-CN", "figures.analysisRows.list.other", { runs: "2–6、8–25" });
+
+  test("a Latin column name has a space on each side of it in Chinese, a Chinese one none", () => {
+    const worked = (label: string) =>
+      translate("zh-CN", "figures.analysisRows.worked.other", {
+        input: "marketing",
+        rows,
+        label,
+        how: translate("zh-CN", "figures.analysisRows.how.count"),
+        count: 23,
+      });
+
+    expect(worked("Revenue")).toBe("“marketing”第 2–6、8–25 行中 Revenue 的计数（共 23 行）");
+    expect(worked("收入")).toBe("“marketing”第 2–6、8–25 行中收入的计数（共 23 行）");
+  });
+
+  test("so do the column names a model figure used", () => {
+    const used = (names: string) =>
+      translate("zh-CN", "figures.analysisRows.used.other", {
+        input: "marketing",
+        rows,
+        count: 23,
+        names,
+      });
+
+    expect(used("AdSpend、Revenue")).toBe(
+      "根据“marketing”第 2–6、8–25 行（共 23 行）计算，用到 AdSpend、Revenue",
+    );
+    expect(used("广告、收入")).toBe(
+      "根据“marketing”第 2–6、8–25 行（共 23 行）计算，用到广告、收入",
+    );
+  });
+});

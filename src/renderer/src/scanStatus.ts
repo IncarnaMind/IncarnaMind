@@ -3,7 +3,7 @@
  * ("Reading 12 scanned pages…"), and when some couldn't be ("Scanned pages 3
  * and 7 couldn't be read"), in the row's status, its tooltip and the viewer.
  */
-import type { DocumentFailure, DocumentScanProgress } from "../../core/api";
+import type { DocumentFailure, DocumentKind, DocumentScanProgress } from "../../core/api";
 import type { Language } from "../../core/language";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 
@@ -42,7 +42,11 @@ export function unreadPages(
   t: Translate,
   language: Language,
   as: "reason" | "sentence",
+  kind: DocumentKind = "pdf",
 ): string {
+  if (kind === "image") {
+    return t(as === "reason" ? "documents.failure.pictureUnread" : "documents.pictureUnread");
+  }
   const pages = failure.pages ?? [];
   const keys = {
     reason: {

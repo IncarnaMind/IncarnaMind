@@ -36,8 +36,8 @@ A triaged issue also carries one complexity label, graded from what the work inv
 | Label               | Meaning                                                                                                                                                                                                                  |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `complexity:simple` | About 150 changed lines or fewer, one area, the cause and the fix are clear, and it changes no AI behaviour, data, privacy, file format, start-up or quit. A unit test or one e2e spec covers it.                          |
-| `complexity:medium` | One pull request of up to about 600 lines with a clear approach, across a few areas; it may carry one contained risk, such as a migration, consent wiring, a small reader or writer change, or a hand check with a real model. |
-| `complexity:hard`   | Changes AI behaviour judged by real-model numbers, needs more than one pull request or a new module, touches start-up, quit, updates or concurrency, file-format fidelity or speed on large data, or its cause or design is still open. |
+| `complexity:medium` | One pull request with a clear approach, across a few areas; it may carry one contained risk, such as a migration, consent wiring, a small reader or writer change, or a hand check with a real model. |
+| `complexity:hard`   | Changes AI behaviour judged by real-model numbers, needs a new module or a design across several areas, touches start-up, quit, updates or concurrency, file-format fidelity or speed on large data, or its cause or design is still open. |
 
 - When in doubt between two, take the higher one and say why on the issue.
 - An epic is graded by its next slice.

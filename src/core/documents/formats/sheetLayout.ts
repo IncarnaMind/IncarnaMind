@@ -96,7 +96,7 @@ export interface WorkbookLayout {
   styles: CellStyle[];
   /** The Normal style's font: cells without a format of their own. */
   defaultFont: FontStyle;
-  /** The sheet Excel opens at, by its index among the sheets read (hidden ones are not). */
+  /** The sheet Excel opens at, by its index among the sheets read (hidden ones when they are read too). */
   activeSheet: number;
 }
 

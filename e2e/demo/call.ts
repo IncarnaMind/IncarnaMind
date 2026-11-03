@@ -58,7 +58,10 @@ export async function connectCall(app: ElectronApplication): Promise<void> {
       const per = Math.round((tick * rate) / 1000);
       holder.demoCall = {
         say(source, samples) {
-          queues[source]?.push(...samples);
+          const queue = queues[source];
+          if (!queue) return;
+          // A line is minutes of samples: adding them one by one keeps the call's stack small.
+          for (const sample of samples) queue.push(sample);
         },
       };
       holder.incarnamindFakeAudio.start = (request, sink) => {

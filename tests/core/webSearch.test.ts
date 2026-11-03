@@ -8,14 +8,29 @@
 import { readFileSync } from "node:fs";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
-import type { AnswerToolCall, ChatProvider, CoreAdapters, PageLook } from "../../src/core";
+import type {
+  AnswerToolCall,
+  ChatProvider,
+  CitationAttributes,
+  Core,
+  CoreAdapters,
+  PageLook,
+} from "../../src/core";
+import { translate } from "../../src/shared/i18n";
 import { textOriginOf } from "../../src/shared/textOrigins";
-import { askAndFinish, onlyCitation, shownPassages } from "../helpers/citations";
+import { askAssistant } from "../helpers/assistant";
+import {
+  answerEnded,
+  askAndFinish,
+  askNew,
+  onlyCitation,
+  shownPassages,
+} from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { answerIn, answerText } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
-import { startWeb, webSearchingModel } from "../helpers/web";
+import { connectorTo, startWeb, webSearchingModel } from "../helpers/web";
 
 const fixture = (name: string) =>
   readFileSync(new URL(`../fixtures/web/${name}`, import.meta.url), "utf8");
@@ -69,18 +84,63 @@ function researcher(): MockLanguageModelV4 {
   });
 }
 
+/** Called each time the test web serves the tea page. */
+let servingTea = () => {};
+
+/** Whether the core keeps a Citation inside a wall, seen from `mindId`: it then names that Folder. */
+async function keptInside(core: Core, cited: CitationAttributes, mindId: string) {
+  const { documentId, pageFrom, pageTo, quote, contentHash } = cited;
+  if (documentId === null || quote === null) throw new Error("The Citation has no quote.");
+  const result = await core.recheckCitation({
+    documentId,
+    pageFrom,
+    pageTo,
+    quote,
+    contentHash,
+    mindId,
+  });
+  return "keptInside" in result ? result.keptInside : null;
+}
+
 /** A core with `model` on Anthropic, Questions allowed to go there, web search on and allowed. */
 async function setUp(
   model: MockLanguageModelV4,
-  { webSearch = true, allowSearch = true }: { webSearch?: boolean; allowSearch?: boolean } = {},
+  {
+    webSearch = true,
+    allowSearch = true,
+    gate,
+  }: {
+    webSearch?: boolean;
+    allowSearch?: boolean;
+    /** Holds every connection web search makes until `open`, and says when the first is asked for. */
+    gate?: { open: Promise<void>; reached(): void };
+  } = {},
   overrides: Partial<CoreAdapters> = {},
 ) {
   const web = await startWeb({
-    "/tea": () => ({ status: 200, body: fixture("article.html") }),
+    "/tea": () => {
+      servingTea();
+      return { status: 200, body: fixture("article.html") };
+    },
     "/members": () => ({ status: 200, body: fixture("login.html") }),
   });
   const dataDir = await createTempDataFolder();
-  const core = startCore(dataDir, { createChatModel: () => model, ...web.adapters, ...overrides });
+  const connect = connectorTo(web.port);
+  const adapters = gate
+    ? {
+        web: {
+          ...web.adapters.web,
+          connector: (lookup: Parameters<typeof connect>[0]) => {
+            const inner = connect(lookup);
+            return (...args: Parameters<typeof inner>) => {
+              gate.reached();
+              void gate.open.then(() => inner(...args));
+            };
+          },
+        },
+      }
+    : web.adapters;
+  const core = startCore(dataDir, { createChatModel: () => model, ...adapters, ...overrides });
   const provider = await core.saveChatProvider({
     kind: "anthropic",
     apiKey: "sk-ant-test",
@@ -290,6 +350,614 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
       webPage: { address: local, failure: "not-public" },
     });
     expect(web.heard).toHaveLength(heardBefore);
+  });
+
+  test("a page saved behind another Folder's wall is read again, never reused, on either side", async () => {
+    const { model } = webSearchingModel(researcher(), FOUND);
+    const { core, web, folder, mind, client } = await setUp(model);
+    const walled = await core.createLibraryGroup({ name: "Client A", description: "" });
+    await core.updateLibraryGroup(walled.id, {
+      name: "Client A",
+      description: "",
+      keepInside: true,
+    });
+    const inside = await core.createMind({ title: "Client A tea", folderId: walled.id });
+    const insideClient = await connectToMind(core, inside.id);
+    const fetched = () => web.heard.filter((each) => each === "encyclopedia.example/tea").length;
+    const ask = async (on: typeof client, mindId: string) => {
+      const { answerId } = await askAndFinish(core, on, mindId, "Search the web: tea in Europe?");
+      return onlyCitation(on, answerId);
+    };
+
+    const insideCited = await ask(insideClient, inside.id);
+    const outsideCited = await ask(client, mind.id);
+    const again = await ask(insideClient, inside.id);
+
+    expect(fetched()).toBe(2);
+    expect(outsideCited.documentId).not.toBe(insideCited.documentId);
+    expect(again.documentId).toBe(insideCited.documentId);
+    const library = await core.getLibrary();
+    const folderOf = (id: unknown) =>
+      library.assignments.find((each) => each.documentId === id)?.groupId;
+    expect(folderOf(insideCited.documentId)).toBe(walled.id);
+    expect(folderOf(outsideCited.documentId)).toBe(folder.id);
+    // No Citation names a Folder it isn't in.
+    expect(await keptInside(core, outsideCited, mind.id)).toBeNull();
+    expect(await keptInside(core, insideCited, inside.id)).toBeNull();
+  });
+
+  test("an outside turn never shares the User's save under way of the same page into a walled Folder", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let fetching = () => {};
+    const userFetching = new Promise<void>((resolve) => {
+      fetching = resolve;
+    });
+    // The User's own fetch waits until the turn has fetched the page for itself, then fails.
+    const userFetch = async (): Promise<never> => {
+      fetching();
+      await held;
+      throw new TypeError("fetch failed");
+    };
+    const { model } = webSearchingModel(researcher(), FOUND);
+    const { core, folder, mind, client } = await setUp(
+      model,
+      {},
+      { webPages: { fetch: userFetch } },
+    );
+    const walled = await core.createLibraryGroup({ name: "Client A", description: "" });
+    await core.updateLibraryGroup(walled.id, {
+      name: "Client A",
+      description: "",
+      keepInside: true,
+    });
+    servingTea = release;
+
+    const users = core.saveWebPage({ address: TEA, folderId: walled.id });
+    await userFetching;
+    const { answerId } = await askAndFinish(
+      core,
+      client,
+      mind.id,
+      "Search the web: tea in Europe?",
+    );
+
+    expect((await users).outcome).toBe("failed");
+    const cited = onlyCitation(client, answerId);
+    const { assignments } = await core.getLibrary();
+    expect(assignments.find((each) => each.documentId === cited.documentId)?.groupId).toBe(
+      folder.id,
+    );
+    expect(await keptInside(core, cited, mind.id)).toBeNull();
+  });
+
+  /**
+   * The User saves the tea page into `into` while a turn's search, from `asking`, is saving it:
+   * where each page ends up, and whether the turn's Citation is kept inside a Folder.
+   */
+  async function userSavesWhileSearching(asking: "outside" | "inside", into: "walled" | "outside") {
+    let open = () => {};
+    let reached = () => {};
+    const gate = {
+      open: new Promise<void>((resolve) => {
+        open = resolve;
+      }),
+      reached: () => reached(),
+    };
+    const searching = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const { model } = webSearchingModel(researcher(), FOUND);
+    const { core, folder, mind, client } = await setUp(model, { gate });
+    const walled = await core.createLibraryGroup({ name: "Client A", description: "" });
+    await core.updateLibraryGroup(walled.id, {
+      name: "Client A",
+      description: "",
+      keepInside: true,
+    });
+    const inside = await core.createMind({ title: "Client A tea", folderId: walled.id });
+    const on = asking === "inside" ? await connectToMind(core, inside.id) : client;
+    const from = asking === "inside" ? inside.id : mind.id;
+
+    const asked = askAndFinish(core, on, from, "Search the web: tea in Europe?");
+    await searching;
+    const saving = core.saveWebPage({
+      address: TEA,
+      html: fixture("article.html"),
+      folderId: into === "walled" ? walled.id : folder.id,
+    });
+    // The User's save has reached the page's save, joining the search's or starting its own.
+    await new Promise((resolve) => setImmediate(resolve));
+    open();
+    const [users, { answerId }] = await Promise.all([saving, asked]);
+
+    if (users.outcome !== "saved") throw new Error("The User's page wasn't saved.");
+    const cited = onlyCitation(on, answerId);
+    const { assignments } = await core.getLibrary();
+    const folderOf = (id: unknown) => assignments.find((each) => each.documentId === id)?.groupId;
+    const name = (id: unknown) => (id === walled.id ? "Client A" : id === folder.id ? "Tea" : id);
+    return {
+      users: name(folderOf(users.document.id)),
+      cited: name(folderOf(cited.documentId)),
+      keptInside: await keptInside(core, cited, from),
+      pages: (await core.listDocuments()).length,
+    };
+  }
+
+  test("the User saving a page into a walled Folder while an outside search saves it: each keeps its own", async () => {
+    expect(await userSavesWhileSearching("outside", "walled")).toEqual({
+      users: "Client A",
+      cited: "Tea",
+      keptInside: null,
+      pages: 2,
+    });
+  });
+
+  test("the User saving a page outside while a walled Note's search saves it: each keeps its own", async () => {
+    expect(await userSavesWhileSearching("inside", "outside")).toEqual({
+      users: "Tea",
+      cited: "Client A",
+      keptInside: null,
+      pages: 2,
+    });
+  });
+
+  test("the User saving a page on the search's own side shares the one page, in the User's Folder", async () => {
+    expect(await userSavesWhileSearching("outside", "outside")).toEqual({
+      users: "Tea",
+      cited: "Tea",
+      keptInside: null,
+      pages: 1,
+    });
+  });
+
+  /**
+   * The User saves the tea page into "Other" while an outside search saves it, and `switched`:
+   * whether "Other" gains a wall before the fetch is released. Where the page ends up.
+   */
+  async function userSavesWhileTheSearchFetches(switched: boolean) {
+    let open = () => {};
+    let reached = () => {};
+    const gate = {
+      open: new Promise<void>((resolve) => {
+        open = resolve;
+      }),
+      reached: () => reached(),
+    };
+    const searching = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const { model } = webSearchingModel(researcher(), FOUND);
+    const { core, folder, mind, client } = await setUp(model, { gate });
+    const other = await core.createLibraryGroup({ name: "Other", description: "" });
+
+    const asked = askAndFinish(core, client, mind.id, "Search the web: tea in Europe?");
+    await searching;
+    const saving = core.saveWebPage({
+      address: TEA,
+      html: fixture("article.html"),
+      folderId: other.id,
+    });
+    // The User's save has reached the page's save, joining the search's.
+    await new Promise((resolve) => setImmediate(resolve));
+    if (switched) {
+      await core.updateLibraryGroup(other.id, { name: "Other", description: "", keepInside: true });
+    }
+    open();
+    const [users, { answerId }] = await Promise.all([saving, asked]);
+    if (users.outcome !== "saved") throw new Error("The User's page wasn't saved.");
+    const cited = onlyCitation(client, answerId);
+    const { assignments } = await core.getLibrary();
+    const folderOf = (id: unknown) => assignments.find((each) => each.documentId === id)?.groupId;
+    const name = (id: unknown) =>
+      id === other.id ? "Other" : id === folder.id ? "Tea" : (id ?? "no Folder");
+    return {
+      users: name(folderOf(users.document.id)),
+      cited: name(folderOf(cited.documentId)),
+      keptInside: await keptInside(core, cited, mind.id),
+      pages: (await core.listDocuments()).length,
+      said: users.notFiled === true,
+    };
+  }
+
+  test("a Folder that gains a wall while the User's save joins another's takes nothing across it, and says so", async () => {
+    expect(await userSavesWhileTheSearchFetches(true)).toEqual({
+      users: "Tea",
+      cited: "Tea",
+      keptInside: null,
+      pages: 1,
+      said: true,
+    });
+  });
+
+  test("control: the same join with no wall switched files the page into the User's Folder without a word", async () => {
+    expect(await userSavesWhileTheSearchFetches(false)).toEqual({
+      users: "Other",
+      cited: "Other",
+      keptInside: null,
+      pages: 1,
+      said: false,
+    });
+  });
+
+  test("an Answer that joined the User's save reads no page once that Folder gained a wall", async () => {
+    // An address written as a public IP, which the guarded fetcher checks before a page is used.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let fetching = () => {};
+    const userFetching = new Promise<void>((resolve) => {
+      fetching = resolve;
+    });
+    // The User's fetch waits, so the Answer's read reaches its save under way and joins it.
+    const userFetch = async (address: string) => {
+      fetching();
+      await held;
+      const bytes = new TextEncoder().encode(fixture("article.html"));
+      return {
+        url: address,
+        status: 200,
+        ok: true,
+        headers: {
+          get: (name: string) =>
+            name.toLowerCase() === "content-type" ? "text/html; charset=utf-8" : null,
+        },
+        body: Object.assign(
+          (async function* () {
+            yield bytes;
+          })(),
+          { cancel: async () => {} },
+        ),
+      };
+    };
+    const answering = scriptedModel((call: ModelCall): ScriptedReply => {
+      if (!call.results.some((result) => result.tool === "search_web")) {
+        return { calls: [{ tool: "search_web", input: { query: "how tea reached Europe" } }] };
+      }
+      if (!call.results.some((result) => result.tool === "read_web_page")) {
+        return { calls: [{ tool: "read_web_page", input: { url: TEA } }] };
+      }
+      return { text: "The page couldn't be read." };
+    });
+    const { model } = webSearchingModel(answering, FOUND);
+    const { core, mind, client } = await setUp(model, {}, { webPages: { fetch: userFetch } });
+    const other = await core.createLibraryGroup({ name: "Other", description: "" });
+
+    const users = core.saveWebPage({ address: TEA, folderId: other.id });
+    await userFetching;
+    const answerId = await askNew(
+      core,
+      client,
+      mind.id,
+      "Search the web: how did tea reach Europe?",
+    );
+    // The Answer's read reaches the page's save under way, joining the User's.
+    const reading = async () =>
+      toolCalls(client, answerId).some((call) => call.tool === "read_web_page");
+    for (let tries = 0; tries < 200 && !(await reading()); tries++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    await core.updateLibraryGroup(other.id, { name: "Other", description: "", keepInside: true });
+    release();
+    const [saved] = await Promise.all([users, answerEnded(core, answerId)]);
+
+    if (saved.outcome !== "saved") throw new Error("The User's page wasn't saved.");
+    expect(toolCalls(client, answerId)[1]).toMatchObject({
+      tool: "read_web_page",
+      status: "failed",
+      webPage: { address: TEA, failure: "kept-inside" },
+    });
+    const { assignments } = await core.getLibrary();
+    expect(assignments.find((each) => each.documentId === saved.document.id)?.groupId).toBe(
+      other.id,
+    );
+  });
+
+  test("a wall lifted while an Answer works words its refusal by the wall now", async () => {
+    let open = () => {};
+    let reached = () => {};
+    const gate = {
+      open: new Promise<void>((resolve) => {
+        open = resolve;
+      }),
+      reached: () => reached(),
+    };
+    const searching = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const answering = scriptedModel((call: ModelCall): ScriptedReply => {
+      if (!call.results.some((result) => result.tool === "search_web")) {
+        return { calls: [{ tool: "search_web", input: { query: "how tea reached Europe" } }] };
+      }
+      if (!call.results.some((result) => result.tool === "read_web_page")) {
+        return { calls: [{ tool: "read_web_page", input: { url: TEA } }] };
+      }
+      if (!call.results.some((result) => result.tool === "read_mind")) {
+        return { calls: [{ tool: "read_mind", input: { mind: "Outside memo" } }] };
+      }
+      return { text: "I couldn't read that note." };
+    });
+    const { model } = webSearchingModel(answering, FOUND);
+    const { core, folder, mind } = await setUp(model, { gate });
+    const outside = await core.createLibraryGroup({ name: "Outside", description: "" });
+    await core.createMind({ title: "Outside memo", folderId: outside.id });
+    // The turn starts behind the wall, which is lifted while the page is fetched.
+    await core.updateLibraryGroup(folder.id, {
+      name: "Tea",
+      description: "",
+      keepInside: true,
+    });
+
+    const asked = askAssistant(core, {
+      text: "Search the web: how did tea reach Europe?",
+      mindId: mind.id,
+    });
+    await searching;
+    await core.updateLibraryGroup(folder.id, {
+      name: "Tea",
+      description: "",
+      keepInside: false,
+    });
+    open();
+    const answer = await asked;
+
+    expect(answer.text).toContain(translate("en", "folder.wall.changed"));
+    expect(answer.text).not.toContain(translate("en", "folder.wall.refusal"));
+    expect(translate("zh-CN", "folder.wall.changed")).toBe(
+      "在生成回答期间，该文件夹的“只在本文件夹内工作”发生了变化。",
+    );
+  });
+
+  test("a User's save into a Folder deleted while it is saved files nowhere and says so", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let fetching = () => {};
+    const userFetching = new Promise<void>((resolve) => {
+      fetching = resolve;
+    });
+    const userFetch = async (address: string) => {
+      fetching();
+      await held;
+      const bytes = new TextEncoder().encode(fixture("article.html"));
+      return {
+        url: address,
+        status: 200,
+        ok: true,
+        headers: {
+          get: (name: string) =>
+            name.toLowerCase() === "content-type" ? "text/html; charset=utf-8" : null,
+        },
+        body: Object.assign(
+          (async function* () {
+            yield bytes;
+          })(),
+          { cancel: async () => {} },
+        ),
+      };
+    };
+    const { model } = webSearchingModel(
+      scriptedModel(() => ({ text: "Nothing to do." })),
+      FOUND,
+    );
+    const { core } = await setUp(model, {}, { webPages: { fetch: userFetch } });
+    const other = await core.createLibraryGroup({ name: "Other", description: "" });
+
+    const saving = core.saveWebPage({ address: TEA, folderId: other.id });
+    await userFetching;
+    await core.deleteLibraryGroup(other.id);
+    release();
+    const saved = await saving;
+    if (saved.outcome !== "saved") throw new Error("The User's page wasn't saved.");
+
+    expect(saved.notFiled).toBe(true);
+    const { assignments } = await core.getLibrary();
+    expect(
+      assignments.find((each) => each.documentId === saved.document.id)?.groupId ?? null,
+    ).toBeNull();
+  });
+
+  /** An Answer asked from a Note reads a page with its Folder `walled` before the ask, mid-fetch, or not at all. */
+  async function noteFolderWalledWhileFetching(walled: "before" | "mid" | "never") {
+    let open = () => {};
+    let reached = () => {};
+    const gate = {
+      open: new Promise<void>((resolve) => {
+        open = resolve;
+      }),
+      reached: () => reached(),
+    };
+    const searching = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const { model } = webSearchingModel(researcher(), FOUND);
+    const { core, folder, mind } = await setUp(model, { gate });
+    const wallOn = () =>
+      core.updateLibraryGroup(folder.id, { name: "Tea", description: "", keepInside: true });
+    if (walled === "before") await wallOn();
+
+    const asked = askAssistant(core, {
+      text: "Search the web: how did tea reach Europe?",
+      mindId: mind.id,
+    });
+    await searching;
+    if (walled === "mid") await wallOn();
+    open();
+    const answer = await asked;
+    const read = answer.toolCalls.find(
+      (call) => call.webPage !== undefined && "documentId" in call.webPage,
+    );
+    const page = read?.webPage;
+    const documentId = page !== undefined && "documentId" in page ? page.documentId : null;
+    const { assignments } = await core.getLibrary();
+    const filed = assignments.find((each) => each.documentId === documentId)?.groupId ?? null;
+    return {
+      filed: filed === folder.id ? "Tea" : (filed ?? "no Folder"),
+      said: answer.text.includes(translate("en", "folder.wall.pageNotFiled")),
+    };
+  }
+
+  test("a Note's Folder that gains a wall mid-fetch leaves the page in no Folder, and the Answer says so", async () => {
+    expect(await noteFolderWalledWhileFetching("mid")).toEqual({ filed: "no Folder", said: true });
+    expect(translate("zh-CN", "folder.wall.pageNotFiled")).toBe(
+      "此回答读过的一个网页没有归入文件夹：在生成回答期间，“只在本文件夹内工作”发生了变化。",
+    );
+  });
+
+  test("control: an Answer inside the wall files its page there, and says nothing of a wall", async () => {
+    expect(await noteFolderWalledWhileFetching("before")).toEqual({ filed: "Tea", said: false });
+  });
+
+  test("control: the same read with no wall switched files the page in the Note's Folder", async () => {
+    expect(await noteFolderWalledWhileFetching("never")).toEqual({ filed: "Tea", said: false });
+  });
+
+  /** A Question asked from a Note reads a page with its Folder walled mid-fetch, or never. */
+  async function noteQuestionWalledWhileFetching(walled: "mid" | "never") {
+    let open = () => {};
+    let reached = () => {};
+    const gate = {
+      open: new Promise<void>((resolve) => {
+        open = resolve;
+      }),
+      reached: () => reached(),
+    };
+    const searching = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const { model } = webSearchingModel(researcher(), FOUND);
+    const { core, folder, mind, client } = await setUp(model, { gate });
+
+    const asked = askAndFinish(core, client, mind.id, "Search the web: how did tea reach Europe?");
+    await searching;
+    if (walled === "mid") {
+      await core.updateLibraryGroup(folder.id, { name: "Tea", description: "", keepInside: true });
+    }
+    open();
+    const { answerId } = await asked;
+    const read = toolCalls(client, answerId).find(
+      (call) => call.tool === "read_web_page" && call.status === "done",
+    );
+    const page = read?.webPage;
+    const documentId = page !== undefined && "documentId" in page ? page.documentId : null;
+    const { assignments } = await core.getLibrary();
+    const filed = assignments.find((each) => each.documentId === documentId)?.groupId ?? null;
+    return {
+      filed: filed === folder.id ? "Tea" : (filed ?? "no Folder"),
+      said: answerText(client, answerId).includes(translate("en", "folder.wall.pageNotFiled")),
+    };
+  }
+
+  test("a Question asked from a Note says why its page wasn't filed when its Folder gains a wall", async () => {
+    expect(await noteQuestionWalledWhileFetching("mid")).toEqual({
+      filed: "no Folder",
+      said: true,
+    });
+  });
+
+  test("control: the same Question with no wall switched files the page and says nothing", async () => {
+    expect(await noteQuestionWalledWhileFetching("never")).toEqual({ filed: "Tea", said: false });
+  });
+
+  test("a Note moved to another Folder while its page is fetched files the page where it was asked", async () => {
+    let open = () => {};
+    let reached = () => {};
+    const gate = {
+      open: new Promise<void>((resolve) => {
+        open = resolve;
+      }),
+      reached: () => reached(),
+    };
+    const searching = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const { model } = webSearchingModel(researcher(), FOUND);
+    const { core, folder, mind, client } = await setUp(model, { gate });
+    const other = await core.createLibraryGroup({ name: "Other", description: "" });
+
+    const asked = askAndFinish(core, client, mind.id, "Search the web: how did tea reach Europe?");
+    await searching;
+    await core.moveToFolder({ mindIds: [mind.id], folderId: other.id });
+    open();
+    const { answerId } = await asked;
+    const read = toolCalls(client, answerId).find(
+      (call) => call.tool === "read_web_page" && call.status === "done",
+    );
+    const page = read?.webPage;
+    const documentId = page !== undefined && "documentId" in page ? page.documentId : null;
+    const { assignments } = await core.getLibrary();
+    expect(assignments.find((each) => each.documentId === documentId)?.groupId).toBe(folder.id);
+    expect(answerText(client, answerId)).not.toContain(translate("en", "folder.wall.pageNotFiled"));
+  });
+
+  test("a Folder deleted while the page is fetched leaves the page in no Folder, and the Answer says it was deleted", async () => {
+    let open = () => {};
+    let reached = () => {};
+    const gate = {
+      open: new Promise<void>((resolve) => {
+        open = resolve;
+      }),
+      reached: () => reached(),
+    };
+    const searching = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const { model } = webSearchingModel(researcher(), FOUND);
+    const { core, folder, mind } = await setUp(model, { gate });
+
+    const asked = askAssistant(core, {
+      text: "Search the web: how did tea reach Europe?",
+      mindId: mind.id,
+    });
+    await searching;
+    await core.deleteLibraryGroup(folder.id);
+    open();
+    const answer = await asked;
+    const read = answer.toolCalls.find(
+      (call) => call.webPage !== undefined && "documentId" in call.webPage,
+    );
+    const page = read?.webPage;
+    const documentId = page !== undefined && "documentId" in page ? page.documentId : null;
+    const { assignments } = await core.getLibrary();
+    expect(assignments.find((each) => each.documentId === documentId)?.groupId ?? null).toBeNull();
+    expect(answer.text).toContain(translate("en", "folder.wall.pageNotFiledGone"));
+    expect(answer.text).not.toContain(translate("en", "folder.wall.pageNotFiled"));
+  });
+
+  test("an outside turn reads a page again that the User saved into a walled Folder before", async () => {
+    const { model } = webSearchingModel(researcher(), FOUND);
+    const { core, folder, mind, client } = await setUp(model);
+    const walled = await core.createLibraryGroup({ name: "Client A", description: "" });
+    await core.updateLibraryGroup(walled.id, {
+      name: "Client A",
+      description: "",
+      keepInside: true,
+    });
+    const users = await core.saveWebPage({
+      address: TEA,
+      html: fixture("article.html"),
+      folderId: walled.id,
+    });
+    if (users.outcome !== "saved") throw new Error("The User's page wasn't saved.");
+
+    const { answerId } = await askAndFinish(
+      core,
+      client,
+      mind.id,
+      "Search the web: tea in Europe?",
+    );
+
+    const cited = onlyCitation(client, answerId);
+    expect(cited.documentId).not.toBe(users.document.id);
+    const { assignments } = await core.getLibrary();
+    const folderOf = (id: unknown) => assignments.find((each) => each.documentId === id)?.groupId;
+    expect(folderOf(users.document.id)).toBe(walled.id);
+    expect(folderOf(cited.documentId)).toBe(folder.id);
   });
 
   test("isn't offered while the switch is off, in Local mode, for a Question that doesn't ask for the web, or with a provider that has no web search", async () => {

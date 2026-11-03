@@ -7,12 +7,14 @@
  */
 import {
   BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
-  type CitationRecheck,
+  type CitationToRecheck,
   NOTE_BLOCK_TYPES,
-  type RecheckCitationInput,
+  type RecheckResult,
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
+import { figureShownText, readCalculatedFigureAttributes } from "./calculatedFigures";
 
 /** At most this many Blocks go into a note at once, and this deep. */
 const MAX_BLOCKS = 2_000;
@@ -25,6 +27,10 @@ function parseNode(value: unknown, depth: number): NodeJSON | null {
   if (!isRecord(value) || typeof value.type !== "string" || value.type === "") return null;
   if (depth > MAX_DEPTH) return null;
   const node: NodeJSON = { type: value.type };
+  if (value.type === CALCULATED_FIGURE_NODE) {
+    const figure = readCalculatedFigureAttributes(value.attrs);
+    return figure ? { type: value.type, attrs: { ...figure } } : null;
+  }
   if (isRecord(value.attrs)) node.attrs = { ...value.attrs };
   if (typeof value.text === "string") node.text = value.text;
   if (Array.isArray(value.marks)) {
@@ -74,7 +80,7 @@ export function withoutIds(blocks: readonly NodeJSON[]): NodeJSON[] {
 }
 
 /** What checking a Citation again gives, sync or async (the core's own, or over IPC). */
-export type Recheck = (input: RecheckCitationInput) => CitationRecheck | Promise<CitationRecheck>;
+export type Recheck = (input: CitationToRecheck) => RecheckResult | Promise<RecheckResult>;
 
 const unit = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
@@ -113,8 +119,9 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
       pageTo: unit(attrs.pageTo) ?? pageFrom,
       contentHash: typeof attrs.contentHash === "string" ? attrs.contentHash : null,
     });
-    // A deleted Document: the check made when it was cited stands, as the badge shows it.
-    if (checked.contentHash === null) return node;
+    // Kept inside a wall the Note is outside, nothing was read; or a deleted Document: either way
+    // the check made when it was cited stands, as the badge shows it.
+    if ("keptInside" in checked || checked.contentHash === null) return node;
     const quoted = checked.inQuotedVersion;
     if (quoted !== undefined) {
       if (quoted === null) return node;
@@ -155,13 +162,20 @@ export function textLength(blocks: readonly NodeJSON[]): number {
   return blocks.reduce((sum, block) => sum + length(block), 0);
 }
 
+/** A node's words as the note shows them: a calculated figure by its shown text. */
 const textOf = (node: NodeJSON): string =>
-  node.type === "text" ? (node.text ?? "") : (node.content ?? []).map(textOf).join("");
+  node.type === "text"
+    ? (node.text ?? "")
+    : node.type === CALCULATED_FIGURE_NODE
+      ? figureShownText(node.attrs)
+      : (node.content ?? []).map(textOf).join("");
+
+const holdsWords = (node: NodeJSON) => node.type === "text" || node.type === CALCULATED_FIGURE_NODE;
 
 /** The first stretch of text in a Block: a list's first item or a table's first cell, not all of them run together. */
 function firstText(node: NodeJSON): string {
   const children = node.content ?? [];
-  if (node.type === "text" || children.some((child) => child.type === "text")) return textOf(node);
+  if (holdsWords(node) || children.some(holdsWords)) return textOf(node);
   for (const child of children) {
     const text = firstText(child);
     if (text.trim() !== "") return text;

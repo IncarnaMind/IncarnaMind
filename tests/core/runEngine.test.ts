@@ -132,6 +132,7 @@ function request(model: MockLanguageModelV4, overrides: Partial<RunRequest> = {}
     messages: [{ role: "user", text: "When is high water?" }],
     tools: [],
     maxSteps: 10,
+    outputTokens: { step: 16_000, last: 8_000 },
     gate: scriptedGate().gate,
     signal: new AbortController().signal,
     ...overrides,
@@ -280,6 +281,29 @@ describe.each(ENGINES)("A Run engine: $name", ({ create }) => {
       },
       { role: "assistant", text: "High water is at six.", toolCalls: [] },
     ]);
+  });
+
+  test("a call that copies raw tabs into a string is read with them escaped; input broken otherwise is refused (#1827)", async () => {
+    const cite = testTool("cite", {
+      schema: { type: "object", properties: { quote: { type: "string" } }, required: ["quote"] },
+    });
+    const model = scriptedModel((call) =>
+      call.index === 0
+        ? {
+            calls: [
+              { tool: "cite", input: null, raw: '{"quote":"Revenue\t4979.6\t4860"}' },
+              { tool: "cite", input: null, raw: '{"quote":"Revenue' },
+            ],
+          }
+        : { text: "Recorded." },
+    );
+
+    await collect(create(), request(model, { tools: [cite] }));
+
+    expect(cite.calls.map((call) => call.input)).toEqual([{ quote: "Revenue\t4979.6\t4860" }]);
+    const results = resultsSent(model, 1);
+    expect(results).toHaveLength(2);
+    expect(results[1]?.type).toBe("error-text");
   });
 
   // protects=a Tool hears a call's input as the model writes it only when the request says the Tool may (#202), so nothing acts before a gate that could ask; fails_when=a Tool's streamInput runs for a request that didn't allow it, or doesn't when it did; no_claim=what a Tool does with the input.
@@ -456,7 +480,7 @@ describe.each(ENGINES)("A Run engine: $name", ({ create }) => {
     expect(run.events.map((event) => event.type)).not.toContain("finished");
   });
 
-  test("the last step is told to write, may choose no Tool, and is capped at the engine's cap (#1344)", async () => {
+  test("the last step is told to write, may choose no Tool, and each step is capped at its own limit (#1344, #2275)", async () => {
     const search = testTool("search_documents");
     const model = stepsModel([[SEARCH], [SEARCH]], "Written.");
 
@@ -468,33 +492,12 @@ describe.each(ENGINES)("A Run engine: $name", ({ create }) => {
       "none",
     ]);
     expect(model.doStreamCalls.map((call) => call.maxOutputTokens)).toEqual([
-      undefined,
-      undefined,
-      8_000,
+      16_000, 16_000, 8_000,
     ]);
     const lastText = JSON.stringify(model.doStreamCalls.at(-1)?.prompt);
     expect(lastText).toContain("You can make no more calls");
     expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).not.toContain("no more calls");
     expect(run.text).toBe("Written.");
-  });
-
-  // protects=a model whose own most output is under the engine's cap is asked for no more than that; fails_when=the last step asks for the engine's 8,000 of a model that writes 4,096 at most (#1344).
-  test("the last step is capped at the model's own most when that is less", async () => {
-    const search = testTool("search_documents");
-    const model = stepsModel([[SEARCH], [SEARCH]], "Written.");
-
-    await collect(
-      create(),
-      request(model, { tools: [search], maxSteps: 3, lastStep: { tokens: 4_096 } }),
-    );
-
-    expect(model.doStreamCalls.at(-1)?.maxOutputTokens).toBe(4_096);
-    const roomy = stepsModel([[SEARCH], [SEARCH]], "Written.");
-    await collect(
-      create(),
-      request(roomy, { tools: [search], maxSteps: 3, lastStep: { tokens: 64_000 } }),
-    );
-    expect(roomy.doStreamCalls.at(-1)?.maxOutputTokens).toBe(8_000);
   });
 
   test("keepTools: the last step keeps the tool choice it had, with the same Tools", async () => {

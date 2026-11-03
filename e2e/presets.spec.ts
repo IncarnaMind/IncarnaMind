@@ -8,6 +8,7 @@ import {
   dismissChatSetup,
   launchApp,
   newMind,
+  openServiceList,
   openSettings,
   removeDataFolder,
   setLanguage,
@@ -80,7 +81,7 @@ test("the setup card's More… lists every provider that takes a key, in English
     await window.keyboard.type("What is in my Documents?");
     await window.keyboard.press("Enter");
     const card = window.getByTestId("model-setup");
-    await card.getByTestId("setup-key").click();
+    await openServiceList(window, card);
     const form = card.getByTestId("provider-form");
     const chips = form.locator('input[name$="-kind"]');
     const shown = await chips.count();

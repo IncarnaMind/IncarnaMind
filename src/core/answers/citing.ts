@@ -19,7 +19,14 @@ import type { CitationSource } from "../documents";
 import { keywordTerms, keywordText } from "../documents/keywords";
 import type { PageText } from "../documents/passages";
 import type { WindowedPassage } from "../documents/search";
-import { checkCitation, cleanQuote, locateQuote, matchingOf, type PageRange } from "./citations";
+import {
+  checkCitation,
+  cleanQuote,
+  locateQuote,
+  matchingOf,
+  type PageRange,
+  quoteAsIn,
+} from "./citations";
 
 /** What citing needs from Documents: Answers' search, and what Citations point to. */
 export interface CitingDocuments {
@@ -79,6 +86,17 @@ export interface Citing {
    * "checking"); null for a Passage that doesn't exist.
    */
   citeQuote(passageId: string, quote: string): Citation | null;
+  /**
+   * A Citation of `quote` in the Passage's Unit `page` at `at`, its character range in that Unit,
+   * checked: a Transcript cue's own time. Null for a Passage or Unit that doesn't exist, or whose
+   * text doesn't hold the range.
+   */
+  citeUnit(
+    passageId: string,
+    quote: string,
+    page: number,
+    at: { start: number; end: number },
+  ): Citation | null;
   /** Where a Passage is, as a Citation of all of it would say; null as for `FoundPassage.location`. */
   locate(
     passage: Pick<
@@ -129,6 +147,53 @@ export function createCiting(documents: CitingDocuments): Citing {
   const unitsOf = (source: CitationSource, range: PageRange) =>
     documents.pageTexts(source.documentId, source.contentHash, range.pageFrom, range.pageTo);
 
+  const citationOf = (
+    source: CitationSource,
+    own: PageRange,
+    range: PageRange,
+    quote: string,
+    matching: ReturnType<typeof matchingOf>,
+  ): Citation => {
+    const pages = unitsOf(source, range);
+    const result = checkCitation({
+      quote,
+      range,
+      passage: own,
+      documentDeleted: source.documentDeleted,
+      pages,
+      ...matching,
+    });
+    const hasUnits = own.pageFrom !== null && own.pageTo !== null;
+    // A scan's unsure word was still found: its place is where the quote is (#535).
+    const held = result.check === "found" || result.checkReason === "unsure-word";
+    const location: CitationLocation | null = !hasUnits
+      ? null
+      : pages.length > 0
+        ? locationOf(pages, held ? quoteInUnits(pages, quote, matching) : null)
+        : source.documentKind === "pdf" && range.pageFrom !== null && range.pageTo !== null
+          ? { kind: "page", from: range.pageFrom, to: range.pageTo }
+          : null;
+    return citationObject(source, range, quote, result, location);
+  };
+
+  const citationObject = (
+    source: CitationSource,
+    range: PageRange,
+    quote: string,
+    result: ReturnType<typeof checkCitation>,
+    location: CitationLocation | null,
+  ): Citation => ({
+    passageId: source.passageId,
+    documentId: source.documentId,
+    documentName: source.documentName,
+    contentHash: source.contentHash,
+    pageFrom: range.pageFrom,
+    pageTo: range.pageTo,
+    location,
+    quote,
+    ...result,
+  });
+
   /** Where a Passage is, as a Citation of all of it would say. */
   const passageLocation: Citing["locate"] = (passage) => {
     if (passage.pageFrom === null || passage.pageTo === null) return null;
@@ -169,42 +234,43 @@ export function createCiting(documents: CitingDocuments): Citing {
     citeQuote(passageId, given) {
       const source = documents.citationSource(passageId);
       if (!source) return null;
-      const quote = cleanQuote(given);
       const own: PageRange = { pageFrom: source.pageFrom, pageTo: source.pageTo };
       const hasUnits = own.pageFrom !== null && own.pageTo !== null;
       const matching = matchingFor(source);
-      const range =
-        (hasUnits && quote !== "" && locateQuote(unitsOf(source, own), quote, matching)) || own;
-      const pages = unitsOf(source, range);
+      const units = unitsOf(source, own);
+      const quote = quoteAsIn(units, cleanQuote(given), matching);
+      const range = (hasUnits && quote !== "" && locateQuote(units, quote, matching)) || own;
+      return citationOf(source, own, range, quote, matching);
+    },
+
+    citeUnit(passageId, given, page, at) {
+      const source = documents.citationSource(passageId);
+      if (!source) return null;
+      const own: PageRange = { pageFrom: source.pageFrom, pageTo: source.pageTo };
+      if (own.pageFrom === null || own.pageTo === null) return null;
+      if (page < own.pageFrom || page > own.pageTo) return null;
+      const quote = cleanQuote(given);
+      const matching = matchingFor(source);
+      const pages = documents.pageTexts(source.documentId, source.contentHash, page, page);
+      const unit = pages[0];
+      if (!unit || at.start < 0 || at.end < at.start || at.end > unit.text.length) return null;
+      const holds =
+        quoteInUnits([{ ...unit, text: unit.text.slice(at.start, at.end) }], quote, {
+          lostLigatures: matching.lostLigatures ?? false,
+        }) !== null;
       const result = checkCitation({
         quote,
-        range,
+        range: { pageFrom: page, pageTo: page },
         passage: own,
         documentDeleted: source.documentDeleted,
         pages,
         ...matching,
       });
-      const location: CitationLocation | null = !hasUnits
-        ? null
-        : pages.length > 0
-          ? locationOf(
-              pages,
-              result.check === "found" ? quoteInUnits(pages, quote, matching) : null,
-            )
-          : source.documentKind === "pdf" && range.pageFrom !== null && range.pageTo !== null
-            ? { kind: "page", from: range.pageFrom, to: range.pageTo }
-            : null;
-      return {
-        passageId: source.passageId,
-        documentId: source.documentId,
-        documentName: source.documentName,
-        contentHash: source.contentHash,
-        pageFrom: range.pageFrom,
-        pageTo: range.pageTo,
-        location,
-        quote,
-        ...result,
-      };
+      const checked = holds
+        ? result
+        : { check: "not-found" as const, checkReason: "quote-not-on-pages" as const };
+      const location = checked.check === "found" ? locationOf(pages, [at]) : null;
+      return citationObject(source, { pageFrom: page, pageTo: page }, quote, checked, location);
     },
 
     locate: passageLocation,

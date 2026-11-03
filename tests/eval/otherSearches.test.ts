@@ -243,12 +243,12 @@ describe("The report of the other searches", () => {
         id: "en-12",
         language: "en",
         crossLingual: false,
-        question: 'What does "few-shot" mean in the GPT-3 paper?',
+        question: 'What does "few-shot" mean in the Brellan report?',
         modes: { [GATING_MODE]: { hit: false, rank: null, top: [] } },
         keywordRank: 71,
         queries: {
           feedback: ["articles", "generated"],
-          "document-first": ["Language Models are Few-Shot Learners"],
+          "document-first": ["Demonstrations Not Weights"],
         },
       },
     ],
@@ -366,14 +366,12 @@ describe("The report of the other searches", () => {
       // The gate's misses say how deep keyword search has the expected Passage, and what the other searches looked for.
       expect(markdown).toContain("  Plain keyword search ranks the expected Passage at 71.");
       expect(markdown).toContain('  Feedback terms: "articles", "generated".');
-      expect(markdown).toContain(
-        '  Documents searched inside: "Language Models are Few-Shot Learners".',
-      );
+      expect(markdown).toContain('  Documents searched inside: "Demonstrations Not Weights".');
       expect(markdown.find((line) => line.startsWith("| Question |"))).toContain(
         "| keyword, to 200 | Text |",
       );
       expect(markdown).toContain(
-        `| en-12 | – | – | – | 71 | What does "few-shot" mean in the GPT-3 paper? |`,
+        `| en-12 | – | – | – | 71 | What does "few-shot" mean in the Brellan report? |`,
       );
 
       const lines = terminalSummary(report, "/repo/eval/results/x", "/repo").split("\n");

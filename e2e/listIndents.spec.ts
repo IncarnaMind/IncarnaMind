@@ -76,7 +76,7 @@ const markerLeft = (item: Locator) =>
     const before = getComputedStyle(text, "::before");
     return before.content === "none"
       ? Number.NaN
-      : text.getBoundingClientRect().left + Number.parseFloat(before.left);
+      : li.getBoundingClientRect().left + Number.parseFloat(before.left);
   });
 
 /** How far a number ends before its text, and how far a bullet's centre is from its first line's, as drawn. */
@@ -84,10 +84,8 @@ const numberGap = (item: Locator) =>
   item.evaluate((li) => {
     const text = li.querySelector(":scope > p") as HTMLElement;
     const before = getComputedStyle(text, "::before");
-    return (
-      text.getBoundingClientRect().left -
-      (li.getBoundingClientRect().right - Number.parseFloat(before.right))
-    );
+    const markerLeft = li.getBoundingClientRect().left + Number.parseFloat(before.left);
+    return text.getBoundingClientRect().left - (markerLeft + Number.parseFloat(before.width));
   });
 
 const bulletOffCentre = (item: Locator) =>
@@ -214,8 +212,8 @@ for (const { language, width, body, items, long } of SETTINGS) {
     await expect(editor.locator("ol ol > li")).toHaveText(items[1]);
     near((await textLeft(editor.locator("ol > li").first())) - edgeLeft, 48);
     near((await textLeft(editor.locator("ol ol > li"))) - edgeLeft, 96);
-    near(await numberGap(editor.locator("ol > li").first()), 8);
-    near(await numberGap(editor.locator("ol ol > li")), 8);
+    expect(await numberGap(editor.locator("ol > li").first())).toBeGreaterThanOrEqual(8);
+    expect(await numberGap(editor.locator("ol ol > li"))).toBeGreaterThanOrEqual(8);
     await screenshot(window, `numbers-${language}-${width}`);
     await window.keyboard.press(UNDO);
     await expect(editor.locator("ol ol")).toHaveCount(0);

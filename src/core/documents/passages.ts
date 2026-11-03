@@ -63,6 +63,17 @@ export interface BuiltPassage {
 const PAGE_BREAK = "\n\n";
 
 /**
+ * The text of the Units (pages, slides, sections, rows, lines) laid out as one
+ * text, as Passages are built from it.
+ */
+export function laidOut(units: readonly PageText[]): string {
+  return units
+    .map((unit) => unit.text.trim())
+    .filter((text) => text !== "")
+    .join(PAGE_BREAK);
+}
+
+/**
  * A run of non-CJK, non-space characters (a word), or one CJK character, each
  * with its trailing whitespace. Leading whitespace is its own match. Together
  * they cover the text.
@@ -157,21 +168,22 @@ function toPieces(text: string, maxTokens: number): Piece[] {
 
 /** Lays the pages out as one text and returns it with a lookup from offset to page. */
 function layOut(pages: readonly PageText[]) {
-  let text = "";
   const starts: { offset: number; page: number | null }[] = [];
-  for (const { page, text: pageText } of pages) {
-    const trimmed = pageText.trim();
+  let offset = 0;
+  for (const { page, text } of pages) {
+    const trimmed = text.trim();
     if (!trimmed) continue;
-    if (text) text += PAGE_BREAK;
-    starts.push({ offset: text.length, page });
-    text += trimmed;
+    if (offset > 0) offset += PAGE_BREAK.length;
+    starts.push({ offset, page });
+    offset += trimmed.length;
   }
-  const pageAt = (offset: number): number | null => {
+  const text = laidOut(pages);
+  const pageAt = (at: number): number | null => {
     let low = 0;
     let high = starts.length - 1;
     while (low < high) {
       const middle = Math.ceil((low + high) / 2);
-      if (item(starts, middle).offset <= offset) low = middle;
+      if (item(starts, middle).offset <= at) low = middle;
       else high = middle - 1;
     }
     return starts[low]?.page ?? null;

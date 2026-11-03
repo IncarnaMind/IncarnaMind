@@ -17,7 +17,7 @@ import { toolCallsOf } from "../../shared/toolCalls";
 import { checkUnreadOf } from "../../shared/unreadFiles";
 import { countFor, countText, firstWords } from "../../shared/wordCount";
 import { isEdited, textAttribute } from "../answers/blocks";
-import { checkedSentences } from "../answers/checks/sentences";
+import { checkedSentences, figuresNow } from "../answers/checks/sentences";
 import {
   type AiUseEntry,
   type AiUseKind,
@@ -53,6 +53,7 @@ export const USES: readonly Use[] = [
   "answer-added",
   "edit-with-ai-accepted",
   "assistant-change-accepted",
+  "outside-agent-change-accepted",
   "comparison-table-accepted",
   "suggestion-accepted",
   "search-documents",
@@ -95,6 +96,7 @@ export interface CitationCounts {
 export interface SentenceCounts {
   supported: number;
   unsupported: number;
+  notFound: number;
   contradicted: number;
   needsRecheck: number;
   notChecked: number;
@@ -136,6 +138,8 @@ export interface FigureSources {
   folderId: string | null;
   /** The name to give a model, or null when the record names none. */
   modelName(providerId: string | null, modelId: string | null): string | null;
+  /** What the model column says for a change an outside agent made (#352): its name, as an agent's. */
+  agentName(agent: string): string;
   /** What a heading with no text is called. */
   untitled: string;
 }
@@ -210,6 +214,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     found: "found",
     "not-found": "notFound",
     "cant-check": "cantCheck",
+    "not-checked": "cantCheck",
     unsupported: "unsupported",
     contradicted: "contradicted",
     checking: "checking",
@@ -238,6 +243,8 @@ export function readFigures(sources: FigureSources): AiUseFigures {
         if (inline.kind === "text") {
           if (inline.ai) aiText += inline.text;
           else otherText += inline.text;
+        } else if (inline.kind === "figure") {
+          otherText += inline.figure.shown;
         } else if (inline.kind === "citation") {
           const attributes = attributesOf.get(inline.footnote);
           if (attributes) citations[checkKeys[citationState(attributes, documents, kept).check]]++;
@@ -298,7 +305,12 @@ export function readFigures(sources: FigureSources): AiUseFigures {
   let removed = 0;
   for (const entry of entries) {
     if (entry.kind === "assistant-change-rejected") continue;
-    use(entry.kind, sources.modelName(entry.providerId, entry.modelId));
+    use(
+      entry.kind,
+      entry.agent !== null
+        ? sources.agentName(entry.agent)
+        : sources.modelName(entry.providerId, entry.modelId),
+    );
     if (entry.blockIds.length === 0) continue;
     if (entry.outcome === "deleted") {
       removed++;
@@ -312,22 +324,27 @@ export function readFigures(sources: FigureSources): AiUseFigures {
   const sentences: SentenceCounts = {
     supported: 0,
     unsupported: 0,
+    notFound: 0,
     contradicted: 0,
     needsRecheck: 0,
     notChecked: 0,
   };
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
+  const { figureContexts, figured } = figuresNow(fragment);
   const checked: CheckedSentence[] = [];
   const requests: string[] = [];
-  for (const { check, sentence } of checkedSentences(fragment)) {
+  for (const marked of checkedSentences(fragment)) {
+    const { check, sentence, cited } = marked;
     requests.push(check.request);
     const shown = claimCheckShown(check, {
       text: sentence,
+      figureContexts,
+      figured: figured(marked),
       versions,
       folderId: sources.folderId,
       scope: fragment.doc ? mindScopeOf(fragment.doc) : null,
     });
-    const result = sentenceResultOf(shown);
+    const result = sentenceResultOf(shown, check, cited.length);
     if (!result) continue;
     sentences[result === "changed" ? "needsRecheck" : result]++;
     const quoted = firstWords(comparableSentence(sentence), SENTENCE_WORDS);

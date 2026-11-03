@@ -47,6 +47,7 @@ const documentOf = (id: string): Document => ({
   contentHash: "",
   path: `/${id}.pdf`,
   fileStatus: "available",
+  keptByApp: false,
   linkedFolderId: null,
   size: 0,
   pageCount: null,
@@ -54,6 +55,10 @@ const documentOf = (id: string): Document => ({
   progress: null,
   scan: null,
   failure: null,
+  unreadParts: null,
+  unreadPartsUnknown: false,
+  readHiddenSheets: false,
+  convertedFrom: null,
   folderId: null,
   tags: [],
   tagging: "off",
@@ -114,9 +119,9 @@ describe("a selection of Documents", () => {
     expect(ask && menuLabelOf(ask.command, ctx, english)).toBe("Ask about these 3 Documents");
     expect(ask && menuLabelOf(ask.command, ctx, chinese)).toBe("就这 3 个文档提问");
     expect(start && labelOf(start.command, ctx, english)).toBe(
-      "Start a Mind from these 3 Documents",
+      "Start a note from these 3 Documents",
     );
-    expect(start && labelOf(start.command, ctx, chinese)).toBe("用这 3 个文档新建 Mind");
+    expect(start && labelOf(start.command, ctx, chinese)).toBe("用这 3 个文档新建笔记");
   });
 
   test("offers Delete with the count", () => {
@@ -223,6 +228,40 @@ describe("a selection of several kinds", () => {
     const ctx = { ...selectionOf([folder("f"), mind("m")], "sidebar"), here: fromMind };
     expect(idsIn(buildMixedMenu(ctx))).toEqual(["selection.delete"]);
   });
+});
+
+test("Read hidden sheets too is offered for a workbook whose hidden sheets were left out", async () => {
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  const before = useAppStore.getState();
+  const readHiddenSheets = vi.fn(async () => undefined);
+  const one = selectionOf([doc("w")], "library");
+  const workbook: Document = {
+    ...documentOf("w"),
+    kind: "xlsx",
+    unreadParts: { hiddenSheets: ["Q3 raw"], rowsCut: [], sheetsNotRead: [] },
+  };
+  try {
+    useAppStore.setState({ documents: [workbook], readHiddenSheets });
+    expect(idsIn(buildMenu("document", one))).toContain("document.readHiddenSheets");
+    const command = commands.get("document.readHiddenSheets");
+    expect(command && menuLabelOf(command, one, english)).toBe("Read hidden sheets too");
+    expect(command && menuLabelOf(command, one, chinese)).toBe("同时读取隐藏工作表");
+    await commands.run("document.readHiddenSheets", one);
+    expect(readHiddenSheets).toHaveBeenCalledExactlyOnceWith("w");
+
+    useAppStore.setState({ documents: [{ ...workbook, status: "queued" }] });
+    expect(idsIn(buildMenu("document", one))).not.toContain("document.readHiddenSheets");
+    useAppStore.setState({ documents: [{ ...workbook, unreadParts: null }] });
+    expect(idsIn(buildMenu("document", one))).not.toContain("document.readHiddenSheets");
+  } finally {
+    useAppStore.setState(before);
+  }
+});
+
+test("the assistant is never offered Read hidden sheets too: the opt-in is the User's", async () => {
+  const { offeredCommands } = await import("../../src/renderer/src/assistantWindow");
+  const entry = offeredCommands(null).find((each) => each.id === "document.readHiddenSheets");
+  expect(entry).toMatchObject({ yours: "privacy" });
 });
 
 test("Retry reloads a failed viewer through its place, and keeps indexing retries for failed Documents elsewhere", async () => {

@@ -32,6 +32,7 @@ export function TabIcon({ item }: { item: TabItem }) {
       : null,
   );
   if (item.kind === "mind") return <MindIcon mindId={item.mindId} />;
+  if (item.kind === "figures") return <DocumentLineIcon kind="csv" />;
   if (item.kind === "library") return <LooseDocumentsLineIcon />;
   if (item.kind === "home") return <HomeLineIcon />;
   return <DocumentLineIcon kind={kind ?? "pdf"} />;

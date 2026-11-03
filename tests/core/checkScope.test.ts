@@ -146,6 +146,30 @@ describe.each(["en", "zh-CN"] as const)("A check from a Mind (%s)", (language) =
     expect(mindScopeOf(restarted.doc)).toEqual(documentsScope(own.id));
   });
 
+  test("a wall keeps an all-Documents check in its Folder", async () => {
+    const { core, words, own, handed } = await setUp(language);
+    const folder = await core.createLibraryGroup({ name: "Walled agreements", description: "" });
+    await core.assignDocumentGroup(own.id, folder.id);
+    const { mindId, client } = await mindWith(core, words.own.line, folder.id);
+    await core.updateLibraryGroup(folder.id, {
+      name: folder.name,
+      description: folder.description,
+      keepInside: true,
+    });
+
+    await core.checkMind({
+      requestId: `walled-${mindId}`,
+      mindId,
+      mode: "all",
+      allDocuments: true,
+    });
+
+    expect([...handed()]).toEqual([words.own.name]);
+    const checked = await checkOf(client);
+    expect(checkedScope(checked.check.scope)).toEqual(folderScope(folder.id));
+    expect(checked.check.scope.widened).toBe(false);
+  });
+
   // protects=a Mind with no scope of its own is checked against its Folder while it holds a Document, and against every Document unfiled, with the mark saying which; fails_when=the Folder's Mind reads the other agreement, or the unfiled one is marked as checked in a Folder; no_claim=a Folder that holds no Document (#1359's tests).
   test("with no scope of its own looks in its Folder, or, in none, in every Document", async () => {
     const { core, words, own, calls, handed } = await setUp(language);

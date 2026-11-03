@@ -1,5 +1,7 @@
 # Version 1 is a local-first desktop app
 
+**Amended 2026-10-26 (#2004): keys are kept in `secrets.json` in the data folder, encrypted with Electron's `safeStorage`, whose key the OS holds (the macOS Keychain, Windows DPAPI, or GNOME Keyring or KWallet on Linux); on Linux with no keyring they are kept as plain text only once the User accepts that on the device (`src/core/secrets.ts`, `src/main/secretsFile.ts`, `docs/privacy.md`).**
+
 Version 1 is a desktop app that keeps all of a User's data (Minds, Documents and settings) on their own machine, with no server and no sign-in. We chose this over a self-hosted web server for three reasons: installing is just download-and-open, personal data stays on the User's machine, and it removes auth, multi-user data separation and server operations entirely. The hosted version comes later (ADR-0002) and reuses the same TypeScript core, so the core must not depend on the desktop shell.
 
 ## Considered options

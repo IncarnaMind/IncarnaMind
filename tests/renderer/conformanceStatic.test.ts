@@ -193,6 +193,10 @@ describe("a question about deleting", () => {
     "commands.ask.change.document.delete.one",
     "commands.ask.change.mind.delete",
     "commands.ask.change.mind.delete.one",
+    "commands.ask.change.folder.delete",
+    "commands.ask.change.folder.delete.one",
+    "commands.ask.change.tag.delete",
+    "commands.ask.change.tag.delete.one",
   ];
   const ASKS = /^(Delete|Remove|Unlink|Empty|Erase)\b[^?]*\?/;
 

@@ -3,7 +3,13 @@
  * (#97, src/core/answers/checks/claims.ts).
  */
 import { describe, expect, test } from "vitest";
-import { paragraphsOf, readClaimNumbers } from "../../src/core/answers/checks/claims";
+import {
+  findClaimsPrompt,
+  paragraphsOf,
+  readClaimDecisions,
+  readClaimParts,
+  readPartsLine,
+} from "../../src/core/answers/checks/claims";
 
 const page = (number: number, ...lines: string[]) => ({
   page: number,
@@ -83,18 +89,163 @@ describe("A PDF's lines become paragraphs", () => {
 
 describe("The claims the model names", () => {
   test.each([
-    ['{"claims": [1, 3, 4]}', [1, 3, 4]],
-    ['Here they are:\n```json\n{"claims": ["2", 5]}\n```', [2, 5]],
-    ['{"claims": []}', []],
-    ['{"claims": [1.5, "x", 2]}', [2]],
-  ])("reads %j", (reply, numbers) => {
-    expect(readClaimNumbers(reply)).toEqual(numbers);
+    [
+      '{"1": "claim", "2": "no", "3": "claim"}',
+      [1, 2, 3],
+      [
+        [1, true],
+        [2, false],
+        [3, true],
+      ],
+    ],
+    [
+      'Here they are:\n```json\n{"2": "Claim", "5": " no "}\n```',
+      [2, 5],
+      [
+        [2, true],
+        [5, false],
+      ],
+    ],
+    ['{"1": "claim", "2": "maybe", "9": "claim"}', [1, 2, 3], [[1, true]]],
+    ['{"1": "claim", "2": true}', [1, 2], [[1, true]]],
+  ])("reads %j", (reply, numbers, decisions) => {
+    expect(readClaimDecisions(reply, numbers)).toEqual(new Map(decisions as [number, boolean][]));
   });
 
-  test.each(["No claims.", '{"sentences": [1]}', '{"claims": 3}', "{not json}"])(
+  test.each(["No claims.", '{"claims": [1, 2]}', '{"7": "claim"}', "[1, 2]", "{not json}"])(
     "reads nothing from %j",
     (reply) => {
-      expect(readClaimNumbers(reply)).toBeNull();
+      expect(readClaimDecisions(reply, [1, 2])).toBeNull();
     },
   );
+});
+
+describe("The literal parts of numbered JSON input", () => {
+  test.each([
+    ["North opened.\nSouth followed.", "North opened.", "South followed."],
+    ["北店开业。\n南店随后开业。", "北店开业。", "南店随后开业。"],
+  ])("preserves global ids and original line breaks: %s", (text, first, second) => {
+    const sentences = [{ number: 37, text }];
+    expect(JSON.parse(findClaimsPrompt(sentences))).toEqual({ sentences });
+    const parts = readClaimParts(
+      JSON.stringify({
+        sentences: [
+          {
+            number: 37,
+            parts: [
+              { kind: "fact", text: first },
+              { kind: "fact", text: second },
+            ],
+          },
+        ],
+      }),
+      sentences,
+    );
+    expect(parts?.get(37)).toEqual([
+      { kind: "fact", span: { start: 0, end: first.length } },
+      { kind: "fact", span: { start: first.length + 1, end: text.length } },
+    ]);
+    expect(parts?.has(1)).toBe(false);
+  });
+
+  test.each([
+    "The input is JSON, not the numbered draft I expected.",
+    '{"sentences":[{"number":1,"parts":[{"kind":"fact","text":"North opened."}]}]}',
+    '{"sentences":[{"number":37,"parts":[{"kind":"fact","text":"The North store opened."}]}]}',
+  ])("keeps an unreadable or rewritten response unresolved: %s", (reply) => {
+    expect(readClaimParts(reply, [{ number: 37, text: "North opened." }])).toBeNull();
+  });
+
+  test.each([
+    ["North opened.", "South followed."],
+    ["北店开业。", "南店随后开业。"],
+  ])("keeps decided parts when another sentence is missing: %s", (first, second) => {
+    const sentences = [
+      { number: 37, text: first },
+      { number: 38, text: second },
+    ];
+    expect(
+      readClaimParts(
+        JSON.stringify({ sentences: [{ number: 37, parts: [{ kind: "fact", text: first }] }] }),
+        sentences,
+      ),
+    ).toEqual(new Map([[37, [{ kind: "fact", span: { start: 0, end: first.length } }]]]));
+    expect(readClaimParts('{"sentences":[]}', sentences)).toEqual(new Map());
+    expect(
+      readClaimParts(JSON.stringify({ sentences: [{ number: 37, parts: [] }] }), sentences),
+    ).toEqual(new Map([[37, []]]));
+  });
+
+  test.each(["North opened.", "北店开业。"])(
+    "a duplicate or rewritten owner cannot overwrite another sentence's inventory: %s",
+    (text) => {
+      const valid = { number: 37, parts: [{ kind: "fact", text }] };
+      const duplicate = { number: 38, parts: [{ kind: "fact", text }] };
+      for (const invalid of [
+        [duplicate, duplicate],
+        [{ number: 38, parts: [{ kind: "fact", text: "not the original words" }] }],
+      ]) {
+        expect(
+          readClaimParts(JSON.stringify({ sentences: [valid, ...invalid] }), [
+            { number: 37, text },
+            { number: 38, text },
+          ]),
+        ).toEqual(new Map([[37, [{ kind: "fact", span: { start: 0, end: text.length } }]]]));
+      }
+    },
+  );
+});
+
+describe("Words a sort leaves out of every part", () => {
+  const sorted = (sentence: string, parts: readonly { kind: string; text: string }[]) =>
+    (
+      readClaimParts(JSON.stringify({ sentences: [{ number: 1, parts }] }), [
+        { number: 1, text: sentence },
+      ])?.get(1) ?? []
+    ).map(({ kind, span }) => [kind, sentence.slice(span.start, span.end)]);
+  const named = (sentence: string, parts: readonly { kind: string; text: string }[]) =>
+    (readPartsLine(`Parts: ${JSON.stringify(parts)}`, sentence) ?? []).map(({ kind, span }) => [
+      kind,
+      sentence.slice(span.start, span.end),
+    ]);
+
+  // protects=a time, place, scope or condition a sort or a check's first turn leaves out beside a fact is checked with that fact (#2002); fails_when=the words drop out of every part; no_claim=how often a real model leaves them out.
+  test.each([
+    ["Revenue rose 12% in 2025.", "Revenue rose 12%", "Revenue rose 12% in 2025"],
+    ["2025年收入增长了12%。", "收入增长了12%", "2025年收入增长了12%"],
+    ["In Leeds, rent is paid monthly.", "rent is paid monthly", "In Leeds, rent is paid monthly"],
+    ["在利兹，租金按月支付。", "租金按月支付", "在利兹，租金按月支付"],
+  ])("joins the fact beside it: %s", (sentence, fact, kept) => {
+    const parts = [{ kind: "fact", text: fact }];
+    expect(sorted(sentence, parts)).toEqual([["fact", kept]]);
+    expect(named(sentence, parts)).toEqual([["fact", kept]]);
+  });
+
+  // protects=joining words and punctuation between parts stay out of them, so a fact never takes "because" or "但" as a claim of its own (#2002); fails_when=a joining word is added to a part; no_claim=every joining word a model may leave.
+  test.each([
+    [
+      "We think this is risky because costs rose 40%.",
+      [
+        { kind: "opinion", text: "We think this is risky" },
+        { kind: "fact", text: "costs rose 40%" },
+      ],
+    ],
+    [
+      "我们认为这有风险，但成本上涨了40%。",
+      [
+        { kind: "opinion", text: "我们认为这有风险" },
+        { kind: "fact", text: "成本上涨了40%" },
+      ],
+    ],
+  ])("leaves joining words between parts: %s", (sentence, parts) => {
+    expect(sorted(sentence, parts)).toEqual(parts.map(({ kind, text }) => [kind, text]));
+  });
+
+  // protects=words a sort leaves beside opinions only are left out with those opinions, so they are listed rather than lost (#2002); fails_when=they vanish from every part, or become a fact on their own; no_claim=whether they are an opinion.
+  test.each([
+    ["Frankly, we think it is lovely.", "we think it is lovely", "Frankly, we think it is lovely"],
+    ["坦白说，我们认为它很美。", "我们认为它很美", "坦白说，我们认为它很美"],
+  ])("joins the opinion beside it when no fact is: %s", (sentence, opinion, kept) => {
+    expect(sorted(sentence, [{ kind: "opinion", text: opinion }])).toEqual([["opinion", kept]]);
+  });
 });

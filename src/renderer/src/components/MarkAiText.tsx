@@ -11,7 +11,7 @@ const CHOICE_LABELS = {
 
 const choiceButtonClass = buttonStyle("secondary", "sm");
 
-/** The question of the first Word export, as one line in the Mind's export line (see `ExportAsks`). */
+/** The marking choice in the Saved line's Change, as one click each: the file is written again as picked (#1945). */
 export function MarkAiTextLine({ mindId, format }: { mindId: string; format: "docx" | "pdf" }) {
   const t = useT();
   const id = useId();
@@ -43,7 +43,10 @@ export function MarkAiTextLine({ mindId, format }: { mindId: string; format: "do
   );
 }
 
-/** The same question in Export options, with neither answer chosen until the User has given one. */
+/**
+ * The same choice in Export options, showing what Word files do now: the saved choice, or the
+ * default that a first export applies until the User picks another (#1945).
+ */
 export function MarkAiTextRow({
   value,
   onChange,
@@ -53,6 +56,7 @@ export function MarkAiTextRow({
 }) {
   const t = useT();
   const id = useId();
+  const showing = value ?? "mark";
   return (
     <div className="flex items-center justify-between gap-4 py-2">
       <div className="flex min-w-0 flex-col">
@@ -60,7 +64,7 @@ export function MarkAiTextRow({
           {t("export.markAiText")}
         </span>
         <span id={`${id}-hint`} className={hintClass}>
-          {t(value === null ? "export.markAiText.unasked" : "export.markAiText.hint")}
+          {t("export.markAiText.hint")}
         </span>
       </div>
       <span
@@ -68,7 +72,7 @@ export function MarkAiTextRow({
         aria-labelledby={`${id}-label`}
         aria-describedby={`${id}-hint`}
         data-testid="export-mark-ai-text"
-        data-answer={value ?? "none"}
+        data-answer={showing}
         className={segmentedClass}
       >
         {MARK_AI_TEXT_CHOICES.map((each) => (
@@ -78,7 +82,7 @@ export function MarkAiTextRow({
               name={`${id}-answer`}
               value={each}
               data-testid={`export-mark-ai-text-${each}`}
-              checked={value === each}
+              checked={showing === each}
               onChange={() => onChange(each)}
               className="sr-only"
             />

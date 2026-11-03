@@ -90,6 +90,16 @@ describe("Choosing a service is the consent (ADR-0022)", () => {
       allowed("suggestions", ["writing", "writing-passages"]),
       allowed("edits", ["selection"]),
       allowed("checks", ["selection", "passages", "verified-document", "blocks"]),
+      {
+        flow: {
+          id: "document-check",
+          service: OPENAI_SERVICE,
+          sends: ["selection", "whole-document"],
+        },
+        consent: "not-asked",
+        decidedAt: null,
+        chosen: false,
+      },
       // Tagging and sorting Documents aren't what choosing a provider allows: the User turns them on.
       {
         flow: { id: "tagging", service: OPENAI_SERVICE, sends: ["tags", "document-excerpts"] },
@@ -125,7 +135,12 @@ describe("Choosing a service is the consent (ADR-0022)", () => {
       }),
     );
     const first = await askAndWaitForConsent(core);
-    expect(first.request.newKinds).toEqual(["document-names", "other-minds", "live-transcript"]);
+    expect(first.request.newKinds).toEqual([
+      "document-names",
+      "other-minds",
+      "live-transcript",
+      "pictures",
+    ]);
     await core.respondToConsent(first.request.requestId, true);
     expect(await first.result).toMatchObject({ modelId: "gpt-5.4-mini" });
 
@@ -343,6 +358,7 @@ describe("Data-flow consent", () => {
       notAsked("suggestions", ["writing", "writing-passages"]),
       notAsked("edits", ["selection"]),
       notAsked("checks", ["selection", "passages", "verified-document", "blocks"]),
+      notAsked("document-check", ["selection", "whole-document"]),
       notAsked("tagging", ["tags", "document-excerpts"]),
     ]);
   });
@@ -418,6 +434,10 @@ describe("Data-flow consent", () => {
         consent: "not-asked",
       }),
       expect.objectContaining({
+        flow: expect.objectContaining({ id: "document-check", service: ANTHROPIC_SERVICE }),
+        consent: "not-asked",
+      }),
+      expect.objectContaining({
         flow: expect.objectContaining({ id: "tagging", service: ANTHROPIC_SERVICE }),
         consent: "not-asked",
       }),
@@ -450,6 +470,10 @@ describe("Data-flow consent", () => {
       expect.objectContaining({
         flow: expect.objectContaining({ id: "checks" }),
         consent: "accepted",
+      }),
+      expect.objectContaining({
+        flow: expect.objectContaining({ id: "document-check" }),
+        consent: "not-asked",
       }),
       expect.objectContaining({
         flow: expect.objectContaining({ id: "tagging" }),

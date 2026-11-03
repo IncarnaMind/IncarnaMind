@@ -13,7 +13,14 @@ import {
   type NativeImage,
   WebContentsView,
 } from "electron";
-import type { CapturePage, DrawnPage, PageBox, PageCaptureRequest, PageText } from "../core";
+import type {
+  CapturePage,
+  DrawnPage,
+  Logger,
+  PageBox,
+  PageCaptureRequest,
+  PageText,
+} from "../core";
 import { isRecord } from "../core/errors";
 import { CITED_PAGE_ARGUMENT, CITED_PAGE_CHANNELS } from "../shared/citedPage";
 
@@ -28,6 +35,8 @@ const TIMEOUT_MS = 30_000;
 const QUIET_MS = 300;
 /** How many times a picture that came out blank is taken again, after another quiet moment. */
 const BLANK_TRIES = 5;
+/** How many times a picture is asked for when the compositor gives none, before the drawing fails. */
+const CAPTURE_TRIES = 3;
 
 interface Drawing {
   request: PageCaptureRequest;
@@ -84,11 +93,15 @@ function textOf(value: unknown, scale: number): PageText[] {
   return runs;
 }
 
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
 export function createCitedPageCapture({
   rendererUrl,
+  log,
 }: {
   /** The dev server's address in development; the built page otherwise. */
   rendererUrl: string | undefined;
+  log: Logger;
 }): CapturePage {
   const drawings = new Map<number, Drawing>();
   const drawingFor = (event: IpcMainEvent | IpcMainInvokeEvent) => {
@@ -141,9 +154,16 @@ export function createCitedPageCapture({
       const contents = view.webContents;
       let height = HEIGHT;
       let settled = false;
+      const started = Date.now();
       /** When the page last painted a frame, and the wait for it to stop. */
-      let painted = Date.now();
+      let painted = started;
       let settling: NodeJS.Timeout | undefined;
+      /** The height of the last frame painted since the page last grew, in pixels. */
+      let framed: number | null = null;
+      let onFrame: (() => void) | null = null;
+      const events = { resizes: 0, paints: 0, pictures: 0, failed: 0 };
+      let loadedMs: number | null = null;
+      let drawnMs: number | null = null;
 
       const finish = (outcome: { page: DrawnPage } | { error: unknown }) => {
         if (settled) return;
@@ -154,6 +174,14 @@ export function createCitedPageCapture({
         drawings.delete(contents.id);
         if (!contents.isDestroyed()) contents.close();
         if (!window.isDestroyed()) window.destroy();
+        log.info("citedPage.drawing", {
+          kind: request.document.kind,
+          outcome: "page" in outcome ? "drawn" : signal.aborted ? "stopped" : "failed",
+          ...events,
+          loadedMs,
+          drawnMs,
+          ms: Date.now() - started,
+        });
         if ("page" in outcome) resolve(outcome.page);
         else reject(outcome.error);
       };
@@ -168,9 +196,14 @@ export function createCitedPageCapture({
         request,
         resize(wanted) {
           const asked = Math.round(Math.min(MAX_HEIGHT, Math.max(HEIGHT, wanted)));
+          const before = window.getContentSize()[1];
           window.setContentSize(WIDTH, asked);
           height = Math.min(asked, window.getContentSize()[1] ?? asked);
           view.setBounds({ x: 0, y: 0, width: WIDTH, height });
+          if (window.getContentSize()[1] !== before) {
+            events.resizes++;
+            framed = null;
+          }
           return height;
         },
         drawn(layout) {
@@ -188,18 +221,31 @@ export function createCitedPageCapture({
             finish({ error: new Error("The cited area isn't on the page.") });
             return;
           }
-          // Taken once the page has painted nothing for a moment: frames reach here a little
-          // after they are drawn, so one taken at once can be from before the area was drawn.
-          let tries = 0;
+          drawnMs = Date.now() - started;
+          // A page that grew draws on new surfaces, and a picture asked for before the first frame
+          // of its new size is dropped ("UnknownVizError", #2161); the quiet moment below doesn't
+          // wait for a frame when none was painted yet. That frame holds the cited area the page
+          // grew for, which no frame of the old size does.
+          const holdsArea = () =>
+            events.resizes === 0 || (framed !== null && framed >= (y + rect.height) * SCALE);
+          let blanks = 0;
           const take = () => {
             // Stopped while a picture was being taken: its window is gone, and touching it
             // throws in the main process, whose error box stops the app.
             if (settled) return;
+            if (!holdsArea()) {
+              onFrame = take;
+              return;
+            }
+            // Taken once the page has painted nothing for a moment: frames reach here a little
+            // after they are drawn, so one taken at once can be from before the area was drawn.
             const wait = QUIET_MS - (Date.now() - painted);
             if (wait > 0) {
               settling = setTimeout(take, wait);
               return;
             }
+            events.pictures++;
+            const paintsAsked = events.paints;
             contents
               .capturePage(rect, { stayHidden: true })
               .then((picture) => {
@@ -207,7 +253,7 @@ export function createCitedPageCapture({
                 if (picture.isEmpty() || size.width === 0 || size.height === 0) {
                   throw new Error("The cited page came out empty.");
                 }
-                if (isBlank(picture) && ++tries < BLANK_TRIES) {
+                if (isBlank(picture) && ++blanks < BLANK_TRIES) {
                   settling = setTimeout(take, QUIET_MS);
                   return;
                 }
@@ -221,7 +267,23 @@ export function createCitedPageCapture({
                   },
                 });
               })
-              .catch((error: unknown) => finish({ error }));
+              .catch((error: unknown) => {
+                if (settled) return;
+                events.failed++;
+                log.warn("citedPage.pictureFailed", {
+                  kind: request.document.kind,
+                  attempt: events.failed,
+                  reason: messageOf(error),
+                });
+                if (events.failed >= CAPTURE_TRIES) {
+                  finish({ error });
+                  return;
+                }
+                // A dropped picture's surface was replaced: the next is asked for once a frame of
+                // the new one is painted, which may have come already (#2161).
+                if (events.paints > paintsAsked) take();
+                else onFrame = take;
+              });
           };
           take();
         },
@@ -230,8 +292,16 @@ export function createCitedPageCapture({
         },
       });
 
-      contents.on("paint", () => {
+      contents.on("paint", (_event, _dirty, image) => {
         painted = Date.now();
+        events.paints++;
+        framed = image.getSize().height;
+        const waiting = onFrame;
+        onFrame = null;
+        waiting?.();
+      });
+      contents.on("did-finish-load", () => {
+        loadedMs = Date.now() - started;
       });
       contents.setWindowOpenHandler(() => ({ action: "deny" }));
       contents.on("will-navigate", (event) => event.preventDefault());

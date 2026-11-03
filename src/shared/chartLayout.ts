@@ -79,6 +79,10 @@ export interface LayoutOptions {
   seriesName(index: number): string;
   measure?: (text: string) => number;
   legendInside?: boolean;
+  /** Draw only these series, by their place in the data: one chart of a stack (#1392). */
+  series?: readonly number[];
+  /** At least this left margin, so charts stacked on one x axis line up. */
+  left?: number;
 }
 
 /** Wide characters (Chinese, Japanese, Korean, full-width forms) take a whole em; others about 0.6. */
@@ -131,8 +135,12 @@ function ticksOf(low: number, high: number, step: number): number[] {
   return ticks;
 }
 
+/** How an axis numbers its values: a share as a percent, a difference of percents in points, or plain. */
+export type AxisUnit = "percent" | "points" | null;
+
 /**
  * A number on an axis: a percent as a percent when every value is one, a
+ * difference of percents in points (2.3 points, not its share 0.023), a
  * large number in short form (1.5B, 1.5亿), others with as many decimals as
  * the step needs.
  */
@@ -140,9 +148,9 @@ export function tickFormat(
   language: string,
   step: number,
   largest: number,
-  percent: boolean,
+  unit: AxisUnit,
 ): (value: number) => string {
-  const decimals = (unit: number) => Math.min(6, Math.max(0, -Math.floor(Math.log10(unit) + 1e-9)));
+  const decimals = (each: number) => Math.min(6, Math.max(0, -Math.floor(Math.log10(each) + 1e-9)));
   let format: Intl.NumberFormat;
   const make = (options: Intl.NumberFormatOptions) => {
     try {
@@ -151,9 +159,16 @@ export function tickFormat(
       return new Intl.NumberFormat("en", options);
     }
   };
-  if (percent) {
-    format = make({ style: "percent", maximumFractionDigits: decimals(step * 100) });
-  } else if (Math.abs(largest) >= 10_000) {
+  if (unit !== null) {
+    const points = unit === "points";
+    format = make({
+      ...(points ? {} : { style: "percent" as const }),
+      maximumFractionDigits: decimals(step * 100),
+    });
+    const scale = points ? 100 : 1;
+    return (value) => format.format(Object.is(value, -0) ? 0 : value * scale);
+  }
+  if (Math.abs(largest) >= 10_000) {
     format = make({ notation: "compact", maximumFractionDigits: 2 });
   } else {
     const places = decimals(step);
@@ -163,6 +178,15 @@ export function tickFormat(
 }
 
 const isPercent = (value: ChartValue) => value.unit?.kind === "percent";
+
+const isPoints = (value: ChartValue) => value.unit?.kind === "points";
+
+function axisUnitOf(values: readonly ChartValue[]): AxisUnit {
+  if (values.length === 0) return null;
+  if (values.every(isPercent)) return "percent";
+  if (values.every(isPoints)) return "points";
+  return null;
+}
 
 function seriesInks(count: number): ChartInk[] {
   if (count === 1) return ["now"];
@@ -229,8 +253,9 @@ function layoutBarsOrLines(
   const { width, measure } = options;
   const layout = emptyLayout(chart.kind, width);
   const drawn = drawnSeries(chart);
+  const shown = options.series ?? drawn;
   const inks = seriesInks(drawn.length);
-  const points = chartPoints(chart);
+  const points = chartPoints(chart).filter((point) => shown.includes(point.series));
   layout.legend = chartLegend(chart, options.seriesName);
   const { rows } = chart.data;
   if (rows.length === 0) return layout;
@@ -241,11 +266,11 @@ function layoutBarsOrLines(
     options.language,
     step,
     Math.max(Math.abs(low), Math.abs(high)),
-    points.length > 0 && points.every((point) => isPercent(point.value)),
+    axisUnitOf(points.map((point) => point.value)),
   );
   const ticks = ticksOf(low, high, step);
   const tickLabels = ticks.map(format);
-  const left = Math.ceil(Math.max(...tickLabels.map(measure)) + 16);
+  const left = Math.max(Math.ceil(Math.max(...tickLabels.map(measure)) + 16), options.left ?? 0);
   const right = width - PLOT_RIGHT;
   const bottom = CHART_HEIGHT - AXIS_BOTTOM;
   const y = (value: number) => PLOT_TOP + ((high - value) / (high - low)) * (bottom - PLOT_TOP);
@@ -279,7 +304,7 @@ function layoutBarsOrLines(
   const placeOf = new Map(drawn.map((series, place) => [series, place]));
   if (chart.kind === "line") {
     const r = rows.length > 40 ? 3 : 4.5;
-    for (const [place, series] of drawn.entries()) {
+    for (const series of shown) {
       const runs: [number, number][][] = [];
       let run: [number, number][] = [];
       rows.forEach((row, index) => {
@@ -292,7 +317,7 @@ function layoutBarsOrLines(
         run.push([centre(index), y(value)]);
       });
       if (run.length > 0) runs.push(run);
-      layout.lines.push({ series, ink: inks[place] ?? "now", runs });
+      layout.lines.push({ series, ink: inks[placeOf.get(series) ?? 0] ?? "now", runs });
     }
     layout.points = points.map((point) => ({
       ...point,
@@ -303,18 +328,19 @@ function layoutBarsOrLines(
     return layout;
   }
 
-  const count = Math.max(1, drawn.length);
+  const count = Math.max(1, shown.length);
   const gap = count > 1 ? Math.min(4, slot * 0.04) : 0;
   const bar = Math.max(1, Math.min(30, (slot * 0.7 - gap * (count - 1)) / count));
   const group = bar * count + gap * (count - 1);
   const zero = y(0);
+  const barPlace = new Map(shown.map((series, place) => [series, place]));
   layout.points = points.map((point) => {
-    const place = placeOf.get(point.series) ?? 0;
+    const place = barPlace.get(point.series) ?? 0;
     const x = centre(point.row) - group / 2 + place * (bar + gap);
     const top = Math.min(y(point.value.value), zero);
     return {
       ...point,
-      ink: inks[place] ?? "now",
+      ink: inks[placeOf.get(point.series) ?? 0] ?? "now",
       mark: {
         shape: "bar",
         x,
@@ -342,22 +368,22 @@ function layoutScatter(
   const ys = points.map((point) => point.value.value);
   const [x0, x1, xStep] = niceDomain(xs, 4, false);
   const [y0, y1, yStep] = niceDomain(ys, 4, false);
-  const percentAcross = points.every((point) => {
-    const value = rows[point.row]?.values[across];
-    return value ? isPercent(value) : false;
-  });
-  const percentUp = points.every((point) => isPercent(point.value));
   const formatX = tickFormat(
     options.language,
     xStep,
     Math.max(Math.abs(x0), Math.abs(x1)),
-    percentAcross,
+    axisUnitOf(
+      points.flatMap((point) => {
+        const value = rows[point.row]?.values[across];
+        return value ? [value] : [];
+      }),
+    ),
   );
   const formatY = tickFormat(
     options.language,
     yStep,
     Math.max(Math.abs(y0), Math.abs(y1)),
-    percentUp,
+    axisUnitOf(points.map((point) => point.value)),
   );
   const yTicks = ticksOf(y0, y1, yStep);
   const left = Math.ceil(Math.max(...yTicks.map(formatY).map(measure)) + 16);

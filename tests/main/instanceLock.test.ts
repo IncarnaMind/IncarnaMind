@@ -112,7 +112,7 @@ describe("one copy of the app holds a data folder", () => {
       return db;
     };
     const ask = (mode = "try", sawItHeld?: () => void) =>
-      new Promise<{ held: boolean; after: number }>((resolve, reject) => {
+      new Promise<{ held: boolean; timedOut: boolean; after: number }>((resolve, reject) => {
         const began = Date.now();
         const child = spawn(process.execPath, [bundle, mode, where], {
           stdio: ["ignore", "pipe", "inherit"],
@@ -146,8 +146,7 @@ describe("one copy of the app holds a data folder", () => {
     expect(refused.held).toBe(false);
     expect(refused.after).toBeLessThan(5_000);
 
-    // A copy that took Electron's lock from the holder waits a moment for it to end, then gives up.
-    expect((await ask("leaving")).held).toBe(false);
+    expect(await ask("leaving")).toMatchObject({ held: false, timedOut: true });
     const waiting = ask("leaving", () => {
       lock.close();
       owner.close();

@@ -15,9 +15,14 @@ import type {
   ChatGptSignOutResult,
   PastedAddressResult,
 } from "../../api";
-import { SecretStorageError } from "../../errors";
+import { SecretStorageError, SecretsFileDamagedError } from "../../errors";
 import { DEFAULT_SIGN_IN_TIMEOUT_MS, OAuthFlowError } from "../../oauth";
-import { pastedAddressResult, type RefreshLock } from "../../oauthAccount";
+import {
+  pastedAddressResult,
+  type RefreshLock,
+  SignInRecordUnreadableError,
+  SignInStoreUnreadableError,
+} from "../../oauthAccount";
 import type { Secrets } from "../../secrets";
 import type { SettingsStore } from "../../settings";
 import { ChatGptOtherAccountError, ChatGptPlanNotAllowedError } from "./errors";
@@ -51,6 +56,10 @@ function signInError(error: unknown): { kind: ChatGptSignInErrorKind; message: s
     return { kind: error.reason === "port-in-use" ? "failed" : error.reason, message };
   }
   if (error instanceof SecretStorageError) return { kind: "secret-storage", message };
+  if (error instanceof SignInStoreUnreadableError || error instanceof SecretsFileDamagedError) {
+    return { kind: "store-unreadable", message };
+  }
+  if (error instanceof SignInRecordUnreadableError) return { kind: "record-unreadable", message };
   if (error instanceof ChatGptPlanNotAllowedError) return { kind: "plan-not-allowed", message };
   if (error instanceof ChatGptOtherAccountError) return { kind: "other-account", message };
   return { kind: "failed", message };
@@ -151,7 +160,9 @@ export function createChatGptPlan(options: {
     models,
     limits,
 
-    async signIn(input: { anotherAccount?: boolean } = {}): Promise<ChatGptSignInResult> {
+    async signIn(
+      input: { anotherAccount?: boolean; replaceUnreadable?: boolean } = {},
+    ): Promise<ChatGptSignInResult> {
       try {
         const { firstTime } = await signIn.signIn(input);
         listed = null;

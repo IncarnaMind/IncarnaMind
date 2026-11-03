@@ -1,9 +1,16 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import type { CitationAttributes, Core, CoreAdapters, Document } from "../../src/core";
+import type {
+  CitationAttributes,
+  Core,
+  CoreAdapters,
+  Document,
+  DocumentGroupAssignment,
+} from "../../src/core";
 import { citationState } from "../../src/shared/citations";
 import { translate } from "../../src/shared/i18n";
+import { answerEnded } from "../helpers/citations";
 import {
   createTempDataFolder,
   manualClock,
@@ -22,7 +29,7 @@ import { createControlledEmbedder, turnOnEmbeddings } from "../helpers/embedding
 import { classifierModel } from "../helpers/library";
 import { connectToMind } from "../helpers/mindClient";
 import { note, readMind, writeMind } from "../helpers/minds";
-import { scriptedModels } from "../helpers/models";
+import { scriptedModel, scriptedModels } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 import { taggingModel, tagNamed, waitForTagging } from "../helpers/tags";
 
@@ -34,6 +41,9 @@ const byId = <T extends { id: string }>(items: readonly T[]) =>
 /** Restoring is a change, so only `updatedAt` may differ from before the delete. */
 const withoutTimes = <T extends { id: string; updatedAt: string }>(items: readonly T[]) =>
   byId(items).map((item) => ({ ...item, updatedAt: "" }));
+
+/** An assignment without the Document's tagging row it was read with: a restore writes that row anew. */
+const withoutTagging = ({ tagging: _tagging, ...item }: DocumentGroupAssignment) => item;
 
 /** A core on a clock that moves only when the test moves it, so each change has its own time. */
 async function start(overrides: Partial<CoreAdapters> = {}, dataDir?: string) {
@@ -80,6 +90,13 @@ const documentOf = async (core: Core, id: string) =>
 
 const assignmentOf = async (core: Core, id: string) =>
   (await core.getLibrary()).assignments.find((each) => each.documentId === id);
+
+/** An assignment as a change carries it: its own fields, without its Document or tagging row. */
+const withoutDocument = ({
+  documentId: _id,
+  tagging: _tagging,
+  ...fields
+}: DocumentGroupAssignment) => fields;
 
 describe("Restoring what was deleted", { timeout: 30_000 }, () => {
   test("Minds come back with their content", async () => {
@@ -137,6 +154,7 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
     await core.assignDocumentGroup(document.id, ocean.id);
     const before = { ...(await documentOf(core, document.id)), updatedAt: "" };
     const assignment = await assignmentOf(core, document.id);
+    if (!assignment) throw new Error("No assignment.");
     const file = { bytes: await readFile(path), mtimeMs: (await stat(path)).mtimeMs };
 
     clock.advance(1000);
@@ -161,9 +179,11 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
     await core.restore([{ kind: "document", id: document.id }]);
 
     expect((await status).id).toBe(document.id);
-    expect(await assigned).toEqual([assignment]);
+    expect((await assigned).map(withoutTagging)).toEqual([withoutTagging(assignment)]);
     expect({ ...(await documentOf(core, document.id)), updatedAt: "" }).toEqual(before);
-    expect(await assignmentOf(core, document.id)).toEqual(assignment);
+    const restored = await assignmentOf(core, document.id);
+    if (!restored) throw new Error("No assignment.");
+    expect(withoutTagging(restored)).toEqual(withoutTagging(assignment));
     expect(ids(await core.listDocuments({ tagId: paper.id }))).toEqual([document.id]);
     expect((await core.searchPassages("spring tides"))[0]?.documentId).toBe(document.id);
     expect((await core.searchPassages("moon", { mode: "vector" }))[0]?.documentId).toBe(
@@ -173,6 +193,122 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
     expect(embedder.texts.slice(embedded).some((text) => text.includes("full moon"))).toBe(false);
     expect(await readFile(path)).toEqual(file.bytes);
     expect((await stat(path)).mtimeMs).toBe(file.mtimeMs);
+  });
+
+  test("a Document restored outside any Folder comes back with no Organize assignment to wait for (#1433)", async () => {
+    const { core, clock } = await start();
+    const tides = await addText(core, "Tides.txt", "Spring tides follow the new moon.");
+    // A Folder for Organize to file into: without one it claims nothing.
+    await core.createLibraryGroup({ name: "Finance", description: "Money." });
+    expect(await assignmentOf(core, tides.id)).toBeUndefined();
+
+    clock.advance(1000);
+    await core.deleteDocument(tides.id);
+    clock.advance(1000);
+    await core.restore([{ kind: "document", id: tides.id }]);
+
+    expect(await assignmentOf(core, tides.id)).toBeUndefined();
+    expect((await core.getLibrary()).assignments).toEqual([]);
+  });
+
+  test("a Document restored outside any Folder has no assignment again, and ones in a Folder or with a suggestion keep theirs whole (#1433)", async () => {
+    const fake = classifierModel();
+    const { core, clock } = await start({ createChatModel: () => fake.model });
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    // Added before any Folder exists, so none is filed or waits.
+    const tides = await addText(core, "Tides.txt", "Spring tides follow the new moon.");
+    const invoice = await addText(core, "Invoice.txt", "Invoice for the harbour dues.");
+    const paper = await addText(core, "Paper.txt", "A paper about tides.");
+    const finance = await core.createLibraryGroup({ name: "Finance", description: "Money." });
+    const research = await core.createLibraryGroup({ name: "Research", description: "Papers." });
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "classifier" } },
+      automatic: true,
+    });
+    await core.assignDocumentGroup(invoice.id, finance.id);
+    fake.choose(research.id);
+    await core.classifyDocuments([paper.id]);
+    await vi.waitFor(async () =>
+      expect(await assignmentOf(core, paper.id)).toMatchObject({
+        groupId: research.id,
+        source: "automatic",
+        suggested: true,
+        status: "classified",
+      }),
+    );
+    const before = (await core.getLibrary()).assignments.toSorted((a, b) =>
+      a.documentId.localeCompare(b.documentId),
+    );
+    expect(before).toHaveLength(2);
+
+    clock.advance(1000);
+    await core.deleteDocuments([tides.id, invoice.id, paper.id]);
+    clock.advance(1000);
+    await core.restore([
+      { kind: "document", id: tides.id },
+      { kind: "document", id: invoice.id },
+      { kind: "document", id: paper.id },
+    ]);
+
+    expect(
+      (await core.getLibrary()).assignments
+        .toSorted((a, b) => a.documentId.localeCompare(b.documentId))
+        .map(withoutTagging),
+    ).toEqual(before.map(withoutTagging));
+    expect(await assignmentOf(core, tides.id)).toBeUndefined();
+  });
+
+  test("a Document embedded again after a restore isn't claimed by Organize (#1433)", async () => {
+    const embedder = createControlledEmbedder();
+    const { core, clock } = await start({ embedder });
+    const tides = await addText(core, "Tides.txt", "Spring tides follow the new moon.");
+    await core.createLibraryGroup({ name: "Finance", description: "Money." });
+    clock.advance(1000);
+    await core.deleteDocument(tides.id);
+
+    // Embeddings come on while it waits, so it is embedded again once it is back.
+    await turnOnEmbeddings(core);
+    clock.advance(1000);
+    await core.restore([{ kind: "document", id: tides.id }]);
+    await vi.waitFor(async () => expect((await documentOf(core, tides.id))?.status).toBe("ready"));
+
+    expect((await core.searchPassages("new moon", { mode: "vector" }))[0]?.documentId).toBe(
+      tides.id,
+    );
+    expect(await assignmentOf(core, tides.id)).toBeUndefined();
+    expect((await core.getLibrary()).assignments).toEqual([]);
+  });
+
+  test("a Document waiting for Organize when it was deleted goes on once it is back (#1433)", async () => {
+    const fake = classifierModel();
+    const { core, clock } = await start({ createChatModel: () => fake.model });
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    const finance = await core.createLibraryGroup({ name: "Finance", description: "Money." });
+    // No Organize model yet: the new Document waits for one.
+    const invoice = await addText(core, "Invoice.txt", "Invoice for the harbour dues.");
+    await vi.waitFor(async () =>
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({
+        groupId: null,
+        status: "waiting",
+      }),
+    );
+
+    clock.advance(1000);
+    await core.deleteDocument(invoice.id);
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "classifier" } },
+      automatic: true,
+    });
+
+    clock.advance(1000);
+    await core.restore([{ kind: "document", id: invoice.id }]);
+    await vi.waitFor(async () =>
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({
+        groupId: finance.id,
+        suggested: true,
+        status: "classified",
+      }),
+    );
   });
 
   test("a Document in a Linked folder comes back, and the next scan keeps it", async () => {
@@ -363,20 +499,30 @@ describe("Moving back and untagging", { timeout: 30_000 }, () => {
     const { core, finance, research, suggest } = await startOrganizing();
     const invoice = await addText(core, "Invoice.txt", "Invoice for the harbour dues.");
     const filed = await suggest(invoice.id, finance.id);
+    if (!filed) throw new Error("No assignment.");
     expect(filed).toMatchObject({ source: "automatic", suggested: true });
-
     const previous = await core.assignDocumentGroup(invoice.id, research.id);
-    expect(previous).toEqual(filed);
+    // The assign moved the place alone: its tagging was already up to date, so nothing of it is carried.
+    expect(previous.before.assignment).toEqual(withoutDocument(filed));
+    expect(previous.before.tagging).toBeNull();
+    expect(previous.after.assignment).toMatchObject({ groupId: research.id, source: "user" });
+    expect(previous.after.tagging).toBeNull();
     const assigned = nextEvent(core, "library.assignments");
-    await core.restoreAssignment(invoice.id, previous);
+    await core.restoreAssignment(invoice.id, previous.before, previous.after);
     expect(await assigned).toEqual([filed]);
     expect(await assignmentOf(core, invoice.id)).toEqual(filed);
 
     // The same through a move, as the sidebar's drag and "Move to…" make one.
     const move = await core.moveToFolder({ documentIds: [invoice.id], folderId: research.id });
-    expect(move.documents).toEqual([{ id: invoice.id, from: finance.id, previous: filed }]);
+    const moved = move.documents[0];
+    if (!moved) throw new Error("Not moved.");
+    expect(moved.from).toBe(finance.id);
+    expect(moved.change.before.assignment).toEqual(withoutDocument(filed));
+    expect(moved.change.before.tagging).toBeNull();
+    expect(moved.change.after.assignment).toMatchObject({ groupId: research.id, source: "user" });
+    expect(moved.change.after.tagging).toBeNull();
     expect(await assignmentOf(core, invoice.id)).toMatchObject({ source: "user" });
-    await core.restoreAssignment(invoice.id, move.documents[0]?.previous ?? null);
+    await core.restoreAssignment(invoice.id, moved.change.before, moved.change.after);
     expect(await assignmentOf(core, invoice.id)).toEqual(filed);
 
     // Still automatic: Organize may file it elsewhere.
@@ -384,8 +530,9 @@ describe("Moving back and untagging", { timeout: 30_000 }, () => {
 
     // One that had no assignment has none again.
     const budget = await addText(core, "Budget.txt", "The budget for next year.");
-    expect(await core.assignDocumentGroup(budget.id, finance.id)).toBeNull();
-    await core.restoreAssignment(budget.id, null);
+    const first = await core.assignDocumentGroup(budget.id, finance.id);
+    expect(first.before.assignment).toBeNull();
+    await core.restoreAssignment(budget.id, first.before, first.after);
     expect(await assignmentOf(core, budget.id)).toBeUndefined();
   });
 
@@ -396,7 +543,9 @@ describe("Moving back and untagging", { timeout: 30_000 }, () => {
 
     const move = await core.moveToFolder({ documentIds: [invoice.id], folderId: research.id });
     expect(await assignmentOf(core, invoice.id)).toMatchObject({ suggested: false });
-    await core.restoreAssignment(invoice.id, move.documents[0]?.previous ?? null);
+    const moved = move.documents[0];
+    if (!moved) throw new Error("Not moved.");
+    await core.restoreAssignment(invoice.id, moved.change.before, moved.change.after);
     expect(await assignmentOf(core, invoice.id)).toEqual(suggested);
 
     expect(await core.rejectAssignments([invoice.id])).toHaveLength(1);
@@ -641,6 +790,197 @@ describe("Recently deleted", { timeout: 30_000 }, () => {
     );
     await reopened.restore([{ kind: "mind", id: recent.id }]);
     expect(ids(await reopened.listMinds())).toEqual([recent.id]);
+  });
+});
+
+describe("Recently deleted keeps the Folder an item was in (#2238)", { timeout: 30_000 }, () => {
+  test("a Document, Note and conversation keep the Folder deleted after them", async () => {
+    const model = scriptedModel(() => ({ text: "Twice a day." }));
+    const { core, clock } = await start({
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+    const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
+    await core.assignDocumentGroup(leases.id, archive.id);
+    const plan = await core.createMind({ title: "Plan", folderId: archive.id });
+    const asked = await core.askInConversation({ text: "How often are high tides?" });
+    if (!asked.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, asked.answerId);
+    await core.moveToFolder({ conversationIds: [asked.conversation.id], folderId: archive.id });
+
+    clock.advance(1000);
+    await core.deleteDocuments([leases.id]);
+    await core.deleteMind(plan.id);
+    await core.deleteConversation(asked.conversation.id);
+    clock.advance(1000);
+    expect((await core.deleteLibraryGroup(archive.id)).assignments).toEqual([]);
+
+    expect((await core.listDeleted()).map(({ kind, groupId }) => [kind, groupId])).toEqual([
+      ["folder", null],
+      ["mind", archive.id],
+      ["conversation", archive.id],
+      ["document", archive.id],
+    ]);
+  });
+
+  test("restoring the Folder first puts the Document back in it; restoring the Document alone puts it in no Folder", async () => {
+    const { core, clock } = await start();
+    const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+    const early = await addText(core, "Early.txt", "The early lease of the harbour.");
+    const late = await addText(core, "Late.txt", "The late lease of the harbour.");
+    await core.assignDocumentGroup(early.id, archive.id);
+    await core.assignDocumentGroup(late.id, archive.id);
+    clock.advance(1000);
+    await core.deleteDocuments([early.id, late.id]);
+    clock.advance(1000);
+    await core.deleteLibraryGroup(archive.id);
+    clock.advance(1000);
+
+    // Alone, while the Folder still waits: in no Folder, and the Folder is still there to bring back.
+    await core.restore([{ kind: "document", id: early.id }]);
+    expect(await assignmentOf(core, early.id)).toMatchObject({ groupId: null });
+    expect(ids((await core.getLibrary()).groups)).not.toContain(archive.id);
+    expect((await core.listDeleted()).map((each) => each.kind)).toEqual(["folder", "document"]);
+
+    clock.advance(1000);
+    await core.restore([{ kind: "folder", id: archive.id }]);
+    await core.restore([{ kind: "document", id: late.id }]);
+    expect(await assignmentOf(core, late.id)).toMatchObject({ groupId: archive.id });
+    expect(ids((await core.getLibrary()).groups)).toContain(archive.id);
+  });
+
+  test("Undo of each step puts things back as they were", async () => {
+    const { core, clock } = await start();
+    const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+    const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
+    await core.assignDocumentGroup(leases.id, archive.id);
+
+    clock.advance(1000);
+    await core.deleteDocuments([leases.id]);
+    clock.advance(1000);
+    await core.restore([{ kind: "document", id: leases.id }]);
+    expect(await documentOf(core, leases.id)).toBeDefined();
+    expect(await assignmentOf(core, leases.id)).toMatchObject({ groupId: archive.id });
+
+    clock.advance(1000);
+    await core.deleteDocuments([leases.id]);
+    clock.advance(1000);
+    await core.deleteLibraryGroup(archive.id);
+    clock.advance(1000);
+    await core.restore([{ kind: "folder", id: archive.id }]);
+    expect((await core.listDeleted()).map(({ kind, groupId }) => [kind, groupId])).toEqual([
+      ["document", archive.id],
+    ]);
+
+    clock.advance(1000);
+    await core.restore([{ kind: "document", id: leases.id }]);
+    expect(await assignmentOf(core, leases.id)).toMatchObject({ groupId: archive.id });
+
+    clock.advance(1000);
+    await core.deleteDocuments([leases.id]);
+    expect((await core.listDeleted()).map(({ kind, groupId }) => [kind, groupId])).toEqual([
+      ["document", archive.id],
+    ]);
+
+    clock.advance(1000);
+    await core.deleteLibraryGroup(archive.id);
+    expect((await core.listDeleted()).map(({ kind, groupId }) => [kind, groupId])).toEqual([
+      ["folder", null],
+      ["document", archive.id],
+    ]);
+
+    clock.advance(1000);
+    await core.restore([{ kind: "folder", id: archive.id }]);
+    await core.restore([{ kind: "document", id: leases.id }]);
+    expect(await assignmentOf(core, leases.id)).toMatchObject({ groupId: archive.id });
+  });
+
+  test("Undo of restoring one alone, a Document, Note or conversation, keeps its Folder and its 30 days", async () => {
+    const model = scriptedModel(() => ({ text: "Twice a day." }));
+    const { core, clock } = await start({
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+    const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
+    await core.assignDocumentGroup(leases.id, archive.id);
+    const plan = await core.createMind({ title: "Plan", folderId: archive.id });
+    const asked = await core.askInConversation({ text: "How often are high tides?" });
+    if (!asked.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, asked.answerId);
+    await core.moveToFolder({ conversationIds: [asked.conversation.id], folderId: archive.id });
+    clock.advance(1000);
+    await core.deleteDocuments([leases.id]);
+    await core.deleteMind(plan.id);
+    await core.deleteConversation(asked.conversation.id);
+    clock.advance(1000);
+    await core.deleteLibraryGroup(archive.id);
+    const deleted = (await core.listDeleted()).filter((each) => each.kind !== "folder");
+    expect(deleted.map((each) => each.groupId)).toEqual([archive.id, archive.id, archive.id]);
+
+    for (const item of deleted) {
+      await core.restore([{ kind: item.kind, id: item.id }]);
+      await core.deleteAgain([{ kind: item.kind, id: item.id, deletedAt: item.deletedAt }]);
+      expect((await core.listDeleted()).find((each) => each.id === item.id)).toMatchObject({
+        groupId: archive.id,
+        deletedAt: item.deletedAt,
+      });
+    }
+  });
+
+  test("a Folder deleted in the same moment as a Document, after it, is still the Folder it was in", async () => {
+    const { core, clock } = await start();
+    const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+    const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
+    await core.assignDocumentGroup(leases.id, archive.id);
+    clock.advance(1000);
+    await core.deleteDocuments([leases.id]);
+    await core.deleteLibraryGroup(archive.id);
+
+    expect((await core.listDeleted()).find((each) => each.id === leases.id)?.groupId).toBe(
+      archive.id,
+    );
+  });
+
+  test("Undo of a Restore dates the deletion only inside the last 30 days", async () => {
+    const { core, clock } = await start();
+    const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
+    const base = clock.now().getTime();
+    const at = (ms: number) => new Date(ms).toISOString();
+    const deletedAtOf = async () =>
+      (await core.listDeleted()).find((each) => each.id === leases.id)?.deletedAt;
+    await core.deleteDocument(leases.id);
+
+    for (const [given, expected] of [
+      [at(base - 30 * DAY), at(base - 30 * DAY)],
+      [at(base - 30 * DAY - 1), at(base)],
+      [at(base - 30 * DAY + 1), at(base - 30 * DAY + 1)],
+      ["1970-01-01T00:00:00.000Z", at(base)],
+      ["2100-01-01T00:00:00.000Z", at(base)],
+    ] as const) {
+      await core.restore([{ kind: "document", id: leases.id }]);
+      await core.deleteAgain([{ kind: "document", id: leases.id, deletedAt: given }]);
+      expect(await deletedAtOf()).toBe(expected);
+    }
+  });
+
+  test("Undo of a Restore after its 30 days puts the Document back deleted now, so it can come back again", async () => {
+    const { core, clock } = await start();
+    const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
+    const deletedAt = clock.now().toISOString();
+    await core.deleteDocument(leases.id);
+    clock.advance(30 * DAY - 60_000);
+    await core.restore([{ kind: "document", id: leases.id }]);
+    clock.advance(120_000);
+
+    await core.deleteAgain([{ kind: "document", id: leases.id, deletedAt }]);
+
+    expect((await core.listDeleted()).find((each) => each.id === leases.id)?.deletedAt).toBe(
+      clock.now().toISOString(),
+    );
+    await core.restore([{ kind: "document", id: leases.id }]);
+    expect((await core.listDocuments()).map((each) => each.id)).toContain(leases.id);
   });
 });
 

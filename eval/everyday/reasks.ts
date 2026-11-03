@@ -1,8 +1,9 @@
 /**
  * Watches the chat model's requests for the app's own asks inside one Answer
- * (#1226): the end-of-turn checks asking again, and the one request for
- * Citations. It can also put a reply of its own in place of the model's first,
- * so a request meets an ask every time, not only when the model slips.
+ * (#1226): the end-of-turn checks asking again, the ask for a capped summary's
+ * left-out Documents (#894), and the one request for Citations. It can also put
+ * a reply of its own in place of the model's, so a request meets an ask every
+ * time, not only when the model slips.
  */
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { ChatModelFactory } from "../../src/core";
@@ -13,8 +14,12 @@ import { streamedReply } from "../../tests/helpers/models";
 export interface Asks {
   /** A check of the end of the turn asked the model again with the record of what its Tools did. */
   again: number;
+  /** The app asked the model again to name the Documents a capped summary left out (#894). */
+  coverage: number;
   /** The one request for the Answer's Citations. */
   citations: number;
+  /** The replies a check asked again about, which the User never read: to read by hand. */
+  replies?: string[];
 }
 
 export interface ReaskWatch {
@@ -27,6 +32,9 @@ export interface ReaskWatch {
 /** Opens the note an end-of-turn check asks again with (see `thisAnswersRecord` in src/core/answers/claimedChanges.ts). */
 export const ASKED_AGAIN = "What the Tools of this Answer really did";
 
+/** Sits in the ask for the Documents a capped summary left out (see `coverageNudge` in src/core/answers/coverage.ts). */
+const ASKED_FOR_COVERAGE = "the User reads only this one";
+
 type Message = { content: string | readonly { type: string }[] };
 
 const textOf = ({ content }: Message): string =>
@@ -37,13 +45,26 @@ const textOf = ({ content }: Message): string =>
         .join("");
 
 export function watchReasks(): ReaskWatch {
-  let asks: Asks = { again: 0, citations: 0 };
+  let asks: Asks = { again: 0, coverage: 0, citations: 0 };
   let pending: string | null = null;
+  let askedForCoverage = false;
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
     wrapStream: async ({ doStream, params }) => {
       const last = params.prompt.at(-1);
-      if (last?.role === "user" && textOf(last).includes(ASKED_AGAIN)) asks.again++;
+      // A write-only ask is sent with the engine's last-step note after it.
+      const recent = params.prompt
+        .slice(-2)
+        .map((message) => textOf(message))
+        .join("\n");
+      if (recent.includes(ASKED_FOR_COVERAGE)) {
+        if (!askedForCoverage) asks.coverage++;
+        askedForCoverage = true;
+      } else if (last?.role === "user" && textOf(last).includes(ASKED_AGAIN)) {
+        asks.again++;
+        const before = params.prompt.at(-2);
+        if (before?.role === "assistant") asks.replies = [...(asks.replies ?? []), textOf(before)];
+      }
       if (
         params.prompt.some(
           (message) => message.role === "system" && message.content === CITE_RETRY_INSTRUCTIONS,
@@ -62,8 +83,9 @@ export function watchReasks(): ReaskWatch {
   return {
     chatModels: (inner) => (spec) => wrapLanguageModel({ model: inner(spec), middleware }),
     begin(firstReply) {
-      asks = { again: 0, citations: 0 };
+      asks = { again: 0, coverage: 0, citations: 0 };
       pending = firstReply;
+      askedForCoverage = false;
     },
     end: () => asks,
   };

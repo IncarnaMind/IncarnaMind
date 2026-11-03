@@ -47,6 +47,7 @@ import type { createEventHub } from "../events";
 import { parseIds, parseMindId } from "../minds";
 import { givesStructuredOutput } from "../providers/capabilities";
 import type { PreparedChatModel } from "../providers/chat";
+import { outputTokens } from "../providers/outputLimits";
 import {
   continuationOf,
   numbersBacked,
@@ -88,8 +89,6 @@ const MIN_RELEVANCE = 0.5;
 const MIN_MATCHED_WORDS = 2;
 const MIN_MATCHED_SHARE = 1 / 3;
 const MATCHED_WORDS_ENOUGH = 3;
-/** The reply's cap: one short sentence and a quote, as JSON. */
-const OUTPUT_TOKENS = 400;
 /** A request that takes longer than this (a local model loading) gives nothing. */
 const REQUEST_TIMEOUT_MS = 30_000;
 /** How many suggestions given are remembered, so accepting one can say what it was. */
@@ -165,8 +164,8 @@ export interface SuggestionsOptions {
   citing: Citing;
   /** Throws `NotFoundError` unless the Mind exists. */
   requireMind(mindId: string): void;
-  /** The ids of the live Documents a Search scope covers; null for every Document. */
-  resolveScope(scope: SearchScope): string[] | null;
+  /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
+  scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
   /** What a suggestion in a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope, mindId: string): SearchScope | null;
   /** How many of these Documents (null: all) have Passages to search. */
@@ -266,7 +265,7 @@ export function createSuggestions(options: SuggestionsOptions) {
         model: prepared.model,
         instructions: SUGGESTION_INSTRUCTIONS,
         prompt,
-        maxOutputTokens: OUTPUT_TOKENS,
+        maxOutputTokens: outputTokens("suggestion"),
         maxRetries: 0,
         abortSignal,
       });
@@ -278,7 +277,7 @@ export function createSuggestions(options: SuggestionsOptions) {
           instructions: SUGGESTION_INSTRUCTIONS,
           prompt,
           output: Output.object({ schema: suggestionSchema, name: "suggestion" }),
-          maxOutputTokens: OUTPUT_TOKENS,
+          maxOutputTokens: outputTokens("suggestion"),
           maxRetries: 0,
           abortSignal,
         });
@@ -298,7 +297,7 @@ export function createSuggestions(options: SuggestionsOptions) {
     const budget = createWindowBudget(prepared.window);
     let room = budget.roomBeside(
       [SUGGESTION_INSTRUCTIONS, suggestionPrompt(paragraph, [])],
-      OUTPUT_TOKENS,
+      outputTokens("suggestion"),
     );
     const kept: FoundPassage[] = [];
     for (const passage of passages) {
@@ -383,7 +382,7 @@ export function createSuggestions(options: SuggestionsOptions) {
       options.requireMind(request.mindId);
       cancelCurrent();
       const searched = options.searchedScope(request.scope, request.mindId);
-      const documentIds = searched && options.resolveScope(searched);
+      const documentIds = options.scopeDocuments(searched, request.mindId);
       if (!options.enabled()) {
         return { kind: "off", scopeHasDocuments: options.searchableCount(documentIds) > 0 };
       }

@@ -23,15 +23,21 @@ const settings = (leaveOutOwnFiles: boolean): Pick<Settings, "user"> => ({
       "share-page": { includeQuestions: false, citationCards: true, checkedLine: false },
     },
     authorName: null,
+    personId: null,
     monthlyCap: null,
     webSearch: false,
     keepWebPageLook: false,
+    taskNotifications: true,
     recentCitationStyles: [],
     newMindStyle: { font: "default", size: "default" },
+    meetingWords: [],
+    transcriptScript: null,
   },
 });
 
 const folder = (countsOwnFiles: boolean): LibraryGroup => ({
+  parentId: null,
+  keepInside: false,
   id: "drafts",
   name: "Drafts",
   description: "",

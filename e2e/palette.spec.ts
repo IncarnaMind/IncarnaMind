@@ -114,7 +114,7 @@ test("the words inside a Mind are found as soon as they are typed", async () => 
   await expect(group(window, "notes").locator("b")).toHaveText("Ålesund");
 });
 
-test("a press on the dimmed area closes ⌘K, and one inside it doesn't", async () => {
+test("a press outside closes ⌘K without acting on what is under it, and one inside it doesn't", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1280, 660);
@@ -128,17 +128,86 @@ test("a press on the dimmed area closes ⌘K, and one inside it doesn't", async 
     await expect(palette(window)).toBeVisible();
     await expect(group(window, "notes")).toContainText("Harbour log");
 
-    // Outside: the press lands on the dimmed area, clear of the palette, and closes it.
+    // Outside, clear of the palette: it closes and the focus goes back to the Note, as before.
     const box = await palette(window).boundingBox();
     if (!box) throw new Error("The palette isn't on the page.");
     expect(box.x).toBeGreaterThan(24);
     await window.mouse.click(box.x - 24, box.y + box.height / 2);
     await expect(palette(window)).toBeHidden();
     await expect.poll(() => focusInNote(window)).toBe(true);
+
+    // Outside, over the sidebar's Search, which would open ⌘K itself: the press only closes it.
+    await openPalette(window);
+    const search = window.getByTestId("sidebar-search");
+    const searchBox = await search.boundingBox();
+    if (!searchBox) throw new Error("The sidebar's Search isn't on the page.");
+    await window.mouse.click(searchBox.x + searchBox.width / 2, searchBox.y + searchBox.height / 2);
+    await expect(palette(window)).toBeHidden();
+    // It stays closed: the Search under the palette never opened it.
+    await window.evaluate(
+      () =>
+        new Promise<void>((drawn) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => drawn())),
+        ),
+    );
+    await expect(palette(window)).toBeHidden();
   } finally {
     await app.close();
   }
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`⌘K appears at once with the popover depth and no scrim, in ${language === "en" ? "English" : "Chinese"}`, async () => {
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await setWindowSize(app, window, 1280, 760);
+      await dismissChatSetup(window);
+      await writeMind(window, ["Harbour log", "Tides in Bergen at dawn"]);
+      await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await bridge.updateSettings({ device: { motion: "on" } });
+      });
+      await window.waitForFunction(() => document.documentElement.dataset.motion === "on");
+      await setLanguage(window, language);
+
+      // The opacity the palette has the moment it is in the page, before its first paint.
+      await window.evaluate(() => {
+        const holder = globalThis as unknown as { arrival: string[] };
+        holder.arrival = [];
+        new MutationObserver(() => {
+          if (holder.arrival.length > 0) return;
+          const element = document.querySelector('[data-testid="palette"]');
+          if (element) holder.arrival.push(getComputedStyle(element).opacity);
+        }).observe(document.body, { childList: true, subtree: true });
+      });
+      await window.keyboard.press("ControlOrMeta+k");
+      await expect(palette(window)).toBeVisible();
+      await expect(window.getByTestId("palette-search")).toBeFocused();
+      await expect(window.getByTestId("palette-search")).toHaveAttribute(
+        "placeholder",
+        language === "en" ? /^Search/ : /^搜索/,
+      );
+      // No fade-in: it is at full opacity in the first frame it is in.
+      expect(
+        await window.evaluate(() => (globalThis as unknown as { arrival: string[] }).arrival[0]),
+      ).toBe("1");
+      const look = await palette(window).evaluate((element) => ({
+        backdrop: getComputedStyle(element, "::backdrop").backgroundColor,
+        shadow: getComputedStyle(element).boxShadow,
+      }));
+      // The popover's depth, and no scrim over the Note.
+      expect(look.shadow).toContain("12px 32px");
+      expect(look.shadow).not.toContain("24px 64px");
+      expect(look.backdrop).toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+
+      await window.keyboard.press("Escape");
+      await expect(palette(window)).toBeHidden();
+      await expect.poll(() => focusInNote(window)).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+}
 
 test("names, commands and the words in Documents, all by keyboard; Esc closes and gives the focus back", async () => {
   const { app, window } = await launchApp(dataDir);
@@ -403,10 +472,10 @@ test("with a sentence selected, ⌘K finds the one check by check, find support,
     await expect(palette(window).locator('[data-key^="command:check."]')).toHaveCount(1);
     if (query === "check") {
       await expect(row("mind.check").getByTestId("palette-purpose")).toHaveText(
-        "Whether each claim has support in your Documents",
+        "Checks this note’s Citations, sentences and figures against your Documents, and contradictions in its Folder",
       );
       await expect(row("mind.checkContradictions").getByTestId("palette-purpose")).toHaveText(
-        "Where your Documents disagree with this Mind’s Citations",
+        "Where your Documents disagree with this note’s Citations",
       );
     }
     await window.keyboard.press("Escape");
@@ -420,7 +489,7 @@ test("with a sentence selected, ⌘K finds the one check by check, find support,
     if (query === "verify") {
       const verify = row("verify.document");
       await expect(verify.getByTestId("palette-purpose")).toHaveText(
-        "Check the claims in a PDF someone else wrote",
+        "Check the claims in a file someone else wrote",
       );
       // The hint sits under the name and inside the row.
       const rowBox = await verify.boundingBox();
@@ -442,23 +511,23 @@ test("with a sentence selected, ⌘K finds the one check by check, find support,
     await expect(palette(window).locator('[data-key^="command:check."]')).toHaveCount(1);
     if (query === "核对") {
       await expect(row("mind.check").getByTestId("palette-purpose")).toHaveText(
-        "每条说法在你的文档里有没有依据",
+        "对照文档核对这篇笔记的引用、句子和数字，以及文件夹中的矛盾",
       );
     }
     await window.keyboard.press("Escape");
     await expect(palette(window)).toBeHidden();
   }
 
-  await search("核对文档");
+  await search("核对别人的文件");
   await expect(row("verify.document").getByTestId("palette-purpose")).toHaveText(
-    "核对别人写的 PDF 里的说法",
+    "核对别人所写文件中的说法",
   );
   await window.keyboard.press("Escape");
   await expect(palette(window)).toBeHidden();
 
   await search("矛盾");
   await expect(row("mind.checkContradictions").getByTestId("palette-purpose")).toHaveText(
-    "你的文档与这个 Mind 的引用不一致的地方",
+    "你的文档与这篇笔记的引用不一致的地方",
   );
 });
 
@@ -642,9 +711,9 @@ test('with words typed, the last row is Ask “words”: Enter opens the first m
 
   // The command typed has the question after it too.
   await openPalette(window);
-  await window.keyboard.type("new mind");
-  await expect(group(window, "actions")).toContainText("New Mind");
-  await expect(rows.last()).toContainText("Ask “new mind”");
+  await window.keyboard.type("new note");
+  await expect(group(window, "actions")).toContainText("New note");
+  await expect(rows.last()).toContainText("Ask “new note”");
 
   // ">" asks for actions only: no question to ask there.
   await window.keyboard.press("ControlOrMeta+a");

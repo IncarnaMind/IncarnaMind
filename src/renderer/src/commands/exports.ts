@@ -2,7 +2,15 @@ import { EXPORT_FORMATS } from "../../../core/api";
 import { exportAiUseStatement } from "../aiUseStatement";
 import { useExportDialog } from "../exportDialog";
 import { requestExportMenu } from "../exportMenuRequest";
-import { exportCheckRecord, exportMind, exportPreferences, FORMAT_LABELS } from "../exports";
+import {
+  canChangeExport,
+  changeExportChoices,
+  exportCheckRecord,
+  exportMind,
+  exportPreferences,
+  FORMAT_LABELS,
+  useExports,
+} from "../exports";
 import { currentTabOf } from "../layoutSlice";
 import { useAppStore } from "../store";
 import { findTab } from "../tabs";
@@ -81,6 +89,31 @@ export const exportCommands: readonly Command[] = [
       },
     }),
   ),
+  {
+    // The same Change the Saved line offers, for the keys and ⌘K: only while that line holds a
+    // file whose choices can still be changed, which is a Word or PDF export (#1945).
+    id: "mind.exportChangeChoices",
+    label: "export.change.command",
+    keywords: ["export.change.command.keywords"],
+    shortcut: { keys: "CmdOrCtrl+Alt+E" },
+    group: "main",
+    reversible: true,
+    when: (ctx) => {
+      const mindId = mindOf(ctx);
+      const result = useExports.getState().result;
+      return (
+        mindId !== null &&
+        result?.mindId === mindId &&
+        result.state === "saved" &&
+        canChangeExport(result.format) &&
+        result.changing === undefined
+      );
+    },
+    run: (ctx) => {
+      const mindId = mindOf(ctx);
+      if (mindId) changeExportChoices(mindId);
+    },
+  },
   {
     id: "mind.exportOptions",
     label: "export.options",

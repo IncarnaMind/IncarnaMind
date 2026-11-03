@@ -5,7 +5,12 @@ import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assis
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  claimCheckReply,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 import { para, pptxOf, sp, txBody } from "../helpers/pptx";
 
 /**
@@ -227,18 +232,21 @@ describe("Sources written as text into a Mind (#1075)", { timeout: 30_000 }, () 
 
   // protects=a refused new Mind leaves none behind, so a reply that says it wrote into one is caught as a claim no call made (#1087 review); fails_when=an empty Mind stays, or "I wrote the summary into the new Mind" passes; no_claim=the wording of the note.
   test("a refused new Mind leaves none, and a reply claiming it is caught", async () => {
-    const model = scriptedModel((call) =>
-      called(call, "create_mind")
-        ? { text: "I wrote the summary into the new Mind." }
-        : {
-            calls: [
-              {
-                tool: "create_mind",
-                input: { title: "Summary", content: AS_TEXT },
-                streamInput: true,
-              },
-            ],
-          },
+    const claim = "I wrote the summary into the new Mind.";
+    const model = scriptedModel(
+      (call) =>
+        called(call, "create_mind")
+          ? { text: claim }
+          : {
+              calls: [
+                {
+                  tool: "create_mind",
+                  input: { title: "Summary", content: AS_TEXT },
+                  streamInput: true,
+                },
+              ],
+            },
+      { generate: (call) => claimCheckReply(call, [{ sentence: claim, kind: "made" }]) },
     );
     const { core } = await setUpWithDocuments(model, [DECK, PLAN]);
 

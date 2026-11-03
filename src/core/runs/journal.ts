@@ -13,7 +13,7 @@ import type {
   TaskStatus,
 } from "../api";
 import { isRecord } from "../errors";
-import type { Database } from "../storage";
+import type { Database, SqlValue } from "../storage";
 
 /** A Task's call that asks first, as it is asked again after a quit. */
 export type TaskApprovalCall = ApprovalRequest extends infer Request
@@ -186,6 +186,8 @@ const toStep = (row: StepRow): StepRecord => ({
 
 /** What a Task's row is changed to; left out, it stays. */
 export interface TaskPatch {
+  /** What it works on, as its kind reads it; a resumed run reconstructs from this. */
+  input?: unknown;
   status?: TaskStatus;
   pausedReason?: TaskPausedReason | null;
   resetsAt?: string | null;
@@ -196,15 +198,17 @@ export interface TaskPatch {
   finishedAt?: string | null;
 }
 
-const PATCH_COLUMNS: Record<keyof TaskPatch, string> = {
-  status: "status",
-  pausedReason: "paused_reason",
-  resetsAt: "resets_at",
-  ask: "ask",
-  asks: "asks",
-  progress: "progress",
-  problem: "problem",
-  finishedAt: "finished_at",
+// Each column a patch writes, and whether it stores JSON whatever the value's shape.
+const PATCH_COLUMNS: Record<keyof TaskPatch, { column: string; json?: true }> = {
+  input: { column: "input", json: true },
+  status: { column: "status" },
+  pausedReason: { column: "paused_reason" },
+  resetsAt: { column: "resets_at" },
+  ask: { column: "ask" },
+  asks: { column: "asks" },
+  progress: { column: "progress" },
+  problem: { column: "problem" },
+  finishedAt: { column: "finished_at" },
 };
 
 export type Journal = ReturnType<typeof createJournal>;
@@ -268,14 +272,18 @@ export function createJournal(db: Database, now: () => string) {
         (key) => patch[key] !== undefined,
       );
       if (entries.length === 0) return get(taskId);
-      const values = entries.map((key) => {
+      const values = entries.map((key): SqlValue => {
         const value = patch[key];
+        // A JSON column keeps create's contract: whatever its shape, it is stored as JSON,
+        // and null is the empty input create writes.
+        if (PATCH_COLUMNS[key].json) return JSON.stringify(value ?? {});
         if (value === null || value === undefined) return null;
         if (typeof value === "object") return JSON.stringify(value);
-        return value;
+        if (typeof value === "string" || typeof value === "number") return value;
+        return JSON.stringify(value);
       });
       db.run(
-        `UPDATE runs SET ${entries.map((key) => `${PATCH_COLUMNS[key]} = ?`).join(", ")},
+        `UPDATE runs SET ${entries.map((key) => `${PATCH_COLUMNS[key].column} = ?`).join(", ")},
            updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
         [...values, now(), taskId],
       );

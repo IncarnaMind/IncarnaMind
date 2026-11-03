@@ -11,7 +11,7 @@ import {
   tickingClock,
 } from "../helpers/core";
 import { appendParagraph, connectToMind } from "../helpers/mindClient";
-import { readMind } from "../helpers/minds";
+import { heading, readMind, writeMind } from "../helpers/minds";
 
 const titles = (minds: Mind[]) => minds.map((mind) => mind.title);
 
@@ -126,6 +126,78 @@ describe("Minds", () => {
 
     await expect(core.createMind({ title: 42 } as never)).rejects.toThrow(InvalidInputError);
     expect(await core.listMinds()).toEqual([]);
+  });
+});
+
+describe("Duplicating Minds", () => {
+  const citation = {
+    type: "citation",
+    attrs: {
+      passageId: "passage-1",
+      documentId: "document-1",
+      documentName: "Tides",
+      contentHash: "hash",
+      pageFrom: 1,
+      pageTo: 1,
+      quote: "Spring tides happen at new moon.",
+      check: "found",
+    },
+  };
+  const sample = () => [
+    heading(1, "Spring tides"),
+    {
+      type: "paragraph",
+      attrs: { id: randomUUID() },
+      content: [
+        { type: "text", text: "At new moon " },
+        citation,
+        { type: "text", text: " the range is widest." },
+      ],
+    },
+  ];
+
+  test("a copy is named “{name} (copy)”, in the same Folder, with its Blocks, Citations and checks", async () => {
+    const core = startCore(await createTempDataFolder());
+    const folder = await core.createLibraryGroup({ name: "Tides", description: "" });
+    const mind = await core.createMind({ title: "Tides", folderId: folder.id });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, sample());
+    await client.settled();
+
+    const copy = await core.duplicateMind(mind.id);
+
+    expect(copy.id).not.toBe(mind.id);
+    expect(copy.title).toBe("Tides (copy)");
+    expect(copy.folderId).toBe(folder.id);
+    const source = readMind(client).toJSON().content;
+    const copyClient = await connectToMind(core, copy.id);
+    const duplicated = readMind(copyClient).toJSON().content;
+    expect(duplicated).toEqual(source);
+    expect(duplicated?.[1]?.content?.[1]?.attrs).toMatchObject({
+      check: "found",
+      quote: "Spring tides happen at new moon.",
+    });
+
+    // The copy is the User's own to change: editing it leaves the Mind it came from as it was.
+    appendParagraph(copyClient, "Only in the copy.");
+    await copyClient.settled();
+    expect(readMind(client).textContent).not.toContain("Only in the copy");
+    expect(readMind(copyClient).textContent).toContain("Only in the copy");
+  });
+
+  test("the copy's name follows the interface language", async () => {
+    const core = startCore(await createTempDataFolder());
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const mind = await core.createMind({ title: "潮汐" });
+
+    expect((await core.duplicateMind(mind.id)).title).toBe("潮汐（副本）");
+  });
+
+  test("an untitled Mind's copy is untitled too", async () => {
+    const core = startCore(await createTempDataFolder());
+    const mind = await core.createMind();
+
+    expect((await core.duplicateMind(mind.id)).title).toBe("Untitled (copy)");
   });
 });
 

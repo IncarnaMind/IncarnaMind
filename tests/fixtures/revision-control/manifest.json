@@ -1,0 +1,72 @@
+{
+  "regenerated": true,
+  "originalSha256": "004a6bf0246cbff804af4bd4bd1bd226bf4759299cc1445a151236fe08e3f10a",
+  "generator": "tests/helpers/pdf.ts",
+  "dpi": 200,
+  "revisions": [
+    {
+      "revision": "A",
+      "date": "2026-10-01",
+      "status": "SUPERSEDED",
+      "chinese": "已被替代",
+      "policy": "LARCH-31",
+      "limit": "0.400",
+      "beads": ["0.125", "2", "0.250"],
+      "weights": ["0.050", "3", "0.150"]
+    },
+    {
+      "revision": "B",
+      "date": "2026-10-23",
+      "status": "CURRENT",
+      "chinese": "当前有效",
+      "policy": "LARCH-52",
+      "limit": "0.250",
+      "beads": ["0.075", "2", "0.150"],
+      "weights": ["0.050", "2", "0.100"]
+    }
+  ],
+  "pages": [
+    [
+      "Upright revision control",
+      "Revision A",
+      "Date: 2026-10-01",
+      "Status: SUPERSEDED",
+      "Policy: LARCH-31",
+      "Maximum load: 0.400 kg",
+      "状态：已被替代",
+      "最大载荷：0.400 千克",
+      "Load worksheet",
+      "Item                 Unit mass (kg)   Quantity   Subtotal (kg)",
+      "Glass beads          0.125              2               0.250",
+      "Control weights      0.050              3               0.150",
+      "TOTAL                                                        0.400 kg"
+    ],
+    [
+      "Upright revision control",
+      "Revision B",
+      "Date: 2026-10-23",
+      "Status: CURRENT",
+      "Policy: LARCH-52",
+      "Maximum load: 0.250 kg",
+      "状态：当前有效",
+      "最大载荷：0.250 千克",
+      "Load worksheet",
+      "Item                 Unit mass (kg)   Quantity   Subtotal (kg)",
+      "Glass beads          0.075              2               0.150",
+      "Control weights      0.050              2               0.100",
+      "TOTAL                                                        0.250 kg"
+    ]
+  ],
+  "files": [
+    {
+      "name": "raster.pdf",
+      "sha256": "ba192ae6ac40514bcb4bc0b45f20591898cbcb743fe85183a3d5d21637bbcdbd",
+      "bytes": 233269
+    },
+    {
+      "name": "text.pdf",
+      "sha256": "0ee66e1baf6b42bae2a65817821bbe2658bb18ab87280fc86580403e82c5faf2",
+      "bytes": 3048
+    }
+  ]
+}

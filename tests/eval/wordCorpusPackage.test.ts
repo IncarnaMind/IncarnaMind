@@ -10,12 +10,13 @@ import { part, unzip } from "../helpers/docx";
 import { paragraph, run, wordFile } from "../helpers/word";
 import { buildZip } from "../helpers/zip";
 
-test("the pinned unsupported-fields input stays malformed and is classified as a known package problem", async () => {
+test("the pinned unsupported-fields input has a NOTEREF with no bookmark name, which is not a package problem", async () => {
   const entry = readExtended().find(
     (each) => each.name === "libreoffice/Unsupportedtextfields.docx",
   );
   if (!entry) throw new Error("The unsupported-fields input is missing from the corpus.");
   expect(entry.sha256).toBe("b3f06485fae21d09a76a5dddef09564d50bdfd4e77f9db29734065c3009fdc81");
+  expect(entry.known).toBeUndefined();
   const bytes = wordFile({
     body: paragraph(
       '<w:r><w:fldChar w:fldCharType="begin"/></w:r>' +
@@ -26,22 +27,47 @@ test("the pinned unsupported-fields input stays malformed and is classified as a
     ),
   });
   const { features, problems } = await inspectPackage(bytes);
-  expect(problems).toEqual(["word/document.xml: NOTEREF \\* points at no bookmark"]);
-  const subject = { name: entry.name, known: entry.known };
-  const outcome = await checkInputPackage(bytes, features);
-  expect(outcome).toMatchObject({ ok: false, inspectionProblem: true });
-  const reported = corpusFailure(subject, "package", outcome);
-  expect(reported.known).toMatch(/known: NOTEREF.*bookmark/);
-  expect(reported.failure).toBeUndefined();
-  const stale = await checkInputPackage(bytes, {
-    ...features,
-    paragraphs: features.paragraphs + 1,
+  expect(problems).toEqual([]);
+  expect(await checkInputPackage(bytes, features)).toEqual({ ok: true, detail: "" });
+});
+
+test("a NOTEREF with no arguments at all is not a package problem", async () => {
+  const bytes = wordFile({
+    body: paragraph(
+      '<w:r><w:fldChar w:fldCharType="begin"/></w:r>' +
+        '<w:r><w:instrText xml:space="preserve"> NOTEREF </w:instrText></w:r>' +
+        '<w:r><w:fldChar w:fldCharType="separate"/></w:r>' +
+        run("Error! No bookmark name given.") +
+        '<w:r><w:fldChar w:fldCharType="end"/></w:r>',
+    ),
   });
-  expect(corpusFailure(subject, "package", stale)).toEqual({
-    failure: `${entry.name}: package: its listed features are out of date: paragraphs`,
+  const { problems } = await inspectPackage(bytes);
+  expect(problems).toEqual([]);
+});
+
+test("a NOTEREF that names a bookmark missing from the file is still a package problem", async () => {
+  const bytes = wordFile({
+    body: paragraph(
+      '<w:r><w:fldChar w:fldCharType="begin"/></w:r>' +
+        '<w:r><w:instrText xml:space="preserve"> NOTEREF _Ref123 \\* MERGEFORMAT </w:instrText></w:r>' +
+        '<w:r><w:fldChar w:fldCharType="separate"/></w:r>' +
+        run("Error! Reference source not found.") +
+        '<w:r><w:fldChar w:fldCharType="end"/></w:r>',
+    ),
   });
-  expect(corpusFailure({ name: entry.name }, "package", outcome)).toEqual({
-    failure: `${entry.name}: package: ${problems.join("; ")}`,
+  const { problems } = await inspectPackage(bytes);
+  expect(problems).toEqual(["word/document.xml: NOTEREF _Ref123 points at no bookmark"]);
+});
+
+test("a known input-package defect is reported without failing the run", () => {
+  expect(
+    corpusFailure({ name: "known.docx", known: "Malformed input package" }, "package", {
+      detail: "NOTEREF _Ref123 points at no bookmark",
+      inspectionProblem: true,
+    }),
+  ).toEqual({
+    known:
+      "  (known: Malformed input package) known.docx: package: NOTEREF _Ref123 points at no bookmark",
   });
 });
 

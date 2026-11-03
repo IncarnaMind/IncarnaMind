@@ -215,7 +215,7 @@ export function ModelsSettings() {
               data-testid="models-advanced-toggle"
               className="cursor-default text-[13px] leading-5 font-semibold text-ink-secondary select-none hover:text-ink"
             >
-              {t("models.advanced")}
+              {t("settings.advanced")}
             </summary>
             <div className="mt-3">
               <TaggingSettings />

@@ -6,6 +6,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { heading, note, writeMind } from "../helpers/minds";
 import {
+  claimCheckReply,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -22,7 +23,7 @@ import {
 const NO_TOOLS: ScriptedReply = {
   error: { status: 400, message: "this model does not support tools" },
 };
-const TOLD = "You can't change the User's Minds";
+const TOLD = "You can't change the User's Notes";
 const SUMMARY = "## Summary\n\nThe quarter was good.";
 
 const lastSystem = (calls: ModelCall[]) => calls.at(-1)?.system ?? "";
@@ -87,8 +88,8 @@ describe("A model without Tools asked to write into a Mind", { timeout: 30_000 }
     },
   );
 
-  // protects=a model that does what it is told doesn't claim a change, and one that claims one is caught by the detector all the same, its reply kept to put into a Mind by hand; fails_when=the told model's reply is flagged, the claim isn't, or the reply is lost; no_claim=that a real model obeys: the script obeys only when the prompt says it.
-  test("never claims a change that wasn't made", async () => {
+  // protects=when Note tools were offered but the provider refused them, the claim judge still runs: a model that does what it is told doesn't claim a change, and one that claims one is caught, its reply kept to put into a Mind by hand; fails_when=the judge doesn't run, the told reply is flagged, the claim isn't caught, or the reply is lost; no_claim=that a real model obeys: the script obeys only when the prompt says it.
+  test("the no-Tools fallback still catches a change that wasn't made", async () => {
     const claims = withoutTools((call) =>
       call.system.includes(TOLD)
         ? SUMMARY
@@ -102,16 +103,28 @@ describe("A model without Tools asked to write into a Mind", { timeout: 30_000 }
     });
 
     expect(answer.steps?.unbackedClaims).toBeUndefined();
+    expect(claims.doGenerateCalls).toHaveLength(1);
 
-    const ignoring = await setUp(
-      withoutTools(() => "I've added the summary to “Q3 review”.\n\n## Summary\n\nGood."),
+    const ignoringModel = scriptedModel(
+      (call) =>
+        call.tools.length > 0
+          ? NO_TOOLS
+          : { text: "I've added the summary to “Q3 review”.\n\n## Summary\n\nGood." },
+      {
+        generate: (call) =>
+          claimCheckReply(call, [
+            { sentence: "I've added the summary to “Q3 review”.", kind: "added" },
+          ]),
+      },
     );
+    const ignoring = await setUp(ignoringModel);
     const caught = await askAssistant(ignoring.core, {
       text: "write a summary page",
       mindId: ignoring.mind.id,
     });
 
     expect(caught.steps?.unbackedClaims).toEqual(["added"]);
+    expect(ignoringModel.doGenerateCalls).toHaveLength(1);
     expect(caught.text).toContain("## Summary");
   });
 });

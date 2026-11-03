@@ -12,13 +12,22 @@ import type {
   SentenceChecksExported,
   WordExportReport,
 } from "../../core/api";
-import { type CitedCount, hasCitationPlace, optionsFor } from "../../shared/exportOptions";
+import {
+  type CitedCount,
+  DEFAULT_CITATION_PLACE,
+  optionsFor,
+  withCitationPlace,
+  withMarking,
+} from "../../shared/exportOptions";
 import type { MessageKey } from "../../shared/i18n";
-import { core } from "./core";
-import { errorMessage } from "./errors";
+import { core, files } from "./core";
+import { describeError, errorMessage } from "./errors";
+import { rewrittenLine } from "./exportChecks";
+import { ownMindsOf } from "./home";
 import { translateNow } from "./i18n";
 import { folderName } from "./linkedFolders";
 import { useAppStore } from "./store";
+import { UndoRefused, useUndo } from "./undo";
 
 /** Each format's name, as the options sheet, the menus and ⌘K say it. */
 export const FORMAT_LABELS: Readonly<Record<ExportFormat, MessageKey>> = {
@@ -48,10 +57,24 @@ export const exportPreferences = (): ExportPreferences =>
   useAppStore.getState().settings?.user.exportOptions ?? DEFAULT_PREFERENCES;
 
 export const COMPARISON_EXCEL = "comparison-xlsx";
+export const FIGURE_SCHEDULE_EXCEL = "figure-schedule-xlsx";
 
-export type ExportKind = ExportFormat | "check-record" | typeof COMPARISON_EXCEL;
+export type ExportKind =
+  | ExportFormat
+  | "check-record"
+  | typeof COMPARISON_EXCEL
+  | typeof FIGURE_SCHEDULE_EXCEL;
 
 export const isCheckRecord = (kind: ExportKind): kind is "check-record" => kind === "check-record";
+
+/** The choices that made a Word or PDF file, open under its Saved line: the marking, and where Citations go (#1945). */
+export interface ExportChanging {
+  format: "docx" | "pdf";
+  mark: boolean;
+  places: CitedCount | null;
+  /** Someone else's Word file: whether it gets check comments (#110). */
+  comments: boolean;
+}
 
 /**
  * How the last export went, said in the Mind it exported (`ExportResultLine`); `tableId` names
@@ -75,7 +98,13 @@ export type ExportResult = { tableId?: string } & (
       /** When it was saved, in ms, so a line the User left behind doesn't come back long after. */
       at: number;
       unverified: number;
-      /** The sentences whose check isn't good: how many, and whether they went in as comments. */
+      /** The comparison-table columns the file leaves out, for the line to say. */
+      hiddenColumns: number;
+      /** Made by Verify from someone else's file: its comments have their own choice (#110). */
+      othersFile: boolean;
+      /** Written again beside this file, which the User had changed (#110); null otherwise. */
+      changedFile: string | null;
+      /** The sentences whose check isn’t good, whether they went in as comments, and the check comments in the file. */
       checks: SentenceChecksExported;
       /** The changes waiting that went into a Word file as tracked changes. */
       tracked: number;
@@ -83,23 +112,29 @@ export type ExportResult = { tableId?: string } & (
       kept: ("header" | "footer")[];
       /** The Documents whose entries are too thin to cite, marked so in the file. */
       needsDetails: string[];
-      /** The first save, which took Documents › IncarnaMind: the line says where (D209). */
+      /** Whether History kept the Note as it was sent (#1933): false says it couldn't. */
+      sentKept: boolean;
+      /** The first save, which took Documents › IncarnaMind: the line says where. */
       defaulted: boolean;
+      /** The Citations in the file, and the Documents they cite. */
+      citations: number;
+      citedDocuments: number;
+      /** The footnotes in the file, the User's own included, as its writer counted them (#2193). */
+      footnotes: number;
+      /** Whether the note's style is Numbered, the one whose Citations the User places. */
+      numbered: boolean;
+      /** Where the file puts its Citations; null when nothing placed them (#1945). */
+      citationPlace: CitationPlace | null;
+      /** Whether a Word file marks the text IncarnaMind wrote; null for a format that can't (#1945). */
+      markAiText: boolean | null;
+      /** Open: the choices that made this file, to change and export again (#1945). */
+      changing?: ExportChanging;
     }
   /** Not saved yet: what a Word file can't keep, for the User to see first (#105). */
   | { mindId: string; state: "review"; format: ExportFormat; word: WordExportReport }
-  /**
-   * Not started yet: the export waits for what the User hasn't said, whether Word marks the text
-   * IncarnaMind wrote (`mark`) and where Word or PDF puts the Citations (`places`, with how many).
-   */
-  | {
-      mindId: string;
-      state: "ask";
-      format: "docx" | "pdf";
-      mark: boolean;
-      places: CitedCount | null;
-    }
   | { mindId: string; state: "failed"; format: ExportKind; message: string }
+  /** A PDF that couldn't be laid out: nothing was saved, and the Output location is fine. */
+  | { mindId: string; state: "not-laid-out"; format: ExportKind }
   /** A source pack of a Mind with no Citations: nothing to make, and nothing went wrong. */
   | { mindId: string; state: "empty"; format: ExportFormat }
   | {
@@ -139,66 +174,195 @@ function begin(
   };
 }
 
-function ask(mindId: string, format: "docx" | "pdf", mark: boolean, places: CitedCount | null) {
-  const { result } = useExports.getState();
-  if (result?.mindId === mindId && result.state === "saving") return;
-  useExports.setState({ result: { mindId, state: "ask", format, mark, places } });
-}
-
-/** Mind ids whose export is looking for what to ask, so a held ⇧⌘E asks once. */
-const looking = new Set<string>();
-
-async function toAsk(
-  mindId: string,
-  format: "docx" | "pdf",
-  preferences: ExportPreferences,
-): Promise<{ mark: boolean; places: CitedCount | null } | null> {
-  const mark = format === "docx" && preferences.docx.markAiText === null;
-  let places: CitedCount | null = null;
-  if (preferences.citationPlace === undefined) {
-    const preview = await core.previewMindExport(mindId, { format });
-    if (preview.numbered && preview.citations > 0) {
-      places = { citations: preview.citations, documents: preview.citedDocuments };
-    }
-  }
-  return mark || places ? { mark, places } : null;
-}
-
 async function keep(update: (preferences: ExportPreferences) => ExportPreferences) {
   await useAppStore.getState().updateSettings({
     user: { exportOptions: update(exportPreferences()) },
   });
 }
 
-/** Keeps the User's answer to the question the Word export asked, then exports as they asked. */
+/**
+ * Says a choice the Saved line's Change made, in the undo line: Word files mark the text
+ * IncarnaMind wrote, or leave it unmarked; Citations go in footnotes, or in a list at the end.
+ * Undo puts that one choice back and Redo makes it again, each against the choices as they are
+ * then, so neither takes back a format or an option the User changed since (#1945).
+ */
+function changed(
+  which: "mark" | "leave" | "footnotes" | "list",
+  undo: () => Promise<void>,
+  redo: () => Promise<void>,
+): void {
+  useUndo.getState().push({ said: (t) => t(`export.changed.${which}`), undo, redo });
+}
+
+/**
+ * Change, in the Saved line: the choices that made this file open again, under it (#1945). It
+ * opens them from what the file itself says, with no work done until one is picked.
+ */
+/** Whether Change has a choice to open for `format`: only Word and PDF place Citations and mark AI text. */
+export const canChangeExport = (format: ExportKind): format is "docx" | "pdf" =>
+  format === "docx" || format === "pdf";
+
+export function changeExportChoices(mindId: string): void {
+  const { result } = useExports.getState();
+  if (result?.mindId !== mindId || result.state !== "saved") return;
+  const { format } = result;
+  if (!canChangeExport(format)) return;
+  // The line is where the User sees the choice: a Word file always has the marking, and a
+  // Numbered PDF the place of its Citations, whether or not this file placed any.
+  const mark = format === "docx";
+  const places =
+    result.citationPlace !== null || (format === "pdf" && result.numbered)
+      ? { citations: result.citations, documents: result.citedDocuments }
+      : null;
+  if (!mark && places === null) return;
+  const comments = format === "docx" && result.othersFile;
+  useExports.setState({ result: { ...result, changing: { format, mark, places, comments } } });
+}
+
+/** Closes Change without a choice: the Saved line as it was. */
+export function cancelChange(): void {
+  const { result } = useExports.getState();
+  if (result?.state === "saved")
+    useExports.setState({ result: { ...result, changing: undefined } });
+}
+
+/** Whether Word marks the text IncarnaMind wrote, as the choices have it when nothing is saved yet. */
+const markingNow = (preferences: ExportPreferences): MarkAiTextChoice =>
+  preferences.docx.markAiText ?? "mark";
+
+/** Picks the marking in Change: keeps it, exports this file again with it, and offers Undo (#1945). */
 export async function answerMarkAiText(
   mindId: string,
   format: ExportFormat,
   answer: MarkAiTextChoice,
 ): Promise<void> {
-  await keep((preferences) => ({
-    ...preferences,
-    docx: { ...preferences.docx, markAiText: answer },
-  }));
-  // A refusal is already said in a notice, and the question stays for another try.
-  if (exportPreferences().docx.markAiText === answer) await exportMind(mindId, format);
+  const before = exportPreferences();
+  if (markingNow(before) === answer) return;
+  const was = before.docx.markAiText;
+  await keep((now) => withMarking(now, answer));
+  // A refusal is already said in a notice, and the choice stays as it was.
+  if (markingNow(exportPreferences()) !== answer) return;
+  await exportMind(mindId, format);
+  changed(
+    answer,
+    () => keep((now) => withMarking(now, was)),
+    () => keep((now) => withMarking(now, answer)),
+  );
 }
 
-/** Keeps the User's answer to where Citations go, then exports as they asked. */
+/** A refusal Undo can try again once the file is back or free; any other never can (#110). */
+const RETRIED_UNDO: readonly MessageKey[] = [
+  "error.export.rewrite.gone",
+  "error.export.rewrite.locked",
+];
+
+/**
+ * Picks in Change whether this Note's file, from someone else, gets check comments (#110): the
+ * choice is this Note's alone, and the same file is written again, so no second copy sits
+ * beside it that could be sent instead. Undo puts both the choice and the file back, by the step
+ * the core gave this Change, and Redo writes it again as a new one.
+ */
+export async function answerCheckComments(mindId: string, answer: boolean): Promise<void> {
+  const { result } = useExports.getState();
+  if (result?.mindId !== mindId || result.state !== "saved" || result.format !== "docx") return;
+  if (result.checks.commented === answer) return;
+  const previous: ExportResult = { ...result, changing: undefined };
+  // The core keeps the choice once the file holds it; a file the User changed gets one beside it.
+  const write = async () => {
+    const saved = await core.rewriteMindExport(
+      mindId,
+      optionsFor("docx", exportPreferences()),
+      result.path,
+      answer,
+    );
+    useExports.setState({
+      result:
+        saved.status === "review"
+          ? { mindId, state: "review", format: "docx", word: saved.word }
+          : savedResult(mindId, "docx", saved),
+    });
+    return saved.status === "saved" ? saved : null;
+  };
+  try {
+    const first = await write();
+    if (!first) return;
+    let written = first;
+    useUndo.getState().push({
+      said: (t) =>
+        rewrittenLine(
+          t,
+          answer,
+          written.sentenceChecks.comments,
+          written.file.name,
+          written.changedFile ?? null,
+        ),
+      ...(first.changedFile && {
+        also: {
+          label: (t) => t("export.open"),
+          testId: "undo-open-copy",
+          run: () =>
+            void files.openSavedFile(written.file.path).catch((error: unknown) => {
+              useAppStore.getState().reportError(error);
+            }),
+        },
+      }),
+      undo: async () => {
+        try {
+          await core.restoreMindExport(written.file.path, written.step);
+        } catch (error) {
+          const { wording } = describeError(error);
+          if (!wording || !RETRIED_UNDO.includes(wording.key)) throw error;
+          throw new UndoRefused((t) => t(wording.key, wording.values), {
+            label: (t) => t("undo.tryAgain"),
+            run: async () => undefined,
+          });
+        }
+        if (useExports.getState().result?.mindId === mindId) {
+          useExports.setState({ result: { ...previous, at: Date.now() } });
+        }
+      },
+      redo: async () => {
+        written = (await write()) ?? written;
+      },
+    });
+  } catch (failure) {
+    useAppStore.getState().reportError(failure);
+  }
+}
+
+/** Picks where Citations go in Change: keeps it, exports this file again with it, and offers Undo (#1945). */
 export async function answerCitationPlace(
   mindId: string,
   format: ExportFormat,
   answer: CitationPlace,
 ): Promise<void> {
-  await keep((preferences) => ({ ...preferences, citationPlace: answer }));
-  if (exportPreferences().citationPlace === answer) await exportMind(mindId, format);
+  const before = exportPreferences();
+  if ((before.citationPlace ?? DEFAULT_CITATION_PLACE) === answer) return;
+  const was = before.citationPlace;
+  await keep((now) => withCitationPlace(now, answer));
+  if (exportPreferences().citationPlace !== answer) return;
+  await exportMind(mindId, format);
+  changed(
+    answer,
+    () => keep((now) => withCitationPlace(now, was)),
+    () => keep((now) => withCitationPlace(now, answer)),
+  );
+}
+
+/** What a failed export says: a PDF that couldn't be laid out is tried again, anything else says why. */
+function failedResult(mindId: string, format: ExportKind, failure: unknown): ExportResult {
+  return describeError(failure).wording?.key === "error.pdf.notLaidOut"
+    ? { mindId, state: "not-laid-out", format }
+    : { mindId, state: "failed", format, message: errorMessage(failure, translateNow) };
 }
 
 const NO_CHECKS: SentenceChecksExported = {
   contradicted: 0,
+  notFound: 0,
   unsupported: 0,
   needsRecheck: 0,
   commented: false,
+  comments: 0,
 };
 
 function savedResult(
@@ -229,11 +393,21 @@ function savedResult(
       inDefaultFolder: saved.file.inDefaultFolder,
       at: Date.now(),
       unverified: "unverifiedCitations" in saved ? saved.unverifiedCitations : 0,
+      hiddenColumns: "hiddenColumns" in saved ? saved.hiddenColumns : 0,
+      othersFile: "othersFile" in saved && saved.othersFile,
+      changedFile: ("changedFile" in saved && saved.changedFile) || null,
       checks: "sentenceChecks" in saved ? saved.sentenceChecks : NO_CHECKS,
       tracked: "trackedChanges" in saved ? saved.trackedChanges : 0,
       kept: "word" in saved ? (saved.word?.keptFurniture ?? []) : [],
       needsDetails: "needsDetails" in saved ? saved.needsDetails : [],
+      sentKept: "sentKept" in saved ? saved.sentKept : true,
       defaulted: saved.file.defaulted,
+      citations: "citations" in saved ? saved.citations : 0,
+      citedDocuments: "citedDocuments" in saved ? saved.citedDocuments : 0,
+      footnotes: "footnotes" in saved ? saved.footnotes : 0,
+      numbered: "numbered" in saved ? saved.numbered : false,
+      citationPlace: "citationPlace" in saved ? saved.citationPlace : null,
+      markAiText: "markAiText" in saved ? saved.markAiText : null,
     };
   }
   if (saved.status === "not-allowed") {
@@ -254,9 +428,8 @@ function savedResult(
  * the last one, which it becomes; the result line says how it went. `first` fixes what stopped
  * the last try (another Output location, allowing a Linked folder), unless it returns false.
  * `accept` is what a Word file can't keep that the User has seen and exports anyway (#105).
- * Until the User has said whether Word marks the text IncarnaMind wrote, and where Word and PDF
- * put the Citations of a Mind that has some, an export asks that first, in the result line, and
- * exports once it is answered (`answerMarkAiText`, `answerCitationPlace`).
+ * It asks nothing first (#1945): Word marks the text IncarnaMind wrote and Citations are
+ * footnotes until the User changes either, in Export options or in the Saved line's Change.
  */
 export async function exportMind(
   mindId: string,
@@ -266,36 +439,7 @@ export async function exportMind(
 ): Promise<void> {
   const preferences = exportPreferences();
   const chosen = format ?? preferences.format;
-  if (hasCitationPlace(chosen)) {
-    if (looking.has(mindId)) return;
-    looking.add(mindId);
-    try {
-      const asks = await toAsk(mindId, chosen, preferences);
-      if (asks) {
-        ask(mindId, chosen, asks.mark, asks.places);
-        return;
-      }
-    } catch (failure) {
-      const { result } = useExports.getState();
-      if (result?.mindId === mindId && result.state === "saving") {
-        console.error(`What the export of Mind ${mindId} asks couldn't be worked out.`, failure);
-      } else {
-        useExports.setState({
-          result: {
-            mindId,
-            state: "failed",
-            format: chosen,
-            message: errorMessage(failure, translateNow),
-          },
-        });
-      }
-      return;
-    } finally {
-      looking.delete(mindId);
-    }
-  }
   const options = optionsFor(chosen, preferences);
-  if (!options) return;
   const settle = begin(mindId, chosen);
   if (!settle) return;
   if (chosen !== preferences.format) {
@@ -324,13 +468,12 @@ export async function exportMind(
         ? { mindId, state: "review", format: chosen, word: saved.word }
         : savedResult(mindId, chosen, saved),
     );
+    const store = useAppStore.getState();
+    if (saved.status === "saved" && ownMindsOf(store).some((mind) => mind.id === mindId)) {
+      store.updateGettingStarted({ exported: true });
+    }
   } catch (failure) {
-    settle({
-      mindId,
-      state: "failed",
-      format: chosen,
-      message: errorMessage(failure, translateNow),
-    });
+    settle(failedResult(mindId, chosen, failure));
   }
 }
 
@@ -347,12 +490,7 @@ export async function exportCheckRecord(
     }
     settle(savedResult(mindId, "check-record", await core.saveCheckRecord(mindId)));
   } catch (failure) {
-    settle({
-      mindId,
-      state: "failed",
-      format: "check-record",
-      message: errorMessage(failure, translateNow),
-    });
+    settle(failedResult(mindId, "check-record", failure));
   }
 }
 
@@ -389,12 +527,35 @@ export async function exportComparison(
   }
 }
 
+export async function exportFigureSchedule(
+  mindId: string,
+  first?: () => Promise<boolean>,
+): Promise<void> {
+  const settle = begin(mindId, FIGURE_SCHEDULE_EXCEL);
+  if (!settle) return;
+  try {
+    if (first && !(await first())) {
+      settle(null);
+      return;
+    }
+    settle(savedResult(mindId, FIGURE_SCHEDULE_EXCEL, await core.saveFigureScheduleExport(mindId)));
+  } catch (error) {
+    settle({
+      mindId,
+      format: FIGURE_SCHEDULE_EXCEL,
+      state: "failed",
+      message: errorMessage(error, translateNow),
+    });
+  }
+}
+
 export function exportAgain(
   result: Pick<ExportResult, "mindId" | "format" | "tableId">,
   first: () => Promise<boolean>,
 ): Promise<void> {
   const { mindId, format: kind } = result;
   if (kind === COMPARISON_EXCEL) return exportComparison(mindId, result.tableId ?? "", first);
+  if (kind === FIGURE_SCHEDULE_EXCEL) return exportFigureSchedule(mindId, first);
   if (!isCheckRecord(kind)) return exportMind(mindId, kind, first);
   return exportCheckRecord(mindId, first);
 }

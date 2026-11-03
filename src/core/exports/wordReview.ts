@@ -369,6 +369,8 @@ export class Review {
   private sentences: SentencePassages = { starts: new Map(), ends: new Map() };
   private readonly openSentences = new Map<string, number>();
   private readonly commented = new Map<string, FailedSentence>();
+  /** The comments on Citations whose check failed. */
+  private failedCitations = 0;
   private readonly trackings = new Map<string, Tracking>();
 
   constructor(
@@ -440,6 +442,11 @@ export class Review {
     return [...this.commented.values()];
   }
 
+  /** The comments on what needs a look the file holds: on sentences, and on Citations. */
+  checkComments(): number {
+    return this.commented.size + this.failedCitations;
+  }
+
   private add(text: string): number {
     const id = this.ids.take("annotation");
     this.comments.push(comment(id, INCARNAMIND, this.choices.now, text, this.styles()));
@@ -486,6 +493,7 @@ export class Review {
     if (failed.length === 0) return xml;
     const text = failed.map((each) => this.labels.failedCheck(each)).join("\n");
     const id = this.add(text);
+    this.failedCitations++;
     return `${commentStart(id)}${xml}${commentEnd(id, this.styles().reference)}`;
   }
 }

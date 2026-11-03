@@ -3,6 +3,7 @@ import type { Document, DocumentPlace, LayoutTab } from "../../../../core/api";
 import { citedTextKept } from "../../../../shared/citations";
 import { useT } from "../../i18n";
 import { useAppStore, type ViewerTarget } from "../../store";
+import { CitedVersionView } from "../../viewer/CitedVersionView";
 import { DocumentView } from "../../viewer/DocumentView";
 import { type PlaceMemory, PlaceMemoryContext, type ViewPlace } from "../../viewer/place";
 import { SelectionMenu } from "../../viewer/SelectionMenu";
@@ -83,6 +84,7 @@ function useKeepOnReading(section: HTMLElement | null, tabId: string, preview: b
       intent = Date.now();
     };
     const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (SCROLL_KEYS.includes(event.key)) moves();
     };
     // A press on a scrollbar (a scroller's edge), not on a button that moves the page.
@@ -137,6 +139,9 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
     () => ({ documentId, ...(JSON.parse(placeKey) as DocumentPlace), request: tab.opened }),
     [documentId, placeKey, tab.opened],
   );
+  /** The version the Citation this tab was opened from quotes, when it is another one (#2159). */
+  const citedVersion =
+    target.currentVersion === true ? null : (target.citation?.contentHash ?? null);
   // Deleted Documents leave the list, so a target that isn't in it has been removed.
   const document = useAppStore((state) => state.documents.find((each) => each.id === documentId));
   // A Citation's Document that went with its Linked folder, whose quoted text was kept.
@@ -157,11 +162,12 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   const frame = useMemo<ViewerFrame>(
     () => ({
       document,
+      tabId,
       preview,
       keep: () => void useAppStore.getState().changeLayout({ type: "keep", tabId }),
       target,
     }),
-    [document, preview, tabId, target],
+    [document, tabId, preview, target],
   );
   const fileKey = useFileKey(document);
   const places = usePlaceMemory(target);
@@ -192,7 +198,11 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
             // goes at once). While its view loads, the header alone: the page comes a moment later.
             <Suspense key={fileKey} fallback={<ViewerHeader />}>
               <SelectionReaderContext.Provider value={lendReader}>
-                <DocumentView document={document} target={target} />
+                {citedVersion && document.contentHash !== citedVersion ? (
+                  <CitedVersionView document={document} target={target} />
+                ) : (
+                  <DocumentView document={document} target={target} />
+                )}
               </SelectionReaderContext.Provider>
             </Suspense>
           )}

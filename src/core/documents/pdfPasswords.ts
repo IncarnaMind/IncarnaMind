@@ -22,8 +22,6 @@ export function passwordProblem(error: unknown): "needed" | "wrong" | null {
   return (error as Error & { code?: unknown }).code === 2 ? "wrong" : "needed";
 }
 
-export type PdfPasswords = ReturnType<typeof createPdfPasswords>;
-
 export function createPdfPasswords(
   secrets: Pick<Secrets, "tryGet" | "set" | "delete">,
   settings: Pick<SettingsStore, "readDeviceValue" | "writeDeviceValue">,

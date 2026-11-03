@@ -67,8 +67,6 @@ const PLANS: Record<
   },
 };
 
-export type PlanPace = ReturnType<typeof createPlanPace>;
-
 export function createPlanPace(options: {
   plan: Plan;
   pace: Pace;

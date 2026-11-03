@@ -61,6 +61,8 @@ export interface CitationStyle {
    * Psychological Association", "国标".
    */
   aliases: readonly string[];
+  /** The edition of its guide, as its pack title gives it ("APA Style 7th edition"); none for one with no edition. */
+  edition?: number;
   /**
    * What else the picker's search finds it by, after a style of that name: how it cites
    * ("author-date", "footnote"), a field it is for ("medicine").
@@ -103,6 +105,7 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     form: "in-text",
     language: "en",
     aliases: ["American Psychological Association"],
+    edition: 7,
     keywords: ["author-date"],
     heading: "References",
     locators: "in-citation",
@@ -115,6 +118,7 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     form: "in-text",
     language: "en",
     aliases: ["Modern Language Association"],
+    edition: 9,
     keywords: ["works cited"],
     heading: "Works Cited",
     locators: "in-citation",
@@ -127,6 +131,7 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     form: "in-text",
     language: "en",
     aliases: ["Cite Them Right"],
+    edition: 12,
     keywords: ["author-date"],
     heading: "Reference list",
     locators: "in-citation",
@@ -138,7 +143,8 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "note",
     form: "note",
     language: "en",
-    aliases: ["Chicago Manual of Style"],
+    aliases: ["Chicago", "芝加哥", "Chicago notes", "Chicago Manual of Style", "CMOS"],
+    edition: 18,
     keywords: ["footnote", "notes and bibliography", "脚注"],
     heading: "Bibliography",
     locators: "in-citation",
@@ -151,6 +157,7 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     form: "in-text",
     language: "en",
     aliases: ["Chicago Manual of Style"],
+    edition: 18,
     keywords: ["author-date"],
     heading: "References",
     locators: "in-citation",
@@ -223,6 +230,7 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     form: "in-text",
     language: "en",
     aliases: ["NLM", "Citing Medicine"],
+    edition: 2,
     keywords: ["numeric", "medicine"],
     heading: "References",
     locators: "in-citation",

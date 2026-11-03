@@ -4,6 +4,7 @@ import type { Editor } from "@tiptap/core";
 import { paragraph, run, W_NS, wordFile } from "../tests/helpers/word";
 import { contractFile, RESUME_TEXT_WIDTH_TWIPS, resumeFile } from "../tests/helpers/wordLookFiles";
 import {
+  chooseLook,
   createDataFolder,
   dismissChatSetup,
   focusSettled,
@@ -67,11 +68,6 @@ function placeOf(window: Page, text: string, body = RESUME_BODY) {
     },
     [text, body] as const,
   );
-}
-
-async function chooseLook(window: Page, look: "word" | "plain") {
-  await pointAndClick(window, window.getByTestId("group-menu"));
-  await pointAndClick(window, window.getByTestId(`look-${look}`));
 }
 
 /** Whether the window or a Mind's scroller scrolls sideways, and the text of each line that does in its own frame. */
@@ -164,22 +160,27 @@ test("a clause's text after its number starts at the clause's hanging indent", a
   await importWordFile(app, window, files, "Supply agreement.docx", contractFile());
   const clause = window.getByTestId("mind-editor").locator("p", { hasText: "Prices are fixed" });
   await expect(clause.locator("[data-word-tab]")).toHaveCount(1);
-  // The second line starts at the indent; so does the first line's text, after "2.1".
+  // The second line starts at the indent, whichever word the face wraps there; so does the first line's text, after "2.1".
   const lines = () =>
     clause.evaluate((element) => {
-      const lefts = (words: string) => {
-        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-          const at = node.textContent?.indexOf(words) ?? -1;
-          if (at < 0) continue;
+      const boxes: { text: string; box: DOMRect }[] = [];
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        for (let at = 0; at < (node.textContent?.length ?? 0); at++) {
           const range = document.createRange();
           range.setStart(node, at);
           range.setEnd(node, at + 1);
-          return range.getBoundingClientRect().left;
+          boxes.push({
+            text: node.textContent?.slice(at) ?? "",
+            box: range.getBoundingClientRect(),
+          });
         }
-        return Number.NaN;
-      };
-      return { number: lefts("2.1"), text: lefts("Prices"), second: lefts("that,") };
+      }
+      const left = (words: string) =>
+        boxes.find((each) => each.text.startsWith(words))?.box.left ?? Number.NaN;
+      const top = boxes[0]?.box.top ?? 0;
+      const second = boxes.find((each) => each.box.top > top + 4 && each.text.trim())?.box.left;
+      return { number: left("2.1"), text: left("Prices"), second: second ?? Number.NaN };
     });
   await expect
     .poll(async () => {

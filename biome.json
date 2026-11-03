@@ -105,6 +105,27 @@
       }
     },
     {
+      "includes": ["src/main/**", "!src/main/engineProcess.ts"],
+      "plugins": ["./biome/noUtilityProcess.grit"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "electron": {
+                    "importNames": ["utilityProcess"],
+                    "message": "Start an engine process with startEngineProcess (src/main/engineProcess.ts): it turns off ONNX Runtime's usage telemetry (#2145)."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["src/shared/**"],
       "linter": {
         "rules": {

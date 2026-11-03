@@ -124,7 +124,7 @@ export function report(
     output: some.reduce((sum, each) => sum + each[key].outputTokens, 0),
   });
   return [
-    "# Requests that change several Minds",
+    "# Requests that change several Notes",
     "",
     `${rows.length - under.length} of ${rows.length} requests at or above the bar of ${percent(BAR * 100, 100)} of their runs; ${results.length - failing.length} of ${results.length} runs passed. Commit ${meta.commit}. Models asked: ${models.join(", ")}.`,
     "",
@@ -141,14 +141,14 @@ export function report(
     }),
     "## By request",
     "",
-    "The last column counts the Minds changed in all of a request's runs: those whose changes the app applies at once, and those that wait for the User to accept them.",
+    "The last column counts the Notes changed in all of a request's runs: those whose changes the app applies at once, and those that wait for the User to accept them.",
     "",
     "| Request | Language | Model | Passed | Median s | Tokens in / out a run | Applied at once / waiting |",
     "|---|---|---|---|---|---|---|",
     ...rows.map((row) => {
       const own = results.filter((result) => result.id === row.id && result.model === row.model);
       const fates = own.flatMap((each) => each.calls).filter((line) => MIND_WRITES.test(line));
-      const applied = fates.filter((line) => line.includes("applied in the Mind at once")).length;
+      const applied = fates.filter((line) => line.includes("applied in the Note at once")).length;
       return `| ${row.id} | ${row.language} | ${row.model} | ${row.passed} of ${row.runs}${row.under ? " **under the bar**" : ""} | ${median(own.map((each) => each.answeredSeconds)).toFixed(0)} | ${thousands(average(own.map((each) => each.chat.inputTokens)))} / ${thousands(average(own.map((each) => each.chat.outputTokens)))} | ${applied} / ${fates.length - applied} |`;
     }),
     "",
@@ -219,7 +219,7 @@ export function report(
                     `- ${row.mind}${row.created ? " (new)" : ""}: ${row.changed} changed, ${row.wrote} written`,
                 ),
               ]
-            : ["", "The card listed no Mind."]),
+            : ["", "The card listed no Note."]),
           "",
           "What the app recorded its Tools doing:",
           "",

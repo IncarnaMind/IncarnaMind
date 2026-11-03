@@ -17,7 +17,7 @@ import {
   NotFoundError,
 } from "../../src/core";
 import { migrate, migrations, openDatabase } from "../../src/core/storage";
-import { citingModel } from "../helpers/citations";
+import { answerJudged, citingModel } from "../helpers/citations";
 import {
   createTempDataFolder,
   manualClock,
@@ -49,19 +49,33 @@ type Asked = Extract<ConversationAskResult, { asked: true }>;
 
 /** Collects every Answer's end, so a test can wait for one it asked for after the fact. */
 function answerEndings(core: Core) {
-  const ended = new Map<string, "finished" | "failed">();
+  const ended = new Map<string, "finished" | "failed" | Error>();
   const waiting = new Map<string, () => void>();
-  const end = (answerId: string, how: "finished" | "failed") => {
+  const end = (answerId: string, how: "finished" | "failed" | Error) => {
     ended.set(answerId, how);
     waiting.get(answerId)?.();
   };
-  core.on("answer.finished", ({ answerId }) => end(answerId, "finished"));
+  // An Answer ends at once; its Citations wait for their sentences' judgement (#2311).
+  core.on("answer.finished", ({ answerId, conversationId }) => {
+    if (!conversationId) end(answerId, "finished");
+    else {
+      answerJudged(core, conversationId, answerId).then(
+        () => end(answerId, "finished"),
+        (error: unknown) =>
+          end(answerId, error instanceof Error ? error : new Error(String(error))),
+      );
+    }
+  });
   core.on("answer.failed", ({ answerId }) => end(answerId, "failed"));
   return (answerId: string) =>
-    new Promise<"finished" | "failed">((resolve) => {
-      const how = ended.get(answerId);
-      if (how) resolve(how);
-      else waiting.set(answerId, () => resolve(ended.get(answerId) ?? "failed"));
+    new Promise<"finished" | "failed">((resolve, reject) => {
+      const settle = () => {
+        const how = ended.get(answerId) ?? "failed";
+        if (how instanceof Error) reject(how);
+        else resolve(how);
+      };
+      if (ended.has(answerId)) settle();
+      else waiting.set(answerId, settle);
     });
 }
 
@@ -1010,6 +1024,67 @@ describe("An Answer in a conversation", { timeout: 30_000 }, () => {
     });
   });
 
+  // protects=an Answer written again with another model (the one picked after its own failed) is written with it, keeps its Question's words and Search scope, and the Question stays on that model for the next Regenerate (#1848); fails_when=the override is ignored, the Question is asked anew, or its scope or text is lost; no_claim=how the failed line offers it (e2e/askAgainWithModel.spec.ts).
+  test("an Answer written again with another model keeps its Question and goes on with that model", async () => {
+    const built: string[] = [];
+    const model = streamingModel("Twice a day.");
+    const { core, ended } = await setUp(model, {
+      createChatModel: (spec) => {
+        built.push(spec.modelId);
+        return model;
+      },
+    });
+    const first = await ask(core, ended, { text: "How often?", model: undefined });
+    const providerId = answerOf(await core.getConversation(first.conversation.id), first.answerId)
+      .model?.providerId;
+    if (!providerId) throw new Error("The Answer names no provider.");
+
+    const picked = { providerId, modelId: "second-model" };
+    const again = await core.regenerateConversationAnswer({
+      conversationId: first.conversation.id,
+      answerId: first.answerId,
+      model: picked,
+    });
+    expect(again).toMatchObject({ asked: true, answerId: first.answerId });
+    const settled = async () =>
+      answerOf(await core.getConversation(first.conversation.id), first.answerId).status;
+    await vi.waitFor(() => expect(built).toContain("second-model"));
+    await vi.waitFor(async () => expect(await settled()).not.toBe("streaming"));
+
+    let content = await core.getConversation(first.conversation.id);
+    expect(content.messages.map((message) => message.kind)).toEqual(["question", "answer"]);
+    expect(content.messages[0]).toMatchObject({
+      kind: "question",
+      text: "How often?",
+      model: picked,
+    });
+    expect(answerOf(content, first.answerId).model).toEqual(picked);
+
+    // Written again once more with no model named, it goes on with the one the Question now has.
+    await core.regenerateConversationAnswer({
+      conversationId: first.conversation.id,
+      answerId: first.answerId,
+    });
+    await vi.waitFor(() =>
+      expect(built.filter((id) => id === "second-model").length).toBeGreaterThan(1),
+    );
+    await vi.waitFor(async () => expect(await settled()).not.toBe("streaming"));
+    content = await core.getConversation(first.conversation.id);
+    expect(answerOf(content, first.answerId).model).toEqual(picked);
+  });
+
+  test("a model that isn't { providerId, modelId } is refused when an Answer is written again", async () => {
+    const { core, ended } = await setUp(streamingModel("Twice a day."));
+    const first = await ask(core, ended, { text: "How often?" });
+    await expect(
+      core.regenerateConversationAnswer({
+        conversationId: first.conversation.id,
+        answerId: first.answerId,
+        model: { modelId: "no-provider" } as never,
+      }),
+    ).rejects.toMatchObject({ wording: { key: "error.question.model" } });
+  });
+
   test("one left being written when IncarnaMind quit is stopped at the next start, not asked again, and found by search", async () => {
     const controlled = controlledModel();
     const { core, dataDir, adapters } = await setUp(controlled.model);
@@ -1105,12 +1180,46 @@ describe("A conversation's Citations", { timeout: 60_000 }, () => {
     if (!citation) throw new Error("No Citation.");
     expect(
       await later.recheckCitation({
+        mindId: null,
         documentId: citation.documentId,
         pageFrom: citation.pageFrom,
         pageTo: citation.pageTo,
         quote: citation.quote,
       }),
     ).toMatchObject({ check: "not-found", contentHash: sha256(V2) });
+  });
+
+  test("one still waiting for its sentence's judgement when IncarnaMind quit is not checked at the next start, and Check again judges it", async () => {
+    const model = citingModel({
+      query: "spring tides",
+      records: (passages) => [
+        { marker: 1, passage: passages[0]?.id, pageFrom: 2, pageTo: 2, quote: SPRING },
+      ],
+      answer: "Spring tides come at new and full moon [^1].",
+    });
+    const { core, dataDir, ended, adapters } = await setUp(model);
+    const sources = await createSourceFolder();
+    await addAndProcess(core, [await writeSourceFile(sources, "Tides.pdf", V1)]);
+    const { conversation, answerId } = await ask(core, ended, { text: "When are spring tides?" });
+    const judged = answerOf(await core.getConversation(conversation.id), answerId);
+    expect(judged.citations).toMatchObject([{ marker: 1, check: "found" }]);
+    // A quit while its sentence was judged: the row is left as it was then.
+    core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    db.run("UPDATE conversation_messages SET citations = ? WHERE id = ?", [
+      JSON.stringify(judged.citations.map((citation) => ({ ...citation, check: "checking" }))),
+      answerId,
+    ]);
+    db.close();
+
+    const later = startCore(dataDir, adapters);
+    const reopened = answerOf(await later.getConversation(conversation.id), answerId);
+    expect(reopened.citations).toMatchObject([{ marker: 1, check: "not-checked" }]);
+
+    await later.checkAnswerAgain({ conversationId: conversation.id, answerId });
+    expect(
+      answerOf(await later.getConversation(conversation.id), answerId).citations,
+    ).toMatchObject([{ marker: 1, check: "found" }]);
   });
 });
 

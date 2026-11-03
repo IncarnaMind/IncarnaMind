@@ -13,13 +13,16 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 
 /**
  * Reads a Document's file from the main process and turns its bytes into what
- * a view shows (`read`, which may throw): read again when the Document changes.
+ * a view shows (`read`, which may throw): read again when the Document changes,
+ * as `version` (its contentHash) says, or at `reload`, as Retry asks.
  */
 export function useDocumentFile<T>(
   documentId: string,
+  version: string,
   read: (bytes: Uint8Array) => Promise<T> | T,
-): LoadedFile<T> {
+): { loaded: LoadedFile<T>; reload(): void } {
   const [loaded, setLoaded] = useState<LoadedFile<T>>({ kind: "loading" });
+  const [attempt, setAttempt] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `read` is fixed per view
   useEffect(() => {
     const controller = new AbortController();
@@ -36,6 +39,6 @@ export function useDocumentFile<T>(
         else setLoaded({ kind: "failed", message: messageOf(error) });
       });
     return () => controller.abort();
-  }, [documentId]);
-  return loaded;
+  }, [documentId, version, attempt]);
+  return { loaded, reload: () => setAttempt((count) => count + 1) };
 }

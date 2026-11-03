@@ -14,6 +14,7 @@ import {
   openSteps,
   pathsShown,
   removeDataFolder,
+  savedLine,
   setWindowSize,
   useLocalChatModel,
   useOutputLocation,
@@ -139,7 +140,7 @@ test("Make this a Skill from ⌘K; an empty Mind says there is nothing to learn 
   await newMind(window);
   await makeSkillFromPalette(window);
   const empty = window.getByTestId("make-skill-empty");
-  await expect(empty).toContainText("nothing in this Mind to make a Skill from");
+  await expect(empty).toContainText("nothing in this note to make a Skill from");
   await empty.getByRole("button", { name: "Close" }).click();
   await expect(window.getByTestId("make-skill")).toHaveCount(0);
 
@@ -165,7 +166,7 @@ test("a Skill name that is taken, an empty field and a too-long description are 
   const settings = await openSettings(window, "skills");
   const section = settings.getByTestId("skills-settings");
   await expect(section.getByTestId("skills-yours")).toContainText("No Skills yet.");
-  await expect(section.getByTestId("skills-built-in").getByTestId("skill-item")).toHaveCount(3);
+  await expect(section.getByTestId("skills-built-in").getByTestId("skill-item")).toHaveCount(9);
 
   // New Skill…: a Built-in Skill's name is taken, and each field says what is wrong.
   await section.getByTestId("skill-new").click();
@@ -211,7 +212,8 @@ test("a Skill name that is taken, an empty field and a too-long description are 
   await item.getByTestId("skill-menu").click();
   await item.getByTestId("skill-export").click();
   const done = section.getByTestId("skill-export-done");
-  await expect(done).toContainText("Saved harbour-notes.zip");
+  await expect(done).toContainText(savedLine("harbour-notes.zip", outputs));
+  await shot(window, "skill-export-saved");
   const zip = join(outputs, "harbour-notes.zip");
   expect((await readFile(zip)).subarray(0, 2).toString()).toBe("PK");
   await done.getByTestId("skill-export-show").click();
@@ -262,6 +264,7 @@ test("in Chinese and in a narrow window: the Skills page, the draft and the pick
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
+  await useOutputLocation(window, outputs);
   await window.evaluate(async () => {
     const bridge = (globalThis as unknown as { incarnamind: import("../src/core/api").CoreBridge })
       .incarnamind;
@@ -276,7 +279,7 @@ test("in Chinese and in a narrow window: the Skills page, the draft and the pick
   await row.getByTestId("skill.fromMind").click();
   const card = window.getByTestId("make-skill-editor");
   await expect(card).toBeVisible();
-  await expect(card).toContainText("根据这个 Mind 生成的草稿");
+  await expect(card).toContainText("根据这篇笔记生成的草稿");
   const box = await card.boundingBox();
   const mind = await editor.boundingBox();
   expect(box && mind && box.x + box.width <= mind.x + mind.width + 1).toBe(true);
@@ -286,6 +289,12 @@ test("in Chinese and in a narrow window: the Skills page, the draft and the pick
   await window.getByRole("button", { name: "设置" }).click();
   await window.getByTestId("settings-nav-skills").click();
   await expect(window.getByTestId("skills-yours")).toContainText("scripted-review");
+  const saved = window.getByTestId("skills-yours").getByTestId("skill-item").first();
+  await saved.getByTestId("skill-menu").click();
+  await saved.getByTestId("skill-export").click();
+  await expect(window.getByTestId("skill-export-done")).toContainText(
+    savedLine("scripted-review.zip", outputs, "zh-CN"),
+  );
   await shot(window, "skills-page-zh-narrow");
   await window.getByRole("button", { name: "关闭设置" }).click();
   await window.keyboard.press("ControlOrMeta+j");

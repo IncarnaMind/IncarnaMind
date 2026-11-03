@@ -15,6 +15,7 @@ import {
   interceptOpenExternal,
   launchApp,
   newMind,
+  openServiceList,
   openSettings,
   pointAndClick,
   removeDataFolder,
@@ -70,7 +71,7 @@ test("at 900px high the key form is in view, or scrolls inside its card, in Engl
     for (const value of ["en", "zh-CN"] as const) {
       await language(window, value);
       const card = await openKeyForm(window);
-      await card.getByTestId("setup-key").click();
+      await openServiceList(window, card);
       const form = card.getByTestId("provider-form");
       await expect(form.getByRole("radio", { checked: true })).toHaveCount(1);
       await expect(form.getByTestId("provider-model-line")).toBeVisible();
@@ -132,7 +133,7 @@ for (const { width, height } of [
         const words = MODEL_LINE[value];
         await language(window, value);
         const card = await openKeyForm(window);
-        await pointAndClick(window, card.getByTestId("setup-key"));
+        await openServiceList(window, card);
         const form = card.getByTestId("provider-form");
         const key = form.locator('input[type="password"]');
         const line = form.getByTestId("provider-model-line");
@@ -199,7 +200,7 @@ for (const { value, next, catalogId } of [
       await acceptPlainTextKeys(window);
       await language(window, value);
       const card = await openKeyForm(window);
-      await pointAndClick(window, card.getByTestId("setup-key"));
+      await openServiceList(window, card);
       const form = card.getByTestId("provider-form");
       const line = form.getByTestId("provider-model-line");
       const picker = form.getByTestId("provider-model");
@@ -247,14 +248,14 @@ for (const value of ["en", "zh-CN"] as const) {
       await language(window, value);
       const { catalogId } = MODEL_LINE[value];
       const card = await openKeyForm(window);
-      await pointAndClick(window, card.getByTestId("setup-key"));
+      await openServiceList(window, card);
       const form = card.getByTestId("provider-form");
       await expect(form.getByRole("radio", { checked: true })).toHaveValue(catalogId);
       await expect(form.getByLabel(/^API /)).toBeFocused();
       await window.keyboard.insertText(value === "en" ? KEYS.anthropic : KEYS.bare);
       if (value === "en") await pointAndClick(window, form.getByTestId("provider-use-key"));
       else await window.keyboard.press("Enter");
-      await expect(card.getByTestId("setup-ready-title")).toBeVisible();
+      await expect(window.getByTestId("assistant-setup-line")).toBeVisible();
       const chatModel = await window.evaluate(
         async () =>
           (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getSettings())
@@ -279,7 +280,7 @@ test("Where do I find it? opens with the keyboard, and holds the notes, the step
     ] as const) {
       await language(window, value);
       const card = await openKeyForm(window);
-      await card.getByTestId("setup-key").click();
+      await openServiceList(window, card);
       const form = card.getByTestId("provider-form");
       const help = form.getByTestId("provider-key-help");
       await expect(help).not.toHaveAttribute("open", "");
@@ -446,15 +447,15 @@ test("the provider's own line on what it does with the data sits under the sente
   try {
     await setWindowSize(app, window, 1100, 900);
     await acceptPlainTextKeys(window);
-    for (const [value, link, lead] of [
-      ["en", "Data use ↗", ""],
-      ["zh-CN", "数据使用 ↗", "数据使用："],
+    for (const [value, link] of [
+      ["en", "Data use ↗"],
+      ["zh-CN", "数据使用 ↗"],
     ] as const) {
       await language(window, value);
       const card = await openKeyForm(window);
-      await card.getByTestId("setup-key").click();
+      await openServiceList(window, card);
       const line = card.getByTestId("provider-form").getByTestId("provider-data-use");
-      await expect(line).toContainText(lead);
+      if (value === "zh-CN") await expect(line).not.toContainText("数据使用：");
       await expect(line.getByRole("link")).toHaveText(link);
       await expect(line.getByRole("link")).toHaveAttribute("href", /^https:\/\//);
       await card.getByTestId("setup-back").click();
@@ -465,22 +466,31 @@ test("the provider's own line on what it does with the data sits under the sente
     const line = (await addProviderForm(settings, "anthropic")).getByTestId("provider-data-use");
     await expect(line.getByRole("link")).toHaveText("Data use ↗");
     await language(window, "zh-CN");
-    await expect(line).toContainText("数据使用：");
+    await expect(line).not.toContainText("数据使用：");
     await expect(line.getByRole("link")).toHaveText("数据使用 ↗");
   } finally {
     await app.close();
   }
 });
 
-test("every provider's line on what it does with the data is one line beside its link at 900px wide, in English and Chinese, at first run and in Settings", async () => {
+test("every provider's line on what it does with the data is whole beside its link at 900px wide, in English and Chinese, at first run and in Settings", async () => {
   const { app, window } = await launchApp(dataDir);
   const hosted = CATALOG_PROVIDERS.filter(
     (each) => each.group !== "local" && each.id !== "openai-compatible",
   );
-  const oneLine = (line: Locator) =>
+  /** The line's words and its link stay inside the form or Settings; a wide system font may wrap it. */
+  const readable = (line: Locator) =>
     line.evaluate((element) => {
-      const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
-      return element.getBoundingClientRect().height < lineHeight * 1.5;
+      const box = element.getBoundingClientRect();
+      const frame = element.closest('[data-testid="provider-form"], [data-testid="settings"]');
+      const edge = frame?.getBoundingClientRect();
+      return (
+        box.width > 0 &&
+        box.height > 0 &&
+        box.left >= (edge?.left ?? 0) - 0.5 &&
+        box.right <= (edge?.right ?? innerWidth) + 0.5 &&
+        element.scrollWidth <= element.clientWidth + 1
+      );
     });
   try {
     await setWindowSize(app, window, 900, 900);
@@ -492,7 +502,7 @@ test("every provider's line on what it does with the data is one line beside its
     ] as const) {
       await language(window, value);
       const card = await openKeyForm(window);
-      await card.getByTestId("setup-key").click();
+      await openServiceList(window, card);
       const form = card.getByTestId("provider-form");
       await form.getByTestId("provider-more-toggle").click();
       for (const provider of hosted.filter((each) => each.support === "first-class")) {
@@ -501,7 +511,8 @@ test("every provider's line on what it does with the data is one line beside its
           .click();
         const line = form.getByTestId("provider-data-use");
         await expect(line).toContainText(provider.dataUse.summary[words]);
-        expect(await oneLine(line), `${provider.id} at first run, ${value}`).toBe(true);
+        expect(await readable(line), `${provider.id} at first run, ${value}`).toBe(true);
+        await expect(line.getByRole("link")).toBeVisible();
         checked += 1;
       }
       await card.getByTestId("setup-back").click();
@@ -514,7 +525,8 @@ test("every provider's line on what it does with the data is one line beside its
           "provider-data-use",
         );
         await expect(line).toContainText(provider.dataUse.summary[words]);
-        expect(await oneLine(line), `${provider.id} in Settings, ${value}`).toBe(true);
+        expect(await readable(line), `${provider.id} in Settings, ${value}`).toBe(true);
+        await expect(line.getByRole("link")).toBeVisible();
         await expect(line.getByRole("link")).toHaveAttribute(
           "href",
           (words === "zh" && provider.dataUse.zhUrl) || (provider.dataUse.url ?? ""),
@@ -541,11 +553,11 @@ test("a way that can't be used yet says why, with the next step: Ollama not runn
     await card.getByTestId("setup-other").click();
     const local = card.getByTestId("way-local");
     await expect(local).toContainText("Needs the free Ollama app");
-    await expect(local.locator("xpath=..").getByRole("link", { name: /Get Ollama/ })).toBeVisible();
+    await expect(local.getByTestId("ollama-get")).toHaveText("Get Ollama ↗");
     await language(window, "zh-CN");
     await expect(local).toContainText("需要免费的 Ollama 应用");
     await language(window, "en");
-    await card.getByTestId("setup-key").click();
+    await openServiceList(window, card);
     const form = card.getByTestId("provider-form");
     await expect(form.getByTestId("provider-use-key")).toBeDisabled();
     await expect(form.getByTestId("provider-use-key-why")).toHaveText("Paste the key first.");
@@ -604,7 +616,7 @@ for (const { value, first, other, anyway, notAnthropic, notGoogle } of [
       await acceptPlainTextKeys(window);
       await language(window, value);
       const card = await openKeyForm(window);
-      await card.getByTestId("setup-key").click();
+      await openServiceList(window, card);
       const form = card.getByTestId("provider-form");
       const key = form.locator('input[type="password"]');
       const line = form.getByTestId("provider-key-wrong");
@@ -852,7 +864,7 @@ test("a provider with a region in each shows one inline choice, Region: Internat
     await setWindowSize(app, window, 900, 900);
     await acceptPlainTextKeys(window);
     const card = await openKeyForm(window);
-    await card.getByTestId("setup-key").click();
+    await openServiceList(window, card);
     const form = card.getByTestId("provider-form");
     const group = form.getByTestId("provider-region");
     for (const [value, opens, words] of [
@@ -910,7 +922,7 @@ for (const { id, tongue, made } of [
         [hostOfRegion(id, opens)]: "another-key",
       });
       const card = await openKeyForm(window);
-      await pointAndClick(window, card.getByTestId("setup-key"));
+      await openServiceList(window, card);
       const form = card.getByTestId("provider-form");
       await chooseProvider(form, id);
       await expect(regionOf(form)).toHaveValue(opens);
@@ -973,7 +985,7 @@ test("a region picked by hand before sending keeps the typed key and decides the
       [hostOfRegion("kimi", "intl")]: "another-key",
     });
     const card = await openKeyForm(window);
-    await pointAndClick(window, card.getByTestId("setup-key"));
+    await openServiceList(window, card);
     const form = card.getByTestId("provider-form");
     await chooseProvider(form, "kimi");
     await expect(regionOf(form)).toHaveValue("intl");
@@ -1007,7 +1019,7 @@ test("a key that names another service, then Use it anyway, brings back the serv
     await setWindowSize(app, window, 900, 900);
     await acceptPlainTextKeys(window);
     const card = await openKeyForm(window);
-    await pointAndClick(window, card.getByTestId("setup-key"));
+    await openServiceList(window, card);
     const form = card.getByTestId("provider-form");
     await chooseProvider(form, "kimi");
     await expect(regionOf(form)).toHaveValue("intl");
@@ -1032,7 +1044,7 @@ for (const height of [560, 700]) {
       await setWindowSize(app, window, 900, height);
       await acceptPlainTextKeys(window);
       const card = await openKeyForm(window);
-      await card.getByTestId("setup-key").click();
+      await openServiceList(window, card);
       const form = card.getByTestId("provider-form");
       const key = form.locator('input[type="password"]');
       // The card scrolled so the key field sits just above the foot: what comes under it is hidden by it.
@@ -1066,26 +1078,30 @@ for (const height of [560, 700]) {
 for (const { value, line, chips, titles } of [
   {
     value: "en",
-    line: "OpenAI, Anthropic, Google, DeepSeek, Kimi and more",
+    line: "OpenAI, Anthropic, Google, OpenRouter and xAI keys are recognized here.",
     chips: ["Anthropic", "OpenAI", "Google", "DeepSeek", "Kimi", "Qwen"],
     titles: ["Anthropic", "OpenAI", "Google", "DeepSeek", "Kimi"],
   },
   {
     value: "zh-CN",
-    line: "DeepSeek、通义千问、Kimi、智谱 GLM 等",
+    line: "在这里可以识别 OpenAI、Anthropic、Google、OpenRouter 和 xAI 的密钥。",
     chips: ["DeepSeek", "通义千问", "Kimi", "智谱 GLM", "Anthropic", "OpenAI", "Google"],
     titles: ["DeepSeek", "通义千问", "Kimi", "智谱 GLM"],
   },
 ] as const) {
-  test(`the first-run key line names the services that work for the language, and each opens its key form in one step (${value})`, async () => {
+  test(`first run names the key forms it recognises and hands the rest to the service list, whose chips and key forms all open in one step (${value})`, async () => {
     const { app, window } = await launchApp(dataDir);
     try {
       await setWindowSize(app, window, 1100, 900);
       await acceptPlainTextKeys(window);
       await language(window, value);
       const card = await openKeyForm(window);
-      await expect(card.getByTestId("setup-key-for")).toHaveText(line);
-      await card.getByTestId("setup-key").click();
+      await expect(card.getByTestId("setup-key-line")).toHaveText(line);
+      const field = card.getByTestId("setup-key");
+      await field.fill("a-key-from-no-known-service");
+      await field.press("Enter");
+      await expect(card.getByTestId("setup-key-unrecognised")).toBeVisible();
+      await card.getByTestId("setup-key-choose-service").click();
       const form = card.getByTestId("provider-form");
       const row = form.getByRole("radio");
       await expect(row).toHaveCount(chips.length);

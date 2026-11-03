@@ -74,7 +74,7 @@ test("Export › More formats stays open while the pointer slides across the row
   expect(await rowsEntered(window)).toEqual(
     expect.arrayContaining([expect.stringMatching(/^export-(citation-style-menu|options)$/)]),
   );
-  await expect(window.getByTestId("export-result").getByTestId("export-done")).toHaveText(
+  await expect(window.getByTestId("export-result").getByTestId("export-done")).toContainText(
     savedLine("Tides.md", output),
   );
 

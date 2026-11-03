@@ -28,3 +28,14 @@ export function parseCsv(csv: string): string[][] {
   if (cell !== "" || row.length > 0) rows.push([...row, cell]);
   return rows;
 }
+
+/** A check record's item rows, by the header's names: the table after its summary. */
+export function recordRows(csv: string): Record<string, string>[] {
+  const table = parseCsv(csv);
+  const at = table.findIndex((each) => each.length === 0 || (each.length === 1 && each[0] === ""));
+  const [header = [], ...rows] = table.slice(at + 1);
+  const end = rows.findIndex((each) => each.length === 0 || (each.length === 1 && each[0] === ""));
+  return rows
+    .slice(0, end === -1 ? rows.length : end)
+    .map((each) => Object.fromEntries(header.map((name, i) => [name, each[i] ?? ""])));
+}

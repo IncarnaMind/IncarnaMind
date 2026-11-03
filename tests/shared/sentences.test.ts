@@ -54,6 +54,69 @@ describe("The sentences of a paragraph", () => {
     expect(sentences(`${before} ${cited}`)).toEqual([before, cited]);
   });
 
+  test.each([
+    "Smith Dep. 45:3–12",
+    "Compl. ¶ 14",
+    "Smith Decl. ¶¶ 3–5",
+    "Pl.'s Ex. 7, p. 3",
+    "Dep. Tr. 45:3–12",
+  ])("a record cite stays in one sentence: %s", (raw) => {
+    expect(sentences(`See ${raw}. Next sentence stays apart.`)).toEqual([
+      `See ${raw}.`,
+      "Next sentence stays apart.",
+    ]);
+  });
+
+  test("a parenthesized record cite stays in its English or Chinese sentence", () => {
+    expect(
+      sentences("The witness denied it (Smith Dep. 45:3–12). Next sentence stays apart."),
+    ).toEqual(["The witness denied it (Smith Dep. 45:3–12).", "Next sentence stays apart."]);
+    expect(sentences("笔录确认证人否认了这一点 (Smith Dep. 45:3–12)。下一句仍然独立。")).toEqual([
+      "笔录确认证人否认了这一点 (Smith Dep. 45:3–12)。",
+      "下一句仍然独立。",
+    ]);
+  });
+
+  test("a record cite starts after the sentence before it", () => {
+    expect(sentences("The testimony ended. Smith Dep. 45:3–12 is the cited passage.")).toEqual([
+      "The testimony ended.",
+      "Smith Dep. 45:3–12 is the cited passage.",
+    ]);
+  });
+
+  test("a sentence of record cites alone belongs to the sentence it supports", () => {
+    expect(sentences("Plaintiff left at noon. Smith Dep. 45:3–12. The next fact.")).toEqual([
+      "Plaintiff left at noon. Smith Dep. 45:3–12.",
+      "The next fact.",
+    ]);
+    expect(sentences("He signed it. See also Def.'s Ex. 7 at 3; Id. at 4.")).toEqual([
+      "He signed it. See also Def.'s Ex. 7 at 3; Id. at 4.",
+    ]);
+    expect(sentences("原告中午离开。（Smith Dep. 45:3–12）。下一句。")).toEqual([
+      "原告中午离开。（Smith Dep. 45:3–12）。",
+      "下一句。",
+    ]);
+    expect(sentences("Smith Dep. 45:3–12. The first sentence cites only.")).toEqual([
+      "Smith Dep. 45:3–12.",
+      "The first sentence cites only.",
+    ]);
+  });
+
+  test("a court decision's citation sentence stays a sentence of its own", () => {
+    expect(
+      sentences("The rule is settled. Hallmark v. Rio Grande, 512 S.W.3d 101 (Tex. 2017)."),
+    ).toEqual(["The rule is settled.", "Hallmark v. Rio Grande, 512 S.W.3d 101 (Tex. 2017)."]);
+  });
+
+  test.each(["Dep.", "Compl.", "Decl.", "p.", "Tr."])(
+    "an incomplete record abbreviation does not join sentences: %s",
+    (abbreviation) => {
+      expect(
+        sentences(`The note ends with ${abbreviation} Next sentence remains separate.`),
+      ).toEqual([`The note ends with ${abbreviation}`, "Next sentence remains separate."]);
+    },
+  );
+
   test("Chinese sentences end at 。！？", () => {
     expect(sentences("今天的潮水很高。明天会更高！真的吗？")).toEqual([
       "今天的潮水很高。",

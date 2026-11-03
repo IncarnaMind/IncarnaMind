@@ -74,7 +74,7 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(Math.abs(opening.left + opening.originX - (from.x + from.width / 2))).toBeLessThan(1.5);
     expect(opening.top).toBeGreaterThanOrEqual(from.y + from.height);
     await expect(menu.getByRole("menuitem").first()).toHaveText(
-      language === "en" ? /New Mind/ : /新建 Mind/,
+      language === "en" ? /New note/ : /新建笔记/,
     );
 
     await motionSettled(window);

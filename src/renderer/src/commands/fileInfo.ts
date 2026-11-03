@@ -1,5 +1,5 @@
 import { copyText } from "../copied";
-import { infoLabelKey } from "../fileInfo";
+import { infoLabelKey, userFile } from "../fileInfo";
 import { useInfo } from "../info";
 import type { ObjectRef } from "../objects";
 import { useAppStore } from "../store";
@@ -16,7 +16,7 @@ function fileOf(ctx: CommandContext): { ref: ObjectRef; path: string; web: boole
     return linked && { ref, path: linked.path, web: false };
   }
   const [document] = documentsOf(ctx);
-  return document && { ref, path: document.path, web: document.web !== null };
+  return document && { ref, path: document.path, web: !userFile(document) };
 }
 
 function infoOf(ctx: CommandContext): ObjectRef | undefined {

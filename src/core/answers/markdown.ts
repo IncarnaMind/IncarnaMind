@@ -6,7 +6,9 @@
  * "<br>" as a line break in a cell), and math as KaTeX formulas (`$…$` or
  * `\(…\)` inline, `$$…$$` or `\[…\]` as a block), with bold, italic,
  * strikethrough, inline code and links. Anything else (HTML) stays as text.
- * A line break inside a paragraph is kept.
+ * A line break inside a paragraph is kept. A line starting `\[` is a formula
+ * only when a `\]` follows it, on a later line too; with none it stays text,
+ * its words kept (#2422). An unclosed `$$` runs to the end.
  *
  * While an Answer streams, the text is cut off at an arbitrary point. With
  * `streaming`, what would still change how it looks is held back (a half-typed
@@ -43,6 +45,9 @@ export function markdownToBlocks(markdown: string, options: MarkdownOptions = {}
 }
 
 const PARTIAL_MARKER = /^[ \t]*(?:[-*+_]{1,2}|\d{1,9}[.)]?|#{1,6}|>|[`~]{1,2}|\$|\\)$/;
+
+/** The level the export writes above a list that starts a level deeper, which its indent alone can't say. */
+const START_LEVEL = /^<!-- start-level: ([1-8]) -->$/;
 const FENCE = /^( {0,3})(`{3,}|~{3,})[ \t]*([^\s`]*)[^`]*$/;
 const MATH_BLOCK = /^ {0,3}(\$\$|\\\[)(.*)$/;
 const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
@@ -115,11 +120,39 @@ function tablePending(lines: readonly string[], i: number, open: boolean): boole
 /** `open`: the last line may continue, so what ends there is unfinished. */
 function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
   const blocks: NodeJSON[] = [];
+  /** From this line on there is no "\]" at all, so a "\[" there is text without looking again. */
+  let noCloserFrom = Number.POSITIVE_INFINITY;
   let i = 0;
   while (i < lines.length) {
     const line = lines[i] as string;
     if (isBlank(line)) {
       i++;
+      continue;
+    }
+    const declared = START_LEVEL.exec(line.trim());
+    if (declared) {
+      // The export indents the list three spaces a level (#1419); only under its comment, so a
+      // model's indented line is never read as a list.
+      const level = Number(declared[1]);
+      const width = 3 * level;
+      let end = i + 1;
+      while (end < lines.length) {
+        if (isBlank(lines[end] as string)) {
+          let next = end;
+          while (next < lines.length && isBlank(lines[next] as string)) next++;
+          if (next < lines.length && indentOf(lines[next] as string) >= width) end = next;
+          else break;
+        } else if (indentOf(lines[end] as string) >= width) end++;
+        else break;
+      }
+      const inner = parseBlocks(
+        lines.slice(i + 1, end).map((each) => dedent(each, width)),
+        open && end >= lines.length,
+      );
+      const [first] = inner;
+      if (first?.type === "orderedList") first.attrs = { ...first.attrs, startLevel: level };
+      blocks.push(...inner);
+      i = end;
       continue;
     }
     const isLast = i === lines.length - 1;
@@ -147,30 +180,38 @@ function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
     if (math) {
       const [, opener = "$$", rest = ""] = math;
       const closer = opener === "$$" ? "$$" : "\\]";
+      // A "\[" below a line with no "\]" after it is text at once: rescanning for each is quadratic (#2438).
+      const textOnly = opener === "\\[" && i >= noCloserFrom;
       const body: string[] = [];
       let closed = false;
       let after = "";
       let remaining = rest;
-      for (;;) {
-        const end = remaining.indexOf(closer);
-        if (end >= 0) {
-          body.push(remaining.slice(0, end));
-          after = remaining.slice(end + closer.length);
-          closed = true;
-          i++;
-          break;
+      let end = i;
+      if (!textOnly)
+        for (;;) {
+          const close = remaining.indexOf(closer);
+          if (close >= 0) {
+            body.push(remaining.slice(0, close));
+            after = remaining.slice(close + closer.length);
+            closed = true;
+            break;
+          }
+          body.push(remaining);
+          end++;
+          if (end >= lines.length) break;
+          remaining = lines[end] as string;
         }
-        body.push(remaining);
-        i++;
-        if (i >= lines.length) break;
-        remaining = lines[i] as string;
-      }
       // An unclosed formula would show as a KaTeX error until it's complete.
       if (!closed && open) break;
-      const latex = body.join("\n").trim();
-      if (latex) blocks.push({ type: "blockMath", attrs: { latex } });
-      if (after.trim()) blocks.push(paragraph(after.trim(), open && i >= lines.length));
-      continue;
+      // A "\[" that never closes is text, not a formula: its paragraph keeps the words (#2422).
+      if (closed || opener === "$$") {
+        i = closed ? end + 1 : lines.length;
+        const latex = body.join("\n").trim();
+        if (latex) blocks.push({ type: "blockMath", attrs: { latex } });
+        if (after.trim()) blocks.push(paragraph(after.trim(), open && i >= lines.length));
+        continue;
+      }
+      noCloserFrom = i;
     }
 
     const heading = HEADING.exec(line);
@@ -446,8 +487,21 @@ type Token =
 
 const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/;
 const isWhitespace = (char: string | undefined) => char === undefined || /\s/.test(char);
-const isPunctuation = (char: string | undefined) =>
+const isUnicodePunctuation = (char: string | undefined) =>
   char !== undefined && /[\p{P}\p{S}]/u.test(char);
+/**
+ * Chinese writes its punctuation with no spaces around it. Beside a `**` or `~~` delimiter, a
+ * full-width or CJK punctuation mark counts like a letter, never like the ASCII punctuation
+ * CommonMark would hold the emphasis back for: `**上限：**5000 元` and `每月5000**（含税）**` are bold
+ * (#1774), as markdown-cjk-friendly reads them. A lone `*` and `_`'s intraword rule keep it
+ * punctuation, so `3*（2+1）*4` stays as written and `（_强调_）` is italic.
+ */
+const isCjkPunctuation = (char: string | undefined) =>
+  char !== undefined &&
+  /[\u3000-\u303f\ufe10-\ufe19\ufe30-\ufe4f\uff00-\uffef]/u.test(char) &&
+  /[\p{P}\p{S}]/u.test(char);
+const isPunctuation = (char: string | undefined) =>
+  isUnicodePunctuation(char) && !isCjkPunctuation(char);
 /**
  * Chinese has no spaces, so CommonMark's flanking rule leaves `**仍未确定：**下一步` unclosed
  * (#790). Beside punctuation, a CJK letter counts like a space, as in markdown-cjk-friendly.
@@ -686,22 +740,37 @@ function tokenize(source: string, open: boolean): Token[] {
       }
       const before = i > 0 ? source[i - 1] : undefined;
       const after = source[i + run];
+      // A lone `*` beside CJK punctuation follows CommonMark and counts it as punctuation, so
+      // `3*（2+1）*4` stays as written; `**` and `~~` let it stand like a letter (#1774).
+      const punctuation = char === "*" && run === 1 ? isUnicodePunctuation : isPunctuation;
       const leftFlanking =
         !isWhitespace(after) &&
-        (!isPunctuation(after) || isWhitespace(before) || isPunctuation(before) || isCjk(before));
+        (!punctuation(after) ||
+          isWhitespace(before) ||
+          punctuation(before) ||
+          isCjk(before) ||
+          isCjkPunctuation(before));
       const rightFlanking =
         !isWhitespace(before) &&
-        (!isPunctuation(before) || isWhitespace(after) || isPunctuation(after) || isCjk(after));
+        (!punctuation(before) ||
+          isWhitespace(after) ||
+          punctuation(after) ||
+          isCjk(after) ||
+          isCjkPunctuation(after));
       flush();
       tokens.push({
         kind: "delimiter",
         char,
         count: run,
-        // "_" doesn't emphasise inside words (snake_case).
+        // "_" doesn't emphasise inside words (snake_case), but may open or close beside punctuation.
         canOpen:
-          char === "_" ? leftFlanking && (!rightFlanking || isPunctuation(before)) : leftFlanking,
+          char === "_"
+            ? leftFlanking && (!rightFlanking || isUnicodePunctuation(before))
+            : leftFlanking,
         canClose:
-          char === "_" ? rightFlanking && (!leftFlanking || isPunctuation(after)) : rightFlanking,
+          char === "_"
+            ? rightFlanking && (!leftFlanking || isUnicodePunctuation(after))
+            : rightFlanking,
         marks: [],
       });
       i += run;
@@ -713,6 +782,61 @@ function tokenize(source: string, open: boolean): Token[] {
   }
   flush();
   return tokens;
+}
+
+/** Which of bold, italic and strikethrough a character is in. */
+export interface Look {
+  bold?: true;
+  italic?: true;
+  strike?: true;
+}
+
+const withoutDelimiters = (text: string) => text.replace(/[*_~]/g, "");
+
+/** `\*`, `\_`, `\~`, `\\` and `\<removed>` as the characters they stand for. */
+export const withoutEmphasisEscapes = (text: string) =>
+  text.replace(/\\([\\*_~]|<(?=\/?removed[\s/>]))/gi, "$1");
+
+/** The characters that would read as emphasis or an escape in `text`, each escaped, so they stay as typed. */
+export const escapeEmphasis = (text: string) => text.replace(/[\\*_~]/g, "\\$&");
+
+/**
+ * A typed `<removed>` escaped: unescaped, it is the mark around what a rewrite takes out
+ * (#2180). Apart from `escapeEmphasis` because the words it is made of arrive one at a time.
+ */
+export const escapeRemovedMark = (text: string) => text.replace(/<(?=\/?removed[\s/>])/gi, "\\<");
+
+/**
+ * A line as its plain words with the look each character has from the
+ * Markdown around it (#1897): `**Role.** The post` is "Role. The post" with
+ * "Role." bold, and `price\\*volume` is "price*volume". Null when the line
+ * holds anything else Markdown reads (code, a link), so it stays as it was
+ * written. A formula is kept as
+ * `$…$`.
+ */
+export function emphasisOf(source: string): { plain: string; looks: Look[] } | null {
+  let plain = "";
+  const looks: Look[] = [];
+  const add = (text: string, look: Look) => {
+    plain += text;
+    for (let i = 0; i < text.length; i++) looks.push(look);
+  };
+  for (const token of parseInlineTokens(source)) {
+    if (token.kind === "break") {
+      add("\n", {});
+    } else if (token.kind === "math") {
+      add(`$${token.latex}$`, {});
+    } else {
+      const look: Look = {};
+      for (const mark of token.marks) {
+        if (mark.type !== "bold" && mark.type !== "italic" && mark.type !== "strike") return null;
+        look[mark.type] = true;
+      }
+      add(token.kind === "text" ? token.text : token.char.repeat(token.count), look);
+    }
+  }
+  const unescaped = source.replace(/\\([!-/:-@[-`{-~])/g, "$1");
+  return withoutDelimiters(plain) === withoutDelimiters(unescaped) ? { plain, looks } : null;
 }
 
 /** A closed piece of inline Markdown (e.g. a link's label), with its emphasis matched. */

@@ -6,6 +6,7 @@ import {
   providersWithModels,
   withoutDateSuffix,
 } from "../core/providers/catalog";
+import { LOCAL_MODELS } from "../core/providers/catalog/local";
 
 /** What names a model: the provider it runs on, and the names that provider's own list gives. */
 export interface ModelSource {
@@ -36,6 +37,7 @@ const namesForRole = (set: string, modelId: string): boolean => {
 };
 
 function catalogName(modelId: string, { kind, endpoint }: ModelSource): string | undefined {
+  if (kind === "ollama") return LOCAL_MODELS.find((model) => model.tag === modelId)?.name;
   if (kind) {
     return SERVERS.has(kind)
       ? undefined
@@ -51,7 +53,7 @@ function catalogName(modelId: string, { kind, endpoint }: ModelSource): string |
     const name = catalogModel(set, modelId)?.name;
     if (name) return name;
   }
-  return undefined;
+  return LOCAL_MODELS.find((model) => model.tag === modelId)?.name;
 }
 
 /**

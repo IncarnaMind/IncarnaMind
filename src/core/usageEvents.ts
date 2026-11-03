@@ -81,6 +81,7 @@ const CITATION_CHECKS = [
   "found",
   "not-found",
   "cant-check",
+  "not-checked",
   "unsupported",
   "contradicted",
 ] as const;
@@ -103,6 +104,12 @@ export const SETTINGS_PAGES = [
  * test keeps them the same). A Skill of the User's own is sent as "own".
  */
 export const BUILT_IN_SKILL_NAMES = [
+  "chronology",
+  "cim-red-flags",
+  "covenant-summary",
+  "credit-memo-outline",
+  "deposition-summary",
+  "earnings-review",
   "literature-review",
   "mind-to-report",
   "summarise-document",
@@ -130,15 +137,18 @@ const ANSWER_ERRORS = [
   "too-long",
   "cost-cap",
   "no-answer",
+  "cut-short",
   "unknown",
 ] as const;
 const DOCUMENT_ERRORS = [
   "unreadable",
   "password-protected",
   "too-large",
+  "picture-unreadable",
   "file-missing",
   "processing-error",
   "pages-unread",
+  "forms-unread",
   "app-stopped",
 ] as const;
 const CONNECTOR_ERRORS = [
@@ -147,6 +157,7 @@ const CONNECTOR_ERRORS = [
   "timed-out",
   "stopped",
   "unreachable",
+  "key-refused",
   "failed",
 ] as const;
 
@@ -162,6 +173,9 @@ export const DOCUMENT_FORMATS = [
   "csv",
   "markdown",
   "text",
+  "image",
+  "rtf",
+  "html",
   "web",
   "transcript",
 ] as const satisfies readonly DocumentKind[];
@@ -218,6 +232,9 @@ export const USAGE_EVENTS = {
     csv: count,
     markdown: count,
     text: count,
+    image: count,
+    rtf: count,
+    html: count,
     web: count,
     transcript: count,
   },

@@ -15,6 +15,7 @@ import {
   type CoreAdapters,
   type Document,
   FOOTNOTE_NODE,
+  PROPOSAL_ATTRIBUTE,
   type Printer,
 } from "../../src/core";
 import {
@@ -359,18 +360,58 @@ describe("the source pack: each format's cited page, its quote highlighted", () 
     const { rows, sheets } = pack(printed[0]?.body ?? "");
     // One page for the one Location, with all three Citations.
     expect(sheets).toHaveLength(1);
-    expect(rows.map(({ number, sheet }) => [number, sheet])).toEqual([
-      [1, 0],
-      [2, 0],
-      [3, 0],
-    ]);
+    // One source and place: one note, which the list names once, and its number each mark shows.
+    expect(rows.map(({ number, sheet }) => [number, sheet])).toEqual([[1, 0]]);
     const [sheet] = sheets;
-    expect(sheet?.numbers).toBe("1, 2, 3");
+    expect(sheet?.numbers).toBe("1");
     // The first quote is part of a line; the second runs from the middle of one line to the next.
     expect(sheet?.marks).toEqual([mark(1, 0, 31), mark(1, 23, 35), mark(2, 0, 26)]);
-    expect(sheet?.badges).toEqual([1, 2]);
+    expect(sheet?.badges).toEqual([1, 1]);
     // The third is in the file but wasn't drawn on the saved page.
-    expect(sheet?.notes).toEqual(["3 · Quote not found on this page"]);
+    expect(sheet?.notes).toEqual([
+      "1 · Quote not found on this page: “Neap tides come at the quarter moons.”",
+    ]);
+  });
+
+  test("two Citations of one note whose quote the saved page doesn't show say it once", async () => {
+    const { core, mind, printed } = await citedMind({
+      files: [
+        {
+          name: "Tides.md",
+          contents:
+            "# Tides\n\nSpring tides happen at new moon and at full moon, when the Sun and Moon line up.\n\nNeap tides come at the quarter moons.\n",
+        },
+      ],
+      lines: {
+        Tides: [
+          "Tides",
+          "Spring tides happen at new moon and",
+          "at full moon, when the Sun and Moon line up.",
+        ],
+      },
+      query: "spring neap tides",
+      records: (passages) =>
+        [
+          "Spring tides happen at new moon",
+          "Neap tides come at the quarter moons.",
+          "Neap tides come at the quarter moons.",
+        ].map((quote, index) => ({
+          marker: index + 1,
+          passage: byDocument(passages, "Tides"),
+          location: "§ Tides",
+          quote,
+        })),
+      answer: "Spring tides [^1]; neap tides at the quarters [^2] and [^3].",
+    });
+
+    await core.exportMind(mind.id, { format: "source-pack" });
+
+    const { sheets } = pack(printed[0]?.body ?? "");
+    const [sheet] = sheets;
+    expect(sheet?.marks).toEqual([mark(1, 0, 31)]);
+    expect(sheet?.notes).toEqual([
+      "1 · Quote not found on this page: “Neap tides come at the quarter moons.”",
+    ]);
   });
 });
 
@@ -442,6 +483,37 @@ describe("the source pack: after the file is gone, and without the page", () => 
     ]);
   });
 
+  test("a quote a PDF's line end cut is words on a page that wasn't saved, and a quote with nothing to read it by is joined", async () => {
+    const { printed, printer } = fakePrinter();
+    const { core, mind, client, tides, moon } = await setUp({ printer });
+    writeMind(client, [
+      paragraph(
+        text("Spring tides"),
+        citation(tides, 2, {
+          quote: "Spring tides happen at new moon.\nThen, em-\nployment ends.",
+        }),
+        text("."),
+      ),
+      paragraph(
+        text("The Moon"),
+        citation(moon, 1, {
+          quote: "The Moon's pull raises the av-\nerage tide.",
+          check: "not-found",
+        }),
+      ),
+    ]);
+    await client.settled();
+    await core.deleteDocument(moon.id);
+
+    await core.exportMind(mind.id, { format: "source-pack" });
+
+    const { sheets } = pack(printed[0]?.body ?? "");
+    expect(sheets.map((sheet) => sheet.quotes)).toEqual([
+      ["“Spring tides happen at new moon. Then, employment ends.”"],
+      ["“The Moon&#39;s pull raises the average tide.”"],
+    ]);
+  });
+
   test("a Mind with no Citations has no pack: the preview counts none, and the export says so, in the interface language", async () => {
     const { printed, printer } = fakePrinter();
     const { core, mind, client } = await setUp({ printer });
@@ -462,14 +534,35 @@ describe("the source pack: after the file is gone, and without the page", () => 
     expect(printed).toEqual([]);
   });
 
+  test("a pack the printer couldn't lay out saves nothing, and says the PDF wasn't laid out", async () => {
+    const { core, mind, client, tides, sources } = await setUp({
+      printer: {
+        print: async () => {
+          throw new Error("The PDF took too long to lay out.");
+        },
+      },
+    });
+    writeMind(client, [paragraph(text("Spring tides"), citation(tides, 2))]);
+    await client.settled();
+    await core.setOutputLocation(sources);
+
+    await expect(core.saveMindExport(mind.id, { format: "source-pack" })).rejects.toMatchObject({
+      name: "PdfLayoutError",
+      message: "Couldn’t lay out the PDF.",
+      wording: { key: "error.pdf.notLaidOut" },
+      cause: new Error("The PDF took too long to lay out."),
+    });
+    expect(readdirSync(sources).filter((name) => name.endsWith(".pdf"))).toEqual([]);
+  });
+
   test("a pack is refused where nothing can print a PDF", async () => {
     const { core, mind, client, tides } = await setUp();
     writeMind(client, [paragraph(text("Tides"), citation(tides, 2))]);
     await client.settled();
 
-    await expect(core.exportMind(mind.id, { format: "source-pack" })).rejects.toThrow(
-      "This copy of IncarnaMind can't make PDFs.",
-    );
+    await expect(core.exportMind(mind.id, { format: "source-pack" })).rejects.toMatchObject({
+      wording: { key: "error.checkRecord.noPdf" },
+    });
   });
 });
 
@@ -501,17 +594,17 @@ describe("the source pack: the numbers of the Mind's Citations", () => {
     };
   }
 
-  // The same Mind, numbered as the editor numbers it (tests/renderer/citationClusters.test.ts).
-  test("Numbered: each Citation takes the next number, the User's footnote one too", async () => {
+  // The same Mind, numbered as every surface numbers it (tests/renderer/citationClusters.test.ts).
+  test("Numbered: one footnote for each source and place, the User's footnote one too", async () => {
     expect(await numbered("numbered")).toEqual({
-      cover: [1, 2, 4, 5],
-      pages: ["Tides 1, 5", "Moon 2", "潮汐 4"],
+      cover: [1, 2, 4],
+      pages: ["Tides 1", "Moon 2", "潮汐 4"],
     });
   });
 
   test("a note style: Citations side by side are one note, one number", async () => {
     expect(await numbered("chicago-notes")).toEqual({
-      cover: [1, 1, 3, 4],
+      cover: [1, 3, 4],
       pages: ["Tides 1, 4", "Moon 1", "潮汐 3"],
     });
   });
@@ -548,7 +641,7 @@ describe("the source pack: Chinese, a huge Mind, and the file", () => {
     const [printedPack] = printed;
     const { cover, rows, sheets } = pack(printedPack?.body ?? "");
     expect(printedPack).toMatchObject({ language: "zh-CN", title: "Tides - 引用页面合集" });
-    expect(cover).toContain("此 Mind 引用的页面。引文已高亮，编号与 Mind 中的引用一致。");
+    expect(cover).toContain("此笔记引用的页面。引文已高亮，编号与笔记中的引用一致。");
     expect(cover).toContain("<th>引用</th><th>文档和位置</th><th>页码</th>");
     expect(rows.map((row) => row.source)).toEqual(["潮汐，§ 潮汐"]);
     expect(sheets[0]?.marks).toEqual([mark(1, 0, 12)]);
@@ -602,5 +695,67 @@ describe("the source pack: Chinese, a huge Mind, and the file", () => {
         kind: "source-pack",
       },
     ]);
+  });
+});
+
+describe("the source pack: a waiting change and a quote said twice (#2292)", () => {
+  /** A pack of a TXT cited at page 1, each Citation as given, and its body read back. */
+  async function packOf(cites: readonly { quote: string; pending?: boolean }[]) {
+    const { printed, printer } = fakePrinter();
+    const core = startCore(await createTempDataFolder(), { now: manualClock().now, printer });
+    const sources = await createTempDataFolder();
+    const path = await writeSourceFile(sources, "Tides.txt", "The tide rises twice a day.");
+    const [tides] = await addAndProcess(core, [path]);
+    const mind = await core.createMind({ title: "Memo" });
+    const client = await connectToMind(core, mind.id);
+    writeMind(
+      client,
+      cites.map(({ quote, pending }, index) => ({
+        type: "paragraph",
+        content: [
+          text(`Sentence ${index + 1}.`),
+          {
+            type: "citation",
+            attrs: {
+              passageId: "passage-1",
+              documentId: tides?.id ?? "",
+              documentName: "Tides",
+              contentHash: tides?.contentHash ?? null,
+              pageFrom: 1,
+              pageTo: 1,
+              quote,
+              check: "found",
+              checkReason: null,
+              ...(pending && {
+                [PROPOSAL_ATTRIBUTE]: {
+                  id: `pending-${index}`,
+                  request: "request",
+                  kind: "insert",
+                },
+              }),
+            },
+          },
+        ],
+      })),
+    );
+    await client.settled();
+    await core.exportMind(mind.id, { format: "source-pack" });
+    return pack(printed[0]?.body ?? "");
+  }
+
+  test("a Citation a change still waiting adds is in the pack, with a note of its own", async () => {
+    const quote = "The tide rises twice a day.";
+    const { rows, sheets } = await packOf([{ quote, pending: true }, { quote }]);
+    // Before, the waiting Citation was left out of the pack, so its note had no mark at all.
+    expect(rows.map((row) => row.number)).toEqual([1, 2]);
+    expect(sheets[0]?.badges).toEqual([1, 2]);
+  });
+
+  test("two Citations of one place with one quote say it once, under its one number", async () => {
+    const quote = "The tide rises twice a day.";
+    const { rows, sheets } = await packOf([{ quote }, { quote }]);
+    expect(rows.map((row) => row.number)).toEqual([1]);
+    expect(sheets[0]?.badges).toEqual([1]);
+    expect(sheets[0]?.quotes).toHaveLength(1);
   });
 });

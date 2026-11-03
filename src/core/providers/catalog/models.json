@@ -84,7 +84,15 @@
             "currency": "USD",
             "input": 0.1,
             "output": 0.5,
-            "cacheRead": 0.01
+            "cacheRead": 0.01,
+            "tiers": [
+              {
+                "above": 100000,
+                "input": 0.5,
+                "output": 2.5,
+                "cacheRead": 0.05
+              }
+            ]
           }
         },
         {
@@ -875,7 +883,15 @@
             "currency": "USD",
             "input": 10,
             "output": 50,
-            "cacheRead": 1
+            "cacheRead": 1,
+            "tiers": [
+              {
+                "above": 272000,
+                "input": 20,
+                "output": 75,
+                "cacheRead": 2
+              }
+            ]
           }
         },
         {
@@ -893,7 +909,15 @@
             "currency": "USD",
             "input": 0.1,
             "output": 0.5,
-            "cacheRead": 0.01
+            "cacheRead": 0.01,
+            "tiers": [
+              {
+                "above": 272000,
+                "input": 0.2,
+                "output": 0.75,
+                "cacheRead": 0.02
+              }
+            ]
           }
         },
         {
@@ -929,7 +953,15 @@
             "currency": "USD",
             "input": 2,
             "output": 10,
-            "cacheRead": 0.1
+            "cacheRead": 0.1,
+            "tiers": [
+              {
+                "above": 272000,
+                "input": 4,
+                "output": 15,
+                "cacheRead": 0.2
+              }
+            ]
           }
         },
         {
@@ -1270,7 +1302,15 @@
             "currency": "USD",
             "input": 2,
             "output": 12,
-            "cacheRead": 0.2
+            "cacheRead": 0.2,
+            "tiers": [
+              {
+                "above": 200000,
+                "input": 4,
+                "output": 18,
+                "cacheRead": 0.4
+              }
+            ]
           }
         },
         {
@@ -1287,7 +1327,15 @@
             "currency": "USD",
             "input": 2,
             "output": 12,
-            "cacheRead": 0.2
+            "cacheRead": 0.2,
+            "tiers": [
+              {
+                "above": 200000,
+                "input": 4,
+                "output": 18,
+                "cacheRead": 0.4
+              }
+            ]
           }
         },
         {
@@ -1492,7 +1540,15 @@
             "input": 10,
             "output": 50,
             "cacheRead": 0.25
-          }
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
+          },
+          "forcedToolChoice": false
         },
         {
           "id": "~anthropic/claude-haiku-latest",
@@ -1508,7 +1564,15 @@
             "currency": "USD",
             "input": 0.1,
             "output": 0.5,
-            "cacheRead": 0.01
+            "cacheRead": 0.01,
+            "tiers": [
+              {
+                "above": 100000,
+                "input": 0.5,
+                "output": 2.5,
+                "cacheRead": 0.05
+              }
+            ]
           }
         },
         {
@@ -1526,7 +1590,15 @@
             "input": 4,
             "output": 20,
             "cacheRead": 0.2
-          }
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
+          },
+          "forcedToolChoice": false
         },
         {
           "id": "~anthropic/claude-sonnet-latest",
@@ -1543,7 +1615,15 @@
             "input": 2,
             "output": 10,
             "cacheRead": 0.1
-          }
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
+          },
+          "forcedToolChoice": false
         },
         {
           "id": "~deepseek/deepseek-flash-latest",
@@ -1611,6 +1691,13 @@
             "input": 0.75,
             "output": 3.75,
             "cacheRead": 0.075
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -1628,6 +1715,13 @@
             "input": 2,
             "output": 12,
             "cacheRead": 0.2
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -1662,6 +1756,13 @@
             "input": 10,
             "output": 50,
             "cacheRead": 1
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -1713,6 +1814,13 @@
             "input": 2,
             "output": 10,
             "cacheRead": 0.1
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -1747,6 +1855,13 @@
             "input": 2,
             "output": 6,
             "cacheRead": 0.5
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -1764,6 +1879,13 @@
             "input": 0.04,
             "output": 0.5,
             "cacheRead": 0.0125
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -1781,6 +1903,13 @@
             "input": 0.039,
             "output": 4.8,
             "cacheRead": 0.038
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -1798,6 +1927,13 @@
             "input": 0.8,
             "output": 1.6,
             "cacheRead": 0.2
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -1815,6 +1951,13 @@
             "input": 3,
             "output": 6,
             "cacheRead": 0.75
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -1832,6 +1975,13 @@
             "input": 0.7,
             "output": 1.4,
             "cacheRead": 0.18
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -1849,6 +1999,13 @@
             "input": 3,
             "output": 6,
             "cacheRead": 0.75
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -1866,6 +2023,13 @@
             "input": 0.7,
             "output": 1.4,
             "cacheRead": 0.18
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -1996,7 +2160,15 @@
             "input": 10,
             "output": 50,
             "cacheRead": 1
-          }
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
+          },
+          "forcedToolChoice": false
         },
         {
           "id": "anthropic/claude-fable-5.1",
@@ -2013,7 +2185,15 @@
             "input": 10,
             "output": 50,
             "cacheRead": 0.25
-          }
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
+          },
+          "forcedToolChoice": false
         },
         {
           "id": "anthropic/claude-haiku-4.5",
@@ -2046,7 +2226,15 @@
             "currency": "USD",
             "input": 0.1,
             "output": 0.5,
-            "cacheRead": 0.01
+            "cacheRead": 0.01,
+            "tiers": [
+              {
+                "above": 100000,
+                "input": 0.5,
+                "output": 2.5,
+                "cacheRead": 0.05
+              }
+            ]
           }
         },
         {
@@ -2166,7 +2354,15 @@
             "input": 4,
             "output": 20,
             "cacheRead": 0.2
-          }
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
+          },
+          "forcedToolChoice": false
         },
         {
           "id": "anthropic/claude-sonnet-4",
@@ -2251,7 +2447,15 @@
             "input": 2,
             "output": 10,
             "cacheRead": 0.1
-          }
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
+          },
+          "forcedToolChoice": false
         },
         {
           "id": "apodex/apodex-1.1-mini:free",
@@ -2593,6 +2797,13 @@
             "input": 0.5,
             "output": 2.15,
             "cacheRead": 0.35
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -2828,6 +3039,13 @@
             "input": 1.25,
             "output": 10,
             "cacheRead": 0.125
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -2845,6 +3063,13 @@
             "input": 1.25,
             "output": 10,
             "cacheRead": 0.125
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -2912,7 +3137,22 @@
             "currency": "USD",
             "input": 2,
             "output": 12,
-            "cacheRead": 0.2
+            "cacheRead": 0.2,
+            "tiers": [
+              {
+                "above": 200000,
+                "input": 4,
+                "output": 18,
+                "cacheRead": 0.4
+              }
+            ]
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -2929,7 +3169,22 @@
             "currency": "USD",
             "input": 2,
             "output": 12,
-            "cacheRead": 0.2
+            "cacheRead": 0.2,
+            "tiers": [
+              {
+                "above": 200000,
+                "input": 4,
+                "output": 18,
+                "cacheRead": 0.4
+              }
+            ]
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -2947,6 +3202,13 @@
             "input": 1.5,
             "output": 9,
             "cacheRead": 0.15
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "minimal"
+              }
+            }
           }
         },
         {
@@ -2964,6 +3226,13 @@
             "input": 0.3,
             "output": 2.5,
             "cacheRead": 0.03
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "minimal"
+              }
+            }
           }
         },
         {
@@ -2981,6 +3250,13 @@
             "input": 0.75,
             "output": 3.75,
             "cacheRead": 0.075
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "minimal"
+              }
+            }
           }
         },
         {
@@ -2998,6 +3274,13 @@
             "input": 0.75,
             "output": 3.75,
             "cacheRead": 0.075
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -3015,6 +3298,13 @@
             "input": 0.75,
             "output": 3.75,
             "cacheRead": 0.075
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -3363,6 +3653,13 @@
             "currency": "USD",
             "input": 0,
             "output": 0
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -3544,6 +3841,13 @@
             "input": 0.3,
             "output": 1.2,
             "cacheRead": 0.04
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -3561,6 +3865,13 @@
             "input": 1.25,
             "output": 4.25,
             "cacheRead": 0.15
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "minimal"
+              }
+            }
           }
         },
         {
@@ -3578,6 +3889,13 @@
             "input": 1.25,
             "output": 4.25,
             "cacheRead": 0.15
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "minimal"
+              }
+            }
           }
         },
         {
@@ -3595,6 +3913,13 @@
             "input": 0.1,
             "output": 0.2,
             "cacheRead": 0.002
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "minimal"
+              }
+            }
           }
         },
         {
@@ -3612,6 +3937,13 @@
             "input": 1.25,
             "output": 4.25,
             "cacheRead": 0.15
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "minimal"
+              }
+            }
           }
         },
         {
@@ -3629,6 +3961,13 @@
             "input": 0.1,
             "output": 0.2,
             "cacheRead": 0.002
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "minimal"
+              }
+            }
           }
         },
         {
@@ -3709,6 +4048,13 @@
             "currency": "USD",
             "input": 0.3,
             "output": 1.2
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -3743,6 +4089,13 @@
             "input": 0.3,
             "output": 1.2,
             "cacheRead": 0.03
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -3760,6 +4113,13 @@
             "input": 0.27,
             "output": 1.08,
             "cacheRead": 0.027
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -3777,6 +4137,13 @@
             "input": 0.21,
             "output": 0.84,
             "cacheRead": 0.042
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -4178,6 +4545,13 @@
             "input": 0.6,
             "output": 2.5,
             "cacheRead": 0.15
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -4229,6 +4603,13 @@
             "input": 0.6712,
             "output": 3.35,
             "cacheRead": 0.18
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -4788,6 +5169,13 @@
             "input": 1.25,
             "output": 10,
             "cacheRead": 0.125
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "minimal"
+              }
+            }
           }
         },
         {
@@ -4806,6 +5194,13 @@
             "input": 0.25,
             "output": 2,
             "cacheRead": 0.025
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "minimal"
+              }
+            }
           }
         },
         {
@@ -4824,6 +5219,13 @@
             "input": 0.05,
             "output": 0.4,
             "cacheRead": 0.005
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "minimal"
+              }
+            }
           }
         },
         {
@@ -4841,6 +5243,13 @@
             "currency": "USD",
             "input": 15,
             "output": 120
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "high"
+              }
+            }
           }
         },
         {
@@ -4877,6 +5286,13 @@
             "input": 1.25,
             "output": 10,
             "cacheRead": 0.13
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -4895,6 +5311,13 @@
             "input": 1.25,
             "output": 10,
             "cacheRead": 0.125
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -4913,6 +5336,13 @@
             "input": 0.25,
             "output": 2,
             "cacheRead": 0.03
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -4966,6 +5396,13 @@
             "input": 1.75,
             "output": 14,
             "cacheRead": 0.175
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -4983,6 +5420,13 @@
             "currency": "USD",
             "input": 21,
             "output": 168
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "medium"
+              }
+            }
           }
         },
         {
@@ -5072,6 +5516,13 @@
             "currency": "USD",
             "input": 30,
             "output": 180
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "medium"
+              }
+            }
           }
         },
         {
@@ -5107,6 +5558,13 @@
             "currency": "USD",
             "input": 30,
             "output": 180
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "medium"
+              }
+            }
           }
         },
         {
@@ -5232,7 +5690,22 @@
             "currency": "USD",
             "input": 10,
             "output": 50,
-            "cacheRead": 1
+            "cacheRead": 1,
+            "tiers": [
+              {
+                "above": 272000,
+                "input": 20,
+                "output": 75,
+                "cacheRead": 2
+              }
+            ]
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -5249,7 +5722,22 @@
             "currency": "USD",
             "input": 10,
             "output": 50,
-            "cacheRead": 1
+            "cacheRead": 1,
+            "tiers": [
+              {
+                "above": 272000,
+                "input": 20,
+                "output": 75,
+                "cacheRead": 2
+              }
+            ]
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -5267,7 +5755,15 @@
             "currency": "USD",
             "input": 0.1,
             "output": 0.5,
-            "cacheRead": 0.01
+            "cacheRead": 0.01,
+            "tiers": [
+              {
+                "above": 272000,
+                "input": 0.2,
+                "output": 0.75,
+                "cacheRead": 0.02
+              }
+            ]
           }
         },
         {
@@ -5284,7 +5780,15 @@
             "currency": "USD",
             "input": 0.1,
             "output": 0.5,
-            "cacheRead": 0.01
+            "cacheRead": 0.01,
+            "tiers": [
+              {
+                "above": 272000,
+                "input": 0.2,
+                "output": 0.75,
+                "cacheRead": 0.02
+              }
+            ]
           }
         },
         {
@@ -5337,7 +5841,22 @@
             "currency": "USD",
             "input": 2,
             "output": 10,
-            "cacheRead": 0.1
+            "cacheRead": 0.1,
+            "tiers": [
+              {
+                "above": 272000,
+                "input": 4,
+                "output": 15,
+                "cacheRead": 0.2
+              }
+            ]
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -5354,7 +5873,22 @@
             "currency": "USD",
             "input": 2,
             "output": 10,
-            "cacheRead": 0.1
+            "cacheRead": 0.1,
+            "tiers": [
+              {
+                "above": 272000,
+                "input": 4,
+                "output": 15,
+                "cacheRead": 0.2
+              }
+            ]
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -5388,6 +5922,13 @@
             "currency": "USD",
             "input": 0.037,
             "output": 0.17
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -5405,6 +5946,13 @@
             "input": 0.018,
             "output": 0.09,
             "cacheRead": 0.009
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -5422,6 +5970,13 @@
             "input": 0.075,
             "output": 0.3,
             "cacheRead": 0.0375
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -5472,6 +6027,13 @@
             "input": 2,
             "output": 8,
             "cacheRead": 0.5
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -5522,6 +6084,13 @@
             "currency": "USD",
             "input": 20,
             "output": 80
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -5669,6 +6238,13 @@
             "currency": "USD",
             "input": 2,
             "output": 8
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -5701,6 +6277,13 @@
             "currency": "USD",
             "input": 3,
             "output": 15
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -5717,6 +6300,13 @@
             "currency": "USD",
             "input": 2,
             "output": 8
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -5930,6 +6520,13 @@
             "currency": "USD",
             "input": 0.45,
             "output": 3.5
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -6127,6 +6724,13 @@
             "currency": "USD",
             "input": 0.29,
             "output": 1
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -6356,7 +6960,21 @@
             "currency": "USD",
             "input": 0.03,
             "output": 0.13,
-            "cacheRead": 0.006
+            "cacheRead": 0.006,
+            "tiers": [
+              {
+                "above": 32000,
+                "input": 0.1,
+                "output": 0.4,
+                "cacheRead": 0.02
+              },
+              {
+                "above": 256000,
+                "input": 0.2,
+                "output": 0.8,
+                "cacheRead": 0.04
+              }
+            ]
           }
         },
         {
@@ -6390,7 +7008,15 @@
             "currency": "USD",
             "input": 0.32,
             "output": 1.28,
-            "cacheRead": 0.064
+            "cacheRead": 0.064,
+            "tiers": [
+              {
+                "above": 256000,
+                "input": 0.96,
+                "output": 3.84,
+                "cacheRead": 0.192
+              }
+            ]
           }
         },
         {
@@ -6408,6 +7034,13 @@
             "input": 2,
             "output": 6,
             "cacheRead": 0.25
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -6459,6 +7092,13 @@
             "input": 2,
             "output": 6,
             "cacheRead": 0.25
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "minimal"
+              }
+            }
           }
         },
         {
@@ -6476,6 +7116,13 @@
             "input": 4,
             "output": 12,
             "cacheRead": 0.5
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "minimal"
+              }
+            }
           }
         },
         {
@@ -6525,6 +7172,13 @@
             "currency": "USD",
             "input": 0.1,
             "output": 0.2
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -6574,6 +7228,13 @@
             "input": 2,
             "output": 6,
             "cacheRead": 0.25
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "high"
+              }
+            }
           }
         },
         {
@@ -6591,6 +7252,13 @@
             "input": 5,
             "output": 30,
             "cacheRead": 0.5
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "high"
+              }
+            }
           }
         },
         {
@@ -6608,6 +7276,13 @@
             "input": 5,
             "output": 30,
             "cacheRead": 0.5
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "high"
+              }
+            }
           }
         },
         {
@@ -6689,6 +7364,13 @@
             "currency": "USD",
             "input": 0.1,
             "output": 0.3
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -6707,6 +7389,13 @@
             "input": 0.2,
             "output": 1.15,
             "cacheRead": 0.04
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -6724,6 +7413,13 @@
             "input": 1,
             "output": 2.7,
             "cacheRead": 0.05
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -7107,6 +7803,13 @@
             "input": 1.25,
             "output": 2.5,
             "cacheRead": 0.2
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -7123,7 +7826,15 @@
             "currency": "USD",
             "input": 1.25,
             "output": 2.5,
-            "cacheRead": 0.2
+            "cacheRead": 0.2,
+            "tiers": [
+              {
+                "above": 200000,
+                "input": 2.5,
+                "output": 5,
+                "cacheRead": 0.4
+              }
+            ]
           }
         },
         {
@@ -7141,6 +7852,13 @@
             "input": 2,
             "output": 6,
             "cacheRead": 0.3
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -7158,6 +7876,13 @@
             "input": 2,
             "output": 6,
             "cacheRead": 0.5
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -7174,7 +7899,22 @@
             "currency": "USD",
             "input": 2,
             "output": 6,
-            "cacheRead": 0.5
+            "cacheRead": 0.5,
+            "tiers": [
+              {
+                "above": 200000,
+                "input": 4,
+                "output": 12,
+                "cacheRead": 1
+              }
+            ]
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -7192,6 +7932,13 @@
             "input": 1,
             "output": 2,
             "cacheRead": 0.2
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "enabled": true
+              }
+            }
           }
         },
         {
@@ -7480,6 +8227,13 @@
             "input": 0.039,
             "output": 4.8,
             "cacheRead": 0.038
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -7497,6 +8251,13 @@
             "input": 0.15,
             "output": 0.5,
             "cacheRead": 0.03
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -7514,6 +8275,13 @@
             "input": 0.37,
             "output": 1.25,
             "cacheRead": 0.09
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -7531,6 +8299,13 @@
             "input": 2.8,
             "output": 8.8,
             "cacheRead": 0.56
+          },
+          "thinkingOff": {
+            "openrouter": {
+              "reasoning": {
+                "effort": "low"
+              }
+            }
           }
         },
         {
@@ -8298,7 +9073,15 @@
             "currency": "USD",
             "input": 1.25,
             "output": 2.5,
-            "cacheRead": 0.2
+            "cacheRead": 0.2,
+            "tiers": [
+              {
+                "above": 200000,
+                "input": 2.5,
+                "output": 5,
+                "cacheRead": 0.4
+              }
+            ]
           }
         },
         {
@@ -8349,7 +9132,15 @@
             "currency": "USD",
             "input": 2,
             "output": 6,
-            "cacheRead": 0.5
+            "cacheRead": 0.5,
+            "tiers": [
+              {
+                "above": 200000,
+                "input": 4,
+                "output": 12,
+                "cacheRead": 1
+              }
+            ]
           }
         },
         {
@@ -10040,7 +10831,21 @@
             "currency": "USD",
             "input": 0.03,
             "output": 0.13,
-            "cacheRead": 0.003
+            "cacheRead": 0.003,
+            "tiers": [
+              {
+                "above": 32000,
+                "input": 0.1,
+                "output": 0.4,
+                "cacheRead": 0.02
+              },
+              {
+                "above": 256000,
+                "input": 0.2,
+                "output": 0.8,
+                "cacheRead": 0.04
+              }
+            ]
           }
         },
         {
@@ -10073,7 +10878,15 @@
             "currency": "USD",
             "input": 0.4,
             "output": 1.6,
-            "cacheRead": 0.04
+            "cacheRead": 0.04,
+            "tiers": [
+              {
+                "above": 256000,
+                "input": 1.2,
+                "output": 4.8,
+                "cacheRead": 0.24
+              }
+            ]
           }
         },
         {
@@ -13654,7 +14467,15 @@
             "currency": "USD",
             "input": 0.1,
             "output": 0.5,
-            "cacheRead": 0.01
+            "cacheRead": 0.01,
+            "tiers": [
+              {
+                "above": 100000,
+                "input": 0.5,
+                "output": 2.5,
+                "cacheRead": 0.05
+              }
+            ]
           }
         },
         {
@@ -14011,7 +14832,15 @@
             "currency": "USD",
             "input": 2.5,
             "output": 15,
-            "cacheRead": 0.5
+            "cacheRead": 0.5,
+            "tiers": [
+              {
+                "above": 200000,
+                "input": 5,
+                "output": 22.5,
+                "cacheRead": 0.5
+              }
+            ]
           }
         },
         {
@@ -14244,7 +15073,15 @@
             "currency": "USD",
             "input": 1.42,
             "output": 2.83,
-            "cacheRead": 0.23
+            "cacheRead": 0.23,
+            "tiers": [
+              {
+                "above": 200000,
+                "input": 2.83,
+                "output": 5.67,
+                "cacheRead": 0.45
+              }
+            ]
           }
         },
         {
@@ -14295,7 +15132,15 @@
             "currency": "USD",
             "input": 2.27,
             "output": 6.8,
-            "cacheRead": 0.57
+            "cacheRead": 0.57,
+            "tiers": [
+              {
+                "above": 200000,
+                "input": 4.53,
+                "output": 13.6,
+                "cacheRead": 1.13
+              }
+            ]
           }
         },
         {
@@ -14881,7 +15726,15 @@
             "currency": "USD",
             "input": 10,
             "output": 50,
-            "cacheRead": 1
+            "cacheRead": 1,
+            "tiers": [
+              {
+                "above": 272000,
+                "input": 20,
+                "output": 75,
+                "cacheRead": 2
+              }
+            ]
           }
         },
         {
@@ -15033,7 +15886,15 @@
             "currency": "USD",
             "input": 0.5,
             "output": 2,
-            "cacheRead": 0.05
+            "cacheRead": 0.05,
+            "tiers": [
+              {
+                "above": 256000,
+                "input": 1.5,
+                "output": 6,
+                "cacheRead": 0.15
+              }
+            ]
           }
         },
         {
@@ -15644,7 +16505,15 @@
             "currency": "USD",
             "input": 0.1,
             "output": 0.5,
-            "cacheRead": 0.01
+            "cacheRead": 0.01,
+            "tiers": [
+              {
+                "above": 100000,
+                "input": 0.5,
+                "output": 2.5,
+                "cacheRead": 0.05
+              }
+            ]
           }
         },
         {
@@ -15926,7 +16795,15 @@
             "currency": "USD",
             "input": 0.11,
             "output": 0.55,
-            "cacheRead": 0.011
+            "cacheRead": 0.011,
+            "tiers": [
+              {
+                "above": 100000,
+                "input": 0.55,
+                "output": 2.75,
+                "cacheRead": 0.055
+              }
+            ]
           }
         },
         {
@@ -16235,7 +17112,15 @@
             "currency": "USD",
             "input": 0.11,
             "output": 0.55,
-            "cacheRead": 0.011
+            "cacheRead": 0.011,
+            "tiers": [
+              {
+                "above": 100000,
+                "input": 0.55,
+                "output": 2.75,
+                "cacheRead": 0.055
+              }
+            ]
           }
         },
         {
@@ -16515,7 +17400,15 @@
             "currency": "USD",
             "input": 0.1,
             "output": 0.5,
-            "cacheRead": 0.01
+            "cacheRead": 0.01,
+            "tiers": [
+              {
+                "above": 100000,
+                "input": 0.5,
+                "output": 2.5,
+                "cacheRead": 0.05
+              }
+            ]
           }
         },
         {
@@ -16787,7 +17680,15 @@
             "currency": "USD",
             "input": 10,
             "output": 50,
-            "cacheRead": 1
+            "cacheRead": 1,
+            "tiers": [
+              {
+                "above": 272000,
+                "input": 20,
+                "output": 75,
+                "cacheRead": 2
+              }
+            ]
           }
         },
         {
@@ -17123,7 +18024,15 @@
             "currency": "USD",
             "input": 0.11,
             "output": 0.55,
-            "cacheRead": 0.011
+            "cacheRead": 0.011,
+            "tiers": [
+              {
+                "above": 100000,
+                "input": 0.55,
+                "output": 2.75,
+                "cacheRead": 0.055
+              }
+            ]
           }
         },
         {
@@ -17706,7 +18615,15 @@
             "currency": "USD",
             "input": 11,
             "output": 55,
-            "cacheRead": 1.1
+            "cacheRead": 1.1,
+            "tiers": [
+              {
+                "above": 272000,
+                "input": 22,
+                "output": 82.5,
+                "cacheRead": 2.2
+              }
+            ]
           }
         },
         {
@@ -18148,7 +19065,15 @@
             "currency": "USD",
             "input": 0.11,
             "output": 0.55,
-            "cacheRead": 0.011
+            "cacheRead": 0.011,
+            "tiers": [
+              {
+                "above": 100000,
+                "input": 0.55,
+                "output": 2.75,
+                "cacheRead": 0.055
+              }
+            ]
           }
         },
         {
@@ -18542,7 +19467,15 @@
             "currency": "USD",
             "input": 11,
             "output": 55,
-            "cacheRead": 1.1
+            "cacheRead": 1.1,
+            "tiers": [
+              {
+                "above": 272000,
+                "input": 22,
+                "output": 82.5,
+                "cacheRead": 2.2
+              }
+            ]
           }
         },
         {

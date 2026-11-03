@@ -26,6 +26,16 @@ export const lastUserText = (prompt: Prompt): string =>
 export const lastQuestion = (prompt: Prompt): string =>
   lastUserText(prompt).split("\n\n").at(-1) ?? "";
 
+/** Every message's text, the earlier turns and a check's note too: what a whole conversation says. */
+export const promptText = (prompt: Prompt): string =>
+  prompt
+    .flatMap((message) =>
+      typeof message.content === "string"
+        ? [message.content]
+        : message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])),
+    )
+    .join("\n");
+
 /** The text results of the Tool calls so far, by Tool name, oldest first. */
 export function toolResults(prompt: Prompt, tool: string): string[] {
   const results: string[] = [];
@@ -38,6 +48,23 @@ export function toolResults(prompt: Prompt, tool: string): string[] {
     }
   }
   return results;
+}
+
+/**
+ * Whether the model has called a Tool since the Question. Its own calls have the ids it gives
+ * them ("fake-…"); a search made for it before its first call (#1633) isn't one.
+ */
+export function calledSinceQuestion(prompt: Prompt): boolean {
+  const asked = prompt.findLastIndex((message) => message.role === "user");
+  return prompt
+    .slice(asked + 1)
+    .some(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.some(
+          (part) => part.type === "tool-call" && part.toolCallId.startsWith("fake-"),
+        ),
+    );
 }
 
 /** The system prompt's text. */

@@ -4,6 +4,9 @@ import type { EditorState } from "@tiptap/pm/state";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ANSWER_BLOCK } from "../../../core/api";
+import { isTitleLine } from "./titleLine";
+
+export { isTitleLine } from "./titleLine";
 
 /** Where the hint shows: on an empty Mind's line, or on the empty line after an Answer. */
 export type HintPlace = "empty" | "afterAnswer";
@@ -25,10 +28,6 @@ interface HintLine {
 
 const isEmptyLine = (node: ProseMirrorNode | null) =>
   node?.type.name === "paragraph" && node.content.size === 0;
-
-/** The line a new Mind starts with: an empty Heading 1, its title to be typed. */
-export const isTitleLine = (node: ProseMirrorNode | null) =>
-  node?.type.name === "heading" && node.attrs.level === 1 && node.content.size === 0;
 
 /** A Mind with nothing in it: one empty line, or its empty title. (An empty Question is something.) */
 export const isEmptyMind = (doc: ProseMirrorNode) =>

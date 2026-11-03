@@ -5,7 +5,8 @@
  * of the first Passage that shares a word with the Question (on the page, or
  * at the Location, that line is on), then answers with a marker. A Question
  * with "misquote" in it gets a quote that isn't on the page; one with "no page"
- * names no page, as a small model often doesn't; one with "without citing" (不引用)
+ * names no page, as a small model often doesn't; one with "beyond its quote" (超出引文) says more
+ * than its quote does, which the scripted check finds unsupported; one with "without citing" (不引用)
  * writes a marker and never calls cite, as a model sometimes does; one with "citing as text" (文字引用)
  * writes its records as text in a <cite> block instead of calling cite; one with "each"
  * cites the first Passage of each Document found, with a marker for each; one
@@ -23,36 +24,55 @@
  * ask for that and the quotes if not (#1382); one that asks for "narrow then wide" (先窄后宽) gets a
  * line, then a table whose first rows fit the assistant and whose last is wider than it; one that asks for
  * "long headings" (长标题) gets a table of four long headings and long rows, as a real model writes one;
- * one that asks for "forty
- * citations" (四十条引用) gets forty sentences, each with a marker, and one that asks for "twelve in a
- * row" (连续十二条) gets one sentence with twelve markers side by side; one with "cited below" (or 引用在下) gets a
+ * one that asks for "forty citations" (四十条引用) gets forty sentences, each with a marker, one for
+ * "four citations" (四条引用) four, and one that asks for "twelve in a row" (连续十二条) gets one
+ * sentence with twelve markers side by side; one with "cited below" (or 引用在下) gets a
  * table whose one Citation stands in a paragraph under it, and one with "framed" (or 带说明)
  * gets a lead-in before its content and a closing note after it (#702); one that says "without
  * searching" (不用搜索) cites the Passages given with it, as a model does that is given a short
  * Document's whole text, and calls no search. One that turns the Mind "into a report" (整理成报告)
  * keeps each Citation it reads there by its id, with no search, as #1800 asks of a model.
  * One that says "边想边写" writes pages of working notes after its search, with no
- * marker (#1344). One that asks how much something grew (增长) has the growth from the first
- * two numbers of its quote calculated, and writes it with its marker.
+ * marker (#1344). One that says "search twice" (搜两次) searches once more after its first
+ * search, as a model does whose first Passages fall short. One that asks how much something
+ * grew (增长) has the growth from the first two numbers of its quote calculated, and writes it
+ * with its marker; one that also asks for a share (占比) gets the earlier number's share of the
+ * later one as a second figure. One that asks what drives 2027 EBITDA (2027 年的 EBITDA 由什么驱动)
+ * traces it through its workbook's formulas and works it out again at 3% growth (#2347).
  * As models did (#1172), one for a "short summary" (简短的摘要) ends with a
  * paragraph pointing to an earlier Answer, and one about "home working"
  * (居家办公) asked beside a Mind ends by setting the Documents apart from it,
  * unless the instructions say that Mind is an example.
+ * One that asks about the minutes (纪要) searches only the first listed Document whose name says
+ * so, by that name, as a model that takes a name for one Document does (#1512).
  * Before its search it reasons, a line that quotes the Question, as a model
- * that thinks does. A Question asked "slowly" waits a moment before each step
- * and writes its Answer word by word, so a test sees each step of the Answer.
+ * that thinks does; given the Question's search before its first call (#1633),
+ * it answers from those Passages and reasons on that call. A Question asked
+ * "slowly" waits a moment before each step and writes its Answer word by word,
+ * so a test sees each step of the Answer.
  *
  * With Skills: a Question that names a listed Skill gets it loaded with
  * use_skill first. An Answer that follows a Skill (forced, or loaded) starts
  * by saying which.
  */
 
+import { readFigures } from "../../shared/figures";
+import { namesIn } from "./asks";
 import { cellReply, isCell } from "./cells";
-import { FORTY_CITATIONS, passagesIn, recordFor, recordsFor, TWELVE_IN_A_ROW } from "./passages";
 import {
+  FORTY_CITATIONS,
+  FOUR_CITATIONS,
+  passagesIn,
+  recordFor,
+  recordsFor,
+  TWELVE_IN_A_ROW,
+} from "./passages";
+import {
+  calledSinceQuestion,
   lastQuestion,
   lastUserText,
   type Prompt,
+  promptText,
   type Reply,
   type StreamPart,
   systemOf,
@@ -60,9 +80,12 @@ import {
   USAGE,
   userText,
 } from "./prompt";
+import { WORKBOOK_WHAT_IF, workbookWhatIf } from "./workbookFormulas";
 
 /** What the scripted model reasons before it searches: a line that quotes the Question. */
 const reasoningFor = (question: string) => `Search the Documents for “${question}”.`;
+/** What it reasons when the Question was searched before its first call (#1633). */
+const reasoningOnFound = (question: string) => `Answer “${question}” from the Passages found.`;
 
 /** The scripted Answer to a Question, when there are no Documents; it says which Skill it follows, if any. */
 function fakeAnswer(question: string, skill: string | null = null): string {
@@ -93,6 +116,15 @@ const FOUND_PAGES = [
 /** The scripted Answer when it cited something: one sentence with a marker. */
 export const CITED_ANSWER = "Your Documents answer this [^1].\n\nThat is all.";
 
+/** A Question whose Answer says more than its quote does: the scripted check finds it unsupported (#2311). */
+const BEYOND_ITS_QUOTE = /\bbeyond its quote\b|超出引文/i;
+
+/** A Question that asks for the figure its quote holds, which it writes as a model trusting a scan does (#535). */
+const ASKS_FOR_A_FIGURE = /\bstate the figure\b|写出数字/i;
+
+/** The sentence such an Answer writes, which says more than its quote: the scripted check finds it unsupported. */
+export const SAYS_MORE = /\bit is already done\b|这件事已经完成/u;
+
 /**
  * A Question whose model, after its search, runs on for pages of working notes instead of an
  * Answer (#1344): more than the backstop lets stand. The notes are Chinese, which has no spaces to
@@ -104,7 +136,23 @@ const WORKING_NOTES = "等一下，可能还有一份相同的文件。再搜一
 
 const WITHOUT_SEARCHING = /\bwithout searching\b|不用搜索/i;
 
+/** A Question whose reply says the calculation Tool confirmed a figure, with no `calculate` call (#1796). */
+const CLAIMS_CALCULATION = /\bclaims a calculation\b|声称已计算/i;
+const CLAIMS_CALCULATION_ZH = /声称已计算/;
+const claimAnswer = (said: string) =>
+  CLAIMS_CALCULATION_ZH.test(said)
+    ? "计算工具已确认：杠杆率为 3.26 倍。"
+    : "The calculation tool confirmed 3.26x.";
+
 const INTO_A_REPORT = /\binto a report\b|整理成报告/i;
+
+/** A Question whose first Passages fall short: the model searches once more, in its own words. */
+const SEARCH_TWICE = /\bsearch twice\b|搜两次/i;
+const ownWords = (question: string) =>
+  question
+    .replace(SEARCH_TWICE, "")
+    .replace(/[\s.?!。？！]+$/u, "")
+    .toLowerCase();
 
 /** A report of the Mind: each Citation it reads there recorded by its id, then a marker for each. */
 function reportReply(prompt: Prompt, question: string): Reply {
@@ -120,8 +168,8 @@ function reportReply(prompt: Prompt, question: string): Reply {
   const markers = ids.map((_, index) => `[^${index + 1}]`).join("");
   return {
     text: /\p{Script=Han}/u.test(question)
-      ? `# 报告\n\nMind 里的发现，来源都在${markers}。`
-      : `# Report\n\nWhat the Mind found, with its sources ${markers}.`,
+      ? `# 报告\n\n笔记里的发现，来源都在${markers}。`
+      : `# Report\n\nWhat the Note found, with its sources ${markers}.`,
   };
 }
 
@@ -371,9 +419,9 @@ function longHeadingsAnswer(question: string, marker: string): string {
   ].join("\n");
 }
 
-function fortyCitationsAnswer(question: string): string {
+function citedSentencesAnswer(question: string, count: number): string {
   const chinese = /\p{Script=Han}/u.test(question);
-  const sentences = Array.from({ length: 40 }, (_, index) =>
+  const sentences = Array.from({ length: count }, (_, index) =>
     chinese
       ? `第${index + 1}条说明潮水每天涨落两次，月亮的位置决定了涨落的时间[^${index + 1}]。`
       : `Statement ${index + 1} says the tide rises and falls twice a day, at hours that follow the moon [^${index + 1}].`,
@@ -445,6 +493,13 @@ const BY_QUARTER = /\bby quarter\b|按季度/i;
 const BY_QUARTER_CHINESE = /分季度/;
 const IN_MILLIONS = /\bin millions\b/i;
 
+const MINUTES = /\bminutes\b|纪要/i;
+
+function minutesNamed(prompt: Prompt, question: string): string | undefined {
+  if (!MINUTES.test(question)) return undefined;
+  return namesIn(systemOf(prompt)).find((name) => MINUTES.test(name.replace(/ \(“[^”]*”\)$/, "")));
+}
+
 const SHORT_SUMMARY = /\bshort summary\b|简短的摘要/i;
 const HOME_WORKING = /\bhome working\b|居家办公/i;
 
@@ -505,6 +560,163 @@ export function searchParts(tool: string, query: string): StreamPart[] {
   ];
 }
 
+const BY_REGION = /\bby region\b|按地区/i;
+const AGAINST_SPEND = /\bad spend\b|广告投入/i;
+
+/** A regression of revenue on ad spend, its plot, and the total IncarnaMind works out again. */
+function regressionReply(prompt: Prompt, question: string, searched: string): Reply | null {
+  const chinese = /\p{Script=Han}/u.test(question);
+  if (toolResults(prompt, "run_analysis").length > 0) {
+    return {
+      text: chinese
+        ? "广告投入每增加 1，收入增加 [=1]，收入合计 [=2]。\n\n[=picture 1]"
+        : "Each unit of ad spend adds [=1] of revenue, out of [=2] in total.\n\n[=picture 1]",
+    };
+  }
+  const marketing = passagesIn(searched).find((passage) =>
+    /marketing|营销/i.test(passage.document),
+  );
+  if (!marketing) return null;
+  const code = [
+    "import statsmodels.formula.api as smf",
+    "import matplotlib.pyplot as plt",
+    'df = inputs["marketing"].dropna(subset=["Revenue"])',
+    'fit = smf.ols("Revenue ~ AdSpend", data=df).fit()',
+    `result("slope", fit.params["AdSpend"], "${chinese ? "每单位广告投入带来的收入" : "Revenue per unit of ad spend"}", of=df[["AdSpend", "Revenue"]])`,
+    `figure("total", df["Revenue"], "sum", "${chinese ? "收入合计" : "Total revenue"}")`,
+    "fig, ax = plt.subplots()",
+    'ax.scatter(df["AdSpend"], df["Revenue"])',
+    'ax.set_title("Revenue against ad spend")',
+  ].join("\n");
+  return {
+    tool: "run_analysis",
+    input: {
+      title: chinese ? "收入对广告投入的回归" : "Revenue against ad spend",
+      inputs: [{ name: "marketing", passage: marketing.id }],
+      code,
+    },
+  };
+}
+const WITH_MANAGERS = /\bmanager|负责人/i;
+/** Asks for the Analysis's table in a Note rather than in the Answer (#2378). */
+const PUT_TABLE_IN_NOTE =
+  /\bput (?:it|the table|that table) in (?:a|the) note|把表格写进笔记|写进笔记/i;
+
+const IN_THE_LOG = /\bin the log\b|日志里/i;
+const EVERY_ROW = /\bevery row\b|所有行/i;
+
+/** Totals a CSV over every row in IncarnaMind's own Python (`run_code`), or says it couldn't. */
+function everyRowReply(prompt: Prompt, question: string, searched: string): Reply | null {
+  const chinese = /\p{Script=Han}/u.test(question);
+  const ran = toolResults(prompt, "run_code").at(-1);
+  if (ran !== undefined) {
+    if (ran.startsWith("Python didn't run")) {
+      return { text: chinese ? "这次无法运行 Python。" : "Python couldn't run this time." };
+    }
+    return { text: chinese ? "所有行合计 [=1]。" : "Over every row, [=1]." };
+  }
+  const orders = passagesIn(searched).find((passage) => /orders|订单/i.test(passage.document));
+  if (!orders) return null;
+  return {
+    tool: "run_code",
+    input: {
+      title: chinese ? "所有行的金额合计" : "Amount over every row",
+      language: "python",
+      documents: [orders.id],
+      code: 'df = read_table("orders.csv")\nfigure("total", df["amount"], "sum", "Total amount")',
+    },
+  };
+}
+
+/**
+ * Looks at a log with bash in the OS sandbox (`run_code`, ADR-0025), then counts its errors in
+ * Python with result(): a number bash prints is never given in the Answer (ADR-0025 decision 3).
+ */
+function logReply(prompt: Prompt, question: string, searched: string): Reply | null {
+  const chinese = /\p{Script=Han}/u.test(question);
+  const runs = toolResults(prompt, "run_code");
+  const log = passagesIn(searched).find((passage) => /log/i.test(passage.document));
+  if (runs.length === 0) {
+    if (!log) return null;
+    return {
+      tool: "run_code",
+      input: {
+        title: chinese ? "日志里的错误行" : "Error lines in the log",
+        language: "bash",
+        documents: [log.id],
+        code: "grep ' 500' ../inputs/*",
+      },
+    };
+  }
+  if (runs.length === 1 && log) {
+    return {
+      tool: "run_code",
+      input: {
+        title: chinese ? "日志中的错误数" : "Errors in the log",
+        language: "python",
+        documents: [log.id],
+        code: 'import glob\nlines = [line for name in glob.glob("../inputs/*") for line in open(name) if " 500" in line]\nresult("errors", len(lines), "Errors in the log")',
+      },
+    };
+  }
+  const counted = runs.at(-1) ?? "";
+  if (counted.startsWith("Python didn't run")) {
+    return {
+      text: chinese
+        ? "我看了日志里的错误行，但这次无法运行 Python 来数清有多少。"
+        : "I looked at the log's error lines, but Python couldn't run this time to count them.",
+    };
+  }
+  return { text: chinese ? "日志里有 [=1] 个错误。" : "The log has [=1] errors." };
+}
+
+function analysisReply(prompt: Prompt, question: string, searched: string): Reply | null {
+  const ran = toolResults(prompt, "run_analysis");
+  const chinese = /\p{Script=Han}/u.test(question);
+  if (ran.length > 0) {
+    if (PUT_TABLE_IN_NOTE.test(question)) {
+      if (toolResults(prompt, "add_to_mind").length === 0) {
+        return {
+          tool: "add_to_mind",
+          input: {
+            content: chinese ? "各地区收入：\n\n[=table 1]" : "Revenue by region:\n\n[=table 1]",
+          },
+        };
+      }
+      return { text: chinese ? "已写入笔记。" : "Written into the note." };
+    }
+    return {
+      text: chinese
+        ? "各地区收入如下：\n\n[=table 1]\n\n合计 [=1]。"
+        : "Revenue by region:\n\n[=table 1]\n\nIn total, [=1].",
+    };
+  }
+  const passages = passagesIn(searched);
+  const sales = passages.find((passage) => /sales|销售/i.test(passage.document));
+  if (!sales) return null;
+  const regions = passages.find((passage) => /regions|地区/i.test(passage.document));
+  const joining = WITH_MANAGERS.test(question) && regions;
+  const code = [
+    'sales = step("Read the sales", inputs["sales"])',
+    'sales["Revenue"] = pd.to_numeric(sales["Revenue"], errors="coerce")',
+    'totals = sales.groupby("Region", sort=True)["Revenue"].sum()',
+    'result("by_region", totals, "Revenue by region")',
+    'result("total", totals.sum(), "Total revenue")',
+    ...(joining ? ['merged = sales.merge(inputs["regions"], on="Region", how="left")'] : []),
+  ].join("\n");
+  return {
+    tool: "run_analysis",
+    input: {
+      title: chinese ? "各地区收入" : "Revenue by region",
+      inputs: [
+        { name: "sales", passage: sales.id },
+        ...(joining ? [{ name: "regions", passage: regions.id }] : []),
+      ],
+      code,
+    },
+  };
+}
+
 /** What the model does next, apart from Connector Tools: call a Tool, or stream its Answer. */
 export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
   const question = lastQuestion(prompt);
@@ -516,15 +728,66 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
   const skill = skillFollowed(prompt);
   if (!tools.includes("search_documents")) return { text: fakeAnswer(question, skill) };
   if (INTO_A_REPORT.test(question)) return reportReply(prompt, question);
+  if (tools.includes("read_document") && /read (?:the )?(?:results )?page/i.test(question)) {
+    const pages = /page (\d+)/i.exec(question)?.[1];
+    const document = /“([^”]+)”/.exec(question)?.[1];
+    if (pages && document && toolResults(prompt, "read_document").length === 0) {
+      return { tool: "read_document", input: { document, pages } };
+    }
+  }
   const given = passagesIn(lastUserText(prompt)).length > 0 && WITHOUT_SEARCHING.test(question);
-  const searches = given ? [lastUserText(prompt)] : toolResults(prompt, "search_documents");
+  const searches = given
+    ? [lastUserText(prompt)]
+    : [...toolResults(prompt, "search_documents"), ...toolResults(prompt, "read_document")];
   if (searches.length === 0) {
+    const minutes = minutesNamed(prompt, question);
     return {
       tool: "search_documents",
-      input: { query: question },
+      input: { query: question, ...(minutes && { document: minutes }) },
       reasoning: reasoningFor(question),
     };
   }
+  const reply: Reply =
+    SEARCH_TWICE.test(question) && searches.length === 1
+      ? { tool: "search_documents", input: { query: ownWords(question) } }
+      : answerFrom(prompt, question, tools, searches, skill);
+  // Searched before its first call, the model thinks on the first call it makes itself.
+  return given || calledSinceQuestion(prompt)
+    ? reply
+    : { ...reply, reasoning: reasoningOnFound(question) };
+}
+
+/** What the model does once it has Passages to answer from. */
+function answerFrom(
+  prompt: Prompt,
+  question: string,
+  tools: readonly string[],
+  searches: readonly string[],
+  skill: string | null,
+): Reply {
+  if (tools.includes("trace_formulas") && WORKBOOK_WHAT_IF.test(question))
+    return workbookWhatIf(prompt, question, searches.at(-1) ?? "");
+  if (tools.includes("run_code") && EVERY_ROW.test(question)) {
+    const reply = everyRowReply(prompt, question, searches.at(-1) ?? "");
+    if (reply) return reply;
+  }
+  if (tools.includes("run_code") && IN_THE_LOG.test(question)) {
+    const reply = logReply(prompt, question, searches.at(-1) ?? "");
+    if (reply) return reply;
+  }
+  if (tools.includes("run_analysis") && BY_REGION.test(question)) {
+    const reply = analysisReply(prompt, question, searches.at(-1) ?? "");
+    if (reply) return reply;
+  }
+  if (tools.includes("run_analysis") && AGAINST_SPEND.test(question)) {
+    const reply = regressionReply(prompt, question, searches.at(-1) ?? "");
+    if (reply) return reply;
+  }
+  const claimed = prompt
+    .filter((message) => message.role === "user")
+    .map((message) => promptText([message]))
+    .find((text) => CLAIMS_CALCULATION.test(text));
+  if (claimed !== undefined) return { text: claimAnswer(claimed) };
   if (THINKING_ALOUD.test(question)) return { text: WORKING_NOTES };
   if (WITHOUT_CITING.test(question)) return { text: uncitedAnswer(question) };
   if (CITING_AS_TEXT.test(question)) {
@@ -538,6 +801,7 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
   }
   if (tools.includes("calculate") && /\bgrow|增长/i.test(question)) {
     const calculated = toolResults(prompt, "calculate");
+    const share = /\bshare\b|占比/i.test(question);
     if (calculated.length === 0) {
       const inputs = [1, 2].map((position) => ({
         name: `n${position}`,
@@ -548,18 +812,57 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
       return {
         tool: "calculate",
         input: {
-          figures: [{ marker: 1, label: "Growth", inputs, formula: "n1 / n2 - 1", as: "percent" }],
+          figures: [
+            { marker: 1, label: "Growth", inputs, formula: "n1 / n2 - 1", as: "percent" },
+            ...(share
+              ? [{ marker: 2, label: "Share", inputs, formula: "n2 / n1", as: "percent" }]
+              : []),
+          ],
         },
       };
     }
-    if (calculated.at(-1)?.startsWith("Recorded [=1]")) {
+    // A number `calculate` refused because a scan may have misread it (#535): say the scan is unclear.
+    if (calculated.at(-1)?.includes("may be misread; it can't be an input")) {
       return {
-        text: /增长/.test(question) ? "增长了[=1][^1]。" : "It grew [=1] [^1].\n\nThat is all.",
+        text: /增长/.test(question)
+          ? "扫描件上的这个数字识别不清，我无法据此计算[^1]。"
+          : "The scan is unclear, so I can't work that figure out [^1].",
+      };
+    }
+    if (calculated.at(-1)?.startsWith("Recorded [=1]")) {
+      const chinese = /增长/.test(question);
+      if (share)
+        return {
+          text: chinese
+            ? "增长了[=1][^1]，上年为本年的[=2][^1]。"
+            : "It grew [=1] [^1], and the earlier year was [=2] of the later one [^1].",
+        };
+      return { text: chinese ? "增长了[=1][^1]。" : "It grew [=1] [^1].\n\nThat is all." };
+    }
+  }
+  if (BEYOND_ITS_QUOTE.test(question)) {
+    return {
+      text: /\p{Script=Han}/u.test(question)
+        ? "文档说这件事已经完成[^1]。"
+        : "Your Documents say it is already done [^1].",
+    };
+  }
+  const firstPassage = passagesIn(searches.at(-1) ?? "")[0];
+  const firstRecord = firstPassage ? recordFor(firstPassage, question, 1) : null;
+  const quoted = firstRecord?.quoted;
+  // A Question that asks the model to state a figure: it writes the first number in its quote, as
+  // a model does that trusts a scan's reading (#535).
+  if (ASKS_FOR_A_FIGURE.test(question)) {
+    const quoted = firstRecord?.record.quote;
+    const figure = readFigures(typeof quoted === "string" ? quoted : "")[0];
+    if (figure) {
+      return {
+        text: /\p{Script=Han}/u.test(question)
+          ? `数字为 ${figure.chars}[^1]。`
+          : `The figure is ${figure.chars} [^1].`,
       };
     }
   }
-  const firstPassage = passagesIn(searches.at(-1) ?? "")[0];
-  const quoted = firstPassage && recordFor(firstPassage, question, 1)?.quoted;
   if (quoted) {
     return {
       text: /\p{Script=Han}/u.test(question)
@@ -583,8 +886,8 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
           ? twoTablesAnswer(question)
           : NINE_ROWS.test(question)
             ? nineRowsAnswer(question, recorded[0] ?? "")
-            : FORTY_CITATIONS.test(question)
-              ? fortyCitationsAnswer(question)
+            : FORTY_CITATIONS.test(question) || FOUR_CITATIONS.test(question)
+              ? citedSentencesAnswer(question, FORTY_CITATIONS.test(question) ? 40 : 4)
               : TWELVE_IN_A_ROW.test(question)
                 ? twelveInARowAnswer(question)
                 : CITED_BELOW.test(question) || FRAMED.test(question)

@@ -6,8 +6,12 @@ import { type ChatProviderKind, chatProviderKinds } from "../../src/core/api";
 import { automaticTagging } from "../../src/core/library/tagging";
 import {
   calculates,
+  checkCalculates,
   cloudWindow,
   givesStructuredOutput,
+  offersAnalysis,
+  offersCode,
+  offersWorkbookTools,
   readsImages,
   resolveCapabilities,
   startingSupport,
@@ -229,6 +233,101 @@ describe("The provider catalog", () => {
     expect(catalogModel("google", "gemini-3.8-flash")?.price?.note?.en).toContain("2027-01-01");
   });
 
+  // protects=Claude Haiku 5.5's prices over 100,000 prompt tokens stay in the catalog on every route that bills them, after any refresh; fails_when=a refresh or a hand-written price drops the tier; no_claim=that the routes' prices are current.
+  test("Claude Haiku 5.5 costs five times as much over 100,000 prompt tokens on every route that sells it", () => {
+    const global = { above: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05 };
+    const regional = { above: 100_000, input: 0.55, output: 2.75, cacheRead: 0.055 };
+    expect(catalogModel("anthropic", "claude-haiku-5-5")?.price).toEqual({
+      currency: "USD",
+      input: 0.1,
+      output: 0.5,
+      cacheRead: 0.01,
+      tiers: [global],
+    });
+    const routes: [string, string, typeof global][] = [
+      ["openrouter", "anthropic/claude-haiku-5.5", global],
+      ["openrouter", "~anthropic/claude-haiku-latest", global],
+      ["venice", "claude-haiku-5-5", global],
+      ["bedrock", "anthropic.claude-haiku-5-5", global],
+      ["bedrock", "global.anthropic.claude-haiku-5-5", global],
+      ["bedrock", "us.anthropic.claude-haiku-5-5", regional],
+      ["bedrock", "eu.anthropic.claude-haiku-5-5", regional],
+      ["bedrock", "au.anthropic.claude-haiku-5-5", regional],
+      ["bedrock", "jp.anthropic.claude-haiku-5-5", regional],
+    ];
+    for (const [set, id, tier] of routes) {
+      expect(catalogModel(set, id)?.price?.tiers, `${set}/${id}`).toEqual([tier]);
+    }
+  });
+
+  // protects=every default model its provider bills by prompt length keeps its tiers after a refresh, and the flat ones stay flat; fails_when=a refresh or a hand-written price drops a tier, or a flat model gains one unseen; no_claim=that the prices are current.
+  test("the default models billed by prompt length carry their tiers, from their providers' price pages, and the flat ones none", () => {
+    const tiered: [string, string, unknown[]][] = [
+      ["openai", "gpt-6-luna", [{ above: 272_000, input: 0.2, output: 0.75, cacheRead: 0.02 }]],
+      ["openai", "gpt-6.1-sol", [{ above: 272_000, input: 4, output: 15, cacheRead: 0.2 }]],
+      ["openai", "gpt-6-astra", [{ above: 272_000, input: 20, output: 75, cacheRead: 2 }]],
+      [
+        "openrouter",
+        "openai/gpt-6-luna",
+        [{ above: 272_000, input: 0.2, output: 0.75, cacheRead: 0.02 }],
+      ],
+      [
+        "google",
+        "gemini-3.1-pro-preview",
+        [{ above: 200_000, input: 4, output: 18, cacheRead: 0.4 }],
+      ],
+      ["xai", "grok-4.3", [{ above: 199_999, input: 2.5, output: 5, cacheRead: 0.4 }]],
+      ["xai", "grok-4.7", [{ above: 199_999, input: 4, output: 12, cacheRead: 1 }]],
+      ["qwen", "qwen3.7-plus", [{ above: 256_000, input: 6, output: 24, cacheRead: 1.2 }]],
+      ["qwen/intl", "qwen3.7-plus", [{ above: 256_000, input: 1.2, output: 4.8, cacheRead: 0.24 }]],
+      [
+        "qwen",
+        "qwen3.7-flash",
+        [
+          { above: 32_000, input: 0.6, output: 2.4, cacheRead: 0.12 },
+          { above: 256_000, input: 1.2, output: 4.8, cacheRead: 0.24 },
+        ],
+      ],
+      [
+        "qwen/intl",
+        "qwen3.7-flash",
+        [
+          { above: 32_000, input: 0.1, output: 0.4, cacheRead: 0.02 },
+          { above: 256_000, input: 0.2, output: 0.8, cacheRead: 0.04 },
+        ],
+      ],
+      [
+        "openrouter",
+        "qwen/qwen3.7-flash",
+        [
+          { above: 32_000, input: 0.1, output: 0.4, cacheRead: 0.02 },
+          { above: 256_000, input: 0.2, output: 0.8, cacheRead: 0.04 },
+        ],
+      ],
+    ];
+    for (const [set, id, tiers] of tiered) {
+      expect(catalogModel(set, id)?.price?.tiers, `${set}/${id}`).toEqual(tiers);
+    }
+    const flat: [string, string][] = [
+      ["anthropic", "claude-sonnet-5-5"],
+      ["anthropic", "claude-fable-5-1"],
+      ["openrouter", "anthropic/claude-sonnet-5.5"],
+      ["google", "gemini-3.8-flash"],
+      ["google", "gemini-3.5-flash-lite"],
+      ["qwen", "qwen3.8-flash"],
+      ["qwen", "qwen3.8-max"],
+      ["qwen/intl", "qwen3.8-flash"],
+      ["kimi", "kimi-k2.6"],
+      ["glm", "glm-5.3"],
+      ["glm", "glm-5.3-flash"],
+      ["deepseek", "deepseek-flash"],
+    ];
+    for (const [set, id] of flat) {
+      expect(catalogModel(set, id)?.price?.input, `${set}/${id}`).toBeGreaterThanOrEqual(0);
+      expect(catalogModel(set, id)?.price?.tiers, `${set}/${id}`).toBeUndefined();
+    }
+  });
+
   test("a model is found by its id, or a dated snapshot by the id without its date; nothing else is guessed from a name", () => {
     expect(catalogModel("openai", "gpt-6.1-sol")?.name).toBe("GPT-6.1 Sol");
     expect(catalogModel("openai", "gpt-5-2025-08-07")?.id).toBe("gpt-5");
@@ -253,14 +352,61 @@ describe("The provider catalog", () => {
     ["chatgpt", "gpt-6-sol", true],
     ["openrouter", "openai/gpt-6-luna", false],
     ["google", "gemini-3.8-flash", false],
-    ["deepseek", "deepseek-flash", false],
+    ["deepseek", "deepseek-flash", true],
+    ["deepseek", "deepseek-v4-flash", true],
+    ["deepseek", "deepseek-v4-pro", false],
+    ["deepseek", "deepseek-v4-flash-vision-exp", false],
+    ["openrouter", "deepseek/deepseek-chat", false],
     ["qwen", "qwen3.8-flash", false],
     ["siliconflow", "deepseek-ai/DeepSeek-V4", false],
     ["ollama", "gpt-oss:20b-cloud", false],
     ["ollama", "qwen3.5:4b", false],
   ])("%s %s is offered calculate by the catalog: %s", (kind, modelId, offered) => {
-    // Only models measured to use it well (#438); the evaluation (#441) turns on more.
+    // Only models measured to use it well (#438, then the evaluation #441).
     expect(calculates(fromCatalog(kind, modelId))).toBe(offered);
+  });
+
+  test.each<[ChatProviderKind, string, boolean]>([
+    ["anthropic", "claude-haiku-5-5", true],
+    ["claude-account", "claude-sonnet-5-5", true],
+    ["openai", "gpt-6-luna", true],
+    ["chatgpt", "gpt-6-sol", true],
+    ["deepseek", "deepseek-flash", false],
+    ["deepseek", "deepseek-v4-flash", false],
+  ])(
+    "%s %s is offered the workbook Tools, the Analysis Tool and calculate in checks: %s",
+    (kind, modelId, offered) => {
+      const capabilities = fromCatalog(kind, modelId);
+      expect([
+        offersWorkbookTools(capabilities),
+        offersAnalysis(capabilities),
+        checkCalculates(capabilities),
+      ]).toEqual([offered, offered, offered]);
+    },
+  );
+
+  test("run_code is offered to no model yet: none has the fact on, so none is offered it", () => {
+    const models = providersWithModels().flatMap((provider) =>
+      catalogModels(provider).map((model) => ({ provider, id: model.id })),
+    );
+    const on = models
+      .filter(({ provider, id }) => catalogFacts(provider, id)?.codeTool === true)
+      .map(({ provider, id }) => `${provider}/${id}`);
+    const offered = models
+      .filter(({ provider, id }) =>
+        offersCode(resolveCapabilities({ catalog: catalogFacts(provider, id) })),
+      )
+      .map(({ provider, id }) => `${provider}/${id}`);
+    expect([on, offered]).toEqual([[], []]);
+    // What a test turns on is enough to offer it, where the model has the Analysis Tool.
+    expect(
+      offersCode(
+        resolveCapabilities({
+          user: { codeTool: true },
+          catalog: catalogFacts("anthropic", "claude-haiku-5-5"),
+        }),
+      ),
+    ).toBe(true);
   });
 
   test.each<[ChatProviderKind, string, boolean]>([
@@ -298,6 +444,10 @@ describe("The provider catalog", () => {
           tag,
         ).toBe(true);
       }
+    }
+    for (const model of LOCAL_MODELS) {
+      expect(model.name.trim(), model.tag).not.toBe("");
+      expect(model.name, model.tag).not.toBe(model.tag);
     }
     // Only a model the evaluation measured counts as tested; the one-click model is one.
     expect(LOCAL_MODELS.filter((model) => model.evaluated).map((model) => model.tag)).toEqual([
@@ -362,9 +512,10 @@ describe("What is known of a model", () => {
       tokens: 1_050_000,
       outputTokens: 128_000,
     });
+    // Room for the longest reply the app asks for, 32,000 tokens, not the model's own 128,000.
     expect(window({ context: 1_000_000, maxOutput: 128_000 })).toEqual({
       tokens: 1_000_000,
-      outputTokens: 128_000,
+      outputTokens: 32_000,
     });
     // The reply never takes more than half the window.
     expect(window({ context: 8_192, maxOutput: 8_192 })).toEqual({
@@ -372,6 +523,42 @@ describe("What is known of a model", () => {
       outputTokens: 4_096,
     });
     expect(window({ maxOutput: 8_192 })).toBeUndefined();
+  });
+
+  // protects=a model whose input limit leaves less than its reply needs still keeps room for the longest reply the app asks for, so a long step isn't cut to the input limit's leftover; fails_when=Qwen 3.7 Flash gets 8,192 or StepFun 3.7 Flash 6,144 (#2275).
+  test("a cloud model's reply keeps its room whatever its input limit, and the input takes the rest", () => {
+    const of = (provider: string, modelId: string) => {
+      const facts = catalogFacts(provider, modelId);
+      return {
+        facts: facts && {
+          context: facts.context,
+          maxInput: facts.maxInput,
+          maxOutput: facts.maxOutput,
+        },
+        window: cloudWindow(resolveCapabilities({ catalog: facts ?? {} })),
+      };
+    };
+    expect(of("qwen", "qwen3.7-flash")).toEqual({
+      facts: { context: 1_000_000, maxInput: 991_808, maxOutput: 131_072 },
+      window: { tokens: 1_000_000, outputTokens: 32_000 },
+    });
+    expect(of("openrouter", "qwen/qwen3.7-flash")).toEqual({
+      facts: { context: 1_000_000, maxInput: 991_808, maxOutput: 65_536 },
+      window: { tokens: 1_000_000, outputTokens: 32_000 },
+    });
+    expect(of("openrouter", "stepfun/step-3.7-flash")).toEqual({
+      facts: { context: 262_144, maxInput: 256_000, maxOutput: 230_400 },
+      window: { tokens: 262_144, outputTokens: 32_000 },
+    });
+    expect(of("openai", "gpt-5.3-codex-spark")).toEqual({
+      facts: { context: 128_000, maxInput: 100_000, maxOutput: 32_000 },
+      window: { tokens: 128_000, outputTokens: 32_000 },
+    });
+    // A small window: half of it, as before.
+    expect(of("openai", "gpt-4")).toEqual({
+      facts: { context: 8_192, maxInput: undefined, maxOutput: 8_192 },
+      window: { tokens: 8_192, outputTokens: 4_096 },
+    });
   });
 });
 
@@ -469,8 +656,8 @@ describe("The providers of #178", () => {
   });
 
   test("every provider's data-use line fits one line at 900px beside its link, states no price or plan, and a hosted provider links its own page", () => {
-    // The narrowest 900px screen is first run's key form, 524px wide, in 12px type: the line,
-    // "Data use ↗" and in Chinese "数据使用：" before it must fit in one line of it.
+    // The narrowest 900px screen is first run's key form, 524px wide, in 12px type: the line
+    // and its "Data use ↗" link must fit in one line of it.
     const MOST_ENGLISH_CHARACTERS = 90;
     const MOST_CHINESE_UNITS = 30;
     const wide = /[\u2e80-\u9fff\uff00-\uffef]/u;

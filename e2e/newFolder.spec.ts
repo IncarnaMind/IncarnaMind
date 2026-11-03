@@ -22,7 +22,8 @@ import {
  * New Folder (⇧⌘N, Ctrl+Shift+N) makes "Untitled Folder" in the sidebar's tree
  * with its name field open in its row: Enter keeps what is typed, Esc keeps
  * "Untitled Folder", ⌘Z takes it all back. New Folder with these makes the
- * Folder with the chosen Documents (and Minds) in it, in one step to undo.
+ * Folder with the chosen Documents (and Minds) in it, in one step to undo;
+ * a Folder something was filed in since is kept, and the line says so.
  * Each is checked in the core, through the bridge. Set INCARNAMIND_SCREENSHOTS
  * to a folder to also save screenshots there.
  */
@@ -51,6 +52,14 @@ const folderNames = async (window: Page) =>
   (await (await coreOf(window)).evaluate((core) => core.getLibrary())).groups
     .map((group) => group.name)
     .sort();
+
+/** Each Folder's name and the Folder it is in, by name, so a Folder inside another can't pass for one beside it. */
+const folderPlaces = async (window: Page): Promise<Record<string, string | null>> =>
+  (await coreOf(window)).evaluate(async (core) => {
+    const groups = (await core.getLibrary()).groups;
+    const nameOf = (id: string | null) => groups.find((each) => each.id === id)?.name ?? null;
+    return Object.fromEntries(groups.map((group) => [group.name, nameOf(group.parentId)]));
+  });
 
 /** The Folder each Document is filed in, by name (null: Not in a Folder), as the core has it. */
 async function filedIn(window: Page, names: string[]): Promise<(string | null)[]> {
@@ -140,7 +149,7 @@ test("⇧⌘N makes “Untitled Folder” with its name open in the tree: Enter 
   }
 });
 
-test("the + menu and a Folder's ⋯ make one too, and show the keys", async () => {
+test("the + menu makes a Folder at the top level, and a Folder's ⋯ makes one inside it", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1100, 700);
@@ -158,18 +167,25 @@ test("the + menu and a Folder's ⋯ make one too, and show the keys", async () =
     await window.keyboard.press("Enter");
     await expect(sidebarFolder(window, "Reading")).toHaveCount(1);
 
-    // The Folder's ⋯ has it after "New Mind here": the new Folder is a Folder of its own.
+    // The Folder's ⋯ has "New Folder inside" after "New note here": one item, making a Folder
+    // inside Reading, not beside it.
     const reading = sidebarFolder(window, "Reading");
     await reading.getByTestId("folder-row").hover();
     await pointAndClick(window, reading.getByTestId("folder-menu"));
-    const entry = window.getByTestId("folder.new");
-    await expect(entry).toContainText("New Folder");
-    await expect(entry).toContainText(/⇧⌘N|Ctrl\+Shift\+N/);
+    const entry = window.getByTestId("folder.newInside");
+    await expect(entry).toContainText("New Folder inside");
     await pointAndClick(window, entry);
     await expect(field).toBeFocused();
     await expect(field).toHaveValue("Untitled Folder");
-    await window.keyboard.press("Escape");
-    await expect.poll(() => folderNames(window)).toEqual(["Reading", "Untitled Folder"]);
+    await window.keyboard.type("Studies");
+    await window.keyboard.press("Enter");
+    await expect
+      .poll(() => folderPlaces(window))
+      .toEqual({
+        Reading: null,
+        Studies: "Reading",
+      });
+    await expect(sidebarFolder(window, "Studies")).toHaveAttribute("data-depth", "1");
   } finally {
     await app.close();
   }
@@ -262,6 +278,73 @@ test("New Folder with these puts the Documents selected in the Library in the ne
     await expect.poll(() => folderNames(window)).toEqual([]);
     await window.keyboard.press("ControlOrMeta+Shift+z");
     await expect(sidebarFolder(window, "Chapter 2 sources")).toHaveAttribute("data-count", "3");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a Document another window filed in the new Folder since keeps it when its making is undone, and the line says so, in English and Chinese", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1100, 700);
+    await dismissChatSetup(window);
+    await addDocuments(window, await writeTexts("Chen 2019", "Taha 1997"));
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    const row = (name: string) => library.getByTestId("library-document").filter({ hasText: name });
+    const field = nameField(window);
+
+    // The Folder is made with the first Document in it, from its own row's menu: the selection
+    // bar is for two or more selected.
+    const newFolderWith = async (name: string) => {
+      await row(name).hover();
+      await pointAndClick(window, row(name).getByTestId("document-file-menu"));
+      await pointAndClick(window, window.getByTestId("folder.newWith"));
+    };
+    await newFolderWith("Chen 2019");
+    await expect(field).toBeFocused();
+    await window.keyboard.type("Chapter 2 sources");
+    await window.keyboard.press("Enter");
+    await expect(sidebarFolder(window, "Chapter 2 sources")).toHaveAttribute("data-count", "1");
+
+    // Another window files the second in it after it was made: that work is not this step's to take back.
+    const taha = await documentIdOf(window, "Taha 1997");
+    const fileIn = (folderName: string, id: string) =>
+      coreOf(window).then((core) =>
+        core.evaluate(
+          async (bridge, [name, documentId]) => {
+            const library = await bridge.getLibrary();
+            const folder = library.groups.find((each) => each.name === name);
+            if (!folder) throw new Error("The Folder isn't there.");
+            await bridge.moveToFolder({ documentIds: [documentId], folderId: folder.id });
+          },
+          [folderName, id] as const,
+        ),
+      );
+    await fileIn("Chapter 2 sources", taha);
+    await expect(sidebarFolder(window, "Chapter 2 sources")).toHaveAttribute("data-count", "2");
+
+    // ⌘Z: the Folder stays with what was filed in it since, and the Document it was made with goes back.
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(sidebarFolder(window, "Chapter 2 sources")).toHaveAttribute("data-count", "1");
+    expect(await filedIn(window, ["Chen 2019", "Taha 1997"])).toEqual([null, "Chapter 2 sources"]);
+    await expect(window.getByTestId("undo-note")).toHaveText(
+      "Kept the Folder “Chapter 2 sources”: you’ve filed things in it since.",
+    );
+
+    // In Chinese, a Folder made and named in Chinese.
+    await setLanguage(window, "zh-CN");
+    await newFolderWith("Chen 2019");
+    await expect(field).toBeFocused();
+    await typeWithInputMethod(window, field, "第二章资料");
+    await expect(sidebarFolder(window, "第二章资料")).toHaveAttribute("data-count", "1");
+    await fileIn("第二章资料", taha);
+    await expect(sidebarFolder(window, "第二章资料")).toHaveAttribute("data-count", "2");
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(sidebarFolder(window, "第二章资料")).toHaveAttribute("data-count", "1");
+    await expect(window.getByTestId("undo-note")).toHaveText(
+      "保留了文件夹“第二章资料”：之后你在里面放了其他内容。",
+    );
   } finally {
     await app.close();
   }
@@ -405,7 +488,7 @@ test("a Mind's ⋯ makes a Folder with that Mind in it, and ⌘Z puts it back", 
     await mind.hover();
     await pointAndClick(window, mind.getByTestId("mind-menu"));
     const entry = window.getByTestId("folder.newWith");
-    await expect(entry).toHaveText(/New Folder with this Mind/);
+    await expect(entry).toHaveText(/New Folder with this note/);
     await pointAndClick(window, entry);
     const field = nameField(window);
     await expect(field).toBeFocused();

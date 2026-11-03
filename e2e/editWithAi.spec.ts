@@ -71,7 +71,7 @@ async function selectWords(window: Page, line: Locator, words: string, more = 0)
   for (let index = 0; index < more; index++) await window.keyboard.press("Shift+ArrowRight");
 }
 
-test("Shorten applies at once; Review changes shows its two changes over the applied text: one restored by mouse, the other by keyboard, ⌘Z; the Citation is still checked", async () => {
+test("Shorten applies at once; Review changes shows its two changes over the applied text with one Restore original for the paragraph, which ⌘Z takes back; the Citation is still checked", async () => {
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   const { window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -122,24 +122,18 @@ test("Shorten applies at once; Review changes shows its two changes over the app
   await expect(removed).toHaveText(["very ", "really "]);
   await expect(removed.first()).toHaveCSS("text-decoration-line", "line-through");
   const restores = note.getByTestId("change-restore");
-  await expect(restores).toHaveCount(2);
+  await expect(restores).toHaveCount(1);
   await screenshot(window, "edit-changes-en");
 
-  await pointAndClick(window, restores.first());
-  await expect(removed).toHaveText(["really "]);
-  await expect(note).toContainText("The tides here are very strong and");
-  await expect(line.getByTestId("applied-count")).toHaveText("1 paragraph changed by Edit with AI");
+  await pointAndClick(window, restores);
+  await expect(removed).toHaveCount(0);
+  await expect(note).toContainText("The tides here are very strong and really regular");
+  await expect(line).toHaveCount(0);
   await expect(window.getByTestId("undo-message")).toHaveText("Restored the original");
 
-  // Restore by keyboard, with the cursor at the other change: then none is left to show.
-  await pointAndClick(window, removed.first());
-  await expect(restores).toHaveCount(1);
-  await window.keyboard.press("ControlOrMeta+Backspace");
-  await expect(removed).toHaveCount(0);
-  await expect(line).toHaveCount(0);
-  await expect(note).toContainText("The tides here are very strong and really regular");
+  // Undo puts the edit's words back.
   await window.keyboard.press("ControlOrMeta+z");
-  await expect(note).toContainText("The tides here are very strong and regular");
+  await expect(note).toContainText("The tides here are strong and regular");
   // The Citation in the sentence is kept, and its quote still found.
   await expect(note.getByTestId("citation")).toHaveCount(1);
   await expect(note.getByTestId("citation")).toHaveAttribute("data-check", "found");
@@ -309,7 +303,7 @@ test("⌘J with text selected says what to change in the selection menu's field,
   await expect(line.getByTestId("applied-count")).toHaveText("修改了 1 个段落");
 
   // Translate… asks for the language beside it. A text the model gives back as it was (the
-  // scripted model only capitalises) says so in the composer, and changes nothing.
+  // scripted model only capitalises) says so where its Undo line would land, and changes nothing.
   await selectWords(window, note, "潮水每天规律地涨落两次。");
   await pointAndClick(window, window.getByTestId("selection-action-translate"));
   const languages = window.getByTestId("selection-choices-translate");
@@ -318,7 +312,7 @@ test("⌘J with text selected says what to change in the selection menu's field,
   const problem = window.getByTestId("edit-problem");
   await expect(problem).toContainText("没有要修改的地方");
   await expect(line).toHaveCount(0);
-  await pointAndClick(window, problem.getByTestId("edit-problem-close"));
+  await pointAndClick(window, problem.getByTestId("menu-edit-close"));
   await expect(problem).toHaveCount(0);
 });
 

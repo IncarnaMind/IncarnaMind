@@ -17,12 +17,13 @@
  *   passes a window budget), at most once per Answer, and only when some
  *   quote isn't found: an Answer whose quotes are all found makes no request.
  * - **Cost:** one request, of at most `MAX_RETRIED_RECORDS` records, each
- *   with at most `EXCERPT_TOKENS` of its Passage, and an output cap of
- *   `OUTPUT_TOKENS_PER_RECORD` a record. The Answer's phase shows it
+ *   with at most `EXCERPT_TOKENS` of its Passage, and an output cap per
+ *   record (../providers/outputLimits). The Answer's phase shows it
  *   ("checking-quotes"), and its end reports it (`AnswerFinished.quoteRetry`),
  *   so the evaluation counts the requests, what they recovered and their time.
  */
-import { jsonSchema, Output, parsePartialJson, streamText } from "ai";
+import { jsonSchema, Output, streamText } from "ai";
+import { outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, UnfoundQuote } from "./engine";
 import { markedSentence, wordsOf } from "./markerPlacement";
 import { QUOTE_RETRY_INSTRUCTIONS, type QuoteToRetry, quoteRetryPrompt } from "./prompt";
@@ -34,8 +35,6 @@ export const MAX_RETRIED_RECORDS = 6;
 export const EXCERPT_TOKENS = 400;
 /** Less than this of a Passage isn't worth asking with: no request is made. */
 const MIN_EXCERPT_TOKENS = 96;
-/** The output cap, per record: a short quote and its JSON. */
-export const OUTPUT_TOKENS_PER_RECORD = 100;
 
 /** Where a Passage's text may be cut: after a line, or a sentence's end. */
 const PIECE_BREAK = /(?<=\n)|(?<=[。！？；])|(?<=[.!?;])(?=\s)/u;
@@ -139,13 +138,27 @@ const correctionsSchema = jsonSchema<{ quotes: unknown }>({
   required: ["quotes"],
 });
 
-/** The reply's JSON, even inside a Markdown code fence or after thinking; undefined if there is none. */
+/**
+ * The reply's JSON, even inside a Markdown code fence, after thinking or among other words;
+ * undefined if there is none that parses whole. JSON that is cut off is never repaired (#2275): a
+ * repaired record would hold a quote or figure cut short.
+ */
 export async function replyJson(raw: string): Promise<unknown> {
   const json = raw
     .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, "")
     .replace(/^\s*```(?:json)?[ \t]*\n?/i, "")
     .replace(/\n?```\s*$/, "");
-  return (await parsePartialJson(json)).value;
+  const whole = (text: string) => {
+    try {
+      return { value: JSON.parse(text) as unknown };
+    } catch {
+      return null;
+    }
+  };
+  const start = json.search(/[[{]/);
+  const end = Math.max(json.lastIndexOf("}"), json.lastIndexOf("]"));
+  return (whole(json) ?? (start >= 0 && end > start ? whole(json.slice(start, end + 1)) : null))
+    ?.value;
 }
 
 /** The records to ask about, with their sentences in `answer`: those whose marker is in it. */
@@ -175,7 +188,7 @@ export async function* retryQuotes(
   if (!documents.unfoundQuotes || !documents.correctQuote) return;
   const records = recordsToRetry(documents.unfoundQuotes(), answer);
   if (records.length === 0) return;
-  const maxOutputTokens = OUTPUT_TOKENS_PER_RECORD * records.length;
+  const maxOutputTokens = outputTokens("quote-retry", records.length);
   // What the request holds besides the Passages' text, and the room left for it.
   const framing = quoteRetryPrompt(records.map((record) => ({ ...record, text: "" })));
   const room = budget.roomBeside([QUOTE_RETRY_INSTRUCTIONS, framing], maxOutputTokens);
@@ -215,6 +228,8 @@ export async function* retryQuotes(
     console.error(
       `The quotes couldn't be asked for again: ${error instanceof Error ? error.message : String(error)}`,
     );
+    // What came before the failure may be cut off (#2275): none of it is read.
+    raw = "";
   }
   if (signal.aborted) return;
   const corrections = parseCorrections(await replyJson(raw));

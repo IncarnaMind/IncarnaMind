@@ -171,6 +171,7 @@ function buildMenu(): void {
               : translate(language, "menu.export.named", { name: exportedMind }),
           enabled: exportedMind !== null,
         },
+        command("mind.print"),
         { type: "separator" },
         command("tab.close"),
         command("tab.reopen"),

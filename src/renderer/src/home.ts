@@ -1,10 +1,13 @@
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
+import * as Y from "yjs";
 import { create } from "zustand";
 import type { Mind } from "../../core/api";
+import { isProcessing } from "../../shared/documentStatus";
 import { core } from "./core";
-import { isProcessing } from "./documentStatus";
+import { type NoteReading, readNoteState } from "./noteState";
+import { suggestedIds } from "./organizeOutcome";
 import { useSelection } from "./selection";
-import { exampleMindIds, useAppStore } from "./store";
+import { type AppState, exampleMindIds, useAppStore } from "./store";
 
 const NO_MINDS: readonly Mind[] = [];
 
@@ -15,36 +18,51 @@ export const useHomeView = create<{ all: boolean; scrollTop: number }>()(() => (
   scrollTop: 0,
 }));
 
+export function ownMindsOf(
+  state: Pick<AppState, "minds" | "examples" | "otherExamples">,
+): readonly Mind[] {
+  const examples = new Set(exampleMindIds(state));
+  return state.minds
+    .filter((mind) => !examples.has(mind.id))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
 export function useOwnMinds(): readonly Mind[] {
   const minds = useAppStore((state) => state.minds);
-  const examples = useAppStore((state) => exampleMindIds(state).join(" "));
+  const examples = useAppStore((state) => state.examples);
+  const otherExamples = useAppStore((state) => state.otherExamples);
   return useMemo(() => {
-    const left = new Set(examples.split(" "));
-    const own = minds.filter((mind) => !left.has(mind.id));
-    if (own.length === 0) return NO_MINDS;
-    return own.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }, [minds, examples]);
+    const own = ownMindsOf({ minds, examples, otherExamples });
+    return own.length > 0 ? own : NO_MINDS;
+  }, [minds, examples, otherExamples]);
 }
 
 const SAVED_MS = 500;
 
-export function useMindSnippets(): ReadonlyMap<string, string> {
-  const minds = useAppStore((state) => state.minds);
-  const [snippets, setSnippets] = useState<ReadonlyMap<string, string>>(new Map());
+export function useHomeChanges(): number {
   const [saves, setSaves] = useState(0);
   // The Minds list changes at most every few seconds while a Mind is typed in; a Mind open
   // beside Home is followed as it is saved, once the typing pauses.
   useEffect(() => {
     let pause: ReturnType<typeof setTimeout> | undefined;
-    const stop = core.on("mind.update", () => {
+    const later = () => {
       clearTimeout(pause);
       pause = setTimeout(() => setSaves((count) => count + 1), SAVED_MS);
-    });
+    };
+    const stop = core.on("mind.update", later);
     return () => {
       clearTimeout(pause);
       stop();
     };
   }, []);
+  return saves;
+}
+
+export function useMindSnippets(): ReadonlyMap<string, string> {
+  const minds = useAppStore((state) => state.minds);
+  const [snippets, setSnippets] = useState<ReadonlyMap<string, string>>(new Map());
+  const saves = useHomeChanges();
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: a change to any Mind, or a save, can change its line.
   useEffect(() => {
     let current = true;
@@ -61,12 +79,85 @@ export function useMindSnippets(): ReadonlyMap<string, string> {
   return snippets;
 }
 
+/**
+ * Each Mind's own health and state, for Home's next step and Recent rows (D266): one reader
+ * of the note's health (`readNoteState`), so a row, the note's badge and Home's next step say
+ * the same. A Mind open beside Home is followed as it is saved, at most every `SAVED_MS`.
+ */
+export function useMindNoteStates(
+  minds: readonly Pick<Mind, "id" | "folderId">[],
+): ReadonlyMap<string, NoteReading> {
+  const documents = useAppStore((state) =>
+    state.status.kind === "ready" ? state.documents : null,
+  );
+  const keptCitationTexts = useAppStore((state) => state.keptCitationTexts);
+  const [saves, setSaves] = useState(0);
+  const [states, setStates] = useState<ReadonlyMap<string, NoteReading>>(new Map());
+  useEffect(() => {
+    let pause: ReturnType<typeof setTimeout> | undefined;
+    const stop = core.on("mind.update", () => {
+      clearTimeout(pause);
+      pause = setTimeout(() => setSaves((count) => count + 1), SAVED_MS);
+    });
+    return () => {
+      clearTimeout(pause);
+      stop();
+    };
+  }, []);
+  const wanted = minds.map((mind) => `${mind.id}:${mind.folderId ?? ""}`).join("|");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for the Minds and their Folders.
+  useEffect(() => {
+    let current = true;
+    const folders = new Map(minds.map((mind) => [mind.id, mind.folderId]));
+    const ids = minds.map((mind) => mind.id);
+    if (ids.length === 0) {
+      setStates(new Map());
+      return;
+    }
+    core
+      .readMindContents(ids)
+      .then((snapshots) => {
+        const found = new Map<string, NoteReading>();
+        for (const { mindId, state, cellFigures } of snapshots) {
+          const doc = new Y.Doc();
+          try {
+            Y.applyUpdate(doc, state);
+            found.set(
+              mindId,
+              readNoteState({
+                doc,
+                cellFigures,
+                documents,
+                keptCitationTexts,
+                folderId: folders.get(mindId) ?? null,
+              }),
+            );
+          } catch (error) {
+            // One Mind's content this version can't read must not blank every other row's state.
+            console.warn(
+              `Couldn't read the state of Mind ${mindId}; its row shows the snippet.`,
+              error,
+            );
+          } finally {
+            doc.destroy();
+          }
+        }
+        if (current) setStates(found);
+      })
+      .catch(useAppStore.getState().reportError);
+    return () => {
+      current = false;
+    };
+  }, [wanted, documents, keptCitationTexts, saves]);
+  return states;
+}
+
 export function useHomeNeeds(): { reading: number; suggestions: number } {
   const reading = useAppStore(
     (state) => state.documents.filter((each) => isProcessing(each.status)).length,
   );
   const suggestions = useAppStore(
-    (state) => state.library?.assignments.filter((each) => each.suggested).length ?? 0,
+    (state) => suggestedIds(state.documents, state.library?.assignments ?? []).length,
   );
   return { reading, suggestions };
 }

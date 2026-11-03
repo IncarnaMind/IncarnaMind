@@ -133,7 +133,7 @@ export function TaggingSettings() {
       ?.focus({ preventScroll: true }),
   );
 
-  const save = async (next: Partial<LibrarySettings>) => {
+  const save = async (next: Partial<LibrarySettings> & { turnOn?: boolean }) => {
     if (!settings) return;
     setError(null);
     try {
@@ -157,9 +157,14 @@ export function TaggingSettings() {
         provider: providerOf(models.automatic, language) ?? "",
       })
     : t("tagging.using.none");
+  // Choosing a model, its sends line under the switch, is choosing to tag and sort with it (#2308).
   const choose = (classifier: LibraryClassifier) => {
     setOtherOpen(false);
-    void save({ classifier });
+    void save(
+      classifier.kind === "automatic"
+        ? { classifier }
+        : { classifier, automatic: true, turnOn: true },
+    );
   };
   const onPlan = inUse?.group === "plan";
   const { organizeWith } = settings;
@@ -183,7 +188,7 @@ export function TaggingSettings() {
     ? null
     : clouds.length === 0
       ? t("tagging.automatic.local")
-      : t("tagging.automatic.sends", {
+      : t("setup.sorting.sendsWhenOn", {
           service: [
             ...new Set(clouds.map((each) => (each && providerOf(each, language)) || "")),
           ].join(", "),
@@ -309,7 +314,11 @@ export function TaggingSettings() {
           data-testid="tagging-automatic-organize"
           checked={settings.automatic}
           aria-describedby={sendsLine ? `${switchId}-sends` : undefined}
-          onChange={(event) => void save({ automatic: event.target.checked })}
+          onChange={(event) =>
+            void save(
+              event.target.checked ? { automatic: true, turnOn: true } : { automatic: false },
+            )
+          }
           className="mt-0.5 size-4 accent-ink"
         />
         <span className="flex min-w-0 flex-col">
@@ -371,6 +380,11 @@ function ModelRow({
           )}
         </span>
         <span className={choiceTextClass}>{costText(option.cost, t)}</span>
+        {provider && option.group !== "local" && (
+          <span className={choiceTextClass} data-testid="tagging-option-sends">
+            {t("setup.sorting.sends", { service: provider })}
+          </span>
+        )}
       </span>
     </label>
   );
@@ -423,6 +437,7 @@ function OtherModelForm({
     current?.kind === "ollama" && current.usePageImages === true,
   );
   const [error, setError] = useState<string | null>(null);
+  const service = providers.find((provider) => provider.id === where)?.service?.name ?? null;
   useEffect(() => {
     core.listChatProviders().then(
       (list) => {
@@ -474,6 +489,11 @@ function OtherModelForm({
           <option value="auto">{t("tagging.other.auto")}</option>
         </select>
       </label>
+      {service && (
+        <p data-testid="tagging-other-sends" className={choiceTextClass}>
+          {t("setup.sorting.sends", { service })}
+        </p>
+      )}
       {where !== "auto" && (
         <label className={fieldLabelClass}>
           {t("library.model")}

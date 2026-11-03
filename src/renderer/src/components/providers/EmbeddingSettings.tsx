@@ -16,6 +16,7 @@ import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemMark } from "../ProblemLine";
+import { SettingsAdvanced } from "../SettingsAdvanced";
 import {
   buttonClass,
   choiceListClass,
@@ -98,10 +99,10 @@ export function embeddingProviderLabel(provider: EmbeddingProvider, t: Translate
 }
 
 /**
- * Settings → Search: embeddings, off by default, or the embedding
- * model search uses (the built-in one, or a provider chosen instead),
- * turning them on or off or switching model with a warning, its error and
- * rebuild.
+ * Settings → Search: search by meaning, off by default, or the model that
+ * finds Documents by it (the built-in one, or a provider chosen instead),
+ * turning it on or off or switching model with a warning, its error and
+ * rebuild. The model's own name and facts wait under Advanced (#763).
  */
 export function EmbeddingSettingsSection() {
   const t = useT();
@@ -113,22 +114,20 @@ export function EmbeddingSettingsSection() {
   const { provider, error, rebuild } = embedding;
   const off = provider.kind === "off";
   return (
-    <section data-testid="embedding-settings" className="flex flex-col gap-4">
-      <p className={pageIntroClass}>{t("embeddingProviders.settings.body")}</p>
+    <section data-testid="embedding-settings" className="flex flex-col">
+      <p data-testid="embedding-plain" className={pageIntroClass}>
+        {t("embeddingProviders.settings.plain")}
+      </p>
 
       <div className={ruledListClass}>
         <div className={ruledRowClass}>
           <div className="flex min-w-0 flex-col gap-0.5">
-            <p data-testid="embedding-current" className="text-ui text-ink">
-              <span className="font-semibold">{t("embeddingProviders.settings.current")}</span>
-              {embeddingProviderLabel(provider, t)}
-            </p>
-            <p className={rowTextClass}>
+            <p data-testid="embedding-state" className="text-ui text-ink">
               {off
-                ? t("embeddingProviders.settings.offNote")
+                ? `${t("embeddingProviders.settings.off")} · ${t("embeddingProviders.settings.download")}`
                 : provider.service
-                  ? t("embeddingProviders.settings.sendsTo", { service: provider.service.name })
-                  : t("embeddingProviders.settings.local")}
+                  ? t("embeddingProviders.settings.stateSent", { service: provider.service.name })
+                  : t("embeddingProviders.settings.stateOn")}
             </p>
             {rebuild && (
               <p data-testid="embedding-rebuild" className={rowTextClass}>
@@ -166,6 +165,20 @@ export function EmbeddingSettingsSection() {
           </div>
         </div>
       </div>
+
+      <SettingsAdvanced testId="embedding-advanced">
+        <p data-testid="embedding-current" className="text-[13px] leading-5 text-ink">
+          <span className="font-semibold">{t("embeddingProviders.settings.current")}</span>
+          {embeddingProviderLabel(provider, t)}
+        </p>
+        <p className={rowTextClass}>
+          {off
+            ? t("embeddingProviders.settings.offNote")
+            : provider.service
+              ? t("embeddingProviders.settings.sendsTo", { service: provider.service.name })
+              : t("embeddingProviders.settings.local")}
+        </p>
+      </SettingsAdvanced>
 
       {editing && <EmbeddingForm current={embedding} onDone={() => setEditing(false)} />}
     </section>

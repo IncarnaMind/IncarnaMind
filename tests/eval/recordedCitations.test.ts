@@ -6,7 +6,8 @@
  * English Citations "not found" though their quotes are on the cited pages: a
  * capital letter at the start of a quote, a reference "[36]" written "[^36]",
  * and an ellipsis. Its Citations are copied in
- * tests/fixtures/eval-citations-2026-10-07.json. Each is checked against the
+ * tests/fixtures/eval-citations-2026-10-07.json, re-based on 2026-10-26 on the
+ * fictional sample Documents' own text. Each is checked against the
  * cited pages' stored text, which the processing pipeline (`processFile`, as
  * the core runs it before writing `document_pages`) gives for the sample PDFs
  * in data/ and the Chinese fixtures in eval/retrieval/fixtures/, and its
@@ -116,16 +117,16 @@ describe("The Citations recorded on 2026-10-07, checked again", { timeout: 120_0
 describe("The evaluation's PDFs whose stored text lost its f-ligatures", {
   timeout: 120_000,
 }, () => {
-  test("are JP Morgan's report alone, of a short paper and a long code of practice too", async () => {
+  test("are Vantrell's report alone, of a short paper and a long code of practice too", async () => {
     const lost = async (name: string) => matchingOf(await storedPages(name)).lostLigatures;
 
-    expect(await lost("JP Morgan 2022 Environmental Social Governance Report")).toBe(true);
-    expect(await lost("Attention Is All You Need")).toBe(false);
-    expect(await lost("ABPI Code of Practice for the Pharmaceutical Industry 2021")).toBe(false);
+    expect(await lost("Vantrell Financial Group 2022 ESG Report")).toBe(true);
+    expect(await lost("Weighted Keys Shorter Paths")).toBe(false);
+    expect(await lost("MPMA Code of Practice for the Pharmaceutical Industry 2021")).toBe(false);
   });
 
-  test("so JP Morgan's quotes as its pages show them are found there, also beside a ligature its text kept", async () => {
-    const pages = await storedPages("JP Morgan 2022 Environmental Social Governance Report");
+  test("so Vantrell's quotes as its pages show them are found there, also beside a ligature its text kept", async () => {
+    const pages = await storedPages("Vantrell Financial Group 2022 ESG Report");
     const check = (page: number, quote: string) =>
       checkCitation({
         quote,
@@ -137,13 +138,13 @@ describe("The evaluation's PDFs whose stored text lost its f-ligatures", {
       });
 
     expect(
-      check(8, "with the goal to finance and facilitate more than $2.5 trillion over 10 years"),
+      check(8, "with the goal to finance and facilitate more than $1.4 trillion over eight years"),
     ).toEqual({ check: "found", checkReason: null });
-    // qwen3.5:4b's quote for en-19 (2026-10-10): its text reads "Firm fnanced", "Firm" with its "Fi".
+    // A quote of p. 9 whose words the page kept with lost ligatures ("fnanced").
     expect(
       check(
         9,
-        "In 2022, our Firm financed and facilitated approximately $197 billion toward the Target; $70 billion toward green, $87 billion toward development finance and $40 billion toward community development.",
+        "In 2022, our Firm financed and facilitated approximately $118 billion toward the Target; $41 billion toward green, $52 billion toward development finance and $25 billion toward community development.",
       ),
     ).toEqual({ check: "found", checkReason: null });
   });

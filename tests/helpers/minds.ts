@@ -2,11 +2,22 @@ import { randomUUID } from "node:crypto";
 import { getSchema, type JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { updateYFragment, yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
+import * as Y from "yjs";
 import { GENERATED_MARK, PROPOSAL_ATTRIBUTE, type SearchScope } from "../../src/core";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { decideProposals, pendingProposals } from "../../src/shared/proposals";
 import { SCOPE_ATTRIBUTES } from "../../src/shared/searchScope";
 import type { MindClient } from "./mindClient";
+
+/** A Mind's top-level Blocks as stored, attributes and all: to tell it is exactly as it was. */
+export const exactly = (client: Pick<MindClient, "blocks">) =>
+  client.blocks
+    .toArray()
+    .map((block) =>
+      block instanceof Y.XmlElement
+        ? { name: block.nodeName, attributes: block.getAttributes(), text: block.toString() }
+        : null,
+    );
 
 /** The schema of the renderer's editor: what a Mind can hold. */
 const mindSchema = getSchema(noteExtensions());

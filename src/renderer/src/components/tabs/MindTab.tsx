@@ -14,6 +14,7 @@ import { useWritingProperties } from "../../mindStyles";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useReviewPanes, useRoomBeside } from "../../reviewPane";
 import { useAppStore } from "../../store";
+import { undoBandFor, useUndoPillBands } from "../../undoPill";
 import { useGroupsMerged } from "../../useWindowWidth";
 import { useWordImport } from "../../wordImport";
 import { ExportResultLine } from "../ExportResultLine";
@@ -43,7 +44,9 @@ export function MindTab({ mindId }: { mindId: string }) {
   const [badge, setBadge] = useState<HTMLElement | null>(null);
   const [sheetSlot, setSheetSlot] = useState<HTMLElement | null>(null);
   const assistantSlot = useContext(ComposerDockContext);
-  const tabId = useTabPlace()?.tabId;
+  const place = useTabPlace();
+  const tabId = place?.tabId;
+  const band = useUndoPillBands((state) => undoBandFor(state.bands, place?.groupId));
   const merged = useGroupsMerged();
   const read = useAppStore((state) => assistantTabOf(state.layout, merged)?.id === tabId);
   const wordDrop = useWordFileDrop();
@@ -68,6 +71,7 @@ export function MindTab({ mindId }: { mindId: string }) {
             onDragOverCapture={wordDrop.props.onDragOver}
             onDragLeave={wordDrop.props.onDragLeave}
             onDropCapture={wordDrop.props.onDrop}
+            style={band > 0 ? { marginBottom: band } : undefined}
             className={`mind-scroller min-h-0 flex-grow overflow-auto ${wordDrop.over ? `rounded-lg ${dropIntoClass}` : ""}`}
           >
             {/* Every text in it starts at one edge (styles.css, `.mind-column`). */}
@@ -166,7 +170,7 @@ export function NoTabOpen() {
       data-testid="mind-none-open"
       className="flex h-full flex-col items-center justify-center gap-2 px-10 pb-11 text-center"
     >
-      <h1 className="font-serif text-heading font-semibold text-ink">{t("mind.noneOpen.title")}</h1>
+      <h1 className="font-sans text-heading font-semibold text-ink">{t("mind.noneOpen.title")}</h1>
       <p className="max-w-sm text-ui text-ink-secondary">{t("mind.noneOpen.body")}</p>
       <button
         type="button"

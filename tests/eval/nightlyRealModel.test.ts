@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   type Attempt,
+  casesOf,
   executeIn,
   missingMessage,
   missingSecrets,
@@ -23,6 +24,9 @@ import { createTempDataFolder } from "../helpers/core";
 
 const [live, everyday, kimiLive] = STEPS;
 if (!live || !everyday || !kimiLive) throw new Error("The steps changed.");
+
+const claimProbes = STEPS.find((step) => step.id === "claim-probes");
+if (!claimProbes) throw new Error("The claim-probes step is missing.");
 
 const KEY_1 = "sk-ant-first-key-0000";
 const KEY_2 = "sk-ant-second-key-1111";
@@ -386,5 +390,30 @@ describe("the summary", () => {
     expect(night.text).toContain("| owner-1 (en) | **failed**: 1 of 3 runs passed, floor 67% |");
     expect(night.text).toContain("| an Answer \\| cites | passed |");
     expect(night.text).toContain("| 1 of 2 |");
+  });
+});
+
+describe("a claim-probes step", () => {
+  // protects=a claim-probes step's report is read as its probes and the backed write, not as zero cases, so a successful probe run is not marked failed; fails_when=the report isn't found or a probe's runs aren't counted; no_claim=the real eval's report (eval/everyday/claimProbes.everyday.ts).
+  test("counts each probe and the backed write", async () => {
+    const folder = await createTempDataFolder();
+    await mkdir(join(folder, "everyday"), { recursive: true });
+    await writeFile(
+      join(folder, "everyday", "report.json"),
+      JSON.stringify({
+        rows: [
+          { id: "unmade-page-en", run: 1, passed: true },
+          { id: "unmade-page-en", run: 2, passed: true },
+          { id: "unmade-note-en", run: 1, passed: true },
+          { id: "unmade-note-en", run: 2, passed: false },
+        ],
+        backed: { passed: true },
+      }),
+    );
+    expect(casesOf(claimProbes, folder).cases).toEqual([
+      { name: "unmade-page-en", passed: true, detail: "2 of 2 runs passed" },
+      { name: "unmade-note-en", passed: false, detail: "1 of 2 runs passed" },
+      { name: "backed write", passed: true, detail: "left alone" },
+    ]);
   });
 });

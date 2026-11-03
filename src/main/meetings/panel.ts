@@ -97,8 +97,13 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
    */
   const refused = new Map<HelpShortcut, string>();
 
+  // A voice memo has no call to help with (#1568).
   const liveMeeting = () =>
-    meetings.find((meeting) => meeting.status === "recording" || meeting.status === "paused");
+    meetings.find(
+      (meeting) =>
+        meeting.kind === "meeting" &&
+        (meeting.status === "recording" || meeting.status === "paused"),
+    );
 
   const heldKeys = (): HeldKeys => Object.fromEntries(held);
 

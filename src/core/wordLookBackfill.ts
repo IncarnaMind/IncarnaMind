@@ -18,6 +18,7 @@ import {
   SUBSCRIPT_MARK,
   SUPERSCRIPT_MARK,
   TEXT_COLOR_MARK,
+  WORD_BLOCK_NODE,
   WORD_LOOK_ATTRIBUTE,
   WORD_RUN_MARK,
   WORD_TAB_MARK,
@@ -321,6 +322,24 @@ function editedParagraph(element: Y.XmlElement, node: NodeJSON, restyle: boolean
   return changes;
 }
 
+/**
+ * A Block kept as is (a table of contents) is named by its place in the package rather than a
+ * fingerprint, and can't be edited: it is given only its lines' looks, while it reads as imported.
+ */
+function keptLooks(element: Y.XmlElement, atoms: ReadonlyMap<string, NodeJSON>): LookChange[] {
+  const place = element.getAttribute("source");
+  const fresh = typeof place === "string" ? atoms.get(place) : undefined;
+  const info = fresh?.attrs?.info;
+  if (!fresh || !isRecord(info) || !Array.isArray(info.looks)) return [];
+  const same = (name: string) => element.getAttribute(name) === fresh.attrs?.[name];
+  if (!same("kind") || !same("text")) return [];
+  const own: unknown = element.getAttribute("info");
+  const value = { ...(isRecord(own) ? own : {}), looks: info.looks };
+  return JSON.stringify(own) === JSON.stringify(value)
+    ? []
+    : [{ kind: "attribute", element, name: "info", value }];
+}
+
 const asImported = (element: Y.XmlElement, source: WordSource) =>
   wordFingerprint(element) === source.f || wordFingerprintBeforeLook(element) === source.f;
 
@@ -332,6 +351,13 @@ export function planLook(
   previous: number | null,
 ): LookPlan {
   const byPlace = nodesByPlace(structure);
+  const atoms = new Map(
+    structure.blocks.flatMap((node) =>
+      node.type === WORD_BLOCK_NODE && typeof node.attrs?.source === "string"
+        ? [[node.attrs.source, node] as const]
+        : [],
+    ),
+  );
   const plan: LookPlan = { changes: [], given: 0, editedSinceImport: 0 };
   const given = new Set<Y.XmlElement>();
   const sourced = (element: Y.XmlElement) => {
@@ -340,6 +366,10 @@ export function planLook(
     return id && source ? { id, source } : null;
   };
   const look = (element: Y.XmlElement) => {
+    if (element.nodeName === WORD_BLOCK_NODE) {
+      plan.changes.push(...keptLooks(element, atoms));
+      return;
+    }
     const found = sourced(element);
     if (found) {
       const node = byPlace.get(found.source.n);

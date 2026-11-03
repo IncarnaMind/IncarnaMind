@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="131" height="40" viewBox="0 0 131 40" role="img" aria-label="下载测试版">
+  <title>下载测试版</title>
+  <rect width="131" height="40" rx="8" fill="#17191C"/>
+  <g transform="translate(14 11) scale(0.75)" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></g>
+  <text x="40" y="25" textLength="75" lengthAdjust="spacingAndGlyphs" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" xml:lang="zh-CN">下载测试版</text>
+</svg>

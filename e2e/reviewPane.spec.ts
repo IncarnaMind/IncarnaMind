@@ -531,10 +531,9 @@ test("⌘Z and ⇧⌘Z in the pane are the note's own, as in the text: the last 
   await accept(supply);
   await accept(notice);
   const liability = editor.locator("p", { hasText: "6.1 Nothing in this agreement" });
-  // The decisions scrolled the Mind to the top clauses: 6.1 is further down. Centred, because a word
-  // at the page's foot can sit under the Undo pill (#1776), which takes the press as its own click
-  // and takes the last decision back before the edit is made.
-  await liability.evaluate((node) => node.scrollIntoView({ block: "center" }));
+  // The decisions scrolled the Mind to the top clauses: 6.1 is further down, and it comes to the
+  // page's foot, where a press once landed on the Undo pill and took a decision back (#1914).
+  await liability.scrollIntoViewIfNeeded();
   await slideSelect(window, liability, "negligence");
   await window.keyboard.press("ControlOrMeta+j");
   await expect(window.getByTestId("selection-edit-field")).toBeFocused();

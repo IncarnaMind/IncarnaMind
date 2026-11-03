@@ -363,6 +363,32 @@ describe("The models for the other jobs", () => {
       modelId: "claude-sonnet-5-5",
     });
   });
+
+  test("go back to Automatic for quick tasks and images when a provider becomes the Answers model", async () => {
+    const core = startCore(await createTempDataFolder(), { keychain: createMemoryKeychain() });
+    const first = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    await core.updateSettings({
+      user: {
+        quickTasksModel: { providerId: first.id, modelId: "claude-sonnet-5-5" },
+        imageModel: { providerId: first.id, modelId: "claude-fable-5-1" },
+      },
+    });
+
+    const answers = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-6-luna",
+    });
+
+    const { user } = await core.getSettings();
+    expect(user.chatModel).toEqual({ providerId: answers.id, modelId: "gpt-6-luna" });
+    expect(user.quickTasksModel).toBeNull();
+    expect(user.imageModel).toBeNull();
+  });
 });
 
 describe("The model menu's list in the background", () => {

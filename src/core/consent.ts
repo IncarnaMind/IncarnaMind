@@ -100,7 +100,15 @@ export function createConsent(
     const definition = definitions.get(id);
     if (!definition) throw new Error(`No data flow "${id}" is registered.`);
     const sends = [...new Set([...definition.sends, ...(definition.sendsTo?.(service.id) ?? [])])];
-    return { id, service: { id: service.id, name: service.name }, sends };
+    return {
+      id,
+      service: {
+        id: service.id,
+        name: service.name,
+        ...(service.catalogId ? { catalogId: service.catalogId } : {}),
+      },
+      sends,
+    };
   };
 
   const find = (flow: DataFlowId, serviceId: string) =>
@@ -301,6 +309,12 @@ export function createConsent(
       definitions.get(flowId)?.onThisComputer?.(serviceId) === true,
 
     dataFlow: flowFor,
+
+    /** When the User accepted the flow to the service, if their acceptance stands; else null. */
+    acceptedAt(flowId: DataFlowId, service: ExternalService): string | null {
+      const row = find(flowId, service.id);
+      return row?.decision === "accepted" ? row.updated_at : null;
+    },
 
     /**
      * Whether the User's acceptance of the flow to the service still stands. A flow that has

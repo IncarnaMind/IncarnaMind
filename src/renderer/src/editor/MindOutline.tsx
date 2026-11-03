@@ -1,40 +1,11 @@
 import type { VirtualElement } from "@floating-ui/dom";
 import type { Editor } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
 import { type KeyboardEvent, useMemo, useRef } from "react";
 import { useT } from "../i18n";
+import { jumpTo, outlineOf } from "./outline";
 import { Popover } from "./Popover";
 
-export interface OutlineEntry {
-  /** Where the heading starts in the document. */
-  pos: number;
-  level: number;
-  text: string;
-}
-
-/** The Mind's headings in order, Answers' included; an empty one has nothing to jump to. */
-export function outlineOf(editor: Editor): OutlineEntry[] {
-  const entries: OutlineEntry[] = [];
-  editor.state.doc.descendants((node, pos) => {
-    if (node.type.name !== "heading") return;
-    const text = node.textContent.trim();
-    if (text !== "") entries.push({ pos, level: Number(node.attrs.level) || 1, text });
-  });
-  return entries;
-}
-
-/** Moves the cursor to the start of a heading and scrolls it into view. */
-export function jumpTo(editor: Editor, pos: number): void {
-  editor
-    .chain()
-    .focus()
-    .command(({ tr, dispatch }) => {
-      if (dispatch) tr.setSelection(TextSelection.near(tr.doc.resolve(pos + 1)));
-      return true;
-    })
-    .scrollIntoView()
-    .run();
-}
+export { jumpTo, type OutlineEntry, outlineOf } from "./outline";
 
 /** The top right corner of what shows of the Mind, where the outline opens. */
 function cornerOf(editor: Editor): VirtualElement {

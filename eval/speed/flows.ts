@@ -18,7 +18,7 @@ export type Language = "en" | "zh-CN";
 export interface FlowContext {
   core: Core;
   language: Language;
-  /** The sample reports. */
+  /** The mixed sample set: the generated PDFs in data/ and the readable Documents in data/real/. */
   documents: ReadonlyMap<string, Document>;
 }
 
@@ -49,7 +49,7 @@ const wordsAtEnd = (signs: FlowSigns): FlowSigns => ({
 });
 
 /** The events that show the User something is happening; those in `WORDS` carry words. */
-const SIGNS: readonly CoreEventName[] = [
+export const SIGNS: readonly CoreEventName[] = [
   "answer.started",
   "answer.phase",
   "answer.reasoning",
@@ -120,21 +120,21 @@ async function mindWith(core: Core, language: Language, paragraphs: readonly str
 const BRIEFING = { en: "Briefing", "zh-CN": "简报" };
 const NOTES = { en: "Notes for Monday's briefing.", "zh-CN": "周一简报的笔记。" };
 const INFORMAL = {
-  en: "it says the bank will cut emissions a lot by 2030 and that it helps clients do it too.",
-  "zh-CN": "报告说银行到2030年会大幅减排，还会帮客户一起减。",
+  en: "it says the bank will cut emissions by 45% by 2032 and that it helps clients do it too.",
+  "zh-CN": "报告说银行到2032年会减排45%，还会帮客户一起减。",
 };
 const CLAIM = {
-  en: "The JP Morgan report sets targets for its financed emissions.",
-  "zh-CN": "摩根大通的报告为其融资排放设定了目标。",
+  en: "The Vantrell report sets targets for its financed emissions.",
+  "zh-CN": "Vantrell 的报告为其融资排放设定了目标。",
 };
 const SUMMARISE = {
-  en: "Summarise the JP Morgan report's emissions targets in a short paragraph",
-  "zh-CN": "用一小段话概括摩根大通报告的排放目标",
+  en: "Summarise the Vantrell report's emissions targets in a short paragraph",
+  "zh-CN": "用一小段话概括 Vantrell 报告的排放目标",
 };
 const LONGER = { en: "Make the summary longer.", "zh-CN": "把摘要写长一点。" };
 const UN_CLAIM = {
-  en: "The UN's 2022 annual report covers its work in more than 190 countries.",
-  "zh-CN": "联合国 2022 年度报告介绍了它在 190 多个国家的工作。",
+  en: "The Norvath Assembly's 2022 annual report covers its work in more than 90 countries.",
+  "zh-CN": "Norvath Assembly 2022 年度报告介绍了它在 90 多个国家的工作。",
 };
 
 function asked(text: Record<Language, string>, paragraphs: (language: Language) => string[]) {
@@ -157,8 +157,8 @@ export const FLOWS: readonly Flow[] = [
     label: "Ask a Question in the assistant",
     run: asked(
       {
-        en: "What does the JP Morgan report say about emissions?",
-        "zh-CN": "联合国 2022 年度报告的重点是什么？",
+        en: "What does the Vantrell report say about emissions?",
+        "zh-CN": "Norvath Assembly 2022 年度报告的重点是什么？",
       },
       (language) => [NOTES[language]],
     ),
@@ -269,8 +269,8 @@ export const FLOWS: readonly Flow[] = [
     label: "A suggestion as you write",
     async run({ core, language }) {
       const paragraph = inLanguage(language, {
-        en: "JP Morgan's 2022 report says that the bank",
-        "zh-CN": "摩根大通 2022 年的报告说，这家银行",
+        en: "Vantrell's 2022 report says that the bank",
+        "zh-CN": "Vantrell 2022 年的报告说，这家银行",
       });
       const { mindId } = await mindWith(core, language, [paragraph]);
       return wordsAtEnd(
@@ -300,7 +300,7 @@ export const FLOWS: readonly Flow[] = [
         });
         const started = await core.compareDocuments({
           mindId,
-          documentIds: documentsNamed(documents, "JP Morgan", "United Nations"),
+          documentIds: documentsNamed(documents, "Vantrell", "Norvath"),
           questions: inLanguage(language, {
             en: ["What does it report about emissions?", "Who wrote it?"],
             "zh-CN": ["它对排放说了什么？", "它是谁写的？"],

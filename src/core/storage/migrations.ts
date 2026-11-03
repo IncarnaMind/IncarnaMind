@@ -1869,15 +1869,413 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE conversation_messages ADD COLUMN quotes TEXT;
     `,
   },
+  {
+    version: 106,
+    description: "Remote Connector transport and header names (#1995)",
+    sql: `
+      UPDATE connectors
+      SET config = json_set(config, '$.connection', 'http', '$.headers', json('[]'))
+      WHERE transport = 'http' AND json_valid(config);
+    `,
+  },
+  {
+    version: 107,
+    description: "A workbook says which sheets and rows weren't read (#740)",
+    // JSON, an UnreadParts: hidden and very hidden sheets left out, sheets the reading limit cut
+    // short, and sheets after it. NULL when every part was read, and for every other kind.
+    sql: `
+      ALTER TABLE documents ADD COLUMN unread_parts TEXT;
+    `,
+  },
+  {
+    version: 108,
+    description: "A Meeting can be a voice memo, the User alone (#1568)",
+    sql: `
+      ALTER TABLE meetings ADD COLUMN kind TEXT NOT NULL DEFAULT 'meeting'
+        CHECK (kind IN ('meeting', 'memo'));
+    `,
+  },
+  {
+    version: 109,
+    description: "Answers in conversations keep their Analyses, and a Question that asked for one",
+    sql: `
+      ALTER TABLE conversation_messages ADD COLUMN analyses TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE conversation_messages ADD COLUMN analyse INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 110,
+    description: "Outside-agent connections need new approval for the public alpha",
+    sql: `
+      UPDATE device_settings
+      SET value = 'false', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE key = 'agentsEnabled' AND deleted_at IS NULL;
+    `,
+  },
+  {
+    version: 111,
+    description:
+      "Each Document's name in a keyword index of its own, once for the Document (#2042)",
+    sql: `
+      -- A Document's name, segmented as the Passages are (the core writes the
+      -- words: src/core/documents/keywords.ts), in an index whose document
+      -- frequency counts Documents: a word of a name weighs its Document once,
+      -- not once a Passage. Keyword search scores a Passage by its own words
+      -- and adds its Document's name match separately. The Passages' index is
+      -- rebuilt without the name by processing version 15 (see
+      -- NAME_INDEX_CURRENT_SINCE in src/core/documents/processing.ts).
+      -- One row a Document, deleted and written again when a Document is
+      -- renamed; a derived index, never synced.
+      CREATE VIRTUAL TABLE document_names_fts USING fts5 (
+        document_id UNINDEXED,
+        text,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+    `,
+  },
+  {
+    version: 112,
+    description:
+      "A Checkpoint the User named, or one saved when the Note was sent, keeps its name and file",
+    sql: `
+      -- A name the User gave the version (#1933), and the file a Checkpoint saved as the Note
+      -- was exported holds (reason 'export'). A named one is never thinned.
+      ALTER TABLE mind_checkpoints ADD COLUMN name TEXT;
+      ALTER TABLE mind_checkpoints ADD COLUMN detail TEXT;
+    `,
+  },
+  {
+    version: 113,
+    description: "A cited page whose drawing failed waits to be drawn again (#2161)",
+    sql: `
+      -- tries counts a page's failed drawings, so one that keeps failing stops being tried on
+      -- its own (src/core/citedPages.ts). Pages a failed drawing deleted wait again, as their
+      -- version may still be drawn: the newest of a Location, which the unique index allows
+      -- only where none waits or is saved; the start-up clean-up removes those nothing cites.
+      ALTER TABLE cited_pages ADD COLUMN tries INTEGER NOT NULL DEFAULT 0;
+      UPDATE cited_pages
+      SET deleted_at = NULL, tries = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE id IN (
+        SELECT gone.id FROM cited_pages AS gone
+        WHERE gone.deleted_at IS NOT NULL AND gone.image_type IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM cited_pages AS other
+            WHERE other.document_id = gone.document_id
+              AND other.content_hash = gone.content_hash
+              AND other.page_from = gone.page_from
+              AND other.page_to = gone.page_to
+              AND other.area = gone.area
+              AND (other.deleted_at IS NULL
+                OR (other.image_type IS NULL AND other.rowid > gone.rowid))
+          )
+      );
+    `,
+  },
+  {
+    version: 114,
+    description:
+      "A Document's keyword rows keep a version of their own, so a rewrite without a read moves no read version (#2185)",
+    sql: `
+      -- processing_version says which pipeline read a Document's Passages; keywords_version
+      -- says which one built its keyword rows. A rewrite without a read moves the second
+      -- alone (src/core/documents/index.ts), so a Document whose file is missing keeps the
+      -- first and is read again once the file is back (#2185). Rows of a Document read, or
+      -- rewritten, by processing version 15 or later are what this pipeline writes.
+      ALTER TABLE documents ADD COLUMN keywords_version INTEGER NOT NULL DEFAULT 0;
+      UPDATE documents SET keywords_version = processing_version WHERE processing_version >= 15;
+    `,
+  },
+  {
+    version: 115,
+    description: "A Folder can keep its work inside it (#1934)",
+    sql: `
+      -- 1: a Folder's Notes, Answers and checks may read only its own Documents.
+      -- 0 by default. Kept with the Folder so it follows the User to other devices.
+      ALTER TABLE library_groups ADD COLUMN keep_inside INTEGER NOT NULL DEFAULT 0;
+      -- A Question's Folder when it was asked, judged against today's walls: '' is asked in no
+      -- Folder, which outside Notes may read; NULL is not recorded, and is read by no Note.
+      -- No Folder was walled before this, so each older Question's Note, or else its
+      -- conversation, still holds the Folder it was asked in.
+      ALTER TABLE conversation_messages ADD COLUMN folder_asked_in TEXT;
+      UPDATE conversation_messages
+      SET folder_asked_in = CASE
+        WHEN asked_from_mind_id IS NULL THEN COALESCE(
+          (SELECT conversations.folder_id FROM conversations WHERE conversations.id = conversation_messages.conversation_id),
+          ''
+        )
+        ELSE COALESCE(
+          (SELECT minds.folder_id FROM minds WHERE minds.id = asked_from_mind_id),
+          ''
+        )
+      END
+      WHERE kind = 'question' AND folder_asked_in IS NULL;
+
+      -- The Folder of the Note a file IncarnaMind wrote came from, judged against today's walls:
+      -- a copy that comes back as a Document stays behind its Note's wall. NULL: no Note, no
+      -- Folder, or written before this was recorded.
+      ALTER TABLE own_files ADD COLUMN folder_id TEXT;
+      -- That Folder, on each Document a version of such a file became; kept when the User edits
+      -- the file, as own_file is. Derived on each device, so updated_at is left alone.
+      ALTER TABLE documents ADD COLUMN own_file_folder_id TEXT;
+      CREATE TRIGGER documents_own_file_folder_added AFTER INSERT ON documents
+      WHEN EXISTS (
+        SELECT 1 FROM own_files WHERE content_hash = new.content_hash AND deleted_at IS NULL
+          AND folder_id IS NOT NULL
+      ) BEGIN
+        UPDATE documents SET own_file_folder_id = (
+          SELECT folder_id FROM own_files WHERE content_hash = new.content_hash
+            AND deleted_at IS NULL AND folder_id IS NOT NULL
+          ORDER BY updated_at DESC, rowid DESC LIMIT 1
+        ) WHERE id = new.id;
+      END;
+      CREATE TRIGGER documents_own_file_folder_versioned AFTER UPDATE OF content_hash ON documents
+      WHEN EXISTS (
+        SELECT 1 FROM own_files WHERE content_hash = new.content_hash AND deleted_at IS NULL
+          AND folder_id IS NOT NULL
+      ) BEGIN
+        UPDATE documents SET own_file_folder_id = (
+          SELECT folder_id FROM own_files WHERE content_hash = new.content_hash
+            AND deleted_at IS NULL AND folder_id IS NOT NULL
+          ORDER BY updated_at DESC, rowid DESC LIMIT 1
+        ) WHERE id = new.id;
+      END;
+      CREATE TRIGGER own_files_folder_recorded AFTER INSERT ON own_files
+      WHEN new.deleted_at IS NULL AND new.folder_id IS NOT NULL BEGIN
+        UPDATE documents SET own_file_folder_id = new.folder_id
+        WHERE content_hash = new.content_hash AND deleted_at IS NULL;
+      END;
+      CREATE TRIGGER own_files_folder_changed AFTER UPDATE OF folder_id ON own_files
+      WHEN new.deleted_at IS NULL AND new.folder_id IS NOT NULL BEGIN
+        UPDATE documents SET own_file_folder_id = new.folder_id
+        WHERE content_hash = new.content_hash AND deleted_at IS NULL;
+      END;
+    `,
+  },
+  {
+    version: 116,
+    description: "A version's Units keep when that version was made (#2159)",
+    sql: `
+      -- When the version whose text a row holds was made: its file's last change, as the app saw
+      -- it when it read that version. A Citation opens the version it was made from after its
+      -- Document changed, marked with this date (#2159). A current version's date is its file's
+      -- modified time, already kept; a file dated 0 has none the app can use. Older versions know
+      -- none, and read as when their text was kept; a saved page's fetch is read from web_pages.
+      ALTER TABLE document_pages ADD COLUMN version_at TEXT;
+      UPDATE document_pages
+      SET version_at = (
+        SELECT strftime('%Y-%m-%dT%H:%M:%fZ', d.file_mtime_ms / 1000.0, 'unixepoch')
+        FROM documents d
+        WHERE d.id = document_pages.document_id AND d.content_hash = document_pages.content_hash
+      )
+      WHERE version_at IS NULL AND EXISTS (
+        SELECT 1 FROM documents d
+        WHERE d.id = document_pages.document_id AND d.content_hash = document_pages.content_hash
+          AND d.file_mtime_ms > 0
+      );
+    `,
+  },
+  {
+    version: 117,
+    description:
+      "A duplicate of an imported Note keeps its Word file, so its checks leave it out (#1935)",
+    sql: `
+      -- The Document the file was imported as, beside document_id, which says which Mind is the
+      -- import: a duplicate sets document_id NULL but keeps this, so its checks leave that file
+      -- out by its Document and every version of it, not only by the bytes it was imported from
+      -- (#1935). Imported files already linked to a Document know the same.
+      ALTER TABLE word_packages ADD COLUMN source_document_id TEXT;
+      UPDATE word_packages SET source_document_id = document_id WHERE document_id IS NOT NULL;
+      CREATE INDEX word_packages_by_source_document ON word_packages (source_document_id)
+        WHERE source_document_id IS NOT NULL AND deleted_at IS NULL;
+    `,
+  },
+  {
+    version: 118,
+    description:
+      "A Meeting knows its Transcript Document, and when its files went with its deleted note (#1253)",
+    sql: `
+      -- The Document that is the Meeting's Transcript, so it goes to Recently deleted, comes back
+      -- and is deleted permanently with the Meeting's note even when the Transcript's working
+      -- file is missing. Meetings recorded before this find theirs where IncarnaMind keeps it.
+      ALTER TABLE meetings ADD COLUMN transcript_document_id TEXT;
+      -- One pass over the Documents, each Transcript keyed to its Meeting by its file's name, so
+      -- it takes milliseconds before the window opens however many Documents there are.
+      UPDATE meetings SET transcript_document_id = linked.id
+      FROM (
+        SELECT substr(d.relative_path, 13, length(d.relative_path) - 16) AS meeting_id, d.id,
+          row_number() OVER (PARTITION BY d.relative_path ORDER BY d.created_at DESC, d.rowid DESC)
+            AS newest
+        FROM documents d
+        WHERE d.kind = 'transcript' AND d.source_kind = 'data-folder'
+          AND substr(d.relative_path, 1, 12) = 'Transcripts/'
+          AND substr(d.relative_path, -4) = '.vtt'
+      ) AS linked
+      WHERE linked.meeting_id = meetings.id AND linked.newest = 1;
+      -- When the audio, the Transcript's working file and the recording details of a Meeting
+      -- whose note was deleted permanently were removed: each start looks only at those left.
+      ALTER TABLE meetings ADD COLUMN purged_at TEXT;
+    `,
+  },
+  {
+    version: 119,
+    description: "A workbook is read with its hidden sheets when the User asks (#740)",
+    sql: `
+      -- A workbook's hidden and very hidden sheets are left out of its text by default (#740).
+      -- Set, it is read again with them, and every later version of it too.
+      ALTER TABLE documents ADD COLUMN read_hidden_sheets INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 120,
+    description:
+      "A Unit keeps a currency written next to a scale in its text before running headers were stripped (#1001)",
+    sql: `
+      -- A PDF's running header such as "(£'000)" repeats on its pages and is stripped before the
+      -- pages are stored. The marker found before the strip keeps it, so a later calculation can
+      -- refuse to read a bare number under a Document that scales its amounts anywhere (#1001).
+      ALTER TABLE document_pages ADD COLUMN scale_marker TEXT;
+    `,
+  },
+  {
+    version: 121,
+    description:
+      "The preset Invoice Tag says what isn't an invoice, unless the User edited it, what IncarnaMind saw arrive new, and where the User's Organize sent a Document, are recorded (#2308)",
+    sql: `
+      -- When IncarnaMind first saw each Document arrive new: the User's own add, a Linked
+      -- folder's first scan, or a watcher event after it. A Document without a row was here
+      -- before. Only a new one may go by itself (src/core/tags/held.ts).
+      CREATE TABLE IF NOT EXISTS document_arrivals (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        arrived_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX IF NOT EXISTS document_arrivals_by_document
+        ON document_arrivals (document_id) WHERE deleted_at IS NULL;
+      -- The services the User's own Organize or re-tag sent a Document to: it may go by itself
+      -- to those, and only those.
+      CREATE TABLE IF NOT EXISTS tagging_clearances (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        service_id TEXT NOT NULL,
+        cleared_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX IF NOT EXISTS tagging_clearances_by_document_and_service
+        ON tagging_clearances (document_id, service_id) WHERE deleted_at IS NULL;
+      -- When a Linked folder's first scan finished: a file found by a later scan was there
+      -- before. The folders already linked have been scanned.
+      CREATE TABLE IF NOT EXISTS linked_folder_baselines (
+        id TEXT PRIMARY KEY NOT NULL,
+        linked_folder_id TEXT NOT NULL,
+        scanned_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX IF NOT EXISTS linked_folder_baselines_by_folder
+        ON linked_folder_baselines (linked_folder_id) WHERE deleted_at IS NULL;
+      INSERT INTO linked_folder_baselines (id, linked_folder_id, scanned_at, created_at, updated_at)
+        SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4'
+            || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', 1 + (random() & 3), 1)
+            || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))),
+          l.id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM linked_folders l
+        WHERE l.deleted_at IS NULL AND NOT EXISTS (
+          SELECT 1 FROM linked_folder_baselines b
+          WHERE b.linked_folder_id = l.id AND b.deleted_at IS NULL);
+      -- Its first description let a quote, a registration or notes with prices read as "asks for or
+      -- confirms a payment", and the tagger tagged them Invoice (#2308). Only a description still
+      -- as it was seeded changes (src/core/tags/presets.ts has the same text); one the User wrote
+      -- is theirs.
+      UPDATE tags SET
+        description = 'A bill or receipt that asks for or confirms payment for goods or services supplied, with items, amounts and dates. Not a quote, an estimate, a price list, an order, a registration, or a donation or gift receipt, for which nothing is supplied.',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE preset = 'invoice'
+        AND description = 'A bill or receipt that asks for or confirms a payment, with items, amounts and dates.';
+      UPDATE tags SET
+        description = '就已提供的商品或服务要求或确认付款的账单或收据，列有项目、金额和日期。报价单、估价、价目表、订单、报名表，以及没有提供商品或服务的捐赠或赠与收据，都不算。',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE preset = 'invoice' AND description = '要求或确认付款的账单或收据，列有项目、金额和日期。';
+    `,
+  },
+  {
+    version: 122,
+    description:
+      "An outside agent may propose changes to Notes when the User allows it, and the AI use record names the agent (#352)",
+    sql: `
+      -- 1: the User let this agent propose changes to the Notes in its Folders, which wait for
+      -- them as Proposals. Off for every pairing made before.
+      ALTER TABLE agent_pairings ADD COLUMN propose INTEGER NOT NULL DEFAULT 0;
+      -- The outside agent that wrote an accepted change, by the name its pairing had then; NULL
+      -- for IncarnaMind's own AI, which provider_id and model_id name.
+      ALTER TABLE ai_use ADD COLUMN agent TEXT;
+    `,
+  },
+  {
+    version: 123,
+    description: "A Document converted from another file says which one it came from (#762)",
+    sql: `
+      -- A copy IncarnaMind converted with the User's own LibreOffice (#762) says which
+      -- file it came from, by name: the original's, with its extension ("Report.doc").
+      -- Null for every other Document.
+      ALTER TABLE documents ADD COLUMN converted_from TEXT;
+    `,
+  },
+  {
+    version: 124,
+    description: "Folders hold Folders, at any depth (#246)",
+    // parent_id is NULL at the top level. No foreign key: a later sync may deliver a Folder
+    // before its parent.
+    sql: `
+      ALTER TABLE library_groups ADD COLUMN parent_id TEXT;
+      CREATE INDEX library_groups_by_parent ON library_groups (parent_id) WHERE deleted_at IS NULL;
+    `,
+  },
+  {
+    version: 125,
+    description:
+      "A Tag records whether the User made it or changed its name, colour or description, so the sidebar lists a Tag with no Documents only then (#205)",
+    sql: `
+      -- Automatic tagging and the preset Tags leave this 0; createTag, an edit by the User and a
+      -- merge into it set it. A Tag that exists now was the User's if its updated_at moved after
+      -- it was made, by an edit or a restore; otherwise a preset is not, nor one automatic
+      -- tagging linked the moment it made it, nor Research's, which say so in their description.
+      ALTER TABLE tags ADD COLUMN made_by_user INTEGER NOT NULL DEFAULT 0;
+      UPDATE tags SET made_by_user = 1
+      WHERE preset IS NULL
+        AND (
+          updated_at > created_at
+          OR (
+            NOT EXISTS (
+              SELECT 1 FROM document_tags l
+              WHERE l.tag_id = tags.id AND l.created_at = tags.created_at
+            )
+            AND description NOT LIKE 'From Research on “%'
+            AND description NOT LIKE '来自研究“%'
+          )
+        );
+    `,
+  },
 ];
 
 /**
  * Brings the database up to the latest schema: every migration in the list that
- * isn't recorded as applied runs, in version order, each in its own transaction.
- * A database recording a migration this build doesn't know was written by a
- * newer version of IncarnaMind, and is refused.
+ * isn't recorded as applied runs, in version order, in one transaction. A database
+ * recording a migration this build doesn't know was written by a newer version of
+ * IncarnaMind, and is refused. `ran` hears each version as it runs, before the
+ * transaction commits.
  */
-export function migrate(db: Database, list: readonly Migration[] = migrations): void {
+export function migrate(
+  db: Database,
+  list: readonly Migration[] = migrations,
+  ran?: (version: number) => void,
+): void {
   list.forEach((migration, index) => {
     const previous = list[index - 1];
     if (previous && migration.version <= previous.version) {
@@ -1894,19 +2292,22 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
     throw new DataFromNewerVersionError(Math.max(...unknown));
   }
 
-  for (const migration of list) {
-    if (applied.has(migration.version)) continue;
-    db.transaction(() => {
+  const pending = list.filter((migration) => !applied.has(migration.version));
+  if (pending.length === 0) return;
+
+  db.transaction(() => {
+    for (const migration of pending) {
       db.exec(migration.sql);
       db.run("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", [
         migration.version,
         new Date().toISOString(),
       ]);
-      // Kept for tools that read it: the highest migration applied.
-      const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
-      db.exec(`PRAGMA user_version = ${highest ?? 0}`);
-    });
-  }
+      ran?.(migration.version);
+    }
+    // Kept for tools that read it: the highest migration applied.
+    const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
+    db.exec(`PRAGMA user_version = ${highest ?? 0}`);
+  });
 }
 
 /**

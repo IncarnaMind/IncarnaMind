@@ -18,6 +18,7 @@ import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
 import type { DocumentKind } from "../api";
 import type {
+  KeywordsJob,
   MetadataJob,
   MetadataResult,
   ProcessingJob,
@@ -27,6 +28,7 @@ import type {
   WorkerResponse,
   WorkerResult,
 } from "./processing";
+import type { PictureProblem } from "./web/pictures";
 import startDocumentWorker from "./worker?nodeWorker";
 
 export interface ProcessorHandlers {
@@ -43,6 +45,8 @@ export interface ProcessorHandlers {
   onWaiting(job: ProcessingJob): void;
   onResult(job: ProcessingJob, result: ProcessingResult): void;
   onMetadata(job: MetadataJob, result: MetadataResult): void;
+  /** A keyword job finished, or its worker crashed: the core writes what it got, if anything. */
+  onKeywords(job: KeywordsJob, result: WorkerResult): void;
   /**
    * How far a job is in reading the scanned pages of version `contentHash`:
    * `read` of `of`, and the page just read.
@@ -56,8 +60,12 @@ export interface ProcessorHandlers {
    * when no page can be read now (the model can't be had).
    */
   read(job: ProcessingJob, page: number, picture: PagePicture): Promise<RecognizedLine[]>;
-  /** As `read`, for a picture file (`TextRecognizer.readFile`). */
-  readFile(job: ProcessingJob, page: number, file: Uint8Array): Promise<PictureRead>;
+  /** As `read`, for a picture file (`TextRecognizer.readFile`), or why it was refused. */
+  readFile(
+    job: ProcessingJob,
+    page: number,
+    file: Uint8Array,
+  ): Promise<PictureRead | { refused: PictureProblem }>;
   /** What a job logs. */
   onLog(job: ProcessingJob, entry: { event: string; fields: LogFields }): void;
   /** Whether an error from `read` means no page can be read now. */
@@ -149,10 +157,10 @@ export function createProcessor(
     }
     // It finished before it stopped, or was cancelled: it ends here.
     if (waiting !== -1) scansWaiting.splice(waiting, 1);
-    if (job.task === "process") {
-      // The worker answers each job with a result of its kind (see `runJob`); a crash is either's.
-      call(() => handlers.onResult(job, result as ProcessingResult));
-    } else call(() => handlers.onMetadata(job, result as MetadataResult));
+    // The worker answers each job with a result of its kind (see `runJob`); a crash is any's.
+    if (job.task === "process") call(() => handlers.onResult(job, result as ProcessingResult));
+    else if (job.task === "keywords") call(() => handlers.onKeywords(job, result));
+    else call(() => handlers.onMetadata(job, result as MetadataResult));
     schedulePump();
   }
 
@@ -191,10 +199,14 @@ export function createProcessor(
     const answer = (message: WorkerRequest) => {
       if (from.alive && running.get(id) === asked) from.thread.postMessage(message);
     };
-    const reading: Promise<Pick<Extract<WorkerRequest, { request: number }>, "lines" | "read">> =
+    const reading: Promise<
+      Pick<Extract<WorkerRequest, { request: number }>, "lines" | "read" | "refused">
+    > =
       "picture" in what
         ? handlers.read(asked.job, page, what.picture).then((lines) => ({ lines }))
-        : handlers.readFile(asked.job, page, what.file).then((read) => ({ read }));
+        : handlers
+            .readFile(asked.job, page, what.file)
+            .then((read) => ("refused" in read ? { refused: read.refused } : { read }));
     reading.then(
       (answered) => answer({ id, request, ...answered }),
       (error: unknown) =>
@@ -278,7 +290,7 @@ export function createProcessor(
   function start(queued: WorkerJob, lane: "queue" | "scan"): void {
     const id = nextId++;
     const worker = idle.pop() ?? startWorker();
-    const warm = worker.kinds.has(queued.kind);
+    const warm = queued.task === "process" && worker.kinds.has(queued.kind);
     const run: Run = {
       id,
       job: queued,
@@ -311,7 +323,7 @@ export function createProcessor(
         ...(password !== undefined && { password }),
       } satisfies WorkerRequest);
     };
-    if (job.kind !== "pdf" || !handlers.password) {
+    if (job.task !== "process" || job.kind !== "pdf" || !handlers.password) {
       send(undefined);
       return;
     }

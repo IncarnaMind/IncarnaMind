@@ -21,6 +21,7 @@ import { SavedWebPagesSettings } from "./SavedWebPagesSettings";
 import { SkillScriptsSettings, SkillsSettings } from "./SkillsSettings";
 import { SpendingCapSettings } from "./SpendingCapSettings";
 import { SuggestionSettings } from "./SuggestionSettings";
+import { TaskNotificationSettings } from "./TaskNotificationSettings";
 import {
   buttonClass,
   dialogFrameClass,
@@ -100,7 +101,7 @@ export function SettingsDialog() {
             <h3
               id="settings-page-title"
               data-testid="settings-page-title"
-              className="font-serif text-heading font-semibold text-ink [font-variation-settings:'opsz'_32]"
+              className="font-sans text-heading font-semibold text-ink"
             >
               {t(settingsPageLabels[page])}
             </h3>
@@ -146,6 +147,7 @@ function PageContent({ page }: { page: SettingsPage }) {
           <LanguageSettings />
           <SpendingCapSettings />
           <MotionSettings />
+          <TaskNotificationSettings />
           <SuggestionSettings />
           <OutputLocationSettings />
           <AuthorNameSettings />

@@ -1,5 +1,9 @@
 import type * as Y from "yjs";
-import { type ContradictionCheckOutcome, MIND_SETTINGS_FIELD } from "../../../core/api";
+import {
+  type ContradictionCheckOutcome,
+  type ContradictionWatchRun,
+  MIND_SETTINGS_FIELD,
+} from "../../../core/api";
 import { clearContradictionWatch } from "../../../shared/contradictionWatch";
 import { ProblemLine } from "../components/ProblemLine";
 import {
@@ -14,43 +18,25 @@ import { contradictionOutcomeParts } from "./contradictionOutcome";
 import { AskBlock } from "./MindCheckLine";
 
 /**
- * Contradiction watch (#112) in the check badge's card: what a run on demand
- * found, and what the last run a new version of a Document started found and
- * cost. Each closes; the last for good.
+ * Contradiction watch (#112) in the check badge's card: what the last run a
+ * new version of a Document started found and cost. It closes, for good. A
+ * run on demand is the one Check's, whose result is the contradicted marks.
  */
 export function ContradictionLine({ doc, mindId }: { doc: Y.Doc; mindId: string }) {
   const t = useT();
   const language = useLanguage();
   const shown = useContradictionLine(doc, mindId);
-  const outcome = (run: ContradictionCheckOutcome) => contradictionOutcomeParts(run, t, language);
+  const outcome = (run: ContradictionCheckOutcome | ContradictionWatchRun) =>
+    contradictionOutcomeParts(run, t, language);
 
-  if (shown?.kind === "found") {
-    const [first = "", ...rest] = outcome(shown.run);
-    return (
-      <>
-        <div className="check-card-sep" />
-        <ProblemLine
-          role="status"
-          testId="contradictions-found"
-          className="mind-health-line"
-          details={rest}
-          action={{
-            label: t("checks.close"),
-            testId: "contradictions-close",
-            onClick: () => dismissContradictions(mindId),
-          }}
-        >
-          {first}
-        </ProblemLine>
-      </>
-    );
-  }
-  if (shown?.kind === "watched") {
+  // Only a Document's new version says "After X changed": a run a Folder's other changes or the
+  // User started has no Document to name, and its marks are the result (#1941).
+  if (shown?.kind === "watched" && shown.run.documentName !== null) {
     const watched = shown.run;
     const [first = "", ...rest] = outcome(watched);
     const cost = watched.cost ? [formatMoney(watched.cost, language)] : [];
     const after = saidInLine(t, (t) =>
-      t("contradictions.after", { document: watched.documentName, result: first }),
+      t("contradictions.after", { document: watched.documentName ?? "", result: first }),
     );
     return (
       <>

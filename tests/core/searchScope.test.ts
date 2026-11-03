@@ -563,4 +563,32 @@ describe("The Documents an Answer is told about", { timeout: 60_000 }, () => {
     expect(scoped).toContain("limited this Question to 3 Documents");
     expect(listedNames(scoped)).toEqual(["Log 30", "Log 02", "Log 01"]);
   });
+
+  test("read_document refuses a Document outside the Question's Search scope", async () => {
+    const model = scriptedModel((call) =>
+      call.results.length === 0
+        ? { calls: [{ tool: "read_document", input: { document: "Moon", pages: "1" } }] }
+        : { text: "I couldn't read Moon." },
+    );
+    const { core, client, mind, id } = await setUpLibrary(model);
+
+    const { answerId } = await askScoped(core, client, mind.id, {
+      documentIds: [id("Delta")],
+    });
+
+    expect(answerText(client, answerId)).toBe("I couldn't read Moon.");
+    const calls = JSON.parse(answerIn(client, answerId).attrs.toolCalls as string) as {
+      tool: string;
+      resultCount: number | null;
+      input: Record<string, unknown>;
+    }[];
+    expect(calls).toContainEqual({
+      tool: "read_document",
+      resultCount: 0,
+      input: { document: "Moon", pages: "1" },
+      id: expect.any(String),
+      source: "documents",
+      status: "done",
+    });
+  });
 });

@@ -7,6 +7,8 @@ import {
   assistantAnswers,
   createDataFolder,
   launchApp,
+  leaveFirstOpen,
+  makeTagOnDocument,
   newMind,
   removeDataFolder,
   savedPath,
@@ -61,43 +63,49 @@ test("the quiet first open keeps the example's marks to its margin, but a check 
   await expect(window.getByTestId("claim-mark")).toHaveCount(1, { timeout: 30_000 });
   await expect(window.getByTestId("check-badge")).toHaveCount(0);
 
-  // No model yet: Check this Mind can't run, and says so where the User asked.
+  // No model yet: Check can't run, and says so where the User asked.
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("Check this Mind");
-  await window.getByTestId("palette-item").filter({ hasText: "Check this Mind" }).first().click();
+  await window.keyboard.type("check this note");
+  await window.getByTestId("palette-item").filter({ hasText: "Checks this note" }).first().click();
   await expect(window.getByTestId("check-badge")).toBeVisible();
   await expect(window.getByTestId("check-card")).toBeVisible();
   await app.close();
 });
 
-test("the tab strip comes with the second tab, and the Library with the first own Document (#123)", async () => {
+test("the tab strip comes with the second tab, and the Library with the User's first Note or Document (#123, #2376)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await expect(window.getByTestId("tab-list")).toHaveCount(0);
   await newMind(window);
   await expect(window.getByTestId("tab-list")).toBeVisible();
   await expect(window.getByTestId("tab-title")).toHaveCount(2);
 
+  // A Note of the User's own brings the Library too, even while the steps still show.
   const sidebar = window.getByTestId("sidebar");
-  await expect(sidebar.getByTestId("open-library")).toHaveCount(0);
+  await expect(sidebar.getByTestId("open-library")).toBeVisible();
   await writeFile(join(sources, "Harbour notes.md"), "# Harbour notes\n\nTide tables.\n");
   await window
     .getByTestId("add-documents-input")
     .setInputFiles([join(sources, "Harbour notes.md")]);
+  // On day one the list stays one flat list called Documents (#1942), and the Library stays there.
+  await expect(sidebar.getByTestId("not-in-a-folder-title")).toContainText("Documents");
+  await expect(sidebar.getByTestId("open-library")).toBeVisible();
+  // It stays once the first open's steps are put away.
+  await leaveFirstOpen(window);
   await expect(sidebar.getByTestId("open-library")).toBeVisible();
   await app.close();
 });
 
 test("a file the first open can't take still says so in the footer, though its other news waits (#123)", async () => {
-  await writeFile(join(sources, "Picture.png"), "not a document");
+  await writeFile(join(sources, "Archive.zip"), "not a document");
   const { app, window } = await launchApp(dataDir, { examples: true });
   const sidebar = window.getByTestId("sidebar");
   await expect(window.getByTestId("mind-pane")).toBeVisible();
   await expect(sidebar.getByTestId("sidebar-status")).toHaveCount(0);
-  await window.getByTestId("add-documents-input").setInputFiles([join(sources, "Picture.png")]);
+  await window.getByTestId("add-documents-input").setInputFiles([join(sources, "Archive.zip")]);
   const skipped = sidebar.getByTestId("skipped-files");
   await expect(skipped).toBeVisible();
-  await expect(skipped).toHaveAttribute("title", /Picture\.png/);
+  await expect(skipped).toHaveAttribute("title", /Archive\.zip/);
   await expect(sidebar.getByTestId("tagging-waiting")).toHaveCount(0);
   await app.close();
 });
@@ -132,15 +140,18 @@ test("the examples alone keep the footer quiet, but the User's own file waiting 
   await expect(sidebar.getByTestId("sidebar-status")).toHaveCount(0);
 
   await window.getByTestId("add-documents-input").setInputFiles([notes]);
+  // Before a Tag exists, the footer says nothing (#1942); with one, it asks for the model.
+  await expect(line).toHaveCount(0);
+  await makeTagOnDocument(window, "Harbour notes");
   await expect(line).toBeVisible();
-  await expect(line).toContainText("No AI model for Tags");
+  await expect(line.getByTestId("status-label")).toHaveText("Tags need an AI model");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
   await expect(window.getByTestId("tab-list")).toHaveCount(0);
 
   const choose = line.getByTestId("tagging-waiting-setup");
   await expect(choose).toHaveText("Choose…");
   await setLanguage(window, "zh-CN");
-  await expect(line).toContainText("打标签需要 AI 模型");
+  await expect(line.getByTestId("status-label")).toHaveText("打标签需要 AI 模型");
   await expect(choose).toHaveText("选择…");
   for (const [width, height] of [
     [900, 700],
@@ -181,6 +192,8 @@ test("Tagging stopped for the User's own files shows in the footer on the first 
   const sidebar = window.getByTestId("sidebar");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
   await window.getByTestId("add-documents-input").setInputFiles([notes]);
+  // A Tag of the User's own: only then is Tags named (#1942).
+  await makeTagOnDocument(window, "Harbour notes");
   const row = sidebar.getByTestId("tagging-stopped");
   await expect(row).toContainText("Tagging stopped");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
@@ -204,11 +217,16 @@ test("Tagging paused by a rate limit shows in the footer on the first open, with
   await window.evaluate(async () => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await bridge.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
-    await bridge.saveLibrarySettings({ ...(await bridge.getLibrary()).settings, automatic: true });
+    await bridge.saveLibrarySettings({
+      ...(await bridge.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
   });
   const sidebar = window.getByTestId("sidebar");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
   await window.getByTestId("add-documents-input").setInputFiles([limited]);
+  await makeTagOnDocument(window, "Harbour notes");
   const row = sidebar.getByTestId("tagging-rate-limited");
   await expect(row.getByTestId("status-label")).toContainText("Rate limit reached");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
@@ -218,14 +236,21 @@ test("Tagging paused by a rate limit shows in the footer on the first open, with
   await app.close();
 });
 
-test("a Mind of one's own made on the first open isn't listed under Examples (#123)", async () => {
+test("a Mind of one's own made on the first open is listed under Notes, never under Examples (#123, #1942)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
-  const section = window.getByTestId("sidebar").getByTestId("not-in-a-folder-title");
-  await expect(section).toHaveText("Examples");
+  const sidebar = window.getByTestId("sidebar");
+  await expect(sidebar.getByTestId("not-in-a-folder-title")).toHaveText("Examples");
   await newMind(window);
   await expect(window.getByTestId("mind-list-item")).toHaveCount(2);
-  // "Not in a Folder", though there is no Folder yet.
-  await expect(section).toHaveText("Not in a Folder");
+  // The User's Note is counted under its own heading, and the example keeps the Examples one (#1942).
+  await expect(sidebar.getByTestId("notes-title")).toContainText("Notes");
+  await expect(
+    sidebar.getByTestId("notes-section").getByTestId("sidebar-section-count"),
+  ).toHaveText("1");
+  await expect(sidebar.getByTestId("notes-section").getByTestId("mind-list-item")).toHaveCount(1);
+  await expect(sidebar.getByTestId("examples-section").getByTestId("mind-list-item")).toHaveCount(
+    1,
+  );
   await app.close();
 });
 

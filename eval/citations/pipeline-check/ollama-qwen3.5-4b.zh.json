@@ -1,0 +1,478 @@
+{
+  "benchmark": "IncarnaMind citation benchmark",
+  "set": {
+    "version": 1,
+    "questions": "ab17b69ea42ce560fa1981061932059d84e124b70e08b98fdd34c9ea121d1923",
+    "documents": "8942e783979679ca06babaf476867b4aefac6865ab81e7b944d0e29093c9b79e"
+  },
+  "model": {
+    "kind": "ollama",
+    "modelId": "qwen3.5:4b",
+    "endpoint": null,
+    "service": null,
+    "label": "ollama/qwen3.5:4b"
+  },
+  "language": "zh",
+  "settings": {
+    "check": true,
+    "answerTimeoutMs": 300000,
+    "rerankDepth": null,
+    "maxPassages": null,
+    "numCtx": 8192,
+    "citing": null,
+    "price": null
+  },
+  "app": {
+    "version": "0.1.0-alpha.4",
+    "commit": "218ac9412"
+  },
+  "host": {
+    "platform": "darwin arm64",
+    "cpu": "Apple M2 Max (12 cores)",
+    "node": "v26.11.1"
+  },
+  "startedAt": "2026-10-29T15:29:26.431Z",
+  "updatedAt": "2026-10-29T15:31:02.634Z",
+  "documents": [
+    {
+      "key": "mamba",
+      "name": "Mamba Linear-Time Sequence Modeling with Selective State Spaces",
+      "status": "ready",
+      "pages": 36,
+      "pagesSha256": "80a6329d63813808deecee87c3e9b3e47266449a3e5a505071907fdf61c6d7ca"
+    },
+    {
+      "key": "world-development-report",
+      "name": "World Development Report 2023 Overview",
+      "status": "ready",
+      "pages": 20,
+      "pagesSha256": "5c62b378b6460155d3ff54f0cd54505e916b002e507c872e6da1a7c032060e62"
+    },
+    {
+      "key": "national-risk-register",
+      "name": "National Risk Register 2023",
+      "status": "ready",
+      "pages": 192,
+      "pagesSha256": "b8c3fa915908551fb5ae9731cc67d63bfe05e0cc78e0e2be3b4015068231a681"
+    },
+    {
+      "key": "nbs-communique-2023",
+      "name": "中华人民共和国2023年国民经济和社会发展统计公报",
+      "status": "ready",
+      "pages": 22,
+      "pagesSha256": "ee71f2895f164853dc9166fff5ffbbdad6a841d7e47f70c45ea73f290c1802a4"
+    },
+    {
+      "key": "fomc-minutes-1950",
+      "name": "FOMC Historical Minutes 13 June 1950",
+      "status": "ready",
+      "pages": 14,
+      "pagesSha256": "08322b21ff0689514a7f52216849821034760d28c30b825a93b6b1404f5b05e8"
+    },
+    {
+      "key": "cia-reading-room-scan",
+      "name": "CIA Reading Room record 22 October 1965",
+      "status": "no-text",
+      "pages": 0,
+      "pagesSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "key": "scotus-biden-nebraska",
+      "name": "Biden v. Nebraska 600 U.S. (2023) 22-506",
+      "status": "ready",
+      "pages": 77,
+      "pagesSha256": "892d0e989b5452f8e8ff0da328a35d8bfeeab70e5af33f2f6192ff820adcb0bd"
+    },
+    {
+      "key": "guiding-case-2",
+      "name": "指导案例2号 吴梅诉四川省眉山西城纸业有限公司买卖合同纠纷案",
+      "status": "ready",
+      "pages": 2,
+      "pagesSha256": "cdae78fe6028afbd63a7b88f3a785a286b2bc6e8a02792f0ad7b305499f5dad6"
+    },
+    {
+      "key": "nbs-communique-2024",
+      "name": "中华人民共和国2024年国民经济和社会发展统计公报",
+      "status": "ready",
+      "pages": 34,
+      "pagesSha256": "f50f096d34bb6e9dc56a6c63535f9ce949674169908f0d9f673aa996194ef880"
+    },
+    {
+      "key": "nbs-gdp-revision",
+      "name": "国家统计局关于修订2023年国内生产总值数据的公告",
+      "status": "ready",
+      "pages": 1,
+      "pagesSha256": "c468b30f451fda4a2ebf547c0ff64ec22155792f9db6560769bb592d8f503974"
+    },
+    {
+      "key": "cern-soil-elements",
+      "name": "1995-2011年CERN土壤环境元素含量数据集",
+      "status": "ready",
+      "pages": 16,
+      "pagesSha256": "8eeda2eaa234e2d710e2974667dd5ceca5b6aec0b6d4561fbf4afa81357fd5de"
+    },
+    {
+      "key": "treasury-financial-statements-2023",
+      "name": "Treasury Financial Statements of the United States Government FY2023",
+      "status": "ready",
+      "pages": 20,
+      "pagesSha256": "74976e506ee1409e527929855abbcdcb7afe3c201b2460e77fa30ed72c2ff6ed"
+    }
+  ],
+  "answers": [
+    {
+      "questionId": "zh-001",
+      "kind": "single-fact",
+      "crossLingual": false,
+      "question": "指导案例2号中，西城纸业公司2009年4月14日出具的欠条写明欠吴梅多少废书款？",
+      "askedAt": "2026-10-29T15:29:26.431Z",
+      "status": "failed",
+      "error": {
+        "kind": "too-long",
+        "message": "The request needs about 8256 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+      },
+      "text": "",
+      "sentences": [],
+      "citations": [],
+      "figures": [],
+      "searches": [
+        "指导案例2号中，西城纸业公司2009年4月14日出具的欠条写明欠吴梅多少废书款？",
+        "In Guiding Case No. 2, how much amount of scrap book fees owed to Wu Mei is stated in the IOU issued by West City Paper Industry Company on April 14, 2009?"
+      ],
+      "check": {
+        "kind": "off"
+      },
+      "tokens": {
+        "answer": {
+          "requests": 1,
+          "inputTokens": 122,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 45
+        },
+        "check": {
+          "requests": 0,
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 0
+        }
+      },
+      "usd": {
+        "answer": null,
+        "check": null
+      },
+      "seconds": {
+        "answer": 2.184,
+        "check": 0.000005457999999634921
+      }
+    },
+    {
+      "questionId": "zh-008",
+      "kind": "multi-passage",
+      "crossLingual": false,
+      "question": "一审判决判令西城纸业公司给付吴梅多少货款？为什么二审期间的和解协议不能阻止吴梅申请执行一审判决？",
+      "askedAt": "2026-10-29T15:29:28.616Z",
+      "status": "failed",
+      "error": {
+        "kind": "too-long",
+        "message": "The request needs about 8283 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+      },
+      "text": "",
+      "sentences": [],
+      "citations": [],
+      "figures": [],
+      "searches": [
+        "一审判决判令西城纸业公司给付吴梅多少货款？为什么二审期间的和解协议不能阻止吴梅申请执行一审判决？",
+        "How much payment order did the first-instance court order West City Paper Industry Company to pay Wu Mei? Why does the settlement agreement reached during the second-instance proceedings not prevent Wu Mei from applying for enforcement of the first-instance judgment?"
+      ],
+      "check": {
+        "kind": "off"
+      },
+      "tokens": {
+        "answer": {
+          "requests": 1,
+          "inputTokens": 115,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 45
+        },
+        "check": {
+          "requests": 0,
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 0
+        }
+      },
+      "usd": {
+        "answer": null,
+        "check": null
+      },
+      "seconds": {
+        "answer": 2.031,
+        "check": 0.0000026669999933801593
+      }
+    },
+    {
+      "questionId": "zh-012",
+      "kind": "table-figure",
+      "crossLingual": false,
+      "question": "表1中，禹城站2010年0～10 cm表层土壤的汞含量是多少？",
+      "askedAt": "2026-10-29T15:29:30.648Z",
+      "status": "done",
+      "error": null,
+      "text": "根据《1995-2011年CERN土壤环境元素含量数据集》中的表1，禹城站2010年表层土壤（0～10 cm）的汞含量为 0.047 mg/kg[^1]。\n\n该数据记录在“中国土壤环境元素含量”表中，对应的是位于山东省德州市禹城综合试验站的农田样地，采样深度为0–10 cm，作物为玉米。",
+      "sentences": [
+        {
+          "text": "根据《1995-2011年CERN土壤环境元素含量数据集》中的表1，禹城站2010年表层土壤（0～10 cm）的汞含量为 0.047 mg/kg。",
+          "cited": true
+        },
+        {
+          "text": "该数据记录在“中国土壤环境元素含量”表中，对应的是位于山东省德州市禹城综合试验站的农田样地，采样深度为0–10 cm，作物为玉米。",
+          "cited": false
+        }
+      ],
+      "citations": [
+        {
+          "sentence": "根据《1995-2011年CERN土壤环境元素含量数据集》中的表1，禹城站2010年表层土壤（0～10 cm）的汞含量为 0.047 mg/kg。",
+          "quote": "0–10 0.047",
+          "document": "cern-soil-elements",
+          "documentName": "1995-2011年CERN土壤环境元素含量数据集",
+          "pageFrom": 10,
+          "pageTo": 10,
+          "check": "found",
+          "checkReason": null,
+          "passageText": "需要获得该样地监测当年的农田管理信息时，可以在“农田样地管理记录”表的“台站代码”“年”“样地代码”字段依次使用“YCA”“2010”“YCAZH01ABC_01”\n进行搜索，获得该样地在 2010 年土壤汞监测时的作物、灌溉（排水）、施肥、产量以及灾害情况等信息（表 4）；需要了解土壤汞的分析方法时，可以在“分析方法记录”表的“台站代码”“年”“分析项目代码”字段依次使用“YCA”“2010”“Hg”\n进行搜索，获得禹城站在 2010 年土壤汞分析中使用的具体方法及出处（表 5）；\n需要了解土壤汞的分析质控信息时，可以在“标准样品质控记录”表的“台站代码”“年”“分析项目代码”字段依次使用“YCA”“2010”“Hg”进行搜索，获得禹城站在 2010 年土壤汞分析中使用的标准样品信息和标准样品测定的信息（表 6）。\n\n表 1 “中国土壤环境元素含量”表中禹城站 2010 年农田表层土壤汞含量数据生态系统类型 台站代码 年 月 日 样地代码 采样分区描述（微地形） 土壤类型 母质 植被 / 作物 采样深度（cm） 汞（mg Hg/\nkg） 备注 1)农田 YCA 2010 10 5 YCAZH01ABC_01 农田（平地） 盐化潮土 黄河冲积物 玉米 0–10 0.047农田 YCA 2010 10 5 YCAZH01ABC_01 农田（平地） 盐化潮土 黄河冲积物 玉米 10–20 0.042表 2 “台站信息”表中禹城站基本信息台站代码 台站名称 台站简称省 / 直辖市/ 自治区市 / 盟/ 地区 /自治州县 / 区 /县级市 /旗 / 自治县镇 / 乡 / 农场 / 牧场 /垦区 / 保护区东经（°） 北纬（°） 海拔（m）",
+          "passagePages": [
+            9,
+            10
+          ]
+        }
+      ],
+      "figures": [],
+      "searches": [
+        "表1中，禹城站2010年0～10 cm表层土壤的汞含量是多少？",
+        "In Table 1, what is the mercury content in the surface soil (0–10 cm) of Yucheng Station in 2010?"
+      ],
+      "check": {
+        "kind": "checked",
+        "sentences": [
+          {
+            "sentence": "根据《1995-2011年CERN土壤环境元素含量数据集》中的表1，禹城站2010年表层土壤（0～10 cm）的汞含量为 0.047 mg/kg。",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "failed: The request needs about 7325 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+          },
+          {
+            "sentence": "该数据记录在“中国土壤环境元素含量”表中，对应的是位于山东省德州市禹城综合试验站的农田样地，采样深度为0–10 cm，作物为玉米。",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "malformed"
+          }
+        ]
+      },
+      "tokens": {
+        "answer": {
+          "requests": 2,
+          "inputTokens": 5057,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 280
+        },
+        "check": {
+          "requests": 5,
+          "inputTokens": 8462,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 144
+        }
+      },
+      "usd": {
+        "answer": null,
+        "check": null
+      },
+      "seconds": {
+        "answer": 12.744,
+        "check": 21.152158625000013
+      }
+    },
+    {
+      "questionId": "zh-052",
+      "kind": "conflict",
+      "crossLingual": false,
+      "question": "关于2023年的国内生产总值，2023年统计公报和2024年12月的修订公告分别给出什么数字？",
+      "askedAt": "2026-10-29T15:30:04.545Z",
+      "status": "done",
+      "error": null,
+      "text": "根据您提供的文档，2024年12月的修订公告给出了2023年国内生产总值的最终数据，而2024年的统计公报中并未包含2023年的具体数值（仅提及对历史数据的修订背景）[^1]。\n\n关于2023年国内生产总值的具体数字，仅出现在《国家统计局关于修订2023年国内生产总值数据的公告》中：\n\n修订后，2023年国内生产总值为1294272亿元[^2]。该数据比初步核算数增加了33690亿元，增幅为2.7%。\n\n《中华人民共和国2024年国民经济和社会发展统计公报》虽然提到了对包括2023年在内的历史数据进行修订，但并未在文中列出2023年的具体GDP数值。",
+      "sentences": [
+        {
+          "text": "根据您提供的文档，2024年12月的修订公告给出了2023年国内生产总值的最终数据，而2024年的统计公报中并未包含2023年的具体数值（仅提及对历史数据的修订背景）。",
+          "cited": true
+        },
+        {
+          "text": "关于2023年国内生产总值的具体数字，仅出现在《国家统计局关于修订2023年国内生产总值数据的公告》中：",
+          "cited": false
+        },
+        {
+          "text": "修订后，2023年国内生产总值为1294272亿元。",
+          "cited": true
+        },
+        {
+          "text": "该数据比初步核算数增加了33690亿元，增幅为2.7%。",
+          "cited": false
+        },
+        {
+          "text": "《中华人民共和国2024年国民经济和社会发展统计公报》虽然提到了对包括2023年在内的历史数据进行修订，但并未在文中列出2023年的具体GDP数值。",
+          "cited": false
+        }
+      ],
+      "citations": [
+        {
+          "sentence": "根据您提供的文档，2024年12月的修订公告给出了2023年国内生产总值的最终数据，而2024年的统计公报中并未包含2023年的具体数值（仅提及对历史数据的修订背景）。",
+          "quote": "根据第五次全国经济普查结果，并同步实施城镇居民自有住房服务核算方法改革，对国内生产总值、三次产业及相关行业增加值、全员劳动生产率等历史数据（包括图1、图2、图3、图9、图10、图11）进行了修订。",
+          "document": "nbs-communique-2024",
+          "documentName": "中华人民共和国2024年国民经济和社会发展统计公报",
+          "pageFrom": 26,
+          "pageTo": 27,
+          "check": "found",
+          "checkReason": null,
+          "passageText": "全年各类⽣产安全事故共死亡19626⼈，⽐上年下降7.6%。⼯矿商贸企业就业⼈员10万⼈⽣产安全事故死亡⼈数1.089⼈，⽐上年下降12.5%；煤矿百万吨死亡⼈数0.059⼈，下降37.2%。道路交通事故万车死亡⼈数1.31⼈，下降5.1%。\n注释：\n\n[1]本公报中数据均为初步统计数。各项统计数据均未包括⾹港特别⾏政区、澳门特别⾏政区和台湾省。部分数据因四舍五⼊的原因，存在总计与分项合计不等的情况。\n[2]国内⽣产总值、三次产业及相关⾏业增加值、地区⽣产总值、⼈均国内⽣产总值和国民总收⼊绝对数按现价计算，增长速度按不变价格计算。根据第五次全国经济普查结果，并同步实施城镇居民⾃有住房服务核算⽅法改⾰，对国内⽣产总值、三次产业及相关⾏业增加值、全员劳动⽣产率等历史数据（包括图1、图2、图3、图9、图10、图11）进⾏了修订。\n[3]国民总收⼊，原称国民⽣产总值，是指⼀个国家或地区所有常住单位在⼀定时期内所获得的初次分配收⼊总额，等于国内⽣产总值加上来⾃国外的初次分配收⼊净额。\n[4]全员劳动⽣产率为国内⽣产总值（按2020年价格计算）与全部就业⼈员的⽐率。\n[5]全国⼈⼝是指我国⼤陆31个省、⾃治区、直辖市和现役军⼈的⼈⼝，不包括居住在31个省、⾃治区、直辖市的港澳台居民和外籍⼈员。\n[6]2024年年末，0-14岁（含不满15周岁）⼈⼝为22240万⼈，15-59岁（含不满60周岁）⼈⼝为87557万⼈。",
+          "passagePages": [
+            26,
+            27
+          ]
+        },
+        {
+          "sentence": "修订后，2023年国内生产总值为1294272亿元。",
+          "quote": "修订后，2023年国内生产总值为1294272亿元，比初步核算数增加33690亿元，增幅为2.7%。",
+          "document": "nbs-gdp-revision",
+          "documentName": "国家统计局关于修订2023年国内生产总值数据的公告",
+          "pageFrom": 1,
+          "pageTo": 1,
+          "check": "found",
+          "checkReason": null,
+          "passageText": "https://www.stats.gov.cn/xxgk/sjfb/zxfb2020/202412/t20241227_1957915.html — retrieved 2026-10-26依据我国国内⽣产总值（GDP）核算制度和第五次全国经济普查结果，并同步实施城镇居民⾃有住房服务核算⽅法改⾰，国家统计局对2023年国内⽣产总值初步核算数进⾏了修订。\n修订后，2023年国内⽣产总值为1294272亿元，⽐初步核算数增加33690亿元，增幅为2.7%。其中，根据第五次全国经济普查数据修订，国内⽣产总值⽐初步核算数增加20257亿元，增幅为1.6%；实施城镇居民⾃有住房服务核算⽅法改⾰，国内⽣产总值增加13433亿元，增幅为1.1%。修订后的第⼀产业增加值为89169亿元，占国内⽣产总值的⽐重为6.9%；第⼆产业增加值为475936亿元，⽐重为36.8%；第三产业增加值为729167亿元，⽐重为56.3%。\n2023年国内⽣产总值修订数据与初步核算数据对⽐表现价总量(亿元) 构成（%）\n修订数 初步核算数 修订数 初步核算数国内⽣产总值 1294272 1260582 100.0 100.0第⼀产业 89169 89755 6.9 7.1第⼆产业 475936 482589 36.8 38.3第三产业 729167 688238 56.3 54.6国家统计局2024年12⽉27⽇",
+          "passagePages": [
+            1,
+            1
+          ]
+        }
+      ],
+      "figures": [],
+      "searches": [
+        "关于2023年的国内生产总值，2023年统计公报和2024年12月的修订公告分别给出什么数字？",
+        "What figures do the 2023 Statistical Bulletin and the December 2024 Revision Announcement provide for China's GDP in 2023?"
+      ],
+      "check": {
+        "kind": "checked",
+        "sentences": [
+          {
+            "sentence": "根据您提供的文档，2024年12月的修订公告给出了2023年国内生产总值的最终数据，而2024年的统计公报中并未包含2023年的具体数值（仅提及对历史数据的修订背景）。",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "failed: The request needs about 7861 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+          },
+          {
+            "sentence": "修订后，2023年国内生产总值为1294272亿元。",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "failed: The request needs about 7672 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+          },
+          {
+            "sentence": "该数据比初步核算数增加了33690亿元，增幅为2.7%。",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "malformed"
+          },
+          {
+            "sentence": "《中华人民共和国2024年国民经济和社会发展统计公报》虽然提到了对包括2023年在内的历史数据进行修订，但并未在文中列出2023年的具体GDP数值。",
+            "outcome": "supported",
+            "says": "The document states that historical data including figures from previous years has been revised based on the results of the fifth national economic census.",
+            "quote": "根据第五次全国经济普查结果，并同步实施城镇居民自有住房服务核算方法改革，对国内生产总值、三次产业及相关行业增加值、全员劳动生产率等历史数据（包括图1、图2、图3、图9、图10、图11）进行了修订。",
+            "failure": null
+          }
+        ]
+      },
+      "tokens": {
+        "answer": {
+          "requests": 2,
+          "inputTokens": 4090,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 415
+        },
+        "check": {
+          "requests": 12,
+          "inputTokens": 14290,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 672
+        }
+      },
+      "usd": {
+        "answer": null,
+        "check": null
+      },
+      "seconds": {
+        "answer": 14.481,
+        "check": 42.223142082999985
+      }
+    },
+    {
+      "questionId": "zh-055",
+      "kind": "superseded",
+      "crossLingual": false,
+      "question": "以最新的数据为准，2023年中国的国内生产总值是多少？",
+      "askedAt": "2026-10-29T15:31:01.252Z",
+      "status": "failed",
+      "error": {
+        "kind": "too-long",
+        "message": "The request needs about 8099 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+      },
+      "text": "",
+      "sentences": [],
+      "citations": [],
+      "figures": [],
+      "searches": [
+        "以最新的数据为准，2023年中国的国内生产总值是多少？",
+        "Based on the latest data, what is China's GDP in 2023?"
+      ],
+      "check": {
+        "kind": "off"
+      },
+      "tokens": {
+        "answer": {
+          "requests": 1,
+          "inputTokens": 107,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 18
+        },
+        "check": {
+          "requests": 0,
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 0
+        }
+      },
+      "usd": {
+        "answer": null,
+        "check": null
+      },
+      "seconds": {
+        "answer": 1.382,
+        "check": 0.000003041999996639788
+      }
+    }
+  ],
+  "retriedUsd": 0,
+  "stopped": null
+}

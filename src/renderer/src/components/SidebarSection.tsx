@@ -13,6 +13,7 @@ export function SidebarSection({
   testId,
   title,
   headingTestId,
+  count,
   tooltip,
   fold,
   actions,
@@ -22,6 +23,8 @@ export function SidebarSection({
   testId: string;
   title: string;
   headingTestId?: string;
+  /** What the section holds, after its name, as the sidebar's Library row counts its Documents. */
+  count?: number;
   /** What hovering the heading says, where its name alone doesn't. */
   tooltip?: string;
   fold?: { open: boolean; toggle(): void };
@@ -63,9 +66,14 @@ export function SidebarSection({
           <h3
             id={id}
             data-testid={headingTestId}
-            className="min-w-0 flex-1 truncate font-semibold text-ink-meta"
+            className="flex min-w-0 flex-1 items-baseline gap-1.5 truncate font-semibold text-ink-meta"
           >
-            {title}
+            <span className="truncate">{title}</span>
+            {count !== undefined && (
+              <span data-testid="sidebar-section-count" className="text-[12px] tabular-nums">
+                {count}
+              </span>
+            )}
           </h3>
         )}
         {actions && (

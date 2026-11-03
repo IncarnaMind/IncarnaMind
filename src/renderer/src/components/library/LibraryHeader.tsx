@@ -5,15 +5,24 @@ import { typesText } from "../../undo";
 import { AddDocumentsMenu } from "../AddDocumentsMenu";
 import { SearchIcon } from "../icons";
 import { CloseLineIcon } from "../lineIcons";
+import { buttonStyle } from "../ui";
+import { quietButtonClass } from "./LibrarySection";
 
 /**
  * The page's head: "Library" and how many Documents it holds, as the
- * sidebar says, the one primary "Add Documents ▾", and under them the wide
- * search field, which `/` focuses from anywhere on the page but a field, and
- * ↓ leaves for the first row; Enter asks about it when nothing matches.
+ * sidebar says, how sorting ended ("All sorted", or what Organize couldn't
+ * sort with the way to look at it), the one primary "Add Documents ▾", and
+ * under them the wide search field, which `/` focuses from anywhere on the
+ * page but a field, and ↓ leaves for the first row; Enter asks about it when
+ * nothing matches.
  */
 export function LibraryHeader({
   count,
+  notSorted,
+  sorted,
+  onReview,
+  onSortIntoFolders,
+  sorting = false,
   search,
   onSearch,
   onDown,
@@ -21,6 +30,18 @@ export function LibraryHeader({
   field,
 }: {
   count: number;
+  /** How many Documents Organize couldn't sort. */
+  notSorted: number;
+  /** Every Document is through Organize and nothing waits: nothing is left to look at. */
+  sorted: boolean;
+  onReview(): void;
+  /**
+   * Sorting loose Documents into Folders, when there are enough of them and no Folder yet
+   * (#1942): then it is the page's one primary action and Add Documents steps back.
+   */
+  onSortIntoFolders?: (() => void) | null;
+  /** Organize is already reading or sorting them: the action waits. */
+  sorting?: boolean;
   search: string;
   onSearch(search: string): void;
   /** ↓ in the search field. */
@@ -50,7 +71,7 @@ export function LibraryHeader({
       <div className="flex min-w-0 items-center gap-3">
         <h1
           data-testid="library-heading"
-          className="flex min-w-0 flex-1 items-baseline gap-2 font-serif text-heading font-semibold text-ink"
+          className="flex min-w-0 shrink-0 items-baseline gap-2 font-sans text-heading font-semibold text-ink"
         >
           <span className="truncate">{t("library.title")}</span>
           <span
@@ -60,7 +81,47 @@ export function LibraryHeader({
             {formatCount(count, language)}
           </span>
         </h1>
-        <AddDocumentsMenu />
+        {notSorted > 0 ? (
+          <span
+            data-testid="library-not-sorted-line"
+            className="flex min-w-0 shrink items-center gap-1 text-[13px] text-ink-meta"
+          >
+            <span data-testid="library-not-sorted-count" className="truncate">
+              {t("library.notSorted.count", { count: formatCount(notSorted, language) })}
+            </span>
+            <span aria-hidden="true" className="shrink-0">
+              ·
+            </span>
+            <button
+              type="button"
+              data-testid="library-review-not-sorted"
+              onClick={onReview}
+              className={`${quietButtonClass} shrink-0`}
+            >
+              {t("library.review")}
+            </button>
+          </span>
+        ) : (
+          sorted && (
+            <span data-testid="library-sorted" className="shrink-0 text-[13px] text-ink-meta">
+              {t("library.sorted.all")}
+            </span>
+          )
+        )}
+        <span className="min-w-0 flex-1" />
+        {onSortIntoFolders && (
+          <button
+            type="button"
+            data-testid="library-sort-into-folders"
+            title={t("library.organize.explain")}
+            onClick={onSortIntoFolders}
+            disabled={sorting}
+            className={buttonStyle("primary")}
+          >
+            {t("library.sortIntoFolders")}
+          </button>
+        )}
+        <AddDocumentsMenu secondary={!!onSortIntoFolders} />
       </div>
       <label
         title={t("library.search.hint")}

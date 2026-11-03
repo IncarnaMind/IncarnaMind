@@ -7,13 +7,61 @@ import {
   classifyProviderError,
   SignInRouteError,
 } from "../../src/core/providers/providerErrors";
-import { planLimitLine, taggingProblem } from "../../src/renderer/src/taggingProblem";
+import type { FlowRoute } from "../../src/renderer/src/taggingDestination";
+import {
+  planLimitLine,
+  taggingProblem,
+  taggingProblemService,
+} from "../../src/renderer/src/taggingProblem";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 const say = (language: "en" | "zh-CN") => (key: MessageKey, params?: MessageParams) =>
   translate(language, key, params);
 
 const SERVICES = /ChatGPT|OpenAI|Claude|Anthropic|Copilot|GitHub/;
+
+const LOCAL: FlowRoute = { where: "local" };
+const NONE: FlowRoute = { where: "none" };
+const UNKNOWN: FlowRoute = { where: "unknown" };
+const CHATGPT: FlowRoute = { where: "cloud", service: CHATGPT_SERVICE };
+const CLAUDE: FlowRoute = { where: "cloud", service: CLAUDE_ACCOUNT_SERVICE };
+
+test.each([
+  { text: LOCAL, reader: CLAUDE, expected: CLAUDE_ACCOUNT_SERVICE },
+  { text: CLAUDE, reader: CLAUDE, expected: CLAUDE_ACCOUNT_SERVICE },
+  {
+    text: CLAUDE,
+    reader: {
+      where: "cloud" as const,
+      service: { ...CLAUDE_ACCOUNT_SERVICE, name: "Same service" },
+    },
+    expected: CLAUDE_ACCOUNT_SERVICE,
+  },
+  { text: CHATGPT, reader: CLAUDE, expected: null },
+  { text: CHATGPT, reader: UNKNOWN, expected: null },
+  { text: UNKNOWN, reader: CLAUDE, expected: null },
+  { text: CHATGPT, reader: NONE, expected: CHATGPT_SERVICE },
+  { text: CHATGPT, reader: LOCAL, expected: CHATGPT_SERVICE },
+  { text: NONE, reader: CLAUDE, expected: CLAUDE_ACCOUNT_SERVICE },
+  { text: LOCAL, reader: NONE, expected: null },
+])(
+  "the problem action uses only a unique resolved current service ($text.where, $reader.where)",
+  ({ text, reader, expected }) => {
+    expect(taggingProblemService(text, reader)).toEqual(expected);
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "the image plan is named only when unambiguous (%s)",
+  (language) => {
+    expect(planLimitLine(taggingProblemService(LOCAL, CLAUDE), null, say(language), language)).toBe(
+      language === "en" ? "Your Claude plan’s limit is reached" : "Claude 订阅额度已用完",
+    );
+    expect(
+      planLimitLine(taggingProblemService(CHATGPT, CLAUDE), null, say(language), language),
+    ).toBe(language === "en" ? "Your plan’s limit is reached" : "订阅额度已用完");
+  },
+);
 
 const failures: { kind: ProviderErrorKind; route: string; error: Error }[] = [
   {

@@ -392,7 +392,7 @@ describe("setting an agent up", () => {
     if (result.kind !== "copy") throw new Error("Expected a line to copy.");
     const token = (await core.getAgentLaunch(pairing.id)).env[TOKEN_ENV] ?? "";
     expect(result.how).toBe("command");
-    expect(result.text).toMatch(/^claude mcp add --scope user /);
+    expect(result.text).toMatch(/^claude mcp add --scope user incarnamind --env /);
     expect(result.text).toContain(token);
     expect(result.shown).not.toContain(token);
     expect(result.shown).toContain("•••••••");

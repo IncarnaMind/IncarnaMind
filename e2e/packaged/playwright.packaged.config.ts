@@ -13,7 +13,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   testMatch: /.*\.packaged\.ts$/,
-  // The first run downloads the 989 MB speech model.
+  // The first run downloads the 989 MB speech model and 21 MB OCR models.
   timeout: 30 * 60_000,
   workers: 1,
   retries: 0,

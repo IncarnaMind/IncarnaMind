@@ -17,20 +17,16 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { generateText } from "ai";
 import { test } from "vitest";
-import * as Y from "yjs";
 import {
   type AnswerUsage,
-  CITATION_NODE,
   type CitationAttributes,
   type Core,
   type CoreEvents,
   messageReference,
 } from "../../src/core";
-import { plainText } from "../../src/core/mindText";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { pageBlocks } from "../../src/shared/answerBlocks";
 import { namesOneOf, sourcesAsText } from "../../src/shared/namedSources";
-import { decideProposals } from "../../src/shared/proposals";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { heading, note, writeMind } from "../../tests/helpers/minds";
 import { costUsd } from "../harness/harnesses";
@@ -38,6 +34,7 @@ import { chatModelSpecOf, chatProviderOf, readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
 import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
+import { acceptChanges, citationNodes } from "../lib/notes";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { CASES, CLAIMS, LIMITATION, type ReportCase } from "./cases";
 
@@ -183,25 +180,6 @@ async function ask(core: Core, text: string, mindId: string) {
   const answer = messages.find((message) => message.id === asked.answerId);
   if (answer?.kind !== "answer") throw new Error("No Answer was kept.");
   return { answer, finished };
-}
-
-/** The Citations a Mind holds, and its text, as the model's report wrote it there. */
-async function citationNodes(core: Core, mindId: string) {
-  const { blocks } = await connectToMind(core, mindId);
-  const citations: (Partial<Cited> & { check?: string })[] = [];
-  const visit = (element: Y.XmlElement | Y.XmlFragment) => {
-    for (const child of element.toArray()) {
-      if (!(child instanceof Y.XmlElement)) continue;
-      if (child.nodeName === CITATION_NODE) citations.push(child.getAttributes());
-      visit(child);
-    }
-  };
-  visit(blocks);
-  const text = blocks
-    .toArray()
-    .map((block) => (block instanceof Y.XmlElement ? plainText(block) : ""))
-    .join("\n");
-  return { citations, text };
 }
 
 test("a cited Mind made a report keeps its Citations", async () => {
@@ -359,9 +337,7 @@ async function runCase(
     run.wroteMind = written !== undefined;
     if (written) {
       // What the assistant wrote waits as changes until the window applies them, as it does at once.
-      const client = await connectToMind(core, written.mindId);
-      client.doc.transact(() => decideProposals(client.blocks, () => true, "accept"));
-      await client.settled();
+      await acceptChanges(core, written.mindId);
     }
     const report = written
       ? await citationNodes(core, written.mindId)

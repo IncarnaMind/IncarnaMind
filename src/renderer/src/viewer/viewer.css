@@ -178,6 +178,11 @@
     --quote-wash: var(--color-warning-wash);
     --quote-edge: var(--color-warning);
   }
+  /* A scan's unsure words: the quote is quiet grey, as an uncited sentence is (#535). */
+  [data-quote-tone="cant-check"] {
+    --quote-wash: var(--color-chip);
+    --quote-edge: var(--color-ink-secondary);
+  }
   /* Contradicted is never green: no fill, the words outlined in red. */
   [data-quote-tone="contradicted"] {
     --quote-wash: transparent;
@@ -473,6 +478,17 @@
     border-start-end-radius: 0;
     border-end-end-radius: 0;
   }
+  /*
+   * The same wash over a cited page's picture, which is behind it rather than
+   * under it: multiplied, so the words the wash covers stay as they were drawn
+   * (#2159).
+   */
+  .quote-highlight--picture {
+    @apply pointer-events-none absolute;
+    padding: 0;
+    margin: 0;
+    mix-blend-mode: multiply;
+  }
 
   /* The Citation's check mark, in the page's margin beside its quote: the Mind's 18px mark. */
   .quote-mark {
@@ -484,6 +500,9 @@
   .quote-mark--not-found {
     @apply bg-warning-wash text-warning;
   }
+  .quote-mark--cant-check {
+    @apply bg-chip text-ink-secondary;
+  }
   .quote-mark--contradicted {
     @apply bg-sheet text-danger;
     box-shadow: inset 0 0 0 1.5px var(--color-danger);
@@ -492,9 +511,13 @@
   .quote-mark-label {
     @apply ml-[3px] border-l border-current/25 pl-[5px] font-semibold whitespace-nowrap;
   }
-  /* Measured but not shown: there is no room for it beside the page's text. */
-  .quote-mark-label--measured {
+  /* Not shown: there is no room for it beside the page's text. */
+  .quote-mark-label--hidden {
     @apply pointer-events-none invisible absolute;
+  }
+  /* A copy of the mark, never shown, that gives its width with its label and without (#2459). */
+  .quote-mark--copy {
+    @apply invisible top-0 left-0;
   }
 
   /* A deck's or a document's outline: a slide's number before its title. */

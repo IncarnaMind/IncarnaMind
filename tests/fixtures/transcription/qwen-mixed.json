@@ -1,0 +1,882 @@
+{
+  "service": "qwen",
+  "model": "fun-asr-realtime",
+  "messages": [
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "task-started",
+        "attributes": {}
+      },
+      "payload": {}
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2640,
+            "end_time": null,
+            "text": "",
+            "sentence_begin": true,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2640,
+            "end_time": 3932,
+            "text": "When you call",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2640,
+            "end_time": 5224,
+            "text": "When you call someone who is",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2640,
+            "end_time": 6516,
+            "text": "When you call someone who is thousands of miles",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2640,
+            "end_time": 7808,
+            "text": "When you call someone who is thousands of miles away, you are",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 1,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 2640,
+            "end_time": 9100,
+            "text": "When you call someone who is thousands of miles away, you are using a satellite.",
+            "heartbeat": false,
+            "sentence_end": true,
+            "sentence_id": 1,
+            "words": [
+              {
+                "begin_time": 2640,
+                "end_time": 3071,
+                "text": "When",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 3071,
+                "end_time": 3501,
+                "text": "you",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 3501,
+                "end_time": 3932,
+                "text": "call",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 3932,
+                "end_time": 4363,
+                "text": "someone",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 4363,
+                "end_time": 4793,
+                "text": "who",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 4793,
+                "end_time": 5224,
+                "text": "is",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 5224,
+                "end_time": 5655,
+                "text": "thousands",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 5655,
+                "end_time": 6085,
+                "text": "of",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 6085,
+                "end_time": 6516,
+                "text": "miles",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 6516,
+                "end_time": 6947,
+                "text": "away,",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 6947,
+                "end_time": 7377,
+                "text": "you",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 7377,
+                "end_time": 7808,
+                "text": "are",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 7808,
+                "end_time": 8239,
+                "text": "using",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 8239,
+                "end_time": 8669,
+                "text": "a",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 8669,
+                "end_time": 9100,
+                "text": "satellite.",
+                "punctuation": ""
+              }
+            ]
+          }
+        },
+        "usage": {
+          "duration": 10
+        }
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 11800,
+            "end_time": null,
+            "text": "",
+            "sentence_begin": true,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 11800,
+            "end_time": 13561,
+            "text": "报告警告称，没有人能",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 11800,
+            "end_time": 15146,
+            "text": "报告警告称，没有人能保证目前在伊拉克采",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 11800,
+            "end_time": 16730,
+            "text": "报告警告称，没有人能保证目前在伊拉克采取的任何行动能够阻",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 11800,
+            "end_time": 18315,
+            "text": "报告警告称，没有人能保证目前在伊拉克采取的任何行动能够阻止宗派战争不断增长",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 2,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 11800,
+            "end_time": 19900,
+            "text": "报告警告称，没有人能保证目前在伊拉克采取的任何行动能够阻止宗派战争不断增长的暴力或走向混乱。",
+            "heartbeat": false,
+            "sentence_end": true,
+            "sentence_id": 2,
+            "words": [
+              {
+                "begin_time": 11800,
+                "end_time": 11976,
+                "text": "报",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 11976,
+                "end_time": 12152,
+                "text": "告",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 12152,
+                "end_time": 12328,
+                "text": "警",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 12328,
+                "end_time": 12504,
+                "text": "告",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 12504,
+                "end_time": 12680,
+                "text": "称",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 12680,
+                "end_time": 12857,
+                "text": "，",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 12857,
+                "end_time": 13033,
+                "text": "没",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 13033,
+                "end_time": 13209,
+                "text": "有",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 13209,
+                "end_time": 13385,
+                "text": "人",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 13385,
+                "end_time": 13561,
+                "text": "能",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 13561,
+                "end_time": 13737,
+                "text": "保",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 13737,
+                "end_time": 13913,
+                "text": "证",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 13913,
+                "end_time": 14089,
+                "text": "目",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 14089,
+                "end_time": 14265,
+                "text": "前",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 14265,
+                "end_time": 14441,
+                "text": "在",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 14441,
+                "end_time": 14617,
+                "text": "伊",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 14617,
+                "end_time": 14793,
+                "text": "拉",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 14793,
+                "end_time": 14970,
+                "text": "克",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 14970,
+                "end_time": 15146,
+                "text": "采",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 15146,
+                "end_time": 15322,
+                "text": "取",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 15322,
+                "end_time": 15498,
+                "text": "的",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 15498,
+                "end_time": 15674,
+                "text": "任",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 15674,
+                "end_time": 15850,
+                "text": "何",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 15850,
+                "end_time": 16026,
+                "text": "行",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 16026,
+                "end_time": 16202,
+                "text": "动",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 16202,
+                "end_time": 16378,
+                "text": "能",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 16378,
+                "end_time": 16554,
+                "text": "够",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 16554,
+                "end_time": 16730,
+                "text": "阻",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 16730,
+                "end_time": 16907,
+                "text": "止",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 16907,
+                "end_time": 17083,
+                "text": "宗",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 17083,
+                "end_time": 17259,
+                "text": "派",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 17259,
+                "end_time": 17435,
+                "text": "战",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 17435,
+                "end_time": 17611,
+                "text": "争",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 17611,
+                "end_time": 17787,
+                "text": "不",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 17787,
+                "end_time": 17963,
+                "text": "断",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 17963,
+                "end_time": 18139,
+                "text": "增",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 18139,
+                "end_time": 18315,
+                "text": "长",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 18315,
+                "end_time": 18491,
+                "text": "的",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 18491,
+                "end_time": 18667,
+                "text": "暴",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 18667,
+                "end_time": 18843,
+                "text": "力",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 18843,
+                "end_time": 19020,
+                "text": "或",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 19020,
+                "end_time": 19196,
+                "text": "走",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 19196,
+                "end_time": 19372,
+                "text": "向",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 19372,
+                "end_time": 19548,
+                "text": "混",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 19548,
+                "end_time": 19724,
+                "text": "乱",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 19724,
+                "end_time": 19900,
+                "text": "。",
+                "punctuation": ""
+              }
+            ]
+          }
+        },
+        "usage": {
+          "duration": 20
+        }
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": null,
+            "end_time": null,
+            "text": "",
+            "heartbeat": true,
+            "sentence_id": 0,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 23400,
+            "end_time": null,
+            "text": "",
+            "sentence_begin": true,
+            "sentence_end": false,
+            "sentence_id": 3,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 23400,
+            "end_time": 25225,
+            "text": "Now widely available",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 3,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 23400,
+            "end_time": 26442,
+            "text": "Now widely available throughout the",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 3,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 23400,
+            "end_time": 28267,
+            "text": "Now widely available throughout the region, the programme",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 3,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 23400,
+            "end_time": 29483,
+            "text": "Now widely available throughout the region, the programme is free",
+            "heartbeat": false,
+            "sentence_begin": false,
+            "sentence_end": false,
+            "sentence_id": 3,
+            "words": []
+          }
+        },
+        "usage": null
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "result-generated",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {
+          "sentence": {
+            "begin_time": 23400,
+            "end_time": 30700,
+            "text": "Now widely available throughout the region, the programme is free of charge.",
+            "heartbeat": false,
+            "sentence_end": true,
+            "sentence_id": 3,
+            "words": [
+              {
+                "begin_time": 23400,
+                "end_time": 24008,
+                "text": "Now",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 24008,
+                "end_time": 24617,
+                "text": "widely",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 24617,
+                "end_time": 25225,
+                "text": "available",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 25225,
+                "end_time": 25833,
+                "text": "throughout",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 25833,
+                "end_time": 26442,
+                "text": "the",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 26442,
+                "end_time": 27050,
+                "text": "region,",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 27050,
+                "end_time": 27658,
+                "text": "the",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 27658,
+                "end_time": 28267,
+                "text": "programme",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 28267,
+                "end_time": 28875,
+                "text": "is",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 28875,
+                "end_time": 29483,
+                "text": "free",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 29483,
+                "end_time": 30092,
+                "text": "of",
+                "punctuation": ""
+              },
+              {
+                "begin_time": 30092,
+                "end_time": 30700,
+                "text": "charge.",
+                "punctuation": ""
+              }
+            ]
+          }
+        },
+        "usage": {
+          "duration": 31
+        }
+      }
+    },
+    {
+      "header": {
+        "task_id": "2bf83b9a-baeb-4fda-8d9a-0123456789ab",
+        "event": "task-finished",
+        "attributes": {}
+      },
+      "payload": {
+        "output": {},
+        "usage": null
+      }
+    }
+  ]
+}

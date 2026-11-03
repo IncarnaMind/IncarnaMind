@@ -99,13 +99,13 @@ describe("a Linked folder's row state", () => {
 describe("what a Linked folder's row says", () => {
   test("indexing counts with digit grouping, and has a shorter form for a narrow sidebar", () => {
     expect(rowStateLabel({ kind: "indexing", indexed: 120, files: 3214 }, en, "en")).toEqual({
-      short: "Reading 120 of 3,214",
+      short: "Indexing 120 of 3,214",
       compact: "120 of 3,214",
-      full: "Reading 120 of 3,214 files, newest first",
+      full: "Indexing 120 of 3,214 files, newest first",
     });
     expect(rowStateLabel({ kind: "indexing", indexed: 120, files: 3214 }, zh, "zh-CN")).toEqual({
-      short: "正在读取 120 / 3,214",
-      compact: "120 / 3,214",
+      short: "正在读取 120/3,214 个文件",
+      compact: "120/3,214",
       full: "正在读取 3,214 个文件，已完成 120 个，最新的优先",
     });
   });
@@ -116,11 +116,24 @@ describe("what a Linked folder's row says", () => {
     expect(short({ kind: "paused", indexed: 2, files: 10 })).toBe("Paused");
     expect(short({ kind: "unavailable" })).toBe("Unavailable");
     expect(short({ kind: "online-only", files: 12 })).toBe("12 online-only");
-    expect(short({ kind: "empty" })).toBe("No supported files");
-    expect(rowStateLabel({ kind: "empty" }, en, "en")?.compact).toBe("No files");
+    expect(short({ kind: "empty" })).toBe("Nothing to read yet");
+    expect(rowStateLabel({ kind: "empty" }, en, "en")?.compact).toBe("Nothing yet");
+    // Its tooltip names the kinds it reads.
+    expect(rowStateLabel({ kind: "empty" }, en, "en")?.full).toBe(
+      "Nothing to read yet: IncarnaMind reads PDF, Word, PowerPoint, Excel, Markdown, text files.",
+    );
     expect(short({ kind: "checking" })).toBe("Checking…");
     expect(short({ kind: "downloading", files: 3 })).toBe("Downloading…");
     expect(short({ kind: "idle" })).toBeNull();
+  });
+
+  test("a folder with nothing to read says so under its row, in both languages", () => {
+    expect(en("linkedFolders.nothingToRead.notice", { folder: "contracts" })).toBe(
+      "No files IncarnaMind can read in “contracts” yet. New ones are read as they arrive.",
+    );
+    expect(zh("linkedFolders.nothingToRead.notice", { folder: "contracts" })).toBe(
+      "“contracts”里还没有 IncarnaMind 能读取的文件。之后放进去的文件会自动读取。",
+    );
   });
 
   test("the full words say how far a paused folder got, and count one online-only file as one", () => {

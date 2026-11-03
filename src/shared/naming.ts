@@ -1,7 +1,6 @@
 /**
  * The one naming rule for Minds and conversations: the first line of what the
- * User wrote or asked, cut to about this many characters. A conversation's short
- * title from the model is cleaned by the same cut, so the rule is the same everywhere.
+ * User wrote or asked, cut to about this many characters.
  */
 export const NAME_LENGTH = 60;
 
@@ -9,7 +8,9 @@ export const NAME_LENGTH = 60;
 const MIN_CLAUSE = 16;
 
 const trailingMarks = /[\s.,;:!?…。，；：！？、\-–—]+$/u;
-const quotes = /^["'“”‘’「」『』《》]+|["'“”‘’「」『』《》]+$/gu;
+
+/** `text` without the marks a sentence ends with, so a name taken from a sentence ends on its words. */
+export const withoutTrailingMarks = (text: string): string => text.replace(trailingMarks, "");
 
 /** Where the text's words begin and end, in any language (Chinese and Japanese included). */
 const words = new Intl.Segmenter(undefined, { granularity: "word" });
@@ -106,10 +107,11 @@ export function cutAtWord(text: string, limit: number): string {
 }
 
 /**
- * `name` shortened to one line: kept whole if `fits` says it fits, else cut at a
- * word and ended with "…", so the longest start that fits shows.
+ * `name` shortened to one line: kept whole if `fits` says it fits, else cut and ended with "…",
+ * so the longest start that fits shows. `atWords` cuts at a word, as English needs; without it,
+ * anywhere, as Chinese reads, where a character is a cut a reader accepts.
  */
-export function fitName(name: string, fits: (text: string) => boolean): string {
+export function fitName(name: string, fits: (text: string) => boolean, atWords = true): string {
   if (fits(name)) return name;
   const characters = Array.from(name);
   let low = 0;
@@ -120,7 +122,9 @@ export function fitName(name: string, fits: (text: string) => boolean): string {
     else high = middle - 1;
   }
   const shown = Math.max(low, 1);
-  const kept = withoutDanglingEnd(characters.slice(0, wordEnd(name, shown)).join(""));
+  const kept = withoutDanglingEnd(
+    characters.slice(0, atWords ? wordEnd(name, shown) : shown).join(""),
+  );
   return `${kept || characters.slice(0, shown).join("")}…`;
 }
 
@@ -167,15 +171,6 @@ export const mindName = (mind: { title: string; autoTitle: string }): string =>
  */
 export const conversationName = (conversation: { title: string; autoTitle: string }): string =>
   conversation.title || conversation.autoTitle;
-
-/** What the quick-task model is asked to title a conversation with, in the language of the Question. */
-export const SHORT_TITLE_INSTRUCTION =
-  "Write a title for the conversation that starts with the Question below: at most 6 words in English, or at most 12 characters in Chinese, " +
-  "in the same language as the Question. Reply with the title only: no quotes, no full stop.";
-
-/** The model's short title, cleaned: its first line, without quotes or trailing punctuation. Empty if it gave none. */
-export const cleanShortTitle = (reply: string): string =>
-  cutTitle(reply.trim().replace(quotes, "")).replace(quotes, "");
 
 /** The first of "{name} 2", "{name} 3"… that none of `taken` is; null when none of `taken` is `name`. */
 export function numberedName(name: string, taken: readonly string[]): string | null {

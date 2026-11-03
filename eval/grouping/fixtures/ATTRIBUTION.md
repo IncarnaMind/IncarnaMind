@@ -1,6 +1,6 @@
 # Grouping fixtures: sources and licences
 
-These files were made for the grouping check, removed on 2026-10-10 (`eval/grouping/README.md`), beside the evaluation's existing Documents: the seven sample PDFs in `data/`, the five Chinese Wikipedia PDFs in `eval/retrieval/fixtures/` and the two tea examples in `resources/examples/`. Each file's subject and language are listed in `eval/grouping/set.json`, which the local classification comparison (`eval/classification/`) reads.
+These files were made for the grouping check, removed on 2026-10-10 (`eval/grouping/README.md`), beside the evaluation's existing Documents: the seven sample PDFs in `data/` (made for this repository and licensed under Apache-2.0; see `data/README.md`), the five Chinese Wikipedia PDFs in `eval/retrieval/fixtures/` and the two tea examples in `resources/examples/`. Each file's subject and language are listed in `eval/grouping/set.json`, which the local classification comparison (`eval/classification/`) reads.
 
 Everything here was made or downloaded on 2026-10-07 and 2026-10-08.
 

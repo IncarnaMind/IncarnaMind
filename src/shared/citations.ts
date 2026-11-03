@@ -10,11 +10,13 @@ import type {
   CitationAttributes,
   CitationCheck,
   CitationCheckReason,
+  CitationLocation,
   CitationRecheck,
   Document,
   KeptCitationText,
   QuotedPiece,
   QuotedWords,
+  RecheckResult,
 } from "../core/api";
 import type { Language } from "../core/language";
 import { formatDate } from "./dates";
@@ -35,6 +37,7 @@ const CITATION_CHECKS: readonly CitationCheck[] = [
   "found",
   "not-found",
   "cant-check",
+  "not-checked",
   "unsupported",
   "contradicted",
 ];
@@ -45,6 +48,9 @@ export function citationAttributesOf(node: Record<string, unknown>): Partial<Cit
   const count = (value: unknown) => (typeof value === "number" ? value : null);
   const check = CITATION_CHECKS.find((each) => each === node.check);
   const verdict = text(node.verdict);
+  const unsure = Array.isArray(node.unsure)
+    ? node.unsure.filter((word): word is string => typeof word === "string")
+    : null;
   return {
     passageId: text(node.passageId),
     documentId: text(node.documentId),
@@ -59,6 +65,8 @@ export function citationAttributesOf(node: Record<string, unknown>): Partial<Cit
     }),
     quote: text(node.quote),
     ...(check && { check }),
+    ...(node.pageChecked === true && { pageChecked: true }),
+    ...(unsure && unsure.length > 0 && { unsure }),
     ...(verdict !== null && { verdict }),
   };
 }
@@ -68,6 +76,11 @@ export interface CitationState {
   check: CitationCheck;
   /** Why it wasn't found, or can't be checked. */
   reason: CitationCheckReason | null;
+  /**
+   * The walled Folder that keeps its Document inside it, seen from a Note outside: its last result
+   * stands, unread again, and the card says so under the Document's name (#1934).
+   */
+  keptInside?: string | null;
   /**
    * The live Document the Citation opens: its own, or one with the same
    * content added again after it was deleted. Null once the Document has
@@ -81,6 +94,21 @@ export interface CitationState {
    * card can say "the Document changed after this was cited" and offer it.
    */
   changedAfterCited: boolean;
+  /** The User compared the quote with the page and it matched (#535). */
+  pageChecked?: true;
+}
+
+/**
+ * Whether opening a Citation's page washes its quote: a found one, or a scan's
+ * word the reading may have misread, which asks for a look at the page (#535).
+ */
+export function quoteWashedOnOpen(state: Pick<CitationState, "check" | "reason">): boolean {
+  return (
+    state.check === "found" ||
+    state.check === "unsupported" ||
+    state.check === "contradicted" ||
+    state.reason === "unsure-word"
+  );
 }
 
 /**
@@ -196,11 +224,27 @@ export function citationState(
   attributes: Partial<CitationAttributes>,
   documents: readonly LiveDocument[] | null,
   kept: readonly KeptCitationText[] = [],
+  keptInside: string | null = null,
 ): CitationState {
-  const check = attributes.check ?? "checking";
-  const reason = attributes.checkReason ?? null;
+  // Matches the page makes it found on the User's word, though a word of it may have been misread
+  // (#535). It stands only for the check it was given for: a later check that isn't that one isn't
+  // found by it.
+  const confirmed =
+    attributes.pageChecked === true &&
+    attributes.check === "cant-check" &&
+    attributes.checkReason === "unsure-word";
+  const check = confirmed ? "found" : (attributes.check ?? "checking");
+  const reason = confirmed ? null : (attributes.checkReason ?? null);
   const own = attributes.documentId ?? null;
-  if (documents === null) return { check, reason, documentId: own, changedAfterCited: false };
+  if (documents === null) {
+    return {
+      check,
+      reason,
+      documentId: own,
+      changedAfterCited: false,
+      ...(confirmed && { pageChecked: true as const }),
+    };
+  }
   const live = liveDocumentOf(attributes, documents);
   const changedAfterCited =
     live !== undefined &&
@@ -210,13 +254,35 @@ export function citationState(
   if (check === "checking") {
     return { check, reason: null, documentId: live?.id ?? own, changedAfterCited: false };
   }
+  if (keptInside) {
+    return {
+      check,
+      reason,
+      documentId: live?.id ?? own,
+      changedAfterCited: false,
+      keptInside,
+      ...(confirmed && { pageChecked: true as const }),
+    };
+  }
   if (!live && citedTextKept(attributes, kept)) {
-    return { check, reason, documentId: null, changedAfterCited: false };
+    return {
+      check,
+      reason,
+      documentId: null,
+      changedAfterCited: false,
+      ...(confirmed && { pageChecked: true as const }),
+    };
   }
   if (!live) {
     return { check: "cant-check", reason: "document-removed", documentId: null, changedAfterCited };
   }
-  return { check, reason, documentId: live.id, changedAfterCited };
+  return {
+    check,
+    reason,
+    documentId: live.id,
+    changedAfterCited,
+    ...(confirmed && { pageChecked: true as const }),
+  };
 }
 
 /** Where a Citation's quote stands in its Document's current version. */
@@ -267,6 +333,19 @@ export function versionMoment(
 }
 
 /**
+ * The day a saved web page was fetched again, for the notice that says what the viewer shows
+ * instead of the page cited; null for any other Document.
+ */
+export function fetchedAgainOn(
+  document: Parameters<typeof versionMoment>[0] | undefined,
+  language: Language,
+): string | null {
+  if (!document?.web) return null;
+  const moment = versionMoment(document);
+  return moment ? formatDate(moment, language) : null;
+}
+
+/**
  * "This Document changed on 12 October 2026" in a language: when the version
  * the Citation now opens was made. Null while the Document is unchanged.
  */
@@ -279,6 +358,35 @@ export function changedOnMessage(
   return changed && moment
     ? t("citation.changed.on", { date: formatDate(moment, language) })
     : null;
+}
+
+/**
+ * What a Citation's card and the viewer say once its Document changed after it was cited, and, for
+ * a file, the line that says on what day: a saved web page's notice has its day in it already.
+ */
+export function changedSourceLines(
+  changedAfterCited: boolean,
+  cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
+  recheck: RecheckResult | "failed" | null,
+  document: Parameters<typeof versionMoment>[0] | undefined,
+  language: Language,
+  t: Translate,
+): { note: ChangedSource | null; on: string | null } {
+  // Kept inside a wall the Note is outside: nothing of the new version was read, so nothing is said.
+  if (recheck !== null && recheck !== "failed" && "keptInside" in recheck) {
+    return { note: null, on: null };
+  }
+  const note = changedSourceNote(
+    changedAfterCited,
+    cited,
+    recheck,
+    t,
+    fetchedAgainOn(document, language),
+  );
+  const on = document?.web
+    ? null
+    : changedOnMessage(changedAfterCited, document ? versionMoment(document) : null, language, t);
+  return { note, on };
 }
 
 /** What a Citation's card and the viewer say once its Document changed after it was cited. */
@@ -296,12 +404,18 @@ export interface ChangedSource {
 export function changedSourceNote(
   changed: boolean,
   cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
-  recheck: CitationRecheck | "failed" | null,
+  recheck: RecheckResult | "failed" | null,
   t: Translate,
+  fetchedAgain: string | null = null,
 ): ChangedSource | null {
   if (!changed) return null;
-  const notice = t("citation.changedAfterCited");
+  // A saved page was fetched again: the viewer shows the new copy, and the one cited is kept.
+  const notice =
+    fetchedAgain === null
+      ? t("citation.changedAfterCited")
+      : t("citation.changedAfterCited.web", { date: fetchedAgain });
   if (recheck === "failed" || recheck === null) return { notice, quote: null };
+  if ("keptInside" in recheck) return null;
   const standing = quoteStanding(cited, recheck);
   if (standing === "found") return { notice, quote: t("citation.changed.still") };
   if (standing === "gone") return { notice, quote: t("citation.changed.gone") };
@@ -324,10 +438,11 @@ export function changedSourceNote(
 export function needsRecheck(
   state: Pick<CitationState, "changedAfterCited">,
   attributes: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location" | "keptOver">>,
-  recheck: CitationRecheck | "failed" | null,
+  recheck: RecheckResult | "failed" | null,
 ): boolean {
   if (!state.changedAfterCited || recheck === null) return false;
   if (recheck === "failed") return true;
+  if ("keptInside" in recheck) return false;
   if (attributes.keptOver && attributes.keptOver === recheck.contentHash) return false;
   return quoteStanding(attributes, recheck) !== "found";
 }
@@ -339,9 +454,10 @@ export function needsRecheck(
  */
 export function newVersionCitation(
   attributes: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location" | "quote">>,
-  recheck: CitationRecheck | "failed" | null,
+  recheck: RecheckResult | "failed" | null,
 ): Partial<CitationAttributes> | null {
-  if (recheck === null || recheck === "failed" || recheck.contentHash === null) return null;
+  if (recheck === null || recheck === "failed" || "keptInside" in recheck) return null;
+  if (recheck.contentHash === null) return null;
   const now =
     recheck.changed?.now ??
     (quoteStanding(attributes, recheck) === "moved"
@@ -357,6 +473,9 @@ export function newVersionCitation(
     quote: now.quote,
     check: now.check,
     checkReason: now.checkReason,
+    // The confirmation was for the quote and page the User looked at, and those changed.
+    pageChecked: null,
+    unsure: now.unsure ?? null,
     quotedWords: null,
     verdict: null,
     keptOver: null,
@@ -398,6 +517,56 @@ export function citationSource(
   return { name, where, text: t("citation.where", { document: name, location: where }) };
 }
 
+/** What a Citation's footnote is about: the Document and version quoted, the place, and its check. */
+export interface FootnoteSubject {
+  documentId: string | null;
+  contentHash: string | null;
+  location: CitationLocation | null;
+  /** The note carries the "[unverified]" marker: a verified Citation can't share it. */
+  unverified: boolean;
+  /** A web page's address, which its footnote names. */
+  link?: string | null;
+}
+
+/**
+ * What makes two Citations one footnote in an export (#1381, #1552): the same Document and
+ * version, at the same place, with the same check. A later Citation with this key repeats the
+ * first's footnote number, in a Word file and on screen alike (#2292). The place is its own
+ * values, not the words it prints as: two places that read alike are still two places.
+ */
+export function footnoteSubjectKey(subject: FootnoteSubject): string {
+  return [
+    subject.documentId ?? "",
+    subject.contentHash ?? "",
+    subject.location ? JSON.stringify(subject.location) : "",
+    subject.unverified ? "unverified" : "verified",
+    subject.link ?? "",
+  ].join("\u0000");
+}
+
+/** The live Documents, and the text kept of those unlinked with their folder, to settle a check. */
+export interface CitationLive {
+  documents: readonly LiveDocument[] | null;
+  kept?: readonly KeptCitationText[];
+}
+
+/**
+ * A Citation's footnote subject, its check settled as the live Documents have it: a Document
+ * removed since makes a found and a not-found Citation together one unverified footnote (#2292).
+ */
+export function citationSubject(
+  attributes: Partial<CitationAttributes>,
+  { documents, kept = [] }: CitationLive,
+): FootnoteSubject {
+  const state = citationState(attributes, documents, kept);
+  return {
+    documentId: attributes.documentId ?? null,
+    contentHash: attributes.contentHash ?? null,
+    location: citationLocation(attributes),
+    unverified: state.check !== "found",
+  };
+}
+
 /** A Citation as plain text, e.g. "[Attention Is All You Need, p. 3]", for copying as text. */
 export function citationReference(attributes: Partial<CitationAttributes>): string {
   const name = attributes.documentName;
@@ -421,6 +590,14 @@ function placeOf(
   return { where: readsIn(location) ? "in" : "on", params };
 }
 
+/**
+ * Whether a Citation's check gave a result: its quote was found or not, or its sentence came out
+ * unsupported or contradicted. Checking, can't check and not checked have no result, so nothing
+ * may say the Citation was checked (#2375).
+ */
+export const citationCheckRan = (check: CitationCheck): boolean =>
+  check === "found" || check === "not-found" || check === "unsupported" || check === "contradicted";
+
 /** The message key and parameters of a Citation's badge, its Location worded with `t`. */
 export function badgeMessage(
   state: CitationState,
@@ -436,7 +613,13 @@ export function badgeMessage(
     case "not-found":
       return { key: `citation.badge.notFound.${where}`, params };
     case "cant-check":
-      return { key: "citation.badge.cantCheck" };
+      // Words a scan may have misread: the User looks at the page (#535).
+      return {
+        key:
+          state.reason === "unsure-word" ? "citation.badge.checkPage" : "citation.badge.cantCheck",
+      };
+    case "not-checked":
+      return { key: "citation.badge.notChecked" };
     case "unsupported":
       return { key: "citation.badge.unsupported" };
     case "contradicted":

@@ -11,6 +11,7 @@ import { describe, expect, test } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
 import type { TextRecognizer } from "../../src/core/adapters";
 import type { Document } from "../../src/core/api";
+import { PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { BUILT_IN_TEXT_RECOGNITION_MODEL } from "../../src/core/documents/scan/model";
 import { openDatabase } from "../../src/core/storage";
@@ -155,6 +156,11 @@ describe("A web page's pictures, read", { timeout: 30_000 }, () => {
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
       db.run("UPDATE documents SET processing_version = 9");
+      // The page without pictures isn't the subject: it stays as this version built it.
+      db.run("UPDATE documents SET processing_version = ? WHERE id = ?", [
+        BigInt(PROCESSING_VERSION),
+        article,
+      ]);
     } finally {
       db.close();
     }

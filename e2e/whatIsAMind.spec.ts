@@ -14,16 +14,16 @@ import {
 /**
  * One sentence says what a Mind is where the User first meets it (#721): in the
  * example's banner, on the first empty Mind's first line until something is
- * written, and in New Mind's tooltip; in English and Chinese.
+ * written, and in New note's tooltip; in English and Chinese.
  */
 
 const SENTENCE = {
-  en: "A Mind: write here and ask your Documents, every quote checked.",
-  "zh-CN": "Mind：在这里写作、向文档提问，每条引文都会核对。",
+  en: "A note: write here and ask your Documents, every quote checked.",
+  "zh-CN": "笔记：在这里写作、向文档提问，每条引文都会核对。",
 } as const;
 const TOOLTIP = {
-  en: "New Mind: write and ask your Documents",
-  "zh-CN": "新建 Mind：写作并向文档提问",
+  en: "New note: write and ask your Documents",
+  "zh-CN": "新建笔记：写作并向文档提问",
 } as const;
 
 let dataDir: string;
@@ -35,7 +35,7 @@ test.afterEach(async () => {
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`the example's banner and New Mind's tooltip say what a Mind is, in ${language}`, async () => {
+  test(`the example's banner and New note's tooltip say what a Mind is, in ${language}`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true });
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);

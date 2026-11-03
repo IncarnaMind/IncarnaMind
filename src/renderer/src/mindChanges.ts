@@ -14,15 +14,17 @@
  */
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import * as Y from "yjs";
-import { MIND_CONTENT_FIELD, MIND_PROPOSAL_REQUESTS_FIELD, type ProposalRef } from "../../core/api";
+import {
+  MIND_CONTENT_FIELD,
+  MIND_PROPOSAL_REQUESTS_FIELD,
+  MIND_REVISIONS_FIELD,
+  type ProposalRef,
+} from "../../core/api";
 import { originMaps } from "../../shared/blockOrigins";
 import { holdsOnlyItsTitle } from "../../shared/madeMind";
-import {
-  aiUseOfAccepted,
-  decideProposals,
-  pendingProposals,
-  waitingChanges,
-} from "../../shared/proposals";
+import { aiUseOfAccepted, decideProposals, pendingProposals } from "../../shared/proposals";
+import { nameOlderCitations } from "../../shared/signOffs";
+import { type ArrivingInMind, arrivingNow } from "./arrivingChanges";
 import type { ChangedMind } from "./changedMinds";
 import { readMindHandle } from "./commands/handles";
 import { core } from "./core";
@@ -95,30 +97,47 @@ const belongsTo = (requests: readonly string[]) => (proposal: ProposalRef) =>
 interface WaitingIn {
   mindId: string;
   requests: readonly string[] | null;
+  /** Leave out the changes this window is applying at once, which its copy holds only on the way in (#1325). */
+  besidesApplied?: true;
+  /** What this window still has on its way in the Mind: the only changes it leaves out. */
+  arriving?: ArrivingInMind;
 }
 
 /**
  * How many of a row's changes wait in its Mind, counted as the Mind's bar and its change card
  * count them (what Accept and Reject act on), or every change from anyone; null until its copy
- * has arrived.
+ * has arrived. `applying`: how many of the row's changes this window is applying at once.
  */
-function waiting(row: WaitingIn): number | null {
+function waiting(
+  row: WaitingIn,
+): { count: number; ids: readonly string[]; applying: number } | null {
   const doc = held.get(row.mindId)?.doc;
   if (!doc) return null;
-  return waitingChanges(
-    doc.getXmlFragment(MIND_CONTENT_FIELD),
-    row.requests ? belongsTo(row.requests) : undefined,
+  const belongs = row.requests ? belongsTo(row.requests) : () => true;
+  const own = pendingProposals(doc.getXmlFragment(MIND_CONTENT_FIELD)).filter(belongs);
+  const applying = new Set(
+    own.filter((each) => arrivingNow(doc, each.request, row.arriving)).map((each) => each.id),
   );
+  const pending = row.besidesApplied ? own.filter((each) => !applying.has(each.id)) : own;
+  return { count: pending.length, ids: pending.map((each) => each.id), applying: applying.size };
 }
 
-/** How many of a row's changes wait in its Mind: a count, "gone" for a Mind deleted, null until its copy arrives. */
+/** How many of a row's changes wait in its Mind, and which: a count, "gone" for a Mind deleted, null until its copy arrives. */
 export type Waiting = number | "gone" | null;
+
+export interface WaitingRow {
+  count: Waiting;
+  /** How many of the row's changes this window is applying at once, which its copy holds only while they come in. */
+  applying: number;
+  /** The changes still waiting there, so a card can tell its copy has taken the ones an apply took. */
+  pending: readonly string[];
+}
 
 /**
  * How many of each row's changes wait in its Mind, as they change. Holds a
  * copy of each Mind still there while the card is shown.
  */
-export function useWaitingChanges(rows: readonly WaitingIn[]): Waiting[] {
+export function useWaitingChanges(rows: readonly WaitingIn[]): WaitingRow[] {
   const minds = useAppStore((state) => state.minds);
   const live = useMemo(
     () => rows.filter((row) => minds.some((mind) => mind.id === row.mindId)),
@@ -144,17 +163,39 @@ export function useWaitingChanges(rows: readonly WaitingIn[]): Waiting[] {
     [key],
   );
   const snapshot = useSyncExternalStore(subscribe, () =>
-    rows.map((row) => (live.includes(row) ? (waiting(row) ?? "") : "gone")).join(","),
+    rows
+      .map((row) => {
+        if (!live.includes(row)) return "gone||";
+        const counted = waiting(row);
+        return counted ? `${counted.count}|${counted.applying}|${counted.ids.join(" ")}` : "||";
+      })
+      .join(";"),
   );
-  return snapshot
-    .split(",")
-    .map((count) => (count === "gone" ? "gone" : count === "" ? null : Number(count)));
+  return snapshot.split(";").map((each) => {
+    const [count = "", applying = "", ids = ""] = each.split("|");
+    return {
+      count: count === "gone" ? "gone" : count === "" ? null : Number(count),
+      applying: Number(applying) || 0,
+      pending: ids === "" ? [] : ids.split(" "),
+    };
+  });
 }
 
 /** How many changes wait in a Mind, from anyone, as they change. */
 export function useWaitingIn(mindId: string | null): Waiting {
   const rows = useMemo(() => (mindId ? [{ mindId, requests: null }] : []), [mindId]);
-  return useWaitingChanges(rows)[0] ?? null;
+  return useWaitingChanges(rows)[0]?.count ?? null;
+}
+
+export function useWaitingBesidesApplied(
+  mindId: string | null,
+  arriving?: ArrivingInMind,
+): Waiting {
+  const rows = useMemo(
+    () => (mindId ? [{ mindId, requests: null, besidesApplied: true as const, arriving }] : []),
+    [mindId, arriving],
+  );
+  return useWaitingChanges(rows)[0]?.count ?? null;
 }
 
 /** Brings a Mind up beside the focused one, where it is open, else in a new tab. */
@@ -197,6 +238,13 @@ export function showChanges(row: ChangedMind): void {
   revealChange(row.mindId, belongsTo(row.requests));
 }
 
+/** Review beside the Note's count of what waits: the Mind, at the change of this Answer that waits, else at the first of any. */
+export function showNoteWaiting(row: ChangedMind): void {
+  useAppStore.getState().openMind(row.mindId);
+  const own = waiting({ mindId: row.mindId, requests: row.requests });
+  revealChange(row.mindId, own && own.count > 0 ? belongsTo(row.requests) : () => true);
+}
+
 /** Review, where changes waiting kept the assistant from changing a Mind: the Mind, at its first change. */
 export function showWaitingChanges(mindId: string): void {
   useAppStore.getState().openMind(mindId);
@@ -228,7 +276,7 @@ async function rejectMade(row: ChangedMind): Promise<Done | null> {
   return {
     count: rejected.count,
     undo: async () => {
-      await core.restore([{ kind: "mind", id: row.mindId }]);
+      await core.restore([{ kind: "mind", id: row.mindId }], { reopen: true });
       await rejected.undo();
       await openBeside(row.mindId);
     },
@@ -260,13 +308,19 @@ async function resolveRow(row: ChangedMind, outcome: "accept" | "reject"): Promi
     }
   }
   const origin = { mindChanges: row.mindId };
-  // The requests' map too, which keeps what the User decided (`decideProposals`), and the
-  // origins a reject gives back (`restoreOrigins`).
+  // The requests' map too, which keeps what the User decided (`decideProposals`), the origins a
+  // reject gives back (`restoreOrigins`) and the revisions it forgets (#1903).
   const steps = new Y.UndoManager(
-    [blocks, doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD), ...originMaps(doc)],
+    [
+      blocks,
+      doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD),
+      doc.getMap(MIND_REVISIONS_FIELD),
+      ...originMaps(doc),
+    ],
     { trackedOrigins: new Set([origin]) },
   );
   let resolved: ReturnType<typeof decideProposals> = [];
+  nameOlderCitations(blocks);
   doc.transact(() => {
     resolved = decideProposals(blocks, picked, outcome);
   }, origin);

@@ -207,7 +207,8 @@ for (const [language, width] of [
       expect(await folderOfDocument(window, "Ledger")).not.toBeNull();
       await leaveText(window);
       await window.keyboard.press("ControlOrMeta+z");
-      expect(await folderNames(window)).not.toContain("Ledger box");
+      // The Undo reaches the core after the key: wait for the Folder it takes away, then read.
+      await expect.poll(async () => (await folderNames(window)).includes("Ledger box")).toBe(false);
       expect(await folderOfDocument(window, "Budget")).toBeNull();
       expect(await folderOfDocument(window, "Ledger")).toBeNull();
 

@@ -9,6 +9,7 @@
 import { generateText } from "ai";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { cutTitle } from "../../shared/naming";
+import { KEPT_INSIDE } from "../../shared/research";
 import type { CellAnswer } from "../answers";
 import type { NodeJSON } from "../answers/blocks";
 import type { QuestionContext } from "../answers/context";
@@ -21,6 +22,7 @@ import type {
 } from "../api";
 import { isRecord } from "../errors";
 import type { PreparedChatModel } from "../providers/chat";
+import { outputTokens } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import { RECORD_PREFIX } from "../runs/journal";
 import { runStopOf } from "../runs/stop";
@@ -46,6 +48,13 @@ export interface FinishOptions {
   folderOfMind(mindId: string): string | null;
   /** Makes a Mind in a Folder (or none), as New Mind does; returns its id. */
   createMind(title: string, folderId: string | null): string;
+  /** Puts a Mind in a Folder: where a Task's own Mind goes once its sources were filed. */
+  moveMind(mindId: string, folderId: string): void;
+  /**
+   * Where something a Task started behind the wall `wallId` (null: outside every wall) makes is
+   * filed, when `asked` is the Folder it would go in; null: it can't be filed, so isn't made.
+   */
+  filedWithin(wallId: string | null, asked: string | null): { folderId: string | null } | null;
   documents: {
     /** Of these Documents, the live web pages added since `since` (ISO 8601), with their names. */
     webPagesSince(ids: readonly string[], since: string): { id: string; name: string }[];
@@ -54,6 +63,8 @@ export interface FinishOptions {
   };
   library: {
     folderExists(folderId: string): boolean;
+    /** A live Folder's name; null when there is none by that id. */
+    folderName(folderId: string): string | null;
     folderNames(): string[];
     createFolder(name: string, description: string): string;
     /** Files Documents into a Folder as the User's choice. */
@@ -134,18 +145,35 @@ function freeName(name: string, taken: readonly string[]): string {
 const idOf = (value: unknown, field: string): string | null =>
   isRecord(value) && typeof value[field] === "string" ? (value[field] as string) : null;
 
-/** The Folder an earlier try made, if it is still there; else a new one, named for the research. */
-function folderFor(options: FinishOptions, task: TaskRun, chosen: string, topic: string) {
+/**
+ * The Folder an earlier try made, if it is still there and outside every wall; else a new one,
+ * named for the research.
+ */
+function folderFor(
+  options: FinishOptions,
+  task: TaskRun,
+  chosen: string,
+  topic: string,
+  wallId: string | null,
+) {
   const earlier = idOf(task.step(FOLDER_RECORD)?.result, "folderId");
   const name = idOf(task.step(FOLDER_RECORD)?.result, "name");
-  if (earlier && name && options.library.folderExists(earlier)) return { id: earlier, name };
+  if (
+    earlier &&
+    name &&
+    options.library.folderExists(earlier) &&
+    options.filedWithin(wallId, earlier)?.folderId === earlier
+  ) {
+    return { id: earlier, name };
+  }
+  const named = freeName(chosen, options.library.folderNames());
   const id = options.library.createFolder(
-    chosen,
+    named,
     options.say("research.folder.description", { topic: cutTitle(topic) }),
   );
   task.started(FOLDER_RECORD);
-  task.settled(FOLDER_RECORD, "completed", { folderId: id, name: chosen });
-  return { id, name: chosen };
+  task.settled(FOLDER_RECORD, "completed", { folderId: id, name: named });
+  return { id, name: named };
 }
 
 /** How a Task pauses at a limit: the monthly cap, or a plan's until it resets. */
@@ -178,7 +206,7 @@ async function tagPages(
         pages.map((page) => page.name),
         existing.map((tag) => tag.name),
       ),
-      maxOutputTokens: 1_024,
+      maxOutputTokens: outputTokens("research-tags"),
       maxRetries: 1,
       abortSignal: AbortSignal.any([signal, AbortSignal.timeout(TAG_TIMEOUT_MS)]),
     });
@@ -222,7 +250,7 @@ async function tagPages(
 export async function fileSources(
   options: FinishOptions,
   task: TaskRun,
-  input: { topic: string; plan: ResearchPlan },
+  input: { topic: string; plan: ResearchPlan; wallId: string | null },
   documents: readonly string[],
   prepared: PreparedChatModel,
 ): Promise<SavedSources | { end: TaskEnd }> {
@@ -233,8 +261,12 @@ export async function fileSources(
     task.settled(SAVE_STEP, "completed", none);
     return none;
   }
+  // Behind a wall the pages stay in its Folder: a new Folder would be outside it (#1934).
+  const wall = wallFolder(options, input.wallId);
+  if (wall === null) return keptInside(task, SAVE_STEP);
   // It has read web pages: filing them into the Library asks first (#78), as the approval card says.
   const name =
+    wall?.name ??
     idOf(task.step(FOLDER_RECORD)?.result, "name") ??
     freeName(
       cutTitle(input.plan.title) || options.say("research.folder.untitled"),
@@ -245,11 +277,18 @@ export async function fileSources(
     subject: { kind: "tool", connectorId: LIBRARY_TOOLS, tool: FILE_TOOL },
     connector: { id: LIBRARY_TOOLS, name: options.say("research.ask.library") },
     tool: FILE_TOOL,
-    title: options.say(pages.length === 1 ? "research.ask.title.one" : "research.ask.title.other", {
-      count: pages.length,
-    }),
+    title: wall
+      ? options.say(
+          pages.length === 1 ? "research.ask.titleInto.one" : "research.ask.titleInto.other",
+          { count: pages.length, folder: name },
+        )
+      : options.say(pages.length === 1 ? "research.ask.title.one" : "research.ask.title.other", {
+          count: pages.length,
+        }),
     input: {
-      [options.say("research.ask.folder")]: options.say("research.ask.folderNew", { name }),
+      [options.say("research.ask.folder")]: wall
+        ? name
+        : options.say("research.ask.folderNew", { name }),
       [options.say("research.ask.pages")]: pages.map((page) => page.name).join("; "),
     },
     readOnly: false,
@@ -268,7 +307,11 @@ export async function fileSources(
     task.settled(SAVE_STEP, "completed", declined);
     return declined;
   }
-  const folder = folderFor(options, task, name, input.topic);
+  // The User may have deleted the wall's Folder while they were asked.
+  const folder = wall
+    ? wallFolder(options, input.wallId)
+    : folderFor(options, task, name, input.topic, input.wallId);
+  if (!folder) return keptInside(task, SAVE_STEP);
   options.library.file(
     pages.map((page) => page.id),
     folder.id,
@@ -285,6 +328,26 @@ export async function fileSources(
   return saved;
 }
 
+/**
+ * The walled Folder a Task started behind, by id and name; undefined for a Task outside every wall,
+ * null once that Folder can't be filed in.
+ */
+function wallFolder(
+  options: FinishOptions,
+  wallId: string | null,
+): { id: string; name: string } | null | undefined {
+  if (wallId === null) return undefined;
+  const id = options.filedWithin(wallId, null)?.folderId ?? null;
+  const name = id === null ? null : options.library.folderName(id);
+  return id === null || name === null ? null : { id, name };
+}
+
+/** Ends the Task at `step` without making anything: its wall's Folder can't hold it (#1934). */
+function keptInside(task: TaskRun, step: string): { end: TaskEnd } {
+  task.settled(step, "failed", { problem: KEPT_INSIDE });
+  return { end: { status: "failed", problem: KEPT_INSIDE } };
+}
+
 /** The Mind the draft goes into without making one: the one chosen, else the new one an earlier try made. */
 function madeMind(options: FinishOptions, task: TaskRun, target: ResearchTarget): string | null {
   if ("mindId" in target && options.mindExists(target.mindId)) return target.mindId;
@@ -292,18 +355,34 @@ function madeMind(options: FinishOptions, task: TaskRun, target: ResearchTarget)
   return earlier && options.mindExists(earlier) ? earlier : null;
 }
 
-/** The Mind the draft goes into: the one chosen, else the new one an earlier try made, else a new one. */
+/**
+ * The Mind the draft goes into: the one chosen, else the new one an earlier try made, else a new
+ * one. A Mind this Task made at its Start (`ownMind`) moves into the Folder its sources were
+ * filed in, so the draft sits beside them: unless the User has filed it somewhere since, whose
+ * Folder stays.
+ */
 export function draftMind(
   options: FinishOptions,
   task: TaskRun,
   target: ResearchTarget,
   title: string,
   folderId: string | null,
-): string {
+  ownMind: boolean,
+  wallId: string | null,
+): string | null {
   const made = madeMind(options, task, target);
-  if (made) return made;
-  const home = folderId ?? (task.mindId ? options.folderOfMind(task.mindId) : null);
-  const mindId = options.createMind(cutTitle(title), home);
+  if (made) {
+    const moveTo = options.filedWithin(wallId, folderId)?.folderId ?? null;
+    // Only while it is unfiled: a Folder the User gave it during the run is theirs to keep.
+    if (ownMind && moveTo && options.folderOfMind(made) === null) options.moveMind(made, moveTo);
+    return made;
+  }
+  const home = options.filedWithin(
+    wallId,
+    folderId ?? (task.mindId ? options.folderOfMind(task.mindId) : null),
+  );
+  if (home === null) return null;
+  const mindId = options.createMind(cutTitle(title), home.folderId);
   task.started(MIND_RECORD);
   task.settled(MIND_RECORD, "completed", { mindId });
   return mindId;
@@ -322,7 +401,16 @@ export type AnswerStep = (
 export async function writeDraft(
   options: FinishOptions,
   task: TaskRun,
-  input: { topic: string; plan: ResearchPlan; draftRequest: string; writeInto: ResearchTarget },
+  input: {
+    topic: string;
+    plan: ResearchPlan;
+    draftRequest: string;
+    writeInto: ResearchTarget;
+    /** Whether the Task made its own Mind at its Start, rather than the User choosing one. */
+    ownMind: boolean;
+    /** The Folder wall it was started behind; null: outside every wall. */
+    wallId: string | null;
+  },
   found: { notes: readonly string[]; documents: readonly string[]; folderId: string | null },
   model: ChatModelChoice,
   answer: AnswerStep,
@@ -368,7 +456,19 @@ export async function writeDraft(
     task.settled(DRAFT_STEP, "failed", { problem: "no-answer" });
     return { failed: "no-answer" };
   }
-  const mindId = draftMind(options, task, input.writeInto, input.plan.title, found.folderId);
+  const mindId = draftMind(
+    options,
+    task,
+    input.writeInto,
+    input.plan.title,
+    found.folderId,
+    input.ownMind,
+    input.wallId,
+  );
+  if (mindId === null) {
+    task.settled(DRAFT_STEP, "failed", { problem: KEPT_INSIDE });
+    return { failed: KEPT_INSIDE };
+  }
   const proposed = await options.notes.propose(mindId, result.answer.blocks, input.draftRequest, {
     source: "research",
     taskId: task.id,

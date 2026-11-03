@@ -12,7 +12,7 @@ const PLACE_LABELS = {
 
 const choiceButtonClass = buttonStyle("secondary", "sm");
 
-/** The question of the first Word or PDF export of a Mind with Citations, as one line in its export line. */
+/** The Citations' place in the Saved line's Change, as one click each: the file is written again as picked (#1945). */
 export function CitationPlaceLine({
   mindId,
   format,
@@ -33,9 +33,11 @@ export function CitationPlaceLine({
         className="min-w-0 text-[14px] leading-5 text-ink-secondary"
       >
         {t("export.citationPlace")}{" "}
-        <span data-testid="export-place-count" className="text-ink-meta">
-          {citedCountText(t, count)}
-        </span>
+        {count.citations > 0 && (
+          <span data-testid="export-place-count" className="text-ink-meta">
+            {citedCountText(t, count)}
+          </span>
+        )}
       </p>
       <span className="flex shrink-0 gap-2">
         {CITATION_PLACES.map((each) => (
@@ -56,8 +58,9 @@ export function CitationPlaceLine({
 }
 
 /**
- * The same question in Export options, with neither answer chosen until the User has given one.
- * In a citation style that isn't Numbered the style decides, and the row only says so.
+ * The same choice in Export options, showing where Citations go now: the saved choice, or
+ * footnotes, which a first export writes until the User picks otherwise (#1945). In a citation
+ * style that isn't Numbered the style decides, and the row only says so.
  */
 export function CitationPlaceRow({
   value,
@@ -78,7 +81,7 @@ export function CitationPlaceRow({
         </span>
         {!byStyle && (
           <span id={`${id}-hint`} className={hintClass}>
-            {t(value === undefined ? "export.citationPlace.unasked" : "export.citationPlace.hint")}
+            {t("export.citationPlace.hint")}
           </span>
         )}
       </div>
@@ -95,7 +98,7 @@ export function CitationPlaceRow({
           aria-labelledby={`${id}-label`}
           aria-describedby={`${id}-hint`}
           data-testid="export-citation-place"
-          data-answer={value ?? "none"}
+          data-answer={value ?? "footnotes"}
           className={segmentedClass}
         >
           {CITATION_PLACES.map((each) => (
@@ -105,7 +108,7 @@ export function CitationPlaceRow({
                 name={`${id}-answer`}
                 value={each}
                 data-testid={`export-citation-place-${each}`}
-                checked={value === each}
+                checked={(value ?? "footnotes") === each}
                 onChange={() => onChange(each)}
                 className="sr-only"
               />

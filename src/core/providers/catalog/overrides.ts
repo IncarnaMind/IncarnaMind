@@ -44,6 +44,13 @@ const KIMI = { temperature: false, forcedToolChoice: false } as const;
 /** GLM takes JSON mode but no JSON schema, and only automatic Tool choice. */
 const GLM = { structuredOutput: "json_object", forcedToolChoice: false } as const;
 
+const CALCULATES_EVERYWHERE = {
+  calculates: true,
+  workbookTools: true,
+  analysisTool: true,
+  checkCalculates: true,
+} as const;
+
 export const OVERRIDES: CatalogOverrides = {
   cannotAnswer: {
     openai: {
@@ -56,9 +63,9 @@ export const OVERRIDES: CatalogOverrides = {
   },
   providers: {
     // Measured using the calculate Tool well (#438: Claude Haiku 5.5, GPT-6 Luna); the ChatGPT plan
-    // serves OpenAI's models. Every other provider stays off until the evaluation (#441) says.
-    anthropic: { calculates: true, toolsEveryRequest: true },
-    openai: { calculates: true },
+    // serves OpenAI's models. Every other provider stays off until the evaluation (#441) measures it.
+    anthropic: { ...CALCULATES_EVERYWHERE, toolsEveryRequest: true },
+    openai: CALCULATES_EVERYWHERE,
     // Google asks for its Gemini 3 models to run at their default temperature: lower makes
     // them loop or reason worse.
     google: { temperature: false },
@@ -79,18 +86,11 @@ export const OVERRIDES: CatalogOverrides = {
       "claude-fable-5": { thinkingOff: CLAUDE_LOW_EFFORT },
       "claude-fable-5-1": { forcedToolChoice: false, thinkingOff: CLAUDE_LOW_EFFORT },
       "claude-opus-5-5": { forcedToolChoice: false, thinkingOff: CLAUDE_LOW_EFFORT },
-      "claude-sonnet-5-5": { forcedToolChoice: false, thinkingOff: CLAUDE_BETWEEN_TOOLS },
-      "claude-haiku-5-5": {
-        price: {
-          currency: "USD",
-          input: 0.1,
-          output: 0.5,
-          cacheRead: 0.01,
-          note: {
-            en: "Prompts over 100K tokens: $0.50 / $2.50",
-            zh: "提示超过 10 万 token：$0.50 / $2.50",
-          },
-        },
+      // run_code (#2351) is offered to no model yet: the numbers its code prints reach the Answer
+      // unmarked until they are marked. Then Haiku 5.5 and Sonnet 5.5, where it was measured.
+      "claude-sonnet-5-5": {
+        forcedToolChoice: false,
+        thinkingOff: CLAUDE_BETWEEN_TOOLS,
       },
     },
     openai: {
@@ -108,13 +108,40 @@ export const OVERRIDES: CatalogOverrides = {
         },
       },
     },
+    xai: {
+      // xAI bills a prompt that reaches 200K tokens at the higher prices (docs.x.ai/docs/models);
+      // models.dev's tier starts above it. Written here, these prices don't follow a refresh.
+      "grok-4.3": {
+        price: {
+          currency: "USD",
+          input: 1.25,
+          output: 2.5,
+          cacheRead: 0.2,
+          tiers: [{ above: 199_999, input: 2.5, output: 5, cacheRead: 0.4 }],
+        },
+      },
+      "grok-4.7": {
+        price: {
+          currency: "USD",
+          input: 2,
+          output: 6,
+          cacheRead: 0.5,
+          tiers: [{ above: 199_999, input: 4, output: 12, cacheRead: 1 }],
+        },
+      },
+    },
     mistral: {
       // Strict JSON schema works on Mistral's current models (its docs); models.dev leaves this one out.
       "mistral-small-2603": { structuredOutput: "json_schema" },
     },
     deepseek: {
-      // The peak price, from the Chinese price page; the rest of the day it is half.
+      // calculate in Answers only: DeepSeek Flash used it on #441's 72 Questions with no figure
+      // wrongly marked checked (#2399). DeepSeek's API now serves deepseek-v4-flash as this model,
+      // so it gets the same. Its workbook, Analysis and claim-check calculate weren't measured, nor
+      // were V4 Pro and the vision model.
       "deepseek-flash": {
+        calculates: true,
+        // The peak price, from the Chinese price page; the rest of the day it is half.
         price: yuan(
           2,
           8,
@@ -126,6 +153,7 @@ export const OVERRIDES: CatalogOverrides = {
           DEEPSEEK_PEAK,
         ),
       },
+      "deepseek-v4-flash": { calculates: true },
       "deepseek-v4-pro": {
         price: yuan(
           9,
@@ -140,19 +168,23 @@ export const OVERRIDES: CatalogOverrides = {
       },
     },
     qwen: {
-      // Beijing, up to 32K input unless a note says otherwise (Alibaba Cloud's price page).
+      // Beijing, from Alibaba Cloud's price page, where K is 1,000. A cache hit is the implicit
+      // cache's, 20% of the input price: requests to Qwen carry no explicit cache marks.
       "qwen3.7-plus": {
         structuredOutput: "json_schema",
-        price: yuan(2, 8, undefined, {
-          en: "Prompts over 256K tokens: ¥6 / ¥24",
-          zh: "提示超过 256K token：¥6 / ¥24",
-        }),
+        price: {
+          ...yuan(2, 8, 0.4),
+          tiers: [{ above: 256_000, input: 6, output: 24, cacheRead: 1.2 }],
+        },
       },
       "qwen3.7-flash": {
-        price: yuan(0.2, 0.8, undefined, {
-          en: "Prompts over 32K tokens: ¥0.6 / ¥2.4; over 256K: ¥1.2 / ¥4.8",
-          zh: "提示超过 32K token：¥0.6 / ¥2.4；超过 256K：¥1.2 / ¥4.8",
-        }),
+        price: {
+          ...yuan(0.2, 0.8, 0.04),
+          tiers: [
+            { above: 32_000, input: 0.6, output: 2.4, cacheRead: 0.12 },
+            { above: 256_000, input: 1.2, output: 4.8, cacheRead: 0.24 },
+          ],
+        },
       },
       "qwen3.8-max": { price: yuan(12, 36) },
       "qwen3.8-flash": { price: yuan(0.8, 2.7) },

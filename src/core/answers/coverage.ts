@@ -4,14 +4,20 @@
  * "总结这些文档"), or the main few ("the two main documents"). A summary of
  * more than `COVERED_AT_ONCE` covers the largest, and says so with an offer
  * of the rest; the main few are the largest, named, with an offer of others.
+ * A Document the Question names that it read, when the name fits others too,
+ * is named with an offer of those others.
  */
+import { displayName } from "../../shared/documentNames";
 import type { AnswerCoverage } from "../api";
+import { keywordTerms, keywordText } from "../documents/keywords";
 
 export const COVERED_AT_ONCE = 8;
 
 export interface SizedDocument {
   id: string;
   name: string;
+  /** Its own title, which the User sees where its name is machine-made (see ../../shared/documentNames). */
+  title?: string | null;
   size: number;
 }
 
@@ -86,7 +92,7 @@ export function coverageOf(
   asked: { each: boolean; main: number | null },
   documents: readonly SizedDocument[],
 ): AnswerCoverage | null {
-  const named = (each: SizedDocument) => ({ id: each.id, name: each.name });
+  const named = (each: SizedDocument) => ({ id: each.id, name: displayName(each) });
   if (asked.main !== null && documents.length > asked.main) {
     return {
       kind: "main",
@@ -104,6 +110,75 @@ export function coverageOf(
   return null;
 }
 
+export interface TitledDocument {
+  id: string;
+  name: string;
+  /** Its own title (see ../documents/title), which may name it where its file name doesn't. */
+  title?: string | null;
+}
+
+const HAN = /\p{Script=Han}/u;
+// "The document" and "这个文件" name no one Document; what "this document" means is #1334's.
+const ANY_DOCUMENT = /^(?:documents?|docs?|files?|pdfs?|文档|文件)$/;
+
+const compact = (text: string) => text.replaceAll(" ", "");
+
+const has = (fields: readonly string[], term: string) =>
+  fields.some((words) =>
+    HAN.test(term)
+      ? compact(words).includes(compact(term))
+      : words.split(" ").some((word) => word === term || word === `${term}'s`),
+  );
+
+const canName = (term: string) =>
+  /\p{L}/u.test(term) && compact(term).length >= (HAN.test(term) ? 2 : 3);
+
+/**
+ * A Document the Answer used that the Question's words name, when they name others of `documents`
+ * (those in scope) too (#1512): the first of `used` (the Documents it cited, or those its Passages
+ * came from when it cited none, in order) whose name or title has the Question's words that some
+ * other Document's has as well, named as the User sees it, with those others in `excluded` — every
+ * Document it used or searched by name — left out; null when there is none.
+ */
+export function namedCoverage(
+  question: string,
+  used: readonly string[],
+  excluded: readonly string[],
+  documents: readonly TitledDocument[],
+): AnswerCoverage | null {
+  const terms = keywordTerms(question).filter(
+    (term) => compact(term).length > 1 && !ANY_DOCUMENT.test(term),
+  );
+  const words = new Map<string, string[]>();
+  const namedBy = (document: TitledDocument, term: string) => {
+    let fields = words.get(document.id);
+    if (!fields) {
+      fields = [document.name, document.title].flatMap((field) =>
+        field ? [keywordText(field)] : [],
+      );
+      words.set(document.id, fields);
+    }
+    return has(fields, term);
+  };
+  for (const id of used) {
+    const document = documents.find((each) => each.id === id);
+    if (!document) continue;
+    const said = terms.filter((term) => namedBy(document, term));
+    if (!said.some(canName)) continue;
+    const rest = documents.filter(
+      (each) => !excluded.includes(each.id) && said.every((term) => namedBy(each, term)),
+    );
+    if (rest.length > 0) {
+      return {
+        kind: "named",
+        used: [{ id: document.id, name: displayName(document) }],
+        rest: rest.map((each) => each.id),
+      };
+    }
+  }
+  return null;
+}
+
 const quotedList = (names: readonly string[]) =>
   names.length < 2
     ? `“${names[0] ?? ""}”`
@@ -112,22 +187,72 @@ const quotedList = (names: readonly string[]) =>
         .map((name) => `“${name}”`)
         .join(", ")} and “${names.at(-1)}”`;
 
-/** What the model is told of the Documents a Question asks about; "" when nothing. */
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Whether `reply` names `field`: as a whole word when it is Latin script, anywhere in it when it is Han. */
+function namedFieldIn(reply: string, field: string): boolean {
+  const name = field.trim();
+  if (name === "") return false;
+  if (HAN.test(name)) return reply.toLocaleLowerCase().includes(name.toLocaleLowerCase());
+  return new RegExp(
+    `(?<![\\p{Script=Latin}\\p{N}])${escapeRegExp(name)}(?![\\p{Script=Latin}\\p{N}])`,
+    "iu",
+  ).test(reply);
+}
+
+/**
+ * What to tell the model when its reply leaves out Documents a capped summary
+ * left for the next one (#894), as a re-ask after an Answer that named none of
+ * them or only some: every Document the next summary takes, how many come
+ * after, and to offer to go on. Null when there is no capped summary, or the
+ * reply names every one the next summary takes already.
+ */
+export function coverageNudge(
+  coverage: AnswerCoverage | null,
+  documents: readonly SizedDocument[],
+  reply: string,
+): string | null {
+  if (coverage?.kind !== "largest") return null;
+  const left = documents.filter((document) => coverage.rest.includes(document.id));
+  const next = left.slice(0, COVERED_AT_ONCE);
+  const after = left.length - next.length;
+  const shown = (document: SizedDocument) => displayName(document);
+  const named = (document: SizedDocument) =>
+    namedFieldIn(reply, document.name) ||
+    (shown(document) !== document.name && namedFieldIn(reply, shown(document)));
+  const missing = next.filter((document) => !named(document));
+  if (missing.length === 0) return null;
+  const said = `${quotedList(next.map(shown))} ${next.length === 1 ? "is" : "are"} left for the next summary${after > 0 ? `, and ${after} more ${after === 1 ? "comes" : "come"} after those` : ""}`;
+  return `Write the reply again, and don't mention an earlier reply: the User reads only this one. Say in the User's language that ${said}, say why, and offer to go on. Nothing about your searching goes into a Note.`;
+}
+
+/**
+ * What the model is told of the Documents a Question asks about, `documents`
+ * the Documents in scope, the most text first; "" when nothing.
+ */
 export function coverageInstructions(
   coverage: AnswerCoverage | null,
   each: boolean,
-  documents: number,
+  documents: readonly SizedDocument[],
 ): string {
   const covered = coverage?.used.map((document) => document.name) ?? [];
   const searchEach =
-    "Search each one (search_documents with its document), cite each at least once, and say in your reply which, if any, you couldn't cover. Nothing about your searching goes into a Mind.";
+    "Search each one (search_documents with its document), cite each at least once, and say in your reply which, if any, you couldn't cover. Nothing about your searching goes into a Note.";
   if (coverage?.kind === "main") {
     return `The User asked about the main Documents: IncarnaMind took ${quotedList(covered)}, the largest, and says so above your reply, with an offer of others. Answer from ${covered.length === 1 ? "it" : "these"}; don't ask which.`;
   }
   if (coverage?.kind === "largest") {
-    return `This Answer covers the ${covered.length} largest of ${covered.length + coverage.rest.length} Documents: ${quotedList(covered)}. IncarnaMind says so above your reply and offers the rest, so don't name or apologise for the others. ${searchEach}`;
+    // The reply names what the next summary covers, as the offer above it does no more than count them (#894).
+    const rest = documents.filter((document) => coverage.rest.includes(document.id));
+    const next = rest.slice(0, COVERED_AT_ONCE).map((document) => displayName(document));
+    const after = rest.length - next.length;
+    const left =
+      after > 0
+        ? `the next summary takes ${quotedList(next)}, and ${after} more ${after === 1 ? "comes" : "come"} after those`
+        : `${quotedList(next)} ${next.length === 1 ? "is" : "are"} left for the next summary`;
+    return `This Answer covers the ${covered.length} largest of the ${documents.length} Documents, as one summary covers ${COVERED_AT_ONCE} at a time: ${quotedList(covered)}. In your reply, not in a Note, say that ${left}, say why, and offer to go on; IncarnaMind says so above your reply too, with a button for it. ${searchEach}`;
   }
-  return each && documents > 1
-    ? `The User asked about each of the ${documents} Documents. ${searchEach}`
+  return each && documents.length > 1
+    ? `The User asked about each of the ${documents.length} Documents. ${searchEach}`
     : "";
 }

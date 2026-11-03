@@ -2,12 +2,13 @@ import type { Editor } from "@tiptap/core";
 import { useEffect, useState } from "react";
 import type { ConversationAnswer } from "../../../../core/api";
 import { mindCheckOf } from "../../../../shared/mindCheck";
-import { checkSentences } from "../../checks";
 import { originOf } from "../../editor/blockOrigins";
 import { type SentencePlace, toCheckRanges } from "../../editor/healthCounts";
 import { mindEditor, whenMindEditor } from "../../editor/openEditors";
+import { opinionSentenceRanges } from "../../editor/opinionLocations";
 import { editorDoc } from "../../editor/proposalReview";
 import { useLanguage, useT } from "../../i18n";
+import { startCheck } from "../../mindCheck";
 import { type SelfCheck, selfCheckLines, selfChecksOf } from "../../selfChecks";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
@@ -27,22 +28,15 @@ function writeRanges(editor: Editor, blocks: ReadonlySet<string>): { from: numbe
   const doc = editorDoc(editor);
   if (!doc) return [];
   const skipped = new Set(mindCheckOf(doc)?.skipped ?? []);
-  return toCheckRanges(editor.state, skipped, inWrite(editor, blocks));
+  return toCheckRanges(
+    editor.state,
+    skipped,
+    inWrite(editor, blocks),
+    opinionSentenceRanges(editor.state.doc, doc),
+  );
 }
 
-/** Checks the sentences this write left, and nothing of the Mind's own older text. */
-async function checkLeft(mindId: string, blocks: ReadonlySet<string>): Promise<void> {
-  useAppStore.getState().openMind(mindId);
-  const editor = mindEditor(mindId) ?? (await whenMindEditor(mindId, OPEN_WAIT_MS));
-  const doc = editor && editorDoc(editor);
-  if (!editor || !doc) return;
-  const ranges = writeRanges(editor, blocks);
-  if (ranges.length > 0) {
-    await checkSentences(editor, mindId, doc, "check-against-documents", { ranges });
-  }
-}
-
-/** The claims this write still has to check, live from its Blocks; null while its Mind isn't open. */
+/** The claims this write still has to check, live from its Blocks; null while its Note isn't open. */
 function useWriteLeft(mindId: string, blocksKey: string): number | null {
   const [left, setLeft] = useState<number | null>(null);
   useEffect(() => {
@@ -80,12 +74,12 @@ function useWriteLeft(mindId: string, blocksKey: string): number | null {
 }
 
 /**
- * Under an Answer that wrote sentences with Citations into a Mind (#1111):
- * how many its check couldn't check, with Check again, or why not (the
+ * Under an Answer that wrote sentences with Citations into a Note (#1111):
+ * how many its check couldn't check, with the one Check, or why not (the
  * spending cap, with Change the cap; a plan's limit, with when it resumes),
- * and how many it left, with Check the rest. Both act on this write's own
- * Blocks alone, and its left count is the badge's count for those sentences;
- * the Mind's other text is Check this Mind's.
+ * and how many it left, with the one Check too. The lines count this write's
+ * own Blocks alone, whose left count is the badge's count for those
+ * sentences; the Note's other text is the one Check's.
  */
 export function SelfCheckLines({ answer }: { answer: Pick<ConversationAnswer, "toolCalls"> }) {
   return (
@@ -106,9 +100,7 @@ function SelfCheckGroup({ check }: { check: SelfCheck }) {
     blocksKey === ""
       ? null
       : () => {
-          void checkLeft(check.mindId, new Set(blocksKey.split(" "))).catch(
-            useAppStore.getState().reportError,
-          );
+          void startCheck(check.mindId).catch(useAppStore.getState().reportError);
         };
   return (
     <div>

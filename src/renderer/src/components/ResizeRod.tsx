@@ -22,6 +22,8 @@ interface ResizeRodProps {
   onPreview(width: number): void;
   /** Called once with the final width. */
   onCommit(width: number): void;
+  /** A drag ended with nothing to commit (cancelled, or back where it started): its preview isn't wanted. */
+  onRelease?(): void;
   /** A double-click: the pane goes back to its default size. */
   onReset?(): void;
   /** Starts below the 44px band the panes' headers share (`.pane-divider--below-band`). */
@@ -30,6 +32,8 @@ interface ResizeRodProps {
   gap?: boolean;
   /** Dragging this far past `min` and letting go calls this (the pane folds away) instead of resizing. */
   onCollapse?(): void;
+  /** The width as it is drawn now, for the arrow keys: a width a change just set may not be the prop yet. */
+  drawn?(): number;
 }
 
 /** How far past its minimum a drag must go to fold the pane away. */
@@ -50,10 +54,12 @@ export function ResizeRod({
   axis = "x",
   onPreview,
   onCommit,
+  onRelease,
   onReset,
   belowBand = false,
   gap = false,
   onCollapse,
+  drawn,
 }: ResizeRodProps) {
   const drag = useRef<{
     start: number;
@@ -85,11 +91,14 @@ export function ResizeRod({
       onPreview(current.startWidth);
       onCollapse?.();
     } else if (current && current.latest !== current.startWidth) onCommit(current.latest);
+    else if (current) onRelease?.();
   };
   const cancelDrag = () => {
     const current = drag.current;
     drag.current = null;
-    if (current) onPreview(current.startWidth);
+    if (!current) return;
+    onPreview(current.startWidth);
+    onRelease?.();
   };
   const [less, more] = axis === "x" ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"];
   const resizeWithKeys = (event: KeyboardEvent<HTMLHRElement>) => {
@@ -97,7 +106,7 @@ export function ResizeRod({
     const delta = event.key === more ? step : event.key === less ? -step : 0;
     if (delta === 0) return;
     event.preventDefault();
-    const next = clamp(width + direction * delta);
+    const next = clamp((drawn?.() ?? width) + direction * delta);
     onPreview(next);
     onCommit(next);
   };

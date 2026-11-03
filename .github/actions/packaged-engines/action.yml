@@ -1,0 +1,26 @@
+name: The packaged app's engines load
+description: >
+  Runs the packaged app's engine check (e2e/packaged/engines.packaged.ts, #1239) on the app packaged
+  in dist/ for this runner's system and architecture: each engine module loads in the process that
+  runs it, through the engine's own loader, and Python starts in the Analyses window. Fails naming
+  each module that doesn't load. No model is downloaded. Needs the dependencies installed first.
+
+runs:
+  using: composite
+  steps:
+    # Analyses run only in Chromium's sandbox (ADR-0023), whose helper starts on the runner only as
+    # root's and setuid.
+    - name: Let the Linux sandbox start
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo chown root:root dist/linux-unpacked/chrome-sandbox
+        sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
+    - name: Load every engine in the packaged app
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" = Linux ]; then
+          xvfb-run -a npm run test:packaged -- engines.packaged.ts
+        else
+          npm run test:packaged -- engines.packaged.ts
+        fi

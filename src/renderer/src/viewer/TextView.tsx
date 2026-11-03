@@ -9,12 +9,16 @@ import {
 } from "react";
 import type { Document } from "../../../core/api";
 import { decodeText } from "../../../core/documents/decode";
+import { ExtractionError } from "../../../core/documents/formats/errors";
+import { htmlMarkdown } from "../../../core/documents/formats/html";
+import { rtfMarkdown } from "../../../core/documents/formats/rtf";
 import { lineUnits, markdownUnits, type SourceUnit } from "../../../core/documents/formats/text";
 import { findQuote, type TextRange } from "../../../shared/quoteMatch";
+import { DocumentFix } from "../components/DocumentFix";
 import { useT } from "../i18n";
 import type { ViewerTarget } from "../store";
 import { type CitedArea, useCitedArea, useCitedAreaFailure } from "./citedArea";
-import { loadDocumentBytes, MissingDocumentError } from "./documentBytes";
+import { loadDocumentBytes, MissingDocumentError, TooLargeDocumentError } from "./documentBytes";
 import { MarkdownBlocks, MarkdownDocumentContext, Slice } from "./MarkdownBlocks";
 import { parseMarkdown } from "./markdown";
 import { looksLikeCode } from "./plainText";
@@ -24,11 +28,13 @@ import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { ViewerHeader } from "./ViewerHeader";
 import { FileGone, ViewerMessage } from "./ViewerMessage";
 
+type TextRefusal = "viewer.textTooLarge" | "viewer.textUnreadable";
+
 type Loaded =
   | { kind: "loading" }
   | { kind: "ready"; text: string }
   | { kind: "missing" }
-  | { kind: "failed"; message: string };
+  | { kind: "failed"; key: TextRefusal; message: string };
 
 /** Nothing to highlight. */
 const NO_HIGHLIGHT: readonly TextRange[] = [];
@@ -40,8 +46,8 @@ const NO_HIGHLIGHT: readonly TextRange[] = [];
  * text as written. Plain text is set in the Mind's serif, or in a monospaced
  * font when it looks like code. Opened at a Citation, it highlights the quote
  * in the cited section (Markdown) or lines (TXT), each part of a quote with
- * an ellipsis, and scrolls to it; a quote not found there is looked for in
- * the whole file. Without a quote, it opens at the cited Unit, or the top. A
+ * an ellipsis, and scrolls to it. Only a target without a place searches the
+ * whole file. Without a quote, it opens at the cited Unit, or the top. A
  * Markdown file's headings form an outline.
  */
 export function TextView({ document, target }: { document: Document; target: ViewerTarget }) {
@@ -49,23 +55,54 @@ export function TextView({ document, target }: { document: Document; target: Vie
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [source, setSource] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the file is read again at the User's Retry, or when its version changes.
   useEffect(() => {
     const controller = new AbortController();
     loadDocumentBytes(document.id, controller.signal).then(
       (bytes) => {
-        // Decoded the way processing decodes it, so quotes from its Passages match.
-        const text = decodeText(bytes);
-        setLoaded(text === null ? { kind: "failed", message: "" } : { kind: "ready", text });
+        try {
+          // Decoded the way processing decodes it, so quotes from its Passages match: an RTF
+          // or HTML file as the text it reads as (#762), Markdown and text as written.
+          const text =
+            document.kind === "rtf"
+              ? rtfMarkdown(bytes)
+              : document.kind === "html"
+                ? htmlMarkdown(bytes)
+                : decodeText(bytes);
+          setLoaded(
+            text === null
+              ? { kind: "failed", key: "viewer.textUnreadable", message: "" }
+              : { kind: "ready", text },
+          );
+        } catch (error) {
+          // A reader that refuses a file (too large, or a broken one) says so here, never "loading" forever.
+          const tooLarge = error instanceof ExtractionError && error.reason === "too-large";
+          setLoaded({
+            kind: "failed",
+            key: tooLarge ? "viewer.textTooLarge" : "viewer.textUnreadable",
+            message: error instanceof Error ? error.message : "",
+          });
+        }
       },
       (error: unknown) => {
         if (controller.signal.aborted) return;
         if (error instanceof MissingDocumentError) setLoaded({ kind: "missing" });
-        else setLoaded({ kind: "failed", message: error instanceof Error ? error.message : "" });
+        else {
+          setLoaded({
+            kind: "failed",
+            key:
+              error instanceof TooLargeDocumentError
+                ? "viewer.textTooLarge"
+                : "viewer.textUnreadable",
+            message: error instanceof Error ? error.message : "",
+          });
+        }
       },
     );
     return () => controller.abort();
-  }, [document.id]);
+  }, [document.id, document.contentHash, attempt]);
 
   useCitedAreaFailure(
     loaded.kind === "missing"
@@ -74,13 +111,20 @@ export function TextView({ document, target }: { document: Document; target: Vie
         ? loaded.message || loaded.kind
         : null,
   );
-  const markdown = document.kind === "markdown";
+  const markdown = document.kind !== "text";
+  const literal = document.kind !== "markdown";
+  const written = document.kind === "markdown";
   const units = useMemo(
     () =>
-      loaded.kind !== "ready" ? [] : markdown ? markdownUnits(loaded.text) : lineUnits(loaded.text),
-    [loaded, markdown],
+      loaded.kind !== "ready"
+        ? []
+        : markdown
+          ? markdownUnits(loaded.text, { literal })
+          : lineUnits(loaded.text),
+    [loaded, markdown, literal],
   );
   const outline = useMemo(() => (markdown ? headingsOf(units) : []), [markdown, units]);
+  const reload = () => setAttempt((count) => count + 1);
 
   return (
     <>
@@ -92,7 +136,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
           )
         }
       >
-        {markdown && loaded.kind === "ready" && (
+        {written && loaded.kind === "ready" && (
           <button
             type="button"
             data-testid="viewer-markdown-source"
@@ -110,14 +154,19 @@ export function TextView({ document, target }: { document: Document; target: Vie
       ) : loaded.kind === "missing" ? (
         <FileGone quote={target.quote} />
       ) : loaded.kind === "failed" ? (
-        <ViewerMessage tone="error">
-          {loaded.message ? t("viewer.failed", { message: loaded.message }) : t("viewer.notText")}
-        </ViewerMessage>
+        <DocumentFix
+          document={document}
+          view
+          message={loaded.message}
+          reload={reload}
+          fallback={<ViewerMessage tone="error">{t(loaded.key)}</ViewerMessage>}
+        />
       ) : (
         <MarkdownDocumentContext.Provider value={document.id}>
           <TextContent
             text={loaded.text}
             markdown={markdown}
+            literal={literal}
             source={source}
             units={units}
             outline={outlineOpen ? outline : null}
@@ -158,6 +207,7 @@ function headingIndexes(units: readonly SourceUnit[]): Map<SourceUnit, number> {
 function TextContent({
   text,
   markdown,
+  literal,
   source,
   units,
   outline,
@@ -165,6 +215,8 @@ function TextContent({
 }: {
   text: string;
   markdown: boolean;
+  /** The text is the words it holds: no emphasis, code or links to read (#762). */
+  literal: boolean;
   /** A Markdown file's text as written, rather than formatted. */
   source: boolean;
   units: readonly SourceUnit[];
@@ -194,11 +246,11 @@ function TextContent({
     return first && last ? { start: first.start, end: last.end, first } : null;
   }, [units, target.pageFrom, target.pageTo]);
 
-  // The quote: in the cited Units first, then anywhere in the file.
   const highlight = useMemo(() => {
     const quote = target.quote;
     if (!quote) return NO_HIGHLIGHT;
-    if (cited) {
+    if (target.pageFrom !== undefined) {
+      if (!cited) return NO_HIGHLIGHT;
       const inside = findQuote(text.slice(cited.start, cited.end), quote);
       if (inside) {
         return inside.map((range) => ({
@@ -206,10 +258,14 @@ function TextContent({
           end: range.end + cited.start,
         }));
       }
+      return NO_HIGHLIGHT;
     }
     return findQuote(text, quote) ?? NO_HIGHLIGHT;
-  }, [text, target.quote, cited]);
-  const blocks = useMemo(() => (markdown ? parseMarkdown(text) : null), [text, markdown]);
+  }, [text, target.quote, target.pageFrom, cited]);
+  const blocks = useMemo(
+    () => (markdown ? parseMarkdown(text, { literal }) : null),
+    [text, markdown, literal],
+  );
   const code = useMemo(() => !markdown && looksLikeCode(text), [text, markdown]);
   const citedHeading = useMemo(() => {
     if (!cited) return null;

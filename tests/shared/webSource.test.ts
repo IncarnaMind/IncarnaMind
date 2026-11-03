@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { formatDate, formatShortDate } from "../../src/shared/dates";
 import { translate } from "../../src/shared/i18n";
 import { shortenMiddle } from "../../src/shared/naming";
+import { webHostOf } from "../../src/shared/webAddresses";
 import { savedPageSource } from "../../src/shared/webSource";
 
 const ADDRESS =
@@ -44,5 +45,14 @@ describe.each(["en", "zh-CN"] as const)("A saved web page's source line, %s", (l
       compact: true,
     });
     expect(line).toContain("2017");
+  });
+});
+
+describe("A saved page's host (#2240)", () => {
+  test("an address that can't be read has no host, never the address itself", () => {
+    expect(webHostOf("not an address")).toBeNull();
+    expect(webHostOf("")).toBeNull();
+    expect(webHostOf("ftp://files.example/report")).toBeNull();
+    expect(webHostOf("https://www.files.example/report")).toBe("files.example");
   });
 });

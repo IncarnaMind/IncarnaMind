@@ -11,17 +11,42 @@ const REASONS = {
   "not-allowed": "meetings.fill.problem.notAllowed",
   "no-model": "meetings.fill.problem.noModel",
   "no-transcript": "meetings.fill.problem.noTranscript",
+  added: "memos.fill.problem.added",
 } as const satisfies Record<MeetingFillProblem["kind"], MessageKey>;
+
+/** A voice memo's note is written, not filled in (#1568): its own words where they differ. */
+const WORDS = {
+  meeting: {
+    waiting: "meetings.fill.waiting",
+    filling: "meetings.fill.filling",
+    fillingLocal: "meetings.fill.fillingLocal",
+    filled: "meetings.fill.filled",
+    undone: "meetings.fill.undone",
+    again: "meetings.fill.again",
+    failed: "meetings.fill.failed",
+  },
+  memo: {
+    waiting: "memos.fill.waiting",
+    filling: "memos.fill.filling",
+    fillingLocal: "memos.fill.fillingLocal",
+    filled: "memos.fill.filled",
+    undone: "memos.fill.undone",
+    again: "memos.fill.again",
+    failed: "memos.fill.failed",
+  },
+} as const satisfies Record<Meeting["kind"], Record<string, MessageKey>>;
 
 /**
  * Where filling the notes in from the Transcript is (#142), one line under a stopped Meeting:
  * waiting for the Transcript, filling in (on this computer, where it is), "Notes filled in ·
- * Undo", or why they weren't, with Try again.
+ * Undo", or why they weren't, with Try again. A voice memo's says its note was written, or that
+ * its Transcript went in as it is, and why.
  */
 export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
   const t = useT();
   const { fill } = meeting;
   if (!fill) return null;
+  const words = WORDS[meeting.kind];
   const again = (label: string): ProblemAction => ({
     label,
     testId: "meeting-fill-again",
@@ -29,13 +54,18 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
   });
   // Said in the interface's words now; a model's own words show on hover.
   const reasonOf = (problem: MeetingFillProblem | null) =>
-    t(REASONS[problem?.kind ?? "model"], { service: problem?.service ?? "" });
+    t(
+      meeting.kind === "memo" && problem?.kind === "not-allowed"
+        ? "memos.fill.problem.notAllowed"
+        : REASONS[problem?.kind ?? "model"],
+      { service: problem?.service ?? "" },
+    );
 
   if (fill.state === "waiting" || fill.state === "filling") {
     const text =
       fill.state === "waiting"
-        ? t("meetings.fill.waiting")
-        : t(fill.local ? "meetings.fill.fillingLocal" : "meetings.fill.filling");
+        ? t(words.waiting)
+        : t(fill.local ? words.fillingLocal : words.filling);
     return (
       <ProblemLine testId="meeting-fill-line" role="status" className="">
         {text}
@@ -54,7 +84,9 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
           onClick: () => void useMeetings.getState().undoFill(meeting.id),
         }}
       >
-        {t("meetings.fill.filled")}
+        {fill.mode === "transcript"
+          ? t("memos.fill.asIs", { reason: reasonOf(fill.problem) })
+          : t(words.filled)}
       </ProblemLine>
     );
   }
@@ -64,9 +96,9 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
         testId="meeting-fill-line"
         role="status"
         className=""
-        action={again(t("meetings.fill.again"))}
+        action={again(t(words.again))}
       >
-        {t("meetings.fill.undone")}
+        {t(words.undone)}
       </ProblemLine>
     );
   }
@@ -78,7 +110,7 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
       title={fill.problem?.kind === "model" ? fill.problem.message : undefined}
       action={again(t("meetings.fill.tryAgain"))}
     >
-      {t("meetings.fill.failed", { reason: reasonOf(fill.problem) })}
+      {t(words.failed, { reason: reasonOf(fill.problem) })}
     </ProblemLine>
   );
 }

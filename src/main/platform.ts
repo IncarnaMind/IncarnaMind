@@ -27,28 +27,37 @@ import {
   type UsageDataSender,
 } from "../core";
 import { runAnalysis } from "../core/analysis";
+import type { SandboxProblem } from "../core/api";
 import { scansAtOnce } from "../core/documents/processor";
 import type { PageFetch } from "../core/documents/web/fetch";
 import type { ModelCopies } from "../core/embedding/modelSources";
 import { createFakeCapture, type FakeCapture, wavSamples } from "../core/meetings/fakeCapture";
+import type { ModelFactsLayer } from "../core/providers/capabilities";
 import { COPILOT_PROFILES } from "../core/providers/copilot/config";
 import { type LocalServers, scriptedLocalServers } from "../core/providers/localServers";
 import { type Resolve, systemResolve } from "../core/tools/web/addresses";
 import type { FakeTranscriberOptions } from "../core/transcription/fake";
 import { SHOW_AGENT_CONNECTION } from "../shared/agentConnection";
 import type { AnalysisJob } from "../shared/analysis";
+import { PLOT_FONT } from "../shared/analysisWindow";
 import { createElectronAnalysisRuntime } from "./analysis";
 import { createCitedPageCapture } from "./citedPageCapture";
 import { createSentryCrashReporter } from "./crashReports";
+import { documentsFolder } from "./documentsFolder";
 import { createUtilityProcessEmbedder } from "./embedder";
 import { createElectronAudioCapture } from "./meetings/capture";
+import { createModelRuntimeFolder } from "./modelRuntimeFolder";
+import { createOfficeConverter } from "./officeConverter";
 import { createFakeOllamaApp, createOllamaApp } from "./ollamaApp";
 import { createPageLook } from "./pageLook";
+import { decodePictureToPng } from "./pictureDecode";
 import { createElectronPictures } from "./pictures";
 import { createElectronPrinter } from "./printPdf";
 import { createLoginShellProcesses } from "./processes";
 import { createUtilityProcessCrossEncoder } from "./reranker";
-import { loadOsSandbox } from "./sandbox";
+import { createCodeHost } from "./runCode/host";
+import { readPythonManifest, runtimePlatform } from "./runCode/manifest";
+import { loadOsSandbox, readDeniedFolders } from "./sandbox";
 import { createUtilityProcessTextRecognizer } from "./scanReader";
 import { createFileKeychain, SECRETS_FILE, type SecretCipher } from "./secretsFile";
 import { createUtilityProcessSeparator } from "./speakerSeparator";
@@ -153,7 +162,7 @@ const loginShellProcesses = createLoginShellProcesses({
  * In a packaged Linux app, sandbox-runtime's seccomp helper outside app.asar
  * (electron-builder.yml unpacks it), where bubblewrap can run it.
  */
-function seccompHelper(): string | undefined {
+export function seccompHelper(): string | undefined {
   if (process.platform !== "linux" || !app.isPackaged) return undefined;
   const runtime = join("node_modules", "@anthropic-ai", "sandbox-runtime");
   return join(
@@ -174,27 +183,38 @@ function seccompHelper(): string | undefined {
  * Found out once, at startup: the log says which, and why not "os". Call
  * once `userData` is set.
  */
-export async function chooseExecutor(log: Logger): Promise<Executor | undefined> {
+export async function chooseExecutor(
+  log: Logger,
+): Promise<{ executor?: Executor; problem?: SandboxProblem }> {
   try {
     const sandbox = await loadOsSandbox({ seccompHelper: seccompHelper() });
     if (!sandbox.available) {
       log.info("scripts.sandbox", { level: "none", reason: sandbox.reason });
-      return undefined;
+      return sandbox.problem ? { problem: sandbox.problem } : {};
     }
     log.info("scripts.sandbox", { level: "os" });
-    return sandbox.createExecutor({
+    const executor = sandbox.createExecutor({
       processes: loginShellProcesses,
       environment: () => loginShellProcesses.environment(),
       tempDir: tmpdir(),
-      denyRead: [app.getPath("home"), app.getPath("userData")],
+      denyRead: readDeniedFolders({
+        platform: process.platform,
+        home: app.getPath("home"),
+        dataDir: app.getPath("userData"),
+        temporaryFolder: tmpdir(),
+        uid: typeof process.getuid === "function" ? process.getuid() : undefined,
+      }),
       reportError: (error) => console.error(error),
+      runRecords: join(app.getPath("userData"), "runs"),
+      log,
     });
+    return { executor };
   } catch (error) {
     log.error("scripts.sandbox", {
       level: "none",
       reason: error instanceof Error ? error.message : String(error),
     });
-    return undefined;
+    return {};
   }
 }
 
@@ -357,12 +377,45 @@ function pythonFolder(): string {
 }
 
 /**
- * The analysis sandbox. A test build also gives it to the smoke tests as
- * `globalThis.incarnamindAnalysis`, which runs a job through the core's
- * record of it, stopped after `stopAfterMs` when given: no part of the app
- * runs Analyses yet.
+ * Test-only: facts laid over every model's, as JSON (`INCARNAMIND_TEST_MODEL_FACTS`), as a smoke
+ * test turns on run_code, which the catalog offers to no model yet (#2351). Only a test build
+ * (`electron-vite build --mode test`) honours it.
  */
-function analysisRuntime(log: Logger): AnalysisRuntime {
+function testModelFacts(): Pick<CoreAdapters, "modelFacts"> {
+  const given =
+    import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_MODEL_FACTS : undefined;
+  if (!given) return {};
+  const facts = JSON.parse(given) as ModelFactsLayer;
+  return { modelFacts: () => facts };
+}
+
+/**
+ * What `run_code` runs with (ADR-0025): the manifest of IncarnaMind's own Python this build was
+ * made with, beside the app's other resources (in a test build, the one the test names), and
+ * the plot font Analyses bundle. None on Windows, where code has no OS sandbox to run in.
+ */
+function codeRuntime(log: Logger): CoreAdapters["codeRuntime"] {
+  if (process.platform === "win32") return undefined;
+  const testManifest =
+    import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_PYTHON_RUNTIME : undefined;
+  const manifest =
+    testManifest ||
+    (app.isPackaged
+      ? join(process.resourcesPath, "python-native", "runtime.json")
+      : join(app.getAppPath(), "resources", "python-native", "runtime.json"));
+  return createCodeHost({
+    python: readPythonManifest(
+      manifest,
+      runtimePlatform(process.platform, process.arch),
+      (reason) => log.warn("pythonRuntime.manifest", { reason }),
+      { standIn: import.meta.env.MODE === "test" },
+    ),
+    font: join(pythonFolder(), PLOT_FONT),
+    appVersion: app.getVersion(),
+  });
+}
+
+export function analysisRuntime(log: Logger): AnalysisRuntime {
   const runtime = createElectronAnalysisRuntime({
     log,
     rendererUrl: process.env.ELECTRON_RENDERER_URL,
@@ -390,15 +443,6 @@ function analysisRuntime(log: Logger): AnalysisRuntime {
  * their agents' settings would land in the real one.
  */
 export const homeFolder = (): string => homedir();
-
-/**
- * The User's Documents folder, where the first save offers to put the Output
- * location. A test build uses one in its data folder, so the smoke tests never
- * write into the User's.
- */
-function documentsFolder(dataDir: string): string {
-  return import.meta.env.MODE === "test" ? join(dataDir, "Documents") : app.getPath("documents");
-}
 
 /**
  * Where crash reports go: the Sentry DSN this copy was built with
@@ -777,15 +821,21 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     }),
     log,
     audioCapture: audioCapture(log),
-    capturePage: createCitedPageCapture({ rendererUrl: process.env.ELECTRON_RENDERER_URL }),
+    capturePage: createCitedPageCapture({ rendererUrl: process.env.ELECTRON_RENDERER_URL, log }),
     analysisRuntime: analysisRuntime(log),
+    codeRuntime: codeRuntime(log),
+    ...testModelFacts(),
     paths: {
       dataDir,
       builtInSkills: builtInSkillsFolder(),
       examples: examplesFolder(),
       citationStyles: citationStylesFolder(),
       home: homeFolder(),
-      documents: documentsFolder(dataDir),
+      get documents() {
+        return import.meta.env.MODE === "test"
+          ? join(dataDir, "Documents")
+          : documentsFolder(() => app.getPath("documents"), homeFolder(), log);
+      },
     },
     systemLanguages: () => app.getPreferredSystemLanguages(),
     systemRegion: () => app.getLocaleCountryCode(),
@@ -800,6 +850,11 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     keychain: createSafeStorageKeychain(dataDir),
     browser: systemBrowser,
     shell: fileShell,
+    modelRuntimeFolder: createModelRuntimeFolder({
+      platform: process.platform,
+      home: homeFolder(),
+      env: process.env,
+    }),
     ollamaApp: ollamaApp(),
     ...(scriptedOllama && { ollamaModels: scriptedOllama }),
     ...(scriptedServers && { localServers: scriptedServers }),
@@ -850,6 +905,14 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     textRecognizer: createUtilityProcessTextRecognizer(
       fakeEmbedder ? { fake: { script: fakeScans } } : {},
     ),
+    decodePicture: decodePictureToPng,
+    officeConverter: createOfficeConverter({
+      processes: loginShellProcesses,
+      home: homeFolder(),
+      platform: process.platform,
+      env: process.env,
+      tempDir: tmpdir(),
+    }),
     scansAtOnce:
       testScansAtOnce > 0 ? testScansAtOnce : scansAtOnce(availableParallelism(), totalmem()),
     // The fake models have no files to download.

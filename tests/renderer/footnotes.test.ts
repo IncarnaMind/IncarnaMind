@@ -233,3 +233,48 @@ describe("copying a footnote", () => {
     expect(ids[1]).toMatch(/^[0-9a-f-]{36}$/);
   });
 });
+
+describe("a Word file's notes (#746)", () => {
+  const endnote = (id: string, ...content: JSONContent[]): JSONContent => ({
+    type: FOOTNOTE_NODE,
+    attrs: { id, endnote: true, source: `w:endnoteReference#${id}` },
+    content,
+  });
+  const kept = (kind: "footnote" | "endnote"): JSONContent => ({
+    type: "wordAtom",
+    attrs: { kind, label: "9", text: "A table in a note", source: `w:${kind}Reference#9` },
+  });
+
+  test("endnotes are numbered on their own; a note kept as is counts where it is, as the file counts it", () => {
+    const state = stateWith([
+      paragraph("a", text("One"), footnote("f1", text("A")), endnote("e1", text("B"))),
+      paragraph("b", kept("footnote"), citation("tides"), kept("endnote")),
+      paragraph("c", footnote("f2", text("C")), endnote("e2", text("D"))),
+    ]);
+    const { citations, footnotes } = numberFootnotes(state.doc);
+    expect(
+      footnotes.map(
+        (each) => `${each.endnote ? "e" : "f"}${each.number}${each.kept ? " kept" : ""}`,
+      ),
+    ).toEqual(["f1", "e1", "f2 kept", "e2 kept", "f4", "e3"]);
+    expect(citations.map((each) => each.number)).toEqual([3]);
+  });
+
+  test("a note's text can hold what the import kept as is, and keeps where its XML is when copied", () => {
+    const node = schema.nodeFromJSON(
+      footnote(
+        "f1",
+        text("See "),
+        {
+          type: "wordAtom",
+          attrs: { kind: "bookmark", source: "word/footnotes.xml!w:bookmarkStart#0" },
+        },
+        text("the deed"),
+      ),
+    );
+    expect(() => node.check()).not.toThrow();
+    expect(footnoteText(node)).toBe("See the deed");
+    const copied = schema.nodeFromJSON(endnote("e1", text("B")));
+    expect(copied.attrs).toMatchObject({ endnote: true, source: "w:endnoteReference#e1" });
+  });
+});

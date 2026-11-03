@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { type BrowserWindow, type Rectangle, screen } from "electron";
 
 const FILE = "window.json";
+const SAVE_DELAY_MS = 500;
 /** How much of the window's top edge must be on a display to open there: enough to grab it. */
 const VISIBLE_PX = 64;
 
@@ -71,9 +72,9 @@ export function windowPlace(
 
 /** Saves the window's size and place as it moves and resizes, and as it closes. */
 export function keepWindowPlace(window: BrowserWindow, dataDir: string): void {
-  let timer: NodeJS.Timeout | undefined;
+  let pending = false;
+  let saveAt: number | undefined;
   const save = () => {
-    clearTimeout(timer);
     if (window.isDestroyed() || window.isMinimized() || window.isFullScreen()) return;
     const saved: SavedWindow = {
       bounds: window.getNormalBounds(),
@@ -85,12 +86,33 @@ export function keepWindowPlace(window: BrowserWindow, dataDir: string): void {
       // Not worth failing over: the window opens at its default size next time.
     }
   };
+  const saveWhenQuiet = () => {
+    pending = false;
+    if (saveAt === undefined) return;
+    const remaining = saveAt - performance.now();
+    if (remaining > 0) {
+      schedule(remaining);
+      return;
+    }
+    saveAt = undefined;
+    save();
+  };
+  const schedule = (delay: number) => {
+    if (pending) return;
+    pending = true;
+    setTimeout(saveWhenQuiet, delay);
+  };
   const saveSoon = () => {
-    clearTimeout(timer);
-    timer = setTimeout(save, 500);
+    // A native resize can reenter Node's timer dispatch before its callback runs (#1244).
+    // Move the deadline without clearing the callback Node is about to invoke.
+    saveAt = performance.now() + SAVE_DELAY_MS;
+    schedule(SAVE_DELAY_MS);
   };
   for (const event of ["resize", "move", "maximize", "unmaximize"] as const) {
     window.on(event as "resize", saveSoon);
   }
-  window.on("close", save);
+  window.on("close", () => {
+    saveAt = undefined;
+    save();
+  });
 }

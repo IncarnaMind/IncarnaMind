@@ -29,12 +29,14 @@ import {
   type Conversation,
   type ConversationAnswer,
   MIND_CONTENT_FIELD,
+  MIND_FIGURE_RUNS_FIELD,
   MIND_SETTINGS_FIELD,
 } from "../../core/api";
 import { messageReference } from "../../core/references";
 import { asGenerated } from "../../shared/aiText";
 import type { NodeJSON } from "../../shared/blockJson";
 import { setOrigins } from "../../shared/blockOrigins";
+import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { holdsNothing } from "../../shared/madeMind";
 import { carryAnswerScope } from "../../shared/mindScope";
 import { cutTitle, mindName, numberedName } from "../../shared/naming";
@@ -54,6 +56,7 @@ import { notePlace } from "./editor/notePlace";
 import type { Words } from "./lineNames";
 import { exampleMindIds, useAppStore } from "./store";
 import { answerUndoPlace, useUndo } from "./undo";
+import { copiedOutOf, scopeOutsideWalls } from "./walls";
 
 /** Where Add to note puts an Answer: a Mind, by id, or a new Mind made from it. */
 export type AddTarget = { kind: "mind"; mindId: string } | { kind: "new" };
@@ -71,6 +74,20 @@ const undoKept = (kept: number): Words | null =>
   kept === 0
     ? null
     : (t) => t(kept === 1 ? "answer.undoKept.one" : "answer.undoKept", { count: kept });
+
+/**
+ * What Add to note says it did: where the Answer went, and, when its Citations come from a walled
+ * Folder the Note is outside, that it was copied out of it (#1934).
+ */
+const addedLine =
+  (mind: string, blocks: readonly NodeJSON[], folderId: string | null): Words =>
+  (t) => {
+    const name = mind || t("mind.untitled");
+    const outOf = copiedOutOf(useAppStore.getState().library, blocks, folderId);
+    return outOf === null
+      ? t("answer.added", { mind: name })
+      : t("answer.added.outOfWall", { mind: name, folder: outOf });
+  };
 
 /** The Mind's name, which an unnamed Mind is about to take from the first line of what goes in (the core names it a moment after the Note is in). */
 const nameOfMind = (mindId: string, blocks: readonly NodeJSON[]) => {
@@ -109,7 +126,7 @@ export function addInEditor(
     useAppStore.getState().reportError(error);
     return null;
   }
-  const done = asOneStep(editor, () => {
+  const change = () => {
     const added = editor.commands.command(({ tr }) => {
       const fragment = Fragment.from(nodes);
       tr.replaceWith(place.from, place.to, fragment);
@@ -120,7 +137,9 @@ export function addInEditor(
     });
     if (added) inTheSameStep();
     return added;
-  });
+  };
+  const doc = ySyncPluginKey.getState(editor.state)?.doc;
+  const done = asOneStep(editor, () => (doc ? doc.transact(change, ySyncPluginKey) : change()));
   if (!done) return null;
   const first = editor.view.nodeDOM(place.from);
   if (first instanceof HTMLElement) first.scrollIntoView({ block: "nearest" });
@@ -133,7 +152,7 @@ async function addToReadMind(added: AddedAnswer, mindId: string): Promise<boolea
   if (!read || read.mindId !== mindId || read.editor.isDestroyed) return false;
   const checked = asGenerated(
     await recheckCitations(citedTables(withoutIds(added.blocks)), (input) =>
-      core.recheckCitation(input),
+      core.recheckCitation({ ...input, mindId }),
     ),
   );
   const { editor, doc } = read;
@@ -142,8 +161,21 @@ async function addToReadMind(added: AddedAnswer, mindId: string): Promise<boolea
   // As the editor's own change, so the note's Undo takes the scope back with the Blocks.
   const bringScope = () => {
     yUndoPluginKey.getState(editor.state)?.undoManager.addToScope(doc.getMap(MIND_SETTINGS_FIELD));
+    yUndoPluginKey
+      .getState(editor.state)
+      ?.undoManager.addToScope(doc.getMap(MIND_FIGURE_RUNS_FIELD));
+    installFigureRuns(doc, figureRunsOfAnswer(added.answer, added.blocks));
     doc.transact(
-      () => carryAnswerScope(doc, questionOf(added.answer)?.scope ?? null, folderId ?? null),
+      () =>
+        carryAnswerScope(
+          doc,
+          scopeOutsideWalls(
+            useAppStore.getState().library,
+            questionOf(added.answer)?.scope ?? null,
+            folderId ?? null,
+          ),
+          folderId ?? null,
+        ),
       ySyncPluginKey,
     );
   };
@@ -168,7 +200,7 @@ async function addToReadMind(added: AddedAnswer, mindId: string): Promise<boolea
   const mind = nameOfMind(mindId, added.blocks);
   offerEditorUndo(
     editor,
-    (t) => t("answer.added", { mind: mind || t("mind.untitled") }),
+    addedLine(mind, added.blocks, folderId ?? null),
     answerUndoPlace(added.answer.id),
   );
   return true;
@@ -179,13 +211,15 @@ async function addToOtherMind(added: AddedAnswer, mindId: string, openIt: boolea
   const { blockIds } = await core.addToNote({
     mindId,
     blocks: added.blocks,
+    figureRuns: figureRunsOfAnswer(added.answer, added.blocks),
     origin: originOf(added),
     model: added.answer.model,
   });
   const mind = nameOfMind(mindId, added.blocks);
+  const folderId = useAppStore.getState().minds.find((each) => each.id === mindId)?.folderId;
   let kept = 0;
   useUndo.getState().push({
-    said: (t) => t("answer.added", { mind: mind || t("mind.untitled") }),
+    said: addedLine(mind, added.blocks, folderId ?? null),
     undo: async () => {
       kept = (await core.undoAddToNote({ mindId, blockIds })).kept;
     },
@@ -216,6 +250,7 @@ const putIn = (mindId: string, added: AddedAnswer) =>
   core.addToNote({
     mindId,
     blocks: added.blocks,
+    figureRuns: figureRunsOfAnswer(added.answer, added.blocks),
     origin: originOf(added),
     model: added.answer.model,
   });
@@ -242,7 +277,7 @@ async function addToNewMind(added: AddedAnswer): Promise<void> {
   const name = nameOfMind(mind.id, added.blocks);
   let kept = 0;
   useUndo.getState().push({
-    said: (t) => t("answer.added", { mind: name || t("mind.untitled") }),
+    said: addedLine(name, added.blocks, mind.folderId),
     undo: async () => {
       kept = (await core.undoAddToNote({ mindId: mind.id, blockIds })).kept;
     },

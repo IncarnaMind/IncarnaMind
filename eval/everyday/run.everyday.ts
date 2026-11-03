@@ -9,24 +9,33 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
 import type { AnswerUsage } from "../../src/core";
+import { catalogFacts, modelsProviderOfKind } from "../../src/core/providers/catalog";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { markersIn } from "../../src/shared/answerBlocks";
+import { evalOllamaModels } from "../lib/citations";
 import { type ChatSettings, chatModelSpecOf, chatProviderOf, readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
 import type { EvalDocument } from "../lib/evaluationSet";
 import { openLibrary } from "../lib/library";
 import { createLog, type Log } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
+import { tokenLine, watchTokens } from "../lib/tokens";
 import { type CaseResult, fetchPapers, fetchReserves, judgeOf, reports, runCase } from "./asking";
 import { CASES, type EverydayCase, floorOf, type LibraryName } from "./cases";
+import { writeCedarDocuments } from "./cedar";
 import { failureLine, pointsBack, type RequestFailure } from "./checks";
 import { writeDatedDocuments } from "./dated";
 import { type DecisionProvider, decide, forcing } from "./decisions";
+import { writeFilingDocuments } from "./filings";
 import { languageRates, type RequestRun, rowRates } from "./rates";
 import { watchReasks } from "./reasks";
 import { SUPPORTED_TARGET, supportedShare, supportRates } from "./support";
 
 const ROOT = resolve(__dirname, "../..");
+
+/** Every request the Answers and the judge make, for the report's count of their tokens. */
+const answerTokens = watchTokens();
+const judgeTokens = watchTokens();
 
 /** Arm C (./decisions): INCARNAMIND_EVAL_EVERYDAY_DECIDE names the decision provider, and INCARNAMIND_EVAL_DECIDE_KEY is its key. */
 function decidingOf(): { provider: DecisionProvider; key: string } | null {
@@ -50,17 +59,34 @@ async function runModel(
   const decider = decidingOf();
   const config = readConfig(ROOT);
   const datedFolder = await mkdtemp(join(tmpdir(), "incarnamind-everyday-dated-"));
+  const filingFolder = await mkdtemp(join(tmpdir(), "incarnamind-everyday-filings-"));
   const needed = new Set(cases.map((each) => each.library));
   const sets: Record<LibraryName, EvalDocument[]> = {
     papers: needed.has("papers") ? await fetchPapers(config.cacheDir, log) : [],
     reports: needed.has("reports") ? await reports() : [],
     dated: needed.has("dated") ? await writeDatedDocuments(datedFolder) : [],
     reserves: needed.has("reserves") ? await fetchReserves(config.cacheDir, log) : [],
+    filings: needed.has("filings") ? await writeFilingDocuments(filingFolder) : [],
+    cedar: needed.has("cedar") ? await writeCedarDocuments(datedFolder, "en") : [],
+    "cedar-zh": needed.has("cedar-zh") ? await writeCedarDocuments(datedFolder, "zh-CN") : [],
   };
-  const judge = createAiSdkChatModel({ ...chatModelSpecOf(judging), thinking: "off" });
+  const calculates =
+    catalogFacts(modelsProviderOfKind(chat.kind, chat.endpoint), chat.modelId)?.calculates === true;
+  const ollamaModels = evalOllamaModels(chat);
+  const judge = judgeTokens.wrap(
+    createAiSdkChatModel({ ...chatModelSpecOf(judging), thinking: "off" }),
+  );
   const model = `${chat.kind}/${chat.modelId}${decider ? ` + ${decider.provider} decisions` : ""}`;
   const results: CaseResult[] = [];
-  for (const name of ["papers", "reports", "dated", "reserves"] as const) {
+  for (const name of [
+    "papers",
+    "reports",
+    "dated",
+    "reserves",
+    "filings",
+    "cedar",
+    "cedar-zh",
+  ] as const) {
     const wanted = cases.filter((each) => each.library === name);
     if (wanted.length === 0) continue;
     const watch = watchReasks();
@@ -72,8 +98,8 @@ async function runModel(
     const library = await openLibrary({
       name: `everyday-${name}`,
       chatModels: decider
-        ? (inner) => forced.chatModels(watch.chatModels(inner))
-        : watch.chatModels,
+        ? (inner) => forced.chatModels(watch.chatModels(answerTokens.chatModels(inner)))
+        : (inner) => watch.chatModels(answerTokens.chatModels(inner)),
       embedder: createWorkerEmbedder(),
       modelCache: join(config.cacheDir, "models"),
       reranker: createWorkerCrossEncoder(config.rerankOnCpu),
@@ -81,6 +107,7 @@ async function runModel(
       examples: join(ROOT, "resources", "examples"),
       keep: config.keepData,
       embeddings: false,
+      ...(ollamaModels && { ollamaModels }),
       log,
     });
     try {
@@ -96,6 +123,7 @@ async function runModel(
       const scoped = [...library.documents.values()].map((document) => ({
         id: document.id,
         name: document.name,
+        title: document.title,
       }));
       for (const each of wanted.flatMap((each) => Array.from({ length: runs }, () => each))) {
         log(`${model} · ${each.id}: ${each.request}`);
@@ -103,6 +131,7 @@ async function runModel(
         try {
           result = await runCase(library, scoped, judge, model, each, {
             watch,
+            calculates,
             ...(deciding && { deciding }),
           });
         } catch (error) {
@@ -125,7 +154,7 @@ async function runModel(
             error: error instanceof Error ? error.message : String(error),
             usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0 },
             droppedMarkers: 0,
-            asks: { again: 0, citations: 0 },
+            asks: { again: 0, coverage: 0, citations: 0 },
             support: null,
             claims: null,
           };
@@ -150,6 +179,7 @@ async function runModel(
     }
   }
   await rm(datedFolder, { recursive: true, force: true });
+  await rm(filingFolder, { recursive: true, force: true });
   return results;
 }
 
@@ -163,6 +193,7 @@ function asksByGroup(results: readonly CaseResult[]) {
       language: string;
       answers: number;
       again: number;
+      coverage: number;
       citations: number;
       unseen: number;
     }
@@ -174,11 +205,13 @@ function asksByGroup(results: readonly CaseResult[]) {
       language: each.language,
       answers: 0,
       again: 0,
+      coverage: 0,
       citations: 0,
       unseen: 0,
     };
     group.answers++;
     if (each.asks.again > 0) group.again++;
+    if (each.asks.coverage > 0) group.coverage++;
     if (each.asks.citations > 0) group.citations++;
     if (each.failures.some((failure) => failure.kind === "unseen-attempt")) group.unseen++;
     groups.set(key, group);
@@ -190,6 +223,7 @@ function report(
   results: readonly CaseResult[],
   rows: ReturnType<typeof rowRates>,
   judge: string,
+  tokens: { answers: string; judge: string },
 ): string {
   const runs: RequestRun[] = results.map((each) => ({
     id: each.id,
@@ -226,15 +260,16 @@ function report(
     (each) => CASES.find((request) => request.id === each.id)?.library === "dated",
   );
   const summaries = answered.flatMap((each) => (each.claims ? [each] : []));
+  const covering = answered.filter((each) => each.covered !== undefined);
   const checked = researched.flatMap((each) =>
     (each.support ?? []).map((sentence) => ({ id: each.id, model: each.model, ...sentence })),
   );
   return [
     "# Everyday requests",
     "",
-    `${rows.length - under.length} of ${rows.length} requests at or above their floor; ${runs.filter((run) => run.passed).length} of ${runs.length} runs passed. Claims judged by ${judge}.`,
+    `${rows.length - under.length} of ${rows.length} requests at or above their floor; ${runs.filter((run) => run.passed).length} of ${runs.length} runs passed. Claims judged by ${judge}, and the app's own change-claim check is asserted for every request.`,
     "",
-    `The Answers' tokens: ${sum("inputTokens")} in (${sum("cachedInputTokens")} of them from the cache), ${sum("outputTokens")} out. Edit with AI's, the judge's and the cited sentences' checks aren't counted.`,
+    `The Answers' tokens: ${sum("inputTokens")} in (${sum("cachedInputTokens")} of them from the cache, ${sum("cacheWriteTokens")} written to it), ${sum("outputTokens")} out. Edit with AI's and the cited sentences' checks aren't in those; every request of the Library's chat model, theirs included: ${tokens.answers}. The judge's: ${tokens.judge}.`,
     "",
     `An Answer is ${averageLength(answered).toLocaleString("en")} characters long on average (${answered.length} Answers)${researched.length > 0 ? `, ${averageLength(researched).toLocaleString("en")} for the research questions (${researched.length})` : ""}.`,
     "",
@@ -291,6 +326,27 @@ function report(
             : []),
         ]
       : []),
+    ...(covering.length > 0
+      ? [
+          "## Each Document covered",
+          "",
+          "The requests about every Document in scope, summed over their runs: the Documents each Answer cited, those its reply named as not covered, those it left out without saying so, and the Documents outside its scope it cited (the example's).",
+          "",
+          "| Request | Model | Runs | Cited | Named as not covered | Left out unsaid | Outside its scope cited |",
+          "|---|---|---|---|---|---|---|",
+          ...[...new Set(covering.map((each) => `${each.id}\n${each.model}`))].map((key) => {
+            const [id = "", model = ""] = key.split("\n");
+            const some = covering.filter((each) => each.id === id && each.model === model);
+            const total = (pick: (covered: NonNullable<CaseResult["covered"]>) => number) =>
+              some.reduce((sum, each) => sum + (each.covered ? pick(each.covered) : 0), 0);
+            const documents = total(
+              (covered) => covered.cited.length + covered.named.length + covered.unsaid.length,
+            );
+            return `| ${id} | ${model} | ${some.length} | ${total((covered) => covered.cited.length)} of ${documents} | ${total((covered) => covered.named.length)} | ${total((covered) => covered.unsaid.length)} | ${total((covered) => covered.outside)} |`;
+          }),
+          "",
+        ]
+      : []),
     "## By language",
     "",
     "| Model | Language | Passed |",
@@ -329,24 +385,24 @@ function report(
       each.removed.map((taken) => `- ${each.id}, ${each.model}: “${taken}”`),
     ),
     "",
-    `Rewritten after the guard, not by it: ${results.reduce((total, each) => total + each.rewritten.length, 0)} sentences of what the calls gave are no longer in the Mind as written, rewritten by the model's edit_mind or by the app's own check of the sentences written:`,
+    `Rewritten after the guard, not by it: ${results.reduce((total, each) => total + each.rewritten.length, 0)} sentences of what the calls gave are no longer in the Mind as written, changed by the model's edit_mind or by the app's own check of the sentences written. ${results.reduce((total, each) => total + each.rewritten.filter(({ cut }) => cut).length, 0)} of them only have words taken out, as the check's cut does; the rest are reworded:`,
     "",
     ...results.flatMap((each) =>
       each.rewritten.map(
-        ({ given, now }) =>
-          `- ${each.id}, ${each.model}: given “${given}”; the Mind holds “${now ?? "nothing like it"}”`,
+        ({ given, now, cut }) =>
+          `- ${each.id}, ${each.model}, ${cut ? "words taken out" : "reworded"}: given “${given}”; the Mind holds “${now ?? "nothing like it"}”`,
       ),
     ),
     "",
     "## Asked again inside the turn",
     "",
-    "The app asks the model again when a reply claims a change no Tool made or a request to write wrote nothing, and once for the Citations of an Answer. The User reads none of those tries: the Answer says nothing of an earlier try. The `reask-` requests put a reply of their own in place of the model's first, so each of them is asked again.",
+    "The app asks the model again inside the turn when a reply claims a change no Tool made or a request to write wrote nothing, when a capped summary's reply leaves out Documents the next summary takes, and once for the Citations of an Answer. The User reads none of those tries: the Answer says nothing of an earlier try. The `reask-` requests put a reply of their own in place of the model's first, so each of them is asked again.",
     "",
-    "| Model | Language | Answers | Asked again | Asked for Citations | Asked again, and say something of an earlier try |",
-    "|---|---|---|---|---|---|",
+    "| Model | Language | Answers | Asked again | Asked to name left-out Documents | Asked for Citations | Asked again, and say something of an earlier try |",
+    "|---|---|---|---|---|---|---|",
     ...asksByGroup(results).map(
       (group) =>
-        `| ${group.model} | ${group.language} | ${group.answers} | ${group.again} | ${group.citations} | ${group.unseen} |`,
+        `| ${group.model} | ${group.language} | ${group.answers} | ${group.again} | ${group.coverage} | ${group.citations} | ${group.unseen} |`,
     ),
     "",
     "## Each run",
@@ -391,6 +447,7 @@ test("everyday requests", async () => {
     return;
   }
   const only = process.env.INCARNAMIND_EVAL_EVERYDAY?.trim();
+  if (only === "claim-probes" || only === "filings-in-note") return;
   const cases = CASES.filter((each) => {
     if (!only) return true;
     if (only === "hard") return each.hard === true;
@@ -419,7 +476,10 @@ test("everyday requests", async () => {
   await mkdir(folder, { recursive: true });
   await writeFile(
     join(folder, "report.md"),
-    report(results, rows, `${judging.kind}/${judging.modelId}`),
+    report(results, rows, `${judging.kind}/${judging.modelId}`, {
+      answers: tokenLine(answerTokens.take()),
+      judge: tokenLine(judgeTokens.take()),
+    }),
   );
   await writeFile(join(folder, "report.json"), JSON.stringify({ rows, results }, null, 2));
   const under = rows.filter((row) => row.under);

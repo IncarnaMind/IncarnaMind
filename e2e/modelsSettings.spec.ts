@@ -92,7 +92,11 @@ test("adds a provider from the directory with a fake endpoint, tests it, and pic
     );
     const answers = settings.getByTestId("model-default-chatModel");
     await expect(answers).toHaveValue(`${existing.id}\nfirst-model`);
-    await expect(settings.getByTestId("model-default-quickTasksModel")).toHaveValue("");
+    await expect(settings.getByTestId("models-follow-answers")).toHaveText(
+      "Quick tasks and reading images are automatic.",
+    );
+    await expect(settings.getByTestId("model-default-row-transcription")).toBeVisible();
+    await expect(settings.getByTestId("model-default-row-sorting")).toBeVisible();
     await screenshot(window, "models-1100-en");
 
     // Add a provider…: the directory, its search focused, in English's groups.
@@ -154,9 +158,8 @@ test("adds a provider from the directory with a fake endpoint, tests it, and pic
     await expect(settings.getByTestId("models-add-provider")).toBeFocused();
     await answers.selectOption(`${added}\nb-strong`);
     await expect.poll(() => chatModel(window)).toEqual({ providerId: added, modelId: "b-strong" });
-    const quick = settings.getByTestId("model-default-quickTasksModel");
-    await quick.selectOption(`${added}\nb-fast`);
-    await expect(quick).toHaveValue(`${added}\nb-fast`);
+    // Quick tasks and reading images have no row of their own: they are automatic.
+    await expect(settings.getByTestId("model-default-quickTasksModel")).toHaveCount(0);
 
     // Removed, it leaves no default pointing at it, and one line says where Answers went.
     await settings.getByTestId("provider-row").filter({ hasText: second.host }).click();
@@ -165,7 +168,6 @@ test("adds a provider from the directory with a fake endpoint, tests it, and pic
       `Removed ${second.host}. Answers now use first-model · ${first.host}.`,
     );
     await expect(answers).toHaveValue(`${existing.id}\nfirst-model`);
-    await expect(quick).toHaveValue("");
     await expect(settings.getByTestId("provider-row")).toHaveCount(1);
   } finally {
     await app.close();

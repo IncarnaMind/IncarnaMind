@@ -136,7 +136,9 @@ const CITATIONS = {
 describe("The every-format set's report", () => {
   test("groups Documents by format as Users name them", () => {
     expect(
-      ["a.docx", "a.pptx", "a.xlsx", "a.csv", "a.md", "a.txt", "a.pdf", "a.vtt"].map(formatOf),
+      ["a.docx", "a.pptx", "a.xlsx", "a.csv", "a.md", "a.txt", "a.pdf", "a.vtt"].map((path) =>
+        formatOf(path),
+      ),
     ).toEqual([
       "word",
       "powerpoint",
@@ -148,6 +150,9 @@ describe("The every-format set's report", () => {
       "transcript",
     ]);
     expect(() => formatOf("a.png")).toThrow(/a\.png/);
+    // A Web page has no file kind: the set names its kind.
+    expect(formatOf("/repo/Page.html", "web")).toBe("web");
+    expect(() => formatOf("/repo/Page.html")).toThrow(/Page\.html/);
   });
 
   test("counts each format's Questions per language, known gaps and cross-lingual ones apart", () => {
@@ -161,6 +166,7 @@ describe("The every-format set's report", () => {
       ["Markdown and plain text", 0],
       ["PDF", 1],
       ["Transcript", 0],
+      ["Web page", 0],
     ]);
     expect(of("powerpoint")?.retrieval).toEqual({
       [GATING_MODE]: {
