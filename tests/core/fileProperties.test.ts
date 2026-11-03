@@ -9,12 +9,20 @@ import { randomUUID } from "node:crypto";
 import { utimes } from "node:fs/promises";
 import { describe, expect, test, vi } from "vitest";
 import type { ClaimCheckAttributes, Core, Document } from "../../src/core";
-import { declaredProperties } from "../../src/core/answers/checks/fileProperties";
+import type {
+  ClaimCheckDependencies,
+  ClaimCheckRequest,
+} from "../../src/core/answers/checks/claimCheck";
+import {
+  declaredProperties,
+  withFileProperties,
+} from "../../src/core/answers/checks/fileProperties";
 import { readVerdict } from "../../src/core/answers/checks/prompt";
 import { ownDate } from "../../src/core/documents/creationDate";
 import type { Language } from "../../src/core/language";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { formatDate } from "../../src/shared/dates";
+import { readFigures } from "../../src/shared/figures";
 import { onThisClock } from "../../src/shared/fileProperties";
 import { checkGenerate, isCheckRun, sentenceOf } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -692,6 +700,45 @@ describe("What decides a sentence", () => {
     expect(signed.verdict === "unsupported" && signed.unsupported).not.toHaveProperty("found");
   });
 
+  // protects=a sentence with figures, checked figure by figure, is never offered the file's properties: no property backs a figure; fails_when=a figure sentence's check Run is given the property search.
+  test("a sentence with figures is checked as before, with no file properties offered", async () => {
+    const offered: boolean[] = [];
+    const deps = {
+      documents: { getMany: () => [], citationSource: () => null },
+    } as unknown as ClaimCheckDependencies;
+    const check = withFileProperties(deps, (given) => {
+      offered.push(given.fileProperties !== undefined);
+      return async () => ({
+        verdict: "not-checked",
+        reason: "empty",
+        detail: null,
+        versions: [],
+        excluded: [],
+      });
+    });
+    const scope = { documentIds: null, excluded: new Map() };
+    const reading = readFigures("$5 million", { language: "en" })[0];
+    if (!reading) throw new Error("The figure fixture has no figure.");
+    const figure = {
+      id: "fee",
+      locator: { kind: "text", from: { blockId: "p", offset: 0 }, to: { blockId: "p", offset: 1 } },
+      reading,
+      calculated: null,
+    } as const;
+
+    await check({
+      claim: "The fee is $5 million.",
+      scope,
+      figures: [figure],
+    } as unknown as ClaimCheckRequest);
+    expect(offered).toEqual([false]);
+    await check({
+      claim: "The file was last modified on 2 November 2026.",
+      scope,
+    } as unknown as ClaimCheckRequest);
+    expect(offered).toEqual([false, true]);
+  });
+
   test("a search that doesn't ask for them shows no properties, and the sentence is checked as before", async () => {
     const setup = await setUp(files(), {
       [SIGNED]: { verdict: "unsupported", properties: false },
@@ -768,6 +815,17 @@ describe("Which Documents' properties a check shows", () => {
           document: "Site notes",
           property: "modified",
         },
+        "The report names itself as such.": {
+          verdict: "supported",
+          properties: false,
+          document: "Report",
+          quote: "Report",
+        },
+        "The report this cites was last modified on 2 November 2026.": {
+          verdict: "unsupported",
+          document: "Site notes",
+          property: "modified",
+        },
       },
     );
 
@@ -783,6 +841,27 @@ describe("Which Documents' properties a check shows", () => {
       verdict: "unsupported",
       unsupported: { reason: computerLine("en", "2026-10-28T12:00:00Z") },
     });
+
+    // A sentence citing the report is about the report's file: the notes' date is none of its.
+    const reportText = await setup.core.checkClaim({ claim: "The report names itself as such." });
+    const cited =
+      reportText.verdict === "supported" && reportText.evidence
+        ? [
+            {
+              documentName: reportText.evidence.documentName,
+              quote: reportText.evidence.quote,
+              passageId: reportText.evidence.passageId,
+            },
+          ]
+        : [];
+    expect(cited).toHaveLength(1);
+    const citing = await setup.core.checkClaim({
+      claim: "The report this cites was last modified on 2 November 2026.",
+      cited,
+    });
+    const why = citing.verdict === "unsupported" ? citing.unsupported?.reason : null;
+    expect(citing.verdict).toBe("unsupported");
+    expect(why ?? "").not.toContain("this computer");
   });
 
   // protects=a search for the properties shows one Document's alone, the one it names, when it could be about several: every file has lines like the others', so another file's never decides a sentence; fails_when=the memo's modified date backs a sentence about the lease.
