@@ -8,6 +8,18 @@
     --quote-wash: var(--color-success-wash);
     --quote-edge: var(--color-success);
   }
+  /* The viewer takes the focus while an area is being picked (#118). */
+  .viewer-pane:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+  .viewer-area-drawing {
+    position: absolute;
+    z-index: 20;
+    border: 1.5px dashed var(--color-accent);
+    background: var(--selection-overlay);
+    pointer-events: none;
+  }
 
   /*
    * A Document tab's 36px toolbar, under its group's strip, on the sheet with
@@ -607,6 +619,10 @@
   }
   .viewer-grid-scroll {
     @apply bg-sheet;
+  }
+  .viewer-grid-scroll:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
   }
   .viewer-grid {
     @apply border-separate border-spacing-0 font-sans text-[13px] leading-5 text-ink;

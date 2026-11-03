@@ -95,6 +95,7 @@ const REASONS = [
   "too-many-pages",
   "in-several-places",
   "no-text",
+  "picture",
   "kept-inside",
   "document-removed",
   "answer-limit",

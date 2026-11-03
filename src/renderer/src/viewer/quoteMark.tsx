@@ -129,6 +129,7 @@ export function CitationMark({
       aria-label={label}
       title={label}
       data-testid="viewer-quote-mark"
+      data-quote-skip=""
       data-check={mark.tone}
       data-label-shown={mark.label ? String(fits) : undefined}
       className={`quote-mark quote-mark--${mark.tone}`}

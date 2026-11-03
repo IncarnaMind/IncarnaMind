@@ -98,6 +98,7 @@ import {
   type CheckRecordFailure,
   type CheckRecordFormat,
   type CitationAttributes,
+  type CitedArea,
   CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
@@ -529,6 +530,18 @@ function parseQuoted(input: unknown): ScannedQuoteInput {
     pageTo: unit(input.pageTo),
     quote: input.quote,
   };
+}
+
+/** The region a selection was drawn on (#118): a rectangle inside its Unit, as fractions of it. */
+function parseCitedArea(value: unknown): CitedArea {
+  const fraction = (each: unknown): each is number =>
+    typeof each === "number" && Number.isFinite(each) && each >= 0 && each <= 1;
+  if (!isRecord(value)) throw new InvalidInputError({ key: "error.selection.none" });
+  const { x, y, width, height } = value;
+  if (!fraction(x) || !fraction(y) || !fraction(width) || !fraction(height)) {
+    throw new InvalidInputError({ key: "error.selection.none" });
+  }
+  return { x, y, width, height };
 }
 
 function parseSelectedPart(input: unknown): SelectedPart {
@@ -5210,11 +5223,21 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!isRecord(input) || !Array.isArray(input.parts)) {
         throw new InvalidInputError({ key: "error.selection.none" });
       }
+      const area = input.area === undefined ? undefined : parseCitedArea(input.area);
       const parts = input.parts.map(parseSelectedPart);
-      if (parts.every((part) => part.text.trim() === "")) {
+      if (parts.every((part) => part.text.trim() === "") && area === undefined) {
         throw new InvalidInputError({ key: "error.selection.none" });
       }
-      return citeSelection(documents, { documentId: parseDocumentId(input.documentId), parts });
+      const unit =
+        typeof input.unit === "number" && Number.isInteger(input.unit) && input.unit >= 1
+          ? input.unit
+          : null;
+      return citeSelection(documents, {
+        documentId: parseDocumentId(input.documentId),
+        parts,
+        ...(area !== undefined && { area }),
+        unit,
+      });
     },
     searchPassages: (query, options) => {
       const place = parsePassagePlace(isRecord(options) ? options.place : undefined);

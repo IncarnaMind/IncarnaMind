@@ -41,6 +41,7 @@ import {
   type RowsOrLines,
   resolveRequested,
   unitLocation,
+  withoutArea,
 } from "../../shared/locations";
 import { citesSource, type NamedSource } from "../../shared/namedSources";
 import {
@@ -58,8 +59,10 @@ import {
   type Citation,
   type CitationCheck,
   type CitationCheckReason,
+  type CitationLocation,
   type CitationRecheck,
   type CitationToRecheck,
+  type CitedArea,
   type CitedSelection,
   type DocumentKind,
   MAX_CITED_PAGES,
@@ -820,9 +823,72 @@ function placesIn(
  * one Location (else "in-several-places"); on no known Unit, where the
  * Document has them in one place. The quote is read as words
  * (`readableQuote`), its radical look-alikes the ideographs they stand for,
- * and is found only as `recheckCitation` finds it.
+ * and is found only as `recheckCitation` finds it. Given an `area` (#118), the
+ * Location keeps the region; with no words in it, the region is a picture,
+ * which can't be checked.
  */
 export function citeSelection(
+  documents: RecheckDocuments,
+  input: {
+    documentId: string;
+    parts: readonly SelectedPart[];
+    area?: CitedArea;
+    unit?: number | null;
+  },
+): CitedSelection {
+  const cited = citeSelectionAt(documents, input);
+  if (!input.area) return cited;
+  if (cited.quote.trim() === "") {
+    return pictureCitation(
+      documents,
+      input.documentId,
+      input.unit ?? input.parts[0]?.unit ?? null,
+      input.area,
+    );
+  }
+  const location =
+    cited.location ?? placeIn(documents, input.documentId, cited.contentHash, input.unit ?? null);
+  return location ? { ...cited, location: { ...location, area: input.area } } : cited;
+}
+
+/** The picture an area with no text is: its Citation points at the region and says it can't be checked. */
+function pictureCitation(
+  documents: RecheckDocuments,
+  documentId: string,
+  unit: number | null,
+  area: CitedArea,
+): CitedSelection {
+  const contentHash = documents.currentVersion(documentId);
+  if (contentHash === null) return { ...removedFrom({ pageFrom: unit, pageTo: unit }), quote: "" };
+  const units = documents.pageTexts(documentId, contentHash, null, null);
+  const on = unit === null ? units[0] : units.find((each) => each.page === unit);
+  const location = on ? locationOf([on], null) : null;
+  return {
+    check: "cant-check",
+    checkReason: "picture",
+    contentHash,
+    passageId: null,
+    pageFrom: on?.page ?? null,
+    pageTo: on?.page ?? null,
+    location: location ? { ...location, area } : null,
+    quote: "",
+  };
+}
+
+/** The Location of a Unit on its own, for an area whose words weren't found: the region still names its place. */
+function placeIn(
+  documents: RecheckDocuments,
+  documentId: string,
+  contentHash: string | null,
+  unit: number | null,
+): CitationLocation | null {
+  if (contentHash === null) return null;
+  const units = documents.pageTexts(documentId, contentHash, null, null);
+  const on = unit === null ? units[0] : units.find((each) => each.page === unit);
+  return on ? locationOf([on], null) : null;
+}
+
+function citeSelectionAt(
   documents: RecheckDocuments,
   input: { documentId: string; parts: readonly SelectedPart[] },
 ): CitedSelection {
@@ -967,13 +1033,14 @@ export function recheckWhereSelected(
   const quote = cleanQuote(input.quote);
   const version = versionOf(documents, input.documentId, contentHash);
   const covered = version.inRange(cited);
-  const wanted = JSON.stringify(parseLocation(input.location));
+  const wanted = JSON.stringify(withoutArea(parseLocation(input.location)));
   const options = { ...version.matching, numbers: numbersIn(covered) };
   const place =
     quote === "" || covered.length === 0 || covered.length > MAX_CITED_PAGES
       ? undefined
       : placesOf(joinUnits(covered).text, quote, options).find(
-          (found) => JSON.stringify(parseLocation(locationOf(covered, found))) === wanted,
+          (found) =>
+            JSON.stringify(withoutArea(parseLocation(locationOf(covered, found)))) === wanted,
         );
   const own = place ? foldRadicals(readableQuote(joinUnits(covered).text, place)) : "";
   const found = place ? quoteInUnits(covered, cleanQuote(own), version.matching) : null;

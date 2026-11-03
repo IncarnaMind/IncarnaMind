@@ -1,6 +1,14 @@
 import { flip, hide, offset, shift, type VirtualElement } from "@floating-ui/dom";
 import { isMacOS } from "@tiptap/core";
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { AskedQuote, Document } from "../../../core/api";
 import { viewerSelectionHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
@@ -12,10 +20,14 @@ import { useT } from "../i18n";
 import { useSettingUp } from "../modelSetup";
 import { type SelectionReader, selectionEnd } from "./selectedText";
 import {
+  addRangeToNote,
   addSelectionToNote,
   addsWithoutAsking,
+  askAboutRange,
   askAboutSelection,
+  copyRange,
   copySelectionWithCitation,
+  type RangeSelection,
   type ViewerSelection,
 } from "./selectionActions";
 
@@ -262,7 +274,56 @@ export function SelectionMenu({
     };
   }, [actions]);
 
-  const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  if (!held || !actions || !anchor || !open) return null;
+  return (
+    <>
+      <Popover
+        anchor={anchor}
+        placement="bottom-start"
+        middleware={() => [offset(6), flip(), shift({ padding: 8 }), hide()]}
+        role="menu"
+        aria-label={t("viewer.selection.label")}
+        data-testid="viewer-selection-menu"
+        {...(focusWanted && { initialFocus: settingUp ? firstAdd : firstAsk })}
+        onDismiss={close}
+        onKeyDown={menuKeys(menu)}
+        className="viewer-selection-menu"
+      >
+        <SelectionMenuBody
+          menu={menu}
+          actions={actions}
+          firstAsk={firstAsk}
+          addButton={addButton}
+        />
+      </Popover>
+      {picking && adding && (
+        <AddToMindPicker
+          anchor={adding}
+          focusedMindId={null}
+          atCursor={false}
+          newFolderId={document.folderId}
+          onChoose={(target) => {
+            close();
+            void addSelectionToNote(held.selection, target);
+          }}
+          onClose={() => setPicking(false)}
+        />
+      )}
+    </>
+  );
+}
+
+/** What a viewer selection's menu offers, shared by words and by a range of cells (#101, #118). */
+export interface SelectionMenuActions {
+  /** Not offered while a Question waits for a model (#1789). */
+  ask?: () => void;
+  addToNote(): void;
+  copy(): void;
+}
+
+/** The arrows, Home and End move through a menu's items: shared by words and a range of cells. */
+export function menuKeys(menu: RefObject<HTMLDivElement | null>) {
+  return (event: KeyboardEvent<HTMLDivElement>) => {
     const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
     const at = items.indexOf(window.document.activeElement as HTMLElement);
     const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
@@ -278,65 +339,153 @@ export function SelectionMenu({
     event.preventDefault();
     next.focus();
   };
+}
 
-  if (!held || !actions || !anchor || !open) return null;
+/**
+ * The menu's items in one order, and the arrows, Home and End through them: the words selected in
+ * a Document and the cells of a sheet offer the same three actions.
+ */
+export function SelectionMenuBody({
+  menu,
+  actions,
+  firstAsk,
+  addButton,
+  size,
+}: {
+  menu: RefObject<HTMLDivElement | null>;
+  actions: SelectionMenuActions;
+  firstAsk: RefObject<HTMLButtonElement | null>;
+  addButton: (element: HTMLButtonElement | null) => void;
+  /** A range's size, above its actions: "3 rows × 4 columns". */
+  size?: string;
+}) {
+  const t = useT();
+  return (
+    <div ref={menu} className="editor-menu">
+      {size && (
+        <p data-testid="viewer-selection-size" className="editor-menu-note">
+          {size}
+        </p>
+      )}
+      {actions.ask && (
+        <button
+          ref={firstAsk}
+          type="button"
+          role="menuitem"
+          data-testid="viewer-selection-ask"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={actions.ask}
+          className="editor-menu-item"
+        >
+          <ChatLineIcon className="size-4 shrink-0 text-ink-secondary" />
+          <span className="flex-1 truncate">{t("viewer.selection.ask")}</span>
+          <kbd className="editor-menu-shortcut">{shortcutLabel("composer.focus")}</kbd>
+        </button>
+      )}
+      <button
+        ref={addButton}
+        type="button"
+        role="menuitem"
+        aria-haspopup={addsWithoutAsking() ? undefined : "dialog"}
+        data-testid="viewer-selection-add"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={actions.addToNote}
+        className="editor-menu-item"
+      >
+        <PlusLineIcon className="size-4 shrink-0 text-ink-secondary" />
+        <span className="flex-1 truncate">{t("viewer.selection.addToNote")}</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        data-testid="viewer-selection-copy"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={actions.copy}
+        className="editor-menu-item"
+      >
+        <CopyLineIcon className="size-4 shrink-0 text-ink-secondary" />
+        <span className="flex-1 truncate">{t("viewer.selection.copy")}</span>
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The menu for a range of cells selected in a sheet (#118): the same three
+ * actions as words, with the range's size first. It closes on Esc or a press
+ * outside it, and ⌘K reaches its actions while the cells stay selected.
+ */
+export function SheetSelectionMenu({
+  selection,
+  anchor,
+  size,
+  askable,
+  onClose,
+}: {
+  selection: RangeSelection;
+  /** Where its menu opens; null while it is closed, and the range's actions stay in ⌘K. */
+  anchor: VirtualElement | null;
+  size: string;
+  /** Not offered while a Question waits for a model (#1789). */
+  askable: boolean;
+  onClose(): void;
+}) {
+  const t = useT();
+  const menu = useRef<HTMLDivElement>(null);
+  const firstAsk = useRef<HTMLButtonElement>(null);
+  const addRef = useRef<HTMLButtonElement | null>(null);
+  const [adding, setAdding] = useState<HTMLButtonElement | null>(null);
+  const addButton = useCallback((element: HTMLButtonElement | null) => {
+    addRef.current = element;
+    setAdding(element);
+  }, []);
+  const [picking, setPicking] = useState(false);
+  const { document } = selection;
+  const actions = useMemo<SelectionMenuActions>(
+    () => ({
+      ...(askable && {
+        ask: () => {
+          onClose();
+          void askAboutRange(selection);
+        },
+      }),
+      addToNote: () => {
+        if (addsWithoutAsking()) {
+          onClose();
+          void addRangeToNote(selection);
+        } else setPicking(true);
+      },
+      copy: () => {
+        onClose();
+        void copyRange(selection);
+      },
+    }),
+    [selection, askable, onClose],
+  );
   return (
     <>
-      <Popover
-        anchor={anchor}
-        placement="bottom-start"
-        middleware={() => [offset(6), flip(), shift({ padding: 8 }), hide()]}
-        role="menu"
-        aria-label={t("viewer.selection.label")}
-        data-testid="viewer-selection-menu"
-        {...(focusWanted && { initialFocus: settingUp ? firstAdd : firstAsk })}
-        onDismiss={close}
-        onKeyDown={onMenuKeyDown}
-        className="viewer-selection-menu"
-      >
-        <div ref={menu} className="editor-menu">
-          {ask && (
-            <button
-              ref={firstAsk}
-              type="button"
-              role="menuitem"
-              data-testid="viewer-selection-ask"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={ask}
-              className="editor-menu-item"
-            >
-              <ChatLineIcon className="size-4 shrink-0 text-ink-secondary" />
-              <span className="flex-1 truncate">{t("viewer.selection.ask")}</span>
-              <kbd className="editor-menu-shortcut">{shortcutLabel("composer.focus")}</kbd>
-            </button>
-          )}
-          <button
-            ref={addButton}
-            type="button"
-            role="menuitem"
-            aria-haspopup={addsWithoutAsking() ? undefined : "dialog"}
-            data-testid="viewer-selection-add"
-            // The selection stays as it is.
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={actions.addToNote}
-            className="editor-menu-item"
-          >
-            <PlusLineIcon className="size-4 shrink-0 text-ink-secondary" />
-            <span className="flex-1 truncate">{t("viewer.selection.addToNote")}</span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            data-testid="viewer-selection-copy"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={actions.copy}
-            className="editor-menu-item"
-          >
-            <CopyLineIcon className="size-4 shrink-0 text-ink-secondary" />
-            <span className="flex-1 truncate">{t("viewer.selection.copy")}</span>
-          </button>
-        </div>
-      </Popover>
+      {anchor && (
+        <Popover
+          anchor={anchor}
+          placement="bottom-start"
+          middleware={() => [offset(6), flip(), shift({ padding: 8 }), hide()]}
+          role="menu"
+          aria-label={t("viewer.selection.range")}
+          data-testid="viewer-selection-menu"
+          initialFocus={askable ? firstAsk : addRef}
+          onDismiss={onClose}
+          onKeyDown={menuKeys(menu)}
+          className="viewer-selection-menu"
+        >
+          <SelectionMenuBody
+            menu={menu}
+            actions={actions}
+            firstAsk={firstAsk}
+            addButton={addButton}
+            size={size}
+          />
+        </Popover>
+      )}
       {picking && adding && (
         <AddToMindPicker
           anchor={adding}
@@ -344,8 +493,8 @@ export function SelectionMenu({
           atCursor={false}
           newFolderId={document.folderId}
           onChoose={(target) => {
-            close();
-            void addSelectionToNote(held.selection, target);
+            onClose();
+            void addRangeToNote(selection, target);
           }}
           onClose={() => setPicking(false)}
         />

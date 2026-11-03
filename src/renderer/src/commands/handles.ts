@@ -116,6 +116,31 @@ export const viewerSelectionHandle: Handle<{
   current: null,
 };
 
+/** The range of cells selected in a sheet (#118), while it is: what its menu does with it. */
+export const viewerRangeHandle: Handle<{
+  /** Not offered while a Question waits for a model (#1789). */
+  ask?: () => void;
+  addToNote(): void;
+  copy(): void;
+}> = {
+  current: null,
+};
+
+/** The deck in a viewer (#118), while it is open: "Ask about this slide" for the slide in view. */
+export const viewerSlideHandle: Handle<{
+  /** Not offered while a Question waits for a model (#1789). */
+  ask?: () => void;
+}> = {
+  current: null,
+};
+
+/** The viewer's Select area (#118), while its Document can pick one: the header's dashed square. */
+export const viewerAreaHandle: Handle<{
+  select?: () => void;
+}> = {
+  current: null,
+};
+
 /** The Transcript in view (#139): the line the User is on, which "Add transcript line to note" adds. */
 export const transcriptHandle: Handle<{ hasLine(): boolean; addLine(): Promise<void> }> = {
   current: null,

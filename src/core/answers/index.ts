@@ -56,7 +56,12 @@ import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureM
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { readFigures } from "../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
-import { citationLocation, englishLocation, englishPlace } from "../../shared/locations";
+import {
+  citationLocation,
+  englishLocation,
+  englishPlace,
+  parseLocation,
+} from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
@@ -243,6 +248,7 @@ import { unmadeFixesIn } from "./claimedFixes";
 import { unrunToolClaims, unrunToolsNote } from "./claimedTools";
 import { holdBack } from "./claimStream";
 import {
+  type AskedPicture,
   askedText,
   conversationContext,
   conversationContextOf,
@@ -1205,6 +1211,8 @@ export function createAnswers(options: AnswersOptions) {
     transcript?: WindowedPassage[];
     /** Words the User selected in Documents to ask about (#101), right before the Question. */
     quoted?: readonly Quoted[];
+    /** Pictures the User picked on pages to ask about (#118): their images go with the Question. */
+    pictured?: readonly AskedQuote[];
     /**
      * One-click help during the call: the button pressed. Its Answer is laid out as
      * the panel reads it, and is offered the Documents' Tools only.
@@ -2340,21 +2348,37 @@ export function createAnswers(options: AnswersOptions) {
         readShare = within.share;
         if (read) read = within.request.text ? { ...read, partial: true } : null;
       }
-      if (input.quoted && input.quoted.length > 0) {
+      if (
+        (input.quoted && input.quoted.length > 0) ||
+        (input.pictured && input.pictured.length > 0)
+      ) {
+        const quoted = input.quoted ?? [];
+        const pictured = input.pictured ?? [];
+        const key = (quote: AskedQuote) =>
+          `${quote.documentId}:${JSON.stringify(quote.location)}:${quote.quote}`;
+        const seen = new Set(quoted.map(({ quote }) => key(quote)));
+        const picturedKeys = new Set(pictured.map(key));
         messages = withBeforeQuestion(
           messages,
-          selectedTextBlock(
-            input.quoted.map(({ quote, passages }) => ({
+          selectedTextBlock([
+            ...quoted.map(({ quote, passages }) => ({
               ...quote,
               place: englishPlace(quote.location),
               shown: session.show(passages),
+              ...(picturedKeys.has(key(quote)) && { pictured: true }),
             })),
-          ),
+            ...pictured
+              .filter((quote) => !seen.has(key(quote)))
+              .map((quote) => ({
+                ...quote,
+                place: englishPlace(quote.location),
+                shown: "",
+                pictured: true,
+              })),
+          ]),
         );
         // Someone else wrote a saved web page: quoted, it is read as a search reads it (#78).
-        if (
-          input.quoted.some(({ passages }) => passages.some((each) => each.documentKind === "web"))
-        ) {
+        if (quoted.some(({ passages }) => passages.some((each) => each.documentKind === "web"))) {
           contextReasons.push({ via: "read", source: "web-page" });
           textOrigin ??= "web-page";
         }
@@ -3708,7 +3732,11 @@ export function createAnswers(options: AnswersOptions) {
     emptyScope: boolean,
     mind: MindToRead | null,
     onScreen: readonly string[],
-    { quoted, leftOut }: { quoted: Quoted[]; leftOut: AskedQuote[] },
+    {
+      quoted,
+      pictured,
+      leftOut,
+    }: { quoted: Quoted[]; pictured: AskedQuote[]; leftOut: AskedQuote[] },
     commands: CommandWindow | null,
     remake: string | null = null,
   ): ConversationAskResult {
@@ -3771,6 +3799,14 @@ export function createAnswers(options: AnswersOptions) {
     const shown = callOnly ? [] : namesOnScreen(onScreen, documentIds);
     const ids = (callOnly ? null : mind?.ids) ?? contextCitationsFor(mind?.mindId ?? null, wallId);
     const named = help ? [] : namedMinds(mind?.mindId ?? null, wallId);
+    // A model that can't read pictures is sent none, even a figure the User picked (#118).
+    const pictures =
+      options.readsImages?.(ready.model) === false
+        ? []
+        : pictured.flatMap((quote) => {
+            const picture = pickedPicture(quote);
+            return picture ? [picture] : [];
+          });
     const { context, origins } = conversationContextOf(earlier, question.text, {
       mind: section,
       documents: contextDocuments,
@@ -3778,6 +3814,7 @@ export function createAnswers(options: AnswersOptions) {
       changeStates: changeStatesOf,
       onScreen: shown,
       ids,
+      pictures,
     });
     const requestOf = (reading: MindReading, kept: MindCut): RequestMind => ({
       text: kept.text,
@@ -3820,6 +3857,7 @@ export function createAnswers(options: AnswersOptions) {
                   changeStates: changeStatesOf,
                   onScreen: shown,
                   ids,
+                  pictures,
                 }).context,
                 request: requestOf(mind.reading, smaller),
                 share: smaller.share,
@@ -3836,6 +3874,7 @@ export function createAnswers(options: AnswersOptions) {
       ...(mind && { listening: () => options.liveTranscript(mind.mindId) }),
       ...(help && { help }),
       quoted: callOnly ? [] : quoted,
+      pictured: callOnly ? [] : pictured,
       assistant: {
         focused: mind && {
           mindId: mind.mindId,
@@ -3864,13 +3903,27 @@ export function createAnswers(options: AnswersOptions) {
     };
   }
 
+  const PICTURE_DATA_URL = /^data:(image\/(?:png|jpeg|gif|webp));base64,([\s\S]+)$/;
+
+  /** An area's picture as a model takes it (#118), or null when it holds no picture a model reads. */
+  function pickedPicture(quote: AskedQuote): AskedPicture | null {
+    const match = PICTURE_DATA_URL.exec(quote.picture?.src ?? "");
+    if (!match?.[1] || !match[2]) return null;
+    return {
+      data: new Uint8Array(Buffer.from(match[2], "base64")),
+      mediaType: match[1] as AskedPicture["mediaType"],
+      alt: quote.quote || englishPlace(quote.location) || "",
+    };
+  }
+
   // Only the Document's own name and words are kept and sent: what the caller gave is only looked for.
   function checkQuotes(
     quotes: readonly AskedQuote[],
     mindId: string | null,
     wallId?: string | null,
-  ): { quoted: Quoted[]; leftOut: AskedQuote[] } {
+  ): { quoted: Quoted[]; pictured: AskedQuote[]; leftOut: AskedQuote[] } {
     const quoted: Quoted[] = [];
+    const pictured: AskedQuote[] = [];
     const leftOut: AskedQuote[] = [];
     const allowed = readableAcrossWalls(mindId, wallId);
     const documents = options.documents.names();
@@ -3892,25 +3945,65 @@ export function createAnswers(options: AnswersOptions) {
                 ),
             )
           : [];
-      if (name === null || passages.length === 0) {
-        leftOut.push(asked);
-        continue;
-      }
+      // An area over a picture has no words to find, by design (#118): its Citation is kept as
+      // the picture's, and its image still goes with the Question.
+      const picture = asked.picture;
+      const noWords = picture !== undefined && asked.quote.trim() === "";
+      const removed = now.checkReason === "document-removed";
+      const area = parseLocation(asked.location)?.area;
+      const place =
+        now.location && area ? { ...now.location, area } : (now.location ?? asked.location);
       const quote: AskedQuote = {
         documentId: asked.documentId,
-        documentName: name,
-        quote: now.quote,
+        documentName: name ?? asked.documentName,
+        quote: noWords ? "" : now.quote,
         pageFrom: now.pageFrom,
         pageTo: now.pageTo,
-        location: now.location,
+        location: place,
+        ...(asked.pick && { pick: asked.pick }),
+        ...(asked.table && { table: asked.table }),
+        ...(picture && { picture }),
+        ...((picture !== undefined || asked.pick !== undefined) && {
+          check: noWords ? (removed ? now.check : (asked.check ?? "cant-check")) : now.check,
+          checkReason: noWords
+            ? removed
+              ? now.checkReason
+              : (asked.checkReason ?? "picture")
+            : now.checkReason,
+        }),
       };
+      if (picture) pictured.push(quote);
+      if (name === null || passages.length === 0) {
+        if (!picture) leftOut.push(asked);
+        continue;
+      }
       const same = (each: Quoted) =>
         each.quote.documentId === quote.documentId &&
         each.quote.quote === quote.quote &&
         JSON.stringify(each.quote.location) === JSON.stringify(quote.location);
       if (!quoted.some(same)) quoted.push({ quote, passages });
     }
-    return { quoted, leftOut };
+    return { quoted, pictured, leftOut };
+  }
+
+  /** The picks kept with the Question: the words that were found, and every figure, each once. */
+  function storedQuotes({
+    quoted,
+    pictured,
+  }: {
+    quoted: readonly Quoted[];
+    pictured: readonly AskedQuote[];
+  }): AskedQuote[] {
+    const all = [...quoted.map((each) => each.quote), ...pictured];
+    const key = (quote: AskedQuote) =>
+      `${quote.documentId}:${JSON.stringify(quote.location)}:${quote.quote}`;
+    const seen = new Set<string>();
+    return all.filter((quote) => {
+      const at = key(quote);
+      if (seen.has(at)) return false;
+      seen.add(at);
+      return true;
+    });
   }
 
   // Peeked, so Minds not open aren't loaded; and only so many, so a big Library doesn't slow a Question.
@@ -4139,7 +4232,7 @@ export function createAnswers(options: AnswersOptions) {
       );
       const quotes = checkQuotes(question.quotes, question.mind?.id ?? null);
       const added = options.conversations.add(
-        { ...question, scope, quotes: quotes.quoted.map((each) => each.quote) },
+        { ...question, scope, quotes: storedQuotes(quotes) },
         answerModel,
         readOf(mind),
         false,

@@ -13,9 +13,14 @@ import {
   type Item,
   type SlideDrawing,
 } from "../../../core/documents/formats/pptxDrawing";
+import { withoutArea } from "../../../shared/locations";
 import { findQuoteInPieces, type TextRange } from "../../../shared/quoteMatch";
+import { useHandle, viewerSlideHandle } from "../commands/handles";
+import { ChatLineIcon } from "../components/lineIcons";
+import { core } from "../core";
 import { useT } from "../i18n";
-import type { ViewerTarget } from "../store";
+import { useSettingUp } from "../modelSetup";
+import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
 import { FileStates } from "./FileStates";
 import { HighlightedText } from "./highlightedText";
@@ -28,6 +33,7 @@ import {
   quoteTone,
 } from "./quoteMark";
 import { domSelection, useSelectionReader } from "./selectedText";
+import { putQuoteInComposer } from "./selectionActions";
 import { findInDrawing, rangesByKey } from "./slides/pieces";
 import { SlideCanvas } from "./slides/SlideCanvas";
 import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
@@ -79,7 +85,7 @@ export function SlidesView({ document, target }: { document: Document; target: V
       loaded={loaded}
       quote={target.quote}
       reload={reload}
-      ready={(value) => <Slides loaded={value} target={target} />}
+      ready={(value) => <Slides loaded={value} document={document} target={target} />}
     />
   );
 }
@@ -130,11 +136,20 @@ const slideOf = (node: Node) => {
   return slide ? Number(slide) : null;
 };
 
-function Slides({ loaded, target }: { loaded: Loaded; target: ViewerTarget }) {
+function Slides({
+  loaded,
+  document,
+  target,
+}: {
+  loaded: Loaded;
+  document: Document;
+  target: ViewerTarget;
+}) {
   const t = useT();
   const { slides } = loaded.deck;
   const { drawing } = loaded;
   const scroller = useRef<HTMLDivElement>(null);
+  const settingUp = useSettingUp();
   useSelectionReader(
     useCallback(
       (range) =>
@@ -149,6 +164,57 @@ function Slides({ loaded, target }: { loaded: Loaded; target: ViewerTarget }) {
   const [viewWidth, setViewWidth] = useState(0);
   const [notesToggled, setNotesToggled] = useState<ReadonlyMap<number, boolean>>(new Map());
   const appliedRequest = useRef<number | null>(null);
+
+  /** The slide at the top of the viewer: what ⌘K's "Ask about this slide" asks about. */
+  const nearestSlide = useCallback(() => {
+    const container = scroller.current;
+    const numbers = slides.map((slide) => slide.number);
+    if (!container) return numbers[0] ?? 1;
+    const top = container.getBoundingClientRect().top + 48;
+    let number = numbers[0] ?? 1;
+    for (const [slide, element] of slideElements.current) {
+      if (element.getBoundingClientRect().top <= top) number = Math.max(number, slide);
+    }
+    return number;
+  }, [slides]);
+
+  /**
+   * Asks about a whole slide (#118): its own text as the quote, cited to the slide; a slide with
+   * no text is a picture, and that Citation can't be checked.
+   */
+  const askSlide = useCallback(
+    async (number: number) => {
+      const unit = loaded.deck.units.find((each) => each.page === number);
+      const text = unit?.text ?? "";
+      try {
+        const cited = await core.citeSelection({
+          documentId: document.id,
+          parts: text.trim() === "" ? [] : [{ unit: number, text }],
+          unit: number,
+          ...(text.trim() === "" && { area: { x: 0, y: 0, width: 1, height: 1 } }),
+        });
+        putQuoteInComposer({
+          documentId: document.id,
+          documentName: document.name,
+          quote: cited.quote,
+          pageFrom: cited.pageFrom,
+          pageTo: cited.pageTo,
+          location: withoutArea(cited.location),
+          pick: "slide",
+          check: cited.check,
+          checkReason: cited.checkReason,
+        });
+      } catch (error) {
+        useAppStore.getState().reportError(error);
+      }
+    },
+    [document, loaded.deck.units],
+  );
+  const slideActions = useMemo<{ ask?: () => void }>(
+    () => (slides.length === 0 || settingUp ? {} : { ask: () => void askSlide(nearestSlide()) }),
+    [slides.length, settingUp, askSlide, nearestSlide],
+  );
+  useHandle(viewerSlideHandle, slideActions);
 
   const drawn = useMemo(
     () => new Map((drawing?.slides ?? []).map((slide) => [slide.number, slide])),
@@ -368,6 +434,7 @@ function Slides({ loaded, target }: { loaded: Loaded; target: ViewerTarget }) {
                   onNotesToggle={(open) =>
                     setNotesToggled((before) => new Map(before).set(slide.number, open))
                   }
+                  onAsk={settingUp ? undefined : () => void askSlide(slide.number)}
                   setElement={setElement(slide.number)}
                 />
               );
@@ -391,6 +458,7 @@ function SlideFrame({
   markRoom,
   notesOpen,
   onNotesToggle,
+  onAsk,
   setElement,
 }: {
   outline: SlideOutline;
@@ -404,6 +472,7 @@ function SlideFrame({
   markRoom: number;
   notesOpen: boolean;
   onNotesToggle(open: boolean): void;
+  onAsk?: () => void;
   setElement(element: HTMLElement | null): void;
 }) {
   const t = useT();
@@ -440,6 +509,7 @@ function SlideFrame({
       }}
       data-testid="viewer-slide"
       data-slide={slide.number}
+      data-area-unit={slide.number}
       data-quote-found={found ? found.where : undefined}
       aria-label={t("viewer.slide.label", { number: slide.number })}
       className={`viewer-deck-slide ${outline.hidden ? "viewer-deck-slide--hidden" : ""}`}
@@ -463,6 +533,18 @@ function SlideFrame({
             ranges={slideRanges}
           />
         </div>
+        {onAsk && (
+          <button
+            type="button"
+            data-testid="viewer-slide-ask"
+            data-quote-skip=""
+            onClick={onAsk}
+            className="viewer-slide-ask"
+          >
+            <ChatLineIcon className="size-3.5" />
+            {t("viewer.slide.ask")}
+          </button>
+        )}
       </div>
       {outline.notes.length > 0 && (
         <details

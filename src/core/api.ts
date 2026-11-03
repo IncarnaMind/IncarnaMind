@@ -2090,6 +2090,11 @@ export type CitationCheckReason =
   | "in-several-places"
   /** Can't check: the cited Units have no text, e.g. scanned pages. */
   | "no-text"
+  /**
+   * Can't check: the area the User selected on a page holds no text, so the Citation points at a
+   * picture (#118).
+   */
+  | "picture"
   /** Can't check: the quote covers a word the text recognition may have misread (#535). */
   | "unsure-word"
   /** Can't check from this Note: the Document stays inside a walled Folder. */
@@ -2105,6 +2110,23 @@ export type CitationCheckReason =
    * its sentences, so their check never ran (#2375).
    */
   | "small-model";
+
+/** Every check reason, for reading one the app didn't write: a value outside these is no reason. */
+export const CITATION_CHECK_REASONS = [
+  "quote-not-on-pages",
+  "quoted-words-not-on-pages",
+  "pages-outside-passage",
+  "too-many-pages",
+  "in-several-places",
+  "no-text",
+  "picture",
+  "unsure-word",
+  "kept-inside",
+  "document-removed",
+  "answer-limit",
+  "monthly-limit",
+  "small-model",
+] as const satisfies readonly CitationCheckReason[];
 
 /**
  * What to re-check a Citation with against its Document's current version
@@ -2222,6 +2244,22 @@ export interface CitedSelection extends CitationRecheck {
 /** At most this many `AskedQuote`s go with a Question: each brings the Passages of its pages. */
 export const MOST_ASKED_QUOTES = 10;
 
+/** A sheet range's cells as its chip and its table show them: its header row first, when the sheet has one. */
+export interface AskedTable {
+  header: string[] | null;
+  rows: string[][];
+}
+
+/** A picture the User picked on a page (`AskedQuote.picture`), kept as a `data:` URL, and its size in pixels. */
+export interface AskedPictureData {
+  src: string;
+  width: number;
+  height: number;
+}
+
+/** What the User picked in a viewer to ask about (#118), with words being the usual one (#101). */
+export type AskedPick = "rows" | "slide" | "area";
+
 /**
  * Words the User selected in a Document to ask about ("Ask about this", #101), as
  * `citeSelection` found them, kept with the Question.
@@ -2230,10 +2268,23 @@ export interface AskedQuote {
   documentId: string;
   /** As the User saw it when they asked: it stays readable once the Document is deleted. */
   documentName: string;
+  /** The words, as the Document has them; "" for a figure whose area held no text. */
   quote: string;
   pageFrom: number | null;
   pageTo: number | null;
   location: CitationLocation | null;
+  /**
+   * What was picked, when it wasn't words (#118): a sheet's cells, a whole slide, or an area of a
+   * page. Absent for words.
+   */
+  pick?: AskedPick;
+  /** A sheet range's cells, header first: the chip's preview, Add to note's table and the copied TSV. */
+  table?: AskedTable;
+  /** An area's picture: shown as the chip's thumbnail, and sent to a model that reads images. */
+  picture?: AskedPictureData;
+  /** The check its Citation was given when the User picked it: found on its Unit, or a picture's can't check. */
+  check?: CitationCheck;
+  checkReason?: CitationCheckReason | null;
 }
 
 /**
@@ -2278,20 +2329,38 @@ export const MAX_CITED_PAGES = 2;
  *   the end of the one it ends in, in ms from the Transcript's start (#136);
  *   `speaker`: who said the cue it starts in, where the Transcript says (#941).
  */
+/**
+ * A region of a cited Unit: a rectangle by its top left corner, as fractions
+ * of the Unit's width and height, so it holds at any zoom or window size
+ * (#118).
+ */
+export interface CitedArea {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A Location that may hold the region the User selected on its Unit (#118). */
+interface MaybeArea {
+  /** The area the User picked, when the Citation cites a figure rather than words. */
+  area?: CitedArea;
+}
+
 export type CitationLocation =
-  | {
+  | ({
       kind: "page";
       from: number;
       to: number;
       printed?: { from: string; to: string };
       /** The printed line on the first printed page and on the last (#1709). */
       lines?: { from: number; to: number };
-    }
-  | { kind: "slide"; from: number; to: number }
-  | { kind: "rows"; sheet: string | null; from: number; to: number }
-  | { kind: "lines"; from: number; to: number }
-  | { kind: "time"; from: number; to: number; speaker?: string }
-  | {
+    } & MaybeArea)
+  | ({ kind: "slide"; from: number; to: number } & MaybeArea)
+  | ({ kind: "rows"; sheet: string | null; from: number; to: number } & MaybeArea)
+  | ({ kind: "lines"; from: number; to: number } & MaybeArea)
+  | ({ kind: "time"; from: number; to: number; speaker?: string } & MaybeArea)
+  | ({
       kind: "section";
       heading: string | null;
       start?: boolean;
@@ -2300,7 +2369,7 @@ export type CitationLocation =
       paragraphs?: { from: number; to: number };
       /** A web page's picture the quote was read from, numbered in the page from 1. */
       figure?: number;
-    };
+    } & MaybeArea);
 
 /** A stretch of words, and whether the Document has it where the Answer's quoted words were looked for. */
 export interface QuotedPiece {
@@ -11520,9 +11589,17 @@ export interface CoreApi {
    * order selected, one part for each Unit: checked against the current
    * version's text of those Units only, never found somewhere else, and kept
    * there when it isn't found. With no Unit known, it is cited only where
-   * the Document has the words in one place.
+   * the Document has the words in one place. Given an `area` (#118), the
+   * Citation points at that region of the Unit; with no words in it, the
+   * region is cited as a picture, which can't be checked.
    */
-  citeSelection(input: { documentId: string; parts: SelectedPart[] }): Promise<CitedSelection>;
+  citeSelection(input: {
+    documentId: string;
+    parts: SelectedPart[];
+    area?: CitedArea;
+    /** The Unit the area is on, when its text found no place there: a picture of that page or slide. */
+    unit?: number | null;
+  }): Promise<CitedSelection>;
   /**
    * Searches the Passages of live Documents, best match first: hybrid
    * (keyword and vector) search by default, which is keyword search while

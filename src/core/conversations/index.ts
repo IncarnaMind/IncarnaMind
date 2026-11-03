@@ -32,8 +32,11 @@ import type {
   AnswerSteps,
   AnswerToolCall,
   AskedFrom,
+  AskedPictureData,
   AskedQuote,
+  AskedTable,
   ChatModelChoice,
+  CitationCheck,
   CitationSupport,
   ClaimedChange,
   ClaimedCommand,
@@ -55,7 +58,13 @@ import type {
   SearchScope,
   ThirdPartySource,
 } from "../api";
-import { CLAIMED_CHANGES, CLAIMED_COMMANDS, CLAIMED_TOOLS, MOST_ASKED_QUOTES } from "../api";
+import {
+  CITATION_CHECK_REASONS,
+  CLAIMED_CHANGES,
+  CLAIMED_COMMANDS,
+  CLAIMED_TOOLS,
+  MOST_ASKED_QUOTES,
+} from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { isSignInRouteProblem } from "../providers/signInRoutes";
 import { parseSearchScope } from "../scope";
@@ -436,26 +445,104 @@ const pageOf = (value: unknown): number | null | undefined =>
       ? value
       : undefined;
 
+const PICTURE_DATA_URL = /^data:(image\/(?:png|jpeg|gif|webp));base64,[\s\S]+$/;
+const CHECK_STATES: readonly CitationCheck[] = [
+  "checking",
+  "found",
+  "not-found",
+  "cant-check",
+  "not-checked",
+  "unsupported",
+  "contradicted",
+];
+
+/** A sheet range's cells, as far as they read; null if they don't. */
+function parseAskedTable(value: unknown): AskedTable | null | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || !Array.isArray(value.rows)) return null;
+  const header = value.header;
+  if (
+    header !== null &&
+    (!Array.isArray(header) || !header.every((cell) => typeof cell === "string"))
+  ) {
+    return null;
+  }
+  if (
+    !value.rows.every((row) => Array.isArray(row) && row.every((cell) => typeof cell === "string"))
+  ) {
+    return null;
+  }
+  return {
+    header: header as string[] | null,
+    rows: value.rows as string[][],
+  };
+}
+
+function parseAskedPicture(value: unknown): AskedPictureData | null | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) return null;
+  const { src, width, height } = value;
+  if (
+    typeof src !== "string" ||
+    !PICTURE_DATA_URL.test(src) ||
+    typeof width !== "number" ||
+    !Number.isInteger(width) ||
+    width < 1 ||
+    typeof height !== "number" ||
+    !Number.isInteger(height) ||
+    height < 1
+  ) {
+    return null;
+  }
+  return { src, width, height };
+}
+
 function parseQuote(value: unknown): AskedQuote | null {
   if (!isRecord(value)) return null;
   const { documentId, documentName, quote } = value;
   const pageFrom = pageOf(value.pageFrom);
   const pageTo = pageOf(value.pageTo);
   const location = value.location === null ? null : parseLocation(value.location);
+  const table = parseAskedTable(value.table);
+  const picture = parseAskedPicture(value.picture);
+  const pick =
+    value.pick === "rows" || value.pick === "slide" || value.pick === "area"
+      ? value.pick
+      : undefined;
+  const check = CHECK_STATES.find((state) => state === value.check);
+  const checkReason =
+    value.checkReason === null
+      ? null
+      : CITATION_CHECK_REASONS.find((reason) => reason === value.checkReason);
   if (
     typeof documentId !== "string" ||
     documentId === "" ||
     typeof documentName !== "string" ||
     typeof quote !== "string" ||
-    quote.trim() === "" ||
+    (quote.trim() === "" && !picture) ||
     quote.length > MOST_QUOTED_CHARACTERS ||
     pageFrom === undefined ||
     pageTo === undefined ||
-    (value.location !== null && location === null)
+    (value.location !== null && location === null) ||
+    table === null ||
+    picture === null ||
+    (value.check !== undefined && check === undefined)
   ) {
     return null;
   }
-  return { documentId, documentName, quote, pageFrom, pageTo, location };
+  return {
+    documentId,
+    documentName,
+    quote,
+    pageFrom,
+    pageTo,
+    location,
+    ...(pick && { pick }),
+    ...(table && { table }),
+    ...(picture && { picture }),
+    ...(check && { check }),
+    ...(value.checkReason !== undefined && { checkReason: checkReason ?? null }),
+  };
 }
 
 function parseQuotes(value: unknown): AskedQuote[] {

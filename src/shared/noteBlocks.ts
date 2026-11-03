@@ -15,6 +15,7 @@ import {
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
 import { figureShownText, readCalculatedFigureAttributes } from "./calculatedFigures";
+import { parseLocation } from "./locations";
 
 /** At most this many Blocks go into a note at once, and this deep. */
 const MAX_BLOCKS = 2_000;
@@ -110,11 +111,13 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
   const attrs = node.attrs ?? {};
   const { documentId, quote } = attrs;
   if (typeof documentId !== "string" || documentId === "") return node;
+  // An area over a picture keeps the check it was given where the User picked it (#118).
+  if (typeof quote !== "string" || quote === "") return node;
   try {
     const pageFrom = unit(attrs.pageFrom);
     const checked = await recheck({
       documentId,
-      quote: typeof quote === "string" ? quote : "",
+      quote,
       pageFrom,
       pageTo: unit(attrs.pageTo) ?? pageFrom,
       contentHash: typeof attrs.contentHash === "string" ? attrs.contentHash : null,
@@ -127,6 +130,8 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
       if (quoted === null) return node;
       return { ...node, attrs: { ...attrs, check: quoted.check, checkReason: quoted.checkReason } };
     }
+    // A picked area keeps its region: the check finds where its words are, not the User's rectangle.
+    const area = parseLocation(attrs.location)?.area;
     return {
       ...node,
       attrs: {
@@ -137,7 +142,7 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
         passageId: checked.passageId,
         pageFrom: checked.pageFrom,
         pageTo: checked.pageTo,
-        location: checked.location,
+        location: checked.location && area ? { ...checked.location, area } : checked.location,
       },
     };
   } catch (error) {

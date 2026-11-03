@@ -1,8 +1,10 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Document, DocumentPlace, LayoutTab } from "../../../../core/api";
 import { citedTextKept } from "../../../../shared/citations";
+import { useHandle, viewerAreaHandle } from "../../commands/handles";
 import { useT } from "../../i18n";
 import { useAppStore, type ViewerTarget } from "../../store";
+import { AreaModeContext, AreaOverlay } from "../../viewer/areaSelection";
 import { CitedVersionView } from "../../viewer/CitedVersionView";
 import { DocumentView } from "../../viewer/DocumentView";
 import { type PlaceMemory, PlaceMemoryContext, type ViewPlace } from "../../viewer/place";
@@ -173,9 +175,29 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   const places = usePlaceMemory(target);
   const [section, setSection] = useState<HTMLElement | null>(null);
   const [reader, setReader] = useState<SelectionReader | null>(null);
+  const [areaActive, setAreaActive] = useState(false);
   // A reader is a function: kept as one, not called as an update.
   const lendReader = useCallback((lent: SelectionReader | null) => setReader(() => lent), []);
   useKeepOnReading(section, tab.id, tab.preview);
+  const areaMode = useMemo(
+    () => ({
+      active: areaActive,
+      setActive: (active: boolean) => {
+        setAreaActive(active);
+        // The viewer takes the focus, so Enter can take the page in view and Esc can stop.
+        if (active) section?.focus();
+      },
+    }),
+    [areaActive, section],
+  );
+  // Sheets pick cells, not areas (#118).
+  const areaAvailable =
+    document !== undefined && document.kind !== "xlsx" && document.kind !== "csv";
+  const areaCommand = useMemo(
+    () => (areaAvailable ? { select: () => areaMode.setActive(!areaMode.active) } : {}),
+    [areaAvailable, areaMode],
+  );
+  useHandle(viewerAreaHandle, areaCommand);
 
   return (
     <section
@@ -184,33 +206,37 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
       data-surface="viewer"
       data-document-id={documentId}
       aria-label={t("viewer.label")}
-      className="viewer-pane flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sheet"
+      tabIndex={-1}
+      className="viewer-pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sheet"
     >
-      <ViewerFrameContext.Provider value={frame}>
-        <PlaceMemoryContext.Provider value={places}>
-          {!document ? (
-            <>
-              <ViewerHeader />
-              <DocumentRemoved quote={target.quote} unlinked={unlinked} />
-            </>
-          ) : (
-            // Keyed, so another Document, or a new read of its file, starts afresh (the last one
-            // goes at once). While its view loads, the header alone: the page comes a moment later.
-            <Suspense key={fileKey} fallback={<ViewerHeader />}>
-              <SelectionReaderContext.Provider value={lendReader}>
-                {citedVersion && document.contentHash !== citedVersion ? (
-                  <CitedVersionView document={document} target={target} />
-                ) : (
-                  <DocumentView document={document} target={target} />
-                )}
-              </SelectionReaderContext.Provider>
-            </Suspense>
-          )}
-          {document && reader && (
-            <SelectionMenu document={document} section={section} reader={reader} />
-          )}
-        </PlaceMemoryContext.Provider>
-      </ViewerFrameContext.Provider>
+      <AreaModeContext.Provider value={areaAvailable ? areaMode : null}>
+        <ViewerFrameContext.Provider value={frame}>
+          <PlaceMemoryContext.Provider value={places}>
+            {!document ? (
+              <>
+                <ViewerHeader />
+                <DocumentRemoved quote={target.quote} unlinked={unlinked} />
+              </>
+            ) : (
+              // Keyed, so another Document, or a new read of its file, starts afresh (the last one
+              // goes at once). While its view loads, the header alone: the page comes a moment later.
+              <Suspense key={fileKey} fallback={<ViewerHeader />}>
+                <SelectionReaderContext.Provider value={lendReader}>
+                  {citedVersion && document.contentHash !== citedVersion ? (
+                    <CitedVersionView document={document} target={target} />
+                  ) : (
+                    <DocumentView document={document} target={target} />
+                  )}
+                </SelectionReaderContext.Provider>
+              </Suspense>
+            )}
+            {document && reader && (
+              <SelectionMenu document={document} section={section} reader={reader} />
+            )}
+            {document && areaAvailable && <AreaOverlay section={section} document={document} />}
+          </PlaceMemoryContext.Provider>
+        </ViewerFrameContext.Provider>
+      </AreaModeContext.Provider>
     </section>
   );
 }
