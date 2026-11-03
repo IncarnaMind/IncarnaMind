@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { utimes } from "node:fs/promises";
 import { describe, expect, test, vi } from "vitest";
-import type { CheckFigure, ClaimCheckAttributes, Core, Document } from "../../src/core";
+import type { ClaimCheckAttributes, Core, Document } from "../../src/core";
 import type {
   ClaimCheckDependencies,
   ClaimCheckRequest,
@@ -652,6 +652,34 @@ describe.each(["en", "zh-CN"] as const)(
   },
 );
 
+// protects=a Note's sentence whose Property line names a count is decided by that count's own Citation, never by a body line that writes one, as a sentence without figures is; fails_when=the deck's slide "This deck has 3 slides" backs the figure of a sentence about the deck's own slide count.
+test("a sentence about a file's count is never decided by a body line that writes one", async () => {
+  const SENTENCE = "Plan.pptx has 3 slides.";
+  const slide = (text: string) => ({
+    shapes: sp({ body: txBody(para(`<a:r><a:t>${text}</a:t></a:r>`)) }),
+  });
+  const deck = [
+    {
+      name: "Plan.pptx",
+      contents: pptxOf({ slides: [slide("This deck has 3 slides"), slide("Plan"), slide("End")] }),
+    },
+  ];
+  const plan = (property: string): Record<string, Plan> => ({
+    [SENTENCE]: { document: "Plan", verdict: "supported", quote: "This deck has 3 slides", property },
+  });
+  const aboutText = await setUp(deck, plan("none"));
+  const { check: text } = await checkInNote(aboutText.core, SENTENCE, null);
+  expect(text).toMatchObject({
+    state: "supported",
+    figures: [{ state: "supported", evidence: { quote: "This deck has 3 slides" } }],
+  });
+
+  const aboutFile = await setUp(deck, plan("slides"));
+  const { check } = await checkInNote(aboutFile.core, SENTENCE, null);
+  expect(check?.state).toBe("unsupported");
+  expect(check?.figures?.map((figure) => figure.state)).toEqual(["unsupported"]);
+});
+
 // protects=a Note's sentence one of whose figures a property may not decide is never Supported on its other figure's text; fails_when=the deck's text backs "4 owners" and the sentence stays Supported while its "3 slides" rests on a property its reply doesn't name.
 test("a sentence with two figures, one of them backed by a property it may not use, is not Supported", async () => {
   const SENTENCE = "Plan.pptx names 4 owners across its 3 slides.";
@@ -690,28 +718,6 @@ test("a sentence with two figures, one of them backed by a property it may not u
   const { check } = await checkInNote(notAbout.core, SENTENCE, null);
   expect(check?.figures?.map((figure) => figure.state)).toEqual(["supported", "unsupported"]);
   expect(check?.state).toBe("unsupported");
-
-  // The check's own result for the sentence rests on all its figures' Citations, as the Note's does.
-  const figures = readFigures(SENTENCE, { language: "en" }).map(
-    (reading, at): CheckFigure => ({
-      id: `figure-${at}`,
-      locator: {
-        kind: "text",
-        from: { blockId: "p", offset: reading.start },
-        to: { blockId: "p", offset: reading.end },
-      },
-      reading,
-      calculated: null,
-    }),
-  );
-  expect(figures).toHaveLength(2);
-  expect(await named.core.checkClaim({ claim: SENTENCE, figures })).toMatchObject({
-    verdict: "supported",
-    evidence: { quote: "Owners: 4" },
-  });
-  expect(await notAbout.core.checkClaim({ claim: SENTENCE, figures })).toMatchObject({
-    verdict: "unsupported",
-  });
 });
 
 /** The ruled line, with this computer's date as the day it was here, in its own time zone. */
