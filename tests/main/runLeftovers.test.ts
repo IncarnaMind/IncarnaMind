@@ -271,6 +271,8 @@ describe("the app's stopper", () => {
  */
 function fakeComputer(rows: ProcessRow[], membersOf: Record<string, number[]>) {
   return {
+    // A Mac's: the one system whose sweep signals.
+    platform: "darwin" as const,
     list: async () => rows.map((each) => ({ ...each })),
     check: async (questions: readonly { pid: number; value: string }[]) =>
       questions.map((question) => {

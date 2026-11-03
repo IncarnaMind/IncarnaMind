@@ -243,12 +243,19 @@ describe.skipIf(unavailable !== undefined)(
       const { call, analyses } = tool({ P1: document });
       const volumes = process.platform === "darwin" ? "/Volumes" : "/mnt";
       const homes = process.platform === "darwin" ? "/Users" : "/home";
+      // bubblewrap mounts what a run must read inside a denied folder over an empty one, with the
+      // folders on its way: CI's seccomp helper is under /home, so /home lists that way's first
+      // folder and nothing else. macOS refuses the listing.
+      const homesListed =
+        process.platform === "linux" && seccomp.startsWith("/home/")
+          ? `${seccomp.split("/")[2]},`
+          : "";
       const report = await call(
         "bash",
         [
           `try() { if eval "$2" >/dev/null 2>&1; then echo "$1: allowed"; else echo "$1: denied"; fi; }`,
           `try home "cat '${homeCanary}'"`,
-          `try homes "ls -A '${homes}' | grep -q ."`,
+          `echo "homes: [$(ls -A '${homes}' 2>/dev/null | tr '\\n' ',')]"`,
           'try runtime-folder "ls -A /run/user/$(id -u) | grep -q ."',
           `try data "cat '${dataCanary}'"`,
           `try temp "cat '${tempCanary}'"`,
@@ -274,7 +281,7 @@ describe.skipIf(unavailable !== undefined)(
       const printed = analyses[0]?.output.printed.split("\n") ?? [];
       expect(printed).toEqual([
         "home: denied",
-        "homes: denied",
+        `homes: [${homesListed}]`,
         "runtime-folder: denied",
         "data: denied",
         "temp: denied",

@@ -333,8 +333,8 @@ export interface RunSweeperOptions {
   stopper?: Stopper;
   /** Where runs are recorded. */
   records: string;
-  /** A test's listing and profile check; this computer's otherwise. */
-  computer?: Pick<SweepDeps, "list" | "check">;
+  /** A test's listing, profile check and system; this computer's otherwise. */
+  computer?: Pick<SweepDeps, "list" | "check" | "platform">;
 }
 
 /** A record as `begin` writes it; anything else in the folder is no run's. */
@@ -367,7 +367,7 @@ export function createRunSweeper(options: RunSweeperOptions): RunSweeper {
     check: options.computer?.check ?? sandboxCheck,
     stopper: options.stopper ?? killProcess,
     log: options.log ?? (() => {}),
-    platform: process.platform,
+    platform: options.computer?.platform ?? process.platform,
     uid: uid ?? -1,
     app: process.pid,
   };
