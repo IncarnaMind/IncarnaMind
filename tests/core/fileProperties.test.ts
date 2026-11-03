@@ -9,6 +9,8 @@ import { randomUUID } from "node:crypto";
 import { utimes } from "node:fs/promises";
 import { describe, expect, test, vi } from "vitest";
 import type { ClaimCheckAttributes, Core, Document } from "../../src/core";
+import { declaredProperties } from "../../src/core/answers/checks/fileProperties";
+import { readVerdict } from "../../src/core/answers/checks/prompt";
 import type { Language } from "../../src/core/language";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkGenerate, isCheckRun, sentenceOf } from "../helpers/checks";
@@ -1124,5 +1126,23 @@ describe.each([
     const comments = textOf(unzip(exported.data).get("word/comments.xml")?.toString("utf8") ?? "");
     expect(comments).toContain(note);
     expect(comments).not.toContain("2026-10-30T16:45:00Z");
+  });
+});
+
+describe("The Property line", () => {
+  test("is read as the check's other fields are, in bold or with a full-width colon, and is never what the Document says", () => {
+    const reply = (line: string) =>
+      `Verdict: contradicted\n${line}\nThe file records 30 October 2026. [^1]`;
+    expect(declaredProperties(reply("Property: modified"))).toEqual(new Set(["modified"]));
+    expect(declaredProperties(reply("**Property**：created, modified"))).toEqual(
+      new Set(["created", "modified"]),
+    );
+    expect(declaredProperties(reply("Property: none"))).toEqual(new Set());
+    expect(declaredProperties(reply("Property: the signing date"))).toBeNull();
+    expect(declaredProperties(reply("Property: none, modified"))).toBeNull();
+    expect(declaredProperties("Verdict: supported")).toBeNull();
+    expect(readVerdict(reply("**Property**：modified"))?.says).toBe(
+      "The file records 30 October 2026.",
+    );
   });
 });
