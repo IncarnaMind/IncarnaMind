@@ -1693,6 +1693,83 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     expect(result).toMatchObject({ verdict: "contradicted", calculation: { agrees: false } });
   });
 
+  // protects=a Roles line written beside cite still gives the sentence to someone else when the
+  // last turn repeats only the verdict, so a cover worked out from the Passages' numbers decides
+  // nothing (#1766); fails_when=the split reply is Contradicted by the cover or keeps it.
+  test.each([
+    [
+      "en",
+      RESULTS,
+      "Using finance costs of (41.2), the Harbour subsidiary's Adjusted EBITDA cover would be 5.55x.",
+      { ...COVER, stated: "5.55x" },
+      "the Harbour subsidiary's Adjusted EBITDA cover / Adjusted EBITDA 187.3, other",
+      "Adjusted EBITDA 187.3",
+      "unsupported",
+    ],
+    [
+      "zh",
+      HARBOUR_ZH,
+      "以 (41.2) 的财务费用估算，海港子公司的利息覆盖倍数为5.55倍。",
+      { ...ZH_COVER, stated: "5.55倍" },
+      "海港子公司的利息覆盖倍数 / 调整后EBITDA 187.3, other",
+      "调整后EBITDA 187.3",
+      "unsupported",
+    ],
+    [
+      "en, the Documents' own company",
+      RESULTS,
+      "Using finance costs of (41.2) as a stand-in, cover would be 5.55x.",
+      { ...COVER, stated: "5.55x" },
+      "cover would be 5.55x / Adjusted EBITDA 187.3, same",
+      "Adjusted EBITDA 187.3",
+      "contradicted",
+    ],
+  ] as const)(
+    "%s, a reply split across turns: Roles beside cite, the verdict alone after it",
+    async (_, document, claim, calculation, roles, quote, verdict) => {
+      const reply = (call: ModelCall): ScriptedReply => {
+        if (!call.results.some((each) => each.tool === "calculate"))
+          return checkReply(call, { [claim]: { verdict: "contradicted", calculation } });
+        if (!call.results.some((each) => each.tool === "cite")) {
+          const searched = call.results.filter((each) => each.tool === "search_documents");
+          const passage = shownPassages(searched.at(-1)?.text ?? "").find((shown) =>
+            shown.text.includes(quote),
+          );
+          return {
+            text: `Verdict: contradicted\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${roles}`,
+            calls: [
+              { tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } },
+            ],
+          };
+        }
+        return {
+          text: "Verdict: contradicted\nThe results give another cover. [^1]\nEvidence: [1]",
+        };
+      };
+      const calls: ModelCall[] = [];
+      const setup = await setUpWithDocuments(
+        checkingModel({ [claim]: { reply, strict: { text: "conflict" } } }, calls),
+        [document],
+      );
+      const saved = await setup.core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+      const result = await setup.core.checkClaim({ claim });
+
+      expect(calls.flatMap((call) => call.results).some((each) => each.tool === "calculate")).toBe(
+        true,
+      );
+      expect(result.verdict).toBe(verdict);
+      expect(result.verdict).not.toBe("supported");
+      if (verdict === "unsupported" && result.verdict !== "not-checked")
+        expect(result.calculation).toBeNull();
+    },
+  );
+
   test.each([
     ["5.55 times", "contradicted"],
     ["4.55 times", "supported"],

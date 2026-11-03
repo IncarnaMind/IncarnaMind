@@ -802,7 +802,10 @@ type Closing = "same" | "differs" | "other";
 
 /** A closing word a piece of a field starts with, quoted or bold too, never one joined to a word ("same-day"). */
 const CLOSING = /^[\s"'`*_“”‘’]*(same|differs?|other)(?![\p{L}\p{N}]|[-‐‑][\p{L}\p{N}])/iu;
-/** What may follow a closing word at the start of a side: nothing, or punctuation that opens its reason. */
+/**
+ * What may follow a closing word: nothing, or punctuation that opens its reason. The Passage's own
+ * words may hold one before another word ("same as any lodger", "other than the Tenant").
+ */
 const REASON = /^[\s"'`*_“”‘’]*(?:$|[^\p{L}\p{N}\s"'`*_“”‘’])/u;
 const PIECE = /[/(:,;—–→、]/g;
 
@@ -815,18 +818,18 @@ const closingOf = (word: string | undefined): Closing | null => {
 /**
  * A Roles or Time field's closing word and its sides, the sentence's first, read the same way for
  * both (#1766). The closing word starts the first piece after the first slash that starts with one
- * (`CLOSING`), a piece being what follows the slash or a later slash, bracket, colon, comma,
- * semicolon, dash or arrow; what follows the word is its reason. The sentence's side is never read
- * for it ("notify the other"), and where a side may start (after a slash, a bracket or a colon) the
- * word stands alone or before punctuation: "Other Income" starts a side. A field with no such piece
- * takes its last "same" or "differs". A field too long for its sides to be copied words is read as
- * one side with no closing word: trimming a long run of spaces takes time quadratic in it.
+ * (`CLOSING`) alone or before punctuation (`REASON`), a piece being what follows the slash or a
+ * later slash, bracket, colon, comma, semicolon, dash or arrow; what follows the word is its reason.
+ * The sentence's side is never read for it ("notify the other"). A field with no such piece takes
+ * its last "same" or "differs". A field too long for its sides to be copied words is read as one
+ * side with no closing word: trimming a long run of spaces takes time quadratic in it.
  */
 function closingWord(
   field: string,
   words: readonly Closing[],
 ): { word: Closing | null; sides: string[] } {
-  const text = field.normalize("NFKC");
+  // "N/A" is a side's "none", never two sides.
+  const text = field.normalize("NFKC").replace(/\bn\/a\b/gi, "none");
   if (text.length > MAX_PHRASE * 8) return { word: null, sides: [text] };
   const first = text.indexOf("/") + 1;
   const starts = [
@@ -837,9 +840,8 @@ function closingWord(
     const piece = text.slice(at);
     const found = CLOSING.exec(piece);
     const word = closingOf(found?.[1]);
-    const sideStart = at === first || /[/(:]/.test(text[at - 1] ?? "");
     if (!found || !word || !words.includes(word)) continue;
-    if (sideStart && !REASON.test(piece.slice(found[0].length))) continue;
+    if (!REASON.test(piece.slice(found[0].length))) continue;
     return { word, sides: sides(text.slice(0, at).replace(/[/(:,;—–→、]$/, "")) };
   }
   const last = closingOf(text.match(/\b(?:same|differs?)\b/gi)?.at(-1));
@@ -1148,6 +1150,28 @@ const proseOf = (turn: string): string[] =>
 const namesAVerdict = (turn: string): boolean =>
   proseOf(turn).some((line) => VERDICT_LABEL.test(line) || VERDICT_WORDS.test(line));
 
+const linesOf = (turn: string): string[] =>
+  turn
+    .split("\n")
+    .flatMap(fieldLines)
+    .map((line) => line.trim());
+
+/**
+ * A last turn with a verdict of its own keeps the Roles, Scope and Time lines it leaves out from
+ * the turns set aside after the search: Claude Haiku 5.5 wrote them beside `cite` and only its
+ * verdict and sentence after them, and each can only hold a verdict back ("…, other").
+ */
+function withFieldsSetAside(last: string, setAside: readonly string[]): string {
+  const own = linesOf(last);
+  const earlier = setAside.flatMap(linesOf);
+  const kept = [ROLES, SCOPE, TIME].flatMap((field) =>
+    own.some((line) => field.test(line))
+      ? []
+      : (earlier.findLast((line) => field.test(line)) ?? []),
+  );
+  return kept.length === 0 ? last : `${last}\n${kept.join("\n")}`;
+}
+
 /**
  * A check Run's reply read across its turns (#1673, #2184): a last turn with no verdict of its own
  * is read after the last turn the Run set aside with one, as Claude Haiku 5.5 wrote its verdict
@@ -1158,7 +1182,8 @@ const namesAVerdict = (turn: string): boolean =>
  * prose beside a Figures line of its own.
  */
 export function replyAcrossTurns(last: string, setAside: readonly string[]): string {
-  if (readVerdict(last) !== null || readsAsRefusal(last)) return last;
+  if (readsAsRefusal(last)) return last;
+  if (readVerdict(last) !== null) return withFieldsSetAside(last, setAside);
   const at = setAside.findLastIndex((turn) => readVerdict(turn) !== null);
   const earlier = setAside[at];
   const verdict = earlier === undefined ? null : readVerdict(earlier);

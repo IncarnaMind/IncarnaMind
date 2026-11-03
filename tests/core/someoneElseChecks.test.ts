@@ -65,6 +65,11 @@ interface Case {
   time?: string;
   /** It replies with one JSON object, as some models do, in place of its lines. */
   json?: true;
+  /**
+   * It writes its verdict lines beside `cite`, then only its verdict, sentence, Evidence and any
+   * Figures line, as Claude Haiku 5.5 split its reply (#1673, #2184).
+   */
+  split?: true;
   /** The Document's number each figure of the sentence is bound to, when it has one. */
   number?: string;
 }
@@ -80,11 +85,23 @@ function replying(each: Case, calls: ModelCall[]) {
       calls.push(call);
       const searched = call.results.filter((result) => result.tool === "search_documents");
       if (searched.length === 0) return checkReply(call, plans);
-      if (!call.results.some((result) => result.tool === "cite")) {
+      const cited = call.results.some((result) => result.tool === "cite");
+      const asked = call.prompt.includes(ASKED);
+      const roles = asked ? (each.again ?? each.roles) : each.roles;
+      const verdictLines = [
+        `Verdict: ${each.verdict}`,
+        "Absence: no",
+        `Scope: ${each.scope ?? "none, same"}`,
+        "Topic: found",
+        ...(roles === "" ? [] : [`Roles: ${roles}`]),
+        `Time: ${each.time ?? "none / none, same"}`,
+      ];
+      if (!cited) {
         const passage = shownPassages(searched.at(-1)?.text ?? "").find((shown) =>
           shown.text.includes(each.quote),
         );
         return {
+          ...(each.split && { text: verdictLines.join("\n") }),
           calls: [
             {
               tool: "cite",
@@ -93,19 +110,19 @@ function replying(each: Case, calls: ModelCall[]) {
           ],
         };
       }
-      const asked = call.prompt.includes(ASKED);
-      const roles = asked ? (each.again ?? each.roles) : each.roles;
-      const lines = [
-        `Verdict: ${each.verdict}`,
-        "Absence: no",
-        `Scope: ${each.scope ?? "none, same"}`,
-        "Topic: found",
-        ...(roles === "" ? [] : [`Roles: ${roles}`]),
-        `Time: ${each.time ?? "none / none, same"}`,
-        "The Document gives this to the Tenant [^1].",
-        "Evidence: [1]",
-        ...(each.extra ?? []),
-      ];
+      const lines = each.split
+        ? [
+            `Verdict: ${each.verdict}`,
+            "Absence: no",
+            "The Document gives this to the Tenant [^1].",
+            "Evidence: [1]",
+          ]
+        : [
+            ...verdictLines,
+            "The Document gives this to the Tenant [^1].",
+            "Evidence: [1]",
+            ...(each.extra ?? []),
+          ];
       if (each.json)
         return {
           text: JSON.stringify({
@@ -1079,5 +1096,222 @@ describe("the Roles line read in the shapes a model gives it (#1766)", () => {
     expect(checked?.state).toBe(state);
     expect(checked?.state).not.toBe(state === "supported" ? "not-checked" : "supported");
     expect(asks()).toHaveLength(asked);
+  });
+});
+
+describe("a reply split across turns keeps the fields its last turn leaves out (#1766)", () => {
+  test.each<[string, Case, typeof RULES, "unsupported" | "contradicted"]>([
+    [
+      "en, someone else's, contradicted in both turns",
+      {
+        sentence: "The caretaker may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "contradicted",
+        roles: "The caretaker may keep a cat / The Tenant may keep a cat, other",
+        split: true,
+      },
+      RULES,
+      "unsupported",
+    ],
+    [
+      "zh, someone else's, contradicted in both turns",
+      {
+        sentence: "物业管理员可在房屋内养猫。",
+        quote: "乙方可在房屋内养猫。",
+        verdict: "contradicted",
+        roles: "物业管理员可在房屋内养猫 / 乙方可在房屋内养猫, other",
+        split: true,
+      },
+      RULES_ZH,
+      "unsupported",
+    ],
+    [
+      "en, someone else's, supported in both turns",
+      {
+        sentence: "The caretaker may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: "The caretaker may keep a cat / The Tenant may keep a cat, other",
+        split: true,
+      },
+      RULES,
+      "unsupported",
+    ],
+    [
+      "en, someone else's figure, its Figures line in the last turn",
+      {
+        sentence: "The caretaker pays the Landlord a rent of 700 per month.",
+        quote: "The Tenant pays the Landlord a rent of 900 per month.",
+        verdict: "contradicted",
+        roles: "The caretaker pays the Landlord / The Tenant pays the Landlord, other",
+        itemRoles: "same",
+        number: "900",
+        split: true,
+      },
+      RULES,
+      "unsupported",
+    ],
+    [
+      "zh, someone else's figure, its Figures line in the last turn",
+      {
+        sentence: "物业管理员每月向甲方支付租金人民币700元。",
+        quote: "乙方每月向甲方支付租金人民币900元。",
+        verdict: "contradicted",
+        roles: "物业管理员每月向甲方支付 / 乙方每月向甲方支付, other",
+        itemRoles: "same",
+        number: "900",
+        split: true,
+      },
+      RULES_ZH,
+      "unsupported",
+    ],
+    [
+      "en, a Time line that differs, written beside cite",
+      {
+        sentence: "The Tenant may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: "The Tenant may keep a cat / The Tenant may keep a cat, same",
+        time: "already / from next year, differs",
+        split: true,
+      },
+      RULES,
+      "unsupported",
+    ],
+    [
+      "en, the same parties' figure, contradicted in both turns",
+      {
+        sentence: "The Tenant pays the Landlord a rent of 700 per month.",
+        quote: "The Tenant pays the Landlord a rent of 900 per month.",
+        verdict: "contradicted",
+        roles: "The Tenant pays the Landlord / The Tenant pays the Landlord, same",
+        number: "900",
+        split: true,
+      },
+      RULES,
+      "contradicted",
+    ],
+  ])("%s", async (_, each, document, state) => {
+    const checked = await check(each, document);
+    expect(checked?.state).toBe(state);
+    expect(checked?.state).not.toBe("supported");
+  });
+
+  test("a split reply naming nothing in Roles, its Scope naming the party beside cite, is asked", async () => {
+    const calls: ModelCall[] = [];
+    const checked = await check(
+      {
+        sentence: "The Tenant should keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: "none / none, same",
+        scope: "the Tenant, same",
+        split: true,
+      },
+      RULES,
+      calls,
+    );
+    expect(checked?.state).toBe("not-checked");
+    expect(checked?.state).not.toBe("supported");
+    expect(calls.filter((call) => call.prompt.includes(ASKED))).toHaveLength(1);
+  });
+
+  test("a split reply whose own words are the sentence's stays Supported", async () => {
+    const checked = await check(
+      {
+        sentence: "The Tenant may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat.",
+        verdict: "supported",
+        roles: "The Tenant may keep a cat / The Tenant may keep a cat, same",
+        split: true,
+      },
+      RULES,
+    );
+    expect(checked?.state).toBe("supported");
+  });
+});
+
+describe("the Passage's own words after a comma are no closing word (#1766, #2311)", () => {
+  const LODGINGS = {
+    name: "Lodgings.md",
+    contents: [
+      "# Lodgings",
+      "",
+      "The Tenant, same as any lodger, may keep a cat in the flat.",
+      "",
+      "The boiler will be replaced in May, same as the radiators.",
+      "",
+      "No party, other than the Tenant, may sublet the flat.",
+      "",
+      "The Tenant may keep a cat in the flat; other pets need the Landlord's consent.",
+      "",
+    ].join("\n"),
+  };
+  test.each<[string, Case, "supported" | "unsupported" | "contradicted"]>([
+    [
+      "“same as any lodger” in the Passage's side, must for may",
+      {
+        sentence: "The Tenant must keep a cat in the flat.",
+        quote: "The Tenant, same as any lodger, may keep a cat in the flat.",
+        verdict: "supported",
+        roles:
+          "The Tenant must keep a cat / The Tenant, same as any lodger, may keep a cat, differs",
+      },
+      "unsupported",
+    ],
+    [
+      "“same as the radiators” in a Time line that differs",
+      {
+        sentence: "The boiler has already been replaced.",
+        quote: "The boiler will be replaced in May, same as the radiators.",
+        verdict: "supported",
+        roles: "The boiler has already been replaced / The boiler will be replaced, same",
+        time: "already been replaced / will be replaced in May, same as the radiators, differs",
+      },
+      "unsupported",
+    ],
+    [
+      "“other than the Tenant” in a contradiction",
+      {
+        sentence: "The Landlord may sublet the flat.",
+        quote: "No party, other than the Tenant, may sublet the flat.",
+        verdict: "contradicted",
+        roles: "The Landlord may sublet / No party, other than the Tenant, may sublet, differs",
+      },
+      "contradicted",
+    ],
+    [
+      "“; other pets” in a true sentence's Passage side",
+      {
+        sentence: "The Tenant may keep a cat in the flat.",
+        quote: "The Tenant may keep a cat in the flat; other pets need the Landlord's consent.",
+        verdict: "supported",
+        roles:
+          "The Tenant may keep a cat / The Tenant may keep a cat; other pets need the Landlord's consent, same",
+      },
+      "supported",
+    ],
+  ])("%s", async (_, each, state) => {
+    const checked = await check(each, LODGINGS);
+    expect(checked?.state).toBe(state);
+    if (state !== "supported") expect(checked?.state).not.toBe("supported");
+    else expect(checked?.state).not.toBe("unsupported");
+  });
+
+  test("“N/A” on both sides names nothing, for a sentence of figures", async () => {
+    const calls: ModelCall[] = [];
+    const checked = await check(
+      {
+        sentence: "The rent is 900 per month.",
+        quote: "The Tenant pays the Landlord a rent of 900 per month.",
+        verdict: "supported",
+        roles: "N/A / N/A, same",
+        number: "900",
+      },
+      RULES,
+      calls,
+    );
+    expect(checked?.state).toBe("supported");
+    expect(calls.filter((call) => call.prompt.includes(ASKED))).toHaveLength(0);
   });
 });
