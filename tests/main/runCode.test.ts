@@ -11,7 +11,7 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { createRequire } from "node:module";
 import {
@@ -266,6 +266,9 @@ describe.skipIf(unavailable !== undefined)(
           `try write-home "echo x > '${home}/written.txt'"`,
           `try write-temp "echo x > '${tmpdir()}/incarnamind-written-${process.pid}.txt'"`,
           `try fill-temp "head -c 3000000 /dev/zero > '${tmpdir()}/incarnamind-fill-${process.pid}'"`,
+          // bubblewrap's /dev is a tmpfs of its own: /dev/shm holds 1 MB, and /dev is read-only.
+          `try fill-shm "head -c 3000000 /dev/zero > /dev/shm/incarnamind-fill-${process.pid}"`,
+          `try write-dev "echo x > /dev/incarnamind-written-${process.pid}"`,
           `try write-own "echo x > out/note.txt"`,
           `try dns "getent hosts example.com || host example.com || nslookup example.com"`,
           `try internet "curl -sS -m 3 https://example.com"`,
@@ -295,6 +298,8 @@ describe.skipIf(unavailable !== undefined)(
         `write-temp: ${process.platform === "linux" ? "allowed" : "denied"}`,
         // That folder holds 1 MB: on Linux it is memory, which no other limit counts.
         "fill-temp: denied",
+        "fill-shm: denied",
+        "write-dev: denied",
         "write-own: allowed",
         "dns: denied",
         "internet: denied",
@@ -416,6 +421,21 @@ describe.skipIf(unavailable !== undefined)(
         )
         .toEqual([]);
     });
+
+    test("a folder it makes unreadable counts as over its folder limit, and its run's folder still goes", async () => {
+      const { call, analyses } = tool({}, 20_000);
+      await call(
+        "bash",
+        "mkdir hide && head -c 1000 /dev/zero > hide/a && chmod 300 hide && sleep 15",
+      );
+      expect(analyses[0]?.end.kind === "error" && analyses[0].end.message).toContain("200 MB");
+      await call("bash", "mkdir locked && echo x > locked/a && chmod 000 locked && echo locked");
+      expect(analyses[1]?.output.printed).toBe("locked");
+      const left = (await readdir(join(root, "temp"))).filter((name) =>
+        name.startsWith("incarnamind-code-"),
+      );
+      expect(left).toEqual([]);
+    }, 60_000);
 
     test("is stopped at its file and process limits, and leaves nothing running", async () => {
       const { call, analyses } = tool({}, 4000);
@@ -624,6 +644,13 @@ attempt("write own", lambda: open("out/py.txt", "w").write("x"))
 attempt("dns", lambda: socket.getaddrinfo("example.com", 443))
 attempt("internet", lambda: socket.create_connection(("1.1.1.1", 443), timeout=3))
 attempt("loopback", lambda: socket.create_connection(("127.0.0.1", ${loopbackPort}), timeout=3))
+def shared():
+    from multiprocessing import shared_memory
+    block = shared_memory.SharedMemory(create=True, size=1 << 20)
+    block.close()
+    block.unlink()
+if ${process.platform === "darwin" ? "True" : "False"}:
+    attempt("shared memory", shared)
 seen["secret"] = "GITHUB_TOKEN" in os.environ
 print(json.dumps(seen))
 `,
@@ -645,9 +672,31 @@ print(json.dumps(seen))
         dns: expect.not.stringMatching(/^allowed$/),
         internet: expect.not.stringMatching(/^allowed$/),
         loopback: expect.not.stringMatching(/^allowed$/),
+        // On macOS a program held to a memory limit can't make shared memory, which no limit counts.
+        ...(process.platform === "darwin" && {
+          "shared memory": expect.not.stringMatching(/^allowed$/),
+        }),
         secret: false,
       });
       expect(existsSync(join(home, "py.txt"))).toBe(false);
+    }, 60_000);
+
+    test("a folder it makes unreadable counts as over its folder limit, and its run's folder still goes", async () => {
+      const { call, analyses } = tool({}, 20_000);
+      await call(
+        "python",
+        "import os, time\nos.mkdir('hide')\nopen('hide/a', 'wb').write(b'x' * 1000)\nos.chmod('hide', 0o300)\ntime.sleep(15)",
+      );
+      expect(analyses[0]?.end.kind === "error" && analyses[0].end.message).toContain("200 MB");
+      await call(
+        "python",
+        "import os\nos.mkdir('locked')\nopen('locked/a', 'w').write('x')\nos.chmod('locked', 0)\nprint('locked')",
+      );
+      expect(analyses[1]?.output.printed.trim()).toBe("locked");
+      const left = (await readdir(join(root, "temp"))).filter((name) =>
+        name.startsWith("incarnamind-code-"),
+      );
+      expect(left).toEqual([]);
     }, 60_000);
 
     test("is stopped at its time, memory and folder limits, and its output is cut", async () => {

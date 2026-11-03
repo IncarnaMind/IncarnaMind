@@ -2960,9 +2960,17 @@ export function createAnswers(options: AnswersOptions) {
                 document: async (id) => {
                   const shown = shownPassage(id);
                   if (!shown) return null;
-                  const file = await code.file(shown.source.documentId).catch(() => null);
+                  const file = await code.file(shown.source.documentId).catch((error: unknown) => {
+                    options.reportError(
+                      new Error(
+                        `run_code couldn't have the file of Document ${shown.source.documentId}.`,
+                        { cause: error },
+                      ),
+                    );
+                    return null;
+                  });
                   return file === null
-                    ? null
+                    ? { missing: shown.source }
                     : {
                         source: shown.source,
                         path: file.path,

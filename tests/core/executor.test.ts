@@ -11,14 +11,23 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, realpath, rm } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, onTestFinished, test, vi } from "vitest";
 import type { ExecAllow, ExecRequest, Executor, ProcessLauncher } from "../../src/core";
 import { createLocalExecutor, declaredAccess, WORKING_FOLDER } from "../../src/core/execution";
 import { createProcessLauncher } from "../../src/main/processes";
-import { footprints, treeMemory } from "../../src/main/programMeter";
+import { footprints, programMeter, treeMemory } from "../../src/main/programMeter";
 import { loadOsSandbox } from "../../src/main/sandbox";
 import { isRunning } from "../helpers/connectors";
 import { createTempDataFolder } from "../helpers/core";
@@ -636,4 +645,15 @@ describe("a program's memory, as its limit counts it", () => {
       [4102, 2031952],
     ]);
   });
+});
+
+test("a folder the program made unreadable counts as more than any folder limit", async () => {
+  const folder = await createTempDataFolder();
+  await mkdir(join(folder, "hide"));
+  await writeFile(join(folder, "hide", "a"), "x".repeat(1000));
+  await writeFile(join(folder, "seen"), "x".repeat(10));
+  expect(await programMeter.folder(folder)).toBe(1010);
+  await chmod(join(folder, "hide"), 0o300);
+  onTestFinished(() => chmod(join(folder, "hide"), 0o700));
+  expect(await programMeter.folder(folder)).toBe(Number.POSITIVE_INFINITY);
 });

@@ -20,6 +20,10 @@ async function runFolder(tempDir: string, name: string, ageMs: number) {
   await writeFile(join(folder, "inputs", "sales.csv"), "region,revenue\nNorth,1\n");
   await chmod(join(folder, "inputs", "sales.csv"), 0o444);
   await chmod(join(folder, "inputs"), 0o555);
+  // A folder the code took its owner's permissions from, which `rm` alone can't get past.
+  await mkdir(join(folder, "done", "locked"), { recursive: true });
+  await writeFile(join(folder, "done", "locked", "kept.txt"), "what the code wrote");
+  await chmod(join(folder, "done", "locked"), 0o000);
   const when = new Date(Date.now() - ageMs);
   await utimes(folder, when, when);
   return folder;
@@ -30,6 +34,7 @@ test("a run folder left over an hour ago is removed when a runner is made; a new
   onTestFinished(async () => {
     for (const name of await readdir(tempDir)) {
       await chmod(join(tempDir, name, "inputs"), 0o755).catch(() => undefined);
+      await chmod(join(tempDir, name, "done", "locked"), 0o755).catch(() => undefined);
     }
     await rm(tempDir, { recursive: true, force: true });
   });

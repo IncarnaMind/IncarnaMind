@@ -174,6 +174,29 @@ export async function classify(
 
 const C_LOCALE = { ...process.env, LC_ALL: "C" };
 
+/**
+ * A process from its line in Linux's /proc/<pid>/stat; null for a zombie, which has ended and
+ * waits only for its parent to reap it, which no signal hastens.
+ */
+export function procRow(
+  pid: number,
+  fields: string,
+  uid: number,
+  bootMs: number,
+): ProcessRow | null {
+  // After the name in parentheses: state, ppid, pgrp, …; starttime is the 20th, in 1/100 s.
+  const after = fields.slice(fields.lastIndexOf(")") + 2).split(" ");
+  if (after[0] === "Z") return null;
+  return {
+    pid,
+    ppid: Number(after[1]),
+    uid,
+    group: Number(after[2]),
+    startedMs: bootMs + Number(after[19]) * 10,
+    command: fields.slice(fields.indexOf("(") + 1, fields.lastIndexOf(")")),
+  };
+}
+
 /** Every process of the computer and when each started; on Linux from /proc, elsewhere from ps. */
 export async function listProcesses(): Promise<ProcessRow[]> {
   if (process.platform === "linux") {
@@ -186,16 +209,8 @@ export async function listProcesses(): Promise<ProcessRow[]> {
       const fields = await readFile(`/proc/${name}/stat`, "utf8").catch(() => null);
       const owner = await lstat(`/proc/${name}`).catch(() => null);
       if (fields === null || owner === null) continue;
-      // After the name in parentheses: state, ppid, pgrp, …; starttime is the 20th, in 1/100 s.
-      const after = fields.slice(fields.lastIndexOf(")") + 2).split(" ");
-      rows.push({
-        pid: Number(name),
-        ppid: Number(after[1]),
-        uid: owner.uid,
-        group: Number(after[2]),
-        startedMs: bootMs + Number(after[19]) * 10,
-        command: fields.slice(fields.indexOf("(") + 1, fields.lastIndexOf(")")),
-      });
+      const row = procRow(Number(name), fields, owner.uid, bootMs);
+      if (row) rows.push(row);
     }
     return rows;
   }
@@ -224,7 +239,10 @@ export async function listProcesses(): Promise<ProcessRow[]> {
 }
 
 /** Sends `signal` to one pid; false when it has gone. */
-export type Stopper = (pid: number, signal: "SIGSTOP" | "SIGKILL") => boolean | Promise<boolean>;
+export type Stopper = (
+  pid: number,
+  signal: "SIGSTOP" | "SIGKILL" | "SIGCONT",
+) => boolean | Promise<boolean>;
 
 /** The stopper the app uses. */
 export const killProcess: Stopper = (pid, signal) => {
@@ -286,9 +304,19 @@ export async function sweepRun(run: RunRecord, group: number, deps: SweepDeps): 
         if (await deps.stopper(each.pid, "SIGSTOP")) stopped.add(key(each));
       }
     }
-    for (const each of await members(run, group, deps)) {
+    const again = await members(run, group, deps);
+    for (const each of again) {
       deps.log({ pid: each.pid, signal: "SIGKILL", reason: "run's profile, found again" });
       await deps.stopper(each.pid, "SIGKILL");
+    }
+    // A member can end between its listing and its SIGSTOP, and its pid go to another process:
+    // one this sweep stopped that isn't found again is let go on.
+    const killed = new Set(again.map(key));
+    for (const stoppedKey of stopped) {
+      if (killed.has(stoppedKey)) continue;
+      const pid = Number(stoppedKey.split("@")[0]);
+      deps.log({ pid, signal: "SIGCONT", reason: "stopped, not found again" });
+      await deps.stopper(pid, "SIGCONT");
     }
   }
   // SIGKILL ends a process soon after, not at once: wait for that, a bounded while.

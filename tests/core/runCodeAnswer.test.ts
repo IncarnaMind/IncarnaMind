@@ -4,6 +4,8 @@
  * The Executor here runs bash on this computer and only says it is the OS sandbox's: what the
  * sandbox keeps the code from is tested against the real one (tests/main/runCode.test.ts).
  */
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
@@ -72,6 +74,9 @@ function codingModel(calls: ((passage: Passages) => { tool: string; input: unkno
   return { model, offered, systems };
 }
 
+/** The folder the last `setUp` wrote its Documents' files to. */
+let lastSources = "";
+
 async function setUp(
   model: MockLanguageModelV4,
   options: {
@@ -119,6 +124,7 @@ async function setUp(
   });
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
   const sources = await createTempDataFolder();
+  lastSources = sources;
   await addAndProcess(core, [
     await writeSourceFile(sources, "server.log.txt", LOG),
     ...(options.salesRows === null
@@ -199,7 +205,7 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
     const answer = await ask(core, "What is the revenue over every row?");
     expect(answer.analyses[0]?.inputs[0]).toMatchObject({ kind: "range", cut: true });
     expect(told(model, "run_analysis")[0]).toContain(
-      "the most run_analysis reads; run it again with run_code, which reads every row",
+      "the most run_analysis reads; run it again with run_code, which reads up to 200,000 rows",
     );
 
     // A copy with no Python of its own: run_code couldn't read the rows either.
@@ -250,7 +256,7 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
     });
     const answer = await ask(core, "What is the revenue over every row?");
     const [before, after] = told(model, "run_analysis");
-    expect(before).toContain("run it again with run_code, which reads every row");
+    expect(before).toContain("run it again with run_code, which reads up to 200,000 rows");
     expect(told(model, "run_code")[0]).toContain("Python didn't run");
     expect(after).toContain("the most this Analysis can read; say so in the Answer");
     expect(after).not.toContain("run_code");
@@ -356,6 +362,15 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
     });
     expect((await core.getPythonRuntime())?.state).toBe("failed");
   }, 60_000);
+
+  test("a Document whose file has gone since it was read runs nothing, and the model is told so", async () => {
+    const { model } = codingModel([bash("grep -c 500 ../inputs/server.log.txt")]);
+    const core = await setUp(model);
+    await rm(join(lastSources, "server.log.txt"));
+    const answer = await ask(core, "How many errors are in the log?");
+    expect(told(model, "run_code")[0]).toBe("Nothing ran: server.log's file can't be found.");
+    expect(answer.analyses).toEqual([]);
+  });
 
   test("a Passage the model wasn't given runs nothing", async () => {
     const { model } = codingModel([

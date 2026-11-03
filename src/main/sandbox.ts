@@ -195,15 +195,23 @@ export const MAC_DENIED = [
  * names by path, is started through a shell that adds them. Fails, so nothing runs, when the
  * command isn't the shape this expects.
  */
-function withMacDenials(wrapped: string, run?: string): string {
+export function withMacDenials(wrapped: string, run?: string, metered = false): string {
   const call = " /usr/bin/sandbox-exec -p ";
   const at = wrapped.indexOf(call);
   if (at < 0 || wrapped.indexOf(call, at + 1) >= 0) {
     throw new Error("sandbox-runtime's command for macOS isn't the one IncarnaMind adds to.");
   }
-  const rules = run
-    ? `${MAC_DENIED}\n(allow mach-lookup (global-name ${JSON.stringify(runServiceName(run))}))`
-    : MAC_DENIED;
+  // No proxy and an empty allowlist give no network rule (0.0.81); a later version that adds one
+  // must not run with it.
+  if (wrapped.includes("(allow network")) {
+    throw new Error("sandbox-runtime's profile for macOS lets programs reach the network.");
+  }
+  const rules = [
+    MAC_DENIED,
+    ...(run ? [`(allow mach-lookup (global-name ${JSON.stringify(runServiceName(run))}))`] : []),
+    // POSIX shared memory counts against no limit of a program's and outlives it.
+    ...(metered ? ["(deny ipc-posix-shm-write-create)"] : []),
+  ].join("\n");
   const stricter = ` /bin/sh -c 'p=$1; shift; exec /usr/bin/sandbox-exec -p "$p
 $0" "$@"' ${quote(rules)} `;
   return `${wrapped.slice(0, at)}${stricter}${wrapped.slice(at + call.length)}`;
@@ -214,20 +222,26 @@ export const DENIED_MOUNT_BYTES = 1024 * 1024;
 
 /**
  * bubblewrap, with a size on each tmpfs it mounts over a denied folder, which is otherwise as
- * large as memory and counted by no limit. sandbox-runtime runs this in its place. A profile
- * long enough to go through an arguments file can't be sized here, so it doesn't run.
+ * large as memory and counted by no limit; and the same for /dev, whose tmpfs (`--dev /dev`)
+ * holds /dev/shm: that gets a sized tmpfs of its own, and /dev is read-only once every mount is
+ * made. sandbox-runtime runs this in its place. A profile long enough to go through an
+ * arguments file can't be sized here, so it doesn't run.
  */
-const bwrapScript = (bwrap: string) =>
+export const bwrapScript = (bwrap: string) =>
   [
     "#!/bin/sh",
     `real=${quote(bwrap)}`,
-    'n=$#; past=""',
+    'n=$#; past=""; dev=""; devmade=""',
     "for a do",
     '  if [ -z "$past" ] && [ "$a" = --args ]; then',
     '    echo "The sandbox profile is too long to size its folders." >&2; exit 125',
     "  fi",
+    '  if [ -z "$past" ] && [ "$a" = -- ] && [ -n "$devmade" ]; then set -- "$@" --remount-ro "$devmade"; fi',
     `  if [ -z "$past" ] && [ "$a" = --tmpfs ]; then set -- "$@" --size ${DENIED_MOUNT_BYTES} --tmpfs`,
     '  else set -- "$@" "$a"; fi',
+    `  if [ -z "$past" ] && [ -n "$dev" ]; then set -- "$@" --size ${DENIED_MOUNT_BYTES} --tmpfs "$a/shm"; devmade="$a"; fi`,
+    '  dev=""',
+    '  if [ -z "$past" ] && [ "$a" = --dev ]; then dev=1; fi',
     '  if [ "$a" = -- ]; then past=1; fi',
     "done",
     'shift "$n"',
@@ -365,6 +379,7 @@ async function wrap(
   script: string,
   config: Partial<SandboxRuntimeConfig>,
   run?: string,
+  metered = false,
 ): Promise<{ command: string; args: string[] }> {
   const { argv } = await sandbox.wrapWithSandboxArgv(script, undefined, config);
   const [command, flag, wrapped, ...rest] = argv;
@@ -373,7 +388,7 @@ async function wrap(
   }
   return {
     command,
-    args: [flag, process.platform === "darwin" ? withMacDenials(wrapped, run) : wrapped],
+    args: [flag, process.platform === "darwin" ? withMacDenials(wrapped, run, metered) : wrapped],
   };
 }
 
@@ -427,7 +442,8 @@ function osConfinement(
       ].join("; ");
       try {
         const run = randomUUID();
-        const program = await wrap(sandbox, script, config, run);
+        const metered = request.limits?.memoryBytes !== undefined;
+        const program = await wrap(sandbox, script, config, run, metered);
         const sweep = await sweeper.begin(run, await realpath(workingFolder));
         return { ...program, env: request.env, sweep };
       } catch (error) {

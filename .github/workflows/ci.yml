@@ -86,7 +86,7 @@ jobs:
             fi
           fi
           # A draft runs it too: no other check shows run_code on Linux before the ready push.
-          if [ "$EVENT" = pull_request ] && [ -n "$files" ] && ! echo "$files" | grep -qE '^(src/core/runCode/|src/core/execution\.ts$|src/core/analysis/|src/core/documents/formats/(csv|xlsx)\.ts$|src/shared/analysis\.ts$|src/shared/incarnamind\.py$|src/main/(sandbox\.ts$|sandboxCheck\.ts$|runLeftovers\.ts$|runCode)|scripts/pythonNative|tests/main/(runCode|sandbox\.test\.ts$)|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
+          if [ "$EVENT" = pull_request ] && [ -n "$files" ] && ! echo "$files" | grep -qE '^(src/core/runCode/|src/core/execution\.ts$|src/core/analysis/|src/core/documents/formats/(csv|xlsx)\.ts$|src/shared/analysis\.ts$|src/shared/incarnamind\.py$|src/main/(sandbox\.ts$|sandboxCheck\.ts$|runLeftovers\.ts$|programMeter\.ts$|processes\.ts$|runCode)|scripts/pythonNative|tests/main/(runCode|runLeftovers\.test\.ts$|sandbox\.test\.ts$)|tests/helpers/sweepGuard\.ts$|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
             runcode=false
           fi
           echo "packaged=$packaged" | tee -a "$GITHUB_OUTPUT"

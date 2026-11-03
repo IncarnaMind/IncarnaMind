@@ -20,6 +20,7 @@ import {
   killProcess,
   listProcesses,
   type ProcessRow,
+  procRow,
   type RunRecord,
   runServiceName,
   type Stopper,
@@ -183,6 +184,20 @@ function computer(table: ProcessRow[], ours: Set<number>, platform: NodeJS.Platf
   return { deps, sent };
 }
 
+test("on Linux a zombie isn't listed: it has ended, and only its parent's reaping is left", () => {
+  const line = (state: string) =>
+    `4242 (sleep) ${state} 4200 4242 4242 0 -1 4194560 100 0 0 0 0 0 0 0 20 0 1 0 12345 1000 10 0`;
+  expect(procRow(4242, line("S"), 501, 1_000_000)).toEqual({
+    pid: 4242,
+    ppid: 4200,
+    uid: 501,
+    group: 4242,
+    startedMs: 1_123_450,
+    command: "sleep",
+  });
+  expect(procRow(4242, line("Z"), 501, 1_000_000)).toBeNull();
+});
+
 describe("the sweep's stops, through a stopper that records", () => {
   test("stops each member, finds them again, then kills only those found again", async () => {
     const table = [...APP, row(601), row(602), row(700)];
@@ -192,7 +207,7 @@ describe("the sweep's stops, through a stopper that records", () => {
     expect(table.map((each) => each.pid)).toEqual([400, 500, 700]);
   });
 
-  test("a pid that isn't the run's when it is found again is left alone", async () => {
+  test("a pid that isn't the run's when it is found again isn't killed, and is let go on", async () => {
     const table = [...APP, row(601)];
     const { deps, sent } = computer(table, new Set([601]));
     const list = deps.list;
@@ -207,7 +222,7 @@ describe("the sweep's stops, through a stopper that records", () => {
     deps.check = async (questions) =>
       questions.map((_, at) => (calls === 1 ? (OURS[at % 3] ?? -1) : 0));
     expect(await sweepRun(RUN, 600, deps)).toEqual([]);
-    expect(sent).toEqual(["SIGSTOP 601"]);
+    expect(sent).toEqual(["SIGSTOP 601", "SIGCONT 601"]);
   });
 
   test("what a member forked before it was stopped is stopped in the next round", async () => {

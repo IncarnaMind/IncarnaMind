@@ -249,11 +249,23 @@ const printedOf = (exec: ExecResult) =>
 const LEFT_BEHIND_MS = 60 * 60 * 1000;
 
 /** Removes a run's folder, with the copies of Documents its inputs/ holds read-only. */
+/**
+ * Removes a run's folder, with the copies of Documents its inputs/ holds read-only. The code can
+ * take away its own folders' permissions, which `rm` can't get past: each folder, found with
+ * lstat and never through a link, gets its owner's back first.
+ */
 async function removeRunFolder(run: string): Promise<void> {
-  await chmod(join(run, "inputs"), 0o755).catch((error: NodeJS.ErrnoException) => {
-    // It never got as far as copying anything.
-    if (error.code !== "ENOENT") throw error;
-  });
+  const pending = [run];
+  for (let folder = pending.pop(); folder !== undefined; folder = pending.pop()) {
+    const info = await lstat(folder).catch((error: NodeJS.ErrnoException) => {
+      // It never got as far as making it, or it is gone.
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    if (!info?.isDirectory()) continue;
+    await chmod(folder, 0o700);
+    for (const name of await readdir(folder)) pending.push(join(folder, name));
+  }
   await rm(run, { recursive: true, force: true, maxRetries: 3 });
 }
 

@@ -14,6 +14,7 @@ import { type AnalysisRecorder, noMarkers } from "../analysis/recorder";
 import { analysisReport } from "../analysis/report";
 import { analysesAtTheLimit } from "../analysis/tool";
 import type { AnalysisFile, AnswerAnalysis, EmbeddingModelError } from "../api";
+import type { CitationSource } from "../documents";
 import type { Language } from "../language";
 import { RUN_CODE_TOOL, type Tool, type ToolProviderInfo } from "../tools";
 import { type CodeDocument, type CodeLanguage, type CodeRunner, tableSha256 } from ".";
@@ -22,8 +23,11 @@ const PROVIDER: ToolProviderInfo = { kind: "analysis", id: "run-code", name: "An
 
 export interface RunCodeToolOptions {
   runner: CodeRunner;
-  /** A Passage the model was given, by its id ("P3"): its source, and its Document's file. */
-  document(passageId: string): Promise<CodeDocument | null>;
+  /**
+   * A Passage the model was given, by its id ("P3"): its source, and its Document's file; or its
+   * source alone (`missing`) when that file can't be had now (moved, deleted or unreadable).
+   */
+  document(passageId: string): Promise<CodeDocument | { missing: CitationSource } | null>;
   recorder: AnalysisRecorder;
   language: Language;
   now(): Date;
@@ -96,6 +100,9 @@ export function runCodeTool(options: RunCodeToolOptions): Tool {
       for (const id of ids) {
         const found = await options.document(id);
         if (!found) return `Nothing ran: ${id || "a document"} isn't a Passage you were given.`;
+        if ("missing" in found) {
+          return `Nothing ran: ${found.missing.documentName}'s file can't be found.`;
+        }
         if (!documents.some((each) => each.source.documentId === found.source.documentId)) {
           documents.push(found);
         }

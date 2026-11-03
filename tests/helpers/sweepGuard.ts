@@ -42,7 +42,20 @@ export function createSweepGuard() {
     return found;
   }
 
+  const stoppedHere = new Set<number>();
+
   const stopper: Stopper = async (pid, signal) => {
+    // Letting go on what this guard let be stopped: the one signal to a pid that may not be the
+    // run's any more.
+    if (signal === "SIGCONT") {
+      const seen = { pid, signal, command: "", startedMs: 0 };
+      if (!stoppedHere.has(pid)) {
+        refused.push(seen);
+        return false;
+      }
+      signalled.push(seen);
+      return killProcess(pid, signal);
+    }
     const rows = await listProcesses();
     const row = rows.find((each) => each.pid === pid);
     const seen = { pid, signal, command: row?.command ?? "", startedMs: row?.startedMs ?? 0 };
@@ -66,6 +79,7 @@ export function createSweepGuard() {
       return false;
     }
     signalled.push({ ...seen, run });
+    if (signal === "SIGSTOP") stoppedHere.add(pid);
     return killProcess(pid, signal);
   };
 

@@ -51,7 +51,7 @@ const bytesText = (bytes: number) =>
 
 /**
  * What the model reads of an Analysis. `codeOffered`: run_code is in the same Run, so a range
- * run_analysis cut is to be run again there, which reads every row.
+ * run_analysis cut is to be run again there, which reads up to 200,000 rows.
  */
 export function analysisReport(
   analysis: AnswerAnalysis,

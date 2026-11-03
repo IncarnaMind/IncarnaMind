@@ -13,18 +13,27 @@
  * helper named (here the installed package's own copy; macOS has no use for
  * it); the contract suite loads it as development does.
  */
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { afterAll, afterEach, describe, expect, test } from "vitest";
 import type { ExecRequest } from "../../src/core";
 import { WORKING_FOLDER } from "../../src/core/execution";
 import { createScriptRunner } from "../../src/core/skills/scripts";
 import { createProcessLauncher } from "../../src/main/processes";
-import { bwrapSizesTmpfs, loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
+import {
+  bwrapScript,
+  bwrapSizesTmpfs,
+  loadOsSandbox,
+  MAC_DENIED,
+  readDeniedFolders,
+  withMacDenials,
+} from "../../src/main/sandbox";
 import { createTempDataFolder } from "../helpers/core";
 import { createSweepGuard } from "../helpers/sweepGuard";
 
@@ -203,6 +212,77 @@ test("a bubblewrap that can size a tmpfs is told from one that can't, by its hel
     true,
     false,
     false,
+  ]);
+});
+
+test("macOS's denials go after sandbox-runtime's profile, and a profile that lets programs reach the network doesn't run", () => {
+  const wrapped = (profile: string) =>
+    `cd /x && SANDBOX=1 /usr/bin/sandbox-exec -p '${profile}' /bin/bash -c 'true'`;
+  const run = "0f0e0d0c-0b0a-4908-8706-050403020100";
+  const stricter = withMacDenials(wrapped("(version 1)(deny default)"), run);
+  expect(stricter).toContain(MAC_DENIED);
+  expect(stricter).toContain(`(allow mach-lookup (global-name "com.incarnamind.run.${run}"))`);
+  expect(stricter).not.toContain("(deny ipc-posix-shm-write-create)");
+  // A program held to a memory limit can't make shared memory, which no limit counts.
+  expect(withMacDenials(wrapped("(version 1)(deny default)"), run, true)).toContain(
+    "(deny ipc-posix-shm-write-create)",
+  );
+  expect(() =>
+    withMacDenials(
+      wrapped('(version 1)(deny default)(allow network-outbound (remote ip "localhost:*"))'),
+      run,
+    ),
+  ).toThrow("lets programs reach the network");
+  expect(() => withMacDenials("/bin/bash -c true", run)).toThrow(
+    "isn't the one IncarnaMind adds to",
+  );
+});
+
+test("bubblewrap's folders over denied ones and its /dev/shm hold 1 MB, and /dev is read-only once mounted", async () => {
+  const folder = await createTempDataFolder();
+  // A stand-in bubblewrap that prints what it was given, a word a line.
+  const real = join(folder, "bwrap");
+  await writeFile(real, '#!/bin/sh\nfor a do echo "$a"; done\n', { mode: 0o700 });
+  const wrapper = join(folder, "sized");
+  await writeFile(wrapper, bwrapScript(real), { mode: 0o700 });
+  const given = [
+    "--ro-bind",
+    "/",
+    "/",
+    "--tmpfs",
+    "/home",
+    "--dev",
+    "/dev",
+    "--proc",
+    "/proc",
+    "--",
+    "sh",
+    "-c",
+    "--tmpfs",
+  ];
+  const { stdout } = await promisify(execFile)(wrapper, given);
+  expect(stdout.trimEnd().split("\n")).toEqual([
+    "--ro-bind",
+    "/",
+    "/",
+    "--size",
+    "1048576",
+    "--tmpfs",
+    "/home",
+    "--dev",
+    "/dev",
+    "--size",
+    "1048576",
+    "--tmpfs",
+    "/dev/shm",
+    "--proc",
+    "/proc",
+    "--remount-ro",
+    "/dev",
+    "--",
+    "sh",
+    "-c",
+    "--tmpfs",
   ]);
 });
 

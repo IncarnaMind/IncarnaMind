@@ -4,6 +4,7 @@
  * working folder. Windows has no `ps`; its Job Object will hold these limits.
  */
 import { execFile } from "node:child_process";
+import type { Dirent } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -114,12 +115,23 @@ async function programMemory(root: number, unmeasured: (error: unknown) => void)
   return treeMemory(stdout, root, held);
 }
 
-/** The bytes the files under `folder` hold; links aren't followed. */
+/**
+ * The bytes the files under `folder` hold; links aren't followed. A folder in it that can't be
+ * read (the code can take its own folder's read permission away) holds files nothing counts, so
+ * it counts as more than any limit.
+ */
 async function folderSize(folder: string): Promise<number> {
   let total = 0;
   const pending = [folder];
   for (let current = pending.pop(); current !== undefined; current = pending.pop()) {
-    const entries = await readdir(current, { withFileTypes: true }).catch(() => []);
+    let entries: Dirent[];
+    try {
+      entries = await readdir(current, { withFileTypes: true });
+    } catch (error) {
+      // Removed since it was listed: nothing left to count.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      return Number.POSITIVE_INFINITY;
+    }
     for (const entry of entries) {
       const path = join(current, entry.name);
       if (entry.isDirectory()) pending.push(path);
