@@ -305,6 +305,7 @@ function commandLine(call: AnswerToolCall): string {
         .map((folder) => `${counted(folder.count, "item")} in the folder ${quoted(folder.name)}`)
         .join(", ")}`
     : "";
+  const unsorted = done.unsorted ? `; ${counted(done.unsorted, "item")} not sorted` : "";
   const where = done.inOutputLocation === false ? "" : "the Output location, ";
   const file = done.file
     ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(done)}`
@@ -315,7 +316,7 @@ function commandLine(call: AnswerToolCall): string {
   const what =
     setting && done.items.length === 0
       ? setting
-      : `${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${merges}${folders}${file}${setting && `, ${setting}`}`;
+      : `${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${merges}${folders}${unsorted}${file}${setting && `, ${setting}`}`;
   const window = done.window
     ? done.window.running
       ? ", started in the window and still going on"

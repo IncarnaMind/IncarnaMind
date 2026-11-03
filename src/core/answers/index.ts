@@ -3369,6 +3369,16 @@ export function createAnswers(options: AnswersOptions) {
                 ),
               );
             }
+            if (done.command === "documents.organize" && done.unsorted) {
+              const count = done.unsorted;
+              resultLines.push((each) =>
+                translate(
+                  each,
+                  count === 1 ? "answer.commands.unsorted.one" : "answer.commands.unsorted",
+                  { count },
+                ),
+              );
+            }
             const merges = done.merges;
             if (done.command === "tag.merge" && merges && merges.length > 0) {
               resultLines.push((each) =>

@@ -484,8 +484,9 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(answer.text).toContain("Organize filed 3 Documents");
     expect(answer.text).toContain("Leases");
     expect(answer.text).not.toContain("Q3 commentary");
-    // The app ends the reply with its own summary, so the reply names what moved.
+    // The app ends the reply with its own summary, so the reply names what moved, and what didn't.
     expect(answer.text).toContain("Sorted 3 Documents: 3 → Leases");
+    expect(answer.text).toContain("1 Document couldn’t be sorted.");
 
     await core.undoCommands(runOf(answer));
     const after = await core.getLibrary();
@@ -595,6 +596,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     ).toEqual(aboutRent);
     expect(answer.text).toContain("租赁");
     expect(answer.text).toContain("已整理 3 个文档：3 个 → “租赁”");
+    expect(answer.text).toContain("1 个文档未能整理。");
 
     await core.undoCommands(runOf(answer));
     expect((await core.getLibrary()).groups.map((each) => each.name)).not.toContain("租赁");

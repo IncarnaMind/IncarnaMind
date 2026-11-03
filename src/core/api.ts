@@ -1261,6 +1261,8 @@ export interface CommandDone {
   setting?: { name: string; from: string; to: string };
   /** Organize: the Folders it filed the Documents into, most first (#2252). */
   folders?: readonly { name: string; count: number }[];
+  /** Organize: how many of the Documents it read it couldn't sort (#2252). */
+  unsorted?: number;
   /** A Tag merge: what went into what, by name (#2252). */
   merges?: readonly { from: string; into: string }[];
 }

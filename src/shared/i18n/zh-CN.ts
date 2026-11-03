@@ -3373,6 +3373,8 @@ export const zhCN = {
   "answer.wait.usually.minutes": "用 {model} 通常要 {count} 分钟左右",
   "answer.regenerate": "重新生成",
   "answer.more": "这条回答的更多操作",
+  "answer.commands.unsorted": "{count} 个文档未能整理。",
+  "answer.commands.unsorted.one": "1 个文档未能整理。",
   "answer.commands.merged": "已合并{parts}。",
   "answer.commands.mergePart": "“{from}”合并到“{into}”",
   "answer.refused.noSuchMind": "没有名为“{name}”的笔记，因此没有做这项改动。",

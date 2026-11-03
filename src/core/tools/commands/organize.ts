@@ -182,6 +182,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
               name: names.get(folderId) ?? "",
               count,
             })),
+            ...(unsorted > 0 && { unsorted }),
           },
           step:
             moved.length === 0
@@ -223,7 +224,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
               ? "No Document is in no Folder, so Organize had nothing to sort."
               : moved.length === 0
                 ? `Organize sorted no Document: ${reason ?? "no Folder fitted"}${madeSaid}.`
-                : `Organize filed ${plural(moved.length, "Document")}: ${parts.join(", ")}.${madeSaid}${unsorted > 0 ? ` ${plural(unsorted, "Document")} couldn't be sorted: ${reason ?? "no text to read"}.` : ""} Name each Folder and its count in your reply, not a list under it.`,
+                : `Organize filed ${plural(moved.length, "Document")}: ${parts.join(", ")}.${madeSaid}${unsorted > 0 ? ` ${plural(unsorted, "Document")} couldn't be sorted: ${reason ?? "no Folder fitted"}.` : ""} Name each Folder and its count in your reply, not a list under it.`,
         };
       },
       documents.length > 0 ? "organize" : null,

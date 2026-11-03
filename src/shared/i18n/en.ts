@@ -3544,6 +3544,8 @@ export const en = {
   "answer.wait.usually.minutes": "Usually about {count} minutes with {model}",
   "answer.regenerate": "Regenerate",
   "answer.more": "More for this Answer",
+  "answer.commands.unsorted": "{count} Documents couldn’t be sorted.",
+  "answer.commands.unsorted.one": "1 Document couldn’t be sorted.",
   "answer.commands.merged": "Merged {parts}.",
   "answer.commands.mergePart": "“{from}” into “{into}”",
   "answer.refused.noSuchMind": "There is no note called “{name}”, so the change wasn’t made.",
