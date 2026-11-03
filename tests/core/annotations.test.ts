@@ -357,6 +357,106 @@ describe("annotations", () => {
     expect(annotation).toMatchObject({ check: "found" });
   });
 
+  test("each action works on every format, and its Location is that format's own", async () => {
+    const fixtures: {
+      name: string;
+      add(core: Core): Promise<Document>;
+      quote: string;
+      location: Record<string, unknown>;
+    }[] = [
+      {
+        name: "Markdown",
+        add: (core) => addOne(core, "Costs.md", MARKDOWN),
+        quote: "A contingency of 4% is held for weather delays.",
+        location: { kind: "section", heading: "Contingency" },
+      },
+      {
+        name: "plain text",
+        add: (core) => addOne(core, "Tides.txt", TEXT),
+        quote: "Neap tides come a week later.",
+        location: { kind: "lines" },
+      },
+      {
+        name: "Word",
+        add: (core) =>
+          addOne(
+            core,
+            "Margin.docx",
+            docxOf([
+              { text: "2.1 Sensitivity", heading: 2 },
+              { text: "A one point move in rates changes the margin by 0.4 points." },
+            ]),
+          ),
+        quote: "A one point move in rates changes the margin by 0.4 points.",
+        location: { kind: "section", heading: "2.1 Sensitivity" },
+      },
+      {
+        name: "PDF",
+        add: (core) =>
+          addOne(
+            core,
+            "Rate cuts.pdf",
+            buildPdf([{ lines: ["Grocers studied across the eleven chains."] }]),
+          ),
+        quote: "Grocers studied across the eleven chains.",
+        location: { kind: "page", from: 1, to: 1 },
+      },
+      {
+        name: "web page",
+        add: async (core) => {
+          const article = readFileSync(
+            new URL("../fixtures/web/article.html", import.meta.url),
+            "utf8",
+          );
+          const saved = await core.saveWebPage({
+            address: "https://reader.example/tea",
+            html: article,
+          });
+          if (saved.outcome !== "saved") throw new Error("The web page wasn't saved.");
+          await waitForProcessing(core, [saved.document.id]);
+          return core.listDocuments().then((each) => {
+            const document = each.find((one) => one.id === saved.document.id);
+            if (!document) throw new Error("The web page isn't listed.");
+            return document;
+          });
+        },
+        quote:
+          "In the early 17th century, a ship of the Dutch East India Company brought the first green tea leaves to Amsterdam from China.",
+        location: { kind: "section", heading: "History" },
+      },
+    ];
+
+    for (const fixture of fixtures) {
+      const core = startCore(await createTempDataFolder());
+      const document = await fixture.add(core);
+      const created = await core.createAnnotation({
+        documentId: document.id,
+        parts: [{ unit: null, text: fixture.quote }],
+        colour: "yellow",
+      });
+      expect(created.location, fixture.name).toMatchObject(fixture.location);
+      expect(created.check, fixture.name).toBe("found");
+
+      const noted = await core.updateAnnotation(created.id, {
+        note: "Worth a second look.",
+        colour: "blue",
+      });
+      expect(noted, fixture.name).toMatchObject({ note: "Worth a second look.", colour: "blue" });
+      const edited = await core.updateAnnotation(created.id, { note: "A third look." });
+      expect(edited.note, fixture.name).toBe("A third look.");
+      expect((await core.searchAnnotations("third look")).map((each) => each.annotationId)).toEqual(
+        [created.id],
+      );
+
+      await core.deleteAnnotation(created.id);
+      expect(await core.listAnnotations(document.id), fixture.name).toEqual([]);
+      await core.restoreAnnotation(created.id);
+      expect(await core.listAnnotations(document.id), fixture.name).toMatchObject([
+        { id: created.id, note: "A third look.", colour: "blue" },
+      ]);
+    }
+  });
+
   test("the assistant's search hands it the User's highlights and notes on the words", async () => {
     let searched = "";
     const model = scriptedModel((call) => {
