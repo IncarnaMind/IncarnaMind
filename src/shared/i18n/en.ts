@@ -1127,6 +1127,7 @@ export const en = {
   "claim.unsupported.currency.uncovered": "the currency ({currency})",
   "claim.unsupported.scale.uncovered": "the currency, unit or scale in {figure}",
   "claim.unsupported.unit": "The Document gives {amount}, not {figure}.",
+  "claim.unsupported.otherMeasure": "The Document gives {amount} for {measure}, not for {claimed}.",
   "claim.unsupported.whichDollar": "“{document}” gives “{amount}” without saying which currency",
   "claim.unsupported.yuanSign": "“{document}” gives “{amount}”, and in Chinese text ¥ means 人民币",
   "claim.currencyClause": "The Document states the currency ({source}): {quote}",
@@ -1196,6 +1197,8 @@ export const en = {
   "claim.reason.cut-short": "The model’s reply reached its length limit and was cut short.",
   "claim.reason.no-evidence": "Verdict hidden: the model’s quote isn’t in that Document.",
   "claim.reason.unread": "Verdict hidden: the model didn’t read your Documents.",
+  "claim.reason.other-cell":
+    "Verdict hidden: the model named another row or column of the Document’s table for this number.",
   "claim.reason.rate-limit": "The model’s service is busy for now. Check again in a moment.",
   "claim.reason.cost-cap": "Checking it could pass your monthly cap.",
   "claim.reason.plan-limit": "Your plan’s usage limit is reached.",
@@ -2208,6 +2211,7 @@ export const en = {
   "modelSource.modelscope": "ModelScope",
   "modelSource.hfMirror": "hf-mirror.com",
   "modelSource.copy": "IncarnaMind’s copy",
+  "modelSource.github": "GitHub",
   "status.downloadFailed": "Search model download failed",
   "status.modelFailed": "Search model couldn’t start",
   "status.rerankDownloading": "Getting search ready",
@@ -3237,6 +3241,9 @@ export const en = {
   "privacy.traffic.transcription-model": "Speech model download",
   "privacy.traffic.transcription-model.tip":
     "The speech model for meetings, and the models that tell speakers apart, are downloaded once, the first time a meeting is recorded or transcribed. Nothing you say is sent.",
+  "privacy.traffic.python-runtime": "Python download for analyses",
+  "privacy.traffic.python-runtime.tip":
+    "IncarnaMind’s own Python, which analyses of whole files run in, is downloaded once from where this version came from, the first time one runs. None of your files are sent.",
   "privacy.traffic.model-source-modelscope": "Built-in models from ModelScope",
   "privacy.traffic.model-source-modelscope.tip":
     "Before a built-in model downloads, IncarnaMind asks ModelScope and Hugging Face which answers first, to choose where to download from. Nothing of yours is sent.",
@@ -4197,6 +4204,11 @@ export const en = {
   "scripts.settings.bodySandboxed": "Scripts run in a sandbox and ask before each run.",
   "scripts.settings.bodySandboxed.details":
     "They can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in their own working folder, and have no internet. Unless you chose “Always run” for a Skill, each run asks first.",
+  "scripts.settings.problem.sandboxMissing":
+    "The sandbox for analyses and scripts can’t start on this computer: install {packages}, then restart IncarnaMind. Until then, analyses of whole files are off, and scripts run with no sandbox: unless you chose “Always run” for a Skill, each run asks first.",
+  "scripts.settings.problem.sandboxStart":
+    "This computer doesn’t let IncarnaMind start a sandbox for analyses and scripts, so analyses of whole files are off, and scripts run with no sandbox: unless you chose “Always run” for a Skill, each run asks first.",
+  "scripts.settings.sandboxPackages.and": "{first} and {last}",
   "scripts.settings.timeout": "Stop a script that runs longer than",
   "scripts.settings.seconds": "seconds",
 
@@ -7140,6 +7152,10 @@ export const en = {
   "analysis.unavailable.start": "Analysis can’t run on this computer: its sandbox couldn’t start.",
   "analysis.unavailable.noSandbox": "Analyses need the app’s sandbox, which is off",
   "analysis.unavailable.noSandbox.fix": "How to fix",
+  "analysis.unavailable.python": "Analysis couldn’t get Python: {reason}.",
+  "analysis.python.failure.load": "it doesn’t run on this computer",
+  "analysis.call.preparing": "Downloading Python: {downloaded} of {total} MB",
+  "analysis.call.preparing.unpacking": "Getting Python ready…",
   "analysis.crashed": "The analysis stopped unexpectedly. Run it again.",
   "analysis.command": "Analyse data…",
   "analysis.command.keywords": "analysis analyze python pandas data sheet csv calculate table",

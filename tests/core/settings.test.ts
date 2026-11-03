@@ -112,6 +112,7 @@ describe("Settings", () => {
       },
       language: "en",
       scriptSandbox: "none",
+      sandboxProblem: null,
       // No capture in these tests: Meetings can't record.
       meetingAudio: "none",
       author: "Priya Raman",
@@ -129,10 +130,20 @@ describe("Settings", () => {
     const core = startCore(await createTempDataFolder(), { executor });
 
     expect((await core.getSettings()).scriptSandbox).toBe("os");
+    expect((await core.getSettings()).sandboxProblem).toBe(null);
     // Not a setting: it can't be changed.
     await expect(
       core.updateSettings({ device: { scriptSandbox: "none" } } as never),
     ).rejects.toThrow(InvalidInputError);
+  });
+
+  test("say why the OS sandbox can't start here, as the app found it", async () => {
+    const core = startCore(await createTempDataFolder(), {
+      sandboxProblem: { kind: "missing", packages: ["bubblewrap", "socat"] },
+    });
+    const settings = await core.getSettings();
+    expect(settings.scriptSandbox).toBe("none");
+    expect(settings.sandboxProblem).toEqual({ kind: "missing", packages: ["bubblewrap", "socat"] });
   });
 
   test.each([
@@ -534,6 +545,7 @@ describe("Settings", () => {
       device,
       language: "zh-CN",
       scriptSandbox: "none",
+      sandboxProblem: null,
       meetingAudio: "none",
       author: "P. Raman",
       chineseScript: "traditional",
