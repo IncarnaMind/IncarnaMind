@@ -246,7 +246,7 @@ describe.each(PROVIDERS)("the assistant's own summary claims, live: $name", (pro
           const claims = answer.steps?.unbackedClaims ?? [];
           const commands = answer.steps?.unbackedCommands ?? [];
           const flagged = [...claims, ...commands];
-          marked.push(flagged.length > 0);
+          marked.push(each.backed ? flagged.length > 0 : claims.length > 0);
           if (process.env.INCARNAMIND_LIVE_REPORT) {
             await appendFile(
               process.env.INCARNAMIND_LIVE_REPORT,
