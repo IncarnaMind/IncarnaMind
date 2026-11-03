@@ -60,7 +60,8 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
       if (first || (plan.searchesTextFirst && searches.length === 1)) {
         const input = {
           query: plan.query ?? sentenceOf(call),
-          ...(plan.properties !== false && !(plan.searchesTextFirst && first) && { properties: true }),
+          ...(plan.properties !== false &&
+            !(plan.searchesTextFirst && first) && { properties: true }),
           ...(plan.document && { document: plan.document }),
         };
         const search = { tool: "search_documents", input };
@@ -157,64 +158,67 @@ const ISSUE = {
   "zh-CN": "该文件最后修改于 2026-11-02，这不是协议本身的日期。",
 } as const;
 
-describe.each(["en", "zh-CN"] as const)("a sentence about a Word file's modified date (%s)", (language) => {
-  const sentence = ISSUE[language];
-  // protects=a sentence about a .docx's modified date is checked against dcterms:modified and cites that property of the Document's own version; fails_when=a check reads only the Passages, and the sentence comes back Unsupported or cites the Document's text.
-  test("is Supported by the file's own modified date, and Contradicted by another", async () => {
-    const plan = (verdict: Plan["verdict"], quote: string): Record<string, Plan> => ({
-      [sentence]: { verdict, quote, property: "modified", says: "The file records when." },
-    });
-    const right = await setUp(
-      [
-        {
-          name: "Services agreement.docx",
-          contents: agreement({ modified: "2026-11-02T09:00:00Z" }),
-        },
-      ],
-      plan("supported", "Modified: 2026-11-02T09:00:00Z"),
-      language,
-    );
-    const document = right.named("Services agreement.docx");
+describe.each(["en", "zh-CN"] as const)(
+  "a sentence about a Word file's modified date (%s)",
+  (language) => {
+    const sentence = ISSUE[language];
+    // protects=a sentence about a .docx's modified date is checked against dcterms:modified and cites that property of the Document's own version; fails_when=a check reads only the Passages, and the sentence comes back Unsupported or cites the Document's text.
+    test("is Supported by the file's own modified date, and Contradicted by another", async () => {
+      const plan = (verdict: Plan["verdict"], quote: string): Record<string, Plan> => ({
+        [sentence]: { verdict, quote, property: "modified", says: "The file records when." },
+      });
+      const right = await setUp(
+        [
+          {
+            name: "Services agreement.docx",
+            contents: agreement({ modified: "2026-11-02T09:00:00Z" }),
+          },
+        ],
+        plan("supported", "Modified: 2026-11-02T09:00:00Z"),
+        language,
+      );
+      const document = right.named("Services agreement.docx");
 
-    expect(await right.core.checkClaim({ claim: sentence })).toMatchObject({
-      verdict: "supported",
-      evidence: {
-        documentId: document.id,
-        contentHash: document.contentHash,
-        check: "found",
-        location: property("modified", "2026-11-02T09:00:00Z"),
-      },
-      versions: [{ documentId: document.id, contentHash: document.contentHash }],
-    });
-    expect(right.sent()).toContain(`File properties of “${document.name}”`);
-    // The time it was added to IncarnaMind is never shown, so it never decides.
-    expect(right.sent()).not.toContain(document.createdAt);
+      expect(await right.core.checkClaim({ claim: sentence })).toMatchObject({
+        verdict: "supported",
+        evidence: {
+          documentId: document.id,
+          contentHash: document.contentHash,
+          check: "found",
+          location: property("modified", "2026-11-02T09:00:00Z"),
+        },
+        versions: [{ documentId: document.id, contentHash: document.contentHash }],
+      });
+      expect(right.sent()).toContain(`File properties of “${document.name}”`);
+      // The time it was added to IncarnaMind is never shown, so it never decides.
+      expect(right.sent()).not.toContain(document.createdAt);
 
-    const wrong = await setUp(
-      [
+      const wrong = await setUp(
+        [
+          {
+            name: "Services agreement.docx",
+            contents: agreement({ modified: "2026-10-30T16:45:00Z" }),
+          },
+        ],
         {
-          name: "Services agreement.docx",
-          contents: agreement({ modified: "2026-10-30T16:45:00Z" }),
+          [sentence]: {
+            ...plan("contradicted", "Modified: 2026-10-30T16:45:00Z")[sentence],
+            verdict: "contradicted",
+            change: ["2026-11-02", "2026-10-30T16:45:00Z"],
+          },
         },
-      ],
-      {
-        [sentence]: {
-          ...plan("contradicted", "Modified: 2026-10-30T16:45:00Z")[sentence],
-          verdict: "contradicted",
-          change: ["2026-11-02", "2026-10-30T16:45:00Z"],
-        },
-      },
-      language,
-    );
-    const contradicted = await wrong.core.checkClaim({ claim: sentence });
-    expect(contradicted).toMatchObject({
-      verdict: "contradicted",
-      evidence: { check: "found", location: property("modified", "2026-10-30T16:45:00Z") },
+        language,
+      );
+      const contradicted = await wrong.core.checkClaim({ claim: sentence });
+      expect(contradicted).toMatchObject({
+        verdict: "contradicted",
+        evidence: { check: "found", location: property("modified", "2026-10-30T16:45:00Z") },
+      });
+      // A property's words are never a correction of the sentence's.
+      expect(contradicted).not.toHaveProperty("correction");
     });
-    // A property's words are never a correction of the sentence's.
-    expect(contradicted).not.toHaveProperty("correction");
-  });
-});
+  },
+);
 
 describe("A PDF, a deck and a workbook", () => {
   test("a PDF's modified date comes from its Info dictionary, else its XMP, at the offset it gives", async () => {
@@ -307,7 +311,13 @@ describe("A PDF, a deck and a workbook", () => {
           name: "Budget.xlsx",
           contents: xlsxOf(
             [
-              { name: "Summary", rows: [["Line", "Amount"], ["Rent", 1200]] },
+              {
+                name: "Summary",
+                rows: [
+                  ["Line", "Amount"],
+                  ["Rent", 1200],
+                ],
+              },
               { name: "Notes", rows: [] },
               { name: "Workings", rows: [["Draft", 1]], state: "hidden" },
             ],
@@ -339,39 +349,42 @@ const COMPUTER_LINE = {
   "zh-CN": "只有这台电脑记录的日期：2026年11月2日。复制或下载文件会改变这个日期。",
 } as const;
 
-describe.each(["en", "zh-CN"] as const)("A file that records no date of its own (%s)", (language) => {
-  // protects=this computer's dates never decide: a sentence about a date of a file that records none is Unsupported with the ruled line naming this computer's date, even when the model calls it Supported or Contradicted on that date; fails_when=the file's modified time on this computer backs or contradicts the sentence.
-  test("is Unsupported with the line that only this computer's date is known, whatever the model said", async () => {
-    const SUPPORTED = "Meeting notes.md was last modified on 2 November 2026.";
-    const CONTRADICTED = "Meeting notes.md was last modified on 5 November 2026.";
-    const UNSUPPORTED = "Meeting notes.md was last modified in 2026.";
-    const onComputer = "Modified on this computer: 2026-11-02T12:00:00.000Z";
-    const setup = await setUp(
-      [
+describe.each(["en", "zh-CN"] as const)(
+  "A file that records no date of its own (%s)",
+  (language) => {
+    // protects=this computer's dates never decide: a sentence about a date of a file that records none is Unsupported with the ruled line naming this computer's date, even when the model calls it Supported or Contradicted on that date; fails_when=the file's modified time on this computer backs or contradicts the sentence.
+    test("is Unsupported with the line that only this computer's date is known, whatever the model said", async () => {
+      const SUPPORTED = "Meeting notes.md was last modified on 2 November 2026.";
+      const CONTRADICTED = "Meeting notes.md was last modified on 5 November 2026.";
+      const UNSUPPORTED = "Meeting notes.md was last modified in 2026.";
+      const onComputer = "Modified on this computer: 2026-11-02T12:00:00.000Z";
+      const setup = await setUp(
+        [
+          {
+            name: "Meeting notes.md",
+            contents: "# Notes\n\nWe met and agreed the budget.\n",
+            touched: "2026-11-02T12:00:00Z",
+          },
+        ],
         {
-          name: "Meeting notes.md",
-          contents: "# Notes\n\nWe met and agreed the budget.\n",
-          touched: "2026-11-02T12:00:00Z",
+          [SUPPORTED]: { verdict: "supported", quote: onComputer, property: "modified" },
+          [CONTRADICTED]: { verdict: "contradicted", quote: onComputer, property: "modified" },
+          [UNSUPPORTED]: { verdict: "unsupported", property: "modified" },
         },
-      ],
-      {
-        [SUPPORTED]: { verdict: "supported", quote: onComputer, property: "modified" },
-        [CONTRADICTED]: { verdict: "contradicted", quote: onComputer, property: "modified" },
-        [UNSUPPORTED]: { verdict: "unsupported", property: "modified" },
-      },
-      language,
-    );
-    for (const claim of [SUPPORTED, CONTRADICTED, UNSUPPORTED]) {
-      const result = await setup.core.checkClaim({ claim });
-      expect(result, claim).toMatchObject({
-        verdict: "unsupported",
-        evidence: null,
-        unsupported: { reason: COMPUTER_LINE[language], found: true },
-      });
-    }
-    expect(setup.sent()).toContain(onComputer);
-  });
-});
+        language,
+      );
+      for (const claim of [SUPPORTED, CONTRADICTED, UNSUPPORTED]) {
+        const result = await setup.core.checkClaim({ claim });
+        expect(result, claim).toMatchObject({
+          verdict: "unsupported",
+          evidence: null,
+          unsupported: { reason: COMPUTER_LINE[language], found: true },
+        });
+      }
+      expect(setup.sent()).toContain(onComputer);
+    });
+  },
+);
 
 describe("What decides a sentence", () => {
   const FILE = "Services agreement.docx";
@@ -387,7 +400,11 @@ describe("What decides a sentence", () => {
   // protects=a property decides only a sentence whose Property line names that very property; fails_when=a content sentence is backed by the file's date, or the created date backs a sentence about the modified one.
   test("a property decides only a sentence whose Property line names it", async () => {
     const setup = await setUp(files(), {
-      [MODIFIED]: { verdict: "supported", quote: "Modified: 2026-11-02T09:00:00Z", property: "modified" },
+      [MODIFIED]: {
+        verdict: "supported",
+        quote: "Modified: 2026-11-02T09:00:00Z",
+        property: "modified",
+      },
       [SIGNED]: { verdict: "supported", quote: "Modified: 2026-11-02T09:00:00Z", property: "none" },
       "The agreement's file was created on 2 November 2026.": {
         verdict: "supported",
@@ -405,7 +422,9 @@ describe("What decides a sentence", () => {
       evidence: null,
     });
     expect(
-      await setup.core.checkClaim({ claim: "The agreement's file was created on 2 November 2026." }),
+      await setup.core.checkClaim({
+        claim: "The agreement's file was created on 2 November 2026.",
+      }),
     ).toMatchObject({ verdict: "unsupported", evidence: null });
   });
 
@@ -489,15 +508,18 @@ describe("What decides a sentence", () => {
   test("a sentence a property contradicts is offered no correction from it", async () => {
     const WRONG_COUNT = "The deck has 5 slides.";
     const slide = { shapes: sp({ body: txBody(para("<a:r><a:t>Plan</a:t></a:r>")) }) };
-    const setup = await setUp([{ name: "Plan.pptx", contents: pptxOf({ slides: [slide, slide, slide] }) }], {
-      [WRONG_COUNT]: {
-        verdict: "contradicted",
-        quote: "Slides: 3",
-        property: "slides",
-        says: "The file has 3 slides.",
-        change: ["5", "3"],
+    const setup = await setUp(
+      [{ name: "Plan.pptx", contents: pptxOf({ slides: [slide, slide, slide] }) }],
+      {
+        [WRONG_COUNT]: {
+          verdict: "contradicted",
+          quote: "Slides: 3",
+          property: "slides",
+          says: "The file has 3 slides.",
+          change: ["5", "3"],
+        },
       },
-    });
+    );
 
     const contradicted = await setup.core.checkClaim({ claim: WRONG_COUNT });
     expect(contradicted).toMatchObject({
@@ -556,7 +578,9 @@ describe("What decides a sentence", () => {
       [SIGNED]: { verdict: "unsupported", properties: false },
     });
 
-    expect(await setup.core.checkClaim({ claim: SIGNED })).toMatchObject({ verdict: "unsupported" });
+    expect(await setup.core.checkClaim({ claim: SIGNED })).toMatchObject({
+      verdict: "unsupported",
+    });
     expect(setup.sent()).not.toContain("File properties of");
     expect(setup.sent()).not.toContain("2026-11-02T09:00:00Z");
   });
@@ -608,7 +632,10 @@ describe("Which Documents' properties a check shows", () => {
     const TEXT = "The memo is between Halden Ltd and Orrin plc.";
     const setup = await setUp(
       [
-        { name: "Services agreement.docx", contents: agreement({ modified: "2026-11-02T09:00:00Z" }) },
+        {
+          name: "Services agreement.docx",
+          contents: agreement({ modified: "2026-11-02T09:00:00Z" }),
+        },
         { name: "Orrin memo.docx", contents: agreement({ modified: "2026-11-05T10:00:00Z" }) },
       ],
       {
@@ -632,7 +659,9 @@ describe("Which Documents' properties a check shows", () => {
     const passageId = quoted.verdict === "supported" ? quoted.evidence?.passageId : undefined;
     expect(quoted).toMatchObject({ verdict: "supported", evidence: { documentId: memo.id } });
     // A sentence citing the memo, checked where the memo isn't, is shown nothing of it.
-    const cited = [{ documentName: memo.name, quote: "between Halden Ltd and Orrin plc", passageId }];
+    const cited = [
+      { documentName: memo.name, quote: "between Halden Ltd and Orrin plc", passageId },
+    ];
 
     // The quote the model gives is in no Passage it was shown, so nothing backs the sentence.
     expect(await setup.core.checkClaim({ claim: SENTENCE, scope, cited })).toMatchObject({
@@ -713,7 +742,12 @@ describe("Which Documents' properties a check shows", () => {
     const UNMATCHED = "It was last modified on 2 November 2026.";
     const AGAIN = "The agreement's file was last modified on 2 November 2026.";
     const setup = await setUp(
-      [{ name: "Services agreement.docx", contents: agreement({ modified: "2026-11-02T09:00:00Z" }) }],
+      [
+        {
+          name: "Services agreement.docx",
+          contents: agreement({ modified: "2026-11-02T09:00:00Z" }),
+        },
+      ],
       {
         [UNMATCHED]: {
           verdict: "supported",
@@ -801,7 +835,10 @@ describe("What a Document keeps of its file's properties", () => {
     const office = (core: Parameters<typeof corePropertiesXml>[0]) =>
       docxOf([{ text: "Text" }], { coreXml: corePropertiesXml(core) });
     const of = await propertiesOf([
-      { name: "Empty.docx", contents: office({ creator: "   ", modified: "1980-01-01T00:00:00Z" }) },
+      {
+        name: "Empty.docx",
+        contents: office({ creator: "   ", modified: "1980-01-01T00:00:00Z" }),
+      },
       { name: "Garbled.docx", contents: office({ creator: "J��nes", modified: "2099-05-01" }) },
       { name: "Long.docx", contents: office({ creator: "A".repeat(201), created: "2026-13-40" }) },
       { name: "Edge.docx", contents: office({ creator: "B".repeat(200) }) },

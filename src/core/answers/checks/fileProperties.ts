@@ -154,7 +154,8 @@ function sourceOf(document: Document, slides: number | null): Source | null {
   const own = document.properties;
   if (own === null) add("Dates and author: they couldn't be read from the file.");
   else {
-    if (own.created) line("created", "Created", `${own.created} (the file’s own date)`, own.created);
+    if (own.created)
+      line("created", "Created", `${own.created} (the file’s own date)`, own.created);
     if (own.modified) {
       line("modified", "Modified", `${own.modified} (the file’s own date)`, own.modified);
     }
@@ -232,7 +233,9 @@ interface CitationLike {
 }
 
 /** The property a Citation of the properties decides; null for one that decides none; undefined: no such Citation. */
-function propertyOf(citation: CitationLike | null | undefined): FilePropertyName | null | undefined {
+function propertyOf(
+  citation: CitationLike | null | undefined,
+): FilePropertyName | null | undefined {
   if (!citation || !isPropertyPassage(citation.passageId)) return undefined;
   const { location } = citation;
   return citation.check === "found" && isRecord(location) && location.kind === "properties"
@@ -402,7 +405,7 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
     const mayDecide = (citation: CitationLike | null | undefined) => {
       const property = propertyOf(citation);
       if (property === undefined) return true;
-      return property !== null && declared !== null && declared.has(property);
+      return property !== null && declared?.has(property) === true;
     };
     let changed = false;
     const held = <J extends ClaimJudgment>(
