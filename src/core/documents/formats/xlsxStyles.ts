@@ -239,6 +239,18 @@ function readBorder(
   return edges;
 }
 
+/** The cell styles (by their index in `cellXfs`) whose font strikes text through. */
+export function struckStyles(styles: XmlElement | undefined): Set<number> {
+  const fonts = styles ? child(styles, "fonts") : undefined;
+  const xfs = styles ? child(styles, "cellXfs") : undefined;
+  const struck = (fonts ? elements(fonts) : []).map((font) => flag(child(font, "strike")));
+  const ids = new Set<number>();
+  (xfs ? elements(xfs) : []).forEach((xf, index) => {
+    if (struck[Number(xf.attrs.fontId ?? 0)]) ids.add(index);
+  });
+  return ids;
+}
+
 /** A workbook's cell styles, from styles.xml and its theme (either may be missing). */
 export function readStyles(
   styles: XmlElement | undefined,

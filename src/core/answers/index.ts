@@ -366,6 +366,7 @@ import {
 import { quotedWordsIn, withoutQuotationMarks } from "./quotedWords";
 import { readKinds } from "./readKinds";
 import { withoutSearchTalk } from "./searchTalk";
+import { setAsideMarksInWords } from "./sheetRows";
 import type { ChangeStates } from "./toolRecord";
 import type { TurnCheck } from "./turnChecks";
 
@@ -1500,6 +1501,10 @@ export function createAnswers(options: AnswersOptions) {
       options.documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
     const ids = input.ids ?? contextCitationsFor(mindIn, input.assistant?.wallId);
     const notKept = translate(answerLanguage(context.question), "answer.sourceNotKept");
+    const setAsideWords = {
+      struck: translate(answerLanguage(context.question), "answer.setAsideStruck"),
+      hidden: translate(answerLanguage(context.question), "answer.setAsideHidden"),
+    };
     /** Whether the Answer offers a workbook's formula Tools, decided with its Tools. */
     let workbookToolsOffered = false;
     const session = createCitationSession(
@@ -2735,7 +2740,10 @@ export function createAnswers(options: AnswersOptions) {
                 let unrecorded = 0;
                 let firstUnrecorded = -1;
                 const written = withoutSearchTalk(
-                  session.citeWrittenIds(withoutFootnoteDefinitions(text), notKept),
+                  session.citeWrittenIds(
+                    withoutFootnoteDefinitions(setAsideMarksInWords(text, setAsideWords)),
+                    notKept,
+                  ),
                 );
                 // A marker is the Analysis's own table, not text typed again. This Answer's
                 // Analyses name their markers first; the last Answer's stand for the rest, as
@@ -2890,6 +2898,7 @@ export function createAnswers(options: AnswersOptions) {
         quoteFound: (passage, quote) => session.tools.quoteFound?.(passage, quote) ?? false,
         wroteIntoMind: () =>
           [...mindChanges.values()].some((change) => change.proposals > 0 || change.revised),
+        setAsideInWords: (text) => setAsideMarksInWords(text, setAsideWords),
         ...(calculating && {
           calculate: calculateFigures,
           figureProblems: () => figures.problems(),

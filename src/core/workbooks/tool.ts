@@ -11,6 +11,7 @@ import { FORMULA_VERSION, type ResultUnit, showResult } from "../../shared/formu
 import { translate } from "../../shared/i18n";
 import { cellNumber, type UnitText } from "../../shared/units";
 import { documentFigureContext } from "../answers/calculations";
+import { setAsideRowsOf } from "../answers/sheetRows";
 import type {
   CalculatedFigure,
   Citation,
@@ -245,6 +246,8 @@ interface Opened {
   model: WorkbookModel;
   engine: WorkbookEngine;
   figures: ReturnType<typeof documentFigureContext>;
+  /** How the file sets a cell's row aside (#1979), or null. */
+  setAside: (sheet: string, row: number) => string | null;
 }
 
 const stepOf = (cell: ChainCell): WorkbookFigureStep => ({
@@ -280,6 +283,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
       model,
       engine: new WorkbookEngine(model),
       figures: documentFigureContext(units),
+      setAside: setAsideRowsOf(units),
     };
     opened.clear();
     opened.set(key, made);
@@ -447,6 +451,20 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     return { marker: options.figure(figure), figure };
   };
 
+  /** A cell in a row the file sets aside, said after it (#1979); "" for any other. */
+  const asideOf = (book: Opened, cell: ChainCell) => {
+    const how = book.setAside(cell.sheet, cell.row);
+    return how ? ` (in row ${cell.row}, which the file ${how})` : "";
+  };
+
+  /** What a figure from a cell in a set-aside row is, said beside it; null for any other cell. */
+  const setAsideLine = (book: Opened, cell: ChainCell, what: string) => {
+    const how = book.setAside(cell.sheet, cell.row);
+    return how
+      ? `${where(cell.sheet, cell.ref)}, ${what}, is in row ${cell.row}, which the file ${how}: the file has set it aside, so the figure is never the workbook's current one. Say so where you give it.`
+      : null;
+  };
+
   const chainLines = (book: Opened, chain: Chain, inputs: readonly FigureInput[]) => {
     const value = (cell: ChainCell) =>
       typeof cell.value === "number" ? shown(book, cell, cell.value).shown : scalarText(cell.value);
@@ -454,14 +472,16 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
       "How it is worked out, nearest first:",
       ...chain.steps.map(
         (step) =>
-          `- ${where(step.sheet, step.ref)} ${step.label} = ${step.formula} → ${value(step)}`,
+          `- ${where(step.sheet, step.ref)} ${step.label} = ${step.formula} → ${value(step)}${asideOf(book, step)}`,
       ),
     ];
     if (chain.moreSteps > 0) lines.push(`- and ${chain.moreSteps} more formulas`);
     lines.push("Its inputs (cells holding numbers), each cited to its cell in the figure's card:");
     for (const each of chain.inputs) {
       const named = each.names.length > 0 ? ` (named ${each.names.join(", ")})` : "";
-      lines.push(`- ${where(each.sheet, each.ref)} ${each.label}${named}: ${each.shown}`);
+      lines.push(
+        `- ${where(each.sheet, each.ref)} ${each.label}${named}: ${each.shown}${asideOf(book, each)}`,
+      );
     }
     if (chain.moreInputs > 0) lines.push(`- and ${chain.moreInputs} more inputs`);
     if (chain.inputs.length > inputs.length)
@@ -533,6 +553,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
           : `Recorded [=${recorded.marker}] = ${recorded.figure.shown}, the value the workbook saved for ${label} (${ref} = ${cell.formula}). It can't be worked out again here, because it depends on cells that keep their saved values: ${kept.map(dependenceText).join("; ")}. Say so where you give it.`;
       return [
         head,
+        ...[setAsideLine(book, chain.target, "the figure")].filter((line) => line !== null),
         ...chainLines(book, chain, inputs),
         `Write [=${recorded.marker}] in the Answer where ${recorded.figure.shown} goes, never the number itself and never a Citation marker for it. To see the figure with one input changed, call ${WORKBOOK_TOOLS.whatIf} with that input's cell.`,
       ].join("\n");
@@ -690,7 +711,13 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
       if (typeof recorded === "string") return `Nothing was recorded: ${recorded}`;
       counted?.(1);
       const before = shown(book, chain.target, outcome.before).shown;
-      return `Recorded [=${recorded.marker}] = ${recorded.figure.shown}: ${chain.target.label} (${ref}) with ${changedInput.label} (${inputRef}) at ${after} instead of ${changedChain.shown}, worked out again from the workbook's ${outcome.formulaCells} formula${outcome.formulaCells === 1 ? "" : "s"} on a copy in memory; the User's file is unchanged, and the workbook as it is gives ${before}. Write [=${recorded.marker}] in the Answer where ${recorded.figure.shown} goes, never the number itself, and say which input was changed.`;
+      return [
+        `Recorded [=${recorded.marker}] = ${recorded.figure.shown}: ${chain.target.label} (${ref}) with ${changedInput.label} (${inputRef}) at ${after} instead of ${changedChain.shown}, worked out again from the workbook's ${outcome.formulaCells} formula${outcome.formulaCells === 1 ? "" : "s"} on a copy in memory; the User's file is unchanged, and the workbook as it is gives ${before}. Write [=${recorded.marker}] in the Answer where ${recorded.figure.shown} goes, never the number itself, and say which input was changed.`,
+        setAsideLine(book, chain.target, "the figure"),
+        setAsideLine(book, changedChain, "the input changed"),
+      ]
+        .filter((line) => line !== null)
+        .join("\n");
     },
   };
 

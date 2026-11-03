@@ -3586,6 +3586,8 @@ export const en = {
     "1 figure couldn’t be calculated: {figures}. It was written without a calculation IncarnaMind could check.",
   "answer.figures.uncalculated.named":
     "{count} figures couldn’t be calculated: {figures}. They were written without a calculation IncarnaMind could check.",
+  "answer.setAsideHidden": "(hidden in the file)",
+  "answer.setAsideStruck": "(struck through in the file)",
   "answer.sourceNotKept": "(source couldn’t be kept)",
   "answer.status.stopped": "Stopped",
   "answer.stop": "Stop",
