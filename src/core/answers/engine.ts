@@ -108,6 +108,7 @@ import type {
 } from "../runs/engine";
 import { inStep } from "../timing/flows";
 import {
+  ANALYSIS_TOOLS,
   DOCUMENT_TOOLS,
   offeredTools,
   type Tool,
@@ -355,6 +356,8 @@ export interface InstructionOptions {
   mindTools?: boolean;
   /** The model is offered `run_analysis` (#447). */
   analysisTools?: boolean;
+  /** The model is offered `run_code` (ADR-0025). */
+  codeTools?: boolean;
   /** The model is offered a workbook's formula Tools (#2347). */
   workbookTools?: boolean;
   /** The model is offered the commands' Tools (#1110). */
@@ -1844,7 +1847,8 @@ async function* toolLoop(
     sourceTools: tools.some((each) => each.provider.kind === "sources"),
     webTools: tools.some((each) => each.provider.kind === "web"),
     mindTools: tools.some((each) => each.provider.kind === "minds"),
-    analysisTools: tools.some((each) => each.provider.kind === "analysis"),
+    analysisTools: tools.some((each) => each.name === ANALYSIS_TOOLS.run),
+    codeTools: tools.some((each) => each.name === ANALYSIS_TOOLS.code),
     workbookTools: tools.some((each) => each.name === WORKBOOK_TOOLS.trace),
     commandTools: tools.some((each) => each.provider.kind === "commands"),
   });

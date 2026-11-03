@@ -293,6 +293,11 @@ export interface ModelFacts {
   workbookTools: boolean;
   /** Offered the Analysis Tool with `calculate` (#447): measured apart, as its figures are its code's. */
   analysisTool: boolean;
+  /**
+   * Offered `run_code` beside the Analysis Tool (#2351, ADR-0025): measured apart, as it runs
+   * code on whole files in the OS sandbox without asking.
+   */
+  codeTool: boolean;
   /** Offered `calculate` in a claim check, whose verdict rests on its own calculation (#707). */
   checkCalculates: boolean;
 }

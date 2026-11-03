@@ -41,7 +41,8 @@ import numpy as np
 import pandas as pd
 
 FILENAME = "<analysis>"
-WORKING_FOLDER = "/analysis"
+# The run's own folder: Pyodide's in-memory one, or the one run_code gives it in the OS sandbox.
+WORKING_FOLDER = os.environ.get("INCARNAMIND_WORKING_FOLDER", "/analysis")
 # The numbers code writes for reasons other than data: counting, halves, percentages.
 LEFT_OUT = (0, 1, 2, -1, 100)
 CHART_KINDS = ("bar", "line", "pie", "scatter")
@@ -905,14 +906,20 @@ def _clean_up():
     os.environ.clear()
     os.environ.update(_environment)
     os.chdir(_home)
-    for folder in (WORKING_FOLDER, "/tmp"):
-        shutil.rmtree(folder, ignore_errors=True)
-        os.makedirs(folder, exist_ok=True)
+    # A native interpreter runs one job and ends; its folder holds what the job leaves in out/.
+    if sys.platform == "emscripten":
+        for folder in (WORKING_FOLDER, "/tmp"):
+            shutil.rmtree(folder, ignore_errors=True)
+            os.makedirs(folder, exist_ok=True)
     linecache.cache.pop(FILENAME, None)
     _read.clear()
     if "matplotlib.pyplot" in sys.modules:
         sys.modules["matplotlib.pyplot"].close("all")
     _drawn.clear()
+
+
+# What a runtime adds to the code's names: run_code's read_table.
+extra_names = {}
 
 
 def run(job_text):
@@ -956,6 +963,7 @@ def _run_job(job):
                 # Models write pd and np without importing them, as notebooks have them.
                 "pd": pd,
                 "np": np,
+                **extra_names,
             }
             linecache.cache[FILENAME] = (len(code), None, code.splitlines(True), FILENAME)
             os.chdir(WORKING_FOLDER)

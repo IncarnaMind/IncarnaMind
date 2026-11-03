@@ -717,6 +717,7 @@ export function createCore(adapters: CoreAdapters): Core {
     scriptSandbox,
     !capture ? "none" : capture.systemAudio ? "both" : "microphone",
     () => adapters.systemUserName?.() || accountName(),
+    adapters.sandboxProblem ?? null,
   );
   const folders = createFolders(db, now);
   const foldersChanged = () => events.emit("folders.changed", folders.list());
@@ -1277,6 +1278,9 @@ export function createCore(adapters: CoreAdapters): Core {
     ollamaModels: adapters.ollamaModels ?? createOllamaModels(),
     localOnly: () => embedding.localOnly(),
     meter,
+    ...(adapters.modelFacts && {
+      modelFacts: (provider, modelId) => adapters.modelFacts?.(provider, modelId),
+    }),
   });
 
   /** Set once readiness can be reported: Connectors turned on or off change what chat sends. */
@@ -1351,6 +1355,21 @@ export function createCore(adapters: CoreAdapters): Core {
     });
   // Running Skill scripts (#41), each in its own temporary folder.
   const scriptRunner = createScriptRunner({ executor, runtimes: adapters.scriptRuntimes });
+  // Code on whole Documents, in the OS sandbox only (ADR-0025): Python is IncarnaMind's own,
+  // downloaded the first time code needs it.
+  const codeHost =
+    executor.level === "os"
+      ? adapters.codeRuntime?.start({
+          executor,
+          dataDir,
+          tempDir: adapters.paths.tempDir ?? tmpdir(),
+          fetch: adapters.modelDownloads?.fetch ?? fetch,
+          emitStatus: (status) => events.emit("pythonRuntime.status", status),
+          ...(adapters.log && { log: adapters.log }),
+        })
+      : undefined;
+  const pythonRuntime = codeHost?.python ?? null;
+  const codeRunner = codeHost?.runner;
 
   // Asking the User before a Connector Tool that may change something runs (#38).
   const approvals = createApprovals({
@@ -1935,6 +1954,15 @@ export function createCore(adapters: CoreAdapters): Core {
     events,
     engine: answerEngine,
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
+    ...(codeRunner && {
+      code: {
+        runner: codeRunner,
+        file: async (documentId: string) => ({
+          path: await documents.filePath(documentId),
+          readHiddenSheets: documents.get(documentId).readHiddenSheets,
+        }),
+      },
+    }),
     requireMind: (mindId) => writableMind(mindId).id,
     mindExists,
     readableMindName,
@@ -3794,6 +3822,16 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     listed: () => transcriber !== undefined && transcriptionSource.files.length > 0,
   });
+  if (pythonRuntime) {
+    const pythonHost = new URL(pythonRuntime.manifest.url);
+    privacy.traffic.register({
+      id: "python-runtime",
+      service: {
+        id: pythonHost.origin,
+        name: pythonHost.host === "github.com" ? "GitHub" : pythonHost.host,
+      },
+    });
+  }
   // Any built-in model may come from these instead, and the probe asks hf-mirror.com until our
   // ModelScope copy exists (#1578).
   const modelScopeCopy = modelCopyUrl(modelCopies.modelscope);
@@ -5264,6 +5302,7 @@ export function createCore(adapters: CoreAdapters): Core {
     downloadEmbeddingModel: async () => embeddingModel.retry(),
     getTextRecognitionModel: async () =>
       textRecognitionModel?.status() ?? textRecognitionUnavailable,
+    getPythonRuntime: async () => pythonRuntime?.status() ?? null,
     downloadTextRecognitionModel: async () =>
       textRecognitionModel?.retry() ?? textRecognitionUnavailable,
 
@@ -6389,6 +6428,7 @@ export function createCore(adapters: CoreAdapters): Core {
       skillDrafts.stopAll();
       scriptRunner.close();
       adapters.analysisRuntime?.close();
+      pythonRuntime?.close();
       approvals.close();
       connectors.close();
       tagger.close();
