@@ -643,6 +643,79 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(after?.tags.length).toBe(1);
   });
 
+  // protects=a User's Tag added to a Document while Organize reads it stays after Undo, while the run's automatic Tags go (#2252); fails_when=the User's Tag is reverted; no_claim=which Folder the classifier picks.
+  test("Undo keeps a Tag added while the Documents are read", async () => {
+    let classified = 0;
+    let added: () => void = () => undefined;
+    const tagAdded = new Promise<void>((resolve) => {
+      added = resolve;
+    });
+    let coreRef: Core | null = null;
+    let leaseId = "";
+    let duringId = "";
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          classified++;
+          const leases = data.groups.find((each) => each.name === "Leases");
+          const text = JSON.stringify({
+            groupId: leases?.id ?? null,
+            tags: [],
+            newTags: [{ name: "Leased", description: "Lease papers" }],
+          });
+          if (classified === 2 && coreRef && leaseId && duringId) {
+            void coreRef.addTagToDocuments([leaseId], duringId).then(() => added());
+            return { text, until: tagAdded };
+          }
+          return { text };
+        },
+      },
+    );
+    const { core, mind, documents } = await setUpWithDocuments(model, DOCUMENTS);
+    coreRef = core;
+    const lease = documents.find((each) => each.name === "Lease Mill Lane");
+    if (!lease) throw new Error("No lease.");
+    leaseId = lease.id;
+    const during = await core.createTag({ name: "During" });
+    duringId = during.id;
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const tagged = (await core.listDocuments()).find((each) => each.id === lease.id);
+    expect(tagged?.tags.some((each) => each.tagId === during.id)).toBe(true);
+
+    await core.undoCommands(runOf(answer));
+    const after = (await core.listDocuments()).find((each) => each.id === lease.id);
+    expect(after?.tags.some((each) => each.tagId === during.id)).toBe(true);
+    expect(after?.tags.length).toBe(1);
+  });
+
   // protects=Organize the User doesn't allow changes nothing; fails_when=a Document is filed or a Folder made; no_claim=the card's words.
   test("Organize not allowed moves nothing", async () => {
     const model = calling(

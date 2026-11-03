@@ -58,10 +58,13 @@ const tagStates = (
     const currentLinks = current.get(documentId) ?? new Map<string, TagLink>();
     const targetLinks = target.get(documentId) ?? new Map<string, TagLink>();
     for (const tagId of new Set([...leftLinks.keys(), ...targetLinks.keys()])) {
-      if (!sameLink(currentLinks.get(tagId) ?? null, leftLinks.get(tagId) ?? null)) continue;
-      const link = targetLinks.get(tagId) ?? null;
-      if (sameLink(link, leftLinks.get(tagId) ?? null)) continue;
-      states.push({ documentId, tagId, link });
+      const leftLink = leftLinks.get(tagId) ?? null;
+      const targetLink = targetLinks.get(tagId) ?? null;
+      // A Tag the User put on or took off is not Organize's to change, before or after.
+      if (leftLink?.source === "user" || targetLink?.source === "user") continue;
+      if (!sameLink(currentLinks.get(tagId) ?? null, leftLink)) continue;
+      if (sameLink(targetLink, leftLink)) continue;
+      states.push({ documentId, tagId, link: targetLink });
     }
   }
   return states;
