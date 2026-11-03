@@ -30,7 +30,7 @@ import {
   type UnitTable,
 } from "../../../shared/units";
 import { headingLevelOfStyleName } from "../../../shared/wordStyles";
-import { cellTable, isFigure, shiftedDigits } from "../tableCells";
+import { cellTable, headingRowsOf, isFigure, shiftedDigits } from "../tableCells";
 import { type Relationship, relationshipsOf } from "./docxPackage";
 import { ExtractionError } from "./errors";
 import { child, elements, local, parseXml, type XmlElement } from "./xml";
@@ -229,63 +229,74 @@ function readBlocks(
         out.push({ text, level: null, ...marks, ...ends });
     } else if (element.name === "w:tbl") {
       const table = tables.count++;
+      const collected = elements(element)
+        .filter((each) => each.name === "w:tr")
+        .map((row) => {
+          const marks: CommentMarks = { references: [], starts: [] };
+          const trPr = child(row, "w:trPr");
+          const skipped = (name: string) =>
+            Array.from({ length: gridCount(trPr && child(trPr, name), 0) }, () => "");
+          // A merged cell keeps its grid's columns (#448): the cells right of one spanning two
+          // columns stay under their own headings, and a row starting further along the grid
+          // starts there.
+          const cells: string[] = [];
+          const covered: boolean[] = [];
+          const continued: boolean[] = [];
+          for (const cell of elements(row).filter((each) => each.name === "w:tc")) {
+            const inner: Paragraph[] = [];
+            readBlocks(cell, styles, inner);
+            for (const paragraph of inner) {
+              marks.references.push(...paragraph.references);
+              marks.starts.push(...paragraph.starts);
+            }
+            const vMerge = child(child(cell, "w:tcPr") ?? cell, "w:vMerge");
+            const continues =
+              vMerge !== undefined &&
+              (vMerge.attrs["w:val"] === undefined || vMerge.attrs["w:val"] === "continue");
+            const span = spanOf(cell);
+            cells.push(cellText(inner));
+            covered.push(false);
+            continued.push(continues);
+            for (let at = 1; at < span; at++) {
+              cells.push("");
+              covered.push(true);
+              continued.push(false);
+            }
+          }
+          const before = skipped("w:gridBefore");
+          cells.unshift(...before);
+          covered.unshift(...before.map(() => false));
+          continued.unshift(...before.map(() => false));
+          const after = skipped("w:gridAfter");
+          cells.push(...after);
+          covered.push(...after.map(() => false));
+          continued.push(...after.map(() => false));
+          return { marks, cells, covered, continued };
+        });
+      // A merge repeats the text it continues down the body's rows, not into another heading row,
+      // and never a figure, which would count twice.
       const starts: string[] = [];
       const startedAt: number[] = [];
-      const rows = elements(element).filter((each) => each.name === "w:tr");
-      for (const [at, row] of rows.entries()) {
-        const marks: CommentMarks = { references: [], starts: [] };
-        const trPr = child(row, "w:trPr");
-        const skipped = (name: string) =>
-          Array.from({ length: gridCount(trPr && child(trPr, name), 0) }, () => "");
-        // A merged cell keeps its grid's columns (#448): the cells right of one spanning two
-        // columns stay under their own headings, one merged down from the row above repeats the
-        // text it continues (not a figure, which would count twice), and a row starting further
-        // along the grid starts there.
-        const cells: string[] = [];
-        const covered: boolean[] = [];
-        const continued: boolean[] = [];
-        for (const cell of elements(row).filter((each) => each.name === "w:tc")) {
-          const inner: Paragraph[] = [];
-          readBlocks(cell, styles, inner);
-          for (const paragraph of inner) {
-            marks.references.push(...paragraph.references);
-            marks.starts.push(...paragraph.starts);
-          }
-          const vMerge = child(child(cell, "w:tcPr") ?? cell, "w:vMerge");
-          const continues =
-            vMerge !== undefined &&
-            (vMerge.attrs["w:val"] === undefined || vMerge.attrs["w:val"] === "continue");
-          const span = spanOf(cell);
-          cells.push(cellText(inner));
-          covered.push(false);
-          continued.push(continues);
-          for (let at = 1; at < span; at++) {
-            cells.push("");
-            covered.push(true);
-            continued.push(false);
-          }
-        }
-        const before = skipped("w:gridBefore");
-        cells.unshift(...before);
-        covered.unshift(...before.map(() => false));
-        continued.unshift(...before.map(() => false));
-        const after = skipped("w:gridAfter");
-        cells.push(...after);
-        covered.push(...after.map(() => false));
-        continued.push(...after.map(() => false));
-        // The first row heads the columns, so a merge it starts is a heading; a later one repeats
-        // its text down the rows it continues.
-        for (let column = 0; column < cells.length; column++) {
+      const headingRows = headingRowsOf(collected.map((row) => row.cells));
+      for (const [at, row] of collected.entries()) {
+        for (let column = 0; column < row.cells.length; column++) {
           const start = starts[column];
-          if (continued[column] && start && !isFigure(start) && (startedAt[column] ?? 0) > 0)
-            cells[column] = start;
+          if (
+            row.continued[column] &&
+            start &&
+            !isFigure(start) &&
+            (startedAt[column] ?? -1) >= headingRows
+          )
+            row.cells[column] = start;
         }
-        for (let column = 0; column < cells.length; column++) {
-          if (!continued[column]) {
-            starts[column] = cells[column] ?? "";
+        for (let column = 0; column < row.cells.length; column++) {
+          if (!row.continued[column]) {
+            starts[column] = row.cells[column] ?? "";
             startedAt[column] = at;
           }
         }
+      }
+      for (const { marks, cells, covered } of collected) {
         const filled = cells.some((cell) => cell !== "");
         const text = filled ? cells.join("\t") : "";
         if (filled) out.push({ text, level: null, ...marks, row: { table, cells, covered } });

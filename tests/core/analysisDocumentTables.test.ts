@@ -366,6 +366,31 @@ function mergedDownDeck(): Uint8Array {
   });
 }
 
+interface RawCell {
+  text: string;
+  attrs?: string;
+}
+
+/** A deck whose table's cells are given as text and DrawingML attributes, as a merge is written. */
+function rawDeck(title: string, rows: readonly (readonly RawCell[])[]): Uint8Array {
+  const cell = ({ text, attrs = "" }: RawCell) =>
+    `<a:tc${attrs}><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-GB"/><a:t>${escapeXml(text)}</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>`;
+  const grid = `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="457200" y="1100000"/><a:ext cx="8000000" cy="3600000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr firstRow="1"/><a:tblGrid>${'<a:gridCol w="2000000"/>'.repeat(rows[0]?.length ?? 1)}</a:tblGrid>${rows
+    .map((row) => `<a:tr h="360000">${row.map(cell).join("")}</a:tr>`)
+    .join("")}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
+  const heading = (text: string) =>
+    sp({
+      id: 2,
+      name: "Title",
+      ph: `<p:ph type="title"/>`,
+      spPr: xfrm(457200, 200000, 8000000, 800000),
+      body: txBody(para(escapeXml(text))),
+    });
+  return pptxOf({
+    slides: [{ shapes: heading("Board pack") }, { shapes: heading(title) + grid }],
+  });
+}
+
 const SCANS = join(import.meta.dirname, "../fixtures/scans");
 /** What the real recognizer read of the table scan: Table 3, and 表 5 with "1,286" unsure. */
 const scanScript = (): FakeScanScript => {
@@ -629,6 +654,84 @@ describe("a deck's table (#448)", { timeout: 60_000 }, () => {
     });
     expect(inputs[0]?.columns).toEqual(["Workstream", "Cost"]);
     expect(inputs[0]?.rows.map((row) => row[0])).toEqual(["Design", "Design", "Design", "Design"]);
+  });
+
+  test("a merge in the first row of a table with no headings repeats", async () => {
+    const contents = rawDeck("Design costs", [
+      [{ text: "Design", attrs: ' rowSpan="2"' }, { text: "Research" }, { text: "1,000" }],
+      [{ text: "", attrs: ' vMerge="1"' }, { text: "Prototype" }, { text: "1,200" }],
+    ]);
+    const { inputs } = await ask({
+      files: [{ name: "Board pack.pptx", contents }],
+      question: "What did Design cost?",
+      query: "Design Research Prototype",
+      runs: [run("Board pack", [{ name: "design" }])],
+      helper: () => ({}),
+    });
+    expect(inputs[0]?.rows).toEqual([
+      ["Design", "Research", 1000],
+      ["Design", "Prototype", 1200],
+    ]);
+  });
+
+  test("a figure merged down the rows counts once", async () => {
+    const contents = rawDeck("Costs", [
+      [{ text: "Workstream" }, { text: "Item" }, { text: "Amount" }],
+      [{ text: "1,000", attrs: ' rowSpan="2"' }, { text: "Research" }, { text: "100" }],
+      [{ text: "", attrs: ' vMerge="1"' }, { text: "Prototype" }, { text: "200" }],
+    ]);
+    const { inputs } = await ask({
+      files: [{ name: "Board pack.pptx", contents }],
+      question: "Total the amounts.",
+      query: "Research Prototype",
+      runs: [run("Board pack", [{ name: "costs" }])],
+      helper: sumOf("Amount"),
+    });
+    expect(inputs[0]?.rows).toEqual([
+      [1000, "Research", 100],
+      [null, "Prototype", 200],
+    ]);
+  });
+
+  test("a merge written as true is a merge", async () => {
+    const contents = rawDeck("Costs", [
+      [
+        { text: "Region" },
+        { text: "Cost (GBP)", attrs: ' gridSpan="2"' },
+        { text: "", attrs: ' hMerge="true"' },
+      ],
+      [{ text: "North" }, { text: "1,200" }, { text: "1,100" }],
+      [{ text: "South" }, { text: "800" }, { text: "760" }],
+    ]);
+    const { inputs } = await ask({
+      files: [{ name: "Board pack.pptx", contents }],
+      question: "Total the costs.",
+      query: "Cost North South",
+      runs: [run("Board pack", [{ name: "costs" }])],
+      helper: () => ({}),
+    });
+    expect(inputs[0]?.columns).toEqual(["Region", "Cost (GBP)", "Cost (GBP) (2)"]);
+    expect(inputs[0]?.rows).toEqual([
+      ["North", 1200, 1100],
+      ["South", 800, 760],
+    ]);
+  });
+
+  test("a label merged down written as true repeats", async () => {
+    const contents = rawDeck("Design costs", [
+      [{ text: "Workstream" }, { text: "Cost" }],
+      [{ text: "Design", attrs: ' rowSpan="2"' }, { text: "Surveys" }],
+      [{ text: "", attrs: ' vMerge="true"' }, { text: "3,550" }],
+      [{ text: "", attrs: ' vMerge="true"' }, { text: "1,200" }],
+    ]);
+    const { inputs } = await ask({
+      files: [{ name: "Board pack.pptx", contents }],
+      question: "What does Design cost?",
+      query: "Design costs",
+      runs: [run("Board pack", [{ name: "costs" }])],
+      helper: sumOf("Cost"),
+    });
+    expect(inputs[0]?.rows.map((row) => row[0])).toEqual(["Design", "Design", "Design"]);
   });
 });
 
@@ -1397,6 +1500,14 @@ describe("the review's table cases (#448)", { timeout: 60_000 }, () => {
     expect(rows[0]?.fragments[0]?.text).toBe("1,240.50¹");
   });
 
+  test("a PDF's raised footnote digit at the row's own size doesn't join the number", () => {
+    const rows = textLayerRows([
+      { str: "1,240.50", transform: [10, 0, 0, 10, 300, 684], width: 44, height: 10 },
+      { str: "1", transform: [10, 0, 0, 10, 344, 687], width: 4, height: 10 },
+    ]);
+    expect(rows[0]?.fragments[0]?.text).toBe("1,240.50¹");
+  });
+
   test("a Word superscript set by a style or a position doesn't join the number", async () => {
     const style = (id: string, rPr: string) =>
       `<w:style w:type="character" w:styleId="${id}"><w:name w:val="${id}"/><w:rPr>${rPr}</w:rPr></w:style>`;
@@ -1512,6 +1623,163 @@ describe("the review's table cases (#448)", { timeout: 60_000 }, () => {
       ["Pumps", 1200, 1350],
       ["Fences", 900, 1050],
     ]);
+  });
+
+  test("a first body row under a year heading keeps its label", async () => {
+    const { inputs } = await ask({
+      files: [
+        {
+          name: "Output.docx",
+          contents: wordFile({
+            body: table([
+              ["", "2024", "2023"],
+              ["Plant A", "2045", "1987"],
+              ["Plant B", "1,200", "900"],
+              ["Plant C", "800", "600"],
+            ]),
+          }),
+        },
+      ],
+      question: "Total the 2024 column.",
+      query: "Plant",
+      runs: [run("Output", [{ name: "output" }])],
+      helper: sumOf("2024"),
+    });
+    expect(inputs[0]?.rows[0]).toEqual(["Plant A", 2045, 1987]);
+    expect(inputs[0]?.rows).toHaveLength(3);
+  });
+
+  test("a Word first body row under a labelled heading keeps its label", async () => {
+    const { inputs } = await ask({
+      files: [
+        {
+          name: "Output.docx",
+          contents: wordFile({
+            body: table([
+              ["Plant", "2024", "2023"],
+              ["", "t", "t"],
+              ["Alpha", "2045", "1987"],
+              ["Beta", "1,200", "900"],
+              ["Gamma", "800", "600"],
+            ]),
+          }),
+        },
+      ],
+      question: "Total the 2024 column.",
+      query: "Alpha Beta Gamma",
+      runs: [run("Output", [{ name: "output" }])],
+      helper: sumOf("2024 t"),
+    });
+    expect(inputs[0]?.rows[0]).toEqual(["Alpha", 2045, 1987]);
+  });
+
+  test("a first body row with placeholders under a units row stays a row", async () => {
+    const { inputs } = await ask({
+      files: [
+        {
+          name: "Output.docx",
+          contents: wordFile({
+            body: table([
+              ["", "(GBP m)", "(GBP m)"],
+              ["Alpha", "—", "—"],
+              ["Beta", "1,200", "1,000"],
+              ["Gamma", "900", "700"],
+            ]),
+          }),
+        },
+      ],
+      question: "Total the second column.",
+      query: "Alpha Beta Gamma",
+      runs: [run("Output", [{ name: "output" }])],
+      helper: sumOf("(GBP m)"),
+    });
+    expect(inputs[0]?.rows[0]).toEqual(["Alpha", "—", "—"]);
+  });
+
+  test("a PDF first body row under a labelled heading keeps its label", async () => {
+    const at = [72, 250, 310];
+    const rows = [
+      ["Plant", "2024", "2023"],
+      ["", "t", "t"],
+      ["Alpha", "2045", "1987"],
+      ["Beta", "1,200", "900"],
+      ["Gamma", "800", "600"],
+    ];
+    const contents = buildPdf([
+      {
+        lines: ["Output"],
+        placed: rows.flatMap((cells, index) =>
+          cells.flatMap((text, column) =>
+            text ? [{ text, x: at[column] ?? 72, y: 600 - index * 16 }] : [],
+          ),
+        ),
+      },
+    ]);
+    const { inputs } = await ask({
+      files: [{ name: "Output.pdf", contents }],
+      question: "Total the 2024 column.",
+      query: "Alpha Beta Gamma",
+      runs: [run("Output", [{ name: "output" }])],
+      helper: sumOf("2024 t"),
+    });
+    expect(inputs[0]?.rows[0]).toEqual(["Alpha", 2045, 1987]);
+    expect(inputs[0]?.rows).toHaveLength(3);
+  });
+
+  test("a PDF first body row with placeholders under a units row stays a row", async () => {
+    const at = [72, 250, 310];
+    const rows = [
+      ["", "t", "t"],
+      ["Alpha", "—", "—"],
+      ["Beta", "1,200", "900"],
+      ["Gamma", "800", "600"],
+    ];
+    const contents = buildPdf([
+      {
+        lines: ["Output"],
+        placed: rows.flatMap((cells, index) =>
+          cells.flatMap((text, column) =>
+            text ? [{ text, x: at[column] ?? 72, y: 600 - index * 16 }] : [],
+          ),
+        ),
+      },
+    ]);
+    const { inputs } = await ask({
+      files: [{ name: "Output.pdf", contents }],
+      question: "Total the second column.",
+      query: "Alpha Beta Gamma",
+      runs: [run("Output", [{ name: "output" }])],
+      helper: sumOf("t"),
+    });
+    expect(inputs[0]?.rows[0]).toEqual(["Alpha", "—", "—"]);
+  });
+
+  test("a PDF first body row under a year heading keeps its label", async () => {
+    const at = [72, 250, 310];
+    const rows = [
+      ["", "2024", "2023"],
+      ["Alpha", "2045", "1987"],
+      ["Beta", "1,200", "900"],
+      ["Gamma", "800", "600"],
+    ];
+    const contents = buildPdf([
+      {
+        lines: ["Output"],
+        placed: rows.flatMap((cells, index) =>
+          cells.flatMap((text, column) =>
+            text ? [{ text, x: at[column] ?? 72, y: 600 - index * 16 }] : [],
+          ),
+        ),
+      },
+    ]);
+    const { inputs } = await ask({
+      files: [{ name: "Output.pdf", contents }],
+      question: "Total the 2024 column.",
+      query: "Alpha Beta Gamma",
+      runs: [run("Output", [{ name: "output" }])],
+      helper: sumOf("2024"),
+    });
+    expect(inputs[0]?.rows[0]).toEqual(["Alpha", 2045, 1987]);
   });
 
   test("a PDF units row below the headings still heads the columns", async () => {
@@ -1636,6 +1904,55 @@ describe("the review's table cases (#448)", { timeout: 60_000 }, () => {
       helper: sumOf("Rate"),
     });
     expect(column(inputs[0], "Rate")).toEqual([0.123, 0.456, 0.789]);
+  });
+
+  test("a merge in the first row of a table with no headings repeats", async () => {
+    const restart = (text: string) =>
+      `<w:tcPr><w:vMerge w:val="restart"/></w:tcPr>${paragraph(text)}`;
+    const continued = () => "<w:tcPr><w:vMerge/></w:tcPr><w:p/>";
+    const tc = (text: string) => `<w:tc>${paragraph(text)}</w:tc>`;
+    const grid = `<w:tbl><w:tblGrid>${'<w:gridCol w:w="2000"/>'.repeat(3)}</w:tblGrid>${[
+      `<w:tr><w:tc>${restart("Design")}</w:tc>${tc("Research")}${tc("1,000")}</w:tr>`,
+      `<w:tr><w:tc>${continued()}</w:tc>${tc("Prototype")}${tc("1,200")}</w:tr>`,
+    ].join("")}</w:tbl>`;
+    const { inputs } = await ask({
+      files: [{ name: "Design.docx", contents: wordFile({ body: grid }) }],
+      question: "What did Design cost?",
+      query: "Design Research Prototype",
+      runs: [run("Design", [{ name: "design" }])],
+      helper: () => ({}),
+    });
+    expect(inputs[0]?.columns).toEqual(["A", "B", "C"]);
+    expect(inputs[0]?.rows).toEqual([
+      ["Design", "Research", 1000],
+      ["Design", "Prototype", 1200],
+    ]);
+  });
+
+  test("a merge started in a heading row doesn't repeat into the next heading row", async () => {
+    const restart = (text: string) =>
+      `<w:tcPr><w:vMerge w:val="restart"/></w:tcPr>${paragraph(text)}`;
+    const continued = () => "<w:tcPr><w:vMerge/></w:tcPr><w:p/>";
+    const tc = (text: string) => `<w:tc>${paragraph(text)}</w:tc>`;
+    const grid = `<w:tbl><w:tblGrid>${'<w:gridCol w:w="2000"/>'.repeat(3)}</w:tblGrid>${[
+      `<w:tr>${tc("")}${tc("Revenue")}${tc("Revenue")}</w:tr>`,
+      `<w:tr><w:tc>${restart("Revenue")}</w:tc>${tc("2024")}${tc("2025")}</w:tr>`,
+      `<w:tr><w:tc>${continued()}</w:tc>${tc("H1")}${tc("H2")}</w:tr>`,
+      `<w:tr>${tc("North")}${tc("1,200")}${tc("1,100")}</w:tr>`,
+      `<w:tr>${tc("South")}${tc("800")}${tc("760")}</w:tr>`,
+    ].join("")}</w:tbl>`;
+    const { inputs } = await ask({
+      files: [{ name: "Revenue.docx", contents: wordFile({ body: grid }) }],
+      question: "Total the 2024 column.",
+      query: "North South",
+      runs: [run("Revenue", [{ name: "revenue" }])],
+      helper: sumOf("Revenue 2024 H1"),
+    });
+    expect(inputs[0]?.columns).toEqual(["Revenue", "Revenue 2024 H1", "Revenue 2025 H2"]);
+    expect(inputs[0]?.rows).toEqual([
+      ["North", 1200, 1100],
+      ["South", 800, 760],
+    ]);
   });
 
   test("a German d.ddd column stays text rather than a thousand times too small", async () => {

@@ -68,12 +68,46 @@ export interface TableSpans {
   covered?: readonly (readonly boolean[])[];
 }
 
+/** A cell that says the value isn't there, rather than naming a column: a body row, not a heading. */
+const PLACEHOLDER = /^(?:[—–‒-]{1,3}|n\/?a|tbc)$/iu;
+export const placeholder = (text: string) => PLACEHOLDER.test(text.trim());
+
+/** A heading cell under a figure of the row above: the row is the body's, not the headings'. */
+const underFigure = (row: readonly string[], above: readonly string[]) =>
+  row.some((text, column) => {
+    const value = (text ?? "").trim();
+    return placeholder(value) || (isFigure(value) && isFigure(above[column] ?? ""));
+  });
+
+/**
+ * How many of a file's rows head its columns (#448): the first, and a row below it with an empty
+ * label cell (a units row or a merged heading). A row with a label of its own heads only while no
+ * heading above it has a label, the row just above has an empty label, and its cells are neither
+ * placeholders nor figures under figures.
+ */
+export function headingRowsOf(rows: readonly (readonly string[])[]): number {
+  const firstData = rows.findIndex((row) => row.some(isDatum));
+  if (firstData <= 0) return 0;
+  let headingCount = 1;
+  while (headingCount < firstData && headingCount < MAX_HEADING_ROWS) {
+    const row = rows[headingCount] ?? [];
+    const above = rows[headingCount - 1] ?? [];
+    if ((row[0] ?? "").trim() === "") {
+      headingCount++;
+      continue;
+    }
+    const labelled = rows.slice(0, headingCount).some((each) => (each[0] ?? "").trim() !== "");
+    if ((above[0] ?? "").trim() !== "" || labelled || underFigure(row, above)) break;
+    headingCount++;
+  }
+  return headingCount;
+}
+
 /**
  * A table whose file gives its cells, a Word file's or a deck's (#448): the rows above the first
  * that holds a figure, other than a year or a date, head its columns, as on a page. A heading
- * covers only the cells its span covers ("Cost (EUR)" over Internal and External); a row below
- * the first heads columns only where the row above has a span or its own label cell is empty.
- * Null for a table with no column of figures.
+ * covers only the cells its span covers ("Cost (EUR)" over Internal and External). Null for a
+ * table with no column of figures.
  */
 export function cellTable(
   rows: readonly (readonly string[])[],
@@ -82,20 +116,8 @@ export function cellTable(
   let width = 0;
   for (const row of rows) width = Math.max(width, row.length);
   if (width < 2) return null;
-  const firstData = rows.findIndex((row) => row.some(isDatum));
-  if (firstData < 0) return null;
-  let headingCount = 0;
-  if (firstData > 0) {
-    headingCount = 1;
-    while (headingCount < firstData && headingCount < MAX_HEADING_ROWS) {
-      // A units row or a merged heading leaves the label cell empty, so the row below still heads
-      // the columns; once a heading row has a label of its own, a row with its own label is body.
-      const aboveLabelEmpty = (rows[headingCount - 1]?.[0] ?? "").trim() === "";
-      const labelEmpty = (rows[headingCount]?.[0] ?? "").trim() === "";
-      if (!aboveLabelEmpty && !labelEmpty) break;
-      headingCount++;
-    }
-  }
+  if (!rows.some((row) => row.some(isDatum))) return null;
+  const headingCount = headingRowsOf(rows);
   const body = rows
     .slice(headingCount)
     .map((row) => Array.from({ length: width }, (_, column) => row[column] ?? ""));

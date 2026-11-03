@@ -17,6 +17,7 @@ import {
   isFigure,
   join,
   MAX_HEADING_ROWS,
+  placeholder,
   shiftedDigits,
 } from "./tableCells";
 
@@ -325,6 +326,9 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
     else if (!row.every((fragment) => labelsHeading(fragment))) break;
     above--;
   }
+  const aboveFigure = (fragment: Fragment, above: readonly Fragment[]) =>
+    isFigure(fragment.text) &&
+    above.some((each) => isFigure(each.text) && overlapping(fragment, [each]).length > 0);
   let bottom = top;
   while (bottom < headingLimit) {
     const row = rows[bottom] ?? [];
@@ -332,11 +336,21 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
     if (bottom > top) {
       const above = rows[bottom - 1] ?? [];
       // A units row or a merged heading leaves the label column empty, so the row below still
-      // heads the columns; once a heading row has a label of its own, a row with its own label is
-      // the body's.
-      const aboveLabelEmpty = !above.some((fragment) => labelsHeading(fragment));
-      const labelEmpty = !row.some((fragment) => labelsHeading(fragment));
-      if (!aboveLabelEmpty && !labelEmpty) break;
+      // heads the columns. A row with a label of its own heads only while no heading above has
+      // one, the row just above has no label, and its cells are neither placeholders nor figures
+      // under figures.
+      if (row.some((fragment) => labelsHeading(fragment))) {
+        const labelled = rows
+          .slice(top, bottom)
+          .some((each) => each.some((fragment) => labelsHeading(fragment)));
+        const aboveLabelEmpty = !above.some((fragment) => labelsHeading(fragment));
+        if (
+          !aboveLabelEmpty ||
+          labelled ||
+          row.some((fragment) => placeholder(fragment.text) || aboveFigure(fragment, above))
+        )
+          break;
+      }
     }
     bottom++;
   }

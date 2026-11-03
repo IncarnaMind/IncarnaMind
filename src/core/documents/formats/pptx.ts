@@ -12,7 +12,7 @@
  * office-formats spike.
  */
 import { type TextUnit, UnitBuilder } from "../../../shared/units";
-import { cellTable, isFigure, shiftedDigits } from "../tableCells";
+import { cellTable, headingRowsOf, isFigure, shiftedDigits } from "../tableCells";
 import { ExtractionError } from "./errors";
 import { dataUrlOf, imageTypeOf } from "./images";
 import { child, descendants, elements, local, parseXml, textOf, type XmlElement } from "./xml";
@@ -222,14 +222,20 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
     const collected: Collected = { title: null, blocks: [], tables: [], images: [], charts: [] };
     if (tree) collect(tree, rels, collected);
     for (const rows of collected.tables) {
+      // A merge repeats the text it continues down the body's rows, not into another heading row,
+      // and never a figure, which would count twice.
       const starts: string[] = [];
       const startedAt: number[] = [];
+      const headingRows = headingRowsOf(rows.map((row) => row.cells));
       for (const [at, row] of rows.entries()) {
-        // The first row heads the columns, so a merge it starts is a heading; a later one repeats
-        // its text down the rows it continues.
         for (let column = 0; column < row.cells.length; column++) {
           const start = starts[column];
-          if (row.continued[column] && start && !isFigure(start) && (startedAt[column] ?? 0) > 0)
+          if (
+            row.continued[column] &&
+            start &&
+            !isFigure(start) &&
+            (startedAt[column] ?? -1) >= headingRows
+          )
             row.cells[column] = start;
         }
         for (let column = 0; column < row.cells.length; column++) {
