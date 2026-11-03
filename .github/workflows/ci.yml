@@ -285,9 +285,7 @@ jobs:
 
   # What finds and stops a run's leftover processes, and the OS sandbox's own profile, are
   # Seatbelt's, so their tests run only on macOS (ADR-0025); Linux's bubblewrap ends a run's
-  # processes itself. They need no Electron and no Python. macOS runners are few, so a pull request
-  # runs them on the same changes as the Linux job above, a draft too; every night runs them. Not a
-  # required check.
+  # processes itself. macOS runners are few, so it runs only on the changes the Linux job does.
   sweep-macos:
     name: The sweep and the OS sandbox (macOS)
     needs: changes

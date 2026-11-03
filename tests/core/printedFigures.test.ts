@@ -203,13 +203,10 @@ describe.skipIf(process.platform === "win32")("numbers code printed, in the Answ
   );
 
   test.each<[Language, string]>([
-    [
-      "en",
-      "The mean is 12.3 per hour over 3 hours; 12.4 would be wrong, and 777 is another number.",
-    ],
-    ["zh-CN", "3 小时内平均每小时 12.3 次；12.4 不对，777 是另一个数。"],
+    ["en", "The mean is 12.3 across 3 regions; 12.4 would be wrong, and 777 is another number."],
+    ["zh-CN", "3 个地区平均 12.3 次；12.4 不对，777 是另一个数。"],
   ])(
-    "%s: a print rounded as the reply writes it is the figure; one that matches nothing stays typed",
+    "%s: a print rounded as the reply writes it is the figure, a whole number only itself; one that matches nothing stays typed",
     async (language, reply) => {
       const { answer } = await answered(
         language,

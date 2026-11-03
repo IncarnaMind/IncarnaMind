@@ -79,7 +79,8 @@ interface Observed {
   printedMarked: string[];
   /**
    * Numbers the reply typed that equal one code printed, by the figure check's rule, and that its
-   * Citations don't quote: what the marking would still mark in its text.
+   * Citations don't quote: what the marking would still mark in its text. Where the reply was
+   * marked already this comes to none by construction: `typedAsPrinted` is the check apart.
    */
   printedUnmarked: string[];
   /** A cross-check by digits alone: typed numbers whose digits stand as a number in what code printed. */
@@ -393,7 +394,7 @@ async function ask(core: Core, dataDir: string, each: RoutingCase, log: (line: s
     ...(error && { error }),
   };
   log(
-    `${each.id}: expected ${each.route}, routed ${first}${observed.routed !== "run_code" && observed.reached ? ", then run_code" : ""}${refused.length ? `, ${refused.length} refused` : ""}${observed.codeCalls ? `, ${observed.codeCalls} run_code call(s), ${observed.failedCalls} failed, ${observed.recalculated} recalculated, ${observed.unchecked} unchecked` : ""}${observed.typedNumbers.length ? `, typed ${observed.typedNumbers.join(" ")}` : ""}, printed numbers marked ${observed.printedMarked.length}, unmarked ${observed.printedUnmarked.length} (${observed.printedUnmarked.join(" ")}) (${observed.seconds} s, $${observed.spent.toFixed(4)})`,
+    `${each.id}: expected ${each.route}, routed ${first}${observed.routed !== "run_code" && observed.reached ? ", then run_code" : ""}${refused.length ? `, ${refused.length} refused` : ""}${observed.codeCalls ? `, ${observed.codeCalls} run_code call(s), ${observed.failedCalls} failed, ${observed.recalculated} recalculated, ${observed.unchecked} unchecked` : ""}${observed.typedNumbers.length ? `, typed ${observed.typedNumbers.join(" ")}` : ""}, printed numbers marked ${observed.printedMarked.length}, unmarked ${observed.printedUnmarked.length} (${observed.printedUnmarked.join(" ")}), typed as printed by digits ${observed.typedAsPrinted.join(" ") || "none"} (${observed.seconds} s, $${observed.spent.toFixed(4)})`,
   );
   return observed;
 }
