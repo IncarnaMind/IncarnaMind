@@ -697,6 +697,7 @@ const SIZED = {
       "Survey log.txt is 1.18 MB.",
       "Survey log.txt is 1.1-1.3 MB.",
       "Site notes.txt is 1.2 KB.",
+      "Survey log.txt is 1.2 million bytes.",
     ],
     contradicted: [
       "Survey log.txt is 2 MB.",
@@ -711,6 +712,7 @@ const SIZED = {
     supported: [
       "Survey log.txt 的大小是 1.2 MB。",
       "Survey log.txt 的大小是 1.1–1.3 MB。",
+      "Survey log.txt 的大小是 123 万字节。",
       "Site notes.txt 的大小是 1.2 KB。",
     ],
     contradicted: ["Survey log.txt 的大小是 2 MB。"],

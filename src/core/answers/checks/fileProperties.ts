@@ -288,20 +288,17 @@ function sizeAgrees(
   relation: FigureReplyItem["relation"],
 ): boolean | null {
   const { reading } = figure;
-  const sentence = figure.context ?? claim;
-  const at =
-    sentence.slice(reading.start, reading.end) === reading.chars
-      ? reading.end
-      : sentence.indexOf(reading.chars) + reading.chars.length;
-  const after = sentence.slice(at).trimStart();
+  const after = (figure.context ?? claim).slice(reading.end).trimStart();
   const per = SIZE_UNITS.find(([unit]) => unit.test(after))?.[1];
-  if (!per || reading.scale !== 1 || at < reading.chars.length) return null;
+  if (!per) return null;
+  // A figure's value counts its scale word in ("1.2 thousand" is 1,200); its decimals don't.
+  const shown = (value: number) => Number((value / reading.scale).toFixed(reading.decimals));
   return per.some((each) => {
     const counted = bytes / each;
     if (reading.rangeTo !== null) return counted >= reading.value && counted <= reading.rangeTo;
     if (relation === "at most") return counted <= reading.value;
     if (relation === "at least") return counted >= reading.value;
-    return Number(counted.toFixed(reading.decimals)) === reading.value;
+    return shown(counted) === shown(reading.value);
   });
 }
 
