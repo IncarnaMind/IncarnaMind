@@ -63,6 +63,11 @@ export interface ChartValue {
    * Input with its own Citation (#2307). Absent for a value quoted or written.
    */
   figure?: CalculatedFigureAttributes;
+  /**
+   * The Analysis gave this number, its table's text only rounding it: an Update keeps it with the
+   * Analysis's inputs, whatever the cell's words become (#2378).
+   */
+  fromAnalysis?: true;
   from: ChartValueOrigin;
 }
 
@@ -147,6 +152,7 @@ function readValue(value: unknown): ChartValue | null {
     citation: isRecord(value.citation) ? (value.citation as unknown as CitationAttributes) : null,
     ...(citations.length > 0 && { citations }),
     ...figureOf(value.figure),
+    ...(value.fromAnalysis === true && { fromAnalysis: true as const }),
     from,
   };
 }
@@ -934,6 +940,7 @@ export function chartFromTable(
       scale: read ? read.figure.scale : null,
       citation: calculated.figure ? null : cell.citation,
       ...(cell.citations && !calculated.figure && { citations: cell.citations }),
+      ...(cell.number !== undefined && !calculated.figure && { fromAnalysis: true as const }),
       ...calculated,
       from: { kind: "cell", row, column },
     };
@@ -1155,17 +1162,17 @@ export function withAnalysisValues(grid: SourceGrid, match: AnalysisTableMatch):
       const value = match.value(at - 1, column);
       if (value === null) return cell;
       // The number is the Analysis's, so its inputs are the value's Citations; the cell's own,
-      // for the text it held, come after them (#2378).
-      const all = [...citations, ...(cell.citation ? [cell.citation] : [])];
-      const unique = all.filter(
+      // for the text it held, are read fresh when the chart is updated (#2378).
+      const unique = citations.filter(
         (citation, index) =>
-          all.findIndex((each) => JSON.stringify(each) === JSON.stringify(citation)) === index,
+          citations.findIndex((each) => JSON.stringify(each) === JSON.stringify(citation)) ===
+          index,
       );
       return {
         ...cell,
         number: value,
         citation: unique[0] ?? null,
-        ...(unique.length > 1 && { citations: unique }),
+        ...(unique.length > 0 && { citations: unique }),
       };
     }),
   );

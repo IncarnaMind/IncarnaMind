@@ -32,7 +32,7 @@ import type { NodeJSON } from "../../src/shared/blockJson";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { checkWithParts, partWithResult } from "../../src/shared/claimParts";
 import { emptyFigureFinding } from "../../src/shared/figureChecks";
-import { installFigureRuns } from "../../src/shared/figureRuns";
+import { installFigureRuns, pruneFigureRuns } from "../../src/shared/figureRuns";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { fingerprintOfMind } from "../../src/shared/mindState";
 
@@ -497,7 +497,7 @@ test("Change to source points the figure's own Citation at its source, and keeps
   expect(bold.join("")).toBe("Revenue 8");
 });
 
-test("with the note not open, a change and its Undo take an Analysis figure's run away and back", async () => {
+test("with the note not open, a change and its Undo leave an Analysis figure's run in place", async () => {
   const run: RetainedFigureAnalysis = {
     id: "run",
     title: "Revenue",
@@ -554,7 +554,8 @@ test("with the note not open, a change and its Undo take an Analysis figure's ru
     return { tr: state.tr.insertText("8", at, at + 1), said: () => "" };
   });
   expect(figuresInMind(blocks).some((each) => each.calculated)).toBe(false);
-  expect(runs.size).toBe(0);
+  // No edit removes a record: a change's Undo in another window may bring the figure back (#2378).
+  expect(runs.size).toBe(2);
   await undoable?.undo();
   expect(runs.toJSON()).toEqual(kept);
   expect(figuresInMind(blocks).some((each) => each.calculated?.figure.analysis)).toBe(true);
@@ -652,14 +653,11 @@ test("deleting a table whose cells are figures keeps the record its chart still 
   doc.transact(() => installFigureRuns(doc, [run]));
   const runs = doc.getMap(MIND_FIGURE_RUNS_FIELD);
   expect(runs.size).toBe(2);
-  const undoable = editNote("a note no editor shows", doc, ({ state }) => {
-    const first = state.doc.nodeAt(0);
-    if (!first) throw new Error("No table");
-    return { tr: state.tr.delete(0, first.nodeSize), said: () => "" };
+  doc.transact(() => {
+    blocks.delete(0, 1);
+    pruneFigureRuns(doc, [{ analysisId: "run", result: "revenue" }]);
   });
-  // The table is gone; the chart still names the figure, so its record stays.
+  // The table is gone; the chart still names the figure, so the prune keeps its record.
   expect(figuresInMind(blocks).some((each) => each.calculated)).toBe(true);
-  expect(runs.size).toBe(2);
-  await undoable?.undo();
   expect(runs.size).toBe(2);
 });

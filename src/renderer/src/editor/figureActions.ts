@@ -13,12 +13,10 @@ import {
   type FigureSchedule,
   type FigureScheduleRow,
   MIND_CONTENT_FIELD,
-  MIND_FIGURE_RUNS_FIELD,
 } from "../../../core/api";
 import { chartCheckText, readChart } from "../../../shared/charts";
 import { keepCheckAsView } from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
-import { pruneFigureRuns } from "../../../shared/figureRuns";
 import { FORMULA_VERSION, showResult } from "../../../shared/formula";
 import { mindScopeOf } from "../../../shared/mindScope";
 import { fingerprintOfMind } from "../../../shared/mindState";
@@ -28,7 +26,6 @@ import { useAppStore } from "../store";
 import { type Undoable, useUndo } from "../undo";
 import { type ClaimSpan, claimSpans, paragraphPlaces } from "./claimChecks";
 import { asOneStep, offerEditorUndo } from "./editorUndo";
-import { droppedAnalysisFigures } from "./figureEvidence";
 import { type FigurePlace, figurePlace, writeSentenceCheck } from "./figurePlaces";
 import { setTableRoles } from "./figureTableRoles";
 import { noteExtensions } from "./noteSchema";
@@ -78,13 +75,10 @@ export function editNote(
   const made = change({ state, doc: copy });
   if (!made?.tr.docChanged) return null;
   const origin = { figureSchedule: mindId };
-  // A figure an Analysis run backs takes its run with it, in the same step its Undo brings back.
-  const runs = copy.getMap(MIND_FIGURE_RUNS_FIELD);
-  const dropped = droppedAnalysisFigures(made.tr);
-  const steps = new Y.UndoManager([blocks, runs], { trackedOrigins: new Set([origin]) });
+  // No edit removes a record: a change's Undo in another window may bring the figure back (#2378).
+  const steps = new Y.UndoManager([blocks], { trackedOrigins: new Set([origin]) });
   copy.transact(() => {
     updateYFragment(copy, blocks, made.tr.doc, { mapping: new Map(), isOMark: new Map() });
-    pruneFigureRuns(copy, dropped);
   }, origin);
   const undoable: Undoable = {
     said: made.said,

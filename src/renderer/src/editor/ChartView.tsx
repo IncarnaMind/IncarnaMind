@@ -194,7 +194,7 @@ export function ChartView({
   const place = useTabPlace();
   const { card, peek, hold, pin, dismiss } = usePointCard();
 
-  /** Every Citation a value rests on with its state, the worst first: an Analysis over two Documents (#2378). */
+  /** Every Citation a value rests on with its state, in its order: an Analysis over two Documents (#2378). */
   const cited = useCallback(
     (
       value: ChartValue | null | undefined,

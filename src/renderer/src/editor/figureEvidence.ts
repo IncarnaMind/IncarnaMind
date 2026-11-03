@@ -1,18 +1,11 @@
 import { Extension } from "@tiptap/core";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, type Transaction } from "@tiptap/pm/state";
 import { ySyncPluginKey, yUndoPluginKey } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
-import {
-  CALCULATED_FIGURE_NODE,
-  MIND_FIGURE_RUNS_FIELD,
-  type RetainedFigureAnalysis,
-} from "../../../core/api";
+import { MIND_FIGURE_RUNS_FIELD, type RetainedFigureAnalysis } from "../../../core/api";
 import { InvalidInputError } from "../../../core/errors";
-import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
 import {
   calculatedFiguresIn,
-  type DroppedFigureUse,
   installFigureRuns,
   readFigureRunClosure,
   withoutChecks,
@@ -20,27 +13,6 @@ import {
 import { useAppStore } from "../store";
 import { clipboardBlocks, FIGURE_RUNS_ATTRIBUTE } from "./copyCitations";
 import { titlePaste } from "./titleLine";
-
-/** The Analysis figures a node holds: the Analysis each names and its result, by the figure's id. */
-function analysisFigures(node: ProseMirrorNode): Map<string, DroppedFigureUse> {
-  const found = new Map<string, DroppedFigureUse>();
-  node.descendants((child) => {
-    if (child.type.name !== CALCULATED_FIGURE_NODE) return true;
-    const read = readCalculatedFigureAttributes(child.attrs);
-    if (read?.analysisId && read.figure.analysis)
-      found.set(read.id, { analysisId: read.analysisId, result: read.figure.analysis.result });
-    return false;
-  });
-  return found;
-}
-
-/** The figures an edit takes away, so only their records go with them (#2378). */
-export function droppedAnalysisFigures(transaction: Transaction): DroppedFigureUse[] {
-  const before = analysisFigures(transaction.before);
-  if (before.size === 0) return [];
-  const after = analysisFigures(transaction.doc);
-  return [...before].filter(([id]) => !after.has(id)).map(([, use]) => use);
-}
 
 export const FigureEvidence = Extension.create<{ doc: Y.Doc | null }>({
   name: "figureEvidence",

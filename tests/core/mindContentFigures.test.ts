@@ -481,6 +481,29 @@ describe("core ownership of calculated figures", () => {
     expect((await core.openMind(mind.id)).state).toEqual(state);
   });
 
+  test("a missing Analysis record is logged once per Note, however often its changes are stored", async () => {
+    const core = startCore(await createTempDataFolder());
+    const mind = await core.createMind();
+    const client = await connectToMind(core, mind.id);
+    const analysis = run(["a"]);
+    client.doc.transact(() => {
+      append(client.doc, "a");
+      installFigureRuns(client.doc, [analysis]);
+    });
+    await client.settled();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    client.doc.getMap(MIND_FIGURE_RUNS_FIELD).clear();
+    await client.settled();
+    client.doc.transact(() => append(client.doc, "b"));
+    await client.settled();
+    await core.openMind(mind.id);
+    const missing = logged.mock.calls.filter(([message]) =>
+      String(message).includes("calculated figure's Analysis record is missing"),
+    );
+    expect(missing).toHaveLength(1);
+    core.close();
+  });
+
   test("a deleted Note retains its source versions until it is permanently purged", async () => {
     const core = startCore(await createTempDataFolder());
     const mind = await core.createMind();

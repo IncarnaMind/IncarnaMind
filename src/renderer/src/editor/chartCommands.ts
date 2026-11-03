@@ -6,6 +6,7 @@ import {
   type ChartAttributes,
   type ChartData,
   type ChartKind,
+  type ChartValue,
   canSwitch,
   chartFromFigures,
   chartFromTable,
@@ -178,22 +179,45 @@ export function tableUpdate(
 /**
  * The drawn values a chart's table still shows as they were: the assistant draws a chart from an
  * Analysis's own values, which the table's text only rounds, so a cell whose words are unchanged
- * keeps the value and Citations the chart was drawn with (#2378).
+ * keeps the Analysis's number and inputs (#2378). Its own Citation, unit and scale are read again,
+ * and a row is known by its label and series, so a deleted row moves no value to its neighbour.
  */
 function keepingStoredValues(fresh: ChartData, stored: ChartData): ChartData {
-  const kept = (rows: ChartData["rows"], before: ChartData["rows"]) =>
-    rows.map((row, at) => ({
+  const key = (label: string, series: string) => JSON.stringify([label, series]);
+  const before = new Map<string, ChartValue>();
+  for (const row of [...stored.rows, ...stored.cutRows]) {
+    row.values.forEach((value, series) => {
+      if (value?.fromAnalysis) before.set(key(row.label, stored.series[series] ?? ""), value);
+    });
+  }
+  const kept = (rows: ChartData["rows"]) =>
+    rows.map((row) => ({
       ...row,
-      values: row.values.map((value, index) => {
-        const was = before[at];
-        const old = was?.label === row.label ? was.values[index] : null;
-        return value && old && value.shown === old.shown ? old : value;
+      values: row.values.map((value, series) => {
+        const old = value ? before.get(key(row.label, fresh.series[series] ?? "")) : undefined;
+        if (!value || !old || value.shown !== old.shown) return value;
+        const citations = [
+          ...(old.citations ?? []),
+          ...(value.citations ?? []),
+          ...(value.citation ? [value.citation] : []),
+        ].filter(
+          (citation, at, all) =>
+            all.findIndex((each) => JSON.stringify(each) === JSON.stringify(citation)) === at,
+        );
+        return {
+          ...value,
+          value: old.value,
+          citation: old.citation ?? value.citation,
+          ...(old.figure && { figure: old.figure }),
+          ...(citations.length > 0 && { citations }),
+          fromAnalysis: true as const,
+        };
       }),
     }));
   return {
     ...fresh,
-    rows: kept(fresh.rows, stored.rows),
-    cutRows: kept(fresh.cutRows, stored.cutRows),
+    rows: kept(fresh.rows),
+    cutRows: kept(fresh.cutRows),
   };
 }
 

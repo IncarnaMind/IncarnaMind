@@ -1251,7 +1251,7 @@ describe("an Analysis's own values in a chart (#2378)", () => {
     expect(chart.data.rows.map((row) => row.values[0]?.shown)).toEqual(["8,325", "9,450"]);
   });
 
-  test("cites the Analysis's inputs first, all of them, then the cell's own Citation", () => {
+  test("cites every input the Analysis read, never the cell's own text Citation", () => {
     const quoted = table([
       ["Region", "Amount"],
       ["Central", "8,325"],
@@ -1260,6 +1260,7 @@ describe("an Analysis's own values in a chart (#2378)", () => {
     const withOwn = gridOfTable(quoted).map((row) =>
       row.map((cell) => (cell && !cell.header ? { ...cell, citation: own } : cell)),
     );
+    // The cell's own Citation is for its words, not for the Analysis's number: an Update reads it fresh.
     const grid = withAnalysisValues(
       withOwn,
       match([orders, regions], (row, column) =>
@@ -1270,8 +1271,8 @@ describe("an Analysis's own values in a chart (#2378)", () => {
     if (!chart) throw new Error("The table drew no chart.");
     const value = chart.data.rows[0]?.values[0];
     expect(value?.citation).toEqual(orders);
-    expect(value?.citations).toEqual([orders, regions, own]);
-    expect(chartSources(chart)).toMatchObject({ uncited: 0, documents: 3 });
+    expect(value?.citations).toEqual([orders, regions]);
+    expect(chartSources(chart)).toMatchObject({ uncited: 0, documents: 2 });
   });
 
   test("counts every Citation a value carries, so an export names each Document", () => {

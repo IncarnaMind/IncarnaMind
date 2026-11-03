@@ -59,18 +59,21 @@ const numericColumns = (table: AnalysisTable): number[] =>
 const holdsCitation = (node: NodeJSON): boolean =>
   node.type === "citation" || (node.content ?? []).some(holdsCitation);
 
-/** The Documents a table's heading row cites: an Analysis table's own headings name its inputs. */
-function citedDocuments(block: NodeJSON): Set<string> {
-  const documents = new Set<string>();
+/** Where a table's heading row says it read: an Analysis table's own headings name its inputs. */
+function citedPlaces(block: NodeJSON): Set<string> {
+  const places = new Set<string>();
   const visit = (node: NodeJSON) => {
     if (node.type === "citation") {
       const name = node.attrs?.documentId ?? node.attrs?.documentName;
-      if (typeof name === "string" && name !== "") documents.add(name);
+      if (typeof name === "string" && name !== "")
+        places.add(
+          JSON.stringify([name, node.attrs?.location === undefined ? null : node.attrs.location]),
+        );
     }
     for (const child of node.content ?? []) visit(child);
   };
   for (const cell of block.content?.[0]?.content ?? []) visit(cell);
-  return documents;
+  return places;
 }
 
 /** How many Citations `blocks` hold: what a Note written with them cites. */
@@ -135,16 +138,17 @@ export function analysisTableFor(
 ): AnalysisTableMatch | null {
   if (block.type !== "table") return null;
   const grid = gridOf(block);
-  const cited = citedDocuments(block);
+  const cited = citedPlaces(block);
   const matches = tables.filter((table) => {
     if (table.citations.length === 0) return false;
-    // A table whose headings cite other Documents came from another Analysis, though it reads
-    // the same: "Orders November" and "Orders October" give one table (#2378).
+    // A table whose headings cite other Documents or other places came from another Analysis,
+    // though it reads the same: Orders' November sheet and its October sheet give one table (#2378).
     if (
       cited.size > 0 &&
       table.citations.some((citation) => {
         const name = citation.documentId || citation.documentName || "";
-        return name !== "" && !cited.has(name);
+        if (name === "") return false;
+        return !cited.has(JSON.stringify([name, citation.location ?? null]));
       })
     )
       return false;

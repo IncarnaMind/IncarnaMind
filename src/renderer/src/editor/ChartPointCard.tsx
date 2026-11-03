@@ -28,7 +28,7 @@ export function ChartPointCard({
   cut: string | null;
   citation: CitationAttributes | null;
   state: CitationState | null;
-  /** Every Citation the value rests on, the worst checked first: an Analysis over two Documents (#2378). */
+  /** Every Citation the value rests on, in its order; Open goes to the worst checked: an Analysis over two Documents (#2378). */
   citations?: readonly { citation: CitationAttributes; state: CitationState }[];
   /** A calculated value's figure card, in place of its value and Citation (#2307). */
   figure: ReactNode | null;
@@ -119,7 +119,11 @@ export function ChartPointCard({
       {rows.map((row) => (
         <ChangedSourceNotice
           attributes={row.citation}
-          key={JSON.stringify([row.citation.documentId, row.citation.passageId])}
+          key={JSON.stringify([
+            row.citation.documentId,
+            row.citation.passageId,
+            row.citation.location,
+          ])}
         />
       ))}
       {cut && <p className="chart-card-cut">{cut}</p>}
