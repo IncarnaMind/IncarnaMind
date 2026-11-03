@@ -1234,6 +1234,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       const checkedFigures = await checkFigureReply({
         requested: request.figures,
         claim: request.claim,
+        ...(request.context !== undefined && { paragraph: request.context }),
         reply: figuresText,
         calculations: figures,
         citation: (marker) => session.finalCitation(marker),
@@ -1244,6 +1245,21 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           unstatedUnit(citations, figure, bound)?.why ?? null,
         units: (citation) =>
           deps.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
+        around: (citation) => {
+          const text = checkedTextOf(citation, scoped.pageTexts);
+          // With no pages cited, the cited text is the quote alone, which places it nowhere.
+          return citation.pageFrom === null ? [text.document()] : [text.cited(), text.document()];
+        },
+        otherMeasure: (amount, measure, claimed) => ({
+          reason: translate(deps.language(), "claim.unsupported.otherMeasure", {
+            amount,
+            measure,
+            claimed,
+          }),
+          covered: null,
+          uncovered: null,
+          found: true,
+        }),
         signal,
         remainder: (remainder) =>
           judged(
