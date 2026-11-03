@@ -1,4 +1,4 @@
-import { utimes, writeFile } from "node:fs/promises";
+import { realpath, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -54,7 +54,8 @@ let dataDir: string;
 let sources: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
-  sources = await createDataFolder();
+  // The core records a file's real path: macOS's temporary folder is a symbolic link.
+  sources = await realpath(await createDataFolder());
 });
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
