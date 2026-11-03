@@ -153,11 +153,15 @@ test("Get info shows what is known of a PDF, a Word file, a spreadsheet, a deck 
       await expect(panel.getByTestId("info-created")).toContainText("(the file’s own date)");
       await expect(panel.getByTestId("info-on-computer")).toHaveCount(0);
       if (kind === "PDF") await expect(modified).toHaveCount(0);
-      else await expect(modified).toHaveText("7 Oct 2026 (the file’s own date)");
+      // Written in UTC, as Office writes it: the day this computer's clock gives.
+      else {
+        const day = formatDate("2026-10-07T16:05:26Z", "en");
+        await expect(modified).toHaveText(`${day} (the file’s own date)`);
+      }
     }
     if (name === "Report") {
       await expect(panel.getByTestId("info-created")).toHaveText(
-        "4 Mar 2019 (the file’s own date)",
+        `${formatDate("2019-03-04T10:30:00Z", "en")} (the file’s own date)`,
       );
       await screenshot(window, "get-info-pdf");
     }
