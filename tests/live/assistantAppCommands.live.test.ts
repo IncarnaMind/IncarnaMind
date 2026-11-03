@@ -275,6 +275,11 @@ const organizedUndone = (seen: Seen, undone: Library) => {
  */
 const merged: Check = (seen) => {
   expect(ran(seen).some((done) => done.command === "tag.merge")).toBe(true);
+  // One confirmation: one merge call, one card. Two calls would mean two Apply cards.
+  const cards = seen.asked.filter(
+    (each) => "ask" in each && each.ask.kind === "change" && each.ask.reason === "merge",
+  );
+  expect(cards).toHaveLength(1);
   const gone = seen.before.tags.filter((name) => !seen.after.tags.includes(name));
   expect(gone.length).toBeGreaterThan(0);
   expect(gone.some((name) => seen.answer.text.includes(name))).toBe(true);

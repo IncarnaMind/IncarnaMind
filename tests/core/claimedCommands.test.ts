@@ -256,6 +256,14 @@ describe("A reply that says it changed what only the User changes (#2407)", {
     expect((await core.listDocuments()).map((each) => each.name)).not.toContain("Harbour 2026");
     core.close();
   });
+
+  // protects=the claim check is told a card-pointing or completion sentence is about the record, not another action (#2252); fails_when=either clause is dropped; no_claim=the judge's verdicts.
+  test("the claim check's instructions excuse pointing at the card and a completion sentence", () => {
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("points to the card under the reply");
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("says the request is done or complete");
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("other things stayed as they were");
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("Undo puts a change back");
+  });
 });
 
 describe("A reply that says a command ran that didn't (#2407)", { timeout: 60_000 }, () => {

@@ -1735,16 +1735,31 @@ export function createLibrary(options: {
     /**
      * Organize these Documents and wait for the model, inside the turn that asked (#2252): the
      * queue never starts while an Answer is written, so a request that files them before its reply
-     * sorts here, as the Library does. What it could not sort is left waiting, saying why.
+     * sorts here, as the Library does. It stops at the first failure and puts every Document it
+     * hadn't reached back as it was, so none is left working with no job to finish it.
      */
-    async organizeAtOnce(input: unknown, signal: AbortSignal): Promise<{ failed: unknown | null }> {
+    async organizeAtOnce(
+      input: unknown,
+      signal: AbortSignal,
+    ): Promise<{ failed: unknown | null; untouched: number }> {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
       if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
       const ids = documentIdsOf(input).filter((id) => !options.isExampleDocument?.(id));
+      const before = new Map(
+        ids.map((id) => {
+          const row = assignment(id);
+          return [
+            id,
+            { assignment: row ? assignmentFields(row) : null, tagging: taggingSnapshot(id) },
+          ];
+        }),
+      );
       queueClassification(ids);
       let failure: unknown | null = null;
+      const reached = new Set<string>();
       for (const id of ids) {
+        reached.add(id);
         let stopped: unknown = null;
         await classifyOne(id, {
           signal,
@@ -1758,7 +1773,21 @@ export function createLibrary(options: {
           break;
         }
       }
-      return { failed: failure };
+      const untouched = ids.filter((id) => !reached.has(id));
+      for (const id of untouched) {
+        const prior = before.get(id);
+        if (!prior) continue;
+        try {
+          restoreAssignmentRow(document(id), prior.assignment);
+          if (prior.tagging) restoreTaggingRow(id, prior.tagging);
+        } catch {
+          // Gone since: there is nothing to put back.
+        }
+        if (prior.assignment?.status === "pending" || prior.assignment?.status === "waiting") {
+          enqueue(id);
+        }
+      }
+      return { failed: failure, untouched: untouched.length };
     },
     assign(id: unknown, groupId: unknown): AssignmentChange {
       const doc = document(id);

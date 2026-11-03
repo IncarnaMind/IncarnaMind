@@ -103,7 +103,10 @@ export interface CommandsHost {
    * Organizes these Documents now and waits for the model, inside the turn that asked (#2252):
    * the Library's Organize, which the background queue can't run while an Answer is written.
    */
-  organizeAtOnce(ids: readonly string[], signal: AbortSignal): Promise<{ failed: unknown | null }>;
+  organizeAtOnce(
+    ids: readonly string[],
+    signal: AbortSignal,
+  ): Promise<{ failed: unknown | null; untouched: number }>;
   /**
    * Refuses a command that would cross the Folder wall the Answer was asked behind (#1934): each
    * id it names, as one of the kinds it `touches`, must be on the turn's side of the wall.

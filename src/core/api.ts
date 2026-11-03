@@ -1263,8 +1263,14 @@ export interface CommandDone {
   folders?: readonly { name: string; count: number }[];
   /** Organize: how many of the Documents it read it couldn't sort (#2252). */
   unsorted?: number;
+  /** Organize: how many it never reached, left as they were when the run stopped (#2252). */
+  untouched?: number;
+  /** Organize: how many Documents it was asked to sort, which the Folders, unsorted and untouched count (#2252). */
+  considered?: number;
   /** A Tag merge: what went into what, by name (#2252). */
   merges?: readonly { from: string; into: string }[];
+  /** A Tag merge: how many Tags the Library held before and after (#2252). */
+  tagCount?: { before: number; after: number };
 }
 
 /** Why a call of `run_command` changed nothing (#1110). */

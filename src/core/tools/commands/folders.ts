@@ -303,7 +303,7 @@ export const FOLDER_CHECKERS = {
             groups.length === 1
               ? `Merged ${plural(sources.length, "Tag")} (${pairs.map((pair) => `“${pair.from}”`).join(", ")}) into “${only?.into.name ?? ""}”, which their Documents carry now.`
               : `Merged ${plural(sources.length, "Tag")} into ${plural(groups.length, "Tag")}: ${pairs.map((pair) => `“${pair.from}” into “${pair.into}”`).join(", ")}.`
-          } The User allowed it, so it is done. Name each Tag and the Tag it went into in your reply, not a list under it.`;
+          } The User allowed it, so it is done, and the merged Tags are in Recently deleted, where the User can restore them. Name each Tag and the Tag it went into in your reply, not a list under it.`;
           return {
             done: {
               items: sources.map((tag) => tagItem(tag)),
@@ -318,6 +318,7 @@ export const FOLDER_CHECKERS = {
                   }
                 : {}),
               merges: pairs,
+              tagCount: { before: tags.length, after: tags.length - sources.length },
             },
             step: {
               undo: async () => {

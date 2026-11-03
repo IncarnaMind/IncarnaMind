@@ -580,7 +580,13 @@ test("put the documents about rent together asks once, files them, and one Undo 
   const changes = answer.getByTestId("command-changes");
   await expect(changes.getByTestId("command-changes-title")).toHaveText("Organized 2 Documents");
   // Nothing is left waiting in To review: the User's request was the acceptance.
-  await expect(answer.getByTestId("command-organize")).toHaveCount(0);
+  expect(
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { assignments } = await core.getLibrary();
+      return assignments.filter((each) => each.suggested).length;
+    }),
+  ).toBe(0);
   const placed = await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     const [{ assignments, groups }, documents] = await Promise.all([

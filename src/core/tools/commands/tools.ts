@@ -273,7 +273,7 @@ export function commandTools(options: CommandToolsOptions): {
       }
       options.found(toolCallId, foundOf(query, found.length));
       if (found.length === 0) {
-        return `No ${one} matches, so no command can act on one. Say so, and change nothing.`;
+        return `No ${one} matches, so no command can act on one. Commands for ${many}: ${commandsFor(query.kind, options.offered)}. Act only as the request fits one of them.`;
       }
       const shown = found.slice(0, MAX_LISTED);
       for (const each of shown) if (each.webPage) readTitles.add(each.id);
@@ -295,7 +295,7 @@ export function commandTools(options: CommandToolsOptions): {
     description: [
       `Runs one of the app's commands for the User, as ⌘K would, on what ${COMMAND_TOOLS.list} found, by id. For Documents: ${coreCommandsOn("document").map(coreLine).join("; ")}. For Notes: ${coreCommandsOn("mind").map(coreLine).join("; ")}. For Folders: ${coreCommandsOn("folder").map(coreLine).join("; ")}. For Tags: ${coreCommandsOn("tag").map(coreLine).join("; ")}. For what is in Recently deleted: ${coreCommandsOn("deleted").map(coreLine).join("; ")}. For the Library: ${coreCommandsOn("library").map(coreLine).join("; ")}. Settings: ${coreLine("settings.change")}.`,
       `${COMMAND_TOOLS.list} gives the others for what it found, and with kind "window" those for the window in front; run them by id the same way.`,
-      `A change inside IncarnaMind runs at once and the User can undo it, except Organize and a Tag merge, which the User allows once. A delete, a file saved outside the Output location, files added from a folder, a recording, what can't be undone and more than ${COMMAND_AT_ONCE} changes wait for the User to allow them.`,
+      `A change inside IncarnaMind runs at once and the User can undo it, except Organize and a Tag merge, which ask once. A delete, a file saved outside the Output location, files added from a folder, a recording, what can't be undone and more than ${COMMAND_AT_ONCE} changes wait for the User to allow them.`,
       YOURS_RULE,
       "Set done on the call that does the last thing the request asks for; leave it out while more is to do. After a window's command or a refusal with done, no reply is needed: what it shows is the reply. Otherwise say only what each call returned.",
     ].join(" "),
@@ -327,7 +327,7 @@ export function commandTools(options: CommandToolsOptions): {
         merges: {
           type: "array",
           description:
-            "For tag.merge into more than one Tag: every merge, each with the Tags to merge away and the Tag kept, instead of ids and tag. Every merge in this one call is confirmed once.",
+            "For tag.merge into more than one Tag: each merge, instead of ids and tag. Every merge in this one call is confirmed once.",
           items: {
             type: "object",
             properties: {

@@ -298,7 +298,7 @@ function commandLine(call: AnswerToolCall): string {
   const merges = done.merges?.length
     ? `; merged ${done.merges
         .map((pair) => `${quoted(pair.from)} into ${quoted(pair.into)}`)
-        .join(", ")}`
+        .join(", ")}; the merged Tags are in Recently deleted, where the User can restore them`
     : "";
   const folders = done.folders?.length
     ? `; filed ${done.folders
@@ -306,6 +306,8 @@ function commandLine(call: AnswerToolCall): string {
         .join(", ")}`
     : "";
   const unsorted = done.unsorted ? `; ${counted(done.unsorted, "item")} not sorted` : "";
+  const considered =
+    done.considered !== undefined ? `; read ${counted(done.considered, "item")}` : "";
   const where = done.inOutputLocation === false ? "" : "the Output location, ";
   const file = done.file
     ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(done)}`
@@ -316,7 +318,7 @@ function commandLine(call: AnswerToolCall): string {
   const what =
     setting && done.items.length === 0
       ? setting
-      : `${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${merges}${folders}${unsorted}${file}${setting && `, ${setting}`}`;
+      : `${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${merges}${folders}${unsorted}${considered}${file}${setting && `, ${setting}`}`;
   const window = done.window
     ? done.window.running
       ? ", started in the window and still going on"

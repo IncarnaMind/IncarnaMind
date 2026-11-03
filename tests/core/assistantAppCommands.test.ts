@@ -482,10 +482,13 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     );
     // The reply names what moved, and no Document the run left where it was.
     expect(answer.text).toContain("Organize filed 3 Documents");
+    // The record counts every Document it read, so a reply's "3 of the 4" adds up.
+    expect(commandCalls(answer).at(-1)?.command?.considered).toBe(4);
     expect(answer.text).toContain("Leases");
     expect(answer.text).not.toContain("Q3 commentary");
-    // The app ends the reply with its own summary, so the reply names what moved, and what didn't.
-    expect(answer.text).toContain("Sorted 3 Documents: 3 → Leases");
+    // The reply already names the Folder, so the app doesn't say it a second time; what the reply
+    // leaves out, the couldn't-be-sorted count, the app still says.
+    expect(answer.text).not.toContain("Sorted 3 Documents");
     expect(answer.text).toContain("1 Document couldn’t be sorted.");
 
     await core.undoCommands(runOf(answer));
@@ -595,11 +598,178 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
         .sort(),
     ).toEqual(aboutRent);
     expect(answer.text).toContain("租赁");
-    expect(answer.text).toContain("已整理 3 个文档：3 个 → “租赁”");
+    expect(answer.text).not.toContain("已整理 3 个文档");
     expect(answer.text).toContain("1 个文档未能整理。");
 
     await core.undoCommands(runOf(answer));
     expect((await core.getLibrary()).groups.map((each) => each.name)).not.toContain("租赁");
+  });
+
+  // protects=a list_commands that finds no Document still names the commands for Documents, so the assistant reaches Organize when the request names no Document (#2252); fails_when=the result says no command exists and the turn gives up; no_claim=which Folder the classifier picks.
+  test("a list_commands that finds no Document still names Documents' commands", async () => {
+    const model = scriptedModel(
+      (call) => {
+        const made = call.results.filter((each) =>
+          /^(?:list_commands|run_command)$/.test(each.tool),
+        );
+        if (made.length === 0) {
+          return {
+            calls: [{ tool: "list_commands", input: { kind: "document", name: "organise" } }],
+          };
+        }
+        if (made.length === 1) {
+          const listed = call.results.filter((each) => each.tool === "list_commands").at(-1)?.text;
+          expect(listed).toContain("documents.organize");
+          return {
+            calls: [
+              {
+                tool: "run_command",
+                input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+              },
+            ],
+          };
+        }
+        return { text: "Filed them." };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          const leases = data.groups?.find((each) => each.name === "Leases");
+          return { text: JSON.stringify({ groupId: leases?.id ?? null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(
+      commandCalls(answer).some(
+        (call) => call.input?.command === "documents.organize" && call.status === "done",
+      ),
+    ).toBe(true);
+    expect(
+      (await core.getLibrary()).assignments.some(
+        (each) => each.groupId !== null && !each.suggested,
+      ),
+    ).toBe(true);
+  });
+
+  // protects=Organize with no Document in no Folder says so and makes no Folder, named or not (#2252); fails_when=a Folder is made or left in Recently deleted; no_claim=the card's words.
+  test("Organize with nothing to sort makes no Folder", async () => {
+    const answers = scriptedModel((call) => {
+      const ran = call.results.filter((each) => each.tool === "run_command");
+      return ran.length === 0
+        ? {
+            calls: [
+              { tool: "run_command", input: { command: "documents.organize", folder: "Leases" } },
+            ],
+          }
+        : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+    });
+    const { core, mind } = await setUpWithDocuments(answers, []);
+    const requests = approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(requests).toHaveLength(0);
+    expect((await core.getLibrary()).groups).toEqual([]);
+    expect(await core.listDeleted()).toEqual([]);
+    expect(answer.text).toContain("nothing to sort");
+  });
+
+  // protects=Organize with no Folder named and nothing to sort doesn't fail asking for a Folder (#2252); fails_when=the call fails; no_claim=the card's words.
+  test("Organize with nothing to sort and no Folder named says so", async () => {
+    const answers = scriptedModel((call) => {
+      const ran = call.results.filter((each) => each.tool === "run_command");
+      return ran.length === 0
+        ? { calls: [{ tool: "run_command", input: { command: "documents.organize" } }] }
+        : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+    });
+    const { core, mind } = await setUpWithDocuments(answers, []);
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(commandCalls(answer).at(-1)?.status).toBe("done");
+    expect((await core.getLibrary()).groups).toEqual([]);
+    expect(answer.text).toContain("nothing to sort");
+  });
+
+  // protects=Organize stops at the first model failure, puts every Document it never reached back, and says so (#2252); fails_when=one stays pending or classifying, a made Folder is left, or the reply counts them as sorted; no_claim=which Document the classifier fails on.
+  test("Organize stops at a failure and leaves the rest as they were", async () => {
+    let asked = 0;
+    const answers = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: {
+                    command: "documents.organize",
+                    folder: "Leases",
+                    about: "Lease papers",
+                  },
+                },
+              ],
+            }
+          : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+      },
+      {
+        generate: () => {
+          asked++;
+          if (asked >= 2) throw new Error("The model went away.");
+          return { text: JSON.stringify({ groupId: null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(answers, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    const library = await core.getLibrary();
+    expect(
+      library.assignments.filter(
+        (each) => each.status === "pending" || each.status === "classifying",
+      ),
+    ).toEqual([]);
+    expect(library.groups).toEqual([]);
+    expect(await core.listDeleted()).toEqual([]);
+    expect(answer.text).toContain("were left as they were");
   });
 
   // protects=a request to cut Tags merges them: one confirmation lists every merge once, Apply does them all, and one Undo brings every Tag and link back; fails_when=it asks once per Tag, merges without asking, names a Tag it left, or Undo leaves a Tag gone; no_claim=which Tags the model picks.
@@ -684,8 +854,11 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(answer.text).toContain("Harbour");
     expect(answer.text).toContain("Dock");
     expect(answer.text).not.toContain("Unrelated");
-    // The app ends the reply with the merges it made, in the user's language.
-    expect(answer.text).toContain("Merged “Harbours” into “Harbour”, “Docks” into “Dock”.");
+    // The reply names the merges, so the app doesn't list them a second time.
+    expect(answer.text).not.toContain("Merged “Harbours” into “Harbour”");
+    // The record counts the Tags before and after, so a reply that says the count is backed.
+    const count = commandCalls(answer).at(-1)?.command?.tagCount;
+    expect(count?.after).toBe((count?.before ?? 0) - 2);
 
     await core.undoCommands(runOf(answer));
     expect(await tagNames()).toEqual(["Dock", "Docks", "Harbour", "Harbours", "Unrelated"]);
@@ -697,6 +870,109 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     await core.redoCommands(runOf(answer));
     expect(await tagNames()).toEqual(["Dock", "Harbour", "Unrelated"]);
     expect(await tagsOf(mill.id)).toEqual(["Harbour"]);
+  });
+
+  // protects=the app ends the reply with the full recap when the model's own sentence leaves the Folders out (#2252); fails_when=the reply has no Folder or count; no_claim=which Folder the classifier picks.
+  test("the app's summary names the Folders when the reply doesn't", async () => {
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: {
+                    command: "documents.organize",
+                    folder: "Leases",
+                    about: "Lease papers",
+                  },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as {
+            groups?: { id: string; name: string }[];
+            document?: { text?: string };
+          };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          const aboutRent = /rent/i.test(JSON.stringify(data.document ?? {}));
+          return {
+            text: JSON.stringify({
+              groupId: aboutRent && leases ? leases.id : "__unsorted__",
+              tags: [],
+            }),
+          };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(answer.text).toContain("Sorted 3 Documents: 3 → Leases.");
+    expect(answer.text).toContain("1 Document couldn’t be sorted.");
+    expect(answer.text).not.toContain("Organize filed");
+  });
+
+  // protects=the app's recap names every merge, in English and Chinese, when the model's own sentence leaves them out (#2252); fails_when=the lines are missing or double 合并; no_claim=which Tags are merged.
+  test.each([
+    ["en", "Done.", "Merged “Harbours” into “Harbour”, “Docks” into “Dock”."],
+    ["zh-CN", "完成。", "已合并：“Harbours” → “Harbour”，“Docks” → “Dock”。"],
+  ])("the app's recap names every merge in %s", async (language, reply, expected) => {
+    const model = scriptedModel((call) => {
+      const listed = call.results.filter((each) => each.tool === "list_commands").at(-1)?.text;
+      if (listed === undefined)
+        return { calls: [{ tool: "list_commands", input: { kind: "tag" } }] };
+      const ran = call.results.filter((each) => each.tool === "run_command");
+      if (ran.length > 0) return { text: reply };
+      const idOf = (name: string) =>
+        [...listed.matchAll(/^- (\S+): “(.+?)”$/gm)].find((match) => match[2] === name)?.[1] ?? "";
+      return {
+        calls: [
+          {
+            tool: "run_command",
+            input: {
+              command: "tag.merge",
+              merges: [
+                { ids: [idOf("Harbours")], tag: "Harbour" },
+                { ids: [idOf("Docks")], tag: "Dock" },
+              ],
+            },
+          },
+        ],
+      };
+    });
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    await core.createTag({ name: "Harbour" });
+    await core.createTag({ name: "Harbours" });
+    await core.createTag({ name: "Dock" });
+    await core.createTag({ name: "Docks" });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: language === "zh-CN" ? "减少标签的数量" : "Reduce the number of tags",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(answer.text).toContain(expected);
   });
 
   // protects=a call that names one Tag in two merges is refused whole, so the User is never shown a merge the app didn't make; fails_when=a Tag goes; no_claim=the error's words.

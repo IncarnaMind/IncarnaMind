@@ -3545,6 +3545,8 @@ export const en = {
   "answer.regenerate": "Regenerate",
   "answer.more": "More for this Answer",
   "answer.commands.unsorted": "{count} Documents couldn’t be sorted.",
+  "answer.commands.untouched": "{count} Documents were left as they were.",
+  "answer.commands.untouched.one": "1 Document was left as it was.",
   "answer.commands.unsorted.one": "1 Document couldn’t be sorted.",
   "answer.commands.merged": "Merged {parts}.",
   "answer.commands.mergePart": "“{from}” into “{into}”",

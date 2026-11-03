@@ -84,6 +84,14 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
       items,
       requested,
       async (_asking, signal) => {
+        // Nothing to sort: no Folder is made or taken away for it.
+        if (ids.length === 0) {
+          return {
+            done: { items: [] },
+            step: null,
+            said: "No Document is in no Folder, so Organize had nothing to sort.",
+          };
+        }
         const before = await assignmentsOf(core, ids);
         const made: LibraryGroup[] = [];
         let named: LibraryGroup | null = null;
@@ -95,8 +103,9 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
           made.push(...(await core.proposeFolders(ids)));
         }
         let failed: unknown | null = null;
+        let untouched = 0;
         try {
-          ({ failed } = await host.organizeAtOnce(ids, signal));
+          ({ failed, untouched } = await host.organizeAtOnce(ids, signal));
         } catch (error) {
           for (const folder of made) {
             if (!(await holdsAny(core, folder.id))) await unmake(core, "folder", folder.id);
@@ -135,7 +144,9 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
         const parts = [...counts].map(
           ([folderId, count]) => `${count} in “${names.get(folderId) ?? ""}”`,
         );
-        const unsorted = ids.length - moved.length;
+        // What Organize reached and couldn't sort; the rest it never read, and they are as they
+        // were when the run stopped.
+        const unsorted = ids.length - untouched - moved.length;
         const reason =
           unsorted > 0
             ? unsortedReason(
@@ -152,7 +163,14 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             removed.add(folder.id);
           }
         };
-        await removeMade();
+        if (moved.length === 0) {
+          // Nothing was filed, so the Folder this run made was never seen: it goes for good.
+          for (const folder of made) {
+            if (!(await holdsAny(core, folder.id))) await unmake(core, "folder", folder.id);
+          }
+        } else {
+          await removeMade();
+        }
         const kept = made.filter((folder) => !removed.has(folder.id));
         const madeSaid =
           kept.length === 0
@@ -183,6 +201,8 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
               count,
             })),
             ...(unsorted > 0 && { unsorted }),
+            ...(untouched > 0 && { untouched }),
+            considered: ids.length,
           },
           step:
             moved.length === 0
@@ -220,11 +240,11 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                   },
                 },
           said:
-            ids.length === 0
-              ? "No Document is in no Folder, so Organize had nothing to sort."
+            moved.length === 0 && unsorted === 0 && untouched > 0
+              ? `Organize stopped at “${reason ?? "a failure"}” before sorting any Document; the other ${plural(untouched, "Document")} stayed as they were.`
               : moved.length === 0
                 ? `Organize sorted no Document: ${reason ?? "no Folder fitted"}${madeSaid}.`
-                : `Organize filed ${plural(moved.length, "Document")}: ${parts.join(", ")}.${madeSaid}${unsorted > 0 ? ` ${plural(unsorted, "Document")} couldn't be sorted: ${reason ?? "no Folder fitted"}.` : ""} Name each Folder and its count in your reply, not a list under it.`,
+                : `Organize filed ${plural(moved.length, "Document")}: ${parts.join(", ")}.${madeSaid}${unsorted > 0 ? ` ${plural(unsorted, "Document")} couldn't be sorted: ${reason ?? "no Folder fitted"}.` : ""}${untouched > 0 ? ` It stopped at “${reason ?? "a failure"}”; the other ${plural(untouched, "Document")} stayed as they were.` : ""} Name each Folder and its count in your reply, not a list under it.`,
         };
       },
       documents.length > 0 ? "organize" : null,

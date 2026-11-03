@@ -3349,7 +3349,15 @@ export function createAnswers(options: AnswersOptions) {
           const resultLines: ((each: Language) => string)[] = [];
           for (const done of commandsDone.values()) {
             const folders = done.folders;
-            if (done.command === "documents.organize" && folders && folders.length > 0) {
+            // The model's own sentence may already name every Folder: the app adds its line only
+            // when the reply doesn't (#2252), so the reply never says the same thing twice.
+            const namedInReply = (name: string) => reply.includes(name);
+            if (
+              done.command === "documents.organize" &&
+              folders &&
+              folders.length > 0 &&
+              !folders.every((folder) => namedInReply(folder.name))
+            ) {
               const count = folders.reduce((sum, folder) => sum + folder.count, 0);
               resultLines.push((each) => {
                 const line = translate(
@@ -3372,6 +3380,16 @@ export function createAnswers(options: AnswersOptions) {
                 return each === "zh-CN" ? `${line}。` : `${line}.`;
               });
             }
+            if (done.command === "documents.organize" && done.untouched) {
+              const count = done.untouched;
+              resultLines.push((each) =>
+                translate(
+                  each,
+                  count === 1 ? "answer.commands.untouched.one" : "answer.commands.untouched",
+                  { count },
+                ),
+              );
+            }
             if (done.command === "documents.organize" && done.unsorted) {
               const count = done.unsorted;
               resultLines.push((each) =>
@@ -3383,7 +3401,12 @@ export function createAnswers(options: AnswersOptions) {
               );
             }
             const merges = done.merges;
-            if (done.command === "tag.merge" && merges && merges.length > 0) {
+            if (
+              done.command === "tag.merge" &&
+              merges &&
+              merges.length > 0 &&
+              !merges.every((pair) => namedInReply(pair.from) && namedInReply(pair.into))
+            ) {
               resultLines.push((each) =>
                 translate(each, "answer.commands.merged", {
                   parts: merges
