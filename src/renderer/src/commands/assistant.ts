@@ -23,7 +23,7 @@ import { startEditing } from "../editWithAi";
 import { billingUrlOfProvider, keyProviderOf, useKeyRefusals } from "../keyRefusals";
 import { assistantTabOf, groupsMerged } from "../layoutSlice";
 import { exampleMindIds, useAppStore } from "../store";
-import { assistantHandle, noteHandle, viewerSelectionHandle } from "./handles";
+import { assistantHandle, noteHandle, viewerHandleInUse } from "./handles";
 import type { Command } from "./registry";
 
 /*
@@ -75,7 +75,7 @@ export function focusComposer(): void {
  * the selection. With words selected in a Document, it asks about them.
  */
 function askOrEdit(): void {
-  const viewer = viewerSelectionHandle.current;
+  const viewer = viewerHandleInUse("selection", useAppStore.getState().layout);
   if (viewer?.ask) {
     viewer.ask();
     return;

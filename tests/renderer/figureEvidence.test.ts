@@ -11,7 +11,13 @@ import {
   MIND_FIGURE_RUNS_FIELD,
   type RetainedFigureAnalysis,
 } from "../../src/core/api";
-import { CopyCitations } from "../../src/renderer/src/editor/copyCitations";
+import {
+  COPY_INCOMPLETE_ATTRIBUTE,
+  CopyCitations,
+  FIGURE_RUNS_ATTRIBUTE,
+  reportCopyNotice,
+  takeCopyNotice,
+} from "../../src/renderer/src/editor/copyCitations";
 import { wordFootnoteHtml } from "../../src/renderer/src/editor/copyNotes";
 import { FigureEvidence } from "../../src/renderer/src/editor/figureEvidence";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -23,6 +29,7 @@ import {
   readCalculatedFigureAttributes,
 } from "../../src/shared/calculatedFigures";
 import {
+  calculatedFiguresIn,
   figureRunId,
   figureRunsFor,
   figureRunsOfAnswer,
@@ -30,8 +37,12 @@ import {
   readFigureRunClosure,
 } from "../../src/shared/figureRuns";
 import { FORMULA_VERSION } from "../../src/shared/formula";
+import { translate } from "../../src/shared/i18n";
 
 const reported = vi.hoisted(() => vi.fn());
+vi.mock("../../src/renderer/src/core", () => ({
+  core: new Proxy({}, { get: () => () => () => undefined }),
+}));
 vi.mock("../../src/renderer/src/store", () => ({
   useAppStore: {
     getState: () => ({ documents: [], settings: { language: "en" }, reportError: reported }),
@@ -509,15 +520,329 @@ test.each([
   expect(reported.mock.calls[0]?.[0]).toMatchObject({ wording: { key: "error.figure.paste" } });
 });
 
-test("copying a figure whose record is gone says why in plain words", () => {
+/** What a copy event puts on the clipboard, as the editor writes it. */
+function copySelection(editor: Editor): string {
+  const data = new Map<string, string>();
+  const event = new window.Event("copy", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: {
+      getData: (type: string) => data.get(type) ?? "",
+      setData: (type: string, value: string) => data.set(type, value),
+      clearData: () => data.clear(),
+    },
+  });
+  editor.view.dom.dispatchEvent(event);
+  return data.get("text/html") ?? "";
+}
+
+function htmlHolder(markup: string): HTMLElement {
+  const holder = document.createElement("div");
+  holder.innerHTML = markup;
+  return holder;
+}
+
+test.each([
+  [
+    "en",
+    "Copied as plain text: this figure’s saved inputs are incomplete, so its check didn’t come with it. Check the figure again, then copy it.",
+  ],
+  [
+    "zh-CN",
+    "已按纯文本复制：这个数字保存的输入不完整，核对结果没有一起复制。请重新核对这个数字后再复制。",
+  ],
+] as const)(
+  "%s: copying a figure whose record is gone copies its value as plain text and says so",
+  (language, wording) => {
+    const { doc, editor } = setup();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    onTestFinished(() => {
+      errors.mockRestore();
+    });
+    doc.transact(() => doc.getMap(MIND_FIGURE_RUNS_FIELD).clear());
+    editor.commands.setNodeSelection(firstFigure(editor).at);
+    const html = copySelection(editor);
+    expect(errors).toHaveBeenCalled();
+    // Its value, as text: no figure node and no evidence to paste.
+    expect(htmlHolder(html).textContent).toContain("10");
+    expect(htmlHolder(html).querySelector("[data-figure]")).toBeNull();
+    expect(html).not.toContain(FIGURE_RUNS_ATTRIBUTE);
+    // The mark goes with the notice: the clipboard keeps only the words.
+    expect(html).not.toContain(COPY_INCOMPLETE_ATTRIBUTE);
+    expect(reported).toHaveBeenCalledTimes(1);
+    expect(reported.mock.calls[0]?.[0]).toMatchObject({
+      wording: { key: "error.figure.copyIncomplete" },
+    });
+    expect(translate(language, "error.figure.copyIncomplete")).toBe(wording);
+
+    // Pasting it into a Note gives the value as words, with no figure and no record.
+    const target = setup({ empty: true });
+    pasteHtml(target.editor, html);
+    expect(target.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(0);
+    expect(target.editor.state.doc.textContent).toContain("10");
+    let figures = 0;
+    target.editor.state.doc.descendants((node) => {
+      if (node.type.name === "calculatedFigure") figures++;
+      return true;
+    });
+    expect(figures).toBe(0);
+  },
+);
+
+test("a copy written by a caller reports its notice once", () => {
   const { doc, editor } = setup();
   doc.transact(() => doc.getMap(MIND_FIGURE_RUNS_FIELD).clear());
   editor.commands.setNodeSelection(firstFigure(editor).at);
-  expect(() => selectedHtml(editor)).toThrow();
+  const { dom } = editor.view.serializeForClipboard(editor.state.selection.content());
+  // The caller reports it once the write succeeds.
+  expect(reported).not.toHaveBeenCalled();
+  expect(takeCopyNotice(dom)).toBe(true);
+  expect(dom.innerHTML).not.toContain(COPY_INCOMPLETE_ATTRIBUTE);
+  expect(takeCopyNotice(dom)).toBe(false);
+  reportCopyNotice();
+  expect(reported).toHaveBeenCalledTimes(1);
+});
+
+test("a serialization that isn't a copy leaves no notice for a later copy", () => {
+  const { doc, editor, record } = setup();
+  doc.transact(() => doc.getMap(MIND_FIGURE_RUNS_FIELD).clear());
+  editor.commands.setNodeSelection(firstFigure(editor).at);
+  // Marked, but not copied: nothing is said.
+  selectedHtml(editor);
+  expect(reported).not.toHaveBeenCalled();
+  // The record is back: the next copy carries the figure and its record, with no notice.
+  doc.transact(() => installFigureRuns(doc, [record]));
+  editor.commands.setNodeSelection(firstFigure(editor).at);
+  copySelection(editor);
+  expect(reported).not.toHaveBeenCalled();
+});
+
+test("a serialization that isn't a copy leaves the notice for the copy to say", () => {
+  const { doc, editor } = setup();
+  doc.transact(() => doc.getMap(MIND_FIGURE_RUNS_FIELD).clear());
+  editor.commands.setNodeSelection(firstFigure(editor).at);
+  // A drag or another serialization is not a copy: nothing is said yet.
+  selectedHtml(editor);
+  expect(reported).not.toHaveBeenCalled();
+  copySelection(editor);
+  expect(reported).toHaveBeenCalledTimes(1);
+});
+
+test("a complete figure sharing its paragraph with an incomplete one keeps its record (#2378)", () => {
+  const source = setup({ multiple: true });
+  source.doc.transact(() => {
+    source.doc.getMap(MIND_FIGURE_RUNS_FIELD).delete(JSON.stringify(["run", "total"]));
+  });
+  source.editor.commands.selectAll();
+  const html = copySelection(source.editor);
+  const holder = htmlHolder(html);
+  expect(holder.textContent).toContain("10");
+  expect(holder.querySelectorAll("[data-figure]")).toHaveLength(1);
+  expect(html).toContain(FIGURE_RUNS_ATTRIBUTE);
+  expect(reported).toHaveBeenCalledTimes(1);
+
+  const target = setup({ empty: true });
+  pasteHtml(target.editor, html);
+  // The paste is not refused: the carrier and the figure it names agree.
+  expect(reported).not.toHaveBeenCalled();
+  expect(target.editor.state.doc.textContent).toContain("10");
+  let figures = 0;
+  target.editor.state.doc.descendants((node) => {
+    if (node.type.name === "calculatedFigure") {
+      figures++;
+      expect(node.attrs.analysisId).toBe("run");
+      expect(node.attrs.figure.shown).toBe("20");
+    }
+    return true;
+  });
+  expect(figures).toBe(1);
+  expect(target.doc.getMap(MIND_FIGURE_RUNS_FIELD).has(JSON.stringify(["run"]))).toBe(true);
+});
+
+test("a copy whose figures can't be read together writes them all as text", () => {
+  let sourceDoc: Y.Doc | null = null;
+  const source = setup({
+    multiple: true,
+    copyRuns: (blocks) => {
+      if (calculatedFiguresIn(blocks).length > 1) throw new Error("the set can't be read");
+      if (!sourceDoc) throw new Error("No document");
+      return figureRunsFor(sourceDoc, blocks);
+    },
+  });
+  sourceDoc = source.doc;
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  onTestFinished(() => errors.mockRestore());
+
+  source.editor.commands.selectAll();
+  const html = copySelection(source.editor);
+  const holder = htmlHolder(html);
+  expect(holder.textContent).toContain("10");
+  expect(holder.textContent).toContain("20");
+  expect(holder.querySelector("[data-figure]")).toBeNull();
+  expect(html).not.toContain(FIGURE_RUNS_ATTRIBUTE);
   expect(reported).toHaveBeenCalledTimes(1);
   expect(reported.mock.calls[0]?.[0]).toMatchObject({
     wording: { key: "error.figure.copyIncomplete" },
   });
+  expect(errors).toHaveBeenCalled();
+});
+
+test("a complete figure in another Block keeps its record beside an incomplete one", () => {
+  const source = setup();
+  const other = {
+    label: "Other",
+    formula: "",
+    inputs: [],
+    value: 20,
+    unit: { kind: "plain" as const },
+    approximate: false,
+    shown: "20",
+    show: { language: "en" as const, as: null, decimals: 0, scale: null },
+    literals: [],
+    engine: FORMULA_VERSION,
+    written: null,
+    analysis: { analysis: 1, result: "other" },
+  };
+  const runB = {
+    ...source.record,
+    id: "run-b",
+    values: [{ kind: "figure" as const, name: "other", label: "Other", value: 20, unit: null }],
+  };
+  source.doc.transact(() => {
+    installFigureRuns(source.doc, [runB]);
+    source.editor.commands.insertContentAt(source.editor.state.doc.content.size, {
+      type: "paragraph",
+      attrs: { id: "second" },
+      content: [{ type: "text", text: "Other " }, calculatedFigureNode(other, "figure-b", "run-b")],
+    });
+  });
+  // The first figure's value goes; the second keeps its own record.
+  source.doc.transact(() =>
+    source.doc.getMap(MIND_FIGURE_RUNS_FIELD).delete(JSON.stringify(["run", "total"])),
+  );
+  source.editor.commands.selectAll();
+  const html = copySelection(source.editor);
+  const holder = htmlHolder(html);
+  expect(holder.textContent).toContain("10");
+  expect(holder.querySelectorAll("[data-figure]")).toHaveLength(1);
+  expect(html).toContain(FIGURE_RUNS_ATTRIBUTE);
+  expect(reported).toHaveBeenCalledTimes(1);
+
+  const target = setup({ empty: true });
+  pasteHtml(target.editor, html);
+  expect(reported).not.toHaveBeenCalled();
+  expect(target.editor.state.doc.textContent).toContain("10");
+  let figures = 0;
+  target.editor.state.doc.descendants((node) => {
+    if (node.type.name === "calculatedFigure") {
+      figures++;
+      expect(node.attrs.analysisId).toBe("run-b");
+      expect(node.attrs.figure.shown).toBe("20");
+    }
+    return true;
+  });
+  expect(figures).toBe(1);
+  expect(target.doc.getMap(MIND_FIGURE_RUNS_FIELD).has(JSON.stringify(["run-b"]))).toBe(true);
+});
+
+test("a figure whose record is only partly kept copies as words without a carrier", () => {
+  const { doc, editor } = setup();
+  // The run's record stays, but the figure's own value is gone: a partial record.
+  doc.transact(() => doc.getMap(MIND_FIGURE_RUNS_FIELD).delete(JSON.stringify(["run", "total"])));
+  editor.commands.setNodeSelection(firstFigure(editor).at);
+  const html = copySelection(editor);
+  expect(html).not.toContain(FIGURE_RUNS_ATTRIBUTE);
+  expect(htmlHolder(html).textContent).toContain("10");
+  expect(reported).toHaveBeenCalledTimes(1);
+  expect(reported.mock.calls[0]?.[0]).toMatchObject({
+    wording: { key: "error.figure.copyIncomplete" },
+  });
+
+  const target = setup({ empty: true });
+  pasteHtml(target.editor, html);
+  expect(reported).not.toHaveBeenCalled();
+  expect(target.editor.state.doc.textContent).toContain("10");
+});
+
+test("a copied figure written as text keeps its marks", () => {
+  const { doc, editor } = setup();
+  doc.transact(() => doc.getMap(MIND_FIGURE_RUNS_FIELD).clear());
+  let at = -1;
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === "calculatedFigure") at = pos;
+    return true;
+  });
+  if (at < 0) throw new Error("Missing figure");
+  const bold = editor.schema.marks.bold;
+  if (!bold) throw new Error("Missing bold");
+  editor.view.dispatch(editor.state.tr.addMark(at, at + 1, bold.create()));
+  editor.commands.setNodeSelection(at);
+  expect(htmlHolder(copySelection(editor)).querySelector("strong")?.textContent).toBe("10");
+});
+
+test("Answer copy reports the plain-text notice only once the clipboard has it", async () => {
+  const source = setup();
+  const { copyAnswer, lendAnswerEditor } = await import("../../src/renderer/src/answerEditors");
+  // No window selection here: the Answer copies whole, as it does with nothing selected.
+  Object.defineProperty(document, "getSelection", { value: () => null, configurable: true });
+  source.doc.transact(() => source.doc.getMap(MIND_FIGURE_RUNS_FIELD).clear());
+  const release = lendAnswerEditor("answer", source.editor);
+  onTestFinished(release);
+  const writes: unknown[][] = [];
+  let resolve: () => void = () => undefined;
+  const write = vi.fn((items: unknown[]) => {
+    writes.push(items);
+    return new Promise<void>((done) => {
+      resolve = done;
+    });
+  });
+  const savedNavigator = globalThis.navigator;
+  const savedClipboardItem = (globalThis as { ClipboardItem?: unknown }).ClipboardItem;
+  vi.stubGlobal("navigator", { clipboard: { write } });
+  vi.stubGlobal(
+    "ClipboardItem",
+    class {
+      constructor(readonly items: Record<string, Blob>) {}
+    },
+  );
+  onTestFinished(() => {
+    vi.stubGlobal("navigator", savedNavigator);
+    vi.stubGlobal("ClipboardItem", savedClipboardItem);
+  });
+
+  const copied = copyAnswer("answer");
+  await vi.waitFor(() => expect(write).toHaveBeenCalled());
+  // Not before the clipboard takes it.
+  expect(reported).not.toHaveBeenCalled();
+  resolve();
+  await expect(copied).resolves.toBe(true);
+  expect(reported).toHaveBeenCalledTimes(1);
+  expect(reported.mock.calls[0]?.[0]).toMatchObject({
+    wording: { key: "error.figure.copyIncomplete" },
+  });
+  const item = writes[0]?.[0] as { items: Record<string, Blob> };
+  expect(await item.items["text/html"]?.text()).not.toContain(COPY_INCOMPLETE_ATTRIBUTE);
+});
+
+test("Answer copy the clipboard refuses reports the refusal alone", async () => {
+  const source = setup();
+  const { copyAnswer, lendAnswerEditor } = await import("../../src/renderer/src/answerEditors");
+  Object.defineProperty(document, "getSelection", { value: () => null, configurable: true });
+  source.doc.transact(() => source.doc.getMap(MIND_FIGURE_RUNS_FIELD).clear());
+  const release = lendAnswerEditor("refused", source.editor);
+  onTestFinished(release);
+  const denied = new Error("denied");
+  const savedNavigator = globalThis.navigator;
+  const savedClipboardItem = (globalThis as { ClipboardItem?: unknown }).ClipboardItem;
+  vi.stubGlobal("navigator", { clipboard: { write: vi.fn().mockRejectedValue(denied) } });
+  vi.stubGlobal("ClipboardItem", class {});
+  onTestFinished(() => {
+    vi.stubGlobal("navigator", savedNavigator);
+    vi.stubGlobal("ClipboardItem", savedClipboardItem);
+  });
+
+  await expect(copyAnswer("refused")).resolves.toBe(false);
+  expect(reported).toHaveBeenCalledTimes(1);
+  expect(reported.mock.calls[0]?.[0]).toBe(denied);
 });
 
 test.each(["Revenue 10", "收入10"])("plain text %s keeps the existing title paste", (text) => {

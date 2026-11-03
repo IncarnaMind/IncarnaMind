@@ -27,7 +27,6 @@ import {
 } from "electron";
 import type { AnalysisRuntime, Logger } from "../core";
 import { isRecord } from "../core/errors";
-import helper from "../renderer/analysis/incarnamind.py?raw";
 import {
   ANALYSIS_LIMITS,
   ANALYSIS_TIME_LIMIT_MS,
@@ -50,6 +49,7 @@ import {
   MAX_REPLY_CHARACTERS,
   PYTHON_PATH,
 } from "../shared/analysisWindow";
+import helper from "../shared/incarnamind.py?raw";
 import { devServerUrl, pageFile, sandboxOff } from "./analysisPaths";
 
 /** Registered with the app's other privileged schemes, before it is ready (index.ts). */
