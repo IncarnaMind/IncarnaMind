@@ -962,6 +962,11 @@
   .annotation-note-mark:focus-visible {
     @apply outline-2 outline-offset-1 outline-accent;
   }
+  /* In a PDF page, placed over the text layer level with its quote. */
+  .annotation-note-mark--in-page {
+    @apply pointer-events-auto absolute z-[2];
+    margin: 0;
+  }
 
   /* A highlight's colour: a dot where chosen, a ring where it can be chosen. */
   .annotation-colour {

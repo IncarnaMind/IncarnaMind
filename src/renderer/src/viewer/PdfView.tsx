@@ -1157,6 +1157,7 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
   const section = useRef<HTMLElement | null>(null);
   const canvasHost = useRef<HTMLDivElement>(null);
   const textHost = useRef<HTMLDivElement>(null);
+  const noteHost = useRef<HTMLDivElement>(null);
   /** The page's text layer's runs, and each one's text: pdf.js's, or a scanned page's (#397). */
   const textRuns = useRef<{ divs: readonly HTMLElement[]; strings: readonly string[] } | null>(
     null,
@@ -1331,21 +1332,35 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
       }
       div.replaceChildren(...children);
     }
-    for (const annotation of annotations) {
-      const anchor = noteAnchors.get(annotation.id);
-      if (anchor)
-        anchor.after(
-          noteMarkElement(
-            annotation,
-            anchor.ownerDocument,
-            translateNow("annotations.menu.editNote"),
+    // The note's mark sits in the page's edge, level with its words: a text layer's runs are
+    // placed one by one, so a mark in its flow would land at the layer's corner.
+    const pageElement = section.current;
+    const host = noteHost.current;
+    if (pageElement && host) {
+      host.replaceChildren();
+      const box = pageElement.getBoundingClientRect();
+      for (const annotation of annotations) {
+        const anchor = noteAnchors.get(annotation.id);
+        if (!anchor) continue;
+        const rect = anchor.getClientRects()[0] ?? anchor.getBoundingClientRect();
+        const button = noteMarkElement(
+          annotation,
+          anchor.ownerDocument,
+          translateNow(
+            annotation.note === null ? "annotations.addNote" : "annotations.menu.editNote",
           ),
         );
+        button.classList.add("annotation-note-mark--in-page");
+        button.style.top = `${rect.top - box.top}px`;
+        button.style.left = `${Math.max(0, Math.min(rect.right - box.left + 4, pageWidth - 20))}px`;
+        host.append(button);
+      }
     }
     firstHighlight.current = first;
     if (first) onHighlightShown(page, first);
     return () => {
       firstHighlight.current = null;
+      noteHost.current?.replaceChildren();
       for (const item of marked) {
         const div = divs[item];
         if (!div) continue;
@@ -1404,6 +1419,7 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
           } as CSSProperties
         }
       />
+      <div ref={noteHost} className="pointer-events-none absolute inset-0" />
       {mark && place && (
         <CitationMark
           mark={mark}
