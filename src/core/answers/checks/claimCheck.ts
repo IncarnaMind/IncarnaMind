@@ -878,7 +878,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         ([documentId, contentHash]): CheckedVersion => ({ documentId, contentHash }),
       ),
       excluded: [...excluded.values()].filter(
-        (each) => each.reason === "own-file" || each.reason === "checked-document",
+        (each) =>
+          each.reason === "own-file" ||
+          each.reason === "own-note" ||
+          each.reason === "checked-document",
       ),
       ...(request.window && { readPassages: [...readPassages] }),
     });

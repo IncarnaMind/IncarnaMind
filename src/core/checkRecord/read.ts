@@ -10,6 +10,7 @@ import {
   citationAttributesOf,
   citationState,
   citedLocation,
+  citedName,
   liveDocumentOf,
   shownDocumentName,
 } from "../../shared/citations";
@@ -48,6 +49,7 @@ import {
   type SignOffNow,
 } from "../api";
 import type { ModelDescription } from "../chatModelNames";
+import type { Language } from "../language";
 import { type Footnote, type Inline, readBlock, reviewReading } from "../mindText";
 import { layout } from "../proposals/write";
 
@@ -128,6 +130,8 @@ export interface RecordCiteItem {
 
 export interface RecordSources {
   fragment: Y.XmlFragment;
+  /** The interface language, for a snapshot's "Your note: …, 12 Oct". */
+  language: Language;
   documents: readonly Document[];
   kept: readonly KeptCitationText[];
   folderId: string | null;
@@ -147,13 +151,25 @@ const fileNameOf = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
 
 function documentOf(
   attributes: Partial<CitationAttributes>,
-  { documents, t, readQuote }: Pick<RecordSources, "documents" | "t" | "readQuote">,
+  {
+    language,
+    documents,
+    t,
+    readQuote,
+  }: Pick<RecordSources, "language" | "documents" | "t" | "readQuote">,
 ): RecordDocument {
   const found = liveDocumentOf(attributes, documents);
   const live = found && documents.find((each) => each.id === found.id);
   const sha256 = attributes.contentHash ? attributes.contentHash : null;
   return {
-    name: shownDocumentName(attributes, documents) || t("export.unnamedDocument"),
+    name: citedName(
+      {
+        ...attributes,
+        documentName: shownDocumentName(attributes, documents) || t("export.unnamedDocument"),
+      },
+      t,
+      language,
+    ),
     file: live ? (live.web?.address ?? fileNameOf(live.path)) : null,
     deleted: found === undefined,
     size: live && sha256 !== null && live.contentHash === sha256 ? live.size : null,

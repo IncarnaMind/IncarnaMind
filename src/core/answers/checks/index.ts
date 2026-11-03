@@ -379,6 +379,7 @@ const citationAttributes = (citation: CitationAttributes): CitationAttributes =>
   pageTo: citation.pageTo,
   location: citation.location,
   quote: citation.quote,
+  ...(citation.yourNoteAt && { yourNoteAt: citation.yourNoteAt }),
   check: citation.check,
   checkReason: citation.checkReason,
   ...(citation.id && { id: citation.id }),
@@ -872,6 +873,8 @@ export function createChecks(options: ChecksOptions) {
     return {
       documentIds: [...(original?.documentIds ?? []), ...(checked.documentIds ?? [])],
       contentHashes: [...(original?.contentHashes ?? []), ...(checked.contentHashes ?? [])],
+      // A Mind's own snapshot never supports its own sentences (#335).
+      ownNoteMindIds: [mindId, ...(checked.ownNoteMindIds ?? [])],
     };
   }
 

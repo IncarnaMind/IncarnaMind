@@ -1246,6 +1246,7 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
   pageTo: record.range.pageTo,
   location: record.location,
   quote: record.quote,
+  ...(record.source.yourNoteAt && { yourNoteAt: record.source.yourNoteAt }),
   check: result?.check ?? "checking",
   checkReason: result?.checkReason ?? null,
   ...(result?.unsure && result.unsure.length > 0 && { unsure: result.unsure }),

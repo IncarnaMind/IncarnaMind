@@ -186,6 +186,8 @@ interface DocumentRow {
   title: string | null;
   own_file: string | null;
   converted_from: string | null;
+  your_note_mind_id: string | null;
+  your_note_at: string | null;
   counted_as_evidence: number;
   not_cited: number;
   processing_version: number;
@@ -245,8 +247,9 @@ const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   failure_reason, failure_message, unread_parts, read_hidden_sheets, folder_id, tagging_status,
   tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
-  source_kind, creation_date, title, own_file, converted_from, counted_as_evidence, not_cited,
-  processing_version, keywords_version, file_mtime_ms, created_at, updated_at`;
+  source_kind, creation_date, title, own_file, converted_from, your_note_mind_id, your_note_at,
+  counted_as_evidence, not_cited, processing_version, keywords_version, file_mtime_ms, created_at,
+  updated_at`;
 
 /** What IncarnaMind wrote the file as (#80), from its stored kind; a kind a newer version wrote counts as an export. */
 const ownFileOf = (row: Pick<DocumentRow, "own_file" | "counted_as_evidence">): OwnFile | null =>
@@ -410,6 +413,8 @@ export interface CitationSource {
   documentDeleted: boolean;
   /** The User keeps the Document as their own workings: its Passages are read, never cited. */
   notCited: boolean;
+  /** Set when the Document is a snapshot of a Mind (#335): when the version quoted was taken. */
+  yourNoteAt: string | null;
 }
 
 /**
@@ -644,6 +649,10 @@ export function createDocuments(options: DocumentsOptions) {
       reference: referenceOf(db, row.id),
       ownFile: ownFileOf(row),
       convertedFrom: row.converted_from,
+      yourNote:
+        row.your_note_mind_id === null
+          ? null
+          : { mindId: row.your_note_mind_id, snapshotAt: row.your_note_at ?? row.created_at },
       notCited: row.not_cited === 1,
       found: foundSourceOf(db, row.id),
       importedAs: importedMindOf(row.id),
@@ -665,14 +674,16 @@ export function createDocuments(options: DocumentsOptions) {
     kind: DocumentKind,
     deletedAt: string | null,
     convertedFrom: string | null = null,
+    yourNoteMindId: string | null = null,
   ): void {
     const at = now();
     db.transaction(() => {
       db.run(
         `INSERT INTO documents (id, content_hash, name, kind, size, status, path,
            linked_folder_id, folder_id, source_kind, relative_path, file_status, file_mtime_ms,
-           converted_from, created_at, updated_at, deleted_at)
-         VALUES (?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, 'data-folder', ?, 'available', ?, ?, ?, ?, ?)`,
+           converted_from, your_note_mind_id, your_note_at, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, 'data-folder', ?, 'available', ?, ?, ?,
+           ?, ?, ?, ?)`,
         [
           id,
           file.contentHash,
@@ -683,6 +694,8 @@ export function createDocuments(options: DocumentsOptions) {
           relativePath(dataDir, file.path),
           file.mtimeMs,
           convertedFrom,
+          yourNoteMindId,
+          yourNoteMindId === null ? null : at,
           at,
           at,
           deletedAt,
@@ -2564,9 +2577,17 @@ export function createDocuments(options: DocumentsOptions) {
         content_hash: string;
         deleted_at: string | null;
         not_cited: number;
+        your_note_mind_id: string | null;
+        your_note_at: string | null;
+        your_note_version_at: string | null;
       }>(
         `SELECT p.id, p.text, p.page_from, p.page_to, p.document_id, d.name, d.kind,
-           coalesce(p.content_hash, d.content_hash) AS content_hash, d.deleted_at, d.not_cited
+           coalesce(p.content_hash, d.content_hash) AS content_hash, d.deleted_at, d.not_cited,
+           d.your_note_mind_id, d.your_note_at,
+           (SELECT dp.version_at FROM document_pages dp
+            WHERE dp.document_id = d.id AND dp.content_hash = coalesce(p.content_hash, d.content_hash)
+              AND dp.deleted_at IS NULL
+            ORDER BY dp.page LIMIT 1) AS your_note_version_at
          FROM passages p JOIN documents d ON d.id = p.document_id
          WHERE p.id = ?`,
         [passageId],
@@ -2583,6 +2604,8 @@ export function createDocuments(options: DocumentsOptions) {
         contentHash: row.content_hash,
         documentDeleted: row.deleted_at !== null,
         notCited: row.not_cited === 1,
+        yourNoteAt:
+          row.your_note_mind_id === null ? null : (row.your_note_version_at ?? row.your_note_at),
       };
     },
 
@@ -2863,6 +2886,60 @@ export function createDocuments(options: DocumentsOptions) {
       const row = find(id);
       if (!row) throw new NotFoundError({ key: "error.document.notFound" });
       return toDocument(row);
+    },
+
+    /**
+     * Adds a snapshot of a Mind as a Document marked "Your note" (#335): a
+     * Markdown file IncarnaMind keeps in the data folder (see `MindSources`),
+     * which the caller files in the Mind's Folder. It is queued and read like
+     * any other Document, its headings and paragraphs its Locations.
+     */
+    addYourNote(id: string, name: string, file: SnapshotFile, mindId: string): Document {
+      insertSnapshot(id, name, file, () => {}, "markdown", null, null, mindId);
+      announce(id);
+      process(id);
+      const row = find(id);
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      return toDocument(row);
+    },
+
+    /** Whether a live Document has this content, other than `exceptDocumentId` (#335): a snapshot's file must be its own. */
+    contentHashInUse(contentHash: string, exceptDocumentId: string | null = null): boolean {
+      return (
+        db.get<{ id: string }>(
+          `SELECT id FROM documents
+           WHERE content_hash = ? AND deleted_at IS NULL
+             AND (? IS NULL OR id <> ?)`,
+          [contentHash, exceptDocumentId, exceptDocumentId],
+        ) !== undefined
+      );
+    },
+
+    /** The live Document that is this Mind's snapshot, or null (#335). */
+    yourNoteDocument(mindId: string): Document | null {
+      const row = db.get<DocumentRow>(
+        `SELECT ${COLUMNS} FROM documents
+         WHERE your_note_mind_id = ? AND deleted_at IS NULL
+         ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+        [mindId],
+      );
+      return row ? toDocument(row) : null;
+    },
+
+    /** When a snapshot was last taken, after a new version of it was read (#335). */
+    setYourNoteAt(documentId: string, at: string): Document {
+      const row = find(parseId(documentId));
+      if (!row || row.your_note_mind_id === null) {
+        throw new NotFoundError({ key: "error.document.notFound" });
+      }
+      db.run("UPDATE documents SET your_note_at = ?, updated_at = ? WHERE id = ?", [
+        at,
+        now(),
+        row.id,
+      ]);
+      const updated = find(row.id);
+      if (!updated) throw new NotFoundError({ key: "error.document.notFound" });
+      return toDocument(updated);
     },
 
     /**

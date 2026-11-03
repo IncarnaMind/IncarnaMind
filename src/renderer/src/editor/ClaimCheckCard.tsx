@@ -724,9 +724,10 @@ export function ClaimCard({
       return places ? `${name} (${places})` : name;
     })
     .join(t("claim.readDocuments.separator"));
-  const savedPage = evidence
-    ? documents.find((each) => each.id === evidence.documentId)?.web
+  const evidenceDocument = evidence
+    ? documents.find((each) => each.id === evidence.documentId)
     : undefined;
+  const savedPage = evidenceDocument?.web;
   const savedFrom = savedPage && {
     address: savedPage.address,
     savedAt:
@@ -909,6 +910,11 @@ export function ClaimCard({
             {evidence && (
               <p data-testid="claim-source" className="citation-card-source">
                 {[shownDocumentName(evidence, documents), where].filter(Boolean).join(" · ")}
+              </p>
+            )}
+            {state === "supported" && evidenceDocument?.yourNote && (
+              <p data-testid="claim-own-note" className="citation-card-note">
+                {t("claim.ownNote")}
               </p>
             )}
             {savedFrom && (
@@ -1119,6 +1125,17 @@ export function ClaimCard({
       {check.excluded.map((left) => {
         const document = documents.find((each) => each.id === left.documentId);
         const name = left.documentName || document?.name || "";
+        if (left.reason === "own-note") {
+          return (
+            <p
+              key={left.documentId}
+              data-testid="claim-own-note-excluded"
+              className="citation-card-note"
+            >
+              {t("evidence.excluded.ownNote", { name })}
+            </p>
+          );
+        }
         // The file being checked says every sentence of it: only where nothing else did is it news.
         if (left.reason === "checked-document" && state === "unsupported") {
           if (left.documentId === verified) return null;

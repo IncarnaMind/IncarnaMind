@@ -327,6 +327,7 @@ async function checkWith(options: {
     pageTo: 1,
     documentDeleted: false,
     notCited: false,
+    yourNoteAt: null,
   };
   const engine = createAiSdkAnswerEngine();
   const check = createClaimCheck({
@@ -1581,6 +1582,7 @@ function workbookPassage(units: UnitText[], language: "en" | "zh-CN") {
     pageTo: 1,
     documentDeleted: false,
     notCited: false,
+    yourNoteAt: null,
   };
   const recorded: CalculatedFigure[] = [];
   const [trace, whatIf] = workbookTools({

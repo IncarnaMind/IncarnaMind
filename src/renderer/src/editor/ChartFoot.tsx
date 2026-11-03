@@ -3,7 +3,7 @@ import type { CitationCheck } from "../../../core/api";
 import type { ChartInk } from "../../../shared/chartLayout";
 import { type ChartSources, MAX_CHART_VALUES } from "../../../shared/charts";
 import { citationSource, withShownName } from "../../../shared/citations";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { ChartCheck } from "./ChartCheck";
 import { calculatedFrom } from "./chartCalculated";
@@ -33,12 +33,13 @@ export function ChartFoot({
   findRef: RefObject<HTMLButtonElement | null>;
 }) {
   const t = useT();
+  const language = useLanguage();
   const cited = sources.values - sources.uncited - sources.calculated;
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
   const place = sources.places[0]?.citation;
-  const source = place ? citationSource(withShownName(place, documents), t) : null;
+  const source = place ? citationSource(withShownName(place, documents), t, language) : null;
   const document = source?.name ?? "";
   const plural = (count: number) => (count === 1 ? "one" : "other");
 
@@ -59,7 +60,7 @@ export function ChartFoot({
   // Calculated values are counted apart from quoted ones, never as "each quoted" (#2307).
   const calculated =
     sources.calculated > 0
-      ? calculatedFrom(sources.inputs, documents, t, sources.calculated)
+      ? calculatedFrom(sources.inputs, documents, t, language, sources.calculated)
       : null;
   if (calculated) said = said ? `${said} · ${calculated}` : calculated;
   const more: ReactNode[] = [

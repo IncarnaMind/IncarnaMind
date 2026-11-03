@@ -247,6 +247,7 @@ import { meetingWords } from "./meetings/words";
 import { accessFor, isKnownKind, parseKind } from "./mindAccess";
 import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
+import { createMindSources } from "./mindSources";
 import {
   createMinds,
   type NewMind,
@@ -3427,6 +3428,16 @@ export function createCore(adapters: CoreAdapters): Core {
       return plan ? pacedBy(chosen, plan.run) : chosen;
     },
   });
+  const mindSources = createMindSources({
+    dataDir,
+    now,
+    language: () => settings.get().language,
+    minds,
+    content,
+    documents,
+    assign: (documentId, folderId) => library.assign(documentId, folderId),
+    removeDocument: (documentId) => removeDocuments([documentId]),
+  });
   function scanImagesAllowed(reader: ChatModelChoice): boolean {
     const service = chat.describeModel(reader)?.service;
     return !service || consent.allows("scan-images", service);
@@ -4697,6 +4708,23 @@ export function createCore(adapters: CoreAdapters): Core {
       wordImports.copyPackage(source.id, copy.id);
       return minds.get(copy.id);
     },
+    saveMindAsSource: async (mindId) => mindSources.use(writableMind(mindId).id),
+    updateMindSourceSnapshot: async (mindId) => mindSources.update(writableMind(mindId).id),
+    restoreMindSourceSnapshot: async (documentId, input) => {
+      if (
+        !isRecord(input) ||
+        typeof input.text !== "string" ||
+        typeof input.snapshotAt !== "string"
+      )
+        throw new InvalidInputError(
+          "restoreMindSourceSnapshot expects the snapshot's text and time.",
+        );
+      return mindSources.restore(documentId, {
+        text: input.text,
+        snapshotAt: input.snapshotAt,
+      });
+    },
+    removeMindSource: async (mindId) => mindSources.remove(writableMind(mindId).id),
     checkWordFile: async (path, folderId) => wordImports.check(path, folderId),
     importWordFile: async (input) => {
       const path = isRecord(input) && typeof input.path === "string" ? input.path : null;

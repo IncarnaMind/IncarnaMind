@@ -8,6 +8,8 @@
  *   Document ("Count it"), its Folder counts them, or Settings does.
  * - The User's own workings (`Document.notCited`): read to understand a
  *   Question, never evidence. Always, until the User cites them again.
+ * - A Mind's own snapshot (`Document.yourNote`, #335): a note can't support
+ *   itself. Always, in a check of that Mind.
  * - The document being checked, its earlier versions, and copies of either:
  *   any Document with one of its content fingerprints, at any path. Always.
  *
@@ -109,9 +111,11 @@ export function parseCheckedDocument(input: unknown): CheckedDocument {
     throw new InvalidInputError("The document being checked must be an object.");
   const documentIds = parseList(input.documentIds, "The checked Documents");
   const contentHashes = parseList(input.contentHashes, "The checked fingerprints");
+  const ownNoteMindIds = parseList(input.ownNoteMindIds, "The checked Minds");
   return {
     ...(documentIds && { documentIds }),
     ...(contentHashes && { contentHashes }),
+    ...(ownNoteMindIds && { ownNoteMindIds }),
   };
 }
 
@@ -171,6 +175,18 @@ export function createEvidence(deps: EvidenceDependencies) {
         scopeParams,
       );
       for (const row of workings) excluded.set(row.id, "own-workings");
+
+      const ownNoteMinds = checked.ownNoteMindIds ?? [];
+      if (ownNoteMinds.length > 0) {
+        const notes = db.all<{ id: string }>(
+          `SELECT d.id FROM documents d
+           WHERE d.deleted_at IS NULL
+             AND d.your_note_mind_id IN (SELECT value FROM json_each(?))
+             ${scoped}`,
+          [JSON.stringify(ownNoteMinds), ...scopeParams],
+        );
+        for (const row of notes) excluded.set(row.id, "own-note");
+      }
 
       const fingerprints = fingerprintsOf(checked);
       const checkedIds = checked.documentIds ?? [];

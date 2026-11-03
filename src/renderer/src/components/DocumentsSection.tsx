@@ -407,6 +407,7 @@ const DocumentRow = memo(function DocumentRow({
                 </span>
               )}
             </span>
+            <YourNoteLabel item={item} />
             <NotCitedLabel item={item} />
             <TagMarks
               chips={chips}
@@ -444,6 +445,21 @@ export function NotCitedLabel({ item }: { item: Pick<Document, "notCited"> }) {
       className="shrink-0 text-label font-semibold text-ink-meta"
     >
       {t("evidence.notCited.label")}
+    </span>
+  );
+}
+
+/** "Your note" beside a Document that is a snapshot of a Mind (#335). */
+export function YourNoteLabel({ item }: { item: Pick<Document, "yourNote"> }) {
+  const t = useT();
+  if (!item.yourNote) return null;
+  return (
+    <span
+      data-testid="document-your-note"
+      title={t("mind.yourNote")}
+      className="shrink-0 text-label font-semibold text-ink-meta"
+    >
+      {t("mind.yourNote")}
     </span>
   );
 }

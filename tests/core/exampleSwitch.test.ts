@@ -38,6 +38,7 @@ const documentOf = (linkedFolderId: string, name: string): Document => ({
   web: null,
   reference: null,
   ownFile: null,
+  yourNote: null,
   notCited: false,
   found: null,
   importedAs: null,
