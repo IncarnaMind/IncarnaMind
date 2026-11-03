@@ -58,6 +58,15 @@ const FILES = [
       ],
     }),
   },
+  // Decoy: another deck, with the slide count a sentence about the Q3 one gets wrong.
+  {
+    name: "Board pack Q2.pptx",
+    contents: pptxOf({
+      slides: ["Q2 board pack", "Trading", "Costs", "Risks", "Outlook", "Questions"].map((text) =>
+        slide(text),
+      ),
+    }),
+  },
   {
     name: "Cash forecast.xlsx",
     contents: xlsxOf(
@@ -132,7 +141,13 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
     // Decoy: the text says it, and the file's modified date is the same day.
     { sentence: "The renewal was agreed on 14 September 2026.", expected: "supported" },
     { sentence: "Board pack Q3.pptx has 4 slides.", expected: "supported", property: "slides" },
+    // Decoy: the Q2 deck has 6 slides; the Q3 one has 4.
     { sentence: "The Q3 board pack runs to 6 slides.", expected: "contradicted" },
+    // Decoy: the cash forecast was last modified on 20 October; the lease renewal on 14 September.
+    {
+      sentence: "Lease renewal.docx was last modified on 20 October 2026.",
+      expected: "contradicted",
+    },
     { sentence: "Audit memo.pdf is 3 pages long.", expected: "supported", property: "pages" },
     {
       sentence: "The audit memo PDF was last modified on 12 October 2026.",
@@ -175,6 +190,7 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
       expected: "supported",
       property: "slides",
     },
+    { sentence: "Board pack Q3.pptx 一共有 6 张幻灯片。", expected: "contradicted" },
     {
       sentence: "Site notes.md 最后修改于 2026 年 10 月 28 日。",
       expected: "unsupported",
