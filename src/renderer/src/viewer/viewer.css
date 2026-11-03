@@ -119,15 +119,17 @@
       @apply sr-only;
     }
   }
+  /* The Annotations list is in the Document's ⋯ menu too, where a busy toolbar can't hold its button. */
+  @container viewer (width < 960px) {
+    .viewer-annotations-toggle {
+      @apply hidden;
+    }
+  }
   @container viewer (width < 460px) {
     .viewer-page-count {
       @apply sr-only;
     }
     .viewer-divider {
-      @apply hidden;
-    }
-    /* The Annotations list is in the Document's ⋯ menu too, at the widths that can't hold it. */
-    .viewer-annotations-toggle {
       @apply hidden;
     }
   }
