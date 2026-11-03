@@ -317,17 +317,15 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
     }
     return row.length >= 2 && covered.length >= spans.length - 1;
   };
-  // The heading rows start at the first row that heads columns (a caption above it is dropped),
-  // and go on down while the rows head columns; below the first, a row heads them only when the
-  // row above covers columns with a merged heading or this row's label cell is empty, so a first
-  // body row keeps its words.
+  // The heading rows go up from the row right above the body while each heads columns; a caption
+  // or a section line above them is not a heading, even when it sits over the labels' column.
   let top = headingLimit;
-  for (let index = 0; index < headingLimit; index++) {
-    const row = rows[index] ?? [];
-    if (headsColumns(index) || row.every((fragment) => labelsHeading(fragment))) {
-      top = index;
-      break;
-    }
+  let above = headingLimit;
+  while (above > 0) {
+    const row = rows[above - 1] ?? [];
+    if (above === headingLimit || headsColumns(above - 1)) top = above - 1;
+    else if (!row.every((fragment) => labelsHeading(fragment))) break;
+    above--;
   }
   let bottom = top;
   while (bottom < headingLimit) {
