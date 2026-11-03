@@ -185,3 +185,14 @@ The amendment of 2026-10-21 held a reply's claims to its calls only for the Note
 - **It fails closed on what only the User changes.** Any claim that stands, and a check that couldn't run, name under the reply each of those the turn refused, whatever the judge took a claim to be about. A reply that stands because the model, asked again, failed keeps what the first check found in it. After a command that was refused, failed or not allowed, the reply shows only once it is checked, so a Stop meanwhile leaves no unchecked claim.
 - **A refusal's own line is never read as a claim.** The check reads the model's reply without the lines IncarnaMind ends it with (#2252).
 - **An honest reply is left alone:** one that says a command ran when it did, one that says what didn't happen, and one that offers to do something.
+
+## Amendment, 2026-11-03: the assistant's Organize files the Documents at once (#2252)
+
+The amendment of 2026-10-29 had a request to Organize leave its suggestions in To review, with nothing moved before the User accepted. Asked in words, "re-organise my files" then ended with suggestions and no files moved. That is what the User didn't ask for, and it goes against "Undo instead of confirmations". A request in words asks for the result:
+
+- **The assistant's Organize files the Documents at once,** as one step of the Run with one Undo, and the reply names the Folders and how many went to each. The card lists each move, and nothing is left in To review.
+- **It asks first only where the rules already ask:** the first time a cloud service would read the Documents for it (the Organize card's line, ADR-0022); above 20 Documents (#1110); and a Tag merge, which deletes. Otherwise it runs at once. This is decided in the one place that decides what asks first.
+- **Walls hold.** It never moves a Document across a Folder's wall, in or out. From outside a wall it doesn't see the Documents inside it and never chooses a walled Folder as a destination. Inside one, it files only within it.
+- **The Library's own Organize keeps To review** ("Sort these into Folders", #241): the User is already looking at its suggestions there, and Accept all is one click.
+
+This replaces the "Organize by content" line of the amendment of 2026-10-29 for a request in words.
