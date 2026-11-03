@@ -1146,6 +1146,221 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(after?.tags.some((each) => each.tagId === extra.id)).toBe(false);
   });
 
+  // protects=Undo skips a Document deleted after the run, so its change is not reverted and the Undo does not fail (#2252); fails_when=the gone Document's change is reverted; no_claim=which Folder the classifier picks.
+  test("Undo skips a Document deleted after the run", async () => {
+    let phase: "add" | "remove" = "add";
+    let ids: string[] = [];
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        if (ran.length > 0) return { text: "Done." };
+        return {
+          calls: [
+            {
+              tool: "run_command",
+              input: {
+                command: "documents.organize",
+                ...(phase === "remove" && { ids }),
+                folder: "Leases",
+                about: "Lease papers",
+              },
+            },
+          ],
+        };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return {
+            text: JSON.stringify({
+              groupId: leases?.id ?? null,
+              tags: [],
+              ...(phase === "add" && {
+                newTags: [{ name: "Prior", description: "Earlier work" }],
+              }),
+            }),
+          };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    await askAssistant(core, { text: "Re organise the files", mindId: mind.id, ...FROM_WINDOW });
+    const prior = (await core.listTags()).find((each) => each.name === "Prior");
+    if (!prior) throw new Error("No Prior Tag.");
+    const gone = (await core.listDocuments())[0];
+    if (!gone) throw new Error("No Document.");
+    ids = (await core.listDocuments()).map((each) => each.id);
+    phase = "remove";
+    const second = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    await core.deleteDocuments([gone.id]);
+    expect((await core.undoCommands(runOf(second))).failed).toBeNull();
+    await core.restore([{ kind: "document", id: gone.id }]);
+
+    const after = (await core.listDocuments()).find((each) => each.id === gone.id);
+    expect(after?.tags.some((each) => each.tagId === prior.id)).toBe(false);
+  });
+
+  // protects=Undo skips a Tag deleted after the run, so restoring it brings no link back (#2252); fails_when=the gone Tag's link is put back; no_claim=which Folder the classifier picks.
+  test("Undo skips a Tag deleted after the run", async () => {
+    let phase: "add" | "remove" = "add";
+    let ids: string[] = [];
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        if (ran.length > 0) return { text: "Done." };
+        return {
+          calls: [
+            {
+              tool: "run_command",
+              input: {
+                command: "documents.organize",
+                ...(phase === "remove" && { ids }),
+                folder: "Leases",
+                about: "Lease papers",
+              },
+            },
+          ],
+        };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return {
+            text: JSON.stringify({
+              groupId: leases?.id ?? null,
+              tags: [],
+              ...(phase === "add" && {
+                newTags: [{ name: "Prior", description: "Earlier work" }],
+              }),
+            }),
+          };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    await askAssistant(core, { text: "Re organise the files", mindId: mind.id, ...FROM_WINDOW });
+    const prior = (await core.listTags()).find((each) => each.name === "Prior");
+    if (!prior) throw new Error("No Prior Tag.");
+    ids = (await core.listDocuments()).map((each) => each.id);
+    phase = "remove";
+    const second = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    expect(
+      (await core.listDocuments()).every(
+        (each) => !each.tags.some((tag) => tag.tagId === prior.id),
+      ),
+    ).toBe(true);
+
+    await core.deleteTag(prior.id);
+    expect((await core.undoCommands(runOf(second))).failed).toBeNull();
+    await core.restore([{ kind: "tag", id: prior.id }]);
+
+    expect(
+      (await core.listDocuments()).every(
+        (each) => !each.tags.some((tag) => tag.tagId === prior.id),
+      ),
+    ).toBe(true);
+  });
+
+  // protects=Undo skips a Tag the User decided on after the run, a removal included (#2252); fails_when=the User's removal is undone; no_claim=which Folder the classifier picks.
+  test("Undo leaves a Tag the User removed after the run off", async () => {
+    let phase: "add" | "remove" = "add";
+    let ids: string[] = [];
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        if (ran.length > 0) return { text: "Done." };
+        return {
+          calls: [
+            {
+              tool: "run_command",
+              input: {
+                command: "documents.organize",
+                ...(phase === "remove" && { ids }),
+                folder: "Leases",
+                about: "Lease papers",
+              },
+            },
+          ],
+        };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return {
+            text: JSON.stringify({
+              groupId: leases?.id ?? null,
+              tags: [],
+              ...(phase === "add" && {
+                newTags: [{ name: "Prior", description: "Earlier work" }],
+              }),
+            }),
+          };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    await askAssistant(core, { text: "Re organise the files", mindId: mind.id, ...FROM_WINDOW });
+    const prior = (await core.listTags()).find((each) => each.name === "Prior");
+    if (!prior) throw new Error("No Prior Tag.");
+    const first = (await core.listDocuments())[0];
+    if (!first) throw new Error("No Document.");
+    ids = (await core.listDocuments()).map((each) => each.id);
+    phase = "remove";
+    const second = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    await core.removeTagFromDocuments([first.id], prior.id);
+    expect((await core.undoCommands(runOf(second))).failed).toBeNull();
+
+    const after = (await core.listDocuments()).find((each) => each.id === first.id);
+    expect(after?.tags.some((each) => each.tagId === prior.id)).toBe(false);
+  });
+
   // protects=Organize the User doesn't allow changes nothing; fails_when=a Document is filed or a Folder made; no_claim=the card's words.
   test("Organize not allowed moves nothing", async () => {
     const model = calling(
