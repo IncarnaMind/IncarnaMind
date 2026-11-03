@@ -277,19 +277,35 @@ const SIZE_UNITS: readonly (readonly [RegExp, readonly number[]])[] = [
 ];
 
 /**
+ * The words after a figure in its context, its own sentence (a table cell's under its headings):
+ * its reading counts from the paragraph's start, not the context's, so it is found by its
+ * characters; undefined when they are there more than once, or not at all.
+ */
+function afterFigure(figure: FigureCheckResult): string | undefined {
+  const { chars } = figure.reading;
+  const escaped = chars.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const found = [
+    ...(figure.context ?? "").matchAll(new RegExp(`(?<![\\d.,])${escaped}(?!\\d)`, "gu")),
+  ];
+  const [one] = found;
+  return found.length === 1 && one
+    ? (figure.context ?? "").slice(one.index + chars.length)
+    : undefined;
+}
+
+/**
  * Whether a size figure states `bytes`, in the unit its sentence writes after it: "1.2 MB" at its
  * shown precision, "under 2 MB" as its relation says. Null when the sentence names no size unit
  * there, which no byte count can settle.
  */
-function sizeAgrees(
+export function sizeAgrees(
   figure: FigureCheckResult,
-  claim: string,
   bytes: number,
   relation: FigureReplyItem["relation"],
 ): boolean | null {
   const { reading } = figure;
-  const after = (figure.context ?? claim).slice(reading.end).trimStart();
-  const per = SIZE_UNITS.find(([unit]) => unit.test(after))?.[1];
+  const after = afterFigure(figure)?.trimStart();
+  const per = after === undefined ? undefined : SIZE_UNITS.find(([unit]) => unit.test(after))?.[1];
   if (!per) return null;
   // A figure's value counts its scale word in ("1.2 thousand" is 1,200); its decimals don't.
   const shown = (value: number) => Number((value / reading.scale).toFixed(reading.decimals));
@@ -533,21 +549,22 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
         ? (unbacked(judged as Decided) as J)
         : judged;
     };
-    const relations = new Map(
+    const items = new Map(
       (readFigureReply(reply, request.figures ?? [], request.claim)?.items ?? []).map((item) => [
         item.id,
-        item.relation,
+        item,
       ]),
     );
     // The size line writes its byte count first: a figure in KB or MB is compared with it here, in
-    // the figure's own unit, never as two plain numbers.
+    // the figure's own unit, never as two plain numbers. A size that agrees is Supported only when
+    // the model called the figure so: one it found to say something else is never Supported.
     const sized = (figure: FigureCheckResult, judged: ClaimJudgment): ClaimJudgment => {
       if (judged.verdict !== "supported" && judged.verdict !== "contradicted") return judged;
       const location = judged.evidence?.location;
       if (location?.kind !== "properties" || location.property !== "size") return judged;
-      const relation = relations.get(figure.id) ?? "equals";
-      const agrees = sizeAgrees(figure, request.claim, Number(location.value), relation);
-      if (agrees === null) return unbacked(judged);
+      const item = items.get(figure.id);
+      const agrees = sizeAgrees(figure, Number(location.value), item?.relation ?? "equals");
+      if (agrees === null || (agrees && item?.verdict !== "supported")) return unbacked(judged);
       return { ...judged, verdict: agrees ? "supported" : "contradicted" };
     };
     const figures = result.figures?.map((figure) => {

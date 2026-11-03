@@ -6,6 +6,7 @@
  * core's, whatever the model says.
  */
 import { randomUUID } from "node:crypto";
+import type { JSONContent } from "@tiptap/core";
 import { utimes } from "node:fs/promises";
 import { describe, expect, test, vi } from "vitest";
 import type { ClaimCheckAttributes, Core, Document } from "../../src/core";
@@ -15,6 +16,7 @@ import type {
 } from "../../src/core/answers/checks/claimCheck";
 import {
   declaredProperties,
+  sizeAgrees,
   withFileProperties,
 } from "../../src/core/answers/checks/fileProperties";
 import { readVerdict } from "../../src/core/answers/checks/prompt";
@@ -56,8 +58,8 @@ interface Plan {
   number?: string;
   /** For a sentence with figures, how each figure compares with its number: equals when absent. */
   relation?: "at most" | "at least";
-  /** For a sentence with figures, each figure's own quote and number, in order, `quote` backing its words. */
-  figures?: { quote: string; number: string }[];
+  /** For a sentence with figures, each figure's own quote, number and verdict, in order, `quote` backing its words. */
+  figures?: { quote: string; number: string; verdict?: Plan["verdict"] }[];
   /** For a sentence with figures, its words besides them, and the quote that backs those, cited last. */
   remainder?: { text: string; quote: string };
   /** What its Property line names; no line when null; "none" when absent. */
@@ -148,7 +150,7 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
             : first && { citation: 1, number: first };
           return {
             id,
-            verdict: source ? plan.verdict : "unsupported",
+            verdict: source ? (own?.verdict ?? plan.verdict) : "unsupported",
             scope: "same",
             topic: source ? "found" : "not found",
             roles: "same",
@@ -248,26 +250,40 @@ async function setUp(
 
 const property = (name: string, value: string) => ({ kind: "properties", property: name, value });
 
-/** Writes `sentence` in a new Note in `folderId` and checks it there, as Check against Documents does. */
-async function checkInNote(core: Core, sentence: string, folderId: string | null) {
+const paragraph = (id: string, text: string): JSONContent => ({
+  type: "paragraph",
+  attrs: { id },
+  content: [{ type: "text", text }],
+});
+
+/** Writes `blocks` in a new Note in `folderId` and checks block `one` from `from` to its end, as Check against Documents does. */
+async function checkBlocksInNote(
+  core: Core,
+  blocks: JSONContent[],
+  text: string,
+  folderId: string | null,
+  from = 0,
+) {
   const note = await core.createMind({ title: "Lease note", folderId });
   const mind = await connectToMind(core, note.id);
-  writeMind(mind, [
-    { type: "paragraph", attrs: { id: "one" }, content: [{ type: "text", text: sentence }] },
-  ]);
+  writeMind(mind, blocks);
   await mind.settled();
   await core.checkSentences({
     requestId: `check-${randomUUID()}`,
     mindId: note.id,
     action: "check-against-documents",
-    from: { blockId: "one", offset: 0 },
-    to: { blockId: "one", offset: sentence.length },
+    from: { blockId: "one", offset: from },
+    to: { blockId: "one", offset: text.length },
     allDocuments: true,
   });
   await mind.settled();
   const check: ClaimCheckAttributes | undefined = claimSpans(readMind(mind))[0]?.check;
   return { check, noteId: note.id };
 }
+
+/** Writes `sentence` in a new Note in `folderId` and checks it there, as Check against Documents does. */
+const checkInNote = (core: Core, sentence: string, folderId: string | null) =>
+  checkBlocksInNote(core, [paragraph("one", sentence)], sentence, folderId);
 
 const ISSUE = {
   en: "The file was last modified on 2026-11-02, which is not the agreement's own date.",
@@ -711,6 +727,9 @@ const SIZED = {
     under: "Survey log.txt is under 2 MB.",
     over: "Survey log.txt is over 0.5 MB.",
     noUnit: "The size of Survey log.txt is 1.2.",
+    second: ["The log is final. ", "Survey log.txt is 1.2 MB."],
+    other: "Survey log.txt is 1.2 MB larger than last month's log.",
+    rounded: "Big log.txt is 1 MB.",
   },
   "zh-CN": {
     supported: [
@@ -723,6 +742,9 @@ const SIZED = {
     under: "Survey log.txt 不到 2 MB。",
     over: "Survey log.txt 超过 0.5 MB。",
     noUnit: "Survey log.txt 的大小是 1.2。",
+    second: ["日志已定稿。", "Survey log.txt 的大小是 1.2 MB。"],
+    other: "Survey log.txt 比上个月的日志大 1.2 MB。",
+    rounded: "Big log.txt 的大小是 1 MB。",
   },
 } as const;
 
@@ -755,17 +777,31 @@ describe.each(["en", "zh-CN"] as const)(
         [sentences.under]: { ...log("supported"), relation: "at most" },
         [sentences.over]: { ...log("supported"), relation: "at least" },
         [sentences.noUnit]: log("supported"),
+        // The model finds the line says something else, yet binds the number that agrees.
+        [sentences.other]: log("contradicted"),
+        // Bound to the line's "1.3 MB": the figure check would show it as rounded from 1.3.
+        [sentences.rounded]: {
+          ...sized(
+            "Big log",
+            "Size: 1,250,000 bytes (1.3 MB, or 1.2 MB counting 1,024 bytes to a KB)",
+            "supported",
+          ),
+          number: "1.3",
+        },
       };
       const setup = await setUp(
         [
           // 1,234,567 bytes: 1.23 MB counting 1,000,000 bytes to a MB, 1.18 MB counting 1,048,576.
           { name: "Survey log.txt", contents: `${"Survey log. ".repeat(102_880)}Ended.\n` },
           { name: "Site notes.txt", contents: "Site notes. ".repeat(100) },
+          // 1,250,000 bytes: its size line reads "1.3 MB, or 1.2 MB counting 1,024 bytes to a KB".
+          { name: "Big log.txt", contents: `${"Big log. ".repeat(138_888)}The end.` },
         ],
         plans,
         language,
       );
       expect(setup.named("Survey log.txt").size).toBe(1_234_567);
+      expect(setup.named("Big log.txt").size).toBe(1_250_000);
       for (const sentence of [...sentences.supported, sentences.under, sentences.over]) {
         const { check } = await checkInNote(setup.core, sentence, null);
         expect(check, sentence).toMatchObject({
@@ -775,17 +811,74 @@ describe.each(["en", "zh-CN"] as const)(
       }
       for (const sentence of sentences.contradicted) {
         const { check } = await checkInNote(setup.core, sentence, null);
+        // Its difference from the bound number would be a byte count's, in the figure's own unit.
         expect(check, sentence).toMatchObject({
           state: "contradicted",
-          figures: [{ state: "contradicted", evidence: { location: { property: "size" } } }],
+          figures: [
+            {
+              state: "contradicted",
+              evidence: { location: { property: "size" } },
+              difference: null,
+              roundedFrom: null,
+            },
+          ],
         });
       }
-      // No size unit after the number: no byte count settles it.
-      const { check } = await checkInNote(setup.core, sentences.noUnit, null);
-      expect(check?.figures?.map((figure) => figure.state)).toEqual(["unsupported"]);
+      const { check: rounded } = await checkInNote(setup.core, sentences.rounded, null);
+      expect(rounded).toMatchObject({
+        state: "supported",
+        figures: [{ state: "supported", difference: null, roundedFrom: null }],
+      });
+      // No size unit after the number, or the model found the line says something else.
+      for (const sentence of [sentences.noUnit, sentences.other]) {
+        const { check } = await checkInNote(setup.core, sentence, null);
+        expect(
+          check?.figures?.map((figure) => figure.state),
+          sentence,
+        ).toEqual(["unsupported"]);
+      }
+      // A size sentence second in its paragraph reads the unit after its own figure.
+      const [before, sentence] = sentences.second;
+      const { check: second } = await checkBlocksInNote(
+        setup.core,
+        [paragraph("one", `${before}${sentence}`)],
+        `${before}${sentence}`,
+        null,
+        before.length,
+      );
+      expect(second).toMatchObject({ state: "supported", figures: [{ state: "supported" }] });
     });
   },
 );
+
+// protects=a size figure's unit is read after its own characters, though its reading counts from the start of its paragraph and a table cell's context starts with its headings; fails_when="1.2 MB" in a value cell, or second in its paragraph, reads no unit and is Unsupported.
+test("a size figure in a table cell, or second in its paragraph, is read with its own unit", () => {
+  const figureIn = (context: string, chars: string, start: number) => {
+    const [reading] = readFigures(chars, { language: "en" });
+    if (!reading) throw new Error("The fixture has no figure.");
+    const at = { ...reading, start, end: start + chars.length };
+    return { id: "f", locator: { kind: "text" }, reading: at, context } as unknown as Parameters<
+      typeof sizeAgrees
+    >[0];
+  };
+  // A value cell's own text is "1.2 MB"; its context starts with its column's and row's headings.
+  expect(sizeAgrees(figureIn("Size\nSurvey log.txt\n1.2 MB", "1.2", 0), 1_234_567, "equals")).toBe(
+    true,
+  );
+  // Second in its paragraph: its reading counts from the paragraph, its context is its sentence.
+  expect(sizeAgrees(figureIn("Survey log.txt is 1.2 MB.", "1.2", 36), 1_234_567, "equals")).toBe(
+    true,
+  );
+  expect(sizeAgrees(figureIn("Survey log.txt is 2 MB.", "2", 36), 1_234_567, "equals")).toBe(false);
+  // Written twice, the figure's own place can't be told: no unit settles it.
+  expect(
+    sizeAgrees(
+      figureIn("Survey log.txt is 1.2 MB, up from 1.2 KB.", "1.2", 18),
+      1_234_567,
+      "equals",
+    ),
+  ).toBeNull();
+});
 
 // protects=a Note's sentence whose Property line names a count is decided by that count's own Citation, never by a body line that writes one, as a sentence without figures is; fails_when=the deck's slide "This deck has 3 slides" backs the figure of a sentence about the deck's own slide count.
 test("a sentence about a file's count is never decided by a body line that writes one", async () => {
@@ -849,14 +942,14 @@ test("a sentence with two figures, one of them backed by a property it may not u
       contents: pptxOf({ slides: [slide("Owners: 4"), slide("Plan"), slide("Questions")] }),
     },
   ];
-  const plan = (property: string): Record<string, Plan> => ({
+  const plan = (property: string, slides?: Plan["verdict"]): Record<string, Plan> => ({
     [SENTENCE]: {
       document: "Plan",
       verdict: "supported",
       quote: "Owners: 4",
       figures: [
         { quote: "Owners: 4", number: "4" },
-        { quote: "Slides: 3", number: "3" },
+        { quote: "Slides: 3", number: "3", ...(slides && { verdict: slides }) },
       ],
       property,
     },
@@ -875,6 +968,15 @@ test("a sentence with two figures, one of them backed by a property it may not u
   const { check } = await checkInNote(notAbout.core, SENTENCE, null);
   expect(check?.figures?.map((figure) => figure.state)).toEqual(["supported", "unsupported"]);
   expect(check?.state).toBe("unsupported");
+
+  // The model finds the slide count doesn't back its figure: the property it names then decides no
+  // part, so the owners' figure doesn't stand for the sentence either.
+  const slidesUnsupported = await setUp(deck, plan("slides", "unsupported"));
+  const { check: unbackedSlides } = await checkInNote(slidesUnsupported.core, SENTENCE, null);
+  expect(unbackedSlides?.figures?.map((figure) => figure.state)).toEqual([
+    "unsupported",
+    "unsupported",
+  ]);
 });
 
 /** The ruled line, with this computer's date as the day it was here, in its own time zone. */
