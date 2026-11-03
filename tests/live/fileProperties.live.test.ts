@@ -9,9 +9,15 @@
  */
 import { appendFile, utimes } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
-import { createAiSdkChatModel, type Document, type FilePropertyName } from "../../src/core";
+import {
+  type CheckFigure,
+  createAiSdkChatModel,
+  type Document,
+  type FilePropertyName,
+} from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { formatDate } from "../../src/shared/dates";
+import { readFigures } from "../../src/shared/figures";
 import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -121,7 +127,22 @@ interface Case {
   file?: string;
   /** The sentence is about a date of a file that records none: the computer's line is its reason. */
   computerOnly?: true;
+  /** Checked as a Note checks it, its numbers read as figures, each checked against its own source. */
+  figures?: true;
 }
+
+/** A sentence's numbers as a Note reads them, for a check figure by figure. */
+const figuresOf = (sentence: string, language: string): CheckFigure[] =>
+  readFigures(sentence, { language }).map((reading, at) => ({
+    id: `figure-${at}`,
+    locator: {
+      kind: "text",
+      from: { blockId: "sentence", offset: reading.start },
+      to: { blockId: "sentence", offset: reading.end },
+    },
+    reading,
+    calculated: null,
+  }));
 
 const CASES: Record<"en" | "zh-CN", Case[]> = {
   en: [
@@ -201,6 +222,36 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
       expected: "unsupported",
       computerOnly: true,
     },
+    // As a Note checks them: each number a figure.
+    {
+      sentence: "Board pack Q3.pptx is a deck of 4 slides.",
+      file: "Board pack Q3",
+      expected: "supported",
+      property: "slides",
+      figures: true,
+    },
+    {
+      sentence: "The audit memo PDF runs to 3 pages.",
+      file: "Audit memo",
+      expected: "supported",
+      property: "pages",
+      figures: true,
+    },
+    {
+      sentence: "The cash forecast workbook holds 3 sheets.",
+      file: "Cash forecast",
+      expected: "supported",
+      property: "sheets",
+      figures: true,
+    },
+    { sentence: "The Q3 board pack holds 6 slides.", expected: "contradicted", figures: true },
+    // Decoy: a figure the text states, which no property decides.
+    {
+      sentence: "Under the lease renewal, the rent rises to £2,400 a month.",
+      file: "Lease renewal",
+      expected: "supported",
+      figures: true,
+    },
   ],
   "zh-CN": [
     {
@@ -230,6 +281,14 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
       expected: "unsupported",
       computerOnly: true,
     },
+    {
+      sentence: "审计备忘录 PDF 共有 3 页。",
+      file: "Audit memo",
+      expected: "supported",
+      property: "pages",
+      figures: true,
+    },
+    { sentence: "Cash forecast.xlsx 里有 5 个工作表。", expected: "contradicted", figures: true },
   ],
 };
 
@@ -261,10 +320,15 @@ describe.each(["en", "zh-CN"] as const)(
         const falseSupported: string[] = [];
         let right = 0;
         for (const each of CASES[language]) {
-          const result = await core.checkClaim({ claim: each.sentence });
+          const result = await core.checkClaim({
+            claim: each.sentence,
+            ...(each.figures && { figures: figuresOf(each.sentence, language) }),
+          });
           const evidence = result.verdict === "not-checked" ? null : result.evidence;
           const location = evidence?.location;
           const decided = location?.kind === "properties" ? location.property : null;
+          // A figure the text states is decided by no property.
+          const byText = each.figures && each.expected === "supported" && each.property === undefined;
           const reason = result.verdict === "unsupported" ? result.unsupported?.reason : null;
           const file = documents.find((document) => document.id === evidence?.documentId)?.name;
           // Backed by another file's property or text, a Supported is a false one.
@@ -273,13 +337,17 @@ describe.each(["en", "zh-CN"] as const)(
             result.verdict === each.expected &&
             (each.property === undefined || decided === each.property) &&
             (result.verdict !== "supported" || !otherFile) &&
+            (!byText || decided === null) &&
             (!each.computerOnly || reason === computerLine);
           if (holds) right++;
-          if (result.verdict === "supported" && (each.expected !== "supported" || otherFile)) {
+          if (
+            result.verdict === "supported" &&
+            (each.expected !== "supported" || otherFile || (byText && decided !== null))
+          ) {
             falseSupported.push(each.sentence);
           }
           lines.push(
-            `- ${holds ? "ok" : "MISS"} [${each.expected}${each.property ? ` · ${each.property}` : ""}] ${each.sentence} → ${result.verdict}${result.verdict === "not-checked" ? ` (${result.reason})` : ""}${decided ? ` · ${decided} of ${file}` : evidence ? ` · text of ${file}` : ""}${reason ? ` · “${reason}”` : ""}`,
+            `- ${holds ? "ok" : "MISS"}${each.figures ? " (figures)" : ""} [${each.expected}${each.property ? ` · ${each.property}` : ""}] ${each.sentence} → ${result.verdict}${result.verdict === "not-checked" ? ` (${result.reason})` : ""}${decided ? ` · ${decided} of ${file}` : evidence ? ` · text of ${file}` : ""}${reason ? ` · “${reason}”` : ""}`,
           );
         }
         const { spent } = await core.getCostSummary();
