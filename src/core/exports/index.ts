@@ -689,12 +689,14 @@ export function createExports(deps: ExportsDependencies) {
       let commented: readonly FailedSentence[] = [];
       let checkComments = 0;
       let footnotes = 0;
+      /** Comments a new .docx has no words for, told before saving like a Word file's losses (#328). */
+      let lostComments: MindComment[] = [];
       if (format === "markdown") {
         const written = renderMarkdown("", blocks, labels);
         data = new TextEncoder().encode(written.text);
         files = written.pictures.map(({ name, data: bytes }) => ({ name, data: bytes }));
       } else if (format === "docx") {
-        ({ data, commented, checkComments, footnotes } = renderDocx(
+        ({ data, commented, checkComments, footnotes, lostComments } = renderDocx(
           await withPictures(blocks, language, deps),
           {
             title,
@@ -736,7 +738,20 @@ export function createExports(deps: ExportsDependencies) {
         ...preview,
         footnotes,
         data,
-        word: null,
+        // A new Word file says what it couldn't keep too, as an imported one does (#328).
+        word:
+          lostComments.length === 0
+            ? null
+            : {
+                notKept: lostComments.map((comment) => ({
+                  key: `comment:${comment.id}`,
+                  kind: "comment" as const,
+                  author: comment.author,
+                  text: comment.text.slice(0, 120),
+                })),
+                unknownParts: [],
+                keptFurniture: [],
+              },
         needsDetails: [...thin.documents],
         ...(files.length > 0 && { files }),
         ...reviewOf(prepared, commented, checkComments),

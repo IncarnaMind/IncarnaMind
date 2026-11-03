@@ -178,7 +178,14 @@ function containsTableOfContents(blocks: readonly Block[]): boolean {
 export function renderDocx(
   blocks: readonly Block[],
   options: DocxOptions,
-): { data: Uint8Array; commented: FailedSentence[]; checkComments: number; footnotes: number } {
+): {
+  data: Uint8Array;
+  commented: FailedSentence[];
+  checkComments: number;
+  footnotes: number;
+  /** Comments whose words were all deleted: a new .docx has no range to keep them on (#328). */
+  lostComments: MindComment[];
+} {
   const paper = PAPER[options.paper];
   const target = new NewDocxTarget();
   const review = options.review
@@ -283,6 +290,7 @@ export function renderDocx(
     commented: review?.commentedSentences() ?? [],
     checkComments: review?.checkComments() ?? 0,
     footnotes: writer.footnoteCount,
+    lostComments: review?.lostComments ?? [],
   };
 }
 

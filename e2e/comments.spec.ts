@@ -40,7 +40,7 @@ async function screenshot(window: Page, name: string): Promise<void> {
 
 const card = (window: Page) => window.locator('[data-testid^="comment-card-"]');
 
-/** Folds the assistant, which takes 320px of a 1440px window: folded, the Mind's column holds cards beside it. */
+/** Folds the assistant: its 320px is most of the room a card beside the text needs. */
 async function foldAssistant(window: Page) {
   const assistant = window.getByTestId("assistant");
   if (await assistant.getAttribute("data-folded")) return;
@@ -80,7 +80,7 @@ async function selectLine(window: Page) {
 
 test("a comment is added, answered, resolved, reopened and deleted, each with Undo, and stays through a restart", async () => {
   const { app, window } = await launchApp(dataDir);
-  await setWindowSize(app, window, 1440, 900);
+  await setWindowSize(app, window, 1800, 900);
   await mindWith(window, "The tides here are strong.");
   const editor = window.getByTestId("mind-editor");
 
@@ -114,11 +114,14 @@ test("a comment is added, answered, resolved, reopened and deleted, each with Un
   await expect(editor.locator(".comment-mark")).toHaveText("tides here");
   await expect(card(window)).toHaveCount(1);
 
-  // The card stands beside the text, clear of the 48px gutter the Citation checks use.
+  // The card stands beside the text, clear of the 48px gutter the Citation checks use, and
+  // wholly inside the page: never cut at its right edge.
   const frame = await window.locator(".mind-editor-frame").boundingBox();
+  const page = await window.locator(".mind-column").boundingBox();
   const place = await window.locator("[data-comment-card]").boundingBox();
-  if (!frame || !place) throw new Error("The card isn't visible.");
+  if (!frame || !page || !place) throw new Error("The card isn't visible.");
   expect(place.x).toBeGreaterThanOrEqual(frame.x + frame.width + 48);
+  expect(place.x + place.width).toBeLessThanOrEqual(page.x + page.width - 8);
 
   // Reply, then resolve: the card leaves the margin, and the list says it is resolved.
   await pointAndClick(window, window.locator('[data-testid^="comment-reply-"]').first());
@@ -166,16 +169,45 @@ test("a comment is added, answered, resolved, reopened and deleted, each with Un
   // A restart keeps it on its words.
   await app.close();
   const restarted = await launchApp(dataDir);
-  await setWindowSize(restarted.app, restarted.window, 1440, 900);
+  await setWindowSize(restarted.app, restarted.window, 1800, 900);
   await pointAndClick(restarted.window, restarted.window.getByTestId("mind-row").first());
   await expect(restarted.window.locator(".comment-mark")).toHaveText("tides here");
   await expect(card(restarted.window)).toContainText("Is this still true?");
   await restarted.app.close();
 });
 
+test("after a comment is deleted, Comment on its words makes a new one", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1800, 900);
+  await mindWith(window, "The margin moved.");
+  const editor = window.getByTestId("mind-editor");
+  await pointAndClick(window, editor.locator("p").first());
+  await selectLine(window);
+  await pointAndClick(window, window.getByTestId("selection-comment"));
+  await expect(window.locator(".comment-field").first()).toBeFocused();
+  await window.keyboard.type("First remark.");
+  await window.keyboard.press("ControlOrMeta+Enter");
+  await expect(card(window)).toContainText("First remark.");
+
+  // Its record goes, its mark stays as the anchor Undo would restore it to.
+  await pointAndClick(window, window.locator('[data-testid^="comment-menu-"]').first());
+  await pointAndClick(window, window.getByRole("menuitem", { name: "Delete" }));
+  await expect(card(window)).toHaveCount(0);
+
+  // Commenting the same words again makes a new comment, rather than finding the deleted one.
+  await pointAndClick(window, editor.locator("p").first());
+  await selectLine(window);
+  await pointAndClick(window, window.getByTestId("selection-comment"));
+  await expect(window.locator(".comment-field").first()).toBeFocused();
+  await window.keyboard.type("Second remark.");
+  await window.keyboard.press("ControlOrMeta+Enter");
+  await expect(card(window)).toContainText("Second remark.");
+  await app.close();
+});
+
 test("the keys add a comment, a narrow Mind folds the cards into a count, and deleted words say Text removed with Undo", async () => {
   const { app, window } = await launchApp(dataDir);
-  await setWindowSize(app, window, 1440, 900);
+  await setWindowSize(app, window, 1800, 900);
   await mindWith(window, "Margins recovered this quarter.");
   const editor = window.getByTestId("mind-editor");
   await pointAndClick(window, editor.locator("p").first());
@@ -210,7 +242,11 @@ test("the keys add a comment, a narrow Mind folds the cards into a count, and de
   await window.keyboard.press("Escape");
   await expect(card(window)).toHaveCount(1);
 
-  // A narrow Mind folds the cards: the count opens the list.
+  // A Mind without the room folds the cards into the count: at 1440 as well as at 900.
+  await setWindowSize(app, window, 1440, 900);
+  await expect(window.locator("[data-comment-card]")).toHaveCount(0);
+  await expect(window.getByTestId("comments-count")).toBeVisible();
+  await screenshot(window, "comments-en-1440");
   await setWindowSize(app, window, 900, 900);
   await screenshot(window, "comments-en-narrow");
   await expect(window.locator("[data-comment-card]")).toHaveCount(0);
@@ -219,7 +255,7 @@ test("the keys add a comment, a narrow Mind folds the cards into a count, and de
   await expect(window.getByTestId("comments-list")).toContainText("Check the margin.");
 
   // All the words deleted: the comment stays in the list as Text removed, and Undo brings both back.
-  await setWindowSize(app, window, 1440, 900);
+  await setWindowSize(app, window, 1800, 900);
   await pointAndClick(window, editor.locator("p").nth(1));
   await selectLine(window);
   await window.keyboard.press("Backspace");
@@ -237,7 +273,7 @@ test("the keys add a comment, a narrow Mind folds the cards into a count, and de
 
 test("the interface is Chinese: 批注, 回复, 解决 and 原文已删除", async () => {
   const { app, window } = await launchApp(dataDir);
-  await setWindowSize(app, window, 1440, 900);
+  await setWindowSize(app, window, 1800, 900);
   await mindWith(window, "本季度的利润率回升了。");
   await setLanguage(window, "zh-CN");
   const editor = window.getByTestId("mind-editor");
@@ -255,6 +291,9 @@ test("the interface is Chinese: 批注, 回复, 解决 and 原文已删除", asy
   await pointAndClick(window, window.getByTestId("comments-count"));
   await expect(window.getByTestId("comments-list")).toContainText("批注");
   await window.keyboard.press("Escape");
+  await setWindowSize(app, window, 1440, 900);
+  await expect(window.locator("[data-comment-card]")).toHaveCount(0);
+  await screenshot(window, "comments-zh-1440");
   await setWindowSize(app, window, 900, 900);
   await screenshot(window, "comments-zh-narrow");
   await expect(window.locator("[data-comment-card]")).toHaveCount(0);
@@ -263,7 +302,7 @@ test("the interface is Chinese: 批注, 回复, 解决 and 原文已删除", asy
 
 test("Address with the assistant answers the comment in the text, with one Undo, and replies to it", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  await setWindowSize(app, window, 1440, 900);
+  await setWindowSize(app, window, 1800, 900);
   await dismissChatSetup(window);
   await useLocalChatModel(window);
   await foldAssistant(window);

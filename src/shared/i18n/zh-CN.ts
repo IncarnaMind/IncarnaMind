@@ -6783,7 +6783,7 @@ export const zhCN = {
   "comments.reopen": "重新打开",
   "comments.resolved": "已解决",
   "comments.more": "更多",
-  "comments.fold": "批注 ({count})",
+  "comments.fold": "批注（{count}）",
   "comments.list": "批注",
   "comments.textRemoved": "原文已删除",
   "comments.address": "让助手处理",

@@ -14,6 +14,7 @@ import {
   type MindComment,
 } from "../../core/api";
 import { mindCommentsOf, readMindComment } from "../../shared/mindComments";
+import { commentRuns } from "./editor/commentSchema";
 import { translateNow } from "./i18n";
 import type { Words } from "./lineNames";
 import { useAppStore } from "./store";
@@ -131,18 +132,12 @@ export function saveComment(doc: Y.Doc, id: string, text: string): void {
 export function commentOnSelection(editor: Editor, mindId: string, doc: Y.Doc): void {
   const { from, to, empty } = editor.state.selection;
   if (editor.isDestroyed || empty) return;
-  let existing: string | null = null;
-  editor.state.doc.nodesBetween(from, to, (node) => {
-    if (existing) return false;
-    if (!node.isText) return;
-    for (const mark of node.marks) {
-      if (mark.type.name === COMMENT_MARK && typeof mark.attrs.id === "string") {
-        existing = mark.attrs.id;
-      }
-    }
-  });
+  // A comment still in the Mind opens its thread. A mark whose record is gone (a deleted
+  // comment, or Undo hasn't put it back) is not a comment: the new mark replaces it.
+  const touched = commentRuns(editor.state.doc).filter((run) => run.from < to && run.to > from);
+  const existing = touched.find((run) => commentById(doc, run.id) !== null);
   if (existing) {
-    useCommentsUi.getState().ask(mindId, existing);
+    useCommentsUi.getState().ask(mindId, existing.id);
     return;
   }
   const id = crypto.randomUUID();
@@ -215,14 +210,10 @@ export function deleteComment(doc: Y.Doc, id: string): void {
 
 /** Where a comment is in the Mind's page: the text it's on, or none when all of it was deleted. */
 export function placeOf(editor: Editor, id: string): CommentPlace | null {
-  let found: CommentPlace | null = null;
-  editor.state.doc.descendants((node, pos) => {
-    if (!node.isText) return;
-    if (!node.marks.some((mark) => mark.type.name === COMMENT_MARK && mark.attrs.id === id)) return;
-    if (found) found.to = pos + node.nodeSize;
-    else found = { from: pos, to: pos + node.nodeSize };
-  });
-  return found;
+  const runs = commentRuns(editor.state.doc).filter((run) => run.id === id);
+  const first = runs[0];
+  const last = runs.at(-1);
+  return first && last ? { from: first.from, to: last.to } : null;
 }
 
 export function quoteAt(editor: Editor, place: CommentPlace): string {

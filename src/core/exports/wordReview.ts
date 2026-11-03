@@ -393,6 +393,8 @@ export class Review {
   private readonly intoWordFile: boolean;
   /** What `commentsExtended.xml` says: the file's comments and the new ones. */
   readonly extended: ExtendedComment[] = [];
+  /** Comments this writer can't keep: their words were never written, all of them deleted (#328). */
+  readonly lostComments: MindComment[] = [];
   private nextParaId = 0x10000000;
   private readonly addedComments = new Set<string>();
 
@@ -432,6 +434,9 @@ export class Review {
   /** Takes a new comment's thread out of the comments part: its words, or all of them, weren't written. */
   private dropComment(id: string): void {
     const root = this.mindComments.find((each) => each.id === id);
+    if (root && !this.lostComments.some((each) => each.id === root.id)) {
+      this.lostComments.push(root);
+    }
     const ids = new Set([id, ...(root?.replies.map((reply) => reply.id) ?? [])]);
     for (const each of ids) {
       const wordId = this.commentWordIds.get(each);

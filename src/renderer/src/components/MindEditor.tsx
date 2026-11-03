@@ -917,7 +917,7 @@ function MindEditorView({
               {reviewing && slots.reviewShown !== "beside" && (
                 <ReviewFold editor={editor} mindId={mindId} />
               )}
-              <CommentsButton editor={editor} mindId={mindId} doc={doc} readOnly={readOnly} />
+              <CommentsButton editor={editor} mindId={mindId} doc={doc} />
               <PageMenu
                 editor={editor}
                 doc={doc}

@@ -7,12 +7,7 @@
 import type { Editor } from "@tiptap/core";
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type * as Y from "yjs";
-import {
-  COMMENT_MARK,
-  type CommentMessage,
-  MIND_COMMENTS_FIELD,
-  type MindComment,
-} from "../../../core/api";
+import { type CommentMessage, MIND_COMMENTS_FIELD, type MindComment } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
 import {
   ASSISTANT_AUTHOR,
@@ -33,21 +28,35 @@ import {
 import { TypingTextarea } from "../components/TypingTextarea";
 import { requestEdit } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
-import { COMMENTS_REDRAWN } from "./commentSchema";
+import { COMMENTS_REDRAWN, commentRuns } from "./commentSchema";
 import { Popover } from "./Popover";
 
-/** The Mind column's width that holds the measure, the checks' gutter and a card beside it. */
-const COMMENT_ROOM = 1000;
+/**
+ * The room a card beside the text takes, as `styles.css` › `.comment-card-place`
+ * lays it out: the 56px past the Citation checks' gutter, its 240px, and 8px
+ * left to the page's edge. Without that room the cards fold into the count, so
+ * a card is never cut by the page: at 1440px with the assistant folded there
+ * are about 220px, and the cards fold.
+ */
+const COMMENT_GAP = 56;
+const COMMENT_WIDTH = 240;
+const COMMENT_EDGE = 8;
 
 function useRoomBeside(editor: Editor): boolean {
   const [room, setRoom] = useState(true);
   useEffect(() => {
     const column = editor.view.dom.closest(".mind-column");
-    if (!column) return;
-    const measure = () => setRoom(column.getBoundingClientRect().width >= COMMENT_ROOM);
+    const frame = editor.view.dom.closest(".mind-editor-frame");
+    if (!column || !frame) return;
+    const measure = () =>
+      setRoom(
+        column.getBoundingClientRect().right - frame.getBoundingClientRect().right >=
+          COMMENT_GAP + COMMENT_WIDTH + COMMENT_EDGE,
+      );
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(column);
+    observer.observe(frame);
     return () => observer.disconnect();
   }, [editor]);
   return room;
@@ -79,17 +88,11 @@ export function useLiveComments(editor: Editor, doc: Y.Doc): MindComment[] {
 /** The mark's ids on the text now, and where each starts and ends. */
 function placesOf(editor: Editor): Map<string, CommentPlace> {
   const places = new Map<string, CommentPlace>();
-  editor.state.doc.descendants((node, pos) => {
-    if (!node.isText) return;
-    for (const mark of node.marks) {
-      if (mark.type.name !== COMMENT_MARK) continue;
-      const id = typeof mark.attrs.id === "string" ? mark.attrs.id : null;
-      if (!id) continue;
-      const place = places.get(id);
-      if (place) place.to = pos + node.nodeSize;
-      else places.set(id, { from: pos, to: pos + node.nodeSize });
-    }
-  });
+  for (const run of commentRuns(editor.state.doc)) {
+    const place = places.get(run.id);
+    if (place) place.to = run.to;
+    else places.set(run.id, { from: run.from, to: run.to });
+  }
   return places;
 }
 
@@ -432,143 +435,141 @@ export function CommentCard({
         );
       })}
 
-      {!draft && !readOnly && (
-        <>
-          {replying ? (
-            <div className="comment-compose">
-              <TypingTextarea
-                className="comment-field"
-                value={reply}
-                autoFocus
-                rows={2}
-                placeholder={t("comments.replyPlaceholder")}
-                onChange={(event) => setReply(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    setReply("");
-                    setReplying(false);
-                  }
-                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                    event.preventDefault();
-                    if (reply.trim() === "") return;
-                    replyToComment(doc, comment.id, reply);
-                    setReply("");
-                    setReplying(false);
-                  }
-                }}
-              />
-              <div className="comment-compose-row">
-                <button
-                  type="button"
-                  className="comment-send"
-                  data-testid={`comment-reply-send-${comment.id}`}
-                  disabled={reply.trim() === ""}
-                  onClick={() => {
-                    if (reply.trim() === "") return;
-                    replyToComment(doc, comment.id, reply);
-                    setReply("");
-                    setReplying(false);
-                  }}
-                >
-                  {t("comments.reply")}
-                </button>
-                <button
-                  type="button"
-                  className="comment-quiet"
-                  onClick={() => {
-                    setReply("");
-                    setReplying(false);
-                  }}
-                >
-                  {t("comments.cancel")}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="comment-actions">
+      {!draft &&
+        !readOnly &&
+        (replying ? (
+          <div className="comment-compose">
+            <TypingTextarea
+              className="comment-field"
+              value={reply}
+              autoFocus
+              rows={2}
+              placeholder={t("comments.replyPlaceholder")}
+              onChange={(event) => setReply(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setReply("");
+                  setReplying(false);
+                }
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  if (reply.trim() === "") return;
+                  replyToComment(doc, comment.id, reply);
+                  setReply("");
+                  setReplying(false);
+                }
+              }}
+            />
+            <div className="comment-compose-row">
               <button
                 type="button"
-                className="comment-quiet"
-                data-testid={`comment-reply-${comment.id}`}
-                onClick={() => setReplying(true)}
+                className="comment-send"
+                data-testid={`comment-reply-send-${comment.id}`}
+                disabled={reply.trim() === ""}
+                onClick={() => {
+                  if (reply.trim() === "") return;
+                  replyToComment(doc, comment.id, reply);
+                  setReply("");
+                  setReplying(false);
+                }}
               >
                 {t("comments.reply")}
               </button>
               <button
                 type="button"
                 className="comment-quiet"
-                data-testid={`comment-resolve-${comment.id}`}
                 onClick={() => {
-                  resolveComment(doc, comment.id, comment.resolvedAt === null);
-                  onSettled?.();
+                  setReply("");
+                  setReplying(false);
                 }}
               >
-                {comment.resolvedAt ? t("comments.reopen") : t("comments.resolve")}
+                {t("comments.cancel")}
               </button>
-              <button
-                ref={menuButton}
-                type="button"
-                className="comment-quiet"
-                aria-label={t("comments.more")}
-                aria-haspopup="menu"
-                data-testid={`comment-menu-${comment.id}`}
-                onClick={() => setMenuOpen(true)}
+            </div>
+          </div>
+        ) : (
+          <div className="comment-actions">
+            <button
+              type="button"
+              className="comment-quiet"
+              data-testid={`comment-reply-${comment.id}`}
+              onClick={() => setReplying(true)}
+            >
+              {t("comments.reply")}
+            </button>
+            <button
+              type="button"
+              className="comment-quiet"
+              data-testid={`comment-resolve-${comment.id}`}
+              onClick={() => {
+                resolveComment(doc, comment.id, comment.resolvedAt === null);
+                onSettled?.();
+              }}
+            >
+              {comment.resolvedAt ? t("comments.reopen") : t("comments.resolve")}
+            </button>
+            <button
+              ref={menuButton}
+              type="button"
+              className="comment-quiet"
+              aria-label={t("comments.more")}
+              aria-haspopup="menu"
+              data-testid={`comment-menu-${comment.id}`}
+              onClick={() => setMenuOpen(true)}
+            >
+              ⋯
+            </button>
+            {menuOpen && menuButton.current && (
+              <Popover
+                anchor={menuButton.current}
+                placement="bottom-end"
+                onDismiss={() => setMenuOpen(false)}
               >
-                ⋯
-              </button>
-              {menuOpen && menuButton.current && (
-                <Popover
-                  anchor={menuButton.current}
-                  placement="bottom-end"
-                  onDismiss={() => setMenuOpen(false)}
-                >
-                  <div role="menu" className="comment-menu">
-                    {comment.author === null && (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="comment-menu-item"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          setDraftText(comment.text);
-                          setEditing({ kind: "root" });
-                        }}
-                      >
-                        {t("comments.edit")}
-                      </button>
-                    )}
+                <div role="menu" className="comment-menu">
+                  {comment.author === null && (
                     <button
                       type="button"
                       role="menuitem"
                       className="comment-menu-item"
-                      disabled={!place || working}
-                      data-testid={`comment-address-${comment.id}`}
-                      onClick={() => void address()}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setDraftText(comment.text);
+                        setEditing({ kind: "root" });
+                      }}
                     >
-                      {working ? t("comments.assistant.working") : t("comments.address")}
+                      {t("comments.edit")}
                     </button>
-                    {comment.author === null && (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="comment-menu-item comment-menu-danger"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          deleteComment(doc, comment.id);
-                          onSettled?.();
-                        }}
-                      >
-                        {t("comments.delete")}
-                      </button>
-                    )}
-                  </div>
-                </Popover>
-              )}
-            </div>
-          )}
-        </>
-      )}
+                  )}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="comment-menu-item"
+                    disabled={!place || working}
+                    data-testid={`comment-address-${comment.id}`}
+                    onClick={() => void address()}
+                  >
+                    {working ? t("comments.assistant.working") : t("comments.address")}
+                  </button>
+                  {comment.author === null && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="comment-menu-item comment-menu-danger"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        deleteComment(doc, comment.id);
+                        onSettled?.();
+                      }}
+                    >
+                      {t("comments.delete")}
+                    </button>
+                  )}
+                </div>
+              </Popover>
+            )}
+          </div>
+        ))}
     </section>
   );
 }
@@ -578,12 +579,10 @@ export function CommentsButton({
   editor,
   mindId,
   doc,
-  readOnly = false,
 }: {
   editor: Editor;
   mindId: string;
   doc: Y.Doc;
-  readOnly?: boolean;
 }) {
   const t = useT();
   const comments = useLiveComments(editor, doc);
@@ -598,7 +597,17 @@ export function CommentsButton({
       const target =
         event.target instanceof Element ? event.target.closest("[data-comment-id]") : null;
       const id = target instanceof HTMLElement ? target.dataset.commentId : undefined;
-      if (id) ask(mindId, id);
+      if (!id) return;
+      // Beside the text its card is already there: mark it rather than open a second one over it.
+      const beside = editor.view.dom
+        .closest(".mind-tab-page")
+        ?.querySelector<HTMLElement>(`[data-comment-card="${id}"]`);
+      if (beside) {
+        beside.dataset.highlight = "true";
+        window.setTimeout(() => delete beside.dataset.highlight, 1_200);
+        return;
+      }
+      ask(mindId, id);
     };
     dom.addEventListener("click", click);
     return () => dom.removeEventListener("click", click);
@@ -623,7 +632,6 @@ export function CommentsButton({
           mindId={mindId}
           comments={comments}
           anchor={button.current}
-          readOnly={readOnly}
           onClose={() => showList(null)}
         />
       )}
@@ -637,14 +645,12 @@ export function CommentsList({
   mindId,
   comments,
   anchor,
-  readOnly = false,
   onClose,
 }: {
   editor: Editor;
   mindId: string;
   comments: readonly MindComment[];
   anchor: HTMLElement;
-  readOnly?: boolean;
   onClose(): void;
 }) {
   const t = useT();

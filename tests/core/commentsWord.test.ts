@@ -264,6 +264,10 @@ describe("comments in Word, in and out (#328)", () => {
     await client.settled();
 
     const result = await core.exportMind(mind.id, { format: "docx" });
+    // The comment with no words left is said before saving, as an imported file's is.
+    expect(result.word?.notKept).toMatchObject([
+      { kind: "comment", author: null, text: "This comment has no words." },
+    ]);
     const files = unzip(result.data);
     const document = files.get("word/document.xml")?.toString("utf8") ?? "";
     const comments = files.get("word/comments.xml")?.toString("utf8") ?? "";
