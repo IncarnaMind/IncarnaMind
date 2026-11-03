@@ -7,20 +7,24 @@
  * INCARNAMIND_LIVE_REPORT keeps what each check said. These cases are held out: none is an example
  * in the check's instructions or its search Tool.
  */
+import { randomUUID } from "node:crypto";
 import { appendFile, utimes } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import {
-  type CheckFigure,
+  type CitationAttributes,
+  type Core,
   createAiSdkChatModel,
   type Document,
   type FilePropertyName,
 } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { formatDate } from "../../src/shared/dates";
-import { readFigures } from "../../src/shared/figures";
 import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { readMind, writeMind } from "../helpers/minds";
 import { corePropertiesXml, docxOf, xlsxOf } from "../helpers/office";
 import { buildPdf } from "../helpers/pdf";
 import { para, pptxOf, sp, txBody } from "../helpers/pptx";
@@ -129,22 +133,46 @@ interface Case {
   file?: string;
   /** The sentence is about a date of a file that records none: the computer's line is its reason. */
   computerOnly?: true;
-  /** Checked as a Note checks it, its numbers read as figures, each checked against its own source. */
+  /** Checked in a Note, as Check against Documents does, which reads its numbers as figures. */
   figures?: true;
 }
 
-/** A sentence's numbers as a Note reads them, for a check figure by figure. */
-const figuresOf = (sentence: string, language: string): CheckFigure[] =>
-  readFigures(sentence, { language }).map((reading, at) => ({
-    id: `figure-${at}`,
-    locator: {
-      kind: "text",
-      from: { blockId: "sentence", offset: reading.start },
-      to: { blockId: "sentence", offset: reading.end },
-    },
-    reading,
-    calculated: null,
-  }));
+interface Checked {
+  verdict: Verdict | "not-checked";
+  evidence: CitationAttributes | null;
+  reason: string | null;
+  notChecked: string | null;
+}
+
+/** Writes `sentence` in a new Note and checks it there, as Check against Documents does. */
+async function checkedInNote(core: Core, sentence: string): Promise<Checked> {
+  const note = await core.createMind({ title: "Check", folderId: null });
+  const mind = await connectToMind(core, note.id);
+  writeMind(mind, [
+    { type: "paragraph", attrs: { id: "one" }, content: [{ type: "text", text: sentence }] },
+  ]);
+  await mind.settled();
+  await core.checkSentences({
+    requestId: `check-${randomUUID()}`,
+    mindId: note.id,
+    action: "check-against-documents",
+    from: { blockId: "one", offset: 0 },
+    to: { blockId: "one", offset: sentence.length },
+    allDocuments: true,
+  });
+  await mind.settled();
+  const check = claimSpans(readMind(mind))[0]?.check;
+  const state = check?.state;
+  return {
+    verdict:
+      state === "supported" || state === "unsupported" || state === "contradicted"
+        ? state
+        : "not-checked",
+    evidence: check?.evidence ?? null,
+    reason: check?.unsupported?.reason ?? null,
+    notChecked: state === "not-checked" ? (check?.reason ?? null) : (state ?? "no mark"),
+  };
+}
 
 const CASES: Record<"en" | "zh-CN", Case[]> = {
   en: [
@@ -343,17 +371,22 @@ describe.each(["en", "zh-CN"] as const)(
         const falseSupported: string[] = [];
         let right = 0;
         for (const each of CASES[language]) {
-          const result = await core.checkClaim({
-            claim: each.sentence,
-            ...(each.figures && { figures: figuresOf(each.sentence, language) }),
-          });
-          const evidence = result.verdict === "not-checked" ? null : result.evidence;
+          const result: Checked = each.figures
+            ? await checkedInNote(core, each.sentence)
+            : await core.checkClaim({ claim: each.sentence }).then((checked) => ({
+                verdict: checked.verdict,
+                evidence: checked.verdict === "not-checked" ? null : checked.evidence,
+                reason:
+                  checked.verdict === "unsupported" ? (checked.unsupported?.reason ?? null) : null,
+                notChecked: checked.verdict === "not-checked" ? checked.reason : null,
+              }));
+          const { evidence } = result;
           const location = evidence?.location;
           const decided = location?.kind === "properties" ? location.property : null;
           // A figure the text states is decided by no property.
           const byText =
             each.figures && each.expected === "supported" && each.property === undefined;
-          const reason = result.verdict === "unsupported" ? result.unsupported?.reason : null;
+          const reason = result.verdict === "unsupported" ? result.reason : null;
           const file = documents.find((document) => document.id === evidence?.documentId)?.name;
           // Backed by another file's property or text, a Supported is a false one.
           const otherFile = each.file !== undefined && file !== each.file;
@@ -371,7 +404,7 @@ describe.each(["en", "zh-CN"] as const)(
             falseSupported.push(each.sentence);
           }
           lines.push(
-            `- ${holds ? "ok" : "MISS"}${each.figures ? " (figures)" : ""} [${each.expected}${each.property ? ` · ${each.property}` : ""}] ${each.sentence} → ${result.verdict}${result.verdict === "not-checked" ? ` (${result.reason})` : ""}${decided ? ` · ${decided} of ${file}` : evidence ? ` · text of ${file}` : ""}${reason ? ` · “${reason}”` : ""}`,
+            `- ${holds ? "ok" : "MISS"}${each.figures ? " (in a Note)" : ""} [${each.expected}${each.property ? ` · ${each.property}` : ""}] ${each.sentence} → ${result.verdict}${result.verdict === "not-checked" ? ` (${result.notChecked})` : ""}${decided ? ` · ${decided} of ${file}` : evidence ? ` · text of ${file}` : ""}${reason ? ` · “${reason}”` : ""}`,
           );
         }
         const { spent } = await core.getCostSummary();
