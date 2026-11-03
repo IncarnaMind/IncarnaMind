@@ -16,7 +16,7 @@ import { FENCE, paragraphsOf } from "../../shared/answerSentences";
 import { type PlacedFigure, withFigureText } from "../../shared/figureMarkers";
 import { type Figure, figureContextOf, readFigures, readingsOf } from "../../shared/figures";
 import { FORMULA_VERSION, sameNumber } from "../../shared/formula";
-import { tableCellRanges } from "../../shared/markdownTables";
+import { tableCellRanges, tableStart } from "../../shared/markdownTables";
 import { type PrintedValue, printedValues } from "../../shared/printedFigures";
 import type { AnswerAnalysis, CalculatedFigure } from "../api";
 import type { Language } from "../language";
@@ -49,25 +49,43 @@ const asCalculated = (reading: Pick<Figure, "value" | "unit">) => ({
   formula: "",
 });
 
-/** The figures of a line the Answer writes as its own, by offset in `text`. */
+/**
+ * The figures the Answer writes as its own, by offset in `text`. A table's headings and each
+ * row's label name what its figures are, as the checks read a table (`givesValue`), so they are
+ * none.
+ */
 function proseFigures(text: string, language: Language): Figure[] {
   const found: Figure[] = [];
+  const lines = text.split("\n");
   let fenced = false;
   let math = false;
+  let table: "head" | "delimiter" | "body" | null = null;
   let offset = 0;
-  for (const line of text.split("\n")) {
+  lines.forEach((line, at) => {
     const start = offset;
     offset += line.length + 1;
     const fence = FENCE.test(line);
     const mathFence = !fenced && MATH_FENCE.test(line);
     if (fence) fenced = !fenced;
     if (mathFence) math = !math;
-    if (fence || mathFence || fenced || math || SKIPPED_LINE.test(line)) continue;
-    const prose = line.replace(NOT_PROSE, (masked) => " ".repeat(masked.length));
+    if (fence || mathFence || fenced || math || SKIPPED_LINE.test(line)) return;
+    table = tableStart(lines, at)
+      ? "head"
+      : table === "head"
+        ? "delimiter"
+        : table && line.includes("|")
+          ? "body"
+          : null;
+    if (table === "head" || table === "delimiter") return;
+    let prose = line.replace(NOT_PROSE, (masked) => " ".repeat(masked.length));
+    const [label, ...cells] = table === "body" ? tableCellRanges(line) : [];
+    if (label && cells.some((cell) => cell.end > cell.start)) {
+      prose = `${prose.slice(0, label.start)}${" ".repeat(label.end - label.start)}${prose.slice(label.end)}`;
+    }
     for (const figure of readFigures(prose, { language })) {
       found.push({ ...figure, start: start + figure.start, end: start + figure.end });
     }
-  }
+  });
   return found;
 }
 

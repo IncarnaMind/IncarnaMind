@@ -169,23 +169,25 @@ describe.skipIf(process.platform === "win32")("numbers code printed, in the Answ
   );
 
   test.each<[Language, string]>([
-    ["en", "| Region | Revenue |\n| --- | --- |\n| North | 1,234.5 |\n| South | 567.25 |"],
-    ["zh-CN", "| 地区 | 收入 |\n| --- | --- |\n| 北区 | 1,234.5 |\n| 南区 | 567.25 |"],
+    ["en", "| Month | Revenue |\n| --- | --- |\n| 1 | 1,234.5 |\n| 2 | 567.25 |"],
+    ["zh-CN", "| 月份 | 收入 |\n| --- | --- |\n| 1 | 1,234.5 |\n| 2 | 567.25 |"],
   ])(
-    "%s: a printed table's cells typed into the reply's table are figures",
+    "%s: a printed table's cells typed into the reply's table are figures, its row labels not",
     async (language, reply) => {
       const { answer } = await answered(
         language,
-        [bash("printf 'Region Revenue\\nNorth 1234.5\\nSouth 567.25\\n'")],
+        [bash("printf 'Month Revenue\\n1 1234.5\\n2 567.25\\n'")],
         () => reply,
       );
       expect(shownFigures(answer)).toEqual(
         expect.arrayContaining([
-          ["1,234.5", 1234.5, "printed@21"],
-          ["567.25", 567.25, "printed@34"],
+          ["1,234.5", 1234.5, "printed@16"],
+          ["567.25", 567.25, "printed@25"],
         ]),
       );
+      // The months name the rows, as the checks read a table: the code printed them too.
       expect(answer.figures).toHaveLength(2);
+      expect(answer.text).toContain("| 1 | [=");
       expect(readText(answerBlocks(answer))).toContain("1,234.5");
     },
   );
