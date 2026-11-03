@@ -5,18 +5,11 @@ import type { MindCheckRun } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
 import { useChecks } from "../checks";
 import { MetaLine } from "../components/MetaLine";
-import { LineAction, ProblemLine } from "../components/ProblemLine";
+import { ProblemLine } from "../components/ProblemLine";
 import { buttonStyle } from "../components/ui";
 import { type EstimateLine, runStopParts } from "../cost";
 import { useLanguage, useT } from "../i18n";
-import {
-  confirmCheck,
-  dismissMindCheck,
-  startCheckAsking,
-  startMindCheck,
-  useMindCheck,
-} from "../mindCheck";
-import { useAppStore } from "../store";
+import { confirmCheck, dismissMindCheck, startMindCheck, useMindCheck } from "../mindCheck";
 import { shownClaims } from "./claimChecks";
 import { OpinionsLine } from "./OpinionsLine";
 import { useOpinionChecks } from "./opinionChecks";
@@ -163,7 +156,7 @@ export function RunningText({
 
 /**
  * When the whole Mind was last checked: "Checked 48 sentences, 2 Oct, 15:20", what stopped it,
- * and how many of its sentences couldn't be sorted and are still to check (#1682), with Check.
+ * and how many of its sentences it couldn't tell are claims and are still to check (#1682).
  */
 export function CheckedWhen({
   run,
@@ -197,15 +190,6 @@ export function CheckedWhen({
               t(unexamined === 1 ? "health.unexamined.one" : "health.unexamined", {
                 count: format(unexamined),
               }),
-              <LineAction
-                key="unexamined-check"
-                action={{
-                  label: t("mindCheck.check"),
-                  testId: "health-unexamined-check",
-                  onClick: () =>
-                    void startCheckAsking(mindId).catch(useAppStore.getState().reportError),
-                }}
-              />,
             ]
           : []),
         opinions.length > 0 && (

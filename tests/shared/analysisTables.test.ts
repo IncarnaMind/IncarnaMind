@@ -3,8 +3,13 @@ import { withAnalysisResults } from "../../src/core/analysis/markers";
 import { markdownToBlocks } from "../../src/core/answers/markdown";
 import type { AnswerAnalysis, Citation } from "../../src/core/api";
 import { type AnalysisTable, noAnalysisOutput } from "../../src/shared/analysis";
-import { countCitations, withAnalysisTableCitations } from "../../src/shared/analysisTables";
-import type { NodeJSON } from "../../src/shared/blockJson";
+import {
+  analysisTableFor,
+  analysisTablesOf,
+  countCitations,
+  withAnalysisTableCitations,
+} from "../../src/shared/analysisTables";
+import { citationNode, type NodeJSON } from "../../src/shared/blockJson";
 
 const citation: Citation = {
   passageId: "p1",
@@ -148,5 +153,179 @@ describe("an Analysis's table with its Citations (#2378)", () => {
     const tableBlock = cited.find((block) => block.type === "table");
     if (!tableBlock) throw new Error("No table.");
     expect(headingCitations(tableBlock)).toBe(1);
+  });
+});
+
+describe("a table two Analyses could have given (#2378)", () => {
+  const rows = [
+    ["North", 270.5],
+    ["South", 80],
+  ];
+  const result = {
+    kind: "table" as const,
+    name: "by_region",
+    label: "Revenue by region",
+    unit: null,
+    table: table(rows),
+  };
+  const secondInput: AnswerAnalysis["inputs"][number] = {
+    kind: "range",
+    name: "other sales",
+    citation: { ...citation, documentId: "d2", documentName: "Sales 2027" },
+    range: "A1:B25",
+    rows: 24,
+    columns: 2,
+    rowCount: 24,
+    cut: false,
+    sha256: "d".repeat(64),
+  };
+
+  test("is cited to neither when the Analyses read different Documents", () => {
+    const first = analysis([result]);
+    const second: AnswerAnalysis = {
+      ...analysis([result]),
+      number: 2,
+      inputs: [secondInput],
+    };
+    expect(withAnalysisTableCitations([tableBlock(rows)], [first, second])[0]).toEqual(
+      tableBlock(rows),
+    );
+  });
+
+  test("is cited when one Analysis gives it twice with the same values and inputs", () => {
+    const [cited] = withAnalysisTableCitations(
+      [tableBlock(rows)],
+      [
+        analysis(
+          [result],
+          [{ kind: "bar", title: "Revenue", x: "Region", y: ["Revenue"], table: table(rows) }],
+        ),
+      ],
+    );
+    expect(cited && headingCitations(cited)).toBe(1);
+  });
+
+  test("matches no table whose own headings cite another version of the same place", () => {
+    const rows = [
+      ["North", 270.5],
+      ["South", 80],
+    ];
+    const shown = tableBlock(rows);
+    const cell = shown.content?.[0]?.content?.[0];
+    if (!cell) throw new Error("No heading cell.");
+    cell.content = [...(cell.content ?? []), citationNode({ ...citation, contentHash: "h2" })];
+    expect(
+      analysisTableFor(
+        shown,
+        analysisTablesOf([
+          analysis([
+            {
+              kind: "table",
+              name: "by_region",
+              label: "Revenue by region",
+              unit: null,
+              table: table(rows),
+            },
+          ]),
+        ]),
+      ),
+    ).toBeNull();
+  });
+
+  test("matches no table whose own headings cite another place of the same Document", () => {
+    const rows = [
+      ["North", 270.5],
+      ["South", 80],
+    ];
+    const shown = tableBlock(rows);
+    const cell = shown.content?.[0]?.content?.[0];
+    if (!cell) throw new Error("No heading cell.");
+    cell.content = [
+      ...(cell.content ?? []),
+      citationNode({
+        ...citation,
+        location: { kind: "rows", sheet: "Orders November", from: 1, to: 25 },
+      }),
+    ];
+    expect(
+      analysisTableFor(
+        shown,
+        analysisTablesOf([
+          analysis([
+            {
+              kind: "table",
+              name: "by_region",
+              label: "Revenue by region",
+              unit: null,
+              table: table(rows),
+            },
+          ]),
+        ]),
+      ),
+    ).toBeNull();
+  });
+
+  test("matches no table whose own headings cite another Document", () => {
+    const rows = [
+      ["North", 270.5],
+      ["South", 80],
+    ];
+    const shown = tableBlock(rows);
+    const cell = shown.content?.[0]?.content?.[0];
+    if (!cell) throw new Error("No heading cell.");
+    cell.content = [
+      ...(cell.content ?? []),
+      citationNode({ ...citation, documentId: "d9", documentName: "Orders October" }),
+    ];
+    expect(
+      analysisTableFor(
+        shown,
+        analysisTablesOf([
+          analysis([
+            {
+              kind: "table",
+              name: "by_region",
+              label: "Revenue by region",
+              unit: null,
+              table: table(rows),
+            },
+          ]),
+        ]),
+      ),
+    ).toBeNull();
+  });
+
+  test("is cited to neither when they agree on the inputs and the display but not the values", () => {
+    const shown = tableBlock([
+      ["North", "8,325.44"],
+      ["South", "80"],
+    ]);
+    const one = analysis([
+      {
+        ...result,
+        table: table([
+          ["North", 8325.444],
+          ["South", 80],
+        ]),
+      },
+    ]);
+    const two = analysis([
+      {
+        ...result,
+        table: table([
+          ["North", 8325.4441],
+          ["South", 80],
+        ]),
+      },
+    ]);
+    expect(analysisTableFor(shown, analysisTablesOf([one, two]))).toBeNull();
+  });
+
+  test("matches no Analysis that read nothing cited", () => {
+    const readNothing: AnswerAnalysis = { ...analysis([result]), inputs: [] };
+    expect(analysisTableFor(tableBlock(rows), analysisTablesOf([readNothing]))).toBeNull();
+    expect(withAnalysisTableCitations([tableBlock(rows)], [readNothing])[0]).toEqual(
+      tableBlock(rows),
+    );
   });
 });

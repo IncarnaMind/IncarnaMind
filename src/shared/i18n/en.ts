@@ -848,6 +848,8 @@ export const en = {
     "Each input is quoted from its Document, and IncarnaMind did the arithmetic. This doesn’t show that these were the right figures to use.",
   "figures.inline.analysisNote":
     "These are the inputs and steps saved with this figure. Keeping the record doesn’t run the Analysis again.",
+  "figures.inline.analysisUnavailable":
+    "The inputs and steps saved with this figure aren’t available. IncarnaMind writes it as its value.",
   "figures.inline.analysis": "Saved Analysis: {title}",
   "figures.analysisRows.worked.one": "{how} of {label} in {count} row of {input}: {rows}",
   "figures.analysisRows.worked.other": "{how} of {label} in {count} rows of {input}: {rows}",
@@ -1292,8 +1294,8 @@ export const en = {
     "checks citations health contradicted unsupported claims sentences badge",
   "health.checkedAll.one": "Checked 1 claim, {when}",
   "health.checkedAll": "Checked {count} claims, {when}",
-  "health.unexamined.one": "1 sentence couldn’t be sorted",
-  "health.unexamined": "{count} sentences couldn’t be sorted",
+  "health.unexamined.one": "Couldn’t tell if 1 sentence is a claim",
+  "health.unexamined": "Couldn’t tell if {count} sentences are claims",
   "health.next": "{part}: go to the next",
   "checks.smallModel": "Small model: its verdicts may be wrong. A larger one is more reliable.",
   "checks.running.check-against-documents": "Checking against Documents…",
@@ -4865,6 +4867,8 @@ export const en = {
     "The saved inputs for this figure aren’t available. Check the figure again or choose its source.",
   "error.figure.paste":
     "The calculation’s evidence couldn’t be pasted. Copy the figure again, or paste as plain text.",
+  "error.figure.copyIncomplete":
+    "This figure’s saved inputs are incomplete, so it can’t be copied with its check. Copy it as plain text, or check the figure again.",
   "error.conversation.notFound": "That conversation doesn’t exist or has been deleted.",
   "error.question.empty": "Write the Question before asking it.",
   "error.question.analyseChoice": "Whether a Question may analyse data must be true or false.",

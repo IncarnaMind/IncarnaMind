@@ -65,16 +65,28 @@ export function withCalculatedFigures(
     const analysis = figure.analysis
       ? answer.analyses?.find((run) => run.number === figure.analysis?.analysis)
       : undefined;
+    const backed = analysis && holdsFigure(analysis, figure) ? analysis : null;
+    // A figure this answer can't back reads as its value, never as a figure an Analysis checks
+    // when there is no record for it (#2378).
+    if (figure.analysis && !backed) return figure.shown;
     return calculatedFigureNode(
       { ...figure, written },
       `${answer.id ?? "preview"}:figure:${marker}:${occurrence++}`,
-      figure.analysis
-        ? analysis
-          ? figureRunId(answer.id ?? "preview", analysis)
-          : `${answer.id ?? "preview"}:missing-analysis:${figure.analysis.analysis}`
-        : null,
+      backed ? figureRunId(answer.id ?? "preview", backed) : null,
     );
   });
+}
+
+function holdsFigure(analysis: AnswerAnalysis, figure: CalculatedFigure): boolean {
+  return (
+    analysis.end.kind === "done" &&
+    analysis.output.results.some(
+      (result) =>
+        result.kind === "figure" &&
+        result.name === figure.analysis?.result &&
+        result.value === figure.value,
+    )
+  );
 }
 
 /**
