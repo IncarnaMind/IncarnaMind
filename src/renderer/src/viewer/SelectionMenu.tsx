@@ -32,7 +32,10 @@ interface Held {
 // The focus in a field elsewhere (⌘K, the composer, the Mind picker) takes the page's selection
 // with it, but the words selected are still the ones acted on.
 const typesInField = (element: Element | null) =>
-  element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
+  element instanceof HTMLInputElement ||
+  element instanceof HTMLTextAreaElement ||
+  // ⌘K's dialog takes the page's selection before its field has the focus.
+  (element?.closest("dialog[open]") ?? null) !== null;
 
 const inPopover = (target: EventTarget | null) =>
   target instanceof Element && target.closest(".editor-popover") !== null;

@@ -1046,9 +1046,6 @@
   .annotation-action--primary {
     @apply font-semibold text-accent;
   }
-  .annotation-action--danger {
-    @apply text-danger;
-  }
   .annotation-popover-foot {
     @apply flex items-center justify-between gap-2 border-t border-rule pt-2;
   }

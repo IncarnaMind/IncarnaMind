@@ -208,7 +208,7 @@ export function AnnotationNotePopover({
                 void deleteAnnotation(annotation);
                 onClose();
               }}
-              className="annotation-action annotation-action--danger"
+              className="annotation-action"
             >
               {t("annotations.menu.delete")}
             </button>

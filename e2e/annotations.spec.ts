@@ -14,7 +14,7 @@ import {
   openDocumentAt,
   pointAndClick,
   removeDataFolder,
-  runFromPalette,
+  runCommand,
   setLanguage,
   setWindowSize,
   slideSelect,
@@ -210,7 +210,7 @@ test("by the mouse: a highlight is drawn in the page, noted, recoloured, listed 
 
   // The keyboard's own way: its row focused, the command from ⌘K, and ⌘Z puts it back.
   await row.getByTestId("annotation-quote").focus();
-  await runFromPalette(window, "Delete highlight");
+  await runCommand(window, "annotation.delete", "Delete highlight");
   await expect(panel.getByTestId("annotation-row")).toHaveCount(0);
   await window.keyboard.press("ControlOrMeta+z");
   await expect(panel.getByTestId("annotation-row")).toHaveCount(1);
@@ -224,7 +224,7 @@ test("by the keyboard: ⌘K highlights the selection and finds a highlight's wor
   await slideSelect(window, paragraph(viewer, words), words);
   await window.keyboard.press("Escape");
   await slideSelect(window, paragraph(viewer, words), words);
-  await runFromPalette(window, "Highlight the selected text");
+  await runCommand(window, "viewer.selection.highlight", "Highlight the selected text");
   await expect(viewer.locator("[data-annotation-id]").first()).toContainText(words);
 
   // A note, with the keyboard: its mark is focused and Enter opens it.

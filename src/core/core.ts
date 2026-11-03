@@ -5299,7 +5299,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     listAnnotations: async (documentId) => annotations.list(parseDocumentId(documentId)),
     annotationsIn: async (input) => {
-      if (!isRecord(input)) throw new InvalidInputError("Collect needs what to collect.");
+      if (!isRecord(input)) throw new InvalidInputError({ key: "error.annotation.collect" });
       const colour = typeof input.colour === "string" ? input.colour : undefined;
       return annotations.in({
         ...(typeof input.documentId === "string" && { documentId: input.documentId }),
@@ -5310,8 +5310,8 @@ export function createCore(adapters: CoreAdapters): Core {
     annotationCounts: async () => annotations.counts(),
     updateAnnotation: async (id, edit) => {
       if (typeof id !== "string" || id === "")
-        throw new InvalidInputError("An annotation is needed.");
-      if (!isRecord(edit)) throw new InvalidInputError("A note or a colour is needed.");
+        throw new InvalidInputError({ key: "error.annotation.needed" });
+      if (!isRecord(edit)) throw new InvalidInputError({ key: "error.annotation.edit" });
       const changed = annotations.update(id, {
         ...(edit.note !== undefined && { note: edit.note as string | null }),
         ...(edit.colour !== undefined && { colour: edit.colour as AnnotationColour }),
@@ -5321,20 +5321,21 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     deleteAnnotation: async (id) => {
       if (typeof id !== "string" || id === "")
-        throw new InvalidInputError("An annotation is needed.");
+        throw new InvalidInputError({ key: "error.annotation.needed" });
       const removed = annotations.remove(id);
       annotationsChanged(removed.documentId);
       return removed;
     },
     restoreAnnotation: async (id) => {
       if (typeof id !== "string" || id === "")
-        throw new InvalidInputError("An annotation is needed.");
+        throw new InvalidInputError({ key: "error.annotation.needed" });
       const restored = annotations.restore(id);
       annotationsChanged(restored.documentId);
       return restored;
     },
     searchAnnotations: async (query, options) => {
-      if (typeof query !== "string") throw new InvalidInputError("A search query must be text.");
+      if (typeof query !== "string")
+        throw new InvalidInputError({ key: "error.annotation.search" });
       const limit =
         isRecord(options) && typeof options.limit === "number" && options.limit > 0
           ? Math.min(Math.floor(options.limit), 200)

@@ -146,7 +146,7 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
           type="button"
           data-testid="annotation-row-delete"
           onClick={() => void deleteAnnotation(annotation)}
-          className="annotation-action annotation-action--danger"
+          className="annotation-action"
         >
           {t("annotations.menu.delete")}
         </button>
