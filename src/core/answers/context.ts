@@ -13,6 +13,7 @@
  */
 import { createHash } from "node:crypto";
 import * as Y from "yjs";
+import { PICTURE_DATA_URL } from "../../shared/askedQuote";
 import { type LiveDocument, liveDocumentOf } from "../../shared/citations";
 import { pendingProposals, proposalRequestOf, readProposalAttribute } from "../../shared/proposals";
 import { parseThirdPartySource } from "../../shared/textOrigins";
@@ -449,8 +450,6 @@ export function readMind(
       ),
   };
 }
-
-const PICTURE_DATA_URL = /^data:(image\/(?:png|jpeg|gif|webp));base64,([\s\S]+)$/;
 
 /** A picture Block as a model takes it, or null when it holds no picture a model reads. */
 function askedPictureOf(block: Y.XmlElement): AskedPicture | null {
