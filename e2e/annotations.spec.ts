@@ -182,6 +182,13 @@ test("by the mouse: a highlight is drawn in the page, noted, recoloured, listed 
   await expect(window.getByTestId("undo-line")).toContainText("Deleted a highlight");
   await window.keyboard.press("ControlOrMeta+z");
   await expect(panel.getByTestId("annotation-row")).toHaveCount(1);
+
+  // The keyboard's own way: its row focused, the command from ⌘K, and ⌘Z puts it back.
+  await row.getByTestId("annotation-quote").focus();
+  await runFromPalette(window, "Delete highlight");
+  await expect(panel.getByTestId("annotation-row")).toHaveCount(0);
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(panel.getByTestId("annotation-row")).toHaveCount(1);
 });
 
 test("by the keyboard: ⌘K highlights the selection and finds a highlight's words and a note's words", async () => {
