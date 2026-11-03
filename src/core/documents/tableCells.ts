@@ -78,12 +78,19 @@ export const unitWord = (text: string) => {
   return /^(?:\(.*\)|[\p{Sc}%])/u.test(value) || value.replace(/\s+/gu, "").length <= 2;
 };
 
-/** A row that says a value beside a word that isn't a unit is no row of headings. */
-export const figureWithLabel = (texts: readonly string[]) =>
-  texts.some((text) => isFigure(text)) &&
-  texts.some((text) => {
+/** A figure beside a word in a column the body fills with words, not figures: a body row's label. */
+export const figureBesideLabel = (
+  row: readonly string[],
+  body: readonly (readonly string[])[],
+): boolean =>
+  row.some((text) => isFigure(text)) &&
+  row.some((text, column) => {
     const value = (text ?? "").trim();
-    return value !== "" && !isFigure(value) && !unitWord(value);
+    if (value === "" || isFigure(value) || unitWord(value)) return false;
+    return body.some((each) => {
+      const cell = (each[column] ?? "").trim();
+      return cell !== "" && !isFigure(cell);
+    });
   });
 
 /** A heading cell under a figure of the row above: the row is the body's, not the headings'. */
@@ -93,16 +100,14 @@ const underFigure = (row: readonly string[], above: readonly string[]) =>
     return placeholder(value) || (isFigure(value) && isFigure(above[column] ?? ""));
   });
 
-/** A blank cell under a heading of the row above that no span covers: a body row's own gap. */
+/** A blank cell under a heading of the row above: a gap in a row that spans no heading. */
 const blankUnderHeading = (
   row: readonly string[],
   above: readonly string[],
   coveredAbove: readonly boolean[] | undefined,
 ) =>
-  row.some((text, column) => {
-    if ((text ?? "").trim() !== "" || (above[column] ?? "").trim() === "") return false;
-    return coveredAbove?.[column] !== true && coveredAbove?.[column + 1] !== true;
-  });
+  !coveredAbove?.some(Boolean) &&
+  row.some((text, column) => (text ?? "").trim() === "" && (above[column] ?? "").trim() !== "");
 
 /**
  * How many of a file's rows head its columns (#448): the first, and a row below it with an empty
@@ -121,7 +126,7 @@ export function headingRowsOf(
     const row = rows[headingCount] ?? [];
     const above = rows[headingCount - 1] ?? [];
     if ((row[0] ?? "").trim() === "") {
-      if (figureWithLabel(row)) break;
+      if (figureBesideLabel(row, rows.slice(headingCount + 1))) break;
       headingCount++;
       continue;
     }

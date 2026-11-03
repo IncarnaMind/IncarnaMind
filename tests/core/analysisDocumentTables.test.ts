@@ -782,6 +782,308 @@ describe("a deck's table (#448)", { timeout: 60_000 }, () => {
   });
 });
 
+describe("the heading shapes since round three, each with its own sum (#448)", () => {
+  const restart = (text: string) =>
+    `<w:tcPr><w:vMerge w:val="restart"/></w:tcPr>${paragraph(text)}`;
+  const continued = () => "<w:tcPr><w:vMerge/></w:tcPr><w:p/>";
+  const span = (text: string, columns = 2) =>
+    `<w:tcPr><w:gridSpan w:val="${columns}"/></w:tcPr>${paragraph(text)}`;
+  const word = (name: string, rows: readonly (readonly string[])[]) => () => ({
+    name,
+    contents: wordFile({ body: table(rows) }),
+  });
+  const pdf = (at: readonly number[], rows: readonly (readonly string[])[]) => () => ({
+    name: "Table.pdf",
+    contents: buildPdf([
+      {
+        lines: ["Table"],
+        placed: rows.flatMap((cells, index) =>
+          cells.flatMap((text, column) =>
+            text ? [{ text, x: at[column] ?? 72, y: 600 - index * 16 }] : [],
+          ),
+        ),
+      },
+    ]),
+  });
+  const lastColumn = (columns: readonly string[]) => columns.at(-1) ?? "";
+  const yearColumn = (columns: readonly string[]) => {
+    const named = columns.find((column) => column.includes("2023"));
+    if (!named) throw new Error(`No 2023 column: ${columns.join(", ")}`);
+    return named;
+  };
+  const cases = [
+    {
+      name: "a year under a units heading (round 3)",
+      query: "Plant",
+      file: word("Plants.docx", [
+        ["", "2024", "2023"],
+        ["Plant A", "2045", "1987"],
+        ["Plant B", "1,200", "900"],
+        ["Plant C", "800", "600"],
+      ]),
+      pick: (columns: readonly string[]) => columns[1] ?? "",
+      expected: 4045,
+    },
+    {
+      name: "a units row below the headings (round 3)",
+      query: "Pumps",
+      file: word("Revenue.docx", [
+        ["Product", "2024", "2025"],
+        ["", "(GBP m)", "(GBP m)"],
+        ["Pumps", "1,200", "1,350"],
+        ["Fences", "900", "1,050"],
+      ]),
+      pick: (columns: readonly string[]) => columns[2] ?? "",
+      expected: 2400,
+    },
+    {
+      name: "a body row under a merged heading (round 3)",
+      query: "Alpha",
+      file: word("Sales.docx", [[span("Sales")], ["Alpha", "1,200"], ["Beta", "900"]]),
+      pick: (columns: readonly string[]) => columns[1] ?? "",
+      expected: 2100,
+    },
+    {
+      name: "a label merged down the rows (round 3)",
+      query: "Design",
+      file: word("Costs.docx", [
+        ["Workstream", "Cost"],
+        [restart("Design"), ""],
+        [continued(), ""],
+        [continued(), "3,550"],
+        [continued(), "1,200"],
+      ]),
+      pick: (columns: readonly string[]) => columns[1] ?? "",
+      expected: 4750,
+    },
+    {
+      name: "a label under a blank corner with no figures yet (round 4)",
+      query: "Design",
+      file: word("Design.docx", [
+        ["", "Item", "Cost"],
+        [restart("Design"), "Research", ""],
+        [continued(), "Workshop", ""],
+        [continued(), "Prototype", "1,200"],
+        [continued(), "Testing", "2,350"],
+      ]),
+      pick: (columns: readonly string[]) => columns[2] ?? "",
+      keep: (row: readonly AnalysisCell[]) => row[0] === "Design",
+      expected: 3550,
+    },
+    {
+      name: "a value beside a label under a blank heading (round 4)",
+      query: "Opening stock",
+      file: word("Stock.docx", [
+        ["Item", "Description", "Units"],
+        ["", "Opening stock", "2045"],
+        ["Purchases", "Bought", "2,000"],
+        ["Closing", "Stock", "1,800"],
+      ]),
+      pick: (columns: readonly string[]) => columns[2] ?? "",
+      expected: 5845,
+    },
+    {
+      name: "a merged-down heading beside a labelled second heading row (round 5)",
+      query: "Alpha",
+      file: word("Total.docx", [
+        ["", restart("Total"), span("Revenue", 2)],
+        ["Region", continued(), "2024", "2023"],
+        ["Alpha", "A", "1,500", "1,200"],
+        ["Beta", "B", "900", "660"],
+      ]),
+      pick: lastColumn,
+      expected: 1860,
+    },
+    {
+      name: "years and a word over a figure column (round 5)",
+      query: "Alpha",
+      file: word("Change.docx", [
+        ["", span("Revenue (EUR k)", 3)],
+        ["", "2024", "2023", "Change"],
+        ["Alpha", "1,500", "1,200", "9%"],
+        ["Beta", "900", "660", "5%"],
+      ]),
+      pick: yearColumn,
+      expected: 1860,
+    },
+    {
+      name: "one blank under an unmerged heading (round 5)",
+      query: "Alpha",
+      file: word("Margin.docx", [
+        ["", span("Revenue", 2), "Margin"],
+        ["Region", "2024", "2023", ""],
+        ["Alpha", "1,500", "1,200", "12%"],
+        ["Beta", "900", "660", "9%"],
+      ]),
+      pick: yearColumn,
+      expected: 1860,
+    },
+    {
+      name: "a deck's years and a word over a figure column (round 5)",
+      query: "Alpha",
+      file: () => ({
+        name: "Board pack.pptx",
+        contents: rawDeck("Cash", [
+          [
+            { text: "" },
+            { text: "Revenue (EUR k)", attrs: ' gridSpan="3"' },
+            { text: "", attrs: ' hMerge="1"' },
+            { text: "", attrs: ' hMerge="1"' },
+          ],
+          [{ text: "" }, { text: "2024" }, { text: "2023" }, { text: "Change" }],
+          [{ text: "Alpha" }, { text: "1,500" }, { text: "1,200" }, { text: "9%" }],
+          [{ text: "Beta" }, { text: "900" }, { text: "660" }, { text: "5%" }],
+        ]),
+      }),
+      pick: yearColumn,
+      expected: 1860,
+    },
+    {
+      name: "a page's years and a word over a figure column (round 5)",
+      query: "Alpha",
+      file: pdf(
+        [72, 250, 350, 450],
+        [
+          ["Item", "Revenue", "Revenue", "Revenue"],
+          ["", "2024", "2023", "Change"],
+          ["Alpha", "1,500", "1,200", "9%"],
+          ["Beta", "900", "1,310", "5%"],
+        ],
+      ),
+      pick: yearColumn,
+      expected: 2510,
+    },
+    {
+      name: "a deck's merged-down heading beside a labelled second heading row (round 5)",
+      query: "Alpha",
+      file: () => ({
+        name: "Board pack.pptx",
+        contents: rawDeck("Cash", [
+          [
+            { text: "" },
+            { text: "Total", attrs: ' rowSpan="2"' },
+            { text: "Revenue", attrs: ' gridSpan="2"' },
+            { text: "", attrs: ' hMerge="1"' },
+          ],
+          [
+            { text: "Region" },
+            { text: "", attrs: ' vMerge="1"' },
+            { text: "2024" },
+            { text: "2023" },
+          ],
+          [{ text: "Alpha" }, { text: "A" }, { text: "1,500" }, { text: "1,200" }],
+          [{ text: "Beta" }, { text: "B" }, { text: "900" }, { text: "660" }],
+        ]),
+      }),
+      pick: lastColumn,
+      expected: 1860,
+    },
+    {
+      name: "a unit word beside a figure in an empty-label row",
+      query: "Pumps",
+      file: word("Units.docx", [
+        ["Item", "Description", "Units"],
+        ["", "(GBP m)", "2045"],
+        ["Pumps", "Bought", "1,200"],
+        ["Fences", "Stock", "900"],
+      ]),
+      pick: (columns: readonly string[]) => columns[2] ?? "",
+      expected: 2100,
+    },
+    {
+      name: "a short unit beside a figure in an empty-label row",
+      query: "Pumps",
+      file: word("Units.docx", [
+        ["Item", "Description", "Units"],
+        ["", "t", "2045"],
+        ["Pumps", "Bought", "1,200"],
+        ["Fences", "Stock", "900"],
+      ]),
+      pick: (columns: readonly string[]) => columns[2] ?? "",
+      expected: 2100,
+    },
+    {
+      name: "a currency symbol beside a figure in an empty-label row",
+      query: "Pumps",
+      file: word("Units.docx", [
+        ["Item", "Description", "Units"],
+        ["", "£/kg", "2045"],
+        ["Pumps", "Bought", "1,200"],
+        ["Fences", "Stock", "900"],
+      ]),
+      pick: (columns: readonly string[]) => columns[2] ?? "",
+      expected: 2100,
+    },
+  ];
+  test.each(cases)("$name sums $expected", async ({ file, query, pick, keep, expected }) => {
+    const document = file();
+    const { analyses } = await ask({
+      files: [document],
+      question: "Total the column.",
+      query,
+      runs: [run(document.name.replace(/\.[^.]+$/, ""), [{ name: "table" }])],
+      helper: (job) => {
+        const [input] = job.inputs;
+        if (input?.kind !== "table") throw new Error("No table.");
+        const column = pick(input.columns);
+        return { output: { results: [figureOf(input, column, "sum", keep)] } };
+      },
+    });
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: expected }]);
+  });
+});
+
+describe("a merge that starts in a second heading row (#448)", () => {
+  test("doesn't repeat into the body in Word", async () => {
+    const restart = (text: string) =>
+      `<w:tcPr><w:vMerge w:val="restart"/></w:tcPr>${paragraph(text)}`;
+    const continued = () => "<w:tcPr><w:vMerge/></w:tcPr><w:p/>";
+    const span = (text: string) => `<w:tcPr><w:gridSpan w:val="2"/></w:tcPr>${paragraph(text)}`;
+    const tc = (text: string) => `<w:tc>${paragraph(text)}</w:tc>`;
+    const grid = `<w:tbl><w:tblGrid>${'<w:gridCol w:w="2000"/>'.repeat(4)}</w:tblGrid>${[
+      `<w:tr>${tc("")}${span("Revenue")}<w:tc>${paragraph("Margin")}</w:tc></w:tr>`,
+      `<w:tr>${tc("Region")}<w:tc>${restart("Design")}</w:tc>${tc("2024")}<w:tc/></w:tr>`,
+      `<w:tr>${tc("Alpha")}<w:tc>${continued()}</w:tc>${tc("1,500")}${tc("12%")}</w:tr>`,
+      `<w:tr>${tc("Beta")}<w:tc>${continued()}</w:tc>${tc("900")}${tc("9%")}</w:tr>`,
+    ].join("")}</w:tbl>`;
+    const { inputs } = await ask({
+      files: [{ name: "Revenue.docx", contents: wordFile({ body: grid }) }],
+      question: "Total the 2024 column.",
+      query: "Alpha Beta",
+      runs: [run("Revenue", [{ name: "revenue" }])],
+      helper: sumOf("2024"),
+    });
+    expect(inputs[0]?.rows[0]).toEqual(["Alpha", null, 1500, 0.12]);
+  });
+
+  test("doesn't repeat into the body in a deck", async () => {
+    const contents = rawDeck("Revenue", [
+      [
+        { text: "" },
+        { text: "Revenue", attrs: ' gridSpan="2"' },
+        { text: "", attrs: ' hMerge="1"' },
+        { text: "Margin" },
+      ],
+      [
+        { text: "Region" },
+        { text: "Design", attrs: ' rowSpan="2"' },
+        { text: "2024" },
+        { text: "" },
+      ],
+      [{ text: "Alpha" }, { text: "", attrs: ' vMerge="1"' }, { text: "1,500" }, { text: "12%" }],
+      [{ text: "Beta" }, { text: "", attrs: ' vMerge="1"' }, { text: "900" }, { text: "9%" }],
+    ]);
+    const { inputs } = await ask({
+      files: [{ name: "Board pack.pptx", contents }],
+      question: "Total the 2024 column.",
+      query: "Alpha Beta",
+      runs: [run("Board pack", [{ name: "revenue" }])],
+      helper: sumOf("2024"),
+    });
+    expect(inputs[0]?.rows[0]).toEqual(["Alpha", null, 1500, 0.12]);
+  });
+});
+
 describe("a scanned page's tables (#448)", { timeout: 60_000 }, () => {
   test.each([
     ["en", "Add up the product lines in Table 3 and check them against its total."],
@@ -1939,6 +2241,27 @@ describe("the review's table cases (#448)", { timeout: 60_000 }, () => {
     const [table] = pageTables(textLayerRows(items)).tables;
     expect(table?.headings[0]).toBe("");
     expect(table?.rows.map((row) => row[0])).toEqual(["Design", "Surveys", "Drawings"]);
+  });
+
+  test("a page's labelled row with a blank under an unmerged heading keeps the years", () => {
+    const items = [
+      { str: "Revenue", transform: [10, 0, 0, 10, 250, 600], width: 160, height: 10 },
+      { str: "Margin", transform: [10, 0, 0, 10, 450, 600], width: 40, height: 10 },
+      { str: "Region", transform: [10, 0, 0, 10, 72, 584], width: 40, height: 10 },
+      { str: "2024", transform: [10, 0, 0, 10, 250, 584], width: 24, height: 10 },
+      { str: "2023", transform: [10, 0, 0, 10, 350, 584], width: 24, height: 10 },
+      { str: "Alpha", transform: [10, 0, 0, 10, 72, 568], width: 30, height: 10 },
+      { str: "1,500", transform: [10, 0, 0, 10, 250, 568], width: 26, height: 10 },
+      { str: "1,200", transform: [10, 0, 0, 10, 350, 568], width: 26, height: 10 },
+      { str: "12%", transform: [10, 0, 0, 10, 450, 568], width: 18, height: 10 },
+      { str: "Beta", transform: [10, 0, 0, 10, 72, 552], width: 26, height: 10 },
+      { str: "900", transform: [10, 0, 0, 10, 250, 552], width: 18, height: 10 },
+      { str: "660", transform: [10, 0, 0, 10, 350, 552], width: 18, height: 10 },
+      { str: "9%", transform: [10, 0, 0, 10, 450, 552], width: 16, height: 10 },
+    ];
+    const [table] = pageTables(textLayerRows(items)).tables;
+    expect(table?.headings.join(" ")).toContain("2023");
+    expect(table?.rows.map((row) => row[2])).toEqual(["1,200", "660"]);
   });
 
   test("a PDF units row below the headings still heads the columns", async () => {

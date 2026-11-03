@@ -13,13 +13,13 @@ import { turnQuad } from "./scan/rotation";
 import {
   CJK_EDGE,
   figureColumns,
-  figureWithLabel,
   isDatum,
   isFigure,
   join,
   MAX_HEADING_ROWS,
   placeholder,
   shiftedDigits,
+  unitWord,
 } from "./tableCells";
 
 /** Text that sits together on a row: a word, or words set close enough to read as one. */
@@ -336,6 +336,21 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
     if (!cells || !aboveCells) return false;
     return cells.some((cell, column) => cell === "" && (aboveCells[column] ?? "") !== "");
   };
+  const figureBesideLabel = (row: readonly Fragment[], body: readonly (readonly Fragment[])[]) => {
+    if (!row.some((fragment) => isFigure(fragment.text))) return false;
+    return row.some((fragment) => {
+      const text = fragment.text.trim();
+      if (text === "" || isFigure(text) || unitWord(text)) return false;
+      const over = overlapping(fragment, spans);
+      if (over.length !== 1) return false;
+      const column = over[0] as number;
+      return body.some((each) => {
+        const cells = cellsOf(each, spans);
+        const cell = (cells?.[column] ?? "").trim();
+        return cell !== "" && !isFigure(cell);
+      });
+    });
+  };
   let bottom = top;
   while (bottom < headingLimit) {
     const row = rows[bottom] ?? [];
@@ -356,7 +371,7 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
           blankUnderHeading(row, above)
         )
           break;
-      } else if (figureWithLabel(row.map((fragment) => fragment.text))) break;
+      } else if (figureBesideLabel(row, rows.slice(bottom + 1))) break;
     }
     bottom++;
   }
