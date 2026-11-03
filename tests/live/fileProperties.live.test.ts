@@ -114,6 +114,8 @@ const FILES = [
     contents: "# Site notes\n\nThe crane arrives on Monday. Access is from the north gate.\n",
     touched: "2026-10-28T12:00:00Z",
   },
+  // 1,234,567 bytes: 1.23 MB counting 1,000,000 bytes to a MB, 1.18 MB counting 1,048,576.
+  { name: "Survey log.txt", contents: `${"Survey log. ".repeat(102_880)}Ended.\n` },
 ];
 
 type Verdict = "supported" | "unsupported" | "contradicted";
@@ -252,6 +254,20 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
       expected: "supported",
       figures: true,
     },
+    {
+      sentence: "The survey log file is 1.2 MB.",
+      file: "Survey log",
+      expected: "supported",
+      property: "size",
+      figures: true,
+    },
+    { sentence: "Survey log.txt takes up 2 MB.", expected: "contradicted", figures: true },
+    {
+      sentence: "Survey log.txt is about 1.2 MB in size.",
+      file: "Survey log",
+      expected: "supported",
+      property: "size",
+    },
   ],
   "zh-CN": [
     {
@@ -289,6 +305,13 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
       figures: true,
     },
     { sentence: "Cash forecast.xlsx 里有 5 个工作表。", expected: "contradicted", figures: true },
+    {
+      sentence: "Survey log.txt 文件大小约为 1.2 MB。",
+      file: "Survey log",
+      expected: "supported",
+      property: "size",
+      figures: true,
+    },
   ],
 };
 
