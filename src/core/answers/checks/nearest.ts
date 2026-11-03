@@ -61,15 +61,19 @@ export function nearestLine(
   const wanted = wordsOf(sentence);
   if (wanted.size === 0) return null;
   let best: NearestLine | null = null;
+  let setAside = 0;
   for (const passage of passages) {
-    // A row the file sets aside is no value the Document gives for a sentence about now (#1979).
+    // Its lines don't say which rows the file sets aside, so none can be what the Document says now.
     if (passage.text.startsWith(UNPLACED_MARK)) continue;
     for (const raw of passage.text.split("\n")) {
-      if (SET_ASIDE_LINE.test(raw)) continue;
       const text = raw.replace(UNIT_MARK, "").trim();
       if (text === "") continue;
       let shared = 0;
       for (const word of wordsOf(text)) if (wanted.has(word)) shared++;
+      if (SET_ASIDE_LINE.test(raw)) {
+        setAside = Math.max(setAside, shared);
+        continue;
+      }
       if (
         shared >= MIN_SHARED &&
         shared / wanted.size >= MIN_SHARE &&
@@ -79,5 +83,7 @@ export function nearestLine(
       }
     }
   }
-  return best;
+  // A row the file sets aside as near as the nearest current one: the sentence may be about either
+  // version, and neither is the one value the Document gives for it (#1979).
+  return best && best.shared > setAside ? best : null;
 }

@@ -790,6 +790,7 @@ export function documentInstructions(
     fileDatesNote(passages),
     notCitedNote(passages),
     bracketedAmountsNote(passages),
+    setAsideRowsNote(passages),
   ].filter(Boolean);
   const added = addedLine(listed.total, library.total, scoped);
   const rest = library.total > listed.total ? [libraryNote(library.total, scoped)] : [];
@@ -845,7 +846,12 @@ export function documentInstructions(
         "",
         "Passages found in the User's Documents for this Question:",
         passages,
-        ...[dated, fileDatesNote(passages), bracketedAmountsNote(passages)].filter(Boolean),
+        ...[
+          dated,
+          fileDatesNote(passages),
+          bracketedAmountsNote(passages),
+          setAsideRowsNote(passages),
+        ].filter(Boolean),
         "",
         "Use them where they help. Don't write citation markers or a list of sources.",
         notCovered(false),

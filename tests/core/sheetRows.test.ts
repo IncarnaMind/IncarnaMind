@@ -577,6 +577,10 @@ describe("what else reads a sheet's Passages", () => {
     for (const [earlier, said] of [
       [{ struck: true }, "rows 2–4, which the file strikes through"],
       [{ hidden: true }, "rows 2–4, which the file hides"],
+      [
+        { struck: true, hidden: true },
+        "rows 2–4, which the file strikes through, and rows 2–4, which the file hides",
+      ],
       [{}, null],
     ] as const) {
       const core = startCore(await createTempDataFolder(), {
@@ -818,6 +822,147 @@ test("a mark the assistant copies into a Note is said in words there too", async
   expect(written).toContain("The earlier total was 0.4 kg (struck through in the file)");
   expect(written).not.toContain("[row 4");
   core.close();
+});
+
+describe("a model that answers in one pass, without Tools", () => {
+  const WRITTEN = "The earlier total was 0.4 kg [row 4, struck through].";
+  const SAID = "The earlier total was 0.4 kg (struck through in the file).";
+
+  /** `modelId` on its provider refuses Tools; the catalog says whether it can still give JSON. */
+  async function answered(kind: "anthropic" | "openai", modelId: string, reply: string) {
+    const systems: string[] = [];
+    const model = scriptedModel((call) => {
+      if (call.tools.length > 0)
+        return { error: { status: 400, message: "This model does not support tools" } };
+      systems.push(call.system);
+      return { text: reply };
+    });
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+      answerPaths: { retrievesFirst: () => false },
+    });
+    const saved = await core.saveChatProvider({ kind, apiKey: "sk-test", modelId });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+    const path = await writeSourceFile(
+      await createTempDataFolder(),
+      "Load worksheet.xlsx",
+      worksheet("en", { struck: true }),
+    );
+    await addAndProcess(core, [path]);
+    const result = await core.askInConversation({ text: "What was the earlier total load?" });
+    if (!result.asked) throw new Error("The Question wasn't asked.");
+    const ended = await answerEnded(core, result.answerId);
+    const { messages } = await core.getConversation(result.conversation.id);
+    core.close();
+    const answer = messages.find((message) => message.id === result.answerId);
+    if (answer?.kind !== "answer") throw new Error("No Answer.");
+    return { answer, systems, ended };
+  }
+
+  test("in structured output, it reads what a row's mark means, and a mark it copies is said in words", async () => {
+    const reply = JSON.stringify({ answer: WRITTEN, citations: [] });
+    const { answer, systems, ended } = await answered("anthropic", "claude-haiku-5-5", reply);
+    expect(ended).toMatchObject({ payload: { citationSupport: "structured-output" } });
+    expect(systems.some((system) => system.includes("[row 4, struck through] TOTAL"))).toBe(true);
+    expect(systems.some((system) => system.includes(NOTE))).toBe(true);
+    expect(answer.text).toContain(SAID);
+    expect(answer.text).not.toContain("[row 4");
+  });
+
+  test("in a plain Answer, it reads what a row's mark means, and a mark it copies is said in words", async () => {
+    const { answer, systems, ended } = await answered("openai", "gpt-4-turbo", WRITTEN);
+    expect(ended).toMatchObject({ payload: { citationSupport: "none" } });
+    expect(systems.some((system) => system.includes("[row 4, struck through] TOTAL"))).toBe(true);
+    expect(systems.some((system) => system.includes(NOTE))).toBe(true);
+    expect(answer.text).toContain(SAID);
+    expect(answer.text).not.toContain("[row 4");
+  });
+});
+
+describe("filters, as Excel and LibreOffice keep them", () => {
+  const rows = `<row r="1"><c r="A1" t="inlineStr"><is><t>Item</t></is></c><c r="B1" t="inlineStr"><is><t>Amount</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>Taxi</t></is></c><c r="B2"><v>18.4</v></c></row><row r="3" hidden="1"><c r="A3" t="inlineStr"><is><t>Lunch</t></is></c><c r="B3"><v>12.5</v></c></row><row r="4" hidden="1"><c r="A4" t="inlineStr"><is><t>Hotel</t></is></c><c r="B4"><v>140</v></c></row>`;
+  const criterion = `<filterColumn colId="0"><filters><filter val="Taxi"/></filters></filterColumn>`;
+  const shown = async (file: Buffer) => linesOf(await shownToModel("en", file, "Taxi Lunch Hotel"));
+  const expected = ["Item\tAmount", "Taxi\t18.4", "Lunch\t12.5", "[row 4, hidden] Hotel\t140"];
+
+  test("a custom view's filter after the sheet's own doesn't replace it", async () => {
+    const file = xlsxPackage({
+      sheets: [
+        {
+          name: "Expenses",
+          xml: `<sheetData>${rows}</sheetData><autoFilter ref="A1:B3">${criterion}</autoFilter><customSheetViews><customSheetView guid="{00000000-0000-0000-0000-000000000001}"><autoFilter ref="A1:B4"/></customSheetView></customSheetViews>`,
+        },
+      ],
+    });
+    expect(await shown(file)).toEqual(expected);
+  });
+
+  test("with the sheet's filter on, a row hidden outside the filter's range is still set aside", async () => {
+    const file = xlsxPackage({
+      sheets: [
+        {
+          name: "Expenses",
+          xml: `<sheetPr filterMode="1"/><sheetData>${rows}</sheetData><autoFilter ref="A1:B3">${criterion}</autoFilter>`,
+        },
+      ],
+    });
+    expect(await shown(file)).toEqual(expected);
+  });
+
+  test("rows a Table's own filter hides are read as ordinary rows", async () => {
+    const file = xlsxPackage({
+      sheets: [
+        {
+          name: "Expenses",
+          xml: `<sheetData>${rows}</sheetData><tableParts count="1"><tablePart r:id="rIdT1"/></tableParts>`,
+          rels: `<Relationship Id="rIdT1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table1.xml"/>`,
+        },
+      ],
+      parts: [
+        {
+          name: "xl/tables/table1.xml",
+          data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="Expenses" displayName="Expenses" ref="A1:B3"><autoFilter ref="A1:B3">${criterion}</autoFilter><tableColumns count="2"><tableColumn id="1" name="Item"/><tableColumn id="2" name="Amount"/></tableColumns></table>`,
+        },
+      ],
+    });
+    expect(await shown(file)).toEqual(expected);
+  });
+});
+
+test("a revision's label written once above its struck rows sets its first row aside too", async () => {
+  const file = sheetWithRows("Load", [
+    { cells: ["Revision", "Item", "Unit mass (kg)", "Quantity", "Subtotal (kg)"] },
+    { cells: ["A (superseded)", "Glass beads", 0.125, 2, 0.25], struck: [1, 2, 3, 4] },
+    { cells: ["", "Control weights", 0.05, 3, 0.15], struck: true },
+    { cells: ["", "TOTAL", "", "", 0.4], struck: true },
+    { cells: ["B (current)", "Glass beads", 0.075, 2, 0.15] },
+    { cells: ["", "Control weights", 0.05, 2, 0.1] },
+    { cells: ["", "TOTAL", "", "", 0.25] },
+  ]);
+  expect(linesOf(await shownToModel("en", file))).toEqual([
+    "Revision\tItem\tUnit mass (kg)\tQuantity\tSubtotal (kg)",
+    "[row 2, struck through] A (superseded)\tGlass beads\t0.125\t2\t0.25",
+    "[row 3, struck through] \tControl weights\t0.05\t3\t0.15",
+    "[row 4, struck through] \tTOTAL\t\t\t0.4",
+    "B (current)\tGlass beads\t0.075\t2\t0.15",
+    "\tControl weights\t0.05\t2\t0.1",
+    "\tTOTAL\t\t\t0.25",
+  ]);
+});
+
+test("a retry's excerpt of a Passage whose set-aside rows aren't marked line by line keeps saying so", () => {
+  const warning = "[rows the file sets aside, not marked line by line: rows 30–31 struck through]";
+  const text = [
+    warning,
+    ...Array.from({ length: 28 }, (_, index) => `Filler line ${index + 1}\t${index}`),
+    "Glass beads\t0.125\t2",
+    "Glass beads\t0.075\t2",
+  ].join("\n");
+  const tokens = (each: string) => Math.ceil(each.length / 4);
+  const excerpt = nearestExcerpt(text, "Glass beads\t0.125\t2", "It was 0.125 kg.", 24, tokens);
+  expect(excerpt.startsWith(`${warning}\n`)).toBe(true);
+  expect(excerpt).toContain("Glass beads\t0.125\t2");
+  expect(excerpt).not.toContain("Filler line 1\t");
 });
 
 test("a Passage found twice in its Units with other marks, or not at all, names its set-aside rows instead", () => {

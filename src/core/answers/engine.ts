@@ -2453,7 +2453,8 @@ async function* plain(
     return;
   }
   if (signal.aborted) return;
-  const written = takeToolText(produced).text;
+  const taken = takeToolText(produced).text;
+  const written = request.documents.setAsideInWords?.(taken) ?? taken;
   yield* textEdits(produced, written);
   yield* flagClaims(request, written);
   yield { type: "finished" };

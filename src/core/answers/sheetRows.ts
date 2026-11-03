@@ -25,13 +25,19 @@ export const SET_ASIDE_LINE = new RegExp(`^(?:\\[[^\\]\\n]*\\] )?(${LINE_MARK.so
 /**
  * `excerpt`, a part of a Passage's `text` that starts at `start`, with the mark of the set-aside
  * row it starts inside of, when it starts partway through one: cut there, the row's figures
- * would read as current.
+ * would read as current. A Passage whose set-aside rows aren't marked line by line keeps saying so.
  */
 export function withLineMark(text: string, start: number, excerpt: string): string {
   const lineStart = text.lastIndexOf("\n", start - 1) + 1;
-  if (lineStart >= start) return excerpt;
-  const mark = SET_ASIDE_LINE.exec(text.slice(lineStart, start))?.[1];
-  return mark ? `${mark} ${excerpt}` : excerpt;
+  const mark =
+    lineStart < start ? SET_ASIDE_LINE.exec(text.slice(lineStart, start))?.[1] : undefined;
+  const marked = mark ? `${mark} ${excerpt}` : excerpt;
+  // Cut below it, a Passage's warning that its set-aside rows aren't marked would go.
+  const end = text.indexOf("\n");
+  const warning = text.startsWith(UNPLACED_MARK) && end > 0 ? text.slice(0, end) : "";
+  return warning && start > 0 && !marked.startsWith(UNPLACED_MARK)
+    ? `${warning}\n${marked}`
+    : marked;
 }
 
 interface LaidLine {

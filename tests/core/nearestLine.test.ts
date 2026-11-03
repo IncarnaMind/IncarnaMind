@@ -59,13 +59,19 @@ describe("a sheet's rows the file sets aside (#1979)", () => {
     "TOTAL load\t0.25",
   ].join("\n");
 
-  test("are never the line a sentence about the sheet is judged against", () => {
-    const current = { id: "P1", text: "TOTAL load\t0.25" };
-    for (const sentence of ["The TOTAL load is 0.4 kg.", "The TOTAL load is 0.35 kg."])
-      expect(nearestLine(sentence, [{ id: "P1", text: sheet }])).toMatchObject(current);
-    expect(nearestLine("The TOTAL load is 0.25 kg.", [{ id: "P1", text: sheet }])).toMatchObject(
-      current,
-    );
+  test("are never the line a sentence is judged against, nor is a current row as near as one of them", () => {
+    // The sentence may be about the earlier version: the current row isn't what the Document says of it.
+    for (const sentence of ["The earlier TOTAL load was 0.4 kg.", "The TOTAL load is 0.35 kg."])
+      expect(nearestLine(sentence, [{ id: "P1", text: sheet }])).toBeNull();
+    expect(nearestLine("The TOTAL load is 0.25 kg.", [{ id: "P1", text: sheet }])).toMatchObject({
+      id: "P1",
+      text: "TOTAL load\t0.25",
+    });
+    expect(
+      nearestLine("The TOTAL load is 0.4 kg.", [
+        { id: "P1", text: sheet.replace("[row 3, struck through] ", "") },
+      ]),
+    ).toMatchObject({ id: "P1", text: "TOTAL load\t0.4" });
   });
 
   test("nor any line of a Passage whose set-aside rows couldn't be marked line by line", () => {

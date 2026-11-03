@@ -152,7 +152,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     const setAsideHow = setAsideRowsOf(units);
     const setAside = {
       struck: read.rowNumbers.filter((row) => setAsideHow(named, row)?.includes("strikes")),
-      hidden: read.rowNumbers.filter((row) => setAsideHow(named, row) === "hides"),
+      hidden: read.rowNumbers.filter((row) => setAsideHow(named, row)?.includes("hides")),
     };
     const heading = units.find(
       (unit) =>
