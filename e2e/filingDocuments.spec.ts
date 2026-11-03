@@ -317,20 +317,26 @@ async function expectLabelByPointer(window: Page, point: { x: number; y: number 
 }
 
 /**
- * Starts a file drag from Finder over a Folder and cancels it as the browser
- * does (Esc): no dragleave reaches the page, and the first pointer move after
- * it ends the drag (#229).
+ * A file drag from Finder that crosses the card and a Folder, cancelled as the
+ * browser does (Esc): no dragleave reaches the page, and the first pointer
+ * move after it ends the drag. The next drag must light the card again, then
+ * the Folders heading says the window's add (#229).
  */
-async function cancelFinderDrag(
+async function cancelCrossingFinderDrag(
   window: Page,
+  cardHeading: Locator,
+  foldersHeading: Locator,
   folder: Locator,
   paths: readonly string[],
+  cardWords: string,
+  addWords: string,
 ): Promise<void> {
-  const row = folder.getByTestId("folder-row");
-  await row.scrollIntoViewIfNeeded();
-  const box = await row.boundingBox();
-  if (!box) throw new Error("The drop target isn't showing.");
-  const point = { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  const middleOf = async (locator: Locator) => {
+    await locator.scrollIntoViewIfNeeded();
+    const box = await locator.boundingBox();
+    if (!box) throw new Error("The drop target isn't showing.");
+    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  };
   const data = {
     items: [{ mimeType: "text/plain", data: "" }],
     files: [...paths],
@@ -338,12 +344,29 @@ async function cancelFinderDrag(
   };
   const session = await window.context().newCDPSession(window);
   try {
-    await session.send("Input.dispatchDragEvent", { type: "dragEnter", ...point, data });
-    await session.send("Input.dispatchDragEvent", { type: "dragOver", ...point, data });
+    const cardPoint = await middleOf(cardHeading);
+    const folderPoint = await middleOf(folder.getByTestId("folder-row"));
+    await session.send("Input.dispatchDragEvent", { type: "dragEnter", ...cardPoint, data });
+    await session.send("Input.dispatchDragEvent", { type: "dragOver", ...cardPoint, data });
+    await expect(window.getByTestId("drop-overlay")).toContainText(cardWords);
+    await session.send("Input.dispatchDragEvent", { type: "dragOver", ...folderPoint, data });
     await expect(folder).toHaveAttribute("data-drop-target", "true");
-    await session.send("Input.dispatchDragEvent", { type: "dragCancel", ...point, data });
-    await window.mouse.move(point.x + 24, point.y + 24);
+    await session.send("Input.dispatchDragEvent", { type: "dragCancel", ...folderPoint, data });
+    await window.mouse.move(folderPoint.x + 24, folderPoint.y + 24);
     await expect(folder).not.toHaveAttribute("data-drop-target", "true");
+    await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
+
+    // The next drag after the cancel must light the card again, and the Folders heading must say
+    // the window's own add rather than stay dark.
+    await session.send("Input.dispatchDragEvent", { type: "dragEnter", ...cardPoint, data });
+    await session.send("Input.dispatchDragEvent", { type: "dragOver", ...cardPoint, data });
+    await expect(window.getByTestId("card").getByTestId("drop-overlay")).toContainText(cardWords);
+    const headingPoint = await middleOf(foldersHeading);
+    await session.send("Input.dispatchDragEvent", { type: "dragOver", ...headingPoint, data });
+    await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
+    await expect(window.getByTestId("drop-label")).toHaveText(addWords);
+    await session.send("Input.dispatchDragEvent", { type: "dragCancel", ...headingPoint, data });
+    await window.mouse.move(headingPoint.x + 24, headingPoint.y + 24);
     await expect(window.getByTestId("drop-label")).toHaveCount(0);
   } finally {
     await session.detach();
@@ -493,7 +516,15 @@ for (const [language, width] of [
       // Folder only the Folder lights, so the sidebar is never covered.
       const droppedName = language === "en" ? "Field notes" : "现场记录";
       const dropped = await droppedFile(droppedName);
-      await cancelFinderDrag(window, finance, [dropped]);
+      await cancelCrossingFinderDrag(
+        window,
+        library.getByTestId("library-heading"),
+        window.getByTestId("folders-title"),
+        finance,
+        [dropped],
+        words.cardDrop,
+        words.addToLibrary,
+      );
       // After a cancelled file drag, dragging an app Document must not bring the file words back: a
       // Document dropped on the Folders heading or the card heading adds nothing.
       for (const heading of [

@@ -1,4 +1,4 @@
-import { type DragEvent, useEffect, useRef, useState } from "react";
+import { type DragEvent, useEffect } from "react";
 import { create } from "zustand";
 import type { Words } from "./lineNames";
 import { exit, exitToward } from "./motion";
@@ -448,48 +448,22 @@ export function useDropTarget<Place = undefined>(
 }
 
 /**
- * Makes a whole area, such as the window, a target: lit while what it takes
- * is dragged anywhere over it, and taking only what no target inside took.
- * Counting enters and leaves keeps it steady as the pointer crosses the
- * elements inside, and only entering or leaving the area redraws it.
+ * Makes a whole area, such as the window, take what no target inside took:
+ * accepting the drag there stops Electron opening the file, and the drop runs
+ * the area's own. The caller says when it is over, from the drag's own point.
  */
 export function useDropArea(target: DropTarget) {
-  const depth = useRef(0);
-  const [over, setOver] = useState(false);
-  const [entered, setEntered] = useState<{ effect: DropEffect; dragged: Dragged } | null>(null);
   const effectOf = (event: DragEvent) => {
     if (!event.dataTransfer) return null;
     const dragged = draggedIn(event.dataTransfer);
     return dragged ? target.accepts(dragged, pointOf(event)) : null;
   };
   return {
-    over: over ? (entered?.effect ?? null) : null,
-    dragged: entered?.dragged ?? null,
-    /** Ends the area's lights, as a cancelled drag's first pointer move does. */
-    reset() {
-      depth.current = 0;
-      setOver(false);
-      setEntered(null);
-    },
     props: {
       onDragEnter(event: DragEvent) {
         const dragged = event.dataTransfer ? draggedIn(event.dataTransfer) : null;
-        const effect = dragged ? target.accepts(dragged, pointOf(event)) : null;
-        if (!dragged || !effect) return;
+        if (!dragged || !target.accepts(dragged, pointOf(event))) return;
         event.preventDefault();
-        // A child's enter counts, but only the first one lights the area.
-        depth.current += 1;
-        if (depth.current === 1) setOver(true);
-        setEntered((current) =>
-          current?.dragged.kind === dragged.kind && current.effect.kind === effect.kind
-            ? current
-            : { effect, dragged },
-        );
-      },
-      onDragLeave(event: DragEvent) {
-        if (!effectOf(event)) return;
-        depth.current = Math.max(0, depth.current - 1);
-        if (depth.current === 0) setOver(false);
       },
       onDragOver(event: DragEvent) {
         const next = effectOf(event);
@@ -504,8 +478,6 @@ export function useDropArea(target: DropTarget) {
         if (!next) return;
         const taken = event.defaultPrevented;
         event.preventDefault();
-        depth.current = 0;
-        setOver(false);
         if (taken) return;
         const dropped = droppedIn(event.dataTransfer);
         if (dropped) void finish(target.drop(dropped, next));
