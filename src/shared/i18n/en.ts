@@ -4869,6 +4869,7 @@ export const en = {
   "error.folder.limit": "The Library supports up to 100 Folders.",
   "error.mind.notFound": "That note doesn’t exist or has been deleted.",
   "error.layout.units": "That place in a Document counts from 1.",
+  "error.layout.area": "That area of a Document isn’t a rectangle inside its page.",
   "error.layout.wordPlace": "That place in the Word file isn’t one IncarnaMind can open.",
   "error.mind.notFromWord":
     "This note wasn’t imported from a Word file, so it has no original to add.",

@@ -4642,6 +4642,7 @@ export const zhCN = {
   "error.folder.limit": "资料库最多可以有 100 个文件夹。",
   "error.mind.notFound": "这篇笔记不存在或已删除。",
   "error.layout.units": "文档中的位置从 1 开始编号。",
+  "error.layout.area": "文档中的这个区域不是页面内的矩形。",
   "error.layout.wordPlace": "无法打开 Word 文件中的这个位置。",
   "error.mind.notFromWord": "这篇笔记不是从 Word 文件导入的，没有可添加的原文件。",
   "error.mind.newerVersion": "这是较新版本的 IncarnaMind 创建的。更新后才能打开。",

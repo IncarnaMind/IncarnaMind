@@ -177,7 +177,7 @@ function parsePlace(value: unknown): DocumentPlace {
   }
   if (value.area !== undefined) {
     const area = parseCitedArea(value.area);
-    if (!area) throw new InvalidInputError("An area is a rectangle inside its Unit.");
+    if (!area) throw new InvalidInputError({ key: "error.layout.area" });
     place.area = area;
   }
   if (value.citation !== undefined) place.citation = parseCitation(value.citation);
