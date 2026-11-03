@@ -31,9 +31,28 @@ function note(event: { clientX: number; clientY: number }): void {
   if (current.at?.x !== at.x || current.at?.y !== at.y || current.zone !== zone) {
     useWindowDrop.setState({ at, zone });
   }
+  watchWindowCancel();
 }
 
-const forget = (): void => useWindowDrop.setState({ at: null, zone: null });
+let windowCancel: (() => void) | null = null;
+
+/** A cancelled drag sends the page nothing; the first pointer move after it ends the label. */
+function watchWindowCancel(): void {
+  if (windowCancel || typeof window === "undefined") return;
+  windowCancel = () => {
+    windowCancel = null;
+    forget();
+  };
+  window.addEventListener("pointermove", windowCancel, { capture: true, once: true });
+}
+
+function forget(): void {
+  if (windowCancel) {
+    window.removeEventListener("pointermove", windowCancel, { capture: true });
+    windowCancel = null;
+  }
+  useWindowDrop.setState({ at: null, zone: null });
+}
 
 /**
  * Lets files and folders be dropped anywhere on an element, and with

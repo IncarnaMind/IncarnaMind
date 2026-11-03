@@ -188,24 +188,34 @@ test("a link pasted or dropped on a Folder in the sidebar is saved there; one th
   await expect(folder).toHaveAttribute("data-drop-target", "true");
   await expect(window.getByTestId("drop-label")).toHaveText("Add the web page to Reading");
   await screenshot(window, "web-page-drag");
-
-  // A drag the browser cancels (Esc) sends a dragleave with no target: the Folder goes dark again.
-  await window.evaluate(() => {
-    const transfer = new DataTransfer();
-    transfer.setData("text/uri-list", "http://example.invalid/");
-    document.querySelector('[data-testid="sidebar"]')?.dispatchEvent(
-      new DragEvent("dragleave", {
-        bubbles: true,
-        dataTransfer: transfer,
-        relatedTarget: null,
-      }),
-    );
-  });
-  await expect(folder).not.toHaveAttribute("data-drop-target", "true");
-  await expect(window.getByTestId("drop-label")).toHaveCount(0);
-
   await dragLink(row, `${site}/tea-dropped`);
   await expect(folder).toHaveAttribute("data-count", "2");
+
+  // The browser's own cancel (Esc) sends the page no dragleave: the first pointer move after it
+  // ends the drag, so the Folder goes dark (#229).
+  const rowBox = await row.boundingBox();
+  if (!rowBox) throw new Error("The Folder row isn't showing.");
+  const point = {
+    x: Math.round(rowBox.x + rowBox.width / 2),
+    y: Math.round(rowBox.y + rowBox.height / 2),
+  };
+  const session = await window.context().newCDPSession(window);
+  const data = {
+    items: [{ mimeType: "text/uri-list", data: `${site}/tea-cancelled` }],
+    files: [],
+    dragOperationsMask: 1,
+  };
+  try {
+    await session.send("Input.dispatchDragEvent", { type: "dragEnter", ...point, data });
+    await session.send("Input.dispatchDragEvent", { type: "dragOver", ...point, data });
+    await expect(folder).toHaveAttribute("data-drop-target", "true");
+    await session.send("Input.dispatchDragEvent", { type: "dragCancel", ...point, data });
+    await window.mouse.move(point.x + 24, point.y + 24);
+    await expect(folder).not.toHaveAttribute("data-drop-target", "true");
+    await expect(window.getByTestId("drop-label")).toHaveCount(0);
+  } finally {
+    await session.detach();
+  }
 
   await paste(window, `${site}/gone`);
   const problem = window.locator('[data-testid^="web-page-problem"]');

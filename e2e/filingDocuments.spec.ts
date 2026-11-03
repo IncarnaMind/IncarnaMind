@@ -316,6 +316,40 @@ async function expectLabelByPointer(window: Page, point: { x: number; y: number 
   expect(Math.abs(box.y - top)).toBeLessThanOrEqual(2);
 }
 
+/**
+ * Starts a file drag from Finder over a Folder and cancels it as the browser
+ * does (Esc): no dragleave reaches the page, and the first pointer move after
+ * it ends the drag (#229).
+ */
+async function cancelFinderDrag(
+  window: Page,
+  folder: Locator,
+  paths: readonly string[],
+): Promise<void> {
+  const row = folder.getByTestId("folder-row");
+  await row.scrollIntoViewIfNeeded();
+  const box = await row.boundingBox();
+  if (!box) throw new Error("The drop target isn't showing.");
+  const point = { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  const data = {
+    items: [{ mimeType: "text/plain", data: "" }],
+    files: [...paths],
+    dragOperationsMask: 1,
+  };
+  const session = await window.context().newCDPSession(window);
+  try {
+    await session.send("Input.dispatchDragEvent", { type: "dragEnter", ...point, data });
+    await session.send("Input.dispatchDragEvent", { type: "dragOver", ...point, data });
+    await expect(folder).toHaveAttribute("data-drop-target", "true");
+    await session.send("Input.dispatchDragEvent", { type: "dragCancel", ...point, data });
+    await window.mouse.move(point.x + 24, point.y + 24);
+    await expect(folder).not.toHaveAttribute("data-drop-target", "true");
+    await expect(window.getByTestId("drop-label")).toHaveCount(0);
+  } finally {
+    await session.detach();
+  }
+}
+
 for (const [language, width] of [
   ["en", 900],
   ["en", 1600],
@@ -459,6 +493,7 @@ for (const [language, width] of [
       // Folder only the Folder lights, so the sidebar is never covered.
       const droppedName = language === "en" ? "Field notes" : "现场记录";
       const dropped = await droppedFile(droppedName);
+      await cancelFinderDrag(window, finance, [dropped]);
       await dropFromFinder(
         window,
         finance.getByTestId("folder-row"),

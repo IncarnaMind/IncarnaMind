@@ -360,6 +360,19 @@ describe("files dragged from another app", () => {
   });
 });
 
+describe("links dragged from another app", () => {
+  test("are one web page, or say how many the drag's items carry", () => {
+    const item = { kind: "string", type: "text/uri-list" } as DataTransferItem;
+    expect(layer.draggedIn({ types: ["text/uri-list"], items: [item] as never })).toEqual({
+      kind: "links",
+    });
+    expect(layer.draggedIn({ types: ["text/uri-list"], items: [item, item] as never })).toEqual({
+      kind: "links",
+      count: 2,
+    });
+  });
+});
+
 describe("what a drop on a Folder says", () => {
   const say = (language: "en" | "zh-CN") => (key: MessageKey, params?: MessageParams) =>
     translate(language, key, params);
