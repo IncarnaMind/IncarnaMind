@@ -645,6 +645,7 @@ for (const [language, width] of [
         .poll(() => folderOfDocument(window, addedByKeyboard), { timeout: 30_000 })
         .toBe(seeded.finance);
       await expect(undoMessage(window)).toHaveText(words.addedOne);
+      await expect(libraryRow(library, addedByKeyboard)).toHaveCount(1);
       await undo(window);
       await expect(libraryRow(library, addedByKeyboard)).toHaveCount(0);
 
@@ -699,6 +700,7 @@ for (const [language, width] of [
         .poll(() => folderOfDocument(window, addedFromPalette), { timeout: 30_000 })
         .toBe(seeded.finance);
       await expect(undoMessage(window)).toHaveText(words.addedOne);
+      await expect(libraryRow(library, addedFromPalette)).toHaveCount(1);
       await undo(window);
       await expect(libraryRow(library, addedFromPalette)).toHaveCount(0);
 

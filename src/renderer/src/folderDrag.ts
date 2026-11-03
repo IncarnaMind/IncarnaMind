@@ -149,8 +149,8 @@ export function folderTarget(
     accepts(dragged, at) {
       if (dragged.kind === "links") return { kind: "add" };
       if (dragged.kind === "files") {
-        // Before the drop, a file is known by its type alone; its name comes with the drop.
         if (folderId === null) return null;
+        // Before the drop, a file is known by its type alone; its name comes with the drop.
         const count = dragged.types.length;
         return {
           kind: "import",

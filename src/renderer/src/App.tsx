@@ -301,8 +301,8 @@ function Workspace() {
         <Workbench
           ref={workbench}
           sidebarHidden={sidebar.hidden}
-          // Files and links are dropped on the card: the sidebar's Folders, which take both, stay in
-          // sight, and the window stays quiet while one of them takes the drag (#212, #261).
+          // The overlay covers only the card, so the sidebar's Folders stay in sight, and it stays
+          // quiet while any target inside takes the drag, for one target lit at a time (#212, #261).
           cardOverlay={
             fileDrop.active && !takenInside ? <DropOverlay links={fileDrop.links} /> : null
           }
