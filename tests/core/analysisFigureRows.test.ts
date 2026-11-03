@@ -81,6 +81,27 @@ describe("a figure() figure worked out again from the cells", () => {
     },
   );
 
+  test.each([
+    ["min", 1],
+    ["max", 199_999],
+    ["sum", 19_999_900_000],
+  ] as const)("its %s over 199,999 rows is worked out again", (how, value) => {
+    const many: AnalysisInput = {
+      kind: "table",
+      name: "orders",
+      columns: ["Amount"],
+      firstRow: 2,
+      rows: Array.from({ length: 199_999 }, (_, at) => [at + 1]),
+    };
+    expect(
+      recalculate(
+        value,
+        { input: "orders", columns: ["Amount"], rows: [[2, 200_000]], count: 199_999, how },
+        [many],
+      ),
+    ).toEqual({ kind: "same", value });
+  });
+
   test("a value its cells don't come to differs, and says what they come to", () => {
     expect(recalculate(300, of([[2, 3]], "sum"), [SALES])).toEqual({
       kind: "differs",
