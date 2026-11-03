@@ -349,7 +349,9 @@ test("signing in again to a plan clears its failure line before anything is aske
     await window.keyboard.press("Enter");
     await expect(row.getByTestId("copilot-code")).toBeVisible();
     github.approve();
-    await expect(row.getByTestId("plans-copilot-account")).toHaveText(`GitHub Copilot · ${LOGIN}`);
+    await expect(row.getByTestId("plans-copilot-account")).toHaveText(
+      `Signed in to GitHub as ${LOGIN}`,
+    );
     await closeSettings(window);
 
     const refusal = {

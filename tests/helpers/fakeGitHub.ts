@@ -88,6 +88,8 @@ export interface FakeGitHub {
   userStatus: number | null;
   /** What Copilot's model list holds. */
   listedModels: unknown[];
+  /** The model list answers this instead of its models, as for an account without Copilot. */
+  modelsRefusal: { status: number; body: unknown } | null;
   /** The model list answers only once this resolves. */
   holdModels: Promise<void> | null;
   /** How many times the model list was asked for. */
@@ -188,6 +190,7 @@ export async function createFakeGitHub(): Promise<FakeGitHub> {
     sku: "plus_monthly_subscriber_quota",
     userStatus: null,
     listedModels: LISTED_MODELS,
+    modelsRefusal: null,
     holdExchange: null,
     holdModels: null,
     modelRequests: 0,
@@ -383,6 +386,9 @@ export async function createFakeGitHub(): Promise<FakeGitHub> {
             return sendJson(response, 401, { message: "Bad credentials" });
           fake.modelRequests += 1;
           await fake.holdModels;
+          if (fake.modelsRefusal) {
+            return sendJson(response, fake.modelsRefusal.status, fake.modelsRefusal.body);
+          }
           return sendJson(response, 200, { data: fake.listedModels, object: "list" });
         }
         if (request.method === "POST" && path === "/chat/completions") {

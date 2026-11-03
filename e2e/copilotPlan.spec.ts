@@ -183,6 +183,31 @@ test("first run: declining GitHub approval offers retry and an API key, in Engli
   await app.close();
 });
 
+test("first run: an account GitHub says has no Copilot plan is told so where it signs in, in English and Chinese, and nothing is kept", async () => {
+  github.modelsRefusal = {
+    status: 403,
+    body: { error: { message: "No access to GitHub Copilot found.", code: "no_copilot_access" } },
+  };
+  const { app, window } = await launchApp(dataDir, { copilot: github.origin, ollama: NO_OLLAMA });
+  await interceptOpenExternal(app);
+  await setWindowSize(app, window, 900, 900);
+  await acceptPlainTextKeys(window);
+  const card = await askFirstQuestion(window);
+  await pointAndClick(window, card.getByTestId("way-copilot"));
+  await window.keyboard.press("Enter");
+  await expect(card.getByTestId("copilot-code")).toBeVisible();
+  github.approve();
+
+  const failure = card.getByTestId("copilot-failure");
+  await expect(failure).toContainText("Your GitHub account has no Copilot plan");
+  await expect(failure.getByRole("button").first()).toHaveText("Use an API key instead");
+  expect(await copilotAccount(window)).toEqual({ state: "signed-out" });
+  await setLanguage(window, "zh-CN");
+  await expect(failure).toContainText("你的 GitHub 账号没有 Copilot 订阅");
+  await setLanguage(window, "en");
+  await app.close();
+});
+
 test("Settings › Models: the Copilot plan opens its notice before signing in, then shows the account with no plan tier, with Sign out", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
@@ -215,7 +240,8 @@ test("Settings › Models: the Copilot plan opens its notice before signing in, 
   github.approve();
 
   const account = row.getByTestId("plans-copilot-account");
-  await expect(account).toHaveText(`GitHub Copilot · ${LOGIN}`);
+  await expect(account).toHaveText(`Signed in to GitHub as ${LOGIN}`);
+  await expect(row.getByText("Experimental", { exact: true })).toHaveCount(0);
   await expect(row.getByTestId("plans-copilot-sign-out")).toBeFocused();
   await expect(row).toContainText("Answers count toward your plan’s usage limits.");
   const signOut = row.getByTestId("plans-copilot-sign-out");
@@ -232,6 +258,7 @@ test("Settings › Models: the Copilot plan opens its notice before signing in, 
 
   await setLanguage(window, "zh-CN");
   await expect(row).toContainText("GitHub Copilot Pro、Pro+、Business 或 Enterprise");
+  await expect(account).toHaveText(`已登录 GitHub：${LOGIN}`);
   await expect(row).toContainText("回答会计入订阅的用量限额。");
   await screenshot(row, "settings-copilot-signed-in-zh");
   await setLanguage(window, "en");
@@ -266,7 +293,9 @@ test("Settings › Models: signed in but with no model listed, the row says so w
   const failure = row.getByTestId("copilot-failure");
   await expect(failure).toContainText("GitHub Copilot listed no models for this account");
   await expect(failure.getByRole("button")).toHaveText(["Try again", "Use an API key instead"]);
-  await expect(row.getByTestId("plans-copilot-account")).toHaveText(`GitHub Copilot · ${LOGIN}`);
+  await expect(row.getByTestId("plans-copilot-account")).toHaveText(
+    `Signed in to GitHub as ${LOGIN}`,
+  );
   await expect(row).not.toContainText("Answers count toward your plan’s usage limits.");
   await screenshot(row, "settings-copilot-no-models");
 
@@ -329,7 +358,9 @@ test("own sign-in: refusal, cancel and retry; the API-selected experimental prof
   await line.getByTestId("answer-error-action").focus();
   await window.keyboard.press("Enter");
   await expect(settings).toHaveAttribute("data-page", "models");
-  await expect(row.getByTestId("plans-copilot-account")).toHaveText(`GitHub Copilot · ${LOGIN}`);
+  await expect(row.getByTestId("plans-copilot-account")).toHaveText(
+    `Signed in to GitHub as ${LOGIN}`,
+  );
   await pointAndClick(window, row.getByTestId("copilot-sign-in"));
   await expect(row.getByTestId("copilot-code")).toHaveText(USER_CODE);
   await screenshot(row, "settings-copilot-sign-in-again");
@@ -358,6 +389,7 @@ test("own sign-in: refusal, cancel and retry; the API-selected experimental prof
   github.approve();
   expect(await fallback).toMatchObject({ ok: true, status: { account: { profile: "editor" } } });
   await expect(row.getByTestId("plans-copilot-account")).toHaveText(`Copilot Pro+ · ${LOGIN}`);
+  await expect(row.getByText("Experimental", { exact: true })).toBeVisible();
   await window.keyboard.press("Escape");
   await expect(settings).toBeHidden();
   await window.keyboard.press("ControlOrMeta+j");

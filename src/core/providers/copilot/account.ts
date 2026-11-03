@@ -294,6 +294,34 @@ export function createCopilotAccount(options: {
     }
   };
 
+  /**
+   * A profile with no token exchange sends the GitHub token itself, so GitHub's word that the
+   * account has no Copilot plan first comes with the model list: asked here, it is said where
+   * the User signs in, and nothing is kept, as for a refused token exchange. Any other failure
+   * leaves the sign-in standing, and the list is asked again when it is needed.
+   */
+  const listAtSignIn = async (
+    profile: CopilotProfile,
+    githubToken: string,
+    signal: AbortSignal,
+  ): Promise<CopilotModel[]> => {
+    try {
+      return await listCopilotModels({
+        baseUrl: profile.apiBaseUrl,
+        credentials: { access: async () => ({ accessToken: githubToken }) },
+        headers: profile.requestHeaders ?? {},
+        signal: AbortSignal.any([signal, AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS)]),
+        ...fetcher,
+      });
+    } catch (error) {
+      if (error instanceof SignInRouteError && error.problem === "no-plan") {
+        throw new ExchangeFailure("no-plan", error.message);
+      }
+      if (!signal.aborted) console.error("The Copilot plan's model list couldn't be read.", error);
+      return [];
+    }
+  };
+
   const status = async (): Promise<CopilotStatus> => {
     // Read before awaiting the keychain, so the status describes the moment it was asked for.
     const signingIn = account.signingIn();
@@ -368,8 +396,12 @@ export function createCopilotAccount(options: {
             ...fetcher,
           });
           if (signal.aborted) throw new OAuthFlowError("cancelled", "The sign-in was cancelled.");
-          listed = null;
+          const first = profile.tokenExchange
+            ? []
+            : await listAtSignIn(profile, github.accessToken, signal);
+          if (signal.aborted) throw new OAuthFlowError("cancelled", "The sign-in was cancelled.");
           await account.commit({ tokens: kept(tokens), ended: null, profile: id, login, plan });
+          listed = first.length > 0 ? { at: now(), models: first } : null;
         });
         return { ok: true, status: await status() };
       } catch (error) {

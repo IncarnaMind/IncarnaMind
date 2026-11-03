@@ -347,6 +347,36 @@ describe("IncarnaMind's own GitHub OAuth App (#876)", () => {
     expect((await core.getCopilot()).account).toMatchObject({ plan: null });
   });
 
+  test("an account GitHub says has no Copilot plan is told so at sign-in, in words, and nothing is kept", async () => {
+    const { core, fake, keychain } = await withOwnApp();
+    fake.modelsRefusal = {
+      status: 403,
+      body: { error: { message: "No access to GitHub Copilot found.", code: "no_copilot_access" } },
+    };
+    const { result } = await codeShown(core);
+    fake.approve();
+
+    const failed = await result;
+    expect(failed).toMatchObject({ ok: false, error: { kind: "no-plan" } });
+    expect(keychain.secrets.size).toBe(0);
+    expect(await core.getCopilot()).toMatchObject({ account: { state: "signed-out" } });
+    const words = COPILOT_SIGN_IN_PROBLEMS["no-plan"];
+    expect(translate("en", words.line)).toBe("Your GitHub account has no Copilot plan");
+    expect(translate("zh-CN", words.line)).toBe("你的 GitHub 账号没有 Copilot 订阅");
+  });
+
+  test("a refusal of the model list that doesn't say there is no plan leaves the sign-in standing", async () => {
+    const { core, fake } = await withOwnApp();
+    fake.modelsRefusal = { status: 403, body: { error: { message: "Forbidden" } } };
+    const { result } = await codeShown(core);
+    fake.approve();
+
+    expect(await result).toMatchObject({
+      ok: true,
+      status: { account: { state: "signed-in", profile: "own", plan: null }, models: [] },
+    });
+  });
+
   test("refused by Copilot, it says GitHub didn't let IncarnaMind, and the experimental way still works", async () => {
     const setup = await withOwnApp();
     await signedIn("own", setup);
