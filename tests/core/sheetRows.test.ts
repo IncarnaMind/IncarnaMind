@@ -268,7 +268,7 @@ test("a workbook read before the file's set-aside rows were kept is read again a
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   try {
     db.transaction(() => {
-      db.run("UPDATE documents SET processing_version = 22 WHERE id = ?", [document.id]);
+      db.run("UPDATE documents SET processing_version = 23 WHERE id = ?", [document.id]);
       for (const { id, label } of db.all<{ id: string; label: string }>(
         "SELECT id, label FROM document_pages WHERE document_id = ?",
         [document.id],

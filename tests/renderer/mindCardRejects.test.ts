@@ -1,7 +1,20 @@
-import { describe, expect, test, vi } from "vitest";
+import { Editor, type JSONContent } from "@tiptap/core";
+import Collaboration from "@tiptap/extension-collaboration";
+import { DOMParser } from "linkedom";
+import { describe, expect, onTestFinished, test, vi } from "vitest";
 import type { Core } from "../../src/core";
+import { nodeOf, topLevelBlocks } from "../../src/core/answers/blocks";
+import {
+  type ConversationAnswer,
+  MIND_CONTENT_FIELD,
+  MIND_FIGURE_RUNS_FIELD,
+  PROPOSAL_ATTRIBUTE,
+} from "../../src/core/api";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
-import { pendingProposals } from "../../src/shared/proposals";
+import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
+import { calculatedFiguresIn, figureRunsFor, installFigureRuns } from "../../src/shared/figureRuns";
+import { FORMULA_VERSION } from "../../src/shared/formula";
+import { pendingProposals, recordProposalRequest } from "../../src/shared/proposals";
 import { askAssistant, changesIn } from "../helpers/assistant";
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -159,5 +172,179 @@ describe("Reject all on an Answer's card, Undo, and Reject all again", { timeout
     expect(exactly(page)).toEqual(gone);
     expect(revision).toMatchObject({ mindId: mind.id, revised: true });
     expect(errors).toEqual([]);
+  });
+});
+
+/** A paragraph holding an Analysis figure of the run the Note keeps. */
+function figureParagraph(id: string, words: string, figure: string): JSONContent {
+  return {
+    type: "paragraph",
+    attrs: { id },
+    content: [
+      { type: "text", text: words },
+      calculatedFigureNode(
+        {
+          label: "Total",
+          formula: "",
+          inputs: [],
+          value: 300,
+          unit: { kind: "plain" as const },
+          approximate: false,
+          shown: "300",
+          show: { language: "en", as: null, decimals: 0, scale: null },
+          literals: [],
+          engine: FORMULA_VERSION,
+          written: null,
+          analysis: { analysis: 1, result: "total" },
+        },
+        figure,
+        "run",
+      ),
+    ],
+  };
+}
+
+describe("Accept on an Answer's card, then an editor edit of another figure (#2378)", () => {
+  test("the record the accepted change's Undo needs stays though the editor deletes a figure", async () => {
+    const core = startCore(await createTempDataFolder());
+    const mind = await core.createMind({ title: MIND });
+    const page = await connectToMind(core, mind.id);
+    const request = "accepted-change";
+    const proposed = figureParagraph("p1", "Total ", "first");
+    proposed.attrs = {
+      ...proposed.attrs,
+      [PROPOSAL_ATTRIBUTE]: { id: "change", request, kind: "delete" },
+    };
+    writeMind(page, [
+      heading(2, "Totals"),
+      proposed,
+      heading(2, "Notes"),
+      figureParagraph("p2", "Again ", "second"),
+    ]);
+    recordProposalRequest(page.doc, request, {
+      source: "outside-agent",
+      agent: "Codex",
+      pairingId: "pairing",
+      createdAt: "2026-11-01T09:00:00.000Z",
+    });
+    page.doc.transact(() =>
+      installFigureRuns(page.doc, [
+        {
+          id: "run",
+          title: "Totals",
+          language: "python",
+          code: "result('total', 300)",
+          inputs: [],
+          versions: null,
+          codeSha256: "a".repeat(64),
+          ranAt: "2026-11-01T00:00:00.000Z",
+          values: [{ kind: "figure", name: "total", label: "Total", value: 300, unit: null }],
+        },
+      ]),
+    );
+    await page.settled();
+    expect(calculatedFiguresIn(topLevelBlocks(page.blocks).map(nodeOf))).toHaveLength(2);
+    expect(pendingProposals(page.blocks).map((each) => each.request)).toEqual([request]);
+
+    bridge.core = core;
+    const { resolveAllChanges } = await import("../../src/renderer/src/mindChanges");
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const { useUndo } = await import("../../src/renderer/src/undo");
+    const errors: unknown[] = [];
+    useAppStore.setState({
+      minds: [
+        {
+          id: mind.id,
+          title: MIND,
+          autoTitle: "",
+          kind: "mind",
+          createdAt: "",
+          updatedAt: "",
+          folderId: null,
+        },
+      ],
+      reportError: (error: unknown) => errors.push(error),
+    });
+    useUndo.setState({ done: [], undone: [], line: null });
+    const answer = {
+      id: "answer",
+      toolCalls: [
+        {
+          id: "call",
+          tool: "edit_mind",
+          source: "minds",
+          status: "done",
+          mindChange: { mindId: mind.id, created: false, request, proposals: 1, changed: 1 },
+        },
+      ],
+    } as unknown as ConversationAnswer;
+    await resolveAllChanges(answer.id, changedMinds(answer), "accept");
+    await vi.waitFor(() => expect(pendingProposals(page.blocks)).toEqual([]));
+    expect(calculatedFiguresIn(topLevelBlocks(page.blocks).map(nodeOf))).toHaveLength(1);
+
+    // The editor deletes the figure that is left; no edit removes a record.
+    const dom = new DOMParser().parseFromString(
+      "<html><head></head><body></body></html>",
+      "text/html",
+    );
+    Object.defineProperty(dom, "styleSheets", { value: [] });
+    vi.stubGlobal("document", dom);
+    vi.stubGlobal("window", dom.defaultView);
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    vi.stubGlobal("getComputedStyle", () => ({
+      fontStyle: "",
+      fontWeight: "",
+      fontSize: "",
+      fontFamily: "",
+    }));
+    const [{ noteExtensions }, { FigureEvidence }] = await Promise.all([
+      import("../../src/renderer/src/editor/noteSchema"),
+      import("../../src/renderer/src/editor/figureEvidence"),
+    ]);
+    const editor = new Editor({
+      element: document.createElement("div"),
+      editorProps: { handleScrollToSelection: () => true },
+      extensions: [
+        ...noteExtensions(),
+        Collaboration.configure({ document: page.doc, field: MIND_CONTENT_FIELD }),
+        FigureEvidence.configure({ doc: page.doc }),
+      ],
+    });
+    onTestFinished(() => editor.destroy());
+    let at = -1;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === "calculatedFigure") at = pos;
+      return true;
+    });
+    if (at < 0) throw new Error("Missing figure");
+    const runs = page.doc.getMap(MIND_FIGURE_RUNS_FIELD);
+    editor.view.dispatch(editor.state.tr.delete(at, at + 1));
+    await vi.waitFor(() =>
+      expect(calculatedFiguresIn(topLevelBlocks(page.blocks).map(nodeOf))).toHaveLength(0),
+    );
+    expect(runs.size).toBe(2);
+
+    // Undo on the Answer's line brings the accepted change back, its figure's record with it.
+    await useUndo.getState().undo();
+    await vi.waitFor(() =>
+      expect(calculatedFiguresIn(topLevelBlocks(page.blocks).map(nodeOf))).toHaveLength(1),
+    );
+    const restored = topLevelBlocks(page.blocks)
+      .map(nodeOf)
+      .filter((node) => calculatedFiguresIn([node]).length > 0);
+    expect(figureRunsFor(page.doc, restored)[0]?.values.map((value) => value.name)).toEqual([
+      "total",
+    ]);
+    expect(errors).toEqual([]);
+    core.close();
   });
 });
