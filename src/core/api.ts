@@ -2562,6 +2562,24 @@ export interface AnalysisRangeInput {
   cut: boolean;
   /** SHA-256 of its headings and rows as read. */
   sha256: string;
+  /** A table of a PDF, Word file or deck (#448), whose rows `citation` covers from its first. */
+  table?: AnalysisTableRows;
+}
+
+/** The rows an Analysis read of a table in a PDF, Word file or deck, each where the Document has it. */
+export interface AnalysisTableRows {
+  /** The table's number in its Document, from 1, in reading order. */
+  number: number;
+  /**
+   * Each row read, in order: its number in the table (the headings are row 1), the Unit (page,
+   * slide or section) it is in, and its text as that Unit holds it, null where its cells aren't
+   * there together.
+   */
+  rows: { row: number; unit: number; quote: string | null }[];
+  /** Its numbers were recognized from a picture of the page (#397): no figure of it is worked out again. */
+  scan?: true;
+  /** How many of its cells had a footnote mark after a figure, which their values leave out. */
+  marks?: number;
 }
 
 /** A number an Analysis read from a quote (#447), as `calculate` reads one. */
@@ -6931,7 +6949,9 @@ export interface MindCheckRun {
   skipped: string[];
   /**
    * The sentences the model decided nothing about, even asked twice (#1682), by `sentenceKey`:
-   * not examined, so they stay to check and a later run asks about them again.
+   * not examined, so they stay to check and a later run asks about them again. One with
+   * a figure, a Citation, a record cite or a court decision is never among them: it is checked all
+   * the same (#2447).
    */
   unexamined: string[];
 }

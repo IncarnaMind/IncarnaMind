@@ -476,6 +476,19 @@ describe("A Mind's health", () => {
     expect(healthSummary(checking, { running: false, problem: false, unread: 0 })).toBeNull();
   });
 
+  test("a table's value cell with a figure is still to check though the last whole-Note check left its words out, as the core still sends it; the paragraph with those words isn't (#2447)", () => {
+    const doc = docOf(
+      paragraph(text("540")),
+      table(paragraph(text("Fuel")), paragraph(text("540"))),
+      table(paragraph(text("540"))),
+    );
+
+    expect(healthOf(doc).toCheck).toHaveLength(3);
+    const left = healthOf(doc, { skipped: [sentenceKey("540")] });
+    expect(left.toCheck).toHaveLength(2);
+    expect(left.tableCells).toEqual(left.toCheck);
+  });
+
   test("counts a table cell's claim, on its own line (#1909)", () => {
     const doc = docOf(
       table(
