@@ -511,6 +511,7 @@ test("中文：区域里的文字已核对，图片区域为未核对，纯文�
   );
 
   // A model that reads text alone says so on the chip it can't use.
+  await acceptPlainTextKeys(window);
   await window.evaluate(async () => {
     const bridge = (globalThis as unknown as { incarnamind: CoreApi }).incarnamind;
     await bridge.saveChatProvider({
