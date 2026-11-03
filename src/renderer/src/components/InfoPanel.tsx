@@ -271,7 +271,7 @@ function useMissingFonts(mindId: string | undefined): string[] {
   return missingFonts(fonts);
 }
 
-const NOTE_MARK = "\u0000";
+const WHOSE_MARK = "\u0000";
 
 /** A file's date, and whose it is: the file's own, or this computer's, which says how it can change. */
 function FileDate({ value, from }: { value: string; from: FileDates["from"] }) {
@@ -279,8 +279,8 @@ function FileDate({ value, from }: { value: string; from: FileDates["from"] }) {
   const language = useLanguage();
   const date = shownFileDate(value, from, language);
   if (from === "file") return <>{t("info.fileDate", { date })}</>;
-  const [before = "", after = ""] = t("info.computerDate", { date, note: NOTE_MARK }).split(
-    NOTE_MARK,
+  const [before = "", after = ""] = t("info.computerDate", { date, whose: WHOSE_MARK }).split(
+    WHOSE_MARK,
   );
   return (
     <>

@@ -2032,7 +2032,7 @@ export const en = {
   "info.created": "Created",
   "info.modified": "Modified",
   "info.fileDate": "{date} (the file’s own date)",
-  "info.computerDate": "{date} {note}",
+  "info.computerDate": "{date} {whose}",
   "info.onComputer": "(on this computer)",
   "info.onComputer.tooltip": "Copying or downloading a file changes this date",
   "info.added": "Added",

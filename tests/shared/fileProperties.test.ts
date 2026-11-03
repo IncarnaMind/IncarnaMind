@@ -80,13 +80,13 @@ test("the info panel's dates read as the ruling words them", () => {
   expect(
     translate("en", "info.computerDate", {
       date: "2 Nov 2026",
-      note: translate("en", "info.onComputer"),
+      whose: translate("en", "info.onComputer"),
     }),
   ).toBe("2 Nov 2026 (on this computer)");
   expect(
     translate("zh-CN", "info.computerDate", {
       date: "2026年11月2日",
-      note: translate("zh-CN", "info.onComputer"),
+      whose: translate("zh-CN", "info.onComputer"),
     }),
   ).toBe("2026年11月2日（这台电脑记录的日期）");
   expect(translate("en", "info.onComputer.tooltip")).toBe(

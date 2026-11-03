@@ -1943,7 +1943,7 @@ export const zhCN = {
   "info.created": "创建时间",
   "info.modified": "修改时间",
   "info.fileDate": "{date}（文件本身的日期）",
-  "info.computerDate": "{date}{note}",
+  "info.computerDate": "{date}{whose}",
   "info.onComputer": "（这台电脑记录的日期）",
   "info.onComputer.tooltip": "复制或下载文件会改变这个日期",
   "info.added": "添加时间",
