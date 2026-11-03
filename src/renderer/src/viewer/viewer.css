@@ -921,3 +921,190 @@
 .peek-view :is(.viewer-header, .viewer-sheet-tabs, .viewer-slide-number) {
   display: none;
 }
+
+@layer components {
+  /*
+   * A Document's highlights (#327): a wash of its colour under any Citation's,
+   * the words never moved. The note's small mark follows the words it is on.
+   */
+  .annotation-highlight {
+    @apply rounded-[2px] text-inherit;
+    padding: 1px;
+    margin-inline: -1px;
+    box-decoration-break: clone;
+  }
+  .annotation-highlight--yellow {
+    background: #fff0a3;
+  }
+  .annotation-highlight--green {
+    background: #d4f0cc;
+  }
+  .annotation-highlight--blue {
+    background: #d6e8ff;
+  }
+  .annotation-highlight--pink {
+    background: #ffdfeb;
+  }
+  .annotation-highlight--purple {
+    background: #eadcff;
+  }
+
+  .annotation-note-mark {
+    @apply ml-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-sm border border-rule-strong bg-sheet align-baseline text-ink-meta;
+  }
+  .annotation-note-mark:hover {
+    @apply bg-hover text-ink-secondary;
+  }
+  .annotation-note-mark:focus-visible {
+    @apply outline-2 outline-offset-1 outline-accent;
+  }
+
+  /* A highlight's colour: a dot where chosen, a ring where it can be chosen. */
+  .annotation-colour {
+    @apply size-3 shrink-0 rounded-full border border-black/15;
+  }
+  .annotation-colour--yellow {
+    background: #f3d64c;
+  }
+  .annotation-colour--green {
+    background: #7ac574;
+  }
+  .annotation-colour--blue {
+    background: #6aa8ee;
+  }
+  .annotation-colour--pink {
+    background: #ee8fb7;
+  }
+  .annotation-colour--purple {
+    background: #b28ce8;
+  }
+  .annotation-colour--chosen {
+    box-shadow:
+      0 0 0 1.5px var(--color-sheet),
+      0 0 0 3px var(--color-ink-secondary);
+  }
+  .annotation-swatches {
+    @apply m-0 flex min-w-0 shrink-0 items-center gap-1.5 border-0 p-0;
+  }
+  .annotation-swatches .annotation-colour {
+    cursor: pointer;
+  }
+
+  /* A note, beside its mark: its quote, the User's note in place, its colour and what it can do. */
+  .annotation-popover {
+    @apply flex w-80 flex-col gap-2 rounded-[10px] border border-rule bg-sheet p-3 font-sans text-ui text-ink;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  }
+  .annotation-popover-head {
+    @apply flex items-center gap-2 text-[12px] text-ink-meta;
+  }
+  .annotation-place {
+    @apply min-w-0 truncate tabular-nums;
+  }
+  .annotation-file {
+    @apply ml-auto shrink-0 rounded-sm bg-chip px-1.5 py-0.5 text-[11px] font-semibold text-ink-secondary;
+  }
+  .annotation-quote {
+    @apply border-l-2 border-rule-strong pl-2 text-[13px] leading-5 text-ink-secondary;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .annotation-missing {
+    @apply text-[12px] text-warning;
+  }
+  .annotation-note {
+    @apply cursor-text text-left text-[13px] leading-5 whitespace-pre-wrap text-ink;
+  }
+  .annotation-note-field {
+    @apply w-full resize-y rounded-sm border border-rule bg-sheet px-2 py-1 text-[13px] leading-5 text-ink;
+  }
+  .annotation-edit {
+    @apply flex flex-col gap-1;
+  }
+  .annotation-edit-actions {
+    @apply flex justify-end gap-2;
+  }
+  .annotation-action {
+    @apply rounded-sm px-1.5 py-0.5 text-[12px] text-ink-secondary;
+  }
+  .annotation-action:hover {
+    @apply bg-hover text-ink;
+  }
+  .annotation-action--primary {
+    @apply font-semibold text-accent;
+  }
+  .annotation-action--danger {
+    @apply text-danger;
+  }
+  .annotation-popover-foot {
+    @apply flex items-center justify-between gap-2 border-t border-rule pt-2;
+  }
+  .annotation-foot-actions {
+    @apply flex shrink-0 items-center gap-1;
+  }
+
+  /* A Document tab's Annotations list, over the page's right edge. */
+  .annotations-panel {
+    @apply absolute inset-y-0 right-0 z-[4] flex w-[min(320px,92%)] flex-col border-l border-rule bg-sheet;
+    top: 36px;
+    box-shadow: -8px 0 24px rgb(0 0 0 / 6%);
+  }
+  .annotations-panel-head {
+    @apply flex shrink-0 items-center gap-2 border-b border-rule px-3 py-2;
+  }
+  .annotations-panel-title {
+    @apply min-w-0 flex-1 truncate text-[13px] font-semibold text-ink;
+  }
+  .annotations-panel-count {
+    @apply shrink-0 text-[12px] text-ink-meta tabular-nums;
+  }
+  .annotations-panel-empty,
+  .annotations-panel-problem {
+    @apply px-3 py-4 text-[13px] leading-5 text-ink-meta;
+  }
+  .annotations-panel-problem {
+    @apply text-warning;
+  }
+  .annotations-list {
+    @apply flex min-h-0 flex-1 flex-col overflow-y-auto;
+  }
+  .annotation-row {
+    @apply flex cursor-pointer flex-col gap-1 border-b border-rule px-3 py-2;
+  }
+  .annotation-row:hover {
+    @apply bg-hover;
+  }
+  .annotation-row:focus-visible {
+    @apply outline-2 -outline-offset-2 outline-accent;
+  }
+  .annotation-row-head {
+    @apply flex items-center gap-2 text-[12px] text-ink-meta;
+  }
+  .annotation-row-menu {
+    @apply ml-auto shrink-0;
+  }
+  .annotation-row-quote {
+    @apply text-left text-[13px] leading-5 text-ink;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .annotation-row-note {
+    @apply text-[12px] leading-5 whitespace-pre-wrap text-ink-secondary;
+  }
+  .annotation-row-edit {
+    @apply flex flex-col gap-1;
+  }
+  .annotation-row-edit-button {
+    @apply ml-1 inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-ink-meta;
+  }
+  .annotation-row-edit-button:hover {
+    @apply bg-hover text-ink-secondary;
+  }
+  .annotation-row-actions {
+    @apply flex justify-end;
+  }
+}

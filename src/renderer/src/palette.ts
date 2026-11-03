@@ -6,6 +6,7 @@
  */
 import { create } from "zustand";
 import type {
+  AnnotationMatch,
   ConversationMatch,
   Document,
   DocumentKind,
@@ -21,6 +22,7 @@ import { displayName } from "../../shared/documentNames";
 import { translate } from "../../shared/i18n";
 import { formatLocation } from "../../shared/locations";
 import { mindName } from "../../shared/naming";
+import { useAnnotations } from "./annotations";
 import { focusComposer } from "./commands/assistant";
 import { placeAt } from "./commands/edit";
 import { citationHandle } from "./commands/handles";
@@ -162,6 +164,20 @@ export type PaletteItem =
       pageTo: number | null;
       excerpt: string;
       highlights: TextRange[];
+    }
+  | {
+      kind: "annotation";
+      key: string;
+      annotationId: string;
+      documentId: string;
+      documentKind: DocumentKind;
+      name: string;
+      meta: string;
+      excerpt: string;
+      highlights: TextRange[];
+      quote: string;
+      pageFrom: number | null;
+      pageTo: number | null;
     }
   | {
       kind: "said";
@@ -427,6 +443,36 @@ export function documentTextGroup(
   return items.length > 0 ? [{ id: "documentText", items: items.slice(0, SHOWN.words) }] : [];
 }
 
+/** "In your highlights and notes": the annotations whose quote or note holds the words (#327). */
+export function annotationTextGroup(
+  found: readonly AnnotationMatch[],
+  documents: readonly NamedDocument[],
+  t: Translate,
+): PaletteGroup[] {
+  const byId = new Map(documents.map((document) => [document.id, document]));
+  const items = found.flatMap((match): PaletteItem[] => {
+    const document = byId.get(match.documentId);
+    if (!document) return [];
+    return [
+      {
+        kind: "annotation",
+        key: `annotation:${match.annotationId}`,
+        annotationId: match.annotationId,
+        documentId: match.documentId,
+        documentKind: document.kind,
+        name: displayName(document),
+        meta: t("annotations.title"),
+        excerpt: match.excerpt,
+        highlights: match.highlights,
+        quote: match.excerpt,
+        pageFrom: match.pageFrom,
+        pageTo: match.pageTo,
+      },
+    ];
+  });
+  return items.length > 0 ? [{ id: "annotations", items: items.slice(0, SHOWN.words) }] : [];
+}
+
 /** "In your conversations": the conversations whose messages hold the words, with the first that does. */
 export function conversationTextGroup(found: readonly ConversationMatch[]): PaletteGroup[] {
   const items = found.flatMap(({ conversation, messages }): PaletteItem[] => {
@@ -523,6 +569,19 @@ export async function runItem(
         { documentId: item.documentId, ...atPassage(item) },
         { as: inTab ? "here" : "list" },
       );
+      return;
+    case "annotation":
+      store.openDocument(
+        {
+          documentId: item.documentId,
+          ...(item.pageFrom !== null && {
+            pageFrom: item.pageFrom,
+            pageTo: item.pageTo ?? item.pageFrom,
+          }),
+        },
+        { as: inTab ? "here" : "list" },
+      );
+      useAnnotations.getState().togglePanel(true);
       return;
     case "said":
       await openConversation(item.conversationId, item.answerId ?? undefined);

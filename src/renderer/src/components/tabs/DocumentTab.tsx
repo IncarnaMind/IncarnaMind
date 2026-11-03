@@ -1,6 +1,8 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Document, DocumentPlace, LayoutTab } from "../../../../core/api";
 import { citedTextKept } from "../../../../shared/citations";
+import { useAnnotations } from "../../annotations";
+import { AnnotationsPanel } from "../../components/AnnotationsPanel";
 import { useT } from "../../i18n";
 import { useAppStore, type ViewerTarget } from "../../store";
 import { CitedVersionView } from "../../viewer/CitedVersionView";
@@ -172,6 +174,16 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   const fileKey = useFileKey(document);
   const places = usePlaceMemory(target);
   const [section, setSection] = useState<HTMLElement | null>(null);
+  const panelOpen = useAnnotations((state) => state.panelOpen);
+  const togglePanel = useAnnotations((state) => state.togglePanel);
+  const loadAnnotations = useAnnotations((state) => state.load);
+  const shownDocumentId = document?.id;
+  const shownVersion = document?.contentHash;
+  // A new version of the file re-anchors its highlights: read them again with its text.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new version is what reloads them
+  useEffect(() => {
+    if (shownDocumentId) void loadAnnotations(shownDocumentId);
+  }, [loadAnnotations, shownDocumentId, shownVersion]);
   const [reader, setReader] = useState<SelectionReader | null>(null);
   // A reader is a function: kept as one, not called as an update.
   const lendReader = useCallback((lent: SelectionReader | null) => setReader(() => lent), []);
@@ -184,7 +196,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
       data-surface="viewer"
       data-document-id={documentId}
       aria-label={t("viewer.label")}
-      className="viewer-pane flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sheet"
+      className="viewer-pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sheet"
     >
       <ViewerFrameContext.Provider value={frame}>
         <PlaceMemoryContext.Provider value={places}>
@@ -205,6 +217,13 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
                 )}
               </SelectionReaderContext.Provider>
             </Suspense>
+          )}
+          {document && panelOpen && (
+            <AnnotationsPanel
+              document={document}
+              container={section}
+              onClose={() => togglePanel(false)}
+            />
           )}
           {document && reader && (
             <SelectionMenu document={document} section={section} reader={reader} />

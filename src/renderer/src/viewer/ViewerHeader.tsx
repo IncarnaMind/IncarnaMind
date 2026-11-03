@@ -2,11 +2,12 @@ import { createContext, type ReactNode, useContext, useMemo, useRef, useState } 
 import type { Document } from "../../../core/api";
 import { changedSourceLines, citationState } from "../../../shared/citations";
 import { displayName, sourceOf } from "../../../shared/documentNames";
+import { useAnnotations } from "../annotations";
 import { useCitationRecheck } from "../citationVersion";
 import { CountItLine } from "../components/CountItLine";
 import { InlineName } from "../components/InlineName";
 import { moveDocumentsBeside } from "../components/library/DocumentMoveTo";
-import { DocumentLineIcon, PinLineIcon } from "../components/lineIcons";
+import { DocumentLineIcon, NoteLineIcon, PinLineIcon } from "../components/lineIcons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { ProblemLine } from "../components/ProblemLine";
 import { DocumentTagChips } from "../components/TagChips";
@@ -142,6 +143,8 @@ export function ViewerHeader({
   const [problem, setProblem] = useState<Said | null>(null);
   const leftOut = useLeftOutOfEvidence(document);
   const objectMenu = useObjectMenu({ kind: "document", id: document?.id ?? "" });
+  const panelOpen = useAnnotations((state) => state.panelOpen);
+  const togglePanel = useAnnotations((state) => state.togglePanel);
   const rename = useRename<HTMLButtonElement>(`viewer:${document?.id}`);
   const header = useRef<HTMLElement>(null);
   const renameDocument = useAppStore((state) => state.renameDocument);
@@ -236,6 +239,19 @@ ${sourceOf(document)}`
               <OpenExternallyIcon className="size-4" />
             </button>
           )}
+        {document && (
+          <button
+            type="button"
+            data-testid="viewer-annotations-toggle"
+            aria-pressed={panelOpen}
+            aria-label={t("annotations.open")}
+            title={t(panelOpen ? "annotations.close" : "annotations.open")}
+            onClick={() => togglePanel(!panelOpen)}
+            className="viewer-icon-button"
+          >
+            <NoteLineIcon className="size-4" />
+          </button>
+        )}
         {document && (
           <ObjectMenu
             target={{ kind: "document", id: document.id }}

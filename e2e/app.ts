@@ -3184,6 +3184,10 @@ export async function coreState(window: Page): Promise<unknown> {
       core.listLinkedFolders(),
       core.listDeleted(),
     ]);
+    // A Document's highlights and notes (#327), so a change to one is seen and taken back.
+    const annotations = await Promise.all(
+      documents.map(async (document) => [document.id, await core.listAnnotations(document.id)]),
+    );
     const state = {
       minds,
       documents,
@@ -3192,6 +3196,7 @@ export async function coreState(window: Page): Promise<unknown> {
       tags,
       linkedFolders,
       deleted,
+      annotations: Object.fromEntries(annotations),
     };
     const progress = ["tagging", "taggingError"];
     return JSON.parse(

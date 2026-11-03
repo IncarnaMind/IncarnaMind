@@ -77,9 +77,21 @@ export const piecesOf = (nodes: readonly Text[]): TextPiece[] =>
 
 /**
  * Finds `quote` in `nodes` and wraps what it covers in marks; returns them in
- * order, or null if the quote isn't there.
+ * order, or null if the quote isn't there. `style` gives the mark's class and
+ * the data it carries: a Citation's wash, or a highlight's colour (#327).
  */
-export function markQuote(nodes: readonly Text[], quote: string): HTMLElement[] | null {
+export interface MarkStyle {
+  className: string;
+  data: Record<string, string>;
+  /** Joins a quote's parts that a line break split, so the wash reads as one. */
+  joins?: boolean;
+}
+
+export function markText(
+  nodes: readonly Text[],
+  quote: string,
+  style: MarkStyle,
+): HTMLElement[] | null {
   const pieces = piecesOf(nodes);
   const found = findQuoteInPieces(pieces, quote);
   if (!found || found.length === 0) return null;
@@ -94,17 +106,37 @@ export function markQuote(nodes: readonly Text[], quote: string): HTMLElement[] 
     const mark = node.ownerDocument.createElement("mark");
     const previous = found[index - 1];
     const next = found[index + 1];
-    const joins = `${previous && part.start === 0 && previous.end === (nodes[previous.piece] as Text).data.length ? " quote-highlight--joins-before" : ""}${
-      next && next.start === 0 && part.end === node.data.length
-        ? " quote-highlight--joins-after"
-        : ""
-    }`;
-    mark.className = `quote-highlight${joins}`;
-    mark.dataset.quoteHighlight = "";
-    range.surroundContents(mark);
+    const joins =
+      style.joins === true
+        ? `${previous && part.start === 0 && previous.end === (nodes[previous.piece] as Text).data.length ? " quote-highlight--joins-before" : ""}${
+            next && next.start === 0 && part.end === node.data.length
+              ? " quote-highlight--joins-after"
+              : ""
+          }`
+        : "";
+    mark.className = `${style.className}${joins}`;
+    for (const [name, value] of Object.entries(style.data)) mark.dataset[name] = value;
+    try {
+      range.surroundContents(mark);
+    } catch {
+      // A range that only partly covers another mark: this piece stays unmarked.
+      continue;
+    }
     marks.unshift(mark);
   }
   return marks;
+}
+
+/**
+ * Finds `quote` in `nodes` and wraps what it covers in marks; returns them in
+ * order, or null if the quote isn't there.
+ */
+export function markQuote(nodes: readonly Text[], quote: string): HTMLElement[] | null {
+  return markText(nodes, quote, {
+    className: "quote-highlight",
+    data: { quoteHighlight: "" },
+    joins: true,
+  });
 }
 
 /** Takes the marks `markQuote` made out again, leaving the text as it was. */

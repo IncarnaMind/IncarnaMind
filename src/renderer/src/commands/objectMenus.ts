@@ -36,6 +36,8 @@ registerMenu("document", [
   "document.openMind",
   "document.ask",
   "document.startMind",
+  "document.showAnnotations",
+  "document.exportAnnotations",
   "document.accept",
   "document.reject",
   "document.moveTo",
@@ -58,6 +60,19 @@ registerMenu("document", [
   "file.info",
   "document.forgetPassword",
   "document.delete",
+]);
+
+registerMenu("annotation", [
+  "annotation.editNote",
+  "annotation.colour.yellow",
+  "annotation.colour.green",
+  "annotation.colour.blue",
+  "annotation.colour.pink",
+  "annotation.colour.purple",
+  "annotation.addToNote",
+  "annotation.collect",
+  "annotation.export",
+  "annotation.delete",
 ]);
 
 registerMenu("folder", [

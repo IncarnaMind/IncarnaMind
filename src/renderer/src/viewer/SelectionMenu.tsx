@@ -1,11 +1,15 @@
 import { flip, hide, offset, shift, type VirtualElement } from "@floating-ui/dom";
 import { isMacOS } from "@tiptap/core";
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AskedQuote, Document } from "../../../core/api";
+import type { AnnotationColour, AskedQuote, Document } from "../../../core/api";
+import { ANNOTATION_COLOURS } from "../../../core/api";
+import { highlightSelection } from "../annotationActions";
+import { useNoteEditor } from "../annotationNote";
+import { useAnnotations } from "../annotations";
 import { viewerSelectionHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
 import { AddToMindPicker } from "../components/assistant/AddToMindPicker";
-import { ChatLineIcon, CopyLineIcon, PlusLineIcon } from "../components/lineIcons";
+import { ChatLineIcon, CopyLineIcon, NoteLineIcon, PlusLineIcon } from "../components/lineIcons";
 import { holdsQuote, useComposer } from "../composer";
 import { Popover } from "../editor/Popover";
 import { useT } from "../i18n";
@@ -33,6 +37,14 @@ const inPopover = (target: EventTarget | null) =>
   target instanceof Element && target.closest(".editor-popover") !== null;
 
 const HELD = "viewer-held-selection";
+
+const COLOUR_LABELS = {
+  yellow: "annotations.colour.yellow",
+  green: "annotations.colour.green",
+  blue: "annotations.colour.blue",
+  pink: "annotations.colour.pink",
+  purple: "annotations.colour.purple",
+} as const;
 
 // Shift and the arrows change a selection a key at a time: it is read once they stop.
 const SETTLE_MS = 120;
@@ -230,10 +242,29 @@ export function SelectionMenu({
     [held, settingUp, close, heldNow],
   );
 
+  const colour = useAnnotations((state) => state.colour);
+  const highlightIn = useCallback(
+    (chosen: AnnotationColour) => {
+      const now = heldNow() ?? held;
+      close();
+      if (now) void highlightSelection(now.selection, chosen);
+    },
+    [held, close, heldNow],
+  );
+
   const actions = useMemo(
     () =>
       held && {
         ...(ask && { ask }),
+        highlight: () => highlightIn(colour),
+        note: () => {
+          const now = heldNow() ?? held;
+          if (!now) return;
+          close();
+          void highlightSelection(now.selection, colour).then((annotation) => {
+            if (annotation) useNoteEditor.getState().open(annotation.id, document.id);
+          });
+        },
         addToNote: () => {
           const now = heldNow() ?? held;
           if (addsWithoutAsking()) {
@@ -251,7 +282,7 @@ export function SelectionMenu({
           void copySelectionWithCitation((heldNow() ?? held).selection);
         },
       },
-    [held, ask, close, heldNow],
+    [held, ask, close, heldNow, highlightIn, colour, document.id],
   );
   // Only while there is a selection: another Document's tab may hold one.
   useEffect(() => {
@@ -295,6 +326,55 @@ export function SelectionMenu({
         className="viewer-selection-menu"
       >
         <div ref={menu} className="editor-menu">
+          <div
+            role="menuitem"
+            tabIndex={0}
+            data-testid="viewer-selection-highlight"
+            aria-label={t("annotations.highlight")}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => highlightIn(colour)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              highlightIn(colour);
+            }}
+            className="editor-menu-item"
+          >
+            <NoteLineIcon className="size-4 shrink-0 text-ink-secondary" />
+            <span className="flex-1 truncate">{t("annotations.highlight")}</span>
+            <span className="annotation-swatches">
+              {ANNOTATION_COLOURS.map((each) => (
+                <button
+                  key={each}
+                  type="button"
+                  role="menuitemradio"
+                  data-testid={`viewer-selection-highlight-${each}`}
+                  aria-label={t(COLOUR_LABELS[each])}
+                  title={t(COLOUR_LABELS[each])}
+                  aria-checked={colour === each}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    highlightIn(each);
+                  }}
+                  className={`annotation-colour annotation-colour--${each}${
+                    colour === each ? " annotation-colour--chosen" : ""
+                  }`}
+                />
+              ))}
+            </span>
+          </div>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="viewer-selection-note"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={actions.note}
+            className="editor-menu-item"
+          >
+            <PlusLineIcon className="size-4 shrink-0 text-ink-secondary" />
+            <span className="flex-1 truncate">{t("annotations.addNote")}</span>
+          </button>
           {ask && (
             <button
               ref={firstAsk}

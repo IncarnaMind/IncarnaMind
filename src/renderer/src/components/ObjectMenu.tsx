@@ -30,6 +30,7 @@ const TEST_ID_PREFIX: Record<ObjectKind, string> = {
   mind: "mind",
   conversation: "conversation",
   document: "document-file",
+  annotation: "annotation",
   folder: "folder",
   tag: "tag",
   linkedFolder: "linked-folder",

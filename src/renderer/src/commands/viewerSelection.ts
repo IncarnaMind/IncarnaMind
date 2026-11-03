@@ -18,6 +18,24 @@ export const viewerSelectionCommands: readonly Command[] = [
     run: () => viewerSelectionHandle.current?.ask?.(),
   },
   {
+    id: "viewer.selection.highlight",
+    label: "command.annotations.highlight",
+    group: "main",
+    // Delete takes it back, with Undo.
+    reversible: true,
+    when: selected,
+    run: () => viewerSelectionHandle.current?.highlight(),
+  },
+  {
+    id: "viewer.selection.note",
+    label: "command.annotations.note",
+    group: "main",
+    // Delete the highlight, with Undo, while its note is open.
+    reversible: true,
+    when: selected,
+    run: () => viewerSelectionHandle.current?.note(),
+  },
+  {
     id: "viewer.selection.addToNote",
     label: "command.viewer.selection.addToNote",
     group: "main",

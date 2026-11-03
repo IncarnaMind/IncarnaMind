@@ -112,6 +112,10 @@ export const viewerSelectionHandle: Handle<{
   ask?: () => void;
   addToNote(): void;
   copy(): void;
+  /** Highlights in the colour last chosen (#327). */
+  highlight(): void;
+  /** Highlights, then opens its note ready to type. */
+  note(): void;
 }> = {
   current: null,
 };

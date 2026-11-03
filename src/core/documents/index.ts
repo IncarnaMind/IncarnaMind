@@ -93,6 +93,7 @@ import { keywordText } from "./keywords";
 import { createLibrary, type LibraryHooks } from "./library";
 import { joinCjkLineWraps, onlyCjkLineWrapChange } from "./lineWrap";
 import { laidOut, type PageText } from "./passages";
+import type { FileAnnotation } from "./pdfAnnotations";
 import {
   CURRENT_SINCE,
   HAN_CURRENT_SINCE,
@@ -494,6 +495,11 @@ export interface DocumentsOptions {
   scansAtOnce?: number;
   /** The password kept for a locked PDF (./pdfPasswords, #763); undefined when none is. */
   pdfPassword?(documentId: string): Promise<string | undefined>;
+  /**
+   * A PDF's own highlights and notes, read with its text (#327): stored for the
+   * version they were read in, in place of an earlier one's.
+   */
+  fileAnnotations?(documentId: string, contentHash: string, found: readonly FileAnnotation[]): void;
   readingSpeed: Pick<ReadingMeterOptions, "read" | "write">;
   linkedFolders: {
     watch: WatchFolder;
@@ -1248,6 +1254,9 @@ export function createDocuments(options: DocumentsOptions) {
           insertPassages(job.documentId, result.contentHash, result.passages);
         }
         insertPages(job.documentId, result.contentHash, result.pages, versionMomentOf(row, at));
+        if (result.fileAnnotations) {
+          options.fileAnnotations?.(job.documentId, result.contentHash, result.fileAnnotations);
+        }
         // Searchable now, by its words: while embeddings are off, that is all there is to do.
         status = unchanged
           ? (indexedStatus(row) ?? "ready")

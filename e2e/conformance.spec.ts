@@ -27,6 +27,7 @@ import {
   motionSettled,
   nameMind,
   newMind,
+  openDocumentAt,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -766,6 +767,37 @@ const STAGES: Record<Staged, Stage> = {
         key,
       ),
     opened: ({ window }) => window.getByTestId("viewer-header"),
+  },
+  annotation: {
+    // A highlight on the words of a Document, made through the bridge, shown in its tab's panel.
+    async make({ window, sources: dir }) {
+      const path = join(dir, "Tides.txt");
+      await writeFile(path, "Neap tides are the smallest of the month.\n");
+      await addDocuments(window, [path]);
+      return read(window, async (core) => {
+        const [document] = await core.listDocuments();
+        if (!document) return "";
+        const annotation = await core.createAnnotation({
+          documentId: document.id,
+          parts: [{ unit: null, text: "Neap tides are the smallest of the month." }],
+          colour: "yellow",
+        });
+        return `${document.id}:${annotation.id}`;
+      });
+    },
+    async show({ window }, key) {
+      const [documentId, annotationId] = key.split(":");
+      await openDocumentAt(window, { documentId: documentId ?? "" });
+      await expect(window.getByTestId("viewer-header")).toBeVisible();
+      const toggle = window.getByTestId("viewer-annotations-toggle");
+      await expect(toggle).toBeVisible();
+      if ((await toggle.getAttribute("aria-pressed")) !== "true") {
+        await pointAndClick(window, toggle);
+      }
+      await expect(window.getByTestId("annotations-panel")).toBeVisible();
+      return annotationId ?? "";
+    },
+    hit: ({ window }) => window.getByTestId("annotation-row").first(),
   },
   folder: {
     // With a Document in it, so there is something to ask about and to organize.
