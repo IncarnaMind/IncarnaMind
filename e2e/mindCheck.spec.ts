@@ -197,9 +197,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await mindCheckFinished(window, 2);
       const checked = card.getByTestId("health-checked-all");
       await expect(checked).toContainText(translate(language, "health.unexamined.one"));
-      await expect(card.getByTestId("health-toCheck")).toContainText(
-        translate(language, "health.toCheck.one"),
-      );
+      // One count for it: on the check's line, not also as a row of its own (#2313).
+      await expect(card.getByTestId("health-toCheck")).toHaveCount(0);
       for (const width of [900, 1600]) {
         await setWindowSize(app, window, width, 800);
         await expect(checked).toBeVisible();

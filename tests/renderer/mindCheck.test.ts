@@ -20,6 +20,8 @@ vi.mock("../../src/renderer/src/store", () => ({
   },
 }));
 vi.mock("../../src/renderer/src/checks", () => ({
+  withCheckAll: (problem: { kind: string; chosen?: unknown }, checkAll: () => void) =>
+    problem.kind === "no-documents" && problem.chosen ? { ...problem, checkAll } : problem,
   useChecks: { getState: () => ({ running: running.current }) },
   dismissCheckProblem: vi.fn(),
   setCheckCardOpen: vi.fn(),
@@ -173,6 +175,83 @@ describe("Check this note", () => {
       ["mind", "changed", false],
       ["mind", "changed", false],
     ]);
+  });
+
+  test("a failed plan's retry asks, as the Check it was started through", async () => {
+    const error = new Error("The check could not be planned.");
+    bridge.planMindCheck.mockRejectedValueOnce(error);
+    const { startMindCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+    const { setCheckProblem } = await import("../../src/renderer/src/checks");
+    await startMindCheck("mind", "all");
+    const problem = vi.mocked(setCheckProblem).mock.calls.at(-1)?.[1];
+    if (problem?.kind !== "failed" || !problem.retry)
+      throw new Error("A failed check has no retry.");
+    problem.retry();
+    await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
+    expect(bridge.checkMind).not.toHaveBeenCalled();
+  });
+
+  test("Check all Documents re-plans and asks, as the Check it was started through", async () => {
+    const noDocuments: MindCheckPlan = {
+      kind: "no-documents",
+      folderId: "folder",
+      chosen: {
+        scope: { folderIds: ["folder"], tagIds: [], documentIds: [] },
+        onlyLeftOut: false,
+      },
+    };
+    bridge.planMindCheck.mockResolvedValueOnce(noDocuments);
+    const { startMindCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+    const { setCheckProblem } = await import("../../src/renderer/src/checks");
+    await startMindCheck("mind", "all");
+    const problem = vi.mocked(setCheckProblem).mock.calls.at(-1)?.[1];
+    if (problem?.kind !== "no-documents" || !problem.checkAll)
+      throw new Error("A Check with no Documents offers no check of all of them.");
+    problem.checkAll();
+    await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
+    expect(bridge.planMindCheck).toHaveBeenLastCalledWith("mind", "all", true);
+    expect(bridge.checkMind).not.toHaveBeenCalled();
+  });
+
+  test("the one Check's Check all Documents runs at once", async () => {
+    const noDocuments: MindCheckPlan = {
+      kind: "no-documents",
+      folderId: "folder",
+      chosen: {
+        scope: { folderIds: ["folder"], tagIds: [], documentIds: [] },
+        onlyLeftOut: false,
+      },
+    };
+    bridge.planMindCheck.mockResolvedValueOnce(noDocuments);
+    const { startCheck } = await import("../../src/renderer/src/mindCheck");
+    const { setCheckProblem } = await import("../../src/renderer/src/checks");
+    await startCheck("mind");
+    const problem = vi.mocked(setCheckProblem).mock.calls.at(-1)?.[1];
+    if (problem?.kind !== "no-documents" || !problem.checkAll)
+      throw new Error("A Check with no Documents offers no check of all of them.");
+    problem.checkAll();
+    await vi.waitFor(() => expect(bridge.checkMind).toHaveBeenCalledOnce());
+    expect(bridge.checkMind.mock.calls[0]?.[0]).toMatchObject({
+      mindId: "mind",
+      mode: "changed",
+      allDocuments: true,
+    });
+  });
+
+  test("a whole-Note check whose model failed retries at once, without asking or planning", async () => {
+    bridge.checkMind.mockResolvedValueOnce({
+      kind: "failed",
+      error: { kind: "provider", message: "Overloaded" },
+    });
+    const { checkMind, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+    const { setCheckProblem } = await import("../../src/renderer/src/checks");
+    await checkMind("mind", "all");
+    const problem = vi.mocked(setCheckProblem).mock.calls.at(-1)?.[1];
+    if (problem?.kind !== "find-failed") throw new Error("No failure to retry.");
+    problem.retry();
+    await vi.waitFor(() => expect(bridge.checkMind).toHaveBeenCalledTimes(2));
+    expect(bridge.planMindCheck).not.toHaveBeenCalled();
+    expect(useMindCheck.getState().asking.mind).toBeUndefined();
   });
 
   test("a failed check retries its existing mode and scope", async () => {

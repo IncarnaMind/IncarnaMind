@@ -26,6 +26,7 @@ const work = { documentId: "one", documentName: "One", location: null };
 const citation = (footnote: Footnote): Inline => ({ kind: "citation", footnote, work });
 const text = (value: string): Inline => ({ kind: "text", text: value, marks: NO_MARKS });
 const paragraph = (...content: Inline[]): Block => ({ kind: "paragraph", content });
+const figureNode: Inline = { kind: "figure", figure, sources: null, analysis: null };
 
 const attributesOf = new Map<Footnote, Partial<CitationAttributes>>([
   [one, { documentId: "one", location: { kind: "page", from: 1, to: 1 } }],
@@ -40,12 +41,38 @@ describe("the source pack's Citation numbers", () => {
         text("Revenue was "),
         citation(one),
         text(" and the total "),
-        { kind: "figure", figure, sources: null, analysis: null },
+        figureNode,
         text(" as well "),
         citation(two),
       ),
     ];
     expect(numberCitations(blocks, "numbered", attributesOf).map((each) => each.number)).toEqual([
+      1, 2,
+    ]);
+  });
+
+  // protects=Citations number among themselves in a style that cites in the text; fails_when=a figure takes a cited ordinal, so the Citation after it is 3 (#2313).
+  test("in a style that cites in the text, a figure takes no cited ordinal", () => {
+    const blocks = [
+      paragraph(citation(one), text(" and "), figureNode, text(" as well "), citation(two)),
+    ];
+    expect(numberCitations(blocks, "in-text", attributesOf).map((each) => each.number)).toEqual([
+      1, 2,
+    ]);
+  });
+
+  // protects=a note style numbers each Citation in order, with no number for a figure; fails_when=a figure takes a footnote number, so the Citation after it is 3 (#2313).
+  test("in a note style, a figure takes no footnote number", () => {
+    const blocks = [
+      paragraph(
+        citation(one),
+        text(" and the total "),
+        figureNode,
+        text(" as well "),
+        citation(two),
+      ),
+    ];
+    expect(numberCitations(blocks, "note", attributesOf).map((each) => each.number)).toEqual([
       1, 2,
     ]);
   });

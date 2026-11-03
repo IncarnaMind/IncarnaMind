@@ -174,10 +174,9 @@ export function useMindCheckRun(doc: Y.Doc): MindCheckRun | null {
 }
 
 /**
- * Runs a whole-Note check again: a check of chosen figures checks those figures again, never the
- * whole Note; any other is planned and asked again.
+ * Runs a whole-Note check again at once, without asking: the User already agreed to the run it is
+ * offered for. A check of chosen figures checks those figures again, never the whole Note.
  */
-// A retry runs the Check the User already agreed to, so it never asks again (#2313).
 const again =
   (mindId: string, mode: CheckMindMode, allDocuments: boolean, figureIds?: string[]) => () =>
     void checkMind(mindId, mode, { allDocuments, ...(figureIds && { figureIds }) });
@@ -344,7 +343,7 @@ async function start(
     setCheckProblem(mindId, {
       kind: "failed",
       error,
-      retry: () => void start(mindId, planned, false),
+      retry: () => void start(mindId, planned, ask),
     });
     return { kind: "threw", error };
   } finally {
@@ -594,7 +593,12 @@ async function askOrCheck(
       mindId,
       plan.kind === "nothing"
         ? { kind: "no-claims" }
-        : withCheckAll(plan, again(mindId, run.mode, true)),
+        : withCheckAll(
+            plan,
+            ask
+              ? () => void startMindCheck(mindId, run.mode, { allDocuments: true })
+              : again(mindId, run.mode, true),
+          ),
     );
     return null;
   }

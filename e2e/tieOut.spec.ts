@@ -113,16 +113,12 @@ async function clickTab(window: Page, tab: Locator) {
 }
 
 /**
- * Runs Tie out figures from ⌘K. Billed per token, the one Check asks first, in the note's card;
- * in a window too narrow for groups side by side the schedule comes to the front once the User
- * has answered.
+ * Runs Tie out figures from ⌘K. The one Check runs on its press, with no question first, and the
+ * schedule comes to the front beside the note, including in a window too narrow for groups side by
+ * side.
  */
 async function tieOut(window: Page, schedule: Locator, title: string, label: string) {
   await runCommand(window, "mind.tieOut", label);
-  const ask = window.getByTestId("mind-check-ask");
-  await expect(ask.or(schedule).first()).toBeVisible({ timeout: 30_000 });
-  if (!(await ask.isVisible())) return;
-  await pointAndClick(window, ask.getByTestId("mind-check-check"));
   await expect(schedule).toBeVisible({ timeout: 30_000 });
   await expect(window.getByRole("tab", { name: new RegExp(`^${title}`) })).toHaveAttribute(
     "aria-selected",

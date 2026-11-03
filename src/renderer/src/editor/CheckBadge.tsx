@@ -189,8 +189,10 @@ function CheckActions({
       {unchanged && planned?.plan.kind === "unchanged" && (
         <MindUnchanged mindId={mindId} since={planned.plan.since} />
       )}
-      {estimate && (
-        <MetaLine data-testid="check-estimate" parts={estimate.parts} title={estimate.title} />
+      {estimate && !running && (
+        <div className="check-card-estimate">
+          <MetaLine data-testid="check-estimate" parts={estimate.parts} title={estimate.title} />
+        </div>
       )}
       <div className="check-card-actions">
         {correctable > 0 && (

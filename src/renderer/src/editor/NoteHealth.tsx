@@ -264,6 +264,17 @@ export function HealthCard({
 
   const label = (part: HealthPart, count: number) => partLabel(t, part, count, format(count));
 
+  // A sentence the last check couldn't sort is named on that check's line: its row would count
+  // it twice (#2313).
+  const unexamined = new Set(health.unexamined);
+  const toCheck = health.toCheck.filter((pos) => !unexamined.has(pos));
+  const countOf = (part: HealthPart | "checking") =>
+    part === "checking"
+      ? health.checking.length
+      : part === "toCheck"
+        ? toCheck.length
+        : health[part].length;
+
   /**
    * Puts the cursor at the next such sentence after it, round to the first; for a Citation, just
    * after its marker, where its state shows, so a key can't take the Citation away. It is
@@ -273,7 +284,9 @@ export function HealthCard({
   const goToNext = (part: HealthPart | "checking") => {
     if (editor.isDestroyed) return;
     const cited = part === "found" || part === "notFound";
-    const targets = health[part].map((pos) => (cited ? pos + 1 : pos));
+    const targets = (part === "toCheck" ? toCheck : health[part]).map((pos) =>
+      cited ? pos + 1 : pos,
+    );
     const head = editor.state.selection.head;
     const next = targets.find((pos) => pos > head) ?? targets[0];
     if (next === undefined) return;
@@ -299,7 +312,7 @@ export function HealthCard({
     setOpenClaim(place, claim.check.id);
   };
 
-  const rows = ROWS.filter((part) => health[part].length > 0);
+  const rows = ROWS.filter((part) => countOf(part) > 0);
   const summary = healthSummary(health, {
     running: running !== undefined,
     problem: problem !== undefined,
@@ -318,18 +331,19 @@ export function HealthCard({
     onClick: () => dismissCheckProblem(mindId),
   };
   const row = (part: HealthPart | "checking") => {
+    const count = countOf(part);
     const text =
       part === "checking"
         ? t(health.checking.length === 1 ? "health.checking.one" : "health.checking", {
             count: format(health.checking.length),
           })
-        : label(part, health[part].length);
+        : label(part, count);
     return (
       <button
         key={part}
         type="button"
         data-testid={`health-${part}`}
-        data-count={health[part].length}
+        data-count={count}
         data-part={part === "checking" ? "toCheck" : part}
         className="check-row"
         aria-label={t("health.next", { part: text })}
@@ -340,7 +354,7 @@ export function HealthCard({
           <PartMark part={part === "checking" ? "toCheck" : part} />
         </span>
         <span className="check-row-text">
-          <Counted text={text} count={format(health[part].length)} />
+          <Counted text={text} count={format(count)} />
         </span>
         <span className="check-row-next" aria-hidden="true">
           {t("badge.next")}
@@ -418,9 +432,7 @@ export function HealthCard({
           parts={summaryParts(summary.summary, t, format)}
         />
       )}
-      {((summary?.kind === "left" && summary.summary.supported === 0) || summarySpace) && (
-        <p aria-hidden="true" className="mind-health-summary" />
-      )}
+      {summarySpace && <p aria-hidden="true" className="mind-health-summary" />}
       {/* One line of note, in one place, from the moment the check starts: the sentence it is
           on, then when it was checked. Rows above it never move as the run ends (#1312). It
           stays once a run has started here: a run ends a moment before its record reaches the
@@ -430,7 +442,10 @@ export function HealthCard({
           {running ? (
             <RunningText editor={editor} mindId={mindId} testId="card-progress" />
           ) : (
-            checkedAll && (
+            // The health is counted a moment after the record lands: until no claim says it is
+            // being checked, the line would name a check a row still says is running (#2313).
+            checkedAll &&
+            health.checking.length === 0 && (
               <CheckedWhen
                 run={checkedAll}
                 editor={editor}

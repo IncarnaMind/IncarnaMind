@@ -99,26 +99,32 @@ describe("where a suggestion goes", () => {
   });
 
   test("a suggested Citation skips no calculated figure's marker (#2313)", () => {
-    const figure = calculatedFigureNode(
-      {
-        label: "Growth",
-        formula: "",
-        inputs: [],
-        value: 0.2,
-        unit: { kind: "percent" },
-        approximate: false,
-        shown: "20.0%",
-        show: { language: "en", as: "percent", decimals: 1, scale: null },
-        literals: [],
-        engine: FORMULA_VERSION,
-        written: null,
-        analysis: { analysis: 1, result: "growth" },
-      },
-      "figure-1",
-      "run-1",
-    );
+    const figure = {
+      label: "Growth",
+      formula: "",
+      inputs: [],
+      value: 0.2,
+      unit: { kind: "percent" as const },
+      approximate: false,
+      shown: "20.0%",
+      show: { language: "en" as const, as: "percent" as const, decimals: 1, scale: null },
+      literals: [],
+      engine: FORMULA_VERSION,
+      written: null,
+      analysis: { analysis: 1, result: "growth" },
+    };
     const state = stateWith(
-      [paragraph(text("One "), figure, text(" "), citation, text(LONG))],
+      [
+        paragraph(
+          text("One "),
+          calculatedFigureNode(figure, "figure-1", "run-1"),
+          text(" "),
+          calculatedFigureNode(figure, "figure-2", "run-1"),
+          text(" "),
+          citation,
+          text(LONG),
+        ),
+      ],
       endOfFirst,
     );
     expect(citationNumberAt(state, endOfFirst(state.doc))).toBe(2);
