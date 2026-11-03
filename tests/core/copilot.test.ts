@@ -377,6 +377,43 @@ describe("IncarnaMind's own GitHub OAuth App (#876)", () => {
     });
   });
 
+  test("a model list that fails at sign-in leaves the sign-in standing with no plan claimed or said, and is asked again when needed", async () => {
+    const { core, fake, keychain } = await withOwnApp();
+    fake.modelsRefusal = { status: 503, body: { message: "Service unavailable" } };
+    const { result } = await codeShown(core);
+    fake.approve();
+
+    expect(await result).toMatchObject({
+      ok: true,
+      status: {
+        account: { state: "signed-in", profile: "own", login: LOGIN, plan: null },
+        models: [],
+      },
+    });
+    expect(keychain.secrets.size).toBeGreaterThan(0);
+
+    fake.modelsRefusal = null;
+    expect((await core.getCopilot()).models).not.toEqual([]);
+  });
+
+  test("cancelling while the model list is being read keeps nothing", async () => {
+    const { core, fake, keychain } = await withOwnApp();
+    let release = () => {};
+    fake.holdModels = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    onTestFinished(() => release());
+    const { result } = await codeShown(core);
+    fake.approve();
+    await vi.waitFor(() => expect(fake.modelRequests).toBe(1));
+
+    await core.cancelCopilotSignIn();
+
+    expect(await result).toMatchObject({ ok: false, error: { kind: "sign-in-cancelled" } });
+    expect(keychain.secrets.size).toBe(0);
+    expect(await core.getCopilot()).toMatchObject({ account: { state: "signed-out" } });
+  });
+
   test("refused by Copilot, it says GitHub didn't let IncarnaMind, and the experimental way still works", async () => {
     const setup = await withOwnApp();
     await signedIn("own", setup);
