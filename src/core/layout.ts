@@ -365,7 +365,7 @@ export function parseLayoutChange(value: unknown): LayoutChange {
     case "conversation": {
       const conversationId = value.conversationId;
       if (conversationId !== null && !isId(conversationId)) {
-        throw new InvalidInputError("The assistant shows a conversation, or a New chat.");
+        throw new InvalidInputError({ key: "error.layout.conversation" });
       }
       return { type: "conversation", conversationId };
     }
