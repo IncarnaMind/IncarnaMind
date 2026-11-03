@@ -1,5 +1,5 @@
 /**
- * Whether a note is done (D266, #1915), one rule for the corner badge, Home's Recent row and
+ * Whether a note is done (#1915), one rule for the corner badge, Home's Recent row and
  * the Export menu: "Claims not checked" while a claim has no check (none yet, or one this Note has
  * never had checked), "{n} need a look" while a check found a problem, and "Checked {time}"
  * once every claim is covered, naming the files the checks couldn't read and the sentences a

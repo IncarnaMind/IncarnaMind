@@ -50,15 +50,6 @@ export const KNOWN: readonly Known[] = [
   },
   { flow: "library-2000", step: "show all 2,000", kind: "input", max: 2900, issue: 1313 },
   { flow: "library-2000", step: "show all 2,000", kind: "long-task", max: 2500, issue: 1313 },
-  // Two frames as the check's health settles after its card opens: below sight, bounded (#1742).
-  {
-    flow: "first-open",
-    step: "check the Mind",
-    kind: "shift",
-    moved: ["check-card"],
-    max: 0.01,
-    issue: 1742,
-  },
 ];
 
 interface Shift {

@@ -17,7 +17,13 @@ import {
   type ShownClaim,
 } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { cantBeChecked, claimCheckShown, readClaimCheck } from "../../src/shared/claimChecks";
+import {
+  cantBeChecked,
+  claimCheckShown,
+  partFoundNothing,
+  readClaimCheck,
+  sentenceResultOf,
+} from "../../src/shared/claimChecks";
 import { type MessageKey, translate } from "../../src/shared/i18n";
 
 vi.mock("../../src/renderer/src/core", () => ({ core: {} }));
@@ -443,9 +449,19 @@ const HEAD_WORDS = {
   },
 } as const;
 
-// protects=#2313: a sentence's card header names the same result its rows do, from the one verdict `resultFromParts` gives the sentence, in English and Chinese; fails_when=the header is worked out apart from the rows (a row of Unsupported under "Not found"); no_claim=which margin glyph the sentence takes (claimChecks.test.ts).
+/** A part's row label, as the row draws it: Not found when it found nothing. */
+const rowWord = (language: "en" | "zh-CN", part: { verdict: string | null }) =>
+  translate(
+    language,
+    (part.verdict === "unsupported" &&
+    partFoundNothing(part as Parameters<typeof partFoundNothing>[0])
+      ? "claim.state.notFound"
+      : `claim.state.${part.verdict}`) as MessageKey,
+  );
+
+// protects=#2313: when no part found anything, the header and every row say Not found, and the record counts it so, in English and Chinese; fails_when=a part that found nothing is called Unsupported, or the header differs from its rows; no_claim=what the card's body offers.
 test.each(["en", "zh-CN"] as const)(
-  "the card's header takes the parts' verdict, all Unsupported in %s",
+  "all parts found nothing: the header, the rows and the count say Not found in %s",
   (language) => {
     const { editor } = editorHolding([paragraph("Revenue rose and costs fell")]);
     const claim = partsClaim(editor, 0, 0, [
@@ -453,19 +469,37 @@ test.each(["en", "zh-CN"] as const)(
       partOf(17, 27, "unsupported"),
     ]);
     const words = HEAD_WORDS[language];
-    expect(translate(language, checkStateKey(editor, claim))).toBe(words.unsupported);
-    expect(translate(language, checkStateKey(editor, claim))).not.toBe(words.notFound);
+    expect(translate(language, checkStateKey(editor, claim))).toBe(words.notFound);
     const rows = claimPartRows(claim.check) ?? [];
     expect(rows).toHaveLength(2);
-    expect(
-      rows.map((part) => translate(language, `claim.state.${part.verdict}` as MessageKey)),
-    ).toEqual([words.unsupported, words.unsupported]);
+    expect(rows.map((part) => rowWord(language, part))).toEqual([words.notFound, words.notFound]);
+    expect(sentenceResultOf(claim.shown, claim.check, 0)).toBe("notFound");
   },
 );
 
-// protects=#2313: a sentence whose parts differ still heads with the sentence's own verdict, and its rows keep theirs, in English and Chinese; fails_when=the header is a result no row shows, or a supported part is called Not found; no_claim=the row's quote and its Add as Citation (claimPartsCoverage.test.ts).
+// protects=#2313: one part that found a Passage keeps the sentence and that row Unsupported, while the part that found nothing says Not found, in English and Chinese; fails_when=the sentence reads Not found though something was found; no_claim=the row's quote and its Add as Citation (claimPartsCoverage.test.ts).
 test.each(["en", "zh-CN"] as const)(
-  "the card's header and its rows keep their verdicts when the parts differ in %s",
+  "a part that found a Passage is Unsupported beside a part that found nothing in %s",
+  (language) => {
+    const { editor } = editorHolding([paragraph("Revenue rose and costs fell")]);
+    const claim = partsClaim(editor, 0, 0, [
+      partOf(0, 12, "unsupported", { evidence: [partCitation] }),
+      partOf(17, 27, "unsupported"),
+    ]);
+    const words = HEAD_WORDS[language];
+    expect(translate(language, checkStateKey(editor, claim))).toBe(words.unsupported);
+    expect(sentenceResultOf(claim.shown, claim.check, 0)).toBe("unsupported");
+    const rows = claimPartRows(claim.check) ?? [];
+    expect(rows.map((part) => rowWord(language, part))).toEqual([
+      words.unsupported,
+      words.notFound,
+    ]);
+  },
+);
+
+// protects=#2313: one part Supported keeps the sentence Unsupported, never Not found, in English and Chinese; fails_when=the header or a supported row reads Not found; no_claim=the supported row's Citation.
+test.each(["en", "zh-CN"] as const)(
+  "one part Supported keeps the sentence Unsupported in %s",
   (language) => {
     const { editor } = editorHolding([paragraph("Revenue rose and costs fell")]);
     const claim = partsClaim(editor, 0, 0, [
@@ -474,11 +508,9 @@ test.each(["en", "zh-CN"] as const)(
     ]);
     const words = HEAD_WORDS[language];
     expect(translate(language, checkStateKey(editor, claim))).toBe(words.unsupported);
-    expect(translate(language, checkStateKey(editor, claim))).not.toBe(words.notFound);
+    expect(sentenceResultOf(claim.shown, claim.check, 0)).toBe("unsupported");
     const rows = claimPartRows(claim.check) ?? [];
-    expect(
-      rows.map((part) => translate(language, `claim.state.${part.verdict}` as MessageKey)),
-    ).toEqual([words.supported, words.unsupported]);
+    expect(rows.map((part) => rowWord(language, part))).toEqual([words.supported, words.notFound]);
   },
 );
 
@@ -499,10 +531,10 @@ test.each(["en", "zh-CN"] as const)(
         rows: ["supported", "supported"],
       },
       {
-        name: "unsupported",
+        name: "not found",
         parts: both("unsupported"),
-        header: "unsupported",
-        rows: ["unsupported", "unsupported"],
+        header: "notFound",
+        rows: ["notFound", "notFound"],
       },
       {
         name: "contradicted",
@@ -551,10 +583,12 @@ test.each(["en", "zh-CN"] as const)(
       expect(translate(language, checkStateKey(editor, claim)), each.name).toBe(words[each.header]);
       const rows = claimPartRows(claim.check) ?? [];
       expect(rows, each.name).toHaveLength(2);
-      const rowState = (part: { verdict: string | null }) =>
-        claim.shown.state === "needs-recheck" ? "needs-recheck" : part.verdict;
       expect(
-        rows.map((part) => translate(language, `claim.state.${rowState(part)}` as MessageKey)),
+        rows.map((part) =>
+          claim.shown.state === "needs-recheck"
+            ? translate(language, "claim.state.needs-recheck")
+            : rowWord(language, part),
+        ),
         each.name,
       ).toEqual(each.rows.map((row) => words[row]));
       if ("uncheckable" in each && each.uncheckable)

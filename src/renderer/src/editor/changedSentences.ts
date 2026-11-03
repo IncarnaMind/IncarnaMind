@@ -50,36 +50,40 @@ export function useCheckThisMindPlan(doc: Y.Doc, mindId: string, paused: boolean
   return planned;
 }
 
+/** What the card knows before its press: a price line, no line because the run is cheap, or no price. */
+export interface CheckEstimateView {
+  line: EstimateLine | null;
+  state: "pending" | "none" | "price" | "unknown";
+}
+
 /**
  * The price line the one Check's card shows before it runs, from the plan the card holds:
- * above $1 or with a spending cap, else nothing (#1941). Null while no price is known.
+ * above $1 or with a spending cap, else nothing (#1941). "pending" until the first estimate
+ * arrives, and "unknown" when it failed, so the press can ask instead of spending unpriced.
  */
-export function useCheckEstimate(mindId: string, planned: Planned | null): EstimateLine | null {
+export function useCheckEstimate(mindId: string, planned: Planned | null): CheckEstimateView {
   const language = useLanguage();
-  const [estimate, setEstimate] = useState<EstimateLine | null>(null);
+  const [view, setView] = useState<CheckEstimateView>({ line: null, state: "pending" });
   // biome-ignore lint/correctness/useExhaustiveDependencies: the language redraws its words.
   useEffect(() => {
     if (planned === null) {
-      setEstimate(null);
+      setView({ line: null, state: "pending" });
       return;
     }
     let current = true;
-    checkEstimate(mindId, planned).then(
-      (line) => {
-        if (current) setEstimate(line);
-      },
-      (failure: unknown) => {
-        console.warn(
-          `Couldn't estimate checking Note ${mindId}; its card shows no price.`,
-          failure,
-        );
-      },
-    );
+    checkEstimate(mindId, planned).then((estimate) => {
+      if (!current) return;
+      setView(
+        estimate.kind === "price"
+          ? { line: estimate.line, state: "price" }
+          : { line: null, state: estimate.kind },
+      );
+    });
     return () => {
       current = false;
     };
   }, [mindId, planned, language]);
-  return estimate;
+  return view;
 }
 
 /**

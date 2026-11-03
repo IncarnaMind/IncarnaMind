@@ -1307,7 +1307,7 @@ export const zhCN = {
   "mindCheck.command": "核对",
   "mindCheck.alreadyChecking": "正在核对这篇笔记",
   "mindCheck.nothingToCheck": "没有需要核对的内容",
-  "mindCheck.waitingForOk": "核对在笔记里等你确认。",
+  "mindCheck.waitingForOk": "在笔记里确认后，核对才会开始。",
   "mindCheck.every": "重新核对每一句",
   "mindCheck.changed.none": "没有改动",
   "mindCheck.unchanged": "自 {when} 起没有改动",

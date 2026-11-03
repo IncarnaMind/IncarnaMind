@@ -15,6 +15,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  pointAndClick,
   pointAt,
   removeDataFolder,
   runCommand,
@@ -128,6 +129,9 @@ for (const [language, width] of [
       // Tied out, each figure is checked against the workbook, and the what-if is named as one.
       const schedule = window.getByTestId("figure-schedule");
       await runCommand(window, "mind.tieOut", t("figures.command"));
+      const ask = window.getByTestId("mind-check-ask").getByTestId("mind-check-check");
+      await expect(ask.or(schedule).first()).toBeVisible({ timeout: 30_000 });
+      if (await ask.isVisible()) await pointAndClick(window, ask);
       await expect(schedule).toBeVisible({ timeout: 30_000 });
       // The "3%" the Answer writes is a figure of the Note too, a row of its own.
       const rows = schedule.locator("tbody tr[data-figure-id]");

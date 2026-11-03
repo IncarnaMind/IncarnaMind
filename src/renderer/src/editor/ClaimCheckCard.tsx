@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -764,6 +765,15 @@ export function ClaimCard({
     return read !== undefined && read.checkId === check.id;
   });
   const asking = useChecks((store) => store.documentAsk[check.id]?.plan.kind === "ready");
+  // The card keeps the height it opened with, so verdicts landing in its rows do not make it
+  // jump; content that needs more room scrolls, and the next open fits the result (#2313).
+  const [heldHeight, setHeldHeight] = useState<number | null>(null);
+  const fullCard = !(reading || asking) || !mindId;
+  useLayoutEffect(() => {
+    if (!fullCard || heldHeight !== null) return;
+    const element = rootRef.current;
+    if (element) setHeldHeight(element.offsetHeight);
+  }, [fullCard, heldHeight, rootRef]);
   // Closing the card drops its question: opened again, it sizes the read afresh.
   useEffect(() => () => setDocumentAsk(check.id, null), [check.id]);
 
@@ -825,6 +835,7 @@ export function ClaimCard({
     <div
       ref={rootRef}
       className={`citation-card citation-card--${TONE[mark]} claim-card`}
+      style={heldHeight !== null ? { height: heldHeight, overflowY: "auto" } : undefined}
       contentEditable={false}
       {...objectMenu.rowProps}
     >

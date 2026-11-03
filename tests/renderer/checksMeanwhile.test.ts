@@ -148,6 +148,7 @@ describe("The one Check and Check every sentence again", () => {
           allDocuments: false,
           count: 12,
           inFolder: false,
+          watch: null,
           estimate: null,
           unestimated: false,
         },

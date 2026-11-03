@@ -12,7 +12,7 @@ import type {
   WholeRead,
 } from "../../../core/api";
 import { citationState, shownDocumentName } from "../../../shared/citations";
-import { checkedScope } from "../../../shared/claimChecks";
+import { checkedScope, partFoundNothing } from "../../../shared/claimChecks";
 import { coverageCount } from "../../../shared/claimParts";
 import { cardRows, hasKnownDomain } from "../../../shared/claimRows";
 import { citationLocation, formatLocation } from "../../../shared/locations";
@@ -270,6 +270,7 @@ function PartRow({
       : undefined;
   const heldAt = held ? citationLocation(held) : null;
   const state = stale ? "needs-recheck" : part.verdict;
+  const showsNotFound = !stale && partFoundNothing(part);
   const target = { kind: "check", id: `${id}:${part.span.start}:${part.span.end}` } as const;
   const menu = useObjectMenu(target);
   const reason =
@@ -322,7 +323,9 @@ function PartRow({
             ? t("claim.opinion")
             : state === "checking"
               ? t("claim.part.checking")
-              : t(`claim.state.${state}`)}
+              : state === "unsupported" && showsNotFound
+                ? t("claim.state.notFound")
+                : t(`claim.state.${state}`)}
         </span>
         {citations && citing.some((decision) => decision.kind === "add") && (
           <button

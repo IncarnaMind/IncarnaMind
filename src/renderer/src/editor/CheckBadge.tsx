@@ -2,7 +2,15 @@ import { flip, offset, shift, size } from "@floating-ui/dom";
 import type { Editor } from "@tiptap/core";
 import { useEditorState } from "@tiptap/react";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
-import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type * as Y from "yjs";
 import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
@@ -15,7 +23,7 @@ import { correctableCount, correctContradictions } from "../correctionFixes";
 import { useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
-import { startCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
+import { startCheck, startCheckUnpriced, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { useFade } from "../motion";
 import { type NoteState, noteStateOf, noteStateParts } from "../noteState";
 import { useAppStore } from "../store";
@@ -173,7 +181,7 @@ function CheckActions({
   const running = useChecks((state) => state.running[mindId] !== undefined);
   const editing = useEdits((state) => state.pending[mindId] !== undefined);
   const planned = useCheckThisMindPlan(doc, mindId, running);
-  const estimate = useCheckEstimate(mindId, planned);
+  const { line: estimate, state: estimateState } = useCheckEstimate(mindId, planned);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
   const unchanged = useMindCheck((state) => state.unchanged[mindId]);
   const place = useCardPlace(mindId);
@@ -220,7 +228,11 @@ function CheckActions({
           disabled={running}
           title={planned === null ? undefined : checkTitle(t, planned)}
           className={buttonStyle(correctable > 0 ? "secondary" : "primary", "sm")}
-          onClick={() => void startCheck(mindId)}
+          onClick={() =>
+            void (estimateState === "pending" || estimateState === "unknown"
+              ? startCheckUnpriced(mindId)
+              : startCheck(mindId))
+          }
         >
           {t("mindCheck.command")}
         </button>
@@ -343,6 +355,19 @@ function BadgeFrame({
   );
   const open = useChecks((state) => state.cardOpen[place] === true);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  // The card keeps the height it opened with, so rows and verdicts landing do not make it jump;
+  // content that needs more room scrolls, and the next open fits the result (#2313).
+  const [heldHeight, setHeldHeight] = useState<number | null>(null);
+  const body = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!open) {
+      setHeldHeight(null);
+      return;
+    }
+    if (heldHeight !== null) return;
+    const element = body.current;
+    if (element) setHeldHeight(element.offsetHeight);
+  }, [open, heldHeight]);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
   }, [ask, front, place]);
@@ -383,13 +408,19 @@ function BadgeFrame({
           onDismiss={(how) => close(how === "escape")}
           onKeyDown={stepThroughCard}
         >
-          {children}
-          {foot && (
-            <>
-              <div className="check-card-sep" />
-              <div className="check-card-foot">{foot}</div>
-            </>
-          )}
+          <div
+            ref={body}
+            className="check-card-body"
+            style={heldHeight !== null ? { height: heldHeight, overflowY: "auto" } : undefined}
+          >
+            {children}
+            {foot && (
+              <>
+                <div className="check-card-sep" />
+                <div className="check-card-foot">{foot}</div>
+              </>
+            )}
+          </div>
         </Popover>
       )}
     </div>

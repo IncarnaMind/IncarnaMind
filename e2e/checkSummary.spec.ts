@@ -280,7 +280,7 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-test("the card keeps its place while a claim is being checked, and has no blank summary line once its result lands", async () => {
+test("the card keeps one height as a result lands, its body taking what it needs", async () => {
   test.setTimeout(120_000);
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -321,8 +321,8 @@ test("the card keeps its place while a claim is being checked, and has no blank 
   await write("contradicted", {
     says: "The agreement says the facilities end on 14 February 2029.",
   });
-  // Nothing supported is left to add, so the line goes: no blank band at rest (#2313). The card
-  // is placed from its foot, which stays where it was.
+  // The result lands in the same card: the card keeps the height it opened with, so it does not
+  // jump; its body holds what the result needs and scrolls if that is more (#2313).
   const summary = card.locator(".mind-health-summary");
   await expect(summary).toHaveCount(0);
   await expect(card.getByTestId("health-contradicted")).toContainText("1 claim contradicted");
@@ -330,8 +330,13 @@ test("the card keeps its place while a claim is being checked, and has no blank 
   expect(running).not.toBeNull();
   expect(done).not.toBeNull();
   if (running && done) {
-    expect(done.y + done.height).toBeCloseTo(running.y + running.height, -1);
-    expect(done.height).toBeLessThan(running.height);
+    expect(done.y).toBeCloseTo(running.y, 0);
+    expect(done.height).toBeCloseTo(running.height, 0);
   }
+  const body = card.locator(".check-card-body");
+  await expect(body).toHaveCount(1);
+  expect(await body.evaluate((element) => element.scrollHeight <= element.clientHeight + 1)).toBe(
+    true,
+  );
   await app.close();
 });

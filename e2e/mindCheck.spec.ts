@@ -193,7 +193,7 @@ for (const language of ["en", "zh-CN"] as const) {
       ]);
       await window.getByTestId("mind-list-item").filter({ hasText: "Tide note" }).click();
       await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
-      const card = await checkCard(window);
+      const card = await checkCard(window, window, { stopTimeout: 120_000 });
       await mindCheckFinished(window, 2);
       const checked = card.getByTestId("health-checked-all");
       await expect(checked).toContainText(
@@ -339,7 +339,7 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
   );
 });
 
-test("In Chinese and a narrow window, from the Mind's tab menu: a model on this computer asks with the claims and no price; a Folder that holds too little offers all Documents; Check checks a sentence written since", async () => {
+test("In Chinese and a narrow window, from the Mind's tab menu: a model on this computer checks at once with no price; a Folder that holds too little offers all Documents; Check checks a sentence written since", async () => {
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   await writeFile(
     join(sources, "Garden.pdf"),

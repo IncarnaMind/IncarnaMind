@@ -66,6 +66,8 @@ interface Asking {
   count: number;
   /** Checked against the Note's Folder: the question names it. */
   inFolder: boolean;
+  /** The Note's Folder holds other Documents; `claims` is every cited claim a full watch reads. */
+  watch: { claims: number } | null;
   /** Null for a plan or a model on this computer, or when `estimateRun` failed. */
   estimate: EstimateLine | null;
   /** `estimateRun` failed: the ask says the cost couldn't be estimated. */
@@ -227,7 +229,10 @@ async function checkMindNow(
     } else if (result.kind === "nothing") setCheckProblem(mindId, { kind: "no-claims" });
     // Another window's Check of this Note is running: it says how it went.
     else if (result.kind !== "cancelled" && result.kind !== "running")
-      setCheckProblem(mindId, withCheckAll(result, again(mindId, mode, true, figureIds)));
+      setCheckProblem(
+        mindId,
+        withCheckAll(result, () => void startMindCheck(mindId, mode, { allDocuments: true })),
+      );
     return result;
   } catch (error) {
     setCheckProblem(mindId, {
@@ -297,12 +302,14 @@ export interface Planned {
 /**
  * Shows the Note, keeps it for this Check from planning to its end, plans the run, and says in
  * place if it can't or another window checks it. `ask` is the question before a run whose price
- * is above $1 or that has a spending cap, which the card's own Check skips (#2313).
+ * is above $1 or that has a spending cap, which the card's own Check skips (#2313). `forceAsk`
+ * asks without a price, for the card's press before its estimate arrived or after it failed.
  */
 async function start(
   mindId: string,
   planned: () => Promise<Planned>,
   ask = true,
+  forceAsk = false,
 ): Promise<CheckOutcome> {
   const { openMind } = useAppStore.getState();
   await openMind(mindId);
@@ -330,6 +337,7 @@ async function start(
         ranCheck = true;
       },
       ask,
+      forceAsk,
     );
     keeps = outcome !== null && outcome.kind === "asked";
     return outcome;
@@ -337,7 +345,7 @@ async function start(
     setCheckProblem(mindId, {
       kind: "failed",
       error,
-      retry: () => void start(mindId, planned, ask),
+      retry: () => void start(mindId, planned, ask, forceAsk),
     });
     return { kind: "threw", error };
   } finally {
@@ -420,31 +428,41 @@ async function checkItems(
 }
 
 /**
- * The price line the Note's card shows before its one Check runs, from the plan it holds: above
- * $1 or with a spending cap, else nothing (#1941). Null when no price is known.
+ * What the Note's card asks before its one Check runs: the price line above $1 or with a spending
+ * cap (#1941), none when the run is cheap or free, or unknown when `estimateRun` failed.
  */
-export async function checkEstimate(
-  mindId: string,
-  planned: Planned,
-): Promise<EstimateLine | null> {
+export type CheckedEstimate =
+  | { kind: "price"; line: EstimateLine }
+  | { kind: "none" }
+  | { kind: "unknown" };
+
+export async function checkEstimate(mindId: string, planned: Planned): Promise<CheckedEstimate> {
   const { plan } = planned;
-  if (plan.kind !== "ready") return null;
-  const estimated = await core
-    .estimateRun({
+  if (plan.kind !== "ready") return { kind: "none" };
+  try {
+    const estimated = await core.estimateRun({
       items: await checkItems(mindId, planned, plan),
       each: "check",
       ...(plan.model && { model: plan.model }),
-    })
-    .catch((error: unknown) => {
-      console.warn(`Couldn't estimate checking Note ${mindId}; its card shows no price.`, error);
-      return null;
     });
-  return estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
+    const line = estimateLine(estimated, translateNow, languageNow());
+    return line ? { kind: "price", line } : { kind: "none" };
+  } catch (error) {
+    console.warn(
+      `Couldn't estimate checking Note ${mindId}; its card asks without a price.`,
+      error,
+    );
+    return { kind: "unknown" };
+  }
 }
 
 /** The card's one Check: the price line it shows before the press is the User's OK (#2313). */
 export const startCheck = (mindId: string): Promise<CheckOutcome> =>
   start(mindId, () => planCheckThisMind(mindId), false);
+
+/** The card's Check when its price failed or hasn't arrived: it asks, with the couldn't-estimate line. */
+export const startCheckUnpriced = (mindId: string): Promise<CheckOutcome> =>
+  start(mindId, () => planCheckThisMind(mindId), true, true);
 
 /**
  * A Check started from ⌘K, Home, the assistant or a line: it asks when its price is above $1 or a
@@ -518,7 +536,7 @@ export async function confirmCheck(mindId: string): Promise<void> {
     await runCheck(mindId, asking.requestId, {
       mode: asking.mode,
       allDocuments: asking.allDocuments,
-      watch: null,
+      watch: asking.watch,
     });
   } catch (error) {
     setCheckProblem(mindId, {
@@ -584,6 +602,7 @@ async function askOrCheck(
   plan: MindCheckPlan,
   started: () => void,
   ask: boolean,
+  forceAsk = false,
 ): Promise<CheckOutcome> {
   // A check of this Note that started while this one was held and planned has the badge, with
   // Stop: this one changes nothing beside it (#2302).
@@ -602,14 +621,31 @@ async function askOrCheck(
       mindId,
       plan.kind === "nothing"
         ? { kind: "no-claims" }
-        : withCheckAll(
-            plan,
-            ask
-              ? () => void startMindCheck(mindId, run.mode, { allDocuments: true })
-              : again(mindId, run.mode, true),
-          ),
+        : withCheckAll(plan, () => void startMindCheck(mindId, run.mode, { allDocuments: true })),
     );
     return null;
+  }
+  // No price arrived at the card's press: the question asks with the couldn't-estimate line.
+  if (forceAsk) {
+    clearAsk(mindId);
+    dismissCheckProblem(mindId);
+    waitForAnswer(requestId);
+    useMindCheck.setState((state) => ({
+      asking: {
+        ...state.asking,
+        [mindId]: {
+          requestId,
+          mode: run.mode,
+          allDocuments: run.allDocuments,
+          count: plan.sentences,
+          inFolder: plan.inFolder,
+          watch: run.watch,
+          estimate: null,
+          unestimated: true,
+        },
+      },
+    }));
+    return { kind: "asked", requestId };
   }
   // The one Check runs from its one press; the price line it shows is its card's, never a
   // question before the run (#2313).
@@ -646,6 +682,7 @@ async function askOrCheck(
         allDocuments: run.allDocuments,
         count: plan.sentences,
         inFolder: plan.inFolder,
+        watch: run.watch,
         estimate,
         unestimated: estimated === null,
       },
