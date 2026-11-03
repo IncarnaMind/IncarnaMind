@@ -57,6 +57,7 @@ export type CommandsCore = Pick<
   | "deleteTag"
   | "addTagToDocuments"
   | "revertDocumentTags"
+  | "listDocumentTagDecisions"
   | "deleteDocuments"
   | "deleteMind"
   | "deletePermanently"

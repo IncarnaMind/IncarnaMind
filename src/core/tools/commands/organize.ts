@@ -42,6 +42,9 @@ const tagLinksOf = (documents: readonly Document[]) =>
     ]),
   );
 
+const decisionsOf = (rows: readonly { documentId: string; tagIds: string[] }[]) =>
+  new Map(rows.map((row) => [row.documentId, new Set(row.tagIds)]));
+
 const sameLink = (a: TagLink | null, b: TagLink | null) =>
   a === null || b === null
     ? a === b
@@ -52,6 +55,8 @@ const tagStates = (
   target: Map<string, Map<string, TagLink>>,
   left: Map<string, Map<string, TagLink>>,
   current: Map<string, Map<string, TagLink>>,
+  decidedBefore: Map<string, Set<string>>,
+  decidedAfter: Map<string, Set<string>>,
 ): TagLinkState[] => {
   const states: TagLinkState[] = [];
   for (const [documentId, leftLinks] of left) {
@@ -62,6 +67,8 @@ const tagStates = (
       const targetLink = targetLinks.get(tagId) ?? null;
       // A Tag the User put on or took off is not Organize's to change, before or after.
       if (leftLink?.source === "user" || targetLink?.source === "user") continue;
+      if (decidedBefore.get(documentId)?.has(tagId) || decidedAfter.get(documentId)?.has(tagId))
+        continue;
       if (!sameLink(currentLinks.get(tagId) ?? null, leftLink)) continue;
       if (sameLink(targetLink, leftLink)) continue;
       states.push({ documentId, tagId, link: targetLink });
@@ -143,6 +150,8 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
         const beforeTags = tagLinksOf(
           (await core.listDocuments()).filter((each) => ids.includes(each.id)),
         );
+        const beforeTagIds = new Set((await core.listTags()).map((each) => each.id));
+        const beforeDecided = decisionsOf(await core.listDocumentTagDecisions(ids));
         const before = await assignmentsOf(core, ids);
         const made: LibraryGroup[] = [];
         let named: LibraryGroup | null = null;
@@ -189,6 +198,11 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
         const afterTags = tagLinksOf(
           (await core.listDocuments()).filter((each) => ids.includes(each.id)),
         );
+        const afterDecided = decisionsOf(await core.listDocumentTagDecisions(ids));
+        const tagUndo = tagStates(beforeTags, afterTags, afterTags, new Map(), new Map());
+        // A Tag merged or deleted during the run is the User's: the Undo puts no link back to it.
+        const afterTagIds = new Set((await core.listTags()).map((each) => each.id));
+        const tagSetChanged = [...beforeTagIds].some((id) => !afterTagIds.has(id));
         const names = new Map(groups.map((group) => [group.id, group.name]));
         const counts = new Map<string, number>();
         for (const change of moved) {
@@ -256,12 +270,15 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             considered: ids.length,
           },
           step:
-            moved.length === 0
+            moved.length === 0 && tagUndo.length === 0
               ? null
               : {
                   undo: async () => {
+                    const currentDocuments = await core.listDocuments();
+                    const live = new Set(currentDocuments.map((each) => each.id));
                     const now = await assignmentsOf(core, ids);
                     for (const id of ids) {
+                      if (!live.has(id)) continue;
                       await core.restoreAssignment(
                         id,
                         wasBefore(before.get(id)),
@@ -269,12 +286,16 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                       );
                     }
                     await removeMade();
-                    const back = tagStates(
-                      beforeTags,
-                      afterTags,
-                      tagLinksOf(await core.listDocuments()),
-                    );
-                    if (back.length > 0) await core.revertDocumentTags(back);
+                    if (!tagSetChanged) {
+                      const back = tagStates(
+                        beforeTags,
+                        afterTags,
+                        tagLinksOf(currentDocuments.filter((each) => ids.includes(each.id))),
+                        beforeDecided,
+                        afterDecided,
+                      );
+                      if (back.length > 0) await core.revertDocumentTags(back);
+                    }
                     return null;
                   },
                   redo: async () => {
@@ -285,8 +306,11 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                       }
                     }
                     // File where the first run filed: Redo never asks the model again.
+                    const currentDocuments = await core.listDocuments();
+                    const live = new Set(currentDocuments.map((each) => each.id));
                     const targets = new Map<string | null, string[]>();
                     for (const [id, folderId] of Object.entries(checked)) {
+                      if (!live.has(id)) continue;
                       targets.set(folderId, [...(targets.get(folderId) ?? []), id]);
                     }
                     for (const [folderId, moving] of targets) {
@@ -294,12 +318,16 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                     }
                     const now = await assignmentsOf(core, ids);
                     for (const id of ids) left.set(id, stateOf(now.get(id)));
-                    const again = tagStates(
-                      afterTags,
-                      beforeTags,
-                      tagLinksOf(await core.listDocuments()),
-                    );
-                    if (again.length > 0) await core.revertDocumentTags(again);
+                    if (!tagSetChanged) {
+                      const again = tagStates(
+                        afterTags,
+                        beforeTags,
+                        tagLinksOf(currentDocuments.filter((each) => ids.includes(each.id))),
+                        beforeDecided,
+                        afterDecided,
+                      );
+                      if (again.length > 0) await core.revertDocumentTags(again);
+                    }
                   },
                 },
           said:

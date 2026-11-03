@@ -12214,6 +12214,13 @@ export interface CoreApi {
    */
   revertDocumentTags(links: TagLinkState[]): Promise<Document[]>;
   /**
+   * The Tags the User decided on for each Document, added or removed: automatic tagging leaves
+   * those links alone, live or removed. Returns each Document's Tag ids, in the order given.
+   */
+  listDocumentTagDecisions(
+    documentIds: string[],
+  ): Promise<{ documentId: string; tagIds: string[] }[]>;
+  /**
    * Merges a Tag into another: every Document carrying `tagId` carries
    * `intoTagId` instead, and `tagId` is deleted. Who chose each Tag is kept
    * (the User's choice wins when a Document had both), and a removal the
@@ -13218,6 +13225,7 @@ const methods: Record<CoreApiMethod, true> = {
   addTagToDocuments: true,
   removeTagFromDocuments: true,
   revertDocumentTags: true,
+  listDocumentTagDecisions: true,
   mergeTags: true,
   retagDocuments: true,
   backOnline: true,

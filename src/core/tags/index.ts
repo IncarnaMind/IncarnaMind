@@ -186,6 +186,15 @@ export function createTags(db: Database, now: () => string) {
       )
       .map(toTag);
 
+  /** The Tags the User decided on for a Document, added or removed: automatic tagging leaves them alone. */
+  const owned = (documentId: string): string[] =>
+    db
+      .all<{ tag_id: string }>(
+        "SELECT DISTINCT tag_id FROM document_tags WHERE document_id = ? AND source = 'user'",
+        [documentId],
+      )
+      .map((row) => row.tag_id);
+
   /** Refuses a name another live Tag has, ignoring case. */
   const checkUnique = (name: string, exceptId?: string) => {
     const taken = list().find((tag) => tag.id !== exceptId && sameName(tag.name, name));
@@ -286,6 +295,7 @@ export function createTags(db: Database, now: () => string) {
   return {
     get,
     list,
+    owned,
 
     /**
      * Creates the preset Tags if no Tag has ever existed here (deleted ones

@@ -5794,6 +5794,10 @@ export function createCore(adapters: CoreAdapters): Core {
       tagMany(documentIds, (id) => tags.addToDocument(id, tagId)),
     removeTagFromDocuments: async (documentIds, tagId) =>
       tagMany(documentIds, (id) => tags.removeFromDocument(id, tagId)),
+    listDocumentTagDecisions: async (documentIds) =>
+      [...new Set(parseIds(documentIds, "The Documents whose Tags are asked"))].map(
+        (documentId) => ({ documentId, tagIds: tags.owned(documentId) }),
+      ),
     revertDocumentTags: async (links) => {
       const changed = recentlyDeleted.revertTags(links);
       if (changed.length > 0) announceTagged(changed);

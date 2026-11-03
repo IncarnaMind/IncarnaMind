@@ -716,6 +716,164 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(after?.tags.length).toBe(1);
   });
 
+  // protects=Organize that files nothing but changes Tags still has an Undo that takes them back (#2252); fails_when=the step is missing and Undo fails, or the Tags stay; no_claim=which Folder the classifier picks.
+  test("Organize that only Tags the Documents can still be undone", async () => {
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          return {
+            text: JSON.stringify({
+              groupId: "__unsorted__",
+              tags: [],
+              newTags: [{ name: "Rentals", description: "Rent payments" }],
+            }),
+          };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const rentals = (await core.listTags()).find((each) => each.name === "Rentals");
+    if (!rentals) throw new Error("No Rentals Tag.");
+    expect(
+      (await core.listDocuments()).every((each) =>
+        each.tags.some((tag) => tag.tagId === rentals.id),
+      ),
+    ).toBe(true);
+
+    await core.undoCommands(runOf(answer));
+    expect(
+      (await core.listDocuments()).every(
+        (each) => !each.tags.some((tag) => tag.tagId === rentals.id),
+      ),
+    ).toBe(true);
+    expect((await core.getLibrary()).groups).toEqual([]);
+  });
+
+  // protects=Undo does not put back an automatic Tag the User removed while Organize was reading (#2252); fails_when=the removed Tag comes back; no_claim=which Folder the classifier picks.
+  test("Undo leaves an automatic Tag the User removed during the run off", async () => {
+    let phase: "add" | "keep" = "add";
+    let classified = 0;
+    let added: () => void = () => undefined;
+    const removed = new Promise<void>((resolve) => {
+      added = resolve;
+    });
+    let coreRef: Core | null = null;
+    let firstId = "";
+    let moving: string[] = [];
+    let rentalsId = "";
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        if (ran.length > 0) return { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+        return {
+          calls: [
+            {
+              tool: "run_command",
+              input: {
+                command: "documents.organize",
+                ...(phase === "keep" && { ids: moving }),
+                folder: "Leases",
+                about: "Lease papers",
+              },
+            },
+          ],
+        };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          if (phase === "add")
+            return {
+              text: JSON.stringify({
+                groupId: leases?.id ?? null,
+                tags: [],
+                newTags: [{ name: "Rentals", description: "Rent payments" }],
+              }),
+            };
+          classified++;
+          const text = JSON.stringify({
+            groupId: leases?.id ?? null,
+            tags: rentalsId ? [rentalsId] : [],
+          });
+          if (classified === 2 && coreRef && firstId && rentalsId) {
+            void coreRef.removeTagFromDocuments([firstId], rentalsId).then(
+              () => added(),
+              () => added(),
+            );
+            return { text, until: removed };
+          }
+          return { text };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    coreRef = core;
+    const listed = await core.listDocuments();
+    firstId = listed[0]?.id ?? "";
+    moving = listed.map((each) => each.id);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const rentals = (await core.listTags()).find((each) => each.name === "Rentals");
+    if (!rentals) throw new Error("No Rentals Tag.");
+    rentalsId = rentals.id;
+
+    phase = "keep";
+    const second = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const afterRun = (await core.listDocuments()).find((each) => each.id === firstId);
+    expect(afterRun?.tags.some((each) => each.tagId === rentals.id)).toBe(false);
+
+    await core.undoCommands(runOf(second));
+    const after = (await core.listDocuments()).find((each) => each.id === firstId);
+    expect(after?.tags.some((each) => each.tagId === rentals.id)).toBe(false);
+  });
+
   // protects=Organize the User doesn't allow changes nothing; fails_when=a Document is filed or a Folder made; no_claim=the card's words.
   test("Organize not allowed moves nothing", async () => {
     const model = calling(
