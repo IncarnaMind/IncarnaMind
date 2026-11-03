@@ -54,8 +54,8 @@ interface Plan {
   quote?: string;
   /** For a sentence with figures, the number of `quote` each figure is read from: its first when absent. */
   number?: string;
-  /** For a sentence with figures, a second quote its figures are read from, `quote` backing its words. */
-  figureQuote?: string;
+  /** For a sentence with figures, each figure's own quote and number, in order, `quote` backing its words. */
+  figures?: { quote: string; number: string }[];
   /** For a sentence with figures, its words besides them, and the quote that backs those, cited last. */
   remainder?: { text: string; quote: string };
   /** What its Property line names; no line when null; "none" when absent. */
@@ -99,8 +99,10 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
         return { text: `Parts: ${JSON.stringify(parts)}`, calls: [search] };
       }
       const shown = searches.flatMap((search) => shownPassages(search.text));
-      const { quote, figureQuote, remainder } = plan;
-      const quotes = [quote, figureQuote, remainder?.quote].filter((each) => each !== undefined);
+      const { quote, remainder } = plan;
+      const quotes = [quote, ...(plan.figures ?? []).map((each) => each.quote), remainder?.quote].filter(
+        (each) => each !== undefined,
+      );
       if (quote && !call.results.some((result) => result.tool === "cite")) {
         const passageOf = (words: string) =>
           (shown.find((each) => each.text.includes(words)) ?? shown[0])?.id;
@@ -132,20 +134,25 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
       // A check in a Note binds each figure of its sentence to the number its quote gives.
       const figures = requestedFigures(call);
       if (figures.length > 0) {
-        const from = figureQuote ?? quote;
-        const number = from ? (plan.number ?? readFigures(from)[0]?.chars) : undefined;
-        const items = figures.map(({ id, reading }) => ({
-          id,
-          verdict: number ? plan.verdict : "unsupported",
-          scope: "same",
-          topic: number ? "found" : "not found",
-          roles: "same",
-          says: null,
-          reading,
-          relation: "equals",
-          source: number ? { citation: figureQuote ? 2 : 1, number } : null,
-          calculation: null,
-        }));
+        const first = quote ? (plan.number ?? readFigures(quote)[0]?.chars) : undefined;
+        const items = figures.map(({ id, reading }, at) => {
+          const own = plan.figures?.[at];
+          const source = own
+            ? { citation: at + 2, number: own.number }
+            : first && { citation: 1, number: first };
+          return {
+            id,
+            verdict: source ? plan.verdict : "unsupported",
+            scope: "same",
+            topic: source ? "found" : "not found",
+            roles: "same",
+            says: null,
+            reading,
+            relation: "equals",
+            source: source || null,
+            calculation: null,
+          };
+        });
         const rest = remainder && {
           text: remainder.text,
           citation: quotes.length,
@@ -588,7 +595,7 @@ describe.each(["en", "zh-CN"] as const)(
           document: "Plan",
           verdict: "supported",
           quote: "Quarterly board plan",
-          figureQuote: "Slides: 3",
+          figures: [{ quote: "Slides: 3", number: "3" }],
           property,
           says: "The deck is the board plan.",
         },
@@ -644,6 +651,46 @@ describe.each(["en", "zh-CN"] as const)(
     });
   },
 );
+
+// protects=a Note's sentence one of whose figures a property may not decide is never Supported on its other figure's text; fails_when=the deck's text backs "4 owners" and the sentence stays Supported while its "3 slides" rests on a property its reply doesn't name.
+test("a sentence with two figures, one of them backed by a property it may not use, is not Supported", async () => {
+  const SENTENCE = "Plan.pptx names 4 owners across its 3 slides.";
+  const slide = (text: string) => ({
+    shapes: sp({ body: txBody(para(`<a:r><a:t>${text}</a:t></a:r>`)) }),
+  });
+  const deck = [
+    {
+      name: "Plan.pptx",
+      contents: pptxOf({ slides: [slide("Owners: 4"), slide("Plan"), slide("Questions")] }),
+    },
+  ];
+  const plan = (property: string): Record<string, Plan> => ({
+    [SENTENCE]: {
+      document: "Plan",
+      verdict: "supported",
+      quote: "Owners: 4",
+      figures: [
+        { quote: "Owners: 4", number: "4" },
+        { quote: "Slides: 3", number: "3" },
+      ],
+      property,
+    },
+  });
+  const named = await setUp(deck, plan("slides"));
+  const { check: about } = await checkInNote(named.core, SENTENCE, null);
+  expect(about).toMatchObject({
+    state: "supported",
+    figures: [
+      { state: "supported", evidence: { quote: "Owners: 4", location: { kind: "slide" } } },
+      { state: "supported", evidence: { location: property("slides", "3") } },
+    ],
+  });
+
+  const notAbout = await setUp(deck, plan("none"));
+  const { check } = await checkInNote(notAbout.core, SENTENCE, null);
+  expect(check?.figures?.map((figure) => figure.state)).toEqual(["supported", "unsupported"]);
+  expect(check?.state).toBe("unsupported");
+});
 
 /** The ruled line, with this computer's date as the day it was here, in its own time zone. */
 const computerLine = (language: Language, at: string) => {
