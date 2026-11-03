@@ -318,8 +318,13 @@ export interface CreateMindInput {
  *   opens these Notes read-only.
  *   Older content is version 47 content as it is: a figure kept before carries
  *   no check, and shows as not checked.
+ * - 49: a figure can be a number an Analysis's code printed (#2351), kept as a
+ *   value of its run's record, and that run can be bash (`language: "bash"`).
+ *   An older version's reader refuses a bash run's record and would keep the
+ *   Note again without it, so it opens these Notes read-only. Older content is
+ *   version 49 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 48;
+export const CONTENT_SCHEMA_VERSION = 49;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
