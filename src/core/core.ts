@@ -1819,7 +1819,16 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!api) throw new Error("The core isn't ready for commands yet.");
       return api;
     },
-    organizeAtOnce: (ids, signal) => library.organizeAtOnce(ids, signal),
+    organizeAtOnce: (ids, signal, wall) => {
+      const allowed = new Set(
+        library
+          .folders()
+          .filter((folder) => filedWithin(wall, folder.id)?.folderId === folder.id)
+          .map((folder) => folder.id),
+      );
+      return library.organizeAtOnce(ids, signal, allowed);
+    },
+    allowCloudRead: (service) => consent.choose(["classification"], service),
     allows: async (input, touches, mindId, wallOverride) => {
       const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
       const refuse = () => {

@@ -361,6 +361,8 @@ export function commandTools(options: CommandToolsOptions): {
       if (!command) throw new Error("The command wasn't checked before it ran.");
       const ask = options.ask;
       let ran: Awaited<ReturnType<CheckedCommand["run"]>>;
+      // The card named the cloud service and what goes to it: the User's Allow is that consent.
+      if (command.cloud) options.host.allowCloudRead(command.cloud);
       try {
         ran = await inTurn(() =>
           command.run(

@@ -66,17 +66,33 @@ export function askOf(checked: CheckedCommand, context: CommandContext): Command
     return { kind: "listen", command };
   }
   if (checked.final) return { kind: "final", command, items: items() };
-  // Organize and a Tag merge ask in place, as the app's own ask first (#2252).
-  if (checked.confirm) {
+  // A Tag merge asks on its one card, every time (#2252).
+  if (checked.confirm === "merge") {
     return {
       kind: "change",
       command,
-      reason: checked.confirm,
+      reason: "merge",
       count: checked.items.length,
       items: items(),
       into: checked.into,
       ...(checked.merges && checked.merges.length > 1 && { merges: checked.merges }),
       changed: context.changed,
+    };
+  }
+  // Organize files at once; it asks only where the rules already ask: the first cloud read for
+  // it (its card's cloud line), or more Documents than one Answer may change at once (#2252).
+  if (checked.confirm === "organize") {
+    const many = checked.changes && context.changed + checked.items.length > COMMAND_AT_ONCE;
+    if (!many && !checked.cloud) return null;
+    return {
+      kind: "change",
+      command,
+      reason: "organize",
+      count: checked.items.length,
+      items: items(),
+      into: checked.into,
+      changed: context.changed,
+      ...(checked.cloud && { service: checked.cloud.name }),
     };
   }
   const reason = checked.deletes

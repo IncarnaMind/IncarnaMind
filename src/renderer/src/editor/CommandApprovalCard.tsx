@@ -54,7 +54,10 @@ function whyOf(t: Translate, ask: Change): string {
       days: RECENTLY_DELETED_DAYS,
     });
   }
-  if (ask.reason === "organize") return t("commands.ask.why.organize");
+  if (ask.reason === "organize") {
+    const why = t("commands.ask.why.organize");
+    return ask.service ? `${why} ${t("library.organize.sends", { company: ask.service })}` : why;
+  }
   if (ask.reason === "merge") {
     return ask.merges && ask.merges.length > 1
       ? t("commands.ask.why.merge.groups")

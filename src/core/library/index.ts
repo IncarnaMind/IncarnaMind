@@ -933,6 +933,8 @@ export function createLibrary(options: {
       failed?(error: unknown): void;
       /** The links automatic tagging changed, before and after (#2252). */
       applied?(id: string, links: readonly TagLinkChange[]): void;
+      /** The Folders it may choose, when a wall keeps it to some (#1934); none: all of them. */
+      allowedGroups?: ReadonlySet<string>;
     },
   ): Promise<void> {
     const initial = assignment(id);
@@ -949,7 +951,9 @@ export function createLibrary(options: {
         state(id, "waiting", scanWaits(current));
         return;
       }
-      const definitions = groups();
+      const definitions = groups().filter(
+        (group) => !call.allowedGroups || call.allowedGroups.has(group.id),
+      );
       const tagDefinitions = options.tags.list();
       if (definitions.length === 0) {
         state(id, "waiting");
@@ -1739,6 +1743,7 @@ export function createLibrary(options: {
     async organizeAtOnce(
       input: unknown,
       signal: AbortSignal,
+      allowedGroups?: ReadonlySet<string>,
     ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }> {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
@@ -1767,6 +1772,7 @@ export function createLibrary(options: {
             stopped = error;
           },
           applied: (_id, links) => tagChanges.push(...links),
+          allowedGroups,
         });
         // Stopped during this one: it goes back as it was, like the ones after it.
         if (signal.aborted && !lifetime.signal.aborted) break;

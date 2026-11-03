@@ -113,6 +113,20 @@ async function askAndWait(window: Page, question: string): Promise<Locator> {
   return card;
 }
 
+// A small Organize on the local model asks nothing, so its answer goes straight to done (#2252).
+async function askAndFinish(window: Page, question: string): Promise<Locator> {
+  const answers = assistantAnswers(window);
+  const before = await answers.count();
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type(question);
+  await window.keyboard.press("Enter");
+  await expect(answers).toHaveCount(before + 1);
+  const answer = answers.last();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  await expect(answer.getByTestId("approval-card")).toHaveCount(0);
+  return answer;
+}
+
 test("renaming by date, moving into a new Folder and tagging each happen at once, and one Undo takes each back", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -533,7 +547,7 @@ test("a reply that says Local mode is on, though it was refused, keeps a line un
   await app.close();
 });
 
-test("put the documents about rent together asks once, files them, and one Undo puts them back", async () => {
+test("put the documents about rent together files them, and one Undo puts them back", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -556,27 +570,7 @@ test("put the documents about rent together asks once, files them, and one Undo 
   await organizeWithTheFake(window);
   await newMind(window);
 
-  const card = await askAndWait(window, "Put the documents about rent together");
-  await expect(card).toHaveAttribute("data-kind", "command");
-  await expect(card).toHaveAttribute("data-reason", "organize");
-  await expect(card).toContainText("Organize 3 Documents into Folders?");
-  await expect(card).toContainText(
-    "Organize reads what each Document says and files it in the Folder that fits. Undo puts them back.",
-  );
-  expect((await card.getByTestId("approval-file").allTextContents()).sort()).toEqual([
-    "Agreement",
-    "Harbour Street",
-    "Q3 commentary",
-  ]);
-  await expect(card.getByTestId("approval-allow-once")).toContainText("Allow");
-  await screenshot(window, "commands-organize-asks-en");
-  await setWindowSize(app, window, 900, 900);
-  await screenshot(window, "commands-organize-asks-en-narrow");
-  await setWindowSize(app, window, 1440, 900);
-  await pointAndClick(window, card.getByTestId("approval-allow-once"));
-
-  const answer = assistantAnswers(window).last();
-  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  const answer = await askAndFinish(window, "Put the documents about rent together");
   const changes = answer.getByTestId("command-changes");
   await expect(changes.getByTestId("command-changes-title")).toHaveText("Organized 2 Documents");
   // Nothing is left waiting in To review: the User's request was the acceptance.
@@ -618,23 +612,58 @@ test("put the documents about rent together asks once, files them, and one Undo 
   await app.close();
 });
 
-test("Re organise the files asks once in place and files every Document, and one Undo puts them back", async () => {
+test("the first cloud read for Organize asks on its card, and Allow is that consent", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+  await organizeWithTheFake(window);
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const provider = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "fake-model",
+    });
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
+      automatic: settings.automatic,
+    });
+    const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
+    if (!flow) throw new Error("No classification flow.");
+    await core.revokeConsent("classification", flow.flow.service.id);
+  });
+
+  const card = await askAndWait(window, "Re organise the files");
+  await expect(card).toHaveAttribute("data-reason", "organize");
+  await expect(card).toContainText("Organize 4 Documents into Folders?");
+  await expect(card).toContainText("Sends document names and excerpts to OpenAI.");
+  await screenshot(window, "commands-organize-cloud-asks-en");
+  await setWindowSize(app, window, 900, 900);
+  await screenshot(window, "commands-organize-cloud-asks-en-narrow");
+  await setWindowSize(app, window, 1440, 900);
+  await pointAndClick(window, card.getByTestId("approval-allow-once"));
+
+  const answer = assistantAnswers(window).last();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  await expect(answer.getByTestId("command-changes-title")).toHaveText("Organized 4 Documents");
+  const consent = await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await core.listDataFlows()).find((each) => each.flow.id === "classification")?.consent;
+  });
+  expect(consent).toBe("accepted");
+  await app.close();
+});
+
+test("Re organise the files files every Document, and one Undo puts them back", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
   await setUp(app, window);
   await organizeWithTheFake(window);
 
-  const card = await askAndWait(window, "Re organise the files");
-  await expect(card).toHaveAttribute("data-kind", "command");
-  await expect(card).toHaveAttribute("data-reason", "organize");
-  await expect(card).toContainText("Organize 4 Documents into Folders?");
-  await expect(card.getByTestId("approval-file")).toHaveCount(4);
-  await screenshot(window, "commands-organize-files-en");
-  await pointAndClick(window, card.getByTestId("approval-allow-once"));
-
-  const answer = assistantAnswers(window).last();
-  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  const answer = await askAndFinish(window, "Re organise the files");
   const changes = answer.getByTestId("command-changes");
   await expect(changes.getByTestId("command-changes-title")).toHaveText("Organized 4 Documents");
   await expect
@@ -650,26 +679,14 @@ test("Re organise the files asks once in place and files every Document, and one
   await app.close();
 });
 
-test("重新整理文件：先确认一次，整理完成后撤销一次就恢复原样", async () => {
+test("重新整理文件：整理完成后撤销一次就恢复原样", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
   await setUp(app, window, "zh-CN");
   await organizeWithTheFake(window);
 
-  const card = await askAndWait(window, "重新整理一下这些文件");
-  await expect(card).toHaveAttribute("data-reason", "organize");
-  await expect(card).toContainText("整理 4 个文档，放进文件夹？");
-  await expect(card).toContainText("整理会读取每个文档的内容，放进合适的文件夹。可以用撤销恢复。");
-  await expect(card.getByTestId("approval-allow-once")).toContainText("允许");
-  await screenshot(window, "commands-organize-asks-zh");
-  await setWindowSize(app, window, 900, 900);
-  await screenshot(window, "commands-organize-asks-zh-narrow");
-  await setWindowSize(app, window, 1440, 900);
-  await pointAndClick(window, card.getByTestId("approval-allow-once"));
-
-  const answer = assistantAnswers(window).last();
-  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  const answer = await askAndFinish(window, "重新整理一下这些文件");
   const changes = answer.getByTestId("command-changes");
   await expect(changes.getByTestId("command-changes-title")).toHaveText("整理了 4 个文档");
   await expect

@@ -9404,6 +9404,8 @@ export type CommandAsk =
       into: string | null;
       /** A Tag merge's pairs, by name, when one call merges into more than one Tag (#2252). */
       merges?: readonly { from: string; into: string }[];
+      /** The cloud service that would read the Documents for the first time, by name (#2252). */
+      service?: string;
       /** How many things the Answer changed without asking before this call. */
       changed: number;
     }

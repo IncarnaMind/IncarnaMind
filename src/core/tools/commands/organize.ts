@@ -105,6 +105,15 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
     input.ids.length > 0 ? await documentsOf(core, input.ids) : await inNoFolder(core);
   const items = documents.map((each) => documentItem(each));
   const ids = documents.map((each) => each.id);
+  const route =
+    ids.length > 0 ? await core.getTaggingRoute("classification") : { where: "none" as const };
+  const flow =
+    route.where === "cloud"
+      ? (await core.listDataFlows()).find(
+          (each) => each.flow.id === "classification" && each.flow.service.id === route.service.id,
+        )
+      : null;
+  const cloud = route.where === "cloud" && flow?.consent !== "accepted" ? route.service : null;
   return {
     ...inApp(
       "documents.organize",
@@ -133,7 +142,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
         let untouched = 0;
         let tagChanges: TagLinkChange[] = [];
         try {
-          ({ failed, untouched, tagChanges } = await host.organizeAtOnce(ids, signal));
+          ({ failed, untouched, tagChanges } = await host.organizeAtOnce(ids, signal, wallId));
         } catch (error) {
           for (const folder of made) {
             if (!(await holdsAny(core, folder.id))) await unmake(core, "folder", folder.id);
@@ -317,5 +326,6 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
       documents.length > 0 ? "organize" : null,
     ),
     changes: true,
+    ...(cloud && { cloud }),
   };
 };

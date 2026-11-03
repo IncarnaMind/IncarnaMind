@@ -19,6 +19,7 @@ import type {
   Document,
   Effect,
   ExportMarking,
+  ExternalService,
   FolderMove,
   LibraryGroup,
   MarkAiTextChoice,
@@ -71,6 +72,8 @@ export type CommandsCore = Pick<
   | "acceptAssignments"
   | "proposeFolders"
   | "mergeTags"
+  | "getTaggingRoute"
+  | "listDataFlows"
   | "getMindCitationStyle"
   | "setMindCitationStyle"
   | "listCitationStyles"
@@ -108,7 +111,10 @@ export interface CommandsHost {
   organizeAtOnce(
     ids: readonly string[],
     signal: AbortSignal,
+    wall: string | null,
   ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }>;
+  /** The User allowed a cloud model to read the Documents for this Organize (#2252, ADR-0022). */
+  allowCloudRead(service: ExternalService): void;
   /**
    * Refuses a command that would cross the Folder wall the Answer was asked behind (#1934): each
    * id it names, as one of the kinds it `touches`, must be on the turn's side of the wall.
@@ -203,6 +209,8 @@ export interface CheckedCommand {
   confirm: "organize" | "merge" | null;
   /** A Tag merge's pairs, by name, which its card lists when one call merges into more than one. */
   merges?: readonly { from: string; into: string }[];
+  /** The cloud service that would read these Documents for the first time, before the User allows it (#2252). */
+  cloud?: ExternalService;
   run(asking: CommandAsking, signal: AbortSignal): Promise<Ran>;
 }
 
