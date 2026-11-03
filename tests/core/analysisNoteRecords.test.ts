@@ -38,6 +38,10 @@ const ORDERS_CSV = [
 
 const TOTALS = [8325, 9450, 8700, 9075];
 
+const REGIONS_CSV = ["region,manager", "Central,Ana", "North,Ben", "South,Cara", "West,Dan"].join(
+  "\n",
+);
+
 const TITLE: Record<Language, string> = { en: "Orders totals", "zh-CN": "订单合计" };
 
 const NOTE: Record<Language, string> = { en: "Orders analysis", "zh-CN": "订单分析" };
@@ -117,6 +121,11 @@ const FOLLOW_UP: Record<Language, string> = {
   "zh-CN": "在订单分析中表格下方添加各地区金额合计的柱状图。",
 };
 
+const UNRELATED: Record<Language, string> = {
+  en: "Tell me a joke.",
+  "zh-CN": "讲个笑话。",
+};
+
 const QUESTION: Record<Language, string> = {
   en: "From Orders.csv, make a bar chart of total order amount by region, fit a simple linear regression of amount on order date, and put the table and the chart in a new note called Orders analysis.",
   "zh-CN":
@@ -126,7 +135,7 @@ const QUESTION: Record<Language, string> = {
 /** Searches, runs the Analysis, then makes the Note with its own table and the two figures. */
 function writingModel(
   language: Language,
-  { chart = true }: { chart?: boolean } = {},
+  { chart = true, twoInputs = false }: { chart?: boolean; twoInputs?: boolean } = {},
 ): MockLanguageModelV4 {
   return scriptedModel((call) => {
     if (call.prompt.includes(FOLLOW_UP[language])) {
@@ -148,17 +157,25 @@ function writingModel(
       }
       return { text: language === "en" ? "Drawn." : "已绘制。" };
     }
+    if (call.prompt.includes(UNRELATED[language])) {
+      return { text: language === "en" ? "A short one: the tide came in." : "潮水涨上来了。" };
+    }
     const search = call.results.find((result) => result.tool === "search_documents");
     if (!search) return { calls: [{ tool: "search_documents", input: { query: "Central" } }] };
     if (!call.results.some((result) => result.tool === "run_analysis")) {
-      const [passage] = shownPassages(search.text);
+      const shown = shownPassages(search.text);
+      const orders = shown.find((passage) => passage.document.startsWith("Orders"));
+      const regions = shown.find((passage) => passage.document.startsWith("Regions"));
       return {
         calls: [
           {
             tool: "run_analysis",
             input: {
               title: TITLE[language],
-              inputs: [{ name: "orders", passage: passage?.id ?? "" }],
+              inputs: [
+                { name: "orders", passage: orders?.id ?? "" },
+                ...(twoInputs ? [{ name: "regions", passage: regions?.id ?? "" }] : []),
+              ],
               code: "pass",
             },
           },
@@ -189,7 +206,7 @@ function writingModel(
   });
 }
 
-async function setUp(language: Language, options: { chart?: boolean } = {}) {
+async function setUp(language: Language, options: { chart?: boolean; twoInputs?: boolean } = {}) {
   const runtime = createFakeAnalysisRuntime({ answer: () => ANALYSIS });
   const printer = fakePrinter();
   const dataDir = await createTempDataFolder();
@@ -206,16 +223,25 @@ async function setUp(language: Language, options: { chart?: boolean } = {}) {
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
   if (language === "zh-CN") await core.updateSettings({ user: { language } });
   const sources = await createTempDataFolder();
-  const [orders] = await addAndProcess(core, [
-    await writeSourceFile(sources, "Orders.csv", ORDERS_CSV),
-  ]);
+  const files = [await writeSourceFile(sources, "Orders.csv", ORDERS_CSV)];
+  if (options.twoInputs) files.push(await writeSourceFile(sources, "Regions.csv", REGIONS_CSV));
+  const [orders, regions] = await addAndProcess(core, files);
   const mind = await core.createMind({ title: language === "en" ? "Questions" : "提问" });
-  return { core, printer, mind, orders: orders as Document };
+  return {
+    core,
+    printer,
+    mind,
+    orders: orders as Document,
+    regions: regions as Document | undefined,
+  };
 }
 
 /** Asks for the table and the chart in a Note, and gives back the Note it made. */
-async function askedFor(language: Language, options: { chart?: boolean } = {}) {
-  const { core, printer, mind, orders } = await setUp(language, options);
+async function askedFor(
+  language: Language,
+  options: { chart?: boolean; twoInputs?: boolean } = {},
+) {
+  const { core, printer, mind, orders, regions } = await setUp(language, options);
   const answer = await askAssistant(core, {
     text: QUESTION[language],
     mindId: mind.id,
@@ -225,7 +251,7 @@ async function askedFor(language: Language, options: { chart?: boolean } = {}) {
   if (!madeId) throw new Error("The Answer made no Note.");
   const client = await connectToMind(core, madeId);
   await client.settled();
-  return { core, printer, orders, answer, madeId, client };
+  return { core, printer, orders, regions, answer, madeId, client };
 }
 
 /** The Blocks of the client's Note that hold calculated figures, and where they are. */
@@ -328,6 +354,73 @@ describe("an Analysis's figures in a Note (#2378)", () => {
           location: { kind: "rows", sheet: null, from: 1, to: 5 },
           check: "found",
         });
+      }
+      core.close();
+    },
+  );
+
+  test.each(["en", "zh-CN"] as const)(
+    "%s: a chart of an Analysis over two Documents cites every input it read",
+    async (language) => {
+      const { core, orders, regions, madeId, client } = await askedFor(language, {
+        twoInputs: true,
+      });
+      if (!regions) throw new Error("The Regions Document is missing.");
+      const chart = topLevelBlocks(client.blocks)
+        .map(nodeOf)
+        .find((node) => node.type === CHART_NODE);
+      if (!chart?.attrs) throw new Error("The Note has no chart.");
+      const drawn = readChart(chart.attrs);
+      const value = drawn.data.rows[0]?.values[0];
+      expect(value?.citation).toMatchObject({ documentId: orders.id });
+      expect(value?.citations?.map((each) => each.documentId).sort()).toEqual(
+        [orders.id, regions.id].sort(),
+      );
+
+      const files = unzip((await core.exportMind(madeId, { format: "docx" })).data);
+      const footnotes = Object.values(footnotesOf(part(files, "word/footnotes.xml"))).join("\n");
+      expect(footnotes).toContain(orders.name);
+      expect(footnotes).toContain(regions.name);
+      core.close();
+    },
+  );
+
+  test.each(["en", "zh-CN"] as const)(
+    "%s: a table whose Analysis the last Answer didn't make charts no Citation its display can't back",
+    async (language) => {
+      // The chart is drawn from what the table shows, never with a Citation the app can't produce.
+      const { core, answer, madeId, client } = await askedFor(language, { chart: false });
+      expect(
+        topLevelBlocks(client.blocks)
+          .map(nodeOf)
+          .some((node) => node.type === CHART_NODE),
+      ).toBe(false);
+      await askAssistant(core, {
+        text: UNRELATED[language],
+        mindId: madeId,
+        conversationId: answer.conversationId,
+      });
+      const followUp = await askAssistant(core, {
+        text: FOLLOW_UP[language],
+        mindId: madeId,
+        conversationId: answer.conversationId,
+      });
+      await client.settled();
+      const chart = topLevelBlocks(client.blocks)
+        .map(nodeOf)
+        .find((node) => node.type === CHART_NODE);
+      if (chart?.attrs) {
+        for (const row of readChart(chart.attrs).data.rows) {
+          for (const value of row.values) {
+            if (!value) continue;
+            expect(value.citation).toBeNull();
+            expect(value.citations).toBeUndefined();
+          }
+        }
+      } else {
+        // Ambiguous display values aren't charted at all, rather than guessed from a rounded form.
+        const added = followUp.toolCalls.find((call) => call.tool === "add_to_mind");
+        expect(added?.status).toBe("failed");
       }
       core.close();
     },

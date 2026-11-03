@@ -12,6 +12,7 @@ import { InvalidInputError, isRecord } from "../../../core/errors";
 import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
 import {
   calculatedFiguresIn,
+  type DroppedFigureUse,
   installFigureRuns,
   pruneFigureRuns,
   readFigureRunClosure,
@@ -21,23 +22,25 @@ import { useAppStore } from "../store";
 import { clipboardBlocks, FIGURE_RUNS_ATTRIBUTE } from "./copyCitations";
 import { titlePaste } from "./titleLine";
 
-/** The Analysis figures a node holds, by id. */
-function analysisFigures(node: ProseMirrorNode): Set<string> {
-  const found = new Set<string>();
+/** The Analysis figures a node holds: the Analysis each names and its result, by the figure's id. */
+function analysisFigures(node: ProseMirrorNode): Map<string, DroppedFigureUse> {
+  const found = new Map<string, DroppedFigureUse>();
   node.descendants((child) => {
     if (child.type.name !== CALCULATED_FIGURE_NODE) return true;
     const read = readCalculatedFigureAttributes(child.attrs);
-    if (read?.analysisId) found.add(read.id);
+    if (read?.analysisId && read.figure.analysis)
+      found.set(read.id, { analysisId: read.analysisId, result: read.figure.analysis.result });
     return false;
   });
   return found;
 }
 
-function dropsAnalysisFigure(transaction: Transaction): boolean {
+/** The figures an edit takes away, so only their records go with them (#2378). */
+export function droppedAnalysisFigures(transaction: Transaction): DroppedFigureUse[] {
   const before = analysisFigures(transaction.before);
-  if (before.size === 0) return false;
+  if (before.size === 0) return [];
   const after = analysisFigures(transaction.doc);
-  return [...before].some((id) => !after.has(id));
+  return [...before].filter(([id]) => !after.has(id)).map(([, use]) => use);
 }
 
 export const FigureEvidence = Extension.create<{ doc: Y.Doc | null }>({
@@ -106,6 +109,7 @@ export const FigureEvidence = Extension.create<{ doc: Y.Doc | null }>({
   dispatchTransaction({ transaction, next }) {
     const { doc } = this.options;
     const sync: unknown = transaction.getMeta(ySyncPluginKey);
+    const dropped = droppedAnalysisFigures(transaction);
     // Only an edit that takes away a figure an Analysis run backs has a run to remove with it:
     // every other edit goes through as it is, so typing and its Undo stay the editor's own.
     if (
@@ -114,7 +118,7 @@ export const FigureEvidence = Extension.create<{ doc: Y.Doc | null }>({
       (isRecord(sync) && sync.isChangeOrigin) ||
       !transaction.docChanged ||
       doc.getMap(MIND_FIGURE_RUNS_FIELD).size === 0 ||
-      !dropsAnalysisFigure(transaction)
+      dropped.length === 0
     ) {
       next(transaction);
       return;
@@ -127,7 +131,7 @@ export const FigureEvidence = Extension.create<{ doc: Y.Doc | null }>({
       try {
         next(transaction);
       } finally {
-        pruneFigureRuns(doc);
+        pruneFigureRuns(doc, dropped);
       }
     }, ySyncPluginKey);
   },

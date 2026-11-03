@@ -28,6 +28,7 @@ import { useAppStore } from "../store";
 import { type Undoable, useUndo } from "../undo";
 import { type ClaimSpan, claimSpans, paragraphPlaces } from "./claimChecks";
 import { asOneStep, offerEditorUndo } from "./editorUndo";
+import { droppedAnalysisFigures } from "./figureEvidence";
 import { type FigurePlace, figurePlace, writeSentenceCheck } from "./figurePlaces";
 import { setTableRoles } from "./figureTableRoles";
 import { noteExtensions } from "./noteSchema";
@@ -79,10 +80,11 @@ export function editNote(
   const origin = { figureSchedule: mindId };
   // A figure an Analysis run backs takes its run with it, in the same step its Undo brings back.
   const runs = copy.getMap(MIND_FIGURE_RUNS_FIELD);
+  const dropped = droppedAnalysisFigures(made.tr);
   const steps = new Y.UndoManager([blocks, runs], { trackedOrigins: new Set([origin]) });
   copy.transact(() => {
     updateYFragment(copy, blocks, made.tr.doc, { mapping: new Map(), isOMark: new Map() });
-    pruneFigureRuns(copy);
+    pruneFigureRuns(copy, dropped);
   }, origin);
   const undoable: Undoable = {
     said: made.said,

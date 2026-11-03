@@ -54,6 +54,11 @@ export interface ChartValue {
   /** The Citation that was with it, as its node held it; null: it had none, or it is calculated. */
   citation: CitationAttributes | null;
   /**
+   * Every Citation the value rests on, when more than one does: an Analysis's own value cites all
+   * the inputs it read (#2378). `citation` is the first of them.
+   */
+  citations?: CitationAttributes[];
+  /**
    * The calculated figure it is, as its node held it: its formula and every
    * Input with its own Citation (#2307). Absent for a value quoted or written.
    */
@@ -125,6 +130,9 @@ function readValue(value: unknown): ChartValue | null {
   if (!from) return null;
   const number =
     typeof value.value === "number" && Number.isFinite(value.value) ? value.value : null;
+  const citations = Array.isArray(value.citations)
+    ? (value.citations.filter(isRecord) as unknown as CitationAttributes[])
+    : [];
   return {
     shown: text(value.shown),
     value: number,
@@ -137,6 +145,7 @@ function readValue(value: unknown): ChartValue | null {
         ? value.scale
         : null,
     citation: isRecord(value.citation) ? (value.citation as unknown as CitationAttributes) : null,
+    ...(citations.length > 0 && { citations }),
     ...figureOf(value.figure),
     from,
   };
@@ -588,11 +597,12 @@ export function chartSources(
       figures.push(value.figure);
       continue;
     }
-    if (!value.citation) {
+    if (!value.citation && !value.citations) {
       uncitedCells.push({ row, series });
       continue;
     }
-    quoted.add(value.citation);
+    if (value.citation) quoted.add(value.citation);
+    for (const each of value.citations ?? []) quoted.add(each);
   }
   return {
     values,
@@ -900,11 +910,6 @@ export function chartFromTable(
   const { first, headingRow, firstDataRow, dataRows, columns, figuresIn } = table;
   if (!numericSeries(table)) return null;
 
-  // A heading can cite what its column states, as an Analysis's own table cites the inputs it read:
-  // every value beneath it rests on that Citation too (#2378).
-  const headingCitation = (column: number) =>
-    headingRow ? (first[column]?.citation ?? null) : null;
-
   const valueAt = (cell: SourceCell | null, row: number, column: number): ChartValue | null => {
     if (!cell || cell.continued || cell.text.trim() === "") return null;
     const read = figureIn(figuresIn(cell.text, column));
@@ -916,7 +921,8 @@ export function chartFromTable(
       value: typeof worked === "number" ? worked : (cell.number ?? read?.value ?? null),
       unit: read ? read.figure.unit : null,
       scale: read ? read.figure.scale : null,
-      citation: calculated.figure ? null : (cell.citation ?? headingCitation(column)),
+      citation: calculated.figure ? null : cell.citation,
+      ...(cell.citations && !calculated.figure && { citations: cell.citations }),
       ...calculated,
       from: { kind: "cell", row, column },
     };
@@ -966,6 +972,8 @@ export function chartFromTable(
 export interface SourceLine {
   text: string;
   citation: CitationAttributes | null;
+  /** Every Citation it holds, when more than one does: an Analysis's value cites all its inputs (#2378). */
+  citations?: CitationAttributes[];
   /** Where each calculated figure in it reads, by UTF-16 offset in `text`, end exclusive. */
   figures?: readonly FigureSpan[];
 }
@@ -1026,18 +1034,19 @@ const proposed = (node: NodeJSON) =>
 export function sourceLineOf(node: NodeJSON): SourceLine {
   let text = "";
   let citation: CitationAttributes | null = null;
+  const citations: CitationAttributes[] = [];
   const figures: FigureSpan[] = [];
   const visit = (child: NodeJSON) => {
     if (proposed(child)) return;
     if (child.type === CITATION_NODE) {
-      if (!citation) {
-        const copy: Record<string, unknown> = {};
-        for (const key of CITATION_KEYS) {
-          const value = child.attrs?.[key];
-          if (value !== undefined) copy[key] = value;
-        }
-        citation = copy as unknown as CitationAttributes;
+      const copy: Record<string, unknown> = {};
+      for (const key of CITATION_KEYS) {
+        const value = child.attrs?.[key];
+        if (value !== undefined) copy[key] = value;
       }
+      const read = copy as unknown as CitationAttributes;
+      citation ??= read;
+      citations.push(read);
       return;
     }
     if (child.type === FOOTNOTE_NODE) return;
@@ -1059,6 +1068,7 @@ export function sourceLineOf(node: NodeJSON): SourceLine {
   return {
     text: squeezed.text,
     citation,
+    ...(citations.length > 1 && { citations }),
     ...(figures.length > 0 && {
       figures: figures.map((span) => ({
         ...span,
@@ -1127,14 +1137,19 @@ export function gridOfTable(table: NodeJSON): SourceGrid {
  * a rounded display reads as, and the Citation its inputs have (#2378).
  */
 export function withAnalysisValues(grid: SourceGrid, match: AnalysisTableMatch): SourceGrid {
-  const citation = match.citations[0] ?? null;
+  const citations = match.citations;
   return grid.map((row, at) =>
     row.map((cell, column) => {
       if (!cell || at === 0) return cell;
       const value = match.value(at - 1, column);
       return value === null
         ? cell
-        : { ...cell, number: value, citation: cell.citation ?? citation };
+        : {
+            ...cell,
+            number: value,
+            citation: cell.citation ?? citations[0] ?? null,
+            ...(citations.length > 1 && { citations }),
+          };
     }),
   );
 }

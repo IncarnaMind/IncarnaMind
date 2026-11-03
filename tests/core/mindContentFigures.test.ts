@@ -23,7 +23,13 @@ import { createMindContent } from "../../src/core/mindContent";
 import { migrate, openDatabase } from "../../src/core/storage";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
-import { figureRunsFor, installFigureRuns, pruneFigureRuns } from "../../src/shared/figureRuns";
+import {
+  calculatedFiguresIn,
+  type DroppedFigureUse,
+  figureRunsFor,
+  installFigureRuns,
+  pruneFigureRuns,
+} from "../../src/shared/figureRuns";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import {
@@ -34,7 +40,7 @@ import {
   writeSourceFile,
 } from "../helpers/documents";
 import { refuseWrites } from "../helpers/failingStorage";
-import { connectToMind } from "../helpers/mindClient";
+import { connectToMind, type MindClient } from "../helpers/mindClient";
 
 function run(names: string[], id = "run"): RetainedFigureAnalysis {
   return {
@@ -85,6 +91,18 @@ function append(doc: Y.Doc, name: string, id = "run", inputs: FigureInput[] = []
 
 function kept(doc: Y.Doc): RetainedFigureAnalysis[] {
   return figureRunsFor(doc, topLevelBlocks(doc.getXmlFragment(MIND_CONTENT_FIELD)).map(nodeOf));
+}
+
+/** The Analysis figures the first `count` Blocks hold, as a pruner names them. */
+function droppedIn(client: MindClient, count: number): DroppedFigureUse[] {
+  return topLevelBlocks(client.blocks)
+    .slice(0, count)
+    .flatMap((element) => calculatedFiguresIn([nodeOf(element)]))
+    .flatMap(({ figure, analysisId }) =>
+      analysisId !== null && figure.analysis
+        ? [{ analysisId, result: figure.analysis.result }]
+        : [],
+    );
 }
 
 function withFigures(names: string[]): Y.Doc {
@@ -151,16 +169,18 @@ describe("core ownership of calculated figures", () => {
     });
     await client.settled();
     // The editor prunes in the transaction of its own edit, which its Undo takes back (#1932).
+    const first = droppedIn(client, 1);
     client.doc.transact(() => {
       client.blocks.delete(0, 1);
-      pruneFigureRuns(client.doc);
+      pruneFigureRuns(client.doc, first);
     });
     await client.settled();
     expect(kept(client.doc)[0]?.values.map((value) => value.name)).toEqual(["b"]);
     expect(client.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(2);
+    const second = droppedIn(client, 1);
     client.doc.transact(() => {
       client.blocks.delete(0, 1);
-      pruneFigureRuns(client.doc);
+      pruneFigureRuns(client.doc, second);
     });
     await client.settled();
     expect(client.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(0);
@@ -295,9 +315,10 @@ describe("core ownership of calculated figures", () => {
     await first.settled();
     const second = await connectToMind(core, mind.id);
     second.goOffline();
+    const gone = droppedIn(first, 1);
     first.doc.transact(() => {
       first.blocks.delete(0, 1);
-      pruneFigureRuns(first.doc);
+      pruneFigureRuns(first.doc, gone);
     });
     await first.settled();
     second.doc.transact(() => {
@@ -322,9 +343,10 @@ describe("core ownership of calculated figures", () => {
     });
     await client.settled();
     const saved = await core.saveCheckpoint(mind.id, "accept");
+    const gone = droppedIn(client, client.blocks.length);
     client.doc.transact(() => {
       client.blocks.delete(0, client.blocks.length);
-      pruneFigureRuns(client.doc);
+      pruneFigureRuns(client.doc, gone);
       append(client.doc, "b", "another-run");
       installFigureRuns(client.doc, [run(["b"], "another-run")]);
       client.doc.getMap(MIND_SETTINGS_FIELD).set("model", "new-model");
@@ -417,9 +439,10 @@ describe("core ownership of calculated figures", () => {
     core.retention.release("note-figure", mind.id);
     await core.openMind(mind.id);
     expect(retained()).toEqual(expected);
+    const gone = droppedIn(client, client.blocks.length);
     client.doc.transact(() => {
       client.blocks.delete(0, client.blocks.length);
-      pruneFigureRuns(client.doc);
+      pruneFigureRuns(client.doc, gone);
     });
     await client.settled();
     expect(retained()).toEqual([]);
@@ -493,9 +516,10 @@ describe("core ownership of calculated figures", () => {
     const restore = refuseWrites(dataDir);
     expect(before).toHaveLength(2);
     try {
+      const gone = droppedIn(client, client.blocks.length);
       client.doc.transact(() => {
         client.blocks.delete(0, client.blocks.length);
-        pruneFigureRuns(client.doc);
+        pruneFigureRuns(client.doc, gone);
       });
       await client.settled();
       expect(await core.unsavedChanges()).toMatchObject({ mindIds: [mind.id] });
@@ -541,9 +565,10 @@ describe("core ownership of calculated figures", () => {
     await expect(
       core.compareCheckpoints({ mindId: mind.id, from: alias, to: null }),
     ).rejects.toThrow();
+    const gone = droppedIn(client, client.blocks.length);
     client.doc.transact(() => {
       client.blocks.delete(0, client.blocks.length);
-      pruneFigureRuns(client.doc);
+      pruneFigureRuns(client.doc, gone);
     });
     await client.settled();
     expect(core.retention.retainedBy("checkpoint", alias)).toEqual([]);
@@ -585,9 +610,10 @@ describe("core ownership of calculated figures", () => {
       );
       vi.spyOn(console, "error").mockImplementation(() => {});
       try {
+        const gone = droppedIn(client, client.blocks.length);
         client.doc.transact(() => {
           client.blocks.delete(0, client.blocks.length);
-          pruneFigureRuns(client.doc);
+          pruneFigureRuns(client.doc, gone);
         });
         await client.settled();
         expect(await core.unsavedChanges()).toMatchObject({ mindIds: [mind.id] });
@@ -730,9 +756,10 @@ describe("core ownership of calculated figures", () => {
     const fourth = startCore(dataDir);
     const complete = await connectToMind(fourth, mind.id);
     expect(versions(other.id)).toEqual([sha256(firstText), sha256(nextText)].sort());
+    const gone = droppedIn(complete, complete.blocks.length);
     complete.doc.transact(() => {
       complete.blocks.delete(0, complete.blocks.length);
-      pruneFigureRuns(complete.doc);
+      pruneFigureRuns(complete.doc, gone);
     });
     await complete.settled();
     expect(fourth.retention.retainedBy("note-figure", mind.id)).toEqual([]);

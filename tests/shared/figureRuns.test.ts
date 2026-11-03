@@ -184,14 +184,14 @@ describe("a Note's bounded Analysis dependencies", () => {
     doc.on("update", () => updates++);
     doc.transact(() => {
       content.delete(0, 1);
-      pruneFigureRuns(doc);
+      pruneFigureRuns(doc, [{ analysisId: runId, result: "a" }]);
     }, "edit");
     expect(updates).toBe(1);
     expect(figureRunsFor(doc, blocks(["b"]))[0]?.values.map((value) => value.name)).toEqual(["b"]);
     undo.stopCapturing();
     doc.transact(() => {
       content.delete(0, 1);
-      pruneFigureRuns(doc);
+      pruneFigureRuns(doc, [{ analysisId: runId, result: "b" }]);
     }, "edit");
     expect(runs.size).toBe(0);
     undo.undo();
@@ -209,6 +209,25 @@ describe("a Note's bounded Analysis dependencies", () => {
     expect(content.length).toBe(0);
     expect(runs.size).toBe(0);
     undo.destroy();
+    doc.destroy();
+  });
+
+  test("a record a write left stays when the editor prunes another figure, so the write's Undo finds it", () => {
+    const doc = docWith(["a", "b"]);
+    const content = doc.getXmlFragment(MIND_CONTENT_FIELD);
+    const runs = doc.getMap(MIND_FIGURE_RUNS_FIELD);
+    const write = new Y.UndoManager([content], { trackedOrigins: new Set(["write"]) });
+    // A write takes a away; no write prunes the records its figures name (#2378).
+    doc.transact(() => content.delete(0, 1), "write");
+    // The User then deletes b in the editor, which prunes b alone.
+    doc.transact(() => {
+      content.delete(0, 1);
+      pruneFigureRuns(doc, [{ analysisId: runId, result: "b" }]);
+    }, "edit");
+    expect(runs.size).toBe(2);
+    write.undo();
+    expect(figureRunsFor(doc, blocks(["a"]))[0]?.values.map((value) => value.name)).toEqual(["a"]);
+    write.destroy();
     doc.destroy();
   });
 
@@ -265,12 +284,11 @@ describe("a Note's bounded Analysis dependencies", () => {
     Y.applyUpdate(adding, Y.encodeStateAsUpdate(original));
     removing.transact(() => {
       removing.getXmlFragment(MIND_CONTENT_FIELD).delete(0, 1);
-      pruneFigureRuns(removing);
+      pruneFigureRuns(removing, [{ analysisId: runId, result: "a" }]);
     });
     adding.transact(() => {
       append(adding, "b");
       installFigureRuns(adding, [record(["b"])]);
-      pruneFigureRuns(adding);
     });
     for (const changes of [
       [removing, adding],
@@ -279,7 +297,7 @@ describe("a Note's bounded Analysis dependencies", () => {
       const merged = new Y.Doc();
       merged.transact(() => {
         for (const change of changes) Y.applyUpdate(merged, Y.encodeStateAsUpdate(change));
-        pruneFigureRuns(merged);
+        pruneFigureRuns(merged, [{ analysisId: runId, result: "a" }]);
       });
       expect(merged.getXmlFragment(MIND_CONTENT_FIELD).length).toBe(1);
       expect(figureRunsFor(merged, blocks(["b"]))[0]?.values.map((value) => value.name)).toEqual([
@@ -302,17 +320,14 @@ describe("a Note's bounded Analysis dependencies", () => {
     first.transact(() => {
       append(first, "b");
       installFigureRuns(first, [record(["b"])]);
-      pruneFigureRuns(first);
     });
     second.transact(() => {
       append(second, "c");
       installFigureRuns(second, [record(["c"])]);
-      pruneFigureRuns(second);
     });
     original.transact(() => {
       Y.applyUpdate(original, Y.encodeStateAsUpdate(first));
       Y.applyUpdate(original, Y.encodeStateAsUpdate(second));
-      pruneFigureRuns(original);
     });
     expect(
       figureRunsFor(original, blocks(["a", "b", "c"]))[0]
