@@ -14,12 +14,7 @@ import {
 } from "react";
 import type { Annotation, Document } from "../../../core/api";
 import { readPdfPageText } from "../../../shared/pdfFormText";
-import {
-  findQuoteInPages,
-  findQuoteInPieces,
-  lostLigatures,
-  type TextPiece,
-} from "../../../shared/quoteMatch";
+import { findQuoteInPages, lostLigatures, type TextPiece } from "../../../shared/quoteMatch";
 import { highlightsOf, useAnnotations, useDocumentAnnotations } from "../annotations";
 import { DocumentFix } from "../components/DocumentFix";
 import { core } from "../core";
@@ -47,9 +42,6 @@ import { UnreadPagesLine } from "./UnreadPagesLine";
 import { HeaderDivider, ViewerHeader } from "./ViewerHeader";
 import { FileGone, ViewerMessage } from "./ViewerMessage";
 import { createWheelZoom, MAX_ZOOM, MIN_ZOOM, stepZoom } from "./zoom";
-
-/** No highlights on a page. */
-const NO_ANNOTATIONS: readonly Annotation[] = [];
 
 /** CSS pixels per PDF point: at 100% a page shows at its printed size. */
 const CSS_UNITS = 96 / 72;
@@ -87,6 +79,14 @@ interface RunHighlight {
   start: number;
   end: number;
 }
+
+/** Part of a highlight's quote, in one of a page's text runs (#327): found across the pages it covers. */
+interface AnnotationRun extends RunHighlight {
+  annotation: Annotation;
+}
+
+/** No highlights on a page. */
+const NO_RUNS: readonly AnnotationRun[] = [];
 
 type Zoom = { fit: true } | { fit: false; zoom: number };
 
@@ -315,21 +315,69 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
   useEffect(() => {
     void loadAnnotations(document.id);
   }, [loadAnnotations, document.id]);
-  // Each page's own highlights, kept as the same arrays: a page that didn't change doesn't draw again.
   const storedHighlights = useMemo(() => highlightsOf(stored), [stored]);
-  const annotationsByPage = useMemo(() => {
-    const byPage = new Map<number, Annotation[]>();
-    for (const annotation of storedHighlights) {
-      const from = annotation.pageFrom ?? 1;
-      const to = annotation.pageTo ?? from;
-      for (let page = from; page <= to; page++) {
-        byPage.set(page, [...(byPage.get(page) ?? []), annotation]);
-      }
+  // Each highlight's words, found in the pages it covers as one text, so a quote that crosses a
+  // page break is drawn on both pages: a page's own runs alone can't hold the whole of it.
+  const [annotationRuns, setAnnotationRuns] = useState<ReadonlyMap<number, AnnotationRun[]>>(
+    () => new Map(),
+  );
+  useEffect(() => {
+    if (storedHighlights.length === 0) {
+      setAnnotationRuns(new Map());
+      return;
     }
-    return byPage;
-  }, [storedHighlights]);
-  const pageAnnotations = (page: number): readonly Annotation[] =>
-    annotationsByPage.get(page) ?? NO_ANNOTATIONS;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const signatures = await pdf.getSignatures();
+        const cache = new Map<number, TextPiece[]>();
+        const piecesOf = async (page: number): Promise<TextPiece[]> => {
+          const cached = cache.get(page);
+          if (cached) return cached;
+          const read = scanned.get(page);
+          let pieces: TextPiece[];
+          if (read) {
+            pieces = read.pieces;
+          } else {
+            const { content } = await readPdfPageText(await pdf.getPage(page), signatures);
+            pieces = [];
+            for (const entry of content.items) {
+              if (!("str" in entry)) continue;
+              pieces.push({ text: entry.str, breakAfter: entry.hasEOL });
+            }
+            const last = pieces.at(-1);
+            if (last) last.breakAfter = true;
+          }
+          cache.set(page, pieces);
+          return pieces;
+        };
+        const byPage = new Map<number, AnnotationRun[]>();
+        for (const annotation of storedHighlights) {
+          const from = Math.max(1, annotation.pageFrom ?? 1);
+          const to = Math.min(pageCount, annotation.pageTo ?? from);
+          const pages: TextPiece[][] = [];
+          for (let page = from; page <= to; page++) pages.push(await piecesOf(page));
+          const found = findQuoteInPages(pages, annotation.quote);
+          if (!found) continue;
+          for (const part of found) {
+            const page = from + part.page;
+            byPage.set(page, [
+              ...(byPage.get(page) ?? []),
+              { item: part.piece, start: part.start, end: part.end, annotation },
+            ]);
+          }
+        }
+        if (!cancelled) setAnnotationRuns(byPage);
+      } catch (error) {
+        if (!cancelled) console.error("A PDF's highlights couldn't be placed in its pages.", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pdf, pageCount, scanned, storedHighlights]);
+  const pageRuns = (page: number): readonly AnnotationRun[] =>
+    annotationRuns.get(page) ?? NO_RUNS;
 
   const scroller = useRef<HTMLDivElement>(null);
   useSelectionReader(
@@ -758,7 +806,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
                   nearby={nearby.has(page)}
                   scanned={scanned.get(page)}
                   highlights={highlights.get(page)}
-                  annotations={pageAnnotations(page)}
+                  annotationRuns={pageRuns(page)}
                   mark={page === firstHighlightPage ? mark : null}
                   onSize={onPageSize}
                   onHighlightShown={onHighlightShown}
@@ -1098,8 +1146,8 @@ interface PdfPageProps {
   /** A scanned page's text, read from its picture: its text layer instead of the PDF's. */
   scanned: ScannedPage | undefined;
   highlights: readonly RunHighlight[] | undefined;
-  /** The Document's highlights on this page (#327). */
-  annotations: readonly Annotation[];
+  /** The Document's highlights' parts on this page (#327). */
+  annotationRuns: readonly AnnotationRun[] | undefined;
   /** The Citation's mark, for the page the quote starts on. */
   mark: QuoteMark | null;
   onSize(page: number, size: PageSize): void;
@@ -1147,7 +1195,7 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
     nearby,
     scanned,
     highlights,
-    annotations,
+    annotationRuns,
     mark,
     onSize,
     onHighlightShown,
@@ -1282,13 +1330,12 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
     ) => byItem.set(item, [...(byItem.get(item) ?? []), { start, end, quote, annotation }]);
     // A run can hold two parts of a quote with an ellipsis: its ranges, in order.
     for (const { item, start, end } of highlights ?? []) add(item, start, end, true);
-    // Each highlight's words, found across this page's runs as the Citation check finds them.
-    const pieces: TextPiece[] = strings.map((text) => ({ text, breakAfter: false }));
-    for (const annotation of annotations) {
-      if (annotation.quote.trim() === "") continue;
-      const found = findQuoteInPieces(pieces, annotation.quote);
-      if (!found) continue;
-      for (const part of found) add(part.piece, part.start, part.end, false, annotation);
+    // The highlights' words on this page, found across the pages they cover (see `PdfPages`).
+    const highlightRuns = annotationRuns ?? NO_RUNS;
+    const pageHighlights = new Map<string, Annotation>();
+    for (const run of highlightRuns) {
+      add(run.item, run.start, run.end, false, run.annotation);
+      pageHighlights.set(run.annotation.id, run.annotation);
     }
     for (const [item, ranges] of byItem) {
       const div = divs[item];
@@ -1339,7 +1386,9 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
     if (pageElement && host) {
       host.replaceChildren();
       const box = pageElement.getBoundingClientRect();
-      for (const annotation of annotations) {
+      for (const annotation of pageHighlights.values()) {
+        // One mark, on the page its words start on: a quote across a page break has parts on both.
+        if ((annotation.pageFrom ?? page) !== page) continue;
         const anchor = noteAnchors.get(annotation.id);
         if (!anchor) continue;
         const rect = anchor.getClientRects()[0] ?? anchor.getBoundingClientRect();
@@ -1351,8 +1400,9 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
           ),
         );
         button.classList.add("annotation-note-mark--in-page");
-        button.style.top = `${rect.top - box.top}px`;
-        button.style.left = `${Math.max(0, Math.min(rect.right - box.left + 4, pageWidth - 20))}px`;
+        // In the page's right margin, level with the words: never over the words after them.
+        button.style.top = `${rect.top - box.top - 2}px`;
+        button.style.left = `${Math.max(0, pageWidth - 20)}px`;
         host.append(button);
       }
     }
@@ -1369,7 +1419,7 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
         div.textContent = strings[item] ?? "";
       }
     };
-  }, [textLayerVersion, highlights, annotations, page, onHighlightShown]);
+  }, [textLayerVersion, highlights, annotationRuns, page, onHighlightShown]);
 
   // Places the Citation's mark beside the quote's first line, once the quote is marked.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-placed for each new text layer

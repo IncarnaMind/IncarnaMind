@@ -32,6 +32,7 @@ import { ANNOTATION_COLOURS } from "../api";
 import { keywordQuery, keywordText } from "../documents/keywords";
 import type { FileAnnotation } from "../documents/pdfAnnotations";
 import { InvalidInputError, NotFoundError } from "../errors";
+import type { Language } from "../language";
 import type { Database } from "../storage";
 import { excerptOf, searchTerms } from "../wordSearch";
 
@@ -89,16 +90,19 @@ const isColour = (value: unknown): value is AnnotationColour =>
   typeof value === "string" && (ANNOTATION_COLOURS as readonly string[]).includes(value);
 
 const colourOf = (value: unknown): AnnotationColour => {
-  if (!isColour(value)) throw new InvalidInputError("That isn't one of the highlight colours.");
+  if (!isColour(value)) throw new InvalidInputError({ key: "error.annotation.colour" });
   return value;
 };
 
 const noteOf = (value: unknown): string | null => {
   if (value === null || value === undefined) return null;
-  if (typeof value !== "string") throw new InvalidInputError("A note is text.");
+  if (typeof value !== "string") throw new InvalidInputError({ key: "error.annotation.note.text" });
   const note = value.trim();
   if (note.length > MAX_NOTE_LENGTH) {
-    throw new InvalidInputError(`A note holds at most ${MAX_NOTE_LENGTH} characters.`);
+    throw new InvalidInputError({
+      key: "error.annotation.note.tooLong",
+      values: { count: MAX_NOTE_LENGTH },
+    });
   }
   return note === "" ? null : note;
 };
@@ -176,7 +180,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
       `SELECT ${COLUMNS} ${FROM} WHERE a.id = ? AND a.deleted_at IS NULL`,
       [id],
     );
-    if (!row) throw new NotFoundError("That highlight is gone.");
+    if (!row) throw new NotFoundError({ key: "error.annotation.notFound" });
     return row;
   };
 
@@ -336,14 +340,14 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
       const params: string[] = [];
       if (input.documentId !== undefined) {
         if (typeof input.documentId !== "string" || input.documentId === "") {
-          throw new InvalidInputError("Collect needs a Document.");
+          throw new InvalidInputError({ key: "error.annotation.collect" });
         }
         where.push("a.document_id = ?");
         params.push(input.documentId);
       }
       if (input.folderId !== undefined) {
         if (typeof input.folderId !== "string" || input.folderId === "") {
-          throw new InvalidInputError("Collect needs a Folder.");
+          throw new InvalidInputError({ key: "error.annotation.collect" });
         }
         where.push(`d.id IN (
           SELECT document_id FROM document_groups WHERE deleted_at IS NULL AND group_id IN (
@@ -422,7 +426,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
 
     restore(id: string): Annotation {
       const row = db.get<AnnotationRow>(`SELECT ${COLUMNS} ${FROM} WHERE a.id = ?`, [id]);
-      if (!row) throw new NotFoundError("That highlight is gone.");
+      if (!row) throw new NotFoundError({ key: "error.annotation.notFound" });
       const at = now();
       db.transaction(() => {
         db.run("UPDATE document_annotations SET deleted_at = NULL, updated_at = ? WHERE id = ?", [
@@ -473,32 +477,32 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
       });
     },
 
-    /** A Document's annotations as Markdown: each quote, its note and its Location (#327). */
-    markdown(documentId: string): { name: string; text: string } {
+    /** A Document's annotations as Markdown: each quote, its note and its Location (#327), in `language`. */
+    markdown(documentId: string, language: Language): { name: string; text: string } {
       const name =
         db.get<{ name: string }>("SELECT name FROM documents WHERE id = ?", [documentId])?.name ??
         "";
       const annotations = list(documentId);
-      const english = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
-      const lines = [`# ${name}: ${english("annotations.export.title")}`, ""];
+      const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+      const lines = [`# ${name}: ${t("annotations.export.title")}`, ""];
       for (const annotation of annotations) {
-        const where = annotation.location ? formatLocation(annotation.location, english) : "";
+        const where = annotation.location ? formatLocation(annotation.location, t) : "";
         lines.push(`## ${where}`);
         for (const line of annotation.quote.split("\n")) lines.push(`> ${line}`);
         lines.push("");
         if (annotation.note) lines.push(annotation.note, "");
-        if (annotation.missing) lines.push(english("annotations.missing"), "");
+        if (annotation.missing) lines.push(t("annotations.missing"), "");
         if (annotation.source === "file") {
           lines.push(
             annotation.author
-              ? english("annotations.export.fromFileBy", { author: annotation.author })
-              : english("annotations.export.fromFile"),
+              ? t("annotations.export.fromFileBy", { author: annotation.author })
+              : t("annotations.export.fromFile"),
             "",
           );
         }
       }
       return {
-        name: `${name}${english("annotations.export.suffix")}`,
+        name: `${name}${t("annotations.export.suffix")}`,
         text: `${lines.join("\n")}\n`,
       };
     },

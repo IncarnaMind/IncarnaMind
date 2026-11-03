@@ -118,6 +118,9 @@ const paragraph = (viewer: Locator, words: string) =>
 const noteMark = (viewer: Locator) => viewer.locator("[data-annotation-note]").first();
 
 async function openPanel(window: Page, viewer: Locator): Promise<Locator> {
+  const panel = window.getByTestId("annotations-panel");
+  // It stays open across a viewer's reload, as a new version makes.
+  if (await panel.isVisible()) return panel;
   // Its button in the toolbar, or the Document's menu where a narrow toolbar folds it away.
   const toggle = viewer.getByTestId("viewer-annotations-toggle");
   if (await toggle.isVisible()) {
@@ -126,7 +129,6 @@ async function openPanel(window: Page, viewer: Locator): Promise<Locator> {
     await pointAndClick(window, viewer.getByTestId("document-file-menu").first());
     await pointAndClick(window, window.getByTestId("document.showAnnotations").first());
   }
-  const panel = window.getByTestId("annotations-panel");
   await expect(panel).toBeVisible();
   return panel;
 }
@@ -181,6 +183,11 @@ test("by the mouse: a highlight is drawn in the page, noted, recoloured, listed 
   await expect(row).toContainText("§ Contingency");
   await expect(row.locator(".annotation-colour--green")).toBeVisible();
   await expect(panel).toContainText("1 highlight");
+
+  // Its menu, in the shared order, in the words the interface uses: a note, not a Mind.
+  await row.click({ button: "right" });
+  await expect(window.getByTestId("annotation.collect")).toContainText("Collect into a note");
+  await window.keyboard.press("Escape");
 
   // The Library's row says it has one.
   await pointAndClick(window, window.getByTestId("open-library"));
@@ -251,6 +258,9 @@ test("in Chinese: the menu, the panel and search are in Chinese", async () => {
   await expect(panel).toContainText("高亮与笔记");
   const row = panel.getByTestId("annotation-row").first();
   await expect(row).toContainText("应急费");
+  await row.click({ button: "right" });
+  await expect(window.getByTestId("annotation.collect")).toContainText("收进一条笔记");
+  await window.keyboard.press("Escape");
 
   await pointAndClick(window, noteMark(viewer));
   const popover = window.getByTestId("annotation-note");
@@ -306,6 +316,49 @@ test("Add to note and Collect into a Mind give quotes whose Citations are found"
   await expect(collected.getByTestId("citation-chip")).toHaveAttribute("data-check", "found");
 });
 
+test("a PDF highlight selected across a page break is drawn on both pages", async () => {
+  const path = join(sources, "Break.pdf");
+  await writeFile(
+    path,
+    buildPdf([
+      { lines: ["The recovery peaks in the second quarter"] },
+      { lines: ["of the year, as Table 3 shows."] },
+    ]),
+  );
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await addDocuments(window, [path]);
+  await expectReadyDocuments(window, 1);
+  await openDocumentAt(window, { documentId: await documentIdOf(window) });
+  const viewer = window.getByTestId("viewer");
+  const page1 = viewer.locator('[data-page-number="1"] .textLayer');
+  const page2 = viewer.locator('[data-page-number="2"] .textLayer');
+  await viewer
+    .locator('[data-page-number="2"]')
+    .evaluate((page) => page.scrollIntoView({ block: "center" }));
+  await expect(page1).toContainText("The recovery peaks");
+  await expect(page2).toContainText("of the year");
+
+  await slideSelect(window, page1, "in the second quarter", {
+    line: page2,
+    words: "of the year",
+  });
+  await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
+  await pointAndClick(window, window.getByTestId("viewer-selection-highlight-yellow"));
+
+  // The one highlight's words are on both pages, so both carry its mark.
+  const marks = viewer.locator("[data-annotation-id]");
+  await expect(marks).toHaveCount(2);
+  await expect(marks.nth(0)).toContainText("in the second quarter");
+  await expect(marks.nth(1)).toContainText("of the year");
+
+  // Its row goes to it, rather than saying its words are not in this version.
+  const panel = await openPanel(window, viewer);
+  await pointAndClick(window, panel.getByTestId("annotation-quote").first());
+  await expect(panel).not.toContainText("Text not found in this version");
+});
+
 test("a PDF's own highlights and notes are shown, marked From the file, and a new version re-anchors or says the text is gone", async () => {
   const path = join(sources, "Rate cuts.pdf");
   const pdf = (text: string) =>
@@ -321,6 +374,13 @@ test("a PDF's own highlights and notes are shown, marked From the file, and a ne
             title: "Priya Raman",
             color: [1, 0.9, 0.2],
           },
+          {
+            subtype: "Text",
+            rect: [320, 700, 340, 720],
+            contents: "Check this figure.",
+            title: "Priya Raman",
+            color: [1, 1, 0],
+          },
         ],
       },
     ]);
@@ -335,11 +395,21 @@ test("a PDF's own highlights and notes are shown, marked From the file, and a ne
   const viewer = window.getByTestId("viewer");
   const panel = await openPanel(window, viewer);
 
-  const row = panel.getByTestId("annotation-row").first();
+  const row = panel.getByTestId("annotation-row").filter({ hasText: "Grocers" }).first();
   await expect(row).toContainText("Grocers studied across the eleven chains.");
   await expect(row.getByTestId("annotation-from-file")).toContainText("From the file");
   await expect(row).toContainText("Compare with Table 3.");
   await expect(viewer.locator("[data-annotation-id]").first()).toContainText("Grocers");
+
+  // The file's sticky note has no words to draw: its row opens its note, and says nothing of
+  // words that a version lost.
+  const sticky = panel
+    .getByTestId("annotation-row")
+    .filter({ hasText: "Check this figure." })
+    .first();
+  await pointAndClick(window, sticky.getByTestId("annotation-quote"));
+  await expect(sticky.getByTestId("annotation-row-field")).toHaveValue("Check this figure.");
+  await expect(panel).not.toContainText("This version doesn’t have the words");
 
   // A new version that still has the words: kept, re-anchored.
   await writeVersion(
@@ -348,7 +418,11 @@ test("a PDF's own highlights and notes are shown, marked From the file, and a ne
     pdf("Grocers studied across the eleven chains. Margins held steady."),
   );
   await expect(
-    window.getByTestId("annotations-panel").getByTestId("annotation-row").first(),
+    window
+      .getByTestId("annotations-panel")
+      .getByTestId("annotation-row")
+      .filter({ hasText: "Grocers" })
+      .first(),
   ).toContainText("Grocers");
 
   // A version whose words the User's own highlight had: it stays, saying they are gone.

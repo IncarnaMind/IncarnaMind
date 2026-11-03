@@ -7,6 +7,7 @@ import { flip, offset, shift, type VirtualElement } from "@floating-ui/dom";
 import { useEffect, useRef, useState } from "react";
 import type { Annotation, AnnotationColour } from "../../../core/api";
 import { ANNOTATION_COLOURS } from "../../../core/api";
+import { ANNOTATION_COLOUR_LABELS } from "../../../shared/annotationColours";
 import { formatLocation } from "../../../shared/locations";
 import { addAnnotationToNote, deleteAnnotation, editAnnotation } from "../annotationActions";
 import { AddToMindPicker } from "../components/assistant/AddToMindPicker";
@@ -15,14 +16,6 @@ import { Popover } from "../editor/Popover";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { addsWithoutAsking } from "../viewer/selectionActions";
-
-const COLOUR_LABELS = {
-  yellow: "annotations.colour.yellow",
-  green: "annotations.colour.green",
-  blue: "annotations.colour.blue",
-  pink: "annotations.colour.pink",
-  purple: "annotations.colour.purple",
-} as const;
 
 const anchorOf = (element: HTMLElement): VirtualElement => ({
   getBoundingClientRect: () => element.getBoundingClientRect(),
@@ -45,9 +38,9 @@ export function ColourSwatches({
           key={colour}
           type="button"
           data-testid={`annotation-colour-${colour}`}
-          aria-label={t(COLOUR_LABELS[colour])}
+          aria-label={t(ANNOTATION_COLOUR_LABELS[colour])}
           aria-pressed={annotation.colour === colour}
-          title={t(COLOUR_LABELS[colour])}
+          title={t(ANNOTATION_COLOUR_LABELS[colour])}
           onClick={() => onChoose(colour)}
           className={`annotation-colour annotation-colour--${colour}${
             annotation.colour === colour ? " annotation-colour--chosen" : ""

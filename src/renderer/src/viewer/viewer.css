@@ -964,9 +964,9 @@
   .annotation-note-mark:focus-visible {
     @apply outline-2 outline-offset-1 outline-accent;
   }
-  /* In a PDF page, placed over the text layer level with its quote. */
+  /* In a PDF page, in its right margin level with the quote: under the Citation's mark. */
   .annotation-note-mark--in-page {
-    @apply pointer-events-auto absolute z-[2];
+    @apply pointer-events-auto absolute z-[1];
     margin: 0;
   }
 

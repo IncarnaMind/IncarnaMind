@@ -350,7 +350,7 @@ function WebPageContent({
     container.scrollTop = Math.max(0, top - (marks ? container.clientHeight / 3 : 24));
   }, [page, t, target.request, target.quote, target.pageFrom, target.pageTo, target.figure]);
 
-  // The Document's highlights (#327), after the Citation's wash.
+  // The Document's highlights (#327), drawn in the page.
   const stored = useDocumentAnnotations(document.id);
   const loadAnnotations = useAnnotations((state) => state.load);
   useEffect(() => {

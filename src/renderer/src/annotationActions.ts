@@ -27,7 +27,7 @@ import { translateNow } from "./i18n";
 import { useNotices } from "./notices";
 import { useAppStore } from "./store";
 import { type Undoable, useUndo } from "./undo";
-import { addsWithoutAsking, type ViewerSelection } from "./viewer/selectionActions";
+import type { ViewerSelection } from "./viewer/selectionActions";
 
 const MIND_OPEN_WAIT_MS = 5000;
 
@@ -210,9 +210,6 @@ export async function addAnnotationToNote(
   }
 }
 
-/** Whether Add to note can go straight into a Mind, without asking which. */
-export const annotationAddsWithoutAsking = addsWithoutAsking;
-
 /**
  * Writes every annotation in `groups` into a new Mind in `folderId`, a section
  * for each Document, each quote with its checked Citation and its note under
@@ -290,6 +287,14 @@ export async function exportAnnotations(document: Document): Promise<void> {
     }
     if (saved.status === "saved") {
       useNotices.getState().confirm("annotations.export.saved");
+      return;
+    }
+    if (saved.status === "not-allowed") {
+      useNotices.getState().showError(
+        new Error(
+          translateNow("annotations.export.notAllowed", { folder: saved.linkedFolderPath }),
+        ),
+      );
     }
   } catch (error) {
     useAppStore.getState().reportError(error);

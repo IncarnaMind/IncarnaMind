@@ -14,7 +14,6 @@ import { CloseLineIcon, ExportLineIcon, PencilLineIcon } from "../components/lin
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { TypingTextarea } from "../components/TypingTextarea";
 import { useT } from "../i18n";
-import { useAppStore } from "../store";
 
 function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: Annotation): void }) {
   const t = useT();
@@ -62,10 +61,17 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
         data-row-main=""
         data-testid="annotation-quote"
         aria-label={t("annotations.search.open")}
-        onClick={() => onGo(annotation)}
+        onClick={() => {
+          if (annotation.quote.trim() === "") {
+            setDraft(annotation.note ?? "");
+            setEditing(true);
+            return;
+          }
+          onGo(annotation);
+        }}
         className="annotation-row-quote"
       >
-        {annotation.quote}
+        {annotation.quote.trim() === "" ? t("annotations.fromFile") : annotation.quote}
       </button>
       {annotation.missing && (
         <span className="annotation-missing" data-testid="annotation-missing">
@@ -215,7 +221,9 @@ export function AnnotationsPanel({
       </header>
       {notHere && (
         <p className="annotations-panel-problem" role="status">
-          {t("annotations.missing.why")}
+          {stored?.find((each) => each.id === notHere)?.missing
+            ? t("annotations.missing.why")
+            : t("annotations.cantShow")}
         </p>
       )}
       {stored && stored.length === 0 ? (
@@ -227,6 +235,10 @@ export function AnnotationsPanel({
               key={annotation.id}
               annotation={annotation}
               onGo={(chosen) => {
+                if (chosen.missing) {
+                  setNotHere(null);
+                  return;
+                }
                 if (scrollToAnnotation(container ?? null, chosen)) {
                   setNotHere(null);
                   return;
@@ -250,12 +262,3 @@ export function AnnotationsPanel({
     </aside>
   );
 }
-
-/** Opens the Document's Annotations list, from ⌘K and the viewer's header. */
-export function showAnnotationsPanel(): void {
-  useAnnotations.getState().togglePanel(true);
-}
-
-/** The Folder of the Document a highlight is on, for the panel's commands. */
-export const folderOfDocument = (documentId: string): string | null =>
-  useAppStore.getState().documents.find((each) => each.id === documentId)?.folderId ?? null;

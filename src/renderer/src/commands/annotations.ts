@@ -5,7 +5,7 @@
  */
 import type { Annotation } from "../../../core/api";
 import { ANNOTATION_COLOURS } from "../../../core/api";
-import type { MessageKey } from "../../../shared/i18n";
+import { ANNOTATION_COLOUR_LABELS } from "../../../shared/annotationColours";
 import {
   addAnnotationToNote,
   collectAnnotations,
@@ -44,18 +44,10 @@ const COLOUR_COMMANDS: readonly Command[] = ANNOTATION_COLOURS.map((colour) => (
   },
 }));
 
-const COLOUR_LABELS: Record<(typeof ANNOTATION_COLOURS)[number], MessageKey> = {
-  yellow: "annotations.colour.yellow",
-  green: "annotations.colour.green",
-  blue: "annotations.colour.blue",
-  pink: "annotations.colour.pink",
-  purple: "annotations.colour.purple",
-};
-
 /** Collects every highlight of one colour in the Library into a new Mind. */
 const COLLECT_COLOUR: readonly Command[] = ANNOTATION_COLOURS.map((colour) => ({
   id: `annotations.collectColour.${colour}`,
-  label: (_ctx, t) => t("annotations.collect.colour", { colour: t(COLOUR_LABELS[colour]) }),
+  label: (_ctx, t) => t("annotations.collect.colour", { colour: t(ANNOTATION_COLOUR_LABELS[colour]) }),
   group: "main",
   reversible: true,
   run: () => void collectAnnotations({ colour }, null),

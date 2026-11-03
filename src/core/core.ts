@@ -5344,7 +5344,7 @@ export function createCore(adapters: CoreAdapters): Core {
     saveAnnotationsExport: async (documentId) => {
       const id = parseDocumentId(documentId);
       if (annotations.list(id).length === 0) return { status: "empty" };
-      const { name, text } = annotations.markdown(id);
+      const { name, text } = annotations.markdown(id, settings.get().language);
       return saveExport(name, new TextEncoder().encode(text), null);
     },
     searchPassages: (query, options) => {

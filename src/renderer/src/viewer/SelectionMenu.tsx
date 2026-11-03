@@ -3,6 +3,7 @@ import { isMacOS } from "@tiptap/core";
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AnnotationColour, AskedQuote, Document } from "../../../core/api";
 import { ANNOTATION_COLOURS } from "../../../core/api";
+import { ANNOTATION_COLOUR_LABELS } from "../../../shared/annotationColours";
 import { highlightSelection } from "../annotationActions";
 import { useNoteEditor } from "../annotationNote";
 import { useAnnotations } from "../annotations";
@@ -37,14 +38,6 @@ const inPopover = (target: EventTarget | null) =>
   target instanceof Element && target.closest(".editor-popover") !== null;
 
 const HELD = "viewer-held-selection";
-
-const COLOUR_LABELS = {
-  yellow: "annotations.colour.yellow",
-  green: "annotations.colour.green",
-  blue: "annotations.colour.blue",
-  pink: "annotations.colour.pink",
-  purple: "annotations.colour.purple",
-} as const;
 
 // Shift and the arrows change a selection a key at a time: it is read once they stop.
 const SETTLE_MS = 120;
@@ -349,8 +342,8 @@ export function SelectionMenu({
                   type="button"
                   role="menuitemradio"
                   data-testid={`viewer-selection-highlight-${each}`}
-                  aria-label={t(COLOUR_LABELS[each])}
-                  title={t(COLOUR_LABELS[each])}
+                  aria-label={t(ANNOTATION_COLOUR_LABELS[each])}
+                  title={t(ANNOTATION_COLOUR_LABELS[each])}
                   aria-checked={colour === each}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={(event) => {

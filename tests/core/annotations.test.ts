@@ -228,6 +228,30 @@ describe("annotations", () => {
     ]);
   });
 
+  test("Collect returns a Document's highlights in page order, though they were made in another", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addOne(
+      core,
+      "Two pages.pdf",
+      buildPdf([{ lines: ["The first page's line."] }, { lines: ["The second page's line."] }]),
+    );
+    await core.createAnnotation({
+      documentId: document.id,
+      parts: [{ unit: 2, text: "The second page's line." }],
+      colour: "yellow",
+    });
+    await core.createAnnotation({
+      documentId: document.id,
+      parts: [{ unit: 1, text: "The first page's line." }],
+      colour: "yellow",
+    });
+
+    const groups = await core.annotationsIn({ documentId: document.id });
+    expect(groups.map((group) => group.annotations.map((each) => each.quote))).toEqual([
+      ["The first page's line.", "The second page's line."],
+    ]);
+  });
+
   test("a Document's highlights export to Markdown with their quote, note and Location", async () => {
     const core = startCore(await createTempDataFolder());
     const document = await addOne(core, "Costs.md", MARKDOWN);
@@ -487,6 +511,41 @@ describe("annotations", () => {
     expect(searched).toContain("highlights and notes");
     expect(searched).toContain("Aldermoor");
     expect(searched).toContain("Costs");
+  });
+
+  test("a note too long is refused in the interface's words, and so is a highlight that is gone", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addOne(core, "Costs.md", MARKDOWN);
+    const annotation = await core.createAnnotation({
+      documentId: document.id,
+      parts: [markdownSelection],
+      colour: "yellow",
+    });
+    await expect(
+      core.updateAnnotation(annotation.id, { note: "x".repeat(20_001) }),
+    ).rejects.toMatchObject({ wording: { key: "error.annotation.note.tooLong" } });
+    await expect(core.updateAnnotation("not-a-highlight", { note: "x" })).rejects.toMatchObject({
+      wording: { key: "error.annotation.notFound" },
+    });
+  });
+
+  test("its Markdown export is in the interface's language", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addOne(core, "Costs.md", MARKDOWN);
+    await core.createAnnotation({
+      documentId: document.id,
+      parts: [markdownSelection],
+      colour: "yellow",
+      note: "屋顶不包含在内。",
+    });
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const saved = await core.saveAnnotationsExport(document.id);
+    if (saved.status !== "saved") throw new Error("The export wasn't saved.");
+    const { readFile } = await import("node:fs/promises");
+    const markdown = await readFile(saved.file.path, "utf8");
+    expect(markdown).toContain("高亮与笔记");
+    expect(markdown).toContain("屋顶不包含在内。");
+    expect(markdown).toContain("§ Contingency");
   });
 
   test("words the Document doesn't have where they were selected are refused", async () => {
