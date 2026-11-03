@@ -69,6 +69,8 @@ interface Plan {
   covered?: [string, string];
   /** Its Coverage line's JSON, for a sentence about every member of a group. */
   coverage?: object;
+  /** For contradicted: its judgement finds the quote says the same, and gives the part it covers. */
+  doubted?: [string, string];
 }
 
 const PROPERTY_ASK = "Your reply has no Property line";
@@ -166,7 +168,25 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
       }
       return { text: lines.join("\n") };
     },
-    { generate: checkGenerate({}) },
+    {
+      generate: checkGenerate(
+        Object.fromEntries(
+          Object.entries(plans).flatMap(([sentence, plan]) =>
+            plan.doubted
+              ? [
+                  [
+                    sentence,
+                    {
+                      judgement: "same" as const,
+                      part: `Covered: ${plan.doubted[0]}\nNot covered: ${plan.doubted[1]}`,
+                    },
+                  ],
+                ]
+              : [],
+          ),
+        ),
+      ),
+    },
   );
 }
 
@@ -1030,6 +1050,37 @@ describe("What decides a sentence", () => {
     });
     expect(signed.verdict === "unsupported" && signed.unsupported).not.toHaveProperty("quoted");
     expect(signed.verdict === "unsupported" && signed.unsupported).not.toHaveProperty("found");
+  });
+
+  // protects=a contradiction its judgement doesn't uphold quotes a property as the part it covers only when its Property line names it; fails_when=the file's modified date is quoted as what the Documents say of when the agreement was signed.
+  test("a doubted contradiction quotes a property as its covered part only of a sentence about it", async () => {
+    const SIGNED = "The agreement was signed and last modified on 2 November 2026.";
+    const plan = (property: string): Record<string, Plan> => ({
+      [SIGNED]: {
+        verdict: "contradicted",
+        quote: "Modified: 2026-11-02T09:00:00Z",
+        property,
+        says: "The file records 2 November 2026.",
+        doubted: ["when it was last modified", "when it was signed"],
+      },
+    });
+    const about = await setUp(files(), plan("modified"));
+    expect(await about.core.checkClaim({ claim: SIGNED })).toMatchObject({
+      verdict: "unsupported",
+      evidence: null,
+      unsupported: {
+        covered: "when it was last modified",
+        quoted: { location: property("modified", "2026-11-02T09:00:00Z") },
+      },
+    });
+
+    const notAbout = await setUp(files(), plan("none"));
+    const signed = await notAbout.core.checkClaim({ claim: SIGNED });
+    expect(signed).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { covered: null, uncovered: null },
+    });
+    expect(JSON.stringify(signed)).not.toContain('"kind":"properties"');
   });
 
   // protects=a whole read's Run, whose every search is its window, is never offered the file's properties, while a sentence with figures is; fails_when=a whole read is shown properties outside its window, or a figure sentence's Run is not.
