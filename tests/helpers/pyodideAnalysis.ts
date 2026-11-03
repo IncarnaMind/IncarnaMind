@@ -36,7 +36,7 @@ export async function pyodideAnalysisRuntime(): Promise<AnalysisRuntime> {
     { messageCallback: () => {} },
   );
   const helper = await readFile(
-    join(ROOT, "src", "renderer", "analysis", "incarnamind.py"),
+    join(ROOT, "src", "shared", "incarnamind.py"),
     "utf8",
   );
   python.FS.mkdirTree("/incarnamind");

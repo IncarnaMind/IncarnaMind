@@ -1,13 +1,13 @@
 /**
  * The Worker that runs Python in the analysis window (ADR-0023): Pyodide and
  * numpy and pandas from the bundled files, never a package index, and the
- * helper every job runs through (./incarnamind.py). The other bundled
+ * helper every job runs through (src/shared/incarnamind.py). The other bundled
  * packages (scipy, statsmodels, scikit-learn, matplotlib) are loaded for a job
  * only when its code uses them, so a job that needs only pandas starts as fast
  * as it did without them (ADR-0025); so is the font its plots draw Chinese with.
  */
 import { PLOT_FONT, PYTHON_PATH } from "../../shared/analysisWindow";
-import helper from "./incarnamind.py?raw";
+import helper from "../../shared/incarnamind.py?raw";
 import { loadPython } from "./loadPyodide";
 
 const HELPER_FOLDER = "/incarnamind";

@@ -14,7 +14,12 @@ import { availableParallelism, freemem, totalmem } from "node:os";
 import { join } from "node:path";
 import type { EmbeddingModelSource, Transcriber, TranscriptionModelFiles } from "../adapters";
 import type { EmbeddingModelError, EmbeddingModelStatus } from "../api";
-import { downloadModel, isModelDownloaded, ModelDownloadError } from "../embedding/download";
+import {
+  downloadModel,
+  isModelDownloaded,
+  ModelDownloadError,
+  progressReporter,
+} from "../embedding/download";
 import type { ModelSources } from "../embedding/modelSources";
 import { QWEN3_ASR } from "./sherpa";
 
@@ -161,9 +166,6 @@ export interface TranscriptionModelOptions {
   memory?: () => { freeBytes: number; totalBytes: number };
 }
 
-/** Progress events are at most this often, apart from state changes. */
-const PROGRESS_INTERVAL_MS = 250;
-
 export function createTranscriptionModel(options: TranscriptionModelOptions) {
   const memory = options.memory ?? (() => ({ freeBytes: freemem(), totalBytes: totalmem() }));
   const definition = chooseModel(TRANSCRIPTION_MODELS, memory(), options.speed());
@@ -191,7 +193,6 @@ export function createTranscriptionModel(options: TranscriptionModelOptions) {
   const lifetime = new AbortController();
   const readyListeners = new Set<() => void>();
   let downloading = false;
-  let lastProgress = 0;
 
   const update = (patch: Partial<EmbeddingModelStatus>) => {
     status = { ...status, ...patch };
@@ -201,11 +202,10 @@ export function createTranscriptionModel(options: TranscriptionModelOptions) {
 
   async function download(): Promise<void> {
     let base = 0;
+    const report = progressReporter(() => update({}));
     const progress = (bytes: number) => {
       status = { ...status, downloadedBytes: base + bytes };
-      if (Date.now() - lastProgress < PROGRESS_INTERVAL_MS) return;
-      lastProgress = Date.now();
-      update({});
+      report();
     };
     await downloadModel({
       directory: vadFolder,

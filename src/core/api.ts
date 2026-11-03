@@ -1150,7 +1150,7 @@ export interface AnswerToolCall {
   mindChange?: MindChange;
   /** A Minds' Tool that changed nothing: why, as its card says. Absent otherwise. */
   mindProblem?: MindProblem;
-  /** "run_analysis" only, once it ran: which of the Answer's Analyses, and what its step says. */
+  /** "run_analysis" and "run_code" only, once it ran: which of the Answer's Analyses, and what its step says. */
   analysis?: AnalysisCall;
   /** `list_commands`, once it ended: the Documents or Minds it found (#1110). Absent otherwise. */
   found?: CommandsFound;
@@ -1279,6 +1279,8 @@ export interface AnalysisCall {
   end: AnalysisEnd["kind"];
   /** Why it couldn't run, when `end` is "unavailable". */
   reason?: AnalysisUnavailableReason;
+  /** Why `run_code`'s Python couldn't be had, when `reason` is "python"; absent: this copy has none. */
+  python?: EmbeddingModelError["kind"];
   /** Its time limit, when `end` is "timed-out". */
   limitMs?: number;
 }
@@ -2629,6 +2631,28 @@ export interface AnswerAnalysis {
   };
   /** What IncarnaMind made of each `figure()` figure, by its result's name (ADR-0025). */
   recalculations?: { result: string; check: AnalysisRecalculation }[];
+  /** `run_code` only (ADR-0025): the Documents it copied into ../inputs, by the names the code read them by. */
+  files?: AnalysisFile[];
+  /** `run_code` only: what the code left in out/, within its limits; `left` past them. */
+  outFiles?: { files: AnalysisOutFile[]; left: number };
+}
+
+/** A Document `run_code` copied for its code, checked against the version the model was given. */
+export interface AnalysisFile {
+  name: string;
+  documentId: string;
+  documentName: string;
+  contentHash: string;
+  bytes: number;
+}
+
+/** A file the code left in out/: kept as its name, size and hash, never opened as anything but data. */
+export interface AnalysisOutFile {
+  name: string;
+  bytes: number;
+  sha256: string;
+  /** The start of a text file, which the model reads; absent for anything else. */
+  text?: string;
 }
 
 /** A figure a Note kept from its Analysis, with what IncarnaMind made of it when the Analysis ran. */
@@ -2988,6 +3012,13 @@ export type MotionPreference = (typeof MOTION_PREFERENCES)[number];
  */
 export type SandboxLevel = "none" | "os" | "container" | "remote";
 
+/**
+ * Why the OS sandbox can't start here (Linux, ADR-0025): "missing", the packages it needs that
+ * aren't installed; "start", they are, but the system doesn't let an app start one (Ubuntu's
+ * AppArmor restriction on user namespaces).
+ */
+export type SandboxProblem = { kind: "missing"; packages: string[] } | { kind: "start" };
+
 export interface Settings {
   user: UserSettings;
   device: DeviceSettings;
@@ -2998,6 +3029,11 @@ export interface Settings {
    * a setting. The approval card and Settings say what a script can reach by it.
    */
   scriptSandbox: SandboxLevel;
+  /**
+   * Why the OS sandbox can't start here, when the User can fix it (Linux): Settings says how,
+   * since code then runs neither in it nor on whole files (`run_code`, ADR-0025). Null otherwise.
+   */
+  sandboxProblem: SandboxProblem | null;
   /**
    * What this copy can record for a Meeting, found out when the app starts:
    * not a setting. "both": the microphone and the computer's sound; "microphone":
@@ -4747,7 +4783,8 @@ export interface EmbeddingModelError {
  * Where the built-in models download from (#1578): Hugging Face, IncarnaMind's copy on
  * ModelScope, hf-mirror.com, IncarnaMind's copy on Cloudflare R2.
  */
-export type ModelSourceId = "huggingface" | "modelscope" | "hf-mirror" | "r2";
+/** "github": the release a build of the app came from, which `run_code`'s Python downloads from (ADR-0025). */
+export type ModelSourceId = "huggingface" | "modelscope" | "hf-mirror" | "r2" | "github";
 
 /** The source the User picked on a failed download's line; "auto" tries them all in the probe's order. */
 export type ModelSourceChoice = "auto" | "huggingface" | "modelscope";
@@ -6162,7 +6199,9 @@ export type ClaimCheckFailure =
   | "workbook-circular"
   | "workbook-not-read"
   | "workbook-no-saved-value"
-  | "workbook-unsupported";
+  | "workbook-unsupported"
+  /** A figure's equal number that the quoted table gives in another row's or column's cell. */
+  | "other-cell";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -8558,6 +8597,8 @@ export interface PageSetup {
  * - "transcription-model": downloads the speech-to-text model and Silero VAD,
  *   once, when a Meeting is first transcribed on this computer (#136), and the
  *   two models that tell its speakers apart (#138), when one is first recorded.
+ * - "python-runtime": downloads IncarnaMind's own Python for analyses on whole files, once,
+ *   the first time one runs Python (ADR-0025), from the release this build came from.
  * - "model-source-modelscope", "model-source-hf-mirror", "model-source-copy": where else a
  *   built-in model's files may come from when Hugging Face doesn't give them (#1578):
  *   IncarnaMind's copy on ModelScope (whose front page the probe asks whenever a model
@@ -8584,6 +8625,7 @@ export const networkTrafficIds = [
   "reranking-model",
   "text-recognition-model",
   "transcription-model",
+  "python-runtime",
   "model-source-modelscope",
   "model-source-hf-mirror",
   "model-source-copy",
@@ -9323,7 +9365,10 @@ export type EffectScope =
   | { kind: "service"; serviceId: string; name: string } // an external service, as consent names it
   | { kind: "host"; host: string } // a web host
   | { kind: "mind"; mindId: string } // one of the User's Minds
-  | { kind: "sandbox" } // the analysis sandbox, with no files and no network (ADR-0023)
+  // Code in a sandbox, with no network: an Analysis in the app's (inputs only, ADR-0023) or run_code
+  // in the OS's (copies of the Documents given and the system's own files, writing only its own
+  // folder, ADR-0025).
+  | { kind: "sandbox" }
   | { kind: "library" } // the Library: its Documents' names, Folders and Tags, Recently deleted
   | { kind: "output" } // the Output location, the folder the User chose for new files
   | { kind: "anywhere" };
@@ -11318,6 +11363,8 @@ export interface CoreApi {
   readableQuote(input: ScannedQuoteInput): Promise<string | null>;
   /** The built-in text recognition model's download state (#397). */
   getTextRecognitionModel(): Promise<EmbeddingModelStatus>;
+  /** `run_code`'s Python, downloaded the first time code needs it (ADR-0025); null: this copy has none. */
+  getPythonRuntime(): Promise<EmbeddingModelStatus | null>;
   /**
    * Downloads the built-in text recognition model, or tries again after a
    * failure; once it is ready, Documents whose scanned pages couldn't be
@@ -12757,6 +12804,7 @@ export interface CoreEvents {
   "embeddingModel.status": EmbeddingModelStatus;
   /** The built-in text recognition model's download state changed (#397). */
   "textRecognitionModel.status": EmbeddingModelStatus;
+  "pythonRuntime.status": EmbeddingModelStatus;
   /**
    * The embedding model search uses changed, or local mode, or a rebuild made
    * progress (a Document finished) or finished, or the provider failed or recovered.
@@ -13027,6 +13075,7 @@ const methods: Record<CoreApiMethod, true> = {
   readScannedQuote: true,
   readableQuote: true,
   getTextRecognitionModel: true,
+  getPythonRuntime: true,
   downloadTextRecognitionModel: true,
   previewLinkedFolder: true,
   addLinkedFolder: true,
