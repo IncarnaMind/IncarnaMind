@@ -486,8 +486,14 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     notKept: [
       ...plan.losses,
       ...patch.losses,
-      // Tracking keeps a deleted paragraph in the file, its comment's range with it.
-      ...(input.review.trackAs === null ? commentLosses(current, input.comments ?? []) : []),
+      // Tracking keeps a deleted paragraph in the file, the file's own comment's range with it; a
+      // comment made here has no range in the original, so it is reported even when tracking is on.
+      ...commentLosses(
+        current,
+        input.review.trackAs === null
+          ? (input.comments ?? [])
+          : (input.comments ?? []).filter((comment) => comment.word === undefined),
+      ),
     ],
     unknownParts: await unknownParts(writer),
     keptFurniture: keptFurniture(base.structure.blocks, current),
