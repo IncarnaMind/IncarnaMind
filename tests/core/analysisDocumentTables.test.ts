@@ -1084,6 +1084,120 @@ describe("a merge that starts in a second heading row (#448)", () => {
   });
 });
 
+describe("the heading matrix (#448)", () => {
+  const span = (text: string, columns = 2) =>
+    `<w:tcPr><w:gridSpan w:val="${columns}"/></w:tcPr>${paragraph(text)}`;
+  const cases: { name: string; rows: (readonly string[])[] }[] = [];
+  for (const headings of [2, 3])
+    for (const corner of ["blank", "labelled"])
+      for (const spanned of [false, true])
+        for (const kind of ["years", "placeholder"])
+          for (const body of ["labelled", "blank"])
+            cases.push({
+              name: `${headings} heading rows, ${corner} corner, ${spanned ? "a span" : "no span"}, ${kind}, ${body} body`,
+              rows: [
+                corner === "blank"
+                  ? [
+                      "",
+                      ...(spanned ? [span("Revenue"), "Margin"] : ["Revenue", "Revenue", "Margin"]),
+                    ]
+                  : [
+                      "Item",
+                      ...(spanned ? [span("Revenue"), "Margin"] : ["Revenue", "Revenue", "Margin"]),
+                    ],
+                kind === "years" ? ["", "2024", "2023", "Change"] : ["", "2024", "2023", "n/a"],
+                ...(headings === 3 ? [["", "t", "t", "%"]] : []),
+                [body === "labelled" ? "Alpha" : "", "1,500", "1,200", "12%"],
+                ["Beta", "900", "660", "9%"],
+              ],
+            });
+  test.each(cases)("$name sums 1860", async ({ rows }) => {
+    const { analyses } = await ask({
+      files: [{ name: "Matrix.docx", contents: wordFile({ body: table(rows) }) }],
+      question: "Total the 2023 column.",
+      query: "Alpha Beta",
+      runs: [run("Matrix", [{ name: "matrix" }])],
+      helper: (job) => {
+        const [input] = job.inputs;
+        if (input?.kind !== "table") throw new Error("No table.");
+        const column = input.columns.find((name) => name.includes("2023"));
+        if (!column) throw new Error(`No 2023 column: ${input.columns.join(", ")}`);
+        return { output: { results: [figureOf(input, column, "sum")] } };
+      },
+    });
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 1860 }]);
+  });
+});
+
+describe("the heading matrix in decks and pages (#448)", () => {
+  type Cell = { text: string; attrs?: string };
+  const deckRows = (
+    headings: number,
+    corner: string,
+    spanned: boolean,
+    kind: string,
+    body: string,
+  ) => {
+    const first: Cell[] = corner === "blank" ? [{ text: "" }] : [{ text: "Item" }];
+    if (spanned) {
+      first.push({ text: "Revenue", attrs: ' gridSpan="2"' }, { text: "", attrs: ' hMerge="1"' });
+    } else {
+      first.push({ text: "Revenue" }, { text: "Revenue" });
+    }
+    first.push({ text: "Margin" });
+    return [
+      first,
+      [
+        { text: "" },
+        { text: "2024" },
+        { text: "2023" },
+        { text: kind === "years" ? "Change" : "n/a" },
+      ],
+      ...(headings === 3
+        ? [[{ text: "" }, { text: "t" }, { text: "t" }, { text: "%" }] as Cell[]]
+        : []),
+      [
+        { text: body === "labelled" ? "Alpha" : "" },
+        { text: "1,500" },
+        { text: "1,200" },
+        { text: "12%" },
+      ],
+      [{ text: "Beta" }, { text: "900" }, { text: "660" }, { text: "9%" }],
+    ];
+  };
+  type Built = { name: string; contents: Uint8Array };
+  const cases: { name: string; file: () => Built }[] = [];
+  for (const headings of [2, 3])
+    for (const corner of ["blank", "labelled"])
+      for (const spanned of [false, true])
+        for (const kind of ["years", "placeholder"])
+          for (const body of ["labelled", "blank"]) {
+            const suffix = `${headings} heading rows, ${corner} corner, ${spanned ? "a span" : "no span"}, ${kind}, ${body} body`;
+            const deck = deckRows(headings, corner, spanned, kind, body);
+            cases.push({
+              name: `deck: ${suffix}`,
+              file: () => ({ name: "Matrix.pptx", contents: rawDeck("Matrix", deck) }),
+            });
+          }
+  test.each(cases)("$name sums 1860", async ({ file }) => {
+    const document = file();
+    const { analyses } = await ask({
+      files: [document],
+      question: "Total the 2023 column.",
+      query: "Alpha Beta",
+      runs: [run("Matrix", [{ name: "matrix" }])],
+      helper: (job) => {
+        const [input] = job.inputs;
+        if (input?.kind !== "table") throw new Error("No table.");
+        const column = input.columns.find((each) => each.includes("2023"));
+        if (!column) throw new Error(`No 2023 column: ${input.columns.join(", ")}`);
+        return { output: { results: [figureOf(input, column, "sum")] } };
+      },
+    });
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 1860 }]);
+  });
+});
+
 describe("a scanned page's tables (#448)", { timeout: 60_000 }, () => {
   test.each([
     ["en", "Add up the product lines in Table 3 and check them against its total."],

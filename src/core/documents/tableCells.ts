@@ -89,7 +89,7 @@ export const figureBesideLabel = (
     if (value === "" || isFigure(value) || unitWord(value)) return false;
     return body.some((each) => {
       const cell = (each[column] ?? "").trim();
-      return cell !== "" && !isFigure(cell);
+      return cell !== "" && !isFigure(cell) && !placeholder(cell);
     });
   });
 
@@ -100,14 +100,27 @@ const underFigure = (row: readonly string[], above: readonly string[]) =>
     return placeholder(value) || (isFigure(value) && isFigure(above[column] ?? ""));
   });
 
-/** A blank cell under a heading of the row above: a gap in a row that spans no heading. */
+/**
+ * A blank cell under a heading of the row above: a gap in the row. A heading above a span covers
+ * only the columns the span covers, so only a blank there is the body's.
+ */
 const blankUnderHeading = (
   row: readonly string[],
   above: readonly string[],
   coveredAbove: readonly boolean[] | undefined,
-) =>
-  !coveredAbove?.some(Boolean) &&
-  row.some((text, column) => (text ?? "").trim() === "" && (above[column] ?? "").trim() !== "");
+  covered: readonly boolean[] | undefined,
+) => {
+  if (!coveredAbove?.some(Boolean))
+    return row.some(
+      (text, column) => (text ?? "").trim() === "" && (above[column] ?? "").trim() !== "",
+    );
+  return row.some((text, column) => {
+    if ((text ?? "").trim() !== "") return false;
+    const inSpan = coveredAbove[column] === true || coveredAbove[column + 1] === true;
+    if (!inSpan) return false;
+    return covered?.[column] !== true && covered?.[column + 1] !== true;
+  });
+};
 
 /**
  * How many of a file's rows head its columns (#448): the first, and a row below it with an empty
@@ -126,15 +139,29 @@ export function headingRowsOf(
     const row = rows[headingCount] ?? [];
     const above = rows[headingCount - 1] ?? [];
     if ((row[0] ?? "").trim() === "") {
-      if (figureBesideLabel(row, rows.slice(headingCount + 1))) break;
-      headingCount++;
-      continue;
+      const figures = row.filter((text) => isFigure(text)).length;
+      const coveredAbove = spans.covered?.[headingCount - 1];
+      const underSpan = row.some(
+        (text, column) =>
+          isFigure(text) &&
+          (coveredAbove?.[column] === true || coveredAbove?.[column + 1] === true),
+      );
+      if (figures >= 2 || underSpan || !figureBesideLabel(row, rows.slice(headingCount + 1))) {
+        headingCount++;
+        continue;
+      }
+      break;
     }
     const labelled = rows.slice(0, headingCount).some((each) => (each[0] ?? "").trim() !== "");
     if (
       labelled ||
       underFigure(row, above) ||
-      blankUnderHeading(row, above, spans.covered?.[headingCount - 1])
+      blankUnderHeading(
+        row,
+        above,
+        spans.covered?.[headingCount - 1],
+        spans.covered?.[headingCount],
+      )
     )
       break;
     headingCount++;
