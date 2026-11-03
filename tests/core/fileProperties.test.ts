@@ -698,6 +698,10 @@ const SIZED = {
       "Survey log.txt is 1.1-1.3 MB.",
       "Site notes.txt is 1.2 KB.",
       "Survey log.txt is 1.2 million bytes.",
+      "Survey log.txt is 1.2 megabytes.",
+      "Site notes.txt is 1.17 KiB.",
+      "Survey log.txt is 0.0012 GB.",
+      "Survey log.txt is 0.00115 GiB.",
     ],
     contradicted: [
       "Survey log.txt is 2 MB.",
