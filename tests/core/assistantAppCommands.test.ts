@@ -529,6 +529,120 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect((await Promise.all(aboutRent.map(tagsOf))).every((count) => count === 0)).toBe(true);
   });
 
+  // protects=Undo leaves the Tags of a Document Organize never touched (#2252); fails_when=the other Document loses its Tag; no_claim=which Folder the classifier picks.
+  test("Undo leaves the Tags of Documents Organize didn't touch", async () => {
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return { text: JSON.stringify({ groupId: leases?.id ?? null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind, documents } = await setUpWithDocuments(model, DOCUMENTS);
+    const q3 = documents.find((each) => each.name === "Q3 commentary");
+    if (!q3) throw new Error("No Q3 commentary.");
+    const finance = await core.createLibraryGroup({ name: "Finance", description: "" });
+    await core.assignDocumentGroup(q3.id, finance.id);
+    const budget = await core.createTag({ name: "Budget" });
+    await core.addTagToDocuments([q3.id], budget.id);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    await core.undoCommands(runOf(answer));
+
+    const after = (await core.listDocuments()).find((each) => each.id === q3.id);
+    expect(after?.tags.some((each) => each.tagId === budget.id)).toBe(true);
+  });
+
+  // protects=a Tag added while the Organize card waits stays after Undo, while the Tags the run added go (#2252); fails_when=the waiting Tag is removed or an automatic one stays; no_claim=which Folder the classifier picks.
+  test("Undo keeps a Tag added while the card waited", async () => {
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return {
+            text: JSON.stringify({
+              groupId: leases?.id ?? null,
+              tags: [],
+              newTags: [{ name: "Leased", description: "Lease papers" }],
+            }),
+          };
+        },
+      },
+    );
+    const { core, mind, documents } = await setUpWithDocuments(model, DOCUMENTS);
+    const lease = documents.find((each) => each.name === "Lease Mill Lane");
+    if (!lease) throw new Error("No lease.");
+    const late = await core.createTag({ name: "Late" });
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    core.on("approval.requested", (request) => {
+      void core
+        .addTagToDocuments([lease.id], late.id)
+        .then(() => core.respondToApproval(request.requestId, "allow-once"));
+    });
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const tagged = (await core.listDocuments()).find((each) => each.id === lease.id);
+    expect(tagged?.tags.some((each) => each.tagId === late.id)).toBe(true);
+    await core.undoCommands(runOf(answer));
+
+    const after = (await core.listDocuments()).find((each) => each.id === lease.id);
+    expect(after?.tags.some((each) => each.tagId === late.id)).toBe(true);
+    expect(after?.tags.length).toBe(1);
+  });
+
   // protects=Organize the User doesn't allow changes nothing; fails_when=a Document is filed or a Folder made; no_claim=the card's words.
   test("Organize not allowed moves nothing", async () => {
     const model = calling(
@@ -1096,8 +1210,11 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(answer.text).not.toContain("Organize filed");
   });
 
-  // protects=a Folder named inside a longer word doesn't hide the app's summary: "Rental" doesn't name the Folder "Rent" (#2252); fails_when=the reply shows only the couldn't-be-sorted line; no_claim=which Folder the classifier picks.
-  test("a Folder named inside a longer word still gets the summary", async () => {
+  // protects=a Folder named inside a longer word doesn't hide the app's summary, including a decomposed accent: "Rental" doesn't name "Rent", and "Café" (Cafe + U+0301) doesn't name "Cafe" (#2252); fails_when=the reply shows only the couldn't-be-sorted line; no_claim=which Folder the classifier picks.
+  test.each([
+    ["Rent", "Rental agreements are filed now."],
+    ["Cafe", "Cafe\u0301 papers are filed now."],
+  ])("a Folder named inside a longer word still gets the summary: %s", async (folder, reply) => {
     const model = scriptedModel(
       (call) => {
         const ran = call.results.filter((each) => each.tool === "run_command");
@@ -1106,11 +1223,11 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
               calls: [
                 {
                   tool: "run_command",
-                  input: { command: "documents.organize", folder: "Rent", about: "Rent papers" },
+                  input: { command: "documents.organize", folder, about: `${folder} papers` },
                 },
               ],
             }
-          : { text: "Rental agreements are filed now." };
+          : { text: reply };
       },
       {
         generate: ({ prompt }) => {
@@ -1119,11 +1236,11 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
             document?: { text?: string };
           };
           if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
-          const rent = data.groups.find((each) => each.name === "Rent");
-          const aboutRent = /rent/i.test(JSON.stringify(data.document ?? {}));
+          const into = data.groups.find((each) => each.name === folder);
+          const leases = !/Q3/i.test(JSON.stringify(data.document ?? {}));
           return {
             text: JSON.stringify({
-              groupId: aboutRent && rent ? rent.id : "__unsorted__",
+              groupId: leases && into ? into.id : "__unsorted__",
               tags: [],
             }),
           };
@@ -1131,7 +1248,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       },
     );
     const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
-    await core.createLibraryGroup({ name: "Rent", description: "" });
+    await core.createLibraryGroup({ name: folder, description: "" });
     const provider = (await core.listChatProviders())[0];
     if (!provider) throw new Error("No provider.");
     const settings = (await core.getLibrary()).settings;
@@ -1147,8 +1264,8 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       ...FROM_WINDOW,
     });
 
-    expect(answer.text).toContain("Rental agreements are filed now.");
-    expect(answer.text).toContain("Sorted 3 Documents: 3 → Rent.");
+    expect(answer.text).toContain(reply);
+    expect(answer.text).toContain(`Sorted 3 Documents: 3 → ${folder}.`);
     expect(answer.text).toContain("1 Document couldn’t be sorted.");
   });
 

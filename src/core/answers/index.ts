@@ -3355,7 +3355,10 @@ export function createAnswers(options: AnswersOptions) {
             const mentions = (name: string) => {
               if (name === "") return false;
               const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "u").test(reply);
+              return new RegExp(
+                `(?<![\\p{L}\\p{M}\\p{N}])${escaped}(?![\\p{L}\\p{M}\\p{N}])`,
+                "u",
+              ).test(reply);
             };
             if (
               done.command === "documents.organize" &&

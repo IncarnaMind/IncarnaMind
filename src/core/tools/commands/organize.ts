@@ -121,7 +121,6 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
     input.ids.length > 0 ? await documentsOf(core, input.ids) : await inNoFolder(core);
   const items = documents.map((each) => documentItem(each));
   const ids = documents.map((each) => each.id);
-  const beforeTags = tagLinksOf(documents);
   return {
     ...inApp(
       "documents.organize",
@@ -136,6 +135,11 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             said: "No Document is in no Folder, so Organize had nothing to sort.",
           };
         }
+        // Both snapshots are taken after Allow and only for the Documents given: a Tag added while
+        // the card waited stays, and no Document Organize never touched is on them.
+        const beforeTags = tagLinksOf(
+          (await core.listDocuments()).filter((each) => ids.includes(each.id)),
+        );
         const before = await assignmentsOf(core, ids);
         const made: LibraryGroup[] = [];
         let named: LibraryGroup | null = null;
@@ -179,7 +183,9 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
         for (const id of ids) left.set(id, stateOf(after.get(id)));
         for (const change of moved) left.set(change.documentId, change.after);
         const { groups } = await core.getLibrary();
-        const afterTags = tagLinksOf(await core.listDocuments());
+        const afterTags = tagLinksOf(
+          (await core.listDocuments()).filter((each) => ids.includes(each.id)),
+        );
         const names = new Map(groups.map((group) => [group.id, group.name]));
         const counts = new Map<string, number>();
         for (const change of moved) {
