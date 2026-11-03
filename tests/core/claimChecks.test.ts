@@ -450,38 +450,34 @@ describe("One claim check", () => {
     },
   );
 
-  // protects=checked whole, a Roles line naming nothing on either side passes only for a value of
-  // figures alone, as a comparison table's cell is checked (#1766); fails_when=such a value is asked
-  // for words it hasn't, or a sentence with words, a figure among them or not, passes.
+  // protects=a Roles line naming nothing on either side holds a Supported reply back only where the
+  // reply's own Scope line names the sentence's party or term (#1766); fails_when=a value of figures,
+  // as a comparison table's cell is checked, is asked for words it hasn't, or a sentence whose
+  // Scope names its party passes with none.
   test.each([
+    { sentence: "£185,000", scope: "none, same", state: "supported", asks: 0 },
     {
-      sentence: "£185,000",
-      quote: "The harbour's dredging cost £185,000 in 2025.",
-      state: "supported",
-      asks: 0,
-    },
-    {
-      sentence: "The harbour's dredging should cost £185,000.",
-      quote: "The harbour's dredging cost £185,000 in 2025.",
+      sentence: "The harbour should pay £185,000 for its dredging.",
+      scope: "the harbour, same",
       state: "not-checked",
       asks: 1,
     },
     {
-      sentence: "The harbour's dredging is paid for every year.",
-      quote: "The harbour's dredging cost £185,000 in 2025.",
+      sentence: "The harbour pays for its dredging every year.",
+      scope: "the harbour, same",
       state: "not-checked",
       asks: 1,
     },
   ] as const)(
-    "checked whole, “$sentence” with none on both sides of its Roles line is $state",
-    async ({ sentence, quote, state, asks }) => {
+    "checked whole, “$sentence” with none on both sides of its Roles line and Scope $scope is $state",
+    async ({ sentence, scope, state, asks }) => {
       const calls: ModelCall[] = [];
       const model = checkingModel(
         {
           [sentence]: {
             verdict: "supported",
-            quote,
-            says: "Roles: none / none, same\nThe harbour's dredging cost £185,000.",
+            quote: "The harbour's dredging cost £185,000 in 2025.",
+            says: `Scope: ${scope}\nRoles: none / none, same\nThe harbour's dredging cost £185,000.`,
           },
         },
         calls,

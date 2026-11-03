@@ -59,6 +59,8 @@ interface Case {
   remainder?: Record<string, unknown> | null;
   /** Each figure's roles on the Figures line: the Roles line's closing word when absent. */
   itemRoles?: string;
+  /** Its Scope line's field: "none, same" when absent. */
+  scope?: string;
   /** Its Time line's field: "none / none, same" when absent. */
   time?: string;
   /** It replies with one JSON object, as some models do, in place of its lines. */
@@ -96,7 +98,7 @@ function replying(each: Case, calls: ModelCall[]) {
       const lines = [
         `Verdict: ${each.verdict}`,
         "Absence: no",
-        "Scope: none, same",
+        `Scope: ${each.scope ?? "none, same"}`,
         "Topic: found",
         ...(roles === "" ? [] : [`Roles: ${roles}`]),
         `Time: ${each.time ?? "none / none, same"}`,
@@ -109,7 +111,7 @@ function replying(each: Case, calls: ModelCall[]) {
           text: JSON.stringify({
             verdict: each.verdict,
             asserts_absence: false,
-            scope: "same",
+            scope: each.scope ?? "same",
             topic: "found",
             roles,
             time: each.time ?? "none / none, same",
@@ -624,22 +626,24 @@ describe("once asked for the sentence's own words, a reply that gives none is No
       RULES,
     ],
     [
-      "zh, none on both sides for a sentence that names its parties",
+      "zh, none on both sides for a sentence whose Scope line names its party",
       {
         sentence: "物业管理员向乙方报修。",
         quote: "乙方向物业管理员报修。",
         verdict: "supported",
         roles: "无 / 无, same",
+        scope: "物业管理员, same",
       },
       RULES_ZH,
     ],
     [
-      "zh, a figure sentence whose remainder names the parties, none on both sides",
+      "zh, a figure sentence whose Scope line names its party, none on both sides",
       {
         sentence: "甲方每月向乙方支付租金人民币900元。",
         quote: "乙方每月向甲方支付租金人民币900元。",
         verdict: "supported",
         roles: "无 / 无, same",
+        scope: "甲方, same",
         number: "900",
         remainder: {
           text: "甲方每月向乙方支付租金",
@@ -988,6 +992,7 @@ describe("the Roles line read in the shapes a model gives it (#1766)", () => {
         quote: "The Tenant may keep a cat in the flat.",
         verdict: "supported",
         roles: "same",
+        scope: "the Tenant, same",
         json: true,
       },
       RULES,

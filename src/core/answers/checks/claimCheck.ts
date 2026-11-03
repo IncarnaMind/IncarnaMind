@@ -95,7 +95,7 @@ import {
 } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
 import { checkAbsence, fitsWholeRead, type Presence } from "./absence";
-import { agreesWith, comparedFigure, figuresInClaim, statedFigure } from "./calculated";
+import { agreesWith, comparedFigure, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
   aboutSomeoneElse,
@@ -1046,18 +1046,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     // Set by any reply that compared other words than the sentence's, whether or not the ask was
     // still free: a later reply that gives none is held back as one that gives other words.
     let askedForOwnWords = false;
-    // Checked figure by figure, the reply's own Figures line says whether the sentence has words
-    // beyond its figures ("甲方每月向乙方支付租金" in 甲方每月向乙方支付租金人民币900元); one it leaves out
-    // is asked for, and a sentence missing it is never Supported. Checked whole, only a value of
-    // figures alone, as a comparison table's cell is ("£528.9m"), has no words to copy: "two weeks"
-    // in a "should" sentence leaves it its words.
-    const ownWordsFor = (asked: boolean, reply: string): OwnWords => ({
-      claim: request.claim,
-      asked,
-      mayNameNothing: request.figures?.length
-        ? !readFigureReply(reply, request.figures, request.claim)?.remainder
-        : figuresAlone(request.claim),
-    });
     let askedAbout: string | null = null;
     let askedFigures: string | null = null;
     let failed: ProviderError | null = null;
@@ -1139,7 +1127,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           check: (text, aside) => {
             const read = replyAcrossTurns(text, aside ?? []);
             const verdict = readVerdict(read);
-            if (!verdict || !comparesOtherWords(verdict, ownWordsFor(false, read))) return null;
+            if (!verdict || !comparesOtherWords(verdict, request.claim, false)) return null;
             askedForOwnWords = true;
             return { claims: [], writeOnly: true, note: ROLES_OWN_WORDS };
           },
@@ -1291,7 +1279,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       };
       const sentence = async (verdict: ReadVerdict): Promise<ClaimJudgment> => {
         if (declined && verdict.verdict === "supported") return unchecked("refused");
-        if (comparesOtherWords(verdict, ownWordsFor(askedForOwnWords, figuresText)))
+        if (comparesOtherWords(verdict, request.claim, askedForOwnWords))
           return unchecked("malformed");
         const evidence =
           cited ??
@@ -1540,7 +1528,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         verdict = { ...verdict, verdict: "unsupported", says: null };
       }
     }
-    if (comparesOtherWords(verdict, ownWordsFor(askedForOwnWords, "")))
+    if (comparesOtherWords(verdict, request.claim, askedForOwnWords))
       return notChecked("malformed");
     const absence = await absenceFor(verdict.absence ?? null, verdict.verdict);
     if (absence) return absence;
@@ -1795,33 +1783,16 @@ const ROLES_OWN_WORDS =
   "Your Roles line's first side isn't the sentence's own words. Copy from the sentence, word for word and in its own order, the words that say who does it, for or to whom, and whether it must or may happen, or, when it names no one, the words for what happens; then \" / \" and the Passage's words; then same, differs or other. Then give your whole reply again.";
 
 /**
- * `asked`: a reply of this check has already given other words than the sentence's.
- * `mayNameNothing`: a sentence of figures, which often names no party and no must or may ("The
- * rent is 900 per month."), so a Roles line naming nothing on either side is no sign it compared
- * other words; any other sentence has words to copy.
+ * `asked`: a reply of this check has already given other words than the sentence's. A Roles line
+ * naming nothing on either side is held back only where the reply's own Scope line names the
+ * sentence's party or term: a figure's or a cell's sentence often names neither ("Scope: none,
+ * same" for 杠杆率仍应在3.25倍的契约上限之内), but one that names the Tenant has its words to copy.
  */
-interface OwnWords {
-  claim: string;
-  asked: boolean;
-  mayNameNothing: boolean;
-}
-
-function figuresAlone(claim: string): boolean {
-  const figures = figuresInClaim(claim, documentFigureContext([{ text: claim }]));
-  const rest = figures
-    .toSorted((one, other) => other.start - one.start)
-    .reduce((text, figure) => text.slice(0, figure.start) + text.slice(figure.end), claim);
-  return figures.length > 0 && !/\p{L}/u.test(rest);
-}
-
-function comparesOtherWords(
-  verdict: ReadVerdict,
-  { claim, asked, mayNameNothing }: OwnWords,
-): boolean {
+function comparesOtherWords(verdict: ReadVerdict, claim: string, asked: boolean): boolean {
   if (verdict.verdict !== "supported") return false;
   const sides = verdict.rolesSides;
   if (sides === undefined) return asked;
-  if (namesNothing(sides)) return asked || !mayNameNothing;
+  if (namesNothing(sides)) return asked || verdict.scopeNames === true;
   return !ownWords(sides[0] ?? "", claim);
 }
 

@@ -571,6 +571,8 @@ export interface ReadVerdict {
   uncovered: string | null;
   /** "wider": the sentence names the Passage's own party in general words; null when the reply doesn't say. */
   scope: "same" | "wider" | null;
+  /** The Scope line gives a word of the sentence's for the Passage's party or term, not "none". */
+  scopeNames?: true;
   /** "not found": no Passage is about the sentence's own subject and detail; null when the reply doesn't say. */
   topic: "found" | "not found" | null;
   /**
@@ -742,6 +744,7 @@ function jsonVerdict(reply: string): ReadVerdict | null {
       covered: typeof covered === "string" ? phraseOf(covered) : null,
       uncovered: typeof uncovered === "string" ? phraseOf(uncovered) : null,
       scope: scopeOf(typeof scope === "string" ? `Scope: ${scope}` : undefined),
+      ...scopeNamesOf(typeof scope === "string" ? `Scope: ${scope}` : undefined),
       topic: topicOf(typeof topic === "string" ? `Topic: ${topic}` : undefined),
       roles: rolesOf(typeof roles === "string" ? `Roles: ${roles}` : undefined),
       ...rolesSidesOf(typeof roles === "string" ? `Roles: ${roles}` : undefined),
@@ -780,6 +783,19 @@ const scopeOf = (line: string | undefined): ReadVerdict["scope"] => {
     ?.at(-1)
     ?.toLowerCase();
   return word === "same" || word === "wider" ? word : null;
+};
+
+const scopeNamesOf = (line: string | undefined): Pick<ReadVerdict, "scopeNames"> => {
+  const field = line === undefined ? undefined : SCOPE.exec(line)?.[1];
+  if (field === undefined) return {};
+  const closing = [...field.matchAll(/\b(?:same|wider)\b/gi)].at(-1)?.index ?? field.length;
+  const word = field
+    .slice(0, closing)
+    .replace(/["'“”‘’「」『』*_`]/g, "")
+    .trimEnd()
+    .replace(/[,;，；]$/u, "")
+    .trim();
+  return word === "" || NO_PHRASE.test(word) ? {} : { scopeNames: true };
 };
 
 type Closing = "same" | "differs" | "other";
@@ -1079,6 +1095,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
       covered: phrase(COVERED),
       uncovered: phrase(NOT_COVERED),
       scope: scopeOf(fields.findLast((each) => SCOPE.test(each))),
+      ...scopeNamesOf(fields.findLast((each) => SCOPE.test(each))),
       topic: topicOf(fields.findLast((each) => TOPIC.test(each))),
       // A model that corrects its Roles line writes it again: its last one counts.
       roles: rolesOf(fields.findLast((each) => ROLES.test(each))),
