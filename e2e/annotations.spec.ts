@@ -127,10 +127,9 @@ async function highlight(
 ): Promise<void> {
   await slideSelect(window, paragraph(viewer, words), words);
   await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
-  const item = window.getByTestId(
-    colour === "yellow" ? "viewer-selection-highlight" : `viewer-selection-highlight-${colour}`,
-  );
-  await pointAndClick(window, item);
+  // The colour's own swatch, so the click lands on the colour asked for, never the row's middle.
+  await expect(window.getByTestId("viewer-selection-highlight")).toBeVisible();
+  await pointAndClick(window, window.getByTestId(`viewer-selection-highlight-${colour}`));
   await expect(viewer.locator(`[data-annotation-id]`).first()).toContainText(words);
 }
 
