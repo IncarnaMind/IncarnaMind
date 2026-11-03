@@ -123,7 +123,9 @@ export const ScopePicker = Extension.create({
         pluginKey: new PluginKey("scopePicker"),
         char: "@",
         // In a Question, or in the text of a Note: in code or an Answer an "@" is just an "@".
-        allow: ({ state, range }) => isQuestion(state, range.from) || inNote(state, range.from),
+        // Never while a Chinese input method is composing, whose "@" is the method's (#281).
+        allow: ({ editor, state, range }) =>
+          !editor.view.composing && (isQuestion(state, range.from) || inNote(state, range.from)),
         // The list reads the Folders, Tags and Documents from the app store itself.
         items: () => [],
         command: ({ editor, range, props: choice }) => addToScope(editor, range, choice),

@@ -25,6 +25,8 @@ type SlashMenuListProps = SuggestionProps<SlashItem, SlashItem> & { ref?: Ref<Sl
 const placeOf = (state: EditorState): SlashPlace =>
   state.selection.$from.parent.type.name === QUESTION_BLOCK ? "question" : "note";
 
+const slashMenuKey = new PluginKey("slashMenu");
+
 /**
  * Typing `/` (at the start of a line or after a space) opens a menu of things
  * to insert, filtered by what is typed after it. Arrows choose, Enter inserts,
@@ -44,16 +46,22 @@ export const SlashMenu = Extension.create<SlashMenuOptions>({
     return [
       Suggestion<SlashItem, SlashItem>({
         editor: this.editor,
-        pluginKey: new PluginKey("slashMenu"),
+        pluginKey: slashMenuKey,
         char: "/",
-        // Not in code, where a slash is just a slash.
-        allow: ({ state, range }) => {
+        // Not in code, where a slash is just a slash; and never while a Chinese input method
+        // is composing, whose "/" or letter is the method's, not the Note's (#281).
+        allow: ({ editor, state, range }) => {
+          if (editor.view.composing) return false;
           const { parent } = state.doc.resolve(range.from);
           if (parent.type.spec.code) return false;
           return parent.type.name !== QUESTION_BLOCK || this.options.items("question").length > 0;
         },
         items: ({ editor }) => [...this.options.items(placeOf(editor.state))],
-        command: ({ editor, range, props: item }) => item.run(editor, range),
+        command: ({ editor, range, props: item }) => {
+          item.run(editor, range);
+          // An item that leaves the text as it was (Cite…) would leave the menu open over it.
+          editor.view.dispatch(editor.state.tr.setMeta(slashMenuKey, { exit: true }));
+        },
         floatingUi: { strategy: "fixed", middleware: [shift({ padding: 8 })] },
         render: () => {
           let renderer: ReactRenderer<SlashMenuHandle, SlashMenuListProps> | null = null;

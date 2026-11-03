@@ -43,6 +43,7 @@ import { ChartView } from "../editor/ChartView";
 import { CheckBadge } from "../editor/CheckBadge";
 import { CitationStylePrompt } from "../editor/CitationStylePrompt";
 import { CitationView } from "../editor/CitationView";
+import { type CitePlace, CiteSearch } from "../editor/CiteSearch";
 import { CodeBlockView } from "../editor/CodeBlockView";
 import { comparisonCellView } from "../editor/ComparisonCellView";
 import { ComparisonRowView } from "../editor/ComparisonRowView";
@@ -109,7 +110,12 @@ import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
 import { SlashMenu } from "../editor/SlashMenu";
 import { ShiftClickSelection } from "../editor/shiftClickSelection";
 import { useSignOffs } from "../editor/signOffActions";
-import { compareSlashItem, noteSlashItems, skillSlashItems } from "../editor/slashItems";
+import {
+  citeWhileWritingItems,
+  compareSlashItem,
+  noteSlashItems,
+  skillSlashItems,
+} from "../editor/slashItems";
 import { Suggestions } from "../editor/suggestions";
 import { TableMenu } from "../editor/TableMenu";
 import { TableOfContentsView } from "../editor/TableOfContentsView";
@@ -382,6 +388,8 @@ function MindEditorView({
         : t("editor.footnote.label", { number });
   /** The position of the formula whose LaTeX is being edited. */
   const [editingMath, setEditingMath] = useState<number | null>(null);
+  /** Where Cite… is open, and the "/" it replaces (#281). */
+  const [cite, setCite] = useState<CitePlace | null>(null);
   /** A Mind still filling in from a Word file can't be edited until it has (#104). */
   const importing = useWordFile(doc).progress !== null;
   /** The Mind's citation style, followed as it changes (#289). */
@@ -480,7 +488,13 @@ function MindEditorView({
             const compare = compareSlashItem(
               (afterBlockId) => void startCompareDocuments(mindId, afterBlockId),
             );
-            return place === "question" ? skills : [...noteSlashItems, compare, ...skills];
+            const writing = citeWhileWritingItems(
+              translateNow("editor.slash.citeHint"),
+              (current, range) => setCite({ editor: current, from: range.from, to: range.to }),
+            );
+            return place === "question"
+              ? skills
+              : [...writing, ...noteSlashItems, compare, ...skills];
           },
         }),
         ScopePicker,
@@ -894,6 +908,13 @@ function MindEditorView({
   );
   const reviewing = !readOnly && slots.reviewShown !== "closed";
   useEffect(() => followMindStyle(mindId, doc), [mindId, doc]);
+  // Another Mind's document is another editor: a Cite… open in the one before is gone.
+  const citeDoc = useRef(doc);
+  useEffect(() => {
+    if (citeDoc.current === doc) return;
+    citeDoc.current = doc;
+    setCite(null);
+  }, [doc]);
 
   return (
     <MindIdContext.Provider value={mindId}>
@@ -984,6 +1005,9 @@ function MindEditorView({
           createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
         {!readOnly && <BlockHandle editor={editor} />}
         {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
+        {!readOnly && cite && (
+          <CiteSearch place={cite} mindId={mindId} doc={doc} onDone={() => setCite(null)} />
+        )}
         {!readOnly && <LinkBubble editor={editor} />}
         {findShown && (
           <FindBar editor={editor} onClose={() => useMindTools.getState().hideFind()} />

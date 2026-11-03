@@ -2219,6 +2219,55 @@ export interface CitedSelection extends CitationRecheck {
   quote: string;
 }
 
+/** A Passage found for a piece of the User's own writing (`findPassages`, #281). */
+export interface FoundPassage {
+  passageId: string;
+  documentId: string;
+  documentName: string;
+  documentKind: DocumentKind;
+  /** The Units it covers; null for a whole TXT or Markdown file stored before Units. */
+  pageFrom: number | null;
+  pageTo: number | null;
+  /** Where it is, for its label ("p. 11", "§ History", "rows 40–44"); null as for `pageFrom`. */
+  location: CitationLocation | null;
+  text: string;
+  /** Its Document is the User's own workings: shown to the User, never cited without their say. */
+  notCited: boolean;
+  /**
+   * How relevant the reranker found it, when search reranked it (see
+   * `WindowedPassage.relevance`), or null.
+   */
+  relevance: number | null;
+  /**
+   * The words of the text searched for (as keyword search reads them, without
+   * stopwords) that the Passage holds, each once, in the text's order: how
+   * closely it matches, and what a list of results shows in bold.
+   */
+  matches: string[];
+}
+
+/** What `findPassages` looks for, and where (#281). */
+export interface FindPassagesInput {
+  /** The words to find Passages for: the sentence being written. */
+  text: string;
+  /**
+   * The Mind whose side of a Folder wall the search stays on; null for none.
+   */
+  mindId: string | null;
+  /**
+   * Where to search, as the composer shows the Mind's Search scope; null for every
+   * Document. A Folder's Documents include its sub-Folders', as a Question's search has them.
+   */
+  scope: SearchScope | null;
+}
+
+/** What `citePassage` cites (#281). */
+export interface CitePassageInput {
+  passageId: string;
+  /** The User's text: the Passage's sentence holding most of its words becomes the quote. */
+  text: string;
+}
+
 /** At most this many `AskedQuote`s go with a Question: each brings the Passages of its pages. */
 export const MOST_ASKED_QUOTES = 10;
 
@@ -11550,6 +11599,21 @@ export interface CoreApi {
    */
   searchPassages(query: string, options?: SearchPassagesOptions): Promise<PassageSearchResult[]>;
   /**
+   * The Passages a piece of the User's own writing is about (#281), best first:
+   * the document-search Tool as Answers use it — keyword search, then the
+   * reranker while it is on (ADR-0009) — over a Search scope and on the
+   * Mind's side of a Folder wall. Cite… in a Note shows them, each with the
+   * words it matches.
+   */
+  findPassages(input: FindPassagesInput): Promise<FoundPassage[]>;
+  /**
+   * A Citation of the words of a Passage that best match `text` (#281): its
+   * sentence holding most of the text's words, or the Passage's whole text
+   * when none does, checked at once as `citeSelection` checks a selection.
+   * Null for a Passage that no longer exists.
+   */
+  citePassage(input: CitePassageInput): Promise<Citation | null>;
+  /**
    * Searches as a check or a comparison table does (#80): as the search Tool
    * searches for an Answer, reranked as the User chose, but without the
    * Documents a check leaves out of its evidence (see `EvidenceExclusion`).
@@ -13054,6 +13118,8 @@ const methods: Record<CoreApiMethod, true> = {
   recheckCitation: true,
   citeSelection: true,
   searchPassages: true,
+  findPassages: true,
+  citePassage: true,
   searchEvidence: true,
   setCountedAsEvidence: true,
   setNotCited: true,

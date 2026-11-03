@@ -106,6 +106,24 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
 export const comparableSentence = (text: string): string =>
   text.replaceAll(INLINE_NODE, "").replace(/\s+/gu, " ").trim();
 
+/** The longest sentence Cite… starts with: a paragraph without a full stop gives its last words. */
+const LONGEST_START = 400;
+
+/**
+ * The sentence being written (#281): the last of the text before the caret,
+ * which may not have its full stop yet; empty when nothing is written.
+ */
+export function lastSentence(text: string): string {
+  const spans = sentenceSpans(text);
+  const last = spans.at(-1);
+  if (!last) return "";
+  const sentence = text.slice(last.from, last.to).trim();
+  if (sentence.length <= LONGEST_START) return sentence;
+  const tail = sentence.slice(-LONGEST_START);
+  const word = tail.search(/\s/u);
+  return word === -1 ? tail : tail.slice(word + 1).trim();
+}
+
 /**
  * A sentence as a check's own "edited" comparison reads it. Tidy's changes alone — a space
  * between Chinese and Latin, and a comma's width — are not an edit; the sentence it shows
