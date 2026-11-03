@@ -259,14 +259,14 @@ export function retainFigureAnalysis(
   id: string,
   figures: readonly Omit<CalculatedFigureAttributes, "id">[],
 ): RetainedFigureAnalysis | null {
-  if (analysis.end.kind !== "done") return null;
   const uses = figures.filter(
     (node) => node.analysisId === id && node.figure.analysis?.analysis === analysis.number,
   );
   if (uses.length === 0) return null;
   const checks = new Map((analysis.recalculations ?? []).map((each) => [each.result, each.check]));
+  // A run that didn't finish gives no results, but what it printed before it ended was printed.
   const given = [
-    ...analysis.output.results,
+    ...(analysis.end.kind === "done" ? analysis.output.results : []),
     ...printedValues(analysis).map((printed) => printed.value),
   ];
   const results: RetainedFigureValue[] = given.flatMap((result) => {

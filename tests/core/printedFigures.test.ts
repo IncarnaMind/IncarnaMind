@@ -214,6 +214,32 @@ describe.skipIf(process.platform === "win32")("numbers code printed, in the Answ
   );
 
   test.each<[Language, string]>([
+    ["en", "Before it stopped, the code had counted 42 rows."],
+    ["zh-CN", "代码在出错前已数出 42 行。"],
+  ])(
+    "%s: a number printed by a run that then failed is a figure calculated by code too",
+    async (language, reply) => {
+      const { answer } = await answered(
+        language,
+        [bash("printf 'rows %s\\n' 42; exit 3")],
+        () => reply,
+      );
+      expect(answer.analyses[0]?.end.kind).toBe("error");
+      expect(answer.figures.map((figure) => [figure.value, figure.analysis?.result])).toEqual([
+        [42, "printed@5"],
+      ]);
+      const blocks = answerBlocks(answer);
+      expect(readText(blocks)).toBe(reply);
+      expect(figureRunsOfAnswer(answer, blocks)).toEqual([
+        expect.objectContaining({
+          language: "bash",
+          values: [expect.objectContaining({ value: 42 })],
+        }),
+      ]);
+    },
+  );
+
+  test.each<[Language, string]>([
     ["en", "The North region earned 1,234.5 in 2025.[^1] The code read 3 rows."],
     ["zh-CN", "北区在 2025 年收入 1,234.5。[^1]代码读了 3 行。"],
   ])(

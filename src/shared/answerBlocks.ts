@@ -85,9 +85,8 @@ function holdsFigure(analysis: AnswerAnalysis, figure: CalculatedFigure): boolea
     result.name === figure.analysis?.result &&
     result.value === figure.value;
   return (
-    analysis.end.kind === "done" &&
-    (analysis.output.results.some(gives) ||
-      printedValues(analysis).some((printed) => gives(printed.value)))
+    (analysis.end.kind === "done" && analysis.output.results.some(gives)) ||
+    printedValues(analysis).some((printed) => gives(printed.value))
   );
 }
 

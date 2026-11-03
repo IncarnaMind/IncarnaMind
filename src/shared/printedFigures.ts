@@ -43,14 +43,15 @@ function lineAround(text: string, start: number, end: number): string {
 const memo = new WeakMap<PrintedRun, PrintedValue[]>();
 
 /**
- * Each number a finished run printed or wrote to a text file in out/, but none equal to a
- * `figure()` figure whose cells come to another number: a mismatch is never shown as a figure.
+ * Each number a run printed or wrote to a text file in out/, also one that ended in an error
+ * after printing it, but none equal to a `figure()` figure whose cells come to another number: a
+ * mismatch is never shown as a figure.
  */
 export function printedValues(run: PrintedRun): PrintedValue[] {
   const known = memo.get(run);
   if (known) return known;
   const values: PrintedValue[] = [];
-  if (run.end.kind === "done") {
+  if (run.end.kind !== "unavailable") {
     const results = run.output.results;
     const taken = new Set(results.map((result) => result.name));
     const differing = (run.recalculations ?? []).flatMap(({ result, check }) => {

@@ -2664,7 +2664,10 @@ export type RetainedFigureValue = Extract<AnalysisValue, { kind: "figure" }> & {
   check?: AnalysisRecalculation;
 };
 
-/** A successful run kept once by a Note, with only the results its figures still use (ADR-0021). */
+/**
+ * A run kept once by a Note, with only the values its figures still use (ADR-0021): a finished
+ * run's results, and the numbers any run printed (#2351).
+ */
 export interface RetainedFigureAnalysis
   extends Pick<
     AnswerAnalysis,
