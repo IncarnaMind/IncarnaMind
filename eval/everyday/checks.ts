@@ -88,6 +88,8 @@ export interface Expected {
   only?: number;
   /** It asks to change text already in the Mind: adding a new version beside it fails. */
   inPlace?: true;
+  /** It asks to make the text longer: the Mind reads longer after the request than before it. */
+  longer?: true;
   /** Asked after the example's Answer: its reply, in the panel, says nothing of an earlier Answer. */
   noEarlier?: true;
   /** The report counts the pointers to an earlier Answer left in its reply as Add to note puts it, and in what it writes into a Mind. */
@@ -154,8 +156,10 @@ export interface RequestOutcome {
   citedInMinds: readonly string[];
   /** The top-level Blocks of the Mind it was asked from (from 0) that read otherwise once its changes are accepted. */
   changedBlocks: readonly number[];
-  /** The top-level Blocks Add to note put in before the request (from 0): what `inPlace` must change. */
+  /** The top-level Blocks the before step put in before the request (from 0), Add to note or the assistant's write: what `inPlace` must change. */
   addedBlocks?: readonly number[];
+  /** The Mind's text is longer after the request than before it (`Expected.longer`). */
+  longer?: boolean;
   /** Sources the Minds it wrote hold as text, in brackets, as written. */
   sourcesAsText?: readonly string[];
   /** The text of the Blocks it wrote or changed in Minds, once its changes are accepted. */
@@ -203,6 +207,7 @@ export type RequestFailure =
   | { kind: "outside"; blocks: number[] }
   | { kind: "beside" }
   | { kind: "untouched" }
+  | { kind: "not-longer" }
   | { kind: "as-text"; sources: string[] }
   | { kind: "earlier"; said: string }
   | { kind: "example"; said: string }
@@ -680,6 +685,7 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   ) {
     failures.push({ kind: "untouched" });
   }
+  if (expected.longer && !outcome.longer) failures.push({ kind: "not-longer" });
   if (outcome.sourcesAsText && outcome.sourcesAsText.length > 0) {
     failures.push({ kind: "as-text", sources: [...outcome.sourcesAsText] });
   }
@@ -869,6 +875,8 @@ export function failureLine(failure: RequestFailure): string {
       return "added a new version beside the text it was asked to change";
     case "untouched":
       return "left the text it was asked to change as it was";
+    case "not-longer":
+      return "changed the text but did not make it longer";
     case "as-text":
       return `wrote sources into a Mind as text: ${failure.sources.map((source) => `“${source}”`).join(", ")}`;
     case "earlier":

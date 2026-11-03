@@ -179,7 +179,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a sentence the model says nothing of is counted as not examined and stays to check; the next Check examines it (${language})`, async () => {
+  test(`a sentence the model says nothing of is counted as couldn't be sorted and stays to check; its line's Check sorts it (${language})`, async () => {
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
@@ -216,9 +216,10 @@ for (const language of ["en", "zh-CN"] as const) {
         await screenshot(window, `mind-check-unexamined-${language}-${width}`);
       }
 
-      // With a model that decides every sentence, Check examines the one left and the line goes.
+      // With a model that decides every sentence, the line's Check sorts the one left and the line goes.
       await connectLocalChatModel(window);
-      const again = (await checkCard(window)).getByTestId("badge-check-mind");
+      const again = (await checkCard(window)).getByTestId("health-unexamined-check");
+      await expect(again).toHaveText(translate(language, "mindCheck.check"));
       await pointAndClick(window, again);
       await pointAndClick(
         window,
