@@ -31,47 +31,27 @@ export const FIGURE_RUNS_ATTRIBUTE = "data-incarnamind-figure-runs";
 export const clipboardBlocks = (fragment: Fragment): NodeJSON[] =>
   fragment.content.map((node) => node.toJSON() as NodeJSON);
 
-const COPY_NOTICE = Symbol("copyIncomplete");
-type NoticedDOM = Node & { [COPY_NOTICE]?: unknown };
-let pendingNotice: unknown = null;
+export const COPY_INCOMPLETE_ATTRIBUTE = "data-copy-incomplete";
 
-function takeNotice(node: Node): unknown {
-  const noticed = node as NoticedDOM;
-  if (noticed[COPY_NOTICE] !== undefined) {
-    const error = noticed[COPY_NOTICE];
-    delete noticed[COPY_NOTICE];
-    return error;
+/** Takes the plain-text notice off a serialized copy, so the write leaves it out; true when it was there. */
+export function takeCopyNotice(dom: Node): boolean {
+  const queryable = dom as unknown as {
+    querySelectorAll?: (selectors: string) => ArrayLike<{ removeAttribute(name: string): void }>;
+    hasAttribute?: (name: string) => boolean;
+    removeAttribute?: (name: string) => void;
+  };
+  const found = Array.from(queryable.querySelectorAll?.(`[${COPY_INCOMPLETE_ATTRIBUTE}]`) ?? []);
+  if (queryable.hasAttribute?.(COPY_INCOMPLETE_ATTRIBUTE) && queryable.removeAttribute) {
+    queryable.removeAttribute(COPY_INCOMPLETE_ATTRIBUTE);
+    return true;
   }
-  for (const child of node.childNodes) {
-    const found = takeNotice(child);
-    if (found !== undefined) return found;
-  }
-  return undefined;
+  for (const element of found) element.removeAttribute(COPY_INCOMPLETE_ATTRIBUTE);
+  return found.length > 0;
 }
 
-/** Reports the notice a copy left on its serialized DOM, once; true when it did. */
-export function reportCopyNotice(dom: Node): boolean {
-  const error = takeNotice(dom);
-  if (error === undefined) return false;
-  reportIncompleteCopy(error);
-  return true;
-}
-
-function reportIncompleteCopy(error: unknown): void {
-  useAppStore
-    .getState()
-    .reportError(new InvalidInputError({ key: "error.figure.copyIncomplete" }, { cause: error }));
-}
-
-function markCopyNotice(dom: Node, error: unknown): void {
-  // ProseMirror moves the serialized children into its own wrapper: mark one that travels.
-  const target = (dom.firstChild ?? dom) as NoticedDOM;
-  target[COPY_NOTICE] = error;
-  pendingNotice = error;
-  // The copy or cut listener runs in this event; anything else, like a drag, leaves it unread.
-  queueMicrotask(() => {
-    pendingNotice = null;
-  });
+/** Reports the plain-text copy the User made, once the clipboard has it. */
+export function reportCopyNotice(): void {
+  useAppStore.getState().reportError(new InvalidInputError({ key: "error.figure.copyIncomplete" }));
 }
 
 const analysisFigure = (node: ProseMirrorNode) =>
@@ -140,15 +120,19 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
           // Note they are words the User typed: a paste makes a Citation only from a copied one.
           const rewrite = (event: Event) => {
             const data = (event as ClipboardEvent).clipboardData;
-            const html = data?.getData("text/html");
+            let html = data?.getData("text/html") ?? "";
             const text = data?.getData("text/plain");
+            let noticed = false;
+            if (data && html && html.includes(COPY_INCOMPLETE_ATTRIBUTE)) {
+              const holder = view.dom.ownerDocument.createElement("div");
+              holder.innerHTML = html;
+              noticed = takeCopyNotice(holder);
+              html = holder.innerHTML;
+            }
             if (data && html)
               data.setData("text/html", withoutInertBrackets(wordFootnoteHtml(html)));
             if (data && text) data.setData("text/plain", withoutInertBrackets(text));
-            if (pendingNotice !== null) {
-              reportIncompleteCopy(pendingNotice);
-              pendingNotice = null;
-            }
+            if (noticed) reportCopyNotice();
           };
           view.dom.addEventListener("copy", rewrite);
           view.dom.addEventListener("cut", rewrite);
@@ -184,6 +168,10 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
                     try {
                       readFigureRunClosure(one, this.options.figureRuns(one));
                     } catch (error) {
+                      console.error(
+                        "Copying a figure: its saved inputs are incomplete; copying it as text.",
+                        error,
+                      );
                       plain.add(figure.id);
                       failure ??= error;
                     }
@@ -208,7 +196,12 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
                 }
                 if (left !== fragment) out = base.serializeFragment(left, options, target);
                 carrier(runs);
-                if (failure !== null) markCopyNotice(out, failure);
+                if (failure !== null) {
+                  const marker = (options?.document ?? document).createElement("span");
+                  marker.setAttribute(COPY_INCOMPLETE_ATTRIBUTE, "");
+                  marker.hidden = true;
+                  out.appendChild(marker);
+                }
               }
               addFootnotes(out, citationsIn(fragment), sourceContext());
               return out;
