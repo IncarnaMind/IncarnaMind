@@ -4326,7 +4326,8 @@ describe("A nearer line, page, section, row head or column head decides the scal
       );
 
       expect(answer.figures).toEqual([]);
-      expect(asked).toContain("row whose head states its own scale");
+      expect(asked).toContain("row whose head states its own currency");
+      expect(asked).not.toContain("quote the row's head as unitQuote");
     },
   );
 
@@ -4345,7 +4346,8 @@ describe("A nearer line, page, section, row head or column head decides the scal
     );
 
     expect(answer.figures).toEqual([]);
-    expect(asked).toContain("row whose head states its own scale");
+    expect(asked).toContain("row whose head states its own currency");
+    expect(asked).not.toContain("quote the row's head as unitQuote");
   });
 
   test("a quoted scale in another currency than the figure's refuses instead of dropping it", async () => {
@@ -4437,6 +4439,61 @@ describe("A nearer line, page, section, row head or column head decides the scal
     );
 
     expect(answer.figures).toEqual([]);
+  });
+
+  test("a row head's plain currency combines with the wider line's scale", async () => {
+    const dollarRows: [string, string] = ["Revenue (US$) 1,234.5", "Costs (US$) 334.5"];
+    const { answer } = await figuresUnder(
+      "Dollar caption",
+      {
+        name: "Dollar caption.pdf",
+        contents: buildPdf([{ lines: ["Dollar caption", "(in thousands)", ...dollarRows] }]),
+      },
+      dollarRows,
+      ["(in thousands)"],
+      { query: "dollar caption revenue costs" },
+    );
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
+    expect(answer.figures[0]?.inputs[0]?.unitStatement?.currency).toBe("USD");
+  });
+
+  test.each([
+    ["a bracket naming the same currency", "Fees (in £, GBP thousands)"],
+    ["a line naming sterling", "Remuneration is shown in sterling, in thousands"],
+    ["an amount that is not a scale", "Board fees (cap of 150,000 pounds per director)"],
+  ])("a nearer form that agrees is no scale of its own: %s", async (_label, nearer) => {
+    const wider = "All amounts in £'000";
+    const { answer } = await figuresUnder(
+      "Agreeing forms",
+      {
+        name: "Agreeing forms.pdf",
+        contents: buildPdf([{ lines: ["Agreeing forms", wider, nearer, ...rows] }]),
+      },
+      rows,
+      [wider],
+      { query: "agreeing forms revenue costs" },
+    );
+
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
+  });
+
+  test("a nearer line with another scale is refused (not only its bracket)", async () => {
+    const wider = "All amounts in £'000";
+    const nearer = "Directors' fees are shown in sterling, in millions";
+    const { answer, asked } = await figuresUnder(
+      "Sterling line",
+      {
+        name: "Sterling line.pdf",
+        contents: buildPdf([{ lines: ["Sterling line", wider, nearer, ...rows] }]),
+      },
+      rows,
+      [wider],
+      { query: "sterling line revenue costs" },
+    );
+
+    expect(answer.figures).toEqual([]);
+    expect(asked).toContain("but a nearer line states a scale");
   });
 
   test("a row bracket that is a scale doesn't scale a row that isn't an amount", async () => {

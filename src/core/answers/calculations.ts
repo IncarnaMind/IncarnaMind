@@ -709,56 +709,89 @@ function wholeScaleBracket(text: string): { statement: string; exponent: number 
   return null;
 }
 
-// A currency written beside a scale token that no statement reads as one: "(in £, thousands)",
-// "(in USD, rounded to the nearest thousand)", "(× €1,000)". Such a line or bracket states no
-// settled scale, so as a nearer line it refutes the wider one (#2365).
+/** One scale or currency a Unit writes, with its offset; a running header's marker is at 0. */
+interface UnitScale {
+  start: number;
+  end: number;
+  text: string;
+  /** Its power of ten; 0 when it can't be settled. */
+  scale: number;
+  unit: FigureUnit | null;
+  /** An unread currency-and-scale form ("(in £, thousands)"), not a statement. */
+  unread?: boolean;
+}
+
+// An unread form's scale, read from its own words: thousands, '000 and 000s are 10^3; millions
+// 10^6; billions 10^9; "× 1,000" and "units of 1,000" the number's power of ten. A bare amount
+// ("cap of 150,000 pounds") is not a scale (#2365).
+function unreadScaleExponent(form: string): number {
+  const times =
+    /[×✕]\s*(?:US\$|HK\$|A\$|C\$|S\$|NT\$|[£$€¥₹]|[A-Z]{3})?\s*(\d[\d,]*(?:\.\d+)?)/.exec(form) ??
+    /\bunits?\s+of\s+(\d[\d,]*(?:\.\d+)?)/i.exec(form);
+  const digits = times?.[1];
+  if (digits !== undefined) {
+    const power = Math.log10(Number(digits.replace(/,/g, "")));
+    if (Number.isInteger(power) && power >= 1) return power;
+  }
+  if (/\btrillions?\b/i.test(form)) return 12;
+  if (/\bbillions?\b|\bbn\b|\bbln\b/i.test(form)) return 9;
+  if (/\bmillions?\b|\bmn\b|\bmln\b|\bMM\b/.test(form)) return 6;
+  if (/\bthousands?\b|['’]0{3}s?|(?<![\d,'’])000s(?![A-Za-z0-9])/i.test(form)) return 3;
+  if (/\blakhs?\b/i.test(form)) return 5;
+  if (/\bcrores?\b/i.test(form)) return 7;
+  return 0;
+}
+
 const CURRENCY_IN_BRACKET =
   /(?:US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|₹|\b(?:USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF|INR)\b|(?:\b(?:US|U\.S\.|Hong\s+Kong|HK|Australian|Canadian|Singapore)\s+)?dollars?\b|\bpounds?(?:\s+sterling)?\b|\beuros?\b|\byuan\b|\b[Rr]enminbi\b|\bsterling\b|\byen\b)/;
-const SCALE_IN_BRACKET =
-  /(?:\b(?:thousands?|millions?|billions?|trillions?|lakhs?|crores?|mn|bn|mln|bln|Mio|Mrd|Tsd)\b|['’]0{3}s?|(?<![\d,'’])000s(?![\d'’])|[×✕]|(?<![£$€¥₹\d])\d{1,3}(?:,\d{3})+(?:\.\d+)?)/i;
+const SCALE_FORM =
+  /(?:\b(?:thousands?|millions?|billions?|trillions?|lakhs?|crores?|mn|bn|mln|bln|Mio|Mrd|Tsd)\b|['’]0{3}s?|(?<![\d,'’])000s(?![A-Za-z0-9])|[×✕]\s*|\bx\s*\d|\bunits?\s+of\s+\d)/i;
 const BRACKET = /[(（]([^()（）\n]{1,60})[)）]/g;
 
 function unreadCurrencyScales(
   text: string,
   statements: readonly StatedUnit[],
   context: FigureContext,
-): { start: number; end: number; text: string; scale: number; unit: FigureUnit | null }[] {
-  const found: {
-    start: number;
-    end: number;
-    text: string;
-    scale: number;
-    unit: FigureUnit | null;
-  }[] = [];
+): UnitScale[] {
+  const found: UnitScale[] = [];
   const covered = (from: number, to: number) =>
     statements.some(
       (each) => each.start <= from && from < each.end && each.start <= to && to < each.end,
     );
+  const add = (form: string, at: number, end: number, currencyAt: number, scaleAt: number) => {
+    if (covered(currencyAt, scaleAt)) return;
+    const exponent = unreadScaleExponent(form);
+    if (exponent === 0) return;
+    const [first, second] = [...namedCurrencies(form, context, null)];
+    const code = first !== undefined && second === undefined ? first : null;
+    found.push({
+      start: at,
+      end,
+      text: form,
+      scale: code === null ? 0 : 10 ** exponent,
+      unit: code === null ? null : { kind: "currency", code },
+      unread: true,
+    });
+  };
   for (const bracket of text.matchAll(BRACKET)) {
     const inside = bracket[1] ?? "";
     const currency = CURRENCY_IN_BRACKET.exec(inside);
-    const scale = SCALE_IN_BRACKET.exec(inside);
+    const scale = SCALE_FORM.exec(inside);
     if (!currency || !scale) continue;
     const at = bracket.index;
-    if (covered(at + 1 + currency.index, at + 1 + scale.index)) continue;
-    found.push({ start: at, end: at + bracket[0].length, text: bracket[0], scale: 0, unit: null });
+    add(bracket[0], at, at + bracket[0].length, at + 1 + currency.index, at + 1 + scale.index);
   }
   for (const line of text.matchAll(/[^\n]+/g)) {
     const bracket = BRACKET.exec(line[0]);
     BRACKET.lastIndex = 0;
-    if (
-      bracket &&
-      CURRENCY_IN_BRACKET.test(bracket[1] ?? "") &&
-      SCALE_IN_BRACKET.test(bracket[1] ?? "")
-    )
+    if (bracket && CURRENCY_IN_BRACKET.test(bracket[1] ?? "") && SCALE_FORM.test(bracket[1] ?? ""))
       continue;
     const currency = CURRENCY_IN_BRACKET.exec(line[0]);
-    const scale = SCALE_IN_BRACKET.exec(line[0]);
+    const scale = SCALE_FORM.exec(line[0]);
     if (!currency || !scale) continue;
     if (readFigures(line[0], { ...context, header: null }).length > 0) continue;
     const at = line.index;
-    if (covered(at + currency.index, at + scale.index)) continue;
-    found.push({ start: at, end: at + line[0].length, text: line[0], scale: 0, unit: null });
+    add(line[0], at, at + line[0].length, at + currency.index, at + scale.index);
   }
   return found;
 }
@@ -827,13 +860,24 @@ function withoutStatement(text: string): RowLabel {
     !ownScales.includes(10 ** ownBracket.exponent)
   )
     ownScales.push(10 ** ownBracket.exponent);
-  return { label, ownScales, ownUnsettled: unsettled?.[1] ?? null, ownBracket };
+  const currencies = [
+    ...new Set(
+      own.flatMap((each) =>
+        each.scale === 1 && each.unit.kind === "currency" ? [each.unit.code] : [],
+      ),
+    ),
+  ];
+  const [first, more] = currencies;
+  const ownCurrency = first !== undefined && more === undefined ? first : null;
+  return { label, ownScales, ownCurrency, ownUnsettled: unsettled?.[1] ?? null, ownBracket };
 }
 
 /** A row's label, the scales its head states for itself ("Net debt (£m)"), and a bare "(M)"/"(m)" it writes. */
 interface RowLabel {
   label: string;
   ownScales: number[];
+  /** The one currency its head states with no scale ("Revenue (US$)"), which combines with a line's scale. */
+  ownCurrency: string | null;
   ownUnsettled: string | null;
   /** A scale inside the row head's own bracket ("(K)", "(millions of m2)"). */
   ownBracket: { statement: string; exponent: number } | null;
@@ -1069,20 +1113,15 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     });
   }
 
-  /** One scale or currency a Unit writes, with its offset; a running header's marker is at 0. */
-  interface UnitScale {
-    start: number;
-    end: number;
-    text: string;
-    /** Its power of ten; 0 when it can't be settled. */
-    scale: number;
-    unit: FigureUnit | null;
-  }
-
   function scalesInUnit(unit: PageText, context: FigureContext): UnitScale[] {
     const found: UnitScale[] = [];
     const statements = readStatedUnits(unit.text, context);
-    for (const each of statements) {
+    const unread = unreadCurrencyScales(unit.text, statements, context);
+    // An unread form reads its own currency and scale whole, so a statement inside it is part of
+    // that form, not a separate plain scale ("Remuneration is shown in sterling, in thousands").
+    for (const each of statements.filter(
+      (one) => !unread.some((form) => form.start <= one.start && one.end <= form.end),
+    )) {
       found.push({
         start: each.start,
         end: each.end,
@@ -1096,7 +1135,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       if (at >= 0)
         found.push({ start: at, end: at + each.length, text: each, scale: 0, unit: null });
     }
-    for (const each of unreadCurrencyScales(unit.text, statements, context)) found.push(each);
+    for (const each of unread) found.push(each);
     if (unit.scaleMarker && !unit.text.includes(unit.scaleMarker)) {
       const [stated] = readStatedUnits(unit.scaleMarker, context);
       found.push({
@@ -1130,6 +1169,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     if (scale.unit?.kind === "percent") return false;
     if (scale.scale === 0) return true;
     if (!from) return scale.scale !== 1;
+    const plainCurrency = (each: UnitScale) => each.scale === 1 && each.unit?.kind === "currency";
+    const plainScale = (each: UnitScale) =>
+      each.scale !== 1 && (each.unit === null || each.unit.kind === "plain");
+    if ((plainCurrency(scale) && plainScale(from)) || (plainScale(scale) && plainCurrency(from)))
+      return false;
     return scale.scale !== from.scale || currencyOf(scale.unit) !== currencyOf(from.unit);
   }
 
@@ -1226,10 +1270,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         // does any other row that writes an amount: a row's unit states that row, not the next.
         if (inFigure && scale.start >= figureRow) continue;
         if (rowLabel !== null && scale.text !== "" && rowLabel.includes(scale.text)) continue;
-        // An unsettled form ("(in £, thousands)", "(× €1,000)") refutes whether or not its line
-        // writes a figure; a settled statement on a figure's line is that figure, not a scale line.
+        // An unread form ("(in £, thousands)", "(× €1,000)") refutes whether or not its line writes
+        // a figure; a settled statement on a figure's line is that figure, not a scale line.
         if (
-          scale.scale !== 0 &&
+          !scale.unread &&
           readFigures(lineOf(unit.text, scale.start, scale.end), { ...context, header: null })
             .length > 0
         )
@@ -2005,7 +2049,33 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         ownRow?.ownScales.length &&
         statedLine.some((each) => each.scale !== 1 && !ownRow.ownScales.includes(each.scale))
       ) {
-        return `${figure.chars} is on a row whose head states its own scale, and the unitQuote "${unit.citation.quote}" states another; quote the row's head as unitQuote.`;
+        const lineScale = statedLine.find(
+          (each) => each.scale !== 1 && !ownRow.ownScales.includes(each.scale),
+        );
+        const lineNamesCurrency = statedLine.some((each) => each.unit.kind === "currency");
+        const headIsCurrencyOnly = ownRow.ownScales.every((each) => each === 1);
+        if (
+          lineScale &&
+          headIsCurrencyOnly &&
+          ownRow.ownCurrency !== null &&
+          !lineNamesCurrency &&
+          notAnAmount(label ?? "") === null
+        )
+          stated = {
+            quoted: unit,
+            stated: {
+              ...base,
+              value: base.value * lineScale.scale,
+              scale: base.scale * lineScale.scale,
+              scaleWord: lineScale.scaleWord,
+              unit: { kind: "currency", code: ownRow.ownCurrency },
+            },
+            currencyChars: null,
+          };
+        else
+          return headIsCurrencyOnly
+            ? `${figure.chars} is on a row whose head states its own currency, and the unitQuote "${unit.citation.quote}" states a scale with a currency; the text doesn't say whether the row is scaled, so it can't be calculated without guessing its scale.`
+            : `${figure.chars} is on a row whose head states its own scale, and the unitQuote "${unit.citation.quote}" states another; quote the row's head as unitQuote.`;
       } else {
         const readings = row
           ? [row]
