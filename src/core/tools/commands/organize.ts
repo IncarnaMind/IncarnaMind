@@ -200,9 +200,6 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
         );
         const afterDecided = decisionsOf(await core.listDocumentTagDecisions(ids));
         const tagUndo = tagStates(beforeTags, afterTags, afterTags, new Map(), new Map());
-        // A Tag merged or deleted during the run is the User's: the Undo puts no link back to it.
-        const afterTagIds = new Set((await core.listTags()).map((each) => each.id));
-        const tagSetChanged = [...beforeTagIds].some((id) => !afterTagIds.has(id));
         const names = new Map(groups.map((group) => [group.id, group.name]));
         const counts = new Map<string, number>();
         for (const change of moved) {
@@ -237,6 +234,20 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             await core.deleteLibraryGroup(folder.id);
             removed.add(folder.id);
           }
+        };
+        /** Drops what a Tag gone since the snapshot can't put back, and leaves alone a Document that carried one. */
+        const revertable = async (states: TagLinkState[]) => {
+          const liveTags = new Set((await core.listTags()).map((each) => each.id));
+          const gone = new Set([...beforeTagIds].filter((tagId) => !liveTags.has(tagId)));
+          if (gone.size === 0) return states.filter((state) => liveTags.has(state.tagId));
+          const touchedByGone = (documentId: string) =>
+            [
+              ...(beforeTags.get(documentId)?.keys() ?? []),
+              ...(afterTags.get(documentId)?.keys() ?? []),
+            ].some((tagId) => gone.has(tagId));
+          return states.filter(
+            (state) => liveTags.has(state.tagId) && !touchedByGone(state.documentId),
+          );
         };
         const madeSaid =
           made.length === 0
@@ -286,16 +297,16 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                       );
                     }
                     await removeMade();
-                    if (!tagSetChanged) {
-                      const back = tagStates(
+                    const back = await revertable(
+                      tagStates(
                         beforeTags,
                         afterTags,
                         tagLinksOf(currentDocuments.filter((each) => ids.includes(each.id))),
                         beforeDecided,
                         afterDecided,
-                      );
-                      if (back.length > 0) await core.revertDocumentTags(back);
-                    }
+                      ),
+                    );
+                    if (back.length > 0) await core.revertDocumentTags(back);
                     return null;
                   },
                   redo: async () => {
@@ -318,16 +329,16 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                     }
                     const now = await assignmentsOf(core, ids);
                     for (const id of ids) left.set(id, stateOf(now.get(id)));
-                    if (!tagSetChanged) {
-                      const again = tagStates(
+                    const again = await revertable(
+                      tagStates(
                         afterTags,
                         beforeTags,
                         tagLinksOf(currentDocuments.filter((each) => ids.includes(each.id))),
                         beforeDecided,
                         afterDecided,
-                      );
-                      if (again.length > 0) await core.revertDocumentTags(again);
-                    }
+                      ),
+                    );
+                    if (again.length > 0) await core.revertDocumentTags(again);
                   },
                 },
           said:
