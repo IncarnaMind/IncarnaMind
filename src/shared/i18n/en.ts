@@ -1526,6 +1526,14 @@ export const en = {
   "composer.picture.onThisComputer": "Asks about this picture, which stays on this computer",
   "composer.picture.unreadableModel":
     "This model can’t read pictures. Choose a model that can, to ask about one.",
+  "composer.chip.figure": "Figure",
+  "composer.chip.areaFoundHere": "The figure’s words were found.",
+  "composer.chip.area": "Figure · {location}",
+  "composer.chip.areaFound": "The figure’s words were found on {location}",
+  "composer.chip.rowsWithSheet": "{sheet} · rows {range}",
+  "composer.chip.rowsOnly": "rows {range}",
+  "composer.chip.preview": "The cells in this range",
+  "composer.chip.slide": "{document} · slide {range}",
   "assistant.question.quote": "About:",
   "assistant.question.quoteGone": "(since deleted)",
   "assistant.quote.leftOut.deleted":
@@ -1784,11 +1792,32 @@ export const en = {
   "viewer.selection.copy": "Copy with citation",
   "viewer.selection.added": "Added a quote to “{mind}”",
   "viewer.selection.addedNew": "Added a quote to a new note",
+  "viewer.selection.addedTable": "Added a table to “{mind}”",
+  "viewer.selection.addedTableNew": "Added a table to a new note",
+  "viewer.selection.copiedTsv": "Copied as TSV, with its citation",
+  "viewer.selection.range": "Selected cells",
+  "viewer.selection.size": "{rows} × {columns}",
+  "viewer.selection.size.rows.one": "1 row",
+  "viewer.selection.size.rows": "{count} rows",
+  "viewer.selection.size.columns.one": "1 column",
+  "viewer.selection.size.columns": "{count} columns",
+  "viewer.area.failed": "The area couldn’t be captured. Try it again.",
+  "viewer.area.reading": "Reading the area…",
+  "viewer.area.outOfView": "That part of the page isn’t in view. Scroll it in and try again.",
+  "viewer.area.select": "Select area",
+  "viewer.area.selected": "Stop selecting an area",
+  "viewer.area.activeTip":
+    "Stop selecting an area (Enter takes this page; the arrows choose part of it)",
+  "viewer.area.selectTip": "Select area (or hold {key} while dragging)",
+  "viewer.slide.ask": "Ask about this slide",
   "viewer.selection.notOpened":
     "The quote wasn’t added: “{mind}” didn’t open for changes. You can copy it with its citation instead.",
   "viewer.selection.notOpenedNew":
     "The quote wasn’t added: the new note didn’t open. You can copy it with its citation instead.",
   "viewer.selection.copied": "Copied with its citation",
+  "viewer.selection.refused.blocks":
+    "A Citation covers two blocks of rows of a sheet at most. Select fewer rows.",
+  "viewer.selection.emptyRange": "These cells are empty, so there is nothing to cite.",
   "viewer.selection.refused":
     "Couldn’t cite these words: the Document’s text where you selected them doesn’t have them.",
   "viewer.selection.refused.places":
@@ -1797,6 +1826,11 @@ export const en = {
     "Couldn’t cite these words: a Citation covers two pages at most.",
   "viewer.selection.refused.noText":
     "Couldn’t cite these words: the Document has no text there to check them against.",
+  "command.viewer.range.ask": "Ask about these cells",
+  "command.viewer.range.addToNote": "Add these cells to note",
+  "command.viewer.range.copy": "Copy these cells with their citation",
+  "command.viewer.slide.ask": "Ask about this slide",
+  "command.viewer.area.select": "Select an area as a figure",
   "command.viewer.selection.ask": "Ask about the selected text",
   "command.viewer.selection.addToNote": "Add the selected text to note",
   "command.viewer.selection.copy": "Copy the selected text with its citation",
@@ -1815,6 +1849,7 @@ export const en = {
   "viewer.slide.untitled": "Untitled slide",
   "viewer.slide.picture": "Picture",
   "viewer.sheet.tabs": "Sheets",
+  "viewer.sheet.grid": "Sheet {name}",
   "viewer.sheet.empty": "This sheet is empty.",
   "viewer.sheet.truncated": "Only the first {rows} rows are read, searched and shown.",
   "viewer.sheet.csv": "CSV",
@@ -3956,6 +3991,7 @@ export const en = {
   "citation.badge.found.transcript": "Quote found in the transcript at {location}",
   "citation.badge.notFound.transcript": "Quote not found in the transcript at {location}",
   "citation.badge.cantCheck": "Can’t check",
+  "citation.badge.pictureNotChecked": "Picture, not checked",
   "citation.badge.checkPage": "Check the page",
   "citation.badge.notChecked": "Not checked",
   "citation.badge.unsupported": "Unsupported by your Documents",
@@ -3966,6 +4002,7 @@ export const en = {
   "citation.reason.in-several-places":
     "The words are in several places, and nothing around them tells which.",
   "citation.reason.no-text": "The cited place has no text, e.g. a scan.",
+  "citation.reason.picture": "The Citation points at a picture, which has no text to check.",
   "citation.reason.document-removed": "The Document has been deleted.",
   "citation.reason.kept-inside": "Kept inside {folder}",
   "citation.reason.quoted-words-not-on-pages": "The quoted words aren’t in the cited place.",
@@ -4849,6 +4886,7 @@ export const en = {
   "error.folder.limit": "The Library supports up to 100 Folders.",
   "error.mind.notFound": "That note doesn’t exist or has been deleted.",
   "error.layout.units": "That place in a Document counts from 1.",
+  "error.layout.area": "That area of a Document isn’t a rectangle inside its page.",
   "error.layout.wordPlace": "That place in the Word file isn’t one IncarnaMind can open.",
   "error.mind.notFromWord":
     "This note wasn’t imported from a Word file, so it has no original to add.",

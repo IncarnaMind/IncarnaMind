@@ -616,7 +616,11 @@ export function badgeMessage(
       // Words a scan may have misread: the User looks at the page (#535).
       return {
         key:
-          state.reason === "unsure-word" ? "citation.badge.checkPage" : "citation.badge.cantCheck",
+          state.reason === "unsure-word"
+            ? "citation.badge.checkPage"
+            : state.reason === "picture"
+              ? "citation.badge.pictureNotChecked"
+              : "citation.badge.cantCheck",
       };
     case "not-checked":
       return { key: "citation.badge.notChecked" };

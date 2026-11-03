@@ -46,7 +46,16 @@ export function describeError(error: unknown): ErrorDescription {
   const message = sentence.replace(STACK_FROM, "").trim();
   const reason = systemReason(message);
   const said = `${className || "Error"}: ${message}`;
-  return { message, wording, reason, detail: wrapped?.[1] ? `${wrapped[1]}\n${said}` : said };
+  const cause =
+    error instanceof Error && error.cause !== undefined
+      ? `\nCaused by: ${error.cause instanceof Error ? error.cause.message : String(error.cause)}`
+      : "";
+  return {
+    message,
+    wording,
+    reason,
+    detail: (wrapped?.[1] ? `${wrapped[1]}\n${said}` : said) + cause,
+  };
 }
 
 /** What an error from the core says, in the interface language, for a line that has no room for more. */
