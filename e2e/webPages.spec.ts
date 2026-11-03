@@ -99,10 +99,12 @@ const dragLink = (target: Locator, address: string, drop = true) =>
       const transfer = new DataTransfer();
       transfer.setData("text/uri-list", link);
       transfer.setData("text/plain", link);
+      const box = element.getBoundingClientRect();
+      const at = { clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 };
       const types = dropping ? ["dragenter", "dragover", "drop"] : ["dragenter", "dragover"];
       for (const type of types) {
         element.dispatchEvent(
-          new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer }),
+          new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer, ...at }),
         );
       }
     },

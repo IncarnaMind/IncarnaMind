@@ -62,6 +62,7 @@ const WORDS = {
     moveLabel: (folder: string) => `Move to ${folder}`,
     moveLabelMany: (count: number, folder: string) => `Move ${count} Documents to ${folder}`,
     dropFiles: (folder: string) => `Add to ${folder}`,
+    addToLibrary: "Add to Library",
     cardDrop: "Drop files to add them, or a folder to link it",
     addedOne: "Added 1 Document",
     folderRenamed: (name: string) => `Renamed to “${name}”`,
@@ -81,6 +82,7 @@ const WORDS = {
     moveLabel: (folder: string) => `移动到“${folder}”`,
     moveLabelMany: (count: number, folder: string) => `将 ${count} 个文档移动到“${folder}”`,
     dropFiles: (folder: string) => `添加到“${folder}”`,
+    addToLibrary: "加入资料库",
     cardDrop: "松开即可添加文件；松开文件夹则添加为关联文件夹",
     addedOne: "已添加 1 个文档",
     folderRenamed: (name: string) => `已重命名为“${name}”`,
@@ -258,15 +260,18 @@ async function droppedFile(name: string): Promise<string> {
 /**
  * Drops files from outside the window onto `target`, as Finder does: the
  * browser's own drag events, carrying real paths, at the target's middle.
- * Given `entering`, the drag goes over that first, and `check` looks at what
- * the window shows before it moves on to `target`.
+ * Given `way`, the drag visits each place first, and each `check` looks at
+ * what the window shows there before it moves on.
  */
 async function dropFromFinder(
   window: Page,
   target: Locator,
   paths: readonly string[],
   whileOver?: () => Promise<void>,
-  entering?: { at: Locator; check: () => Promise<void> },
+  way: readonly {
+    at: Locator;
+    check: (point: { x: number; y: number }) => Promise<void>;
+  }[] = [],
 ): Promise<void> {
   const middleOf = async (locator: Locator) => {
     await locator.scrollIntoViewIfNeeded();
@@ -281,18 +286,34 @@ async function dropFromFinder(
   };
   const session = await window.context().newCDPSession(window);
   try {
-    const start = await middleOf(entering?.at ?? target);
+    const [first] = way;
+    const start = await middleOf(first?.at ?? target);
     await session.send("Input.dispatchDragEvent", { type: "dragEnter", ...start, data });
     await session.send("Input.dispatchDragEvent", { type: "dragOver", ...start, data });
-    await entering?.check();
-    const point = await middleOf(target);
-    if (entering)
+    await first?.check(start);
+    for (const step of way.slice(1)) {
+      const point = await middleOf(step.at);
       await session.send("Input.dispatchDragEvent", { type: "dragOver", ...point, data });
+      await step.check(point);
+    }
+    const point = await middleOf(target);
+    await session.send("Input.dispatchDragEvent", { type: "dragOver", ...point, data });
     await whileOver?.();
     await session.send("Input.dispatchDragEvent", { type: "drop", ...point, data });
   } finally {
     await session.detach();
   }
+}
+
+/** The drop label sits under the pointer, kept inside the window by a few pixels. */
+async function expectLabelByPointer(window: Page, point: { x: number; y: number }): Promise<void> {
+  const box = await window.getByTestId("drop-label").boundingBox();
+  if (!box) throw new Error("The drop label isn't showing.");
+  const size = await window.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  const left = Math.max(4, Math.min(point.x - 12, size.width - box.width - 4));
+  const top = Math.min(point.y + 20, size.height - box.height - 4);
+  expect(Math.abs(box.x - left)).toBeLessThanOrEqual(2);
+  expect(Math.abs(box.y - top)).toBeLessThanOrEqual(2);
 }
 
 for (const [language, width] of [
@@ -433,8 +454,9 @@ for (const [language, width] of [
       await expect.poll(() => folderOfDocument(window, fourth)).toBe(seeded.finance);
 
       // A file dropped from Finder onto the Folder is added into it, through the same target. Over
-      // the card the card lights for the Library's add; over the Folder only the Folder lights, and
-      // the card's overlay hides, so the Folder being aimed at is never covered.
+      // the card the card lights for the Library's add; over the Folders heading, Not in a Folder or
+      // the composer the card stays quiet and the window's add says so by the pointer; over the
+      // Folder only the Folder lights, so the sidebar is never covered.
       const droppedName = language === "en" ? "Field notes" : "现场记录";
       const dropped = await droppedFile(droppedName);
       await dropFromFinder(
@@ -449,15 +471,42 @@ for (const [language, width] of [
           await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
           await screenshot(window, `finder-drop-${language}-${width}`);
         },
-        {
-          at: library.getByTestId("library-heading"),
-          check: async () => {
-            await expect(window.getByTestId("card").getByTestId("drop-overlay")).toContainText(
-              words.cardDrop,
-            );
-            await expect(finance).not.toHaveAttribute("data-drop-target", "true");
+        [
+          {
+            at: library.getByTestId("library-heading"),
+            check: async () => {
+              await expect(window.getByTestId("card").getByTestId("drop-overlay")).toContainText(
+                words.cardDrop,
+              );
+              await expect(finance).not.toHaveAttribute("data-drop-target", "true");
+            },
           },
-        },
+          {
+            at: window.getByTestId("folders-title"),
+            check: async (point) => {
+              await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
+              await expect(window.getByTestId("drop-label")).toHaveText(words.addToLibrary);
+              await expectLabelByPointer(window, point);
+              await expect(finance).not.toHaveAttribute("data-drop-target", "true");
+            },
+          },
+          {
+            at: window.getByTestId("not-in-a-folder-title"),
+            check: async (point) => {
+              await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
+              await expect(window.getByTestId("drop-label")).toHaveText(words.addToLibrary);
+              await expectLabelByPointer(window, point);
+            },
+          },
+          {
+            at: window.getByTestId("composer"),
+            check: async (point) => {
+              await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
+              await expect(window.getByTestId("drop-label")).toHaveText(words.addToLibrary);
+              await expectLabelByPointer(window, point);
+            },
+          },
+        ],
       );
       await expect(window.getByTestId("drop-label")).toHaveCount(0);
       await expect(undoMessage(window)).toHaveText(words.addedOne);

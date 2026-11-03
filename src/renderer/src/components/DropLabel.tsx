@@ -1,14 +1,23 @@
 import { useLayoutEffect, useRef } from "react";
-import { useDragState } from "../dragDrop";
+import { type Point, useDragState } from "../dragDrop";
 import { useT } from "../i18n";
+import type { Words } from "../lineNames";
 
 const EDGE_PX = 4;
 
-export function DropLabel() {
+/**
+ * What the drop would do, under the pointer: a target's own words, or, where
+ * no target takes it, the window's, such as a file's "Add to Library".
+ */
+export function DropLabel({ instead }: { instead?: { said: Words; at: Point } | null }) {
   const t = useT();
-  const said = useDragState((state) => state.over?.effect.said ?? state.refusal?.said ?? null);
+  const targetSaid = useDragState(
+    (state) => state.over?.effect.said ?? state.refusal?.said ?? null,
+  );
+  const targetAt = useDragState((state) => state.at);
   const refused = useDragState((state) => state.refusal !== null);
-  const at = useDragState((state) => state.at);
+  const said = targetSaid ?? instead?.said ?? null;
+  const at = targetAt ?? instead?.at ?? null;
   const label = useRef<HTMLDivElement>(null);
   // Under the pointer, and kept inside the window by its own width, so a short one stays by it.
   useLayoutEffect(() => {

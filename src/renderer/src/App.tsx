@@ -32,10 +32,11 @@ import { SortMenu } from "./components/SortMenu";
 import { TagsDialog } from "./components/TagsDialog";
 import { WordImportDialog } from "./components/WordImportDialog";
 import { files } from "./core";
-import { useDragState } from "./dragDrop";
+import { type Point, useDragState } from "./dragDrop";
 import { useEscapeToDismiss } from "./escapeDismiss";
 import { useExamplesMenu, useExportMenu } from "./exportMenu";
 import { useLanguage, useT } from "./i18n";
+import type { Words } from "./lineNames";
 import { useMeetingHelpInWindow } from "./meetingHelp";
 import { useMeetings } from "./meetings";
 import { setMotionPreference } from "./motion";
@@ -205,6 +206,19 @@ function Workspace() {
   );
   // A target inside that takes the files (a Word file on a Mind) says what its drop does instead.
   const takenInside = useDragState((state) => state.over !== null);
+  // The card lights only under the pointer, and the composer is never the card, so a target that
+  // isn't the card never lights it; where none takes the drag, the window's add says so.
+  const dropAt = fileDrop.active ? fileDrop.at : null;
+  const under = dropAt === null ? null : document.elementFromPoint(dropAt.x, dropAt.y);
+  const overCard = under?.closest('[data-testid="card"]') != null;
+  const overComposer = under?.closest('[data-testid="composer"]') != null;
+  const windowDrop: { said: Words; at: Point } | null =
+    fileDrop.active && dropAt !== null && !takenInside && (!overCard || overComposer)
+      ? {
+          said: (t) => t(fileDrop.links ? "webPages.drop" : "wordImport.addToLibrary"),
+          at: dropAt,
+        }
+      : null;
   const windowWidth = useWindowWidth();
   const assistantBeside = useAppStore((state) => {
     const place = state.layout?.assistant;
@@ -301,13 +315,15 @@ function Workspace() {
         <Workbench
           ref={workbench}
           sidebarHidden={sidebar.hidden}
-          // The overlay covers only the card, so the sidebar's Folders stay in sight, and it stays
-          // quiet while any target inside takes the drag, for one target lit at a time (#212, #261).
+          // The overlay is the card's own light: only under the pointer, and never for a target
+          // inside, such as a Folder or the composer, so one target lights at a time (#212, #261).
           cardOverlay={
-            fileDrop.active && !takenInside ? <DropOverlay links={fileDrop.links} /> : null
+            fileDrop.active && overCard && !overComposer && !takenInside ? (
+              <DropOverlay links={fileDrop.links} />
+            ) : null
           }
         />
-        <DropLabel />
+        <DropLabel instead={windowDrop} />
         <PanelBoundary name="overlays">
           <CommandPalette />
           {/* Where Move to… from ⌘K opens when nothing it moves is in sight: where the palette was. */}
