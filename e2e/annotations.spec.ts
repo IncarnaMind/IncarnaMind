@@ -118,9 +118,14 @@ const paragraph = (viewer: Locator, words: string) =>
 const noteMark = (viewer: Locator) => viewer.locator("[data-annotation-note]").first();
 
 async function openPanel(window: Page, viewer: Locator): Promise<Locator> {
+  // Its button in the toolbar, or the Document's menu where a narrow toolbar folds it away.
   const toggle = viewer.getByTestId("viewer-annotations-toggle");
-  await expect(toggle).toBeVisible();
-  if ((await toggle.getAttribute("aria-pressed")) !== "true") await pointAndClick(window, toggle);
+  if (await toggle.isVisible()) {
+    if ((await toggle.getAttribute("aria-pressed")) !== "true") await pointAndClick(window, toggle);
+  } else {
+    await pointAndClick(window, viewer.getByTestId("document-file-menu").first());
+    await pointAndClick(window, window.getByTestId("document.showAnnotations").first());
+  }
   const panel = window.getByTestId("annotations-panel");
   await expect(panel).toBeVisible();
   return panel;
@@ -352,13 +357,15 @@ test("a PDF's own highlights and notes are shown, marked From the file, and a ne
   await expect(layer).toContainText("Margins held steady");
   await slideSelect(window, layer, "Margins held steady");
   await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
-  await pointAndClick(window, window.getByTestId("viewer-selection-highlight"));
+  await pointAndClick(window, window.getByTestId("viewer-selection-highlight-yellow"));
   await writeVersion(window, path, pdf("Only these words are left on the page."));
   await expect
     .poll(async () =>
-      (
-        await (await coreOf(window)).evaluate(async (core) => core.listAnnotations(documentId))
-      ).some((annotation) => annotation.missing),
+      (await coreOf(window)).evaluate(
+        async (core, id) =>
+          (await core.listAnnotations(id)).some((annotation) => annotation.missing),
+        documentId,
+      ),
     )
     .toBe(true);
   await openPanel(window, window.getByTestId("viewer"));
