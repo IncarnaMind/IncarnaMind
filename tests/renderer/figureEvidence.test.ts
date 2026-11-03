@@ -788,7 +788,7 @@ test("Answer copy reports the plain-text notice only once the clipboard has it",
   const release = lendAnswerEditor("answer", source.editor);
   onTestFinished(release);
   const writes: unknown[][] = [];
-  let resolve!: () => void;
+  let resolve: () => void = () => undefined;
   const write = vi.fn((items: unknown[]) => {
     writes.push(items);
     return new Promise<void>((done) => {

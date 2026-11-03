@@ -34,17 +34,8 @@ export const clipboardBlocks = (fragment: Fragment): NodeJSON[] =>
 export const COPY_INCOMPLETE_ATTRIBUTE = "data-copy-incomplete";
 
 /** Takes the plain-text notice off a serialized copy, so the write leaves it out; true when it was there. */
-export function takeCopyNotice(dom: Node): boolean {
-  const queryable = dom as unknown as {
-    querySelectorAll?: (selectors: string) => ArrayLike<{ removeAttribute(name: string): void }>;
-    hasAttribute?: (name: string) => boolean;
-    removeAttribute?: (name: string) => void;
-  };
-  const found = Array.from(queryable.querySelectorAll?.(`[${COPY_INCOMPLETE_ATTRIBUTE}]`) ?? []);
-  if (queryable.hasAttribute?.(COPY_INCOMPLETE_ATTRIBUTE) && queryable.removeAttribute) {
-    queryable.removeAttribute(COPY_INCOMPLETE_ATTRIBUTE);
-    return true;
-  }
+export function takeCopyNotice(dom: ParentNode): boolean {
+  const found = dom.querySelectorAll(`[${COPY_INCOMPLETE_ATTRIBUTE}]`);
   for (const element of found) element.removeAttribute(COPY_INCOMPLETE_ATTRIBUTE);
   return found.length > 0;
 }
@@ -123,8 +114,8 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
             let html = data?.getData("text/html") ?? "";
             const text = data?.getData("text/plain");
             let noticed = false;
-            if (data && html && html.includes(COPY_INCOMPLETE_ATTRIBUTE)) {
-              const holder = view.dom.ownerDocument.createElement("div");
+            if (html.includes(COPY_INCOMPLETE_ATTRIBUTE)) {
+              const holder = view.dom.ownerDocument.implementation.createHTMLDocument("").body;
               holder.innerHTML = html;
               noticed = takeCopyNotice(holder);
               html = holder.innerHTML;
@@ -168,15 +159,16 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
                     try {
                       readFigureRunClosure(one, this.options.figureRuns(one));
                     } catch (error) {
-                      console.error(
-                        "Copying a figure: its saved inputs are incomplete; copying it as text.",
-                        error,
-                      );
                       plain.add(figure.id);
                       failure ??= error;
                     }
                   });
                 });
+                if (plain.size > 0)
+                  console.error(
+                    `Copying ${plain.size} calculated figure${plain.size === 1 ? "" : "s"} as text: their saved inputs are incomplete.`,
+                    failure,
+                  );
                 let left =
                   plain.size > 0 ? plainFragment(fragment, plain, this.editor.schema) : fragment;
                 let runs: RetainedFigureAnalysis[] = [];
