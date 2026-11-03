@@ -1093,6 +1093,7 @@ export const zhCN = {
   "claim.unsupported.currency.uncovered": "币种（{currency}）",
   "claim.unsupported.scale.uncovered": "{figure} 的币种、单位或量级",
   "claim.unsupported.unit": "文档写的是{amount}，不是{figure}。",
+  "claim.unsupported.otherMeasure": "文档中的{amount}指的是{measure}，而不是{claimed}。",
   "claim.unsupported.whichDollar": "“{document}”写的是“{amount}”，没有注明币种",
   "claim.unsupported.yuanSign": "“{document}”写的是“{amount}”，中文里 ¥ 指人民币",
   "claim.currencyClause": "文档注明了币种（{source}）：{quote}",
@@ -1160,6 +1161,7 @@ export const zhCN = {
   "claim.reason.cut-short": "模型的回复达到长度上限，已截断。",
   "claim.reason.no-evidence": "不显示结论：模型给出的引文不在那个文档中。",
   "claim.reason.unread": "不显示结论：模型没有读取你的文档。",
+  "claim.reason.other-cell": "不显示结论：模型给这个数字写的是文档表格中另一行或另一列的名称。",
   "claim.reason.rate-limit": "模型服务暂时繁忙，请稍后重新核对。",
   "claim.reason.cost-cap": "核对这句话可能超出你设置的每月上限。",
   "claim.reason.plan-limit": "已达到套餐的用量上限。",
@@ -2104,6 +2106,7 @@ export const zhCN = {
   "modelSource.modelscope": "魔搭社区",
   "modelSource.hfMirror": "hf-mirror.com",
   "modelSource.copy": "IncarnaMind 的副本",
+  "modelSource.github": "GitHub",
   "status.downloadFailed": "搜索模型下载失败",
   "status.modelFailed": "搜索模型无法启动",
   "status.rerankDownloading": "正在准备搜索",
@@ -3081,6 +3084,9 @@ export const zhCN = {
   "privacy.traffic.transcription-model": "下载语音模型",
   "privacy.traffic.transcription-model.tip":
     "会议的语音模型，以及区分说话人的模型，只在第一次录制或转写会议时下载一次。你说的内容不会发送出去。",
+  "privacy.traffic.python-runtime": "下载数据分析用的 Python",
+  "privacy.traffic.python-runtime.tip":
+    "对整个文件运行数据分析时所用的 Python，只在第一次运行时从此版本的发布地址下载一次。你的文件不会发送出去。",
   "privacy.traffic.model-source-modelscope": "从魔搭社区下载内置模型",
   "privacy.traffic.model-source-modelscope.tip":
     "内置模型下载前，IncarnaMind 会询问魔搭社区（ModelScope）和 Hugging Face 哪个先响应，以选择从哪里下载。不会发送你的任何内容。",
@@ -3999,6 +4005,11 @@ export const zhCN = {
   "scripts.settings.bodySandboxed": "脚本在沙盒中运行，每次运行前先问你。",
   "scripts.settings.bodySandboxed.details":
     "无法访问你的个人文件夹、IncarnaMind 的数据、其他应用的临时文件或其他磁盘，只能写入自己的工作文件夹，也不能访问互联网。除非你为某个技能选择了“始终运行”，每次运行前都会先问你。",
+  "scripts.settings.problem.sandboxMissing":
+    "这台电脑上无法启动用于数据分析和脚本的沙盒：请安装 {packages}，然后重启 IncarnaMind。在此之前，无法对整个文件运行数据分析，脚本也不在沙盒中运行；除非你为某个技能选择了“始终运行”，每次运行前都会先问你。",
+  "scripts.settings.problem.sandboxStart":
+    "这台电脑不允许 IncarnaMind 启动用于数据分析和脚本的沙盒，因此无法对整个文件运行数据分析，脚本也不在沙盒中运行；除非你为某个技能选择了“始终运行”，每次运行前都会先问你。",
+  "scripts.settings.sandboxPackages.and": "{first} 和 {last}",
   "scripts.settings.timeout": "脚本运行超过此时长即停止：",
   "scripts.settings.seconds": "秒",
 
@@ -6734,6 +6745,10 @@ export const zhCN = {
   "analysis.unavailable.start": "这台电脑上无法运行数据分析：沙盒未能启动。",
   "analysis.unavailable.noSandbox": "沙盒已关闭，无法运行数据分析",
   "analysis.unavailable.noSandbox.fix": "如何解决",
+  "analysis.unavailable.python": "无法获取数据分析所需的 Python：{reason}。",
+  "analysis.python.failure.load": "无法在这台电脑上启动",
+  "analysis.call.preparing": "正在下载 Python：{downloaded} / {total} MB",
+  "analysis.call.preparing.unpacking": "正在准备 Python…",
   "analysis.crashed": "数据分析意外停止。请重新运行。",
   "analysis.command": "分析数据…",
   "analysis.command.keywords": "数据分析 分析 python pandas 数据 表格 csv 计算",

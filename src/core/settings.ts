@@ -24,6 +24,7 @@ import {
   type MonthlyCap,
   type MotionPreference,
   type SandboxLevel,
+  type SandboxProblem,
   type Settings,
   type SharePagePreferences,
   SKILL_SCRIPT_LIMITS,
@@ -360,7 +361,8 @@ export type SettingsStore = ReturnType<typeof createSettings>;
 
 /**
  * `scriptSandbox`: the level of the Executor Skill scripts run on
- * (`Settings.scriptSandbox`); `meetingAudio`: what a Meeting can record here.
+ * (`Settings.scriptSandbox`); `meetingAudio`: what a Meeting can record here;
+ * `sandboxProblem`: why the OS sandbox can't start here (`Settings.sandboxProblem`).
  */
 export function createSettings(
   db: Database,
@@ -369,6 +371,7 @@ export function createSettings(
   scriptSandbox: SandboxLevel,
   meetingAudio: Settings["meetingAudio"] = "none",
   systemUserName: () => string = () => "",
+  sandboxProblem: SandboxProblem | null = null,
 ) {
   const get = (): Settings => {
     const user = read(db, userScope);
@@ -393,7 +396,16 @@ export function createSettings(
     const language = resolveLanguage(user.language, systemLanguages());
     const author = user.authorName ?? systemUserName().trim();
     const chineseScript = transcriptScript(user.transcriptScript, user.language, systemLanguages());
-    return { user, device, language, scriptSandbox, meetingAudio, author, chineseScript };
+    return {
+      user,
+      device,
+      language,
+      scriptSandbox,
+      sandboxProblem,
+      meetingAudio,
+      author,
+      chineseScript,
+    };
   };
 
   return {
