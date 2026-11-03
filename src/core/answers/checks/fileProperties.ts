@@ -17,6 +17,7 @@
 import { formatBytes } from "../../../shared/bytes";
 import { formatDate } from "../../../shared/dates";
 import { fileNameOf } from "../../../shared/documentNames";
+import { onThisClock } from "../../../shared/fileProperties";
 import { translate } from "../../../shared/i18n";
 import { quoteInUnits, type Translate } from "../../../shared/locations";
 import {
@@ -83,7 +84,6 @@ const VERSION = "file-properties:";
 const isPropertyPassage = (passageId: unknown): boolean =>
   typeof passageId === "string" && passageId.startsWith(VERSION);
 
-/** Most Documents a search that could be about several names for the model to choose from. */
 const MOST_NAMED = 8;
 
 const english: Translate = (key, params) => translate("en", key, params);
@@ -121,7 +121,6 @@ export function declaredProperties(reply: string): ReadonlySet<FilePropertyName>
   return named.length > 0 ? new Set(named) : null;
 }
 
-/** How many of its slides or sheets a file has, or pages a PDF has, as a line; null when not known. */
 function countLine(
   document: Document,
   slides: number | null,
@@ -147,12 +146,22 @@ function countLine(
   return null;
 }
 
-/** A Document's properties as a Passage of their own; null for a file IncarnaMind keeps itself. */
+/** A name on one line: a file's name may hold a line break that would read as another property. */
+const oneLine = (name: string) => name.replace(/[\s\p{Cc}]+/gu, " ").trim();
+
+/** A file's own date as its line gives it: one written in UTC on this computer's clock too. */
+function ownDate(value: string): string {
+  const clock = onThisClock(value);
+  return clock
+    ? `${value} (the file’s own date, written in UTC: ${clock} on this computer's clock)`
+    : `${value} (the file’s own date)`;
+}
+
 function sourceOf(document: Document, slides: number | null): Source | null {
   if (document.keptByApp) return null;
   const lines: Line[] = [];
   const computer: Line<DatedProperty>[] = [];
-  let text = `File properties of “${document.name}”: what the file records about itself, not what the Document says.`;
+  let text = `File properties of “${oneLine(document.name)}”: what the file records about itself, not what the Document says.`;
   const add = (written: string) => {
     text += "\n";
     const start = text.length;
@@ -161,15 +170,12 @@ function sourceOf(document: Document, slides: number | null): Source | null {
   };
   const line = (property: FilePropertyName, label: string, written: string, value = written) =>
     lines.push({ property, value, ...add(`${label}: ${written}`) });
-  line("name", "File name", fileNameOf(document.path));
+  line("name", "File name", oneLine(fileNameOf(document.path)));
   const own = document.properties;
   if (own === null) add("Dates and author: they couldn't be read from the file.");
   else {
-    if (own.created)
-      line("created", "Created", `${own.created} (the file’s own date)`, own.created);
-    if (own.modified) {
-      line("modified", "Modified", `${own.modified} (the file’s own date)`, own.modified);
-    }
+    if (own.created) line("created", "Created", ownDate(own.created), own.created);
+    if (own.modified) line("modified", "Modified", ownDate(own.modified), own.modified);
     if (own.author) line("author", "Author", own.author);
     if (!own.created && !own.modified) {
       add("Dates: the file records none of its own.");
@@ -187,7 +193,8 @@ function sourceOf(document: Document, slides: number | null): Source | null {
   const counted = countLine(document, slides);
   if (counted) line(counted.property, counted.label, counted.written, String(counted.value));
   if (document.size > 0) {
-    const size = `${grouped.format(document.size)} bytes (${formatBytes(document.size, english)})`;
+    // Windows counts a megabyte as 1,048,576 bytes, macOS as 1,000,000: "4 MB" may be either.
+    const size = `${grouped.format(document.size)} bytes (${formatBytes(document.size, english)}, or ${formatBytes(document.size, english, 1024)} counting 1,024 bytes to a KB)`;
     line("size", "Size", size, String(document.size));
   }
   const passage: WindowedPassage = {
@@ -240,6 +247,7 @@ function unbacked<J extends Decided>(judgment: J): J {
 
 interface CitationLike {
   passageId?: unknown;
+  documentId?: unknown;
   check?: unknown;
   location?: unknown;
 }
@@ -294,15 +302,16 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
     const source = passageId ? deps.documents.citationSource(passageId) : null;
     return source && !source.documentDeleted ? [source.documentId] : [];
   });
+  // A sentence citing a Document is about that Document's file, whichever file the model read.
+  const isAbout = (documentId: unknown) =>
+    cited.length === 0 || (typeof documentId === "string" && cited.includes(documentId));
   let searchable: readonly { id: string; name: string }[] | null = null;
   const inScopeSearchable = () => {
-    searchable ??= deps.documents
-      .searchableBySize(scope.documentIds)
-      .filter((each) => inScope(each.id));
+    // The scope's Documents already leave out those it may not use.
+    searchable ??= deps.documents.searchableBySize(scope.documentIds);
     return searchable;
   };
   const shown = new Set<string>();
-  /** The Documents a search that showed no properties could be about, by its options. */
   const several = new WeakMap<object, readonly string[]>();
 
   const search: FilePropertySearch = {
@@ -386,7 +395,6 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
     },
   };
 
-  /** A value of the result with each Citation of the properties made a property Citation of its Document. */
   function asProperties(value: unknown, key?: string): unknown {
     if (Array.isArray(value)) {
       const mapped = value.map((each) => asProperties(each));
@@ -427,66 +435,45 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
     const mayDecide = (citation: CitationLike | null | undefined) => {
       const property = propertyOf(citation);
       if (property === undefined) return true;
-      return property !== null && declared?.has(property) === true;
+      return property !== null && declared?.has(property) === true && isAbout(citation?.documentId);
     };
-    let changed = false;
-    const held = <J extends ClaimJudgment>(
-      judgment: J,
-      deciding: readonly (CitationLike | null | undefined)[],
-      sentence = false,
-    ): J => {
+    const listed = [
+      ...(result.checkedEvidence ?? []),
+      ...(result.coverage?.members.flatMap((member) => member.evidence) ?? []),
+      ...(result.coverage?.domainEvidence ?? []),
+    ];
+    const held = (judgment: AtomicClaimCheckResult): AtomicClaimCheckResult => {
       if (judgment.verdict === "not-checked") return judgment;
       if (judgment.verdict === "unsupported") {
         const why = judgment.unsupported;
-        // The part a property covers is no part of a sentence that isn't about it.
         const { quoted, found: _found, ...said } = why ?? { ...UNDECIDED };
+        // The part a property covers is no part of a sentence that isn't about it.
+        const fromProperty = !mayDecide(quoted) || !mayDecide(judgment.evidence);
         return {
           ...judgment,
           evidence: mayDecide(judgment.evidence) ? judgment.evidence : null,
-          ...(why &&
-            quoted &&
-            !mayDecide(quoted) && { unsupported: { ...said, covered: null, uncovered: null } }),
+          ...(why && fromProperty && { unsupported: { ...said, covered: null, uncovered: null } }),
         };
       }
       const correction = judgment.correction?.choices ?? [];
-      const all = [judgment.evidence, ...deciding, ...correction.map((each) => each.evidence)];
+      const all = [judgment.evidence, ...listed, ...correction.map((each) => each.evidence)];
       const properties = new Set(all.map(propertyOf).filter((each) => each));
       const decidedBy = propertyOf(judgment.evidence);
       // Text that looks like a property ("Author: …" in the body, a footer's date) never decides
       // a sentence about one, for or against.
       const unbackedProperty =
-        sentence &&
         declared !== null &&
         declared.size > 0 &&
         (judgment.verdict === "supported"
           ? [...declared].some((property) => !properties.has(property))
           : !decidedBy || !declared.has(decidedBy));
-      if (!all.every(mayDecide) || unbackedProperty) {
-        changed = true;
-        return unbacked(judgment as Decided) as J;
-      }
+      if (!all.every(mayDecide) || unbackedProperty) return unbacked(judgment as Decided);
       if (!correction.some((each) => propertyOf(each.evidence) !== undefined)) return judgment;
       const { correction: _correction, ...kept } = judgment;
-      return kept as J;
+      return kept;
     };
-    const figures = result.figures?.map((figure) => ({
-      ...figure,
-      result: held(figure.result, [figure.source, figure.sourceInput?.citation]),
-    }));
-    const remainder = result.remainder ? held(result.remainder, []) : result.remainder;
-    const coverage = result.coverage
-      ? [
-          ...result.coverage.members.flatMap((member) => member.evidence),
-          ...result.coverage.domainEvidence,
-        ]
-      : [];
-    let sentence = held(result, [...(result.checkedEvidence ?? []), ...coverage], true);
-    // A sentence a figure or its other words no longer back is no longer Supported either.
-    if (changed && sentence.verdict === "supported") sentence = unbacked(sentence);
     const judged: AtomicClaimCheckResult = {
-      ...sentence,
-      ...(figures && { figures }),
-      ...(result.remainder !== undefined && { remainder }),
+      ...held(result),
       // What a part's row lists: never a property its sentence isn't about.
       ...(result.checkedEvidence && { checkedEvidence: result.checkedEvidence.filter(mayDecide) }),
       ...(result.coverage && {
@@ -503,20 +490,21 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
     return withComputerDate(judged, declared);
   }
 
-  /** An Unsupported sentence about a date of a file that records none of its own says so (#2458). */
   function withComputerDate(
     result: AtomicClaimCheckResult,
     declared: ReadonlySet<FilePropertyName> | null,
   ): AtomicClaimCheckResult {
     if (result.verdict !== "unsupported") return result;
     const asked = (property: DatedProperty) => declared === null || declared.has(property);
-    const quoted = computerQuoted.filter(({ line }) => asked(line.property));
+    const quoted = computerQuoted.filter(
+      ({ source, line }) => asked(line.property) && isAbout(source.document.id),
+    );
     const dated = (["modified", "created"] as const).filter((each) => declared?.has(each));
     // Only when the Run was shown one Document's: its date is the one the sentence is about.
     const shownSources = [...sources.values()].filter((each) => shown.has(each.document.id));
     const [one] = shownSources;
     const known =
-      one && shownSources.length === 1
+      one && shownSources.length === 1 && isAbout(one.document.id)
         ? dated.flatMap((property) => one.computer.filter((line) => line.property === property))
         : [];
     const only = new Set(quoted.map(({ line }) => `${line.property}\n${line.value}`)).size === 1;
@@ -554,7 +542,8 @@ export function withFileProperties(
   const plain = create(deps);
   if (!deps.documents.getMany) return plain;
   return async (request) => {
-    if (request.window) return plain(request);
+    // A sentence with figures is checked figure by figure, which no property backs.
+    if (request.window || (request.figures?.length ?? 0) > 0) return plain(request);
     const run = propertyRun(deps, request);
     const result = await create({
       ...deps,

@@ -563,7 +563,7 @@ describe("What decides a sentence", () => {
       },
       "The file was created on 1 October 2026.": {
         verdict: "supported",
-        quote: "2026-10-01T08:00:00Z (the file’s own date)\nModified: 2026-11-02T09:00:00Z",
+        quote: "on this computer's clock)\nModified: 2026-11-02T09:00:00Z",
         property: "created",
       },
     });
@@ -639,11 +639,12 @@ describe("What decides a sentence", () => {
       verdict: "unsupported",
       evidence: null,
     });
-    expect(await setup.core.checkClaim({ claim: BY_WHOM })).toMatchObject({
-      verdict: "unsupported",
-      unsupported: { quoted: { location: property("modified", "2026-11-02T09:00:00Z") } },
-    });
+    // About the property, it keeps it: as the line it covers, or as the nearest one.
+    const byWhom = await setup.core.checkClaim({ claim: BY_WHOM });
+    expect(byWhom.verdict).toBe("unsupported");
+    expect(JSON.stringify(byWhom)).toContain('"kind":"properties","property":"modified"');
     const signed = await setup.core.checkClaim({ claim: SIGNED_ALSO });
+    expect(JSON.stringify(signed)).not.toContain('"kind":"properties"');
     expect(signed).toMatchObject({
       verdict: "unsupported",
       unsupported: { covered: null, uncovered: null },

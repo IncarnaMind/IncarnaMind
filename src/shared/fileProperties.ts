@@ -6,15 +6,22 @@
 import type { CitationLocation, Document } from "../core/api";
 import type { Language } from "../core/language";
 import { formatBytes } from "./bytes";
-import { formatDate, formatMonth, formatYear } from "./dates";
+import { type DateOptions, formatDate, formatMonth, formatTime, formatYear } from "./dates";
 import type { Translate } from "./locations";
 
+/** The zone a date is shown in: this computer's unless a test names one. */
+type Zone = Pick<DateOptions, "timeZone">;
+
+/** A time written in UTC, as Office writes every date it keeps ("2026-11-02T23:30:00Z"). */
+const IN_UTC = /T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]00:00)$/;
+
 /**
- * A file's own date as its metadata gave it, at the precision it gave ("2019",
- * "2019-03", "2019-03-04", or with a time and an offset), shown as the date it
- * names there, not the day it falls on in another time zone.
+ * A file's own date as the User's own apps show it: a time written in UTC on this computer's
+ * clock, as Word's File › Info and Finder show it; a time written with another offset as the day it
+ * names there; a day, month or year alone at the precision given.
  */
-export function fileDate(value: string, language: Language): string {
+export function fileDate(value: string, language: Language, zone: Zone = {}): string {
+  if (IN_UTC.test(value)) return formatDate(value, language, zone);
   const precision = /^\d{4}$/.test(value) ? "year" : /^\d{4}-\d{2}$/.test(value) ? "month" : "day";
   const day =
     precision === "year"
@@ -60,14 +67,32 @@ export function fileDates(document: Dated): FileDates | null {
   return { created: document.fileCreatedAt, modified: document.modifiedAt, from: "computer" };
 }
 
-/** A date of `dates` as the panel shows it: the file's own as written, this computer's on its clock. */
-export const shownFileDate = (value: string, from: FileDates["from"], language: Language) =>
-  from === "file" ? fileDate(value, language) : formatDate(value, language);
+/** A date of `dates` as the panel shows it: the file's own as its apps show it, this computer's on its clock. */
+export const shownFileDate = (
+  value: string,
+  from: FileDates["from"],
+  language: Language,
+  zone: Zone = {},
+) => (from === "file" ? fileDate(value, language, zone) : formatDate(value, language, zone));
+
+/**
+ * A time written in UTC as a check's model is told it beside the value: its day and time on this
+ * computer's clock, the day the User's own apps show. Null for a date written any other way.
+ */
+export function onThisClock(value: string, zone: Zone = {}): string | null {
+  if (!IN_UTC.test(value)) return null;
+  return `${formatDate(value, "en", zone)} ${formatTime(value, "en", { ...zone, twelveHour: false })}`;
+}
 
 type Properties = Extract<CitationLocation, { kind: "properties" }>;
 
 /** A property as a check's row names it: "Modified 2 Nov 2026 (the file’s own date)", "12 slides". */
-export function propertyWords(location: Properties, t: Translate, language: Language): string {
+export function propertyWords(
+  location: Properties,
+  t: Translate,
+  language: Language,
+  zone: Zone = {},
+): string {
   const { value } = location;
   const count = (key: "info.pages" | "info.slides" | "info.sheets") => {
     const number = Number(value);
@@ -77,9 +102,9 @@ export function propertyWords(location: Properties, t: Translate, language: Lang
   };
   switch (location.property) {
     case "created":
-      return t("claim.properties.created", { date: fileDate(value, language) });
+      return t("claim.properties.created", { date: fileDate(value, language, zone) });
     case "modified":
-      return t("claim.properties.modified", { date: fileDate(value, language) });
+      return t("claim.properties.modified", { date: fileDate(value, language, zone) });
     case "author":
       return t("claim.properties.author", { author: value });
     case "pages":
@@ -101,5 +126,6 @@ export const propertyRow = (
   document: string,
   t: Translate,
   language: Language,
+  zone: Zone = {},
 ): string =>
-  t("claim.properties.row", { document, property: propertyWords(location, t, language) });
+  t("claim.properties.row", { document, property: propertyWords(location, t, language, zone) });
