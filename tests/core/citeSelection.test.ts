@@ -549,6 +549,42 @@ describe("citeSelection, for an area of a page (#118)", () => {
     expect(cited.location).toEqual({ kind: "page", from: 2, to: 2, area: AREA });
   });
 
+  test("a picture area whose view names no Unit is placed by the words just before it", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addPaper(core);
+
+    const cited = await core.citeSelection({
+      documentId: document.id,
+      parts: [],
+      area: AREA,
+      unit: null,
+      around: { before: "Pooling the cuts, the recovery peaks in the second quarter." },
+    });
+
+    expect(cited).toMatchObject({
+      check: "cant-check",
+      checkReason: "picture",
+      pageFrom: 2,
+      pageTo: 2,
+    });
+    expect(cited.location).toEqual({ kind: "page", from: 2, to: 2, area: AREA });
+  });
+
+  test("a picture area with nothing around it names no place, never the first page", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addPaper(core);
+
+    const cited = await core.citeSelection({
+      documentId: document.id,
+      parts: [],
+      area: AREA,
+      unit: null,
+    });
+
+    expect(cited).toMatchObject({ checkReason: "picture", pageFrom: null, pageTo: null });
+    expect(cited.location).toBeNull();
+  });
+
   test("an area on a deleted Document can't be checked", async () => {
     const core = startCore(await createTempDataFolder());
     const document = await addPaper(core);

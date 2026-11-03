@@ -834,6 +834,7 @@ export function citeSelection(
     parts: readonly SelectedPart[];
     area?: CitedArea;
     unit?: number | null;
+    around?: { before?: string; after?: string };
   },
 ): CitedSelection {
   const cited = citeSelectionAt(documents, input);
@@ -844,11 +845,34 @@ export function citeSelection(
       input.documentId,
       input.unit ?? input.parts[0]?.unit ?? null,
       input.area,
+      input.around,
     );
   }
   const location =
     cited.location ?? placeIn(documents, input.documentId, cited.contentHash, input.unit ?? null);
   return location ? { ...cited, location: { ...location, area: input.area } } : cited;
+}
+
+/** The Unit whose text holds the words just before or after a region, where the view names no Unit. */
+function unitAround(
+  units: readonly PageText[],
+  around: { before?: string; after?: string } | undefined,
+  matching: Matching,
+): PageText | undefined {
+  if (!around) return undefined;
+  const before = (around.before ?? "").trim();
+  const after = (around.after ?? "").trim();
+  const probes = [
+    before.slice(-60).replace(/^\S+\s/, ""),
+    before.slice(-30).replace(/^\S+\s/, ""),
+    after.slice(0, 60).replace(/\s\S+$/, ""),
+    after.slice(0, 30),
+  ].filter((probe) => probe.trim() !== "");
+  for (const probe of probes) {
+    const on = units.find((unit) => quoteInUnits([unit], probe, matching));
+    if (on) return on;
+  }
+  return undefined;
 }
 
 /** The picture an area with no text is: its Citation points at the region and says it can't be checked. */
@@ -857,11 +881,16 @@ function pictureCitation(
   documentId: string,
   unit: number | null,
   area: CitedArea,
+  around?: { before?: string; after?: string },
 ): CitedSelection {
   const contentHash = documents.currentVersion(documentId);
   if (contentHash === null) return { ...removedFrom({ pageFrom: unit, pageTo: unit }), quote: "" };
   const units = documents.pageTexts(documentId, contentHash, null, null);
-  const on = unit === null ? units[0] : units.find((each) => each.page === unit);
+  // No Unit named and no words around it: no place is guessed, so the figure names none.
+  const on =
+    unit !== null
+      ? units.find((each) => each.page === unit)
+      : unitAround(units, around, matchingOf(units));
   const location = on ? locationOf([on], null) : null;
   return {
     check: "cant-check",

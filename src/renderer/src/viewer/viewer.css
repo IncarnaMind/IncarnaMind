@@ -20,6 +20,14 @@
     background: var(--selection-overlay);
     pointer-events: none;
   }
+  /* A figure a Citation points at, as its area chip opens it: a solid edge under the dashed pick. */
+  .viewer-area-region {
+    position: absolute;
+    z-index: 11;
+    border: 1.5px solid var(--color-accent);
+    background: color-mix(in srgb, AccentColor, transparent 93%);
+    pointer-events: none;
+  }
 
   /*
    * A Document tab's 36px toolbar, under its group's strip, on the sheet with

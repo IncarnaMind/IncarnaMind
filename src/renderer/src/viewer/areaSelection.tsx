@@ -4,8 +4,16 @@
  * points at that region. The region's own text, where the page has a text layer, is what the
  * check looks for; a region of a picture is cited as a picture and can't be checked.
  */
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { Document, SelectedPart } from "../../../core/api";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import type { CitedArea, Document, SelectedPart } from "../../../core/api";
 import { core, files } from "../core";
 import { translateNow } from "../i18n";
 import { preparePicture } from "../pictureFile";
@@ -48,6 +56,30 @@ function touchedNodes(root: Element, area: DOMRect): Set<Text> {
   return touched;
 }
 
+/** The unit's words just above and below `area`, for a region of a picture that has none of its own. */
+function nearestAround(nodes: readonly Text[], area: DOMRect): { before?: string; after?: string } {
+  let above: { text: string; bottom: number } | null = null;
+  let below: { text: string; top: number } | null = null;
+  for (const node of nodes) {
+    const owner = node.ownerDocument;
+    const range = owner.createRange();
+    range.selectNodeContents(node);
+    const rects = [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0);
+    if (rects.length === 0) continue;
+    const top = Math.min(...rects.map((rect) => rect.top));
+    const bottom = Math.max(...rects.map((rect) => rect.bottom));
+    if (bottom <= area.top + 1) {
+      if (!above || bottom > above.bottom) above = { text: node.data, bottom };
+    } else if (top >= area.bottom - 1) {
+      if (!below || top < below.top) below = { text: node.data, top };
+    }
+  }
+  return {
+    ...(above && { before: above.text.slice(-AROUND) }),
+    ...(below && { after: below.text.slice(0, AROUND) }),
+  };
+}
+
 /** The text of a page's text layer inside `area`, its line breaks as the page has them, and its words around. */
 function textInTextLayer(
   layer: Element,
@@ -57,6 +89,7 @@ function textInTextLayer(
   let start = -1;
   let end = -1;
   const owner = layer.ownerDocument;
+  const nodes: Text[] = [];
   const walker = owner.createTreeWalker(layer, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     if (node.nodeName === "BR") {
@@ -65,6 +98,7 @@ function textInTextLayer(
     }
     if (node.nodeType !== Node.TEXT_NODE) continue;
     const text = (node as Text).data;
+    nodes.push(node as Text);
     const range = owner.createRange();
     range.selectNodeContents(node);
     if ([...range.getClientRects()].some((rect) => intersects(rect, area))) {
@@ -73,7 +107,7 @@ function textInTextLayer(
     }
     full += text;
   }
-  if (start < 0) return { text: "" };
+  if (start < 0) return { text: "", ...nearestAround(nodes, area) };
   return {
     text: full.slice(start, end),
     before: full.slice(Math.max(0, start - AROUND), start),
@@ -109,7 +143,7 @@ function textInDom(
     endedBlock = false;
     full += node.data;
   });
-  if (start < 0) return { text: "" };
+  if (start < 0) return { text: "", ...nearestAround(nodes, area) };
   return {
     text: full.slice(start, end),
     before: full.slice(Math.max(0, start - AROUND), start),
@@ -189,6 +223,7 @@ export function AreaOverlay({
           parts,
           area,
           unit: unit.number,
+          ...(parts.length === 0 && (before || after) && { around: { before, after } }),
         });
         const bytes = await files.captureArea({
           x: rect.left,
@@ -330,6 +365,87 @@ export function AreaOverlay({
         width: drawn.width,
         height: drawn.height,
       }}
+    />
+  );
+}
+
+/**
+ * The region a figure's Citation points at (#118), outlined where the viewer draws its Unit: an
+ * area chip opens its page with the figure marked.
+ */
+export function RegionHighlight({
+  section,
+  unit,
+  area,
+}: {
+  section: HTMLElement | null;
+  /** The Unit the Citation names, from 1. */
+  unit: number | null;
+  area: CitedArea | undefined;
+}) {
+  const [box, setBox] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  useLayoutEffect(() => {
+    if (!section || !area || unit === null) {
+      setBox(null);
+      return;
+    }
+    let frame = 0;
+    const measure = () => {
+      const element = section.querySelector<HTMLElement>(`[data-area-unit="${unit}"]`);
+      if (!element) {
+        setBox((before) => (before === null ? before : null));
+        return;
+      }
+      const rect = element.getBoundingClientRect();
+      const origin = section.getBoundingClientRect();
+      const next = {
+        left: rect.left - origin.left + rect.width * area.x,
+        top: rect.top - origin.top + rect.height * area.y,
+        width: rect.width * area.width,
+        height: rect.height * area.height,
+      };
+      setBox((before) =>
+        before &&
+        before.left === next.left &&
+        before.top === next.top &&
+        before.width === next.width &&
+        before.height === next.height
+          ? before
+          : next,
+      );
+    };
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    };
+    schedule();
+    const resize = new ResizeObserver(schedule);
+    resize.observe(section);
+    // Pages are drawn after the file is read, and zooming redraws them.
+    const mutations = new MutationObserver(schedule);
+    mutations.observe(section, { childList: true, subtree: true });
+    section.addEventListener("scroll", schedule, true);
+    window.addEventListener("resize", schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      resize.disconnect();
+      mutations.disconnect();
+      section.removeEventListener("scroll", schedule, true);
+      window.removeEventListener("resize", schedule);
+    };
+  }, [section, unit, area]);
+  if (!box) return null;
+  return (
+    <div
+      aria-hidden="true"
+      data-testid="viewer-area-region"
+      className="viewer-area-region"
+      style={box}
     />
   );
 }

@@ -4,7 +4,7 @@ import { citedTextKept } from "../../../../shared/citations";
 import { useHandle, viewerAreaHandle } from "../../commands/handles";
 import { useT } from "../../i18n";
 import { useAppStore, type ViewerTarget } from "../../store";
-import { AreaModeContext, AreaOverlay } from "../../viewer/areaSelection";
+import { AreaModeContext, AreaOverlay, RegionHighlight } from "../../viewer/areaSelection";
 import { CitedVersionView } from "../../viewer/CitedVersionView";
 import { DocumentView } from "../../viewer/DocumentView";
 import { type PlaceMemory, PlaceMemoryContext, type ViewPlace } from "../../viewer/place";
@@ -234,6 +234,13 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
               <SelectionMenu document={document} section={section} reader={reader} />
             )}
             {document && areaAvailable && <AreaOverlay section={section} document={document} />}
+            {document && (
+              <RegionHighlight
+                section={section}
+                unit={target.pageFrom ?? null}
+                area={target.area}
+              />
+            )}
           </PlaceMemoryContext.Provider>
         </ViewerFrameContext.Provider>
       </AreaModeContext.Provider>

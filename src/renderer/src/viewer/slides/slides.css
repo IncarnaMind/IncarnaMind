@@ -44,6 +44,8 @@
   &:hover {
     background: var(--color-hover);
   }
+  /* A tab stop is never an invisible button: it shows as it takes the focus. */
+  &:focus,
   &:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 1px;

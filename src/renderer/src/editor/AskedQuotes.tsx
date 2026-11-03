@@ -5,6 +5,7 @@ import { citationLocation, formatLocation, type Translate } from "../../../share
 import { useAnswers } from "../answers";
 import { TableLineIcon } from "../components/lineIcons";
 import { quoteKey } from "../composer";
+import { areaCheck, areaLabel } from "../editor/areaWords";
 import { RemoveIcon } from "../editor/icons";
 import { QuoteChip } from "../editor/QuoteChip";
 import { useT } from "../i18n";
@@ -16,13 +17,16 @@ const whereOf = (quote: AskedQuote, t: Translate): string => {
   return location ? formatLocation(location, t) : "";
 };
 
-export const showQuote = (quote: AskedQuote) =>
+export function showQuote(quote: AskedQuote): void {
+  const area = citationLocation(quote)?.area;
   useAppStore.getState().openDocument({
     documentId: quote.documentId,
     ...(quote.pageFrom !== null && { pageFrom: quote.pageFrom }),
     ...(quote.pageTo !== null && { pageTo: quote.pageTo }),
     quote: quote.quote,
+    ...(area && { area }),
   });
+}
 
 /** "12–14": a Location's range, as its labels word it. */
 const span = (from: number, to: number) => (to !== from ? `${from}–${to}` : `${from}`);
@@ -118,9 +122,14 @@ function SlideChip({ quote, onRemove }: { quote: AskedQuote; onRemove(): void })
       title={[label, check].filter((part) => part !== "").join("\n")}
       className="question-skill composer-quote composer-quote--rows"
     >
-      <span className="quote-chip-show">
+      <button
+        type="button"
+        data-testid="composer-slide-chip-show"
+        onClick={() => showQuote(quote)}
+        className="quote-chip-show"
+      >
         <span className="truncate">{label}</span>
-      </span>
+      </button>
       <button
         type="button"
         data-testid="composer-slide-chip-remove"
@@ -156,22 +165,16 @@ function AreaChip({
   useEffect(() => {
     if (quote.picture) useAnswers.getState().loadModels();
   }, [quote.picture]);
-  const location = citationLocation(quote);
-  const where = location ? formatLocation(location, t) : "";
-  const label = t("composer.chip.area", { location: where });
+  const { where, label } = areaLabel(quote, t);
   const group = model ? groups?.find((each) => each.provider.id === model.providerId) : undefined;
   const reads = model ? group?.about[model.modelId]?.readsImages : undefined;
-  const check =
-    quote.check === "found"
-      ? t("composer.chip.areaFound", { location: where })
-      : quote.check === "cant-check"
-        ? t("composer.chip.areaPicture")
-        : "";
+  // As a picture selected in the Note (#1937): only a model known to read them gets one.
+  const unreadable = model !== null && groups !== null && reads !== true;
   const tip = [
     label,
     quote.documentName,
-    check,
-    reads === false ? t("composer.picture.unreadableModel") : "",
+    areaCheck(quote, where, t),
+    unreadable ? t("composer.picture.unreadableModel") : "",
   ].filter((part) => part !== "");
   return (
     <span
@@ -278,7 +281,7 @@ export function AskedQuoteLines({ quotes }: { quotes: readonly AskedQuote[] }) {
               })
             : quote.documentName;
         case "area":
-          return t("composer.chip.area", { location: where });
+          return areaLabel(quote, t).label;
         default:
           return null;
       }

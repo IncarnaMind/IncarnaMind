@@ -58,7 +58,7 @@ const isFraction = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 
 /** The region a Location may hold (#118): a rectangle inside its Unit, or none. */
-function parseArea(value: unknown): CitedArea | null {
+export function parseCitedArea(value: unknown): CitedArea | null {
   if (typeof value !== "object" || value === null) return null;
   const { x, y, width, height } = value as Record<string, unknown>;
   if (!isFraction(x) || !isFraction(y) || !isFraction(width) || !isFraction(height)) return null;
@@ -79,7 +79,7 @@ export function parseLocation(value: unknown): CitationLocation | null {
   if (typeof value !== "object" || value === null) return null;
   const location = value as Record<string, unknown>;
   const { kind, from, to } = location;
-  const area = parseArea(location.area);
+  const area = parseCitedArea(location.area);
   const withArea = <T extends CitationLocation>(parsed: T): CitationLocation =>
     area ? { ...parsed, area } : parsed;
   switch (kind) {

@@ -12,6 +12,7 @@ import { optionsFor } from "../shared/exportOptions";
 import { figureScheduleChange } from "../shared/figureSchedule";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
+import { parseCitedArea } from "../shared/locations";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
 import {
   HEARD_FROM,
@@ -532,16 +533,21 @@ function parseQuoted(input: unknown): ScannedQuoteInput {
   };
 }
 
-/** The region a selection was drawn on (#118): a rectangle inside its Unit, as fractions of it. */
-function parseCitedArea(value: unknown): CitedArea {
-  const fraction = (each: unknown): each is number =>
-    typeof each === "number" && Number.isFinite(each) && each >= 0 && each <= 1;
-  if (!isRecord(value)) throw new InvalidInputError({ key: "error.selection.none" });
-  const { x, y, width, height } = value;
-  if (!fraction(x) || !fraction(y) || !fraction(width) || !fraction(height)) {
-    throw new InvalidInputError({ key: "error.selection.none" });
-  }
-  return { x, y, width, height };
+/** The words just before and after an area (#118), where the view doesn't know its Unit. */
+function parseAround(value: unknown): { before?: string; after?: string } | undefined {
+  if (!isRecord(value)) return undefined;
+  const before = typeof value.before === "string" ? value.before : undefined;
+  const after = typeof value.after === "string" ? value.after : undefined;
+  return before === undefined && after === undefined
+    ? undefined
+    : { ...(before !== undefined && { before }), ...(after !== undefined && { after }) };
+}
+
+/** The region a selection was drawn on (#118), or a refusal when it isn't a rectangle inside a Unit. */
+function selectionArea(value: unknown): CitedArea {
+  const area = parseCitedArea(value);
+  if (!area) throw new InvalidInputError({ key: "error.selection.none" });
+  return area;
 }
 
 function parseSelectedPart(input: unknown): SelectedPart {
@@ -5223,7 +5229,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!isRecord(input) || !Array.isArray(input.parts)) {
         throw new InvalidInputError({ key: "error.selection.none" });
       }
-      const area = input.area === undefined ? undefined : parseCitedArea(input.area);
+      const area = input.area === undefined ? undefined : selectionArea(input.area);
       const parts = input.parts.map(parseSelectedPart);
       if (parts.every((part) => part.text.trim() === "") && area === undefined) {
         throw new InvalidInputError({ key: "error.selection.none" });
@@ -5232,11 +5238,13 @@ export function createCore(adapters: CoreAdapters): Core {
         typeof input.unit === "number" && Number.isInteger(input.unit) && input.unit >= 1
           ? input.unit
           : null;
+      const around = parseAround(input.around);
       return citeSelection(documents, {
         documentId: parseDocumentId(input.documentId),
         parts,
         ...(area !== undefined && { area }),
         unit,
+        ...(around && { around }),
       });
     },
     searchPassages: (query, options) => {

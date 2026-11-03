@@ -254,6 +254,7 @@ test("a slide offers Ask about this slide on hover, and the chip names the deck 
   const chip = window.getByTestId("composer-slide-chip");
   await expect(chip).toBeVisible();
   await expect(chip).toHaveText("Board pack · slide 1");
+  await expect(chip.getByTestId("composer-slide-chip-show")).toHaveText("Board pack · slide 1");
   await expect(chip).toHaveAttribute("data-check", "found");
   await expect(window.getByTestId("composer-input")).toBeFocused();
 
@@ -343,6 +344,22 @@ test("with a text-only model, the area chip's tooltip says the model can't read 
     files: [{ name: "Picture.pdf", bytes: buildPdf([PICTURE]) }],
     textOnly: true,
   });
+  await openDocument(window, /Picture/);
+  await dragArea(window, 1, { x: 0.3, y: 0.3 }, { x: 0.7, y: 0.6 });
+
+  await expect(areaChip(window)).toHaveAttribute(
+    "title",
+    /This model can’t read pictures\. Choose a model that can, to ask about one\.$/,
+  );
+});
+
+test("a model whose ability to read pictures isn't known gets the same warning", async () => {
+  const { window } = await setUp({
+    files: [{ name: "Picture.pdf", bytes: buildPdf([PICTURE]) }],
+    model: false,
+  });
+  // The local server lists fake-model; this model isn't in its list, so nothing is known of it.
+  await connectLocalChatModel(window, "missing-model");
   await openDocument(window, /Picture/);
   await dragArea(window, 1, { x: 0.3, y: 0.3 }, { x: 0.7, y: 0.6 });
 
@@ -622,4 +639,98 @@ test("an area of a Word page and of a slide is found where it is", async () => {
     "Figure · slide 1",
   );
   await expect(areaChip(window)).toHaveAttribute("data-check", "found");
+});
+
+test("a range over three blocks of rows is refused in rows' words, not pages'", async () => {
+  const LONG = xlsxOf([
+    {
+      name: "Long",
+      rows: [
+        ["Ref", "Value"],
+        ...Array.from({ length: 220 }, (_, at) => [`R${at + 1}`, String(at + 1)]),
+      ],
+    },
+  ]);
+  const { window } = await setUp({ files: [{ name: "Long.xlsx", bytes: LONG }] });
+  await openDocument(window, /Long/);
+  await pointAndClick(window, cell(window, "B2"));
+  // The sheet draws only the rows in view: go to the bottom, where row 221 is drawn.
+  await window.getByTestId("viewer-grid").evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(cell(window, "B221")).toBeVisible();
+  await window.keyboard.down("Shift");
+  await pointAndClick(window, cell(window, "B221"));
+  await window.keyboard.up("Shift");
+  await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
+  await pointAndClick(window, window.getByTestId("viewer-selection-ask"));
+  await expect(window.getByTestId("error-notice")).toContainText(
+    "A Citation covers two blocks of rows of a sheet at most. Select fewer rows.",
+  );
+  await expect(window.getByTestId("composer-table-chip")).toHaveCount(0);
+});
+
+test("opening an area chip outlines the region it cites", async () => {
+  const { window } = await setUp({
+    files: [{ name: "Chart.pdf", bytes: buildPdf([CHART]) }],
+  });
+  await openDocument(window, /Chart/);
+  await expect(window.getByTestId("viewer").locator(".textLayer")).toContainText("Northwind");
+  await dragArea(window, 1, { x: 0.1, y: 0.15 }, { x: 0.9, y: 0.55 });
+  await pointAndClick(window, window.getByTestId("composer-area-chip-show"));
+
+  const region = window.getByTestId("viewer-area-region");
+  await expect(region).toBeVisible();
+  const page = await window
+    .getByTestId("viewer")
+    .locator('[data-area-unit="1"]')
+    .first()
+    .boundingBox();
+  const box = await region.boundingBox();
+  if (!page || !box) throw new Error("The region isn't drawn.");
+  expect(box.x).toBeGreaterThanOrEqual(page.x - 1);
+  expect(box.y).toBeGreaterThanOrEqual(page.y - 1);
+  expect(box.x + box.width).toBeLessThanOrEqual(page.x + page.width + 1);
+  expect(box.y + box.height).toBeLessThanOrEqual(page.y + page.height + 1);
+  expect(box.width).toBeLessThan(page.width * 0.95);
+});
+
+test("an area of a file with no headings is just Figure, with no empty place", async () => {
+  const notes = "The river rose 0.4 metres in March, the highest this year.\n";
+  const { window } = await setUp({ files: [{ name: "Notes.md", bytes: Buffer.from(notes) }] });
+  await openDocument(window, /Notes/);
+  await expect(window.getByTestId("viewer").locator(".viewer-text-page")).toContainText(
+    "0.4 metres",
+  );
+  await dragArea(window, 1, { x: 0.1, y: 0.1 }, { x: 0.9, y: 0.5 });
+  const chip = areaChip(window);
+  await expect(chip.getByTestId("composer-area-chip-show")).toHaveText("Figure");
+  await expect(chip).not.toHaveAttribute("title", /Figure ·\s/);
+  await expect(chip).toHaveAttribute("data-check", "found");
+  await expect(chip).toHaveAttribute("title", /The figure’s words were found\./);
+});
+
+test("a picture area in a file with sections is cited to its own section, not the first", async () => {
+  const notes = [
+    "# One",
+    "",
+    "The first river rose 0.1 metres.",
+    "",
+    "# Two",
+    "",
+    "The second river rose 0.9 metres.",
+    "",
+  ].join("\n");
+  const { window } = await setUp({ files: [{ name: "Rivers.md", bytes: Buffer.from(notes) }] });
+  await openDocument(window, /Rivers/);
+  await expect(window.getByTestId("viewer").locator(".viewer-text-page")).toContainText(
+    "0.9 metres",
+  );
+  // To the right of the second section's words, where its page has only blank space: the
+  // picture's place is the section those words are in, never the Document's first.
+  await dragArea(window, 1, { x: 0.9, y: 0.88 }, { x: 0.99, y: 0.97 });
+  const chip = areaChip(window);
+  await expect(chip.getByTestId("composer-area-chip-show")).toHaveText("Figure · § Two");
+  await expect(chip).toHaveAttribute("data-check", "cant-check");
+  await expect(chip).toHaveAttribute("title", /Picture, not checked/);
 });

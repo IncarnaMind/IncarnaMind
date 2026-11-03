@@ -62,26 +62,23 @@ const columnsOf = (range: SheetRange, row: number, textOf: CellText): string[] =
   return cells;
 };
 
-/** Whether any cell in the range shows words or a figure: a range of empty cells can't be cited. */
-export const rangeHasContent = (table: AskedTable): boolean =>
-  [...(table.header ?? []), ...table.rows.flat()].some((cell) => cell.trim() !== "");
-
 /**
- * The range's rows as the Document stores them, one part for each Unit: the
- * Unit's own lines for the rows selected, so the check finds them where the
- * User selected them. A Unit repeats its sheet's header row first, and a row
- * with nothing in it isn't a line at all.
+ * The range's rows as the Document stores them, one part for each Unit: each
+ * of the Unit's lines that is a row selected, in the Unit's own order, so the
+ * check finds them where the User selected them. A later Unit's `label.rows`
+ * begins with the sheet's header row, and its text begins with that row's
+ * line too, so a row's line is at the same index in both; a row with nothing
+ * in it isn't a line at all.
  */
 export function rangeParts(range: SheetRange, units: readonly TextUnit[]): SelectedPart[] {
   const parts: SelectedPart[] = [];
   for (const unit of units) {
     const rows = unit.label?.rows ?? [];
     const lines = unit.text.split("\n");
-    const first = unit.label?.header ? 1 : 0;
     const selected: string[] = [];
     rows.forEach((row, index) => {
       if (row < range.fromRow || row > range.toRow) return;
-      const line = lines[index + first];
+      const line = lines[index];
       if (line !== undefined) selected.push(line);
     });
     const text = selected.join("\n");

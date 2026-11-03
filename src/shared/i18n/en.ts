@@ -1521,9 +1521,10 @@ export const en = {
   "composer.picture.onThisComputer": "Asks about this picture, which stays on this computer",
   "composer.picture.unreadableModel":
     "This model can’t read pictures. Choose a model that can, to ask about one.",
+  "composer.chip.figure": "Figure",
+  "composer.chip.areaFoundHere": "The figure’s words were found.",
   "composer.chip.area": "Figure · {location}",
   "composer.chip.areaFound": "The figure’s words were found on {location}",
-  "composer.chip.areaPicture": "Picture, not checked",
   "composer.chip.rowsWithSheet": "{sheet} · rows {range}",
   "composer.chip.rowsOnly": "rows {range}",
   "composer.chip.preview": "The cells in this range",
@@ -1806,6 +1807,8 @@ export const en = {
   "viewer.selection.notOpenedNew":
     "The quote wasn’t added: the new note didn’t open. You can copy it with its citation instead.",
   "viewer.selection.copied": "Copied with its citation",
+  "viewer.selection.refused.blocks":
+    "A Citation covers two blocks of rows of a sheet at most. Select fewer rows.",
   "viewer.selection.emptyRange": "These cells are empty, so there is nothing to cite.",
   "viewer.selection.refused":
     "Couldn’t cite these words: the Document’s text where you selected them doesn’t have them.",

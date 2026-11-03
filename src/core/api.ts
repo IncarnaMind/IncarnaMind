@@ -3120,6 +3120,8 @@ export interface DocumentPlace {
   quote?: string;
   /** A saved web page's picture the quote was read from, numbered in the page from 1: it is outlined. */
   figure?: number;
+  /** The region a figure's Citation points at (#118): the viewer outlines it on its Unit. */
+  area?: CitedArea;
   /** The Citation this was opened from, if a Citation opened it. */
   citation?: TabCitation;
   /**
@@ -11599,6 +11601,11 @@ export interface CoreApi {
     area?: CitedArea;
     /** The Unit the area is on, when its text found no place there: a picture of that page or slide. */
     unit?: number | null;
+    /**
+     * The Document's words just before and after the area (#118), where the view doesn't know its
+     * Unit: a picture's place is the Unit that holds them, never the Document's first Unit.
+     */
+    around?: { before?: string; after?: string };
   }): Promise<CitedSelection>;
   /**
    * Searches the Passages of live Documents, best match first: hybrid

@@ -84,6 +84,82 @@ describe("A range of cells in a sheet (#118)", () => {
     expect(rangeParts(range({ fromRow: 20, toRow: 22 }), units)).toEqual([]);
   });
 
+  test("reads a later block's rows from its own lines, the header row included first", () => {
+    // A Unit after the first repeats the sheet's header as its first row and line (#118).
+    const later: TextUnit = {
+      page: 2,
+      kind: "rows",
+      label: { sheet: "Revenue", from: 51, to: 53, rows: [4, 51, 52, 53], header: true },
+      text: ["\tQ1\tQ2", "row 51", "row 52", "row 53"].join("\n"),
+      anchors: null,
+    };
+    expect(rangeParts(range({ fromRow: 51, toRow: 52 }), [later])).toEqual([
+      { unit: 2, text: "row 51\nrow 52" },
+    ]);
+    expect(rangeParts(range({ fromRow: 4, toRow: 4 }), [later])).toEqual([
+      { unit: 2, text: "\tQ1\tQ2" },
+    ]);
+  });
+
+  test("crosses blocks of 100 rows, each part taking its own lines and no row twice", () => {
+    const block = (page: number, from: number, to: number, header: boolean): TextUnit => ({
+      page,
+      kind: "rows",
+      label: {
+        sheet: "Revenue",
+        from,
+        to,
+        rows: header
+          ? [1, ...Array.from({ length: to - from + 1 }, (_, at) => from + at)]
+          : Array.from({ length: to - from + 1 }, (_, at) => from + at),
+        ...(header && { header: true }),
+      },
+      text: [
+        ...(header ? ["\tQ1\tQ2"] : []),
+        ...Array.from({ length: to - from + 1 }, (_, at) => `row ${from + at}`),
+      ].join("\n"),
+      anchors: null,
+    });
+    const two = [block(1, 1, 100, false), block(2, 101, 151, true)];
+    expect(rangeParts(range({ fromRow: 99, toRow: 102 }), two)).toEqual([
+      { unit: 1, text: "row 99\nrow 100" },
+      { unit: 2, text: "row 101\nrow 102" },
+    ]);
+  });
+
+  test("reads 150 rows over two blocks, each part with its own lines", () => {
+    const block = (page: number, from: number, to: number, header: boolean): TextUnit => ({
+      page,
+      kind: "rows",
+      label: {
+        sheet: "Revenue",
+        from,
+        to,
+        rows: header
+          ? [1, ...Array.from({ length: to - from + 1 }, (_, at) => from + at)]
+          : Array.from({ length: to - from + 1 }, (_, at) => from + at),
+        ...(header && { header: true }),
+      },
+      text: [
+        ...(header ? ["\tQ1\tQ2"] : []),
+        ...Array.from({ length: to - from + 1 }, (_, at) => `row ${from + at}`),
+      ].join("\n"),
+      anchors: null,
+    });
+    const two = [block(1, 1, 100, false), block(2, 101, 151, true)];
+    const parts = rangeParts(range({ fromRow: 1, toRow: 150 }), two);
+    expect(parts.map((part) => part.unit)).toEqual([1, 2]);
+    const lines = parts.map((part) => part.text.split("\n"));
+    expect(lines[0]).toHaveLength(100);
+    expect(lines[0]?.[0]).toBe("row 1");
+    expect(lines[0]?.at(-1)).toBe("row 100");
+    // Row 1 is the sheet's header: the range includes it, and the later block opens with its line.
+    expect(lines[1]).toHaveLength(51);
+    expect(lines[1]?.[0]).toBe("\tQ1\tQ2");
+    expect(lines[1]?.[1]).toBe("row 101");
+    expect(lines[1]?.at(-1)).toBe("row 150");
+  });
+
   test("copies as TSV with its header row first", () => {
     expect(rangeTsv(rangeTable(range(), textOf))).toBe(
       "Q1\tQ2\tQ3\t9 months\n1,431\t1,452\t1,470\t4,353\n352\t361\t329\t1,042\n99\t97\t92\t288",

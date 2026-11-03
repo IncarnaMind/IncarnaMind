@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { parseLocation } from "../shared/locations";
+import { parseCitedArea, parseLocation } from "../shared/locations";
 import {
   type AssistantCorner,
   type AssistantDock,
@@ -174,6 +174,11 @@ function parsePlace(value: unknown): DocumentPlace {
       throw new InvalidInputError("A quote is text.");
     }
     place.quote = value.quote;
+  }
+  if (value.area !== undefined) {
+    const area = parseCitedArea(value.area);
+    if (!area) throw new InvalidInputError("An area is a rectangle inside its Unit.");
+    place.area = area;
   }
   if (value.citation !== undefined) place.citation = parseCitation(value.citation);
   if (value.currentVersion !== undefined) {

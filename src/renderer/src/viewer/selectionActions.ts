@@ -313,6 +313,10 @@ async function citeRange(selection: RangeSelection): Promise<CitedSelection> {
     documentId: selection.document.id,
     parts: selection.parts,
   });
+  // The Citation rule's two Units are two blocks of a sheet's rows: the words for it are the cells', not pages'.
+  if (cited.checkReason === "too-many-pages") {
+    throw new Error(translateNow("viewer.selection.refused.blocks"));
+  }
   if (cited.check !== "found") throw new Error(translateNow("viewer.selection.refused"));
   return cited;
 }
