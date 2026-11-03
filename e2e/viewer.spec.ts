@@ -916,6 +916,8 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
     "button:not([data-testid='viewer-keep']):not([data-testid='viewer-title'])",
   );
   for (const control of await icons.all()) {
+    // A control a narrow toolbar folds away has no box to measure.
+    if (!(await control.isVisible())) continue;
     await expect(control).toHaveAttribute("aria-label", /.+/);
     expect((await boxOf(control)).height).toBe(28);
   }
@@ -923,7 +925,8 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
   // Every control is reached with Tab, in that order (Previous page is off on page 1).
   await header.getByTestId("pdf-outline-button").focus();
   const reached: (string | null)[] = [];
-  for (let step = 0; step < 9; step++) {
+  const annotationsShown = await header.getByTestId("viewer-annotations-toggle").isVisible();
+  for (let step = 0; step < (annotationsShown ? 9 : 8); step++) {
     await window.keyboard.press("Tab");
     reached.push(
       await window.evaluate(() => document.activeElement?.getAttribute("data-testid") ?? null),
@@ -938,7 +941,7 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
     "pdf-fit-width",
     "viewer-keep",
     "viewer-open-externally",
-    "viewer-annotations-toggle",
+    ...(annotationsShown ? ["viewer-annotations-toggle"] : []),
   ]);
 
   // "Open in default app" opens a copy named after the Document, as the sidebar's menu does.

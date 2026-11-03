@@ -126,8 +126,14 @@ async function openPanel(window: Page, viewer: Locator): Promise<Locator> {
   if (await toggle.isVisible()) {
     if ((await toggle.getAttribute("aria-pressed")) !== "true") await pointAndClick(window, toggle);
   } else {
-    await pointAndClick(window, viewer.getByTestId("document-file-menu").first());
-    await pointAndClick(window, window.getByTestId("document.showAnnotations").first());
+    // Where a narrow toolbar folds the button away, the Document's menu has it: opened by the
+    // keyboard, which the window takes before its first pointer press does.
+    const more = viewer.getByTestId("document-file-menu").first();
+    await more.focus();
+    await window.keyboard.press("Enter");
+    const item = window.getByTestId("document.showAnnotations").first();
+    await expect(item).toBeVisible({ timeout: 5_000 });
+    await item.click();
   }
   await expect(panel).toBeVisible();
   return panel;
@@ -334,9 +340,15 @@ test("a PDF highlight selected across a page break is drawn on both pages", asyn
   const viewer = window.getByTestId("viewer");
   const page1 = viewer.locator('[data-page-number="1"] .textLayer');
   const page2 = viewer.locator('[data-page-number="2"] .textLayer');
-  await viewer
-    .locator('[data-page-number="2"]')
-    .evaluate((page) => page.scrollIntoView({ block: "center" }));
+  await viewer.getByTestId("pdf-scroller").evaluate((scroller) => {
+    const first = scroller.querySelector('[data-page-number="1"]');
+    if (!first) return;
+    const bottom =
+      first.getBoundingClientRect().bottom -
+      scroller.getBoundingClientRect().top +
+      scroller.scrollTop;
+    scroller.scrollTop = bottom - scroller.clientHeight / 2;
+  });
   await expect(page1).toContainText("The recovery peaks");
   await expect(page2).toContainText("of the year");
 
@@ -393,6 +405,8 @@ test("a PDF's own highlights and notes are shown, marked From the file, and a ne
   const documentId = await documentIdOf(window);
   await openDocumentAt(window, { documentId });
   const viewer = window.getByTestId("viewer");
+  // The header the menu belongs to is replaced once the file is read: open it on the settled one.
+  await expect(viewer.locator('[data-page-number="1"]')).toHaveAttribute("data-drawn", "true");
   const panel = await openPanel(window, viewer);
 
   const row = panel.getByTestId("annotation-row").filter({ hasText: "Grocers" }).first();
@@ -407,8 +421,8 @@ test("a PDF's own highlights and notes are shown, marked From the file, and a ne
     .getByTestId("annotation-row")
     .filter({ hasText: "Check this figure." })
     .first();
-  await pointAndClick(window, sticky.getByTestId("annotation-quote"));
-  await expect(sticky.getByTestId("annotation-row-field")).toHaveValue("Check this figure.");
+  await pointAndClick(window, sticky.getByTestId("annotation-row-edit"));
+  await expect(panel.getByTestId("annotation-row-field")).toHaveValue("Check this figure.");
   await expect(panel).not.toContainText("This version doesn’t have the words");
 
   // A new version that still has the words: kept, re-anchored.

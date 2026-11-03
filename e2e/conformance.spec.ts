@@ -773,7 +773,17 @@ const STAGES: Record<Staged, Stage> = {
     async make({ window, sources: dir }) {
       const path = join(dir, "Tides.txt");
       await writeFile(path, "Neap tides are the smallest of the month.\n");
-      await addDocuments(window, [path]);
+      // Added through the core, so no undo line from adding it waits for a later ⌘Z.
+      await read(window, async (core, at) => core.addDocuments([at]), path);
+      await expect
+        .poll(
+          () =>
+            read(window, async (core) =>
+              (await core.listDocuments()).some((document) => document.status === "ready"),
+            ),
+          { timeout: 20_000 },
+        )
+        .toBe(true);
       return read(window, async (core) => {
         const [document] = await core.listDocuments();
         if (!document) return "";
@@ -789,15 +799,22 @@ const STAGES: Record<Staged, Stage> = {
       const [documentId, annotationId] = key.split(":");
       await openDocumentAt(window, { documentId: documentId ?? "" });
       await expect(window.getByTestId("viewer-header")).toBeVisible();
-      // Its button in the toolbar, or the Document's menu where a narrow toolbar folds it away.
+      // The header is drawn again once the file is read: act on the settled one.
+      await expect(window.getByTestId("viewer-text")).toBeVisible();
       const toggle = window.getByTestId("viewer-annotations-toggle");
       if (await toggle.isVisible()) {
+        // By the keyboard: a window's first pointer press only focuses it.
+        await toggle.focus();
         if ((await toggle.getAttribute("aria-pressed")) !== "true") {
-          await pointAndClick(window, toggle);
+          await window.keyboard.press("Enter");
         }
       } else {
-        await pointAndClick(window, window.getByTestId("document-file-menu").first());
-        await pointAndClick(window, window.getByTestId("document.showAnnotations").first());
+        const more = window.getByTestId("document-file-menu").first();
+        await more.focus();
+        await window.keyboard.press("Enter");
+        const item = window.getByTestId("document.showAnnotations").first();
+        await expect(item).toBeVisible({ timeout: 5_000 });
+        await item.click();
       }
       await expect(window.getByTestId("annotations-panel")).toBeVisible();
       return annotationId ?? "";
