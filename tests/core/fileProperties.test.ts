@@ -102,9 +102,11 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
       }
       const shown = searches.flatMap((search) => shownPassages(search.text));
       const { quote, remainder } = plan;
-      const quotes = [quote, ...(plan.figures ?? []).map((each) => each.quote), remainder?.quote].filter(
-        (each) => each !== undefined,
-      );
+      const quotes = [
+        quote,
+        ...(plan.figures ?? []).map((each) => each.quote),
+        remainder?.quote,
+      ].filter((each) => each !== undefined);
       if (quote && !call.results.some((result) => result.tool === "cite")) {
         const passageOf = (words: string) =>
           (shown.find((each) => each.text.includes(words)) ?? shown[0])?.id;
@@ -479,7 +481,10 @@ const COUNTED = {
     sheets: "Cash forecast.xlsx 共有 3 个工作表。",
     size: "Site notes.txt 的大小是 1,200 字节。",
     wrong: "Plan.pptx 一共有 5 张幻灯片。",
-    authored: ["Report.pdf 的作者是 Marta Kowalska，共有 2 页。", "Report.pdf 的作者是 Marta Kowalska"],
+    authored: [
+      "Report.pdf 的作者是 Marta Kowalska，共有 2 页。",
+      "Report.pdf 的作者是 Marta Kowalska",
+    ],
   },
 } as const;
 
@@ -542,7 +547,12 @@ describe.each(["en", "zh-CN"] as const)(
           state: "supported",
           evidence: { documentId, location },
           figures: [
-            { state: "supported", evidence: { documentId, location }, source: null, sourceInput: null },
+            {
+              state: "supported",
+              evidence: { documentId, location },
+              source: null,
+              sourceInput: null,
+            },
           ],
         });
       }
@@ -587,7 +597,10 @@ describe.each(["en", "zh-CN"] as const)(
       for (const sentence of [sentences.slides, sentences.pages]) {
         const { check } = await checkInNote(setup.core, sentence, null);
         expect(check?.state, sentence).toBe("unsupported");
-        expect(check?.figures?.map((figure) => figure.state), sentence).toEqual(["unsupported"]);
+        expect(
+          check?.figures?.map((figure) => figure.state),
+          sentence,
+        ).toEqual(["unsupported"]);
         expect(JSON.stringify(check), sentence).not.toContain('"kind":"properties"');
       }
       // The same deck's count does decide the sentence whose line names it.
@@ -609,7 +622,9 @@ describe.each(["en", "zh-CN"] as const)(
 
     // protects=a sentence whose own words cite the Document's text is no longer Supported once its figure, bound to a property that may not decide it, is held back; fails_when=the deck's slide count backs the figure of a sentence the reply says is about what the Document says, and the sentence stays Supported on its text.
     test("whose figure a property may not decide is no longer Supported on its text either", async () => {
-      const slide = { shapes: sp({ body: txBody(para("<a:r><a:t>Quarterly board plan</a:t></a:r>")) }) };
+      const slide = {
+        shapes: sp({ body: txBody(para("<a:r><a:t>Quarterly board plan</a:t></a:r>")) }),
+      };
       const plan = (property: string): Record<string, Plan> => ({
         [sentences.slides]: {
           document: "Plan",
@@ -686,8 +701,18 @@ test("a sentence about a file's count is never decided by a body line that write
     },
   ];
   const plan = (property: string): Record<string, Plan> => ({
-    [SENTENCE]: { document: "Plan", verdict: "supported", quote: "This deck has 3 slides", property },
-    [WRONG]: { document: "Plan", verdict: "contradicted", quote: "This deck has 3 slides", property },
+    [SENTENCE]: {
+      document: "Plan",
+      verdict: "supported",
+      quote: "This deck has 3 slides",
+      property,
+    },
+    [WRONG]: {
+      document: "Plan",
+      verdict: "contradicted",
+      quote: "This deck has 3 slides",
+      property,
+    },
   });
   const aboutText = await setUp(deck, plan("none"));
   for (const [sentence, state] of [
@@ -705,7 +730,10 @@ test("a sentence about a file's count is never decided by a body line that write
   for (const sentence of [SENTENCE, WRONG]) {
     const { check } = await checkInNote(aboutFile.core, sentence, null);
     expect(check?.state, sentence).toBe("unsupported");
-    expect(check?.figures?.map((figure) => figure.state), sentence).toEqual(["unsupported"]);
+    expect(
+      check?.figures?.map((figure) => figure.state),
+      sentence,
+    ).toEqual(["unsupported"]);
   }
 });
 

@@ -328,7 +328,8 @@ describe.each(["en", "zh-CN"] as const)(
           const location = evidence?.location;
           const decided = location?.kind === "properties" ? location.property : null;
           // A figure the text states is decided by no property.
-          const byText = each.figures && each.expected === "supported" && each.property === undefined;
+          const byText =
+            each.figures && each.expected === "supported" && each.property === undefined;
           const reason = result.verdict === "unsupported" ? result.unsupported?.reason : null;
           const file = documents.find((document) => document.id === evidence?.documentId)?.name;
           // Backed by another file's property or text, a Supported is a false one.
