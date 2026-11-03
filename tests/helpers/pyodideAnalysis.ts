@@ -35,10 +35,7 @@ export async function pyodideAnalysisRuntime(): Promise<AnalysisRuntime> {
     listing.packages.map((each) => join(folder, each.file)),
     { messageCallback: () => {} },
   );
-  const helper = await readFile(
-    join(ROOT, "src", "shared", "incarnamind.py"),
-    "utf8",
-  );
+  const helper = await readFile(join(ROOT, "src", "shared", "incarnamind.py"), "utf8");
   python.FS.mkdirTree("/incarnamind");
   python.FS.writeFile("/incarnamind/incarnamind.py", helper);
   python.runPython(
