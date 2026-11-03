@@ -12,7 +12,7 @@
  * office-formats spike.
  */
 import { type TextUnit, UnitBuilder } from "../../../shared/units";
-import { cellTable, shiftedDigits } from "../tableCells";
+import { cellTable, isDatum, isFigure, shiftedDigits } from "../tableCells";
 import { ExtractionError } from "./errors";
 import { dataUrlOf, imageTypeOf } from "./images";
 import { child, descendants, elements, local, parseXml, textOf, type XmlElement } from "./xml";
@@ -43,13 +43,14 @@ async function relationships(zip: ZipArchive, part: string): Promise<Map<string,
   return rels;
 }
 
-/** A DrawingML text body (a:txBody or p:txBody) as lines, one per paragraph. */
+/** A run's text, digits set raised or lowered written as Unicode's superscript or subscript digits. */
 function runText(run: XmlElement): string {
   const text = textOf(child(run, "a:t") ?? run);
   const baseline = Number(child(run, "a:rPr")?.attrs.baseline ?? 0);
   return baseline === 0 || !Number.isFinite(baseline) ? text : shiftedDigits(text, baseline > 0);
 }
 
+/** A DrawingML text body (a:txBody or p:txBody) as lines, one per paragraph. */
 function paragraphs(txBody: XmlElement): string[] {
   return elements(txBody)
     .filter((each) => each.name === "a:p")
@@ -92,10 +93,16 @@ export interface SlideOutline {
   notes: string[];
 }
 
+interface DeckRow {
+  cells: string[];
+  covered: boolean[];
+  continued: boolean[];
+}
+
 interface Collected {
   title: string | null;
   blocks: string[][];
-  tables: string[][][];
+  tables: DeckRow[][];
   images: { part: string; alt: string }[];
   charts: string[];
 }
@@ -124,11 +131,23 @@ function collect(tree: XmlElement, rels: Map<string, Rel>, into: Collected): voi
           into.tables.push(
             elements(table)
               .filter((each) => each.name === "a:tr")
-              .map((row) =>
-                elements(row)
-                  .filter((each) => each.name === "a:tc")
-                  .map((cell) => paragraphs(child(cell, "a:txBody") ?? cell).join(" ")),
-              ),
+              .map((row) => {
+                const cells: string[] = [];
+                const covered: boolean[] = [];
+                const continued: boolean[] = [];
+                for (const cell of elements(row).filter((each) => each.name === "a:tc")) {
+                  const span = Math.max(1, Number(cell.attrs.gridSpan ?? 1) || 1);
+                  cells.push(paragraphs(child(cell, "a:txBody") ?? cell).join(" "));
+                  covered.push(cell.attrs.hMerge === "1");
+                  continued.push(cell.attrs.vMerge === "1");
+                  for (let at = 1; at < span; at++) {
+                    cells.push("");
+                    covered.push(true);
+                    continued.push(false);
+                  }
+                }
+                return { cells, covered, continued };
+              }),
           );
         }
         for (const chart of descendants(shape, "c:chart")) {
@@ -203,6 +222,21 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
     const tree = root ? descendants(root, "p:spTree")[0] : undefined;
     const collected: Collected = { title: null, blocks: [], tables: [], images: [], charts: [] };
     if (tree) collect(tree, rels, collected);
+    for (const rows of collected.tables) {
+      let previous: string[] | null = null;
+      let seenDatum = false;
+      for (const row of rows) {
+        const hasDatum = row.cells.some(isDatum);
+        if (seenDatum || hasDatum) {
+          for (let column = 0; column < row.cells.length; column++) {
+            const above = previous?.[column];
+            if (row.continued[column] && above && !isFigure(above)) row.cells[column] = above;
+          }
+        }
+        seenDatum ||= hasDatum;
+        previous = row.cells;
+      }
+    }
 
     const notesRel = [...rels.values()].find((rel) => rel.type.endsWith(REL_NOTES));
     const notes: string[] = [];
@@ -223,7 +257,7 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
     }
     for (const [table, rows] of collected.tables.entries()) {
       for (const [row, cells] of rows.entries()) {
-        builder.add(cells.join("\t"), `table${table + 1}.row${row + 1}`);
+        builder.add(cells.cells.join("\t"), `table${table + 1}.row${row + 1}`);
       }
     }
     const charts: string[] = [];
@@ -235,7 +269,13 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
     if (notes.length) builder.add(notes.join("\n"), "notes", "\n\n");
 
     const hidden = root?.attrs.show === "0";
-    const tables = collected.tables.flatMap((rows) => cellTable(rows) ?? []);
+    const tables = collected.tables.flatMap(
+      (rows) =>
+        cellTable(
+          rows.map((row) => row.cells),
+          { covered: rows.map((row) => row.covered) },
+        ) ?? [],
+    );
     units.push({
       page: number,
       kind: "slide",
@@ -252,7 +292,7 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
       hidden,
       title: collected.title,
       blocks: collected.blocks,
-      tables: collected.tables,
+      tables: collected.tables.map((rows) => rows.map((row) => row.cells)),
       charts: charts.filter(Boolean),
       images: collected.images,
       notes,

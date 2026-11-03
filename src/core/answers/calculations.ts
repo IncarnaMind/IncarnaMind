@@ -1023,8 +1023,14 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const row = `${before}${text.slice(start, end < 0 ? undefined : end)}`;
     const named = (each: RowLabel) => WORDS.test(each.label);
     if (row.includes("\t")) {
-      // A Word row under a cell merged down from the row above starts with that empty cell.
-      const label = row.split("\t").find((each) => each.trim() !== "");
+      // A Word row can hold a label merged down its left cells before the row's own: the row's
+      // label is the nearest text cell left of the figure, not the first one (#448).
+      const cells = row.split("\t");
+      const at = cells.findIndex((cell) => cell.includes(figure.chars));
+      const label = cells
+        .slice(0, at < 0 ? cells.length : at)
+        .reverse()
+        .find((cell) => /\p{L}/u.test(cell));
       const cell = withoutStatement(label ?? "");
       return named(cell) ? cell : null;
     }

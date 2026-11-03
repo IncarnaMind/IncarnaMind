@@ -15,6 +15,7 @@ import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analy
 import { readRange } from "../../src/core/analysis/ranges";
 import { createFakeTextRecognizer, type FakeScanScript } from "../../src/core/documents/scan/fake";
 import { cellTable } from "../../src/core/documents/tableCells";
+import { textLayerRows } from "../../src/core/documents/tables";
 import { openDatabase } from "../../src/core/storage";
 import type {
   AnalysisCell,
@@ -30,7 +31,7 @@ import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/do
 import { answerRequests, scriptedModel, scriptedModels } from "../helpers/models";
 import { buildPdf, type PdfPage } from "../helpers/pdf";
 import { para, pptxOf, sp, txBody, xfrm } from "../helpers/pptx";
-import { escapeXml, paragraph, table, wordFile } from "../helpers/word";
+import { escapeXml, paragraph, STYLES, table, wordFile } from "../helpers/word";
 
 type TableInput = Extract<AnalysisInput, { kind: "table" }>;
 
@@ -435,6 +436,7 @@ describe("a Word table with merged cells (#448)", { timeout: 60_000 }, () => {
       ["Workstream", "Item", "Cost (GBP) Staff", "Cost (GBP) Suppliers"],
       "Cost (GBP) Suppliers",
       67_350,
+      3_550,
     ],
     [
       "zh",
@@ -455,10 +457,11 @@ describe("a Word table with merged cells (#448)", { timeout: 60_000 }, () => {
       ["工作", "项目", "费用（元）内部", "费用（元）外部"],
       "费用（元）外部",
       50_050,
+      3_550,
     ],
   ] as const)(
     "keeps each amount under its own heading and works the column out again (%s)",
-    async (_, question, words, lines, total, headings, summed, expected) => {
+    async (_, question, words, lines, total, headings, summed, expected, oneWorkstream) => {
       const { analyses, inputs, reports } = await ask({
         files: [{ name: "Budget.docx", contents: budgetDocx(words, lines, total) }],
         question,
@@ -467,15 +470,27 @@ describe("a Word table with merged cells (#448)", { timeout: 60_000 }, () => {
         helper: (job) => {
           const [input] = job.inputs;
           if (input?.kind !== "table") throw new Error("No table.");
-          return { output: { results: [figureOf(input, summed, "sum")] } };
+          return {
+            output: {
+              results: [
+                figureOf(input, summed, "sum"),
+                figureOf(input, headings[2] ?? "", "sum", (row) => row[0] === lines[0]?.[0]),
+              ],
+            },
+          };
         },
       });
       const [input] = inputs;
       expect(input?.columns).toEqual(headings);
       expect(input?.rows.at(-1)).toEqual([total[0], null, 500, 6000]);
-      expect(input?.rows[1]?.[0]).toBeNull();
+      // A label merged down the rows repeats in each row under it.
+      expect(input?.rows[0]?.[0]).toBe(lines[0]?.[0]);
+      expect(input?.rows[1]?.[0]).toBe(lines[0]?.[0]);
       expect(input?.rows[0]?.[2]).toBe(1200);
-      expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: expected }]);
+      expect(checkOf(analyses[0])).toEqual([
+        { kind: "same", value: expected },
+        { kind: "same", value: oneWorkstream },
+      ]);
       const [range] = analyses[0]?.inputs ?? [];
       expect(range?.kind === "range" && range.citation.location?.kind).toBe("section");
       expect(reports[0]).toContain("- budget: Budget, table 1 (section 1), A1:D");
@@ -688,6 +703,29 @@ describe("the same table given twice (#448)", { timeout: 60_000 }, () => {
     expect(inputs).toEqual([]);
     expect(reports[0]).toContain('"first" and "second" read the same rows');
     expect(reports[0]).toContain("Every Passage of table 1 reads the whole table: give it once");
+  });
+
+  test("two different tables of one Document are both read", async () => {
+    const { inputs } = await ask({
+      files: [{ name: "Regions.pdf", contents: twoTablesPdf() }],
+      question: "Total both tables.",
+      query: "revenue by region",
+      runs: [
+        (passages) => ({
+          tool: "run_analysis",
+          input: {
+            title: "Two",
+            inputs: [
+              { name: "first", passage: passageOf(passages, "Regions"), table: 1 },
+              { name: "second", passage: passageOf(passages, "Regions"), table: 2 },
+            ],
+            code: "x",
+          },
+        }),
+      ],
+      helper: () => ({}),
+    });
+    expect(inputs).toHaveLength(2);
   });
 });
 
@@ -959,7 +997,7 @@ describe("a Word table's own layout (#448)", { timeout: 60_000 }, () => {
       runs: [run("Costs", [{ name: "costs" }])],
       helper: () => ({}),
     });
-    expect(inputs[0]?.columns).toEqual(["Region", "Cost (GBP)", "Cost (GBP)"]);
+    expect(inputs[0]?.columns).toEqual(["Region", "Cost (GBP)", "Cost (GBP) (2)"]);
     expect(inputs[0]?.rows).toEqual([
       ["North", 1200, 1100],
       ["South", 800, 760],
@@ -1091,6 +1129,7 @@ describe("a scan whose recognized text is the PDF's own text layer (#448)", {
     const searchable = buildPdf([
       {
         scan: readFileSync(join(SCANS, "table.jpg")),
+        invisibleText: true,
         lines: ["Table 3. Revenue by product line (USD thousands), as recognized by the scanner"],
         placed: [
           ["Product line", "2024", "2025"],
@@ -1178,6 +1217,247 @@ describe("a kept scanned page whose new read finds no table (#448)", {
     expect(read?.status).toBe("ready");
     expect(tablesStored()).toBe(0);
     await again.close();
+  });
+});
+
+describe("the review's table cases (#448)", { timeout: 60_000 }, () => {
+  test("an unheaded column isn't named by the heading on its left", async () => {
+    const { inputs } = await ask({
+      files: [
+        {
+          name: "Costs.docx",
+          contents: wordFile({
+            body: table([
+              ["Item", "2024", ""],
+              ["Pumps", "1,200", "5%"],
+              ["Fences", "900", "7%"],
+            ]),
+          }),
+        },
+      ],
+      question: "What are the amounts?",
+      query: "Pumps Fences",
+      runs: [run("Costs", [{ name: "costs" }])],
+      helper: () => ({}),
+    });
+    expect(inputs[0]?.columns).toEqual(["Item", "2024", "C"]);
+  });
+
+  test("a heading row of dotted dates names the columns", async () => {
+    const { inputs } = await ask({
+      files: [
+        {
+          name: "Dated.docx",
+          contents: wordFile({
+            body: table([
+              ["Date", "31.12.2024", "2024.12.31"],
+              ["Pumps", "1,200", "900"],
+              ["Fences", "800", "700"],
+            ]),
+          }),
+        },
+      ],
+      question: "Total the dated columns.",
+      query: "Pumps dated",
+      runs: [run("Dated", [{ name: "dated" }])],
+      helper: () => ({}),
+    });
+    expect(inputs[0]?.columns).toEqual(["Date", "31.12.2024", "2024.12.31"]);
+  });
+
+  test("a first body row that isn't a figure stays a row", async () => {
+    const { inputs } = await ask({
+      files: [
+        {
+          name: "Products.docx",
+          contents: wordFile({
+            body: table([
+              ["Product", "2024"],
+              ["Alpha", "—"],
+              ["Beta", "1,200"],
+              ["Gamma", "900"],
+            ]),
+          }),
+        },
+      ],
+      question: "Total the 2024 column.",
+      query: "Alpha Beta Gamma",
+      runs: [run("Products", [{ name: "products" }])],
+      helper: sumOf("2024"),
+    });
+    expect(inputs[0]?.rows).toEqual([
+      ["Alpha", "—"],
+      ["Beta", 1200],
+      ["Gamma", 900],
+    ]);
+  });
+
+  test("a first body row of a PDF table stays a row", async () => {
+    const at = [72, 300] as const;
+    const placed = [
+      ["Product", "2024"],
+      ["Alpha", "—"],
+      ["Beta", "1,200"],
+      ["Gamma", "900"],
+    ].flatMap((cells, index) =>
+      cells.map((text, column) => ({ text, x: at[column] ?? 72, y: 700 - index * 16 })),
+    );
+    const { inputs } = await ask({
+      files: [{ name: "Products.pdf", contents: buildPdf([{ lines: ["Products"], placed }]) }],
+      question: "Total the 2024 column.",
+      query: "Products Alpha Beta Gamma",
+      runs: [run("Products", [{ name: "products" }])],
+      helper: sumOf("2024"),
+    });
+    expect(inputs[0]?.rows).toEqual([
+      ["Alpha", "—"],
+      ["Beta", 1200],
+      ["Gamma", 900],
+    ]);
+  });
+
+  test("a PDF's raised footnote digit doesn't join the number", () => {
+    const rows = textLayerRows([
+      { str: "1,240.50", transform: [10, 0, 0, 10, 300, 684], width: 44, height: 10 },
+      { str: "1", transform: [7, 0, 0, 7, 344, 687], width: 3, height: 7 },
+    ]);
+    expect(rows[0]?.fragments[0]?.text).toBe("1,240.50¹");
+  });
+
+  test("a Word superscript set by a style or a position doesn't join the number", async () => {
+    const style = (id: string, rPr: string) =>
+      `<w:style w:type="character" w:styleId="${id}"><w:name w:val="${id}"/><w:rPr>${rPr}</w:rPr></w:style>`;
+    const styles = [
+      STYLES,
+      style("Sup", '<w:vertAlign w:val="superscript"/>'),
+      style("High", '<w:position w:val="6"/>'),
+    ].join("");
+    const cell = (amount: string, mark: string) =>
+      `<w:r><w:t>${amount}</w:t></w:r><w:r><w:rPr><w:rStyle w:val="${mark}"/></w:rPr><w:t>1</w:t></w:r>`;
+    const { analyses, inputs } = await ask({
+      files: [
+        {
+          name: "Grants.docx",
+          contents: wordFile({
+            styles,
+            body: table([
+              ["Supplier", "Amount"],
+              ["Hollin Pumps", cell("1,240.50", "Sup")],
+              ["Tarn Electrical", cell("615.25", "High")],
+            ]),
+          }),
+        },
+      ],
+      question: "Total the amounts.",
+      query: "Hollin Pumps Tarn Electrical",
+      runs: [run("Grants", [{ name: "grants" }])],
+      helper: sumOf("Amount"),
+    });
+    expect(column(inputs[0], "Amount")).toEqual([1240.5, 615.25]);
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 1855.75 }]);
+  });
+
+  test("a German d.ddd column stays text rather than a thousand times too small", async () => {
+    const { analyses, inputs } = await ask({
+      files: [
+        {
+          name: "Beträge.docx",
+          contents: wordFile({
+            body: table([
+              ["Posten", "Betrag"],
+              ["A", "1.234"],
+              ["B", "5.678"],
+              ["C", "12.345"],
+            ]),
+          }),
+        },
+      ],
+      question: "Summiere die Beträge.",
+      query: "A B C",
+      runs: [run("Beträge", [{ name: "betraege" }])],
+      helper: sumOf("Betrag"),
+    });
+    expect(column(inputs[0], "Betrag")).toEqual(["1.234", "5.678", "12.345"]);
+    expect(checkOf(analyses[0])).toEqual([
+      { kind: "unchecked", reason: expect.stringContaining("holds text, not numbers") },
+    ]);
+  });
+
+  test("a born-digital page over a picture keeps its figures checked", async () => {
+    const at = [72, 300] as const;
+    const tableRows = [
+      ["Product", "Amount"],
+      ["Pumps", "1,200"],
+      ["Fences", "900"],
+    ];
+    const placed = [
+      ...Array.from({ length: 2 }, (_, index) => ({
+        text: "Revenue by product line for the period, in thousands of US dollars, prepared for the board and reviewed.",
+        x: 72,
+        y: 740 - index * 16,
+      })),
+      ...tableRows.flatMap((cells, index) =>
+        cells.map((text, column) => ({ text, x: at[column] ?? 72, y: 700 - index * 16 })),
+      ),
+    ];
+    const { analyses, inputs } = await ask({
+      files: [
+        {
+          name: "Designed report.pdf",
+          contents: buildPdf([
+            { scan: readFileSync(join(SCANS, "table.jpg")), lines: ["Designed report"], placed },
+          ]),
+        },
+      ],
+      question: "Total the amounts.",
+      query: "Pumps Fences",
+      runs: [run("Designed report", [{ name: "amounts" }])],
+      helper: sumOf("Amount"),
+    });
+    expect(inputs[0]?.readFromScan).toBeUndefined();
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 2100 }]);
+  });
+});
+
+describe("a scanned page whose read fails (#448)", { timeout: 60_000 }, () => {
+  test("keeps no table from its text layer", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, {
+      textRecognitionModelSource: NO_MODEL_FILES,
+      textRecognizer: createFakeTextRecognizer({
+        script: { pages: { 1: { fail: "The recognizer couldn't read the page." } } },
+      }),
+    });
+    const at = [72, 300] as const;
+    const placed = [
+      ["Item", "Amount"],
+      ["Pumps", "1,200"],
+      ["Fences", "900"],
+    ].flatMap((cells, index) =>
+      cells.map((text, column) => ({ text, x: at[column] ?? 72, y: 700 - index * 16 })),
+    );
+    const sources = await createTempDataFolder();
+    const [control, document] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Readable table.pdf", buildPdf([{ placed }])),
+      await writeSourceFile(
+        sources,
+        "Unread scan.pdf",
+        buildPdf([{ scan: readFileSync(join(SCANS, "table.jpg")), placed }]),
+      ),
+    ]);
+    await core.close();
+    const labelsOf = (id: string) =>
+      queryDatabase<{ label: string | null }>(
+        dataDir,
+        "SELECT label FROM document_pages WHERE document_id = ? AND deleted_at IS NULL",
+        [id],
+      ).map((page) => page.label ?? "");
+    // The same text layer's table is found on a page that has no scan, so the scan's own read is
+    // what removes it.
+    expect(labelsOf(control?.id ?? "").some((label) => label.includes('"tables":['))).toBe(true);
+    const labels = labelsOf(document?.id ?? "");
+    expect(labels.some((label) => label.includes('"unread":true'))).toBe(true);
+    expect(labels.some((label) => label.includes('"tables":['))).toBe(false);
   });
 });
 

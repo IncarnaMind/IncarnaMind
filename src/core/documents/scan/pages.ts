@@ -134,6 +134,28 @@ export async function isScanned(
   return (await pictureShare(page, ops)) >= MIN_PICTURE_SHARE;
 }
 
+/** Whether the page draws its text invisibly (mode 3), as a recognizer's searchable layer does. */
+export async function invisibleText(
+  page: Pick<PDFPageProxy, "getOperatorList">,
+  ops: PdfJs["OPS"],
+): Promise<boolean> {
+  const { fnArray, argsArray } = await page.getOperatorList();
+  const known = ops as unknown as Record<string, number | undefined>;
+  const shows = new Set(
+    ["showText", "showSpacedText", "nextLineShowText", "nextLineSetSpacingShowText"]
+      .map((name) => known[name])
+      .filter((op): op is number => typeof op === "number"),
+  );
+  let mode = 0;
+  for (let index = 0; index < fnArray.length; index++) {
+    const op = fnArray[index] ?? 0;
+    const args = argsArray[index] as unknown[] | null;
+    if (op === ops.setTextRenderingMode && Array.isArray(args)) mode = Number(args[0]);
+    else if (shows.has(op) && mode === 3) return true;
+  }
+  return false;
+}
+
 /** pdf.js's Node canvas (@napi-rs/canvas), as much of it as reading needs. */
 type Canvas = NonNullable<Parameters<PDFPageProxy["render"]>[0]["canvas"]> & {
   getContext(kind: "2d"): {

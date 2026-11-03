@@ -22,6 +22,7 @@ import { printedPageNames } from "./printedPages";
 import { scannedUnit } from "./scan/layout";
 import {
   type CanvasFactory,
+  invisibleText,
   isScanned,
   MIN_PICTURE_SHARE,
   pagePicture,
@@ -575,7 +576,13 @@ async function extractPdf(
       if (read.kept.size > 0) keptBreaks.set(number, read.kept);
       pages.push({ page: number, kind: "page", label: null, text: read.text, anchors: null });
       const layout = pageTables(textLayerRows(content.items));
-      if (layout.tables.length > 0 && (await pictureShare(page, OPS)) >= MIN_PICTURE_SHARE) {
+      // A recognizer's searchable layer is invisible text over the page's picture; visible text
+      // over a background picture is the page's own, so its figures are still checked (#448).
+      if (
+        layout.tables.length > 0 &&
+        (await pictureShare(page, OPS)) >= MIN_PICTURE_SHARE &&
+        (await invisibleText(page, OPS))
+      ) {
         layout.tables = layout.tables.map((table) => ({ ...table, overPicture: true }));
       }
       layouts.set(number, layout);

@@ -10,7 +10,15 @@
 
 import type { QuarterTurn, UnitTable } from "../../shared/units";
 import { turnQuad } from "./scan/rotation";
-import { CJK_EDGE, figureColumns, isDatum, isFigure, join, MAX_HEADING_ROWS } from "./tableCells";
+import {
+  CJK_EDGE,
+  figureColumns,
+  isDatum,
+  isFigure,
+  join,
+  MAX_HEADING_ROWS,
+  shiftedDigits,
+} from "./tableCells";
 
 /** Text that sits together on a row: a word, or words set close enough to read as one. */
 export interface Fragment {
@@ -100,10 +108,16 @@ export function textLayerRows(items: readonly object[]): (Row & { items: object[
       rows.push(row);
     }
     row.size = Math.max(row.size, placed.size);
+    // A footnote's mark is a smaller digit set above the row's baseline: written as Unicode's
+    // superscript digits, it stays a mark instead of joining the number before it (#448).
+    const raised =
+      /^\d+$/.test(placed.str.trim()) &&
+      placed.size <= row.size * 0.8 &&
+      placed.baseline - row.baseline >= placed.size * 0.25;
     row.placed.push({
       x: placed.x,
       right: placed.x + placed.width,
-      str: placed.str,
+      str: raised ? shiftedDigits(placed.str, true) : placed.str,
       size: placed.size,
     });
     row.items.push(item);
@@ -242,10 +256,9 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
     row.length === 1 && /[:：]$/.test(row[0]?.text ?? "");
   const firstSection = rows.findIndex(isSection);
   // Words only: the first row names the columns. A section's name starts the body.
-  const headingCount =
+  const headingLimit =
     firstBody < 0 ? 1 : firstSection >= 0 && firstSection < firstBody ? firstSection : firstBody;
-  const bodyRows = rows.slice(headingCount);
-  const spans = spansOf(bodyRows.filter((row) => row.length >= 2));
+  const spans = spansOf(rows.slice(headingLimit).filter((row) => row.length >= 2));
   if (spans.length < 2) return null;
   // Over the row of headings next to the body, a row heads the columns only if each of its pieces
   // heads a group of figure columns (2025 over Q1 and Q2), starting inside the table, or is the
@@ -304,16 +317,36 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
     }
     return row.length >= 2 && covered.length >= spans.length - 1;
   };
-  let dropped = headingCount;
-  let top = headingCount;
-  while (dropped > 0) {
-    const row = rows[dropped - 1] ?? [];
-    if (dropped === headingCount || headsColumns(dropped - 1)) top = dropped - 1;
-    else if (!row.every(labelsHeading)) break;
-    dropped--;
+  // The heading rows start at the first row that heads columns (a caption above it is dropped),
+  // and go on down while the rows head columns; below the first, a row heads them only when the
+  // row above covers columns with a merged heading or this row's label cell is empty, so a first
+  // body row keeps its words.
+  let top = headingLimit;
+  for (let index = 0; index < headingLimit; index++) {
+    const row = rows[index] ?? [];
+    if (headsColumns(index) || row.every((fragment) => labelsHeading(fragment))) {
+      top = index;
+      break;
+    }
   }
-  dropped = top;
-  const headingRows = rows.slice(dropped, headingCount);
+  let bottom = top;
+  while (bottom < headingLimit) {
+    const row = rows[bottom] ?? [];
+    if (row.some((fragment) => isDatum(fragment.text))) break;
+    if (bottom > top) {
+      const above = rows[bottom - 1] ?? [];
+      // A grouped heading below a row that names fewer pieces than the columns, or a wrapped
+      // line whose label cell is empty, goes on heading the columns.
+      const grouped = above.length < spans.length;
+      const spanned = grouped || above.some((fragment) => overlapping(fragment, spans).length >= 2);
+      const labelEmpty = !row.some((fragment) => labelsHeading(fragment));
+      if (!spanned && !labelEmpty) break;
+    }
+    bottom++;
+  }
+  const headingRows = rows.slice(top, bottom);
+  const bodyRows = rows.slice(bottom);
+  const dropped = top;
 
   const body: TableGrid["rows"] = [];
   for (const row of bodyRows) {

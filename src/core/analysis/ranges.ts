@@ -150,9 +150,17 @@ export function readRange(
       { length: width },
       (_, offset) => rows.get(row)?.[bounds.firstColumn + offset] ?? null,
     );
-  const columns = slice(headingRow).map((cell, offset) =>
+  const named = slice(headingRow).map((cell, offset) =>
     cell === null || cell === "" ? columnName(bounds.firstColumn + offset) : String(cell),
   );
+  // Two columns under one heading name (a merged heading with no sub-heading) get a suffix, so
+  // the model can name either one and no figure silently takes the first (#448).
+  const seen = new Map<string, number>();
+  const columns = named.map((name) => {
+    const count = (seen.get(name) ?? 0) + 1;
+    seen.set(name, count);
+    return count === 1 ? name : `${name} (${count})`;
+  });
   const kept = Math.min(dataRows.length, MAX_ROWS, Math.floor(MAX_CELLS / width));
   const read = dataRows.slice(0, kept);
   let lastStored = 0;

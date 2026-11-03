@@ -38,8 +38,11 @@ export const isFigure = (text: string) =>
   FIGURE.test(withoutFootnoteMark(text).text.normalize("NFKC").trim());
 const YEAR = /^(?:FY\s?)?(?:19|20)\d{2}$/i;
 const isYear = (text: string) => YEAR.test(text.normalize("NFKC").trim());
-/** A figure in the body of a table: a year names a column more often than it fills one. */
-export const isDatum = (text: string) => isFigure(text) && !isYear(text);
+const DATE = /^\d{1,4}[./-]\d{1,2}[./-]\d{1,4}(?:[ T].*)?$/;
+/** A date names a column or fills one; it isn't a figure a table's body is found by. */
+export const isDate = (text: string) => DATE.test(text.normalize("NFKC").trim());
+/** A figure in the body of a table: a year or a date names a column more often than it fills one. */
+export const isDatum = (text: string) => isFigure(text) && !isYear(text) && !isDate(text);
 
 export const join = (a: string, b: string) =>
   !a
@@ -59,34 +62,58 @@ export function figureColumns(rows: readonly (readonly string[])[], width: numbe
   });
 }
 
+/** Which cells a reader's rows continue from a cell on their left, as a horizontal merge leaves them. */
+export interface TableSpans {
+  /** Each row's cells, true where a cell continues a horizontal merge from the cell on its left. */
+  covered?: readonly (readonly boolean[])[];
+}
+
 /**
  * A table whose file gives its cells, a Word file's or a deck's (#448): the rows above the first
- * that holds a figure, other than a year, head its columns, as on a page. A heading over a group of
- * columns names each of them ("Cost (EUR)" over Internal and External). Null for a table with no
- * column of figures.
+ * that holds a figure, other than a year or a date, head its columns, as on a page. A heading
+ * covers only the cells its span covers ("Cost (EUR)" over Internal and External); a row below
+ * the first heads columns only where the row above has a span or its own label cell is empty.
+ * Null for a table with no column of figures.
  */
-export function cellTable(rows: readonly (readonly string[])[]): UnitTable | null {
+export function cellTable(
+  rows: readonly (readonly string[])[],
+  spans: TableSpans = {},
+): UnitTable | null {
   let width = 0;
   for (const row of rows) width = Math.max(width, row.length);
   if (width < 2) return null;
   const firstData = rows.findIndex((row) => row.some(isDatum));
   if (firstData < 0) return null;
-  const headingCount = Math.min(firstData, MAX_HEADING_ROWS);
+  let headingCount = 0;
+  if (firstData > 0) {
+    headingCount = 1;
+    while (headingCount < firstData && headingCount < MAX_HEADING_ROWS) {
+      const spanned = (spans.covered?.[headingCount - 1] ?? []).some(Boolean);
+      const labelEmpty = (rows[headingCount]?.[0] ?? "").trim() === "";
+      if (!spanned && !labelEmpty) break;
+      headingCount++;
+    }
+  }
   const body = rows
     .slice(headingCount)
     .map((row) => Array.from({ length: width }, (_, column) => row[column] ?? ""));
   if (!figureColumns(body, width).some(Boolean)) return null;
   const headings = Array.from({ length: width }, () => "");
-  rows.slice(0, headingCount).forEach((row) => {
-    let group = "";
+  rows.slice(0, headingCount).forEach((row, at) => {
+    const coveredRow = spans.covered?.[at];
     for (let column = 0; column < width; column++) {
       const text = (row[column] ?? "").trim();
-      if (column > 0 && text) group = text;
-      // A heading covers the empty grid cells a span leaves after it, in the last heading row as
-      // in an upper one: without it the covered column would be named by its letter alone.
-      const named = text || (column > 0 ? group : "");
+      const named =
+        text || (coveredRow?.[column] === true ? leftHeading(row, coveredRow, column) : "");
       headings[column] = join(headings[column] ?? "", named);
     }
   });
   return { headings, rows: body };
+}
+
+/** The text of the cell a covered cell's horizontal span starts at, or "" when it has none. */
+function leftHeading(row: readonly string[], covered: readonly boolean[], column: number): string {
+  let at = column - 1;
+  while (at >= 0 && covered[at] === true) at--;
+  return at >= 0 ? (row[at] ?? "").trim() : "";
 }

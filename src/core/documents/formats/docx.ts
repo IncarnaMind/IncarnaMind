@@ -30,7 +30,7 @@ import {
   type UnitTable,
 } from "../../../shared/units";
 import { headingLevelOfStyleName } from "../../../shared/wordStyles";
-import { cellTable, shiftedDigits } from "../tableCells";
+import { cellTable, isDatum, isFigure, shiftedDigits } from "../tableCells";
 import { type Relationship, relationshipsOf } from "./docxPackage";
 import { ExtractionError } from "./errors";
 import { child, elements, local, parseXml, type XmlElement } from "./xml";
@@ -52,17 +52,30 @@ export function headingLevelOf(style: XmlElement): number | null {
   return null;
 }
 
-/** Style id → heading level (from 1), from styles.xml: "heading N", or an outline level. */
-function headingStyles(styles: XmlElement | undefined): Map<string, number> {
+/** Style id → heading level (from 1), and the character styles that set a run raised. */
+interface DocxStyles {
+  levels: Map<string, number>;
+  raised: Set<string>;
+}
+
+function docxStyles(styles: XmlElement | undefined): DocxStyles {
   const levels = new Map<string, number>();
-  if (!styles) return levels;
+  const raised = new Set<string>();
+  if (!styles) return { levels, raised };
   for (const style of elements(styles)) {
-    if (style.name !== "w:style" || style.attrs["w:type"] !== "paragraph") continue;
+    if (style.name !== "w:style") continue;
     const id = style.attrs["w:styleId"];
-    const level = headingLevelOf(style);
-    if (id && level !== null) levels.set(id, level);
+    if (!id) continue;
+    if (style.attrs["w:type"] === "paragraph") {
+      const level = headingLevelOf(style);
+      if (level !== null) levels.set(id, level);
+    }
+    const rPr = child(style, "w:rPr");
+    const align = rPr && child(rPr, "w:vertAlign")?.attrs["w:val"];
+    const position = Number((rPr && child(rPr, "w:position")?.attrs["w:val"]) ?? 0);
+    if (align === "superscript" || position > 0) raised.add(id);
   }
-  return levels;
+  return { levels, raised };
 }
 
 /** The comments a paragraph refers to, by id, in order: by their reference marks, and where their ranges start. */
@@ -75,7 +88,7 @@ interface Paragraph extends CommentMarks {
   /** Empty only for a paragraph read for the comments it refers to, or for the section it ends. */
   text: string;
   /** A table's row: the table, counted in the body from 0, and its cells, one for each column of its grid. */
-  row?: { table: number; cells: string[] };
+  row?: { table: number; cells: string[]; covered?: boolean[] };
   /** 0 for a Title, 1–9 for headings, null for body text. */
   level: number | null;
   /** The properties of the Word section this paragraph ends, when it ends one. */
@@ -83,7 +96,11 @@ interface Paragraph extends CommentMarks {
 }
 
 /** The text of run content; the comments it refers to go into `marks`. */
-function runText(node: XmlElement, marks: CommentMarks): string {
+function runText(
+  node: XmlElement,
+  marks: CommentMarks,
+  raisedStyles?: ReadonlySet<string>,
+): string {
   let text = "";
   for (const element of elements(node)) {
     switch (local(element.name)) {
@@ -101,18 +118,23 @@ function runText(node: XmlElement, marks: CommentMarks): string {
         text += "-";
         break;
       case "r": {
-        const align = child(child(element, "w:rPr") ?? element, "w:vertAlign")?.attrs["w:val"];
-        const read = runText(element, marks);
-        text +=
-          align === "superscript" || align === "subscript"
-            ? shiftedDigits(read, align === "superscript")
-            : read;
+        const rPr = child(element, "w:rPr");
+        const align = rPr && child(rPr, "w:vertAlign")?.attrs["w:val"];
+        const styleId = rPr && child(rPr, "w:rStyle")?.attrs["w:val"];
+        const position = Number((rPr && child(rPr, "w:position")?.attrs["w:val"]) ?? 0);
+        const raised =
+          align === "superscript" ||
+          position > 0 ||
+          (styleId !== undefined && raisedStyles?.has(styleId) === true);
+        const lowered = align === "subscript" || position < 0;
+        const read = runText(element, marks, raisedStyles);
+        text += raised || lowered ? shiftedDigits(read, raised) : read;
         break;
       }
       case "AlternateContent": {
         // The same content twice (DrawingML and a VML fallback): read the first choice only.
         const choice = elements(element)[0];
-        if (choice) text += runText(choice, marks);
+        if (choice) text += runText(choice, marks, raisedStyles);
         break;
       }
       case "commentReference":
@@ -132,7 +154,7 @@ function runText(node: XmlElement, marks: CommentMarks): string {
         break;
       default:
         // r, hyperlink, ins, smartTag, fldSimple, sdt, sdtContent, …
-        text += runText(element, marks);
+        text += runText(element, marks, raisedStyles);
     }
   }
   return text;
@@ -169,7 +191,7 @@ const spanOf = (cell: XmlElement) =>
 
 function readBlocks(
   container: XmlElement,
-  styles: Map<string, number>,
+  styles: DocxStyles,
   out: Paragraph[],
   tables = { count: 0 },
 ): void {
@@ -179,10 +201,10 @@ function readBlocks(
       const styleId = pPr && child(pPr, "w:pStyle")?.attrs["w:val"];
       const outline = pPr && child(pPr, "w:outlineLvl")?.attrs["w:val"];
       const marks: CommentMarks = { references: [], starts: [] };
-      const text = runText(element, marks).trim();
+      const text = runText(element, marks, styles.raised).trim();
       const level =
-        styleId !== undefined && styles.has(styleId)
-          ? (styles.get(styleId) as number)
+        styleId !== undefined && styles.levels.has(styleId)
+          ? (styles.levels.get(styleId) as number)
           : outline !== undefined && Number(outline) < 9
             ? Number(outline) + 1
             : null;
@@ -193,31 +215,62 @@ function readBlocks(
         out.push({ text, level: null, ...marks, ...ends });
     } else if (element.name === "w:tbl") {
       const table = tables.count++;
+      let previous: string[] | null = null;
+      let seenDatum = false;
       for (const row of elements(element).filter((each) => each.name === "w:tr")) {
         const marks: CommentMarks = { references: [], starts: [] };
         const trPr = child(row, "w:trPr");
         const skipped = (name: string) =>
           Array.from({ length: gridCount(trPr && child(trPr, name), 0) }, () => "");
         // A merged cell keeps its grid's columns (#448): the cells right of one spanning two
-        // columns stay under their own headings, one merged down from the row above is empty, and
-        // a row starting further along the grid starts there.
-        const cells = elements(row)
-          .filter((each) => each.name === "w:tc")
-          .flatMap((cell) => {
-            const inner: Paragraph[] = [];
-            readBlocks(cell, styles, inner);
-            for (const paragraph of inner) {
-              marks.references.push(...paragraph.references);
-              marks.starts.push(...paragraph.starts);
-            }
-            return [cellText(inner), ...Array.from({ length: spanOf(cell) - 1 }, () => "")];
-          });
-        cells.unshift(...skipped("w:gridBefore"));
-        cells.push(...skipped("w:gridAfter"));
+        // columns stay under their own headings, one merged down from the row above repeats the
+        // text it continues (not a figure, which would count twice), and a row starting further
+        // along the grid starts there.
+        const cells: string[] = [];
+        const covered: boolean[] = [];
+        const continued: boolean[] = [];
+        for (const cell of elements(row).filter((each) => each.name === "w:tc")) {
+          const inner: Paragraph[] = [];
+          readBlocks(cell, styles, inner);
+          for (const paragraph of inner) {
+            marks.references.push(...paragraph.references);
+            marks.starts.push(...paragraph.starts);
+          }
+          const vMerge = child(child(cell, "w:tcPr") ?? cell, "w:vMerge");
+          const continues =
+            vMerge !== undefined &&
+            (vMerge.attrs["w:val"] === undefined || vMerge.attrs["w:val"] === "continue");
+          const span = spanOf(cell);
+          cells.push(cellText(inner));
+          covered.push(false);
+          continued.push(continues);
+          for (let at = 1; at < span; at++) {
+            cells.push("");
+            covered.push(true);
+            continued.push(false);
+          }
+        }
+        const before = skipped("w:gridBefore");
+        cells.unshift(...before);
+        covered.unshift(...before.map(() => false));
+        continued.unshift(...before.map(() => false));
+        const after = skipped("w:gridAfter");
+        cells.push(...after);
+        covered.push(...after.map(() => false));
+        continued.push(...after.map(() => false));
+        const hasDatum = cells.some(isDatum);
+        if (seenDatum || hasDatum) {
+          for (let column = 0; column < cells.length; column++) {
+            const above = previous?.[column];
+            if (continued[column] && above && !isFigure(above)) cells[column] = above;
+          }
+        }
+        seenDatum ||= hasDatum;
         const filled = cells.some((cell) => cell !== "");
         const text = filled ? cells.join("\t") : "";
-        if (filled) out.push({ text, level: null, ...marks, row: { table, cells } });
+        if (filled) out.push({ text, level: null, ...marks, row: { table, cells, covered } });
         else if (refersToComments(marks)) out.push({ text, level: null, ...marks });
+        previous = cells;
       }
     } else if (element.name === "w:sdt") {
       const content = child(element, "w:sdtContent");
@@ -233,10 +286,7 @@ interface DocxComment {
 }
 
 /** The Document's comments with text, by id, from word/comments.xml. */
-function readComments(
-  xml: string | undefined,
-  styles: Map<string, number>,
-): Map<string, DocxComment> {
+function readComments(xml: string | undefined, styles: DocxStyles): Map<string, DocxComment> {
   const comments = new Map<string, DocxComment>();
   if (!xml) return comments;
   for (const comment of elements(parseXml(xml)).filter((each) => each.name === "w:comment")) {
@@ -300,7 +350,7 @@ function addComments(
 async function runningTexts(
   zip: ZipArchive,
   sections: readonly (XmlElement | undefined)[],
-  styles: Map<string, number>,
+  styles: DocxStyles,
 ): Promise<string[]> {
   const rels = await relationshipsOf(zip, "word/document.xml").catch(
     () => new Map<string, Relationship>(),
@@ -352,7 +402,10 @@ function readTables(paragraphs: readonly Paragraph[]): Map<number, ReadTable> {
     tables.set(paragraph.row.table, table);
   }
   for (const table of tables.values()) {
-    table.read = cellTable(table.rows.map((row) => row.row?.cells ?? []));
+    table.read = cellTable(
+      table.rows.map((row) => row.row?.cells ?? []),
+      { covered: table.rows.map((row) => row.row?.covered ?? []) },
+    );
   }
   return tables;
 }
@@ -405,7 +458,7 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
     throw new ExtractionError("unreadable", "Not a Word document: it has no word/document.xml.");
   }
   const stylesXml = await zip.readText("word/styles.xml");
-  const styles = headingStyles(stylesXml ? parseXml(stylesXml) : undefined);
+  const styles = docxStyles(stylesXml ? parseXml(stylesXml) : undefined);
   const body = child(parseXml(documentXml), "w:body");
   const paragraphs: Paragraph[] = [];
   if (body) readBlocks(body, styles, paragraphs);
@@ -430,6 +483,7 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
   let builder = new UnitBuilder();
   /** The table rows in the Unit being built: each its table and its place in it, from 0. */
   let tableRows: { table: number; index: number }[] = [];
+  const rowCounts = new Map<number, number>();
   let part = 1;
   /** The comments anchored in the Unit being built, added after its text. */
   let pending: string[] = [];
@@ -485,7 +539,9 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
       builder.add(paragraph.text, `p${read}`);
       if (paragraph.row) {
         const { table } = paragraph.row;
-        tableRows.push({ table, index: tables.get(table)?.rows.indexOf(paragraph) ?? -1 });
+        const index = rowCounts.get(table) ?? 0;
+        tableRows.push({ table, index });
+        rowCounts.set(table, index + 1);
       }
       inSections.add(section);
     }
@@ -533,6 +589,6 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
   return {
     units,
     headings,
-    headingStyles: [...styles].filter(([, level]) => level > 0).map(([id]) => id),
+    headingStyles: [...styles.levels].filter(([, level]) => level > 0).map(([id]) => id),
   };
 }
