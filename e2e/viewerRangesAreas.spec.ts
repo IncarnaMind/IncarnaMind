@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import type { CoreApi } from "../src/core/api";
+import type { CoreApi, CoreBridge } from "../src/core/api";
 import { docxOf, xlsxOf } from "../tests/helpers/office";
 import { buildPdf, type PdfPage } from "../tests/helpers/pdf";
 import { para, pptxOf, sp, xfrm } from "../tests/helpers/pptx";
@@ -441,10 +441,12 @@ test("an area over a chart's words is found, and its picture goes into the compo
   await window.getByTestId("viewer").evaluate((viewer) => {
     const seen: string[] = [];
     (globalThis as unknown as { cursorStyles: string[] }).cursorStyles = seen;
-    new MutationObserver(() => seen.push((viewer as HTMLElement).style.cursor)).observe(viewer, {
-      attributes: true,
-      attributeFilter: ["style"],
-    });
+    const read = () => {
+      const span = viewer.querySelector<HTMLElement>(".textLayer span");
+      seen.push(span ? getComputedStyle(span).cursor : getComputedStyle(viewer).cursor);
+    };
+    read();
+    new MutationObserver(read).observe(viewer, { attributes: true, attributeFilter: ["class"] });
   });
   await dragArea(window, 1, { x: 0.1, y: 0.15 }, { x: 0.9, y: 0.55 });
 
@@ -459,8 +461,10 @@ test("an area over a chart's words is found, and its picture goes into the compo
   const cursors = await window.evaluate(
     () => (globalThis as unknown as { cursorStyles: string[] }).cursorStyles,
   );
+  // Over a page's words the I-beam gives way to progress while the picture is taken.
+  expect(cursors[0]).toBe("text");
   expect(cursors).toContain("progress");
-  expect(cursors.at(-1)).toBe("");
+  expect(cursors.at(-1)).toBe("text");
 
   // With a Note beside it, the viewer is 425px wide: every control still fits, the last of them
   // inside the header's edge rather than scrolled out of it.
@@ -1039,4 +1043,39 @@ test("a picture area in a file with sections is cited to its own section, not th
   await expect(chip.getByTestId("composer-area-chip-show")).toHaveText("Figure · § Two");
   await expect(chip).toHaveAttribute("data-check", "cant-check");
   await expect(chip).toHaveAttribute("title", /Picture, not checked/);
+});
+
+test("中文：侧边有笔记时，520–540 像素宽的 PDF 工具栏也放得下", async () => {
+  const sixPages = buildPdf([
+    CHART,
+    ...Array.from({ length: 5 }, (_, at) => ({ lines: [`Page ${at + 2}`] })),
+  ]);
+  const { window } = await setUp({
+    files: [{ name: "Six.pdf", bytes: sixPages }],
+    language: "zh-CN",
+  });
+  await openDocument(window, /Six/);
+  await expect(window.getByTestId("viewer").locator(".textLayer").first()).toContainText(
+    "Northwind",
+  );
+  // The split beside the Note, at the width where the page count and Select area meet.
+  await window.evaluate(async (wanted) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const groups = document.querySelector('[data-testid="tab-groups"]');
+    if (!groups) throw new Error("The split isn't there.");
+    const room = groups.getBoundingClientRect().width - 1;
+    await bridge.changeLayout("main", { type: "resize", widths: [room - wanted, wanted] });
+  }, 528);
+  await expect
+    .poll(() => window.getByTestId("viewer").evaluate((el) => el.getBoundingClientRect().width))
+    .toBeCloseTo(528, 0);
+  await pointAndClick(window, window.getByTestId("viewer-area-select"));
+  await expect(window.getByTestId("viewer-header")).toContainText("共 6 页");
+  const header = window.getByTestId("viewer-header");
+  const scroll = await header.evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(scroll).toBeLessThanOrEqual(0);
+  const box = await header.boundingBox();
+  const menu = await header.getByTestId("document-file-menu").boundingBox();
+  if (!box || !menu) throw new Error("The toolbar isn't in view.");
+  expect(menu.x + menu.width).toBeLessThanOrEqual(box.x + box.width);
 });

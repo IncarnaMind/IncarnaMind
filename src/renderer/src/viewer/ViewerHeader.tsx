@@ -1,5 +1,13 @@
 import { isMacOS } from "@tiptap/core";
-import { createContext, type ReactNode, useContext, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Document } from "../../../core/api";
 import { changedSourceLines, citationState } from "../../../shared/citations";
 import { displayName, sourceOf } from "../../../shared/documentNames";
@@ -148,6 +156,10 @@ export function ViewerHeader({
   const rename = useRename<HTMLButtonElement>(`viewer:${document?.id}`);
   const header = useRef<HTMLElement>(null);
   const renameDocument = useAppStore((state) => state.renameDocument);
+  const openTags = useRef<(() => void) | null>(null);
+  const lendTags = useCallback((open: () => void) => {
+    openTags.current = open;
+  }, []);
 
   // A copy named after the Document opens, as from the sidebar's file menu.
   const openExternally = () => {
@@ -205,7 +217,7 @@ ${sourceOf(document)}`
               {displayName(document)}
             </button>
           ) : null}
-          {document && <DocumentTagChips document={document} />}
+          {document && <DocumentTagChips document={document} onOpen={lendTags} />}
         </div>
         {children}
         {areaMode && (
@@ -264,6 +276,7 @@ ${sourceOf(document)}`
               ...(onRetry && { "document.retry": onRetry }),
               "document.rename": rename.start,
               "document.moveTo": () => moveDocumentsBeside(header.current, [document.id]),
+              "document.tags": () => openTags.current?.(),
             }}
             className="viewer-icon-button"
           />

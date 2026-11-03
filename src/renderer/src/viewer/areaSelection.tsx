@@ -334,11 +334,8 @@ export function AreaOverlay({
 
   useEffect(() => {
     if (!section || !taking) return;
-    const was = section.style.cursor;
-    section.style.cursor = "progress";
-    return () => {
-      section.style.cursor = was;
-    };
+    section.classList.add("viewer-area-taking");
+    return () => section.classList.remove("viewer-area-taking");
   }, [section, taking]);
 
   useEffect(() => {

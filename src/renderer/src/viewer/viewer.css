@@ -73,7 +73,7 @@
       outline-offset: 0;
     }
   }
-  @container viewer (width < 600px) {
+  @container viewer (width < 620px) {
     .viewer-keep > span {
       @apply sr-only;
     }
@@ -141,32 +141,33 @@
   .viewer-zoom-level {
     @apply min-w-9 shrink-0 text-center whitespace-nowrap tabular-nums;
   }
-  /* The Select area control takes room a header without it has to spare: the zoom label gives way first (#118). */
-  @container viewer (width < 660px) {
-    .viewer-header--area .viewer-zoom-level {
-      @apply sr-only;
-      min-width: 0;
-    }
-  }
-  /* In a narrow viewer the labels give way first (still read out), then the dividers. */
-  @container viewer (width < 520px) {
+  /*
+   * One toolbar for every viewer, giving way by the viewer's own width in the design's order:
+   * the zoom percentage, Tags, Keep's label, the page count, the dividers. The name truncates
+   * and never goes; the arrows, zoom, Select area, Open externally and ⋯ always stay.
+   */
+  @container viewer (width < 700px) {
     .viewer-zoom-level {
       @apply sr-only;
       min-width: 0;
     }
   }
-  @container viewer (width < 520px) {
+  @container viewer (width < 600px) {
+    .viewer-page-count {
+      @apply sr-only;
+    }
+  }
+  @container viewer (width < 580px) {
+    .viewer-divider {
+      @apply hidden;
+    }
+  }
+  @container viewer (width < 540px) {
     .viewer-header {
       @apply gap-px;
     }
     .viewer-name-area {
       @apply min-w-18;
-    }
-    .viewer-page-count {
-      @apply sr-only;
-    }
-    .viewer-divider {
-      @apply hidden;
     }
   }
 
@@ -940,20 +941,20 @@
 }
 
 /*
- * Too narrow for the chips, the Tags' header keeps only their button. The chips set their
- * display with utility classes, which sit in the utilities layer and beat anything in
- * components, so this rule lives in that layer too, where its selector's weight wins.
+ * Tags leave the bar at their step in the give-way order; they stay in the Document's ⋯ menu.
+ * The row folds to nothing rather than `display: none`, so the picker it holds can still open
+ * from that menu: the row keeps its popover, and hides only the chips and its button.
+ * The row's `display` comes from a utility class, so this rule is in the utilities layer too.
  */
 @layer utilities {
-  @container viewer (width < 560px) {
-    .viewer-tags [data-testid="tag-chip"],
-    .viewer-tags [data-testid="tag-chip-more"] {
-      @apply hidden;
-    }
-  }
-  /* Tags stay in the Document's menu, where the room is. */
-  @container viewer (width < 460px) {
+  @container viewer (width < 630px) {
     .viewer-header .viewer-tags {
+      width: 0;
+      min-width: 0;
+      gap: 0;
+      overflow: visible;
+    }
+    .viewer-header .viewer-tags > :not([popover]) {
       @apply hidden;
     }
   }
@@ -972,4 +973,13 @@
 }
 .peek-view :is(.viewer-header, .viewer-sheet-tabs, .viewer-slide-number) {
   display: none;
+}
+
+/*
+ * A pick answers at once, over a PDF's text layer too, whose spans say `cursor: text`.
+ * Unlayered, as that layer is: a rule in `components` would lose whatever its weight.
+ */
+.viewer-pane.viewer-area-taking,
+.viewer-pane.viewer-area-taking * {
+  cursor: progress;
 }

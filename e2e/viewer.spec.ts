@@ -17,6 +17,7 @@ import {
   openDocumentAt,
   openDocumentMenu,
   pathsOpened,
+  pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -880,6 +881,8 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
   await window.getByTestId("open-document").click();
   const viewer = window.getByTestId("viewer");
   await expect(viewer.locator('[data-page-number="1"]')).toHaveAttribute("data-drawn", "true");
+  // Wide enough for every control: the give-way order at narrower widths is its own test.
+  await setViewerWidth(window, 900);
 
   // One toolbar, 36px tall, right under its group's strip.
   const header = viewer.getByTestId("viewer-header");
@@ -953,14 +956,12 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
   if (opened) await rm(dirname(opened), { recursive: true, force: true });
 });
 
-test("below 560 px a Document tab's toolbar hides its Tag chips, and below 460 px the Tags button makes way for the Document's menu, in English and Chinese", async () => {
-  const notes = join(sources, "Notes.txt");
-  await writeFile(notes, "Notes on the quarter.\n");
+test("the toolbar gives way in the design's order, and a folded Tags action stays in ⋯, in English and Chinese", async () => {
+  const guide = join(sources, "Guide.pdf");
+  await writeFile(guide, GUIDE);
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
-  // As wide as 1,500px was, beside the assistant docked on the right (#253).
-  await setWindowSize(app, window, 1868, 800);
-  await addDocuments(window, [notes]);
+  await addDocuments(window, [guide]);
   await (await coreOf(window)).evaluate(async (core) => {
     const [first] = await core.listDocuments();
     if (!first) throw new Error("The Document isn't there.");
@@ -973,44 +974,96 @@ test("below 560 px a Document tab's toolbar hides its Tag chips, and below 460 p
   await window.getByTestId("open-document").click();
   const viewer = window.getByTestId("viewer");
   const header = viewer.getByTestId("viewer-header");
-  const chips = header.getByTestId("tag-chip");
-  const more = header.getByTestId("tag-chip-more");
   const tagsButton = header.getByTestId("document-tags-menu");
+  const zoom = header.getByTestId("pdf-zoom-level");
+  const keep = header.getByTestId("viewer-keep");
+  const keepLabel = keep.locator("span");
+  const count = header.getByTestId("pdf-page-count");
+  const divider = header.locator(".viewer-divider");
+  const menu = header.getByTestId("document-file-menu");
+  // A read-out or a label folded into `sr-only`: a 1px box, still read out.
+  const folded = (target: Locator) =>
+    target.evaluate((element) => element.getBoundingClientRect().width <= 1);
+  const kept = async (where: number) => {
+    for (const control of [
+      header.getByTestId("pdf-previous-page"),
+      header.getByTestId("pdf-next-page"),
+      header.getByTestId("pdf-zoom-out"),
+      header.getByTestId("pdf-zoom-in"),
+      header.getByTestId("viewer-area-select"),
+      header.getByTestId("viewer-open-externally"),
+      menu,
+    ]) {
+      await expect(control, `at ${where}px`).toBeVisible();
+    }
+    expect((await boxOf(header)).height).toBe(36);
+    expect(
+      await header.evaluate((element) => element.scrollWidth - element.clientWidth),
+      `at ${where}px`,
+    ).toBeLessThanOrEqual(0);
+  };
 
   for (const language of ["en", "zh-CN"] as const) {
     await (await coreOf(window)).evaluate(
       (core, chosen) => core.updateSettings({ user: { language: chosen } }),
       language,
     );
-    // Wide: the first two Tags show as chips, with "+1" for the rest.
-    await setViewerWidth(window, 900);
-    await expect(chips).toHaveCount(2);
-    await expect(chips.first()).toBeVisible();
-    await expect(more).toBeVisible();
+    // First to last: the zoom percentage, Tags, Keep's label, the page count, the dividers.
+    await setViewerWidth(window, 710);
+    expect(await folded(zoom)).toBe(false);
     await expect(tagsButton).toBeVisible();
+    expect(await folded(keepLabel)).toBe(false);
+    expect(await folded(count)).toBe(false);
+    await expect(divider).toBeVisible();
+    await kept(710);
 
-    // Narrow: no chips, the button still there, and the toolbar keeps its one line.
-    await setViewerWidth(window, 540);
-    await expect(chips.first()).toBeHidden();
-    await expect(more).toBeHidden();
+    await setViewerWidth(window, 690);
+    expect(await folded(zoom)).toBe(true);
     await expect(tagsButton).toBeVisible();
-    expect((await boxOf(header)).height).toBe(36);
-    await tagsButton.click();
+    expect(await folded(keepLabel)).toBe(false);
+    expect(await folded(count)).toBe(false);
+    await expect(divider).toBeVisible();
+    await kept(690);
+
+    await setViewerWidth(window, 630);
+    await expect(tagsButton).toBeVisible();
+    expect(await folded(keepLabel)).toBe(false);
+    expect(await folded(count)).toBe(false);
+    await expect(divider).toBeVisible();
+    await kept(630);
+
+    await setViewerWidth(window, 625);
+    await expect(tagsButton).toBeHidden();
+    expect(await folded(keepLabel)).toBe(false);
+    expect(await folded(count)).toBe(false);
+    await expect(divider).toBeVisible();
+    await kept(625);
+
+    // The Tags action that left the bar is in the Document's ⋯ menu.
+    await pointAndClick(window, menu);
+    const tagsItem = window.getByTestId("document.tags");
+    await expect(tagsItem).toBeVisible();
+    await pointAndClick(window, tagsItem);
     const picker = header.getByTestId("document-tags-popover");
-    await expect(picker.getByTestId("tag-picker-input")).toBeFocused();
+    await expect(picker).toBeVisible();
     await expect(picker.getByTestId("tag-token")).toHaveCount(3);
     await window.keyboard.press("Escape");
     await expect(picker).toBeHidden();
 
-    // At 500px the chips are folded, the button stays, and the toolbar keeps its one line.
-    await setViewerWidth(window, 500);
-    await expect(tagsButton).toBeVisible();
-    expect((await boxOf(header)).height).toBe(36);
+    await setViewerWidth(window, 610);
+    expect(await folded(keepLabel)).toBe(true);
+    expect(await folded(count)).toBe(false);
+    await expect(divider).toBeVisible();
+    await kept(610);
 
-    // Narrower still, the button gives way: the Document's menu is where the Tags are.
-    await setViewerWidth(window, 450);
-    await expect(tagsButton).toBeHidden();
-    expect((await boxOf(header)).height).toBe(36);
+    await setViewerWidth(window, 590);
+    expect(await folded(count)).toBe(true);
+    await expect(divider).toBeVisible();
+    await kept(590);
+
+    await setViewerWidth(window, 570);
+    await expect(divider).toBeHidden();
+    await kept(570);
   }
   await app.close();
 });
@@ -1115,7 +1168,7 @@ test("with a 120-character name and three Tags, a Document tab's toolbar gives t
   await setViewerWidth(window, 900);
   await expect(chips).toHaveCount(2);
   let before = 2;
-  for (const width of [900, 760, 680, 620, 560]) {
+  for (const width of [900, 760, 680, 640]) {
     await setViewerWidth(window, width);
     await expectNoOverlap(`viewer ${width}px`);
     const drawn = await chips.evaluateAll((elements) =>
