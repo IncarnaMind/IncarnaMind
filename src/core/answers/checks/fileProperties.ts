@@ -280,7 +280,7 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
       document?.kind === "pptx"
         ? (deps.documents.unitCounts([document.id]).get(document.id) ?? null)
         : null;
-    const made = document && !document.notCited ? sourceOf(document, slides) : null;
+    const made = document ? sourceOf(document, slides) : null;
     if (!made) {
       unavailable.add(documentId);
       return null;

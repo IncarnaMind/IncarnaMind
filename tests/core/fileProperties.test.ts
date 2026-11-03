@@ -787,6 +787,7 @@ describe("Which Documents' properties a check shows", () => {
   // protects=properties are Document content: a Document outside the check's scope, or kept as the User's own workings, never shows them; fails_when=a property of a Document the check may not use decides the sentence.
   test("only Documents the check may use show theirs: none outside its scope or kept as workings", async () => {
     const SENTENCE = "Orrin memo.docx was last modified on 25 October 2026.";
+    const CITING = "The memo this cites was last modified on 25 October 2026.";
     const TEXT = "The memo is between Halden Ltd and Orrin plc.";
     const setup = await setUp(
       [
@@ -800,6 +801,12 @@ describe("Which Documents' properties a check shows", () => {
         [SENTENCE]: {
           verdict: "supported",
           document: "Orrin memo",
+          quote: "Modified: 2026-10-25T10:00:00Z",
+          property: "modified",
+        },
+        // Naming no Document, it is shown the one the sentence cites: never one outside the scope.
+        [CITING]: {
+          verdict: "supported",
           quote: "Modified: 2026-10-25T10:00:00Z",
           property: "modified",
         },
@@ -823,10 +830,12 @@ describe("Which Documents' properties a check shows", () => {
     ];
 
     // The quote the model gives is in no Passage it was shown, so nothing backs the sentence.
-    expect(await setup.core.checkClaim({ claim: SENTENCE, scope, cited })).toMatchObject({
-      verdict: "not-checked",
-      reason: "no-evidence",
-    });
+    for (const claim of [SENTENCE, CITING]) {
+      expect(await setup.core.checkClaim({ claim, scope, cited }), claim).toMatchObject({
+        verdict: "not-checked",
+        reason: "no-evidence",
+      });
+    }
     expect(setup.sent()).not.toContain("File properties of “Orrin memo”");
 
     await setup.core.setNotCited(memo.id, true);
@@ -838,6 +847,11 @@ describe("Which Documents' properties a check shows", () => {
 
     await setup.core.setNotCited(memo.id, false);
     expect(await setup.core.checkClaim({ claim: SENTENCE })).toMatchObject({
+      verdict: "supported",
+      evidence: { documentId: memo.id, location: property("modified", "2026-10-25T10:00:00Z") },
+    });
+    // Where the memo is in the scope, the sentence citing it is shown its properties.
+    expect(await setup.core.checkClaim({ claim: CITING, cited })).toMatchObject({
       verdict: "supported",
       evidence: { documentId: memo.id, location: property("modified", "2026-10-25T10:00:00Z") },
     });
