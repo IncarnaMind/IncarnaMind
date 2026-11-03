@@ -15,7 +15,7 @@ import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analy
 import { readRange } from "../../src/core/analysis/ranges";
 import { createFakeTextRecognizer, type FakeScanScript } from "../../src/core/documents/scan/fake";
 import { cellTable } from "../../src/core/documents/tableCells";
-import { textLayerRows } from "../../src/core/documents/tables";
+import { pageTables, textLayerRows } from "../../src/core/documents/tables";
 import { openDatabase } from "../../src/core/storage";
 import type {
   AnalysisCell,
@@ -711,6 +711,53 @@ describe("a deck's table (#448)", { timeout: 60_000 }, () => {
       helper: () => ({}),
     });
     expect(inputs[0]?.columns).toEqual(["Region", "Cost (GBP)", "Cost (GBP) (2)"]);
+    expect(inputs[0]?.rows).toEqual([
+      ["North", 1200, 1100],
+      ["South", 800, 760],
+    ]);
+  });
+
+  test("a labelled row with a blank under a heading is the body's", async () => {
+    const contents = rawDeck("Design costs", [
+      [{ text: "" }, { text: "Item" }, { text: "Cost" }],
+      [{ text: "Design", attrs: ' rowSpan="4"' }, { text: "Research" }, { text: "" }],
+      [{ text: "", attrs: ' vMerge="1"' }, { text: "Workshop" }, { text: "" }],
+      [{ text: "", attrs: ' vMerge="1"' }, { text: "Prototype" }, { text: "1,200" }],
+      [{ text: "", attrs: ' vMerge="1"' }, { text: "Testing" }, { text: "2,350" }],
+    ]);
+    const { analyses, inputs } = await ask({
+      files: [{ name: "Board pack.pptx", contents }],
+      question: "What did Design cost?",
+      query: "Design costs",
+      runs: [run("Board pack", [{ name: "design" }])],
+      helper: (job) => {
+        const [input] = job.inputs;
+        if (input?.kind !== "table") throw new Error("No table.");
+        return {
+          output: { results: [figureOf(input, "Cost", "sum", (row) => row[0] === "Design")] },
+        };
+      },
+    });
+    expect(inputs[0]?.rows.map((row) => row[0])).toEqual(["Design", "Design", "Design", "Design"]);
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 3550 }]);
+  });
+
+  test("a merge started in a heading row doesn't repeat into the next heading row", async () => {
+    const contents = rawDeck("Revenue", [
+      [{ text: "" }, { text: "Revenue" }, { text: "Revenue" }],
+      [{ text: "Revenue", attrs: ' rowSpan="2"' }, { text: "2024" }, { text: "2025" }],
+      [{ text: "", attrs: ' vMerge="1"' }, { text: "H1" }, { text: "H2" }],
+      [{ text: "North" }, { text: "1,200" }, { text: "1,100" }],
+      [{ text: "South" }, { text: "800" }, { text: "760" }],
+    ]);
+    const { inputs } = await ask({
+      files: [{ name: "Board pack.pptx", contents }],
+      question: "Total the 2024 column.",
+      query: "North South",
+      runs: [run("Board pack", [{ name: "revenue" }])],
+      helper: sumOf("Revenue 2024 H1"),
+    });
+    expect(inputs[0]?.columns).toEqual(["Revenue", "Revenue 2024 H1", "Revenue 2025 H2"]);
     expect(inputs[0]?.rows).toEqual([
       ["North", 1200, 1100],
       ["South", 800, 760],
@@ -1673,6 +1720,64 @@ describe("the review's table cases (#448)", { timeout: 60_000 }, () => {
     expect(inputs[0]?.rows[0]).toEqual(["Alpha", 2045, 1987]);
   });
 
+  test("a labelled row with a blank under a heading is the body's", async () => {
+    const restart = (text: string) =>
+      `<w:tcPr><w:vMerge w:val="restart"/></w:tcPr>${paragraph(text)}`;
+    const continued = () => "<w:tcPr><w:vMerge/></w:tcPr><w:p/>";
+    const tc = (text: string) => `<w:tc>${paragraph(text)}</w:tc>`;
+    const grid = `<w:tbl><w:tblGrid>${'<w:gridCol w:w="2000"/>'.repeat(3)}</w:tblGrid>${[
+      `<w:tr>${tc("")}${tc("Item")}${tc("Cost")}</w:tr>`,
+      `<w:tr><w:tc>${restart("Design")}</w:tc>${tc("Research")}<w:tc/></w:tr>`,
+      `<w:tr><w:tc>${continued()}</w:tc>${tc("Workshop")}<w:tc/></w:tr>`,
+      `<w:tr><w:tc>${continued()}</w:tc>${tc("Prototype")}${tc("1,200")}</w:tr>`,
+      `<w:tr><w:tc>${continued()}</w:tc>${tc("Testing")}${tc("2,350")}</w:tr>`,
+    ].join("")}</w:tbl>`;
+    const { analyses, inputs } = await ask({
+      files: [{ name: "Design.docx", contents: wordFile({ body: grid }) }],
+      question: "What did Design cost?",
+      query: "Design costs",
+      runs: [run("Design", [{ name: "design" }])],
+      helper: (job) => {
+        const [input] = job.inputs;
+        if (input?.kind !== "table") throw new Error("No table.");
+        return {
+          output: { results: [figureOf(input, "Cost", "sum", (row) => row[0] === "Design")] },
+        };
+      },
+    });
+    expect(inputs[0]?.rows).toEqual([
+      ["Design", "Research", null],
+      ["Design", "Workshop", null],
+      ["Design", "Prototype", 1200],
+      ["Design", "Testing", 2350],
+    ]);
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 3550 }]);
+  });
+
+  test("a first body row that says a value beside a label is not a heading", async () => {
+    const { analyses, inputs } = await ask({
+      files: [
+        {
+          name: "Stock.docx",
+          contents: wordFile({
+            body: table([
+              ["Item", "Description", "Units"],
+              ["", "Opening stock", "2045"],
+              ["Purchases", "Bought", "2,000"],
+              ["Closing", "Stock", "1,800"],
+            ]),
+          }),
+        },
+      ],
+      question: "Total the units.",
+      query: "stock purchases closing",
+      runs: [run("Stock", [{ name: "stock" }])],
+      helper: sumOf("Units"),
+    });
+    expect(inputs[0]?.rows[0]).toEqual([null, "Opening stock", 2045]);
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 5845 }]);
+  });
+
   test("a first body row with placeholders under a units row stays a row", async () => {
     const { inputs } = await ask({
       files: [
@@ -1780,6 +1885,60 @@ describe("the review's table cases (#448)", { timeout: 60_000 }, () => {
       helper: sumOf("2024"),
     });
     expect(inputs[0]?.rows[0]).toEqual(["Alpha", 2045, 1987]);
+  });
+
+  test("a PDF row that says a value beside a label is not a heading", () => {
+    const at = [72, 250, 310];
+    const rows = [
+      ["Item", "Description", "Units"],
+      ["", "Opening stock", "2045"],
+      ["Purchases", "Bought", "2,000"],
+      ["Closing", "Stock", "1,800"],
+    ];
+    const items = rows.flatMap((cells, index) =>
+      cells.flatMap((text, column) =>
+        text
+          ? [
+              {
+                str: text,
+                transform: [10, 0, 0, 10, at[column] ?? 72, 600 - index * 16],
+                width: 40,
+                height: 10,
+              },
+            ]
+          : [],
+      ),
+    );
+    const [table] = pageTables(textLayerRows(items)).tables;
+    expect(table?.headings).toEqual(["Item", "Description", "Units"]);
+    expect(table?.rows.map((row) => row[2])).toEqual(["2045", "2,000", "1,800"]);
+  });
+
+  test("a PDF labelled row with a blank under a heading is the body's", () => {
+    const at = [72, 250, 310];
+    const rows = [
+      ["", "Description", "Cost"],
+      ["Design", "Draft"],
+      ["Surveys", "Paid", "1,200"],
+      ["Drawings", "Paid", "900"],
+    ];
+    const items = rows.flatMap((cells, index) =>
+      cells.flatMap((text, column) =>
+        text
+          ? [
+              {
+                str: text,
+                transform: [10, 0, 0, 10, at[column] ?? 72, 600 - index * 16],
+                width: 40,
+                height: 10,
+              },
+            ]
+          : [],
+      ),
+    );
+    const [table] = pageTables(textLayerRows(items)).tables;
+    expect(table?.headings[0]).toBe("");
+    expect(table?.rows.map((row) => row[0])).toEqual(["Design", "Surveys", "Drawings"]);
   });
 
   test("a PDF units row below the headings still heads the columns", async () => {

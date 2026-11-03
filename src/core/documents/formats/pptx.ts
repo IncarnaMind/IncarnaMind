@@ -226,7 +226,10 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
       // and never a figure, which would count twice.
       const starts: string[] = [];
       const startedAt: number[] = [];
-      const headingRows = headingRowsOf(rows.map((row) => row.cells));
+      const headingRows = headingRowsOf(
+        rows.map((row) => row.cells),
+        { covered: rows.map((row) => row.covered) },
+      );
       for (const [at, row] of rows.entries()) {
         for (let column = 0; column < row.cells.length; column++) {
           const start = starts[column];

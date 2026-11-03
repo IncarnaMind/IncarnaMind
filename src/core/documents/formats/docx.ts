@@ -277,7 +277,10 @@ function readBlocks(
       // and never a figure, which would count twice.
       const starts: string[] = [];
       const startedAt: number[] = [];
-      const headingRows = headingRowsOf(collected.map((row) => row.cells));
+      const headingRows = headingRowsOf(
+        collected.map((row) => row.cells),
+        { covered: collected.map((row) => row.covered) },
+      );
       for (const [at, row] of collected.entries()) {
         for (let column = 0; column < row.cells.length; column++) {
           const start = starts[column];

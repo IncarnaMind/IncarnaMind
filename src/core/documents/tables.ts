@@ -13,6 +13,7 @@ import { turnQuad } from "./scan/rotation";
 import {
   CJK_EDGE,
   figureColumns,
+  figureWithLabel,
   isDatum,
   isFigure,
   join,
@@ -329,6 +330,12 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
   const aboveFigure = (fragment: Fragment, above: readonly Fragment[]) =>
     isFigure(fragment.text) &&
     above.some((each) => isFigure(each.text) && overlapping(fragment, [each]).length > 0);
+  const blankUnderHeading = (row: readonly Fragment[], above: readonly Fragment[]) => {
+    const cells = cellsOf(row, spans);
+    const aboveCells = cellsOf(above, spans);
+    if (!cells || !aboveCells) return false;
+    return cells.some((cell, column) => cell === "" && (aboveCells[column] ?? "") !== "");
+  };
   let bottom = top;
   while (bottom < headingLimit) {
     const row = rows[bottom] ?? [];
@@ -336,21 +343,20 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
     if (bottom > top) {
       const above = rows[bottom - 1] ?? [];
       // A units row or a merged heading leaves the label column empty, so the row below still
-      // heads the columns. A row with a label of its own heads only while no heading above has
-      // one, the row just above has no label, and its cells are neither placeholders nor figures
-      // under figures.
+      // heads the columns unless it says a value beside a label of its own. A row with a label of
+      // its own heads only while no heading above has one, and its cells are neither placeholders,
+      // figures under figures, nor blanks under a heading no span covers.
       if (row.some((fragment) => labelsHeading(fragment))) {
         const labelled = rows
           .slice(top, bottom)
           .some((each) => each.some((fragment) => labelsHeading(fragment)));
-        const aboveLabelEmpty = !above.some((fragment) => labelsHeading(fragment));
         if (
-          !aboveLabelEmpty ||
           labelled ||
-          row.some((fragment) => placeholder(fragment.text) || aboveFigure(fragment, above))
+          row.some((fragment) => placeholder(fragment.text) || aboveFigure(fragment, above)) ||
+          blankUnderHeading(row, above)
         )
           break;
-      }
+      } else if (figureWithLabel(row.map((fragment) => fragment.text))) break;
     }
     bottom++;
   }

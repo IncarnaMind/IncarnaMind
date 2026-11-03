@@ -72,6 +72,20 @@ export interface TableSpans {
 const PLACEHOLDER = /^(?:[—–‒-]{1,3}|n\/?a|tbc)$/iu;
 export const placeholder = (text: string) => PLACEHOLDER.test(text.trim());
 
+/** A word that states a column's unit, not a row's label: "(GBP m)", "£k", "t", "万元", "%". */
+export const unitWord = (text: string) => {
+  const value = text.trim();
+  return /^(?:\(.*\)|[\p{Sc}%])/u.test(value) || value.replace(/\s+/gu, "").length <= 2;
+};
+
+/** A row that says a value beside a word that isn't a unit is no row of headings. */
+export const figureWithLabel = (texts: readonly string[]) =>
+  texts.some((text) => isFigure(text)) &&
+  texts.some((text) => {
+    const value = (text ?? "").trim();
+    return value !== "" && !isFigure(value) && !unitWord(value);
+  });
+
 /** A heading cell under a figure of the row above: the row is the body's, not the headings'. */
 const underFigure = (row: readonly string[], above: readonly string[]) =>
   row.some((text, column) => {
@@ -79,13 +93,27 @@ const underFigure = (row: readonly string[], above: readonly string[]) =>
     return placeholder(value) || (isFigure(value) && isFigure(above[column] ?? ""));
   });
 
+/** A blank cell under a heading of the row above that no span covers: a body row's own gap. */
+const blankUnderHeading = (
+  row: readonly string[],
+  above: readonly string[],
+  coveredAbove: readonly boolean[] | undefined,
+) =>
+  row.some((text, column) => {
+    if ((text ?? "").trim() !== "" || (above[column] ?? "").trim() === "") return false;
+    return coveredAbove?.[column] !== true && coveredAbove?.[column + 1] !== true;
+  });
+
 /**
  * How many of a file's rows head its columns (#448): the first, and a row below it with an empty
- * label cell (a units row or a merged heading). A row with a label of its own heads only while no
- * heading above it has a label, the row just above has an empty label, and its cells are neither
- * placeholders nor figures under figures.
+ * label cell (a units row or a merged heading), unless it says a value beside a label of its own.
+ * A row with a label of its own heads only while no heading above it has a label and its cells are
+ * neither placeholders, figures under figures, nor blanks under a heading no span covers.
  */
-export function headingRowsOf(rows: readonly (readonly string[])[]): number {
+export function headingRowsOf(
+  rows: readonly (readonly string[])[],
+  spans: TableSpans = {},
+): number {
   const firstData = rows.findIndex((row) => row.some(isDatum));
   if (firstData <= 0) return 0;
   let headingCount = 1;
@@ -93,11 +121,17 @@ export function headingRowsOf(rows: readonly (readonly string[])[]): number {
     const row = rows[headingCount] ?? [];
     const above = rows[headingCount - 1] ?? [];
     if ((row[0] ?? "").trim() === "") {
+      if (figureWithLabel(row)) break;
       headingCount++;
       continue;
     }
     const labelled = rows.slice(0, headingCount).some((each) => (each[0] ?? "").trim() !== "");
-    if ((above[0] ?? "").trim() !== "" || labelled || underFigure(row, above)) break;
+    if (
+      labelled ||
+      underFigure(row, above) ||
+      blankUnderHeading(row, above, spans.covered?.[headingCount - 1])
+    )
+      break;
     headingCount++;
   }
   return headingCount;
@@ -117,7 +151,7 @@ export function cellTable(
   for (const row of rows) width = Math.max(width, row.length);
   if (width < 2) return null;
   if (!rows.some((row) => row.some(isDatum))) return null;
-  const headingCount = headingRowsOf(rows);
+  const headingCount = headingRowsOf(rows, spans);
   const body = rows
     .slice(headingCount)
     .map((row) => Array.from({ length: width }, (_, column) => row[column] ?? ""));
