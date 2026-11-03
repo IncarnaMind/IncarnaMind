@@ -60,7 +60,6 @@ interface Line<P extends string = FilePropertyName> {
   end: number;
 }
 
-/** One Document's file properties as the check shows them. */
 interface Source {
   document: Document;
   passage: WindowedPassage;
@@ -213,7 +212,6 @@ type Decided = Extract<ClaimJudgment, { verdict: ClaimVerdict }>;
 
 const UNDECIDED = { reason: null, covered: null, uncovered: null };
 
-/** Unsupported, as what backed it may not. */
 function unbacked<J extends Decided>(judgment: J): J {
   const { correction: _correction, ...rest } = judgment;
   return {
@@ -256,7 +254,6 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
   const sources = new Map<string, Source>();
   const byPassage = new Map<string, Source>();
   const unavailable = new Set<string>();
-  /** Computer lines a Citation quoted. */
   const computerQuoted: { source: Source; line: Line<DatedProperty> }[] = [];
   let reply = "";
 

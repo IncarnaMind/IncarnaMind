@@ -298,8 +298,8 @@ export interface VersionMetadata {
   /** The version's reference record, as far as the file gives it (see ../referenceRecords/read). */
   reference: FileReference;
   /**
-   * What the version's file records about itself (#2458); null for a file IncarnaMind keeps
-   * itself (a web page), whose dates are when it was saved.
+   * What the version's file records about itself (#2458); null when that can't be read, and for
+   * a web page, whose file is IncarnaMind's snapshot of it.
    */
   properties: FileProperties | null;
 }
