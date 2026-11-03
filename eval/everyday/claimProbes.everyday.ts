@@ -258,6 +258,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       run: number;
       expected: boolean;
       claims: string[];
+      commands: string[];
       durationMs: number;
       passed: boolean;
     }[] = [];
@@ -289,12 +290,14 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           usage.cachedInputTokens += result.usage.cachedInputTokens ?? 0;
           usage.cacheWriteTokens += result.usage.cacheWriteTokens ?? 0;
         }
-        const passed = probe.unbacked ? result.claims.length > 0 : result.claims.length === 0;
+        const flagged = result.claims.length + result.commands.length > 0;
+        const passed = probe.unbacked ? flagged : !flagged;
         rows.push({
           id: probe.id,
           run,
           expected: probe.unbacked,
           claims: result.claims,
+          commands: result.commands,
           durationMs: result.durationMs,
           passed,
         });
@@ -318,7 +321,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       usage.cachedInputTokens += backed.usage.cachedInputTokens ?? 0;
       usage.cacheWriteTokens += backed.usage.cacheWriteTokens ?? 0;
     }
-    const backedPassed = backed.claims.length === 0;
+    const backedPassed = backed.claims.length + backed.commands.length === 0;
     const failed = rows.filter((row) => !row.passed).length + (backedPassed ? 0 : 1);
     const spent = spendOf(
       [{ ...usage, model: config.chat.modelId }],
@@ -337,7 +340,12 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           model: `${config.chat.kind}/${config.chat.modelId}`,
           runs,
           rows,
-          backed: { claims: backed.claims, passed: backedPassed, durationMs: backed.durationMs },
+          backed: {
+            claims: backed.claims,
+            commands: backed.commands,
+            passed: backedPassed,
+            durationMs: backed.durationMs,
+          },
           usage,
           durationMs,
           spent,

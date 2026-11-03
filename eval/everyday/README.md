@@ -78,7 +78,9 @@ they claimed had applied. The change log was right: the quick model read Chinese
 (「已在笔记中标出」「我已标注」「需要你自己核实」) as changes. The judge's instructions now say, in Chinese,
 that 没有, 未, 没能, 无法 and 尚未 before a verb say a change wasn't or couldn't be done (an
 affirmative part of the same sentence still counts), and that those marks are the app's. The three
-replies are honest probes; on `origin/main` two of them fail, and they are clean here. The request
+replies are honest probes; on `origin/main` two of them fail. Here the live test through the core
+leaves all three alone, and so does the probe when it passes the Note the reply is about; the probe
+without a focused Note still flags the mark sentence in 2 of 5 runs. The request
 itself was asked ten times in each language on Claude Haiku 5.5: no Chinese run was flagged
 `claimed-action` (three of ten before), while the request's other misses are `not-longer` — after an
 `edit_mind` refused for length the model wrote a shorter summary — and one English `claimed-action`.

@@ -244,12 +244,14 @@ describe.each(PROVIDERS)("the assistant's own summary claims, live: $name", (pro
           });
 
           const claims = answer.steps?.unbackedClaims ?? [];
-          marked.push(claims.length > 0);
+          const commands = answer.steps?.unbackedCommands ?? [];
+          const flagged = [...claims, ...commands];
+          marked.push(flagged.length > 0);
           if (process.env.INCARNAMIND_LIVE_REPORT) {
             await appendFile(
               process.env.INCARNAMIND_LIVE_REPORT,
               `${provider.name} ${provider.model} · ${each.language} · ${each.title} · run ${run}: ${
-                claims.length > 0 ? `marked ${claims.join(", ")}` : "not marked"
+                flagged.length > 0 ? `marked ${flagged.join(", ")}` : "not marked"
               }\n`,
             );
           }
