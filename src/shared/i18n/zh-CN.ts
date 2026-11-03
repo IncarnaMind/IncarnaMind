@@ -3365,7 +3365,7 @@ export const zhCN = {
   "answer.figures.uncalculated.named":
     "{count} 个数字未能计算：{figures}。写入时没有可核对的算式。",
   "answer.setAsideHidden": "（文件中已隐藏）",
-  "answer.setAsideStruck": "（文件中已划掉）",
+  "answer.setAsideStruck": "（文件中已加删除线）",
   "answer.sourceNotKept": "（未能保留来源）",
   "answer.status.stopped": "已停止",
   "answer.stop": "停止",

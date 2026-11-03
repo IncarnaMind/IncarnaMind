@@ -32,6 +32,7 @@ import {
   quoteRetryPrompt,
   setAsideRowsMeaning,
 } from "./prompt";
+import { withLineMark } from "./sheetRows";
 import type { WindowBudget } from "./window";
 
 /** The most records one request asks about: the first ones, by marker. */
@@ -78,10 +79,12 @@ export function nearestExcerpt(
     if (each > (scores[best] as number)) best = index;
   });
   const first = pieces[best] as string;
+  const startOf = (piece: number) => pieces.slice(0, piece).join("").length;
   let used = tokens(first);
   if (used > maxTokens) {
     // One long line: its start, as much as fits.
-    return first.slice(0, Math.max(1, Math.floor((first.length * maxTokens) / used))).trim();
+    const cut = first.slice(0, Math.max(1, Math.floor((first.length * maxTokens) / used))).trim();
+    return withLineMark(text, startOf(best), cut);
   }
   let from = best;
   let to = best + 1;
@@ -101,7 +104,7 @@ export function nearestExcerpt(
       break;
     }
   }
-  return pieces.slice(from, to).join("").trim();
+  return withLineMark(text, startOf(from), pieces.slice(from, to).join("").trim());
 }
 
 /** The new quotes in the model's reply, by marker: only those given as text. */

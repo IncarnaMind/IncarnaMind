@@ -20,11 +20,14 @@ import {
   setAsideRowsMeaning,
   setAsideRowsNote,
 } from "../../src/core/answers/prompt";
+import { nearestExcerpt } from "../../src/core/answers/quoteRetry";
 import { withSetAsideMarks } from "../../src/core/answers/sheetRows";
 import { openDatabase } from "../../src/core/storage";
-import { answerEnded, shownPassages } from "../helpers/citations";
+import { askAssistant } from "../helpers/assistant";
+import { answerEnded, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
+import { readMind } from "../helpers/minds";
 import { scriptedModel, scriptedModels } from "../helpers/models";
 import { xlsxPackage } from "../helpers/office";
 import { type SheetRow, sheetWithRows } from "../helpers/sheetRows";
@@ -510,7 +513,7 @@ describe("what else reads a sheet's Passages", () => {
         "zh-CN",
         "之前的总载荷是多少？",
         "之前是 0.4 千克 [row 4, struck through]。",
-        "之前是 0.4 千克（文件中已划掉）。",
+        "之前是 0.4 千克（文件中已加删除线）。",
       ],
     ] as const) {
       const model = scriptedModel((call) =>
@@ -524,8 +527,40 @@ describe("what else reads a sheet's Passages", () => {
     }
   });
 
-  test("an Analysis leaves out the rows the file sets aside, and says which", async () => {
-    const runtime = createFakeAnalysisRuntime({ answer: () => ({ output: { results: [] } }) });
+  test("an Analysis reads every row, and names the set-aside ones it holds and a figure counts", async () => {
+    // The code sums the whole Subtotal column, as a model's figure(df["Subtotal (kg)"], "sum") does.
+    const runtime = createFakeAnalysisRuntime({
+      answer: (job) => {
+        const [input] = job.inputs;
+        const rows = input?.kind === "table" ? (input.rowNumbers ?? []) : [];
+        const at = input?.kind === "table" ? input.columns.indexOf("Subtotal (kg)") : -1;
+        const cells = input?.kind === "table" ? input.rows.map((row) => row[at]) : [];
+        const value = cells.reduce<number>(
+          (sum, cell) => sum + (typeof cell === "number" ? cell : 0),
+          0,
+        );
+        return {
+          output: {
+            results: [
+              {
+                kind: "figure",
+                name: "total",
+                label: "Total load",
+                unit: null,
+                value,
+                of: {
+                  input: "load",
+                  columns: ["Subtotal (kg)"],
+                  rows: [[rows[0] ?? 2, rows.at(-1) ?? 2]],
+                  count: rows.length,
+                  how: "sum",
+                },
+              },
+            ],
+          },
+        };
+      },
+    });
     const model = scriptedModel((call) => {
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search)
@@ -539,10 +574,10 @@ describe("what else reads a sheet's Passages", () => {
       }
       return { text: "Done." };
     });
-    for (const [earlier, rows, said] of [
-      [{ struck: true }, [5, 6, 7], "left out: rows 2–4, which the file strikes through"],
-      [{ hidden: true }, [5, 6, 7], "left out: rows 2–4, which the file hides"],
-      [{}, [2, 3, 4, 5, 6, 7], null],
+    for (const [earlier, said] of [
+      [{ struck: true }, "rows 2–4, which the file strikes through"],
+      [{ hidden: true }, "rows 2–4, which the file hides"],
+      [{}, null],
     ] as const) {
       const core = startCore(await createTempDataFolder(), {
         createChatModel: scriptedModels(model).createChatModel,
@@ -565,11 +600,80 @@ describe("what else reads a sheet's Passages", () => {
       await answerEnded(core, result.answerId);
       core.close();
       const input = runtime.jobs.at(-1)?.inputs[0];
-      expect(input?.kind === "table" ? input.rowNumbers : null).toEqual(rows);
+      expect(input?.kind === "table" ? input.rowNumbers : null).toEqual([2, 3, 4, 5, 6, 7]);
       const report = told(model, "run_analysis");
-      if (said) expect(report).toContain(said);
-      else expect(report).not.toContain("left out");
+      expect(report).toContain("Total load");
+      if (said) {
+        expect(report).toContain(`it holds ${said}: drop such rows by their numbers`);
+        expect(report).toContain(`it counts ${said}: never give it as the sheet's current figure`);
+      } else {
+        expect(report).not.toContain("it holds rows");
+        expect(report).not.toContain("it counts rows");
+      }
     }
+  });
+
+  test("calculate names each input it reads from a row the file sets aside", async () => {
+    const model = scriptedModel((call) => {
+      const search = call.results.find((result) => result.tool === "search_documents");
+      if (!search)
+        return { calls: [{ tool: "search_documents", input: { query: "Glass beads TOTAL" } }] };
+      const passage = shownPassages(search.text)[0]?.id;
+      const calculated = call.results.filter((result) => result.tool === "calculate").length;
+      const figure = (rows: readonly [string, string]) => ({
+        marker: calculated + 1,
+        label: "Load",
+        inputs: [
+          { name: "a", passage, quote: rows[0], number: rows[0].split("\t").at(-1) },
+          { name: "b", passage, quote: rows[1], number: rows[1].split("\t").at(-1) },
+        ],
+        formula: "a + b",
+      });
+      if (calculated === 0)
+        return {
+          calls: [
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  figure(["Glass beads\t0.125\t2\t0.25", "Control weights\t0.05\t3\t0.15"]),
+                ],
+              },
+            },
+          ],
+        };
+      if (calculated === 1)
+        return {
+          calls: [
+            {
+              tool: "calculate",
+              input: {
+                figures: [figure(["Glass beads\t0.075\t2\t0.15", "Control weights\t0.05\t2\t0.1"])],
+              },
+            },
+          ],
+        };
+      return { text: "The load is [=2]." };
+    });
+    await asked(model, worksheet("en", { struck: true }), "What is the current total load?");
+    const results = (model.doStreamCalls.at(-1)?.prompt ?? []).flatMap((message) =>
+      message.role === "tool"
+        ? message.content.flatMap((part) =>
+            part.type === "tool-result" &&
+            part.toolName === "calculate" &&
+            part.output.type === "text"
+              ? [part.output.value]
+              : [],
+          )
+        : [],
+    );
+    const [earlier, current] = results;
+    expect(earlier).toContain("Recorded [=1] = 0.40");
+    expect(earlier).toContain(
+      "a is in row 2, which the file strikes through; b is in row 3, which the file strikes through",
+    );
+    expect(current).toContain("Recorded [=2] = 0.25");
+    expect(current).not.toContain("which the file strikes through");
   });
 });
 
@@ -632,6 +736,88 @@ test("a workbook's formula Tools say when a figure or the input changed is in a 
     expect(result).toContain("Recorded [=");
     expect(result).not.toContain("which the file strikes through");
   }
+});
+
+test("a retry's excerpt that starts partway through a set-aside row keeps the row's mark", () => {
+  const text = [
+    "Item\tNote\tUnit mass (kg)\tQuantity",
+    "[row 2, struck through] Glass beads\tWeighed on the old scale. Checked twice. Logged by the lab. Sent to the auditor.\t0.125\t2",
+    "Glass beads\tWeighed on the new scale. Checked once. Logged by the lab. Sent to the buyer.\t0.075\t2",
+  ].join("\n");
+  const tokens = (each: string) => Math.ceil(each.length / 4);
+  expect(
+    nearestExcerpt(text, "Sent to the auditor.\t0.125\t2", "It was 0.125 kg.", 12, tokens),
+  ).toBe("[row 2, struck through] Sent to the auditor.\t0.125\t2");
+  expect(nearestExcerpt(text, "Sent to the buyer.\t0.075\t2", "It is 0.075 kg.", 12, tokens)).toBe(
+    "Logged by the lab. Sent to the buyer.\t0.075\t2",
+  );
+});
+
+test("a row struck through but for its revision's label, merged down beside it, is set aside", async () => {
+  const file = xlsxPackage({
+    sheets: [
+      {
+        name: "Load",
+        xml: `<sheetData><row r="1"><c r="B1" t="inlineStr"><is><t>Item</t></is></c><c r="C1" t="inlineStr"><is><t>Mass</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>Revision A</t></is></c><c r="B2" s="1" t="inlineStr"><is><t>Glass beads</t></is></c><c r="C2" s="1"><v>0.125</v></c></row><row r="3"><c r="B3" s="1" t="inlineStr"><is><t>TOTAL</t></is></c><c r="C3" s="1"><v>0.4</v></c></row><row r="4"><c r="A4" t="inlineStr"><is><t>Revision B</t></is></c><c r="B4" t="inlineStr"><is><t>Glass beads</t></is></c><c r="C4" s="1"><v>0.075</v></c></row><row r="5"><c r="B5" t="inlineStr"><is><t>TOTAL</t></is></c><c r="C5"><v>0.25</v></c></row></sheetData><mergeCells count="2"><mergeCell ref="A2:A3"/><mergeCell ref="A4:A5"/></mergeCells>`,
+      },
+    ],
+    styles: `<fonts count="2"><font><sz val="11"/></font><font><strike/><sz val="11"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders><cellXfs count="2"><xf numFmtId="0" fontId="0"/><xf numFmtId="0" fontId="1" applyFont="1"/></cellXfs>`,
+  });
+  // Row 4's struck mass beside a plain item is a cell struck in a current row, not a row set aside.
+  expect(linesOf(await shownToModel("en", file, "Glass beads TOTAL"))).toEqual([
+    "Item\tMass",
+    "[row 2, struck through] Revision A\tGlass beads\t0.125",
+    "[row 3, struck through] \tTOTAL\t0.4",
+    "Revision B\tGlass beads\t0.075",
+    "\tTOTAL\t0.25",
+  ]);
+});
+
+test("rows an AutoFilter hides are read as ordinary rows, and a row hidden outside it is set aside", async () => {
+  const file = xlsxPackage({
+    sheets: [
+      {
+        name: "Expenses",
+        xml: `<sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Item</t></is></c><c r="B1" t="inlineStr"><is><t>Amount</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>Taxi</t></is></c><c r="B2"><v>18.4</v></c></row><row r="3" hidden="1"><c r="A3" t="inlineStr"><is><t>Lunch</t></is></c><c r="B3"><v>12.5</v></c></row><row r="4" hidden="1"><c r="A4" t="inlineStr"><is><t>Hotel</t></is></c><c r="B4"><v>140</v></c></row></sheetData><autoFilter ref="A1:B3"><filterColumn colId="0"><filters><filter val="Taxi"/></filters></filterColumn></autoFilter>`,
+      },
+    ],
+  });
+  expect(linesOf(await shownToModel("en", file, "Taxi Lunch Hotel"))).toEqual([
+    "Item\tAmount",
+    "Taxi\t18.4",
+    "Lunch\t12.5",
+    "[row 4, hidden] Hotel\t140",
+  ]);
+});
+
+test("a mark the assistant copies into a Note is said in words there too", async () => {
+  const model = scriptedModel((call) => {
+    const search = call.results.find((result) => result.tool === "search_documents");
+    if (!search)
+      return { calls: [{ tool: "search_documents", input: { query: "Glass beads TOTAL" } }] };
+    if (!call.results.some((result) => result.tool === "cite")) {
+      const passage = shownPassages(search.text)[0]?.id;
+      const record = { marker: 1, passage, quote: "TOTAL\t\t\t0.4" };
+      return { calls: [{ tool: "cite", input: { citations: [record] } }] };
+    }
+    if (!call.results.some((result) => result.tool === "add_to_mind")) {
+      const content = "The earlier total was 0.4 kg [row 4, struck through] [^1].";
+      return { calls: [{ tool: "add_to_mind", input: { content } }] };
+    }
+    return { text: "I added the earlier total, 0.4 kg [row 4, struck through], to the Note." };
+  });
+  const { core, mind, client } = await setUpWithDocuments(model, [
+    { name: "Load worksheet.xlsx", contents: worksheet("en", { struck: true }) },
+  ]);
+  const answer = await askAssistant(core, { text: "Note the earlier total.", mindId: mind.id });
+  await client.settled();
+  expect(answer.text).toContain(
+    "the earlier total, 0.4 kg (struck through in the file), to the Note",
+  );
+  const written = readMind(client).textContent;
+  expect(written).toContain("The earlier total was 0.4 kg (struck through in the file)");
+  expect(written).not.toContain("[row 4");
+  core.close();
 });
 
 test("a Passage found twice in its Units with other marks, or not at all, names its set-aside rows instead", () => {

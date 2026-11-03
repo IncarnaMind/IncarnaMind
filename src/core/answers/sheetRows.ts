@@ -20,7 +20,19 @@ export const SET_ASIDE_MARK = new RegExp(
 );
 
 /** A line of a Passage that is a row the file sets aside, after any mark where its Unit starts. */
-export const SET_ASIDE_LINE = new RegExp(`^(?:\\[[^\\]\\n]*\\] )?${LINE_MARK.source} `);
+export const SET_ASIDE_LINE = new RegExp(`^(?:\\[[^\\]\\n]*\\] )?(${LINE_MARK.source}) `);
+
+/**
+ * `excerpt`, a part of a Passage's `text` that starts at `start`, with the mark of the set-aside
+ * row it starts inside of, when it starts partway through one: cut there, the row's figures
+ * would read as current.
+ */
+export function withLineMark(text: string, start: number, excerpt: string): string {
+  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
+  if (lineStart >= start) return excerpt;
+  const mark = SET_ASIDE_LINE.exec(text.slice(lineStart, start))?.[1];
+  return mark ? `${mark} ${excerpt}` : excerpt;
+}
 
 interface LaidLine {
   row: number | null;
@@ -146,7 +158,7 @@ export function setAsideMarksInWords(
         ...(mark.includes("struck through") ? [words.struck] : []),
         ...(mark.includes("hidden") ? [words.hidden] : []),
       ];
-      // No space beside full-width words: "（文件中已划去）" (docs/agents/zh-CN.md, rule 2).
+      // No space beside full-width words: "（文件中已加删除线）" (docs/agents/zh-CN.md, rule 2).
       const latin = /^[\x20-\x7e]/.test(words.struck);
       return latin ? `${before}${ways.join(" ")}${after}` : ways.join("");
     },

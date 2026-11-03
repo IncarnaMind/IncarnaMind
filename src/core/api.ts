@@ -2560,7 +2560,7 @@ export interface AnalysisRangeInput {
   rowCount: number;
   /** Only part of the range was read: it has more than an Analysis reads, or its sheet was cut when indexed. */
   cut: boolean;
-  /** Rows under its headings the file strikes through or hides, left out of what was read (#1979). */
+  /** Rows it read that the file strikes through or hides, which an earlier version of a row may be (#1979). */
   setAside?: { struck: number[]; hidden: number[] };
   /** SHA-256 of its headings and rows as read. */
   sha256: string;

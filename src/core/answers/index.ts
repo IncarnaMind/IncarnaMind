@@ -2684,7 +2684,10 @@ export function createAnswers(options: AnswersOptions) {
                 let unrecorded = 0;
                 let firstUnrecorded = -1;
                 const written = withoutSearchTalk(
-                  session.citeWrittenIds(withoutFootnoteDefinitions(text), notKept),
+                  session.citeWrittenIds(
+                    withoutFootnoteDefinitions(setAsideMarksInWords(text, setAsideWords)),
+                    notKept,
+                  ),
                 );
                 // A marker is the Analysis's own table, not text typed again. This Answer's
                 // Analyses name their markers first; the last Answer's stand for the rest, as

@@ -38,18 +38,17 @@ function tableText(table: AnalysisTable, shownRows: number, language: Language):
   return lines.join("\n");
 }
 
-/** What a range left out of the rows the file sets aside, after its size. */
-function setAsideText(setAside: AnalysisRangeInput["setAside"]): string {
-  if (!setAside) return "";
-  const said = [
-    ...(setAside.struck.length > 0
-      ? [`${rowsText(rowRuns(setAside.struck))}, which the file strikes through`]
-      : []),
-    ...(setAside.hidden.length > 0
-      ? [`${rowsText(rowRuns(setAside.hidden))}, which the file hides`]
-      : []),
-  ];
-  return `; left out: ${said.join(", and ")}, as the file sets them aside (give a figure from them only from the Passages, saying so)`;
+/** The rows the file sets aside among `rows`, as the report names them; "" for none. */
+function setAsideText(
+  setAside: AnalysisRangeInput["setAside"],
+  rows: (row: number) => boolean = () => true,
+): string {
+  const struck = (setAside?.struck ?? []).filter(rows);
+  const hidden = (setAside?.hidden ?? []).filter(rows);
+  return [
+    ...(struck.length > 0 ? [`${rowsText(rowRuns(struck))}, which the file strikes through`] : []),
+    ...(hidden.length > 0 ? [`${rowsText(rowRuns(hidden))}, which the file hides`] : []),
+  ].join(", and ");
 }
 
 const ROWS_READ = 20;
@@ -65,8 +64,12 @@ export function analysisReport(analysis: AnswerAnalysis, language: Language): st
       const cut = input.cut
         ? ` (cut: only its first ${rowsOf(input.rows)} were read, the most an Analysis reads; say so in the Answer)`
         : "";
+      const aside = setAsideText(input.setAside);
+      const held = aside
+        ? `; it holds ${aside}: drop such rows by their numbers where they are an earlier version of rows the sheet shows plainly`
+        : "";
       lines.push(
-        `- ${input.name}: ${where}: ${rowsOf(input.rows)} × ${input.columns} columns${cut}${setAsideText(input.setAside)}`,
+        `- ${input.name}: ${where}: ${rowsOf(input.rows)} × ${input.columns} columns${cut}${held}`,
       );
     } else {
       lines.push(
@@ -160,7 +163,9 @@ function resultLines(analysis: AnswerAnalysis, language: Language): string[] {
         continue;
       }
       const of = result.of ? ` (${tracedRows(result.of)})` : "";
-      lines.push(`- [=${marker}] ${result.label}: ${value}${of}`);
+      lines.push(
+        `- [=${marker}] ${result.label}: ${value}${of}${countsSetAside(analysis, result)}`,
+      );
     } else {
       const marker = table.get(result.name);
       const { rowCount, columnCount } = result.table;
@@ -181,6 +186,21 @@ function resultLines(analysis: AnswerAnalysis, language: Language): string[] {
     lines.push(`- [=picture ${marker}] ${picture.title || "Untitled"} (a picture matplotlib drew)`);
   });
   return lines;
+}
+
+/** What a figure counts of the rows the file sets aside, said after it; "" when it counts none. */
+function countsSetAside(
+  analysis: AnswerAnalysis,
+  result: Extract<AnalysisValue, { kind: "figure" }>,
+): string {
+  const of = result.of;
+  const input = analysis.inputs.find((each) => each.kind === "range" && each.name === of?.input);
+  if (!of || input?.kind !== "range") return "";
+  const counted = (row: number) => of.rows.some(([from, to]) => row >= from && row <= to);
+  const aside = setAsideText(input.setAside, counted);
+  return aside
+    ? `; it counts ${aside}: never give it as the sheet's current figure unless those rows are current entries, and say so`
+    : "";
 }
 
 function refusal(

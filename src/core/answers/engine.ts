@@ -1946,11 +1946,13 @@ async function* toolLoop(
     yield* flagged(mergedFlags(standingFlags, await flagsOf(request.turnChecks ?? [], keptText)));
   }
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
+    const worded = request.documents.setAsideInWords?.(keptText) ?? keptText;
+    yield* textEdits(keptText, worded);
+    keptText = worded;
     const suffix = request.refusalSuffix?.(keptText) ?? null;
     if (keptText.trim() !== "" || suffix === null) {
       if (!request.documents.wroteIntoMind?.()) {
-        const withFigures = request.documents.citeFigures?.(keptText) ?? keptText;
-        const figured = request.documents.setAsideInWords?.(withFigures) ?? withFigures;
+        const figured = request.documents.citeFigures?.(keptText) ?? keptText;
         yield* textEdits(keptText, figured);
         keptText = figured;
         const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
