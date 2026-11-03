@@ -437,12 +437,14 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
       if (property === undefined) return true;
       return property !== null && declared?.has(property) === true && isAbout(citation?.documentId);
     };
-    const listed = [
-      ...(result.checkedEvidence ?? []),
-      ...(result.coverage?.members.flatMap((member) => member.evidence) ?? []),
-      ...(result.coverage?.domainEvidence ?? []),
-    ];
-    const held = (judgment: AtomicClaimCheckResult): AtomicClaimCheckResult => {
+    // A part of the sentence (a figure, or the words besides its figures) is held to the rules on
+    // its own Citations; the sentence on all of them, so a property that may not decide a part
+    // never leaves the sentence Supported.
+    const held = <J extends ClaimJudgment>(
+      judgment: J,
+      deciding: readonly (CitationLike | null | undefined)[],
+      sentence: boolean,
+    ): J => {
       if (judgment.verdict === "not-checked") return judgment;
       if (judgment.verdict === "unsupported") {
         const why = judgment.unsupported;
@@ -456,24 +458,54 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
         };
       }
       const correction = judgment.correction?.choices ?? [];
-      const all = [judgment.evidence, ...listed, ...correction.map((each) => each.evidence)];
+      const all = [judgment.evidence, ...deciding, ...correction.map((each) => each.evidence)];
       const properties = new Set(all.map(propertyOf).filter((each) => each));
       const decidedBy = propertyOf(judgment.evidence);
       // Text that looks like a property ("Author: …" in the body, a footer's date) never decides
       // a sentence about one, for or against.
       const unbackedProperty =
+        sentence &&
         declared !== null &&
         declared.size > 0 &&
         (judgment.verdict === "supported"
           ? [...declared].some((property) => !properties.has(property))
           : !decidedBy || !declared.has(decidedBy));
-      if (!all.every(mayDecide) || unbackedProperty) return unbacked(judgment as Decided);
+      if (!all.every(mayDecide) || unbackedProperty) return unbacked(judgment as Decided) as J;
       if (!correction.some((each) => propertyOf(each.evidence) !== undefined)) return judgment;
       const { correction: _correction, ...kept } = judgment;
-      return kept;
+      return kept as J;
     };
+    const figures = result.figures?.map((figure) => {
+      const judged = held(figure.result, [figure.source, figure.sourceInput?.citation], false);
+      // A figure's source is a number in a Document's text, which the Note may cite or change the
+      // figure to; a property it was compared with is only its result's evidence.
+      const fromProperty = [figure.source, figure.sourceInput?.citation].some(
+        (citation) => propertyOf(citation) !== undefined,
+      );
+      return fromProperty
+        ? { ...figure, source: null, sourceInput: null, result: judged }
+        : { ...figure, result: judged };
+    });
+    const remainder = result.remainder && held(result.remainder, [], false);
+    const evidenceOf = (judgment: ClaimJudgment | null | undefined) =>
+      judgment && judgment.verdict !== "not-checked" ? judgment.evidence : null;
+    const parts = [
+      ...(result.figures ?? []).flatMap((figure) => [
+        evidenceOf(figure.result),
+        figure.source,
+        figure.sourceInput?.citation,
+      ]),
+      evidenceOf(result.remainder),
+    ];
+    const listed = [
+      ...(result.checkedEvidence ?? []),
+      ...(result.coverage?.members.flatMap((member) => member.evidence) ?? []),
+      ...(result.coverage?.domainEvidence ?? []),
+    ];
     const judged: AtomicClaimCheckResult = {
-      ...held(result),
+      ...held(result, [...listed, ...parts], true),
+      ...(figures && { figures }),
+      ...(result.remainder !== undefined && { remainder }),
       // What a part's row lists: never a property its sentence isn't about.
       ...(result.checkedEvidence && { checkedEvidence: result.checkedEvidence.filter(mayDecide) }),
       ...(result.coverage && {
@@ -542,8 +574,7 @@ export function withFileProperties(
   const plain = create(deps);
   if (!deps.documents.getMany) return plain;
   return async (request) => {
-    // A sentence with figures is checked figure by figure, which no property backs.
-    if (request.window || (request.figures?.length ?? 0) > 0) return plain(request);
+    if (request.window) return plain(request);
     const run = propertyRun(deps, request);
     const result = await create({
       ...deps,

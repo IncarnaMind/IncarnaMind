@@ -488,10 +488,13 @@ describe.each(["en", "zh-CN"] as const)(
       for (const [sentence, file, location] of expected) {
         const { check } = await checkInNote(setup.core, sentence, null);
         const documentId = setup.named(file).id;
+        // The property is the figure's evidence, never a source the Note could cite or change to.
         expect(check, sentence).toMatchObject({
           state: "supported",
           evidence: { documentId, location },
-          figures: [{ state: "supported", evidence: { documentId, location } }],
+          figures: [
+            { state: "supported", evidence: { documentId, location }, source: null, sourceInput: null },
+          ],
         });
       }
 
@@ -499,7 +502,13 @@ describe.each(["en", "zh-CN"] as const)(
       expect(wrong).toMatchObject({
         state: "contradicted",
         evidence: { location: property("slides", "3") },
-        figures: [{ state: "contradicted", evidence: { location: property("slides", "3") } }],
+        // The file's bare "3" doesn't contradict a figure in a unit it doesn't write, "5 张"
+        // (#2073): that figure is Unsupported, and the sentence's own verdict stands.
+        figures: [
+          language === "en"
+            ? { state: "contradicted", evidence: { location: property("slides", "3") } }
+            : { state: "unsupported", evidence: null },
+        ],
       });
       // The file's count is never written into the Note as a Document's words.
       expect(wrong).not.toHaveProperty("correction");
