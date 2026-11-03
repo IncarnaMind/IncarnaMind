@@ -188,7 +188,6 @@ for (const language of ["en", "zh-CN"] as const) {
       (call) => call.prompt.includes(recap) && call.prompt.includes("<live-transcript>"),
     );
     expect(firstCall).toBeDefined();
-    // With no earlier reply in the request, nothing could be taken for the call.
     expect(firstCall?.prompt).not.toContain("<call>");
     expect(first.citations.length).toBeGreaterThan(0);
     const prior = await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" });
@@ -199,7 +198,6 @@ for (const language of ["en", "zh-CN"] as const) {
         call.prompt.includes(translate(language, "meetings.help.notCovered")),
     );
     expect(helpCall).toBeDefined();
-    // A named help press stands alone: no call scope note, and no earlier turn to take for the call.
     expect(helpCall?.prompt).not.toContain("<call>");
     const typed = language === "en" ? "What have we covered so far?" : "我们聊到哪了？";
     const before = calls.length;
@@ -221,7 +219,7 @@ for (const language of ["en", "zh-CN"] as const) {
       "The live transcript above is what was said in this call. An earlier reply is not part of the call: it is there for follow-ups about it.",
     );
     expect(scope).toContain(
-      "When <live-transcript> is empty, say there is no call content yet; never summarize Library Documents or the earlier reply instead.",
+      "When a recap or summary of the call is asked and <live-transcript> is empty, say there is no call content yet rather than summarizing Library Documents or the earlier reply.",
     );
     expect(scope).toContain(
       "A recap or summary of the call is what was said in it: a short list, each line citing the live-transcript passage it rests on, plus the written notes when the Question asks for them.",
@@ -232,13 +230,11 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(scope).toContain("</call>");
     expect(scope.indexOf("</live-transcript>")).toBeLessThan(scope.indexOf("<call>"));
     expect(scope.indexOf("<call>")).toBeLessThan(scope.indexOf(typed));
-    // The guide's reply stays in the conversation: follow-ups about it still read it.
     const guideSaid =
       language === "en"
         ? "supplier payments are due in forty-five days"
         : "提纲要求询问供应商的付款期是否为四十五天";
     expect(secondCall?.prompt).toContain(guideSaid);
-    // The recap's own answer rests on the call.
     expect(second.text).not.toContain(fact);
     expect(second.citations.length).toBeGreaterThan(0);
     expect(second.citations.every((citation) => citation.documentId !== guide.id)).toBe(true);
@@ -288,8 +284,8 @@ for (const language of ["en", "zh-CN"] as const) {
       .slice(endedFrom)
       .find((call) => call.prompt.includes(typed) && !call.prompt.includes("<live-transcript>"));
     expect(endedCall).toBeDefined();
-    // A recap after the call ended keeps the earlier reply and takes no call to scope.
     expect(endedCall?.prompt).not.toContain("<call>");
+    expect(endedCall?.prompt).not.toContain("The User is in a meeting that is being recorded");
     expect(endedCall?.prompt).toContain(guideSaid);
   });
 
@@ -314,7 +310,7 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(call).toBeDefined();
     expect(call?.prompt).toContain("<call>");
     expect(call?.prompt).toContain(
-      "When <live-transcript> is empty, say there is no call content yet; never summarize Library Documents or the earlier reply instead.",
+      "When a recap or summary of the call is asked and <live-transcript> is empty, say there is no call content yet rather than summarizing Library Documents or the earlier reply.",
     );
     expect(answer.text).toBe(
       language === "en" ? "Not enough call content yet." : "通话内容还不够。",
