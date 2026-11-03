@@ -1767,6 +1767,7 @@ export const zhCN = {
   "command.annotations.export": "导出这个文档的高亮",
   "command.annotations.collect": "将这个文档的高亮收进一个 Mind",
   "command.annotations.collectFolder": "将这个文件夹的高亮收进一个 Mind",
+  "annotations.more": "“{quote}”的更多操作",
   "annotations.search.title": "高亮与笔记",
   "annotations.search.open": "打开这条高亮",
   "viewer.mark.found": "引用 {number}：已找到引文",

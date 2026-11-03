@@ -5343,8 +5343,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     saveAnnotationsExport: async (documentId) => {
       const id = parseDocumentId(documentId);
-      const { name, text } = annotations.markdown(id);
       if (annotations.list(id).length === 0) return { status: "empty" };
+      const { name, text } = annotations.markdown(id);
       return saveExport(name, new TextEncoder().encode(text), null);
     },
     searchPassages: (query, options) => {

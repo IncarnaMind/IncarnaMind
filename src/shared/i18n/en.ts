@@ -1849,6 +1849,7 @@ export const en = {
   "command.annotations.export": "Export this Document’s highlights",
   "command.annotations.collect": "Collect this Document’s highlights into a Mind",
   "command.annotations.collectFolder": "Collect this Folder’s highlights into a Mind",
+  "annotations.more": "More actions for “{quote}”",
   "annotations.search.title": "Highlights and notes",
   "annotations.search.open": "Open this highlight",
   "viewer.mark.found": "Citation {number}: quote found",

@@ -24,9 +24,11 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
   const where = annotation.location ? formatLocation(annotation.location, t) : "";
 
   const save = () => {
+    // A press on Save blurs the field first: the second save has nothing left to do.
+    if (!editing) return;
+    setEditing(false);
     const note = draft.trim() === "" ? null : draft;
     if (note !== annotation.note) void editAnnotation(annotation, { note });
-    setEditing(false);
   };
 
   return (
@@ -51,7 +53,7 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
         )}
         <ObjectMenu
           target={{ kind: "annotation", id: annotation.id }}
-          label={t("annotations.menu.editNote")}
+          label={t("annotations.more", { quote: annotation.quote })}
           className="annotation-row-menu"
         />
       </span>
