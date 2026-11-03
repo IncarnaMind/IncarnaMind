@@ -18,7 +18,7 @@ import { titleWithoutSite } from "../../shared/documentNames";
 import { translate } from "../../shared/i18n";
 import type { Translate } from "../../shared/locations";
 import { mindScopeOf } from "../../shared/mindScope";
-import { mindName, withoutTrailingMarks } from "../../shared/naming";
+import { mindName } from "../../shared/naming";
 import type { PrintPaper } from "../../shared/printDocument";
 import { pendingProposals } from "../../shared/proposals";
 import type { ScopeKind } from "../../shared/searchScope";
@@ -61,8 +61,8 @@ import {
   type FailedCheck,
   type FailedSentence,
   type Footnote,
+  firstLineOf,
   footnotesIn,
-  namedLineOf,
   type ReadOptions,
   readBlocks,
   reviewReading,
@@ -155,18 +155,16 @@ const EXTENSIONS: Readonly<Record<ExportFormat, string>> = {
 };
 
 /**
- * What the note's file is called (#1945): the title the User gave it; else, when an Answer wrote
- * the note's first line, the Question that made it; else that line. A file name is only cut where
- * a file name can't hold it (`safeFileName`), never to a title's width, and never ends on the
- * mark a sentence does.
+ * What the note's file is called: the Note's own name, as its tab and the Library show it — the
+ * title the User gave it, else the first line it shows, cut as that name is (#2418). Never the
+ * Question that made the line. Someone else's file goes back to its author under its own name
+ * (#110). A file name is only cut where a file name can't hold it (`safeFileName`).
  */
 function exportName(mind: Mind, blocks: Y.XmlFragment): string {
-  // Someone else's file goes back to its author under its own name (#110).
   const verified = blocks.doc ? verificationOf(blocks.doc) : null;
   if (verified?.documentName) return verified.documentName;
-  if (mind.title !== "") return mind.title;
-  const { line, question } = namedLineOf(blocks);
-  return withoutTrailingMarks(question || line);
+  // A Mind edited before it kept its own name (`autoTitle`) is named by its first line here.
+  return mindName(mind) || firstLineOf(blocks);
 }
 
 /** A new Mind's title line left empty says nothing in a file: no empty heading at its top. */

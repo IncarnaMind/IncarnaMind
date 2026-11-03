@@ -1,4 +1,4 @@
-import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -15,6 +15,7 @@ import {
   dismissChatSetup,
   editFolderInLibrary,
   exportFromMenu,
+  frontMind,
   frontMindName,
   interceptOpenDialog,
   interceptOpenPath,
@@ -763,49 +764,73 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-for (const language of ["en", "zh-CN"] as const) {
-  const instruction =
-    language === "en" ? "Summarise this agreement for me." : "为这份协议写一份摘要。";
+const MEMBERSHIP = {
+  en: {
+    answer: "The membership costs 48 pounds a month. To cancel, write to the club.",
+    firstLine: "The membership costs 48 pounds a month. To cancel",
+    question: "How much is the membership, and how do I cancel it?",
+  },
+  "zh-CN": {
+    answer: "会员费每月 48 英镑，取消请写信给俱乐部。",
+    firstLine: "会员费每月 48 英镑，取消请写信给俱乐部",
+    question: "会员费是多少，怎么取消？",
+  },
+} as const;
 
-  test(`a new Mind made from an Answer is named by its first line, not by the conversation's name from the first instruction, and its file takes the Question; a name the User gave the conversation is kept (${language})`, async () => {
+for (const language of ["en", "zh-CN"] as const) {
+  const words = MEMBERSHIP[language];
+
+  test(`a Note's Word and PDF files take its own name, never the Question that made its first line, and the Saved line says it (${language}) (#2418)`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await bridge(window).language(language);
     await setWindowSize(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height);
-    const core = await coreOf(window);
-    const minds = () => core.evaluate((each) => each.listMinds());
+    await useOutputLocation(window, sources);
+    await newMind(window);
+    const mindId = await frontMind(window).getAttribute("data-mind-id");
 
-    const answer = await askInAssistant(window, instruction);
-    const addToNew = async () => {
-      await pointAt(window, answer.getByTestId("assistant-answer-text"));
-      await pointAndClick(window, answer.getByTestId("answer-add-to"));
-      await pointAndClick(
-        window,
-        window.getByTestId("add-to-picker").getByTestId("add-to-option").last(),
+    // The Note's first line an Answer wrote, with the Question that made it kept as its origin.
+    const asked = await window.evaluate(async (question) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const result = await core.askInConversation({ text: question });
+      if (!result.asked) throw new Error(`The Question wasn't asked: ${result.reason}`);
+      return { conversationId: result.conversation.id, answerId: result.answerId };
+    }, words.question);
+    await window.evaluate(
+      async ({ mindId, asked, answer, question }) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.addToNote({
+          mindId,
+          blocks: [{ type: "paragraph", content: [{ type: "text", text: answer }] }],
+          origin: {
+            from: {
+              artifactKind: "conversation",
+              artifactId: asked.conversationId,
+              anchor: { kind: "message", messageId: asked.answerId },
+            },
+            question,
+          },
+          model: null,
+        });
+      },
+      { mindId: mindId ?? "", asked, answer: words.answer, question: words.question },
+    );
+
+    // The Note is named by its own first line on screen, and so are its files.
+    await expect(frontMindName(window)).toHaveText(words.firstLine);
+    const done = window.getByTestId("export-result").getByTestId("export-done");
+    for (const format of ["docx", "pdf"] as const) {
+      await exportFromMenu(window, format);
+      // The line cuts a long name in the middle; its accessible name gives the whole one.
+      await expect(done).toHaveAccessibleName(
+        savedLine(`${words.firstLine}.${format}`, sources, language),
       );
-    };
-
-    await addToNew();
-    await expect.poll(async () => (await minds()).length).toBe(1);
-    const [first] = await minds();
-    expect(first?.title).toBe("");
-    expect(first?.autoTitle).toMatch(/^This is a scripted Answer to/);
-    const preview = await core.evaluate(
-      (each, mindId) => each.previewMindExport(mindId, { format: "docx" }),
-      first?.id ?? "",
+    }
+    // On disk: the Note's two files, and no file named after the Question.
+    expect((await readdir(sources)).toSorted()).toEqual(
+      [`${words.firstLine}.docx`, `${words.firstLine}.pdf`].toSorted(),
     );
-    // Its file takes the Question that made it (#1945), not the Answer's first sentence.
-    expect(preview.fileName).toBe(`${instruction.replace(/[.?？。]$/, "")}.docx`);
-
-    const conversationId = (await core.evaluate((each) => each.listConversations()))[0]?.id ?? "";
-    await core.evaluate(
-      (each, id) => each.renameConversation(id, "Agreement review"),
-      conversationId,
-    );
-    await addToNew();
-    await expect.poll(async () => (await minds()).length).toBe(2);
-    expect((await minds()).map((each) => each.title)).toContain("Agreement review");
     await app.close();
   });
 }
