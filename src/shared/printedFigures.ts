@@ -65,15 +65,20 @@ const taken = (run: PrintedRun) => new Set(run.output.results.map((result) => re
 
 const memo = new WeakMap<PrintedRun, PrintedValue[]>();
 
-/** Each number a run printed or wrote to a text file in out/, also one that failed after printing it. */
+/**
+ * Each number a run printed or wrote to a text file in out/, also one that failed after printing
+ * it. A line printed again gives the same values: only its first is read.
+ */
 export function printedValues(run: PrintedRun): PrintedValue[] {
   const known = memo.get(run);
   if (known) return known;
   const names = taken(run);
+  const seen = new Set<string>();
   const values = printedTexts(run).flatMap(({ source, text }) => {
     let from = 0;
     return text.split("\n").flatMap((line) => {
-      const found = lineValues(source, line, from, names);
+      const found = seen.has(line) ? [] : lineValues(source, line, from, names);
+      seen.add(line);
       from += line.length + 1;
       return found;
     });

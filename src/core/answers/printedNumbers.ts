@@ -216,12 +216,19 @@ export interface PrintedNumbersText {
  */
 export function createPrintedNumbers(options: PrintedNumbersOptions) {
   const recorded = new Map<string, number>();
+  // A Note's text is read again as it streams, while the Analyses stay the same.
+  let grouped: { runs: readonly AnswerAnalysis[]; groups: PrintedGroup[] } | null = null;
   return (text: string, given: PrintedNumbersText): string => {
-    const groups = groupsOf(
-      given.analyses.flatMap((analysis) =>
+    const same =
+      grouped?.runs.length === given.analyses.length &&
+      given.analyses.every((run, at) => grouped?.runs[at] === run);
+    if (!grouped || !same) {
+      const candidates = given.analyses.flatMap((analysis) =>
         printedValues(analysis).map((printed) => ({ ...printed, analysis: analysis.number })),
-      ),
-    );
+      );
+      grouped = { runs: [...given.analyses], groups: groupsOf(candidates) };
+    }
+    const { groups } = grouped;
     if (groups.length === 0) return text;
     const refused = given.analyses.flatMap((analysis) =>
       (analysis.recalculations ?? []).flatMap(({ result, check }) => {
