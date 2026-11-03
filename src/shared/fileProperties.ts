@@ -101,4 +101,5 @@ export const propertyRow = (
   document: string,
   t: Translate,
   language: Language,
-): string => t("claim.properties.row", { document, property: propertyWords(location, t, language) });
+): string =>
+  t("claim.properties.row", { document, property: propertyWords(location, t, language) });

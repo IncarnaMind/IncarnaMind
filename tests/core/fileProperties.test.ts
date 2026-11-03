@@ -8,13 +8,14 @@
 import { randomUUID } from "node:crypto";
 import { utimes } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
-import type { ClaimCheckAttributes, Document } from "../../src/core";
+import type { ClaimCheckAttributes, Core, Document } from "../../src/core";
 import type { Language } from "../../src/core/language";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkGenerate, isCheckRun, sentenceOf } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { textOf, unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
@@ -152,6 +153,27 @@ async function setUp(
 }
 
 const property = (name: string, value: string) => ({ kind: "properties", property: name, value });
+
+/** Writes `sentence` in a new Note in `folderId` and checks it there, as Check against Documents does. */
+async function checkInNote(core: Core, sentence: string, folderId: string | null) {
+  const note = await core.createMind({ title: "Lease note", folderId });
+  const mind = await connectToMind(core, note.id);
+  writeMind(mind, [
+    { type: "paragraph", attrs: { id: "one" }, content: [{ type: "text", text: sentence }] },
+  ]);
+  await mind.settled();
+  await core.checkSentences({
+    requestId: `check-${randomUUID()}`,
+    mindId: note.id,
+    action: "check-against-documents",
+    from: { blockId: "one", offset: 0 },
+    to: { blockId: "one", offset: sentence.length },
+    allDocuments: true,
+  });
+  await mind.settled();
+  const check: ClaimCheckAttributes | undefined = claimSpans(readMind(mind))[0]?.check;
+  return { check, noteId: note.id };
+}
 
 const ISSUE = {
   en: "The file was last modified on 2026-11-02, which is not the agreement's own date.",
@@ -705,32 +727,12 @@ describe("Which Documents' properties a check shows", () => {
       description: "",
       keepInside: true,
     });
-    const checkIn = async (folderId: string | null) => {
-      const note = await setup.core.createMind({ title: "Lease note", folderId });
-      const mind = await connectToMind(setup.core, note.id);
-      writeMind(mind, [
-        { type: "paragraph", attrs: { id: "one" }, content: [{ type: "text", text: SENTENCE }] },
-      ]);
-      await mind.settled();
-      await setup.core.checkSentences({
-        requestId: `check-${randomUUID()}`,
-        mindId: note.id,
-        action: "check-against-documents",
-        from: { blockId: "one", offset: 0 },
-        to: { blockId: "one", offset: SENTENCE.length },
-        allDocuments: true,
-      });
-      await mind.settled();
-      const check: ClaimCheckAttributes | undefined = claimSpans(readMind(mind))[0]?.check;
-      return check;
-    };
-
-    const outside = await checkIn(null);
+    const { check: outside } = await checkInNote(setup.core, SENTENCE, null);
     expect(outside?.state).not.toBe("supported");
     expect(outside?.evidence ?? null).toBeNull();
     expect(setup.sent()).not.toContain("2026-11-02T09:00:00Z");
 
-    const inside = await checkIn(client.id);
+    const { check: inside } = await checkInNote(setup.core, SENTENCE, client.id);
     expect(inside).toMatchObject({
       state: "supported",
       evidence: { documentId: lease.id, location: property("modified", "2026-11-02T09:00:00Z") },
@@ -858,5 +860,50 @@ describe("What a Document keeps of its file's properties", () => {
 
     expect(of("Notes.md")).toEqual({ created: null, modified: null, author: null, sheets: null });
     expect(of("Letter.rtf")).toBeNull();
+  });
+});
+
+describe.each([
+  {
+    language: "en" as const,
+    note: "(“Modified 30 Oct 2026 (the file’s own date)”, File properties, Services agreement)",
+  },
+  {
+    language: "zh-CN" as const,
+    note: "（“修改时间 2026年10月30日（文件本身的日期）”，文件属性，Services agreement）",
+  },
+])("In an export ($language)", ({ language, note }) => {
+  test("a sentence a property contradicts is noted with the property, as a plain note of the file's properties", async () => {
+    const SENTENCE = "Services agreement.docx was last modified on 2 November 2026.";
+    const setup = await setUp(
+      [
+        {
+          name: "Services agreement.docx",
+          contents: agreement({ modified: "2026-10-30T16:45:00Z" }),
+        },
+      ],
+      {
+        [SENTENCE]: {
+          verdict: "contradicted",
+          quote: "Modified: 2026-10-30T16:45:00Z",
+          property: "modified",
+          says: "The file records 30 October 2026.",
+        },
+      },
+      language,
+    );
+    const { check, noteId } = await checkInNote(setup.core, SENTENCE, null);
+    expect(check).toMatchObject({
+      state: "contradicted",
+      evidence: { location: property("modified", "2026-10-30T16:45:00Z") },
+    });
+
+    const exported = await setup.core.exportMind(noteId, {
+      format: "docx",
+      commentFailedChecks: true,
+    });
+    const comments = textOf(unzip(exported.data).get("word/comments.xml")?.toString("utf8") ?? "");
+    expect(comments).toContain(note);
+    expect(comments).not.toContain("2026-10-30T16:45:00Z");
   });
 });

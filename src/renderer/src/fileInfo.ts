@@ -1,8 +1,8 @@
 import type { Document } from "../../core/api";
 import type { Language } from "../../core/language";
+import { formatBytes } from "../../shared/bytes";
 import { formatDate } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
-import { formatBytes } from "../../shared/bytes";
 import { formatCount } from "./linkedFolders";
 
 /** What a Document's kind is called, in the words of the Library's filters. */

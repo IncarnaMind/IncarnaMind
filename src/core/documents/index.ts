@@ -74,8 +74,8 @@ import { tagsOfDocument } from "../tags";
 import { markArrived } from "../tags/held";
 import type { StoredTaggingState } from "../tags/tagger";
 import { isPlaceholderDate } from "./creationDate";
-import { fileCreatedAt, parseFileProperties, storedFileProperties } from "./fileProperties";
 import { createEmbeddingQueue } from "./embedding";
+import { fileCreatedAt, parseFileProperties, storedFileProperties } from "./fileProperties";
 import {
   DOCUMENT_EXTENSIONS,
   hashBytes,

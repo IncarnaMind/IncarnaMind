@@ -32,6 +32,7 @@ import { useReadableQuote } from "./citationScan";
 import type { ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon } from "./icons";
 import { SignOffsContext } from "./mindContext";
+import { PropertySource, showFileProperties } from "./PropertySource";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 import {
   citationSignOff,
@@ -42,7 +43,6 @@ import {
   useDocumentVersions,
   usePersonId,
 } from "./signOffActions";
-import { PropertySource, showFileProperties } from "./PropertySource";
 import { CitationChip, OpenCitation } from "./UnsupportedCited";
 
 function PartCitation({

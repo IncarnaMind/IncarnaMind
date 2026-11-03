@@ -1,6 +1,6 @@
 import type { LinkedFolderPreview } from "../../../core/api";
-import { useLanguage, useT } from "../i18n";
 import { formatBytes } from "../../../shared/bytes";
+import { useLanguage, useT } from "../i18n";
 import { folderName, formatCount, formatDuration } from "../linkedFolders";
 import { type LinkingFolder, useAppStore } from "../store";
 import { FolderLineIcon } from "./lineIcons";

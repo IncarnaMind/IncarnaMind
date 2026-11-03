@@ -1,4 +1,4 @@
-import { copyFile, mkdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, realpath, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge, Document } from "../src/core/api";
@@ -79,8 +79,12 @@ const documentsOf = (window: Page) =>
     return await bridge.listDocuments();
   }) as Promise<Document[]>;
 
-test("Get info shows what is known of a PDF, a Word file, a spreadsheet and a deck, by ⌘I and by the menu, and Esc closes it", async () => {
+test("Get info shows what is known of a PDF, a Word file, a spreadsheet, a deck and a text file, by ⌘I and by the menu, and Esc closes it", async () => {
   await writeFile(join(sources, "Report.pdf"), REPORT);
+  // A text file records no date of its own: only this computer's, which copying changes (#2458).
+  const notes = join(sources, "Site notes.txt");
+  await writeFile(notes, "The crane arrives on Monday.\n");
+  await utimes(notes, new Date("2026-10-28T12:00:00Z"), new Date("2026-10-28T12:00:00Z"));
   for (const name of [
     "Coastal Flood Risk Review.docx",
     "Quarterly Research Update.pptx",
@@ -98,6 +102,7 @@ test("Get info shows what is known of a PDF, a Word file, a spreadsheet and a de
       "Coastal Flood Risk Review.docx",
       "Quarterly Research Update.pptx",
       "Regional Revenue.xlsx",
+      "Site notes.txt",
     ].map((name) => join(sources, name)),
   );
   const documents = await documentsOf(window);
@@ -108,7 +113,9 @@ test("Get info shows what is known of a PDF, a Word file, a spreadsheet and a de
     { name: "Report", kind: "PDF", count: /2 pages/ },
     { name: "Coastal Flood Risk Review", kind: "Word", count: null },
     { name: "Quarterly Research Update", kind: "PowerPoint", count: /\d+ slides?/ },
-    { name: "Regional Revenue", kind: "Excel", count: /\d+ sheets?/ },
+    // Its empty sheet counts: the workbook lists three, as a check of its sheets cites them.
+    { name: "Regional Revenue", kind: "Excel", count: /3 sheets/ },
+    { name: "Site notes", kind: "Plain text", count: null },
   ];
   for (const { name, kind, count } of expected) {
     const document = documents.find((each) => each.name === name);
@@ -129,10 +136,21 @@ test("Get info shows what is known of a PDF, a Word file, a spreadsheet and a de
     await expect(panel.getByTestId("info-folder")).toHaveText("Not in a Folder");
     await expect(panel.getByTestId("info-added")).toHaveText(/\d{4}/);
     await expect(panel.getByTestId("info-status")).toHaveText("Ready");
-    if (document.creationDate) {
-      await expect(panel.getByTestId("info-created")).toContainText("(the file’s own date)");
+    // The file's own dates, or else this computer's: never both forms.
+    const modified = panel.getByTestId("info-modified");
+    if (name === "Site notes") {
+      // Its created time is there only where the file system keeps one.
+      await expect(panel.getByText("(the file’s own date)")).toHaveCount(0);
+      await expect(modified).toHaveText("28 Oct 2026 (on this computer)");
+      await expect(modified.getByTestId("info-on-computer")).toHaveAttribute(
+        "title",
+        "Copying or downloading a file changes this date",
+      );
     } else {
-      await expect(panel.getByTestId("info-created")).toHaveCount(0);
+      await expect(panel.getByTestId("info-created")).toContainText("(the file’s own date)");
+      await expect(panel.getByTestId("info-on-computer")).toHaveCount(0);
+      if (kind === "PDF") await expect(modified).toHaveCount(0);
+      else await expect(modified).toHaveText("7 Oct 2026 (the file’s own date)");
     }
     if (name === "Report") {
       await expect(panel.getByTestId("info-created")).toHaveText(
